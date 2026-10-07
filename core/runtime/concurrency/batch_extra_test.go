@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -175,14 +176,48 @@ func TestProcess_Sequential_CancellationSemantics(t *testing.T) {
 	})
 }
 
+// midBatch scripts a cancellation on two workers: item 1 completes before
+// item 0, and item 0 cancels once item 2 has started, so the cancellation
+// lands while both workers are busy and most items are still undispatched.
+// Every item succeeds — no callback error masks the cancellation, which is
+// what Process must report on its own.
+type midBatch struct {
+	cancel   context.CancelFunc
+	started2 chan struct{}
+	done1    chan struct{}
+	mu       sync.Mutex
+	order    []int
+}
+
+func newMidBatch(cancel context.CancelFunc) *midBatch {
+	return &midBatch{cancel: cancel, started2: make(chan struct{}), done1: make(chan struct{})}
+}
+
+func (m *midBatch) run(ctx context.Context, item int) error {
+	switch item {
+	case 0:
+		<-m.done1
+		<-m.started2
+		m.cancel()
+	case 1:
+		defer close(m.done1)
+	case 2:
+		close(m.started2)
+		<-ctx.Done()
+	}
+	m.mu.Lock()
+	m.order = append(m.order, item)
+	m.mu.Unlock()
+	return nil
+}
+
 // Canceling mid-batch on the parallel path stops dispatch: the batch reports
-// context.Canceled, items after the cancellation never run, and
-// ProcessCollect returns exactly the processed items, in input order, with no
-// zero values standing in for the rest.
+// context.Canceled, items after the cancellation never succeed, and
+// ProcessCollect returns exactly the processed items, in input order although
+// they completed out of order, with no zero values standing in for the rest.
 func TestProcess_Parallel_MidBatchCancellation(t *testing.T) {
 	t.Parallel()
-	const n = 64
-	items := make([]int, n)
+	items := make([]int, 64)
 	for i := range items {
 		items[i] = i
 	}
@@ -190,33 +225,28 @@ func TestProcess_Parallel_MidBatchCancellation(t *testing.T) {
 	t.Run("process", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithCancel(t.Context())
-		var calls atomic.Int32
-		err := concurrency.Process(ctx, items, func(_ context.Context, item int) error {
-			calls.Add(1)
-			if item == 0 {
-				cancel()
-			}
-			return nil
-		}, concurrency.WithConcurrency[int](2))
-		require.ErrorIs(t, err, context.Canceled)
-		require.Less(t, calls.Load(), int32(n), "dispatch must stop after the cancellation")
+		script := newMidBatch(cancel)
+		err := concurrency.Process(ctx, items, script.run, concurrency.WithConcurrency[int](2))
+		require.ErrorIs(t, err, context.Canceled, "undispatched items must not read as success")
+		require.Subset(t, script.order, []int{0, 1, 2})
+		require.Less(t, len(script.order), len(items), "dispatch must stop after the cancellation")
 	})
 
 	t.Run("process_collect", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithCancel(t.Context())
-		var calls atomic.Int32
-		results, err := concurrency.ProcessCollect(ctx, items, func(_ context.Context, item int) (int, error) {
-			calls.Add(1)
-			if item == 0 {
-				cancel()
+		script := newMidBatch(cancel)
+		results, err := concurrency.ProcessCollect(ctx, items, func(ctx context.Context, item int) (int, error) {
+			if err := script.run(ctx, item); err != nil {
+				return 0, err
 			}
 			return item + 1, nil // never zero, so a fabricated result shows
 		}, concurrency.WithConcurrency[int](2))
-		require.ErrorIs(t, err, context.Canceled)
-		require.Len(t, results, int(calls.Load()), "one result per processed item")
-		require.Less(t, len(results), n)
-		require.True(t, slices.IsSorted(results), "completed results keep input order: %v", results)
+		require.ErrorIs(t, err, context.Canceled, "undispatched items must not read as success")
+		require.Equal(t, 1, script.order[0], "item 1 completes before item 0")
+		require.Len(t, results, len(script.order), "one result per processed item")
+		require.Equal(t, []int{1, 2, 3}, results[:3], "processed items in input order")
+		require.True(t, slices.IsSorted(results), "results keep input order: %v", results)
 		require.NotContains(t, results, 0, "no zero value for an unprocessed item")
 	})
 }
