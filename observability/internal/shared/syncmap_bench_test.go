@@ -32,10 +32,11 @@ func BenchmarkGetOrCreate_New(b *testing.B) {
 
 func BenchmarkGetOrCreateWithCallback_Existing(b *testing.B) {
 	var m sync.Map
+	var mu sync.Mutex
 	m.Store("key", "value")
 	b.ResetTimer()
 	for b.Loop() {
-		GetOrCreateWithCallback(&m, "key",
+		GetOrCreateWithCallback(&m, &mu, "key",
 			func() string { return "new" },
 			func() {},
 		)

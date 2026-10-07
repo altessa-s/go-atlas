@@ -13,16 +13,14 @@ import (
 // and a local CAS-loop float add per increment would only double-account
 // what the adapter already stores.
 type counter struct {
-	name       string
-	labelNames []string
-	adapter    adapters.Adapter
+	name    string
+	adapter adapters.Adapter
 }
 
-func newCounter(name string, labelNames []string, adapter adapters.Adapter) *counter {
+func newCounter(name string, adapter adapters.Adapter) *counter {
 	return &counter{
-		name:       name,
-		labelNames: labelNames,
-		adapter:    adapter,
+		name:    name,
+		adapter: adapter,
 	}
 }
 
