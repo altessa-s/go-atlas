@@ -152,12 +152,40 @@ func TestStoreBatchChunksInOneTransaction(t *testing.T) {
 	require.Len(t, fake.Calls(), 1, "an empty batch writes nothing")
 }
 
-func TestStoreIDTooLong(t *testing.T) {
+func TestStoreValueTooLong(t *testing.T) {
 	t.Parallel()
-	s, fake := newStorage(t, sqldb.DialectPostgres, nil)
-	require.ErrorIs(t, s.StoreBatch(t.Context(), []*audit.Event{event("ok"), event(strings.Repeat("ü", sqldb.MaxIDLength+1))}),
-		sqldb.ErrValueTooLong)
-	require.Empty(t, fake.Calls())
+	long := event("long-actor")
+	long.Actor.ID = strings.Repeat("a", sqldb.MaxFilterBytes+1)
+	fits := event("fits")
+	fits.Actor.ID = strings.Repeat("a", sqldb.MaxFilterBytes)
+	for name, e := range map[string]*audit.Event{"id": event(strings.Repeat("ü", sqldb.MaxIDLength+1)), "filter field": long} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s, fake := newStorage(t, sqldb.DialectPostgres, nil)
+			require.ErrorIs(t, s.StoreBatch(t.Context(), []*audit.Event{event("ok"), e}), sqldb.ErrValueTooLong)
+			require.Empty(t, fake.Calls(), "nothing of the batch is written")
+		})
+	}
+	s, _ := newStorage(t, sqldb.DialectPostgres, nil)
+	require.NoError(t, s.Store(t.Context(), fits))
+}
+
+// TestMaxBatchRowsIsCapped pins that one INSERT never exceeds PostgreSQL's
+// 65535 bind parameters, whatever WithMaxBatchRows asks for.
+func TestMaxBatchRowsIsCapped(t *testing.T) {
+	t.Parallel()
+	batch := make([]*audit.Event, 6000)
+	for i := range batch {
+		batch[i] = event(fmt.Sprintf("e%d", i))
+	}
+	s, fake := newStorage(t, sqldb.DialectPostgres, nil, sqldb.WithMaxBatchRows(10_000))
+	require.NoError(t, s.StoreBatch(t.Context(), batch))
+	calls := fake.Calls()
+	require.Len(t, calls, 2)
+	for _, c := range calls {
+		require.LessOrEqual(t, len(c.Args), 65535)
+		require.True(t, c.InTx)
+	}
 }
 
 // TestQueryStatement pins the filter, cursor, order and limit of a query.
@@ -227,5 +255,5 @@ func TestEnsureSchema(t *testing.T) {
 	require.NoError(t, my.EnsureSchema(t.Context()))
 	q := fake.Calls()[0].Query
 	require.NotRegexp(t, `\b(VARCHAR|TEXT)\b`, q)
-	require.Contains(t, q, "INDEX `audit_events_actor_idx` (actor_id(255), ts_ms, id)")
+	require.Contains(t, q, "INDEX `audit_events_actor_idx` (actor_id, ts_ms, id)")
 }

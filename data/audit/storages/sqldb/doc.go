@@ -17,7 +17,9 @@
 // — the timestamp at full precision. [New] performs no I/O: call
 // [Storage.EnsureSchema] once at startup, or apply the same DDL through a
 // migration tool. IDs and filters compare byte-wise: COLLATE "C" on
-// PostgreSQL, binary columns on MySQL/MariaDB.
+// PostgreSQL, binary columns on MySQL/MariaDB. A queryable field longer than
+// [MaxFilterBytes] bytes, or an ID longer than [MaxIDLength] characters, fails
+// the batch with [ErrValueTooLong] before anything is written.
 //
 // # Writes
 //
