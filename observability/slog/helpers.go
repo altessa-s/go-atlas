@@ -7,6 +7,7 @@ package slog
 import (
 	"context"
 	"log/slog"
+	"reflect"
 	"slices"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -48,6 +49,12 @@ func String[T interface{ ~string | ~*string }](key string, value T) slog.Attr {
 			return slog.Attr{}
 		}
 		val = v
+	default:
+		rv, isPtr, ok := derefNamed(value)
+		if !ok || (!isPtr && rv.String() == "") {
+			return slog.Attr{}
+		}
+		val = rv.String()
 	}
 	return slog.Attr{Key: key, Value: slog.StringValue(val)}
 }
@@ -68,6 +75,12 @@ func Int[T interface{ ~int | ~*int }](key string, value T) slog.Attr {
 			return slog.Attr{}
 		}
 		val = *v
+	default:
+		rv, _, ok := derefNamed(value)
+		if !ok {
+			return slog.Attr{}
+		}
+		val = int(rv.Int())
 	}
 	return slog.Attr{Key: key, Value: slog.IntValue(val)}
 }
@@ -97,8 +110,29 @@ func Int64[T interface {
 		val = int64(*v)
 	case int32:
 		val = int64(v)
+	default:
+		rv, _, ok := derefNamed(value)
+		if !ok {
+			return slog.Attr{}
+		}
+		val = rv.Int()
 	}
 	return slog.Attr{Key: key, Value: slog.Int64Value(val)}
+}
+
+// derefNamed handles named types accepted by the helpers' ~T constraints
+// (e.g. type Name string, type Ptr *int), which the built-in type switch
+// cases do not match. It dereferences pointers and reports ok=false for a
+// nil pointer; isPtr reports whether value was a pointer.
+func derefNamed(value any) (rv reflect.Value, isPtr, ok bool) {
+	rv = reflect.ValueOf(value)
+	if rv.Kind() != reflect.Pointer {
+		return rv, false, true
+	}
+	if rv.IsNil() {
+		return reflect.Value{}, true, false
+	}
+	return rv.Elem(), true, true
 }
 
 // ModuleKey is the attribute key used for identifying the subsystem or module.

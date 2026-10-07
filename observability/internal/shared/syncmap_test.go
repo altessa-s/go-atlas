@@ -29,9 +29,10 @@ func TestGetOrCreate(t *testing.T) {
 
 func TestGetOrCreateWithCallback(t *testing.T) {
 	var m sync.Map
+	var mu sync.Mutex
 	callbacks := 0
 
-	v := GetOrCreateWithCallback(&m, "key",
+	v := GetOrCreateWithCallback(&m, &mu, "key",
 		func() int { return 42 },
 		func() { callbacks++ },
 	)
@@ -39,7 +40,7 @@ func TestGetOrCreateWithCallback(t *testing.T) {
 	require.Equal(t, 1, callbacks)
 
 	// Second call should not trigger callback
-	v2 := GetOrCreateWithCallback(&m, "key",
+	v2 := GetOrCreateWithCallback(&m, &mu, "key",
 		func() int { return 99 },
 		func() { callbacks++ },
 	)
@@ -47,9 +48,26 @@ func TestGetOrCreateWithCallback(t *testing.T) {
 	require.Equal(t, 1, callbacks, "callback should not be called again")
 }
 
+func TestGetOrCreateWithCallback_PublishesAfterCallback(t *testing.T) {
+	t.Parallel()
+
+	var m sync.Map
+	var mu sync.Mutex
+	GetOrCreateWithCallback(&m, &mu, "key",
+		func() int { return 1 },
+		func() {
+			_, visible := m.Load("key")
+			require.False(t, visible, "value must not be visible before the callback completes")
+		},
+	)
+	_, visible := m.Load("key")
+	require.True(t, visible)
+}
+
 func TestGetOrCreateWithCallback_NilCallback(t *testing.T) {
 	var m sync.Map
-	v := GetOrCreateWithCallback(&m, "key",
+	var mu sync.Mutex
+	v := GetOrCreateWithCallback(&m, &mu, "key",
 		func() string { return "val" },
 		nil,
 	)

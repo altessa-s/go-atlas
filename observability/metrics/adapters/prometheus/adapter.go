@@ -5,6 +5,8 @@
 package prometheus
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -68,13 +70,7 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 			Name: desc.Name,
 			Help: desc.Help,
 		}, desc.LabelNames)
-		if err := a.registerer.Register(vec); err != nil {
-			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
-				return nil
-			}
-			return err
-		}
-		a.counters.Store(desc.Name, vec)
+		return registerVec(a.registerer, &a.counters, desc.Name, vec)
 
 	case adapters.TypeGauge:
 		if _, ok := a.gauges.Load(desc.Name); ok {
@@ -84,13 +80,7 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 			Name: desc.Name,
 			Help: desc.Help,
 		}, desc.LabelNames)
-		if err := a.registerer.Register(vec); err != nil {
-			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
-				return nil
-			}
-			return err
-		}
-		a.gauges.Store(desc.Name, vec)
+		return registerVec(a.registerer, &a.gauges, desc.Name, vec)
 
 	case adapters.TypeHistogram:
 		if _, ok := a.histos.Load(desc.Name); ok {
@@ -105,15 +95,29 @@ func (a *Adapter) Register(desc *adapters.Desc) error {
 			Help:    desc.Help,
 			Buckets: buckets,
 		}, desc.LabelNames)
-		if err := a.registerer.Register(vec); err != nil {
-			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
-				return nil
-			}
-			return err
-		}
-		a.histos.Store(desc.Name, vec)
+		return registerVec(a.registerer, &a.histos, desc.Name, vec)
 	}
 
+	return nil
+}
+
+// registerVec registers vec and stores it in m under name. When an identical
+// collector is already registered (e.g. by another adapter sharing the
+// registry), the existing vector is attached instead so observations reach
+// it; an existing collector of a different type is an error.
+func registerVec[V prometheus.Collector](reg prometheus.Registerer, m *sync.Map, name string, vec V) error {
+	if err := reg.Register(vec); err != nil {
+		var are prometheus.AlreadyRegisteredError
+		if !errors.As(err, &are) {
+			return err
+		}
+		existing, ok := are.ExistingCollector.(V)
+		if !ok {
+			return fmt.Errorf("prometheus: metric %q already registered as %T: %w", name, are.ExistingCollector, err)
+		}
+		vec = existing
+	}
+	m.Store(name, vec)
 	return nil
 }
 

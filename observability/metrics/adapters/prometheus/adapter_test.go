@@ -73,6 +73,56 @@ func TestRegister_Idempotent(t *testing.T) {
 	register(t, a, "requests_total", adapters.TypeCounter)
 }
 
+func TestRegister_SharedRegistryAttachesExistingCollector(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	first := prometheusadapter.New(prometheusadapter.WithRegisterer(reg), prometheusadapter.WithGatherer(reg))
+	second := prometheusadapter.New(prometheusadapter.WithRegisterer(reg), prometheusadapter.WithGatherer(reg))
+
+	for _, a := range []*prometheusadapter.Adapter{first, second} {
+		register(t, a, "requests_total", adapters.TypeCounter)
+		register(t, a, "in_flight", adapters.TypeGauge)
+		register(t, a, "latency_seconds", adapters.TypeHistogram)
+	}
+
+	labels := map[string]string{"method": "GET"}
+	second.RecordCounter("requests_total", labels, 2)
+	second.RecordGauge("in_flight", labels, 5)
+	second.RecordHistogram("latency_seconds", labels, 0.5)
+
+	require.InDelta(t, 2.0, counterValue(t, reg, "requests_total", "GET"), 0)
+
+	mfs, err := reg.Gather()
+	require.NoError(t, err)
+	var gaugeSeen, histSeen bool
+	for _, mf := range mfs {
+		for _, m := range mf.GetMetric() {
+			switch mf.GetName() {
+			case "in_flight":
+				gaugeSeen = true
+				require.InDelta(t, 5.0, m.GetGauge().GetValue(), 0)
+			case "latency_seconds":
+				histSeen = true
+				require.Equal(t, uint64(1), m.GetHistogram().GetSampleCount())
+			}
+		}
+	}
+	require.True(t, gaugeSeen, "gauge recorded through the second adapter was dropped")
+	require.True(t, histSeen, "histogram recorded through the second adapter was dropped")
+}
+
+func TestRegister_SharedRegistryCollectorTypeMismatch(t *testing.T) {
+	t.Parallel()
+	a, reg := newAdapter(t)
+	// A plain (non-vector) collector with an identical descriptor.
+	require.NoError(t, reg.Register(prometheus.NewCounter(prometheus.CounterOpts{Name: "plain_total", Help: "test"})))
+
+	err := a.Register(&adapters.Desc{Name: "plain_total", Help: "test", Type: adapters.TypeCounter})
+	require.Error(t, err)
+	var are prometheus.AlreadyRegisteredError
+	require.ErrorAs(t, err, &are)
+}
+
 func TestBindCounter(t *testing.T) {
 	t.Parallel()
 	a, reg := newAdapter(t)
