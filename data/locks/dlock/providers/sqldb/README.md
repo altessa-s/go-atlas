@@ -32,7 +32,7 @@ and every acquisition increments a fencing token. The caller owns the `*sql.DB` 
 | Acquire         | PostgreSQL: one `INSERT … ON CONFLICT DO UPDATE … WHERE expires_at <= now RETURNING fencing`. MySQL: the row is created on first use, then a conditional `UPDATE` and a token read commit together |
 | Clock           | The database clock decides expiry: `clock_timestamp()` (not the transaction start) on PostgreSQL, `UTC_TIMESTAMP(6)` on MySQL |
 | Fencing token   | +1 per acquisition of the key; rows are kept after release, so tokens never restart                                  |
-| Renewal         | Every TTL × renew ratio; requires owner, token and an unexpired lease, so an expired lease is never revived          |
+| Renewal         | Every TTL × renew ratio; locks the row, then requires owner, token and an unexpired lease on a fresh clock read      |
 | Late acquire    | A reply arriving after the TTL counted from the request is released and reported as `ErrLockNotHeld`                 |
 | Ambiguous error | An acquisition that errored (including a failed commit) may still have applied: it is released by its unique owner id |
 | Release         | Matches holder and fencing token: a stale holder cannot release the new holder's lease                               |
