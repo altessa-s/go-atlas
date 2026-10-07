@@ -44,11 +44,6 @@ type Manager struct {
 
 	closed atomic.Bool
 
-	onRecoverySuccess      func(stream, consumer string)
-	onRecoveryFailure      func(stream, consumer string, err error)
-	onManualRecoveryNeeded func(stream string, event any)
-	onStaleRecoveryCleared func(stream string)
-
 	scheduler        corescheduler.TaskRegistrar
 	healthCheckTask  corescheduler.ManagedTask // Guards RunHealthCheckCycle and marks scheduler management.
 	staleCleanupTask corescheduler.ManagedTask // Guards RunStaleRecoveryCleanup and marks scheduler management.
@@ -71,13 +66,9 @@ func New(provider *natsprovider.NATS, opts ...Option) (*Manager, error) {
 	cfg := newOptions(opts...)
 
 	m := &Manager{
-		provider:               provider,
-		logger:                 cmp.Or(cfg.logger, slog.New(slog.DiscardHandler)),
-		onRecoverySuccess:      cfg.onRecoverySuccess,
-		onRecoveryFailure:      cfg.onRecoveryFailure,
-		onManualRecoveryNeeded: cfg.onManualRecoveryNeeded,
-		onStaleRecoveryCleared: cfg.onStaleRecoveryCleared,
-		scheduler:              cfg.scheduler,
+		provider:  provider,
+		logger:    cmp.Or(cfg.logger, slog.New(slog.DiscardHandler)),
+		scheduler: cfg.scheduler,
 	}
 
 	js := provider.JetStream()
@@ -294,8 +285,8 @@ func (m *Manager) Subscribe(
 	}
 
 	// Register resubscribe handler for recovery.
-	m.registry.RegisterResubscribeHandler(stream, consumerName, func() error {
-		return sub.resubscribe(ctx)
+	m.registry.RegisterResubscribeHandler(stream, consumerName, func(recoveryCtx context.Context) error {
+		return sub.resubscribe(ctx, recoveryCtx)
 	})
 
 	// Track subscription.

@@ -109,7 +109,8 @@ func SubscriberWithConsumerName(consumerName string, opt ...jetstream.PullConsum
 }
 
 // Unsubscribe drains buffered messages, cancels the handler context, and waits
-// for all in-flight handlers to complete before returning.
+// until the consumer has fully stopped and all handlers, including those for
+// messages still buffered when the drain started, have completed.
 func (ss *streamSubscriber) Unsubscribe() {
 	ss.mu.Lock()
 	consumeContext := ss.consumeContext
@@ -128,6 +129,11 @@ func (ss *streamSubscriber) Unsubscribe() {
 	if cancel != nil {
 		cancel()
 	}
+	// Drain is asynchronous and buffered callbacks join handlersWg only when
+	// they start, so first wait for the consume context to close (after the
+	// last callback returned); the WaitGroup still covers a callback in flight
+	// when the connection closes and Closed() reports closed immediately.
+	<-consumeContext.Closed()
 	ss.handlersWg.Wait()
 }
 
