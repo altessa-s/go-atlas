@@ -8,11 +8,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/cache/providers"
+	"github.com/altessa-s/go-atlas/data/cache/storages"
 )
 
-// Provider is an alias for [providers.Provider] from data/cache/providers.
-type Provider = providers.Provider
+// Storage is an alias for [storages.Storage] from data/cache/storages.
+type Storage = storages.Storage
 
 // Cacher defines the interface for basic cache operations.
 // Implementations must be safe for concurrent use.

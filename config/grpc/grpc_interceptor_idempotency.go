@@ -51,7 +51,7 @@ type IdempotencyInterceptor struct {
 	IdempotencyKeyStatusMetadata string `yaml:"idempotencyKeyStatusMetadata" default:"Idempotency-Key-Status"`
 
 	// IdempotencyKeyEntityIdMetadata is the metadata key for entity ID.
-	IdempotencyKeyEntityIdMetadata string `yaml:"idempotencyKeyEntityIdMetadata" default:"Idempotency-Key-Entity-Id"`
+	IdempotencyKeyEntityIdMetadata string `yaml:"idempotencyKeyEntityIDMetadata" default:"Idempotency-Key-Entity-Id"`
 
 	// EnforceMandatory controls whether the idempotency key is mandatory for all methods.
 	EnforceMandatory bool `yaml:"enforceMandatory" default:"false"`

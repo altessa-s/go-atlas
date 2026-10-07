@@ -10,7 +10,7 @@
 //
 //	le, err := factory.New(cfg.LeaderElector).
 //	    UseLogger(logger).
-//	    UseNatsConn(natsConn).
+//	    UseNATSConn(natsConn).
 //	    WithKey("my-app").
 //	    WithNodeId("node-1").
 //	    Build(ctx)

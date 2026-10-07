@@ -9,7 +9,7 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
-// Key types: [DistributionLockProvider], [DistributionLockMongodb],
-// [DistributionLockNats], [DistributionLock], [LeaderElectorProvider],
+// Key types: [DistributionLockProvider], [DistributionLockMongo],
+// [DistributionLockNATS], [DistributionLock], [LeaderElectorProvider],
 // [LeaderElector].
 package lockconfig

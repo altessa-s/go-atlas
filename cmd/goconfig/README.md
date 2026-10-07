@@ -58,7 +58,7 @@ goconfig convert --from config.toml --to .env
 
 | YAML Structure | Environment Variable |
 |----------------|---------------------|
-| `grpc.interceptors.realIp.enabled` | `GRPC__INTERCEPTORS__REAL_IP__ENABLED` |
+| `grpc.interceptors.realIP.enabled` | `GRPC__INTERCEPTORS__REAL_IP__ENABLED` |
 | `database.connectionPool.maxSize` | `DATABASE__CONNECTION_POOL__MAX_SIZE` |
 | `logging.handlers[0].level` | `LOGGING__HANDLERS__0__LEVEL` |
 

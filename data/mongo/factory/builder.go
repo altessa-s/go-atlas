@@ -21,9 +21,9 @@ import (
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	natskvlease "github.com/altessa-s/go-atlas/data/internal/natskvlease"
-	memorystorage "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/memory"
-	natsstorage "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/nats"
-	redisstorage "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/redis"
+	memorystorage "github.com/altessa-s/go-atlas/data/mongo/cursorstorages/memory"
+	natsstorage "github.com/altessa-s/go-atlas/data/mongo/cursorstorages/nats"
+	redisstorage "github.com/altessa-s/go-atlas/data/mongo/cursorstorages/redis"
 )
 
 const (
@@ -84,7 +84,7 @@ func (b *CursorStorageBuilder) Build(ctx context.Context) (mongo.CursorStorage, 
 			return nil, err
 		}
 		return b.createRedisStorage()
-	case storageconfig.CacheStorageTypeNats:
+	case storageconfig.CacheStorageTypeNATS:
 		if err := b.RequireDependency(b.jetstream, "jetstream"); err != nil {
 			return nil, err
 		}
@@ -127,18 +127,18 @@ func (b *CursorStorageBuilder) createRedisStorage() (*redisstorage.Storage, erro
 // migrateBucketTTL is set, and a different storage type is used as is with a
 // warning unless strictBucketStorage is set.
 func (b *CursorStorageBuilder) createNatsStorage(ctx context.Context) (*natsstorage.Storage, error) {
-	if b.cfg.Nats == nil {
+	if b.cfg.NATS == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
 	kv, err := natskvlease.NewKVHelper(b.jetstream, b.Logger()).GetOrCreateBucket(ctx, natskvlease.BucketConfig{
-		Bucket:        cmp.Or(b.cfg.Nats.Bucket, DefaultBucket),
+		Bucket:        cmp.Or(b.cfg.NATS.Bucket, DefaultBucket),
 		TTL:           b.ttl,
 		NoTTL:         b.ttl == 0,
 		Storage:       jetstream.FileStorage,
-		Replicas:      cmp.Or(b.cfg.Nats.Replicas, 1),
-		MigrateTTL:    b.cfg.Nats.MigrateBucketTTL,
-		StrictStorage: b.cfg.Nats.StrictBucketStorage,
+		Replicas:      cmp.Or(b.cfg.NATS.Replicas, 1),
+		MigrateTTL:    b.cfg.NATS.MigrateBucketTTL,
+		StrictStorage: b.cfg.NATS.StrictBucketStorage,
 	})
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create NATS KeyValue bucket")

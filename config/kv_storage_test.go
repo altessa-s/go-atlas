@@ -40,13 +40,13 @@ func TestKVStorage_LoadsFromYAML(t *testing.T) {
 	t.Parallel()
 
 	cfg := loadYAML[kvStorageConfig](t, "distributionLock:\n  provider: nats\n  nats:\n    storage: file\nleaderElector:\n  provider: nats\n  storage: file\n")
-	require.Equal(t, storageconfig.KVStorageFile, cfg.DistributionLock.Nats.Storage)
+	require.Equal(t, storageconfig.KVStorageFile, cfg.DistributionLock.NATS.Storage)
 	require.Equal(t, storageconfig.KVStorageFile, cfg.LeaderElector.Storage)
 
 	cfg = loadYAML[kvStorageConfig](t, "distributionLock:\n  provider: nats\n  nats: {}\nleaderElector:\n  provider: nats\n")
-	require.Equal(t, storageconfig.KVStorageMemory, cfg.DistributionLock.Nats.Storage)
+	require.Equal(t, storageconfig.KVStorageMemory, cfg.DistributionLock.NATS.Storage)
 	require.Equal(t, storageconfig.KVStorageMemory, cfg.LeaderElector.Storage)
-	require.Equal(t, storageconfig.KVStorageMemory, lockconfig.DefaultDistributionLockNats().Storage)
+	require.Equal(t, storageconfig.KVStorageMemory, lockconfig.DefaultDistributionLockNATS().Storage)
 	require.Equal(t, storageconfig.KVStorageMemory, lockconfig.DefaultLeaderElector().Storage)
 }
 
@@ -54,14 +54,14 @@ func TestKVStorage_Validate(t *testing.T) {
 	t.Parallel()
 
 	for _, storage := range []storageconfig.KVStorageType{"", storageconfig.KVStorageMemory, storageconfig.KVStorageFile} {
-		dl := lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderNats, Nats: &lockconfig.DistributionLockNats{Storage: storage}}
+		dl := lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderNATS, NATS: &lockconfig.DistributionLockNATS{Storage: storage}}
 		require.NoError(t, dl.Validate(), storage)
-		le := lockconfig.LeaderElector{Provider: lockconfig.LeaderElectorProviderNats, Ttl: lockconfig.DefaultLeaderElector().Ttl, Storage: storage}
+		le := lockconfig.LeaderElector{Provider: lockconfig.LeaderElectorProviderNATS, Ttl: lockconfig.DefaultLeaderElector().Ttl, Storage: storage}
 		require.NoError(t, le.Validate(), storage)
 	}
 
-	dl := lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderNats, Nats: &lockconfig.DistributionLockNats{Storage: "disk"}}
+	dl := lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderNATS, NATS: &lockconfig.DistributionLockNATS{Storage: "disk"}}
 	require.Error(t, dl.Validate())
-	le := lockconfig.LeaderElector{Provider: lockconfig.LeaderElectorProviderNats, Ttl: lockconfig.DefaultLeaderElector().Ttl, Storage: "disk"}
+	le := lockconfig.LeaderElector{Provider: lockconfig.LeaderElectorProviderNATS, Ttl: lockconfig.DefaultLeaderElector().Ttl, Storage: "disk"}
 	require.Error(t, le.Validate())
 }

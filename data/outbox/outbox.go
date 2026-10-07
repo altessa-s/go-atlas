@@ -27,7 +27,7 @@ import (
 // It persists events to a Store before dispatching via a Handler.
 // Background goroutines handle dispatching, retries, and maintenance.
 type Outbox struct {
-	store   Store   // The underlying storage system for events.
+	store   Storage // The underlying storage system for events.
 	handler Handler // The function responsible for dispatching events.
 
 	// Configuration fields set via Options:
@@ -66,7 +66,7 @@ type Outbox struct {
 
 // New creates a new Outbox with the given Store and Handler.
 // Default settings are applied and can be overridden via Option functions.
-func New(store Store, handler Handler, opts ...Option) *Outbox {
+func New(store Storage, handler Handler, opts ...Option) *Outbox {
 	cfg := newOptions(opts...)
 
 	// Apply nil defaults for fields that optgen doesn't handle
@@ -225,7 +225,7 @@ func (o *Outbox) isRetryable(err error) bool {
 // compactEventsByKey applies log compaction to keep only the latest event per key.
 // Returns two slices: events to dispatch (latest per key) and events to skip (older duplicates).
 //
-// The batch is sorted by CreatedAt ascending first. [Store] is required to
+// The batch is sorted by CreatedAt ascending first. [Storage] is required to
 // return it that way already, but compaction is the one place where a violated
 // ordering contract would be actively harmful rather than merely untidy — it
 // would dispatch a stale event and discard the current one, silently — so the

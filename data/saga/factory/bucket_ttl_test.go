@@ -34,7 +34,7 @@ func TestBuildNatsMigrateBucketTTL(t *testing.T) {
 		c := sagaconfig.Default()
 		c.Storage = &sagaconfig.StorageConfig{
 			Type: sagaconfig.StorageTypeNATS,
-			Nats: &sagaconfig.NATSStorageConfig{Bucket: bucket, MaxAge: 2 * time.Hour, MigrateBucketTTL: migrate},
+			NATS: &sagaconfig.NATSStorageConfig{Bucket: bucket, MaxAge: 2 * time.Hour, MigrateBucketTTL: migrate},
 		}
 		return &c
 	}
@@ -64,7 +64,7 @@ func TestBuildNatsStrictBucketStorage(t *testing.T) {
 		c := sagaconfig.Default()
 		c.Storage = &sagaconfig.StorageConfig{
 			Type: sagaconfig.StorageTypeNATS,
-			Nats: &sagaconfig.NATSStorageConfig{Bucket: bucket, MaxAge: time.Hour, StrictBucketStorage: strict},
+			NATS: &sagaconfig.NATSStorageConfig{Bucket: bucket, MaxAge: time.Hour, StrictBucketStorage: strict},
 		}
 		return &c
 	}

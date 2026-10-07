@@ -359,13 +359,13 @@ The YAML config maps to the `authconfig.OIDC` Go struct. All field names use **c
 
 ```yaml
 oidc:
-  discoveryUrl: "https://auth.example.com/.well-known/openid-configuration"
+  discoveryURL: "https://auth.example.com/.well-known/openid-configuration"
   clockSkew: 10s
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `discoveryUrl` | `string` | Yes | — | OIDC discovery endpoint URL |
+| `discoveryURL` | `string` | Yes | — | OIDC discovery endpoint URL |
 | `clockSkew` | `duration` | No | `30s` | Acceptable clock skew for time-based claims. Min: `1s`, max: `1m` |
 
 ### Client Credentials
@@ -375,13 +375,13 @@ Shared OAuth2 client credentials used by introspection and future client credent
 ```yaml
 oidc:
   clientCredentials:
-    clientId: "my-service"
+    clientID: "my-service"
     clientSecret: "${OIDC_CLIENT_SECRET}"
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `clientId` | `string` | Yes (if section present) | OAuth2 client identifier |
+| `clientID` | `string` | Yes (if section present) | OAuth2 client identifier |
 | `clientSecret` | `string` | Yes (if section present) | OAuth2 client secret. Env-var substitution supported. Stored as `Secret` — redacted in logs |
 
 The `clientSecret` field uses the `Secret` type internally. It is automatically redacted in:
@@ -398,7 +398,7 @@ Controls RFC 7662 token introspection. Credentials come from the `clientCredenti
 ```yaml
 oidc:
   clientCredentials:
-    clientId: "my-service"
+    clientID: "my-service"
     clientSecret: "${OIDC_CLIENT_SECRET}"
   introspection:
     enabled: true
@@ -408,7 +408,7 @@ oidc:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `enabled` | `bool` | No | `false` | Toggle introspection on/off |
-| `fail_open` | `bool` | No | `false` | Fail-open: accept tokens on signature alone when the introspection endpoint is unreachable. Default `false` is fail-closed |
+| `failOpen` | `bool` | No | `false` | Fail-open: accept tokens on signature alone when the introspection endpoint is unreachable. Default `false` is fail-closed |
 
 **Validation rule:** If `introspection.enabled` is `true`, the `clientCredentials` section **must** be configured. The application will fail
 validation at startup otherwise.
@@ -417,11 +417,11 @@ validation at startup otherwise.
 
 By default introspection is **fail-closed**: if the IdP is unreachable (network error, 5xx, parse failure) the provider logs a warning, increments
 `auth_oidc_revocation_check_errors_total`, and rejects the token with `ErrIntrospection`. That keeps revocation enforced during IdP degradation.
-**Fail-open mode** (`fail_open: true`) flips this trade-off: any introspection failure is logged and the token is accepted on its signature alone.
+**Fail-open mode** (`failOpen: true`) flips this trade-off: any introspection failure is logged and the token is accepted on its signature alone.
 This keeps authentication available during IdP degradation but lets revoked tokens slip through until the endpoint is back — use it only when
 availability outweighs revocation guarantees.
 
-| Scenario | Default (fail-closed) | `fail_open: true` |
+| Scenario | Default (fail-closed) | `failOpen: true` |
 |---|---|---|
 | Endpoint returns `200 OK`, `active=true` | accept | accept |
 | Endpoint returns `200 OK`, `active=false` | reject (`ErrTokenRevoked`) | reject (`ErrTokenRevoked`) |
@@ -432,7 +432,7 @@ availability outweighs revocation guarantees.
 The behavior also exists on the Go API: `oidc.WithIntrospectionFailOpen()` sits next to `oidc.WithIntrospection(clientID, secret)` and can be passed to
 `oidc.NewProvider` directly without going through YAML.
 
-**Operator guidance:** leave `fail_open` at its default (`false`) in production when introspection is enabled. Pair it with a generous IdP timeout and
+**Operator guidance:** leave `failOpen` at its default (`false`) in production when introspection is enabled. Pair it with a generous IdP timeout and
 retries on the HTTP client (both honored via `oidc.proxy` and the shared `httpclient`) so that transient hiccups don't translate to user-visible 401s.
 Cache hits never go to the network — fail-closed only affects requests that actually reach the endpoint.
 
@@ -475,7 +475,7 @@ oidc:
         email_verified: "true"
       ignored: ["nonce"]
       audience: ["my-service", "my-other-service"]
-      allowedClientIds: ["frontend-app", "mobile-app"]
+      allowedClientIDs: ["frontend-app", "mobile-app"]
       requiredScopes: ["openid", "profile"]
       requireAuthorizedParty: true
       allowedAuthorizedParties: ["frontend-app"]
@@ -488,7 +488,7 @@ oidc:
 | `expected` | `map[string]string` | — | Claims that must have exact string values |
 | `ignored` | `[]string` | — | Claims to skip during validation |
 | `audience` | `[]string` | — | Expected `aud` claim values (token must contain at least one) |
-| `allowedClientIds` | `[]string` | — | Whitelist of `client_id` values. Empty = all allowed |
+| `allowedClientIDs` | `[]string` | — | Whitelist of `client_id` values. Empty = all allowed |
 | `requiredScopes` | `[]string` | — | OAuth2 scopes checked in the `scope` claim with any-one-of semantics (at least one must be present) |
 | `requireAuthorizedParty` | `bool` | `false` | Require the `azp` (authorized party) claim |
 | `allowedAuthorizedParties` | `[]string` | — | Whitelist of `azp` values. Required when `requireAuthorizedParty: true` |
@@ -532,7 +532,7 @@ oidc:
       - name: service-token
         claims:
           allowMissingSubject: true
-          allowedClientIds: ["backend-service"]
+          allowedClientIDs: ["backend-service"]
 
     selectors:
       - expression: 'has(claims.role) && claims.role == "admin"'
@@ -708,7 +708,7 @@ a second schedule and are rejected by the factory (`rebuildCron: ""` and `rebuil
 failed initial sync fails provider construction, and a storage error during validation rejects the token with `ErrRevocationCheck`;
 `failOpen: true` logs both, increments `auth_oidc_revocation_check_errors_total`, and continues.
 
-The factory names the filter `oidc-revocation-<hash>`, where the hash covers `discoveryUrl`, `itemType` and `source`; with Redis storage the
+The factory names the filter `oidc-revocation-<hash>`, where the hash covers `discoveryURL`, `itemType` and `source`; with Redis storage the
 key is that name under the configured `keysPrefix`. Replicas of one provider share the filter; providers with a different issuer, item type
 or source never overwrite each other's revocation set. (Earlier releases used the fixed name `oidc-revocation`; the new key is populated by
 the startup sync and the old one can be deleted.)
@@ -1095,10 +1095,10 @@ Use YAML for infrastructure and a JSON service config for validation logic:
 ```yaml
 # app-config.yaml
 oidc:
-  discoveryUrl: "https://auth.example.com/.well-known/openid-configuration"
+  discoveryURL: "https://auth.example.com/.well-known/openid-configuration"
   clockSkew: 10s
   clientCredentials:
-    clientId: "my-service"
+    clientID: "my-service"
     clientSecret: "${OIDC_CLIENT_SECRET}"
   introspection:
     enabled: true
@@ -1283,7 +1283,7 @@ at construction and every scheduled one — rebuilds the filter atomically (see
 [probfilter rebuild guarantees](../data/probfilter.md#rebuild-guarantees)): lookups keep the previous contents while it runs and after it
 fails, so starting a replica never empties a filter other replicas share.
 
-Revocation checks are **fail-closed** by default, independently of the introspection `fail_open` setting: when `RevocationStorage.IsRevoked`
+Revocation checks are **fail-closed** by default, independently of the introspection `failOpen` setting: when `RevocationStorage.IsRevoked`
 returns an error, the provider logs it, increments `auth_oidc_revocation_check_errors_total`, and rejects the token with
 `ErrRevocationCheck`. `WithRevocationFailOpen()` (YAML `revocation.failOpen: true`) accepts the token instead.
 
@@ -1293,7 +1293,7 @@ IdP would report the token active, and a miss never replaces the IdP's answer wh
 The revocation **source** is the durable record. Items the provider adds itself (`MarkRevoked` after an introspection answer of
 `active: false`) are a cache: a later sync may drop them — with a Redis filter shared by replicas, any replica's rebuild replaces the shared
 filter with its snapshot of the source. With fail-closed introspection (the default) that never admits such a token, because a local miss
-still reaches the introspection cache or the IdP and an unreachable IdP rejects. With `fail_open: true`, a dropped entry plus a missing
+still reaches the introspection cache or the IdP and an unreachable IdP rejects. With `failOpen: true`, a dropped entry plus a missing
 introspection cache entry plus an IdP outage admits the still-unexpired token — the documented fail-open trade-off. Revocations that must
 hold under every failure mode belong in the source.
 
@@ -1435,10 +1435,10 @@ job. Without a JWKS schedule, the keys are loaded once at construction; call `pr
 
 ```yaml
 oidc:
-  discoveryUrl: "https://keycloak.company.com/realms/production/.well-known/openid-configuration"
+  discoveryURL: "https://keycloak.company.com/realms/production/.well-known/openid-configuration"
   clockSkew: 10s
   clientCredentials:
-    clientId: "api-server"
+    clientID: "api-server"
     clientSecret: "${KEYCLOAK_CLIENT_SECRET}"
   introspection:
     enabled: true
@@ -1483,7 +1483,7 @@ Three services share one Auth0 tenant. Each has its own audience and validation 
 
 ```yaml
 oidc:
-  discoveryUrl: "https://company.auth0.com/.well-known/openid-configuration"
+  discoveryURL: "https://company.auth0.com/.well-known/openid-configuration"
   clockSkew: 10s
   cache:
     enabled: true
@@ -1568,7 +1568,7 @@ Tokens from different identity providers, selected by issuer claim.
 
 ```yaml
 oidc:
-  discoveryUrl: "https://auth.saas-platform.com/.well-known/openid-configuration"
+  discoveryURL: "https://auth.saas-platform.com/.well-known/openid-configuration"
   clockSkew: 15s
   cache:
     enabled: true
@@ -1655,10 +1655,10 @@ No human users — all tokens are machine-to-machine.
 
 ```yaml
 oidc:
-  discoveryUrl: "https://vault.internal:8200/v1/identity/oidc/.well-known/openid-configuration"
+  discoveryURL: "https://vault.internal:8200/v1/identity/oidc/.well-known/openid-configuration"
   clockSkew: 5s
   clientCredentials:
-    clientId: "mesh-gateway"
+    clientID: "mesh-gateway"
     clientSecret: "${VAULT_OIDC_SECRET}"
   introspection:
     enabled: true
@@ -1672,7 +1672,7 @@ oidc:
     maxTokenLifetime: 1h
     claims:
       allowMissingSubject: true
-      allowedClientIds:
+      allowedClientIDs:
         - "order-service"
         - "inventory-service"
         - "notification-service"
@@ -1730,7 +1730,7 @@ The `authconfig.OIDC.Validate()` method runs automatically during app config loa
 
 | Rule | Error |
 |------|-------|
-| `discoveryUrl` missing or invalid URL | `discoveryUrl: cannot be blank` / `must be a valid URL` |
+| `discoveryURL` missing or invalid URL | `discoveryURL: cannot be blank` / `must be a valid URL` |
 | `clockSkew` outside `[1s, 1m]` | `clockSkew: must be no less than 1s` |
 | `introspection.enabled: true` without `clientCredentials` | `clientCredentials must be configured when introspection is enabled` |
 | `presets.list` without `presets.selectors` (or vice versa) | `presets.list and presets.selectors must be configured together` |

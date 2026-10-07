@@ -37,7 +37,7 @@ type ClientSSRF struct {
 	// AllowedCIDRs lists CIDR prefixes exempted from SSRF blocking, for known
 	// internal service-to-service targets on private networks (e.g.
 	// "10.0.1.0/24"). Ignored when Disabled is true.
-	AllowedCIDRs []string `yaml:"allowed_cidrs"`
+	AllowedCIDRs []string `yaml:"allowedCIDRs"`
 }
 
 // DefaultClientSSRF returns the zero-value ClientSSRF, which keeps SSRF

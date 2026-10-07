@@ -22,7 +22,7 @@ import (
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	memorystorage "github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
-	mongostorage "github.com/altessa-s/go-atlas/service/scheduler/storages/mongodb"
+	mongostorage "github.com/altessa-s/go-atlas/service/scheduler/storages/mongo"
 	redisstorage "github.com/altessa-s/go-atlas/service/scheduler/storages/redis"
 	sqlstorage "github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
 )
@@ -141,16 +141,16 @@ func (b *SchedulerBuilder) createMemoryStorage() (*memorystorage.Storage, error)
 // it creates the indexes through the storage's EnsureIndexes; otherwise it
 // performs no I/O and the indexes are expected to exist.
 func (b *SchedulerBuilder) createMongoStorage() (*mongostorage.Storage, error) {
-	if b.cfg.Storage.Mongodb == nil {
+	if b.cfg.Storage.Mongo == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
 	opts := make([]mongostorage.Option, 0, 2)
-	opts = append(opts, mongostorage.WithTasksCollection(b.cfg.Storage.Mongodb.TasksCollection))
-	opts = append(opts, mongostorage.WithHistoryCollection(b.cfg.Storage.Mongodb.HistoryCollection))
+	opts = append(opts, mongostorage.WithTasksCollection(b.cfg.Storage.Mongo.TasksCollection))
+	opts = append(opts, mongostorage.WithHistoryCollection(b.cfg.Storage.Mongo.HistoryCollection))
 
 	storage := mongostorage.New(b.mongoDb, opts...)
-	if !b.cfg.Storage.Mongodb.EnsureIndexes {
+	if !b.cfg.Storage.Mongo.EnsureIndexes {
 		return storage, nil
 	}
 	if err := b.ensure("ensure scheduler indexes", storage.EnsureIndexes); err != nil {

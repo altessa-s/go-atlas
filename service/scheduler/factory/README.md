@@ -17,7 +17,7 @@ sched, err := factory.New(cfg.Scheduler).
     Build()
 ```
 
-The builder maps every `schedulerconfig.Scheduler` field to a scheduler option, including `instanceId` → `scheduler.WithInstanceID` (empty keeps the
+The builder maps every `schedulerconfig.Config` field to a scheduler option, including `instanceID` → `scheduler.WithInstanceID` (empty keeps the
 per-process random ID).
 
 ## Supported Storage Backends

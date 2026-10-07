@@ -15,7 +15,7 @@ conn, err := factory.New(cfg.Nats).
 
 ## Features
 
-- **Dual config paths** — connection-URI based (`ConnectionURI`) or field-based (hosts, credentials), converging in `ConnectionBuilder.NatsOptions`
+- **Dual config paths** — connection-URI based (`ConnectionURI`) or field-based (hosts, credentials), converging in `ConnectionBuilder.NATSOptions`
 - **Authentication** — NKey (Ed25519 seed), static token, or username/password; ignored when using a connection URI
 - **TLS** — optional secure transport via `UseTlsConfig`
 - **Reconnection** — unlimited reconnects and unlimited reconnect buffer by default; configurable via `MaxReconnect` and `ReconnectWait`

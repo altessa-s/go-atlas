@@ -50,14 +50,13 @@ func offlineRedisClient(t *testing.T) redis.UniversalClient {
 }
 
 func memoryFilterRevocation() *authconfig.OIDCRevocation {
-	storage := probfilterconfig.StorageTypeMemory
 	return &authconfig.OIDCRevocation{
 		Enabled:  true,
 		ItemType: "token",
 		Filter: &probfilterconfig.Filter{
 			Type: probfilterconfig.TypeBloom,
 			Bloom: &probfilterconfig.BloomConfig{
-				Storage:       &storage,
+				Storage:       &probfilterconfig.Storage{Type: probfilterconfig.StorageTypeMemory},
 				ExpectedItems: 1000,
 			},
 		},

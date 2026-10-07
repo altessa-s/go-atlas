@@ -35,8 +35,8 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 		return &idempotencyconfig.Config{
 			TTL: 2 * time.Hour,
 			Storage: &storageconfig.CacheStorageConfig{
-				Type: storageconfig.CacheStorageTypeNats,
-				Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
+				Type: storageconfig.CacheStorageTypeNATS,
+				NATS: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
 			},
 		}
 	}
@@ -67,8 +67,8 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 		return &idempotencyconfig.Config{
 			TTL: time.Hour,
 			Storage: &storageconfig.CacheStorageConfig{
-				Type: storageconfig.CacheStorageTypeNats,
-				Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
+				Type: storageconfig.CacheStorageTypeNATS,
+				NATS: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
 			},
 		}
 	}

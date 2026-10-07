@@ -46,10 +46,10 @@ func (c *ClientAuth) Validate() error {
 // Server represents the configuration for Tls server settings.
 // It defines the certificate provider and minimum Tls version for server connections.
 type Server struct {
-	// ProviderType specifies how Tls certificates are obtained.
+	// Provider specifies how Tls certificates are obtained.
 	// Defaults to "file" for file-based certificates.
 	// Supported types: file, letsencrypt, vault.
-	ProviderType ProviderType `yaml:"providerType" default:"file"`
+	Provider ProviderType `yaml:"provider" default:"file"`
 
 	// MinTLSVersion specifies the minimum Tls version to accept.
 	// Defaults to "1.2". Supported values: "1.2", "1.3".
@@ -62,7 +62,7 @@ type Server struct {
 // Returns an error if any validation rules fail.
 func (c *Server) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.ProviderType,
+		validation.Field(&c.Provider,
 			ozzo_rules.OneOf(ProviderTypeFile, ProviderTypeLetsEncrypt, ProviderTypeVault, ProviderTypeS3)),
 		validation.Field(&c.MinTLSVersion, validation.Required, ozzo_rules.OneOf("1.2", "1.3")),
 	)

@@ -145,7 +145,7 @@ func TestBuildMongoStorage(t *testing.T) {
 		cfg := schedulerconfig.Default()
 		storageCfg := schedulerconfig.DefaultStorageMongoConfig()
 		storageCfg.EnsureIndexes = ensureIndexes
-		cfg.Storage = &schedulerconfig.StorageConfig{Type: schedulerconfig.StorageTypeMongo, Mongodb: &storageCfg}
+		cfg.Storage = &schedulerconfig.StorageConfig{Type: schedulerconfig.StorageTypeMongo, Mongo: &storageCfg}
 		return &cfg
 	}
 

@@ -24,35 +24,35 @@ import (
 )
 
 // Option configures the NATS provider.
-type Option func(*Nats)
+type Option func(*NATS)
 
 // WithAllowedSubjects restricts Publish and Subscribe to the listed subject
 // patterns. NATS wildcards are supported: "*" matches a single token, ">"
 // matches one or more trailing tokens. When the allowlist is empty (default),
 // all subjects are permitted.
 func WithAllowedSubjects(subjects ...string) Option {
-	return func(n *Nats) {
+	return func(n *NATS) {
 		n.allowedSubjects = subjects
 	}
 }
 
 // WithCollector sets the metrics collector for NATS subscriber instrumentation.
 func WithCollector(c metrics.Collector) Option {
-	return func(n *Nats) {
+	return func(n *NATS) {
 		n.collector = c
 	}
 }
 
-// ErrSubjectNotAllowed is returned by [Nats.Publish], [Nats.PublishBatch],
+// ErrSubjectNotAllowed is returned by [NATS.Publish], [NATS.PublishBatch],
 // and subscriber [Subscribe] when the subject does not match any pattern
 // in the allowlist configured via [WithAllowedSubjects].
 var ErrSubjectNotAllowed = errors.New("subject not allowed by allowlist")
 
-// Nats implements [broker.Provider] using NATS JetStream.
+// NATS implements [broker.Provider] using NATS JetStream.
 // It manages a JetStream context derived from the supplied [nats.Conn] and tracks
-// active subscribers for bulk unsubscription via [Nats.UnsubscribeAll].
+// active subscribers for bulk unsubscription via [NATS.UnsubscribeAll].
 // All exported methods are safe for concurrent use.
-type Nats struct {
+type NATS struct {
 	natsConn        *nats.Conn
 	jetStream       jetstream.JetStream
 	subscribersMx   sync.RWMutex
@@ -68,7 +68,7 @@ type Nats struct {
 //
 //	provider, err := natsprovider.New(natsConn)
 //	b := broker.New(provider)
-func New(conn *nats.Conn, opts ...Option) (*Nats, error) {
+func New(conn *nats.Conn, opts ...Option) (*NATS, error) {
 	//nolint:contextcheck // Convenience wrapper; use NewWithContext when you have an inherited ctx.
 	return NewWithContext(context.Background(), conn, opts...)
 }
@@ -76,10 +76,10 @@ func New(conn *nats.Conn, opts ...Option) (*Nats, error) {
 // NewWithContext creates a new NATS JetStream provider using ctx for startup checks.
 // It verifies JetStream is enabled on the server by querying account info with a 5-second timeout.
 // Returns an error if JetStream is not available or the connection lacks JetStream support.
-func NewWithContext(ctx context.Context, conn *nats.Conn, opts ...Option) (*Nats, error) {
+func NewWithContext(ctx context.Context, conn *nats.Conn, opts ...Option) (*NATS, error) {
 	warnIfNoAuth(conn)
 
-	n := &Nats{natsConn: conn}
+	n := &NATS{natsConn: conn}
 	for _, o := range opts {
 		o(n)
 	}
@@ -107,7 +107,7 @@ func NewWithContext(ctx context.Context, conn *nats.Conn, opts ...Option) (*Nats
 }
 
 // UnsubscribeAll unsubscribes all active subscribers and clears the internal list.
-func (n *Nats) UnsubscribeAll() {
+func (n *NATS) UnsubscribeAll() {
 	n.subscribersMx.Lock()
 	subs := n.subscribers
 	n.subscribers = nil // Clear the list before unsubscribing to avoid holding the lock during callbacks.
@@ -127,7 +127,7 @@ func (n *Nats) UnsubscribeAll() {
 //	for sub := range provider.Subscribers() {
 //	    // process subscriber
 //	}
-func (n *Nats) Subscribers() iter.Seq[broker.Subscriber] {
+func (n *NATS) Subscribers() iter.Seq[broker.Subscriber] {
 	return func(yield func(broker.Subscriber) bool) {
 		n.subscribersMx.RLock()
 		subs := slices.Clone(n.subscribers)
@@ -141,15 +141,15 @@ func (n *Nats) Subscribers() iter.Seq[broker.Subscriber] {
 	}
 }
 
-// NatsConn returns the underlying NATS connection.
+// NATSConn returns the underlying NATS connection.
 // Useful for advanced use cases that need direct access to the connection.
-func (n *Nats) NatsConn() *nats.Conn {
+func (n *NATS) NATSConn() *nats.Conn {
 	return n.natsConn
 }
 
 // JetStream returns the JetStream context.
 // Useful for advanced use cases that need direct JetStream access.
-func (n *Nats) JetStream() jetstream.JetStream {
+func (n *NATS) JetStream() jetstream.JetStream {
 	return n.jetStream
 }
 
@@ -171,4 +171,4 @@ func warnIfNoAuth(conn *nats.Conn) {
 	}
 }
 
-var _ broker.Provider = (*Nats)(nil)
+var _ broker.Provider = (*NATS)(nil)

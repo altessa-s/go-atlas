@@ -22,7 +22,7 @@ func BenchmarkNatsOptions(b *testing.B) {
 	})
 	b.ResetTimer()
 	for b.Loop() {
-		builder.NatsOptions()
+		builder.NATSOptions()
 	}
 }
 

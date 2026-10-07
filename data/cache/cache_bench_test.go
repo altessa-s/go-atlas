@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/cache/providers"
+	"github.com/altessa-s/go-atlas/data/cache/storages"
 )
 
 type benchProvider struct {
@@ -23,7 +23,7 @@ func (b *benchProvider) Save(_ context.Context, key string, value []byte, _ time
 func (b *benchProvider) Get(_ context.Context, key string) ([]byte, error) {
 	v, ok := b.store[key]
 	if !ok {
-		return nil, providers.ErrMissing
+		return nil, storages.ErrMissing
 	}
 	return v, nil
 }

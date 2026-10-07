@@ -1,0 +1,28 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+// Package mongo implements [scheduler.Storage] using MongoDB as the backing
+// store. Task states and execution history are persisted in separate collections
+// within the same database, defaulting to [DefaultTasksCollection] and
+// [DefaultHistoryCollection].
+//
+// Collection names can be overridden with [WithTasksCollection] and
+// [WithHistoryCollection]. Call [Storage.EnsureIndexes] once at startup to
+// create indexes for optimal query performance.
+//
+// Documents omit zero-valued fields. Filters in TasksPaginated and
+// HistoryPaginated still see them as their zero values — `description == ""`
+// selects a task stored without a description — because the omitted fields
+// are declared to the MongoDB translator with [filter.WithZeroWhenAbsent].
+//
+// All operations are safe for concurrent use.
+//
+// Example:
+//
+//	client, _ := mongo.New("scheduler", mongo.WithMongoClientOptions(opts))
+//	client.Connect(ctx)
+//
+//	storage := schedmongo.New(client.Client().Database("scheduler"))
+//	s := scheduler.New(storage)
+package mongo

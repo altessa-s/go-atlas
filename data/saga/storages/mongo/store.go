@@ -29,7 +29,7 @@ const (
 	collectionFieldVersion  = "version"
 )
 
-// Store is a durable [saga.Store] backed by a MongoDB collection. Each saga
+// Store is a durable [saga.Storage] backed by a MongoDB collection. Each saga
 // instance is one document keyed by its ID; the document's monotonically
 // increasing version field is the optimistic-concurrency token
 // ([saga.Instance.Version]), so two coordinators cannot advance the same
@@ -41,7 +41,7 @@ type Store struct {
 	indexTimeout   time.Duration
 }
 
-var _ saga.Store = (*Store)(nil)
+var _ saga.Storage = (*Store)(nil)
 
 // New creates a Store on the named collection of db, creating the required
 // indexes. It returns an error if index creation fails.

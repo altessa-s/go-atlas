@@ -23,8 +23,8 @@ import (
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
-	outboxstore "github.com/altessa-s/go-atlas/data/outbox/store/mongo"
-	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
+	outboxmongo "github.com/altessa-s/go-atlas/data/outbox/storages/mongo"
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/storages/sqldb"
 	natsprovider "github.com/altessa-s/go-atlas/transport/broker/providers/nats"
 )
 
@@ -101,7 +101,7 @@ func (b *BrokerBuilder) CreateOutboxWithMongoDB(
 		return nil, err
 	}
 
-	store, err := outboxstore.New(db)
+	store, err := outboxmongo.New(db)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create outbox store")
 	}
@@ -118,7 +118,7 @@ func (b *BrokerBuilder) CreateOutboxWithMongoCollection(
 		return nil, err
 	}
 
-	store, err := outboxstore.NewWithCollectionOptions(col)
+	store, err := outboxmongo.NewWithCollectionOptions(col)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create outbox store")
 	}
@@ -159,25 +159,25 @@ func (b *BrokerBuilder) CreateOutboxWithSQLDB(
 // indefinitely.
 const ensureSchemaTimeout = 30 * time.Second
 
-// NatsProviderWithRecovery bundles a [natsprovider.Nats] provider with its
-// optional [recovery.Manager]. Call [NatsProviderWithRecovery.Close] when the
+// NATSProviderWithRecovery bundles a [natsprovider.Nats] provider with its
+// optional [recovery.Manager]. Call [NATSProviderWithRecovery.Close] when the
 // result is no longer needed to stop the recovery manager.
-type NatsProviderWithRecovery struct {
+type NATSProviderWithRecovery struct {
 	// Provider is the NATS broker provider.
-	Provider *natsprovider.Nats
+	Provider *natsprovider.NATS
 	// Recovery is the optional recovery manager (nil if recovery is disabled).
 	Recovery *recovery.Manager
 }
 
 // Close stops the recovery manager if it was started.
 // The NATS provider should be closed separately via its connection.
-func (n *NatsProviderWithRecovery) Close() {
+func (n *NATSProviderWithRecovery) Close() {
 	if n.Recovery != nil {
 		n.Recovery.Close()
 	}
 }
 
-// CreateNatsProviderWithRecovery creates a NATS provider with optional recovery manager
+// CreateNATSProviderWithRecovery creates a NATS provider with optional recovery manager
 // using the builder's broker configuration. If recovery is enabled, the recovery manager
 // is created and will register background tasks with the scheduler if one is provided.
 //
@@ -186,7 +186,7 @@ func (n *NatsProviderWithRecovery) Close() {
 //
 // Example:
 //
-//	result, err := b.CreateNatsProviderWithRecovery(natsConn)
+//	result, err := b.CreateNATSProviderWithRecovery(natsConn)
 //	if err != nil {
 //	    return err
 //	}
@@ -197,7 +197,7 @@ func (n *NatsProviderWithRecovery) Close() {
 //	    result.Recovery.RegisterStream(streamCfg)
 //	    result.Recovery.Start()
 //	}
-func (b *BrokerBuilder) CreateNatsProviderWithRecovery(conn *nats.Conn) (*NatsProviderWithRecovery, error) {
+func (b *BrokerBuilder) CreateNATSProviderWithRecovery(conn *nats.Conn) (*NATSProviderWithRecovery, error) {
 	provider, err := b.createNatsProvider(conn)
 	if err != nil {
 		return nil, err
@@ -208,7 +208,7 @@ func (b *BrokerBuilder) CreateNatsProviderWithRecovery(conn *nats.Conn) (*NatsPr
 		return nil, err
 	}
 
-	return &NatsProviderWithRecovery{
+	return &NATSProviderWithRecovery{
 		Provider: provider,
 		Recovery: recoveryMgr,
 	}, nil
@@ -218,12 +218,12 @@ func (b *BrokerBuilder) CreateNatsProviderWithRecovery(conn *nats.Conn) (*NatsPr
 // builder's broker configuration. The recovery manager automatically recovers
 // deleted streams and consumers.
 //
-// If [brokerconfig.Broker.Nats] is nil, or recovery is not enabled, returns nil, nil.
+// If [brokerconfig.Config.Nats] is nil, or recovery is not enabled, returns nil, nil.
 //
 // The manager will register recovery tasks (health check, stale cleanup) if scheduler
 // is provided via builder options.
-func (b *BrokerBuilder) CreateRecoveryManager(provider *natsprovider.Nats) (*recovery.Manager, error) {
-	cfg := b.cfg.Nats
+func (b *BrokerBuilder) CreateRecoveryManager(provider *natsprovider.NATS) (*recovery.Manager, error) {
+	cfg := b.cfg.NATS
 	if cfg == nil || cfg.Recovery == nil || !cfg.Recovery.Enabled {
 		return nil, nil //nolint:nilnil
 	}
@@ -259,7 +259,7 @@ func (b *BrokerBuilder) CreateRecoveryManager(provider *natsprovider.Nats) (*rec
 }
 
 // createOutboxWithStore creates an outbox with the given store (shared logic).
-func (b *BrokerBuilder) createOutboxWithStore(store outbox.Store, publisher outbox.Publisher) (*outbox.Outbox, error) {
+func (b *BrokerBuilder) createOutboxWithStore(store outbox.Storage, publisher outbox.Publisher) (*outbox.Outbox, error) {
 	if b.cfg == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
@@ -332,7 +332,7 @@ func (b *BrokerBuilder) applyBrokerDefaults() []broker.Option {
 }
 
 // createNatsProvider creates a NATS broker provider from an existing connection.
-func (b *BrokerBuilder) createNatsProvider(conn *nats.Conn) (*natsprovider.Nats, error) {
+func (b *BrokerBuilder) createNatsProvider(conn *nats.Conn) (*natsprovider.NATS, error) {
 	if err := b.RequireDependency(conn, "NATS connection"); err != nil {
 		return nil, err
 	}

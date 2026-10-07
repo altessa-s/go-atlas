@@ -4,7 +4,7 @@
 
 // Package testhelpers provides shared test fixtures for the
 // data/mongo subtree. It is internal to data/mongo and its
-// subpackages (cursor_storages/*, kms/*, factory/*).
+// subpackages (cursorstorages/*, kms/*, factory/*).
 package testhelpers
 
 import (

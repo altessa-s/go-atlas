@@ -29,7 +29,7 @@
 #
 #  # <string> Header name for the idempotency key entity ID response.
 #  # Default value: Idempotency-Key-Entity-Id
-#  idempotencyKeyEntityIdHeader: Idempotency-Key-Entity-Id
+#  idempotencyKeyEntityIDHeader: Idempotency-Key-Entity-Id
 #
 #  # <string> Fallback behavior when the idempotency checker encounters errors.
 #  # Determines how to handle requests when storage backends are unavailable.

@@ -33,8 +33,8 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 
 	cfg := func(migrate bool) *limiterconfig.TokenBucket {
 		storage := &storageconfig.CacheStorageConfig{
-			Type: storageconfig.CacheStorageTypeNats,
-			Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
+			Type: storageconfig.CacheStorageTypeNATS,
+			NATS: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
 		}
 		return &limiterconfig.TokenBucket{
 			IpCacheSize: 100,
@@ -68,8 +68,8 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 
 	cfg := func(strict bool) *limiterconfig.TokenBucket {
 		storage := &storageconfig.CacheStorageConfig{
-			Type: storageconfig.CacheStorageTypeNats,
-			Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
+			Type: storageconfig.CacheStorageTypeNATS,
+			NATS: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
 		}
 		return &limiterconfig.TokenBucket{
 			IpCacheSize: 100,

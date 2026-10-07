@@ -16,7 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/outbox"
 	"github.com/altessa-s/go-atlas/tests/integration/outboxit"
 
-	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/storages/sqldb"
 )
 
 // Payload nil-ness survives the store on every backend: nil stays nil, an empty

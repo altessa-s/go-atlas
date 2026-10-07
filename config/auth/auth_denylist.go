@@ -47,7 +47,7 @@ type Denylist struct {
 	// KeyPrefix is the Redis key prefix for the authoritative revocation store
 	// (auth/denylist/storages/redis.WithKeyPrefix). Required when enabled.
 	// Defaults to "denylist:revoked:".
-	KeyPrefix string `yaml:"key_prefix" default:"denylist:revoked:"`
+	KeyPrefix string `yaml:"keyPrefix" default:"denylist:revoked:"`
 
 	// RebuildInterval is how often the caller rebuilds the negative filter
 	// from the authoritative store through negcache.Cache.Rebuild. Zero (the
@@ -56,11 +56,11 @@ type Denylist struct {
 	// With a Bloom filter a non-zero interval requires an explicitly empty
 	// Filter.Bloom.RebuildCron, so one filter never gets two schedules.
 	// Optional.
-	RebuildInterval time.Duration `yaml:"rebuild_interval,omitempty"`
+	RebuildInterval time.Duration `yaml:"rebuildInterval,omitempty"`
 
 	// MetricsSubsystem overrides the Prometheus metrics subsystem for the
 	// negative cache. Empty falls back to the package default. Optional.
-	MetricsSubsystem string `yaml:"metrics_subsystem" default:""`
+	MetricsSubsystem string `yaml:"metricsSubsystem" default:""`
 
 	// Filter is the negative-filter configuration passed to
 	// auth/denylist/negcache/factory.NewBuilder.

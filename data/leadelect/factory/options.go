@@ -26,8 +26,8 @@ func (b *LeaderBuilder) UseDefaultLogger() *LeaderBuilder {
 	return b.UseLogger(slog.Default())
 }
 
-// UseNatsConn sets the NATS connection used for leader election.
-func (b *LeaderBuilder) UseNatsConn(v *nats.Conn) *LeaderBuilder {
+// UseNATSConn sets the NATS connection used for leader election.
+func (b *LeaderBuilder) UseNATSConn(v *nats.Conn) *LeaderBuilder {
 	b.natsConn = v
 	return b
 }

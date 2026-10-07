@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/cache"
-	"github.com/altessa-s/go-atlas/data/cache/providers/lru"
+	"github.com/altessa-s/go-atlas/data/cache/storages/lru"
 )
 
 func sfCache(tb testing.TB) *cache.Cache {

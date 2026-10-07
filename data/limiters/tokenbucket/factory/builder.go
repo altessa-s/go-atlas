@@ -98,7 +98,7 @@ func (b *TokenBucketLimiterBuilder) createStorage() (storages.Storage, error) {
 			return nil, err
 		}
 		return b.createRedisStorage()
-	case storageconfig.CacheStorageTypeNats:
+	case storageconfig.CacheStorageTypeNATS:
 		if err := b.RequireDependency(b.jetstream, "jetstream"); err != nil {
 			return nil, err
 		}
@@ -131,16 +131,16 @@ func (b *TokenBucketLimiterBuilder) createRedisStorage() (*redisstorage.Provider
 
 // createNatsStorage creates a NATS storage from configuration.
 func (b *TokenBucketLimiterBuilder) createNatsStorage() (*natsstorage.Provider, error) {
-	if b.cfg.Storage.Nats == nil {
+	if b.cfg.Storage.NATS == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
 	opts := []natsstorage.Option{
-		natsstorage.WithBucket(b.cfg.Storage.Nats.Bucket),
-		natsstorage.WithReplicas(b.cfg.Storage.Nats.Replicas),
+		natsstorage.WithBucket(b.cfg.Storage.NATS.Bucket),
+		natsstorage.WithReplicas(b.cfg.Storage.NATS.Replicas),
 	}
-	opts = coreslices.AppendIf(opts, b.cfg.Storage.Nats.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())
-	opts = coreslices.AppendIf(opts, b.cfg.Storage.Nats.StrictBucketStorage, natsstorage.WithStrictBucketStorage())
+	opts = coreslices.AppendIf(opts, b.cfg.Storage.NATS.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())
+	opts = coreslices.AppendIf(opts, b.cfg.Storage.NATS.StrictBucketStorage, natsstorage.WithStrictBucketStorage())
 
 	return natsstorage.New(b.jetstream, opts...)
 }

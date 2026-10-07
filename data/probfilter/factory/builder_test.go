@@ -142,8 +142,7 @@ func TestFilterBuilder_RebuildOnStart_Failure(t *testing.T) {
 // (miniredis cannot run RedisBloom commands).
 func redisBloomCfg() *probfilterconfig.Filter {
 	cfg := bloomCfg()
-	storage := probfilterconfig.StorageTypeRedis
-	cfg.Bloom.Storage = &storage
+	cfg.Bloom.Storage = &probfilterconfig.Storage{Type: probfilterconfig.StorageTypeRedis}
 	cfg.Bloom.RebuildOnStart = new(false)
 	return cfg
 }
@@ -306,7 +305,7 @@ func TestFilterBuilder_CuckooRedisExpansion(t *testing.T) {
 	cfg := &probfilterconfig.Filter{
 		Type: probfilterconfig.TypeCuckoo,
 		Cuckoo: &probfilterconfig.CuckooConfig{
-			Storage:            &storage,
+			Storage:            &probfilterconfig.Storage{Type: storage},
 			Capacity:           100,
 			CapacityMultiplier: new(2.5),
 		},

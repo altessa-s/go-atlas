@@ -54,7 +54,7 @@ type Config struct {
 	// ConnectionURI is a full MongoDB connection string (e.g. "mongodb://user:pass@host:27017/db").
 	// When set, it replaces Hosts, Credentials, ReplicaSet, DirectConnection, and Compressors.
 	// Mutually exclusive with Credentials.
-	ConnectionURI redacted.RedactedString `yaml:"connectionUri"`
+	ConnectionURI redacted.RedactedString `yaml:"connectionURI"`
 
 	// Credentials contains optional authentication credentials.
 	// If nil, the connection will attempt to connect without authentication.

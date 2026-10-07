@@ -4,14 +4,14 @@
 import "github.com/altessa-s/go-atlas/data/saga/storages/memory"
 ```
 
-In-process, concurrency-safe [`saga.Store`](../../store.go) backed by a map. It is the reference implementation of the saga storage contract, suited to
+In-process, concurrency-safe [`saga.Storage`](../../storage.go) backed by a map. It is the reference implementation of the saga storage contract, suited to
 single-node deployments and tests. State is lost on process exit, so it provides no cross-restart crash recovery — use a durable backend for that.
 
 ## Key types
 
 | Symbol            | Description                                                         |
 |-------------------|-------------------------------------------------------------------|
-| `Store`           | Map-backed `saga.Store` with `sync.RWMutex` and version CAS.       |
+| `Storage`           | Map-backed `saga.Storage` with `sync.RWMutex` and version CAS.       |
 | `New() *Store`    | Constructs an empty store.                                         |
 | `(*Store).Len()`  | Number of stored instances (for tests and metrics).               |
 

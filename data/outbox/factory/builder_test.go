@@ -15,7 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
-	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/storages/sqldb"
 )
 
 // Use the internal assembly boundary to test registration without a database.

@@ -28,7 +28,7 @@ const ttlNever = -1
 // Example:
 //
 //	err := provider.Publish(ctx, msg.Message{Topic: "events", Data: data})
-func (n *Nats) Publish(ctx context.Context, pmsg msg.Message) error {
+func (n *NATS) Publish(ctx context.Context, pmsg msg.Message) error {
 	if err := n.checkSubjectAllowed(pmsg.Topic); err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func (n *Nats) Publish(ctx context.Context, pmsg msg.Message) error {
 // All messages are dispatched without waiting for individual ACKs, then
 // all futures are collected. This eliminates per-message round-trip latency.
 // The operation is not atomic: some messages may be stored before an error is returned.
-func (n *Nats) PublishBatch(ctx context.Context, pmsgs ...msg.Message) error {
+func (n *NATS) PublishBatch(ctx context.Context, pmsgs ...msg.Message) error {
 	if len(pmsgs) == 0 {
 		return nil
 	}
@@ -126,7 +126,7 @@ func buildNatsMsg(pmsg msg.Message) (*nats.Msg, []jetstream.PublishOpt) {
 
 // Subscriber creates a new JetStream subscriber using the provided factory.
 // If factory is nil, uses SubscriberWithEphemeralConsumer.
-func (n *Nats) Subscriber(factory broker.SubscriberFactory) broker.Subscriber {
+func (n *NATS) Subscriber(factory broker.SubscriberFactory) broker.Subscriber {
 	if factory == nil {
 		factory = SubscriberWithEphemeralConsumer()
 	}
@@ -145,7 +145,7 @@ func (n *Nats) Subscriber(factory broker.SubscriberFactory) broker.Subscriber {
 // Example:
 //
 //	consumer, err := provider.CreateConsumer(ctx, "events", &config)
-func (n *Nats) CreateConsumer(ctx context.Context, stream string, config *jetstream.ConsumerConfig) (jetstream.Consumer, error) {
+func (n *NATS) CreateConsumer(ctx context.Context, stream string, config *jetstream.ConsumerConfig) (jetstream.Consumer, error) {
 	if stream == "" {
 		return nil, errors.New("stream name must be provided")
 	}
@@ -160,7 +160,7 @@ func (n *Nats) CreateConsumer(ctx context.Context, stream string, config *jetstr
 }
 
 // DeleteConsumer deletes a JetStream consumer from a stream.
-func (n *Nats) DeleteConsumer(ctx context.Context, stream, consumerName string) error {
+func (n *NATS) DeleteConsumer(ctx context.Context, stream, consumerName string) error {
 	if stream == "" {
 		return errors.New("stream name must be provided")
 	}
@@ -180,7 +180,7 @@ func (n *Nats) DeleteConsumer(ctx context.Context, stream, consumerName string) 
 // Example:
 //
 //	streams, err := provider.CreateStreams(ctx, &config1, &config2)
-func (n *Nats) CreateStreams(ctx context.Context, configs ...*jetstream.StreamConfig) (map[string]jetstream.Stream, error) {
+func (n *NATS) CreateStreams(ctx context.Context, configs ...*jetstream.StreamConfig) (map[string]jetstream.Stream, error) {
 	if len(configs) == 0 {
 		return nil, errors.New("one or more stream configurations must be provided")
 	}
@@ -206,7 +206,7 @@ func (n *Nats) CreateStreams(ctx context.Context, configs ...*jetstream.StreamCo
 // Example:
 //
 //	stream, err := provider.CreateStream(ctx, &jetstream.StreamConfig{Name: "events"})
-func (n *Nats) CreateStream(ctx context.Context, cfg *jetstream.StreamConfig) (jetstream.Stream, error) {
+func (n *NATS) CreateStream(ctx context.Context, cfg *jetstream.StreamConfig) (jetstream.Stream, error) {
 	if cfg == nil {
 		return nil, errors.New("stream configuration must be provided")
 	}
@@ -221,7 +221,7 @@ func (n *Nats) CreateStream(ctx context.Context, cfg *jetstream.StreamConfig) (j
 }
 
 // DeleteStream deletes a JetStream stream by name.
-func (n *Nats) DeleteStream(ctx context.Context, streamName string) error {
+func (n *NATS) DeleteStream(ctx context.Context, streamName string) error {
 	if streamName == "" {
 		return errors.New("stream name must be provided")
 	}

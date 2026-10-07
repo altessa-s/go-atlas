@@ -6,12 +6,12 @@
 // [broker.Provider]. It manages persistent streams, consumers, and reliable
 // message delivery through the JetStream API.
 //
-// [Nats] is the main type; create one with [New] or [NewWithContext].
+// [NATS] is the main type; create one with [New] or [NewWithContext].
 // Use [WithAllowedSubjects] to restrict which subjects may be published or
 // subscribed. Attempting to use a disallowed subject returns
 // [ErrSubjectNotAllowed].
 //
-// All exported methods on [Nats] are safe for concurrent use.
+// All exported methods on [NATS] are safe for concurrent use.
 //
 // # Example
 //

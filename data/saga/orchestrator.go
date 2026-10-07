@@ -37,13 +37,13 @@ var noRepanic = panics.NewHandleOpts().SetReallyPanic(false)
 // retries across instances.
 const retryJitter = 0.2
 
-// Orchestrator drives a single saga [Definition] over a pluggable [Store]. It
+// Orchestrator drives a single saga [Definition] over a pluggable [Storage]. It
 // is safe for concurrent use: each Start/Resume operates on its own instance,
 // and an execution lease excludes concurrent drivers of the same instance.
 // Actions must respect context cancellation and fence external effects using
 // ExecutionFromContext when their backend supports fencing.
 type Orchestrator[T any] struct {
-	store Store
+	store Storage
 	def   *Definition[T]
 
 	logger     *slog.Logger
@@ -58,7 +58,7 @@ type Orchestrator[T any] struct {
 	stepConcurrency         int
 	executionTimeout        time.Duration
 	leaseGrace              time.Duration
-	storeTimeout            time.Duration
+	storageTimeout          time.Duration
 	recoveryTimeout         time.Duration
 
 	scheduler         corescheduler.TaskRegistrar
@@ -87,7 +87,7 @@ type Orchestrator[T any] struct {
 // compensation policy is [PolicyWarn] (the default) and some compensatable
 // steps lack a compensation, New logs a warning. Call RegisterRecovery to
 // install a configured scheduler task and handle registration failures.
-func New[T any](store Store, def *Definition[T], opts ...Option) *Orchestrator[T] {
+func New[T any](store Storage, def *Definition[T], opts ...Option) *Orchestrator[T] {
 	cfg := newOptions(opts...)
 	cfg.logger = cmp.Or(cfg.logger, slog.New(slog.DiscardHandler))
 	cfg.baseCtx = corecontext.OrBackground(cfg.baseCtx)
@@ -96,7 +96,7 @@ func New[T any](store Store, def *Definition[T], opts ...Option) *Orchestrator[T
 	}
 
 	o := &Orchestrator[T]{
-		store:       boundedStore{Store: store, timeout: cfg.storeTimeout},
+		store:       boundedStorage{Storage: store, timeout: cfg.storageTimeout},
 		def:         def,
 		logger:      cfg.logger,
 		serializer:  cfg.serializer,
@@ -113,7 +113,7 @@ func New[T any](store Store, def *Definition[T], opts ...Option) *Orchestrator[T
 		stepConcurrency:         cfg.stepConcurrency,
 		executionTimeout:        cfg.executionTimeout,
 		leaseGrace:              cfg.leaseGrace,
-		storeTimeout:            cfg.storeTimeout,
+		storageTimeout:          cfg.storageTimeout,
 		recoveryTimeout:         cfg.recoveryTimeout,
 		scheduler:               cfg.scheduler,
 		leaderElector:           cfg.leaderElector,

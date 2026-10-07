@@ -4,7 +4,7 @@
 import sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
 ```
 
-Sentinel errors returned by the saga orchestrator and its [`Store`](../store.go) backends. Match them with `errors.Is`; they are also returned wrapped
+Sentinel errors returned by the saga orchestrator and its [`Storage`](../storage.go) backends. Match them with `errors.Is`; they are also returned wrapped
 (via `core/errors`), so always use `errors.Is` rather than `==`.
 
 ## Sentinels

@@ -47,14 +47,14 @@ broker, err := b.Build(provider)
 | `CreateOutboxWithMongoDB(db, publisher)` | Creates a MongoDB-backed broker outbox using a `*mongo.Database` |
 | `CreateOutboxWithMongoCollection(col, publisher)` | Creates a MongoDB-backed broker outbox using an existing `*mongo.Collection` |
 | `CreateOutboxWithSQLDB(db, dialect, publisher)` | Creates a SQL-backed broker outbox (PostgreSQL, MySQL or MariaDB) using a `*sql.DB`; creates the events table only with `outbox.ensureSchema: true` (otherwise it must exist) |
-| `CreateNatsProviderWithRecovery(conn)` | Creates a NATS provider bundled with an optional recovery manager; returns `NatsProviderWithRecovery` |
+| `CreateNATSProviderWithRecovery(conn)` | Creates a NATS provider bundled with an optional recovery manager; returns `NATSProviderWithRecovery` |
 | `CreateRecoveryManager(provider)` | Creates a NATS JetStream recovery manager from the builder's broker config; returns `nil, nil` if recovery is disabled |
 
 ## Types
 
 | Type | Description |
 |------|-------------|
-| `NatsProviderWithRecovery` | Bundles a `*natsprovider.Nats` provider with its optional `*recovery.Manager`; call `Close()` to stop the recovery manager |
+| `NATSProviderWithRecovery` | Bundles a `*natsprovider.Nats` provider with its optional `*recovery.Manager`; call `Close()` to stop the recovery manager |
 
 ## Outbox startup
 

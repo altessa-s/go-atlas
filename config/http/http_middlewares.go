@@ -19,9 +19,9 @@ type Middlewares struct {
 	// Idempotency contains configuration for idempotency middleware.
 	Idempotency *IdempotencyMiddleware `yaml:"idempotency" default:"-"`
 	// IpAcl contains configuration for IP access control middleware.
-	IpAcl *IPACLMiddleware `yaml:"ipAcl" default:"-"`
+	IpAcl *IPACLMiddleware `yaml:"ipACL" default:"-"`
 	// GeoAcl contains configuration for geographic access control middleware.
-	GeoAcl *GeoACLMiddleware `yaml:"geoAcl" default:"-"`
+	GeoAcl *GeoACLMiddleware `yaml:"geoACL" default:"-"`
 	// Limiter contains configuration for rate limiting middleware.
 	Limiter *LimiterMiddleware `yaml:"limiter" default:"-"`
 	// Logger contains configuration for logging middleware.
@@ -29,11 +29,11 @@ type Middlewares struct {
 	// Metrics contains configuration for the metrics middleware.
 	Metrics *MetricsMiddleware `yaml:"metrics" default:"-"`
 	// RealIp contains configuration for real IP extraction middleware.
-	RealIp *RealIPMiddleware `yaml:"realIp" default:"-"`
+	RealIp *RealIPMiddleware `yaml:"realIP" default:"-"`
 	// Recovery contains configuration for panic recovery middleware.
 	Recovery *RecoveryMiddleware `yaml:"recovery" default:"-"`
 	// RequestId contains configuration for request ID middleware.
-	RequestId *RequestIDMiddleware `yaml:"requestId" default:"-"`
+	RequestId *RequestIDMiddleware `yaml:"requestID" default:"-"`
 	// SecurityHeaders contains configuration for security headers middleware.
 	SecurityHeaders *SecurityHeadersMiddleware `yaml:"securityHeaders" default:"-"`
 	// Tracing contains configuration for distributed tracing middleware.
