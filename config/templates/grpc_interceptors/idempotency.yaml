@@ -43,7 +43,7 @@
 #
 #  # <string> Metadata key for entity ID response.
 #  # Default value: Idempotency-Key-Entity-Id
-#  idempotencyKeyEntityIdMetadata: Idempotency-Key-Entity-Id
+#  idempotencyKeyEntityIDMetadata: Idempotency-Key-Entity-Id
 #
 #  # <bool> Enforce mandatory idempotency key for all methods.
 #  # Default value: false

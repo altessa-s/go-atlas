@@ -61,9 +61,9 @@ func (b *DLockBuilder) Build(ctx context.Context) (*dlock.DLock, error) {
 	}
 
 	switch b.cfg.Provider {
-	case lockconfig.DistributionLockProviderNats:
+	case lockconfig.DistributionLockProviderNATS:
 		return b.createNatsDLock(ctx)
-	case lockconfig.DistributionLockProviderMongodb:
+	case lockconfig.DistributionLockProviderMongo:
 		return b.createMongoDLock()
 	default:
 		return nil, b.Errorf("unknown distribution lock provider: %s", b.cfg.Provider)
@@ -72,21 +72,21 @@ func (b *DLockBuilder) Build(ctx context.Context) (*dlock.DLock, error) {
 
 // createNatsDLock creates a DLock with NATS provider.
 func (b *DLockBuilder) createNatsDLock(ctx context.Context) (*dlock.DLock, error) {
-	if b.cfg.Nats == nil {
+	if b.cfg.NATS == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
 	if err := b.RequireDependency(b.natsConn, "nats connection"); err != nil {
 		return nil, err
 	}
 
-	// Built here rather than through dlock.NewWithNats, which takes no provider
+	// Built here rather than through dlock.NewWithNATS, which takes no provider
 	// options; the error wrapping matches it.
 	provOpts := []natsprovider.Option{
-		natsprovider.WithBucket(b.cfg.Nats.Bucket),
-		natsprovider.WithStorage(bucketStorage(b.cfg.Nats.Storage)),
+		natsprovider.WithBucket(b.cfg.NATS.Bucket),
+		natsprovider.WithStorage(bucketStorage(b.cfg.NATS.Storage)),
 	}
-	provOpts = coreslices.AppendIf(provOpts, b.cfg.Nats.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
-	provOpts = coreslices.AppendIf(provOpts, b.cfg.Nats.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
+	provOpts = coreslices.AppendIf(provOpts, b.cfg.NATS.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
+	provOpts = coreslices.AppendIf(provOpts, b.cfg.NATS.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
 
 	prov, err := natsprovider.New(ctx, b.natsConn, provOpts...)
 	if err != nil {
@@ -98,14 +98,14 @@ func (b *DLockBuilder) createNatsDLock(ctx context.Context) (*dlock.DLock, error
 
 // createMongoDLock creates a DLock with the MongoDB provider.
 func (b *DLockBuilder) createMongoDLock() (*dlock.DLock, error) {
-	if b.cfg.Mongodb == nil {
+	if b.cfg.Mongo == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
 	if err := b.RequireDependency(b.mongoDB, "mongo database"); err != nil {
 		return nil, err
 	}
 	provOpts := []mongoprovider.Option{mongoprovider.WithLogger(b.Logger())}
-	provOpts = coreslices.AppendIf(provOpts, b.cfg.Mongodb.Collection != "", mongoprovider.WithCollection(b.cfg.Mongodb.Collection))
+	provOpts = coreslices.AppendIf(provOpts, b.cfg.Mongo.Collection != "", mongoprovider.WithCollection(b.cfg.Mongo.Collection))
 	prov, err := mongoprovider.New(b.mongoDB, provOpts...)
 	if err != nil {
 		return nil, coreerrs.Provider("mongodb distributed lock", err)

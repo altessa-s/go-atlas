@@ -15,7 +15,7 @@
 #  # When set, it replaces hosts and authentication fields.
 #  # Mutually exclusive with username, password, token, and nkeySeed.
 #  # Default value: not set
-#  connectionUri:
+#  connectionURI:
 #
 #  # <string> Client name identifier for this connection.
 #  # Helps identify this client in NATS server logs and monitoring.

@@ -20,7 +20,7 @@ import (
 )
 
 // DialerBuilder assembles a [proxydial.DialContextFunc] from a
-// [proxyconfig.Proxy] using a fluent API. Create instances with [New].
+// [proxyconfig.Config] using a fluent API. Create instances with [New].
 // The builder is not safe for concurrent use.
 type DialerBuilder struct {
 	corefactory.Base
@@ -48,7 +48,7 @@ func New(cfg *proxyconfig.Config) *DialerBuilder {
 // [proxydial.DialContextFunc].
 //
 // Returns (nil, nil) when proxying is disabled (nil receiver, nil
-// cfg, empty Mode, or [proxyconfig.ProxyModeNone]). Caller treats
+// cfg, empty Mode, or [proxyconfig.ModeNone]). Caller treats
 // that as "use a direct dial" and skips wiring a custom dialer.
 func (b *DialerBuilder) Build() (proxydial.DialContextFunc, error) {
 	if b == nil || b.cfg == nil {

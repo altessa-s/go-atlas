@@ -12,7 +12,7 @@ Package `factory` provides a fluent builder for creating a distributed lock from
 ```go
 lock, err := factory.New(cfg.DistributionLock).
     UseLogger(logger).
-    UseNatsConn(natsConn).
+    UseNATSConn(natsConn).
     Build(ctx)
 ```
 
@@ -20,7 +20,7 @@ lock, err := factory.New(cfg.DistributionLock).
 
 | Provider | Requires |
 |----------|----------|
-| `nats` | `UseNatsConn` |
+| `nats` | `UseNATSConn` |
 
 ## Methods
 
@@ -35,7 +35,7 @@ lock, err := factory.New(cfg.DistributionLock).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
-| `UseNatsConn` | Sets the NATS connection used for distributed locking |
+| `UseNATSConn` | Sets the NATS connection used for distributed locking |
 
 ### Terminal
 

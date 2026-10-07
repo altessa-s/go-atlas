@@ -12,8 +12,8 @@ component factories, which map them to generated options; runtime packages never
 | Type                       | Description                                                         |
 |----------------------------|---------------------------------------------------------------------|
 | `DistributionLockProvider` | Defines the distributed locking provider type.                      |
-| `DistributionLockMongodb`  | Defines the MongoDB-specific configuration for distributed locking. |
-| `DistributionLockNats`     | Defines the NATS-specific configuration for distributed locking.    |
+| `DistributionLockMongo`  | Defines the MongoDB-specific configuration for distributed locking. |
+| `DistributionLockNATS`     | Defines the NATS-specific configuration for distributed locking.    |
 | `DistributionLock`         | Defines the configuration for distributed locking.                  |
 | `LeaderElectorProvider`    | Defines the type of leader election provider.                       |
 | `LeaderElector`            | Defines the configuration for distributed leader election.          |

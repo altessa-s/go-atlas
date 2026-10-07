@@ -4,7 +4,7 @@
 import natsstore "github.com/altessa-s/go-atlas/data/saga/storages/nats"
 ```
 
-Durable [`saga.Store`](../../store.go) backed by a NATS JetStream KeyValue bucket. Each instance is a JSON document keyed by its ID, and the bucket's
+Durable [`saga.Storage`](../../storage.go) backed by a NATS JetStream KeyValue bucket. Each instance is a JSON document keyed by its ID, and the bucket's
 revision is used directly as the optimistic-concurrency token (`saga.Instance.Version`) — so two coordinators cannot advance the same instance, and state
 survives process restarts for crash recovery.
 

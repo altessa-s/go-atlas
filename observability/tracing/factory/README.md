@@ -47,7 +47,7 @@ tracer, err := factory.New(cfg.Tracing).
 ## Proxy wiring
 
 For the `otlp` adapter with `Protocol: grpc`, `Build(ctx)` materializes
-`cfg.OTLP.Proxy` (a [`proxyconfig.Proxy`](../../../config/proxy/proxy.go))
+`cfg.OTLP.Proxy` (a [`proxyconfig.Config`](../../../config/proxy/proxy.go))
 into `grpcclient.Option` values via `cfg.OTLP.Proxy.GrpcClientOptions()` and
 forwards them through `otlp.WithGRPCClientOptions(...)`. A nil/empty
 `Proxy` block keeps grpc-go's `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` env

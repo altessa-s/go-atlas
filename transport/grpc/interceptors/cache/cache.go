@@ -12,7 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/data/cache"
-	"github.com/altessa-s/go-atlas/data/cache/providers"
+	"github.com/altessa-s/go-atlas/data/cache/storages"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
@@ -179,7 +179,7 @@ func (i *interceptor) getCachedResponse(ctx context.Context, key string, config 
 	err := i.cacher.Get(ctx, key, &entry)
 	if err != nil {
 		// Cache miss or error - don't log ErrMissing as it's expected behavior
-		if !errors.Is(err, providers.ErrMissing) && !errors.Is(err, cache.ErrMissing) {
+		if !errors.Is(err, storages.ErrMissing) && !errors.Is(err, cache.ErrMissing) {
 			i.Logger().Error("failed to get cached entry",
 				slog.String("key", key), slogx.Error(err))
 		}

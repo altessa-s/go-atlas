@@ -53,12 +53,12 @@
 #      # <string> Role ID for AppRole authentication.
 #      # Identifier for the AppRole, similar to a username.
 #      # Default value: not set (required for approle auth)
-#      roleId:
+#      roleID:
 #
 #      # <string> Secret ID for AppRole authentication.
 #      # Secret credential for the AppRole, similar to a password.
 #      # Default value: not set (required for approle auth)
-#      secretId:
+#      secretID:
 #
 #  # <object> TLS configuration options for Vault communication.
 #  # Enables encrypted communication with Vault server.

@@ -15,14 +15,15 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
-	"github.com/altessa-s/go-atlas/service/scheduler/storagetest"
+	"github.com/altessa-s/go-atlas/service/scheduler/storages/storagetest"
+
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // envOr returns the environment override for a connection setting, or the

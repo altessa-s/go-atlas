@@ -85,12 +85,14 @@ Filters are configured under the `probabilisticFilter` key in YAML. Shared defau
 probabilisticFilter:
   defaults:
     bloom:
-      storage: memory
+      storage:
+        type: memory
       falsePositiveRate: 0.01
       rebuildCron: "0 0 * * * *"
       rebuildOnStart: true
     cuckoo:
-      storage: memory
+      storage:
+        type: memory
       capacityMultiplier: 2.0   # Redis storage only (RedisBloom EXPANSION)
 
   filters:
@@ -103,32 +105,33 @@ probabilisticFilter:
       type: cuckoo
       cuckoo:
         capacity: 200000
-        storage: redis
-        redis:
-          keysPrefix: "sess:"
+        storage:
+          type: redis
+          redis:
+            keysPrefix: "sess:"
 ```
 
 ### Bloom filter fields
 
 | Field               | Type      | Default       | Description                                                       |
 |---------------------|-----------|---------------|-------------------------------------------------------------------|
-| `storage`           | `string`  | `memory`      | Storage backend: `memory` or `redis`                              |
+| `storage.type`      | `string`  | `memory`      | Storage backend: `memory` or `redis`                              |
 | `expectedItems`     | `int64`   | --            | **Required.** Expected number of items                            |
 | `falsePositiveRate` | `float64` | `0.01`        | Target false-positive rate (0.0001--0.5)                          |
 | `rebuildCron`       | `string`  | `0 0 * * * *` | Periodic rebuild; needs a data loader and a scheduler (see below) |
 | `rebuildOnStart`    | `bool`    | `true`        | Rebuild on startup; needs a data loader (see below)               |
-| `redis`             | `object`  | --            | Redis config (required when `storage: redis`)                     |
+| `storage.redis`     | `object`  | --            | Redis config (required when `storage.type: redis`)                |
 
 ### Cuckoo filter fields
 
 | Field                | Type      | Default     | Description                                        |
 |----------------------|-----------|-------------|----------------------------------------------------|
-| `storage`            | `string`  | `memory`    | Storage backend: `memory` or `redis`               |
+| `storage.type`       | `string`  | `memory`    | Storage backend: `memory` or `redis`               |
 | `capacity`           | `int64`   | --          | **Required.** Initial filter capacity              |
 | `fingerprintSize`    | `int`     | `12`        | **Deprecated**, ignored (backends use 8 bits)      |
 | `capacityMultiplier` | `float64` | `2.0`       | Growth factor; Redis only (`EXPANSION`)            |
 | `maxCapacity`        | `int64`   | `100000000` | **Deprecated**, ignored (no backend bounds growth) |
-| `redis`              | `object`  | --          | Redis config (required when `storage: redis`)      |
+| `storage.redis`      | `object`  | --          | Redis config (required when `storage.type: redis`) |
 
 How the `factory` builders apply these settings:
 

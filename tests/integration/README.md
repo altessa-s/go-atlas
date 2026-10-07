@@ -235,7 +235,7 @@ badly synced production host is off by far more; the store now stamps `published
 ## schedulerit — the scheduler against live storages
 
 Every scenario (dispatch round trip, at-most-once across instances, crash recovery, leadership gating, failure recording) and the storage contract
-suite from [`service/scheduler/storagetest`](../../service/scheduler/storagetest) — each contract over its own throwaway storage — run against each
+suite from [`service/scheduler/storages/storagetest`](../../service/scheduler/storages/storagetest) — each contract over its own throwaway storage — run against each
 storage: MongoDB, Redis Stack, PostgreSQL, MariaDB and MySQL. The SQL backends additionally run the SQL-only semantics: non-ASCII
 `endsWith`/`size()` and history errors larger than 64 KB.
 

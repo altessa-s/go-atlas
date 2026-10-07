@@ -11,10 +11,12 @@
 #  defaults:
 #    # <object> Default Bloom filter settings.
 #    bloom:
-#      # <string> Storage backend for the filter.
-#      # Supported values: memory, redis
-#      # Default value: memory
-#      storage: memory
+#      # <object> Storage backend for the filter.
+#      storage:
+#        # <string> Storage type.
+#        # Supported values: memory, redis
+#        # Default value: memory
+#        type: memory
 #
 #      # <float64> Target false positive rate.
 #      # Probability of false positive results (0.01 = 1%).
@@ -38,10 +40,12 @@
 #
 #    # <object> Default Cuckoo filter settings.
 #    cuckoo:
-#      # <string> Storage backend for the filter.
-#      # Supported values: memory, redis
-#      # Default value: memory
-#      storage: memory
+#      # <object> Storage backend for the filter.
+#      storage:
+#        # <string> Storage type.
+#        # Supported values: memory, redis
+#        # Default value: memory
+#        type: memory
 #
 #      # <int> Fingerprint size in bits.
 #      # Affects false positive rate: 8 bits ~ 3%, 12 bits ~ 0.2%, 16 bits ~ 0.01%.
@@ -84,10 +88,17 @@
 #
 #      # <object> Bloom filter settings. Required when type is bloom.
 #      bloom:
-#        # <string> Storage backend for the filter.
-#        # Supported values: memory, redis
-#        # Default value: not set (falls back to probabilisticFilter.defaults.bloom.storage)
-#        storage: memory
+#        # <object> Storage backend for the filter.
+#        storage:
+#          # <string> Storage type.
+#          # Supported values: memory, redis
+#          # Default value: not set (falls back to probabilisticFilter.defaults.bloom.storage)
+#          type: memory
+#          # <object> Redis-specific settings. Used when storage is redis.
+#          redis:
+#            # <string> Prefix for all filter keys.
+#            # Default value: not set
+#            keysPrefix: "myservice:email"
 #
 #        # <int64> Expected number of elements the filter is sized for.
 #        # Required for a Bloom filter.
@@ -108,18 +119,20 @@
 #        # Default value: not set (falls back to probabilisticFilter.defaults.bloom.rebuildOnStart)
 #        rebuildOnStart: false
 #
-#        # <object> Redis-specific settings. Used when storage is redis.
-#        redis:
-#          # <string> Prefix for all filter keys.
-#          # Default value: not set
-#          keysPrefix: "myservice:email"
 #
 #      # <object> Cuckoo filter settings. Required when type is cuckoo; an alternative to bloom.
 #      cuckoo:
-#        # <string> Storage backend for the filter.
-#        # Supported values: memory, redis
-#        # Default value: not set (falls back to probabilisticFilter.defaults.cuckoo.storage)
-#        storage: memory
+#        # <object> Storage backend for the filter.
+#        storage:
+#          # <string> Storage type.
+#          # Supported values: memory, redis
+#          # Default value: not set (falls back to probabilisticFilter.defaults.cuckoo.storage)
+#          type: memory
+#          # <object> Redis-specific settings. Used when storage is redis.
+#          redis:
+#            # <string> Prefix for all filter keys.
+#            # Default value: not set
+#            keysPrefix: "myservice:email"
 #
 #        # <int64> Initial capacity of the filter.
 #        # Required for a Cuckoo filter.
@@ -139,8 +152,3 @@
 #        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
 #        maxCapacity: 100000000
 #
-#        # <object> Redis-specific settings. Used when storage is redis.
-#        redis:
-#          # <string> Prefix for all filter keys.
-#          # Default value: not set
-#          keysPrefix: "myservice:email"

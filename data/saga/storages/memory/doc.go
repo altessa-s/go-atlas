@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package memory provides an in-process, concurrency-safe [saga.Store] backed
+// Package memory provides an in-process, concurrency-safe [saga.Storage] backed
 // by a map. It is the reference implementation of the saga storage contract and
 // is suited to single-node deployments and tests.
 //

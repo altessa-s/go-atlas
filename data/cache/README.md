@@ -67,7 +67,7 @@ unchanged, so existing single-tenant callers are unaffected.
 |--------------------------------------------|--------------------------------------|
 | [factory](./factory)                       | Configuration-based cache creation   |
 | [lru](./lru)                               | Generic thread-safe LRU cache        |
-| [providers/freecache](./providers/freecache) | Zero-GC in-memory provider         |
-| [providers/lru](./providers/lru)           | In-memory LRU provider               |
-| [providers/noop](./providers/noop)         | No-op provider for testing           |
-| [providers/redis](./providers/redis)       | Distributed Redis provider           |
+| [providers/freecache](./storages/freecache) | Zero-GC in-memory provider         |
+| [providers/lru](./storages/lru)           | In-memory LRU provider               |
+| [providers/noop](./storages/noop)         | No-op provider for testing           |
+| [providers/redis](./storages/redis)       | Distributed Redis provider           |

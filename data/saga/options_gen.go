@@ -223,13 +223,13 @@ func WithStepTimeout(v time.Duration) Option {
 	}
 }
 
-// WithStoreTimeout sets the storeTimeout option.
-func WithStoreTimeout(v time.Duration) Option {
+// WithStorageTimeout sets the storageTimeout option.
+func WithStorageTimeout(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
 			return
 		}
-		o.storeTimeout = v
+		o.storageTimeout = v
 	}
 }
 
@@ -249,7 +249,7 @@ func defaultOptions() *options {
 		stepRetryBaseDelay:      DefaultStepRetryBaseDelay,
 		stepRetryMaxDelay:       DefaultStepRetryMaxDelay,
 		stepTimeout:             DefaultStepTimeout,
-		storeTimeout:            DefaultStoreTimeout,
+		storageTimeout:          DefaultStorageTimeout,
 	}
 }
 

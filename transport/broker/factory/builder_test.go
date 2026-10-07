@@ -22,7 +22,7 @@ import (
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	dataoutbox "github.com/altessa-s/go-atlas/data/outbox"
-	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/storages/sqldb"
 )
 
 // capturingRegistrar records the scheduler tasks the builder registers.
@@ -48,7 +48,7 @@ func (r *capturingRegistrar) ids() []string {
 	return out
 }
 
-// nopStore is an outbox.Store that does nothing; these tests only care about
+// nopStore is an outbox.Storage that does nothing; these tests only care about
 // how the builder was configured, never about persistence.
 type nopStore struct{}
 

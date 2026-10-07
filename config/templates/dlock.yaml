@@ -5,7 +5,7 @@
 
 #distributionLock:
 #  # <string> Specifies the provider for the distributed lock.
-#  # Supported values: nats, mongodb
+#  # Supported values: nats, mongo
 #  # Default value: not set (required)
 #  provider: nats
 #
@@ -37,9 +37,9 @@
 #    # Default value: false
 #    strictBucketStorage: false
 #
-#  # <object> MongoDB provider configuration, applicable only if the provider is 'mongodb'.
+#  # <object> MongoDB provider configuration, applicable only if the provider is 'mongo'.
 #  # The *mongo.Database is injected into the factory (UseMongoDB).
-#  mongodb:
+#  mongo:
 #    # <string> Collection holding one lease document per lock key.
 #    # Default value: dlocks
 #    collection: dlocks

@@ -144,10 +144,10 @@ func (b *ServerBuilder) buildServerTlsConfig() (*tls.Config, error) {
 	}
 
 	cfg := b.cfg.TLS
-	providerType := tlsproviders.ProviderType(cfg.ProviderType)
+	providerType := tlsproviders.ProviderType(cfg.Provider)
 	provider, ok := b.tlsProviders.Get(providerType)
 	if !ok {
-		return nil, b.Errorf("tls provider %q not configured", cfg.ProviderType)
+		return nil, b.Errorf("tls provider %q not configured", cfg.Provider)
 	}
 
 	tlsConfig, err := provider.TLSConfig()

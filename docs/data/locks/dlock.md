@@ -31,7 +31,7 @@ Once that TTL expires without a renew, another instance takes the key, even if y
 nc, _ := nats.Connect(natsURL)
 defer nc.Drain()
 
-dl, err := dlock.NewWithNats(ctx, nc, "myapp-locks",
+dl, err := dlock.NewWithNATS(ctx, nc, "myapp-locks",
     dlock.WithLogger(logger),
     dlock.WithCollector(collector),
 )
@@ -45,7 +45,7 @@ err = dl.Synchronize(ctx, "rebuild-cache", func(ctx context.Context) error {
 })
 ```
 
-`NewWithNats` sets only the bucket. To pass other provider options (`WithTTL`, `WithMigrateBucketTTL`, …), build the provider from
+`NewWithNATS` sets only the bucket. To pass other provider options (`WithTTL`, `WithMigrateBucketTTL`, …), build the provider from
 `data/locks/dlock/providers/nats` (imported as `natsprovider` here) and wrap it, as `dlock/factory` does:
 
 ```go
@@ -81,7 +81,7 @@ import dlockfactory "github.com/altessa-s/go-atlas/data/locks/dlock/factory"
 
 dl, err := dlockfactory.New(cfg.DistributionLock).
     UseLogger(logger).
-    UseNatsConn(natsConn).
+    UseNATSConn(natsConn).
     UseHealthCoordinator(healthCoord).
     Build(ctx)
 ```
@@ -178,14 +178,14 @@ way and let you wire your own probe if you need one.
 Multiple `dlock` instances in one process with separate health reporting:
 
 ```go
-dlPayments, err := dlock.NewWithNats(ctx, nc, "payments-locks",
+dlPayments, err := dlock.NewWithNATS(ctx, nc, "payments-locks",
     dlock.WithHealthCoordinator(coord),
     dlock.WithHealthServiceName("dlock-payments"),
 )
 if err != nil {
     return err
 }
-dlInventory, err := dlock.NewWithNats(ctx, nc, "inventory-locks",
+dlInventory, err := dlock.NewWithNATS(ctx, nc, "inventory-locks",
     dlock.WithHealthCoordinator(coord),
     dlock.WithHealthServiceName("dlock-inventory"),
 )

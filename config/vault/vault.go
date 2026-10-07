@@ -37,8 +37,8 @@ const (
 
 // AuthAppRole represents the AppRole authentication method.
 type AuthAppRole struct {
-	RoleId    string                  `yaml:"roleId"`
-	SecretId  redacted.RedactedString `yaml:"secretId"`
+	RoleId    string                  `yaml:"roleID"`
+	SecretId  redacted.RedactedString `yaml:"secretID"`
 	MountPath *string                 `yaml:"mountPath" default:"-"`
 }
 

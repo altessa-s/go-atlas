@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
-	"github.com/altessa-s/go-atlas/service/scheduler/storagetest"
+	"github.com/altessa-s/go-atlas/service/scheduler/storages/storagetest"
 )
 
 func TestStorageContract(t *testing.T) {

@@ -106,7 +106,7 @@
 #    # Determines how TLS certificates are obtained and managed.
 #    # Supported values: file, vault, letsencrypt, s3
 #    # Default value: file
-#    providerType: file
+#    provider: file
 #
 #    # <string> Minimum TLS version to use.
 #    # Enforces minimum security standards for connections.
@@ -129,19 +129,19 @@
 #        - /path/to/ca-cert.pem
 #
 #  # <object> Interceptors configuration for gRPC middleware pipeline.
-#  # Configures the complete interceptor chain: errStatus, realIp, requestId, recovery, tracing, logger, metrics, ipAcl, geoAcl, limiter, idempotency, cache, auth, and health.
+#  # Configures the complete interceptor chain: errStatus, realIP, requestID, recovery, tracing, logger, metrics, ipACL, geoACL, limiter, idempotency, cache, auth, and health.
 #  # Each interceptor provides specific functionality and can be enabled/disabled independently.
 #  #
 #  # Interceptor execution order and purposes:
 #  # 1. errStatus: Error-to-gRPC-status conversion and enrichment
-#  # 2. realIp: Client IP extraction from proxy headers
-#  # 3. requestId: Request correlation and distributed tracing
+#  # 2. realIP: Client IP extraction from proxy headers
+#  # 3. requestID: Request correlation and distributed tracing
 #  # 4. recovery: Panic handling and service resilience
 #  # 5. tracing: Distributed tracing with OpenTelemetry
 #  # 6. logger: Request/response logging for observability
 #  # 7. metrics: Metrics collection for monitoring
-#  # 8. ipAcl: IP-based access control
-#  # 9. geoAcl: Geographic access control
+#  # 8. ipACL: IP-based access control
+#  # 9. geoACL: Geographic access control
 #  # 10. limiter: Rate limiting and abuse prevention
 #  # 11. idempotency: Duplicate request prevention
 #  # 12. cache: Response caching for performance optimization

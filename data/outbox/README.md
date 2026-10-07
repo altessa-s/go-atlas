@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/data/outbox"
 ```
 
-Package `outbox` implements the Transactional Outbox pattern for at-least-once event delivery. Events are persisted to a `Store` before being dispatched
+Package `outbox` implements the Transactional Outbox pattern for at-least-once event delivery. Events are persisted to a `Storage` before being dispatched
 via a `Handler`, with background cycles for dispatch, retry, expiration, cleanup, stuck-event recovery, and backlog measurement. Transport-agnostic: the
 `Handler` callback determines delivery method (message broker, HTTP, gRPC, etc.).
 
@@ -16,8 +16,8 @@ via a `Handler`, with background cycles for dispatch, retry, expiration, cleanup
 | `Event`          | Stored event with delivery tracking                      |
 | `Status`         | Lifecycle — see the status table below                   |
 | `Handler`        | Callback that dispatches events                          |
-| `Store`          | Persistence interface for event storage                  |
-| `Watcher`        | Optional `Store` capability: push notifications on save  |
+| `Storage`          | Persistence interface for event storage                  |
+| `Watcher`        | Optional `Storage` capability: push notifications on save  |
 | `Stats`          | Backlog snapshot: queue depth, dead-letter depth, lag    |
 
 ## Statuses
@@ -139,7 +139,7 @@ poll interval.
 
 ## Server-clock leases
 
-The retry, lock-expiry, and retention windows passed to the `Store` are **durations**, not absolute timestamps: `Event.RetryAfter`,
+The retry, lock-expiry, and retention windows passed to the `Storage` are **durations**, not absolute timestamps: `Event.RetryAfter`,
 `UnlockStuckEvents(lockExpiry)`, `DeleteProcessedEvents(olderThan)`, and `ExpireEvents`. The store evaluates them against its own database server clock,
 so a worker whose wall clock is skewed cannot prematurely unlock another worker's in-flight event or leak a stuck one. Writes are additionally fenced by
 `Event.LockToken`, so a dispatcher that lost its lease cannot overwrite the result of the worker that took over. See [store/mongo](./store/mongo) for

@@ -5,8 +5,8 @@
 // Package factory provides a fluent builder for creating cache providers
 // from configuration.
 //
-// [ProviderBuilder] uses a fluent API with deferred error accumulation:
-// errors from any step are collected and returned at [ProviderBuilder.Build] time.
+// [StorageBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [StorageBuilder.Build] time.
 //
 //	provider, err := factory.New(cfg.Cache).
 //	    UseLogger(logger).

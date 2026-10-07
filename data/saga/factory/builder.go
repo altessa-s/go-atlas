@@ -94,9 +94,9 @@ func (b *Builder[T]) Build() (*saga.Orchestrator[T], error) {
 	return o, nil
 }
 
-// buildStore constructs the [saga.Store] named by the storage type, validating
+// buildStore constructs the [saga.Storage] named by the storage type, validating
 // that the required backend client was injected.
-func (b *Builder[T]) buildStore() (saga.Store, error) {
+func (b *Builder[T]) buildStore() (saga.Storage, error) {
 	storage := b.cfg.Storage
 	switch storage.Type {
 	case sagaconfig.StorageTypeMemory:
@@ -106,11 +106,11 @@ func (b *Builder[T]) buildStore() (saga.Store, error) {
 			return nil, err
 		}
 		opts := []natsstore.Option{
-			natsstore.WithBucket(storage.Nats.Bucket),
-			natsstore.WithBucketTTL(storage.Nats.MaxAge),
+			natsstore.WithBucket(storage.NATS.Bucket),
+			natsstore.WithBucketTTL(storage.NATS.MaxAge),
 		}
-		opts = coreslices.AppendIf(opts, storage.Nats.MigrateBucketTTL, natsstore.WithMigrateBucketTTL())
-		opts = coreslices.AppendIf(opts, storage.Nats.StrictBucketStorage, natsstore.WithStrictBucketStorage())
+		opts = coreslices.AppendIf(opts, storage.NATS.MigrateBucketTTL, natsstore.WithMigrateBucketTTL())
+		opts = coreslices.AppendIf(opts, storage.NATS.StrictBucketStorage, natsstore.WithStrictBucketStorage())
 		return natsstore.New(b.js, opts...)
 	case sagaconfig.StorageTypeMongo:
 		if err := b.RequireDependency(b.mongoDB, "MongoDB database"); err != nil {
@@ -146,7 +146,7 @@ func (b *Builder[T]) orchestratorOptions() []saga.Option {
 		saga.WithStepTimeout(cfg.StepTimeout),
 		saga.WithExecutionTimeout(cfg.ExecutionTimeout),
 		saga.WithLeaseGrace(cfg.LeaseGrace),
-		saga.WithStoreTimeout(cfg.StoreTimeout),
+		saga.WithStorageTimeout(cfg.StorageTimeout),
 		saga.WithRecoveryTimeout(cfg.RecoveryTimeout),
 		saga.WithSagaTimeout(cfg.SagaTimeout),
 		saga.WithMaxStepAttempts(cfg.MaxStepAttempts),

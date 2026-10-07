@@ -15,7 +15,7 @@
 #  # When set, it replaces hosts, credentials, replicaSet, directConnection, and compressors.
 #  # Mutually exclusive with credentials.
 #  # Default value: not set
-#  connectionUri:
+#  connectionURI:
 #
 #  # <bool> Specifies whether a direct connection should be made.
 #  # If true, connects only to the specified host without discovering others.
@@ -165,7 +165,7 @@
 #      amazon:
 #        # <string> AWS access key ID for authentication.
 #        # Default value: not set
-#        accessKeyId:
+#        accessKeyID:
 #
 #        # <string> AWS secret access key for authentication.
 #        # Default value: not set
@@ -196,7 +196,7 @@
 #      azure:
 #        # <string> Azure client ID for authentication.
 #        # Default value: not set
-#        clientId:
+#        clientID:
 #
 #        # <string> Azure client secret for authentication.
 #        # Default value: not set
@@ -204,7 +204,7 @@
 #
 #        # <string> Azure tenant ID for authentication.
 #        # Default value: not set
-#        tenantId:
+#        tenantID:
 #
 #        # <string> Azure key name in Key Vault.
 #        # Default value: not set
@@ -230,7 +230,7 @@
 #
 #        # <string> Google KMS project ID.
 #        # Default value: not set
-#        projectId:
+#        projectID:
 #
 #        # <string> Google service account email.
 #        # Default value: not set

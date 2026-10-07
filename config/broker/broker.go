@@ -30,14 +30,14 @@ const (
 //
 // Example:
 //
-//	broker := &brokerconfig.Broker{Provider: brokerconfig.BrokerProviderNats}
+//	broker := &brokerconfig.Config{Provider: brokerconfig.ProviderNATS}
 type Config struct {
 	// Provider is the type of broker to use.
 	Provider Provider `yaml:"provider" default:"nats"`
 
 	// Nats contains NATS-specific configuration.
 	// Required when Provider is "nats".
-	Nats *natsconfig.Config `yaml:"nats"`
+	NATS *natsconfig.Config `yaml:"nats"`
 
 	// InProgress contains configuration for InProgress heartbeat manager.
 	InProgress InProgress `yaml:"inProgress"`
@@ -78,7 +78,7 @@ func Default() Config {
 func (b *Config) Validate() error {
 	return validationconfig.ValidateStruct(b,
 		validation.Field(&b.Provider, validation.Required, ozzo_rules.OneOf(ProviderNATS)),
-		validation.Field(&b.Nats, validation.When(b.Provider == ProviderNATS, validation.Required)),
+		validation.Field(&b.NATS, validation.When(b.Provider == ProviderNATS, validation.Required)),
 		validation.Field(&b.InProgress),
 		validation.Field(&b.Outbox),
 	)

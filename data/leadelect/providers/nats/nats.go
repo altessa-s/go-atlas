@@ -141,7 +141,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 	}
 
 	// Check NATS server version for JetStream support
-	if err := natskvlease.ValidateNatsVersion(client); err != nil {
+	if err := natskvlease.ValidateNATSVersion(client); err != nil {
 		return nil, err
 	}
 
@@ -156,7 +156,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 
 	if jsErr := natskvlease.ValidateJetStreamEnabled(ctx, p.js, p.opts.logger); jsErr != nil {
 		if errors.Is(jsErr, nats.ErrJetStreamNotEnabled) {
-			return nil, natskvlease.ErrNatsVersionNotSupported
+			return nil, natskvlease.ErrNATSVersionNotSupported
 		}
 		return nil, jsErr
 	}

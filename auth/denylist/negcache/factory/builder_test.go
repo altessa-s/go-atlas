@@ -36,11 +36,10 @@ func (a *fakeAuth) IsRevoked(_ context.Context, key string) (bool, error) {
 
 // memoryBloomConfig returns a minimal, valid in-memory Bloom filter config.
 func memoryBloomConfig() *probfilterconfig.Filter {
-	storage := probfilterconfig.StorageTypeMemory
 	return &probfilterconfig.Filter{
 		Type: probfilterconfig.TypeBloom,
 		Bloom: &probfilterconfig.BloomConfig{
-			Storage:       &storage,
+			Storage:       &probfilterconfig.Storage{Type: probfilterconfig.StorageTypeMemory},
 			ExpectedItems: 1000,
 		},
 	}

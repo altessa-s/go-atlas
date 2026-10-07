@@ -14,7 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/core/text/strings"
-	"github.com/altessa-s/go-atlas/data/cache/providers/noop"
+	"github.com/altessa-s/go-atlas/data/cache/storages/noop"
 
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
@@ -49,7 +49,7 @@ func isNegativeSentinel(data []byte) bool {
 // and bounds the total number of in-flight fallback functions via a
 // semaphore (see [DefaultMaxConcurrentFallbacks]).
 type Cache struct {
-	provider     Provider
+	provider     Storage
 	ttl          time.Duration
 	negativeTtl  time.Duration
 	group        *singleflight.Group
@@ -64,8 +64,8 @@ type Cache struct {
 //
 // Example:
 //
-//	c := cache.New(redisProvider, cache.WithTTL(10*time.Minute))
-func New(p Provider, opts ...Option) *Cache {
+//	c := cache.New(redisStorage, cache.WithTTL(10*time.Minute))
+func New(p Storage, opts ...Option) *Cache {
 	panics.MustNonNil(p, "provider must be provided")
 
 	options := newOptions(opts...)

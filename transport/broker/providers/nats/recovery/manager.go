@@ -30,7 +30,7 @@ import (
 //
 // All exported methods are safe for concurrent use.
 type Manager struct {
-	provider *natsprovider.Nats
+	provider *natsprovider.NATS
 	logger   *slog.Logger
 
 	registry   *Registry
@@ -63,7 +63,7 @@ type Manager struct {
 //	    recovery.WithMaxRecoveryAttempts(3),
 //	    recovery.WithStaleRecoveryTimeout(20 * time.Minute),
 //	)
-func New(provider *natsprovider.Nats, opts ...Option) (*Manager, error) {
+func New(provider *natsprovider.NATS, opts ...Option) (*Manager, error) {
 	if provider == nil {
 		return nil, ErrNilJetStream
 	}
@@ -81,7 +81,7 @@ func New(provider *natsprovider.Nats, opts ...Option) (*Manager, error) {
 	}
 
 	js := provider.JetStream()
-	nc := provider.NatsConn()
+	nc := provider.NATSConn()
 
 	// Initialize components.
 	m.registry = NewRegistry()
@@ -99,7 +99,7 @@ func New(provider *natsprovider.Nats, opts ...Option) (*Manager, error) {
 	})
 
 	m.advisory = NewAdvisoryListener(AdvisoryListenerConfig{
-		NatsConn:   nc,
+		NATSConn:   nc,
 		Registry:   m.registry,
 		Supervisor: m.supervisor,
 		Logger:     m.logger,

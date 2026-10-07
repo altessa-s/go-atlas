@@ -11,7 +11,7 @@ reliable message delivery through the JetStream API. The `Nats` type is safe for
 
 | Type   | Description                                                                                     |
 |--------|-------------------------------------------------------------------------------------------------|
-| `Nats` | Implements `broker.Provider` using NATS JetStream; manages subscribers and subject allowlists   |
+| `NATS` | Implements `broker.Provider` using NATS JetStream; manages subscribers and subject allowlists   |
 
 ## Constructors
 
@@ -29,7 +29,7 @@ reliable message delivery through the JetStream API. The `Nats` type is safe for
 | `Subscriber`     | Create a new `broker.Subscriber` using a `SubscriberFactory`                      |
 | `UnsubscribeAll` | Unsubscribe all active subscribers and clear the internal list                    |
 | `Subscribers`    | Return an iterator over active subscribers (snapshot-based)                        |
-| `NatsConn`       | Return the underlying `*nats.Conn` for advanced use cases                         |
+| `NATSConn`       | Return the underlying `*nats.Conn` for advanced use cases                         |
 | `JetStream`      | Return the `jetstream.JetStream` context for advanced use cases                   |
 
 ## Options

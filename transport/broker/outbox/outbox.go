@@ -20,8 +20,8 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
-// Store is an alias for the generic outbox.Store interface.
-type Store = outbox.Store
+// Storage is an alias for the generic outbox.Storage interface.
+type Storage = outbox.Storage
 
 // Event is an alias for the generic outbox.Event type.
 type Event = outbox.Event
@@ -61,7 +61,7 @@ type brokerPayload struct {
 
 // New creates a new broker-specific Outbox adapter.
 // It wraps the generic outbox with msg.Message→Event conversion and NATS error handling.
-func New(store Store, publisher Publisher, opts ...Option) *Outbox {
+func New(store Storage, publisher Publisher, opts ...Option) *Outbox {
 	handler := func(ctx context.Context, event outbox.Event) error {
 		var bp brokerPayload
 		if err := json.Unmarshal(event.Payload, &bp); err != nil {

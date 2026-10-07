@@ -130,28 +130,28 @@ var templateCases = map[string][]templateRoot{
 	"grpc_interceptors/auth.yaml":            {root[grpcconfig.AuthInterceptor]("auth")},
 	"grpc_interceptors/cache.yaml":           {root[grpcconfig.CacheInterceptor]("cache")},
 	"grpc_interceptors/errstatus.yaml":       {root[grpcconfig.ErrStatusInterceptor]("errStatus")},
-	"grpc_interceptors/geo_acl.yaml":         {root[grpcconfig.GeoACLInterceptor]("geoAcl")},
+	"grpc_interceptors/geo_acl.yaml":         {root[grpcconfig.GeoACLInterceptor]("geoACL")},
 	"grpc_interceptors/health.yaml":          {root[grpcconfig.HealthInterceptor]("health")},
 	"grpc_interceptors/idempotency.yaml":     {root[grpcconfig.IdempotencyInterceptor]("idempotency")},
-	"grpc_interceptors/ip_acl.yaml":          {root[grpcconfig.IPACLInterceptor]("ipAcl")},
+	"grpc_interceptors/ip_acl.yaml":          {root[grpcconfig.IPACLInterceptor]("ipACL")},
 	"grpc_interceptors/limiter.yaml":         {root[grpcconfig.LimiterInterceptor]("limiter")},
 	"grpc_interceptors/logger.yaml":          {root[grpcconfig.LoggerInterceptor]("logger")},
 	"grpc_interceptors/metrics.yaml":         {root[grpcconfig.MetricsInterceptor]("metrics")},
-	"grpc_interceptors/real_ip.yaml":         {root[grpcconfig.RealIPInterceptor]("realIp")},
+	"grpc_interceptors/real_ip.yaml":         {root[grpcconfig.RealIPInterceptor]("realIP")},
 	"grpc_interceptors/recovery.yaml":        {root[grpcconfig.RecoveryInterceptor]("recovery")},
-	"grpc_interceptors/request_id.yaml":      {root[grpcconfig.RequestIDInterceptor]("requestId")},
+	"grpc_interceptors/request_id.yaml":      {root[grpcconfig.RequestIDInterceptor]("requestID")},
 	"grpc_interceptors/tracing.yaml":         {root[grpcconfig.TracingInterceptor]("tracing")},
 	"http_middlewares/body_limit.yaml":       {root[httpconfig.BodyLimitMiddleware]("bodyLimit")},
 	"http_middlewares/cors.yaml":             {root[httpconfig.CORSMiddleware]("cors")},
-	"http_middlewares/geo_acl.yaml":          {root[httpconfig.GeoACLMiddleware]("geoAcl")},
+	"http_middlewares/geo_acl.yaml":          {root[httpconfig.GeoACLMiddleware]("geoACL")},
 	"http_middlewares/idempotency.yaml":      {root[httpconfig.IdempotencyMiddleware]("idempotency")},
-	"http_middlewares/ip_acl.yaml":           {root[httpconfig.IPACLMiddleware]("ipAcl")},
+	"http_middlewares/ip_acl.yaml":           {root[httpconfig.IPACLMiddleware]("ipACL")},
 	"http_middlewares/limiter.yaml":          {root[httpconfig.LimiterMiddleware]("limiter")},
 	"http_middlewares/logger.yaml":           {root[httpconfig.LoggerMiddleware]("logger")},
 	"http_middlewares/metrics.yaml":          {root[httpconfig.MetricsMiddleware]("metrics")},
-	"http_middlewares/real_ip.yaml":          {root[httpconfig.RealIPMiddleware]("realIp")},
+	"http_middlewares/real_ip.yaml":          {root[httpconfig.RealIPMiddleware]("realIP")},
 	"http_middlewares/recovery.yaml":         {root[httpconfig.RecoveryMiddleware]("recovery")},
-	"http_middlewares/request_id.yaml":       {root[httpconfig.RequestIDMiddleware]("requestId")},
+	"http_middlewares/request_id.yaml":       {root[httpconfig.RequestIDMiddleware]("requestID")},
 	"http_middlewares/security_headers.yaml": {root[httpconfig.SecurityHeadersMiddleware]("securityHeaders")},
 	"http_middlewares/tracing.yaml":          {root[httpconfig.TracingMiddleware]("tracing")},
 }
@@ -159,8 +159,8 @@ var templateCases = map[string][]templateRoot{
 // coverageExceptions lists field-path suffixes (as reported by the coverage
 // check) that a template may legitimately leave out, with the reason.
 var coverageExceptions = map[string]string{
-	"Acl.defaultRule.endpoints": "the default rule applies to every endpoint; factoryconv ignores its endpoint selectors",
-	"Acl.defaultRule.patterns":  "the default rule applies to every endpoint; factoryconv ignores its pattern selectors",
+	"ACL.defaultRule.endpoints": "the default rule applies to every endpoint; factoryconv ignores its endpoint selectors",
+	"ACL.defaultRule.patterns":  "the default rule applies to every endpoint; factoryconv ignores its pattern selectors",
 }
 
 func isCoverageException(path string) bool {

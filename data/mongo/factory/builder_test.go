@@ -19,7 +19,7 @@ import (
 
 func natsConfig(bucket string, nats storageconfig.NATSConfig) *storageconfig.CacheStorageConfig {
 	nats.Bucket = bucket
-	return &storageconfig.CacheStorageConfig{Type: storageconfig.CacheStorageTypeNats, Nats: &nats}
+	return &storageconfig.CacheStorageConfig{Type: storageconfig.CacheStorageTypeNATS, NATS: &nats}
 }
 
 // TestBuild_NatsBucket pins how the NATS cursor bucket is created: file

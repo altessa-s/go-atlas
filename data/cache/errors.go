@@ -5,8 +5,8 @@
 package cache
 
 import (
-	"github.com/altessa-s/go-atlas/data/cache/providers"
+	"github.com/altessa-s/go-atlas/data/cache/storages"
 )
 
 // ErrMissing is returned when no cache is found.
-var ErrMissing = providers.ErrMissing
+var ErrMissing = storages.ErrMissing

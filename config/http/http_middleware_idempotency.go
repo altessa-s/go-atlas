@@ -52,7 +52,7 @@ type IdempotencyMiddleware struct {
 
 	// IdempotencyKeyEntityIdHeader is the name of the HTTP header used to return an entity ID if captured.
 	// Defaults to "Idempotency-Key-Entity-Id".
-	IdempotencyKeyEntityIdHeader string `yaml:"idempotencyKeyEntityIdHeader" default:"Idempotency-Key-Entity-Id"`
+	IdempotencyKeyEntityIdHeader string `yaml:"idempotencyKeyEntityIDHeader" default:"Idempotency-Key-Entity-Id"`
 
 	// FallbackBehavior defines how the idempotency checker behaves when encountering errors
 	// or when storage backends are unavailable, providing graceful degradation options.

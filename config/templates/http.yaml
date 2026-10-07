@@ -55,7 +55,7 @@
 #    # Determines how TLS certificates are obtained and managed.
 #    # Supported values: file, letsencrypt, vault, s3
 #    # Default value: file
-#    providerType: file
+#    provider: file
 #
 #    # <string> Minimum TLS version to use.
 #    # Enforces minimum security standards for connections.
@@ -73,12 +73,12 @@
 #      maxAge: "8760h"
 #
 #  # <object> Middlewares configuration for HTTP server pipeline.
-#  # Configures the complete middleware chain: realIp, requestId, recovery, tracing, logger, metrics, cors, securityHeaders, bodyLimit, ipAcl, geoAcl, limiter, and idempotency.
+#  # Configures the complete middleware chain: realIP, requestID, recovery, tracing, logger, metrics, cors, securityHeaders, bodyLimit, ipACL, geoACL, limiter, and idempotency.
 #  # Each middleware provides specific functionality and can be enabled/disabled independently.
 #  #
 #  # Middleware execution order and purposes:
-#  # 1. realIp: Client IP extraction from proxy headers
-#  # 2. requestId: Request correlation and distributed tracing
+#  # 1. realIP: Client IP extraction from proxy headers
+#  # 2. requestID: Request correlation and distributed tracing
 #  # 3. recovery: Panic handling and service resilience
 #  # 4. tracing: Distributed tracing with OpenTelemetry
 #  # 5. logger: Request/response logging for observability
@@ -86,8 +86,8 @@
 #  # 7. cors: Cross-Origin Resource Sharing support
 #  # 8. securityHeaders: Security-related HTTP headers
 #  # 9. bodyLimit: Request payload size limiting
-#  # 10. ipAcl: IP-based access control
-#  # 11. geoAcl: Geographic access control
+#  # 10. ipACL: IP-based access control
+#  # 11. geoACL: Geographic access control
 #  # 12. limiter: Rate limiting and abuse prevention
 #  # 13. idempotency: Duplicate request prevention
 #  middlewares:

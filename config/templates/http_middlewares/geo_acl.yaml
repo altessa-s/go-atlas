@@ -6,7 +6,7 @@
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 
-#geoAcl:
+#geoACL:
 #  # <bool> Enable geographic access control.
 #  # Default value: false
 #  enabled: false

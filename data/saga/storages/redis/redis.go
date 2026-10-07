@@ -69,7 +69,7 @@ redis.call('ZREM', KEYS[2], ARGV[1])
 return 1
 `)
 
-// Store is a durable [saga.Store] backed by Redis. Each instance is a hash
+// Store is a durable [saga.Storage] backed by Redis. Each instance is a hash
 // keyed by its ID holding the serialized payload and a monotonically
 // increasing version field used as the optimistic-concurrency token, so two
 // coordinators cannot advance the same instance — the loser's Update fails
@@ -84,7 +84,7 @@ type Store struct {
 	opts *options
 }
 
-var _ saga.Store = (*Store)(nil)
+var _ saga.Storage = (*Store)(nil)
 
 // New creates a Store with the given Redis client. It panics if client is nil.
 //

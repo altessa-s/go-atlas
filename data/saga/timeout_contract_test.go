@@ -16,7 +16,7 @@ import (
 )
 
 type budgetStore struct {
-	saga.Store
+	saga.Storage
 	update func(context.Context, *saga.Instance)
 	fetch  func(context.Context)
 }
@@ -25,13 +25,13 @@ func (s budgetStore) Update(ctx context.Context, inst *saga.Instance) error {
 	if s.update != nil {
 		s.update(ctx, inst)
 	}
-	return s.Store.Update(ctx, inst)
+	return s.Storage.Update(ctx, inst)
 }
 func (s budgetStore) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*saga.Instance, error) {
 	if s.fetch != nil {
 		s.fetch(ctx)
 	}
-	return s.Store.FetchRecoverable(ctx, now, limit)
+	return s.Storage.FetchRecoverable(ctx, now, limit)
 }
 
 func TestNestedTimeoutBudgets(t *testing.T) {
@@ -49,7 +49,7 @@ func TestNestedTimeoutBudgets(t *testing.T) {
 				defer cancel()
 			}
 			var stepDeadline time.Time
-			store := budgetStore{Store: memory.New(), update: func(ctx context.Context, inst *saga.Instance) {
+			store := budgetStore{Storage: memory.New(), update: func(ctx context.Context, inst *saga.Instance) {
 				deadline, ok := ctx.Deadline()
 				require.True(t, ok)
 				require.LessOrEqual(t, time.Until(deadline), persistence)
@@ -58,7 +58,7 @@ func TestNestedTimeoutBudgets(t *testing.T) {
 				stepDeadline, _ = ctx.Deadline()
 				return nil
 			}).ReadOnly().MustBuild()
-			o := saga.New(store, def, saga.WithExecutionTimeout(execution), saga.WithStepTimeout(step), saga.WithStoreTimeout(persistence))
+			o := saga.New(store, def, saga.WithExecutionTimeout(execution), saga.WithStepTimeout(step), saga.WithStorageTimeout(persistence))
 			_, err := o.Start(ctx, "one", struct{}{})
 			require.NoError(t, err)
 			require.False(t, stepDeadline.IsZero())
@@ -71,18 +71,18 @@ func TestNestedTimeoutBudgets(t *testing.T) {
 	}
 }
 
-func TestRecoveryStoreTimeoutCapsCycle(t *testing.T) {
+func TestRecoveryStorageTimeoutCapsCycle(t *testing.T) {
 	t.Parallel()
 	const persistence = 10 * time.Millisecond
 	called := false
-	store := budgetStore{Store: memory.New(), fetch: func(ctx context.Context) {
+	store := budgetStore{Storage: memory.New(), fetch: func(ctx context.Context) {
 		called = true
 		deadline, ok := ctx.Deadline()
 		require.True(t, ok)
 		require.LessOrEqual(t, time.Until(deadline), persistence)
 	}}
 	def := saga.NewDefinition[struct{}]("recovery-budget").Step("noop", func(context.Context, *struct{}) error { return nil }).ReadOnly().MustBuild()
-	o := saga.New(store, def, saga.WithRecoveryTimeout(time.Second), saga.WithStoreTimeout(persistence))
+	o := saga.New(store, def, saga.WithRecoveryTimeout(time.Second), saga.WithStorageTimeout(persistence))
 	ctx, cancel := context.WithTimeout(t.Context(), time.Hour)
 	defer cancel()
 	require.NoError(t, o.RunRecoveryCycle(ctx))

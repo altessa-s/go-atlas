@@ -43,7 +43,7 @@ var (
 // token validation, client credentials, and OIDCJwks management.
 type OIDC struct {
 	// DiscoveryUrl is the URL of the OpenID Connect discovery endpoint
-	DiscoveryUrl string `yaml:"discoveryUrl"`
+	DiscoveryUrl string `yaml:"discoveryURL"`
 
 	// ClockSkew is the acceptable time difference when validating timestamps.
 	// Defaults to 30s to match the auth/oidc, auth/jwt, and auth/selfjwt Go-API
@@ -253,7 +253,7 @@ type OIDCClaims struct {
 	Audience []string `yaml:"audience"`
 
 	// AllowedClientIds is the whitelist of client_id values for service-to-service calls
-	AllowedClientIds []string `yaml:"allowedClientIds"`
+	AllowedClientIds []string `yaml:"allowedClientIDs"`
 
 	// RequiredScopes is the list of required scopes for service tokens
 	RequiredScopes []string `yaml:"requiredScopes"`
@@ -290,7 +290,7 @@ func (c *OIDCClaims) Validate() error {
 // introspection and other server-to-server flows.
 type OIDCClientCredentials struct {
 	// ClientId is the OAuth2 client identifier
-	ClientId string `yaml:"clientId"`
+	ClientId string `yaml:"clientID"`
 
 	// ClientSecret is the OAuth2 client secret
 	ClientSecret redacted.RedactedString `yaml:"clientSecret"`
@@ -353,7 +353,7 @@ type OIDCIntrospection struct {
 	// (false) is fail-closed — an unreachable IdP rejects the token, keeping
 	// revocation enforced. Set this to true only when IdP availability must
 	// take precedence over revocation guarantees.
-	FailOpen bool `yaml:"fail_open" default:"false"`
+	FailOpen bool `yaml:"failOpen" default:"false"`
 }
 
 // OIDCPresets represents validation presets configuration.

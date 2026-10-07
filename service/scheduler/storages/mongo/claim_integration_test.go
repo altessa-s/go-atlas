@@ -1,0 +1,193 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package mongo_test
+
+import (
+	"context"
+	"os"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/altessa-s/go-atlas/service/scheduler"
+
+	schedmongo "github.com/altessa-s/go-atlas/service/scheduler/storages/mongo"
+	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+// mongoURI returns the MongoDB connection string, honoring MONGO_URI for CI.
+func mongoURI() string {
+	if uri := os.Getenv("MONGO_URI"); uri != "" {
+		return uri
+	}
+	return "mongodb://localhost:27017"
+}
+
+// newClaimIT connects to a live MongoDB, skipping when none is reachable. Each
+// call gets its own throwaway database (dropped on cleanup) and a Storage bound
+// to it.
+// itSeq disambiguates fixtures created within the same clock tick.
+var itSeq atomic.Int64
+
+// itSuffix returns a suffix unique to one fixture. A timestamp alone is not
+// enough: every test here calls t.Parallel(), so they all resume at once and
+// UnixNano is not fine-grained enough to separate them. Two fixtures sharing a
+// database name read each other's tasks and drop the database on cleanup, which
+// shows up as unrelated tests failing at random.
+func itSuffix() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + strconv.FormatInt(itSeq.Add(1), 10)
+}
+
+func newClaimIT(t testing.TB) *schedmongo.Storage {
+	t.Helper()
+	s, _ := newClaimITDB(t)
+	return s
+}
+
+// newClaimITDB is [newClaimIT] that also returns the database, for tests
+// that write raw documents.
+func newClaimITDB(t testing.TB) (*schedmongo.Storage, *mongo.Database) {
+	t.Helper()
+
+	client, err := mongo.Connect(mongoOptions.Client().ApplyURI(mongoURI()))
+	if err != nil {
+		t.Skipf("mongodb not available: %v", err)
+	}
+	if err := client.Ping(t.Context(), nil); err != nil {
+		_ = client.Disconnect(t.Context())
+		t.Skipf("mongodb not reachable at %s: %v", mongoURI(), err)
+	}
+
+	dbName := "sched_claim_it_" + itSuffix()
+	db := client.Database(dbName)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		defer cancel()
+		_ = db.Drop(ctx)
+		_ = client.Disconnect(ctx)
+	})
+
+	s := schedmongo.New(db)
+
+	// Capability probe: Ping succeeds without authentication, but the writes
+	// these tests issue do not. Skip (rather than fail) when the server rejects
+	// commands — e.g. an auth-required mongod with no credentials in the URI.
+	probe := &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "__probe__", Status: scheduler.TaskStatusActive}}
+	if err := s.UpsertTask(t.Context(), probe); err != nil {
+		t.Skipf("mongodb not usable for writes (need an unauthenticated server or credentials in MONGO_URI): %v", err)
+	}
+	if err := s.DeleteTask(t.Context(), "__probe__"); err != nil {
+		t.Skipf("mongodb not usable for writes: %v", err)
+	}
+
+	return s, db
+}
+
+// seedActive inserts an active task due at nextRunAt.
+func seedActive(t *testing.T, s *schedmongo.Storage, id string, nextRunAt int64) {
+	t.Helper()
+	require.NoError(t, s.UpsertTask(t.Context(), &scheduler.TaskState{
+		TaskSummary: scheduler.TaskSummary{ID: id, Status: scheduler.TaskStatusActive, NextRunAt: nextRunAt},
+	}))
+}
+
+func TestIntegration_MongoClaimRun_SingleWinnerThenLost(t *testing.T) {
+	t.Parallel()
+	s := newClaimIT(t)
+	ctx := t.Context()
+	seedActive(t, s, "a", 100)
+
+	ok, err := s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
+	require.NoError(t, err)
+	require.True(t, ok, "first claim must win")
+
+	got, err := s.GetTask(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, scheduler.TaskStatusRunning, got.Status)
+	require.Equal(t, int64(1700000000), got.RunStartedAt)
+	require.Equal(t, "run-1", got.LastRunID)
+
+	// The occurrence is no longer active: a second claim loses.
+	ok, err = s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000001, RunID: "run-2"})
+	require.NoError(t, err)
+	require.False(t, ok, "second claim must lose")
+}
+
+func TestIntegration_MongoClaimRun_FenceMismatch(t *testing.T) {
+	t.Parallel()
+	s := newClaimIT(t)
+	seedActive(t, s, "a", 100)
+
+	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 999, StartedAt: 1700000000, RunID: "run-1"})
+	require.NoError(t, err)
+	require.False(t, ok, "a mismatched occurrence fence must not be claimable")
+}
+
+func TestIntegration_MongoClaimRun_ZeroFenceRequiresZeroNextRun(t *testing.T) {
+	t.Parallel()
+	s := newClaimIT(t)
+
+	ok, err := func() (bool, error) {
+		seedActive(t, s, "a", 100)
+		return s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 0, StartedAt: 1700000000, RunID: "run-1"})
+	}()
+	require.NoError(t, err)
+	require.False(t, ok, "a zero fence claims only a zero occurrence")
+}
+
+func TestIntegration_MongoClaimRun_NotActive(t *testing.T) {
+	t.Parallel()
+	s := newClaimIT(t)
+	require.NoError(t, s.UpsertTask(t.Context(), &scheduler.TaskState{
+		TaskSummary: scheduler.TaskSummary{ID: "a", Status: scheduler.TaskStatusPaused, NextRunAt: 100},
+	}))
+
+	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
+	require.NoError(t, err)
+	require.False(t, ok, "a paused task must not be claimable")
+}
+
+func TestIntegration_MongoClaimRun_MissingTask(t *testing.T) {
+	t.Parallel()
+	s := newClaimIT(t)
+
+	ok, err := s.ClaimRun(t.Context(), "nope", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+// TestIntegration_MongoClaimRun_ExactlyOneConcurrentWinner is the core
+// anti-double-execution invariant verified against MongoDB's real atomic
+// UpdateOne: many schedulers racing on one occurrence yield exactly one winner.
+func TestIntegration_MongoClaimRun_ExactlyOneConcurrentWinner(t *testing.T) {
+	t.Parallel()
+	s := newClaimIT(t)
+	ctx := t.Context()
+	seedActive(t, s, "a", 100)
+
+	const racers = 32
+	var wins atomic.Int64
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range racers {
+		wg.Go(func() {
+			<-start
+			ok, err := s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run"})
+			require.NoError(t, err)
+			if ok {
+				wins.Add(1)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	require.Equal(t, int64(1), wins.Load(), "exactly one claim may win")
+}

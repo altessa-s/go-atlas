@@ -21,28 +21,28 @@ const (
 type DistributionLockProvider string
 
 const (
-	// DistributionLockProviderNats represents the NATS JetStream distributed lock provider.
-	DistributionLockProviderNats DistributionLockProvider = "nats"
-	// DistributionLockProviderMongodb represents the MongoDB distributed lock provider.
-	DistributionLockProviderMongodb DistributionLockProvider = "mongodb"
+	// DistributionLockProviderNATS represents the NATS JetStream distributed lock provider.
+	DistributionLockProviderNATS DistributionLockProvider = "nats"
+	// DistributionLockProviderMongo represents the MongoDB distributed lock provider.
+	DistributionLockProviderMongo DistributionLockProvider = "mongo"
 )
 
-// DistributionLockMongodb defines the MongoDB-specific configuration for
+// DistributionLockMongo defines the MongoDB-specific configuration for
 // distributed locking. The *mongo.Database is injected into the factory.
-type DistributionLockMongodb struct {
+type DistributionLockMongo struct {
 	// Collection holds one lease document per lock key.
 	// Defaults to "dlocks" if not specified.
 	Collection string `yaml:"collection" default:"dlocks"`
 }
 
-// DefaultDistributionLockMongodb returns a DistributionLockMongodb configuration with default values.
-func DefaultDistributionLockMongodb() DistributionLockMongodb {
-	return DistributionLockMongodb{Collection: defaultDistributionLockMongodbCollection}
+// DefaultDistributionLockMongo returns a DistributionLockMongo configuration with default values.
+func DefaultDistributionLockMongo() DistributionLockMongo {
+	return DistributionLockMongo{Collection: defaultDistributionLockMongodbCollection}
 }
 
-// DistributionLockNats defines the NATS-specific configuration for distributed locking.
+// DistributionLockNATS defines the NATS-specific configuration for distributed locking.
 // Contains settings for NATS JetStream Key-Value bucket creation and management.
-type DistributionLockNats struct {
+type DistributionLockNATS struct {
 	// Bucket is the name of the NATS JetStream Key-Value bucket
 	// where distributed locks will be stored.
 	// Defaults to "dlock" if not specified.
@@ -72,33 +72,33 @@ type DistributionLockNats struct {
 // Example:
 //
 //	dlock := &lockconfig.DistributionLock{
-//		Provider: lockconfig.DistributionLockProviderNats,
-//		Nats:     &lockconfig.DistributionLockNats{Bucket: "myapp-locks"},
+//		Provider: lockconfig.DistributionLockProviderNATS,
+//		NATS:     &lockconfig.DistributionLockNATS{Bucket: "myapp-locks"},
 //	}
 type DistributionLock struct {
 	// Provider defines the type of distributed locking implementation to use.
-	// Must be one of the supported providers: "nats" or "mongodb".
+	// Must be one of the supported providers: "nats" or "mongo".
 	Provider DistributionLockProvider `yaml:"provider"`
 
 	// Nats defines the NATS configuration for distributed locking.
-	// Required when Provider is DistributionLockProviderNats, ignored otherwise.
-	Nats *DistributionLockNats `yaml:"nats" default:"-"`
+	// Required when Provider is DistributionLockProviderNATS, ignored otherwise.
+	NATS *DistributionLockNATS `yaml:"nats" default:"-"`
 
 	// Mongodb defines the MongoDB configuration for distributed locking.
-	// Required when Provider is DistributionLockProviderMongodb, ignored otherwise.
-	Mongodb *DistributionLockMongodb `yaml:"mongodb" default:"-"`
+	// Required when Provider is DistributionLockProviderMongo, ignored otherwise.
+	Mongo *DistributionLockMongo `yaml:"mongo" default:"-"`
 }
 
-// DefaultDistributionLockNats returns a DistributionLockNats configuration with default values.
-func DefaultDistributionLockNats() DistributionLockNats {
-	return DistributionLockNats{
+// DefaultDistributionLockNATS returns a DistributionLockNATS configuration with default values.
+func DefaultDistributionLockNATS() DistributionLockNATS {
+	return DistributionLockNATS{
 		Bucket:  defaultDistributionLockNatsBucket,
 		Storage: storageconfig.KVStorageMemory,
 	}
 }
 
 // Validate performs validation of the NATS distributed lock configuration.
-func (n *DistributionLockNats) Validate() error {
+func (n *DistributionLockNATS) Validate() error {
 	return validationconfig.ValidateStruct(n,
 		validation.Field(&n.Storage, validation.In(storageconfig.KVStorageMemory, storageconfig.KVStorageFile)),
 	)
@@ -116,8 +116,8 @@ func DefaultDistributionLock() DistributionLock {
 func (dl *DistributionLock) Validate() error {
 	return validationconfig.ValidateStruct(dl,
 		validation.Field(&dl.Provider, validation.Required,
-			ozzo_rules.OneOf(DistributionLockProviderNats, DistributionLockProviderMongodb)),
-		validation.Field(&dl.Nats, validation.When(dl.Provider == DistributionLockProviderNats, validation.NilOrNotEmpty)),
-		validation.Field(&dl.Mongodb, validation.When(dl.Provider == DistributionLockProviderMongodb, validation.Required)),
+			ozzo_rules.OneOf(DistributionLockProviderNATS, DistributionLockProviderMongo)),
+		validation.Field(&dl.NATS, validation.When(dl.Provider == DistributionLockProviderNATS, validation.NilOrNotEmpty)),
+		validation.Field(&dl.Mongo, validation.When(dl.Provider == DistributionLockProviderMongo, validation.Required)),
 	)
 }

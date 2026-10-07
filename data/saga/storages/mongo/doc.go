@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package mongo provides a durable [saga.Store] backed by a MongoDB collection.
+// Package mongo provides a durable [saga.Storage] backed by a MongoDB collection.
 //
 // Each saga instance is stored as one document keyed by its ID. The document's
 // version field is the optimistic-concurrency token: Update is a version-checked

@@ -41,17 +41,17 @@ func TestBuild_MigrateBucketTTL(t *testing.T) {
 
 	cfg := func(migrate bool) *lockconfig.LeaderElector {
 		return &lockconfig.LeaderElector{
-			Provider:         lockconfig.LeaderElectorProviderNats,
+			Provider:         lockconfig.LeaderElectorProviderNATS,
 			Ttl:              10 * time.Second,
 			MigrateBucketTTL: migrate,
 		}
 	}
 
-	_, err = factory.New(cfg(false)).UseNatsConn(nc).Build(t.Context())
+	_, err = factory.New(cfg(false)).UseNATSConn(nc).Build(t.Context())
 	require.ErrorIs(t, err, lenats.ErrBucketTTLMismatch)
 	require.Equal(t, time.Minute, testhelpers.KVBucketTTL(t, js, bucket), "a rejected build changed the bucket's TTL")
 
-	leader, err := factory.New(cfg(true)).UseNatsConn(nc).Build(t.Context())
+	leader, err := factory.New(cfg(true)).UseNATSConn(nc).Build(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, leader)
 	require.Equal(t, lenats.DefaultBucketKeysTTL, testhelpers.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
@@ -78,16 +78,16 @@ func TestBuild_StrictBucketStorage(t *testing.T) {
 
 	cfg := func(strict bool) *lockconfig.LeaderElector {
 		return &lockconfig.LeaderElector{
-			Provider:            lockconfig.LeaderElectorProviderNats,
+			Provider:            lockconfig.LeaderElectorProviderNATS,
 			Ttl:                 10 * time.Second,
 			StrictBucketStorage: strict,
 		}
 	}
 
-	_, err = factory.New(cfg(true)).UseNatsConn(nc).Build(t.Context())
+	_, err = factory.New(cfg(true)).UseNATSConn(nc).Build(t.Context())
 	require.ErrorIs(t, err, lenats.ErrBucketStorageMismatch)
 
-	_, err = factory.New(cfg(false)).UseNatsConn(nc).Build(t.Context())
+	_, err = factory.New(cfg(false)).UseNATSConn(nc).Build(t.Context())
 	require.NoError(t, err, "without the flag the bucket is adopted")
 }
 
@@ -103,10 +103,10 @@ func TestBuild_Storage(t *testing.T) {
 			nc, js := testhelpers.ConnectJetStream(t, ns)
 
 			_, err := factory.New(&lockconfig.LeaderElector{
-				Provider: lockconfig.LeaderElectorProviderNats,
+				Provider: lockconfig.LeaderElectorProviderNATS,
 				Ttl:      10 * time.Second,
 				Storage:  storage,
-			}).UseNatsConn(nc).Build(t.Context())
+			}).UseNATSConn(nc).Build(t.Context())
 			require.NoError(t, err)
 
 			want := jetstream.MemoryStorage

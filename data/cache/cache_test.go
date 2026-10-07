@@ -12,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/cache/providers"
-	"github.com/altessa-s/go-atlas/data/cache/providers/noop"
+	"github.com/altessa-s/go-atlas/data/cache/storages"
+	"github.com/altessa-s/go-atlas/data/cache/storages/noop"
 )
 
 // mockProvider is a test-local cache provider with in-memory store.
@@ -44,7 +44,7 @@ func (m *mockProvider) Get(_ context.Context, key string) ([]byte, error) {
 	}
 	v, ok := m.store[key]
 	if !ok {
-		return nil, providers.ErrMissing
+		return nil, storages.ErrMissing
 	}
 	return v, nil
 }
@@ -91,7 +91,7 @@ func TestNew_NilProviderPanics(t *testing.T) {
 func TestNewNoop(t *testing.T) {
 	c := NewNoop()
 	require.NotNil(t, c, "NewNoop returned nil")
-	_, ok := c.provider.(*noop.Provider)
+	_, ok := c.provider.(*noop.Storage)
 	require.True(t, ok, "expected noop provider")
 }
 
@@ -529,7 +529,7 @@ func TestGetWithFallback_TransientErrorDoesNotPoisonNegativeCache(t *testing.T) 
 
 	// No sentinel must have been written for a transient error.
 	_, getErr := p.Get(ctx, "tx-err")
-	require.ErrorIs(t, getErr, providers.ErrMissing,
+	require.ErrorIs(t, getErr, storages.ErrMissing,
 		"transient failures must NOT poison the cache — only authoritative ErrMissing does")
 
 	// Second call must invoke fallback again (no negative-cache shortcut).

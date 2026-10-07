@@ -288,8 +288,8 @@ func (b *FilterBuilder) createBloomStorage() (bloomstorages.Storage, error) {
 			bloomredis.WithExpectedItems(expectedItems),
 			bloomredis.WithFalsePositiveRate(falsePositiveRate),
 		}
-		opts = slices.AppendIfFunc(opts, cfg.Redis != nil && cfg.Redis.KeysPrefix != "", func() []bloomredis.Option {
-			return []bloomredis.Option{bloomredis.WithKeyPrefix(cfg.Redis.KeysPrefix)}
+		opts = slices.AppendIfFunc(opts, cfg.Storage != nil && cfg.Storage.Redis != nil && cfg.Storage.Redis.KeysPrefix != "", func() []bloomredis.Option {
+			return []bloomredis.Option{bloomredis.WithKeyPrefix(cfg.Storage.Redis.KeysPrefix)}
 		})
 		return bloomredis.New(b.redisClient, b.name, opts...), nil
 
@@ -340,8 +340,8 @@ func (b *FilterBuilder) createCuckooStorage() (cuckoostorages.Storage, error) {
 		}
 		multiplier := *cmp.Or(cfg.CapacityMultiplier, &b.defaults.Cuckoo.CapacityMultiplier)
 		opts = slices.AppendIf(opts, multiplier > 0, cuckoeredis.WithExpansion(int64(math.Ceil(multiplier))))
-		opts = slices.AppendIfFunc(opts, cfg.Redis != nil && cfg.Redis.KeysPrefix != "", func() []cuckoeredis.Option {
-			return []cuckoeredis.Option{cuckoeredis.WithKeyPrefix(cfg.Redis.KeysPrefix)}
+		opts = slices.AppendIfFunc(opts, cfg.Storage != nil && cfg.Storage.Redis != nil && cfg.Storage.Redis.KeysPrefix != "", func() []cuckoeredis.Option {
+			return []cuckoeredis.Option{cuckoeredis.WithKeyPrefix(cfg.Storage.Redis.KeysPrefix)}
 		})
 		return cuckoeredis.New(b.redisClient, b.name, opts...), nil
 
@@ -461,8 +461,10 @@ func bloomStorageType(
 	cfg *probfilterconfig.BloomConfig,
 	defaults *probfilterconfig.BloomDefaults,
 ) probfilterconfig.StorageType {
-	storage := cmp.Or(cfg.Storage, &defaults.Storage)
-	return cmp.Or(*storage, probfilterconfig.StorageTypeMemory)
+	if cfg.Storage != nil && cfg.Storage.Type != "" {
+		return cfg.Storage.Type
+	}
+	return cmp.Or(defaults.Storage.Type, probfilterconfig.StorageTypeMemory)
 }
 
 func bloomFalsePositiveRate(cfg *probfilterconfig.BloomConfig, defaults *probfilterconfig.BloomDefaults) float64 {
@@ -474,6 +476,8 @@ func cuckooStorageType(
 	cfg *probfilterconfig.CuckooConfig,
 	defaults *probfilterconfig.CuckooDefaults,
 ) probfilterconfig.StorageType {
-	storage := cmp.Or(cfg.Storage, &defaults.Storage)
-	return cmp.Or(*storage, probfilterconfig.StorageTypeMemory)
+	if cfg.Storage != nil && cfg.Storage.Type != "" {
+		return cfg.Storage.Type
+	}
+	return cmp.Or(defaults.Storage.Type, probfilterconfig.StorageTypeMemory)
 }
