@@ -46,7 +46,6 @@ var (
 type interceptor struct {
 	interceptors.BaseInterceptor
 	opts          *options
-	extractOpts   []pbfieldmask.ExtractOption
 	builtinUpdate pbfieldmask.UpdateExtractorFunc
 	builtinRead   pbfieldmask.ReadExtractorFunc
 }
@@ -133,7 +132,6 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 			opts.logger,
 		),
 		opts:          opts,
-		extractOpts:   extractOpts,
 		builtinUpdate: builtinUpdate,
 		builtinRead:   builtinRead,
 	}
