@@ -23,6 +23,10 @@ import (
 	chfilter "github.com/altessa-s/go-atlas/data/filter/translators/clickhouse"
 )
 
+// deleteSyncAllReplicas is the lightweight_deletes_sync value that waits for
+// the delete on every replica.
+const deleteSyncAllReplicas = 2
+
 // ErrNoConn is returned by [New] when no ClickHouse connection is supplied.
 var ErrNoConn = errors.New("scheduler/clickhouse: connection is required")
 
@@ -124,9 +128,15 @@ func (s *Storage) CleanupHistory(context.Context, time.Duration) error {
 }
 
 // DeleteHistory removes the history of task id with a lightweight DELETE,
-// which marks the rows deleted at once and purges them as parts merge.
+// which marks the rows deleted and purges them as parts merge. The statement
+// sets lightweight_deletes_sync = 2, so it returns only once every replica
+// hides the rows, whatever the session or profile default; the setting
+// requires ClickHouse 24.x.
 func (s *Storage) DeleteHistory(ctx context.Context, id string) error {
-	if err := s.conn.Exec(ctx, s.deleteStmt, id); err != nil {
+	syncCtx := chgo.Context(ctx, chgo.WithSettings(chgo.Settings{
+		"lightweight_deletes_sync": deleteSyncAllReplicas,
+	}))
+	if err := s.conn.Exec(syncCtx, s.deleteStmt, id); err != nil {
 		return coreerrs.WrapOperation(err, "delete scheduler history")
 	}
 	return nil

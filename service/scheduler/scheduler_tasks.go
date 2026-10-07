@@ -234,6 +234,11 @@ func completedFor(existing *TaskState, runAt int64) bool {
 // backend too when it is a [HistoryDeleter]. Any currently running instance of
 // the task will complete normally; only future dispatches are prevented.
 //
+// Deleting history kept apart is best effort: it is bounded by
+// [WithStorageTimeout], and a failure is logged without failing Unregister,
+// leaving the entries to the history backend's retention — indefinitely when
+// that backend has none.
+//
 // Returns [ErrTaskNotRegistered] if the task ID is not present in the
 // in-memory map.
 func (s *Scheduler) Unregister(ctx context.Context, id string) error {
@@ -252,14 +257,18 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 	}
 
 	// DeleteTask removed the history kept in the Storage; history kept apart
-	// is deleted here when its backend can, and otherwise left to expire. The
-	// task is gone either way, so a failure is logged rather than returned.
+	// is deleted here when its backend can, and otherwise left to its
+	// retention. The task is gone either way, so a failure is logged rather
+	// than returned. The call stays under s.mu, serialized against Register of
+	// the same ID, and is bounded by the storage timeout.
 	if d, ok := s.opts.historyStorage.(HistoryDeleter); ok {
-		if err := d.DeleteHistory(ctx, id); err != nil {
+		delCtx, cancel := s.storageCtx(ctx)
+		if err := d.DeleteHistory(delCtx, id); err != nil {
 			s.logger.ErrorContext(ctx, "failed to delete task history",
 				slog.String("task_id", id),
 				slog.Any("error", err))
 		}
+		cancel()
 	}
 
 	s.logger.InfoContext(ctx, "task unregistered", slog.String("task_id", id))
