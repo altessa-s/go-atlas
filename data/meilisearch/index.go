@@ -102,7 +102,7 @@ func (c *Client) awaitIndexCreation(ctx context.Context, name string, taskUID in
 	switch {
 	case task.Status == msdk.TaskStatusSucceeded:
 		return nil
-	case task.Error.Code == errCodeIndexAlreadyExists:
+	case task.Status == msdk.TaskStatusFailed && task.Error.Code == errCodeIndexAlreadyExists:
 		c.logger.DebugContext(ctx, "index already exists", slog.String("index", name))
 		return nil
 	default:

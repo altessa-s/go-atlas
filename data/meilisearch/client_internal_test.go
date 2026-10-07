@@ -203,6 +203,16 @@ func TestClient_EnsureIndex_AwaitsTasks(t *testing.T) {
 			wantAwaited: []int64{createUID, settingsUID},
 		},
 		{
+			name: "already-exists code on a non-failed task is not absorbed",
+			createTask: func() *msdk.Task {
+				task := failed(errCodeIndexAlreadyExists)
+				task.Status = msdk.TaskStatusCanceled
+				return task
+			}(),
+			wantErr:     true,
+			wantAwaited: []int64{createUID},
+		},
+		{
 			name:        "failed creation task",
 			createTask:  failed("invalid_index_uid"),
 			wantErr:     true,
