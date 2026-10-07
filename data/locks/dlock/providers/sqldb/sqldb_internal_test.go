@@ -18,6 +18,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/locks/dlock/errs"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers"
+	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/internal/leasing"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/providertest"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
@@ -123,8 +124,8 @@ func TestNew_TruncatesTTLToMilliseconds(t *testing.T) {
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 	l, err := New(db, DialectPostgres, WithTTL(2900*time.Microsecond), WithRenewRatio(0.9))
 	require.NoError(t, err)
-	require.Equal(t, 2*time.Millisecond, l.opts.ttl)
-	require.Less(t, l.interval, l.opts.ttl)
+	require.Equal(t, 2*time.Millisecond, l.s.ttl)
+	require.Less(t, l.engine.Interval(), l.s.ttl)
 }
 
 // Close must not return while an acquisition that started before it can still
@@ -133,7 +134,7 @@ func TestClose_WaitsForInflightAcquisition(t *testing.T) {
 	t.Parallel()
 	l := newFakeLocker(t, newLeaseDB())
 	entered, release := make(chan struct{}), make(chan struct{})
-	l.afterAcquire = func() {
+	l.engine.AfterAcquire = func() {
 		close(entered)
 		<-release
 	}
@@ -154,7 +155,7 @@ func TestClose_WaitsForInflightAcquisition(t *testing.T) {
 	}
 	close(release)
 	require.NoError(t, <-closed)
-	require.ErrorIs(t, <-lockErr, errClosed)
+	require.ErrorIs(t, <-lockErr, leasing.ErrClosed)
 	_, err := l.GetLockInfo(t.Context(), "k")
 	require.ErrorIs(t, err, errs.ErrLockNotHeld, "Close leaves no lease behind")
 }
@@ -166,11 +167,11 @@ func TestLock_LateAcquisitionIsRejected(t *testing.T) {
 	l := newFakeLocker(t, newLeaseDB())
 	base := time.Now()
 	var calls atomic.Int32
-	l.now = func() time.Time {
+	l.engine.Now = func() time.Time {
 		if calls.Add(1) == 1 {
 			return base
 		}
-		return base.Add(l.opts.ttl)
+		return base.Add(l.s.ttl)
 	}
 
 	_, err := l.Lock(t.Context(), "k")
@@ -185,7 +186,7 @@ func TestRenew_UnconfirmedLeaseIsReleased(t *testing.T) {
 	t.Parallel()
 	l := newFakeLocker(t, newLeaseDB(), WithTTL(3*time.Second))
 	var offset atomic.Int64
-	l.now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
+	l.engine.Now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
 
 	_, err := l.Lock(context.Background(), "k")
 	require.NoError(t, err)
@@ -202,13 +203,13 @@ func TestClose_RetriesFailedCleanupOfRacingAcquisition(t *testing.T) {
 	t.Parallel()
 	l := newFakeLocker(t, newLeaseDB())
 	entered, release := make(chan struct{}), make(chan struct{})
-	l.afterAcquire = func() {
+	l.engine.AfterAcquire = func() {
 		close(entered)
 		<-release
 	}
 	var faults atomic.Int32
 	errFault := errors.New("release fault")
-	l.releaseFault = func() error {
+	l.engine.ReleaseFault = func() error {
 		if faults.Add(1) <= 2 {
 			return errFault
 		}
@@ -226,7 +227,7 @@ func TestClose_RetriesFailedCleanupOfRacingAcquisition(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // let Close mark the provider closed
 	close(release)
 
-	require.ErrorIs(t, <-lockErr, errClosed)
+	require.ErrorIs(t, <-lockErr, leasing.ErrClosed)
 	require.ErrorIs(t, <-closed, errFault, "the retained acquisition's release failed again")
 	_, err := l.GetLockInfo(t.Context(), "k")
 	require.NoError(t, err, "the lease is still live")
@@ -245,7 +246,7 @@ func TestLock_AmbiguousAcquisitionIsReleased(t *testing.T) {
 	t.Run("released_by_lock", func(t *testing.T) {
 		t.Parallel()
 		l := newFakeLocker(t, newLeaseDB())
-		l.acquireFault = func() error { return errLost }
+		l.engine.AcquireFault = func() error { return errLost }
 
 		_, err := l.Lock(t.Context(), "k")
 		require.ErrorIs(t, err, errLost)
@@ -256,9 +257,9 @@ func TestLock_AmbiguousAcquisitionIsReleased(t *testing.T) {
 	t.Run("retried_by_close", func(t *testing.T) {
 		t.Parallel()
 		l := newFakeLocker(t, newLeaseDB())
-		l.acquireFault = func() error { return errLost }
+		l.engine.AcquireFault = func() error { return errLost }
 		var faults atomic.Int32
-		l.releaseFault = func() error {
+		l.engine.ReleaseFault = func() error {
 			if faults.Add(1) == 1 {
 				return errLost
 			}
