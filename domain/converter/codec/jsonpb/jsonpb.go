@@ -88,7 +88,7 @@ func convertRawMessageToStruct(src, srcValue, dst reflect.Value, dstType reflect
 		return true
 	}
 
-	raw, ok := srcValue.Interface().(json.RawMessage)
+	raw, ok := reflect.TypeAssert[json.RawMessage](srcValue)
 	if !ok {
 		return false
 	}
@@ -129,7 +129,7 @@ func convertStructToRawMessage(src, srcValue, dst reflect.Value, dstType reflect
 	if srcValue.CanAddr() {
 		var ok bool
 
-		pb, ok = srcValue.Addr().Interface().(*structpb.Struct)
+		pb, ok = reflect.TypeAssert[*structpb.Struct](srcValue.Addr())
 		if !ok {
 			return false
 		}
@@ -141,7 +141,7 @@ func convertStructToRawMessage(src, srcValue, dst reflect.Value, dstType reflect
 
 		var ok bool
 
-		pb, ok = tmp.Interface().(*structpb.Struct)
+		pb, ok = reflect.TypeAssert[*structpb.Struct](tmp)
 		if !ok {
 			return false
 		}

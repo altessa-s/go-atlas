@@ -309,14 +309,14 @@ func normalizeStructFields(v reflect.Value, parentPath string) error {
 func callCustomNormalizer(v reflect.Value) error {
 	// Try to call on the value itself (if it has pointer receiver methods)
 	if v.CanAddr() {
-		if customNormalizer, ok := v.Addr().Interface().(CustomNormalizer); ok {
+		if customNormalizer, ok := reflect.TypeAssert[CustomNormalizer](v.Addr()); ok {
 			return customNormalizer.Normalize()
 		}
 	}
 
 	// Try to call on the value directly (if it has value receiver methods)
 	if v.CanInterface() {
-		if customNormalizer, ok := v.Interface().(CustomNormalizer); ok {
+		if customNormalizer, ok := reflect.TypeAssert[CustomNormalizer](v); ok {
 			return customNormalizer.Normalize()
 		}
 	}
