@@ -282,8 +282,8 @@ func (s *Store) encode(inst *saga.Instance) (row, error) {
 	d := s.dialect
 	return row{
 		status:       d.textArg(string(inst.Status)),
-		pendingSteps: d.textArg(pending),
-		steps:        d.textArg(stepsJSON),
+		pendingSteps: d.jsonArg(pending),
+		steps:        d.jsonArg(stepsJSON),
 		leaseOwner:   d.textArg(inst.LeaseOwner),
 		lastError:    d.textArg(inst.LastError),
 		data:         data,
@@ -302,7 +302,8 @@ type scanner interface {
 func scanInstance(sc scanner) (*saga.Instance, error) {
 	var (
 		inst                                     saga.Instance
-		status, pending, steps                   string
+		status                                   string
+		pending, steps                           []byte
 		stage, created, updated, deadline, lease int64
 	)
 	if err := sc.Scan(&inst.ID, &inst.Definition, &status, &stage, &pending, &inst.Data, &steps,
@@ -313,26 +314,25 @@ func scanInstance(sc scanner) (*saga.Instance, error) {
 	inst.Stage = int(stage)
 	inst.CreatedAt, inst.UpdatedAt = fromUnixNano(created), fromUnixNano(updated)
 	inst.Deadline, inst.LeaseUntil = fromUnixNano(deadline), fromUnixNano(lease)
-	if pending != "" {
-		if err := json.Unmarshal([]byte(pending), &inst.PendingSteps); err != nil {
+	if len(pending) > 0 {
+		if err := json.Unmarshal(pending, &inst.PendingSteps); err != nil {
 			return nil, fmt.Errorf("decode saga pending steps: %w", err)
 		}
 	}
-	if steps != "" {
-		if err := json.Unmarshal([]byte(steps), &inst.Steps); err != nil {
+	if len(steps) > 0 {
+		if err := json.Unmarshal(steps, &inst.Steps); err != nil {
 			return nil, fmt.Errorf("decode saga steps: %w", err)
 		}
 	}
 	return &inst, nil
 }
 
-// encodeJSON marshals a slice to JSON, or "" when it is empty.
-func encodeJSON[T any](v []T) (string, error) {
+// encodeJSON marshals a slice to JSON, or nil when it is empty.
+func encodeJSON[T any](v []T) ([]byte, error) {
 	if len(v) == 0 {
-		return "", nil
+		return nil, nil
 	}
-	b, err := json.Marshal(v)
-	return string(b), err
+	return json.Marshal(v)
 }
 
 // unixNano converts a time to Unix nanoseconds, mapping the zero time to 0.

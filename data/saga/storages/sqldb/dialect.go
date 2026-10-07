@@ -58,6 +58,19 @@ func dialectFor(d Dialect) (dialect, error) {
 	}
 }
 
+// jsonArg binds encoded JSON for a text column without copying it on MySQL,
+// whose columns are binary: as a string on PostgreSQL (TEXT), as the bytes
+// themselves on MySQL. Empty JSON binds as the empty value, not NULL.
+func (d dialect) jsonArg(b []byte) any {
+	if d.name == DialectPostgres {
+		return string(b)
+	}
+	if b == nil {
+		return []byte{}
+	}
+	return b
+}
+
 // textArg binds a string for a text column: as-is on PostgreSQL (TEXT), as
 // bytes on MySQL, whose columns are binary so no character-set conversion can
 // touch the value.
