@@ -5,6 +5,7 @@
 package recovery
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -120,14 +121,14 @@ func TestRegistry_UnregisterSubscription(t *testing.T) {
 func TestRegistry_ResubscribeHandler(t *testing.T) {
 	r := NewRegistry()
 	called := false
-	r.RegisterResubscribeHandler("s1", "c1", func() error {
+	r.RegisterResubscribeHandler("s1", "c1", func(context.Context) error {
 		called = true
 		return nil
 	})
 
 	fn, ok := r.GetResubscribeHandler("s1", "c1")
 	require.True(t, ok, "GetResubscribeHandler() ok = false")
-	fn()
+	require.NoError(t, fn(t.Context()))
 	require.True(t, called, "handler not called")
 
 	_, ok = r.GetResubscribeHandler("s1", "missing")

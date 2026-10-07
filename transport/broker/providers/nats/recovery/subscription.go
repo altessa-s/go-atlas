@@ -6,6 +6,7 @@ package recovery
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/altessa-s/go-atlas/transport/broker"
@@ -26,6 +27,10 @@ type ManagedSubscription struct {
 	mu         sync.RWMutex
 	subscriber broker.Subscriber
 	closed     bool
+	// subCancel cancels the context of a subscriber established by
+	// resubscribe; nil for the initial subscriber, whose context is the
+	// caller's.
+	subCancel context.CancelFunc
 }
 
 // Stream returns the name of the stream this subscription is attached to.
@@ -66,6 +71,7 @@ func (s *ManagedSubscription) Unsubscribe() {
 	if s.subscriber != nil {
 		s.subscriber.Unsubscribe()
 	}
+	s.cancelSubscription()
 
 	// Remove from registry so it won't be recovered.
 	s.manager.registry.UnregisterSubscription(s.stream, s.consumerName)
@@ -87,7 +93,12 @@ func (s *ManagedSubscription) Closed() <-chan struct{} {
 
 // resubscribe recreates the subscriber and re-establishes the subscription.
 // This is called by the supervisor during recovery.
-func (s *ManagedSubscription) resubscribe(ctx context.Context) error {
+//
+// The new subscription lives in a context derived from parent (the original
+// Subscribe context, keeping its values and cancellation); recoveryCtx only
+// bounds establishment, so canceling it (Supervisor.Close) interrupts a
+// Subscribe in progress but not a subscription already established.
+func (s *ManagedSubscription) resubscribe(parent, recoveryCtx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -99,12 +110,36 @@ func (s *ManagedSubscription) resubscribe(ctx context.Context) error {
 	if s.subscriber != nil {
 		s.subscriber.Unsubscribe()
 	}
+	s.cancelSubscription()
 
 	// Create new subscriber via factory.
 	s.subscriber = s.factory(s.manager.provider)
 
-	// Subscribe with the handler.
-	return s.subscriber.Subscribe(ctx, s.handler)
+	subCtx, cancel := context.WithCancel(parent)
+	stop := context.AfterFunc(recoveryCtx, cancel)
+	err := s.subscriber.Subscribe(subCtx, s.handler)
+	if !stop() {
+		// Recovery was canceled during establishment: subCtx is dead, so a
+		// subscriber that came up anyway would run with a canceled context.
+		s.subscriber.Unsubscribe()
+		cancel()
+		return fmt.Errorf("resubscribe: %w", recoveryCtx.Err())
+	}
+	if err != nil {
+		cancel()
+		return err
+	}
+	s.subCancel = cancel
+	return nil
+}
+
+// cancelSubscription cancels the context of a subscriber established by
+// resubscribe. Callers must hold s.mu.
+func (s *ManagedSubscription) cancelSubscription() {
+	if s.subCancel != nil {
+		s.subCancel()
+		s.subCancel = nil
+	}
 }
 
 // setSubscriber updates the subscriber.

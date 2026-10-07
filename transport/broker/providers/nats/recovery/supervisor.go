@@ -22,7 +22,6 @@ import (
 // recoveryState tracks the state of an ongoing recovery operation.
 type recoveryState struct {
 	startedAt time.Time
-	attempts  int
 }
 
 // Supervisor handles stream and consumer recovery with linear backoff (backoff * attempt).
@@ -120,7 +119,6 @@ func (s *Supervisor) markAsRecovering(stream string) bool {
 
 	s.recoveringStates[stream] = &recoveryState{
 		startedAt: time.Now(),
-		attempts:  0,
 	}
 	return true
 }
@@ -147,26 +145,32 @@ func (s *Supervisor) GetRecoveringStreams() []string {
 
 // ClearStaleRecoveries removes recovery marks older than timeout, unblocking future
 // recovery attempts for those streams. Returns the names of cleared streams.
-// Invokes OnStaleCleared callback for each cleared stream.
+// Invokes OnStaleCleared callback for each cleared stream, outside the
+// supervisor's lock, so the callback may call back into the supervisor.
 func (s *Supervisor) ClearStaleRecoveries(timeout time.Duration) []string {
-	s.recoveringMu.Lock()
-	defer s.recoveringMu.Unlock()
-
-	var cleared []string
+	var (
+		cleared []string
+		ages    []time.Duration
+	)
 	now := time.Now()
 
+	s.recoveringMu.Lock()
 	for stream, state := range s.recoveringStates {
-		if now.Sub(state.startedAt) > timeout {
+		if age := now.Sub(state.startedAt); age > timeout {
 			delete(s.recoveringStates, stream)
 			cleared = append(cleared, stream)
+			ages = append(ages, age)
+		}
+	}
+	s.recoveringMu.Unlock()
 
-			s.logger.Warn("cleared stale recovery mark",
-				slog.String("stream", stream),
-				slog.Duration("age", now.Sub(state.startedAt)))
+	for i, stream := range cleared {
+		s.logger.Warn("cleared stale recovery mark",
+			slog.String("stream", stream),
+			slog.Duration("age", ages[i]))
 
-			if s.onStaleCleared != nil {
-				s.onStaleCleared(stream)
-			}
+		if s.onStaleCleared != nil {
+			s.onStaleCleared(stream)
 		}
 	}
 
@@ -237,7 +241,7 @@ func (s *Supervisor) runStreamRecovery(streamName string) {
 			return coreerrs.WrapOperation(err, "recreate stream")
 		}
 		// Restore subscriptions.
-		if err := s.restoreSubscriptions(streamName); err != nil {
+		if err := s.restoreSubscriptions(ctx, streamName); err != nil {
 			return coreerrs.WrapOperation(err, "restore subscriptions")
 		}
 		return nil
@@ -309,8 +313,8 @@ func (s *Supervisor) runConsumerRecovery(stream, consumer string) {
 		return
 	}
 
-	err := coreretry.Do(s.ctx, func(_ context.Context) error {
-		if err := handler(); err != nil {
+	err := coreretry.Do(s.ctx, func(ctx context.Context) error {
+		if err := handler(ctx); err != nil {
 			return coreerrs.WrapOperation(err, "resubscribe")
 		}
 		return nil
@@ -336,8 +340,9 @@ func (s *Supervisor) runConsumerRecovery(stream, consumer string) {
 	}
 }
 
-// restoreSubscriptions resubscribes all subscriptions for a stream.
-func (s *Supervisor) restoreSubscriptions(stream string) error {
+// restoreSubscriptions resubscribes all subscriptions for a stream. ctx
+// bounds subscription establishment and is canceled by [Supervisor.Close].
+func (s *Supervisor) restoreSubscriptions(ctx context.Context, stream string) error {
 	subscriptions := s.registry.GetStreamSubscriptions(stream)
 
 	for _, entry := range subscriptions {
@@ -350,7 +355,7 @@ func (s *Supervisor) restoreSubscriptions(stream string) error {
 			continue
 		}
 
-		if err := handler(); err != nil {
+		if err := handler(ctx); err != nil {
 			return coreerrs.Wrapf(err, "resubscribe %s", entry.consumer)
 		}
 
