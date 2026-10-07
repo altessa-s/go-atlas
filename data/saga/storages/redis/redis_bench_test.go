@@ -70,7 +70,7 @@ func BenchmarkFetchRecoverable(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := s.FetchRecoverable(ctx, baseTime, 0); err != nil {
+		if _, err := s.FetchRecoverable(ctx, "", baseTime, 0); err != nil {
 			b.Fatal(err)
 		}
 	}

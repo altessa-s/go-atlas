@@ -27,11 +27,11 @@ func (s budgetStore) Update(ctx context.Context, inst *saga.Instance) error {
 	}
 	return s.Storage.Update(ctx, inst)
 }
-func (s budgetStore) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*saga.Instance, error) {
+func (s budgetStore) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
 	if s.fetch != nil {
 		s.fetch(ctx)
 	}
-	return s.Storage.FetchRecoverable(ctx, now, limit)
+	return s.Storage.FetchRecoverable(ctx, definition, now, limit)
 }
 
 func TestNestedTimeoutBudgets(t *testing.T) {

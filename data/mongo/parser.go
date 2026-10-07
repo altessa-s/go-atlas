@@ -273,11 +273,17 @@ func (shard *parserCacheShard) evictLRUEntries() {
 // tagParser handles BSON tag parsing logic
 type tagParser struct{}
 
-// parseBSONTag extracts field information from BSON tags
-func (tp *tagParser) parseBSONTag(tag string) (fieldName string, omitEmpty, omitOnUpdate bool) {
+// parseBSONTag extracts field information from BSON tags. skip reports the
+// exclusion tag "-", which the driver treats the same way: the field is never
+// encoded.
+func (tp *tagParser) parseBSONTag(tag string) (fieldName string, omitEmpty, omitOnUpdate, skip bool) {
+	if tag == "-" {
+		return "", false, false, true
+	}
+
 	parts := strings.Split(tag, ",")
 	if len(parts) == 0 {
-		return "", false, false
+		return "", false, false, false
 	}
 
 	// Extract field name
@@ -365,13 +371,11 @@ func newFieldProcessor(parser *Parser) *fieldProcessor {
 // processField creates metadata for a single field
 func (fp *fieldProcessor) processField(fieldType reflect.StructField, fieldValue reflect.Value, parentType reflect.Type) *fieldMetadata {
 	// Extract field name from BSON tag
-	fieldName, omitEmpty, omitOnUpdate := fp.tagParser.parseBSONTag(fieldType.Tag.Get(fp.parser.bsonTagName))
-	fieldName = cmp.Or(fieldName, corestrings.InternLowerString(fieldType.Name))
-
-	// Skip fields with "-" or empty names after processing
-	if fieldName == "" {
+	fieldName, omitEmpty, omitOnUpdate, skip := fp.tagParser.parseBSONTag(fieldType.Tag.Get(fp.parser.bsonTagName))
+	if skip {
 		return nil
 	}
+	fieldName = cmp.Or(fieldName, corestrings.InternLowerString(fieldType.Name))
 
 	// Use pooled fieldMetadata to reduce allocations
 	meta := getFieldMetadata()
@@ -421,6 +425,11 @@ type embeddedStructProcessor struct {
 func (esp *embeddedStructProcessor) processEmbeddedStruct(
 	fieldType reflect.StructField, fieldValue reflect.Value, parentType reflect.Type,
 ) []fieldMetadata {
+	// An embedded struct tagged bson:"-" is excluded with all its fields.
+	if _, _, _, skip := esp.fieldProcessor.tagParser.parseBSONTag(fieldType.Tag.Get(esp.fieldProcessor.parser.bsonTagName)); skip {
+		return nil
+	}
+
 	// Handle pointer to embedded struct
 	if fieldValue.Kind() == reflect.Pointer {
 		if fieldValue.IsNil() {

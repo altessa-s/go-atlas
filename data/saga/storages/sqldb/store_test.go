@@ -89,9 +89,9 @@ func TestPlaceholderStyle(t *testing.T) {
 			require.NoError(t, store.Create(ctx, fullInstance()))
 			_, _ = store.Get(ctx, "a")
 			require.NoError(t, store.Update(ctx, fullInstance()))
-			_, err := store.FetchRecoverable(ctx, base, 0)
+			_, err := store.FetchRecoverable(ctx, "", base, 0)
 			require.NoError(t, err)
-			_, err = store.FetchRecoverable(ctx, base, 5)
+			_, err = store.FetchRecoverable(ctx, "", base, 5)
 			require.NoError(t, err)
 			require.NoError(t, store.Delete(ctx, "a"))
 
@@ -267,9 +267,9 @@ func TestFetchRecoverable(t *testing.T) {
 		return testhelpers.FakeSQLReply{Columns: columns}
 	})
 
-	_, err := store.FetchRecoverable(t.Context(), now, 0)
+	_, err := store.FetchRecoverable(t.Context(), "", now, 0)
 	require.NoError(t, err)
-	_, err = store.FetchRecoverable(t.Context(), now, 7)
+	_, err = store.FetchRecoverable(t.Context(), "", now, 7)
 	require.NoError(t, err)
 
 	calls := fake.Calls()
@@ -279,6 +279,30 @@ func TestFetchRecoverable(t *testing.T) {
 	require.Contains(t, calls[1].Query, "LIMIT $6")
 	require.Equal(t, int64(7), calls[1].Args[5])
 	require.Equal(t, 2, fake.RowsClosed())
+}
+
+// TestFetchRecoverableByDefinition pins that the definition filter is part of
+// the query, ahead of LIMIT, so another definition's rows cannot fill the
+// batch.
+func TestFetchRecoverableByDefinition(t *testing.T) {
+	t.Parallel()
+	now := base.Add(500 * time.Millisecond)
+	store, fake := newStore(t, sqldb.DialectPostgres, func(string, []any) testhelpers.FakeSQLReply {
+		return testhelpers.FakeSQLReply{Columns: columns}
+	})
+
+	_, err := store.FetchRecoverable(t.Context(), "place-order", now, 0)
+	require.NoError(t, err)
+	_, err = store.FetchRecoverable(t.Context(), "place-order", now, 7)
+	require.NoError(t, err)
+
+	calls := fake.Calls()
+	require.Len(t, calls, 2)
+	require.Contains(t, calls[0].Query, "AND definition = $6")
+	require.NotContains(t, calls[0].Query, "LIMIT")
+	require.Equal(t, "place-order", calls[0].Args[5])
+	require.Contains(t, calls[1].Query, "AND definition = $6 LIMIT $7")
+	require.Equal(t, []any{"place-order", int64(7)}, calls[1].Args[5:])
 }
 
 func TestErrorsAreWrapped(t *testing.T) {
@@ -291,7 +315,7 @@ func TestErrorsAreWrapped(t *testing.T) {
 	_, err := store.Get(ctx, "a")
 	require.ErrorIs(t, err, errBoom)
 	require.ErrorIs(t, store.Update(ctx, fullInstance()), errBoom)
-	_, err = store.FetchRecoverable(ctx, base, 0)
+	_, err = store.FetchRecoverable(ctx, "", base, 0)
 	require.ErrorIs(t, err, errBoom)
 	require.ErrorIs(t, store.Delete(ctx, "a"), errBoom)
 	require.ErrorIs(t, store.EnsureSchema(ctx), errBoom)

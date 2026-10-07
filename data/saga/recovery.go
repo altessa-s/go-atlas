@@ -70,7 +70,7 @@ func (o *Orchestrator[T]) runRecoveryCycleInternal(ctx context.Context) error {
 	defer cancel()
 	now := time.Now().UTC()
 
-	insts, err := o.store.FetchRecoverable(cycleCtx, now, o.recoveryBatchSize)
+	insts, err := o.store.FetchRecoverable(cycleCtx, o.def.name, now, o.recoveryBatchSize)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "fetch recoverable saga instances")
 	}
