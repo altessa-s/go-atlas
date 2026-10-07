@@ -45,6 +45,10 @@ var (
 	ErrNoResponder = errors.New("revocation: certificate has no OCSP responder URL")
 	// ErrUnknownStatus indicates the responder answered "unknown".
 	ErrUnknownStatus = errors.New("revocation: OCSP responder returned unknown status")
+	// ErrStaleResponse indicates a "good" OCSP response outside its validity
+	// window: its nextUpdate has passed or its thisUpdate is in the future. It is
+	// treated as indeterminate, so the [FailMode] decides the outcome.
+	ErrStaleResponse = errors.New("revocation: OCSP response is not within its validity window")
 )
 
 // responderStatusError carries a non-200 OCSP HTTP status so the retry filter
@@ -86,6 +90,7 @@ type Checker struct {
 	maxAttempts     int
 	maxTTL          time.Duration
 	maxCacheEntries int
+	clockSkew       time.Duration
 	now             func() time.Time
 
 	mu    sync.RWMutex
@@ -118,6 +123,7 @@ func New(issuers []*x509.Certificate, opts ...Option) *Checker {
 		maxAttempts:     o.maxAttempts,
 		maxTTL:          o.maxTTL,
 		maxCacheEntries: o.maxCacheEntries,
+		clockSkew:       o.clockSkew,
 		now:             now,
 		cache:           make(map[string]cacheEntry),
 	}
@@ -131,8 +137,8 @@ func (c *Checker) Validator() coremtls.CertValidator {
 
 // Check reports whether leaf is revoked. It returns [coremtls.ErrRevoked] when
 // the responder confirms revocation, nil when the certificate is good, and — for
-// an indeterminate result (no issuer, no responder, network failure, unknown
-// status) — either nil ([FailOpen]) or a wrapped error ([FailClosed]).
+// an indeterminate result (no issuer, no responder, network failure, unknown or
+// stale status) — either nil ([FailOpen]) or a wrapped error ([FailClosed]).
 func (c *Checker) Check(leaf *x509.Certificate) error {
 	if leaf == nil {
 		return nil
@@ -288,8 +294,17 @@ func (c *Checker) queryOCSP(leaf, issuer *x509.Certificate) (revoked bool, ttl t
 
 	switch resp.Status {
 	case ocsp.Good:
+		// The parser checks the signature, not freshness: a replayed "good"
+		// response past its nextUpdate (or dated in the future) must not vouch
+		// for the certificate.
+		if err := c.checkFreshness(resp); err != nil {
+			return false, 0, err
+		}
 		return false, c.ttlFor(resp), nil
 	case ocsp.Revoked:
+		// A signed revocation is honored even when stale: revocation is
+		// permanent, and demoting it to indeterminate would accept the
+		// certificate under FailOpen.
 		return true, c.ttlFor(resp), nil
 	default:
 		return false, 0, ErrUnknownStatus
@@ -311,6 +326,19 @@ func (c *Checker) post(ctx context.Context, url string, body []byte) ([]byte, er
 		return nil, &responderStatusError{code: resp.StatusCode}
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, maxOCSPRespBytes))
+}
+
+// checkFreshness rejects a response whose validity window does not contain
+// now, tolerating clockSkew on both ends.
+func (c *Checker) checkFreshness(resp *ocsp.Response) error {
+	now := c.now()
+	if resp.ThisUpdate.After(now.Add(c.clockSkew)) {
+		return fmt.Errorf("%w: thisUpdate %s is in the future", ErrStaleResponse, resp.ThisUpdate.Format(time.RFC3339))
+	}
+	if !resp.NextUpdate.IsZero() && now.After(resp.NextUpdate.Add(c.clockSkew)) {
+		return fmt.Errorf("%w: nextUpdate %s has passed", ErrStaleResponse, resp.NextUpdate.Format(time.RFC3339))
+	}
+	return nil
 }
 
 // ttlFor derives the cache lifetime from the response NextUpdate, capped by

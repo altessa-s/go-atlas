@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package ocsp provides OCSP stapling for TLS certificates with caching and compression.
+// Package ocsp provides OCSP stapling for TLS certificates with caching.
 //
 // OCSP (Online Certificate Status Protocol) stapling improves TLS handshake performance
 // by including certificate revocation status in the TLS handshake, so clients
@@ -12,7 +12,9 @@
 //
 //   - Automatic caching of OCSP responses with lazy expiration cleanup
 //   - Scheduler-based refresh via RunRefreshCycle for integration with service/scheduler
-//   - Built-in gzip compression to reduce memory usage by 60-95%
+//   - Response validation: issuer signature, leaf serial number, good status, and
+//     validity window (thisUpdate/nextUpdate with clock-skew tolerance)
+//   - Optional gzip transfer encoding for responder replies (WithCompression)
 //   - Configurable retry policies for network failures
 //   - Thread-safe concurrent operations
 //   - Structured logging support

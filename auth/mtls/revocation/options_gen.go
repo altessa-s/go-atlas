@@ -11,6 +11,16 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithClockSkew sets the clockSkew option.
+func WithClockSkew(v time.Duration) Option {
+	return func(o *options) {
+		if v < 0 {
+			return
+		}
+		o.clockSkew = v
+	}
+}
+
 // WithHTTPClient sets the httpClient option.
 func WithHTTPClient(v *http.Client) Option {
 	return func(o *options) {
@@ -58,6 +68,7 @@ func WithTimeout(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		clockSkew:       DefaultClockSkew,
 		failMode:        DefaultFailMode,
 		maxAttempts:     DefaultMaxAttempts,
 		maxCacheEntries: DefaultMaxCacheEntries,

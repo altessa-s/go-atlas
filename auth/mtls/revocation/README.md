@@ -19,6 +19,7 @@ network-backed counterpart to the in-memory `coremtls.RevocationList`.
 | `WithMaxAttempts(n)`    | OCSP attempts with exponential backoff (default 3).                                            |
 | `WithMaxTTL(d)`         | Caps how long a status is cached, regardless of NextUpdate (default 1h).                       |
 | `WithMaxCacheEntries(n)`| Bounds the status cache (default 4096); on overflow it sweeps expired entries, then evicts one. |
+| `WithClockSkew(d)`      | Tolerance on a response's thisUpdate/nextUpdate (default 5m, zero allowed).                    |
 | `WithClock(now)`        | Time source override (tests).                                                                  |
 
 ## Issuers
@@ -40,6 +41,10 @@ authFn := grpcmtls.AuthFunc(coremtls.WithValidator(checker.Validator()))
 
 `FailOpen` keeps new connections flowing during a responder outage at the cost of briefly trusting a peer whose status is unknown;
 `FailClosed` rejects anything it cannot confirm good. Choose per the cost of an outage versus the cost of accepting a revoked peer.
+
+A response is bound to the leaf (issuer signature and serial number). A `good` response outside its validity window — `nextUpdate`
+passed or `thisUpdate` in the future, beyond the clock skew — is indeterminate (`ErrStaleResponse`) and never cached. A signed `revoked`
+response is honored even when stale, since revocation is permanent.
 
 ## Scope
 
