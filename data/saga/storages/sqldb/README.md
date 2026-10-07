@@ -33,7 +33,7 @@ column is the optimistic-concurrency token, so `Update` rejects a stale writer w
 
 | Operation          | Implementation                                                                                                                    |
 |--------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `Create`           | PostgreSQL: `INSERT … ON CONFLICT (id) DO NOTHING`. MySQL: plain `INSERT`; a failure with the row present is `ErrInstanceExists`. |
+| `Create`           | PostgreSQL: `INSERT … ON CONFLICT (id) DO NOTHING`. MySQL: plain `INSERT`; a duplicate-key error (1062) is `ErrInstanceExists`.  |
 | `Update`           | `UPDATE … WHERE id = ? AND version = ?`; on no match a lookup tells `ErrInstanceNotFound` from `ErrVersionConflict`.              |
 | `FetchRecoverable` | One indexed `SELECT` mirroring `Instance.Recoverable`, compared at full precision against the given `now`.                        |
 | `Delete`           | `DELETE … WHERE id = ?`; a missing row is not an error.                                                                           |
