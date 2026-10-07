@@ -19,21 +19,29 @@ import (
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
-// ErrTimeout is returned when waiting for a Vault token times out during authentication.
 var (
+	// ErrTimeout is returned when waiting for a Vault token times out during authentication.
 	ErrTimeout = errors.New("timeout waiting for Vault token via auth method")
+	// ErrRenewalStopped is returned when the renewal run ends before it obtained
+	// a first token (canceled, superseded by a newer run, or the auth method
+	// panicked) without reporting an authentication error.
+	ErrRenewalStopped = errors.New("vault renewal stopped before a token was obtained")
 )
 
 // Vault is a high-level client for interacting with HashiCorp Vault.
 // It manages authentication, token renewal, and provides access to the underlying Vault API client.
 // Use New to create a new instance.
 type Vault struct {
-	opts       *options
-	auth       *auth.Authenticator
-	authCancel context.CancelFunc
-	logger     *slog.Logger
-	metrics    *vaultMetrics
+	opts    *options
+	logger  *slog.Logger
+	metrics *vaultMetrics
+
+	// mu guards the renewal lifecycle. authDone is the completion channel of
+	// the most recent renewal run; it is kept after the run ends (closed) so a
+	// later run or StopRenewal can always join its predecessor.
 	mu         sync.Mutex
+	authCancel context.CancelFunc
+	authDone   chan struct{}
 }
 
 // New creates a new Vault client with the provided options.
@@ -60,10 +68,7 @@ func New(ctx context.Context, opts ...Option) (*Vault, error) {
 		return nil, err
 	}
 
-	// If we have an auth method, create the authenticator for it.
-	// Authenticator checks auth method and periodically update auth token if needed.
 	if o.authMethod != nil {
-		v.auth = auth.NewAuthenticator(o.vaultClient, o.authMethod, auth.WithLogger(v.logger), auth.WithCollector(o.collector))
 		v.logger.InfoContext(ctx, "vault client initialized", "auth_method", o.authMethod.Name())
 	} else {
 		v.logger.InfoContext(ctx, "vault client initialized", "auth_method", "none")
@@ -78,25 +83,36 @@ func New(ctx context.Context, opts ...Option) (*Vault, error) {
 
 // RunRenewalWithContext starts the authentication token renewal process in a background goroutine.
 // It blocks until the first token is obtained or an error/timeout occurs.
+//
+// Each call starts a fresh renewal run and stops the previous one; the new run
+// begins only after its predecessor has fully exited, so two runs never
+// overlap. Every run re-authenticates with the configured auth method, and the
+// authenticator shuts the method down when a run ends — methods that zero
+// their credentials on Shutdown (token, approle, userpass) therefore cannot be
+// restarted after a previous run ended.
 func (v *Vault) RunRenewalWithContext(ctx context.Context) (err error) {
-	if v.auth == nil {
+	if v.opts.authMethod == nil {
 		return errors.New("no authentication method configured")
 	}
 	if ctx == nil {
 		return errors.New("renewal context cannot be nil")
 	}
 
-	// Ensure only one renewal loop is running at a time.
-	// If RunRenewalWithContext is called again, stop the previous run.
+	// A fresh authenticator per run: its channels are closed when its run ends,
+	// so they must never be shared with a later run.
+	a := auth.NewAuthenticator(v.opts.vaultClient, v.opts.authMethod,
+		auth.WithLogger(v.logger), auth.WithCollector(v.opts.collector))
+
+	// Stop the previous run (if any) and chain this run behind it.
 	v.mu.Lock()
 	if v.authCancel != nil {
 		v.authCancel()
-		v.authCancel = nil
 	}
-
-	// Create the context we'll use to cancel this run.
+	prevDone := v.authDone
 	childCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
 	v.authCancel = cancel
+	v.authDone = done
 	v.mu.Unlock()
 
 	v.metrics.renewalAttempts.Inc()
@@ -105,42 +121,49 @@ func (v *Vault) RunRenewalWithContext(ctx context.Context) (err error) {
 	tmout := time.NewTimer(v.opts.authTimeout)
 	defer tmout.Stop()
 
-	// Start the auth handler
 	go func() {
+		defer close(done)
 		defer panics.Handle(childCtx)
-		v.auth.Run(childCtx)
+		if prevDone != nil {
+			<-prevDone
+		}
+		a.Run(childCtx)
 	}()
 
-	// Wait for our first token to be set on the client before returning
+	// Wait for our first token to be set on the client before returning.
 	v.logger.DebugContext(ctx, "waiting for Vault token")
 	select {
-	case <-v.auth.FirstRenewCh():
+	case <-a.FirstRenewCh():
 		stop()
 		v.logger.DebugContext(ctx, "first auth token received and set")
-	case err = <-v.auth.ErrorsCh():
-		stop()
-		v.metrics.renewalErrors.Inc()
-		cancel()
-		return
+		return nil
+	case runErr, ok := <-a.ErrorsCh():
+		// A token obtained before the run reported an error or ended (e.g. a
+		// non-renewable token, after which the run returns) is still a success.
+		select {
+		case <-a.FirstRenewCh():
+			stop()
+			return nil
+		default:
+		}
+		if !ok {
+			runErr = ErrRenewalStopped
+		}
+		err = runErr
 	case <-tmout.C:
 		// We use a configurable timeout because the auth handler could get
 		// stuck in a failure loop on the first token request if it is
 		// misconfigured. This ensures that we don't block forever on
 		// auth that is never going to succeed.
-		stop()
-		v.metrics.renewalErrors.Inc()
-		cancel()
 		err = ErrTimeout
-		return
 	case <-ctx.Done():
-		stop()
-		v.metrics.renewalErrors.Inc()
-		cancel()
 		err = ctx.Err()
-		return
 	}
 
-	return
+	stop()
+	v.metrics.renewalErrors.Inc()
+	cancel()
+	return err
 }
 
 // RawClient returns the underlying HashiCorp Vault API client for advanced operations.
@@ -153,7 +176,9 @@ func (v *Vault) RawClient() *vaultApi.Client {
 	return v.opts.vaultClient
 }
 
-// StopRenewal cancels the background token renewal process, if running.
+// StopRenewal cancels the background token renewal process, if running, and
+// waits for it to exit. The wait is bounded as long as the auth method honors
+// context cancellation.
 //
 // Example:
 //
@@ -162,10 +187,14 @@ func (v *Vault) StopRenewal() error {
 	v.mu.Lock()
 	cancel := v.authCancel
 	v.authCancel = nil
+	done := v.authDone
 	v.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
+	}
+	if done != nil {
+		<-done
 	}
 	return nil
 }
