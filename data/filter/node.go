@@ -195,16 +195,41 @@ func (n *ListNode) Children() iter.Seq[Node] {
 }
 
 // Walk traverses the AST in depth-first order, calling fn for each node.
-// If fn returns false, traversal stops.
+// If fn returns false, traversal stops: no further node is visited.
 func Walk(root Node, fn func(Node) bool) {
-	if root == nil {
-		return
+	walk(root, fn)
+}
+
+// walk is Walk reporting whether traversal may continue, so a stop requested
+// deep in the tree also ends the traversal of every ancestor's later children.
+func walk(n Node, fn func(Node) bool) bool {
+	if n == nil {
+		return true
 	}
-	if !fn(root) {
-		return
+	if !fn(n) {
+		return false
 	}
-	for child := range root.Children() {
-		Walk(child, fn)
+	for child := range n.Children() {
+		if !walk(child, fn) {
+			return false
+		}
+	}
+	return true
+}
+
+// IsFieldReference reports whether n can name a field: an identifier, or a
+// size() call, whose target a translator resolves the same way. Translators
+// resolve a field operand only after this check, so a string literal on the
+// field side of a comparison — `"$where" == "x"` — cannot bypass the
+// allow-list and field mapping applied to identifiers.
+func IsFieldReference(n Node) bool {
+	switch n := n.(type) {
+	case *IdentNode:
+		return true
+	case *CallNode:
+		return n.Op == OpSize
+	default:
+		return false
 	}
 }
 

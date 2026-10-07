@@ -102,3 +102,18 @@ func BenchmarkEvaluate_Parallel(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkEvaluate_Matches measures a matches() evaluation once the regex
+// cache is warm: per-record work must not recompile the pattern.
+func BenchmarkEvaluate_Matches(b *testing.B) {
+	p, _ := filter.NewParser(filter.WithParserNoCache())
+	eval := mustEvaluator(b)
+	node, _ := p.Parse(b.Context(), `email.matches("^[a-z]+@example\\.(com|org)$")`)
+	data := map[string]any{"email": "alice@example.com"}
+	_, _ = eval.Evaluate(node, data) // warm the cache
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = eval.Evaluate(node, data)
+	}
+}
