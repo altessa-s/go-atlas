@@ -15,9 +15,9 @@ type timer struct {
 	*histogram
 }
 
-func newTimer(name string, labelNames []string, buckets []float64, adapter adapters.Adapter) *timer {
+func newTimer(name string, adapter adapters.Adapter) *timer {
 	return &timer{
-		histogram: newHistogram(name, labelNames, buckets, adapter),
+		histogram: newHistogram(name, adapter),
 	}
 }
 

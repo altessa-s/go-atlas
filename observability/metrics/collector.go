@@ -17,7 +17,8 @@ import (
 type collector struct {
 	serviceName string
 	adapter     adapters.Adapter
-	metrics     sync.Map // map[string]any (Counter, Gauge, etc.)
+	metrics     sync.Map   // map[string]any (Counter, Gauge, etc.)
+	createMu    sync.Mutex // serializes metric creation + registration before publication
 	shutdown    atomic.Bool
 }
 
@@ -130,9 +131,9 @@ func must[T any](opts validator, create func() T) T {
 func (r *collector) getOrCreateCounter(subsystem string, opts MetricOpts) Counter {
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 
-	return shared.GetOrCreateWithCallback(&r.metrics, fullName,
+	return shared.GetOrCreateWithCallback(&r.metrics, &r.createMu, fullName,
 		func() *counter {
-			return newCounter(fullName, opts.LabelNames, r.adapter)
+			return newCounter(fullName, r.adapter)
 		},
 		func() {
 			r.register(fullName, opts.Help, adapters.TypeCounter, opts.LabelNames, nil)
@@ -144,9 +145,9 @@ func (r *collector) getOrCreateCounter(subsystem string, opts MetricOpts) Counte
 func (r *collector) getOrCreateGauge(subsystem string, opts MetricOpts) Gauge {
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 
-	return shared.GetOrCreateWithCallback(&r.metrics, fullName,
+	return shared.GetOrCreateWithCallback(&r.metrics, &r.createMu, fullName,
 		func() *gauge {
-			return newGauge(fullName, opts.LabelNames, r.adapter)
+			return newGauge(fullName, r.adapter)
 		},
 		func() {
 			r.register(fullName, opts.Help, adapters.TypeGauge, opts.LabelNames, nil)
@@ -159,9 +160,9 @@ func (r *collector) getOrCreateHistogram(subsystem string, opts HistogramOpts) H
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 	buckets := bucketsOrDefault(opts.Buckets)
 
-	return shared.GetOrCreateWithCallback(&r.metrics, fullName,
+	return shared.GetOrCreateWithCallback(&r.metrics, &r.createMu, fullName,
 		func() *histogram {
-			return newHistogram(fullName, opts.LabelNames, buckets, r.adapter)
+			return newHistogram(fullName, r.adapter)
 		},
 		func() {
 			r.register(fullName, opts.Help, adapters.TypeHistogram, opts.LabelNames, buckets)
@@ -174,9 +175,9 @@ func (r *collector) getOrCreateTimer(subsystem string, opts HistogramOpts) Timer
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 	buckets := bucketsOrDefault(opts.Buckets)
 
-	return shared.GetOrCreateWithCallback(&r.metrics, fullName,
+	return shared.GetOrCreateWithCallback(&r.metrics, &r.createMu, fullName,
 		func() *timer {
-			return newTimer(fullName, opts.LabelNames, buckets, r.adapter)
+			return newTimer(fullName, r.adapter)
 		},
 		func() {
 			r.register(fullName, opts.Help, adapters.TypeHistogram, opts.LabelNames, buckets)

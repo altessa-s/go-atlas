@@ -8,18 +8,14 @@ import "github.com/altessa-s/go-atlas/observability/metrics/adapters"
 
 // histogram is the default implementation of Histogram.
 type histogram struct {
-	name       string
-	labelNames []string
-	buckets    []float64
-	adapter    adapters.Adapter
+	name    string
+	adapter adapters.Adapter
 }
 
-func newHistogram(name string, labelNames []string, buckets []float64, adapter adapters.Adapter) *histogram {
+func newHistogram(name string, adapter adapters.Adapter) *histogram {
 	return &histogram{
-		name:       name,
-		labelNames: labelNames,
-		buckets:    CopyBuckets(buckets),
-		adapter:    adapter,
+		name:    name,
+		adapter: adapter,
 	}
 }
 

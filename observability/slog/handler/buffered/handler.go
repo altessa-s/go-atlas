@@ -8,7 +8,6 @@ import (
 	"context"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/internal/base"
@@ -16,15 +15,36 @@ import (
 
 // Handler wraps another [slog.Handler] and processes log records asynchronously
 // via a background goroutine. Safe for concurrent use.
-// Call [Handler.Shutdown] to drain the buffer and stop the worker.
+// Handlers derived via [Handler.WithAttrs] and [Handler.WithGroup] share the
+// worker and buffer of the handler they were derived from.
+// Call [Handler.Shutdown] on any of them to drain the buffer and stop the worker.
 type Handler struct {
 	base.Base
+	p *pipeline
+}
+
+// pipeline is the buffer and worker shared by a handler and all handlers
+// derived from it.
+type pipeline struct {
 	opts    options
-	records chan slog.Record
+	records chan entry
 	flushCh chan chan struct{}
 	stop    chan struct{}
-	wg      sync.WaitGroup
-	stopped atomic.Bool
+	done    chan struct{}
+
+	// mu orders enqueues against shutdown: records are enqueued under the read
+	// lock while stopped is false, so every queued record is in the channel
+	// before stop is closed and the worker drains it.
+	mu       sync.RWMutex
+	stopped  bool
+	stopOnce sync.Once
+}
+
+// entry is a queued record together with the inner handler of the
+// (possibly derived) handler that accepted it.
+type entry struct {
+	handler slog.Handler
+	record  slog.Record
 }
 
 // options contains configuration for the buffered handler.
@@ -64,17 +84,18 @@ func NewHandler(inner slog.Handler, opts ...Option) *Handler {
 		opt(&o)
 	}
 
-	h := &Handler{
-		Base:    base.NewBase(inner),
+	b := base.NewBase(inner) // panics on a nil inner before the worker starts
+
+	p := &pipeline{
 		opts:    o,
-		records: make(chan slog.Record, o.bufferSize),
+		records: make(chan entry, o.bufferSize),
 		flushCh: make(chan chan struct{}),
 		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
 	}
+	go p.worker()
 
-	h.wg.Go(h.worker)
-
-	return h
+	return &Handler{Base: b, p: p}
 }
 
 // Enabled delegates to the inner handler.
@@ -86,92 +107,92 @@ func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 // If the record level meets the bypass level, it flushes the buffer and writes synchronously.
 // Otherwise, it sends the record to the buffer.
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
+	p := h.p
+	p.mu.RLock()
+
 	// Check if already stopped
-	if h.stopped.Load() {
+	if p.stopped {
+		p.mu.RUnlock()
 		return h.Inner().Handle(ctx, r)
 	}
 
 	// Bypass buffer for high severity logs to avoid loss on crash
-	if r.Level >= h.opts.bypassLevel {
-		h.flush()
+	if r.Level >= p.opts.bypassLevel {
+		p.mu.RUnlock()
+		p.flush()
 		return h.Inner().Handle(ctx, r)
 	}
 
-	// Try to send to buffer
+	// Try to send to buffer; the send never blocks while holding the lock.
 	select {
-	case h.records <- base.CloneRecord(r):
+	case p.records <- entry{handler: h.Inner(), record: r.Clone()}:
+		p.mu.RUnlock()
 		return nil
 	default:
+		p.mu.RUnlock()
 		// Buffer full - fallback to synchronous write to avoid dropping
-		// Alternatively could implement drop logic or blocking
 		return h.Inner().Handle(ctx, r)
 	}
 }
 
-// WithAttrs returns a new generic handler because we can't easily clone the worker logic.
-// However, the standard pattern for stateful handlers is tricky.
-// For a buffered handler, usually it sits at the top or bottom.
-// If we return a new BufferedHandler, it would need its own goroutine.
-// Instead, we delegate WithAttrs to the inner handler and keep using THIS buffered handler instance?
-// No, the slog contract expects immutable handlers.
-// So we create a new buffered handler that shares nothing with the old one,
-// but wraps the NEW inner handler.
+// WithAttrs returns a buffered handler wrapping the inner handler's WithAttrs
+// result. It shares the buffer and worker of h, so no goroutine is started.
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return NewHandler(h.Inner().WithAttrs(attrs), WithBufferSize(h.opts.bufferSize), WithBypassLevel(h.opts.bypassLevel))
+	return &Handler{Base: h.WithAttrsBase(attrs), p: h.p}
 }
 
-// WithGroup returns a new buffered handler.
+// WithGroup returns a buffered handler wrapping the inner handler's WithGroup
+// result. It shares the buffer and worker of h, so no goroutine is started.
 func (h *Handler) WithGroup(name string) slog.Handler {
-	return NewHandler(h.Inner().WithGroup(name), WithBufferSize(h.opts.bufferSize), WithBypassLevel(h.opts.bypassLevel))
+	return &Handler{Base: h.WithGroupBase(name), p: h.p}
 }
 
-// Shutdown flushes the buffer and stops the worker.
+// Shutdown flushes the buffer and stops the worker shared by h and all
+// handlers derived from it. Every caller waits until the worker has drained
+// the buffer or ctx is done.
 func (h *Handler) Shutdown(ctx context.Context) error {
-	if !h.stopped.CompareAndSwap(false, true) {
-		return nil
-	}
-
-	close(h.stop)
-
-	done := make(chan struct{})
-	go func() {
-		h.wg.Wait()
-		close(done)
-	}()
+	p := h.p
+	p.stopOnce.Do(func() {
+		p.mu.Lock()
+		p.stopped = true
+		close(p.stop)
+		p.mu.Unlock()
+	})
 
 	select {
-	case <-done:
+	case <-p.done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
 
-func (h *Handler) worker() {
+func (p *pipeline) worker() {
+	defer close(p.done)
 	defer panics.Handle(context.Background())
 
 	for {
 		select {
-		case r := <-h.records:
-			h.Inner().Handle(context.Background(), r) //nolint:errcheck // best-effort async write
-		case done := <-h.flushCh:
+		case e := <-p.records:
+			e.write()
+		case done := <-p.flushCh:
 			// Drain buffer
 		FlushLoop:
 			for {
 				select {
-				case r := <-h.records:
-					h.Inner().Handle(context.Background(), r) //nolint:errcheck // best-effort flush
+				case e := <-p.records:
+					e.write()
 				default:
 					close(done)
 					break FlushLoop
 				}
 			}
-		case <-h.stop:
+		case <-p.stop:
 			// Drain buffer
 			for {
 				select {
-				case r := <-h.records:
-					h.Inner().Handle(context.Background(), r) //nolint:errcheck // best-effort drain on shutdown
+				case e := <-p.records:
+					e.write()
 				default:
 					return
 				}
@@ -180,14 +201,19 @@ func (h *Handler) worker() {
 	}
 }
 
+// write is a best-effort asynchronous write of the queued record.
+func (e entry) write() {
+	e.handler.Handle(context.Background(), e.record) //nolint:errcheck // best-effort async write
+}
+
 // flush sends a signal to worker to drain the buffer.
 // It blocks until the worker confirms the buffer is empty.
-func (h *Handler) flush() {
+func (p *pipeline) flush() {
 	done := make(chan struct{})
 	select {
-	case h.flushCh <- done:
+	case p.flushCh <- done:
 		<-done
-	case <-h.stop:
+	case <-p.stop:
 		// If stopped, we assume it's flushing/flushed or we can't do much
 	}
 }

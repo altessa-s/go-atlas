@@ -68,13 +68,16 @@ func newWatcher(buffer int, initialStatus ServingStatus) *watcher {
 	return w
 }
 
-func (w *watcher) notify(status ServingStatus) {
+// notify delivers status without blocking and reports whether it was sent.
+// It returns false when the watcher is closed or its buffer is full.
+func (w *watcher) notify(status ServingStatus) bool {
 	if w.closed.Load() != 0 {
-		return
+		return false
 	}
 
 	// Non-blocking send; a close racing with the send is silently absorbed.
-	_, _ = panics.TrySendNonBlocking(w.ch, status)
+	sent, _ := panics.TrySendNonBlocking(w.ch, status)
+	return sent
 }
 
 func (w *watcher) close() {
