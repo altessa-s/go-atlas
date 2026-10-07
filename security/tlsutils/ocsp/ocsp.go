@@ -26,7 +26,6 @@ import (
 	"golang.org/x/crypto/ocsp"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreio "github.com/altessa-s/go-atlas/core/io"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -43,66 +42,22 @@ const (
 	// OCSP responses are refreshed when less than this duration remains until expiration.
 	refreshBuffer = time.Hour
 	// maxOCSPResponseSize caps how many bytes are read from an OCSP responder
-	// (including after transparent gzip decompression) and from the stapler's
-	// own cache decompression path. DER-encoded OCSP responses are a few KB;
+	// (including after transparent gzip decompression). DER-encoded OCSP responses are a few KB;
 	// 1 MiB is far above any legitimate response.
 	maxOCSPResponseSize = 1 << 20 // 1 MiB
+	// ocspClockSkew is the tolerance applied to a response's thisUpdate and
+	// nextUpdate when checking that it is currently valid.
+	ocspClockSkew = 5 * time.Minute
 )
 
-// gzip pools for reduced allocations
-var (
-	gzipWriterPool = sync.Pool{
-		New: func() any {
-			return gzip.NewWriter(io.Discard)
-		},
-	}
-
-	gzipReaderPool = sync.Pool{
-		New: func() any {
-			r, err := gzip.NewReader(bytes.NewReader(nil))
-			if err != nil {
-				// This should never happen with an empty reader,
-				// but return nil to be handled by getGzipReader
-				return nil
-			}
-			return r
-		},
-	}
-)
-
-func getGzipWriter(w io.Writer) *gzip.Writer {
-	gw, ok := gzipWriterPool.Get().(*gzip.Writer)
-	if !ok || gw == nil {
-		return gzip.NewWriter(w)
-	}
-	gw.Reset(w)
-	return gw
-}
-
-func putGzipWriter(gw *gzip.Writer) {
-	gzipWriterPool.Put(gw)
-}
-
-func getGzipReader(r io.Reader) (*gzip.Reader, error) {
-	gr, ok := gzipReaderPool.Get().(*gzip.Reader)
-	if !ok || gr == nil {
-		return gzip.NewReader(r)
-	}
-	if err := gr.Reset(r); err != nil {
-		gzipReaderPool.Put(gr)
-		return nil, err
-	}
-	return gr, nil
-}
-
-func putGzipReader(gr *gzip.Reader) {
-	gzipReaderPool.Put(gr)
-}
+// ErrStaleResponse indicates an OCSP response outside its validity window: its
+// nextUpdate has passed or its thisUpdate is in the future.
+var ErrStaleResponse = errors.New("ocsp: response is not within its validity window")
 
 var _ tlsutils.OCSPStapler = (*Stapler)(nil)
 
 // Stapler manages OCSP stapling for TLS certificates.
-// It provides automatic caching, compression, and refresh of OCSP responses.
+// It provides automatic caching and refresh of OCSP responses.
 // All methods are safe for concurrent use.
 //
 // For automatic refresh, use WithScheduler and WithRefreshSchedule options:
@@ -145,18 +100,18 @@ func (s *Stapler) FailureMode() FailureMode {
 	return s.failureMode
 }
 
+// ocspCacheEntry holds the raw DER response. It is not compressed: signed DER
+// OCSP responses are effectively incompressible, so gzip would save no memory
+// while costing a decode on every handshake.
 type ocspCacheEntry struct {
-	response       []byte
-	nextUpdate     time.Time
-	originalSize   int
-	compressedSize int
-	cert           *tls.Certificate
-	mu             sync.RWMutex
-	isCompressed   bool
+	response   []byte
+	nextUpdate time.Time
+	cert       *tls.Certificate
+	mu         sync.RWMutex
 }
 
 // NewOCSPStapler creates a new OCSP stapler with the specified options.
-// By default, compression is enabled and no retry policy is configured.
+// By default, compression is disabled and no retry policy is configured.
 //
 // Example:
 //
@@ -203,61 +158,8 @@ func NewOCSPStapler(opts ...Option) *Stapler {
 	return s
 }
 
-// compressData compresses data using gzip with pooled buffers and writers.
-// Returns the original data if it's empty.
-func compressData(data []byte) ([]byte, error) {
-	if len(data) == 0 {
-		return data, nil
-	}
-
-	buf := coreio.GetBuffer()
-	defer coreio.PutBuffer(buf)
-
-	writer := getGzipWriter(buf)
-	defer putGzipWriter(writer)
-
-	if _, err := writer.Write(data); err != nil {
-		_ = writer.Close() //nolint:errcheck
-		return nil, coreerrs.WrapOperation(err, "write compressed data")
-	}
-
-	if err := writer.Close(); err != nil {
-		return nil, coreerrs.WrapOperation(err, "close gzip writer")
-	}
-
-	// Return a copy since we're returning the buffer to the pool
-	result := make([]byte, buf.Len())
-	copy(result, buf.Bytes())
-	return result, nil
-}
-
-// decompressData decompresses gzip data using pooled readers.
-// Returns the original data if it's empty.
-func decompressData(data []byte) ([]byte, error) {
-	if len(data) == 0 {
-		return data, nil
-	}
-
-	reader, err := getGzipReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "create gzip reader")
-	}
-	defer putGzipReader(reader)
-
-	decompressed, err := io.ReadAll(io.LimitReader(reader, maxOCSPResponseSize+1))
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "decompress data")
-	}
-	if len(decompressed) > maxOCSPResponseSize {
-		return nil, fmt.Errorf("decompressed OCSP response exceeds %d bytes", maxOCSPResponseSize)
-	}
-
-	return decompressed, nil
-}
-
 // GetOCSPStaple returns the OCSP staple for the given certificate.
 // It checks the cache first and fetches a new response if necessary.
-// The response is automatically compressed if compression is enabled.
 // The context controls the HTTP request timeout and cancellation.
 //
 // Example:
@@ -300,30 +202,12 @@ func (s *Stapler) GetOCSPStaple(ctx context.Context, cert *tls.Certificate) ([]b
 		// serialize RunRefreshCycle behind handshake traffic).
 		entry.mu.RLock()
 		valid := time.Now().Before(entry.nextUpdate)
-		isCompressed := entry.isCompressed
 		response := entry.response
-		originalSize := entry.originalSize
-		compressedSize := entry.compressedSize
 		entry.mu.RUnlock()
 
 		// Return cached response if still valid
 		if valid {
-			if isCompressed {
-				// Decompress before returning
-				decompressed, err := decompressData(response)
-				if err != nil {
-					s.logger.WarnContext(ctx, "failed to decompress cached OCSP response", slog.Any("error", err))
-					// Fall through to fetch new response
-				} else {
-					s.logger.DebugContext(ctx, "returning decompressed OCSP response from cache",
-						"original_size", originalSize,
-						"compressed_size", compressedSize,
-						"compression_ratio", float64(compressedSize)/float64(originalSize))
-					return decompressed, nil
-				}
-			} else {
-				return response, nil
-			}
+			return response, nil
 		}
 	}
 
@@ -333,7 +217,7 @@ func (s *Stapler) GetOCSPStaple(ctx context.Context, cert *tls.Certificate) ([]b
 		return nil, err
 	}
 
-	cacheEntry := s.prepareCacheEntry(ctx, response, nextUpdate)
+	cacheEntry := &ocspCacheEntry{response: response, nextUpdate: nextUpdate}
 
 	s.mu.Lock()
 	// Enforce the cap before inserting. evictOldestLocked picks the
@@ -434,7 +318,7 @@ func (s *Stapler) fetchOCSPResponse(ctx context.Context, cert *tls.Certificate, 
 
 			// Request gzip compression if enabled
 			if s.enableCompression {
-				httpReq.Header.Set("Accept-Encoding", "gzip, deflate")
+				httpReq.Header.Set("Accept-Encoding", "gzip")
 			}
 
 			resp, err := s.httpClient.Do(httpReq)
@@ -472,7 +356,9 @@ func (s *Stapler) fetchOCSPResponse(ctx context.Context, cert *tls.Certificate, 
 				return fmt.Errorf("OCSP response exceeds %d bytes", maxOCSPResponseSize)
 			}
 
-			parsedResp, err = ocsp.ParseResponse(ocspResp, issuerCert)
+			// ParseResponseForCert also binds the response to the leaf's serial:
+			// a CA-signed response for a sibling certificate must not be stapled.
+			parsedResp, err = ocsp.ParseResponseForCert(ocspResp, leafCert, issuerCert)
 			if err != nil {
 				return coreerrs.WrapOperation(err, "parse OCSP response")
 			}
@@ -517,14 +403,34 @@ func (s *Stapler) fetchOCSPResponse(ctx context.Context, cert *tls.Certificate, 
 		return nil, time.Time{}, fmt.Errorf("certificate status is not good: %v", parsedResp.Status)
 	}
 
+	// The parser verifies the signature but not freshness: a replayed or
+	// not-yet-valid "good" response must not be stapled (clients reject it, and
+	// in Hard mode it would mask a revocation that happened after NextUpdate).
+	now := time.Now()
+	if err := checkFreshness(parsedResp, now); err != nil {
+		return nil, time.Time{}, err
+	}
+
 	// Calculate next update time
 	nextUpdate := parsedResp.NextUpdate
-	if nextUpdate.IsZero() || nextUpdate.After(time.Now().Add(7*24*time.Hour)) {
+	if nextUpdate.IsZero() || nextUpdate.After(now.Add(7*24*time.Hour)) {
 		// If no next update or too far in the future, refresh in 24 hours
-		nextUpdate = time.Now().Add(DefaultOCSPExpiry)
+		nextUpdate = now.Add(DefaultOCSPExpiry)
 	}
 
 	return ocspResp, nextUpdate, nil
+}
+
+// checkFreshness rejects a response whose validity window does not contain
+// now, tolerating ocspClockSkew on both ends.
+func checkFreshness(resp *ocsp.Response, now time.Time) error {
+	if resp.ThisUpdate.After(now.Add(ocspClockSkew)) {
+		return fmt.Errorf("%w: thisUpdate %s is in the future", ErrStaleResponse, resp.ThisUpdate.Format(time.RFC3339))
+	}
+	if !resp.NextUpdate.IsZero() && now.After(resp.NextUpdate.Add(ocspClockSkew)) {
+		return fmt.Errorf("%w: nextUpdate %s has passed", ErrStaleResponse, resp.NextUpdate.Format(time.RFC3339))
+	}
+	return nil
 }
 
 // NeedsRefresh returns true if the certificate's OCSP response needs refreshing.
@@ -624,15 +530,9 @@ func (s *Stapler) RunRefreshCycle(ctx context.Context, cert *tls.Certificate) er
 		return err
 	}
 
-	// Update cache entry with optional compression
-	newEntry := s.prepareCacheEntry(ctx, response, nextUpdate)
-
 	entry.mu.Lock()
-	entry.response = newEntry.response
-	entry.nextUpdate = newEntry.nextUpdate
-	entry.isCompressed = newEntry.isCompressed
-	entry.originalSize = newEntry.originalSize
-	entry.compressedSize = newEntry.compressedSize
+	entry.response = response
+	entry.nextUpdate = nextUpdate
 	entry.mu.Unlock()
 
 	s.logger.DebugContext(ctx, "OCSP response refreshed successfully",
@@ -655,38 +555,6 @@ func (s *Stapler) removeExpiredEntries() {
 		if expired {
 			delete(s.cache, key)
 		}
-	}
-}
-
-// prepareCacheEntry creates a cache entry with optional compression.
-func (s *Stapler) prepareCacheEntry(ctx context.Context, response []byte, nextUpdate time.Time) *ocspCacheEntry {
-	originalSize := len(response)
-	isCompressed := false
-	compressedSize := originalSize
-	data := response
-
-	if s.enableCompression && originalSize > 0 {
-		if compressed, err := compressData(response); err == nil {
-			data = compressed
-			isCompressed = true
-			compressedSize = len(compressed)
-
-			s.logger.DebugContext(ctx, "compressed OCSP response",
-				slog.Int("original_size", originalSize),
-				slog.Int("compressed_size", compressedSize),
-				slog.Float64("compression_ratio", float64(compressedSize)/float64(originalSize)))
-		} else {
-			s.logger.WarnContext(ctx, "failed to compress OCSP response, storing uncompressed",
-				slog.Any("error", err))
-		}
-	}
-
-	return &ocspCacheEntry{
-		response:       data,
-		nextUpdate:     nextUpdate,
-		isCompressed:   isCompressed,
-		originalSize:   originalSize,
-		compressedSize: compressedSize,
 	}
 }
 
