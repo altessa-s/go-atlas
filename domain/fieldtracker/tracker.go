@@ -332,7 +332,13 @@ func (ft *Tracker) fastCompare(before, after reflect.Value, prefix string, chang
 		if before.IsNil() || after.IsNil() {
 			return false
 		}
-		return ft.fastCompare(before.Elem(), after.Elem(), prefix, changed, depth)
+		beforeElem, afterElem := before.Elem(), after.Elem()
+		// Dynamic types may differ behind an interface; the kind dispatch
+		// below assumes both sides share a type.
+		if beforeElem.Type() != afterElem.Type() {
+			return false
+		}
+		return ft.fastCompare(beforeElem, afterElem, prefix, changed, depth)
 
 	default:
 		// Fallback to DeepEqual for complex types
@@ -387,9 +393,7 @@ func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, 
 		}
 
 		pathStr := buildPath(i)
-		if beforeItem.Kind() == reflect.Struct {
-			ft.compareStructsFast(beforeItem, afterItem, pathStr, changed, depth)
-		} else if !ft.fastCompare(beforeItem, afterItem, pathStr, changed, depth) {
+		if !ft.fastCompare(beforeItem, afterItem, pathStr, changed, depth) {
 			if !ft.isIgnored(pathStr) {
 				*changed = append(*changed, pathStr)
 			}
