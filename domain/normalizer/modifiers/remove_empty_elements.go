@@ -86,11 +86,10 @@ func shouldKeepElement(elem reflect.Value, isPointer bool) bool {
 			return false
 		}
 
-		// Check if it's a valid *string and not empty
-		if strPtr, ok := reflect.TypeAssert[*string](elem); ok && strPtr != nil {
-			return !corestrings.IsEmptyOrWhitespace(*strPtr)
-		}
-		return false
+		// Read the pointee through reflection rather than asserting *string,
+		// which fails for a pointer to a named string type and would drop
+		// every element of, say, a []*Tag.
+		return !corestrings.IsEmptyOrWhitespace(elem.Elem().String())
 	}
 
 	// For string elements
