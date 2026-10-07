@@ -6,7 +6,10 @@ package health_test
 
 import (
 	"context"
+	"slices"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -44,6 +47,81 @@ func TestCoordinator_ListServices(t *testing.T) {
 	}
 	require.True(t, services["svc1"], "ListServices() missing svc1")
 	require.True(t, services["svc2"], "ListServices() missing svc2")
+}
+
+func TestCoordinator_ListServices_UnregisterDuringIteration(t *testing.T) {
+	t.Parallel()
+
+	// No deferred Close: on a deadlock it would block on the held lock and
+	// hang the test instead of failing it.
+	c := health.New()
+
+	for _, name := range []string{"a", "b", "c"} {
+		c.RegisterService(name, health.Func(func(context.Context) health.ServingStatus {
+			return health.StatusServing
+		}))
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for name := range c.ListServices() {
+			c.UnregisterService(name)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ListServices deadlocked when the loop body unregistered a service")
+	}
+	require.Empty(t, slices.Collect(c.ListServices()))
+	c.Close()
+}
+
+func TestCoordinator_DroppedUpdateIsRetried(t *testing.T) {
+	t.Parallel()
+
+	var status atomic.Int32
+	status.Store(int32(health.StatusServing))
+	c := health.New(health.WithWatcherChannelBuffer(1))
+	defer c.Close()
+	cycle := func() {
+		t.Helper()
+		c.TriggerRecheckAll() // bypass the status cache
+		require.NoError(t, c.RunHealthCheckCycle(t.Context()))
+	}
+	c.RegisterService("svc", health.Func(func(context.Context) health.ServingStatus {
+		return health.ServingStatus(status.Load())
+	}))
+
+	sub, err := c.Subscribe(t.Context(), "svc")
+	require.NoError(t, err)
+	defer sub.Close()
+	require.Equal(t, health.StatusServing, sub.InitialStatus())
+
+	// Serving -> NotServing -> Serving without consuming: the buffer holds
+	// NotServing and the final Serving update is dropped.
+	status.Store(int32(health.StatusNotServing))
+	cycle()
+	status.Store(int32(health.StatusServing))
+	cycle()
+
+	select {
+	case got := <-sub.Updates():
+		require.Equal(t, health.StatusNotServing, got)
+	default:
+		t.Fatal("NotServing update was not delivered")
+	}
+
+	// The next cycle must retry the dropped Serving update.
+	cycle()
+	select {
+	case got := <-sub.Updates():
+		require.Equal(t, health.StatusServing, got)
+	default:
+		t.Fatal("dropped Serving update was never retried")
+	}
 }
 
 func TestCoordinator_ListStatuses(t *testing.T) {

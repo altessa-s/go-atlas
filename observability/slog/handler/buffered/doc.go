@@ -10,6 +10,10 @@
 // entries are never lost. When the buffer is full, records fall back to
 // synchronous writes rather than being dropped.
 //
+// Handlers derived via WithAttrs/WithGroup (e.g. through [slog.Logger.With])
+// share the buffer and worker of their parent; shutting down any of them
+// drains and stops the shared worker.
+//
 // Call [Handler.Shutdown] before process exit to drain the buffer. The handler
 // also implements [slogx.HandlerWithShutdown], so [slogx.Shutdown] can
 // traverse the handler chain automatically.
