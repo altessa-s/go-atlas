@@ -150,7 +150,8 @@ func (s *store) Acquire(ctx context.Context, key, owner string) (uint64, bool, e
 	}}}}
 	var doc lockDoc
 	err := s.coll.FindOneAndUpdate(ctx, bson.M{"_id": key}, update,
-		mongoopts.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(mongoopts.After)).Decode(&doc)
+		mongoopts.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(mongoopts.After).
+			SetProjection(bson.M{"_id": 0, "owner": 1, "fencing": 1})).Decode(&doc)
 	switch {
 	case mongodrv.IsDuplicateKeyError(err):
 		// Two first uses of the key raced to insert it; the other won.
