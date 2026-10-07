@@ -40,11 +40,10 @@ type S3 struct {
 	privKeyKey  string
 	keyPassword string
 
-	mu          sync.RWMutex
-	tlsConfig   *tls.Config
-	certificate *tls.Certificate
-	certETag    string
-	keyETag     string
+	mu        sync.RWMutex
+	tlsConfig *tls.Config
+	certETag  string
+	keyETag   string
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -111,18 +110,10 @@ func New(bucket, certObjectKey, privKeyObjectKey, keyPassword string, opts ...Op
 	baseCtx := corecontext.OrBackground(o.ctx)
 	p.ctx, p.cancel = context.WithCancel(baseCtx)
 
-	// Load initial certificate
+	// Load initial certificate (loadCertificate also applies OCSP stapling).
 	if err := p.loadCertificate(p.ctx); err != nil {
 		p.cancel()
 		return nil, err
-	}
-
-	// Initialize OCSP stapler if provided
-	if p.ocspStapler != nil {
-		if err := ocsp.StapleOCSPToConfig(p.tlsConfig, p.ocspStapler); err != nil {
-			p.cancel()
-			return nil, err
-		}
 	}
 
 	// Start polling goroutine
@@ -199,20 +190,21 @@ func (p *S3) loadCertificate(ctx context.Context) error {
 	tlsConfig := tlsutils.DefaultTLSConfig()
 	tlsConfig.Certificates = []tls.Certificate{*cert}
 
-	p.mu.Lock()
-	p.tlsConfig = tlsConfig
-	p.certificate = cert
-	p.certETag = certETag
-	p.keyETag = keyETag
-	p.mu.Unlock()
-
-	// If OCSP stapler exists, refresh OCSP for new certificate
+	// Install the OCSP stapling callback before publishing: once the config is
+	// visible to TLSConfig it must not be mutated, or a concurrent Clone races
+	// with the write and may return a config without the stapling callback.
 	if p.ocspStapler != nil {
 		//nolint:contextcheck // closures obtain context from TLS handshake info, not from caller
 		if err := ocsp.StapleOCSPToConfig(tlsConfig, p.ocspStapler); err != nil {
 			p.logger.WarnContext(ctx, "failed to apply OCSP stapling to reloaded certificate", slog.Any("error", err))
 		}
 	}
+
+	p.mu.Lock()
+	p.tlsConfig = tlsConfig
+	p.certETag = certETag
+	p.keyETag = keyETag
+	p.mu.Unlock()
 
 	p.logger.DebugContext(ctx, "certificate loaded from S3",
 		"bucket", p.bucket,

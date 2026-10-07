@@ -9,8 +9,9 @@ import (
 	"fmt"
 	"iter"
 	"slices"
-	"strings"
 	"time"
+
+	"github.com/altessa-s/go-atlas/auth/internal/claimscope"
 )
 
 // Claims is a JWT claim set: the decoded payload as a map plus typed accessors
@@ -168,28 +169,5 @@ func normalizeStringList(v any) ([]string, bool) {
 // scopeSeq yields the scopes carried by a scope claim value, splitting a
 // space-separated string (OAuth 2.0 style) or iterating an array.
 func scopeSeq(v any) iter.Seq[string] {
-	return func(yield func(string) bool) {
-		switch t := v.(type) {
-		case string:
-			for field := range strings.FieldsSeq(t) {
-				if !yield(field) {
-					return
-				}
-			}
-		case []string:
-			for _, s := range t {
-				if !yield(s) {
-					return
-				}
-			}
-		case []any:
-			for _, raw := range t {
-				if s, ok := raw.(string); ok {
-					if !yield(s) {
-						return
-					}
-				}
-			}
-		}
-	}
+	return claimscope.Seq(v)
 }

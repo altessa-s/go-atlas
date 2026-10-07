@@ -140,7 +140,7 @@ func (v *Verifier) publicKey(ctx context.Context, subject, kid string) (Verifica
 	// before the lookup, so a verification that starts after InvalidateKey /
 	// InvalidateSubject never joins a flight that may have read a retired key.
 	gen := v.cache.generation()
-	res, err, _ := v.flight.Do(flightKey(subject, kid, gen), func() (any, error) {
+	ch := v.flight.DoChan(flightKey(subject, kid, gen), func() (any, error) {
 		// Re-check the cache: a peer flight for this key may have populated it
 		// between our miss above and our entry into the singleflight group.
 		if vk, ok := v.cache.get(subject, kid); ok {
@@ -150,8 +150,11 @@ func (v *Verifier) publicKey(ctx context.Context, subject, kid string) (Verifica
 		// singleflight shares one flight across all concurrent callers for this
 		// (subject, kid), so honoring the winner's cancel/deadline here would
 		// fail every waiter — including those whose own context is still live.
-		// Value/trace propagation is preserved via WithoutCancel.
-		vk, err := v.src.VerificationKey(context.WithoutCancel(ctx), subject, kid)
+		// Value/trace propagation is preserved via WithoutCancel; the lookup's
+		// own deadline keeps the detached work bounded.
+		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), v.opts.keyLookupTimeout)
+		defer cancel()
+		vk, err := v.src.VerificationKey(lookupCtx, subject, kid)
 		if err != nil {
 			return VerificationKey{}, err
 		}
@@ -159,11 +162,18 @@ func (v *Verifier) publicKey(ctx context.Context, subject, kid string) (Verifica
 		v.cache.putIfGeneration(subject, kid, vk, gen)
 		return vk, nil
 	})
-	if err != nil {
-		return VerificationKey{}, err
+	// Each caller waits under its own context: a canceled or expired request
+	// stops waiting while the shared lookup continues for the other waiters.
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			return VerificationKey{}, res.Err
+		}
+		vk, _ := res.Val.(VerificationKey)
+		return vk, nil
+	case <-ctx.Done():
+		return VerificationKey{}, ctx.Err()
 	}
-	vk, _ := res.(VerificationKey)
-	return vk, nil
 }
 
 // flightKey encodes (subject, kid, gen) injectively: the length prefixes make
