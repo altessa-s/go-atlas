@@ -92,8 +92,9 @@ func TestVerifyKeyLookupIsBounded(t *testing.T) {
 	require.ErrorIs(t, <-p.done, context.DeadlineExceeded)
 }
 
-// TestVerifyCanceledWaiterDoesNotFailPeers: one waiter giving up does not
-// cancel the shared lookup for a peer whose context is still live.
+// TestVerifyCanceledWaiterDoesNotFailPeers: the waiter that started the shared
+// lookup giving up must not cancel the lookup itself, which other waiters may
+// share; its result is still delivered and cached.
 func TestVerifyCanceledWaiterDoesNotFailPeers(t *testing.T) {
 	t.Parallel()
 	p := newBlockingProvider(t)
@@ -107,16 +108,15 @@ func TestVerifyCanceledWaiterDoesNotFailPeers(t *testing.T) {
 		canceled <- err
 	}()
 	<-p.entered // the shared lookup is in flight
-
-	live := make(chan error, 1)
-	go func() {
-		_, err := v.Verify(t.Context(), token)
-		live <- err
-	}()
-
 	cancel()
 	require.ErrorIs(t, <-canceled, context.Canceled)
 
+	// The lookup outlived its initiator: release it and it completes normally
+	// (a canceled lookup context would report ctx.Err() on done instead).
 	close(p.release)
-	require.NoError(t, <-live)
+	require.NoError(t, <-p.done)
+
+	_, err := v.Verify(t.Context(), token)
+	require.NoError(t, err)
+	require.Len(t, p.entered, 0, "the completed lookup must have been cached")
 }
