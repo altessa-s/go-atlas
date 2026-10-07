@@ -22,9 +22,7 @@ import (
 // TestProviderContract runs the provider contract suite with one embedded
 // server and bucket per contract. NATS keeps the lease in the bucket's key
 // TTL, which a test cannot age out from under the holder, so the expiry
-// contracts are skipped. FailedReleaseIsRetryable and CloseRacingLock fail on
-// this provider (a lease outlives a retried release, and an acquisition racing
-// Close) and are skipped until it is fixed.
+// contracts are skipped.
 func TestProviderContract(t *testing.T) {
 	t.Parallel()
 	providertest.Run(t, func(tb testing.TB) providertest.Backend {
@@ -37,5 +35,5 @@ func TestProviderContract(t *testing.T) {
 			tb.Cleanup(func() { _ = locker.Close(context.Background()) })
 			return locker
 		}}
-	}, "FailedReleaseIsRetryable", "CloseRacingLock")
+	})
 }

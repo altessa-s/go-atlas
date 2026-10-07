@@ -39,5 +39,3 @@ func TestProviderContract(t *testing.T) {
 	})
 }
 ```
-
-The NATS provider skips `FailedReleaseIsRetryable` and `CloseRacingLock`, which it does not pass yet.
