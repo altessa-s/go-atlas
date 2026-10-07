@@ -28,17 +28,15 @@ type File struct {
 	keyFile     string
 	keyPassword string
 
-	mu          sync.RWMutex
-	tlsConfig   *tls.Config
-	lastModTime time.Time
+	mu        sync.RWMutex
+	tlsConfig *tls.Config
 
 	watcher     *fsnotify.Watcher
 	watcherDone chan struct{}
 	ctx         context.Context
 	cancel      context.CancelFunc
 
-	options     *options
-	certificate *tls.Certificate
+	options *options
 
 	// Frequently accessed fields copied from options
 	ocspStapler tlsutils.OCSPStapler
@@ -79,20 +77,10 @@ func NewWithCertAndKey(certFile, keyFile, keyPassword string, opts ...Option) (*
 	baseCtx := corecontext.OrBackground(f.options.ctx)
 	f.ctx, f.cancel = context.WithCancel(baseCtx)
 
-	// Load initial certificate
+	// Load initial certificate (loadCertificate also applies OCSP stapling).
 	if err := f.loadCertificate(); err != nil {
 		_ = f.cleanup() //nolint:errcheck
 		return nil, err
-	}
-
-	// Initialize OCSP stapler if provided
-	if f.ocspStapler != nil {
-		// Apply OCSP stapling to TLS config
-		// GetOCSPStaple caches the certificate for scheduler-based refresh
-		if err := ocsp.StapleOCSPToConfig(f.tlsConfig, f.ocspStapler); err != nil {
-			_ = f.cleanup() //nolint:errcheck
-			return nil, err
-		}
 	}
 
 	if f.options.enableWatcher {
@@ -205,19 +193,18 @@ func (f *File) loadCertificate() error {
 	tlsConfig := tlsutils.DefaultTLSConfig()
 	tlsConfig.Certificates = []tls.Certificate{*cert}
 
-	f.mu.Lock()
-	f.tlsConfig = tlsConfig
-	f.certificate = cert
-	f.lastModTime = time.Now()
-	f.mu.Unlock()
-
-	// If OCSP stapler exists, refresh OCSP for new certificate
-	// StapleOCSPToConfig calls GetOCSPStaple which caches the certificate for scheduler-based refresh
+	// Install the OCSP stapling callback before publishing: once the config is
+	// visible to TLSConfig it must not be mutated, or a concurrent Clone races
+	// with the write and may return a config without the stapling callback.
 	if f.ocspStapler != nil {
 		if err := ocsp.StapleOCSPToConfig(tlsConfig, f.ocspStapler); err != nil {
 			f.logger.WarnContext(f.ctx, "failed to apply OCSP stapling to reloaded certificate", slog.Any("error", err))
 		}
 	}
+
+	f.mu.Lock()
+	f.tlsConfig = tlsConfig
+	f.mu.Unlock()
 
 	f.logger.DebugContext(f.ctx, "certificate loaded successfully",
 		"cert_file", f.certFile,
