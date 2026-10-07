@@ -106,13 +106,13 @@ func TestStorage_Query(t *testing.T) {
 			wantLen: 2,
 		},
 		{
-			name: "with_offset",
+			name: "with_cursor",
 			events: []*audit.Event{
-				{Actor: audit.Actor{ID: "u1"}, Timestamp: time.Now()},
-				{Actor: audit.Actor{ID: "u1"}, Timestamp: time.Now()},
-				{Actor: audit.Actor{ID: "u1"}, Timestamp: time.Now()},
+				{ID: "a", Actor: audit.Actor{ID: "u1"}, Timestamp: time.UnixMilli(1000)},
+				{ID: "b", Actor: audit.Actor{ID: "u1"}, Timestamp: time.UnixMilli(1000)},
+				{ID: "c", Actor: audit.Actor{ID: "u1"}, Timestamp: time.UnixMilli(1000)},
 			},
-			query:   &audit.Query{ActorID: "u1", Offset: 1, Limit: 10},
+			query:   &audit.Query{ActorID: "u1", Limit: 10, Cursor: &audit.Cursor{Timestamp: time.UnixMilli(1000), ID: "c"}},
 			wantLen: 2,
 		},
 		{

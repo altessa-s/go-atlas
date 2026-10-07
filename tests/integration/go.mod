@@ -1,9 +1,9 @@
 // Integration suite for github.com/altessa-s/go-atlas.
 //
 // A separate module so the SQL drivers it needs to exercise the filter
-// translators — clickhouse-go, pgx, go-sql-driver/mysql — stay out of
-// the toolkit's own dependency graph. Consumers of go-atlas never
-// resolve them.
+// translators — pgx, go-sql-driver/mysql — stay out of the toolkit's own
+// dependency graph. Consumers of go-atlas never resolve them. clickhouse-go
+// is a root dependency of the ClickHouse audit storage.
 module github.com/altessa-s/go-atlas/tests/integration
 
 go 1.26.0
@@ -11,7 +11,7 @@ go 1.26.0
 replace github.com/altessa-s/go-atlas => ../..
 
 require (
-	github.com/ClickHouse/clickhouse-go/v2 v2.40.3
+	github.com/ClickHouse/clickhouse-go/v2 v2.47.0
 	github.com/altessa-s/go-atlas v0.0.0
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/jackc/pgx/v5 v5.10.0
@@ -24,8 +24,8 @@ require (
 require (
 	cel.dev/expr v0.25.2 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/ClickHouse/ch-go v0.68.0 // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/ClickHouse/ch-go v0.73.0 // indirect
+	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -42,8 +42,8 @@ require (
 	github.com/meilisearch/meilisearch-go v0.36.3 // indirect
 	github.com/nats-io/nkeys v0.4.16 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/paulmach/orb v0.11.1 // indirect
-	github.com/pierrec/lz4/v4 v4.1.22 // indirect
+	github.com/paulmach/orb v0.13.0 // indirect
+	github.com/pierrec/lz4/v4 v4.1.27 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rogpeppe/go-internal v1.6.1 // indirect

@@ -83,7 +83,7 @@ func FuzzMemoryStorage_MatchesQuery(f *testing.F) {
 			Status:       audit.ResultStatus(status),
 			RequestID:    requestID,
 			Limit:        limit,
-			Offset:       offset,
+			Cursor:       fuzzCursor(offset, actorID),
 		}
 
 		// Should not panic
@@ -91,4 +91,12 @@ func FuzzMemoryStorage_MatchesQuery(f *testing.F) {
 		}
 		_, _ = store.Count(ctx, q)
 	})
+}
+
+// fuzzCursor turns fuzz input into an optional page position.
+func fuzzCursor(millis int, id string) *audit.Cursor {
+	if millis == 0 {
+		return nil
+	}
+	return &audit.Cursor{Timestamp: time.UnixMilli(int64(millis)), ID: id}
 }
