@@ -5,7 +5,9 @@
 package saga_test
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -59,6 +61,44 @@ func TestRecoveryAutoRollbackOnTimeout(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, saga.StatusCompensated, inst.Status)
 	require.Equal(t, []string{"undo:a"}, r.snapshot())
+}
+
+// definitionRecordingStore records the definition each FetchRecoverable call
+// is scoped to.
+type definitionRecordingStore struct {
+	*memory.Store
+	definitions []string
+}
+
+func (s *definitionRecordingStore) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
+	s.definitions = append(s.definitions, definition)
+	return s.Store.FetchRecoverable(ctx, definition, now, limit)
+}
+
+// TestRecoveryNotStarvedByOtherDefinitions pins that recovery scopes its fetch
+// to its own definition, so recoverable instances of another saga sharing the
+// store cannot fill the batch and hide this orchestrator's instance.
+func TestRecoveryNotStarvedByOtherDefinitions(t *testing.T) {
+	t.Parallel()
+	r := &recorder{}
+	store := &definitionRecordingStore{Store: memory.New()}
+
+	for i := range 3 {
+		require.NoError(t, store.Create(t.Context(), &saga.Instance{
+			ID:         fmt.Sprintf("other-%d", i),
+			Definition: "another-saga",
+			Status:     saga.StatusCompensating,
+		}))
+	}
+	craftInstance(t, store.Store, saga.StatusCompensating, time.Time{})
+
+	orch := saga.New(store, twoStepDef(r), append(fastOpts(), saga.WithRecoveryBatchSize(1))...)
+	require.NoError(t, orch.RunRecoveryCycle(t.Context()))
+
+	require.Equal(t, []string{"recover"}, store.definitions)
+	inst, err := store.Get(t.Context(), "r1")
+	require.NoError(t, err)
+	require.Equal(t, saga.StatusCompensated, inst.Status)
 }
 
 func TestRecoveryResumesCompensating(t *testing.T) {

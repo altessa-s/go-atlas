@@ -80,15 +80,15 @@ func (s *Store) Update(_ context.Context, inst *saga.Instance) error {
 }
 
 // FetchRecoverable returns copies of up to limit non-terminal instances that
-// are mid-compensation or whose deadline has passed. A non-positive limit means
-// no cap.
-func (s *Store) FetchRecoverable(_ context.Context, now time.Time, limit int) ([]*saga.Instance, error) {
+// are mid-compensation or whose deadline has passed, restricted to definition
+// when it is non-empty. A non-positive limit means no cap.
+func (s *Store) FetchRecoverable(_ context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var out []*saga.Instance
 	for _, inst := range s.instances {
-		if !inst.Recoverable(now) {
+		if (definition != "" && inst.Definition != definition) || !inst.Recoverable(now) {
 			continue
 		}
 

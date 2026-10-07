@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -170,6 +171,96 @@ func TestClient_EnsureIndex_IdempotentOnAlreadyExists(t *testing.T) {
 	settings := &IndexSettings{SearchableAttributes: []string{"name"}}
 	require.NoError(t, c.EnsureIndex(t.Context(), "things", "id", settings))
 	require.True(t, settingsCalled, "EnsureIndex must apply settings even when the create call returned 'already exists'")
+}
+
+// TestClient_EnsureIndex_AwaitsTasks pins that EnsureIndex reports the
+// asynchronous outcome of the creation and settings tasks: Meilisearch accepts
+// both requests with HTTP 202 and reports failures only in the task.
+func TestClient_EnsureIndex_AwaitsTasks(t *testing.T) {
+	t.Parallel()
+
+	const createUID, settingsUID = 11, 22
+	failed := func(code string) *msdk.Task {
+		task := &msdk.Task{Status: msdk.TaskStatusFailed}
+		task.Error.Code, task.Error.Message = code, code
+		return task
+	}
+
+	tests := []struct {
+		name         string
+		createTask   *msdk.Task
+		settingsTask *msdk.Task
+		wantErr      bool
+		wantAwaited  []int64
+	}{
+		{
+			name:        "success awaits both tasks",
+			wantAwaited: []int64{createUID, settingsUID},
+		},
+		{
+			name:        "already exists from the task is idempotent",
+			createTask:  failed(errCodeIndexAlreadyExists),
+			wantAwaited: []int64{createUID, settingsUID},
+		},
+		{
+			name: "already-exists code on a non-failed task is not absorbed",
+			createTask: func() *msdk.Task {
+				task := failed(errCodeIndexAlreadyExists)
+				task.Status = msdk.TaskStatusCanceled
+				return task
+			}(),
+			wantErr:     true,
+			wantAwaited: []int64{createUID},
+		},
+		{
+			name:        "failed creation task",
+			createTask:  failed("invalid_index_uid"),
+			wantErr:     true,
+			wantAwaited: []int64{createUID},
+		},
+		{
+			name:         "failed settings task",
+			settingsTask: failed("invalid_settings_searchable_attributes"),
+			wantErr:      true,
+			wantAwaited:  []int64{createUID, settingsUID},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var awaited []int64
+			idx := &fakeIndex{
+				updateSettingsFn: func(_ context.Context, _ *msdk.Settings) (*msdk.TaskInfo, error) {
+					return &msdk.TaskInfo{TaskUID: settingsUID}, nil
+				},
+			}
+			sdk := &fakeSDK{
+				createIndexFn: func(_ context.Context, _ *msdk.IndexConfig) (*msdk.TaskInfo, error) {
+					return &msdk.TaskInfo{TaskUID: createUID}, nil
+				},
+				indexFn: func(_ string) msdk.IndexManager { return idx },
+				waitForTaskFn: func(_ context.Context, uid int64, _ time.Duration) (*msdk.Task, error) {
+					awaited = append(awaited, uid)
+					task := map[int64]*msdk.Task{createUID: tc.createTask, settingsUID: tc.settingsTask}[uid]
+					if task == nil {
+						return &msdk.Task{Status: msdk.TaskStatusSucceeded, TaskUID: uid}, nil
+					}
+					return task, nil
+				},
+			}
+			c := newTestClient(sdk)
+
+			err := c.EnsureIndex(t.Context(), "things", "id", &IndexSettings{SearchableAttributes: []string{"name"}})
+			if tc.wantErr {
+				require.ErrorIs(t, err, ErrTaskFailed)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.wantAwaited, awaited)
+		})
+	}
 }
 
 // TestClient_SetupIndexes_RunsEnsureForEveryDef is the post-fix

@@ -159,11 +159,12 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 }
 
 // FetchRecoverable scans the bucket and returns up to limit non-terminal
-// instances that are mid-compensation or past their deadline. NATS KV has no
-// query support, so this lists every key and reads each one; durable
-// deployments with very large instance counts should prefer a query-capable
-// backend. A non-positive limit means no cap.
-func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*saga.Instance, error) {
+// instances that are mid-compensation or past their deadline, restricted to
+// definition when it is non-empty. NATS KV has no query support, so this lists
+// every key and reads each one; durable deployments with very large instance
+// counts should prefer a query-capable backend. A non-positive limit means no
+// cap.
+func (s *Store) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
 	lister, err := s.KV().ListKeys(ctx)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrNoKeysFound) {
@@ -187,7 +188,7 @@ func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) 
 		if err != nil {
 			return nil, err
 		}
-		if !inst.Recoverable(now) {
+		if (definition != "" && inst.Definition != definition) || !inst.Recoverable(now) {
 			continue
 		}
 

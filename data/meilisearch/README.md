@@ -56,8 +56,8 @@ err = client.SetupIndexes(ctx, []meilisearch.IndexDefinition{
 | Method                                                        | Description                                                 |
 |---------------------------------------------------------------|-------------------------------------------------------------|
 | `Client.IndexExists(ctx, name)`                               | `(exists bool, err error)` — `false, nil` on index_not_found |
-| `Client.EnsureIndex(ctx, name, primaryKey, settings)`         | Idempotent create-or-update                                  |
-| `Client.UpdateIndexSettings(ctx, name, settings)`             | Update searchable / filterable / sortable attrs              |
+| `Client.EnsureIndex(ctx, name, primaryKey, settings)`         | Idempotent create-or-update; waits for the create and settings tasks |
+| `Client.UpdateIndexSettings(ctx, name, settings)`             | Update searchable / filterable / sortable attrs; waits for the task |
 | `Client.SetupIndexes(ctx, defs)`                              | Bulk idempotent EnsureIndex over a slice of definitions      |
 | `Client.SwapIndexes(ctx, pairs...)`                           | Atomically swap document sets of `SwapPair`s in one task; returns task UID (errors on zero pairs) |
 

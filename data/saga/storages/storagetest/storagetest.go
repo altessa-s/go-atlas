@@ -34,6 +34,7 @@ var contracts = []struct {
 	{"FetchRecoverable", FetchRecoverable},
 	{"FetchRecoverableBoundaries", FetchRecoverableBoundaries},
 	{"FetchRecoverableLimit", FetchRecoverableLimit},
+	{"FetchRecoverableDefinition", FetchRecoverableDefinition},
 }
 
 // Run executes every storage contract as a parallel subtest named after it,
@@ -322,7 +323,7 @@ func Delete(t *testing.T, store saga.Storage) {
 	require.NoError(t, store.Delete(ctx, "a"))
 	require.NoError(t, store.Delete(ctx, "never"))
 
-	rec, err := store.FetchRecoverable(ctx, base.Add(time.Hour), 0)
+	rec, err := store.FetchRecoverable(ctx, "", base.Add(time.Hour), 0)
 	require.NoError(t, err)
 	require.Equal(t, map[string]bool{"b": true}, ids(rec))
 
@@ -397,7 +398,7 @@ func FetchRecoverable(t *testing.T, store saga.Storage) {
 		create("terminal-"+string(status), status, past, "owner", past)
 	}
 
-	rec, err := store.FetchRecoverable(ctx, now, 0)
+	rec, err := store.FetchRecoverable(ctx, "", now, 0)
 	require.NoError(t, err)
 	require.Equal(t, map[string]bool{
 		"compensating": true, "timed-out": true, "abandoned": true, "zero-lease": true, "expired-lease-compensating": true,
@@ -436,20 +437,20 @@ func FetchRecoverableBoundaries(t *testing.T, store saga.Storage) {
 	deadline("deadline-at-now", wholeNow)
 	deadline("deadline-after-now", wholeNow.Add(time.Second))
 
-	rec, err := store.FetchRecoverable(ctx, wholeNow, 0)
+	rec, err := store.FetchRecoverable(ctx, "", wholeNow, 0)
 	require.NoError(t, err)
 	got := ids(rec)
 	require.True(t, got["deadline-at-now"], "a deadline at now has passed")
 	require.False(t, got["deadline-after-now"], "a deadline after now has not passed")
 
-	rec, err = store.FetchRecoverable(ctx, now, 0)
+	rec, err = store.FetchRecoverable(ctx, "", now, 0)
 	require.NoError(t, err)
 	for _, inst := range rec {
 		require.True(t, inst.Recoverable(now), "%s is not recoverable at now", inst.ID)
 	}
 	require.False(t, ids(rec)["lease-after-now"], "a lease ending a nanosecond after now is still active")
 
-	rec, err = store.FetchRecoverable(ctx, now.Add(Granularity), 0)
+	rec, err = store.FetchRecoverable(ctx, "", now.Add(Granularity), 0)
 	require.NoError(t, err)
 	got = ids(rec)
 	require.True(t, got["lease-at-now"], "a lease ending at now has expired")
@@ -468,14 +469,42 @@ func FetchRecoverableLimit(t *testing.T, store saga.Storage) {
 	for i := range 5 {
 		require.NoError(t, store.Create(ctx, instance(fmt.Sprintf("c%d", i), saga.StatusCompensating)))
 	}
-	rec, err := store.FetchRecoverable(ctx, base, 2)
+	rec, err := store.FetchRecoverable(ctx, "", base, 2)
 	require.NoError(t, err)
 	require.NotEmpty(t, rec)
 	require.LessOrEqual(t, len(rec), 2)
 
 	for _, limit := range []int{0, -1} {
-		rec, err = store.FetchRecoverable(ctx, base, limit)
+		rec, err = store.FetchRecoverable(ctx, "", base, limit)
 		require.NoError(t, err)
 		require.Len(t, rec, 5, "limit %d", limit)
 	}
+}
+
+// FetchRecoverableDefinition verifies that a definition filter applies before
+// the limit: recoverable instances of another definition, created first and
+// outnumbering the limit, must not crowd the requested definition out of the
+// batch. An empty definition returns every definition.
+//
+//nolint:mnd // Fixed counts describe the storage contract.
+func FetchRecoverableDefinition(t *testing.T, store saga.Storage) {
+	t.Helper()
+	ctx := t.Context()
+
+	for i := range 5 {
+		other := instance(fmt.Sprintf("other-%d", i), saga.StatusCompensating)
+		other.Definition = "ship-order"
+		require.NoError(t, store.Create(ctx, other))
+	}
+	for i := range 2 {
+		require.NoError(t, store.Create(ctx, instance(fmt.Sprintf("own-%d", i), saga.StatusCompensating)))
+	}
+
+	rec, err := store.FetchRecoverable(ctx, "place-order", base, 2)
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{"own-0": true, "own-1": true}, ids(rec))
+
+	rec, err = store.FetchRecoverable(ctx, "", base, 0)
+	require.NoError(t, err)
+	require.Len(t, rec, 7)
 }

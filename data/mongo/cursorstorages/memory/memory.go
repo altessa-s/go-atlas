@@ -151,14 +151,23 @@ func (s *Storage) Load(ctx context.Context, key string) (*mongo.CursorMetadata, 
 	if !exists || expired {
 		// Remove expired entry (defensive: cleanup might have already removed it)
 		if expired {
-			s.mu.Lock()
-			delete(s.store, key)
-			s.mu.Unlock()
+			s.deleteIfSame(key, entry)
 		}
 		return nil, mongo.ErrCursorNotFound
 	}
 
 	return entry.metadata, nil
+}
+
+// deleteIfSame removes key only while it still maps to observed. A Store that
+// replaced the entry between Load's read and write locks keeps its fresh
+// entry.
+func (s *Storage) deleteIfSame(key string, observed *entry) {
+	s.mu.Lock()
+	if s.store[key] == observed {
+		delete(s.store, key)
+	}
+	s.mu.Unlock()
 }
 
 // Delete removes cursor metadata from storage.

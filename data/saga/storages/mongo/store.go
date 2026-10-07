@@ -23,10 +23,11 @@ import (
 
 // MongoDB field names for the saga instances collection.
 const (
-	collectionFieldId       = "_id"
-	collectionFieldStatus   = "status"
-	collectionFieldDeadline = "deadline"
-	collectionFieldVersion  = "version"
+	collectionFieldId         = "_id"
+	collectionFieldDefinition = "definition"
+	collectionFieldStatus     = "status"
+	collectionFieldDeadline   = "deadline"
+	collectionFieldVersion    = "version"
 )
 
 // Store is a durable [saga.Storage] backed by a MongoDB collection. Each saga
@@ -159,8 +160,9 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 }
 
 // FetchRecoverable returns up to limit non-terminal instances that are
-// mid-compensation or past their deadline. A non-positive limit means no cap.
-func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*saga.Instance, error) {
+// mid-compensation or past their deadline, restricted to definition when it is
+// non-empty. A non-positive limit means no cap.
+func (s *Store) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
 	filter := bson.M{
 		collectionFieldStatus: bson.M{"$in": bson.A{string(saga.StatusRunning), string(saga.StatusCompensating)}},
 		"$and": bson.A{
@@ -174,6 +176,9 @@ func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) 
 				bson.M{"lease_until": bson.M{"$lte": now.UnixNano()}},
 			}},
 		},
+	}
+	if definition != "" {
+		filter[collectionFieldDefinition] = definition
 	}
 	findOpts := mongoOptions.Find()
 	if limit > 0 {

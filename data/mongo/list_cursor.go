@@ -117,16 +117,21 @@ func WithListCursorCollation(collation *options.Collation) ListCursorOption {
 // It accepts string, *string, or bson.D types for maximum flexibility.
 //
 // Parameters:
-//   - sort: Sort specification (string like "created_at,-updated_at", *string, or bson.D)
+//   - sort: Sort specification (string like "-created_at", *string, or bson.D)
 //
 // String format:
 //   - Field names separated by commas
 //   - Prefix with "-" for descending order (e.g., "-created_at")
 //
+// A cursor resumes on a single sort value, so [ListCursor] accepts one sort
+// field, optionally followed by the cursor-ID field in the same direction, or
+// a sort led by the cursor-ID field; any other shape fails with
+// [ErrUnsupportedCursorSort].
+//
 // Example:
 //
 //	WithListCursorSort("-created_at")
-//	WithListCursorSort(bson.D{{"created_at", -1}, {"_id", -1}})
+//	WithListCursorSort(bson.D{{"created_at", -1}, {"cursor_id", -1}})
 func WithListCursorSort[T ~string | ~*string | bson.D](sort T) ListCursorOption {
 	return func(options *listCursorOptions) {
 		if parsed, ok := parseSortOption(sort); ok {
@@ -497,6 +502,10 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 
 		// Use cursor's ID field, or default if empty (optimization for smaller cursors)
 		opts.cursorIdField = cmp.Or(opts.cursor.CursorIdField, DefaultCursorIdField)
+	}
+
+	if err := validateCursorSort(opts.sort, opts.cursorIdField); err != nil {
+		return nil, err
 	}
 
 	// Log index hint usage

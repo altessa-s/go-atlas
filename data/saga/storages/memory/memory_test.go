@@ -75,7 +75,7 @@ func TestFetchRecoverable(t *testing.T) {
 	require.NoError(t, s.Create(ctx, &saga.Instance{ID: "compensating", Status: saga.StatusCompensating}))
 	require.NoError(t, s.Create(ctx, &saga.Instance{ID: "completed", Status: saga.StatusCompleted}))
 
-	got, err := s.FetchRecoverable(ctx, now, 0)
+	got, err := s.FetchRecoverable(ctx, "", now, 0)
 	require.NoError(t, err)
 
 	ids := map[string]bool{}
@@ -88,7 +88,7 @@ func TestFetchRecoverable(t *testing.T) {
 	require.False(t, ids["completed"])
 
 	// Limit is respected.
-	limited, err := s.FetchRecoverable(ctx, now, 1)
+	limited, err := s.FetchRecoverable(ctx, "", now, 1)
 	require.NoError(t, err)
 	require.Len(t, limited, 1)
 }

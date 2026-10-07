@@ -114,6 +114,13 @@ func (l *Local) MasterKey() kms.Key {
 // This method should be called when the Local KMS provider is no longer needed
 // to ensure sensitive key material doesn't remain in memory.
 func (l *Local) Clear() {
+	// Credentials caches an independent copy of the master key; zero it in
+	// place so the bytes do not outlive Clear, then drop the cache.
+	if cached := l.credentialsCache.Swap(nil); cached != nil {
+		if key, ok := (*cached)[l.Name()][MasterKey].([]byte); ok {
+			clear(key)
+		}
+	}
 	if l.credentials != nil {
 		l.credentials.Clear()
 		l.credentials = nil
