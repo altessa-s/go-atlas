@@ -5,6 +5,7 @@
 package memory
 
 import (
+	"container/list"
 	"context"
 	"sort"
 	"sync"
@@ -27,12 +28,17 @@ type bucket struct {
 	limit    int64
 	window   time.Duration
 	lastUsed time.Time
+	// lruElem is the bucket's node in Provider.lru; its Value is the key.
+	lruElem *list.Element
 }
 
 // Provider implements an in-memory rate limiting provider using sliding window algorithm.
 // Use RunCleanup() to remove expired buckets, either manually or via scheduler.
 type Provider struct {
-	buckets     map[string]*bucket
+	buckets map[string]*bucket
+	// lru orders the tracked keys by recency, most recent at the front, so
+	// eviction at the bucket cap takes the back element in O(1).
+	lru         *list.List
 	mu          sync.RWMutex
 	options     *options
 	scheduler   corescheduler.TaskRegistrar
@@ -48,6 +54,7 @@ func New(opt ...Option) *Provider {
 	p := &Provider{
 		options:   opts,
 		buckets:   make(map[string]*bucket),
+		lru:       list.New(),
 		scheduler: opts.scheduler,
 	}
 
@@ -77,6 +84,8 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 			window:   period,
 			lastUsed: now,
 		}
+	} else {
+		p.lru.MoveToFront(b.lruElem)
 	}
 
 	b.lastUsed = now
@@ -120,6 +129,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 		if p.options.maxBuckets > 0 && len(p.buckets) >= p.options.maxBuckets {
 			p.evictLRULocked()
 		}
+		b.lruElem = p.lru.PushFront(key)
 		p.buckets[key] = b
 	}
 
@@ -157,28 +167,24 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-// evictLRULocked drops the bucket with the oldest lastUsed timestamp.
-// The caller MUST hold p.mu in write mode. A full O(n) scan is acceptable
-// because this only runs at the cap boundary (rarely) and the cap itself
-// keeps n small enough (default 100k) that the scan completes in low
-// milliseconds. The map is not ordered, so we cannot do better without
-// a parallel LRU list — accepting the linear scan in exchange for keeping
-// the hot Allow path lock-free of list maintenance.
+// evictLRULocked drops the least-recently-used bucket in O(1). The caller
+// MUST hold p.mu in write mode. A linear scan here ran on every new key once
+// the cap was reached, so sustained key churn paid O(cap) per request while
+// holding the global lock.
 func (p *Provider) evictLRULocked() {
-	var (
-		oldestKey  string
-		oldestTime time.Time
-		first      = true
-	)
-	for k, v := range p.buckets {
-		if first || v.lastUsed.Before(oldestTime) {
-			oldestKey = k
-			oldestTime = v.lastUsed
-			first = false
+	if oldest := p.lru.Back(); oldest != nil {
+		if key, ok := oldest.Value.(string); ok {
+			p.removeLocked(key)
 		}
 	}
-	if !first {
-		delete(p.buckets, oldestKey)
+}
+
+// removeLocked drops key from both the bucket map and the LRU list. The
+// caller MUST hold p.mu in write mode.
+func (p *Provider) removeLocked(key string) {
+	if b, ok := p.buckets[key]; ok {
+		p.lru.Remove(b.lruElem)
+		delete(p.buckets, key)
 	}
 }
 

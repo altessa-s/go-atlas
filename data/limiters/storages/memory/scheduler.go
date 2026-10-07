@@ -58,7 +58,7 @@ func (p *Provider) runCleanupCycle(context.Context) error {
 
 	for key, bucket := range p.buckets {
 		if bucket.lastUsed.Before(cutoff) {
-			delete(p.buckets, key)
+			p.removeLocked(key)
 		}
 	}
 	return nil
