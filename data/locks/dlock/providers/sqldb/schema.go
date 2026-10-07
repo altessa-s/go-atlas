@@ -23,11 +23,11 @@ import (
 // the table name, so instances creating the same absent table at once take
 // turns instead of colliding in the catalog.
 func (l *Locker) EnsureSchema(ctx context.Context) error {
-	if l.dialect.name == DialectPostgres {
-		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, l.db, []string{l.tableName}, []string{l.postgresSchema()}),
+	if l.s.dialect.name == DialectPostgres {
+		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, l.s.db, []string{l.s.tableName}, []string{l.postgresSchema()}),
 			"create dlock schema")
 	}
-	if _, err := l.db.ExecContext(ctx, l.mysqlSchema()); err != nil {
+	if _, err := l.s.db.ExecContext(ctx, l.mysqlSchema()); err != nil {
 		return coreerrs.WrapOperation(err, "create dlock schema")
 	}
 	return nil
@@ -36,7 +36,7 @@ func (l *Locker) EnsureSchema(ctx context.Context) error {
 // postgresSchema is the PostgreSQL DDL. Times are server-clock Unix
 // microseconds.
 func (l *Locker) postgresSchema() string {
-	return `CREATE TABLE IF NOT EXISTS ` + l.table + ` (
+	return `CREATE TABLE IF NOT EXISTS ` + l.s.table + ` (
   lock_key    VARCHAR(255) COLLATE "C" PRIMARY KEY,
   owner       TEXT   NOT NULL DEFAULT '',
   fencing     BIGINT NOT NULL DEFAULT 0,
@@ -50,7 +50,7 @@ func (l *Locker) postgresSchema() string {
 // mysqlSchema declares the key and owner as binary types; the key width is in
 // bytes, four per character of [MaxKeyLength].
 func (l *Locker) mysqlSchema() string {
-	return `CREATE TABLE IF NOT EXISTS ` + l.table + ` (
+	return `CREATE TABLE IF NOT EXISTS ` + l.s.table + ` (
   lock_key    VARBINARY(1020) NOT NULL PRIMARY KEY,
   owner       VARBINARY(64)   NOT NULL DEFAULT '',
   fencing     BIGINT          NOT NULL DEFAULT 0,
