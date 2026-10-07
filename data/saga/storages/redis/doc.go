@@ -15,9 +15,9 @@
 // Redis is not query-capable, so recoverable instances are tracked in a sorted
 // set scored by recover-eligibility time: a timed-out RUNNING instance scores
 // its deadline, a COMPENSATING instance scores 0, and any other instance is
-// absent. FetchRecoverable pages through a ZRANGEBYSCORE over that set up to
-// the current time, keeping only entries of the requested definition that are
-// recoverable. All writes keep the index consistent with the instance hash
+// absent. FetchRecoverable reads the due ids with one ZRANGEBYSCORE over that
+// set up to the current time and loads them page by page, keeping only
+// entries of the requested definition that are recoverable. All writes keep the index consistent with the instance hash
 // atomically.
 //
 // # Usage
