@@ -631,7 +631,7 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 			for _, model := range models {
 				dst := reflect.New(entityType).Interface()
 				conv.Convert(model, dst)
-				entity, _ := reflect.ValueOf(dst).Elem().Interface().(E) //nolint:errcheck
+				entity, _ := reflect.TypeAssert[E](reflect.ValueOf(dst).Elem()) //nolint:errcheck
 				entities = append(entities, entity)
 			}
 		}

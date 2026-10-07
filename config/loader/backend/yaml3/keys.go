@@ -161,7 +161,7 @@ func (k *keyNode) Entries(t reflect.Type) (map[any]backend.KeyNode, bool) {
 
 	out := make(map[any]backend.KeyNode, m.Elem().Len())
 	for it := m.Elem().MapRange(); it.Next(); {
-		n, _ := it.Value().Interface().(yaml.Node)
+		n, _ := reflect.TypeAssert[yaml.Node](it.Value())
 		out[it.Key().Interface()] = &keyNode{node: &n, aliases: chain}
 	}
 	return out, true
