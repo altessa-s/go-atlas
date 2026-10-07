@@ -20,12 +20,13 @@ import (
 //
 // For non-error status codes, writes pass through directly to the underlying
 // writer. For error codes, both the status and body are buffered until
-// [ErrorInterceptor.Flush] is called, at which point the buffered message
-// is converted to a structured error response.
+// [ErrorInterceptor.Finish] is called, at which point the buffered message
+// is converted to a structured error response. [ErrorInterceptor.Flush]
+// implements [http.Flusher] for streaming responses and never ends the request.
 //
 // ErrorInterceptor is NOT safe for concurrent use. It is designed for
 // single-request, single-goroutine usage within middleware chains.
-// Instances are pooled via [sync.Pool]. After [ErrorInterceptor.Flush],
+// Instances are pooled via [sync.Pool]. After [ErrorInterceptor.Finish],
 // the interceptor is returned to the pool and must not be used again.
 type ErrorInterceptor struct {
 	http.ResponseWriter
@@ -46,13 +47,13 @@ var interceptorPool = sync.Pool{
 // NewErrorInterceptor creates a new ErrorInterceptor that wraps the given
 // ResponseWriter and uses the provided ErrorWriter for structured error responses.
 //
-// The caller must call Flush() when request handling is complete to ensure
+// The caller must call Finish() when request handling is complete to ensure
 // any buffered error responses are written.
 //
 // Example:
 //
 //	interceptor := responder.NewErrorInterceptor(w, r, writer)
-//	defer interceptor.Flush()
+//	defer interceptor.Finish()
 //	next.ServeHTTP(interceptor, r)
 func NewErrorInterceptor(w http.ResponseWriter, r *http.Request, writer ErrorWriter) *ErrorInterceptor {
 	e := interceptorPool.Get().(*ErrorInterceptor) //nolint:errcheck // Type assertion from pool is safe by design
@@ -103,10 +104,10 @@ func (e *ErrorInterceptor) Write(b []byte) (int, error) {
 	return e.ResponseWriter.Write(b) //nolint:gosec // Transparent proxy for non-error responses
 }
 
-// Flush writes any buffered error response using the ErrorWriter.
+// Finish writes any buffered error response using the ErrorWriter.
 // This method must be called when request handling is complete.
-// After Flush, the interceptor is returned to the pool and must not be used.
-func (e *ErrorInterceptor) Flush() {
+// After Finish, the interceptor is returned to the pool and must not be used.
+func (e *ErrorInterceptor) Finish() {
 	defer e.release()
 
 	if !e.intercepted {
@@ -148,9 +149,16 @@ func (e *ErrorInterceptor) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, errors.New("underlying ResponseWriter does not support hijacking")
 }
 
-// FlushHTTP provides flusher support for streaming responses.
-func (e *ErrorInterceptor) FlushHTTP() {
+// Flush implements [http.Flusher] for streaming responses: it forwards to the
+// underlying writer and commits the response. While an error response is being
+// buffered it is a no-op, so [ErrorInterceptor.Finish] can still write it.
+// Flush does not end the request.
+func (e *ErrorInterceptor) Flush() {
+	if e.intercepted {
+		return
+	}
 	if flusher, ok := e.ResponseWriter.(http.Flusher); ok {
+		e.written = true
 		flusher.Flush()
 	}
 }

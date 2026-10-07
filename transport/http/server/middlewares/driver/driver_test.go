@@ -112,18 +112,27 @@ func TestHTTPDrivenMiddleware_PreRequestError(t *testing.T) {
 
 	require.False(t, called, "handler should not be called when PreRequest fails")
 	require.True(t, errDriver.postCalled, "PostRequest should still be called after PreRequest error")
+	require.Equal(t, http.StatusInternalServerError, rec.Code, "client must see the failure status")
+	require.Equal(t, http.StatusInternalServerError, errDriver.info.StatusCode)
+	require.True(t, errDriver.info.HeadersSent)
+	require.Positive(t, errDriver.info.BytesWritten)
+	require.ErrorIs(t, errDriver.preErr, http.ErrAbortHandler)
 }
 
 type errorDriver struct {
 	postCalled bool
+	info       ResponseInfo
+	preErr     error
 }
 
 func (e *errorDriver) PreRequest(ctx context.Context, _ *http.Request) (context.Context, error) {
 	return ctx, http.ErrAbortHandler
 }
 
-func (e *errorDriver) PostRequest(_ context.Context, _ ResponseInfo, _ *http.Request, _ error) {
+func (e *errorDriver) PostRequest(_ context.Context, info ResponseInfo, _ *http.Request, err error) {
 	e.postCalled = true
+	e.info = info
+	e.preErr = err
 }
 
 func TestResponseRecorder_WriteHeader_OnlyOnce(t *testing.T) {

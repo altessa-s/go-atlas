@@ -72,8 +72,9 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 	// Body replay strategy: prefer the caller-provided GetBody (net/http sets
 	// it automatically for bytes/strings readers); buffer only when retries
-	// are possible and no replay source exists.
-	if req.Body != nil && req.GetBody == nil && rt.maxAttempts > 1 {
+	// are possible (maxAttempts counts retries; negative means unlimited) and
+	// no replay source exists.
+	if req.Body != nil && req.GetBody == nil && rt.maxAttempts != 0 {
 		buf := coreio.GetBuffer()
 		_, err := buf.ReadFrom(req.Body)
 		_ = req.Body.Close()
@@ -130,10 +131,8 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	firstAttempt := true
 	retryErr := coreretry.Do(ctx, func(ctx context.Context) error {
 		// Close previous response body if present from a prior attempt.
-		if lastResp != nil {
-			_ = lastResp.Body.Close()
-			lastResp = nil
-		}
+		closeBody(lastResp)
+		lastResp = nil
 
 		// Rewind the body for retry attempts; the first attempt uses the
 		// body installed above (or the caller's original one).
@@ -193,25 +192,40 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	rt.metrics.totalFor(method, statusClass).Inc()
 	rt.health.recordRequest(req.URL.Hostname(), retryAttempts > 0)
 
-	// Handle retry exhaustion.
-	if retryErr != nil && lastResp == nil {
-		rt.metrics.errorsFor(method).Inc()
-		if rt.errorHandler != nil {
-			return rt.errorHandler(nil, retryErr, rt.maxAttempts+1)
-		}
-		return nil, retryErr
-	}
-
+	// Handle retry exhaustion and terminal errors (possibly with a response,
+	// e.g. a non-retryable or exhausted retryable status).
 	if retryErr != nil {
 		rt.metrics.errorsFor(method).Inc()
-		// We have a response but also an error (e.g., retryable status exhausted).
 		if rt.errorHandler != nil {
-			return rt.errorHandler(lastResp, retryErr, rt.maxAttempts+1)
+			resp, err := rt.errorHandler(lastResp, retryErr, rt.maxAttempts+1)
+			if resp != lastResp {
+				// The handler did not hand the original response on.
+				closeBody(lastResp)
+			}
+			return discardOnError(resp, err)
 		}
-		return lastResp, retryErr
+		return discardOnError(lastResp, retryErr)
 	}
 
-	return lastResp, lastErr
+	return discardOnError(lastResp, lastErr)
+}
+
+// discardOnError enforces the [http.RoundTripper] contract that a response
+// accompanies only a nil error: [http.Client] drops a response returned
+// together with an error without closing it, so its body would leak.
+func discardOnError(resp *http.Response, err error) (*http.Response, error) {
+	if err != nil {
+		closeBody(resp)
+		return nil, err
+	}
+	return resp, nil
+}
+
+// closeBody closes resp's body when there is one.
+func closeBody(resp *http.Response) {
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 }
 
 // shouldRetry returns false for non-retryable error types.

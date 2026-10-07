@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -160,6 +161,28 @@ func newTestServer(t *testing.T, pattern string, handler http.HandlerFunc) *Serv
 	}
 
 	return srv
+}
+
+func TestErrorInterceptorMiddleware_StreamingFlush(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{writer: writer.New()}
+	handler := s.errorInterceptorMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		rc := http.NewResponseController(w)
+		_, err := io.WriteString(w, "chunk-1;")
+		require.NoError(t, err)
+		require.NoError(t, rc.Flush())
+		_, err = io.WriteString(w, "chunk-2")
+		require.NoError(t, err)
+		require.NoError(t, rc.Flush())
+	}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/stream", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "chunk-1;chunk-2", rec.Body.String())
+	require.True(t, rec.Flushed)
 }
 
 func TestShutdown(t *testing.T) {

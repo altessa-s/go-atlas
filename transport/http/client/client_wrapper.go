@@ -20,11 +20,6 @@ import (
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
-const (
-	// HTTPClientInternerSize is the size of the string interner for HTTP client
-	HTTPClientInternerSize = 512
-)
-
 // HTTPClient defines the methods for making HTTP requests with built-in
 // resilience features including automatic retries, exponential backoff, and circuit breaker support.
 //
@@ -283,8 +278,6 @@ type HTTPClient interface {
 // httpClient wraps the standard http.Client to provide helper methods.
 type httpClient struct {
 	*http.Client
-	// stringInterner provides efficient string interning for HTTP headers
-	stringInterner *corestrings.Interner
 }
 
 type requestDoer interface {
@@ -313,16 +306,56 @@ func doRequest(
 		opt(req)
 	}
 
-	if cancel := cancelFromContext(req.Context()); cancel != nil { //nolint:contextcheck // req.Context() inherits from ctx via NewRequestWithContext
-		defer cancel()
-	}
-
+	cancel := cancelFromContext(req.Context()) //nolint:contextcheck // req.Context() inherits from ctx via NewRequestWithContext
 	resp, err := client.Do(req)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, coreerrs.Wrapf(err, "%s request%s failed for %s", method, errContext, url)
 	}
 
-	return resp, nil
+	return attachCancel(resp, cancel), nil
+}
+
+// attachCancel defers a per-request [context.CancelFunc] until the response
+// body is closed: canceling as soon as [http.Client.Do] returns would abort
+// reading a body that is still streaming. A nil cancel leaves resp unchanged.
+func attachCancel(resp *http.Response, cancel context.CancelFunc) *http.Response {
+	if cancel == nil {
+		return resp
+	}
+	if resp.Body == nil {
+		cancel()
+		return resp
+	}
+	body := cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+	if w, ok := resp.Body.(io.Writer); ok {
+		// 101 Switching Protocols bodies are writable; keep that capability.
+		resp.Body = cancelOnCloseReadWriteBody{cancelOnCloseBody: body, Writer: w}
+		return resp
+	}
+	resp.Body = body
+	return resp
+}
+
+// cancelOnCloseBody cancels the request context once the body is closed.
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b cancelOnCloseBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+// cancelOnCloseReadWriteBody is a [cancelOnCloseBody] that keeps the
+// [io.Writer] of a writable (protocol-switch) response body.
+type cancelOnCloseReadWriteBody struct {
+	cancelOnCloseBody
+	io.Writer
 }
 
 func doJSONRequest(ctx context.Context, client requestDoer, method, url string, body any) (*http.Response, error) {
@@ -354,12 +387,7 @@ func doJSONRequest(ctx context.Context, client requestDoer, method, url string, 
 //	}
 //	defer resp.Body.Close()
 func NewHTTPClient(opt ...Option) HTTPClient {
-	return &httpClient{
-		Client: New(opt...),
-		// Create dedicated string interner for HTTP client headers
-		// HTTP client typically uses common headers repeatedly
-		stringInterner: corestrings.NewInterner(HTTPClientInternerSize), // Smaller size for headers
-	}
+	return &httpClient{Client: New(opt...)}
 }
 
 // Get performs an HTTP GET request to the specified URL.
@@ -590,8 +618,8 @@ func WithQueryParams(params url.Values) RequestOption {
 func WithRequestTimeout(timeout time.Duration) RequestOption {
 	return func(req *http.Request) {
 		ctx, cancel := context.WithTimeout(req.Context(), timeout)
-		// Store the cancel function in the request context so it can be called
-		// when the request is done (though usually the HTTP client handles this)
+		// Store the cancel function in the request context; the request
+		// helpers call it when the response body is closed.
 		ctx = context.WithValue(ctx, cancelContextKey, cancel)
 		*req = *req.WithContext(ctx)
 	}
@@ -599,7 +627,8 @@ func WithRequestTimeout(timeout time.Duration) RequestOption {
 
 // WithRequestDeadline sets an absolute deadline for the request. Like
 // [WithRequestTimeout], the resulting [context.CancelFunc] is stored in the
-// request context and invoked automatically after the response is received.
+// request context and invoked automatically when the response body is closed
+// (or immediately when the request fails).
 func WithRequestDeadline(deadline time.Time) RequestOption {
 	return func(req *http.Request) {
 		ctx, cancel := context.WithDeadline(req.Context(), deadline)
