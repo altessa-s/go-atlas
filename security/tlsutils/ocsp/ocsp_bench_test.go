@@ -5,37 +5,12 @@
 package ocsp
 
 import (
-	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"testing"
 	"time"
 )
-
-func BenchmarkCompressData(b *testing.B) {
-	data := bytes.Repeat([]byte("test data for compression "), 100)
-	for b.Loop() {
-		_, _ = compressData(data)
-	}
-}
-
-func BenchmarkDecompressData(b *testing.B) {
-	data := bytes.Repeat([]byte("test data for compression "), 100)
-	compressed, err := compressData(data)
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.ResetTimer()
-	for b.Loop() {
-		_, _ = decompressData(compressed)
-	}
-}
-
-func BenchmarkCompressDecompressRoundtrip(b *testing.B) {
-	data := bytes.Repeat([]byte("OCSP response data simulation "), 50)
-	for b.Loop() {
-		compressed, _ := compressData(data)
-		_, _ = decompressData(compressed)
-	}
-}
 
 func BenchmarkNewOCSPStapler(b *testing.B) {
 	for b.Loop() {
@@ -43,24 +18,22 @@ func BenchmarkNewOCSPStapler(b *testing.B) {
 	}
 }
 
-func BenchmarkPrepareCacheEntry_NoCompression(b *testing.B) {
-	s := NewOCSPStapler()
-	data := bytes.Repeat([]byte("test"), 100)
-	ctx := b.Context()
-	nextUpdate := time.Now().Add(24 * time.Hour)
-	b.ResetTimer()
-	for b.Loop() {
-		_ = s.prepareCacheEntry(ctx, data, nextUpdate)
-	}
-}
-
-func BenchmarkPrepareCacheEntry_WithCompression(b *testing.B) {
+// BenchmarkGetOCSPStaple_CacheHit_Compression measures the handshake hot path:
+// a valid cached response served with compression enabled.
+func BenchmarkGetOCSPStaple_CacheHit_Compression(b *testing.B) {
 	s := NewOCSPStapler(WithCompression())
-	data := bytes.Repeat([]byte("test"), 100)
+	der := make([]byte, 1200) // typical DER OCSP response size
+	for i := range der {
+		der[i] = byte(i * 31)
+	}
+	cert := &tls.Certificate{Certificate: [][]byte{[]byte("leaf-der")}, Leaf: &x509.Certificate{}}
+	s.cache[base64.StdEncoding.EncodeToString(cert.Certificate[0])] =
+		&ocspCacheEntry{response: der, nextUpdate: time.Now().Add(24 * time.Hour)}
 	ctx := b.Context()
-	nextUpdate := time.Now().Add(24 * time.Hour)
-	b.ResetTimer()
+	b.ReportAllocs()
 	for b.Loop() {
-		_ = s.prepareCacheEntry(ctx, data, nextUpdate)
+		if _, err := s.GetOCSPStaple(ctx, cert); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
