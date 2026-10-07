@@ -8,8 +8,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/altessa-s/go-atlas/config"
-
+	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	grpcclient "github.com/altessa-s/go-atlas/transport/grpc/client"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
@@ -23,7 +22,7 @@ import (
 //
 // An invalid URL in Mode url surfaces as an error here rather than at
 // request time.
-func HTTPClientOptions(p *config.Proxy) ([]httpclient.Option, error) {
+func HTTPClientOptions(p *proxyconfig.Config) ([]httpclient.Option, error) {
 	return proxyClientOptions(p,
 		httpclient.WithoutProxy, httpclient.WithProxyURL, httpclient.WithProxy)
 }
@@ -36,7 +35,7 @@ func HTTPClientOptions(p *config.Proxy) ([]httpclient.Option, error) {
 //
 // An invalid URL in Mode url surfaces as an error here rather than at
 // dial time.
-func GRPCClientOptions(p *config.Proxy) ([]grpcclient.Option, error) {
+func GRPCClientOptions(p *proxyconfig.Config) ([]grpcclient.Option, error) {
 	return proxyClientOptions(p,
 		grpcclient.WithoutProxy, grpcclient.WithProxyURL, grpcclient.WithProxy)
 }
@@ -45,7 +44,7 @@ func GRPCClientOptions(p *config.Proxy) ([]grpcclient.Option, error) {
 // and GRPCClientOptions over the transport-specific option
 // constructors.
 func proxyClientOptions[O any](
-	p *config.Proxy,
+	p *proxyconfig.Config,
 	withoutProxy func() O,
 	withProxyURL func(*url.URL) O,
 	withProxy func(string, int, *url.Userinfo) O,
@@ -59,15 +58,15 @@ func proxyClientOptions[O any](
 	switch p.Mode {
 	case "":
 		return nil, nil
-	case config.ProxyModeNone:
+	case proxyconfig.ModeNone:
 		return []O{withoutProxy()}, nil
-	case config.ProxyModeURL:
+	case proxyconfig.ModeURL:
 		u, err := url.Parse(p.URL)
 		if err != nil {
 			return nil, fmt.Errorf("proxy: parse url: %w", err)
 		}
 		return []O{withProxyURL(u)}, nil
-	case config.ProxyModeHost:
+	case proxyconfig.ModeHost:
 		return []O{withProxy(p.Host, p.Port, userinfo(p.Auth))}, nil
 	default:
 		return nil, fmt.Errorf("proxy: unknown mode %q", p.Mode)

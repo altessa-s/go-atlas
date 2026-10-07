@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
@@ -24,6 +23,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
@@ -39,7 +39,7 @@ import (
 // is registered with the server, and that fallback only triggers because
 // the policy slot is empty — registering ANY policy is what matters.
 // Picking explicit, conservative values keeps the ping-flood door shut
-// regardless of whether the operator filled in [config.Grpc.KeepAlive].
+// regardless of whether the operator filled in [grpcconfig.Config.KeepAlive].
 const (
 	// DefaultGrpcEnforcementMinTime is the minimum ping interval clients
 	// must respect. Pings under this cadence cause the server to send
@@ -57,7 +57,7 @@ const (
 // The builder is not safe for concurrent use.
 type ServerBuilder struct {
 	corefactory.Base
-	cfg  *config.Grpc
+	cfg  *grpcconfig.Config
 	errs []error
 
 	// Dependencies
@@ -81,7 +81,7 @@ type ServerBuilder struct {
 
 // New creates a [ServerBuilder] for the given gRPC config.
 // Config can be nil -- the error surfaces at [ServerBuilder.Build] time.
-func New(cfg *config.Grpc) *ServerBuilder {
+func New(cfg *grpcconfig.Config) *ServerBuilder {
 	return &ServerBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -248,7 +248,7 @@ func (b *ServerBuilder) buildGrpcOptions() []grpc.ServerOption {
 // on the gRPC server: the config value when supplied, otherwise the
 // package-level safe defaults. Split out so unit tests can exercise the
 // fallback paths without spinning up a full server.
-func keepaliveEnforcementPolicy(cfg *config.Grpc) keepalive.EnforcementPolicy {
+func keepaliveEnforcementPolicy(cfg *grpcconfig.Config) keepalive.EnforcementPolicy {
 	if cfg != nil && cfg.KeepAlive != nil && cfg.KeepAlive.EnforcementPolicy != nil {
 		return keepalive.EnforcementPolicy{
 			MinTime:             cfg.KeepAlive.EnforcementPolicy.MinTime,

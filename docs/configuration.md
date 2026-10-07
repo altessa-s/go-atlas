@@ -215,7 +215,7 @@ The `config` package provides a `ValidateStruct` helper built on ozzo-validation
 
 ```go
 func (c *Config) Validate() error {
-    return config.ValidateStruct(c,
+    return validationconfig.ValidateStruct(c,
         validation.Field(&c.Port, validation.Required, validation.Min(1), validation.Max(65535)),
     )
 }

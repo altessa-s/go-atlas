@@ -50,7 +50,7 @@ manager, err := factory.NewManager(cfg.Plugins).
 
 ## Configuration
 
-The builder consumes a [`config.Plugins`](../../config/plugins.go) struct which controls:
+The builder consumes a [`pluginsconfig.Config`](../../config/plugins/plugins.go) struct which controls:
 
 - Plugin directory path
 - Signature verification settings

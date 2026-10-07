@@ -14,11 +14,11 @@ interceptors.
 |---------------------------|------------------------------------------------------------------------------------------|
 | `CompilePatterns`         | Compile string patterns to `[]*regexp.Regexp`; invalid patterns are silently skipped     |
 | `ParsePrefixes`           | Parse IP/CIDR strings to `[]netip.Prefix` (alias of `clientip.ParsePrefixes`)            |
-| `ConvertFallbackBehavior` | Map `config.FallbackBehavior` to `fallback.Behavior`; unknown values fail closed to deny |
+| `ConvertFallbackBehavior` | Map `middlewareconfig.FallbackBehavior` to `fallback.Behavior`; unknown values fail closed to deny |
 | `BuildIpAclRegistry`      | Build an `ipacl.Registry` from default policy, rule list, and optional default rule      |
-| `ConvertIpAclRule`        | Convert one `config.IpAclRuleConfig` to an `*ipacl.AccessRule`                           |
+| `ConvertIpAclRule`        | Convert one `middlewareconfig.IPACLRule` to an `*ipacl.AccessRule`                           |
 | `BuildGeoAclRegistry`     | Build a `geoacl.Registry` from default policy, rule list, and optional default rule      |
-| `ConvertGeoAclRule`       | Convert one `config.GeoAclRuleConfig` to a `*geoacl.AccessRule`                          |
+| `ConvertGeoAclRule`       | Convert one `middlewareconfig.GeoACLRule` to a `*geoacl.AccessRule`                          |
 
 ## Usage
 

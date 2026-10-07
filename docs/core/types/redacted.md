@@ -150,38 +150,11 @@ library, so `RedactedString` works as a Mongo field type with the default regist
 
 ---
 
-## Relationship with `config.Secret`
+## Configuration schemas
 
-`config.Secret` is a type alias for `redacted.RedactedString`:
-
-```go
-// In config/secret.go.
-type Secret = redacted.RedactedString
-```
-
-The two names refer to **the same type** — methods, comparability, and serialization behavior are identical. Pick whichever spelling reads
-better at the call site:
-
-- **Inside `config/`** or in code that already imports the `config` package: `config.Secret` keeps configuration structs terse
-  (`Password Secret \`yaml:"password"\``) and avoids an extra import.
-- **In packages that have no other reason to depend on `config`** (a `data/` repository, a `transport/` handler, a domain entity): use
-  `redacted.RedactedString` directly to keep the import graph tight.
-
-```go
-// Inside config/, the local alias is the natural choice.
-type Redis struct {
-    Password Secret `yaml:"password"`
-}
-
-// Outside config/, depend on core/types/redacted directly.
-import "github.com/altessa-s/go-atlas/core/types/redacted"
-
-type Cache struct {
-    APIKey redacted.RedactedString
-}
-```
-
----
+Configuration schemas under `config/` declare secret fields as `redacted.RedactedString` directly
+(`Password redacted.RedactedString \`yaml:"password"\``). The former `config.Secret` alias was removed when the root `config` package
+was split into per-capability schema packages.
 
 ## See also
 

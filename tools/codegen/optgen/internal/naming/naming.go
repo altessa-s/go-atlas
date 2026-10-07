@@ -16,7 +16,7 @@ import (
 // The list is golint's commonInitialisms plus DB, which the standard library
 // itself spells that way (database/sql.DB). Words absent here are left in
 // MixedCaps, which is why gRPC is not listed: the repo spells it Grpc
-// throughout (config.Grpc, DefaultGrpc), and a lone WithGRPCOptions would be
+// throughout (grpcconfig.Config, DefaultGrpc), and a lone WithGRPCOptions would be
 // less consistent, not more.
 var initialisms = coremaps.NewImmutableMap(map[string]string{
 	"acl":   "ACL",

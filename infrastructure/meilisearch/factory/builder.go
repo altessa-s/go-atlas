@@ -13,10 +13,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/meilisearch"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	meilisearchconfig "github.com/altessa-s/go-atlas/config/meilisearch"
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	tlsfactory "github.com/altessa-s/go-atlas/security/tlsutils/factory"
 )
@@ -36,7 +37,7 @@ var ErrConfigRequired = errors.New("meilisearch factory: configuration is requir
 // [ClientBuilder.Build] time. The builder is not safe for concurrent use.
 type ClientBuilder struct {
 	corefactory.Base
-	cfg  *config.Meilisearch
+	cfg  *meilisearchconfig.Config
 	errs []error
 
 	// Dependencies
@@ -47,7 +48,7 @@ type ClientBuilder struct {
 // New creates a [ClientBuilder] for the given Meilisearch config.
 // Config can be nil — the error surfaces at [ClientBuilder.Build] time
 // as [ErrConfigRequired].
-func New(cfg *config.Meilisearch) *ClientBuilder {
+func New(cfg *meilisearchconfig.Config) *ClientBuilder {
 	return &ClientBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -112,7 +113,7 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 // timeout is taken from the Meilisearch block and applied to the
 // resulting http.Client so the WithTimeout option still bounds every
 // outbound request, including the synchronous startup probe.
-func (b *ClientBuilder) buildHTTPClient(tlsCfg *config.TlsClient, timeout time.Duration) (*http.Client, error) {
+func (b *ClientBuilder) buildHTTPClient(tlsCfg *tlsconfig.Client, timeout time.Duration) (*http.Client, error) {
 	tlsConfig, err := tlsfactory.New(nil).UseLogger(b.Logger()).CreateClientConfig(tlsCfg)
 	if err != nil {
 		return nil, err

@@ -11,9 +11,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/observability/health"
+
+	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
 )
 
 func TestNew_Default(t *testing.T) {
@@ -26,33 +27,33 @@ func TestNew_WithOptions(t *testing.T) {
 	coord := health.New()
 	defer coord.Close()
 
-	b := New(&config.Mongodb{}).
+	b := New(&mongoconfig.Config{}).
 		UseLogger(logger).
 		UseHealthCoordinator(coord)
 	require.NotNil(t, b)
 }
 
 func TestUseConverterOptions_AccumulatesAcrossCalls(t *testing.T) {
-	b := New(&config.Mongodb{Database: "x"}).
+	b := New(&mongoconfig.Config{Database: "x"}).
 		UseConverterOptions(converter.WithIgnoreZeroValues()).
 		UseConverterOptions(converter.WithIgnoreNilValues())
 	require.Len(t, b.converterOpts, 2)
 }
 
 func TestUseConverterOptions_DefaultEmpty(t *testing.T) {
-	b := New(&config.Mongodb{Database: "x"})
+	b := New(&mongoconfig.Config{Database: "x"})
 	require.Empty(t, b.converterOpts)
 }
 
 func TestClientOptions(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     *config.Mongodb
+		cfg     *mongoconfig.Config
 		wantErr bool
 	}{
 		{
 			"valid basic",
-			&config.Mongodb{
+			&mongoconfig.Config{
 				Hosts:            []string{"localhost:27017"},
 				Database:         "testdb",
 				DirectConnection: true,
@@ -67,7 +68,7 @@ func TestClientOptions(t *testing.T) {
 		},
 		{
 			"with replica set",
-			&config.Mongodb{
+			&mongoconfig.Config{
 				Hosts:      []string{"host1:27017", "host2:27017"},
 				Database:   "testdb",
 				ReplicaSet: "rs0",
@@ -76,33 +77,33 @@ func TestClientOptions(t *testing.T) {
 		},
 		{
 			"with compressors",
-			&config.Mongodb{
+			&mongoconfig.Config{
 				Hosts:                []string{"localhost:27017"},
 				Database:             "testdb",
-				Compressors:          config.MongoCompressionTypes{"snappy"},
+				Compressors:          mongoconfig.CompressionTypes{"snappy"},
 				ZlibCompressionLevel: -1,
 			},
 			false,
 		},
 		{
 			"with X509 auth",
-			&config.Mongodb{
+			&mongoconfig.Config{
 				Hosts:    []string{"localhost:27017"},
 				Database: "testdb",
-				Credentials: &config.MongodbCredentials{
-					AuthMechanism: config.MongoAuthMechanismTypeX509,
+				Credentials: &mongoconfig.Credentials{
+					AuthMechanism: mongoconfig.AuthMechanismTypeX509,
 				},
 			},
 			false,
 		},
 		{
 			"with PLAIN auth",
-			&config.Mongodb{
+			&mongoconfig.Config{
 				Hosts:    []string{"localhost:27017"},
 				Database: "testdb",
-				Credentials: &config.MongodbCredentials{
-					AuthMechanism: config.MongoAuthMechanismTypePLAIN,
-					Plain: &config.MongoPLAINCredentials{
+				Credentials: &mongoconfig.Credentials{
+					AuthMechanism: mongoconfig.AuthMechanismTypePLAIN,
+					Plain: &mongoconfig.PLAINCredentials{
 						Username: "user",
 						Password: "pass",
 					},
@@ -112,12 +113,12 @@ func TestClientOptions(t *testing.T) {
 		},
 		{
 			"with SCRAM-SHA-256 auth",
-			&config.Mongodb{
+			&mongoconfig.Config{
 				Hosts:    []string{"localhost:27017"},
 				Database: "testdb",
-				Credentials: &config.MongodbCredentials{
-					AuthMechanism: config.MongoAuthMechanismTypeSCRAMSHA256,
-					Scram: &config.MongoSCRAMCredentials{
+				Credentials: &mongoconfig.Credentials{
+					AuthMechanism: mongoconfig.AuthMechanismTypeSCRAMSHA256,
+					Scram: &mongoconfig.SCRAMCredentials{
 						Username:   "user",
 						Password:   "pass",
 						AuthSource: "admin",
@@ -152,7 +153,7 @@ func TestClientOptions(t *testing.T) {
 }
 
 func TestClientOptions_ConnectionURI(t *testing.T) {
-	b := New(&config.Mongodb{
+	b := New(&mongoconfig.Config{
 		ConnectionURI:  "mongodb://user:pass@mongo1:27017,mongo2:27017/testdb?replicaSet=rs0",
 		Database:       "testdb",
 		MaxPoolSize:    200,
@@ -168,7 +169,7 @@ func TestClientOptions_ConnectionURI(t *testing.T) {
 }
 
 func TestClientOptions_ConnectionURI_PoolOverlay(t *testing.T) {
-	b := New(&config.Mongodb{
+	b := New(&mongoconfig.Config{
 		ConnectionURI:  "mongodb://localhost:27017/testdb",
 		Database:       "testdb",
 		MaxPoolSize:    50,
@@ -185,7 +186,7 @@ func TestClientOptions_ConnectionURI_PoolOverlay(t *testing.T) {
 func TestBuildCredential(t *testing.T) {
 	tests := []struct {
 		name     string
-		creds    *config.MongodbCredentials
+		creds    *mongoconfig.Credentials
 		wantMech string
 	}{
 		{
@@ -195,44 +196,44 @@ func TestBuildCredential(t *testing.T) {
 		},
 		{
 			"X509",
-			&config.MongodbCredentials{AuthMechanism: config.MongoAuthMechanismTypeX509},
+			&mongoconfig.Credentials{AuthMechanism: mongoconfig.AuthMechanismTypeX509},
 			"MONGODB-X509",
 		},
 		{
 			"PLAIN",
-			&config.MongodbCredentials{
-				AuthMechanism: config.MongoAuthMechanismTypePLAIN,
-				Plain:         &config.MongoPLAINCredentials{Username: "u", Password: "p"},
+			&mongoconfig.Credentials{
+				AuthMechanism: mongoconfig.AuthMechanismTypePLAIN,
+				Plain:         &mongoconfig.PLAINCredentials{Username: "u", Password: "p"},
 			},
 			"PLAIN",
 		},
 		{
 			"PLAIN nil creds",
-			&config.MongodbCredentials{AuthMechanism: config.MongoAuthMechanismTypePLAIN},
+			&mongoconfig.Credentials{AuthMechanism: mongoconfig.AuthMechanismTypePLAIN},
 			"",
 		},
 		{
 			"SCRAM-SHA-1",
-			&config.MongodbCredentials{
-				AuthMechanism: config.MongoAuthMechanismTypeSCRAMSHA1,
-				Scram:         &config.MongoSCRAMCredentials{Username: "u", Password: "p", AuthSource: "admin"},
+			&mongoconfig.Credentials{
+				AuthMechanism: mongoconfig.AuthMechanismTypeSCRAMSHA1,
+				Scram:         &mongoconfig.SCRAMCredentials{Username: "u", Password: "p", AuthSource: "admin"},
 			},
 			"SCRAM-SHA-1",
 		},
 		{
 			"SCRAM nil creds",
-			&config.MongodbCredentials{AuthMechanism: config.MongoAuthMechanismTypeSCRAMSHA1},
+			&mongoconfig.Credentials{AuthMechanism: mongoconfig.AuthMechanismTypeSCRAMSHA1},
 			"",
 		},
 		{
 			"unknown mechanism",
-			&config.MongodbCredentials{AuthMechanism: config.MongoAuthMechanismType("unknown")},
+			&mongoconfig.Credentials{AuthMechanism: mongoconfig.AuthMechanismType("unknown")},
 			"",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			b := New(&config.Mongodb{Credentials: tt.creds})
+			b := New(&mongoconfig.Config{Credentials: tt.creds})
 			cred := b.buildCredential()
 			require.Equal(t, tt.wantMech, cred.AuthMechanism)
 		})

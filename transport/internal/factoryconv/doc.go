@@ -13,7 +13,7 @@
 //   - [CompilePatterns] compiles string patterns to regexps, skipping
 //     invalid ones.
 //   - [ParsePrefixes] parses IP/CIDR strings to netip.Prefix values.
-//   - [ConvertFallbackBehavior] maps [config.FallbackBehavior] to
+//   - [ConvertFallbackBehavior] maps [middlewareconfig.FallbackBehavior] to
 //     [fallback.Behavior], failing closed on unknown values.
 //   - [BuildIpAclRegistry] / [ConvertIpAclRule] build an [ipacl.Registry]
 //     from configuration.

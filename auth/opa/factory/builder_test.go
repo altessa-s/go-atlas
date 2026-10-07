@@ -12,8 +12,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 // bundleDir writes a minimal policy bundle and returns its directory.
@@ -30,11 +31,11 @@ allow if input.role == "admin"
 	return dir
 }
 
-func filesystemConfig(t *testing.T) *config.OPA {
+func filesystemConfig(t *testing.T) *authconfig.OPA {
 	t.Helper()
 
-	cfg := config.DefaultOPA()
-	cfg.Source = config.OPASourceFilesystem
+	cfg := authconfig.DefaultOPA()
+	cfg.Source = authconfig.OPASourceFilesystem
 	cfg.BundlePath = bundleDir(t)
 	cfg.Query = "data.profiles.authz.allow"
 
@@ -51,8 +52,8 @@ func TestBuild_RequiresConfig(t *testing.T) {
 func TestBuild_RequiresEnabledSource(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.DefaultOPA()
-	cfg.Source = config.OPASourceFilesystem
+	cfg := authconfig.DefaultOPA()
+	cfg.Source = authconfig.OPASourceFilesystem
 	cfg.BundlePath = "" // IsEnabled is false without a bundle path
 
 	_, err := New(&cfg).Build(t.Context())
@@ -79,15 +80,15 @@ func TestManagerOptions_MapsCache(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		cache     *config.OPACache
+		cache     *authconfig.OPACache
 		wantExtra int
 	}{
 		{"absent section", nil, 0},
-		{"disabled", &config.OPACache{Enabled: false, TTL: time.Minute, MaxSize: 100}, 0},
-		{"enabled", &config.OPACache{Enabled: true, TTL: time.Minute, MaxSize: 100}, 1},
+		{"disabled", &authconfig.OPACache{Enabled: false, TTL: time.Minute, MaxSize: 100}, 0},
+		{"enabled", &authconfig.OPACache{Enabled: true, TTL: time.Minute, MaxSize: 100}, 1},
 		// Neither a zero TTL nor a zero size is a reason to skip caching; both
 		// are passed through and read as "use the package default".
-		{"enabled without ttl or size", &config.OPACache{Enabled: true}, 1},
+		{"enabled without ttl or size", &authconfig.OPACache{Enabled: true}, 1},
 	}
 
 	baseline := len(New(filesystemConfig(t)).managerOptions())
@@ -139,7 +140,7 @@ func TestBuild_CacheEnabledStillAnswersCorrectly(t *testing.T) {
 	t.Parallel()
 
 	cfg := filesystemConfig(t)
-	cfg.Cache = &config.OPACache{Enabled: true, TTL: time.Minute}
+	cfg.Cache = &authconfig.OPACache{Enabled: true, TTL: time.Minute}
 
 	manager, err := New(cfg).Build(t.Context())
 	require.NoError(t, err)

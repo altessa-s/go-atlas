@@ -76,4 +76,4 @@ Errors: `ErrNoCertificate`, `ErrCertExpired`, `ErrUntrustedDomain` (match with `
 
 - [`auth/spiffe`](../spiffe) — SPIFFE ID parsing.
 - [`transport/grpc/interceptors/auth/mtls`](../../transport/grpc/interceptors/auth/mtls) · [`transport/http/server/middlewares/auth/mtls`](../../transport/http/server/middlewares/auth/mtls) — the transport adapters.
-- [`auth/mtls/factory`](./factory) — build an authenticator's options from `config.MTLS`.
+- [`auth/mtls/factory`](./factory) — build an authenticator's options from `authconfig.MTLS`.

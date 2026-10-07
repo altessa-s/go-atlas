@@ -12,8 +12,10 @@ import (
 	"github.com/nats-io/nkeys"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
+
+	natsconfig "github.com/altessa-s/go-atlas/config/nats"
 )
 
 func TestNew_Default(t *testing.T) {
@@ -26,7 +28,7 @@ func TestNew_WithOptions(t *testing.T) {
 	coord := health.New()
 	defer coord.Close()
 
-	b := New(&config.Nats{}).
+	b := New(&natsconfig.Config{}).
 		UseLogger(logger).
 		UseHealthCoordinator(coord)
 	require.NotNil(t, b)
@@ -35,12 +37,12 @@ func TestNew_WithOptions(t *testing.T) {
 func TestNatsOptions(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     *config.Nats
+		cfg     *natsconfig.Config
 		wantErr bool
 	}{
 		{
 			"valid basic",
-			&config.Nats{
+			&natsconfig.Config{
 				Hosts:          []string{"nats://localhost:4222"},
 				ClientName:     "test-client",
 				ConnectTimeout: 5 * time.Second,
@@ -52,7 +54,7 @@ func TestNatsOptions(t *testing.T) {
 		},
 		{
 			"with token auth",
-			&config.Nats{
+			&natsconfig.Config{
 				Hosts: []string{"nats://localhost:4222"},
 				Token: "mytoken",
 			},
@@ -60,7 +62,7 @@ func TestNatsOptions(t *testing.T) {
 		},
 		{
 			"with user/pass auth",
-			&config.Nats{
+			&natsconfig.Config{
 				Hosts:    []string{"nats://localhost:4222"},
 				Username: "user",
 				Password: "pass",
@@ -69,19 +71,19 @@ func TestNatsOptions(t *testing.T) {
 		},
 		{
 			"with nkey auth",
-			func() *config.Nats {
+			func() *natsconfig.Config {
 				kp, _ := nkeys.CreateUser()
 				seed, _ := kp.Seed()
-				return &config.Nats{
+				return &natsconfig.Config{
 					Hosts:    []string{"nats://localhost:4222"},
-					NkeySeed: config.Secret(seed),
+					NkeySeed: redacted.RedactedString(seed),
 				}
 			}(),
 			false,
 		},
 		{
 			"with invalid nkey seed",
-			&config.Nats{
+			&natsconfig.Config{
 				Hosts:    []string{"nats://localhost:4222"},
 				NkeySeed: "invalid-seed",
 			},
@@ -108,7 +110,7 @@ func TestNatsOptions(t *testing.T) {
 }
 
 func TestNatsOptions_ConnectionURI(t *testing.T) {
-	b := New(&config.Nats{
+	b := New(&natsconfig.Config{
 		ConnectionURI:  "nats://user:pass@nats:4222",
 		ConnectTimeout: 5 * time.Second,
 		ReconnectWait:  2 * time.Second,
@@ -123,7 +125,7 @@ func TestNatsOptions_ConnectionURI(t *testing.T) {
 func TestNatsOptions_ConnectionURI_SkipsAuth(t *testing.T) {
 	// When URI is set, auth options should not be added even if
 	// cfg has zero-value auth fields (they should be empty).
-	b := New(&config.Nats{
+	b := New(&natsconfig.Config{
 		ConnectionURI:  "nats://nats:4222",
 		ConnectTimeout: 5 * time.Second,
 		ReconnectWait:  2 * time.Second,
@@ -136,7 +138,7 @@ func TestNatsOptions_ConnectionURI_SkipsAuth(t *testing.T) {
 }
 
 func TestNatsOptions_MaxReconnect(t *testing.T) {
-	b := New(&config.Nats{
+	b := New(&natsconfig.Config{
 		Hosts:        []string{"nats://localhost:4222"},
 		MaxReconnect: 0, // should default to UnlimitedReconnects
 	})
@@ -147,28 +149,28 @@ func TestNatsOptions_MaxReconnect(t *testing.T) {
 func TestConsumerConfig(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     *config.NatsConsumer
+		cfg     *natsconfig.Consumer
 		wantErr bool
 	}{
 		{
 			"valid",
-			&config.NatsConsumer{
+			&natsconfig.Consumer{
 				Description:    "test consumer",
 				DurableName:    "test-durable",
 				FilterSubjects: []string{"events.>"},
 				MaxAckPending:  100,
 				AckWait:        30 * time.Second,
 				MaxDeliver:     5,
-				DeliverPolicy:  config.DeliverPolicyAll,
-				AckPolicy:      config.AckPolicyExplicit,
+				DeliverPolicy:  natsconfig.DeliverPolicyAll,
+				AckPolicy:      natsconfig.AckPolicyExplicit,
 			},
 			false,
 		},
 		{
 			"by start sequence",
-			&config.NatsConsumer{
+			&natsconfig.Consumer{
 				DurableName:   "seq-consumer",
-				DeliverPolicy: config.DeliverPolicyByStartSequence,
+				DeliverPolicy: natsconfig.DeliverPolicyByStartSequence,
 				OptStartSeq:   100,
 			},
 			false,

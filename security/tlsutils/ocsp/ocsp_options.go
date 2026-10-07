@@ -70,7 +70,7 @@ type options struct {
 // produce a valid OCSP staple. Unknown / empty modes leave the default
 // ([DefaultFailureMode]) in place — mirrors the pattern used by the
 // rest of the repo (plugins.SignatureMode, oidc.JWKSFailureMode,
-// config.TLSSkipVerifyMode).
+// tlsconfig.SkipVerifyMode).
 func WithFailureMode(mode FailureMode) Option {
 	return func(o *options) {
 		switch mode {

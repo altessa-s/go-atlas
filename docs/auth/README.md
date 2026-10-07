@@ -121,12 +121,12 @@ directly in code.
 
 | Package        | Factory entrypoint                       | Config struct (Go)                  | YAML template                       |
 |----------------|------------------------------------------|-------------------------------------|-------------------------------------|
-| `oidc`         | `oidc/factory.New(cfg *config.OIDC) *ProviderBuilder` | `config.OIDC` (`config/auth_oidc.go`)  | `config/templates/auth_oidc.yaml`  |
-| `opa`          | `opa/factory.New(cfg *config.OPA) *ManagerBuilder`    | `config.OPA` (`config/opa.go`)         | `config/templates/opa.yaml`        |
-| `scope`        | `scope/factory.New(cfg *config.ScopeRegistry) *RegistryBuilder` | `config.ScopeRegistry` (`config/auth_scope.go`) | `config/templates/auth_scope.yaml` |
-| `mtls`         | `mtls/factory.New(cfg *config.MTLS) *Builder` (returns `[]mtls.Option`) | `config.MTLS` (`config/auth_mtls.go`) | `config/templates/auth_mtls.yaml`  |
-| `oauth2client` | `oauth2client/factory.New(cfg *config.OAuth2Client) *Builder` (`Build` → `oauth2.TokenSource`, `BuildExchanger` → `*Exchanger`) | `config.OAuth2Client` (`config/oauth2_client.go`) | `config/templates/oauth2_client.yaml` |
-| `denylist`     | `denylist/negcache/factory.NewBuilder(...)` (negative filter) + `denylist/storages/redis.New(...)` (authoritative store) | `config.Denylist` (`config/auth_denylist.go`) | `config/templates/auth_denylist.yaml` |
+| `oidc`         | `oidc/factory.New(cfg *authconfig.OIDC) *ProviderBuilder` | `authconfig.OIDC` (`config/auth/auth_oidc.go`)  | `config/templates/auth_oidc.yaml`  |
+| `opa`          | `opa/factory.New(cfg *authconfig.OPA) *ManagerBuilder`    | `authconfig.OPA` (`config/auth/opa.go`)         | `config/templates/opa.yaml`        |
+| `scope`        | `scope/factory.New(cfg *authconfig.ScopeRegistry) *RegistryBuilder` | `authconfig.ScopeRegistry` (`config/auth/auth_scope.go`) | `config/templates/auth_scope.yaml` |
+| `mtls`         | `mtls/factory.New(cfg *authconfig.MTLS) *Builder` (returns `[]mtls.Option`) | `authconfig.MTLS` (`config/auth/auth_mtls.go`) | `config/templates/auth_mtls.yaml`  |
+| `oauth2client` | `oauth2client/factory.New(cfg *authconfig.OAuth2Client) *Builder` (`Build` → `oauth2.TokenSource`, `BuildExchanger` → `*Exchanger`) | `authconfig.OAuth2Client` (`config/oauth2_client.go`) | `config/templates/oauth2_client.yaml` |
+| `denylist`     | `denylist/negcache/factory.NewBuilder(...)` (negative filter) + `denylist/storages/redis.New(...)` (authoritative store) | `authconfig.Denylist` (`config/auth/auth_denylist.go`) | `config/templates/auth_denylist.yaml` |
 
 The builder pattern resolves dependencies and applies options; see each package's `factory/` README for the `Build`/accessor surface. The
 `config/templates/auth.yaml` template is the aggregate auth section consumed by `config/loader`. The `scope` factory builds only the
@@ -226,7 +226,9 @@ schedule (`WithJWKSRefreshSchedule`) — otherwise call `provider.RefreshJWKS(ct
 ```go
 import "github.com/altessa-s/go-atlas/auth/oidc"
 
-provider, err := oidc.NewProvider(ctx, "https://issuer.example.com/.well-known/openid-configuration")
+provider, err := oidc.NewProvider(ctx, "https://issuer.example.com/.well-known/openid-configuration",
+    oidc.WithHTTPClient(httpclient.New()), // required
+)
 if err != nil {
     return err
 }
@@ -238,7 +240,7 @@ if err != nil {
 sub, _ := claims["sub"].(string)
 ```
 
-Loading the provider from a `config.OIDC` instead (the factory path, e.g. when config comes from `config/templates/auth_oidc.yaml`):
+Loading the provider from a `authconfig.OIDC` instead (the factory path, e.g. when config comes from `config/templates/auth_oidc.yaml`):
 
 ```go
 import (
@@ -246,7 +248,7 @@ import (
     "github.com/altessa-s/go-atlas/config"
 )
 
-provider, err := factory.New(&cfg /* *config.OIDC */).Build(ctx)
+provider, err := factory.New(&cfg /* *authconfig.OIDC */).Build(ctx)
 ```
 
 Per-call overrides (extra audience, required claims) go through `provider.ValidateTokenWithOptions(ctx, raw, opt…)`; see [oidc.md](oidc.md).
@@ -304,7 +306,7 @@ tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
 })
 ```
 
-Load either from `config.OAuth2Client` (the factory path) with `oauth2client/factory.New(cfg.OAuth2Client).Build(ctx)`; when the config
+Load either from `authconfig.OAuth2Client` (the factory path) with `oauth2client/factory.New(cfg.OAuth2Client).Build(ctx)`; when the config
 sets `discoveryUrl` instead of `tokenUrl`, inject an `oidc.Provider` as the token-endpoint source via `Builder.UseTokenEndpointSource`.
 
 ### mTLS / SPIFFE identity
@@ -350,7 +352,7 @@ import (
     spiffefactory "github.com/altessa-s/go-atlas/security/tlsutils/spiffe/factory"
 )
 
-provider, err := spiffefactory.New(&cfg.SPIFFE).Provider(ctx)      // socket + authorizer from config.SPIFFE
+provider, err := spiffefactory.New(&cfg.SPIFFE).Provider(ctx)      // socket + authorizer from authconfig.SPIFFE
 if err != nil {
     return err
 }

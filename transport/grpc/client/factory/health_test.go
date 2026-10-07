@@ -9,8 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/factory"
+
+	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 )
 
 func TestGRPCHealthClientOptions(t *testing.T) {
@@ -19,7 +20,7 @@ func TestGRPCHealthClientOptions(t *testing.T) {
 	t.Run("nil returns nil", func(t *testing.T) {
 		t.Parallel()
 
-		var h *config.GRPCHealthClient
+		var h *clienthealthconfig.GRPC
 		opts := factory.HealthOptions(h)
 		require.Nil(t, opts)
 	})
@@ -27,7 +28,7 @@ func TestGRPCHealthClientOptions(t *testing.T) {
 	t.Run("empty config returns empty options", func(t *testing.T) {
 		t.Parallel()
 
-		h := &config.GRPCHealthClient{}
+		h := &clienthealthconfig.GRPC{}
 		opts := factory.HealthOptions(h)
 		require.Empty(t, opts)
 	})
@@ -35,8 +36,8 @@ func TestGRPCHealthClientOptions(t *testing.T) {
 	t.Run("with service name returns options", func(t *testing.T) {
 		t.Parallel()
 
-		h := &config.GRPCHealthClient{
-			HealthClient: config.HealthClient{
+		h := &clienthealthconfig.GRPC{
+			Config: clienthealthconfig.Config{
 				ServiceName: "test-grpc-service",
 			},
 		}
@@ -47,11 +48,11 @@ func TestGRPCHealthClientOptions(t *testing.T) {
 	t.Run("ignores HTTP-specific fields", func(t *testing.T) {
 		t.Parallel()
 
-		h := &config.GRPCHealthClient{
-			HealthClient: config.HealthClient{
+		h := &clienthealthconfig.GRPC{
+			Config: clienthealthconfig.Config{
 				ServiceName: "test-grpc-service",
 			},
-			StateMapper: config.HealthClientStateMapperStrict, // This should not generate an option (yet)
+			StateMapper: clienthealthconfig.StateMapperStrict, // This should not generate an option (yet)
 			PerTarget:   true,                                 // This should not generate an option (yet)
 		}
 		opts := factory.HealthOptions(h)

@@ -103,8 +103,8 @@ A direct call to a scheduler-managed entry point returns `scheduler.ErrScheduler
 
 The GitLab and S3 sources reach external services and accept proxy / retry /
 breaker configuration through the resilient
-[`transport/http/client`](../../transport/http/client/). GitLab forwards the
-options via `gitlab.WithHTTPClientOptions(...)`; S3 swaps the AWS SDK
+[`transport/http/client`](../../transport/http/client/). The factory injects the
+GitLab client via `gitlab.WithHTTPClient(httpclient.New(...))`; S3 swaps the AWS SDK
 transport via `awsconfig.WithHTTPClient(httpclient.New(...))` only when
 `s3.proxy` is explicitly configured (otherwise the SDK keeps its own
 transport and retry layer). See the [Proxy guide](../../docs/proxy.md) for

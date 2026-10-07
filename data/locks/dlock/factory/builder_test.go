@@ -12,10 +12,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/factory"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	lockconfig "github.com/altessa-s/go-atlas/config/lock"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	locknats "github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
 	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -37,10 +38,10 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = first.Close(context.Background()) })
 
-	cfg := func(migrate bool) *config.DistributionLock {
-		return &config.DistributionLock{
-			Provider: config.DistributionLockProviderNats,
-			Nats:     &config.DistributionLockNats{Bucket: bucket, MigrateBucketTTL: migrate},
+	cfg := func(migrate bool) *lockconfig.DistributionLock {
+		return &lockconfig.DistributionLock{
+			Provider: lockconfig.DistributionLockProviderNats,
+			Nats:     &lockconfig.DistributionLockNats{Bucket: bucket, MigrateBucketTTL: migrate},
 		}
 	}
 
@@ -57,7 +58,7 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 func TestBuild_NilNatsSection(t *testing.T) {
 	t.Parallel()
 
-	_, err := factory.New(&config.DistributionLock{Provider: config.DistributionLockProviderNats}).Build(t.Context())
+	_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderNats}).Build(t.Context())
 	require.Error(t, err)
 }
 
@@ -78,10 +79,10 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cfg := func(strict bool) *config.DistributionLock {
-		return &config.DistributionLock{
-			Provider: config.DistributionLockProviderNats,
-			Nats:     &config.DistributionLockNats{Bucket: bucket, StrictBucketStorage: strict},
+	cfg := func(strict bool) *lockconfig.DistributionLock {
+		return &lockconfig.DistributionLock{
+			Provider: lockconfig.DistributionLockProviderNats,
+			Nats:     &lockconfig.DistributionLockNats{Bucket: bucket, StrictBucketStorage: strict},
 		}
 	}
 
@@ -101,16 +102,16 @@ func TestBuild_NatsStorage(t *testing.T) {
 	ns := testhelpers.StartNATSServer(t)
 	nc, js := testhelpers.ConnectJetStream(t, ns)
 
-	for bucket, storage := range map[string]config.KVStorageType{"locks-default": "", "locks-memory": config.KVStorageMemory, "locks-file": config.KVStorageFile} {
-		dl, err := factory.New(&config.DistributionLock{
-			Provider: config.DistributionLockProviderNats,
-			Nats:     &config.DistributionLockNats{Bucket: bucket, Storage: storage},
+	for bucket, storage := range map[string]storageconfig.KVStorageType{"locks-default": "", "locks-memory": storageconfig.KVStorageMemory, "locks-file": storageconfig.KVStorageFile} {
+		dl, err := factory.New(&lockconfig.DistributionLock{
+			Provider: lockconfig.DistributionLockProviderNats,
+			Nats:     &lockconfig.DistributionLockNats{Bucket: bucket, Storage: storage},
 		}).UseNatsConn(nc).Build(t.Context())
 		require.NoError(t, err)
 		require.NotNil(t, dl)
 
 		want := jetstream.MemoryStorage
-		if storage == config.KVStorageFile {
+		if storage == storageconfig.KVStorageFile {
 			want = jetstream.FileStorage
 		}
 		require.Equal(t, want, testhelpers.KVBucketStorage(t, js, bucket), bucket)
@@ -122,22 +123,22 @@ func TestBuild_Mongodb(t *testing.T) {
 	client, err := mongodrv.Connect(mongoopts.Client().ApplyURI("mongodb://127.0.0.1:1"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
-	mongoCfg := config.DefaultDistributionLockMongodb()
+	mongoCfg := lockconfig.DefaultDistributionLockMongodb()
 
 	t.Run("requires_database", func(t *testing.T) {
 		t.Parallel()
-		_, err := factory.New(&config.DistributionLock{Provider: config.DistributionLockProviderMongodb, Mongodb: &mongoCfg}).Build(t.Context())
+		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongodb, Mongodb: &mongoCfg}).Build(t.Context())
 		require.ErrorContains(t, err, "mongo database")
 	})
 	t.Run("requires_section", func(t *testing.T) {
 		t.Parallel()
-		_, err := factory.New(&config.DistributionLock{Provider: config.DistributionLockProviderMongodb}).
+		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongodb}).
 			UseMongoDB(client.Database("x")).Build(t.Context())
 		require.Error(t, err)
 	})
 	t.Run("builds_without_io", func(t *testing.T) {
 		t.Parallel()
-		dl, err := factory.New(&config.DistributionLock{Provider: config.DistributionLockProviderMongodb, Mongodb: &mongoCfg}).
+		dl, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongodb, Mongodb: &mongoCfg}).
 			UseMongoDB(client.Database("x")).Build(t.Context())
 		require.NoError(t, err)
 		require.NotNil(t, dl)

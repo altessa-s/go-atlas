@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/auth/mtls/factory"
-	"github.com/altessa-s/go-atlas/config"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 func BenchmarkOptions(b *testing.B) {
-	cfg := &config.MTLS{TrustDomains: []string{"example.org"}, CheckExpiry: true}
+	cfg := &authconfig.MTLS{TrustDomains: []string{"example.org"}, CheckExpiry: true}
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := factory.New(cfg).Options(); err != nil {

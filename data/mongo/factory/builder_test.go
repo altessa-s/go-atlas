@@ -11,14 +11,15 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/mongo/factory"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 )
 
-func natsConfig(bucket string, nats config.StorageNATSConfig) *config.CacheStorageConfig {
+func natsConfig(bucket string, nats storageconfig.NATSConfig) *storageconfig.CacheStorageConfig {
 	nats.Bucket = bucket
-	return &config.CacheStorageConfig{Type: config.CacheStorageTypeNats, Nats: &nats}
+	return &storageconfig.CacheStorageConfig{Type: storageconfig.CacheStorageTypeNats, Nats: &nats}
 }
 
 // TestBuild_NatsBucket pins how the NATS cursor bucket is created: file
@@ -30,16 +31,16 @@ func TestBuild_NatsBucket(t *testing.T) {
 	ns := testhelpers.StartNATSServer(t)
 	_, js := testhelpers.ConnectJetStream(t, ns)
 
-	_, err := factory.New(natsConfig("forever", config.StorageNATSConfig{})).UseJetstream(js).Build(t.Context())
+	_, err := factory.New(natsConfig("forever", storageconfig.NATSConfig{})).UseJetstream(js).Build(t.Context())
 	require.NoError(t, err)
 	require.Zero(t, testhelpers.KVBucketTTL(t, js, "forever"))
 	require.Equal(t, jetstream.FileStorage, testhelpers.KVBucketStorage(t, js, "forever"))
 
-	_, err = factory.New(natsConfig("hourly", config.StorageNATSConfig{})).UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
+	_, err = factory.New(natsConfig("hourly", storageconfig.NATSConfig{})).UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, time.Hour, testhelpers.KVBucketTTL(t, js, "hourly"))
 
-	_, err = factory.New(natsConfig("hourly", config.StorageNATSConfig{})).UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
+	_, err = factory.New(natsConfig("hourly", storageconfig.NATSConfig{})).UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
 	require.NoError(t, err, "an existing matching bucket is adopted")
 }
 
@@ -52,14 +53,14 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 	ns := testhelpers.StartNATSServer(t)
 	_, js := testhelpers.ConnectJetStream(t, ns)
 
-	_, err := factory.New(natsConfig("cursors", config.StorageNATSConfig{})).UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
+	_, err := factory.New(natsConfig("cursors", storageconfig.NATSConfig{})).UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
 	require.NoError(t, err)
 
-	_, err = factory.New(natsConfig("cursors", config.StorageNATSConfig{})).UseJetstream(js).WithTTL(2 * time.Hour).Build(t.Context())
+	_, err = factory.New(natsConfig("cursors", storageconfig.NATSConfig{})).UseJetstream(js).WithTTL(2 * time.Hour).Build(t.Context())
 	require.ErrorIs(t, err, factory.ErrBucketTTLMismatch)
 	require.Equal(t, time.Hour, testhelpers.KVBucketTTL(t, js, "cursors"), "a rejected build changed the bucket's TTL")
 
-	_, err = factory.New(natsConfig("cursors", config.StorageNATSConfig{MigrateBucketTTL: true})).
+	_, err = factory.New(natsConfig("cursors", storageconfig.NATSConfig{MigrateBucketTTL: true})).
 		UseJetstream(js).WithTTL(2 * time.Hour).Build(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 2*time.Hour, testhelpers.KVBucketTTL(t, js, "cursors"))
@@ -74,11 +75,11 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 	_, js := testhelpers.ConnectJetStream(t, ns)
 	testhelpers.CreateNATSKV(t, js, "memory-cursors", time.Hour) // memory storage
 
-	_, err := factory.New(natsConfig("memory-cursors", config.StorageNATSConfig{StrictBucketStorage: true})).
+	_, err := factory.New(natsConfig("memory-cursors", storageconfig.NATSConfig{StrictBucketStorage: true})).
 		UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
 	require.ErrorIs(t, err, factory.ErrBucketStorageMismatch)
 
-	_, err = factory.New(natsConfig("memory-cursors", config.StorageNATSConfig{})).UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
+	_, err = factory.New(natsConfig("memory-cursors", storageconfig.NATSConfig{})).UseJetstream(js).WithTTL(time.Hour).Build(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, jetstream.MemoryStorage, testhelpers.KVBucketStorage(t, js, "memory-cursors"))
 }

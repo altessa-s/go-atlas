@@ -12,11 +12,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -37,7 +38,7 @@ const (
 // The builder is not safe for concurrent use.
 type TokenBucketLimiterBuilder struct {
 	corefactory.Base
-	cfg  *config.TokenBucketLimiter
+	cfg  *limiterconfig.TokenBucket
 	errs []error
 
 	// Dependencies
@@ -50,7 +51,7 @@ type TokenBucketLimiterBuilder struct {
 
 // New creates a [TokenBucketLimiterBuilder] for the given limiter config.
 // Config can be nil — the error surfaces at [TokenBucketLimiterBuilder.Build] time.
-func New(cfg *config.TokenBucketLimiter) *TokenBucketLimiterBuilder {
+func New(cfg *limiterconfig.TokenBucket) *TokenBucketLimiterBuilder {
 	return &TokenBucketLimiterBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -90,14 +91,14 @@ func (b *TokenBucketLimiterBuilder) createStorage() (storages.Storage, error) {
 	}
 
 	switch b.cfg.Storage.Type {
-	case config.CacheStorageTypeMemory:
+	case storageconfig.CacheStorageTypeMemory:
 		return b.createMemoryStorage()
-	case config.CacheStorageTypeRedis:
+	case storageconfig.CacheStorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
 		return b.createRedisStorage()
-	case config.CacheStorageTypeNats:
+	case storageconfig.CacheStorageTypeNats:
 		if err := b.RequireDependency(b.jetstream, "jetstream"); err != nil {
 			return nil, err
 		}
@@ -155,8 +156,8 @@ func (b *TokenBucketLimiterBuilder) applyDefaults(opts []tokenbucket.Option) []t
 	return append(defaults, opts...)
 }
 
-// convertConfig converts config.TokenBucketLimiter to tokenbucket.RateLimitConfig.
-func convertConfig(cfg *config.TokenBucketLimiter) *tokenbucket.RateLimitConfig {
+// convertConfig converts limiterconfig.TokenBucket to tokenbucket.RateLimitConfig.
+func convertConfig(cfg *limiterconfig.TokenBucket) *tokenbucket.RateLimitConfig {
 	if cfg == nil || cfg.Rules == nil {
 		return &tokenbucket.RateLimitConfig{
 			Default: tokenbucket.RateLimitSettings{
