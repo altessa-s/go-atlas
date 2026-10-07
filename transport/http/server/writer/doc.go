@@ -19,6 +19,22 @@
 // For large payloads, [Writer.WriteStream] and [Writer.WriteStreamWithFlush]
 // write directly to the response without buffering the entire body.
 //
+// # Response sanitization
+//
+// When the response value is a proto.Message, [Writer.Write] and
+// [Writer.WriteStream] strip fields annotated google.api.field_behavior =
+// INPUT_ONLY before encoding, so values accepted only on the write path are
+// not echoed on the read path. Sanitization is on by default; the caller's
+// message is never mutated (the fields are cleared on a clone, made only when
+// a populated INPUT_ONLY field is present). Traversal is bounded by
+// [WithResponseSanitizationMaxDepth]; a failure yields a 500 response, a log
+// entry and an error wrapping [ErrResponseSanitization].
+//
+// Only the response message itself is inspected: the contents of
+// google.protobuf.Any fields, proto messages inside slices, maps or envelopes,
+// and error bodies are not sanitized. Non-proto responses are unaffected.
+// Disable sanitization with [WithResponseSanitizationDisabled].
+//
 // # Example
 //
 //	w := writer.New()
