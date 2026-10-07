@@ -17,6 +17,32 @@ func BenchmarkLowercaseModifier(b *testing.B) {
 	}
 }
 
+func BenchmarkRemoveEmptyElementsFromSlice(b *testing.B) {
+	s1, s2, s3, empty := "alpha", "beta", "gamma", ""
+	cases := []struct {
+		name     string
+		template any
+	}{
+		{"strings/all-populated", []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"}},
+		{"strings/some-empty", []string{"alpha", "", "beta", "  ", "gamma", "delta", "", "theta"}},
+		{"ptrs/all-populated", []*string{&s1, &s2, &s3, &s1, &s2, &s3, &s1, &s2}},
+		{"ptrs/some-empty", []*string{&s1, nil, &s2, &empty, &s3, &s1, nil, &s2}},
+	}
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			tmpl := reflect.ValueOf(tc.template)
+			v := reflect.New(tmpl.Type()).Elem()
+			buf := reflect.MakeSlice(tmpl.Type(), tmpl.Len(), tmpl.Len())
+			b.ReportAllocs()
+			for b.Loop() {
+				reflect.Copy(buf, tmpl)
+				v.Set(buf)
+				RemoveEmptyElementsFromSlice(v)
+			}
+		})
+	}
+}
+
 func BenchmarkNormalizePhone(b *testing.B) {
 	v := reflect.ValueOf("+79161234567")
 	for b.Loop() {
