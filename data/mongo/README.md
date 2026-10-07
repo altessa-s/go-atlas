@@ -75,6 +75,12 @@ res, err := mongo.ListCursor[User](ctx, coll,
 
 Binding is opt-in: a cursor minted without a subject stays replayable by any caller, so existing callers are unaffected.
 
+## Cursor sort shapes
+
+A cursor resumes on the value of one sort field, with the cursor-ID field as the tiebreaker in the same direction. `ListCursor` therefore accepts a
+single sort field, that field followed by the cursor-ID field in the same direction, or a sort led by the cursor-ID field. Any other shape — a
+second non-ID key, or an ID tiebreaker in the opposite direction — would skip or repeat documents and fails with `ErrUnsupportedCursorSort`.
+
 ## Migrations
 
 `Connect` applies all pending `mongo-migrate` migrations before returning. The underlying library reads the current schema version and writes the new

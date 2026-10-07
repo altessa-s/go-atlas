@@ -145,38 +145,21 @@ func (m *Mongo) DataKey(ctx context.Context, altName string, create bool) (*Data
 		// If type assertion failed, continue to fetch from database
 	}
 
-	dataKeyExists := true
-	res := m.encryptionClient.GetKeyByAltName(ctx, altName)
-	if err := res.Err(); err != nil {
-		if !errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, err
-		}
-		dataKeyExists = false
+	ret, err := m.lookupDataKey(ctx, altName)
+	if err == nil {
+		m.dkids.Store(altName, *ret)
+		return ret, nil
 	}
-
-	if dataKeyExists {
-		var keyData map[string]any
-		if err := res.Decode(&keyData); err != nil {
-			return nil, err
-		}
-
-		if idVal, ok := keyData["_id"].(bson.Binary); ok {
-			ret := DataKeyId(idVal)
-			m.dkids.Store(altName, ret)
-			return &ret, nil
-		}
-		return nil, errors.New("invalid _id field type in key data")
-	}
-
-	if !create {
-		return nil, ErrDataKeyNotFound
+	if !errors.Is(err, ErrDataKeyNotFound) || !create {
+		return nil, err
 	}
 
 	return m.CreateDataKey(ctx, altName)
 }
 
 // CreateDataKey creates a new data encryption key with the specified alternative name.
-// If a key with the same alternative name already exists, it returns the existing key.
+// If a key with the same alternative name already exists, it returns the existing key;
+// when a concurrent creator wins the race for altName, the winner's key is returned.
 //
 // The key is created using the configured KMS provider and stored in the key vault
 // collection. The key ID is cached locally for future operations.
@@ -193,22 +176,12 @@ func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, 
 		return nil, ErrEncryptionNotEnabled
 	}
 
-	res := m.encryptionClient.GetKeyByAltName(ctx, altName)
-	if err := res.Err(); err != nil {
-		if !errors.Is(err, mongo.ErrNoDocuments) {
-			return nil, err
-		}
-	} else {
-		var keyData map[string]any
-		if err = res.Decode(&keyData); err != nil {
-			return nil, err
-		}
-
-		if idVal, ok := keyData["_id"].(bson.Binary); ok {
-			ret := DataKeyId(idVal)
-			return &ret, nil
-		}
-		return nil, errors.New("invalid _id field type in key data")
+	ret, err := m.lookupDataKey(ctx, altName)
+	if err == nil {
+		return ret, nil
+	}
+	if !errors.Is(err, ErrDataKeyNotFound) {
+		return nil, err
 	}
 
 	// Create a new data key for the encrypted field.
@@ -225,12 +198,49 @@ func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, 
 		if !ok || !serr.HasErrorCode(MongoErrorCodeDuplicateKey) {
 			return nil, err
 		}
+		// A concurrent creator stored altName first. The driver returns a
+		// zero id for the losing insert, so load the winner's key instead.
+		if ret, err = m.lookupDataKey(ctx, altName); err != nil {
+			return nil, coreerrs.Wrapf(err, "load data key %q created concurrently", altName)
+		}
+	} else {
+		if len(keyId.Data) == 0 {
+			return nil, errors.New("key vault returned an empty data key id")
+		}
+		ret = new(DataKeyId(keyId))
 	}
 
-	ret := DataKeyId(keyId)
-	m.dkids.Store(altName, ret)
+	m.dkids.Store(altName, *ret)
 
-	return &ret, nil
+	return ret, nil
+}
+
+// lookupDataKey reads the data key stored under altName in the key vault. It
+// returns [ErrDataKeyNotFound] when no key exists and rejects a document
+// whose _id is not a non-empty binary, so an invalid id is never cached.
+func (m *Mongo) lookupDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
+	res := m.encryptionClient.GetKeyByAltName(ctx, altName)
+	if err := res.Err(); err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, ErrDataKeyNotFound
+		}
+		return nil, err
+	}
+
+	var keyData map[string]any
+	if err := res.Decode(&keyData); err != nil {
+		return nil, err
+	}
+
+	idVal, ok := keyData["_id"].(bson.Binary)
+	if !ok {
+		return nil, errors.New("invalid _id field type in key data")
+	}
+	if len(idVal.Data) == 0 {
+		return nil, errors.New("empty _id in key data")
+	}
+
+	return new(DataKeyId(idVal)), nil
 }
 
 // InvalidateDataKey drops the cached DataKeyId for altName so the next
@@ -698,7 +708,10 @@ func (m *Mongo) processDefaultField(ctx context.Context, meta fieldMetadata, set
 	unsetDoc := bson.M{}
 	setDoc[meta.fieldName] = meta.fieldValue.Interface()
 
-	if !meta.fieldValue.IsZero() && meta.shouldEncrypt && meta.algorithmString != "" && meta.keyAltName != "" {
+	// Zero values are encrypted too: storing "", 0 or false in clear would
+	// leak the value of an encrypted field. Only a nil pointer or interface,
+	// written as BSON null, carries no value to protect.
+	if !isNilValue(meta.fieldValue) && meta.shouldEncrypt && meta.algorithmString != "" && meta.keyAltName != "" {
 		// Fail closed: a field marked for encryption must never be written
 		// when encryption is not configured. Without this guard the code
 		// would call the (possibly nil) encryption client directly, bypassing
@@ -721,6 +734,16 @@ func (m *Mongo) processDefaultField(ctx context.Context, meta fieldMetadata, set
 		setDoc[meta.fieldName] = encryptedField
 	}
 	return setDoc, unsetDoc, nil
+}
+
+// isNilValue reports whether v is a nil pointer or interface.
+func isNilValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 // isOmitOnUpdate checks if a field should be omitted on update operations based on the configured BSON tag.
