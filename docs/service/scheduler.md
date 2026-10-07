@@ -120,6 +120,7 @@ The builder selects the storage backend, maps the concurrency strategy to schedu
 | `UseMongoDb`        | MongoDB database. Required when `storage.type` is `mongodb` |
 | `UseRedisClient`    | Redis client. Required when `storage.type` is `redis`       |
 | `UseSQLDB`          | `*sql.DB` handle. Required when `storage.type` is `sql`     |
+| `UseClickHouseConn` | ClickHouse connection. Required when `historyStorage.type` is `clickhouse` |
 | `UseCollector`      | Metrics collector for Prometheus instrumentation            |
 | `UseReadinessProbe` | Defers task dispatch until all subsystems signal readiness  |
 
@@ -702,6 +703,43 @@ storage:
 
 See the package [README](../../service/scheduler/storages/sqldb/README.md) for the schema and dialect details.
 
+### Separate history storage (ClickHouse)
+
+`Storage` embeds `HistoryStorage` — `AddHistory`, `History`, `HistoryPaginated`, `CleanupHistory` — and `scheduler.WithHistoryStorage` moves that
+half to a backend of its own while task state stays in the `Storage`. History needs none of the atomic writes task state does: entries are only
+appended, listed per task and expired, which suits an analytical store.
+
+```go
+import schedclickhouse "github.com/altessa-s/go-atlas/service/scheduler/storages/clickhouse"
+
+history, err := schedclickhouse.New(conn, schedclickhouse.WithTTL(30*24*time.Hour))
+if err != nil {
+	return err
+}
+if err := history.EnsureSchema(ctx); err != nil {
+	return err
+}
+sched := scheduler.New(tasks, scheduler.WithHistoryStorage(history))
+```
+
+```yaml
+historyStorage:
+  type: clickhouse
+  clickhouse:
+    tableName: scheduler_history   # Default: scheduler_history
+    engine: MergeTree              # Default: MergeTree; Replicated* with cluster
+    ttl: 720h                      # Default: 0s (historyRetention)
+    ensureSchema: true             # Default: false
+```
+
+- The table TTL is the retention: `CleanupHistory` is a no-op and `WithHistoryRetention` does not apply. ClickHouse deletes expired rows as it
+  merges parts, so an expired entry stays visible until then. The TTL is fixed when the table is created (`ALTER TABLE … MODIFY TTL` changes it).
+- `AddHistory` uses an asynchronous insert that waits for the flush, so one row per run does not create a part per row.
+- `Unregister` deletes the task's history from a history backend that implements `HistoryDeleter`; ClickHouse uses a lightweight `DELETE`.
+- Filters go through `data/filter/translators/clickhouse`, whose `size()` measures a string in bytes rather than code points.
+
+See the package [README](../../service/scheduler/storages/clickhouse/README.md) for the schema.
+
 ---
 
 ## Distributed scheduling
@@ -960,6 +998,7 @@ All errors are exported as sentinel values. Use `errors.Is` to match.
 | `WithStaleTaskTimeout`          | `30m`           | Run lease (min `5s`); runs whose lease expired are recovered    |
 | `WithInstanceID`                | random          | Owner ID stamped on runs; unique per live instance              |
 | `WithLeaderElector`             | `nil`           | Distributed leader elector -- only the leader dispatches        |
+| `WithHistoryStorage`            | `nil`           | Separate history backend; `nil` keeps history in the `Storage`  |
 | `WithReadinessProbe`            | `nil`           | Pre-dispatch readiness check -- skips tick when `false`         |
 | `WithLogger`                    | discard         | Structured logger for lifecycle and error events                |
 | `WithCollector`                 | noop            | Metrics collector for Prometheus instrumentation                |

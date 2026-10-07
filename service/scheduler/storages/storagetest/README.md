@@ -34,6 +34,19 @@ rests on the atomic compare-and-swap writes, the run-ownership rules of the `Sto
 `Run` hands every contract its own store, which must be empty and isolated from the others; every bundled backend passes all of them. Called on their
 own, `FinishRun` and `ReplaceTaskIf` tolerate a store shared with other tests; the other contracts expect an empty, isolated store.
 
+## History contracts
+
+A backend that implements only `scheduler.HistoryStorage` — one meant for `scheduler.WithHistoryStorage`, such as
+[`storages/clickhouse`](../clickhouse) — runs these instead of `Run`.
+
+| Function            | Verifies                                                                                                       |
+|---------------------|----------------------------------------------------------------------------------------------------------------|
+| `RunHistory`        | Runs every history contract below except `HistoryCleanup` as parallel subtests, each on a fresh store          |
+| `HistoryOrder`      | `History` order `StartedAt DESC`; task IDs differing only by case or a trailing space have separate history    |
+| `HistoryPagination` | Compound-cursor walk `StartedAt DESC, ID DESC`; every field round-trips; filters on every `HistoryFilterFields` |
+| `HistoryDelete`     | For a `scheduler.HistoryDeleter`: `DeleteHistory` removes exactly one task's history; skipped otherwise        |
+| `HistoryCleanup`    | `CleanupHistory` retention; left out of `RunHistory`, since a backend may expire history itself (a TTL)        |
+
 ## Usage
 
 ```go

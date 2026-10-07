@@ -29,6 +29,12 @@ per-process random ID).
 | `redis` | Redis | `UseRedisClient` |
 | `sql` | PostgreSQL / MySQL / MariaDB (`storage.sql.dialect`) | `UseSQLDB` |
 
+`historyStorage` moves execution history to a backend of its own (`scheduler.WithHistoryStorage`); task state stays in `storage`.
+
+| Type | Backend | Requires |
+|------|---------|----------|
+| `clickhouse` | ClickHouse table; a zero `ttl` takes `historyRetention` | `UseClickHouseConn` |
+
 ## Methods
 
 ### Constructor
@@ -46,6 +52,7 @@ per-process random ID).
 | `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends (set `storage.mongodb.ensureIndexes: true` to create the indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends (set `storage.redis.ensureIndexes: true` to create the RediSearch indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
 | `UseSQLDB` | Sets the `*sql.DB` handle for SQL storage backends (set `storage.sql.ensureSchema: true` to create the schema during `Build`; otherwise create it first: `EnsureSchema` on a `sqldb.New` storage with the same handle, dialect and tables, or migrations) |
+| `UseClickHouseConn` | Sets the ClickHouse connection for the ClickHouse history storage (set `historyStorage.clickhouse.ensureSchema: true` to create the table during `Build`; otherwise create it first: `EnsureSchema` on the storage, or `SchemaDDL` through migrations) |
 
 ### Terminal
 

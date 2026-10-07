@@ -15,3 +15,9 @@ func TestStorageContract(t *testing.T) {
 	t.Parallel()
 	storagetest.Run(t, func(tb testing.TB) scheduler.Storage { return mustNew(tb, 10) })
 }
+
+func TestHistoryStorageContract(t *testing.T) {
+	t.Parallel()
+	storagetest.RunHistory(t, func(tb testing.TB) scheduler.HistoryStorage { return mustNew(tb, 10) })
+	storagetest.HistoryCleanup(t, mustNew(t, 10))
+}

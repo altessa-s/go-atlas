@@ -6,7 +6,9 @@
 // MongoDB, Redis, PostgreSQL, MariaDB and MySQL. Besides the scenarios below,
 // every backend runs the storage contract suite from service/scheduler/storages/storagetest
 // (the SQL backends also its Identity, Pagination and History contracts), and the
-// SQL backends upgrade a tasks table from the previous schema.
+// SQL backends upgrade a tasks table from the previous schema. The ClickHouse
+// history storage runs the history contracts, its TTL retention and a scheduler
+// round trip through WithHistoryStorage.
 //
 // The unit tests for service/scheduler run against the in-memory storage, which
 // serializes every operation behind one mutex and ignores the context it is

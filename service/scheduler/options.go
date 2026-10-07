@@ -80,6 +80,11 @@ type options struct {
 	concurrencyLimitFunc      concurrency.ConcurrencyLimitFunc `opt:"-"`
 	collector                 metrics.Collector                `opt:"-"`
 	readinessProbe            func() bool                      `opt:"-"`
+
+	// historyStorage keeps execution history apart from the task state, in a
+	// backend suited to an append-only log. Nil (the default) keeps history in
+	// the [Storage] passed to [New].
+	historyStorage HistoryStorage `optgen:"notnil" optval:"nil"`
 }
 
 // WithConcurrencyLimitFunc sets a dynamic concurrency limit function that is
