@@ -17,10 +17,6 @@ import (
 var filterColumns = []string{"event_type", "action", "actor_id", "actor_type", "resource_type", "resource_id", "status",
 	"request_id", "trace_id"}
 
-// mysqlIndexPrefix is the indexed prefix, in bytes, of a MySQL BLOB filter
-// column; equality on the full value still applies.
-const mysqlIndexPrefix = "(255)"
-
 // index is one secondary index of the events table.
 type index struct {
 	suffix  string
@@ -75,24 +71,17 @@ func (s *Storage) postgresSchema() []string {
 
 // mysqlSchema declares every string column as a binary type: the ID as
 // VARBINARY (four bytes per character of [MaxIDLength]), filter values as
-// MEDIUMBLOB indexed by a prefix. MySQL has no CREATE INDEX IF NOT EXISTS, so
+// VARBINARY of [MaxFilterBytes]. MySQL has no CREATE INDEX IF NOT EXISTS, so
 // the indexes are declared inline.
 func (s *Storage) mysqlSchema() string {
 	var b strings.Builder
 	b.WriteString("CREATE TABLE IF NOT EXISTS " + s.table + " (\n  id VARBINARY(1020) NOT NULL PRIMARY KEY,\n  ts_ms BIGINT NOT NULL,\n")
 	for _, c := range filterColumns {
-		b.WriteString("  " + c + " MEDIUMBLOB NOT NULL,\n")
+		b.WriteString("  " + c + " VARBINARY(255) NOT NULL DEFAULT '',\n")
 	}
 	b.WriteString("  payload LONGBLOB NOT NULL")
 	for _, ix := range indexes {
-		cols := make([]string, len(ix.columns))
-		for i, c := range ix.columns {
-			cols[i] = c
-			if c != "id" && c != "ts_ms" {
-				cols[i] += mysqlIndexPrefix
-			}
-		}
-		b.WriteString(",\n  INDEX " + s.dialect.IndexName(s.tableName, ix.suffix) + " (" + strings.Join(cols, ", ") + ")")
+		b.WriteString(",\n  INDEX " + s.dialect.IndexName(s.tableName, ix.suffix) + " (" + strings.Join(ix.columns, ", ") + ")")
 	}
 	b.WriteString("\n) ENGINE=InnoDB")
 	return b.String()

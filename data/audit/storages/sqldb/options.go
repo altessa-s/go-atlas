@@ -18,6 +18,7 @@ const DefaultMaxBatchRows = 500
 type options struct {
 	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// maxBatchRows bounds the rows of one INSERT; a larger batch is split
-	// into several INSERTs of one transaction.
+	// into several INSERTs of one transaction. It is capped so one INSERT
+	// stays within PostgreSQL's 65535 bind parameters.
 	maxBatchRows int `optval:"positive" optgen:"default=DefaultMaxBatchRows"`
 }
