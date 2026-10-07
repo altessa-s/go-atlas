@@ -259,12 +259,13 @@ failure, 5xx = error).
 
 ## Storage
 
-| Backend  | Package                           | Use case        |
-|----------|-----------------------------------|-----------------|
-| Memory   | `data/audit/storages/memory`      | Dev and tests   |
-| MongoDB  | `data/audit/storages/mongo`       | Production      |
+| Backend    | Package                           | Use case                                          |
+|------------|-----------------------------------|---------------------------------------------------|
+| Memory     | `data/audit/storages/memory`      | Dev and tests                                     |
+| MongoDB    | `data/audit/storages/mongo`       | Production                                        |
+| ClickHouse | `data/audit/storages/clickhouse`  | High-volume production, analytical queries        |
 
-Both implement:
+All implement:
 
 ```go
 type Storage interface {
@@ -275,6 +276,27 @@ type Storage interface {
     Close(ctx context.Context) error
 }
 ```
+
+The ClickHouse storage takes a connection from `infrastructure/clickhouse/factory`, writes column-wise batches, and checks the table against
+its expected schema at startup (missing or differently defined columns, skip indexes, sorting and partition keys). See the
+[package README](../../data/audit/storages/clickhouse/README.md).
+
+### Paging
+
+Every storage orders events by timestamp (milliseconds) then ID and continues after a position, so pages stay stable under concurrent inserts.
+`audit.FetchPage` returns one page and the signed token of the next one:
+
+```go
+codec, _ := keyset.New(signingKey) // ≥ 32 bytes, the same on every replica
+tokens := audit.NewPageTokens(codec)
+
+page, err := audit.FetchPage(ctx, storage, tokens, audit.Query{ActorID: "u1", Limit: 50, Subject: caller})
+next, err := audit.FetchPage(ctx, storage, tokens, audit.Query{ActorID: "u1", Limit: 50, Subject: caller, After: page.Next})
+```
+
+A token is bound to the filter, the sort order and the subject, expires after 24h by default, and cannot be forged without the key. `Count`
+counts all events matching the filter, ignoring the page position. Offset paging was removed. From configuration, `factory.BuildStorage()`
+and `factory.BuildPageTokens()` (the `paging` block) provide both.
 
 ---
 
@@ -313,6 +335,9 @@ audit:
       collectionName: audit_events
       ttl: 720h
   shutdownTimeout: 30s
+  paging:
+    signingKey: ${AUDIT_PAGING_KEY}
+    tokenTTL: 24h
   dispatch:
     bufferSize: 10000
     batchSize: 100

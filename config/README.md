@@ -34,6 +34,7 @@ tags; [`config/loader`](loader) populates them from files, environment variables
 | [`config/redis`](redis)                 | `redisconfig`         | The Redis connection schema                                                                                                     |
 | [`config/nats`](nats)                   | `natsconfig`          | The NATS connection, JetStream consumer and recovery schemas                                                                    |
 | [`config/mongo`](mongo)                 | `mongoconfig`         | The MongoDB connection, credential and client-side field level encryption schemas                                               |
+| [`config/clickhouse`](clickhouse)       | `clickhouseconfig`    | The ClickHouse connection schema                                                                                                |
 | [`config/meilisearch`](meilisearch)     | `meilisearchconfig`   | The Meilisearch connection schema                                                                                               |
 | [`config/vault`](vault)                 | `vaultconfig`         | The HashiCorp Vault client schema                                                                                               |
 | [`config/secrets`](secrets)             | `secretsconfig`       | The secret manager schema                                                                                                       |
