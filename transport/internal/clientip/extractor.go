@@ -113,6 +113,11 @@ func (e *Extractor) Extract(ctx context.Context, peerIP netip.Addr, headers Head
 					slog.String("ip", ip.String()))
 				return ip
 			}
+			// The XFF parser already rejected every entry as private or a
+			// trusted proxy; the generic parser below would accept a public
+			// trusted proxy, so XFF is never reprocessed through it.
+			totalProcessed += len(ips)
+			continue
 		}
 
 		for _, ip := range ips {
