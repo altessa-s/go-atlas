@@ -6,6 +6,7 @@ package redisearch
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -199,12 +200,14 @@ func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
 
 // translateComparison handles comparison operators (==, !=, <, >, <=, >=).
 func (t *Translator) translateComparison(op filter.Operator, left, right filter.Node) (string, error) {
-	field, err := t.getFieldName(left)
-	if err != nil {
+	// Type-check first: a mirrored `"lit" == field` is a type mismatch, not
+	// a malformed field reference.
+	if err := t.config.CheckComparison(left, right); err != nil {
 		return "", err
 	}
 
-	if err = t.config.CheckComparison(left, right); err != nil {
+	field, err := t.getFieldName(left)
+	if err != nil {
 		return "", err
 	}
 
@@ -233,7 +236,10 @@ func (t *Translator) buildComparison(field string, op filter.Operator, value any
 
 // buildNumericComparison creates a RediSearch NUMERIC range expression.
 func (t *Translator) buildNumericComparison(field string, op filter.Operator, value any) (string, error) {
-	v := t.formatNumericValue(value)
+	v, err := formatNumericValue(value)
+	if err != nil {
+		return "", err
+	}
 
 	switch op {
 	case filter.OpEqual:
@@ -382,7 +388,10 @@ func (t *Translator) buildIn(field string, values []any, ft FieldType) (string, 
 	switch ft {
 	case FieldTypeNumeric:
 		for _, v := range values {
-			n := t.formatNumericValue(v)
+			n, err := formatNumericValue(v)
+			if err != nil {
+				return "", err
+			}
 			rendered = append(rendered, fmt.Sprintf("@%s:[%s %s]", field, n, n))
 		}
 		return "(" + strings.Join(rendered, "|") + ")", nil
@@ -454,6 +463,9 @@ func (t *Translator) translateTextSearch(
 
 // getFieldName extracts the field name from a node.
 func (t *Translator) getFieldName(node filter.Node) (string, error) {
+	if node != nil && !filter.IsFieldReference(node) {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field reference, got %T", node)
+	}
 	return t.acceptString(node, "field name")
 }
 
@@ -517,17 +529,36 @@ func (t *Translator) formatLiteral(v any) (any, error) {
 	}
 }
 
-// formatNumericValue formats a value for RediSearch numeric range syntax.
-func (t *Translator) formatNumericValue(value any) string {
+// formatNumericValue formats a value for RediSearch numeric range syntax. The
+// value is spliced into `[min max]` unquoted, so only a finite number may reach
+// it: a string such as `0] | @secret:[0 +inf` would close the range and open a
+// clause against another field. Literals arrive already rendered as strings
+// (see formatLiteral), so a string is parsed and re-rendered from the parsed
+// number, and anything that does not parse is rejected.
+func formatNumericValue(value any) (string, error) {
 	switch v := value.(type) {
 	case int64:
-		return strconv.FormatInt(v, 10)
+		return strconv.FormatInt(v, 10), nil
 	case uint64:
-		return strconv.FormatUint(v, 10)
+		return strconv.FormatUint(v, 10), nil
 	case float64:
-		return strconv.FormatFloat(v, 'g', -1, 64)
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "non-finite numeric value %v", v)
+		}
+		return strconv.FormatFloat(v, 'g', -1, 64), nil
+	case string:
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return formatNumericValue(i)
+		}
+		if u, err := strconv.ParseUint(v, 10, 64); err == nil {
+			return formatNumericValue(u)
+		}
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return formatNumericValue(f)
+		}
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "numeric field requires a number, got %q", v)
 	default:
-		return fmt.Sprintf("%v", value)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "numeric field requires a number, got %T", value)
 	}
 }
 

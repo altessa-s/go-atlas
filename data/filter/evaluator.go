@@ -5,6 +5,9 @@
 package filter
 
 import (
+	"bytes"
+	"cmp"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -399,12 +402,15 @@ func (e *evaluation) evalMatches(n *CallNode) (any, error) {
 	if !handled {
 		return false, nil
 	}
-	if vErr := ValidateRegex(pattern, e.config.MaxRegexLength()); vErr != nil {
-		return nil, vErr
+	// The length cap is checked here and syntax by the cached compile, rather
+	// than through ValidateRegex, which would compile the pattern again on
+	// every evaluated record.
+	if maxLen := e.config.MaxRegexLength(); len(pattern) > maxLen {
+		return nil, coreerrs.Wrapf(ErrInvalidRegex, "pattern length %d exceeds maximum %d", len(pattern), maxLen)
 	}
 	re, mErr := getCompiledRegex(pattern)
 	if mErr != nil {
-		return nil, coreerrs.Wrapf(ErrInvalidExpression, "invalid regex: %v", mErr)
+		return nil, coreerrs.Wrapf(ErrInvalidRegex, "%v", mErr)
 	}
 	return re.MatchString(s), nil
 }
@@ -540,6 +546,12 @@ func compare(op Operator, left, right any) (bool, error) {
 		return compareNil(op, left, right)
 	}
 
+	// Integers compare exactly: through float64, distinct values above 2^53
+	// would collapse into one.
+	if c, ok := compareIntegers(left, right); ok {
+		return compareResult(op, c)
+	}
+
 	// Normalize numeric types for comparison
 	ln, lok := toFloat64(left)
 	rn, rok := toFloat64(right)
@@ -622,13 +634,95 @@ func toFloat64(v any) (float64, bool) {
 	}
 }
 
+// valuesEqual reports whether a and b are equal for the in operator. It never
+// panics: the parser produces []byte and []any operands, and == on two
+// interfaces holding the same non-comparable type panics, so bytes compare by
+// content and anything else not comparable is unequal.
 func valuesEqual(a, b any) bool {
+	if c, ok := compareIntegers(a, b); ok {
+		return c == 0
+	}
 	an, aok := toFloat64(a)
 	bn, bok := toFloat64(b)
 	if aok && bok {
 		return an == bn
 	}
+	if ab, ok := a.([]byte); ok {
+		bb, ok := b.([]byte)
+		return ok && bytes.Equal(ab, bb)
+	}
+	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
+	if !va.IsValid() || !vb.IsValid() {
+		return !va.IsValid() && !vb.IsValid()
+	}
+	if !va.Comparable() || !vb.Comparable() {
+		return false
+	}
 	return a == b
+}
+
+// integerParts splits an integer operand into its signed or unsigned value.
+// ok is false for any non-integer.
+func integerParts(v any) (signed int64, unsigned uint64, isUnsigned, ok bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, 0, false, true
+	case int32:
+		return int64(n), 0, false, true
+	case int:
+		return int64(n), 0, false, true
+	case uint64:
+		return 0, n, true, true
+	default:
+		return 0, 0, false, false
+	}
+}
+
+// compareIntegers compares two integer operands exactly, signed against
+// unsigned included, returning -1, 0 or +1. ok is false unless both are
+// integers.
+func compareIntegers(a, b any) (int, bool) {
+	as, au, aUnsigned, aok := integerParts(a)
+	bs, bu, bUnsigned, bok := integerParts(b)
+	if !aok || !bok {
+		return 0, false
+	}
+	switch {
+	case !aUnsigned && !bUnsigned:
+		return cmp.Compare(as, bs), true
+	case aUnsigned && bUnsigned:
+		return cmp.Compare(au, bu), true
+	case aUnsigned: // b signed
+		if bs < 0 {
+			return 1, true
+		}
+		return cmp.Compare(au, uint64(bs)), true
+	default: // a signed, b unsigned
+		if as < 0 {
+			return -1, true
+		}
+		return cmp.Compare(uint64(as), bu), true
+	}
+}
+
+// compareResult applies op to the outcome c of a three-way comparison.
+func compareResult(op Operator, c int) (bool, error) {
+	switch op {
+	case OpEqual:
+		return c == 0, nil
+	case OpNotEqual:
+		return c != 0, nil
+	case OpLT:
+		return c < 0, nil
+	case OpLTE:
+		return c <= 0, nil
+	case OpGT:
+		return c > 0, nil
+	case OpGTE:
+		return c >= 0, nil
+	default:
+		return false, coreerrs.Wrapf(ErrUnsupportedOperation, "operator %v", op)
+	}
 }
 
 // enterNode runs the per-node operation and depth guards shared by the

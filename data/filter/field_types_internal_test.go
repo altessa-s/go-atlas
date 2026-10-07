@@ -128,3 +128,17 @@ func TestValueKindName_FallbackOnUnknownType(t *testing.T) {
 	require.Contains(t, got, "customStruct",
 		"unknown Go types must surface via %%T so operators can still diagnose the problem")
 }
+
+// valuesEqual must not panic on a value whose static type is comparable but
+// whose dynamic contents are not — a struct holding a slice in an interface
+// field — which only a value-level comparability check catches.
+func TestValuesEqual_NestedNonComparable(t *testing.T) {
+	t.Parallel()
+	type box struct{ V any }
+	a, b := box{V: []int{1}}, box{V: []int{1}}
+
+	require.NotPanics(t, func() { require.False(t, valuesEqual(a, b)) })
+	require.True(t, valuesEqual(box{V: 1}, box{V: 1}))
+	require.True(t, valuesEqual(nil, nil))
+	require.False(t, valuesEqual(nil, 1))
+}
