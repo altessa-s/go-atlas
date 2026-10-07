@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"database/sql"
 	"log/slog"
 
 	"github.com/nats-io/nats.go"
@@ -30,6 +31,13 @@ func (b *DLockBuilder) UseDefaultLogger() *DLockBuilder {
 // UseMongoDB sets the MongoDB database used by the mongodb provider.
 func (b *DLockBuilder) UseMongoDB(v *mongodrv.Database) *DLockBuilder {
 	b.mongoDB = v
+	return b
+}
+
+// UseSQLDB sets the database handle used by the sqldb provider. The caller
+// owns the handle and registers the driver.
+func (b *DLockBuilder) UseSQLDB(v *sql.DB) *DLockBuilder {
+	b.sqlDB = v
 	return b
 }
 

@@ -25,7 +25,42 @@ const (
 	DistributionLockProviderNATS DistributionLockProvider = "nats"
 	// DistributionLockProviderMongo represents the MongoDB distributed lock provider.
 	DistributionLockProviderMongo DistributionLockProvider = "mongo"
+	// DistributionLockProviderSQL represents the SQL (PostgreSQL, MySQL,
+	// MariaDB) distributed lock provider.
+	DistributionLockProviderSQL DistributionLockProvider = "sqldb"
 )
+
+// SQL dialects accepted by [DistributionLockSQL.Dialect].
+const (
+	// SQLDialectPostgres targets PostgreSQL 12+.
+	SQLDialectPostgres = "postgres"
+	// SQLDialectMySQL targets MySQL 8.0+ and MariaDB 10.6+.
+	SQLDialectMySQL = "mysql"
+)
+
+// DistributionLockSQL defines the SQL-specific configuration for distributed
+// locking. The *sql.DB is injected into the factory; the caller chooses and
+// registers the driver.
+type DistributionLockSQL struct {
+	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0+ and
+	// MariaDB 10.6+). Defaults to "postgres" if not specified.
+	Dialect string `yaml:"dialect" default:"postgres"`
+	// Table holds one lease row per lock key, optionally schema-qualified.
+	// Defaults to "dlocks" if not specified.
+	Table string `yaml:"table" default:"dlocks"`
+	// EnsureSchema makes the factory create the table while building the
+	// lock, through the provider's idempotent EnsureSchema. Leave it false
+	// when the schema is applied through migrations.
+	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
+}
+
+// Validate performs validation of the SQL distributed lock configuration.
+func (c *DistributionLockSQL) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
+		validation.Field(&c.Table, validation.Required),
+	)
+}
 
 // DistributionLockMongo defines the MongoDB-specific configuration for
 // distributed locking. The *mongo.Database is injected into the factory.
@@ -87,6 +122,10 @@ type DistributionLock struct {
 	// Mongodb defines the MongoDB configuration for distributed locking.
 	// Required when Provider is DistributionLockProviderMongo, ignored otherwise.
 	Mongo *DistributionLockMongo `yaml:"mongo" default:"-"`
+
+	// SQL defines the SQL provider configuration.
+	// Required when Provider is DistributionLockProviderSQL, ignored otherwise.
+	SQL *DistributionLockSQL `yaml:"sqldb" default:"-"`
 }
 
 // DefaultDistributionLockNATS returns a DistributionLockNATS configuration with default values.
@@ -116,8 +155,9 @@ func DefaultDistributionLock() DistributionLock {
 func (dl *DistributionLock) Validate() error {
 	return validationconfig.ValidateStruct(dl,
 		validation.Field(&dl.Provider, validation.Required,
-			ozzo_rules.OneOf(DistributionLockProviderNATS, DistributionLockProviderMongo)),
+			ozzo_rules.OneOf(DistributionLockProviderNATS, DistributionLockProviderMongo, DistributionLockProviderSQL)),
 		validation.Field(&dl.NATS, validation.When(dl.Provider == DistributionLockProviderNATS, validation.NilOrNotEmpty)),
 		validation.Field(&dl.Mongo, validation.When(dl.Provider == DistributionLockProviderMongo, validation.Required)),
+		validation.Field(&dl.SQL, validation.When(dl.Provider == DistributionLockProviderSQL, validation.Required)),
 	)
 }
