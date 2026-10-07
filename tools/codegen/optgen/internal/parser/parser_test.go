@@ -482,7 +482,15 @@ func TestTypeToString(t *testing.T) {
 		{expr: "map[string]int", want: "map[string]int"},
 		{expr: "interface{}", want: "any"},
 		{expr: "any", want: "any"},
-		{expr: "func(int) error", want: "func(...)"},
+		{expr: "func(int) error", want: "func(int) error"},
+		{expr: "func(ctx context.Context, n int) (string, error)", want: "func(ctx context.Context, n int) (string, error)"},
+		{expr: "[16]byte", want: "[16]byte"},
+		{expr: "[N]int", want: "[N]int"},
+		{expr: "[4][]string", want: "[4][]string"},
+		{expr: "interface{ Close() error }", want: "interface{ Close() error }"},
+		{expr: "struct{ Enabled bool }", want: "struct{ Enabled bool }"},
+		{expr: "struct{ A int ~json:\"a\"~ }", want: "struct {\n\tA int ~json:\"a\"~\n}"},
+		{expr: "func(struct{ A int ~json:\"a\"~ })", want: "func(struct {\n\tA int ~json:\"a\"~\n})"},
 		{expr: "chan int", want: "chan int"},
 		{expr: "chan<- int", want: "chan<- int"},
 		{expr: "<-chan int", want: "<-chan int"},
@@ -496,7 +504,7 @@ func TestTypeToString(t *testing.T) {
 		t.Run(tc.expr, func(t *testing.T) {
 			t.Parallel()
 
-			require.Equal(t, tc.want, parser.TypeToString(mustParseExpr(t, tc.expr)))
+			require.Equal(t, src(tc.want), parser.TypeToString(mustParseExpr(t, src(tc.expr))))
 		})
 	}
 }
@@ -518,6 +526,7 @@ func TestIsNilableType(t *testing.T) {
 	}{
 		{expr: "*int", want: true},
 		{expr: "[]int", want: true},
+		{expr: "[16]byte", want: false},
 		{expr: "map[string]int", want: true},
 		{expr: "chan int", want: true},
 		{expr: "func()", want: true},
@@ -533,6 +542,33 @@ func TestIsNilableType(t *testing.T) {
 			require.Equal(t, tc.want, parser.IsNilableType(mustParseExpr(t, tc.expr)))
 		})
 	}
+}
+
+func TestFindOptFields_FixedArrayIsScalar(t *testing.T) {
+	t.Parallel()
+
+	pkg := parsePackage(t, map[string]string{"options.go": `
+package sample
+
+type options struct {
+	id   [16]byte ~opt:"ID"~
+	tags []string ~opt:"Tags"~
+}
+`})
+
+	result, err := parser.FindOptFields(pkg, "options", false)
+	require.NoError(t, err)
+
+	id := fieldByOption(t, result.Fields, "ID")
+	require.Equal(t, "[16]byte", id.Type)
+	require.False(t, id.IsSlice)
+	require.False(t, id.IsNilable)
+	require.Empty(t, id.ElemType)
+
+	tags := fieldByOption(t, result.Fields, "Tags")
+	require.True(t, tags.IsSlice)
+	require.True(t, tags.IsNilable)
+	require.Equal(t, "string", tags.ElemType)
 }
 
 func TestIsInterfaceType(t *testing.T) {

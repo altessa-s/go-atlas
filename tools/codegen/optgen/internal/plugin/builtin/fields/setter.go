@@ -80,7 +80,7 @@ func With{{.OptionName}}{{.TypeParamsDecl}}[T interface{string|*string}](v T) {{
 			if vv == "" {
 				return{{if .OptionReturnsError}} nil{{end}}
 			}
-			o.{{.FieldName}} = vv
+{{.ChecksCode}}			o.{{.FieldName}} = vv
 		}
 {{- template "optionReturn" . }}
 	}

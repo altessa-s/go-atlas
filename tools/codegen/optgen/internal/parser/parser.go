@@ -255,9 +255,11 @@ func buildOptField(field *ast.Field, ctx fieldProcessingContext) (model.OptField
 
 	// Extract type information
 	typeStr := TypeToString(field.Type)
+	// Only a slice gets the slice setters; a fixed-size array is a scalar.
 	arrType, isSlice := field.Type.(*ast.ArrayType)
+	isSlice = isSlice && arrType.Len == nil
 	elemType := ""
-	if isSlice && arrType != nil {
+	if isSlice {
 		elemType = TypeToString(arrType.Elt)
 	}
 
