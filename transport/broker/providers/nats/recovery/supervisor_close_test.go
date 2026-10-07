@@ -5,6 +5,7 @@
 package recovery
 
 import (
+	"context"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -37,7 +38,7 @@ func TestSupervisor_Close_WaitsForInFlightRecoveries(t *testing.T) {
 	gate := make(chan struct{})
 	var handlerExited atomic.Bool
 	registry.RegisterStream(stream, jetstream.StreamConfig{Name: stream}, RecoveryStrategyAuto)
-	registry.RegisterResubscribeHandler(stream, consumer, func() error {
+	registry.RegisterResubscribeHandler(stream, consumer, func(context.Context) error {
 		// Wait for either the test gate or the supervisor ctx to fire.
 		// The recovery loop wraps this in coreretry.Do, so ctx
 		// cancellation propagates here as the abort signal.
