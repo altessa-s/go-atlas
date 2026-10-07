@@ -124,6 +124,18 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		return coreerrs.WrapOperation(err, "marshal saga instance")
 	}
 
+	// KV revisions start at 1, so version 0 matches no stored instance; KV
+	// Update would read revision 0 as "create if absent", so it is resolved
+	// here without a write.
+	if inst.Version == 0 {
+		if _, gerr := s.KV().Get(ctx, inst.ID); errors.Is(gerr, jetstream.ErrKeyNotFound) {
+			return sagaerrs.ErrInstanceNotFound
+		} else if gerr != nil {
+			return coreerrs.WrapOperation(gerr, "update saga instance in NATS")
+		}
+		return sagaerrs.ErrVersionConflict
+	}
+
 	rev, err := s.KV().Update(ctx, inst.ID, data, versionToRev(inst.Version))
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {

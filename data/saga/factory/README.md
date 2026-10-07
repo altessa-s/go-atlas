@@ -23,6 +23,7 @@ The store backend is chosen by `sagaconfig.Config.Storage.Type`; the matching cl
 | `UseJetStream`     | `nats`                      | NATS JetStream context.              |
 | `UseMongoDatabase` | `mongo`                     | MongoDB database handle.             |
 | `UseRedisClient`   | `redis`                     | Redis client.                        |
+| `UseSQLDB`         | `sqldb`                     | `*sql.DB`; caller registers driver.  |
 | `UseLogger`        | —                           | Logger for builder and orchestrator. |
 | `UseCollector`     | —                           | Prometheus metrics collector.        |
 | `UseScheduler`     | —                           | Registrar for the recovery cycle.    |

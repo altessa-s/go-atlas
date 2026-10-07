@@ -6,8 +6,8 @@
 // injected backend clients.
 //
 // The builder is generic over the saga's shared data type T. It selects the
-// state-store backend from sagaconfig.Config.Storage.Type (memory, nats, mongo, or
-// redis); the matching client must be injected via the fluent Use* methods, or
+// state-store backend from sagaconfig.Config.Storage.Type (memory, nats, mongo,
+// redis, or sqldb); the matching client must be injected via the fluent Use* methods, or
 // Build returns an error. Orchestrator tunables (timeouts, retries, recovery
 // schedule) are translated from the config; optional dependencies (collector,
 // scheduler, leader elector, serializer, dead-letter hook) are injected.

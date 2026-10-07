@@ -80,6 +80,8 @@ run concurrently and share `*T`, so they must not write overlapping fields.
 | [storages/mongo](./storages/mongo)       | Durable `Storage` backend on a MongoDB collection.                  |
 | [storages/nats](./storages/nats)         | Durable `Storage` backend on NATS JetStream KeyValue.               |
 | [storages/redis](./storages/redis)       | Durable `Storage` backend on Redis (hash + sorted-set index).       |
+| [storages/sqldb](./storages/sqldb)       | Durable `Storage` backend on PostgreSQL, MySQL or MariaDB.          |
+| [storages/storagetest](./storages/storagetest) | Contract suite every `Storage` backend runs.            |
 
 ## Timeout composition
 
