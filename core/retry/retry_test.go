@@ -56,6 +56,25 @@ func TestDo(t *testing.T) {
 		require.Equal(t, 3, calls)
 	})
 
+	t.Run("NoDelayAfterLastAttempt", func(t *testing.T) {
+		for _, maxAttempts := range []int{0, 2} {
+			calls, delays, retries := 0, 0, 0
+			failErr := errors.New("fail")
+			err := retry.Do(t.Context(), func(ctx context.Context) error {
+				calls++
+				return failErr
+			},
+				retry.WithMaxAttempts(maxAttempts),
+				retry.WithNextDelay(func(int, error) time.Duration { delays++; return time.Nanosecond }),
+				retry.WithOnRetry(func(int, error, time.Duration) { retries++ }),
+			)
+			require.Equal(t, failErr, err)
+			require.Equal(t, maxAttempts+1, calls)
+			require.Equal(t, maxAttempts, delays, "no delay after the last attempt")
+			require.Equal(t, maxAttempts, retries, "no onRetry after the last attempt")
+		}
+	})
+
 	t.Run("ShouldRetryStops", func(t *testing.T) {
 		calls := 0
 		stopErr := errors.New("stop")
