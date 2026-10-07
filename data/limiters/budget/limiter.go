@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/limiters/storages"
-
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Limiter enforces a distributed request budget using a shared storage backend.
@@ -25,27 +23,29 @@ type Limiter struct {
 	metrics *limiterMetrics
 }
 
-// New creates a new budget [Limiter] with the given settings and storage backend.
-// Returns an error if the settings are invalid or the storage is nil.
-func New(cfg *Settings, storage storages.Storage, opts ...Option) (*Limiter, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("settings are required")
-	}
+// MinPeriod is the shortest budget period [New] accepts.
+const MinPeriod = time.Second
 
-	if err := cfg.Validate(); err != nil {
-		return nil, coreerrs.Wrap(err, "invalid settings")
-	}
-
-	if storage == nil {
-		return nil, fmt.Errorf("storage is required")
+// New creates a new budget [Limiter] allowing limit requests per key within
+// each period, counted in storage. It returns [ErrInvalidLimit] when limit is
+// not positive, [ErrInvalidPeriod] when period is shorter than [MinPeriod] and
+// [ErrNilStorage] when storage is nil.
+func New(limit int64, period time.Duration, storage storages.Storage, opts ...Option) (*Limiter, error) {
+	switch {
+	case limit < 1:
+		return nil, fmt.Errorf("%w: %d", ErrInvalidLimit, limit)
+	case period < MinPeriod:
+		return nil, fmt.Errorf("%w: %s, minimum %s", ErrInvalidPeriod, period, MinPeriod)
+	case storage == nil:
+		return nil, ErrNilStorage
 	}
 
 	o := newOptions(opts...)
 
 	return &Limiter{
 		storage: storage,
-		limit:   cfg.Limit,
-		period:  cfg.Period,
+		limit:   limit,
+		period:  period,
 		options: o,
 		metrics: newLimiterMetrics(o.collector),
 	}, nil

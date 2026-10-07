@@ -5,7 +5,6 @@
 package factory
 
 import (
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
@@ -24,6 +23,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 
+	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
 	geoaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/geoacl"
 	ipaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/ipacl"
 	metricsint "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
@@ -33,7 +33,7 @@ import (
 )
 
 // interceptorsCfg returns the interceptors config or nil if not configured.
-func (b *ServerBuilder) interceptorsCfg() *config.InterceptorsConfig {
+func (b *ServerBuilder) interceptorsCfg() *grpcconfig.Interceptors {
 	if b.cfg == nil {
 		return nil
 	}

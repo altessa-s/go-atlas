@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/auth/mtls/factory"
 ```
 
-Turns a [`config.MTLS`](../../../config) into the [`auth/mtls`](../) validator options it describes, giving the mTLS subsystem the same
+Turns a [`authconfig.MTLS`](../../../config) into the [`auth/mtls`](../) validator options it describes, giving the mTLS subsystem the same
 config→component path the [OPA](../../opa/factory) and [scope](../../scope/factory) factories provide.
 
 Only the certificate-validation policy is declarative — the expiry re-check and the trust-domain pin. The identity function, audit recorder,
@@ -14,7 +14,7 @@ and transport label stay at the call site, so `Options` returns options a transp
 
 | Symbol                          | Description                                                                              |
 |---------------------------------|------------------------------------------------------------------------------------------|
-| `New(cfg *config.MTLS)`         | Create a `Builder`. A nil cfg is accepted; the error surfaces at `Options`.               |
+| `New(cfg *authconfig.MTLS)`         | Create a `Builder`. A nil cfg is accepted; the error surfaces at `Options`.               |
 | `Builder.Options()`             | `[]coremtls.Option`: expiry validator (when `CheckExpiry`) + trust-domain validator (when `TrustDomains` set). |
 | `Builder.Authenticator(extra…)` | Standalone `*coremtls.Authenticator` from config + extra options (non-transport callers).  |
 
@@ -41,4 +41,4 @@ mtls:
 ## See also
 
 - [`auth/mtls`](../) — the policy core.
-- [`config.MTLS`](../../../config/auth_mtls.go) — the configuration struct.
+- [`authconfig.MTLS`](../../../config/auth/auth_mtls.go) — the configuration struct.

@@ -5,9 +5,9 @@
 package factory
 
 import (
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 
+	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 	grpcclient "github.com/altessa-s/go-atlas/transport/grpc/client"
 )
 
@@ -25,7 +25,7 @@ import (
 //	    },
 //	    factory.HealthOptions(cfg.GRPCHealth)...,
 //	)...)
-func HealthOptions(h *config.GRPCHealthClient) []grpcclient.Option {
+func HealthOptions(h *clienthealthconfig.GRPC) []grpcclient.Option {
 	if h == nil {
 		return nil
 	}

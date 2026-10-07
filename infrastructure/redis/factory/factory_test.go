@@ -11,8 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
+
+	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 )
 
 func TestNew_Default(t *testing.T) {
@@ -25,7 +26,7 @@ func TestNew_WithOptions(t *testing.T) {
 	coord := health.New()
 	defer coord.Close()
 
-	b := New(&config.Redis{}).
+	b := New(&redisconfig.Config{}).
 		UseLogger(logger).
 		UseHealthCoordinator(coord)
 	require.NotNil(t, b)
@@ -41,12 +42,12 @@ func TestNew_NilOptions(t *testing.T) {
 func TestUniversalOptions(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     *config.Redis
+		cfg     *redisconfig.Config
 		wantErr bool
 	}{
 		{
 			"valid standalone",
-			&config.Redis{
+			&redisconfig.Config{
 				Hosts:    []string{"localhost:6379"},
 				Password: "pass",
 				Database: 1,
@@ -56,7 +57,7 @@ func TestUniversalOptions(t *testing.T) {
 		},
 		{
 			"valid sentinel",
-			&config.Redis{
+			&redisconfig.Config{
 				Hosts:            []string{"sentinel1:26379"},
 				MasterName:       "mymaster",
 				SentinelPassword: "sentpass",
@@ -85,7 +86,7 @@ func TestUniversalOptions(t *testing.T) {
 }
 
 func TestUniversalOptions_ConnectionURI(t *testing.T) {
-	b := New(&config.Redis{
+	b := New(&redisconfig.Config{
 		ConnectionURI:      "redis://myuser:mypass@redis-host:6380/3",
 		PoolSize:           50,
 		MinIdleConnections: 10,
@@ -109,7 +110,7 @@ func TestUniversalOptions_ConnectionURI(t *testing.T) {
 }
 
 func TestUniversalOptions_ConnectionURI_TLS(t *testing.T) {
-	b := New(&config.Redis{
+	b := New(&redisconfig.Config{
 		ConnectionURI:  "rediss://redis-host:6380/0",
 		PoolSize:       10,
 		ConnectTimeout: 3 * time.Second,
@@ -123,7 +124,7 @@ func TestUniversalOptions_ConnectionURI_TLS(t *testing.T) {
 }
 
 func TestUniversalOptions_ConnectionURI_Sentinel(t *testing.T) {
-	b := New(&config.Redis{
+	b := New(&redisconfig.Config{
 		ConnectionURI:    "redis://redis-host:6380/0",
 		MasterName:       "mymaster",
 		SentinelPassword: "sentpass",
@@ -139,7 +140,7 @@ func TestUniversalOptions_ConnectionURI_Sentinel(t *testing.T) {
 }
 
 func TestUniversalOptions_ConnectionURI_InvalidURI(t *testing.T) {
-	b := New(&config.Redis{
+	b := New(&redisconfig.Config{
 		ConnectionURI: "not-a-valid-uri",
 	})
 
@@ -148,7 +149,7 @@ func TestUniversalOptions_ConnectionURI_InvalidURI(t *testing.T) {
 }
 
 func TestUniversalOptions_Fields(t *testing.T) {
-	b := New(&config.Redis{
+	b := New(&redisconfig.Config{
 		Hosts:              []string{"host1:6379", "host2:6379"},
 		Password:           "pass",
 		Username:           "user",
@@ -180,12 +181,12 @@ func TestUniversalOptions_Fields(t *testing.T) {
 func TestDetectMode(t *testing.T) {
 	tests := []struct {
 		name string
-		cfg  *config.Redis
+		cfg  *redisconfig.Config
 		want string
 	}{
-		{"standalone", &config.Redis{Hosts: []string{"localhost:6379"}}, "standalone"},
-		{"cluster", &config.Redis{Hosts: []string{"h1:6379", "h2:6379"}}, "cluster"},
-		{"sentinel", &config.Redis{Hosts: []string{"s1:26379"}, MasterName: "master"}, "sentinel"},
+		{"standalone", &redisconfig.Config{Hosts: []string{"localhost:6379"}}, "standalone"},
+		{"cluster", &redisconfig.Config{Hosts: []string{"h1:6379", "h2:6379"}}, "cluster"},
+		{"sentinel", &redisconfig.Config{Hosts: []string{"s1:26379"}, MasterName: "master"}, "sentinel"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

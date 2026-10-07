@@ -9,22 +9,22 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/altessa-s/go-atlas/config"
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
 
 // HandlerFactory creates a [slog.Handler] for a specific log format.
 // Register custom factories via [RegisterHandler].
-type HandlerFactory func(w io.Writer, cfg *config.Logger, opts *slog.HandlerOptions) slog.Handler
+type HandlerFactory func(w io.Writer, cfg *observabilityconfig.Logger, opts *slog.HandlerOptions) slog.Handler
 
 var (
 	// customHandlers is a registry of custom log handler factories.
-	customHandlers   = make(map[config.LogFormat]HandlerFactory)
+	customHandlers   = make(map[observabilityconfig.LogFormat]HandlerFactory)
 	customHandlersMu sync.RWMutex
 )
 
 // RegisterHandler registers a custom [HandlerFactory] for the given log format.
 // Safe for concurrent use.
-func RegisterHandler(format config.LogFormat, factory HandlerFactory) {
+func RegisterHandler(format observabilityconfig.LogFormat, factory HandlerFactory) {
 	customHandlersMu.Lock()
 	defer customHandlersMu.Unlock()
 	customHandlers[format] = factory

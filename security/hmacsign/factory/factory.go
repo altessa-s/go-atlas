@@ -7,14 +7,15 @@ package factory
 import (
 	"fmt"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/security/hmacsign"
+
+	webhookconfig "github.com/altessa-s/go-atlas/config/webhook"
 )
 
 // Verifier builds a [hmacsign.Verifier] from cfg: the scheme selected by
 // cfg.Scheme, the primary cfg.Secret plus any cfg.AdditionalSecrets for
 // rotation, and cfg.Tolerance as the replay window.
-func Verifier(cfg *config.WebhookSignature) (*hmacsign.Verifier, error) {
+func Verifier(cfg *webhookconfig.Signature) (*hmacsign.Verifier, error) {
 	scheme, err := scheme(cfg)
 	if err != nil {
 		return nil, err
@@ -29,7 +30,7 @@ func Verifier(cfg *config.WebhookSignature) (*hmacsign.Verifier, error) {
 // Signer builds a [hmacsign.Signer] from cfg. The signer always signs with the
 // primary cfg.Secret; cfg.AdditionalSecrets (verifier-only) and cfg.Tolerance do
 // not apply.
-func Signer(cfg *config.WebhookSignature) (*hmacsign.Signer, error) {
+func Signer(cfg *webhookconfig.Signature) (*hmacsign.Signer, error) {
 	scheme, err := scheme(cfg)
 	if err != nil {
 		return nil, err
@@ -38,14 +39,14 @@ func Signer(cfg *config.WebhookSignature) (*hmacsign.Signer, error) {
 }
 
 // scheme resolves the config scheme string to a [hmacsign.Scheme].
-func scheme(cfg *config.WebhookSignature) (hmacsign.Scheme, error) {
+func scheme(cfg *webhookconfig.Signature) (hmacsign.Scheme, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("hmacsign/factory: configuration is required")
 	}
 	switch cfg.Scheme {
-	case config.WebhookSchemeGitHub:
+	case webhookconfig.SchemeGitHub:
 		return hmacsign.GitHub(), nil
-	case config.WebhookSchemeStripe:
+	case webhookconfig.SchemeStripe:
 		return hmacsign.Stripe(), nil
 	default:
 		return nil, fmt.Errorf("hmacsign/factory: unknown webhook scheme %q", cfg.Scheme)
@@ -53,7 +54,7 @@ func scheme(cfg *config.WebhookSignature) (hmacsign.Scheme, error) {
 }
 
 // additionalSecrets exposes the rotation secrets as byte slices.
-func additionalSecrets(cfg *config.WebhookSignature) [][]byte {
+func additionalSecrets(cfg *webhookconfig.Signature) [][]byte {
 	if len(cfg.AdditionalSecrets) == 0 {
 		return nil
 	}

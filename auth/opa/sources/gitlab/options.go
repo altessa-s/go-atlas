@@ -8,8 +8,7 @@ package gitlab
 
 import (
 	"log/slog"
-
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
+	"net/http"
 )
 
 // options holds the configuration for the GitLab policy source.
@@ -29,11 +28,9 @@ type options struct {
 	includeData bool
 	// logger sets the logger for the GitLab source.
 	logger *slog.Logger
-	// httpClientOptions are forwarded to the resilient HTTP client built
-	// by the source. Set via the generated WithHTTPClientOptions (see
-	// options_gen.go) — this is the single channel for configuring the
-	// outbound transport (proxy, retry, breaker, custom transport).
-	// Default behavior matches httpclient.New() defaults; pass
-	// httpclient.WithRetryMax(0) etc. to opt out.
-	httpClientOptions []httpclient.Option `opt:"HTTPClientOptions" optgen:"append"`
+	// httpClient serves every GitLab API call. Required: New fails with
+	// ErrHTTPClientRequired without it. The factory injects the resilient,
+	// SSRF-protected atlas client (retry, breaker, proxy) built from
+	// configuration.
+	httpClient *http.Client `opt:"HTTPClient"`
 }

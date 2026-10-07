@@ -4,7 +4,7 @@
 
 // Package factory builds a SPIFFE Workload API source from configuration.
 //
-// It derives the peer authorizer and core options from a [config.SPIFFE] and
+// It derives the peer authorizer and core options from a [authconfig.SPIFFE] and
 // constructs a connected provider, mirroring the factory subpackages across the
 // auth stack. The authorizer accepts a peer that belongs to any configured
 // trust domain or matches any configured ID; with neither configured it fails

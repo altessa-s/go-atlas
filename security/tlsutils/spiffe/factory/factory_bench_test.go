@@ -7,12 +7,13 @@ package factory_test
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/security/tlsutils/spiffe/factory"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 func BenchmarkAuthorizer(b *testing.B) {
-	builder := factory.New(&config.SPIFFE{AllowedTrustDomains: []string{"example.org", "other.org"}})
+	builder := factory.New(&authconfig.SPIFFE{AllowedTrustDomains: []string{"example.org", "other.org"}})
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := builder.Authorizer(); err != nil {

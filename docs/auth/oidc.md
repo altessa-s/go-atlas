@@ -287,6 +287,7 @@ claims, err := provider.ValidateToken(ctx, bearerToken)
 
 ```go
 provider, err := oidc.NewProvider(ctx, discoveryURL,
+    oidc.WithHTTPClient(httpclient.New()),
     oidc.WithServiceConfigPath("./config/oidc-rules.json"),
     oidc.WithLogger(logger),
 )
@@ -297,6 +298,7 @@ provider, err := oidc.NewProvider(ctx, discoveryURL,
 ```go
 provider, err := oidc.NewProvider(ctx,
     "https://auth.example.com/.well-known/openid-configuration",
+    oidc.WithHTTPClient(httpclient.New()),
     oidc.WithDefaultValidationOptions(
         oidc.WithValidationIssuer("https://auth.example.com"),
         oidc.WithValidationAudience("my-service"),
@@ -318,14 +320,14 @@ claims, err := provider.ValidateToken(ctx, bearerToken)
 
 | Layer | Format | Purpose | Loaded by |
 |-------|--------|---------|-----------|
-| **YAML application config** | YAML | Infrastructure: discovery URL, credentials, cache, JWKS, revocation, schedules | `config.OIDC` via app loader |
+| **YAML application config** | YAML | Infrastructure: discovery URL, credentials, cache, JWKS, revocation, schedules | `authconfig.OIDC` via app loader |
 | **JSON service config** | JSON | Validation logic: claims rules, presets, selection rules, CEL | `oidc.LoadServiceConfig()` / `WithServiceConfigPath()` |
 
 The two layers are complementary. YAML handles "how to connect" and "what infrastructure to use". JSON handles "what tokens to accept".
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  YAML config (config.OIDC)                                   │
+│  YAML config (authconfig.OIDC)                                   │
 │  ├── discoveryUrl, clockSkew                                 │
 │  ├── clientCredentials (clientId, clientSecret)               │
 │  ├── introspection (enabled)                                 │
@@ -351,7 +353,7 @@ The YAML factory (`ProviderBuilder.Build`) never applies `WithServiceConfigPath`
 
 ## YAML Application Config
 
-The YAML config maps to the `config.OIDC` Go struct. All field names use **camelCase** YAML tags.
+The YAML config maps to the `authconfig.OIDC` Go struct. All field names use **camelCase** YAML tags.
 
 ### Root Fields
 
@@ -739,6 +741,7 @@ cached).
 
 ```go
 provider, err := oidc.NewProvider(ctx, discoveryURL,
+    oidc.WithHTTPClient(httpclient.New()),
     oidc.WithServiceConfigPath("./config/oidc-service.json"),
     oidc.WithLogger(logger),
 )
@@ -1128,6 +1131,7 @@ provider, err := oidc.NewProvider(ctx, discoveryURL, svcOpts...)
 ```go
 provider, err := oidc.NewProvider(ctx,
     "https://auth.example.com/.well-known/openid-configuration",
+    oidc.WithHTTPClient(httpclient.New()),
     oidc.WithDefaultValidationOptions(
         oidc.WithValidationIssuer("https://auth.example.com"),
         oidc.WithValidationAudience("my-service"),
@@ -1722,7 +1726,7 @@ oidc:
 
 ### YAML Validation (at startup)
 
-The `config.OIDC.Validate()` method runs automatically during app config loading:
+The `authconfig.OIDC.Validate()` method runs automatically during app config loading:
 
 | Rule | Error |
 |------|-------|

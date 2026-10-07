@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 
+	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	kmsaws "github.com/altessa-s/go-atlas/data/mongo/kms/aws"
@@ -25,7 +25,7 @@ import (
 // The builder is not safe for concurrent use.
 type ProviderBuilder struct {
 	corefactory.Base
-	cfg  *config.MongoKMS
+	cfg  *mongoconfig.KMS
 	errs []error
 
 	// Dependencies
@@ -34,7 +34,7 @@ type ProviderBuilder struct {
 
 // New creates a [ProviderBuilder] for the given KMS config.
 // Config can be nil — the error surfaces at [ProviderBuilder.Build] time.
-func New(cfg *config.MongoKMS) *ProviderBuilder {
+func New(cfg *mongoconfig.KMS) *ProviderBuilder {
 	return &ProviderBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -53,13 +53,13 @@ func (b *ProviderBuilder) Build() (kms.Provider, error) {
 	}
 
 	switch b.cfg.Provider {
-	case config.MongoKMSProviderLocal:
+	case mongoconfig.KMSProviderLocal:
 		return b.createLocalProvider()
-	case config.MongoKMSProviderAmazon:
+	case mongoconfig.KMSProviderAmazon:
 		return b.createAWSProvider()
-	case config.MongoKMSProviderAzure:
+	case mongoconfig.KMSProviderAzure:
 		return b.createAzureProvider()
-	case config.MongoKMSProviderGoogle:
+	case mongoconfig.KMSProviderGoogle:
 		return b.createGCPProvider()
 	default:
 		return nil, b.Errorf("unsupported KMS provider: %s", b.cfg.Provider)

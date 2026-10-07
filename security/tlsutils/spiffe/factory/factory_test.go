@@ -10,13 +10,14 @@ import (
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/security/tlsutils/spiffe/factory"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 func TestAuthorizerTrustDomain(t *testing.T) {
 	t.Parallel()
-	auth, err := factory.New(&config.SPIFFE{AllowedTrustDomains: []string{"example.org", "other.org"}}).Authorizer()
+	auth, err := factory.New(&authconfig.SPIFFE{AllowedTrustDomains: []string{"example.org", "other.org"}}).Authorizer()
 	require.NoError(t, err)
 
 	require.NoError(t, auth(spiffeid.RequireFromString("spiffe://example.org/sa/billing"), nil))
@@ -26,7 +27,7 @@ func TestAuthorizerTrustDomain(t *testing.T) {
 
 func TestAuthorizerIDs(t *testing.T) {
 	t.Parallel()
-	auth, err := factory.New(&config.SPIFFE{AllowedIDs: []string{"spiffe://example.org/sa/billing"}}).Authorizer()
+	auth, err := factory.New(&authconfig.SPIFFE{AllowedIDs: []string{"spiffe://example.org/sa/billing"}}).Authorizer()
 	require.NoError(t, err)
 
 	require.NoError(t, auth(spiffeid.RequireFromString("spiffe://example.org/sa/billing"), nil))
@@ -36,7 +37,7 @@ func TestAuthorizerIDs(t *testing.T) {
 
 func TestAuthorizerRequiresSource(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(&config.SPIFFE{}).Authorizer()
+	_, err := factory.New(&authconfig.SPIFFE{}).Authorizer()
 	require.ErrorIs(t, err, factory.ErrNoAuthorizerSource)
 }
 
@@ -48,23 +49,23 @@ func TestAuthorizerNilConfig(t *testing.T) {
 
 func TestAuthorizerInvalidInput(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(&config.SPIFFE{AllowedIDs: []string{"not-a-spiffe-id"}}).Authorizer()
+	_, err := factory.New(&authconfig.SPIFFE{AllowedIDs: []string{"not-a-spiffe-id"}}).Authorizer()
 	require.Error(t, err)
 
-	_, err = factory.New(&config.SPIFFE{AllowedTrustDomains: []string{"bad domain"}}).Authorizer()
+	_, err = factory.New(&authconfig.SPIFFE{AllowedTrustDomains: []string{"bad domain"}}).Authorizer()
 	require.Error(t, err)
 }
 
 func TestOptions(t *testing.T) {
 	t.Parallel()
-	opts, err := factory.New(&config.SPIFFE{
+	opts, err := factory.New(&authconfig.SPIFFE{
 		AllowedTrustDomains: []string{"example.org"},
 		SocketPath:          "unix:///run/spire/agent/api.sock",
 	}).Options()
 	require.NoError(t, err)
 	require.Len(t, opts, 2) // authorizer + socket path
 
-	opts, err = factory.New(&config.SPIFFE{AllowedTrustDomains: []string{"example.org"}}).Options()
+	opts, err = factory.New(&authconfig.SPIFFE{AllowedTrustDomains: []string{"example.org"}}).Options()
 	require.NoError(t, err)
 	require.Len(t, opts, 1) // authorizer only
 }

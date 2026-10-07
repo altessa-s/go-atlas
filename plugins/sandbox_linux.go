@@ -131,7 +131,7 @@ func wrapSandboxStepErr(step string, applied []string, cause error) error {
 // returns the underlying primitive error unwrapped — the caller
 // ([applySandbox]) is responsible for wrapping under [ErrSandboxFailed]
 // with the partial-state context. Invalid names are caught up-front
-// by [config.PluginsCapabilities.Validate] at config-load time;
+// by [pluginsconfig.Capabilities.Validate] at config-load time;
 // reaching this function with an unknown name is a programming error.
 func applyCapabilities(o CapabilitiesOptions) error {
 	if !o.Enabled {

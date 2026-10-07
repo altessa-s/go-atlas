@@ -13,7 +13,7 @@
 //
 // # Usage
 //
-//	reg, err := factory.New(&cfg.Scope).Build() // cfg.Scope is a config.ScopeRegistry
+//	reg, err := factory.New(&cfg.Scope).Build() // cfg.Scope is a authconfig.ScopeRegistry
 //	if err != nil {
 //	    return err
 //	}

@@ -10,8 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/plugins/factory"
+
+	pluginsconfig "github.com/altessa-s/go-atlas/config/plugins"
 )
 
 func TestManagerBuilder_Build_NilConfig(t *testing.T) {
@@ -21,14 +22,14 @@ func TestManagerBuilder_Build_NilConfig(t *testing.T) {
 }
 
 func TestManagerBuilder_Build_Disabled(t *testing.T) {
-	cfg := &config.Plugins{Enabled: false}
+	cfg := &pluginsconfig.Config{Enabled: false}
 	_, err := factory.NewManager(cfg).Build(t.Context())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not enabled")
 }
 
 func TestManagerBuilder_Build_EnabledEmptyDir(t *testing.T) {
-	cfg := &config.Plugins{
+	cfg := &pluginsconfig.Config{
 		Enabled: true,
 		Dir:     t.TempDir(),
 	}
@@ -42,7 +43,7 @@ func TestManagerBuilder_Build_EnabledEmptyDir(t *testing.T) {
 }
 
 func TestManagerBuilder_Build_WatchEnabled(t *testing.T) {
-	cfg := &config.Plugins{
+	cfg := &pluginsconfig.Config{
 		Enabled: true,
 		Dir:     t.TempDir(),
 		Watch:   true,
@@ -55,7 +56,7 @@ func TestManagerBuilder_Build_WatchEnabled(t *testing.T) {
 }
 
 func TestManagerBuilder_Build_WatchFailsOnMissingDir(t *testing.T) {
-	cfg := &config.Plugins{
+	cfg := &pluginsconfig.Config{
 		Enabled: true,
 		Dir:     "/definitely/not/a/real/path/for/plugins",
 		Watch:   true,

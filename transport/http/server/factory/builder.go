@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
@@ -22,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
@@ -39,7 +39,7 @@ import (
 // The builder is not safe for concurrent use.
 type ServerBuilder struct {
 	corefactory.Base
-	cfg  *config.Http
+	cfg  *httpconfig.Config
 	errs []error
 
 	// Dependencies
@@ -83,7 +83,7 @@ type ServerBuilder struct {
 
 // New creates a [ServerBuilder] for the given HTTP config.
 // Config can be nil — the error surfaces at [ServerBuilder.Build] time.
-func New(cfg *config.Http) *ServerBuilder {
+func New(cfg *httpconfig.Config) *ServerBuilder {
 	return &ServerBuilder{
 		Base:           corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:            cfg,
