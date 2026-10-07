@@ -330,8 +330,8 @@ func (c *Config) Validate() error {
 		validation.Field(&c.InitTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.WatchDebounce,
 			validation.When(c.Watch, ozzo_rules.Duration(), validation.Min(time.Millisecond))),
-		validation.Field(&c.Sandbox),
-		validation.Field(&c.Signature),
+		validationconfig.NestedField(&c.Sandbox),
+		validationconfig.NestedField(&c.Signature),
 	)
 }
 
@@ -347,8 +347,8 @@ func (c *Sandbox) Validate() error {
 		validation.Field(&c.MaxOpenFiles, validation.Min(int64(0))),
 		validation.Field(&c.MaxProcesses, validation.Min(int64(0))),
 		validation.Field(&c.MaxFileSizeBytes, validation.Min(int64(0))),
-		validation.Field(&c.Capabilities),
-		validation.Field(&c.Landlock),
+		validationconfig.NestedField(&c.Capabilities),
+		validationconfig.NestedField(&c.Landlock),
 	)
 }
 

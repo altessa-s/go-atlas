@@ -65,7 +65,7 @@ func DefaultTaskConcurrency() TaskConcurrency {
 // Validate checks that the concurrency configuration is valid.
 func (c *TaskConcurrency) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Concurrency),
+		validationconfig.NestedField(&c.Concurrency),
 		validation.Field(&c.ReservedHighPrioritySlots, validation.Min(0)),
 	)
 }
@@ -334,7 +334,7 @@ func (c *Config) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.TickInterval, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.HistoryRetention, ozzo_rules.Duration(), validation.Min(time.Second)),
-		validation.Field(&c.Concurrency),
+		validationconfig.NestedField(&c.Concurrency),
 		validation.Field(&c.StaleTaskTimeout, ozzo_rules.Duration(), validation.Min(0)),
 		validation.Field(&c.InstanceID, validation.Length(0, MaxSchedulerInstanceIDLength)),
 		validation.Field(&c.Storage),

@@ -72,7 +72,7 @@ func (a *Config) Validate() error {
 		validation.Field(&a.OPA, validation.NilOrNotEmpty),
 		validation.Field(&a.MTLS, validation.NilOrNotEmpty),
 		validation.Field(&a.Scope),
-		validation.Field(&a.Denylist),
+		validationconfig.NestedField(&a.Denylist),
 	)
 }
 

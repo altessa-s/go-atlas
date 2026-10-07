@@ -171,7 +171,7 @@ func (l *Logger) Validate() error {
 		validation.Field(&l.Level, ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning, LoggerLevelInfo,
 			LoggerLevelDebug, LoggerLevelNone)),
 		validation.Field(&l.Output, ozzo_rules.OneOf(LoggerConsoleOutputStdout, LoggerConsoleOutputStderr)),
-		validation.Field(&l.Buffer),
+		validationconfig.NestedField(&l.Buffer),
 		validation.Field(&l.Subsystems, validation.Each(ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning,
 			LoggerLevelInfo, LoggerLevelDebug, LoggerLevelNone))),
 		validation.Field(&l.MaskRules),
