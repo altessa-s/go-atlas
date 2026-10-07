@@ -5,10 +5,16 @@
 package proxydial
 
 import (
+	"bufio"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -74,5 +80,74 @@ func TestBasicAuthHeader(t *testing.T) {
 			t.Parallel()
 			require.Equal(t, tc.want, basicAuthHeader(tc.auth))
 		})
+	}
+}
+
+// TestHTTPConnect_CancelInterruptsStalledHandshake is the regression guard for
+// a CONNECT handshake that only honored the context deadline: with a
+// deadline-free context, a proxy that reads the request and never answers left
+// HTTPConnect blocked in ReadResponse even after the context was canceled.
+func TestHTTPConnect_CancelInterruptsStalledHandshake(t *testing.T) {
+	t.Parallel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	arrived := make(chan struct{})
+	proxyClosed := make(chan error, 1)
+	go func() {
+		conn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			proxyClosed <- acceptErr
+			return
+		}
+		defer func() { _ = conn.Close() }()
+
+		br := bufio.NewReader(conn)
+		if _, readErr := http.ReadRequest(br); readErr != nil {
+			proxyClosed <- readErr
+			return
+		}
+		close(arrived)
+
+		// Never answer; wait for the client to give up and close.
+		_, readErr := br.ReadByte()
+		proxyClosed <- readErr
+	}()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	result := make(chan error, 1)
+	go func() {
+		conn, connectErr := HTTPConnect(ctx, &net.Dialer{}, &url.URL{Scheme: "http", Host: ln.Addr().String()}, nil, "target.example:443")
+		if conn != nil {
+			_ = conn.Close()
+		}
+		result <- connectErr
+	}()
+
+	select {
+	case <-arrived:
+	case err := <-proxyClosed:
+		t.Fatalf("proxy failed before CONNECT arrived: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("CONNECT request never reached the proxy")
+	}
+	cancel()
+
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("HTTPConnect did not return after the context was canceled")
+	}
+
+	select {
+	case err := <-proxyClosed:
+		require.ErrorIs(t, err, io.EOF, "the client must close the stalled proxy connection")
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy connection was not closed")
 	}
 }

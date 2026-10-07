@@ -5,6 +5,7 @@
 package recovery
 
 import (
+	"context"
 	"iter"
 	"sync"
 
@@ -32,9 +33,9 @@ type subscriptionEntry struct {
 // protected by a [sync.RWMutex].
 type Registry struct {
 	mu            sync.RWMutex
-	streams       map[string]*streamEntry                  // stream name -> entry
-	subscriptions map[string]map[string]*subscriptionEntry // stream name -> consumer name -> entry
-	handlers      map[string]map[string]func() error       // stream name -> consumer name -> resubscribe func
+	streams       map[string]*streamEntry                           // stream name -> entry
+	subscriptions map[string]map[string]*subscriptionEntry          // stream name -> consumer name -> entry
+	handlers      map[string]map[string]func(context.Context) error // stream name -> consumer name -> resubscribe func
 }
 
 // NewRegistry creates a new empty Registry.
@@ -42,7 +43,7 @@ func NewRegistry() *Registry {
 	return &Registry{
 		streams:       make(map[string]*streamEntry),
 		subscriptions: make(map[string]map[string]*subscriptionEntry),
-		handlers:      make(map[string]map[string]func() error),
+		handlers:      make(map[string]map[string]func(context.Context) error),
 	}
 }
 
@@ -62,7 +63,7 @@ func (r *Registry) RegisterStream(name string, cfg jetstream.StreamConfig, strat
 		r.subscriptions[name] = make(map[string]*subscriptionEntry)
 	}
 	if r.handlers[name] == nil {
-		r.handlers[name] = make(map[string]func() error)
+		r.handlers[name] = make(map[string]func(context.Context) error)
 	}
 }
 
@@ -218,19 +219,20 @@ func (r *Registry) ConsumerCount(stream string) int {
 }
 
 // RegisterResubscribeHandler registers a function to recreate a subscription.
-// This function is called during recovery to restore the subscription.
-func (r *Registry) RegisterResubscribeHandler(stream, consumer string, handler func() error) {
+// This function is called during recovery to restore the subscription; the
+// context it receives is canceled when the [Supervisor] is closed.
+func (r *Registry) RegisterResubscribeHandler(stream, consumer string, handler func(context.Context) error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.handlers[stream] == nil {
-		r.handlers[stream] = make(map[string]func() error)
+		r.handlers[stream] = make(map[string]func(context.Context) error)
 	}
 	r.handlers[stream][consumer] = handler
 }
 
 // GetResubscribeHandler returns the resubscribe handler for a consumer.
-func (r *Registry) GetResubscribeHandler(stream, consumer string) (func() error, bool) {
+func (r *Registry) GetResubscribeHandler(stream, consumer string) (func(context.Context) error, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -268,5 +270,5 @@ func (r *Registry) Clear() {
 
 	r.streams = make(map[string]*streamEntry)
 	r.subscriptions = make(map[string]map[string]*subscriptionEntry)
-	r.handlers = make(map[string]map[string]func() error)
+	r.handlers = make(map[string]map[string]func(context.Context) error)
 }
