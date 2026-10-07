@@ -139,8 +139,11 @@ func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
 				slog.String("service", service),
 				slog.String("from", ServingStatus(w.lastStatus.Load()).String()),
 				slog.String("to", currentStatus.String()))
-			w.lastStatus.Store(int32(currentStatus))
-			w.notify(currentStatus)
+			// Advance lastStatus only on delivery, so a status dropped on a
+			// full buffer is retried on the next cycle.
+			if w.notify(currentStatus) {
+				w.lastStatus.Store(int32(currentStatus))
+			}
 		}
 	}
 
