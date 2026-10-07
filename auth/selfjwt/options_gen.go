@@ -62,6 +62,16 @@ func WithIssuer[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithKeyLookupTimeout sets the keyLookupTimeout option.
+func WithKeyLookupTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.keyLookupTimeout = v
+	}
+}
+
 // WithLeeway sets the leeway option.
 func WithLeeway(v time.Duration) Option {
 	return func(o *options) {
@@ -117,6 +127,7 @@ func defaultOptions() *options {
 		cacheTTL:          DefaultCacheTTL,
 		clock:             defaultClock,
 		issuer:            DefaultIssuer,
+		keyLookupTimeout:  DefaultKeyLookupTimeout,
 		leeway:            DefaultLeeway,
 		maxTokenLifetime:  DefaultMaxTokenLifetime,
 		rand:              defaultRand,

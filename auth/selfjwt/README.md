@@ -34,6 +34,7 @@ Unlike [`auth/oidc`](../oidc), which validates tokens from an external identity 
 | `WithClockSkew`          | 30s            | Leeway applied to `exp` / `nbf` to tolerate clock drift                     |
 | `WithCacheTTL`           | 5m             | How long a resolved verification key is cached before reload               |
 | `WithCacheMaxEntries`    | 10000          | Hard cap on cached verification keys, bounding memory under subject churn   |
+| `WithKeyLookupTimeout`   | 10s            | Deadline for a shared key-provider lookup on a cache miss (must be > 0)     |
 | `WithAllowedAlgorithms`  | EdDSA,ES256,RS256 | Replaces the verifier's asymmetric-only allow-list (HMAC excluded)      |
 | `WithMetrics`            | nil (no-op)    | Attach a `*Metrics` for mint/verify counters and latency                    |
 | `WithClock`              | system UTC     | Injectable clock (tests)                                                    |
@@ -51,6 +52,8 @@ Verification is fail-closed:
 - An `exp` claim is mandatory, and temporal claims (`exp` / `nbf`) are validated with the configured clock-skew leeway.
 - Resolved verification keys are cached per `(subject, kid)` with a TTL and a hard entry cap. Concurrent misses for the same key are
   collapsed into a single `KeyProvider` lookup (singleflight), so a burst of requests for an uncached subject cannot stampede the provider.
+  Each caller waits under its own context and returns its cancellation or deadline error; the shared lookup is detached from any one
+  caller and bounded by `WithKeyLookupTimeout` instead.
 - The cache bounds the rotation-to-rejection window: an already-cached `kid` keeps verifying for up to `WithCacheTTL` after rotation,
   because a cache hit skips the `KeyProvider` (so its `ErrKeyRotated` is not seen). To revoke immediately, call `Verifier.InvalidateKey`
   (or `InvalidateSubject`) on rotation, or set a short `WithCacheTTL` (`0` disables caching for strict, no-lag verification).
