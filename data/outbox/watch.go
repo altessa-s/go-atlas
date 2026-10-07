@@ -11,12 +11,12 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
-// Watcher is an optional [Store] capability: a store that can push a signal the
+// Watcher is an optional [Storage] capability: a store that can push a signal the
 // moment new events land, instead of making the dispatcher wait for its next
 // poll tick. A store that cannot do this simply does not implement Watcher, and
 // [Outbox.Watch] reports [ErrWatchUnsupported].
 //
-// See [github.com/altessa-s/go-atlas/data/outbox/store/mongo] for the MongoDB
+// See [github.com/altessa-s/go-atlas/data/outbox/storages/mongo] for the MongoDB
 // change-stream implementation.
 type Watcher interface {
 	// Watch blocks until ctx is done, calling notify whenever newly saved

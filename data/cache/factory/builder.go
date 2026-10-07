@@ -10,18 +10,18 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/altessa-s/go-atlas/data/cache/providers"
+	"github.com/altessa-s/go-atlas/data/cache/storages"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
-	freecacheprovider "github.com/altessa-s/go-atlas/data/cache/providers/freecache"
-	redisprovider "github.com/altessa-s/go-atlas/data/cache/providers/redis"
+	freecacheprovider "github.com/altessa-s/go-atlas/data/cache/storages/freecache"
+	redisprovider "github.com/altessa-s/go-atlas/data/cache/storages/redis"
 )
 
-// ProviderBuilder assembles a cache [providers.Provider] step by step using a fluent API.
-// Create instances with [New]. Errors are accumulated and reported at [ProviderBuilder.Build] time.
+// StorageBuilder assembles a cache [storages.Storage] step by step using a fluent API.
+// Create instances with [New]. Errors are accumulated and reported at [StorageBuilder.Build] time.
 // The builder is not safe for concurrent use.
-type ProviderBuilder struct {
+type StorageBuilder struct {
 	corefactory.Base
 	cfg  *storageconfig.CacheStorageConfig
 	errs []error
@@ -30,10 +30,10 @@ type ProviderBuilder struct {
 	redisClient redis.UniversalClient
 }
 
-// New creates a [ProviderBuilder] for the given cache storage config.
+// New creates a [StorageBuilder] for the given cache storage config.
 // Config can be nil — the builder returns a FreeCache (memory) provider if nil.
-func New(cfg *storageconfig.CacheStorageConfig) *ProviderBuilder {
-	return &ProviderBuilder{
+func New(cfg *storageconfig.CacheStorageConfig) *StorageBuilder {
+	return &StorageBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
 	}
@@ -41,35 +41,35 @@ func New(cfg *storageconfig.CacheStorageConfig) *ProviderBuilder {
 
 // Build assembles the cache provider. Errors from fluent methods are accumulated
 // and reported here via [errors.Join].
-func (b *ProviderBuilder) Build() (providers.Provider, error) {
+func (b *StorageBuilder) Build() (storages.Storage, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
 
 	if b.cfg == nil {
-		return b.createFreeCacheProvider(), nil
+		return b.createFreeCacheStorage(), nil
 	}
 
 	switch b.cfg.Type {
 	case storageconfig.CacheStorageTypeMemory:
-		return b.createFreeCacheProvider(), nil
+		return b.createFreeCacheStorage(), nil
 	case storageconfig.CacheStorageTypeRedis:
 		if b.cfg.Redis == nil {
 			return nil, fmt.Errorf("configuration is required")
 		}
-		return b.createRedisProviderFromConfig()
+		return b.createRedisStorageFromConfig()
 	default:
 		return nil, b.Errorf("unsupported storage type: %s", b.cfg.Type)
 	}
 }
 
-// createFreeCacheProvider creates an in-memory FreeCache provider.
-func (b *ProviderBuilder) createFreeCacheProvider() *freecacheprovider.Provider {
+// createFreeCacheStorage creates an in-memory FreeCache provider.
+func (b *StorageBuilder) createFreeCacheStorage() *freecacheprovider.Storage {
 	return freecacheprovider.New()
 }
 
-// createRedisProviderFromConfig creates a Redis cache provider from configuration.
-func (b *ProviderBuilder) createRedisProviderFromConfig() (*redisprovider.Provider, error) {
+// createRedisStorageFromConfig creates a Redis cache provider from configuration.
+func (b *StorageBuilder) createRedisStorageFromConfig() (*redisprovider.Storage, error) {
 	if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 		return nil, err
 	}

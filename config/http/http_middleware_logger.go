@@ -40,7 +40,7 @@ type LoggerMiddleware struct {
 
 	// IgnoreHttpMethods is a list of HTTP methods to skip logging for.
 	// Example: ["OPTIONS", "HEAD"] to skip logging preflight and HEAD requests.
-	IgnoreHttpMethods []string `yaml:"ignoreHttpMethods"`
+	IgnoreHttpMethods []string `yaml:"ignoreHTTPMethods"`
 }
 
 // Validate performs validation of the LoggerMiddleware.

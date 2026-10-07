@@ -15,9 +15,9 @@ type Interceptors struct {
 	// Cache contains configuration for response caching interceptor.
 	Cache *CacheInterceptor `yaml:"cache" default:"-"`
 	// RealIp contains configuration for real IP extraction interceptor.
-	RealIp *RealIPInterceptor `yaml:"realIp" default:"-"`
+	RealIp *RealIPInterceptor `yaml:"realIP" default:"-"`
 	// RequestId contains configuration for request ID generation interceptor.
-	RequestId *RequestIDInterceptor `yaml:"requestId" default:"-"`
+	RequestId *RequestIDInterceptor `yaml:"requestID" default:"-"`
 	// Recovery contains configuration for panic recovery interceptor.
 	Recovery *RecoveryInterceptor `yaml:"recovery" default:"-"`
 	// Idempotency contains configuration for idempotency interceptor.
@@ -27,9 +27,9 @@ type Interceptors struct {
 	// Health contains configuration for health check interceptor.
 	Health *HealthInterceptor `yaml:"health" default:"-"`
 	// IpAcl contains configuration for IP access control interceptor.
-	IpAcl *IPACLInterceptor `yaml:"ipAcl" default:"-"`
+	IpAcl *IPACLInterceptor `yaml:"ipACL" default:"-"`
 	// GeoAcl contains configuration for geographic access control interceptor.
-	GeoAcl *GeoACLInterceptor `yaml:"geoAcl" default:"-"`
+	GeoAcl *GeoACLInterceptor `yaml:"geoACL" default:"-"`
 	// Limiter contains configuration for rate limiting interceptor.
 	Limiter *LimiterInterceptor `yaml:"limiter" default:"-"`
 	// Logger contains configuration for logging interceptor.

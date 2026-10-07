@@ -19,20 +19,20 @@ import (
 )
 
 const (
-	// MinNatsMajorVersion is the minimum required NATS server major version.
-	MinNatsMajorVersion = 2
-	// MinNatsMinorVersion is the minimum required NATS server minor version.
-	MinNatsMinorVersion = 11
+	// MinNATSMajorVersion is the minimum required NATS server major version.
+	MinNATSMajorVersion = 2
+	// MinNATSMinorVersion is the minimum required NATS server minor version.
+	MinNATSMinorVersion = 11
 )
 
-// ErrNatsVersionNotSupported is returned when the NATS server version is less than
+// ErrNATSVersionNotSupported is returned when the NATS server version is less than
 // 2.11.0 or JetStream is not enabled.
-var ErrNatsVersionNotSupported = errors.New("NATS server version must be 2.11.0 or higher and JetStream must be enabled")
+var ErrNATSVersionNotSupported = errors.New("NATS server version must be 2.11.0 or higher and JetStream must be enabled")
 
-// ValidateNatsVersion checks if the NATS server version meets the minimum requirements (2.11.0+).
-// Returns nil if version is valid, ErrNatsVersionNotSupported if version is too old,
+// ValidateNATSVersion checks if the NATS server version meets the minimum requirements (2.11.0+).
+// Returns nil if version is valid, ErrNATSVersionNotSupported if version is too old,
 // or a wrapped error if version parsing fails.
-func ValidateNatsVersion(nc *nats.Conn) error {
+func ValidateNATSVersion(nc *nats.Conn) error {
 	ver := nc.ConnectedServerVersion()
 	verParts := strings.Split(ver, ".")
 	if len(verParts) < 2 { //nolint:mnd
@@ -48,12 +48,12 @@ func ValidateNatsVersion(nc *nats.Conn) error {
 		return coreerrs.WrapOperation(err, fmt.Sprintf("parse NATS minor version from %q", ver))
 	}
 
-	if major > MinNatsMajorVersion || (major == MinNatsMajorVersion && minor >= MinNatsMinorVersion) {
+	if major > MinNATSMajorVersion || (major == MinNATSMajorVersion && minor >= MinNATSMinorVersion) {
 		return nil
 	}
 
-	return coreerrs.Wrapf(ErrNatsVersionNotSupported, "server version %s is less than required %d.%d",
-		ver, MinNatsMajorVersion, MinNatsMinorVersion)
+	return coreerrs.Wrapf(ErrNATSVersionNotSupported, "server version %s is less than required %d.%d",
+		ver, MinNATSMajorVersion, MinNATSMinorVersion)
 }
 
 // ValidateJetStreamEnabled verifies that JetStream is enabled for the given account.

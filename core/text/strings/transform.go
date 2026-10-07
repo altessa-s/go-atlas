@@ -14,8 +14,10 @@ import (
 // to SCREAMING_SNAKE_CASE. Underscores are inserted at word boundaries: before
 // an uppercase letter preceded by a lowercase letter (e.g. "aB" becomes "A_B"),
 // and before an uppercase letter that is followed by a lowercase letter within
-// an uppercase run (e.g. "IDs" becomes "I_DS"). Returns the empty string for
-// empty input.
+// an uppercase run (e.g. "HTTPServer" becomes "HTTP_SERVER"). A lowercase "s"
+// that ends an uppercase run is a plural suffix, not a new word ("IDs" becomes
+// "IDS", "AllowedIDsList" becomes "ALLOWED_IDS_LIST"). Returns the empty
+// string for empty input.
 //
 // For purely ASCII input a fast byte-level scan is used. If any non-ASCII rune
 // is detected, the function falls back to a rune-based conversion for
@@ -40,8 +42,9 @@ func ToScreamingSnakeCase(s string) string {
 			prev := rune(s[i-1])
 			// Add underscore if:
 			// 1) Previous was lowercase (e.g., "aB" -> "a_B")
-			// 2) Current is uppercase but followed by lowercase (e.g., "IDs" -> "I_Ds")
-			nextIsLower := i+1 < len(s) && unicode.IsLower(rune(s[i+1]))
+			// 2) Current is uppercase but followed by lowercase (e.g., "HTTPServer" -> "HTTP_Server"),
+			//    unless that lowercase is the plural "s" of an acronym (e.g., "IDs" stays "IDS")
+			nextIsLower := i+1 < len(s) && unicode.IsLower(rune(s[i+1])) && !pluralSuffix(s[i+1], s[i+2:])
 			if unicode.IsLower(prev) || (unicode.IsUpper(prev) && nextIsLower) {
 				b.WriteByte('_')
 			}
@@ -52,6 +55,18 @@ func ToScreamingSnakeCase(s string) string {
 	return b.String()
 }
 
+// pluralSuffix reports whether next, followed by rest, is the plural "s" of
+// an acronym: an "s" that ends the word.
+func pluralSuffix(next byte, rest string) bool {
+	return next == 's' && (rest == "" || !unicode.IsLower(rune(rest[0])))
+}
+
+// pluralSuffixRunes reports whether rest starts with the plural "s" of an
+// acronym: an "s" that ends the word.
+func pluralSuffixRunes(rest []rune) bool {
+	return rest[0] == 's' && (len(rest) == 1 || !unicode.IsLower(rest[1]))
+}
+
 func toScreamingSnakeCaseComplex(s string) string {
 	var b strings.Builder
 	runes := []rune(s)
@@ -59,7 +74,7 @@ func toScreamingSnakeCaseComplex(s string) string {
 		r := runes[i]
 		if i > 0 && unicode.IsUpper(r) {
 			prevIsLower := unicode.IsLower(runes[i-1])
-			nextIsLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])
+			nextIsLower := i+1 < len(runes) && unicode.IsLower(runes[i+1]) && !pluralSuffixRunes(runes[i+1:])
 			if prevIsLower || nextIsLower {
 				b.WriteByte('_')
 			}

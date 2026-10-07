@@ -150,7 +150,7 @@ func redisBloomConfig() *probfilterconfig.Filter {
 	return &probfilterconfig.Filter{
 		Type: probfilterconfig.TypeBloom,
 		Bloom: &probfilterconfig.BloomConfig{
-			Storage:       &storage,
+			Storage:       &probfilterconfig.Storage{Type: storage},
 			ExpectedItems: 1000,
 		},
 	}

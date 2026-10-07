@@ -36,7 +36,7 @@ type streamSubscriber struct {
 	js             jetstream.JetStream
 	opts           []jetstream.PullConsumeOpt
 	handlersWg     sync.WaitGroup
-	provider       *Nats
+	provider       *NATS
 	metrics        *subscriberMetrics
 
 	// mu guards the lifecycle fields below, which Subscribe writes and
@@ -46,7 +46,7 @@ type streamSubscriber struct {
 	handlerCtxCancel context.CancelFunc
 }
 
-func newStreamSubscriber(natsProvider *Nats, opt []jetstream.PullConsumeOpt) *streamSubscriber {
+func newStreamSubscriber(natsProvider *NATS, opt []jetstream.PullConsumeOpt) *streamSubscriber {
 	return &streamSubscriber{
 		js:       natsProvider.jetStream,
 		opts:     opt,
@@ -64,7 +64,7 @@ func newStreamSubscriber(natsProvider *Nats, opt []jetstream.PullConsumeOpt) *st
 //	sub := b.Subscriber(factory)
 func SubscriberWithConsumer(consumerConfig *jetstream.ConsumerConfig, opt ...jetstream.PullConsumeOpt) broker.SubscriberFactory {
 	return func(p any) broker.Subscriber {
-		natsProvider, ok := p.(*Nats)
+		natsProvider, ok := p.(*NATS)
 		panics.Must(ok, "SubscriberWithConsumer factory requires a *natsprovider.Nats instance")
 
 		ss := newStreamSubscriber(natsProvider, opt)
@@ -82,7 +82,7 @@ func SubscriberWithConsumer(consumerConfig *jetstream.ConsumerConfig, opt ...jet
 //	sub := b.Subscriber(factory)
 func SubscriberWithEphemeralConsumer(opt ...jetstream.PullConsumeOpt) broker.SubscriberFactory {
 	return func(p any) broker.Subscriber {
-		natsProvider, ok := p.(*Nats)
+		natsProvider, ok := p.(*NATS)
 		panics.Must(ok, "SubscriberWithEphemeralConsumer factory requires a *natsprovider.Nats instance")
 
 		return newStreamSubscriber(natsProvider, opt)
@@ -98,7 +98,7 @@ func SubscriberWithEphemeralConsumer(opt ...jetstream.PullConsumeOpt) broker.Sub
 //	sub := b.Subscriber(factory)
 func SubscriberWithConsumerName(consumerName string, opt ...jetstream.PullConsumeOpt) broker.SubscriberFactory {
 	return func(p any) broker.Subscriber {
-		natsProvider, ok := p.(*Nats)
+		natsProvider, ok := p.(*NATS)
 		// This panic is for programmer error: StreamSubscriber factory is specific to Nats provider.
 		panics.Must(ok, "SubscriberWithConsumerName factory requires a *natsprovider.Nats instance")
 

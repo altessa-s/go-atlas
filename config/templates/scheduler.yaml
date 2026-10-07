@@ -84,7 +84,7 @@
 #  # lets a restarted instance recover its own interrupted runs immediately instead of waiting
 #  # for their leases (staleTaskTimeout) to expire. Maximum length: 128.
 #  # Default value: not set (a random ID per process)
-#  instanceId: "scheduler-0"
+#  instanceID: "scheduler-0"
 #
 #  # <object> Storage backend configuration for the scheduler.
 #  # Supports multiple storage backends with provider-specific settings.
@@ -92,14 +92,14 @@
 #  storage:
 #    # <string> Type of storage backend for scheduler data.
 #    # Determines which storage system to use for task persistence.
-#    # Supported values: mongodb, redis, memory, sql
+#    # Supported values: mongo, redis, memory, sqldb
 #    # Default value: memory
 #    type: memory
 #
 #    # <object> MongoDB-specific configuration for scheduler storage.
 #    # Contains settings for MongoDB collections.
-#    # Required when type is set to 'mongodb'.
-#    mongodb:
+#    # Required when type is set to 'mongo'.
+#    mongo:
 #      # <string> MongoDB collection name for task states.
 #      # Collection where scheduled tasks are stored.
 #      # Default value: scheduler_tasks
@@ -128,7 +128,7 @@
 #      # <duration> TTL for history entries in Redis.
 #      # Set to 0 to disable TTL (history cleaned by CleanupHistory only).
 #      # Default value: 0s (disabled)
-#      historyTtl: "0s"
+#      historyTTL: "0s"
 #
 #      # <int> Maximum number of history entries kept per task.
 #      # Limits history storage per individual task.
@@ -157,8 +157,8 @@
 #    # ensureSchema: true; otherwise create the schema before starting the
 #    # scheduler — EnsureSchema on a sqldb storage built from the same handle,
 #    # dialect and table names, or its DDL applied through migrations.
-#    # Required when type is set to 'sql'.
-#    sql:
+#    # Required when type is set to 'sqldb'.
+#    sqldb:
 #      # <string> SQL dialect.
 #      # Supported values: postgres (PostgreSQL 12+), mysql (MySQL 8.0+ and MariaDB 10.6+)
 #      # Default value: postgres

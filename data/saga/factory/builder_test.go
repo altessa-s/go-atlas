@@ -61,7 +61,7 @@ func TestBuildNatsRequiresJetStream(t *testing.T) {
 	cfg := sagaconfig.Default()
 	cfg.Storage = &sagaconfig.StorageConfig{
 		Type: sagaconfig.StorageTypeNATS,
-		Nats: &sagaconfig.NATSStorageConfig{Bucket: "saga", MaxAge: 720 * time.Hour},
+		NATS: &sagaconfig.NATSStorageConfig{Bucket: "saga", MaxAge: 720 * time.Hour},
 	}
 
 	_, err := sagafactory.New(&cfg, orderDef()).Build()

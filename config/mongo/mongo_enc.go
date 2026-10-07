@@ -93,7 +93,7 @@ func (m *KMSLocal) Validate() error {
 // It contains all necessary credentials and settings for using AWS KMS
 // for MongoDB client-side field level encryption.
 type KMSAmazon struct {
-	AccessKeyId     string                  `yaml:"accessKeyId"`
+	AccessKeyId     string                  `yaml:"accessKeyID"`
 	SecretAccessKey redacted.RedactedString `yaml:"secretAccessKey"`
 	SessionToken    *string                 `yaml:"sessionToken"`
 	Key             string                  `yaml:"key"`
@@ -128,9 +128,9 @@ func (m *KMSAmazon) Validate() error {
 // It contains all necessary credentials and settings for using Azure Key Vault
 // for MongoDB client-side field level encryption.
 type KMSAzure struct {
-	ClientId         string                  `yaml:"clientId"`
+	ClientId         string                  `yaml:"clientID"`
 	ClientSecret     redacted.RedactedString `yaml:"clientSecret"`
-	TenantId         string                  `yaml:"tenantId"`
+	TenantId         string                  `yaml:"tenantID"`
 	KeyName          string                  `yaml:"keyName"`
 	KeyVersion       *string                 `yaml:"keyVersion"`
 	KeyVaultEndpoint *string                 `yaml:"keyVaultEndpoint"`
@@ -153,7 +153,7 @@ func (m *KMSAzure) Validate() error {
 // for MongoDB client-side field level encryption.
 type KMSGoogle struct {
 	Endpoint               *string                 `yaml:"endpoint"`
-	ProjectId              string                  `yaml:"projectId"`
+	ProjectId              string                  `yaml:"projectID"`
 	Email                  string                  `yaml:"email"`
 	AuthenticationEndpoint *string                 `yaml:"authenticationEndpoint"`
 	PrivateKey             redacted.RedactedString `yaml:"privateKey"`

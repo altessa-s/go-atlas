@@ -59,7 +59,7 @@ func definition(name string, fn saga.StepFunc[order]) *saga.Definition[order] {
 
 func ok(context.Context, *order) error { return nil }
 
-func newEngine(t *testing.T, e *env, store saga.Store, def *saga.Definition[order], opts ...sagajs.Option) *sagajs.Engine[order] {
+func newEngine(t *testing.T, e *env, store saga.Storage, def *saga.Definition[order], opts ...sagajs.Option) *sagajs.Engine[order] {
 	t.Helper()
 	orch := saga.New(store, def, saga.WithMaxStepAttempts(1), saga.WithStepRetryBaseDelay(time.Millisecond))
 	engine, err := sagajs.New(t.Context(), e.js, orch, append([]sagajs.Option{sagajs.WithRetryBaseDelay(10 * time.Millisecond)}, opts...)...)
@@ -86,7 +86,7 @@ func run(t *testing.T, engine *sagajs.Engine[order]) (stop func() error) {
 	}
 }
 
-func waitStatus(t *testing.T, store saga.Store, id string, want saga.Status) {
+func waitStatus(t *testing.T, store saga.Storage, id string, want saga.Status) {
 	t.Helper()
 	testhelpers.WaitFor(t, waitTimeout, func() bool {
 		inst, err := store.Get(t.Context(), id)
@@ -165,7 +165,7 @@ func TestSubmitRejectsEmptyID(t *testing.T) {
 // failOnceStore fails the first Update whose instance matches, simulating a
 // one-off store outage at a chosen checkpoint.
 type failOnceStore struct {
-	saga.Store
+	saga.Storage
 	match  func(*saga.Instance) bool
 	failed atomic.Bool
 }
@@ -174,19 +174,19 @@ func (s *failOnceStore) Update(ctx context.Context, inst *saga.Instance) error {
 	if s.match(inst) && s.failed.CompareAndSwap(false, true) {
 		return errors.New("store outage")
 	}
-	return s.Store.Update(ctx, inst)
+	return s.Storage.Update(ctx, inst)
 }
 
 // failTerminalOnce fails the first write of a terminal status, so the saga is
 // interrupted after its last step committed.
-func failTerminalOnce(store saga.Store) *failOnceStore {
-	return &failOnceStore{Store: store, match: func(inst *saga.Instance) bool { return inst.Status.IsTerminal() }}
+func failTerminalOnce(store saga.Storage) *failOnceStore {
+	return &failOnceStore{Storage: store, match: func(inst *saga.Instance) bool { return inst.Status.IsTerminal() }}
 }
 
 // failFirstUpdate fails the very first Update (the lease acquisition), so the
 // first delivery is interrupted before any step runs.
-func failFirstUpdate(store saga.Store) *failOnceStore {
-	return &failOnceStore{Store: store, match: func(*saga.Instance) bool { return true }}
+func failFirstUpdate(store saga.Storage) *failOnceStore {
+	return &failOnceStore{Storage: store, match: func(*saga.Instance) bool { return true }}
 }
 
 func TestInterruptedExecutionIsRedelivered(t *testing.T) {

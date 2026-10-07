@@ -30,7 +30,7 @@ func (f *fakeSubscriber) Closed() <-chan struct{} {
 }
 
 func TestNats_UnsubscribeAll_ClearsListAndCallsUnsubscribe(t *testing.T) {
-	n := &Nats{}
+	n := &NATS{}
 	s1 := &fakeSubscriber{}
 	s2 := &fakeSubscriber{}
 

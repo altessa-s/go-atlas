@@ -288,7 +288,7 @@ func TestStartIsIdempotentOnID(t *testing.T) {
 // flakyStore wraps a Store and fails the configured Nth Update to simulate a
 // crash between a step succeeding and its checkpoint being persisted.
 type flakyStore struct {
-	saga.Store
+	saga.Storage
 	failAt  int
 	updates int
 }
@@ -298,7 +298,7 @@ func (f *flakyStore) Update(ctx context.Context, inst *saga.Instance) error {
 	if f.failAt > 0 && f.updates == f.failAt {
 		return errBoom
 	}
-	return f.Store.Update(ctx, inst)
+	return f.Storage.Update(ctx, inst)
 }
 
 func TestResumeAfterCrash(t *testing.T) {
@@ -314,7 +314,7 @@ func TestResumeAfterCrash(t *testing.T) {
 	}
 
 	mem := memory.New()
-	flaky := &flakyStore{Store: mem, failAt: 5} // ownership, then intent/checkpoint per stage; fail checkpoint for b
+	flaky := &flakyStore{Storage: mem, failAt: 5} // ownership, then intent/checkpoint per stage; fail checkpoint for b
 
 	orch1 := saga.New(flaky, build())
 	inst, err := orch1.Start(t.Context(), "o1", order{})

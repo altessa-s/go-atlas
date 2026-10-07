@@ -49,7 +49,7 @@ type Config struct {
 	// ConnectionURI is a full NATS connection string (e.g. "nats://user:pass@host:4222").
 	// When set, it replaces Hosts and authentication fields.
 	// Mutually exclusive with Username, Password, Token, and NkeySeed.
-	ConnectionURI redacted.RedactedString `yaml:"connectionUri"`
+	ConnectionURI redacted.RedactedString `yaml:"connectionURI"`
 
 	// Username is the username for NATS authentication.
 	// Used with password-based authentication.

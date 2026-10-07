@@ -14,7 +14,7 @@ import (
 	sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
 )
 
-// Store is an in-process, concurrency-safe [saga.Store] backed by a map. It is
+// Store is an in-process, concurrency-safe [saga.Storage] backed by a map. It is
 // intended for single-node deployments, tests, and as the reference
 // implementation of the storage contract. State is lost on process exit; use a
 // durable backend (MongoDB, Redis) for crash recovery across restarts.
@@ -23,7 +23,7 @@ type Store struct {
 	instances map[string]*saga.Instance
 }
 
-var _ saga.Store = (*Store)(nil)
+var _ saga.Storage = (*Store)(nil)
 
 // New returns an empty in-memory saga store.
 func New() *Store {

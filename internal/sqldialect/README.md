@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/internal/sqldialect"
 ```
 
 SQL text helpers shared by the `database/sql` storages — [scheduler `sqldb`](../../service/scheduler/storages/sqldb) and
-[outbox `sqldb`](../../data/outbox/store/sqldb): table-name validation and quoting, index naming, placeholder binding, and serialized
+[outbox `sqldb`](../../data/outbox/storages/sqldb): table-name validation and quoting, index naming, placeholder binding, and serialized
 PostgreSQL schema creation. Internal to the module.
 
 ## Key types

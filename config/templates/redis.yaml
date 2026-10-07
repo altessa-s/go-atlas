@@ -16,7 +16,7 @@
 #  # Mutually exclusive with username and password.
 #  # Supports a single address only; for clusters with multiple seeds use hosts.
 #  # Default value: not set
-#  connectionUri:
+#  connectionURI:
 #
 #  # <int> Database index to select after connecting.
 #  # Redis supports multiple databases numbered 0-15 by default.
