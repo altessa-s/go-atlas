@@ -5,7 +5,10 @@
 package logger
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/internal/observability"
 
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
@@ -215,4 +219,83 @@ func TestMiddleware_BodyRedactor_ExplicitPassthrough(t *testing.T) {
 		}
 	}
 	require.Equal(t, "request-body", reqContent)
+}
+
+// closeTracker records whether Close reached the original request body.
+type closeTracker struct {
+	io.Reader
+	closed bool
+}
+
+func (c *closeTracker) Close() error {
+	c.closed = true
+	return nil
+}
+
+// errOnceReader yields data, then err once, then io.EOF.
+type errOnceReader struct {
+	data    []byte
+	err     error
+	errSent bool
+}
+
+func (r *errOnceReader) Read(p []byte) (int, error) {
+	if len(r.data) > 0 {
+		n := copy(p, r.data)
+		r.data = r.data[n:]
+		return n, nil
+	}
+	if !r.errSent {
+		r.errSent = true
+		return 0, r.err
+	}
+	return 0, io.EOF
+}
+
+func TestMiddleware_LogRequest_LargeBodyReachesHandler(t *testing.T) {
+	t.Parallel()
+
+	payload := bytes.Repeat([]byte("0123456789abcdef"), (middlewares.MaxCaptureBodySize+4096)/16)
+	lh := LogHandlerFunc(func(context.Context, string, int, slogx.Fields) {})
+
+	var got []byte
+	var readErr error
+	handler := Middleware(lh, WithLogRequest())(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got, readErr = io.ReadAll(r.Body)
+		require.NoError(t, r.Body.Close())
+	}))
+
+	body := &closeTracker{Reader: bytes.NewReader(payload)}
+	req := httptest.NewRequest(http.MethodPost, "/upload", nil)
+	req.Body = body
+	req.ContentLength = int64(len(payload))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	require.NoError(t, readErr)
+	require.Equal(t, len(payload), len(got))
+	require.True(t, bytes.Equal(payload, got), "handler must receive every byte")
+	require.True(t, body.closed, "Close must reach the original body")
+}
+
+func TestMiddleware_LogRequest_ReadErrorReachesHandler(t *testing.T) {
+	t.Parallel()
+
+	errBroken := errors.New("broken body")
+	lh := LogHandlerFunc(func(context.Context, string, int, slogx.Fields) {})
+
+	var got []byte
+	var readErr error
+	handler := Middleware(lh, WithLogRequest())(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got, readErr = io.ReadAll(r.Body)
+		require.NoError(t, r.Body.Close())
+	}))
+
+	body := &closeTracker{Reader: &errOnceReader{data: []byte("0123456789"), err: errBroken}}
+	req := httptest.NewRequest(http.MethodPost, "/upload", nil)
+	req.Body = body
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	require.ErrorIs(t, readErr, errBroken)
+	require.Equal(t, "0123456789", string(got))
+	require.True(t, body.closed, "Close must reach the original body")
 }

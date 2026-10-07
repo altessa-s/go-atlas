@@ -88,15 +88,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		// Uses a pooled buffer to avoid per-request allocations from io.ReadAll.
 		var requestBody string
 		if m.opts.logRequest && request.Body != nil {
-			buf := coreio.GetBuffer()
-			_, readErr := io.CopyN(buf, request.Body, int64(middlewares.MaxCaptureBodySize))
-			if readErr == nil || errors.Is(readErr, io.EOF) {
-				// Convert to string once (single allocation), then use
-				// strings.NewReader for body restoration (no extra copy).
-				requestBody = buf.String()
-				request.Body = io.NopCloser(strings.NewReader(requestBody))
-			}
-			coreio.PutBuffer(buf)
+			request.Body, requestBody = captureBody(request.Body)
 		}
 
 		start := time.Now()
@@ -289,6 +281,37 @@ func New(logHandler LogHandler, opt ...Option) *middleware {
 func Middleware(logHandler LogHandler, opt ...Option) func(next http.Handler) http.Handler {
 	return New(logHandler, opt...).Handler
 }
+
+// captureBody reads up to [middlewares.MaxCaptureBodySize] bytes of body for
+// logging and returns a replacement body that yields exactly what the handler
+// would have read from the original: the captured prefix, then the unread
+// remainder, or, when the capture read failed, the read error. Close always
+// reaches the original body. The returned string is the captured prefix, or
+// empty when the read failed.
+func captureBody(body io.ReadCloser) (io.ReadCloser, string) {
+	buf := coreio.GetBuffer()
+	_, readErr := io.CopyN(buf, body, int64(middlewares.MaxCaptureBodySize))
+	// Convert to string once (single allocation); strings.NewReader replays
+	// it without another copy.
+	prefix := buf.String()
+	coreio.PutBuffer(buf)
+
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return readCloser{io.MultiReader(strings.NewReader(prefix), errReader{readErr}), body}, ""
+	}
+	return readCloser{io.MultiReader(strings.NewReader(prefix), body), body}, prefix
+}
+
+// readCloser pairs a replay reader with the original body's Close.
+type readCloser struct {
+	io.Reader
+	io.Closer
+}
+
+// errReader replays an error consumed while capturing the body.
+type errReader struct{ err error }
+
+func (r errReader) Read([]byte) (int, error) { return 0, r.err }
 
 // shouldLogStatusCode determines if a status code should be logged based on pre-computed sets.
 // Both lookups are O(1) for optimal performance in the hot path.
