@@ -15,5 +15,6 @@ factories, which map them to generated options; runtime packages never import th
 | `Config`             | Defines the configuration for the audit subsystem.            |
 | `Storage`      | Defines the storage backend configuration for audit events.   |
 | `StorageMongo` | Holds MongoDB-specific configuration for audit event storage. |
+| `StorageSQL` | Holds SQL-specific configuration for audit event storage. |
 
 See the [config index](../README.md) for the other schema packages.
