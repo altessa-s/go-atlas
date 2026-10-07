@@ -16,10 +16,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
 
+	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	dataoutbox "github.com/altessa-s/go-atlas/data/outbox"
 	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
@@ -69,9 +69,9 @@ func (nopPublisher) Publish(context.Context, msg.Message) error { return nil }
 
 // outboxConfig returns a fully populated broker config, so a field the builder
 // forgets to read shows up as a default rather than the configured value.
-func outboxConfig() *config.Broker {
-	return &config.Broker{
-		Outbox: config.Outbox{
+func outboxConfig() *brokerconfig.Config {
+	return &brokerconfig.Config{
+		Outbox: brokerconfig.Outbox{
 			Enabled:                 true,
 			FetchTimeout:            time.Second,
 			HandleTimeout:           2 * time.Second,
@@ -98,7 +98,7 @@ func outboxConfig() *config.Broker {
 	}
 }
 
-// The builder and data/outbox/factory read the same config.Outbox. A field one
+// The builder and data/outbox/factory read the same brokerconfig.Outbox. A field one
 // of them forgets is not a compile error and not a runtime error — the setting
 // is simply ignored, and the operator's YAML quietly does nothing.
 func TestCreateOutbox_RegistersEveryCycleUnderItsConfiguredID(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/cache/providers"
 
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	freecacheprovider "github.com/altessa-s/go-atlas/data/cache/providers/freecache"
 	redisprovider "github.com/altessa-s/go-atlas/data/cache/providers/redis"
@@ -23,7 +23,7 @@ import (
 // The builder is not safe for concurrent use.
 type ProviderBuilder struct {
 	corefactory.Base
-	cfg  *config.CacheStorageConfig
+	cfg  *storageconfig.CacheStorageConfig
 	errs []error
 
 	// Dependencies
@@ -32,7 +32,7 @@ type ProviderBuilder struct {
 
 // New creates a [ProviderBuilder] for the given cache storage config.
 // Config can be nil — the builder returns a FreeCache (memory) provider if nil.
-func New(cfg *config.CacheStorageConfig) *ProviderBuilder {
+func New(cfg *storageconfig.CacheStorageConfig) *ProviderBuilder {
 	return &ProviderBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -51,9 +51,9 @@ func (b *ProviderBuilder) Build() (providers.Provider, error) {
 	}
 
 	switch b.cfg.Type {
-	case config.CacheStorageTypeMemory:
+	case storageconfig.CacheStorageTypeMemory:
 		return b.createFreeCacheProvider(), nil
-	case config.CacheStorageTypeRedis:
+	case storageconfig.CacheStorageTypeRedis:
 		if b.cfg.Redis == nil {
 			return nil, fmt.Errorf("configuration is required")
 		}

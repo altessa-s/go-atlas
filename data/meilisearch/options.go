@@ -35,7 +35,7 @@ type options struct {
 // custom client has already expressed intent about timeout semantics).
 //
 // Typical use case: the infrastructure factory builds an *http.Client
-// with a *tls.Config derived from config.TlsClient, so TLS settings
+// with a *tls.Config derived from tlsconfig.Client, so TLS settings
 // (CA pool, mTLS client cert, MinVersion, SkipVerifyMode) reach the SDK
 // without leaking into this package's option surface.
 //

@@ -7,16 +7,17 @@ package factory_test
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/factory"
+
+	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 )
 
 func BenchmarkGRPCHealthClientOptions(b *testing.B) {
-	h := config.GRPCHealthClient{
-		HealthClient: config.HealthClient{
+	h := clienthealthconfig.GRPC{
+		Config: clienthealthconfig.Config{
 			ServiceName: "benchmark-grpc-service",
 		},
-		StateMapper: config.HealthClientStateMapperStrict,
+		StateMapper: clienthealthconfig.StateMapperStrict,
 		PerTarget:   true,
 	}
 

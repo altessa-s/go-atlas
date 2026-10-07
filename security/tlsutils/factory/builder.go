@@ -15,10 +15,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	tlsocsp "github.com/altessa-s/go-atlas/security/tlsutils/ocsp"
@@ -32,8 +32,8 @@ import (
 )
 
 // ErrInsecureSkipVerifyRejected is returned by [ProvidersBuilder.CreateClientConfig]
-// when SkipVerify is true and the configured [config.TLSSkipVerifyMode] is
-// [config.TLSSkipVerifyModeEnforce] (the default). Operators who genuinely
+// when SkipVerify is true and the configured [tlsconfig.SkipVerifyMode] is
+// [tlsconfig.SkipVerifyModeEnforce] (the default). Operators who genuinely
 // need to skip verification must explicitly opt out via SkipVerifyMode=warn
 // (logged) or SkipVerifyMode=disabled (silent, tests only).
 var ErrInsecureSkipVerifyRejected = errors.New(
@@ -45,7 +45,7 @@ var ErrInsecureSkipVerifyRejected = errors.New(
 // The builder is not safe for concurrent use.
 type ProvidersBuilder struct {
 	corefactory.Base
-	cfg  *config.TlsProvider
+	cfg  *tlsconfig.Provider
 	errs []error
 
 	// Dependencies
@@ -58,7 +58,7 @@ type ProvidersBuilder struct {
 
 // New creates a [ProvidersBuilder] for the given TLS provider config.
 // Config can be nil — Build returns an empty [tlsproviders.Providers] in that case.
-func New(cfg *config.TlsProvider) *ProvidersBuilder {
+func New(cfg *tlsconfig.Provider) *ProvidersBuilder {
 	return &ProvidersBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -120,7 +120,7 @@ func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
 // CreateClientConfig creates a TLS configuration for client connections from config.
 // Returns nil, nil if the configuration is nil.
 // This is a standalone utility that does not depend on the builder's TLS provider config.
-func (b *ProvidersBuilder) CreateClientConfig(cfg *config.TlsClient) (*tls.Config, error) {
+func (b *ProvidersBuilder) CreateClientConfig(cfg *tlsconfig.Client) (*tls.Config, error) {
 	if cfg == nil {
 		return nil, nil //nolint:nilnil
 	}
@@ -142,14 +142,14 @@ func (b *ProvidersBuilder) CreateClientConfig(cfg *config.TlsClient) (*tls.Confi
 	tlsConfig := tlsutils.DefaultClientTLSConfig(cfg.ServerName)
 	if cfg.SkipVerify {
 		switch cfg.SkipVerifyMode {
-		case config.TLSSkipVerifyModeEnforce:
+		case tlsconfig.SkipVerifyModeEnforce:
 			return nil, b.WrapError(ErrInsecureSkipVerifyRejected,
 				"refusing to build TLS client config for server "+cfg.ServerName)
-		case config.TLSSkipVerifyModeWarn:
+		case tlsconfig.SkipVerifyModeWarn:
 			b.Logger().Warn("TLS certificate verification is disabled — connections are susceptible to man-in-the-middle attacks",
 				slog.String("server_name", cfg.ServerName))
 			tlsConfig.InsecureSkipVerify = true
-		case config.TLSSkipVerifyModeDisabled:
+		case tlsconfig.SkipVerifyModeDisabled:
 			// Explicit operator/test opt-out. Still log it: an operator who
 			// disables verification should see runtime evidence of it, matching
 			// the Warn mode above. Use only in tests with localhost fixtures.
@@ -283,10 +283,10 @@ func (b *ProvidersBuilder) createS3Provider() (*tlss3.S3, error) {
 	if cfg.SSE != nil {
 		opts = append(opts, tlss3.WithSseType(tlss3.SSEType(cfg.SSE.Type)))
 		switch cfg.SSE.Type {
-		case config.SSETypeConfigC:
+		case tlsconfig.SSETypeConfigC:
 			opts = append(opts, tlss3.WithSseCustomerKey(cfg.SSE.CustomerKey.Expose()))
 			opts = append(opts, tlss3.WithSseCustomerKeyMD5(cfg.SSE.CustomerKeyMD5))
-		case config.SSETypeConfigS3, config.SSETypeConfigKMS:
+		case tlsconfig.SSETypeConfigS3, tlsconfig.SSETypeConfigKMS:
 			// SSE-S3 and SSE-KMS are transparent on read — S3 decrypts
 			// server-side (KMS needs kms:Decrypt on the reader's role),
 			// so no additional options are needed.
@@ -299,7 +299,7 @@ func (b *ProvidersBuilder) createS3Provider() (*tlss3.S3, error) {
 }
 
 // getOrCreateS3Client returns the injected S3 client or creates a new one from config.
-func (b *ProvidersBuilder) getOrCreateS3Client(cfg *config.TlsProviderS3) (tlss3.S3API, error) {
+func (b *ProvidersBuilder) getOrCreateS3Client(cfg *tlsconfig.ProviderS3) (tlss3.S3API, error) {
 	if b.s3Client != nil {
 		return b.s3Client, nil
 	}

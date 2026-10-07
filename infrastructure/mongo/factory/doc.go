@@ -15,13 +15,13 @@
 //	    UseHealthCoordinator(coordinator).
 //	    Build(ctx)
 //
-// The builder integrates with [config.Mongodb] to produce driver-level
+// The builder integrates with [mongoconfig.Config] to produce driver-level
 // [go.mongodb.org/mongo-driver/v2/mongo/options.ClientOptions] and
 // higher-level [mongo.Mongo] wrappers with authentication, TLS, connection
 // pooling, compression, and client-side field level encryption (CSFLE).
 //
 // The builder supports two configuration modes: connection-URI based
-// (when [config.Mongodb.ConnectionURI] is set) and field-based (individual
+// (when [mongoconfig.Config.ConnectionURI] is set) and field-based (individual
 // host, credential, and pool settings). Both paths converge in
 // [MongoBuilder.ClientOptions].
 //

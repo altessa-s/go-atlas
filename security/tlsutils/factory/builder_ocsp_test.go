@@ -11,9 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	tlsocsp "github.com/altessa-s/go-atlas/security/tlsutils/ocsp"
 )
 
@@ -29,10 +29,10 @@ func TestEnsureOcspStaplerFromConfig_DisabledSkipsBuild(t *testing.T) {
 
 	cases := []struct {
 		name string
-		cfg  *config.TlsProvider
+		cfg  *tlsconfig.Provider
 	}{
-		{name: "ocsp_nil", cfg: &config.TlsProvider{}},
-		{name: "ocsp_disabled", cfg: &config.TlsProvider{OCSP: &config.TlsProviderOCSP{Enabled: false, FailureMode: "hard"}}},
+		{name: "ocsp_nil", cfg: &tlsconfig.Provider{}},
+		{name: "ocsp_disabled", cfg: &tlsconfig.Provider{OCSP: &tlsconfig.ProviderOCSP{Enabled: false, FailureMode: "hard"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,8 +53,8 @@ func TestEnsureOcspStaplerFromConfig_DisabledSkipsBuild(t *testing.T) {
 func TestEnsureOcspStaplerFromConfig_EnabledBuildsStapler(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.TlsProvider{
-		OCSP: &config.TlsProviderOCSP{
+	cfg := &tlsconfig.Provider{
+		OCSP: &tlsconfig.ProviderOCSP{
 			Enabled:           true,
 			FailureMode:       "hard",
 			EnableCompression: true,
@@ -84,8 +84,8 @@ func TestEnsureOcspStaplerFromConfig_InjectionWinsOverYAML(t *testing.T) {
 	t.Parallel()
 
 	injected := &injectedStapler{}
-	cfg := &config.TlsProvider{
-		OCSP: &config.TlsProviderOCSP{Enabled: true, FailureMode: "hard"},
+	cfg := &tlsconfig.Provider{
+		OCSP: &tlsconfig.ProviderOCSP{Enabled: true, FailureMode: "hard"},
 	}
 	b := New(cfg).UseOcspStapler(injected)
 	b.ensureOcspStaplerFromConfig()

@@ -13,8 +13,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/tracing/factory"
+
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
 
 // The OTLP adapter must honor the configured protocol and compression: an
@@ -40,13 +41,13 @@ func TestBuild_OTLPProtocolAndCompression(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			cfg := config.DefaultTracing()
+			cfg := observabilityconfig.DefaultTracing()
 			cfg.Enabled = true
-			cfg.Type = config.TracingTypeOTLP
-			cfg.Sampler = &config.TracingSampler{Type: config.SamplerTypeAlwaysOn}
-			cfg.Adapters = &config.TracingAdapters{OTLP: &config.TracingOTLP{
+			cfg.Type = observabilityconfig.TracingTypeOTLP
+			cfg.Sampler = &observabilityconfig.TracingSampler{Type: observabilityconfig.SamplerTypeAlwaysOn}
+			cfg.Adapters = &observabilityconfig.TracingAdapters{OTLP: &observabilityconfig.TracingOTLP{
 				Endpoint:    strings.TrimPrefix(srv.URL, "http://"),
-				Protocol:    config.OTLPProtocolHTTP,
+				Protocol:    observabilityconfig.OTLPProtocolHTTP,
 				Insecure:    true,
 				Compression: tc.compression,
 			}}

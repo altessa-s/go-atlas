@@ -15,11 +15,11 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/jwt"
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 
 	"golang.org/x/oauth2"
 
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
@@ -33,7 +33,7 @@ const estimatedOptionsCount = 7
 // [oauth2.TokenSource]; BuildExchanger produces an RFC 8693 [oauth2client.Exchanger].
 type Builder struct {
 	corefactory.Base
-	cfg  *config.OAuth2Client
+	cfg  *authconfig.OAuth2Client
 	errs []error
 
 	// Dependencies (set via Use*).
@@ -46,7 +46,7 @@ type Builder struct {
 
 // New creates a [Builder] for the given config. A nil cfg is accepted; the
 // error surfaces at build time.
-func New(cfg *config.OAuth2Client) *Builder {
+func New(cfg *authconfig.OAuth2Client) *Builder {
 	return &Builder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -198,14 +198,14 @@ func (b *Builder) clientAuthOption() (oauth2client.Option, error) {
 
 // buildConfigClientAuth constructs a [oauth2client.ClientAuthenticator] from the
 // config clientAuth block, loading the signing key for private_key_jwt.
-func (b *Builder) buildConfigClientAuth(ca *config.OAuth2ClientAuth) (oauth2client.ClientAuthenticator, error) {
+func (b *Builder) buildConfigClientAuth(ca *authconfig.OAuth2ClientAuth) (oauth2client.ClientAuthenticator, error) {
 	var opts []oauth2client.AssertionOption
 	opts = slices.AppendIf(opts, ca.AssertionLifetime > 0, oauth2client.WithAssertionLifetime(ca.AssertionLifetime))
 	opts = slices.AppendIf(opts, ca.AssertionAudience != "", oauth2client.WithAssertionAudience(ca.AssertionAudience))
 	switch ca.Method {
-	case config.OAuth2ClientAuthClientSecretJWT:
+	case authconfig.OAuth2ClientAuthClientSecretJWT:
 		return oauth2client.ClientSecretJWT(b.cfg.ClientId, b.cfg.ClientSecret.Expose(), opts...)
-	case config.OAuth2ClientAuthPrivateKeyJWT:
+	case authconfig.OAuth2ClientAuthPrivateKeyJWT:
 		key, err := signingKeyFromConfig(ca)
 		if err != nil {
 			return nil, b.WrapError(err, "build assertion signing key")
@@ -218,7 +218,7 @@ func (b *Builder) buildConfigClientAuth(ca *config.OAuth2ClientAuth) (oauth2clie
 
 // signingKeyFromConfig parses the PEM private key into a [jwt.SigningKey],
 // selecting the parser by algorithm family.
-func signingKeyFromConfig(ca *config.OAuth2ClientAuth) (jwt.SigningKey, error) {
+func signingKeyFromConfig(ca *authconfig.OAuth2ClientAuth) (jwt.SigningKey, error) {
 	pemKey := []byte(ca.PrivateKey.Expose())
 	var (
 		key crypto.PrivateKey

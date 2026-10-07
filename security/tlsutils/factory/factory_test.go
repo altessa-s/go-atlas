@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 )
 
 func TestNew(t *testing.T) {
@@ -50,7 +50,7 @@ func TestProvidersBuilder_CreateClientConfig_WithServerName(t *testing.T) {
 	t.Parallel()
 
 	b := New(nil)
-	cfg := &config.TlsClient{
+	cfg := &tlsconfig.Client{
 		ServerName: "example.com",
 	}
 
@@ -63,10 +63,10 @@ func TestProvidersBuilder_CreateClientConfig_WithServerName(t *testing.T) {
 }
 
 func TestProvidersBuilder_CreateClientConfig_SkipVerify_without_env(t *testing.T) {
-	t.Setenv(config.EnvAllowInsecureTLS, "")
+	t.Setenv(tlsconfig.EnvAllowInsecureTLS, "")
 
 	b := New(nil)
-	cfg := &config.TlsClient{
+	cfg := &tlsconfig.Client{
 		ServerName: "example.com",
 		SkipVerify: true,
 	}
@@ -80,13 +80,13 @@ func TestProvidersBuilder_CreateClientConfig_SkipVerify_without_env(t *testing.T
 }
 
 func TestProvidersBuilder_CreateClientConfig_SkipVerify_with_env(t *testing.T) {
-	t.Setenv(config.EnvAllowInsecureTLS, "true")
+	t.Setenv(tlsconfig.EnvAllowInsecureTLS, "true")
 
 	b := New(nil)
-	cfg := &config.TlsClient{
+	cfg := &tlsconfig.Client{
 		ServerName:     "example.com",
 		SkipVerify:     true,
-		SkipVerifyMode: config.TLSSkipVerifyModeWarn, // explicit opt-in past Enforce default
+		SkipVerifyMode: tlsconfig.SkipVerifyModeWarn, // explicit opt-in past Enforce default
 	}
 	cfg.Normalize() // env-guard permits SkipVerify
 
@@ -105,10 +105,10 @@ func TestProvidersBuilder_CreateClientConfig_SkipVerify_with_env(t *testing.T) {
 // configs that forgot to set the field — and even those must be loud,
 // not silent.
 func TestProvidersBuilder_CreateClientConfig_SkipVerify_EmptyModeRejects(t *testing.T) {
-	t.Setenv(config.EnvAllowInsecureTLS, "true") // bypass the env-var defense in depth
+	t.Setenv(tlsconfig.EnvAllowInsecureTLS, "true") // bypass the env-var defense in depth
 
 	b := New(nil)
-	cfg := &config.TlsClient{
+	cfg := &tlsconfig.Client{
 		ServerName: "example.com",
 		SkipVerify: true,
 		// SkipVerifyMode omitted — empty string must hit the fail-safe path.
@@ -127,13 +127,13 @@ func TestProvidersBuilder_CreateClientConfig_SkipVerify_EmptyModeRejects(t *test
 // enforce` in YAML (or set the field programmatically). The result must
 // be identical to the empty-mode path: a typed error and no TLS config.
 func TestProvidersBuilder_CreateClientConfig_SkipVerify_EnforceModeRejects(t *testing.T) {
-	t.Setenv(config.EnvAllowInsecureTLS, "true")
+	t.Setenv(tlsconfig.EnvAllowInsecureTLS, "true")
 
 	b := New(nil)
-	cfg := &config.TlsClient{
+	cfg := &tlsconfig.Client{
 		ServerName:     "example.com",
 		SkipVerify:     true,
-		SkipVerifyMode: config.TLSSkipVerifyModeEnforce,
+		SkipVerifyMode: tlsconfig.SkipVerifyModeEnforce,
 	}
 	cfg.Normalize()
 
@@ -147,13 +147,13 @@ func TestProvidersBuilder_CreateClientConfig_SkipVerify_EnforceModeRejects(t *te
 // the test-only break-glass: no error, no log line — operator/test takes
 // full responsibility.
 func TestProvidersBuilder_CreateClientConfig_SkipVerify_DisabledMode(t *testing.T) {
-	t.Setenv(config.EnvAllowInsecureTLS, "true")
+	t.Setenv(tlsconfig.EnvAllowInsecureTLS, "true")
 
 	b := New(nil)
-	cfg := &config.TlsClient{
+	cfg := &tlsconfig.Client{
 		ServerName:     "example.com",
 		SkipVerify:     true,
-		SkipVerifyMode: config.TLSSkipVerifyModeDisabled,
+		SkipVerifyMode: tlsconfig.SkipVerifyModeDisabled,
 	}
 	cfg.Normalize()
 
@@ -168,10 +168,10 @@ func TestProvidersBuilder_CreateClientConfig_SkipVerify_DisabledMode(t *testing.
 // ensures an unrecognized SkipVerifyMode value (e.g. a typo in YAML)
 // behaves like Enforce rather than silently slipping through.
 func TestProvidersBuilder_CreateClientConfig_SkipVerify_UnknownModeFailsSafe(t *testing.T) {
-	t.Setenv(config.EnvAllowInsecureTLS, "true")
+	t.Setenv(tlsconfig.EnvAllowInsecureTLS, "true")
 
 	b := New(nil)
-	cfg := &config.TlsClient{
+	cfg := &tlsconfig.Client{
 		ServerName:     "example.com",
 		SkipVerify:     true,
 		SkipVerifyMode: "bogus",
@@ -192,7 +192,7 @@ func TestProvidersBuilder_CreateClientConfig_SkipVerifyFalseIgnoresMode(t *testi
 	t.Parallel()
 
 	b := New(nil)
-	cfg := &config.TlsClient{
+	cfg := &tlsconfig.Client{
 		ServerName:     "example.com",
 		SkipVerify:     false,
 		SkipVerifyMode: "bogus", // intentionally invalid — must not matter
@@ -218,8 +218,8 @@ func TestProvidersBuilder_Build_NilConfig(t *testing.T) {
 func TestProvidersBuilder_createFileProvider_InvalidFiles(t *testing.T) {
 	t.Parallel()
 
-	b := New(&config.TlsProvider{
-		File: &config.TlsProviderFile{
+	b := New(&tlsconfig.Provider{
+		File: &tlsconfig.ProviderFile{
 			Certificate: "/nonexistent/cert.pem",
 			PrivateKey:  "/nonexistent/key.pem",
 		},
@@ -234,8 +234,8 @@ func TestProvidersBuilder_createFileProvider_InvalidFiles(t *testing.T) {
 func TestProvidersBuilder_createVaultProvider_NoClient(t *testing.T) {
 	t.Parallel()
 
-	b := New(&config.TlsProvider{
-		Vault: &config.TlsProviderVault{
+	b := New(&tlsconfig.Provider{
+		Vault: &tlsconfig.ProviderVault{
 			CommonName: "example.com",
 			Role:       "web",
 		},
@@ -251,8 +251,8 @@ func TestProvidersBuilder_createVaultProvider_NoClient(t *testing.T) {
 func TestProvidersBuilder_createLetsEncryptProvider_InvalidConfig(t *testing.T) {
 	t.Parallel()
 
-	b := New(&config.TlsProvider{
-		LetsEncrypt: &config.TlsProviderLetsEncrypt{
+	b := New(&tlsconfig.Provider{
+		LetsEncrypt: &tlsconfig.ProviderLetsEncrypt{
 			// Missing required fields
 		},
 	})

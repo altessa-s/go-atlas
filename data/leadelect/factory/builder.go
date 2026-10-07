@@ -12,11 +12,12 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/data/leadelect"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	lockconfig "github.com/altessa-s/go-atlas/config/lock"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	natsprovider "github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
@@ -27,7 +28,7 @@ import (
 // The builder is not safe for concurrent use.
 type LeaderBuilder struct {
 	corefactory.Base
-	cfg  *config.LeaderElector
+	cfg  *lockconfig.LeaderElector
 	errs []error
 
 	// Dependencies
@@ -42,7 +43,7 @@ type LeaderBuilder struct {
 // New creates a [LeaderBuilder] for the given leader elector config.
 // Config can be nil — the error surfaces at [LeaderBuilder.Build] time.
 // By default, key is set to [appinfo.Name].
-func New(cfg *config.LeaderElector) *LeaderBuilder {
+func New(cfg *lockconfig.LeaderElector) *LeaderBuilder {
 	return &LeaderBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -96,8 +97,8 @@ func (b *LeaderBuilder) createNatsProvider(ctx context.Context) (*natsprovider.P
 
 // bucketStorage maps the configured bucket storage onto JetStream's: file is
 // file storage, anything else — including unset — the memory default.
-func bucketStorage(v config.KVStorageType) jetstream.StorageType {
-	if v == config.KVStorageFile {
+func bucketStorage(v storageconfig.KVStorageType) jetstream.StorageType {
+	if v == storageconfig.KVStorageFile {
 		return jetstream.FileStorage
 	}
 	return jetstream.MemoryStorage

@@ -13,21 +13,22 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/slog/factory"
+
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
 
 // captureLogger builds a JSON logger that writes into buf using the given
 // config. It bypasses the factory's auto-detected stdout writer by relying
 // on the JSON handler's deterministic format and intercepting output via a
 // custom handler registration.
-func captureLogger(t *testing.T, cfg *config.Logger) (*slog.Logger, *bytes.Buffer) {
+func captureLogger(t *testing.T, cfg *observabilityconfig.Logger) (*slog.Logger, *bytes.Buffer) {
 	t.Helper()
 
 	const captureFormat = "auto-masking-test-capture"
 
 	var buf bytes.Buffer
-	factory.RegisterHandler(captureFormat, func(_ io.Writer, _ *config.Logger, opts *slog.HandlerOptions) slog.Handler {
+	factory.RegisterHandler(captureFormat, func(_ io.Writer, _ *observabilityconfig.Logger, opts *slog.HandlerOptions) slog.Handler {
 		return slog.NewJSONHandler(&buf, opts)
 	})
 
@@ -43,8 +44,8 @@ func captureLogger(t *testing.T, cfg *config.Logger) (*slog.Logger, *bytes.Buffe
 // substitution and missed default fields like `email` and pattern matches
 // like `*api_key*`.
 func TestBuilder_MaskingAutoEnabledFromConfig(t *testing.T) {
-	cfg := &config.Logger{
-		Level:         config.LoggerLevelInfo,
+	cfg := &observabilityconfig.Logger{
+		Level:         observabilityconfig.LoggerLevelInfo,
 		SensitiveTags: []string{"password"},
 		MaskString:    "[REDACTED]",
 	}
@@ -72,8 +73,8 @@ func TestBuilder_MaskingAutoEnabledFromConfig(t *testing.T) {
 // advanced wrapper stays off so we don't accidentally mask user-named
 // fields like `email` in callers that opted out of masking entirely.
 func TestBuilder_MaskingDisabledByDefault(t *testing.T) {
-	cfg := &config.Logger{
-		Level: config.LoggerLevelInfo,
+	cfg := &observabilityconfig.Logger{
+		Level: observabilityconfig.LoggerLevelInfo,
 	}
 
 	logger, buf := captureLogger(t, cfg)
@@ -90,12 +91,12 @@ func TestBuilder_MaskingDisabledByDefault(t *testing.T) {
 // honest: WithEnableMasking() alone (no SensitiveTags in config) still
 // installs the wrapper using the curated default field set.
 func TestBuilder_MaskingEnabledViaCodeOption(t *testing.T) {
-	cfg := &config.Logger{Level: config.LoggerLevelInfo}
+	cfg := &observabilityconfig.Logger{Level: observabilityconfig.LoggerLevelInfo}
 
 	const captureFormat = "auto-masking-code-capture"
 
 	var buf bytes.Buffer
-	factory.RegisterHandler(captureFormat, func(_ io.Writer, _ *config.Logger, opts *slog.HandlerOptions) slog.Handler {
+	factory.RegisterHandler(captureFormat, func(_ io.Writer, _ *observabilityconfig.Logger, opts *slog.HandlerOptions) slog.Handler {
 		return slog.NewJSONHandler(&buf, opts)
 	})
 

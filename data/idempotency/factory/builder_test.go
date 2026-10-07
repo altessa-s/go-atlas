@@ -10,10 +10,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/idempotency/factory"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	idempnats "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
 )
 
@@ -30,12 +31,12 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 	_, err := idempnats.New(js, idempnats.WithBucket(bucket), idempnats.WithMaxAge(time.Hour), idempnats.WithReplicas(1))
 	require.NoError(t, err)
 
-	cfg := func(migrate bool) *config.Idempotency {
-		return &config.Idempotency{
+	cfg := func(migrate bool) *idempotencyconfig.Config {
+		return &idempotencyconfig.Config{
 			TTL: 2 * time.Hour,
-			Storage: &config.CacheStorageConfig{
-				Type: config.CacheStorageTypeNats,
-				Nats: &config.StorageNATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
+			Storage: &storageconfig.CacheStorageConfig{
+				Type: storageconfig.CacheStorageTypeNats,
+				Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
 			},
 		}
 	}
@@ -62,12 +63,12 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 	const bucket = "factory-idempotency-strict"
 	testhelpers.CreateNATSKV(t, js, bucket, time.Hour) // memory storage
 
-	cfg := func(strict bool) *config.Idempotency {
-		return &config.Idempotency{
+	cfg := func(strict bool) *idempotencyconfig.Config {
+		return &idempotencyconfig.Config{
 			TTL: time.Hour,
-			Storage: &config.CacheStorageConfig{
-				Type: config.CacheStorageTypeNats,
-				Nats: &config.StorageNATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
+			Storage: &storageconfig.CacheStorageConfig{
+				Type: storageconfig.CacheStorageTypeNats,
+				Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
 			},
 		}
 	}

@@ -12,6 +12,7 @@
 // Example usage:
 //
 //	source, err := gitlab.New(
+//	    gitlab.WithHTTPClient(httpclient.New()),
 //	    gitlab.WithEndpoint("https://gitlab.example.com"),
 //	    gitlab.WithToken(token),
 //	    gitlab.WithProjectID(42),

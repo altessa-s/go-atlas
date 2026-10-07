@@ -28,7 +28,7 @@ initialism to keep a consistent case throughout an identifier:
 
 <sub>* for a field named `entityIdExtractor`.</sub>
 
-The table is golint's `commonInitialisms` plus `DB`. `gRPC` is deliberately absent: the repo spells it `Grpc` throughout (`config.Grpc`,
+The table is golint's `commonInitialisms` plus `DB`. `gRPC` is deliberately absent: the repo spells it `Grpc` throughout (`grpcconfig.Config`,
 `DefaultGrpc`), and a lone `WithGRPCOptions` would be less consistent, not more. To override a spelling the table gets wrong, name the option
 explicitly — the `opt` tag always wins:
 

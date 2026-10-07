@@ -7,11 +7,11 @@ package factory
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/config"
+	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 )
 
 func BenchmarkUniversalOptions(b *testing.B) {
-	builder := New(&config.Redis{
+	builder := New(&redisconfig.Config{
 		Hosts:    []string{"localhost:6379"},
 		Password: "pass",
 		PoolSize: 10,
@@ -23,7 +23,7 @@ func BenchmarkUniversalOptions(b *testing.B) {
 }
 
 func BenchmarkNew(b *testing.B) {
-	cfg := &config.Redis{
+	cfg := &redisconfig.Config{
 		Hosts:    []string{"localhost:6379"},
 		Password: "pass",
 		PoolSize: 10,

@@ -9,8 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/security/secrets"
+
+	secretsconfig "github.com/altessa-s/go-atlas/config/secrets"
 )
 
 func TestCreateCache(t *testing.T) {
@@ -18,7 +19,7 @@ func TestCreateCache(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		cfg     config.SecretsCache
+		cfg     secretsconfig.Cache
 		wantNil bool
 		wantTyp any
 	}{
@@ -26,29 +27,29 @@ func TestCreateCache(t *testing.T) {
 			// MaxSize 0 documents "use default (1000)", which is the Manager's
 			// job — a size-0 LRU would be an error, not a default.
 			name:    "unset size defers to the Manager",
-			cfg:     config.SecretsCache{MaxSize: 0, ShardCount: 0},
+			cfg:     secretsconfig.Cache{MaxSize: 0, ShardCount: 0},
 			wantNil: true,
 		},
 		{
 			name:    "negative size defers to the Manager",
-			cfg:     config.SecretsCache{MaxSize: -1, ShardCount: 8},
+			cfg:     secretsconfig.Cache{MaxSize: -1, ShardCount: 8},
 			wantNil: true,
 		},
 		{
 			name:    "no shards yields a standard cache",
-			cfg:     config.SecretsCache{MaxSize: 100, ShardCount: 0},
+			cfg:     secretsconfig.Cache{MaxSize: 100, ShardCount: 0},
 			wantTyp: &secrets.StandardCache[string, *secrets.Value[any]]{},
 		},
 		{
 			name:    "shards yield a sharded cache",
-			cfg:     config.SecretsCache{MaxSize: 1000, ShardCount: 8},
+			cfg:     secretsconfig.Cache{MaxSize: 1000, ShardCount: 8},
 			wantTyp: &secrets.ShardedCache[string, *secrets.Value[any]]{},
 		},
 		{
 			// A non-power-of-2 count is corrected by the LRU rather than
 			// rejected, so the factory must not treat it as a config error.
 			name:    "odd shard count still builds",
-			cfg:     config.SecretsCache{MaxSize: 1000, ShardCount: 7},
+			cfg:     secretsconfig.Cache{MaxSize: 1000, ShardCount: 7},
 			wantTyp: &secrets.ShardedCache[string, *secrets.Value[any]]{},
 		},
 	}
@@ -78,7 +79,7 @@ func TestCreateCache(t *testing.T) {
 func TestCreateCache_UsableByManagerOfAny(t *testing.T) {
 	t.Parallel()
 
-	cache, err := createCache(config.SecretsCache{MaxSize: 10})
+	cache, err := createCache(secretsconfig.Cache{MaxSize: 10})
 	require.NoError(t, err)
 	require.NotNil(t, cache)
 
@@ -93,11 +94,11 @@ func TestCreateCache_UsableByManagerOfAny(t *testing.T) {
 func TestBuildManagerOptions_IncludesCacheOnlyWhenConfigured(t *testing.T) {
 	t.Parallel()
 
-	base := New(&config.Secrets{})
+	base := New(&secretsconfig.Config{})
 	withoutCache, err := base.buildManagerOptions()
 	require.NoError(t, err)
 
-	sized := New(&config.Secrets{Cache: config.SecretsCache{MaxSize: 100}})
+	sized := New(&secretsconfig.Config{Cache: secretsconfig.Cache{MaxSize: 100}})
 	withCache, err := sized.buildManagerOptions()
 	require.NoError(t, err)
 
@@ -115,7 +116,7 @@ func TestBuild_RequiresConfig(t *testing.T) {
 func TestBuild_RejectsUnsupportedProvider(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(&config.Secrets{Provider: "nope"}).Build(t.Context())
+	_, err := New(&secretsconfig.Config{Provider: "nope"}).Build(t.Context())
 	require.Error(t, err)
 }
 
@@ -124,9 +125,9 @@ func TestBuild_RejectsUnsupportedProvider(t *testing.T) {
 func TestBuild_MemoryProvider(t *testing.T) {
 	t.Parallel()
 
-	manager, err := New(&config.Secrets{
-		Provider: config.SecretsProviderMemory,
-		Cache:    config.SecretsCache{MaxSize: 64, ShardCount: 4},
+	manager, err := New(&secretsconfig.Config{
+		Provider: secretsconfig.ProviderMemory,
+		Cache:    secretsconfig.Cache{MaxSize: 64, ShardCount: 4},
 	}).Build(t.Context())
 
 	require.NoError(t, err)

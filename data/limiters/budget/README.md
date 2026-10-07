@@ -13,8 +13,12 @@ consistent budget enforcement across multiple service replicas.
 | Type / Interface     | Description                                                       |
 |----------------------|-------------------------------------------------------------------|
 | `Limiter`            | Enforces a distributed request budget using a shared storage      |
-| `Settings`           | Validated runtime configuration (Limit, Period)                   |
 | `ErrBudgetExhausted` | Sentinel error when the budget for the period is exhausted        |
+| `ErrInvalidLimit`    | `New` got a limit below 1                                         |
+| `ErrInvalidPeriod`   | `New` got a period shorter than `MinPeriod` (1s)                  |
+| `ErrNilStorage`      | `New` got a nil storage                                           |
+
+`New(limit, period, storage, opts...)` takes the mandatory budget as positional arguments.
 
 ## Options
 

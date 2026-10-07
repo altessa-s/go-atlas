@@ -5,12 +5,12 @@
 package factory
 
 import (
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	bodylimitmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
 	corsmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/cors"
 	geoaclmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/geoacl"
@@ -28,7 +28,7 @@ import (
 )
 
 // middlewaresCfg returns the middlewares config or nil if not configured.
-func (b *ServerBuilder) middlewaresCfg() *config.MiddlewaresConfig {
+func (b *ServerBuilder) middlewaresCfg() *httpconfig.Middlewares {
 	if b.cfg == nil {
 		return nil
 	}

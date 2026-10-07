@@ -25,7 +25,7 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 
 | Option                          | Default            | Description                                            |
 |---------------------------------|--------------------|--------------------------------------------------------|
-| `WithHTTPClientOptions`         | resilient defaults | Forward `httpclient.Option` values (proxy, retry, breaker, transport) to the shared OIDC HTTP client |
+| `WithHTTPClient`                | required | Shared `*http.Client` for every outbound OIDC call; the factory injects the resilient atlas client |
 | `WithJwksHTTPTimeout`           | 30s                | Timeout for JWKS HTTP requests                         |
 | `WithTokenCache`                | nil                | Cacher implementation for validated token caching      |
 | `WithDefaultValidationOptions`  | --                 | Default validation options applied to all tokens       |
@@ -45,7 +45,7 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 
 Filter-backed revocation storage (`NewFilterRevocationStorage`) is built on a probabilistic filter from
 [`data/probfilter`](../../data/probfilter/). Such a filter has no false negatives but does have false positives — the Bloom default is
-1% (`config.ProbabilisticFilterBloomDefaults.FalsePositiveRate`). It can therefore prove an item is **not** revoked, never that it **is**.
+1% (`probfilterconfig.BloomDefaults.FalsePositiveRate`). It can therefore prove an item is **not** revoked, never that it **is**.
 
 Pass an `Authoritative` store via `WithRevocationAuthoritative` to confirm every filter hit against the exact answer. A false positive
 then costs one extra lookup and nothing else:
@@ -69,23 +69,22 @@ roll out with limited surge, otherwise the fail mode applies (fail-closed: `NewP
 ## Outbound HTTP
 
 Every outbound OIDC call (discovery, JWKS refresh, introspection, userinfo,
-URL-based revocation loaders) goes through the same resilient HTTP client
-built from [`transport/http/client`](../../transport/http/client/). Configure
-proxy, retry, circuit breaker, or custom transport with:
+URL-based revocation loaders) goes through one `*http.Client`. The package does
+not build transport policy itself: pass a client with `WithHTTPClient`, typically
+the resilient client from [`transport/http/client`](../../transport/http/client/):
 
 ```go
-provider, err := oidc.NewProvider(discoveryURL,
-    oidc.WithHTTPClientOptions(
+provider, err := oidc.NewProvider(ctx, discoveryURL,
+    oidc.WithHTTPClient(httpclient.New(
         httpclient.WithProxyURL(corpProxy),
         httpclient.WithRetryMax(3),
-    ),
+    )),
 )
 ```
 
-Sub-components that need the same client (e.g. URL-based revocation
-loaders) opt in by implementing
-[`httpclient.HTTPClientSetter`](../../transport/http/client/injector.go) —
-the Provider injects its own client at construction.
+The client is required: `NewProvider` returns `ErrHTTPClientRequired` without it, so the transport policy (retry, breaker, proxy, SSRF
+protection) is always chosen explicitly. [`factory`](factory/) injects the resilient client built from configuration. Sub-components that need the same client (e.g. URL-based revocation loaders)
+opt in by implementing `SetHTTPClient(*http.Client)` — the Provider injects its own client at construction.
 
 For YAML-driven proxy configuration via `oidc.proxy`, see the
 [Proxy guide](../../docs/proxy.md).

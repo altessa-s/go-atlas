@@ -15,6 +15,6 @@
 // The prefixed and colorized handlers use [ModuleKey], which equals
 // slogx.ModuleKey ("subsystem"): a logger created with
 // logger.With(slogx.Module("auth")) shows "[auth]" as its prefix tag and is
-// matched against config.Logger.Subsystems. The default used to be "module";
+// matched against observabilityconfig.Logger.Subsystems. The default used to be "module";
 // call [LoggerBuilder.WithPrefixKey]("module") to keep that behavior.
 package factory

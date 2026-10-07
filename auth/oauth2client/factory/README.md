@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/auth/oauth2client/factory"
 ```
 
-Builds client-side OAuth2 token acquisition from a [`config.OAuth2Client`](../../../config) template and injected dependencies.
+Builds client-side OAuth2 token acquisition from a [`authconfig.OAuth2Client`](../../../config) template and injected dependencies.
 
 `Build` returns a self-refreshing `client_credentials` `oauth2.TokenSource` (the machine-to-machine case). `BuildExchanger` returns an
 RFC 8693 [`oauth2client.Exchanger`](..) from the same configuration. The token endpoint comes from config `tokenUrl`, or — when the
@@ -43,5 +43,5 @@ creds := client.NewInsecureTokenCredentials(src)
 ## See also
 
 - [`auth/oauth2client`](..) — the underlying grant helpers and token exchanger.
-- [`config.OAuth2Client`](../../../config) — the configuration template.
+- [`authconfig.OAuth2Client`](../../../config) — the configuration template.
 - [`auth/oidc`](../../oidc) — provides the `TokenEndpointSource` via discovery.

@@ -324,7 +324,7 @@ A template with comments is at `config/templates/plugins.yaml`.
 
 ## Factory builder
 
-The `factory` package builds the manager from `config.Plugins`, runs `Load`, and optionally starts the watcher. Nil or disabled configs are rejected at
+The `factory` package builds the manager from `pluginsconfig.Config`, runs `Load`, and optionally starts the watcher. Nil or disabled configs are rejected at
 `Build` time.
 
 ```go
@@ -344,7 +344,7 @@ defer mgr.Close()
 
 | Method                                          | Effect                                                            |
 |-------------------------------------------------|-------------------------------------------------------------------|
-| `NewManager(*config.Plugins)`                   | Constructs the builder; nil config rejected at `Build` time       |
+| `NewManager(*pluginsconfig.Config)`                   | Constructs the builder; nil config rejected at `Build` time       |
 | `UseLogger(*slog.Logger)`                       | Injects the structured logger                                     |
 | `UseHealthCoordinator(*health.Coordinator)`     | Registers the manager as a `health.Checker` under the default name `"plugins"` |
 | `UseHealthServiceName(string)`                  | Overrides the health service name (no-op for empty input)         |
@@ -595,7 +595,7 @@ mgr := plugins.NewManager(
 
 ## Filesystem watcher
 
-With `config.Plugins.Watch = true` (or `Manager.StartWatching` directly), an [`fsnotify`](https://github.com/fsnotify/fsnotify) watcher monitors the
+With `pluginsconfig.Config.Watch = true` (or `Manager.StartWatching` directly), an [`fsnotify`](https://github.com/fsnotify/fsnotify) watcher monitors the
 plugin directory and loads new `.so` files as they appear.
 
 ### Semantics
@@ -742,7 +742,7 @@ To preserve specific capabilities (typical "bind :443 then drop the rest" patter
         - CAP_NET_BIND_SERVICE
 ```
 
-Names match kernel `CAP_*` constants (case-insensitive). Unknown names fail `config.Validate` at load time, not at `Manager.Load`.
+Names match kernel `CAP_*` constants (case-insensitive). Unknown names fail `pluginsconfig.Capabilities.Validate` at load time, not at `Manager.Load`.
 
 > **Read this before enabling.**
 >
@@ -1043,7 +1043,7 @@ if err := mgr.Load(ctx); err != nil {
 }
 ```
 
-`plugins.SandboxOptionsFromConfig(cfg.Plugins.Sandbox)` converts the YAML config into the runtime struct.
+`factory.SandboxOptionsFromConfig(cfg.Plugins.Sandbox)` (package `plugins/factory`) converts the YAML config into the runtime struct.
 
 ### Operational guidance
 
@@ -1552,7 +1552,6 @@ func WithMetrics(metrics.Collector) Option
 ```go
 func NewDepInfoFromBuild() *DepInfo
 func NegotiateAll(mgr *Manager, symbol string, constraint SPIConstraint, logger *slog.Logger) iter.Seq2[*Plugin, any]
-func SandboxOptionsFromConfig(config.PluginsSandbox) SandboxOptions
 func SignatureOptionsFromConfig(mode, publicKeyPath string) SignatureOptions
 ```
 
@@ -1597,7 +1596,7 @@ func (p *Plugin) Lookup(name string) (any, bool)
 ```go
 package factory
 
-func NewManager(*config.Plugins) *ManagerBuilder
+func NewManager(*pluginsconfig.Config) *ManagerBuilder
 
 func (b *ManagerBuilder) UseLogger(*slog.Logger) *ManagerBuilder
 func (b *ManagerBuilder) UseHealthCoordinator(*health.Coordinator) *ManagerBuilder

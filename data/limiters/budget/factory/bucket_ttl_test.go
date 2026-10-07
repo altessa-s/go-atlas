@@ -10,10 +10,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/limiters/budget/factory"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	limitnats "github.com/altessa-s/go-atlas/data/limiters/storages/nats"
 )
 
@@ -30,12 +31,12 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 	_, err := limitnats.New(js, limitnats.WithBucket(bucket), limitnats.WithMaxAge(time.Hour))
 	require.NoError(t, err)
 
-	cfg := func(migrate bool) *config.BudgetLimiter {
-		storage := &config.CacheStorageConfig{
-			Type: config.CacheStorageTypeNats,
-			Nats: &config.StorageNATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
+	cfg := func(migrate bool) *limiterconfig.Budget {
+		storage := &storageconfig.CacheStorageConfig{
+			Type: storageconfig.CacheStorageTypeNats,
+			Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
 		}
-		return &config.BudgetLimiter{
+		return &limiterconfig.Budget{
 			Limit:   1000,
 			Period:  time.Hour,
 			Storage: storage,
@@ -63,12 +64,12 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 	const bucket = "factory-budget-strict"
 	testhelpers.CreateNATSKV(t, js, bucket, limitnats.DefaultMaxAge) // memory storage
 
-	cfg := func(strict bool) *config.BudgetLimiter {
-		storage := &config.CacheStorageConfig{
-			Type: config.CacheStorageTypeNats,
-			Nats: &config.StorageNATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
+	cfg := func(strict bool) *limiterconfig.Budget {
+		storage := &storageconfig.CacheStorageConfig{
+			Type: storageconfig.CacheStorageTypeNats,
+			Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
 		}
-		return &config.BudgetLimiter{Limit: 1000, Period: time.Hour, Storage: storage}
+		return &limiterconfig.Budget{Limit: 1000, Period: time.Hour, Storage: storage}
 	}
 
 	_, err := factory.New(cfg(true)).UseJetstream(js).Build()

@@ -14,9 +14,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
@@ -41,7 +41,7 @@ const (
 // The builder is not safe for concurrent use.
 type ClientBuilder struct {
 	corefactory.Base
-	cfg  *config.Redis
+	cfg  *redisconfig.Config
 	errs []error
 
 	// Dependencies
@@ -66,7 +66,7 @@ func (b *ClientBuilder) WithTLSConfig(cfg *tls.Config) *ClientBuilder {
 
 // New creates a [ClientBuilder] for the given Redis config.
 // Config can be nil — the error surfaces at [ClientBuilder.Build] time.
-func New(cfg *config.Redis) *ClientBuilder {
+func New(cfg *redisconfig.Config) *ClientBuilder {
 	return &ClientBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -121,7 +121,7 @@ func (b *ClientBuilder) Build(ctx context.Context) (redis.UniversalClient, error
 }
 
 // UniversalOptions builds [redis.UniversalOptions] from configuration.
-// When [config.Redis.ConnectionURI] is set, it is parsed via [redis.ParseURL] to
+// When [redisconfig.Config.ConnectionURI] is set, it is parsed via [redis.ParseURL] to
 // extract address, auth, TLS, and database number; pool/timeout/sentinel fields
 // from config are applied on top. Otherwise, options are built from individual
 // config fields. Returns an error if cfg is nil or the URI cannot be parsed.

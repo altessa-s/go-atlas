@@ -11,11 +11,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -29,7 +30,7 @@ import (
 // The builder is not safe for concurrent use.
 type KeeperBuilder struct {
 	corefactory.Base
-	cfg  *config.Idempotency
+	cfg  *idempotencyconfig.Config
 	errs []error
 
 	// Dependencies
@@ -41,7 +42,7 @@ type KeeperBuilder struct {
 
 // New creates a [KeeperBuilder] for the given idempotency config.
 // Config can be nil — the error surfaces at [KeeperBuilder.Build] time.
-func New(cfg *config.Idempotency) *KeeperBuilder {
+func New(cfg *idempotencyconfig.Config) *KeeperBuilder {
 	return &KeeperBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -86,14 +87,14 @@ func (b *KeeperBuilder) createStorage() (storages.Storage, error) {
 	}
 
 	switch b.cfg.Storage.Type {
-	case config.CacheStorageTypeMemory:
+	case storageconfig.CacheStorageTypeMemory:
 		return b.createMemoryStorage()
-	case config.CacheStorageTypeRedis:
+	case storageconfig.CacheStorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
 		return b.createRedisStorage()
-	case config.CacheStorageTypeNats:
+	case storageconfig.CacheStorageTypeNats:
 		if err := b.RequireDependency(b.jetstream, "jetstream"); err != nil {
 			return nil, err
 		}

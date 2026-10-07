@@ -51,7 +51,7 @@ engine, err := factory.New[Message](cfg.Dispatch).
 
 ## Configuration
 
-The builder consumes a [`config.Dispatch`](../../../config/dispatch.go) struct which controls:
+The builder consumes a [`dispatchconfig.Config`](../../../config/dispatch/dispatch.go) struct which controls:
 
 - Batch size and flush intervals
 - Worker concurrency

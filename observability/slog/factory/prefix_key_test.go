@@ -9,9 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/slog/factory"
 
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
@@ -27,7 +27,7 @@ func TestModuleKey_MatchesSlogx(t *testing.T) {
 func TestBuild_ModulePrefixStaysAtRoot(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Logger{Level: config.LoggerLevelInfo}
+	cfg := &observabilityconfig.Logger{Level: observabilityconfig.LoggerLevelInfo}
 	b, _, buf := isolatedCapture(t, cfg)
 
 	logger, err := b.Build()
@@ -44,9 +44,9 @@ func TestBuild_ModulePrefixStaysAtRoot(t *testing.T) {
 func TestBuild_ModulePrefixWithSubsystemLevels(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Logger{
-		Level:      config.LoggerLevelInfo,
-		Subsystems: map[string]config.LoggerLevel{"auth": config.LoggerLevelDebug},
+	cfg := &observabilityconfig.Logger{
+		Level:      observabilityconfig.LoggerLevelInfo,
+		Subsystems: map[string]observabilityconfig.LoggerLevel{"auth": observabilityconfig.LoggerLevelDebug},
 	}
 	b, _, buf := isolatedCapture(t, cfg)
 
@@ -64,7 +64,7 @@ func TestBuild_ModulePrefixWithSubsystemLevels(t *testing.T) {
 func TestBuild_WithPrefixKeyModuleKeepsOldBehavior(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Logger{Level: config.LoggerLevelInfo}
+	cfg := &observabilityconfig.Logger{Level: observabilityconfig.LoggerLevelInfo}
 	b, _, buf := isolatedCapture(t, cfg)
 
 	logger, err := b.WithPrefixKey("module").Build()

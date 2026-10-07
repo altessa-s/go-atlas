@@ -13,10 +13,10 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/data/outbox"
 
+	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	outboxstore "github.com/altessa-s/go-atlas/data/outbox/store/mongo"
@@ -28,7 +28,7 @@ import (
 // The builder is not safe for concurrent use.
 type OutboxBuilder struct {
 	corefactory.Base
-	cfg  *config.Outbox
+	cfg  *brokerconfig.Outbox
 	errs []error
 
 	// Dependencies
@@ -37,7 +37,7 @@ type OutboxBuilder struct {
 
 // New creates a new [OutboxBuilder] for the given outbox config.
 // Config can be nil -- the error surfaces at build time.
-func New(cfg *config.Outbox) *OutboxBuilder {
+func New(cfg *brokerconfig.Outbox) *OutboxBuilder {
 	return &OutboxBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,

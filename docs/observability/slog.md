@@ -18,7 +18,7 @@ import (
 `observability/slog` adds what `log/slog` does not give you out of the box: nil-safe attribute helpers, a logger and field bag carried through
 `context.Context`, a runtime `slog.LevelVar`, and six `slog.Handler` middlewares (async buffering, ANSI-colored terminal output,
 per-subsystem level filtering, sensitive-field masking, fan-out, and key prefixing). `observability/slog/factory.LoggerBuilder` wires them
-into a single chain from a `config.Logger` block, but every handler is importable on its own if you'd rather assemble your own.
+into a single chain from a `observabilityconfig.Logger` block, but every handler is importable on its own if you'd rather assemble your own.
 
 Alias the root package as `slogx` so it doesn't collide with the standard library.
 
@@ -40,7 +40,7 @@ Alias the root package as `slogx` so it doesn't collide with the standard librar
 | PII / credential masking         | `masking` handler — exact field names, regex patterns, nested-group descent, smart masks per type      |
 | Fan-out                          | `multi` handler — same record to several backends (file + stderr + remote); delegates to stdlib on 1.26+ |
 | Key prefixing                    | `prefixed` handler — pulls a configured key out of the record and formats it as `[tag]` or JSON-friendly |
-| YAML factory                     | `factory.LoggerBuilder` — assembles the full chain from `config.Logger`; invalid mask rules fail `Build` |
+| YAML factory                     | `factory.LoggerBuilder` — assembles the full chain from `observabilityconfig.Logger`; invalid mask rules fail `Build` |
 
 ---
 
@@ -90,9 +90,9 @@ import (
 )
 
 func main() {
-    cfg := config.DefaultLogger()
-    cfg.Level = config.LoggerLevelInfo
-    cfg.OutputFormat = config.LogFormatJSON
+    cfg := observabilityconfig.DefaultLogger()
+    cfg.Level = observabilityconfig.LoggerLevelInfo
+    cfg.OutputFormat = observabilityconfig.LogFormatJSON
 
     logger, err := slogfactory.New(&cfg).Build()
     if err != nil {
@@ -188,7 +188,7 @@ The empty-attribute sentinel is silently dropped by `slog`, so you can pass thes
 | `slogx.ModuleM("auth", "cache")` | Variadic-friendly slice of attrs for multiple subsystems                              |
 
 `Module` pairs with the `leveled` handler: a logger built with `slog.With(slogx.Module("auth"))` is matched against the `subsystems:` block in
-`config.Logger` and filtered with a single integer comparison (no per-record attribute scan). Factory loggers also use `slogx.ModuleKey` as
+`observabilityconfig.Logger` and filtered with a single integer comparison (no per-record attribute scan). Factory loggers also use `slogx.ModuleKey` as
 the prefix key, so the same attribute is rendered as the `[auth]` tag (`"subsystem":"auth"` in JSON); several module values at one group
 level are merged (`auth:cache`).
 
@@ -259,7 +259,7 @@ level of every factory-built logger, not just this one.
 
 | Method                       | Description                                                                                |
 |------------------------------|--------------------------------------------------------------------------------------------|
-| `New(cfg *config.Logger)`    | Construct a builder; defaults `prefixKey = "subsystem"`, `appName` / `appVersion` from `appinfo` |
+| `New(cfg *observabilityconfig.Logger)`    | Construct a builder; defaults `prefixKey = "subsystem"`, `appName` / `appVersion` from `appinfo` |
 | `WithPrefixKey(key)`         | Attribute key consumed by the `prefixed` handler (default `factory.ModuleKey` = `slogx.ModuleKey`, `"subsystem"`; pass `"module"` for the pre-alignment default) |
 | `WithPrefixColors(map)`      | Per-prefix ANSI color map for the colorized handler                                         |
 | `WithEnableMasking()`        | Force the advanced masking wrapper even when no rules / tags are configured                 |
@@ -274,12 +274,12 @@ level of every factory-built logger, not just this one.
 ### Custom output formats
 
 `factory.RegisterHandler(formatName, factoryFn)` lets you teach the builder a new `OutputFormat` value. The registered function gets the
-target writer, the `*config.Logger`, and the pre-populated `*slog.HandlerOptions` (including the seeded `ReplaceAttr`), and returns the base
+target writer, the `*observabilityconfig.Logger`, and the pre-populated `*slog.HandlerOptions` (including the seeded `ReplaceAttr`), and returns the base
 handler to wrap; the factory still adds `prefixed`, `leveled`, `masking`, and `buffered` on top.
 
 ### YAML config
 
-`config.Logger` (full reference in `config/logger.go`):
+`observabilityconfig.Logger` (full reference in `config/observability/logger.go`):
 
 ```yaml
 logger:
@@ -515,6 +515,6 @@ record that `leveled` would drop never reaches the masking pass either.
 
 - A `slogx` core: nil-safe attribute helpers, context-stored loggers and fields, a runtime `LevelVar`, and `Shutdown` chain traversal.
 - Six independently importable `slog.Handler` middlewares — `buffered`, `colorized`, `leveled`, `masking`, `multi`, `prefixed`.
-- A YAML-driven factory that assembles the chain from `config.Logger`, rejects invalid mask rules, and registers an `OnShutdown` hook for the buffer.
+- A YAML-driven factory that assembles the chain from `observabilityconfig.Logger`, rejects invalid mask rules, and registers an `OnShutdown` hook for the buffer.
 - A registry-driven masking layer with built-in masks for common PII shapes (email, phone, credit card, URLs, S3 paths) and a hook for custom
   factories that consume the YAML `params:` map.

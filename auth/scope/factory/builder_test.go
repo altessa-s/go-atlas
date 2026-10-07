@@ -11,12 +11,13 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/auth/scope/factory"
-	"github.com/altessa-s/go-atlas/config"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 func TestBuildRegistersRules(t *testing.T) {
 	t.Parallel()
-	reg, err := factory.New(&config.ScopeRegistry{Rules: []config.ScopeRule{
+	reg, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read", "/files.v1.Files/List"}},
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Write"}},
 		{Scope: "", Keys: []string{"/health.v1.Health/Check"}},
@@ -37,7 +38,7 @@ func TestBuildRegistersRules(t *testing.T) {
 
 func TestBuildFreezesRegistry(t *testing.T) {
 	t.Parallel()
-	reg, err := factory.New(&config.ScopeRegistry{Rules: []config.ScopeRule{
+	reg, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read"}},
 	}}).Build()
 	require.NoError(t, err)
@@ -52,7 +53,7 @@ func TestBuildNilConfig(t *testing.T) {
 
 func TestBuildEmptyKeys(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(&config.ScopeRegistry{Rules: []config.ScopeRule{
+	_, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read"},
 	}}).Build()
 	require.Error(t, err)
@@ -60,7 +61,7 @@ func TestBuildEmptyKeys(t *testing.T) {
 
 func TestBuildDuplicateKey(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(&config.ScopeRegistry{Rules: []config.ScopeRule{
+	_, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read"}},
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Read"}}, // duplicate
 	}}).Build()
@@ -70,7 +71,7 @@ func TestBuildDuplicateKey(t *testing.T) {
 // The built registry drives an Enforcer exactly like a hand-built one.
 func TestBuiltRegistryWithEnforcer(t *testing.T) {
 	t.Parallel()
-	reg, err := factory.New(&config.ScopeRegistry{Rules: []config.ScopeRule{
+	reg, err := factory.New(&authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Write"}},
 	}}).Build()
 	require.NoError(t, err)

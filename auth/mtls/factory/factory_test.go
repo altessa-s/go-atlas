@@ -15,9 +15,9 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/mtls/factory"
 	"github.com/altessa-s/go-atlas/auth/spiffe"
-	"github.com/altessa-s/go-atlas/config"
 
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 func cert(t *testing.T, id string, notAfter time.Time) *x509.Certificate {
@@ -39,7 +39,7 @@ func TestOptionsNilConfig(t *testing.T) {
 
 func TestOptionsEnforceTrustDomainAndExpiry(t *testing.T) {
 	t.Parallel()
-	opts, err := factory.New(&config.MTLS{
+	opts, err := factory.New(&authconfig.MTLS{
 		TrustDomains: []string{"example.org"},
 		CheckExpiry:  true,
 		ExpiryLeeway: 0,
@@ -66,7 +66,7 @@ func TestOptionsEnforceTrustDomainAndExpiry(t *testing.T) {
 
 func TestOptionsEnforceSubjectAndCA(t *testing.T) {
 	t.Parallel()
-	opts, err := factory.New(&config.MTLS{
+	opts, err := factory.New(&authconfig.MTLS{
 		AllowedSubjectCNs: []string{"billing"},
 		IssuerKeyIDs:      []string{"0a0b"},
 	}).Options()
@@ -92,13 +92,13 @@ func TestOptionsEnforceSubjectAndCA(t *testing.T) {
 
 func TestOptionsInvalidIssuerKeyID(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(&config.MTLS{IssuerKeyIDs: []string{"zz"}}).Options()
+	_, err := factory.New(&authconfig.MTLS{IssuerKeyIDs: []string{"zz"}}).Options()
 	require.Error(t, err)
 }
 
 func TestOptionsEnforceDNSAndEKU(t *testing.T) {
 	t.Parallel()
-	opts, err := factory.New(&config.MTLS{
+	opts, err := factory.New(&authconfig.MTLS{
 		AllowedDNSNames: []string{"api.example.org"},
 		RequiredEKUs:    []string{"clientAuth"},
 	}).Options()
@@ -124,20 +124,20 @@ func TestOptionsEnforceDNSAndEKU(t *testing.T) {
 
 func TestOptionsUnknownEKU(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(&config.MTLS{RequiredEKUs: []string{"bogus"}}).Options()
+	_, err := factory.New(&authconfig.MTLS{RequiredEKUs: []string{"bogus"}}).Options()
 	require.Error(t, err)
 }
 
 func TestOptionsNoValidatorsWhenDisabled(t *testing.T) {
 	t.Parallel()
-	opts, err := factory.New(&config.MTLS{CheckExpiry: false}).Options()
+	opts, err := factory.New(&authconfig.MTLS{CheckExpiry: false}).Options()
 	require.NoError(t, err)
 	require.Empty(t, opts)
 }
 
 func TestAuthenticatorAddsExtraOptions(t *testing.T) {
 	t.Parallel()
-	a, err := factory.New(&config.MTLS{CheckExpiry: false}).Authenticator(
+	a, err := factory.New(&authconfig.MTLS{CheckExpiry: false}).Authenticator(
 		coremtls.WithIdentity(func(c *x509.Certificate) (any, error) {
 			id, err := spiffe.IDFromCertificate(c)
 			return id.TrustDomain, err

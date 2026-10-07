@@ -43,22 +43,13 @@ func stubOIDCServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-func TestNewOptions_StoresHTTPClientOptions(t *testing.T) {
-	t.Parallel()
-
-	o := newOptions(WithHTTPClientOptions())
-	require.Empty(t, o.httpClientOptions)
-
-	o = newOptions(WithHTTPClientOptions(httpclient.WithoutProxy(), httpclient.WithoutProxy()))
-	require.Len(t, o.httpClientOptions, 2)
-}
-
-func TestNewProvider_BuildsResilientClient(t *testing.T) {
+func TestNewProvider_UsesInjectedClient(t *testing.T) {
 	t.Parallel()
 
 	srv := stubOIDCServer(t)
+	client := httpclient.New(httpclient.WithRetryMax(0), httpclient.WithoutProxy())
 	p, err := NewProvider(t.Context(), srv.URL,
-		WithHTTPClientOptions(httpclient.WithRetryMax(0), httpclient.WithoutProxy()),
+		WithHTTPClient(client),
 		// httptest serves plain-HTTP on loopback; disable discovery endpoint
 		// pinning for the stub IdP.
 		WithDiscoveryValidationMode(DiscoveryValidationModeDisabled),
@@ -66,9 +57,15 @@ func TestNewProvider_BuildsResilientClient(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(p.Close)
 
-	require.NotNil(t, p.client)
-	require.NotSame(t, http.DefaultClient, p.client,
-		"Provider must build a resilient client from httpClientOptions, not reuse http.DefaultClient")
+	require.Same(t, client, p.client)
+}
+
+func TestNewProvider_RequiresClient(t *testing.T) {
+	t.Parallel()
+
+	srv := stubOIDCServer(t)
+	_, err := NewProvider(t.Context(), srv.URL, WithDiscoveryValidationMode(DiscoveryValidationModeDisabled))
+	require.ErrorIs(t, err, ErrHTTPClientRequired)
 }
 
 func TestNewProvider_InjectsClientIntoURLRevocationLoader(t *testing.T) {
@@ -79,7 +76,7 @@ func TestNewProvider_InjectsClientIntoURLRevocationLoader(t *testing.T) {
 	require.Nil(t, loader.Client, "precondition: loader has no client")
 
 	p, err := NewProvider(t.Context(), srv.URL,
-		WithHTTPClientOptions(httpclient.WithRetryMax(0)),
+		WithHTTPClient(httpclient.New(httpclient.WithRetryMax(0))),
 		WithRevocationLoader(loader),
 		WithRevocationFilter(noopFilter{}),
 		// The stub filter cannot rebuild and the loader URL is unreachable,

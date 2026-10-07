@@ -26,7 +26,7 @@ defer client.Close()
 
 | Method     | Description                                                           |
 |------------|-----------------------------------------------------------------------|
-| `New(cfg)` | Creates a `ClientBuilder` for the given `*config.Meilisearch`         |
+| `New(cfg)` | Creates a `ClientBuilder` for the given `*meilisearchconfig.Config`         |
 
 ### Dependencies
 
@@ -47,7 +47,7 @@ defer client.Close()
 
 | Sentinel             | Returned by | Cause                                            |
 |----------------------|-------------|--------------------------------------------------|
-| `ErrConfigRequired`  | `Build`     | `New` was called with a nil `*config.Meilisearch` |
+| `ErrConfigRequired`  | `Build`     | `New` was called with a nil `*meilisearchconfig.Config` |
 
 `errors.Is(err, factory.ErrConfigRequired)` lets dynamic config pipelines (e.g. YAML loaders that may omit the Meilisearch block) branch on the
 specific failure cause.
@@ -76,5 +76,5 @@ meilisearch:
 ## See also
 
 - [data/meilisearch](../../../data/meilisearch) — the underlying client API surface and options
-- [config.Meilisearch](../../../config/meilisearch.go) — YAML-facing config struct
+- [meilisearchconfig.Config](../../../config/meilisearch/meilisearch.go) — YAML-facing config struct
 - [security/tlsutils/factory](../../../security/tlsutils/factory) — TLS configuration helpers

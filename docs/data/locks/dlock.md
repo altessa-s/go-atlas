@@ -98,7 +98,7 @@ distributionLock:
 ```
 
 The factory picks a provider from `cfg.Provider`. Only `nats` is wired today; new providers go through extending the `DistributionLockProvider`
-enum in `config/dlock.go` and adding a branch to `factory/builder.go::Build`.
+enum in `config/lock/dlock.go` and adding a branch to `factory/builder.go::Build`.
 
 ---
 

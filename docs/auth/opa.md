@@ -189,7 +189,7 @@ compute the revision hash for you.
 The GitLab and S3 sources reach external services and accept proxy / retry / breaker configuration through the resilient
 [`transport/http/client`](../../transport/http/client/):
 
-- **GitLab** forwards options via `gitlab.WithHTTPClientOptions(...)`; the resilient client is wired unconditionally.
+- **GitLab** receives a client via `gitlab.WithHTTPClient(...)`; the factory always injects the resilient client.
 - **S3** swaps the AWS SDK transport via `awsconfig.WithHTTPClient(httpclient.New(...))` only when `s3.proxy` is explicitly configured;
   otherwise the SDK keeps its own transport and retry layer.
 

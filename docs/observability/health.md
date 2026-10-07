@@ -456,7 +456,7 @@ Wrap helpers (`WrapCheckError`, `WrapWatchError`, `WrapShutdownError`) add a ser
 
 ## YAML config
 
-Full reference: `config/health.go`.
+Full reference: `config/observability/health.go`.
 
 ```yaml
 health:

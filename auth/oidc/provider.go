@@ -33,7 +33,6 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 var (
@@ -44,6 +43,12 @@ var (
 	ErrTokenRevoked              = errors.New("token has been revoked")
 	ErrAudienceNotConfigured     = errors.New("no expected audience configured")
 	ErrLoaderClientNotConfigured = errors.New("revocation loader: HTTP client not configured")
+
+	// ErrHTTPClientRequired is returned by [NewProvider] when no client is
+	// passed with [WithHTTPClient]. The provider does not pick a transport
+	// policy itself: pass the resilient, SSRF-protected client from
+	// transport/http/client (httpclient.New()), as the factory does.
+	ErrHTTPClientRequired = errors.New("oidc: HTTP client is required")
 	// ErrFilterNotRebuildable is returned by [filterRevocationStorage.Sync]
 	// when the underlying filter does not implement [RebuildableFilter].
 	ErrFilterNotRebuildable = errors.New("revocation filter does not support rebuild/sync")
@@ -166,7 +171,9 @@ type Provider struct {
 }
 
 // NewProvider creates an OIDC provider from a discovery URL.
-// Call Close when done to release resources.
+// Call Close when done to release resources. A client passed with
+// [WithHTTPClient] is required; NewProvider returns [ErrHTTPClientRequired]
+// without one.
 //
 // When a revocation storage is configured (directly, or assembled from
 // [WithRevocationFilter] and [WithRevocationLoader]), NewProvider runs one
@@ -177,7 +184,8 @@ type Provider struct {
 //
 // Example:
 //
-//	provider, _ := oidc.NewProvider(ctx, "https://example.com/.well-known/openid-configuration")
+//	provider, _ := oidc.NewProvider(ctx, "https://example.com/.well-known/openid-configuration",
+//		oidc.WithHTTPClient(httpclient.New()))
 //	defer provider.Close()
 func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Provider, error) {
 	// Build options first
@@ -203,12 +211,10 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		}
 	}
 
-	// Build the outbound HTTP client from caller-supplied options. Empty
-	// httpClientOptions yields the resilient default of httpclient.New
-	// (pooled transport, retry, breaker, env-proxy). Override per
-	// deployment via WithHTTPClientOptions(httpclient.WithRetryMax(0))
-	// and friends.
-	client := httpclient.New(o.httpClientOptions...)
+	client := o.httpClient
+	if client == nil {
+		return nil, ErrHTTPClientRequired
+	}
 
 	// Create Provider from options
 	p := &Provider{
@@ -225,12 +231,12 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	}
 
 	// Share the Provider's HTTP client with any revocation loader that
-	// opts into injection by implementing [httpclient.HTTPClientSetter].
+	// opts into injection by implementing SetHTTPClient(*http.Client).
 	// Every OIDC outbound call (discovery, JWKS, introspection,
 	// userinfo, revocation) then uses the same connection pool and
 	// proxy resolver. Loaders decide their own preserve-vs-overwrite
 	// policy in their SetHTTPClient implementation.
-	if setter, ok := p.revocationLoader.(httpclient.HTTPClientSetter); ok {
+	if setter, ok := p.revocationLoader.(httpClientSetter); ok {
 		setter.SetHTTPClient(client)
 	}
 
@@ -245,7 +251,7 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	// A ready-made storage (e.g. the factory's filter storage wrapping a
 	// URLRevocationLoader) gets the shared client too, so its loader does
 	// not fail every sync with ErrLoaderClientNotConfigured.
-	if setter, ok := p.revocationStorage.(httpclient.HTTPClientSetter); ok {
+	if setter, ok := p.revocationStorage.(httpClientSetter); ok {
 		setter.SetHTTPClient(client)
 	}
 
@@ -1374,4 +1380,10 @@ func applyValidationOptions(ops *verifierOptions, options ...ValidationOption) {
 	for _, opt := range options {
 		opt(ops)
 	}
+}
+
+// httpClientSetter is implemented by a revocation loader or storage that
+// accepts the Provider's shared HTTP client.
+type httpClientSetter interface {
+	SetHTTPClient(*http.Client)
 }

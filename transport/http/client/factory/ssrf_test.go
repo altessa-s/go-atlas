@@ -9,8 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/http/client/factory"
+
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
 )
 
 func TestHTTPClientSSRF_ClientOptions(t *testing.T) {
@@ -18,7 +19,7 @@ func TestHTTPClientSSRF_ClientOptions(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		cfg      *config.HTTPClientSSRF
+		cfg      *httpconfig.ClientSSRF
 		wantOpts int
 		wantErr  bool
 	}{
@@ -29,27 +30,27 @@ func TestHTTPClientSSRF_ClientOptions(t *testing.T) {
 		},
 		{
 			name:     "zero value keeps protected default",
-			cfg:      &config.HTTPClientSSRF{},
+			cfg:      &httpconfig.ClientSSRF{},
 			wantOpts: 0,
 		},
 		{
 			name:     "disabled emits opt-out option",
-			cfg:      &config.HTTPClientSSRF{Disabled: true},
+			cfg:      &httpconfig.ClientSSRF{Disabled: true},
 			wantOpts: 1,
 		},
 		{
 			name:     "disabled ignores allowed cidrs",
-			cfg:      &config.HTTPClientSSRF{Disabled: true, AllowedCIDRs: []string{"10.0.0.0/8"}},
+			cfg:      &httpconfig.ClientSSRF{Disabled: true, AllowedCIDRs: []string{"10.0.0.0/8"}},
 			wantOpts: 1,
 		},
 		{
 			name:     "allowed cidrs emit exemption option",
-			cfg:      &config.HTTPClientSSRF{AllowedCIDRs: []string{"10.0.0.0/8", "192.168.0.0/16"}},
+			cfg:      &httpconfig.ClientSSRF{AllowedCIDRs: []string{"10.0.0.0/8", "192.168.0.0/16"}},
 			wantOpts: 1,
 		},
 		{
 			name:    "invalid cidr surfaces an error",
-			cfg:     &config.HTTPClientSSRF{AllowedCIDRs: []string{"not-a-cidr"}},
+			cfg:     &httpconfig.ClientSSRF{AllowedCIDRs: []string{"not-a-cidr"}},
 			wantErr: true,
 		},
 	}

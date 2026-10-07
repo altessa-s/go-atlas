@@ -12,7 +12,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache"
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache/factory"
-	"github.com/altessa-s/go-atlas/config"
+
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 )
 
 // fakeAuth is an exact Authoritative store backed by a set of revoked keys.
@@ -34,11 +35,11 @@ func (a *fakeAuth) IsRevoked(_ context.Context, key string) (bool, error) {
 }
 
 // memoryBloomConfig returns a minimal, valid in-memory Bloom filter config.
-func memoryBloomConfig() *config.ProbabilisticFilterConfig {
-	storage := config.ProbabilisticFilterStorageTypeMemory
-	return &config.ProbabilisticFilterConfig{
-		Type: config.ProbabilisticFilterTypeBloom,
-		Bloom: &config.ProbabilisticFilterBloomConfig{
+func memoryBloomConfig() *probfilterconfig.Filter {
+	storage := probfilterconfig.StorageTypeMemory
+	return &probfilterconfig.Filter{
+		Type: probfilterconfig.TypeBloom,
+		Bloom: &probfilterconfig.BloomConfig{
 			Storage:       &storage,
 			ExpectedItems: 1000,
 		},
@@ -48,7 +49,7 @@ func memoryBloomConfig() *config.ProbabilisticFilterConfig {
 func TestBuild_EndToEnd(t *testing.T) {
 	t.Parallel()
 
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	auth := newFakeAuth("revoked-jti")
 
 	cache, err := factory.NewBuilder("denylist", memoryBloomConfig(), &defaults, auth).Build()
@@ -73,7 +74,7 @@ func TestBuild_EndToEnd(t *testing.T) {
 func TestBuild_WithMetrics(t *testing.T) {
 	t.Parallel()
 
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 
 	cache, err := factory.NewBuilder("denylist", memoryBloomConfig(), &defaults, newFakeAuth()).
 		UseMetrics(nil, "").
@@ -89,7 +90,7 @@ func TestBuild_WithMetrics(t *testing.T) {
 func TestBuild_NilAuthoritative(t *testing.T) {
 	t.Parallel()
 
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 
 	cache, err := factory.NewBuilder("denylist", memoryBloomConfig(), &defaults, nil).Build()
 	require.Error(t, err)
@@ -99,7 +100,7 @@ func TestBuild_NilAuthoritative(t *testing.T) {
 func TestBuild_NilFilterConfig(t *testing.T) {
 	t.Parallel()
 
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 
 	cache, err := factory.NewBuilder("denylist", nil, &defaults, newFakeAuth()).Build()
 	require.Error(t, err)

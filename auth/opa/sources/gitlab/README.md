@@ -11,6 +11,7 @@ It uses the GitLab API to fetch `.rego` policy files and optional `.json` data f
 
 ```go
 source, err := gitlab.New(
+    gitlab.WithHTTPClient(httpclient.New()), // required: retry, breaker, proxy and SSRF protection come from this client
     gitlab.WithEndpoint("https://gitlab.example.com"),
     gitlab.WithToken(token),
     gitlab.WithProjectID(42),
@@ -50,4 +51,5 @@ bundle, err := source.Fetch(ctx)
 - Support for both policies (`.rego`) and data (`.json`) files
 - Configurable branch/tag/commit references
 - Compatible with self-hosted GitLab instances
-- Automatic retry and error handling
+- Retries, circuit breaking, proxying and SSRF protection through the injected `*http.Client` (required; GitLab's own retries are
+  disabled so the client is the only retry layer)

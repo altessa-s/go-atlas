@@ -14,9 +14,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	meilisearchconfig "github.com/altessa-s/go-atlas/config/meilisearch"
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	mfactory "github.com/altessa-s/go-atlas/infrastructure/meilisearch/factory"
 )
 
@@ -63,9 +65,9 @@ func TestBuild_HappyPath_HealthProbeSucceeds(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client, err := mfactory.New(&config.Meilisearch{
+	client, err := mfactory.New(&meilisearchconfig.Config{
 		Host:   srv.URL,
-		APIKey: config.Secret("secret-key"),
+		APIKey: redacted.RedactedString("secret-key"),
 	}).
 		UseLogger(slog.New(slog.DiscardHandler)).
 		Build(t.Context())
@@ -92,7 +94,7 @@ func TestBuild_RegistersHealthChecker_WhenCoordinatorInjected(t *testing.T) {
 	coord := health.New()
 	defer coord.Close()
 
-	_, err := mfactory.New(&config.Meilisearch{Host: srv.URL}).
+	_, err := mfactory.New(&meilisearchconfig.Config{Host: srv.URL}).
 		UseHealthCoordinator(coord).
 		Build(t.Context())
 	require.NoError(t, err)
@@ -117,7 +119,7 @@ func TestBuild_HealthServiceNameOverride(t *testing.T) {
 	coord := health.New()
 	defer coord.Close()
 
-	_, err := mfactory.New(&config.Meilisearch{Host: srv.URL}).
+	_, err := mfactory.New(&meilisearchconfig.Config{Host: srv.URL}).
 		UseHealthCoordinator(coord).
 		UseHealthServiceName("search-primary").
 		Build(t.Context())
@@ -139,21 +141,21 @@ func TestBuild_HealthServiceNameOverride(t *testing.T) {
 // "true", so we set the env var via t.Setenv to mimic an explicit
 // operator opt-in.
 func TestBuild_TLSConfigThreadsThroughToHTTPClient(t *testing.T) {
-	t.Setenv(config.EnvAllowInsecureTLS, "true")
+	t.Setenv(tlsconfig.EnvAllowInsecureTLS, "true")
 
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"available"}`))
 	}))
 	defer srv.Close()
 
-	tlsCfg := &config.TlsClient{
+	tlsCfg := &tlsconfig.Client{
 		ServerName:     strings.TrimPrefix(srv.URL, "https://"),
 		SkipVerify:     true,
-		SkipVerifyMode: config.TLSSkipVerifyModeDisabled,
+		SkipVerifyMode: tlsconfig.SkipVerifyModeDisabled,
 	}
 	tlsCfg.Normalize()
 
-	client, err := mfactory.New(&config.Meilisearch{
+	client, err := mfactory.New(&meilisearchconfig.Config{
 		Host: srv.URL,
 		TLS:  tlsCfg,
 	}).Build(t.Context())

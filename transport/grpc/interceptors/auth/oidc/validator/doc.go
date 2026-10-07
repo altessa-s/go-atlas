@@ -27,6 +27,7 @@
 //	// satisfies validator.Provider.
 //	provider, err := authoidc.NewProvider(ctx,
 //	    "https://auth.example.com/realms/myrealm/.well-known/openid-configuration",
+//	    authoidc.WithHTTPClient(httpclient.New()),
 //	    authoidc.WithDefaultValidationOptions(
 //	        authoidc.WithValidationIssuer("https://auth.example.com/realms/myrealm"),
 //	        authoidc.WithValidationAudience("my-service"),

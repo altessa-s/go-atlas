@@ -13,14 +13,14 @@
 //	    UseHealthCoordinator(coordinator).
 //	    Build(ctx)
 //
-// The builder integrates with [config.Redis] to create [redis.UniversalClient]
+// The builder integrates with [redisconfig.Config] to create [redis.UniversalClient]
 // instances with authentication, connection pooling, and support for
 // standalone, sentinel, and cluster modes. The mode is determined
-// automatically: sentinel when [config.Redis.MasterName] is set, cluster
+// automatically: sentinel when [redisconfig.Config.MasterName] is set, cluster
 // when multiple hosts are provided, standalone otherwise.
 //
 // The builder supports two configuration paths: connection-URI based
-// (when [config.Redis.ConnectionURI] is set) and field-based (individual
+// (when [redisconfig.Config.ConnectionURI] is set) and field-based (individual
 // host, credential, and pool settings). Both paths converge in
 // [ClientBuilder.UniversalOptions].
 //

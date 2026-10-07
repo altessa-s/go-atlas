@@ -13,7 +13,7 @@
 //	    UseHealthCoordinator(coordinator).
 //	    Build(ctx)
 //
-// The builder integrates with [config.Meilisearch] to create
+// The builder integrates with [meilisearchconfig.Config] to create
 // [meilisearch.Client] instances with the configured host, optional API key,
 // and HTTP timeout. Build performs an initial health check against the
 // server and returns an error if it is unreachable.

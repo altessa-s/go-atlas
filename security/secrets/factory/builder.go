@@ -10,12 +10,12 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/retry"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/security/secrets"
 
+	secretsconfig "github.com/altessa-s/go-atlas/config/secrets"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -31,7 +31,7 @@ import (
 // The builder is not safe for concurrent use.
 type ManagerBuilder struct {
 	corefactory.Base
-	cfg  *config.Secrets
+	cfg  *secretsconfig.Config
 	errs []error
 
 	// Dependencies
@@ -42,7 +42,7 @@ type ManagerBuilder struct {
 
 // New creates a [ManagerBuilder] for the given secrets config.
 // Config can be nil — the error surfaces at [ManagerBuilder.Build] time.
-func New(cfg *config.Secrets) *ManagerBuilder {
+func New(cfg *secretsconfig.Config) *ManagerBuilder {
 	return &ManagerBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -94,7 +94,7 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*secrets.Manager[any], erro
 // CreateVaultProvider creates a Vault secrets provider from configuration.
 // It is a package-level function so callers that only need a single provider
 // can use it without constructing a full [ManagerBuilder].
-func CreateVaultProvider(client *vaultApi.Client, cfg *config.SecretsVault) (*vaultprovider.Storage[any], error) {
+func CreateVaultProvider(client *vaultApi.Client, cfg *secretsconfig.Vault) (*vaultprovider.Storage[any], error) {
 	if client == nil {
 		return nil, fmt.Errorf("vault client is required")
 	}
@@ -112,7 +112,7 @@ func CreateVaultProvider(client *vaultApi.Client, cfg *config.SecretsVault) (*va
 // CreateGCPProvider creates a GCP Secret Manager provider from configuration.
 // It is a package-level function so callers that only need a single provider
 // can use it without constructing a full [ManagerBuilder].
-func CreateGCPProvider(ctx context.Context, cfg *config.SecretsGCP) (*gcpprovider.Storage[any], error) {
+func CreateGCPProvider(ctx context.Context, cfg *secretsconfig.GCP) (*gcpprovider.Storage[any], error) {
 	var opts []gcpprovider.Option[any]
 	opts = slices.AppendIf(opts, len(cfg.Labels) > 0, gcpprovider.WithLabels[any](cfg.Labels))
 	opts = slices.AppendIf(opts, cfg.IgnoreInvalidKeys, gcpprovider.WithIgnoreInvalidKeys[any]())
@@ -123,7 +123,7 @@ func CreateGCPProvider(ctx context.Context, cfg *config.SecretsGCP) (*gcpprovide
 // CreateLockboxProvider creates a Yandex Cloud Lockbox secrets provider from configuration.
 // It is a package-level function so callers that only need a single provider
 // can use it without constructing a full [ManagerBuilder].
-func CreateLockboxProvider(ctx context.Context, cfg *config.SecretsLockbox) (*lockboxprovider.Storage[any], error) {
+func CreateLockboxProvider(ctx context.Context, cfg *secretsconfig.Lockbox) (*lockboxprovider.Storage[any], error) {
 	// Read private key from file
 	privKey, err := os.ReadFile(cfg.PrivateKeyPath)
 	if err != nil {
@@ -140,13 +140,13 @@ func CreateLockboxProvider(ctx context.Context, cfg *config.SecretsLockbox) (*lo
 // createProvider creates a secrets provider based on the configuration provider type.
 func (b *ManagerBuilder) createProvider(ctx context.Context) (secrets.Provider[any], error) {
 	switch b.cfg.Provider {
-	case config.SecretsProviderVault:
+	case secretsconfig.ProviderVault:
 		return CreateVaultProvider(b.vaultClient, b.cfg.Vault)
-	case config.SecretsProviderGCP:
+	case secretsconfig.ProviderGCP:
 		return CreateGCPProvider(ctx, b.cfg.GCP)
-	case config.SecretsProviderLockbox:
+	case secretsconfig.ProviderLockbox:
 		return CreateLockboxProvider(ctx, b.cfg.Lockbox)
-	case config.SecretsProviderMemory:
+	case secretsconfig.ProviderMemory:
 		return memoryprovider.New[any](nil)
 	default:
 		return nil, coreerrs.Wrapf(fmt.Errorf("unsupported provider: %s", b.cfg.Provider), "invalid configuration for %s", "secrets provider")
@@ -194,7 +194,7 @@ type valueCache = secrets.Cache[string, *secrets.Value[any]]
 // MaxSize zero means the Manager's own default, so returning nil and letting it
 // build its own cache is the faithful mapping — not a cache of size zero, which
 // the LRU rejects outright.
-func createCache(cfg config.SecretsCache) (valueCache, error) {
+func createCache(cfg secretsconfig.Cache) (valueCache, error) {
 	if cfg.MaxSize <= 0 {
 		return nil, nil //nolint:nilnil // no override; the Manager builds its default cache
 	}

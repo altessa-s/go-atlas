@@ -11,10 +11,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/factory"
 
+	auditconfig "github.com/altessa-s/go-atlas/config/audit"
+	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 )
 
@@ -25,11 +26,11 @@ type stubDispatcher struct{ submitted int }
 func (s *stubDispatcher) Submit(*audit.Event) bool { s.submitted++; return true }
 func (s *stubDispatcher) Dropped() int64           { return 0 }
 
-func memoryConfig() *config.Audit {
-	return &config.Audit{
+func memoryConfig() *auditconfig.Config {
+	return &auditconfig.Config{
 		Enabled: true,
-		Storage: config.AuditStorage{Type: config.AuditStorageTypeMemory},
-		Dispatch: config.Dispatch{
+		Storage: auditconfig.Storage{Type: auditconfig.StorageTypeMemory},
+		Dispatch: dispatchconfig.Config{
 			BufferSize:    16,
 			BatchSize:     4,
 			FlushInterval: 10 * time.Millisecond,
@@ -114,9 +115,9 @@ func TestBuild_MongoStorageRequiresDatabase(t *testing.T) {
 	t.Parallel()
 
 	cfg := memoryConfig()
-	cfg.Storage = config.AuditStorage{
-		Type:  config.AuditStorageTypeMongo,
-		Mongo: &config.AuditStorageMongo{CollectionName: "audit_events"},
+	cfg.Storage = auditconfig.Storage{
+		Type:  auditconfig.StorageTypeMongo,
+		Mongo: &auditconfig.StorageMongo{CollectionName: "audit_events"},
 	}
 
 	_, err := factory.New(cfg).Build()
@@ -131,7 +132,7 @@ func TestBuild_HonorsDispatchWAL(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "wal")
 
 	cfg := memoryConfig()
-	cfg.Dispatch.WAL = &config.WAL{
+	cfg.Dispatch.WAL = &dispatchconfig.WAL{
 		Enabled:         true,
 		Dir:             dir,
 		MaxSegmentBytes: 1 << 20,

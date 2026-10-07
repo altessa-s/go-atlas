@@ -7,16 +7,18 @@ package factory_test
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/security/hmacsign/factory"
+
+	webhookconfig "github.com/altessa-s/go-atlas/config/webhook"
 )
 
 func BenchmarkVerifier(b *testing.B) {
-	cfg := &config.WebhookSignature{
-		Scheme:            config.WebhookSchemeStripe,
+	cfg := &webhookconfig.Signature{
+		Scheme:            webhookconfig.SchemeStripe,
 		Secret:            "whsec_bench",
-		AdditionalSecrets: []config.Secret{"whsec_old"},
-		Tolerance:         config.DefaultWebhookTolerance,
+		AdditionalSecrets: []redacted.RedactedString{"whsec_old"},
+		Tolerance:         webhookconfig.DefaultTolerance,
 	}
 	b.ReportAllocs()
 	for b.Loop() {
