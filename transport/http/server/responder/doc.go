@@ -12,7 +12,7 @@
 // The package provides two mechanisms:
 //
 //  1. Automatic interception: [ErrorInterceptor] wraps [http.ResponseWriter]
-//     and buffers error responses (status >= 400). When flushed, the
+//     and buffers error responses (status >= 400). On [ErrorInterceptor.Finish], the
 //     buffered message is rewritten as a structured response via the
 //     [ErrorWriter] stored in context. This converts plain [http.Error]
 //     calls into content-negotiated JSON/XML responses transparently.

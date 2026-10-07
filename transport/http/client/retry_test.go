@@ -286,6 +286,30 @@ func TestRetryRoundTripper_OneRetryReplaysStreamingBody(t *testing.T) {
 	require.Equal(t, []string{"payload", "payload"}, bodies)
 }
 
+func TestRetryRoundTripper_RetryableResponseWithoutBody(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	rt := &retryRoundTripper{
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				// A custom transport may omit Body on a retryable status.
+				return &http.Response{StatusCode: http.StatusServiceUnavailable, Request: req}, nil
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
+		}),
+		retryOpts:   newTestRetryOpts(1),
+		maxAttempts: 1,
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com", nil)
+	require.NoError(t, err)
+	resp, err := rt.RoundTrip(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, int32(2), calls.Load())
+}
+
 // trackedBody is a response body that records whether it was closed.
 type trackedBody struct {
 	io.Reader
