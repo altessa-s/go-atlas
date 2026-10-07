@@ -35,6 +35,8 @@
 //   - config/redis (redisconfig): the Redis connection schema.
 //   - config/nats (natsconfig): the NATS connection, JetStream consumer and
 //     recovery schemas.
+//   - config/clickhouse (clickhouseconfig): the ClickHouse connection
+//     schema.
 //   - config/mongo (mongoconfig): the MongoDB connection, credential and
 //     client-side field level encryption schemas.
 //   - config/meilisearch (meilisearchconfig): the Meilisearch connection

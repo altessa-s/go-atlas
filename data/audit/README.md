@@ -28,7 +28,10 @@ request latency.
 | `Actor`          | Entity performing an action (user, service, api_key, etc.)     |
 | `Resource`       | Target of the action with optional change tracking             |
 | `Result`         | Outcome with status, code, message, and error details          |
-| `Query`          | Filter criteria for querying stored events                     |
+| `Query`          | Filter criteria, page size and page token for querying events  |
+| `FetchPage`      | Returns one page of events and the token of the next page      |
+| `PageTokens`     | Signs and verifies page tokens (built on `data/keyset`)        |
+| `Cursor`         | Position in the (timestamp milliseconds, ID) order             |
 
 ## Options
 
@@ -58,6 +61,28 @@ _ = a.Start()
 ...
 _ = hooks.Shutdown(ctx) // stops this auditor, leaves the process running
 ```
+
+## Paging
+
+Queries page with signed keyset tokens instead of offsets. Every storage orders events by timestamp (milliseconds) then ID, newest first
+unless `SortOrder` is ascending, so a position is unambiguous even when events share a millisecond.
+
+```go
+codec, _ := keyset.New(signingKey) // ≥ 32 bytes, the same on every replica
+tokens := audit.NewPageTokens(codec)
+
+page, err := audit.FetchPage(ctx, storage, tokens, audit.Query{ActorID: "u1", Limit: 50, Subject: caller})
+// next page: query.After = page.Next; empty Next means the last page
+```
+
+- `FetchPage` resolves `Query.After` into `Query.Cursor`, which storages honor; storages never see tokens.
+- A token is bound to the filter, the sort order and `Subject` (the caller): replaying it under another filter, order or principal fails
+  with `keyset.ErrFilterChanged`, `ErrSortChanged` or `ErrSubjectMismatch`. The page size is not bound. Tokens expire after 24h by default.
+- Continuation is keyset-based, not a snapshot: events inserted ahead of the position appear on later pages, events behind it do not.
+- `Count` counts every event matching the filter; the page position, size and order are ignored.
+- `Query.Offset` was removed: offset paging skipped or repeated events under concurrent inserts and scanned the skipped rows.
+
+Every backend runs the shared conformance suite in `storages/internal/storagetest`.
 
 ## Usage
 
@@ -94,3 +119,4 @@ auditor.NewEvent(audit.EventTypeDataChange, audit.ActionUpdate).
 | [factory](./factory)                       | Fluent builder from config        |
 | [storages/memory](./storages/memory)       | In-memory backend for dev/test    |
 | [storages/mongo](./storages/mongo)         | MongoDB-backed persistent storage |
+| [storages/clickhouse](./storages/clickhouse) | ClickHouse storage with schema drift checks |
