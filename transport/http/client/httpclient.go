@@ -35,6 +35,10 @@ const (
 // Set it via [WithErrorHandler]. The handler receives the HTTP response (may be nil), the error
 // that occurred, and the number of retry attempts made. It can modify or wrap the error before
 // returning, allowing for custom error handling logic.
+//
+// Body ownership: when the handler returns a response other than the one it received, the
+// received response's body is closed. When it returns a non-nil error, any returned response
+// body is closed and the caller receives only the error, as [http.RoundTripper] requires.
 type ErrorHandler func(resp *http.Response, err error, numTries int) (*http.Response, error)
 
 // RetryPolicyHandler defines the callback that determines whether a request should be retried.
@@ -149,5 +153,6 @@ func IsUnexpectedStatusError(err error) *UnexpectedStatusError {
 //	    // Handle other errors
 //	}
 func IsCircuitBreakerOpen(err error) bool {
-	return errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests)
+	return errors.Is(err, ErrCircuitBreakerOpen) ||
+		errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests)
 }

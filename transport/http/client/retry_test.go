@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -183,8 +184,9 @@ func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com/path", nil)
-	_, err := rt.RoundTrip(req)
+	resp, err := rt.RoundTrip(req) //nolint:bodyclose // asserted nil
 	require.Error(t, err)
+	require.Nil(t, resp, "a response must never accompany an error")
 	statusErr, ok := errors.AsType[*UnexpectedStatusError](err)
 	require.True(t, ok)
 	require.Equal(t, http.StatusForbidden, statusErr.Status)
@@ -250,4 +252,164 @@ func TestRetryRoundTripper_ZeroRetries(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Equal(t, int32(1), calls.Load())
+}
+
+func TestRetryRoundTripper_OneRetryReplaysStreamingBody(t *testing.T) {
+	t.Parallel()
+
+	var bodies []string
+	rt := &retryRoundTripper{
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			b, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			require.NoError(t, req.Body.Close())
+			bodies = append(bodies, string(b))
+			status := http.StatusOK
+			if len(bodies) == 1 {
+				status = http.StatusServiceUnavailable
+			}
+			return &http.Response{StatusCode: status, Body: http.NoBody, Request: req}, nil
+		}),
+		retryOpts:   newTestRetryOpts(1), // one retry: two attempts
+		maxAttempts: 1,
+	}
+
+	// A plain io.ReadCloser has no GetBody, so only buffering can replay it.
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://example.com",
+		io.NopCloser(strings.NewReader("payload")))
+	require.NoError(t, err)
+	require.Nil(t, req.GetBody)
+
+	resp, err := rt.RoundTrip(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, []string{"payload", "payload"}, bodies)
+}
+
+// trackedBody is a response body that records whether it was closed.
+type trackedBody struct {
+	io.Reader
+	closed atomic.Bool
+}
+
+func newTrackedBody() *trackedBody { return &trackedBody{Reader: strings.NewReader("body")} }
+
+func (b *trackedBody) Close() error {
+	b.closed.Store(true)
+	return nil
+}
+
+func TestClient_ErrorResponsesAreClosed(t *testing.T) {
+	t.Parallel()
+
+	errHandled := errors.New("handled")
+	tests := []struct {
+		name         string
+		status       int
+		retryMax     int
+		handler      func(bodies *[]*trackedBody) ErrorHandler
+		wantAttempts int
+		wantErr      bool
+		wantOpenLast bool // the last body is returned to the caller, open
+	}{
+		{name: "non-retryable 403", status: http.StatusForbidden, retryMax: 2, wantAttempts: 1, wantErr: true},
+		{name: "exhausted 503", status: http.StatusServiceUnavailable, retryMax: 2, wantAttempts: 3, wantErr: true},
+		{
+			name: "handler drops response", status: http.StatusForbidden, wantAttempts: 1, wantErr: true,
+			handler: func(*[]*trackedBody) ErrorHandler {
+				return func(_ *http.Response, _ error, _ int) (*http.Response, error) { return nil, errHandled }
+			},
+		},
+		{
+			name: "handler replaces response with error", status: http.StatusForbidden, wantAttempts: 1, wantErr: true,
+			handler: func(bodies *[]*trackedBody) ErrorHandler {
+				return func(_ *http.Response, _ error, _ int) (*http.Response, error) {
+					b := newTrackedBody()
+					*bodies = append(*bodies, b)
+					return &http.Response{StatusCode: http.StatusTeapot, Body: b}, errHandled
+				}
+			},
+		},
+		{
+			name: "handler passes response through", status: http.StatusForbidden, wantAttempts: 1, wantOpenLast: true,
+			handler: func(*[]*trackedBody) ErrorHandler {
+				return func(resp *http.Response, _ error, _ int) (*http.Response, error) { return resp, nil }
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var bodies []*trackedBody
+			var attempts int
+			transport := testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				attempts++
+				b := newTrackedBody()
+				bodies = append(bodies, b)
+				return &http.Response{StatusCode: tc.status, Body: b, Request: req}, nil
+			})
+			opts := []Option{
+				WithClient(&http.Client{Transport: transport}),
+				WithRetryMax(tc.retryMax),
+				WithRetryWait(time.Nanosecond, time.Nanosecond),
+			}
+			if tc.handler != nil {
+				opts = append(opts, WithErrorHandler(tc.handler(&bodies)))
+			}
+			c := New(opts...)
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com/x", nil)
+			require.NoError(t, err)
+			resp, err := c.Do(req)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Nil(t, resp)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+			}
+			require.Equal(t, tc.wantAttempts, attempts)
+
+			for i, b := range bodies {
+				if tc.wantOpenLast && i == len(bodies)-1 {
+					require.False(t, b.closed.Load(), "returned body must stay open")
+					require.NoError(t, resp.Body.Close())
+					continue
+				}
+				require.True(t, b.closed.Load(), "body %d leaked", i)
+			}
+		})
+	}
+}
+
+func TestClient_CircuitBreakerOpenDetected(t *testing.T) {
+	t.Parallel()
+
+	transport := testhelpers.RoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("connection reset")
+	})
+	c := New(
+		WithClient(&http.Client{Transport: transport}),
+		WithRetryMax(0),
+		WithCircuitBreakerSettings("breaker.test", &CircuitBreakerSettings{
+			ReadyToTrip: func(gobreaker.Counts) bool { return true },
+			Timeout:     time.Hour,
+		}),
+	)
+
+	do := func() error {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://breaker.test/", nil)
+		require.NoError(t, err)
+		resp, err := c.Do(req)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		return err
+	}
+
+	require.Error(t, do()) // trips the breaker
+	err := do()
+	require.Error(t, err)
+	require.True(t, IsCircuitBreakerOpen(err), "client error must be detected as open breaker: %v", err)
 }
