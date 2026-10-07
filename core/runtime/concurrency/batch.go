@@ -112,6 +112,7 @@ func processWithOptions[T any](
 		})
 	}
 
+	dispatched := 0
 feed:
 	for i := range items {
 		// Check if context is already canceled
@@ -121,6 +122,7 @@ feed:
 
 		select {
 		case indexes <- i:
+			dispatched++
 		case <-gCtx.Done():
 			break feed
 		}
@@ -128,6 +130,11 @@ feed:
 	close(indexes)
 
 	wg.Wait()
+	// Items left undispatched without a failure mean the caller's context was
+	// canceled: the batch did not complete, so it must not report success.
+	if firstErr == nil && dispatched < len(items) {
+		return ctx.Err()
+	}
 	return firstErr
 }
 
@@ -239,6 +246,14 @@ func processSequential[T any](
 ) error {
 	var firstErr error
 	for _, item := range items {
+		// Checked before each call: a canceled context runs no further
+		// callback, and a run that finished every item stays a success.
+		if err := ctx.Err(); err != nil {
+			if firstErr != nil {
+				return firstErr
+			}
+			return err
+		}
 		if err := fn(ctx, item); err != nil {
 			if cfg.onError != nil {
 				cfg.onError(item, err)
@@ -251,12 +266,6 @@ func processSequential[T any](
 			}
 		} else if cfg.onSuccess != nil {
 			cfg.onSuccess(item)
-		}
-		if ctx.Err() != nil {
-			if firstErr != nil {
-				return firstErr
-			}
-			return ctx.Err()
 		}
 	}
 	return firstErr

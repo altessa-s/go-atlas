@@ -113,6 +113,67 @@ func TestProcess_ContextCanceled(t *testing.T) {
 	}, concurrency.WithConcurrency[int](2), concurrency.WithStopOnError[int]())
 }
 
+// A canceled context must never read as a completed batch: no callback runs on
+// a pre-canceled context, the error is context.Canceled, and ProcessCollect
+// returns no zero values for items it never processed.
+func TestProcess_PreCanceledContext_ReportsCancellation(t *testing.T) {
+	t.Parallel()
+	for _, workers := range []int{1, 2} {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		var calls atomic.Int32
+
+		err := concurrency.Process(ctx, []int{1, 2}, func(context.Context, int) error {
+			calls.Add(1)
+			return nil
+		}, concurrency.WithConcurrency[int](workers))
+		require.ErrorIs(t, err, context.Canceled, "workers=%d", workers)
+
+		results, err := concurrency.ProcessCollect(ctx, []int{1, 2}, func(_ context.Context, n int) (int, error) {
+			calls.Add(1)
+			return n * 10, nil
+		}, concurrency.WithConcurrency[int](workers))
+		require.ErrorIs(t, err, context.Canceled, "workers=%d", workers)
+		require.Empty(t, results, "workers=%d: no fabricated results", workers)
+		require.Zero(t, calls.Load(), "workers=%d: no callback on a canceled context", workers)
+	}
+}
+
+// Canceling mid-batch reports the cancellation and leaves the rest
+// unprocessed; canceling during the final callback, after every item was
+// processed, is a completed batch.
+func TestProcess_Sequential_CancellationSemantics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mid_batch", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(t.Context())
+		var calls atomic.Int32
+		err := concurrency.Process(ctx, []int{1, 2, 3}, func(context.Context, int) error {
+			if calls.Add(1) == 1 {
+				cancel()
+			}
+			return nil
+		}, concurrency.WithConcurrency[int](1))
+		require.ErrorIs(t, err, context.Canceled)
+		require.Equal(t, int32(1), calls.Load())
+	})
+
+	t.Run("during_last_item", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(t.Context())
+		var calls atomic.Int32
+		err := concurrency.Process(ctx, []int{1, 2}, func(context.Context, int) error {
+			if calls.Add(1) == 2 {
+				cancel()
+			}
+			return nil
+		}, concurrency.WithConcurrency[int](1))
+		require.NoError(t, err, "every item was processed")
+		require.Equal(t, int32(2), calls.Load())
+	})
+}
+
 func TestProcessCollect_Error(t *testing.T) {
 	wantErr := errors.New("transform fail")
 

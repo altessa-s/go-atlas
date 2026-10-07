@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -103,6 +104,50 @@ func TestLimitedReadCloser_ExactlyOneByte(t *testing.T) {
 	buf, err := io.ReadAll(lrc)
 	require.NoError(t, err)
 	require.Equal(t, "x", string(buf))
+}
+
+// endlessReader is a goroutine-safe source of zero bytes that counts what it
+// served.
+type endlessReader struct {
+	mu     sync.Mutex
+	served int64
+}
+
+func (r *endlessReader) Read(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.served += int64(len(p))
+	clear(p)
+	return len(p), nil
+}
+
+func (*endlessReader) Close() error { return nil }
+
+// Concurrent reads must not race on the wrapped limit reader nor pull more than
+// limit+1 bytes from the source.
+func TestLimitedReadCloser_ConcurrentReads(t *testing.T) {
+	t.Parallel()
+
+	const limit = 1000
+	src := &endlessReader{}
+	lrc := coreio.NewLimitedReadCloser(src, limit)
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			buf := make([]byte, 7)
+			for {
+				if _, err := lrc.Read(buf); err != nil {
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	src.mu.Lock()
+	defer src.mu.Unlock()
+	require.LessOrEqual(t, src.served, int64(limit+1))
 }
 
 func TestBufferPool(t *testing.T) {
