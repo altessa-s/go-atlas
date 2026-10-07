@@ -9,12 +9,17 @@ package writer
 import (
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
 )
 
 const (
 	// DefaultCodecJSON is the default codec content type.
 	DefaultCodecJSON = "application/json"
+
+	// DefaultResponseSanitizationMaxDepth is the default nesting depth response
+	// sanitization walks. See [WithResponseSanitizationMaxDepth].
+	DefaultResponseSanitizationMaxDepth = fieldbehavior.DefaultMaxDepth
 )
 
 // options holds configuration for the Writer.
@@ -35,5 +40,5 @@ type options struct {
 
 	// responseSanitizationMaxDepth bounds how deep response sanitization walks
 	// nested messages; a deeper response fails with ErrResponseSanitization.
-	responseSanitizationMaxDepth int `optgen:"default=fieldbehavior.DefaultMaxDepth"`
+	responseSanitizationMaxDepth int `optgen:"default=DefaultResponseSanitizationMaxDepth"`
 }
