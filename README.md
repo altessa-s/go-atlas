@@ -73,7 +73,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`data/locks`](data/locks/) | Distributed locking (NATS) |
 | [`data/meilisearch`](data/meilisearch/) | Meilisearch SDK wrapper with context propagation and sentinel-error classification |
 | [`data/mongo`](data/mongo/) | MongoDB repository patterns, cursor pagination, CSFLE, migrations |
-| [`data/orderby`](data/orderby/) | AIP-132 `order_by` DSL parser with translators for MongoDB, Meilisearch, RediSearch |
+| [`data/orderby`](data/orderby/) | AIP-132 `order_by` DSL parser with translators for MongoDB, ClickHouse, MariaDB, PostgreSQL, Meilisearch, RediSearch |
 | [`data/outbox`](data/outbox/) | Transactional outbox (MongoDB-backed) |
 | [`data/probfilter`](data/probfilter/) | Bloom and Cuckoo probabilistic filters |
 | [`data/saga`](data/saga/) | Orchestration-based saga engine: sequential steps, compensating rollbacks, crash recovery |
