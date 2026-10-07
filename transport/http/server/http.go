@@ -173,7 +173,7 @@ func (s *Server) errorInterceptorMiddleware() Middleware {
 
 			// Wrap ResponseWriter with an error interceptor
 			interceptor := responder.NewErrorInterceptor(w, r, s.writer)
-			defer interceptor.Flush()
+			defer interceptor.Finish()
 
 			next.ServeHTTP(interceptor, r)
 		})
