@@ -6,8 +6,11 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -151,6 +154,62 @@ func TestIsUnexpectedStatusError(t *testing.T) {
 
 func TestIsCircuitBreakerOpen(t *testing.T) {
 	require.False(t, IsCircuitBreakerOpen(context.Canceled), "should be false for non-CB error")
+	require.True(t, IsCircuitBreakerOpen(fmt.Errorf("wrapped: %w", &CircuitBreakerError{Name: "x", State: "open"})))
+}
+
+// rwBody is a writable response body, as returned for 101 Switching Protocols.
+type rwBody struct {
+	io.Reader
+	written []byte
+	closed  bool
+}
+
+func (b *rwBody) Write(p []byte) (int, error) {
+	b.written = append(b.written, p...)
+	return len(p), nil
+}
+
+func (b *rwBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+func TestAttachCancel(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cancels on Close", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		resp := attachCancel(&http.Response{Body: io.NopCloser(strings.NewReader("x"))}, cancel)
+		require.NoError(t, ctx.Err(), "must not cancel before Close")
+		require.NoError(t, resp.Body.Close())
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+	})
+
+	t.Run("keeps Write", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		orig := &rwBody{Reader: strings.NewReader("")}
+		resp := attachCancel(&http.Response{Body: orig}, cancel)
+		w, ok := resp.Body.(io.Writer)
+		require.True(t, ok, "writable body must stay writable")
+		_, err := w.Write([]byte("ping"))
+		require.NoError(t, err)
+		require.Equal(t, "ping", string(orig.written))
+		require.NoError(t, resp.Body.Close())
+		require.True(t, orig.closed)
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+	})
+
+	t.Run("nil cancel leaves body", func(t *testing.T) {
+		t.Parallel()
+
+		body := io.NopCloser(strings.NewReader("x"))
+		resp := attachCancel(&http.Response{Body: body}, nil)
+		require.Equal(t, body, resp.Body)
+	})
 }
 
 func TestRoundTripFunc(t *testing.T) {
