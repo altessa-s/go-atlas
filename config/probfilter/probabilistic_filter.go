@@ -133,7 +133,7 @@ func NewBloomDefaults() BloomDefaults {
 // Validate performs validation of the Bloom defaults configuration.
 func (c *BloomDefaults) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Storage),
+		validationconfig.NestedField(&c.Storage),
 		// Required is paired with Min because ozzo-validation skips every
 		// rule but Required for a zero value — Min alone accepts 0.
 		validation.Field(&c.FalsePositiveRate, validation.Required, validation.Min(minFalsePositiveRate), validation.Max(maxFalsePositiveRate)),
@@ -178,7 +178,7 @@ func NewCuckooDefaults() CuckooDefaults {
 // Validate performs validation of the Cuckoo defaults configuration.
 func (c *CuckooDefaults) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Storage),
+		validationconfig.NestedField(&c.Storage),
 		validation.Field(&c.FingerprintSize, validation.In(fingerprintSize8, fingerprintSize12, fingerprintSize16)),
 		// Required is paired with Min because ozzo-validation skips every
 		// rule but Required for a zero value — Min alone accepts 0.

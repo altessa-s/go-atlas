@@ -5,6 +5,7 @@
 package validationconfig
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -95,4 +96,29 @@ func TestValidateStructIfEnabled_ErrFieldNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "testStruct")
 	assert.Contains(t, err.Error(), "pointer does not reference a field in the struct")
+}
+
+type nestedLeaf struct{ Name string }
+
+func (l *nestedLeaf) Validate() error {
+	return validation.ValidateStruct(l, validation.Field(&l.Name, validation.Required))
+}
+
+type nestedParent struct{ Leaf nestedLeaf }
+
+func TestNestedField(t *testing.T) {
+	t.Parallel()
+
+	p := &nestedParent{}
+
+	// The plain rule never reaches the pointer-receiver Validate.
+	require.NoError(t, ValidateStruct(p, validation.Field(&p.Leaf)))
+
+	err := ValidateStruct(p, NestedField(&p.Leaf))
+	errs, ok := errors.AsType[validation.Errors](err)
+	require.True(t, ok, "got %v", err)
+	require.Contains(t, errs, "Leaf")
+
+	p.Leaf.Name = "ok"
+	require.NoError(t, ValidateStruct(p, NestedField(&p.Leaf)))
 }

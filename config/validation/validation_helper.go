@@ -52,6 +52,29 @@ func ValidateStructIfEnabled(enabled bool, structPtr any, fields ...*validation.
 	return ValidateStruct(structPtr, fields...)
 }
 
+// NestedField returns the field rules for a struct field held by value whose
+// Validate method has a pointer receiver.
+//
+// validation.Field(&c.Sub) does not validate such a field: ozzo-validation
+// checks a copy of the value for [validation.Validatable], and the copy does
+// not carry the pointer method set, so Sub.Validate is silently skipped.
+// NestedField calls it on the field itself. Fields held by pointer, or whose
+// Validate has a value receiver, need no helper.
+//
+// Example:
+//
+//	func (c *Config) Validate() error {
+//	    return validationconfig.ValidateStruct(c,
+//	        validationconfig.NestedField(&c.Storage),
+//	    )
+//	}
+func NestedField[T any, P interface {
+	*T
+	validation.Validatable
+}](field P) *validation.FieldRules {
+	return validation.Field(field, validation.By(func(any) error { return field.Validate() }))
+}
+
 // enhanceInternalError checks if the error is an ozzo-validation InternalError wrapping
 // ErrFieldNotFound or ErrFieldPointer, and replaces it with a more descriptive message.
 func enhanceInternalError(err error, structPtr any) error {
