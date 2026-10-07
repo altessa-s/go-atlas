@@ -82,7 +82,6 @@ type segmentRef struct {
 	size            int64
 	records         int64 // total records ever appended to this segment
 	unacked         int64 // records not yet acked by consumer
-	sealed          bool
 	acked           map[int64]struct{}
 	pendingPosition int64
 }
@@ -216,7 +215,6 @@ func (w *WAL) recover() ([]Record, error) {
 			size:    validSize,
 			records: int64(len(recs)),
 			unacked: int64(len(recs)),
-			sealed:  true,
 		}
 		w.sealed = append(w.sealed, ref)
 		w.totalSz.Add(validSize)
@@ -421,11 +419,11 @@ func (w *WAL) sealActiveLocked() error {
 		}
 		seg.file = nil
 	}
-	seg.sealed = true
-	if seg.records > 0 {
+	if seg.unacked > 0 {
 		w.sealed = append(w.sealed, seg)
 	} else {
-		// Empty segment: remove.
+		// Empty or fully acked: no later Ack would reach it, so remove it now
+		// rather than replay acked records on the next Open.
 		_ = os.Remove(seg.path)
 		w.totalSz.Add(-seg.size)
 	}
