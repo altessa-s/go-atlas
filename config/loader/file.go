@@ -5,9 +5,7 @@
 package loader
 
 import (
-	"bufio"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"iter"
 	"os"
@@ -21,11 +19,6 @@ import (
 	coreio "github.com/altessa-s/go-atlas/core/io"
 )
 
-const (
-	// File seek position constants
-	seekStart = 0
-)
-
 // files manages a collection of configuration files with thread-safe access.
 type files struct {
 	files map[string]*file
@@ -34,18 +27,16 @@ type files struct {
 
 // file represents a single configuration file with its metadata and decoder.
 type file struct {
-	decoder   backend.Decoder
-	name      string
-	path      string
-	sum       string
-	isSymlink bool
+	decoder backend.Decoder
+	name    string
+	path    string
 	// keys is the root value of the last loaded content, from which the
 	// loader learns the values the file wrote explicitly.
 	keys backend.KeyNode
 }
 
 // loadAndDecode loads the file and decodes it into the provided interface.
-// It opens the file, decodes its content, and calculates a checksum for change detection.
+// It opens the file, preprocesses and substitutes its content, and decodes it.
 func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 	var osFile *os.File
 
@@ -100,7 +91,7 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 			rootDir = filepath.Dir(f.path)
 		}
 
-		processedContent, err = preprocessor.Preprocess(string(content), filepath.Dir(f.path), rootDir)
+		processedContent, err = preprocessor.Preprocess(string(content), filepath.Dir(f.path), rootDir, maxBytes)
 		if err != nil {
 			err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
 			return
@@ -150,38 +141,9 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 	}
 	if err != nil {
 		err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
-		return
 	}
-
-	f.sum, err = f.calculateSum(osFile)
 
 	return
-}
-
-// calculateSum calculates the CRC32 checksum of the file.
-// If osFile is nil, it opens the file first. Otherwise, it uses the provided file handle.
-func (f *file) calculateSum(osFile *os.File) (string, error) {
-	if osFile == nil {
-		var err error
-		if osFile, err = os.OpenFile(f.path, os.O_RDONLY, os.ModeType); err != nil {
-			return "", err
-		}
-
-		defer func() {
-			_ = osFile.Close()
-		}()
-	}
-
-	if _, err := osFile.Seek(seekStart, seekStart); err != nil {
-		return "", err
-	}
-
-	h := crc32.NewIEEE()
-	if _, err := io.Copy(h, bufio.NewReader(osFile)); err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%x", h.Sum32()), nil
 }
 
 // newFiles creates a new files instance with an initialized map.

@@ -22,7 +22,8 @@ const defaultSecretsTimeout = 5 * time.Second
 const DefaultStructTagName = "yaml"
 
 // DefaultMaxConfigBytes caps how many bytes the loader will read from a
-// single configuration file. Without a cap, a symlink pointing to
+// single configuration file. The same cap bounds every !include target and
+// the document after include expansion. Without a cap, a symlink pointing to
 // `/dev/zero`, a multi-GB tmpfs file, or a malicious include target
 // could OOM the loader before the YAML parser ever rejected the input.
 //

@@ -169,6 +169,33 @@ func TestLoad_DirectoryOverlayKeepsDefaults(t *testing.T) {
 	require.Equal(t, 5, cfg.Ptr.Limit)
 }
 
+// A reload discovers the directory afresh: a file removed since the previous
+// load is neither opened nor applied.
+func TestLoad_DirectoryReloadDropsRemovedFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.yaml"), []byte("limit: 3\n"), 0o600))
+	overlay := filepath.Join(dir, "b.yaml")
+	require.NoError(t, os.WriteFile(overlay, []byte("name: overlay\n"), 0o600))
+
+	l := loader.New(nil, loader.WithPath(dir))
+
+	first := &explicitConfig{}
+	_, err := l.Load(first)
+	require.NoError(t, err)
+	require.Equal(t, 3, first.Limit)
+	require.Equal(t, "overlay", first.Name)
+
+	require.NoError(t, os.Remove(overlay))
+
+	second := &explicitConfig{}
+	_, err = l.Load(second)
+	require.NoError(t, err)
+	require.Equal(t, 3, second.Limit)
+	require.Equal(t, "svc", second.Name)
+}
+
 type tomlExplicitConfig struct {
 	Enabled bool `toml:"enabled" default:"true"`
 	Limit   int  `toml:"limit" default:"5"`
