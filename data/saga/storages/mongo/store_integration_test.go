@@ -171,7 +171,7 @@ func TestIntegrationFetchRecoverable(t *testing.T) {
 	finished.LeaseOwner, finished.LeaseUntil = "owner", past
 	require.NoError(t, s.Create(ctx, finished))
 
-	got, err := s.FetchRecoverable(ctx, now, 0)
+	got, err := s.FetchRecoverable(ctx, "", now, 0)
 	require.NoError(t, err)
 
 	ids := make(map[string]struct{}, len(got))

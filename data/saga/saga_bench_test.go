@@ -23,7 +23,7 @@ func (noopStore) Get(context.Context, string) (*saga.Instance, error) {
 	return nil, sagaerrs.ErrInstanceNotFound
 }
 func (noopStore) Update(context.Context, *saga.Instance) error { return nil }
-func (noopStore) FetchRecoverable(context.Context, time.Time, int) ([]*saga.Instance, error) {
+func (noopStore) FetchRecoverable(context.Context, string, time.Time, int) ([]*saga.Instance, error) {
 	return nil, nil
 }
 func (noopStore) Delete(context.Context, string) error { return nil }
