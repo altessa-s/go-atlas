@@ -111,6 +111,40 @@ func TestSignal_Shutdown(t *testing.T) {
 	require.NoError(t, s.Shutdown(ctx))
 }
 
+// A rejected nil-context Shutdown must leave the handler running, so a later
+// valid Shutdown still stops the listener and Wait returns.
+//
+// Serial, like the other tests here: signal.Notify registrations are
+// process-wide.
+func TestSignal_ShutdownNilContext_KeepsHandlerStoppable(t *testing.T) {
+	s := signals.New(
+		signals.WithSignals(syscall.SIGUSR1),
+		signals.WithShutdownTimeout(1*time.Second),
+	)
+	s.Start()
+
+	//nolint:staticcheck // SA1012: a nil context is the input under test.
+	require.Error(t, s.Shutdown(nil))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, s.Shutdown(ctx))
+
+	waited := make(chan struct{})
+	go func() {
+		s.Wait()
+		close(waited)
+	}()
+	require.Eventually(t, func() bool {
+		select {
+		case <-waited:
+			return true
+		default:
+			return false
+		}
+	}, 2*time.Second, 10*time.Millisecond, "Wait did not return: the listener is still running")
+}
+
 func TestSignal_ParallelMode(t *testing.T) {
 	s := signals.New(
 		signals.WithSignals(syscall.SIGUSR1),
