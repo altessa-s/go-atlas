@@ -120,7 +120,7 @@ func IsEmptyValue(v reflect.Value) bool {
 
 	// For non-nil *string, check if the string itself is empty (including whitespace)
 	if v.Kind() == reflect.Pointer && v.Type().Elem().Kind() == reflect.String {
-		if strPtr, ok := v.Interface().(*string); ok && strPtr != nil {
+		if strPtr, ok := reflect.TypeAssert[*string](v); ok && strPtr != nil {
 			return isStringEmptyOrWhitespace(*strPtr)
 		}
 	}

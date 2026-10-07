@@ -151,7 +151,7 @@ func (v *Value[T]) clearValueField() {
 	case reflect.Slice:
 		if val.Type().Elem().Kind() == reflect.Uint8 { // []byte
 			// Zero out byte slices
-			if slice, ok := val.Interface().([]byte); ok && slice != nil {
+			if slice, ok := reflect.TypeAssert[[]byte](val); ok && slice != nil {
 				corestrings.ZeroBytes(slice)
 			}
 			if val.CanSet() {

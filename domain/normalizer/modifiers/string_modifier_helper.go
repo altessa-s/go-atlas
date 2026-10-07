@@ -54,7 +54,7 @@ func applyToPointer(v reflect.Value, transformFunc StringTransformFunc) Modifier
 
 	// Handle *string
 	if v.Type().Elem().Kind() == reflect.String {
-		if strPtr, ok := v.Interface().(*string); ok && strPtr != nil {
+		if strPtr, ok := reflect.TypeAssert[*string](v); ok && strPtr != nil {
 			if *strPtr == "" {
 				return NewModifierResult(v, nil)
 			}

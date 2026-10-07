@@ -288,7 +288,7 @@ func (cf *Config) callDefaulter(v reflect.Value, p *presence) {
 	if !v.CanAddr() {
 		return
 	}
-	d, ok := v.Addr().Interface().(Defaulter)
+	d, ok := reflect.TypeAssert[Defaulter](v.Addr())
 	if !ok {
 		return
 	}
