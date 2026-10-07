@@ -28,10 +28,15 @@ import (
 const clickHouseFixtureTTL = 70 * 365 * 24 * time.Hour
 
 // openClickHouse connects to the ClickHouse of the docker stack, skipping when
-// it is unreachable.
-func openClickHouse(tb testing.TB) driver.Conn {
+// it is unreachable. settings become session defaults.
+func openClickHouse(tb testing.TB, settings ...clickhouse.Settings) driver.Conn {
 	tb.Helper()
+	var session clickhouse.Settings
+	if len(settings) > 0 {
+		session = settings[0]
+	}
 	conn, err := clickhouse.Open(&clickhouse.Options{
+		Settings: session,
 		Addr: []string{envOr("CLICKHOUSE_ADDR", "127.0.0.1:19001")},
 		Auth: clickhouse.Auth{
 			Database: envOr("CLICKHOUSE_DB", "default"),
@@ -77,6 +82,49 @@ func TestClickHouseHistoryContract(t *testing.T) {
 		store, _, _ := newClickHouseHistory(tb)
 		return store
 	})
+}
+
+// TestClickHouseHistoryDeleteIsSynchronous pins that DeleteHistory waits for
+// the delete whatever the session default: on a connection that defaults
+// lightweight_deletes_sync to 0 the rows are gone when the call returns, and
+// the server logged the statement with the setting at 2.
+func TestClickHouseHistoryDeleteIsSynchronous(t *testing.T) {
+	t.Parallel()
+	conn := openClickHouse(t, clickhouse.Settings{"lightweight_deletes_sync": 0})
+	table := sqlTableName(t, "history")
+	t.Cleanup(func() {
+		_ = conn.Exec(context.WithoutCancel(t.Context()), "DROP TABLE IF EXISTS `"+table+"`")
+	})
+	store, err := chstore.New(conn, chstore.WithTableName(table), chstore.WithTTL(0))
+	require.NoError(t, err)
+	ctx := t.Context()
+	require.NoError(t, store.EnsureSchema(ctx))
+	now := time.Now().Unix()
+	require.NoError(t, store.AddHistory(ctx, &scheduler.TaskHistory{ID: "h", TaskID: "sync", StartedAt: now - 1, EndedAt: now}))
+
+	require.NoError(t, store.DeleteHistory(ctx, "sync"))
+	for _, err := range store.History(ctx, "sync") {
+		require.NoError(t, err)
+		require.Fail(t, "the deleted rows must be hidden when DeleteHistory returns")
+	}
+
+	// A DELETE sent without the override is the control: the log records a
+	// setting only where it differs from the server default (2), so the
+	// control shows the session's 0 and DeleteHistory shows nothing.
+	require.NoError(t, conn.Exec(ctx, "DELETE FROM `"+table+"` WHERE `task_id` = 'control'"))
+	require.NoError(t, conn.Exec(ctx, "SYSTEM FLUSH LOGS"))
+	logged := func(taskID string) string {
+		t.Helper()
+		var sync string
+		require.NoError(t, conn.QueryRow(ctx,
+			"SELECT Settings['lightweight_deletes_sync'] FROM system.query_log "+
+				"WHERE type = 'QueryFinish' AND query_kind = 'Delete' AND has(tables, currentDatabase() || '.' || ?) "+
+				"AND position(query, ?) > 0 ORDER BY event_time_microseconds DESC LIMIT 1",
+			table, "'"+taskID+"'").Scan(&sync))
+		return sync
+	}
+	require.Equal(t, "0", logged("control"), "the session default must reach a DELETE without the override")
+	require.Empty(t, logged("sync"), "DeleteHistory must run with the synchronous default, not the session's 0")
 }
 
 // TestClickHouseHistoryTTL pins that retention is the table TTL: an entry that

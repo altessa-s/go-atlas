@@ -16,7 +16,7 @@ here. The caller owns the connection, typically opened with [`infrastructure/cli
 | `WithTableName` | `scheduler_history` | Table for execution history; a plain identifier                             |
 | `WithEngine`    | `MergeTree`         | Engine rendered by `SchemaDDL`; a MergeTree-family engine, literal params   |
 | `WithCluster`   | —                   | Adds `ON CLUSTER` to the DDL and to `DeleteHistory`; pair with Replicated\* |
-| `WithTTL`       | `168h`              | Table TTL after the end of a run — the retention                            |
+| `WithTTL`       | `168h`              | Table TTL after the end of a run; non-positive keeps history indefinitely   |
 
 Names are validated rather than escaped: anything else fails with `ErrInvalidIdentifier` or `ErrInvalidEngine`.
 
@@ -29,7 +29,7 @@ Names are validated rather than escaped: anything else fails with `ErrInvalidIde
 | `Storage.AddHistory`      | Asynchronous insert that waits for the flush                                        |
 | `Storage.History`         | One task's entries, `started_at DESC, id DESC`                                      |
 | `Storage.HistoryPaginated`| Keyset page on `(started_at, id)` with a CEL filter over `HistoryFilterFields`      |
-| `Storage.DeleteHistory`   | Lightweight `DELETE` of one task's entries; called by `Scheduler.Unregister`        |
+| `Storage.DeleteHistory`   | Lightweight `DELETE` with `lightweight_deletes_sync = 2` (ClickHouse 24.x); called by `Scheduler.Unregister` |
 | `Storage.CleanupHistory`  | No-op: the table TTL is the retention                                               |
 | `SchemaDDL(...)`          | The `CREATE TABLE IF NOT EXISTS` statement, for migrations                          |
 
