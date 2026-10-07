@@ -83,9 +83,7 @@ func (c *Denylist) Validate() error {
 			}
 			return nil
 		})),
-		// Filter.Validate has a pointer receiver, so ozzo's nested-struct
-		// check skips the value field — invoke it explicitly.
-		validation.Field(&c.Filter, validation.By(func(any) error { return c.Filter.Validate() })),
+		validationconfig.NestedField(&c.Filter),
 	)
 }
 

@@ -26,6 +26,7 @@ import (
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	clickhouseconfig "github.com/altessa-s/go-atlas/config/clickhouse"
 	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
@@ -107,6 +108,7 @@ var templateCases = map[string][]templateRoot{
 	"logger.yaml":                            {root[observabilityconfig.Logger]("logger")},
 	"meilisearch.yaml":                       {root[meilisearchconfig.Config]("meilisearch")},
 	"mongo.yaml":                             {root[mongoconfig.Config]("mongodb")},
+	"clickhouse.yaml":                        {root[clickhouseconfig.Config]("clickhouse")},
 	"nats.yaml":                              {root[natsconfig.Config]("nats")},
 	"node.yaml":                              {root[nodeconfig.Config]("node")},
 	"oauth2_client.yaml":                     {root[authconfig.OAuth2Client]("oauth2Client")},

@@ -5,18 +5,26 @@
 package factory_test
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/factory"
+	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
+	"github.com/altessa-s/go-atlas/data/keyset"
 
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
+	auditclickhouse "github.com/altessa-s/go-atlas/data/audit/storages/clickhouse"
 )
 
 // stubDispatcher stands in for an externally-owned dispatcher so a test can
@@ -192,4 +200,94 @@ func TestBuild_InjectedDispatcherIsNotShutDownByBuilder(t *testing.T) {
 		Actor:  audit.Actor{Type: audit.ActorTypeUser, ID: "user-1"},
 		Result: audit.Result{Status: audit.ResultStatusSuccess},
 	}))
+}
+
+func TestBuild_ClickHouseRequiresConn(t *testing.T) {
+	t.Parallel()
+
+	cfg := auditconfig.Config{
+		Enabled: true,
+		Storage: auditconfig.Storage{
+			Type:       auditconfig.StorageTypeClickHouse,
+			ClickHouse: &auditconfig.StorageClickHouse{TableName: "audit_events", Engine: "ReplacingMergeTree", MaxBatchSize: 1000},
+		},
+	}
+	_, err := factory.New(&cfg).BuildStorage()
+	require.ErrorIs(t, err, factory.ErrClickHouseConnRequired)
+}
+
+var errSchemaQuery = errors.New("schema query failed")
+
+// deadlineConn records whether the schema check ran under a deadline. The
+// embedded interface covers the methods the check never calls.
+type deadlineConn struct {
+	auditclickhouse.Conn
+	remaining time.Duration
+	deadline  bool
+}
+
+func (c *deadlineConn) Query(ctx context.Context, _ string, _ ...any) (driver.Rows, error) {
+	var deadline time.Time
+	deadline, c.deadline = ctx.Deadline()
+	c.remaining = time.Until(deadline)
+	return nil, errSchemaQuery
+}
+
+func clickHouseConfig() *auditconfig.Config {
+	return &auditconfig.Config{
+		Enabled: true,
+		Storage: auditconfig.Storage{
+			Type: auditconfig.StorageTypeClickHouse,
+			ClickHouse: &auditconfig.StorageClickHouse{
+				TableName: "audit_events", Engine: "ReplacingMergeTree", MaxBatchSize: 1000, DDLTimeout: time.Minute,
+			},
+		},
+	}
+}
+
+func TestBuildStorage_ClickHouseSchemaCheckIsBounded(t *testing.T) {
+	t.Parallel()
+
+	conn := &deadlineConn{}
+	_, err := factory.New(clickHouseConfig()).UseClickHouseConn(conn).BuildStorage()
+
+	require.ErrorIs(t, err, errSchemaQuery)
+	require.True(t, conn.deadline, "the startup schema check runs under a deadline")
+	require.InDelta(t, time.Minute, conn.remaining, float64(5*time.Second))
+}
+
+func TestBuildStorage_ClickHouseRejectsUnsafeTableName(t *testing.T) {
+	t.Parallel()
+
+	cfg := clickHouseConfig()
+	cfg.Storage.ClickHouse.TableName = "audit`; DROP TABLE audit_events; --"
+	_, err := factory.New(cfg).UseClickHouseConn(&deadlineConn{}).BuildStorage()
+
+	require.ErrorIs(t, err, auditclickhouse.ErrInvalidIdentifier)
+}
+
+func TestBuildPageTokens(t *testing.T) {
+	t.Parallel()
+
+	tokens, err := factory.New(&auditconfig.Config{}).BuildPageTokens()
+	require.NoError(t, err)
+	require.Nil(t, tokens, "no paging block disables page tokens")
+
+	key := redacted.RedactedString(strings.Repeat("k", 32))
+	cfg := auditconfig.Config{Paging: &auditconfig.Paging{SigningKey: key, TokenTTL: time.Hour}}
+	tokens, err = factory.New(&cfg).BuildPageTokens()
+	require.NoError(t, err)
+
+	storage := memory.New()
+	require.NoError(t, storage.StoreBatch(t.Context(), []*audit.Event{
+		{ID: "a", Timestamp: time.UnixMilli(1)}, {ID: "b", Timestamp: time.UnixMilli(2)},
+	}))
+	page, err := audit.FetchPage(t.Context(), storage, tokens, audit.Query{Limit: 1})
+	require.NoError(t, err)
+	require.NotEmpty(t, page.Next)
+
+	weak := auditconfig.Config{Paging: &auditconfig.Paging{SigningKey: "short"}}
+	_, err = factory.New(&weak).BuildPageTokens()
+	require.ErrorIs(t, err, keyset.ErrWeakKey)
+	require.Error(t, weak.Validate(), "the schema rejects a short signing key too")
 }

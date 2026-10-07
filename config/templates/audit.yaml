@@ -12,7 +12,7 @@
 #  # <object> Storage backend for audit events.
 #  storage:
 #    # <string> Storage backend type.
-#    # Supported values: memory, mongo
+#    # Supported values: memory, mongo, clickhouse
 #    # Default value: memory
 #    type: memory
 #
@@ -30,6 +30,72 @@
 #      # <duration> Time-to-live for audit events. Zero means no expiration.
 #      # Default value: 0s (disabled)
 #      ttl: "0s"
+#
+#    # <object> ClickHouse-specific storage configuration.
+#    # Required when type is "clickhouse". The connection comes from
+#    # infrastructure/clickhouse/factory (UseClickHouseConn).
+#    clickhouse:
+#      # <string> Table holding audit events.
+#      # Default value: audit_events
+#      tableName: audit_events
+#
+#      # <string> Table engine used when the table is created.
+#      # Default value: ReplacingMergeTree
+#      engine: ReplacingMergeTree
+#
+#      # <string> ON CLUSTER name for the table DDL; pair with a Replicated* engine.
+#      # Default value: not set
+#      cluster: ""
+#
+#      # <duration> Retention period; applied only when the table is created.
+#      # Default value: 0s (disabled)
+#      ttl: "0s"
+#
+#      # <int> Largest number of rows sent in a single INSERT.
+#      # Default value: 10000
+#      maxBatchSize: 10000
+#
+#      # <duration> Bound on each startup schema operation (create, migrate, check).
+#      # Default value: 30s
+#      ddlTimeout: "30s"
+#
+#      # <bool> Create the table on startup.
+#      # Default value: false
+#      autoCreateTable: false
+#
+#      # <bool> Read with FINAL to observe the deduplicated view.
+#      # Default value: false
+#      final: false
+#
+#      # <string> Reaction to a query without a time range.
+#      # Supported values: enforce, warn, disabled
+#      # Default value: warn
+#      timeRangeMode: warn
+#
+#      # <string> Reaction to a table that drifted from the expected schema.
+#      # Supported values: enforce, warn, disabled
+#      # Default value: warn
+#      schemaCheckMode: warn
+#
+#      # <string> Add missing columns and indexes at startup.
+#      # Supported values: off, additive
+#      # Default value: off
+#      schemaMigrationMode: "off"
+#
+#  # <object> Signed page tokens for querying events. Omit to return single pages.
+#  paging:
+#    # <string> Token signing key, at least 32 bytes, identical on every replica.
+#    # Default value: not set
+#    signingKey: "change-me-to-a-32-byte-or-longer-secret"
+#
+#    # <list[string]> Previous signing keys that still verify tokens after a rotation.
+#    # Default value: not set
+#    previousKeys:
+#      - "previous-32-byte-or-longer-signing-secret"
+#
+#    # <duration> How long a page token stays valid.
+#    # Default value: 24h
+#    tokenTTL: "24h"
 #
 #  # <duration> Maximum time to wait during graceful shutdown.
 #  # Default value: 30s
