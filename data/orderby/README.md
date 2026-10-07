@@ -60,8 +60,9 @@ semantics differ between backends, so flagging it at parse time gives one consis
 
 ### Nested paths
 
-Dotted field paths (`address.city`, `user.profile.name`) are accepted by the parser by default and emitted verbatim by all three translators —
-MongoDB, Meilisearch, and RediSearch all support them natively. Three knobs make working with nested schemas less verbose:
+Dotted field paths (`address.city`, `user.profile.name`) are accepted by the parser by default and emitted verbatim by the MongoDB,
+Meilisearch and RediSearch translators, which support them natively. The SQL translators read a dotted path as `table.column` and reject deeper
+ones; map nested fields onto columns there. Three knobs make working with nested schemas less verbose:
 
 ```go
 trans, err := mongo.NewTranslator(
@@ -125,6 +126,8 @@ cursor, err := col.Find(ctx, filter, options.Find().SetSort(sort))
 | [translators/mongo](./translators/mongo)             | `bson.D`                     | `NewTranslator(opts ...orderby.TranslatorOption)`        |
 | [translators/meili](./translators/meili)             | `[]string` (`field:asc`)     | `NewTranslator(opts ...orderby.TranslatorOption)`        |
 | [translators/redisearch](./translators/redisearch)   | `SortBy{Field, Descending}`  | `NewTranslator(opts ...orderby.TranslatorOption)`        |
+| [translators/postgres](./translators/postgres)       | `string` (`ORDER BY` body)   | `NewTranslator(opts ...orderby.TranslatorOption)`        |
+| [translators/mariadb](./translators/mariadb)         | `string` (`ORDER BY` body)   | `NewTranslator(opts ...orderby.TranslatorOption)`        |
 
 The MongoDB translator emits `bson.D` (not `bson.M`) because sort precedence is significant — the MongoDB driver respects insertion order only on
 ordered documents. RediSearch's `FT.SEARCH ... SORTBY` accepts a single field; multi-key inputs return `ErrTooManySortKeys`.
