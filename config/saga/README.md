@@ -16,6 +16,7 @@ factories, which map them to generated options; runtime packages never import th
 | `NATSStorageConfig`   | Configures the durable saga store backed by a NATS JetStream KeyValue bucket (data/saga/storages/nats). |
 | `MongoStorageConfig`  | Configures the durable saga store backed by a MongoDB collection (data/saga/storages/mongo).            |
 | `RedisStorageConfig`  | Configures the durable saga store backed by Redis (data/saga/storages/redis).                           |
+| `SQLStorageConfig`    | Configures the durable saga store backed by a SQL table (data/saga/storages/sqldb).                     |
 | `StorageConfig`       | Selects and configures the saga state-store backend.                                                    |
 | `Config`                    | Configures the saga orchestrator and its state store.                                                   |
 

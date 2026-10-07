@@ -139,6 +139,7 @@ flowchart LR
     Store --- Mongo[mongo]
     Store --- Redis[redis]
     Store --- Nats[nats KV]
+    Store --- SQL[sqldb]
     Orch -->|register recovery cycle| Sched[scheduler.TaskRegistrar]
     Orch -->|gate to leader| Leader[LeaderElector]
     Orch -->|on FAILED| DLQ[DeadLetterFunc]
@@ -147,8 +148,8 @@ flowchart LR
     App -->|Submit| Engine
 ```
 
-- **Store** — the one required dependency. Pick a backend by deployment: `memory` for a single node or tests, `mongo`/`redis`/`nats` for
-  durable multi-node setups. All four satisfy the same contract.
+- **Store** — the one required dependency. Pick a backend by deployment: `memory` for a single node or tests, `mongo`/`redis`/`nats`/`sqldb` for
+  durable multi-node setups. All five pass the same contract suite, [`storages/storagetest`](../../data/saga/storages/storagetest).
 - **Scheduler** — optional. With a recovery schedule it drives a background cycle that resumes stalled instances and auto-rolls-back
   timed-out pre-pivot ones. The factory's `Build` registers that cycle; with `saga.New` call `orch.RegisterRecovery(ctx)` yourself and handle
   its error — constructing the orchestrator registers nothing.
@@ -332,6 +333,7 @@ if err := orch.RunRecoveryCycle(ctx); err != nil {
 | `mongo`  | [`storages/mongo`](../../data/saga/storages/mongo)         | yes     | document `version`   | `(status, deadline)` compound index            | Query-capable; one document per instance.      |
 | `redis`  | [`storages/redis`](../../data/saga/storages/redis)         | yes     | hash field, Lua CAS  | sorted set scored by recover-eligibility time  | No auto-delete without a TTL — see retention.  |
 | `nats`   | [`storages/nats`](../../data/saga/storages/nats)           | yes     | KV revision          | full bucket scan                               | Bucket carries a long backstop TTL by default. File-backed; see its README for buckets created as memory by earlier releases. |
+| `sqldb`  | [`storages/sqldb`](../../data/saga/storages/sqldb)         | yes     | row `version`        | `(status, lease_until)`, `(status, deadline)` indexes | PostgreSQL, MySQL, MariaDB over a caller-owned `*sql.DB`; `EnsureSchema` or migrations. |
 
 All backends return the same sentinel errors from [`errs`](../../data/saga/errs) (`ErrInstanceNotFound`, `ErrInstanceExists`,
 `ErrVersionConflict`, …); match them with `errors.Is`.

@@ -11,5 +11,5 @@
 //
 // Key types: [StorageType], [MemoryStorageConfig],
 // [NATSStorageConfig], [MongoStorageConfig], [RedisStorageConfig],
-// [StorageConfig].
+// [SQLStorageConfig], [StorageConfig].
 package sagaconfig

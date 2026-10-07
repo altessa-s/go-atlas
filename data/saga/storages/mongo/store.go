@@ -121,6 +121,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		{Key: collectionFieldVersion, Value: inst.Version},
 	}
 	update := bson.D{{Key: "$set", Value: bson.D{
+		{Key: "definition", Value: doc.Definition},
 		{Key: collectionFieldStatus, Value: doc.Status},
 		{Key: "stage", Value: doc.Stage},
 		{Key: "pending_steps", Value: doc.PendingSteps},
@@ -128,6 +129,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		{Key: "lease_until", Value: doc.LeaseUntil},
 		{Key: "data", Value: doc.Data},
 		{Key: "steps", Value: doc.Steps},
+		{Key: "created_at", Value: doc.CreatedAt},
 		{Key: "updated_at", Value: doc.UpdatedAt},
 		{Key: collectionFieldDeadline, Value: doc.Deadline},
 		{Key: "last_error", Value: doc.LastError},
