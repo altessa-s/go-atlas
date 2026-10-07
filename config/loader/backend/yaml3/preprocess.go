@@ -7,6 +7,7 @@ package yaml3
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreio "github.com/altessa-s/go-atlas/core/io"
 )
 
 const (
@@ -25,14 +27,17 @@ const (
 var includeRegex = regexp.MustCompile(`^(\s*)` + regexp.QuoteMeta(includeDirective) + `\s+(.+)$`)
 
 // Preprocess performs YAML-specific pre-processing, such as handling !include directives.
-func (b *Backend) Preprocess(content, currentDir, rootDir string) (string, error) {
-	return processIncludes(content, currentDir, 0, map[string]bool{}, rootDir)
+// When maxBytes is positive, every included file and the expanded document are bounded
+// by it; exceeding the bound returns an error wrapping [coreio.ErrReadLimitExceeded].
+func (b *Backend) Preprocess(content, currentDir, rootDir string, maxBytes int64) (string, error) {
+	return processIncludes(content, currentDir, 0, map[string]bool{}, rootDir, maxBytes)
 }
 
 // processIncludes recursively processes !include directives in the given content.
 // It handles indentation and prevents infinite loops with a depth limit and visited map.
 // rootDir is used to prevent path traversal by ensuring all includes are within it.
-func processIncludes(content string, currentDir string, depth int, visited map[string]bool, rootDir string) (string, error) {
+// maxBytes, when positive, caps each include read and the expanded output.
+func processIncludes(content string, currentDir string, depth int, visited map[string]bool, rootDir string, maxBytes int64) (string, error) {
 	if depth >= maxIncludeDepth {
 		return "", fmt.Errorf("max include depth reached (%d)", maxIncludeDepth)
 	}
@@ -132,13 +137,13 @@ func processIncludes(content string, currentDir string, depth int, visited map[s
 			// checks and the actual read (TOCTOU defense — a symlink
 			// swap between checks could otherwise smuggle a different
 			// target through).
-			includedContent, err := os.ReadFile(realIncludePath)
+			includedContent, err := readInclude(realIncludePath, maxBytes)
 			if err != nil {
 				return "", coreerrs.WrapOperation(err, "read included file "+includePath)
 			}
 
 			// Recursively process includes in the included file
-			processedIncludedContent, err := processIncludes(string(includedContent), filepath.Dir(realIncludePath), depth+1, newVisited, rootDir)
+			processedIncludedContent, err := processIncludes(string(includedContent), filepath.Dir(realIncludePath), depth+1, newVisited, rootDir, maxBytes)
 			if err != nil {
 				return "", err
 			}
@@ -153,6 +158,12 @@ func processIncludes(content string, currentDir string, depth int, visited map[s
 			result.WriteString(line)
 			result.WriteString("\n")
 		}
+
+		// Repeated includes of individually small files can expand the
+		// document far beyond the size of any single file.
+		if maxBytes > 0 && int64(result.Len()) > maxBytes {
+			return "", coreerrs.Wrapf(coreio.ErrReadLimitExceeded, "expanded config exceeds %d bytes", maxBytes)
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -160,6 +171,22 @@ func processIncludes(content string, currentDir string, depth int, visited map[s
 	}
 
 	return result.String(), nil
+}
+
+// readInclude reads the include target, bounded by maxBytes when it is positive.
+func readInclude(path string, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 {
+		return os.ReadFile(path)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	limited := coreio.NewLimitedReadCloser(f, maxBytes)
+	defer func() { _ = limited.Close() }()
+
+	return io.ReadAll(limited)
 }
 
 // applyIndentation prepends the given indent to each line of the content,

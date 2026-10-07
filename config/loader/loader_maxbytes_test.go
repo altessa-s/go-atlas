@@ -44,6 +44,28 @@ func TestLoad_RespectsMaxConfigBytes(t *testing.T) {
 		"error chain must surface ErrReadLimitExceeded so callers can distinguish a size limit from a parse error")
 }
 
+// TestLoad_MaxConfigBytesBoundsIncludes guards the !include path: a tiny root
+// file must not inline an include target larger than the configured cap.
+func TestLoad_MaxConfigBytesBoundsIncludes(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	const cap = 1024
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "big.yaml"),
+		[]byte("filler: "+strings.Repeat("a", cap*4)+"\n"), 0o600))
+	configPath := filepath.Join(tmpDir, "root.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("appName: x\n!include big.yaml\n"), 0o600))
+
+	l := loader.New(nil,
+		loader.WithPath(configPath),
+		loader.WithMaxConfigBytes(cap),
+	)
+
+	_, err := l.Load(&TestConfig{})
+	require.Error(t, err, "oversized include must be rejected")
+	require.True(t, errors.Is(err, coreio.ErrReadLimitExceeded), "got %v", err)
+}
+
 // TestLoad_AcceptsConfigUnderCap pins the happy path so a too-tight
 // regression on the default cap would surface here as well.
 func TestLoad_AcceptsConfigUnderCap(t *testing.T) {
