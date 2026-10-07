@@ -61,8 +61,10 @@ server := grpc.NewServer(srvOpts...)
 
 ## Streaming
 
-The interceptor implements `PostMsgReceive` / `PostMsgSent` so the same per-method strip applies to every message in a streaming RPC. Method
-classification is computed once at stream start from `info.FullMethod` and reused for every frame.
+The interceptor strips every received message in `PostMsgReceive` and every outgoing message in `PreMsgSend`, before it reaches the transport.
+An outgoing message with populated INPUT_ONLY fields is stripped on a clone, so the handler's message is not mutated (the unary path still
+strips the returned response in place). Method classification is computed once at stream start from `info.FullMethod` and reused for every
+frame.
 
 ## Errors
 
