@@ -89,11 +89,10 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 	}
 	args := make([]any, 0, len(events)*columnsPerRow)
 	for _, e := range events {
-		row, err := s.rowArgs(e)
-		if err != nil {
+		var err error
+		if args, err = s.appendRow(args, e); err != nil {
 			return err
 		}
-		args = append(args, row...)
 	}
 
 	if len(events) <= s.opts.maxBatchRows {
@@ -106,10 +105,15 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 		return coreerrs.WrapOperation(err, "store audit events")
 	}
 	defer func() { _ = tx.Rollback() }()
+	full := s.insert(s.opts.maxBatchRows) // every chunk but possibly the last
 	for start := 0; start < len(events); start += s.opts.maxBatchRows {
 		n := min(s.opts.maxBatchRows, len(events)-start)
+		query := full
+		if n < s.opts.maxBatchRows {
+			query = s.insert(n)
+		}
 		chunk := args[start*columnsPerRow : (start+n)*columnsPerRow]
-		if _, err := tx.ExecContext(ctx, s.insert(n), chunk...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, chunk...); err != nil {
 			return coreerrs.WrapOperation(err, "store audit events")
 		}
 	}
@@ -137,8 +141,9 @@ func (s *Storage) insert(n int) string {
 	return b.String()
 }
 
-// rowArgs returns the bound values of one event in insert column order.
-func (s *Storage) rowArgs(e *audit.Event) ([]any, error) {
+// appendRow appends the bound values of one event, in insert column order, to
+// args.
+func (s *Storage) appendRow(args []any, e *audit.Event) ([]any, error) {
 	if n := utf8.RuneCountInString(e.ID); n > MaxIDLength {
 		return nil, fmt.Errorf("%w: event ID of %d characters, limit %d", ErrValueTooLong, n, MaxIDLength)
 	}
@@ -154,12 +159,12 @@ func (s *Storage) rowArgs(e *audit.Event) ([]any, error) {
 		return nil, coreerrs.WrapOperation(err, "encode audit event")
 	}
 	t := s.dialect.textArg
-	return []any{
+	return append(args,
 		t(e.ID), e.Timestamp.UnixMilli(),
 		t(string(e.Type)), t(string(e.Action)), t(e.Actor.ID), t(string(e.Actor.Type)), t(e.Resource.Type), t(e.Resource.ID),
 		t(string(e.Result.Status)), t(e.Context.RequestID), t(e.Context.TraceID),
-		t(string(payload)),
-	}, nil
+		s.dialect.jsonArg(payload),
+	), nil
 }
 
 // Query returns an iterator over the events matching the query, ordered by
@@ -191,7 +196,9 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 		}
 		defer func() { _ = rows.Close() }()
 		for rows.Next() {
-			var payload []byte
+			// The decoded event owns its data, so the driver's buffer is
+			// read in place rather than copied.
+			var payload sql.RawBytes
 			if err := rows.Scan(&payload); err != nil {
 				yield(nil, coreerrs.WrapOperation(err, "scan audit event"))
 				return
