@@ -71,6 +71,50 @@ func TestTranslators_BareLiteralIsNotAPredicate(t *testing.T) {
 	}
 }
 
+// TestTranslators_LiteralFieldIsRejected is a cross-backend regression for an
+// allow-list bypass: the MongoDB, Meilisearch, RediSearch and Lua translators
+// resolved a comparison's field side by visiting it and accepting any string,
+// so a string literal stood in for a field name without passing the
+// allow-list. With only `name` allowed, `"$where" == "return true"` became the
+// MongoDB document {"$where": "return true"}, and a Meilisearch field side
+// could carry its own `OR` clause. A field operand must be an identifier.
+//
+// The SQL translators are exempt: they bind both literals as parameters
+// (`$1 = $2`), a constant comparison that names no column.
+func TestTranslators_LiteralFieldIsRejected(t *testing.T) {
+	t.Parallel()
+
+	parser, err := filter.NewParser(filter.WithParserNoCache())
+	require.NoError(t, err)
+
+	expressions := map[string]string{
+		"disallowed field":    `"secret" == 1`,
+		"mongo operator":      `"$where" == "return true"`,
+		"meili clause":        `"name = 1 OR secret" == 1`,
+		"redisearch selector": `"name:x | @secret" == "y"`,
+		"membership":          `"secret" in ["a"]`,
+		"literal call target": `"secret".startsWith("a")`,
+	}
+
+	sqlBackends := map[string]bool{"postgres": true, "mariadb": true, "clickhouse": true}
+	for backendName, translate := range translatorBackends() {
+		if sqlBackends[backendName] {
+			continue
+		}
+		for exprName, expression := range expressions {
+			t.Run(backendName+"/"+exprName, func(t *testing.T) {
+				t.Parallel()
+
+				node, parseErr := parser.Parse(t.Context(), expression)
+				require.NoError(t, parseErr)
+
+				require.ErrorIs(t, translate(t, node), filter.ErrInvalidExpression,
+					"a string literal was accepted as a field reference")
+			})
+		}
+	}
+}
+
 // TestTranslators_CallWithoutTargetIsRejected is a regression for a remote
 // crash a fuzz target found: `contains()` — a call the parser accepts, with no
 // target — made the Meilisearch, Lua and RediSearch translators dereference a

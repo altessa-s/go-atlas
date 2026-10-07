@@ -222,12 +222,14 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return t.translateSizeComparison(op, call, right)
 	}
 
-	field, err := t.getFieldName(left)
-	if err != nil {
+	// Type-check first: a mirrored `"lit" == field` is a type mismatch, not
+	// a malformed field reference.
+	if err := t.config.CheckComparison(left, right); err != nil {
 		return nil, err
 	}
 
-	if err = t.config.CheckComparison(left, right); err != nil {
+	field, err := t.getFieldName(left)
+	if err != nil {
 		return nil, err
 	}
 
@@ -505,6 +507,9 @@ func (t *Translator) translateHas(target filter.Node) (bson.M, error) {
 func (t *Translator) getFieldName(node filter.Node) (string, error) {
 	if node == nil {
 		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "missing field reference")
+	}
+	if !filter.IsFieldReference(node) {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field reference, got %T", node)
 	}
 
 	result, err := node.Accept(t)
