@@ -5,6 +5,7 @@
 package mongo_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"iter"
@@ -18,6 +19,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/data/audit"
+	"github.com/altessa-s/go-atlas/data/audit/storages/internal/storagetest"
+	"github.com/altessa-s/go-atlas/data/keyset"
 
 	auditmongo "github.com/altessa-s/go-atlas/data/audit/storages/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -143,8 +146,15 @@ func TestIntegration_New_CreatesIndexes(t *testing.T) {
 	_, db := newIT(t)
 	indexes := listIndexes(t, db.Collection(auditmongo.DefaultCollectionName))
 
-	// _id_ plus the four indexes created by New.
-	require.Len(t, indexes, 5)
+	// _id_ plus the five indexes created by New.
+	require.Len(t, indexes, 6)
+
+	keyset, ok := indexes["timestamp_-1__id_-1"]
+	require.True(t, ok, "the keyset paging index must exist")
+	require.Equal(t, bson.D{
+		{Key: "timestamp", Value: int32(-1)},
+		{Key: "_id", Value: int32(-1)},
+	}, keyset.Key)
 
 	tsType, ok := indexes["timestamp_-1_type_1"]
 	require.True(t, ok, "timestamp+type index missing: %v", indexes)
@@ -181,7 +191,7 @@ func TestIntegration_New_TTLIndex(t *testing.T) {
 	_, db := newIT(t, auditmongo.WithTTL(24*time.Hour))
 	indexes := listIndexes(t, db.Collection(auditmongo.DefaultCollectionName))
 
-	require.Len(t, indexes, 6)
+	require.Len(t, indexes, 7)
 
 	ttl, ok := indexes["timestamp_1"]
 	require.True(t, ok, "TTL index missing: %v", indexes)
@@ -303,7 +313,7 @@ func TestIntegration_StoreBatch_CountAndFilters(t *testing.T) {
 	}
 }
 
-func TestIntegration_Query_SortLimitOffset(t *testing.T) {
+func TestIntegration_Query_SortLimitCursor(t *testing.T) {
 	t.Parallel()
 
 	storage, _ := newIT(t)
@@ -338,13 +348,13 @@ func TestIntegration_Query_SortLimitOffset(t *testing.T) {
 			want:  []string{"evt-3", "evt-2"},
 		},
 		{
-			name:  "offset",
-			query: &audit.Query{Offset: 1, SortOrder: audit.SortOrderAsc},
+			name:  "cursor ascending",
+			query: &audit.Query{Cursor: &audit.Cursor{Timestamp: base, ID: "evt-1"}, SortOrder: audit.SortOrderAsc},
 			want:  []string{"evt-2", "evt-3"},
 		},
 		{
-			name:  "limit and offset",
-			query: &audit.Query{Limit: 1, Offset: 1, SortOrder: audit.SortOrderAsc},
+			name:  "limit and cursor descending",
+			query: &audit.Query{Limit: 1, Cursor: &audit.Cursor{Timestamp: base.Add(2 * time.Second), ID: "evt-3"}},
 			want:  []string{"evt-2"},
 		},
 	}
@@ -378,4 +388,51 @@ func TestIntegration_Query_EarlyBreak(t *testing.T) {
 		break
 	}
 	require.Equal(t, 1, seen)
+}
+
+func TestIntegration_Conformance(t *testing.T) {
+	t.Parallel()
+	storagetest.Run(t, func(t *testing.T) audit.Storage {
+		s, _ := newIT(t)
+		return s
+	}, mongo.IsDuplicateKeyError)
+}
+
+// IDs are ordered bytewise, like the memory and ClickHouse storages do, even
+// when the collection's default collation orders them otherwise ("a" before
+// "B" under "en"), and paging returns every event once.
+func TestIntegration_PagingIgnoresCollectionCollation(t *testing.T) {
+	t.Parallel()
+
+	_, db := newIT(t)
+	ctx := t.Context()
+	const name = "audit_ci"
+	require.NoError(t, db.CreateCollection(ctx, name, mongoOptions.CreateCollection().
+		SetCollation(&mongoOptions.Collation{Locale: "en", Strength: 2})))
+
+	storage, err := auditmongo.New(db, auditmongo.WithCollectionName(name))
+	require.NoError(t, err)
+
+	at := time.UnixMilli(1_700_000_000_000)
+	require.NoError(t, storage.StoreBatch(ctx, []*audit.Event{
+		testEvent("a", "user-1", at),
+		testEvent("B", "user-1", at),
+	}))
+
+	codec, err := keyset.New(bytes.Repeat([]byte{3}, keyset.MinKeyLength))
+	require.NoError(t, err)
+	tokens := audit.NewPageTokens(codec)
+
+	var got []string
+	query := audit.Query{Limit: 1, SortOrder: audit.SortOrderAsc}
+	for range 3 {
+		page, err := audit.FetchPage(ctx, storage, tokens, query)
+		require.NoError(t, err)
+		got = append(got, eventIDs(page.Events)...)
+		if page.Next == "" {
+			break
+		}
+		query.After = page.Next
+	}
+	require.Equal(t, []string{"B", "a"}, got, "bytewise: 'B' (0x42) sorts before 'a' (0x61)")
 }

@@ -34,7 +34,7 @@ func FuzzStorage_Query(f *testing.F) {
 			ResourceType: resType,
 			Status:       audit.ResultStatus(status),
 			Limit:        limit,
-			Offset:       offset,
+			Cursor:       fuzzCursor(offset, actorID),
 		}
 
 		// Should not panic
@@ -42,4 +42,12 @@ func FuzzStorage_Query(f *testing.F) {
 		}
 		_, _ = s.Count(ctx, q)
 	})
+}
+
+// fuzzCursor turns fuzz input into an optional page position.
+func fuzzCursor(millis int, id string) *audit.Cursor {
+	if millis == 0 {
+		return nil
+	}
+	return &audit.Cursor{Timestamp: time.UnixMilli(int64(millis)), ID: id}
 }

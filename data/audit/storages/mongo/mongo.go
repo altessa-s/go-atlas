@@ -7,6 +7,7 @@ package mongo
 import (
 	"context"
 	"iter"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -77,8 +78,9 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 	return err
 }
 
-// Query returns an iterator over events matching the query, sorted by timestamp.
-// The default sort order is descending (newest first).
+// Query returns an iterator over events matching the query, ordered by
+// timestamp then ID, newest first unless ascending order is requested, and
+// starting after query.Cursor.
 func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audit.Event, error] {
 	return func(yield func(*audit.Event, error) bool) {
 		filter := buildFilter(query)
@@ -88,14 +90,19 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 			sortOrder = 1
 		}
 
+		if query.Cursor != nil {
+			filter = bson.D{{Key: "$and", Value: bson.A{filter, cursorFilter(query.Cursor, sortOrder)}}}
+		}
+
+		// (timestamp, _id) is the total order keyset pagination relies on.
+		// The simple collation compares IDs bytewise like the cursor
+		// predicate does, whatever collation the collection defaults to.
 		opts := mongoOptions.Find().
-			SetSort(bson.D{{Key: fieldTimestamp, Value: sortOrder}})
+			SetSort(bson.D{{Key: fieldTimestamp, Value: sortOrder}, {Key: "_id", Value: sortOrder}}).
+			SetCollation(simpleCollation())
 
 		if query.Limit > 0 {
 			opts.SetLimit(int64(query.Limit))
-		}
-		if query.Offset > 0 {
-			opts.SetSkip(int64(query.Offset))
 		}
 
 		cursor, err := s.collection.Find(ctx, filter, opts)
@@ -122,10 +129,11 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 	}
 }
 
-// Count returns the number of events matching the query criteria.
+// Count returns the number of events matching the query filter. The page
+// position, size and order are ignored.
 func (s *Storage) Count(ctx context.Context, query *audit.Query) (int64, error) {
 	filter := buildFilter(query)
-	count, err := s.collection.CountDocuments(ctx, filter)
+	count, err := s.collection.CountDocuments(ctx, filter, mongoOptions.Count().SetCollation(simpleCollation()))
 	if err != nil {
 		return 0, coreerrs.WrapOperation(err, "count audit events")
 	}
@@ -135,6 +143,32 @@ func (s *Storage) Count(ctx context.Context, query *audit.Query) (int64, error) 
 // Close is a no-op; the caller manages the underlying [mongo.Database] lifecycle.
 func (s *Storage) Close(_ context.Context) error {
 	return nil
+}
+
+// simpleCollation compares strings bytewise. Queries use it so that ordering
+// and equality do not depend on the collection's default collation: a
+// case-insensitive one would make distinct IDs compare equal and keyset
+// paging skip events.
+func simpleCollation() *mongoOptions.Collation {
+	return &mongoOptions.Collation{Locale: "simple"}
+}
+
+// cursorFilter selects the events strictly after c in the given order (1
+// ascending, -1 descending). BSON dates hold milliseconds, matching the
+// cursor's precision.
+func cursorFilter(c *audit.Cursor, order int) bson.D {
+	op := "$lt"
+	if order > 0 {
+		op = "$gt"
+	}
+	ts := time.UnixMilli(c.Timestamp.UnixMilli()).UTC()
+	return bson.D{{Key: "$or", Value: bson.A{
+		bson.D{{Key: fieldTimestamp, Value: bson.D{{Key: op, Value: ts}}}},
+		bson.D{
+			{Key: fieldTimestamp, Value: ts},
+			{Key: "_id", Value: bson.D{{Key: op, Value: c.ID}}},
+		},
+	}}}
 }
 
 func buildFilter(q *audit.Query) bson.D {
