@@ -209,3 +209,41 @@ func TestMemory_Complete_StolenLock(t *testing.T) {
 	require.Equal(t, "b-lock", string(existing),
 		"stolen Complete must not overwrite the new holder's value")
 }
+
+// TestMemory_ExpiredEntryIsNotRevived guards the lazy-expiration gap: an
+// expired entry stays in the map until cleanup, and Complete and Steal must
+// treat it as gone rather than overwrite it with a fresh TTL.
+func TestMemory_ExpiredEntryIsNotRevived(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		call func(t *testing.T, s *Storage, token []byte) error
+	}{
+		{"complete", func(t *testing.T, s *Storage, token []byte) error {
+			return s.Complete(t.Context(), "k", []byte("done"), token)
+		}},
+		{"steal", func(t *testing.T, s *Storage, token []byte) error {
+			_, err := s.Steal(t.Context(), "k", token, []byte("stolen"))
+			return err
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := New(WithTTL(time.Hour))
+			ok, _, token, err := s.AttemptLock(t.Context(), "k", []byte("lock"))
+			require.NoError(t, err)
+			require.True(t, ok)
+
+			// Expire the entry without running cleanup.
+			s.mu.Lock()
+			s.entries["k"].expiresAt = time.Now().Add(-time.Second)
+			s.mu.Unlock()
+
+			require.ErrorIs(t, tc.call(t, s, token), storages.ErrLockStolen)
+			s.mu.RLock()
+			defer s.mu.RUnlock()
+			require.Equal(t, "lock", string(s.entries["k"].value), "the expired entry must not be overwritten")
+		})
+	}
+}

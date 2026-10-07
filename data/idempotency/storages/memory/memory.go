@@ -20,8 +20,13 @@ import (
 type entry struct {
 	key       string
 	value     []byte
-	createdAt time.Time
 	expiresAt time.Time
+}
+
+// expired reports whether e's TTL has elapsed at now. Expiration is lazy, so
+// an expired entry can still sit in the map until the next cleanup.
+func (e *entry) expired(now time.Time) bool {
+	return !e.expiresAt.IsZero() && !now.Before(e.expiresAt)
 }
 
 // Storage is an in-memory idempotency key store with TTL support.
@@ -99,9 +104,8 @@ func (s *Storage) AttemptLockWithTTL(_ context.Context, key string, val []byte, 
 
 	now := time.Now()
 	e := &entry{
-		key:       key,
-		value:     val,
-		createdAt: now,
+		key:   key,
+		value: val,
 	}
 
 	if ttl > 0 {
@@ -130,9 +134,10 @@ func (s *Storage) Complete(_ context.Context, key string, val []byte, lockToken 
 	defer s.mu.Unlock()
 
 	e, exists := s.entries[key]
-	if !exists {
-		// Key gone — TTL expired between AttemptLock and Complete, or
-		// someone Delete'd. Either way the lock isn't ours anymore.
+	if !exists || e.expired(time.Now()) {
+		// Key gone or expired — TTL elapsed between AttemptLock and
+		// Complete, or someone Delete'd. Either way the lock isn't ours
+		// anymore, and an expired entry must not be revived.
 		return storages.ErrLockStolen
 	}
 	if lockToken != nil && !bytes.Equal(e.value, lockToken) {
@@ -160,7 +165,7 @@ func (s *Storage) Steal(_ context.Context, key string, expectedVal, newVal []byt
 	defer s.mu.Unlock()
 
 	e, exists := s.entries[key]
-	if !exists {
+	if !exists || e.expired(time.Now()) {
 		return nil, storages.ErrLockStolen
 	}
 	if !bytes.Equal(e.value, expectedVal) {
@@ -203,7 +208,7 @@ func (s *Storage) Release(_ context.Context, key string, lockToken []byte) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[key]
-	if !ok || !bytes.Equal(e.value, lockToken) || (!e.expiresAt.IsZero() && !time.Now().Before(e.expiresAt)) {
+	if !ok || !bytes.Equal(e.value, lockToken) || e.expired(time.Now()) {
 		return storages.ErrLockStolen
 	}
 	delete(s.entries, key)
