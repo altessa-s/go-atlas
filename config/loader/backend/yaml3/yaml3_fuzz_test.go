@@ -61,7 +61,7 @@ func FuzzPreprocessNeverReadsOutsideTheRoot(f *testing.F) {
 		_ = os.Symlink(outside, filepath.Join(root, "link.yaml"))
 
 		backend := &yaml3.Backend{}
-		out, err := backend.Preprocess(content, root, root)
+		out, err := backend.Preprocess(content, root, root, 0)
 		if err != nil {
 			require.Empty(t, out, "a rejected document must not also produce output")
 			return

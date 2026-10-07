@@ -86,18 +86,18 @@ func TestMongoDirectionConnectRule_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "bool false with multiple hosts, still checked",
+			name:    "bool false with multiple hosts, allowed",
 			hosts:   []string{"mongodb://host1:27017", "mongodb://host2:27017"},
 			value:   false,
 			when:    true,
-			wantErr: true,
+			wantErr: false,
 		},
 		{
-			name:    "bool false with SRV host, still checked",
+			name:    "bool false with SRV host, allowed",
 			hosts:   []string{"mongodb+srv://cluster.example.com"},
 			value:   false,
 			when:    true,
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 

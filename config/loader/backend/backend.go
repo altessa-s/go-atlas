@@ -40,7 +40,9 @@ type Preprocessor interface {
 	// Preprocess performs pre-processing on the provided content.
 	// currentDir is the directory of the file being processed.
 	// rootDir is the root directory for security checks.
-	Preprocess(content, currentDir, rootDir string) (string, error)
+	// maxBytes, when positive, bounds every file the preprocessor reads and
+	// the size of the returned content.
+	Preprocess(content, currentDir, rootDir string, maxBytes int64) (string, error)
 }
 
 // StrictDecoder is implemented by a backend that can reject document keys

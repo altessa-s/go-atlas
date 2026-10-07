@@ -419,7 +419,11 @@ func (e *Expander) walkMap(ctx context.Context, v reflect.Value, path string) er
 				if err != nil {
 					return coreerrs.WrapOperation(err, "expand secret at "+elemPath)
 				}
-				v.SetMapIndex(key, reflect.ValueOf(expanded))
+				// Build the value with the map's element type so a defined
+				// string type (type Credential string) stays assignable.
+				typed := reflect.New(val.Type()).Elem()
+				typed.SetString(expanded)
+				v.SetMapIndex(key, typed)
 			}
 		} else if val.Kind() == reflect.Pointer || val.Kind() == reflect.Struct ||
 			val.Kind() == reflect.Slice || val.Kind() == reflect.Map {
