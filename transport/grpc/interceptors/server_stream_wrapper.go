@@ -19,16 +19,21 @@ type ServerStreamWrapper struct {
 	d   driver.Driver
 }
 
-// NewServerWrappedStream creates stream with custom context.
-// Updates in-place if already wrapped to avoid nesting.
+// NewServerWrappedStream creates stream with custom context. An existing
+// wrapper is reused, its context updated in place, when d is nil or the
+// wrapper has no driver yet (d is adopted); otherwise a new wrapper is nested
+// so that every driver in the interceptor chain receives its stream hooks.
 //
 // Example:
 //
 //	stream = interceptors.NewServerWrappedStream(ctx, stream)
 //	return handler(srv, stream)
 func NewServerWrappedStream(ctx context.Context, stream grpc.ServerStream, d driver.Driver) *ServerStreamWrapper {
-	if e, ok := stream.(*ServerStreamWrapper); ok {
+	if e, ok := stream.(*ServerStreamWrapper); ok && (d == nil || e.d == nil) {
 		e.ctx = ctx
+		if d != nil {
+			e.d = d
+		}
 		return e
 	}
 	return &ServerStreamWrapper{ServerStream: stream, ctx: ctx, d: d}
@@ -39,12 +44,17 @@ func (w *ServerStreamWrapper) Context() context.Context {
 	return w.ctx
 }
 
-// SendMsg sends message and notifies driver via PostMsgSent.
+// SendMsg runs the driver's PreMsgSend hook, sends the message it returns and
+// notifies the driver via PostMsgSent.
 func (w *ServerStreamWrapper) SendMsg(m any) error {
-	if w.d != nil {
-		if ds, ok := w.d.(driver.DriverStream); ok {
-			return ds.PostMsgSent(w.ctx, m, w.ServerStream.SendMsg(m))
+	if ps, ok := w.d.(driver.DriverStreamPreSend); ok {
+		var err error
+		if m, err = ps.PreMsgSend(w.ctx, m); err != nil {
+			return err
 		}
+	}
+	if ds, ok := w.d.(driver.DriverStream); ok {
+		return ds.PostMsgSent(w.ctx, m, w.ServerStream.SendMsg(m))
 	}
 	return w.ServerStream.SendMsg(m)
 }

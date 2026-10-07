@@ -28,12 +28,16 @@ type ClientStreamWrapper struct {
 }
 
 // NewClientStreamWrapper returns a [ClientStreamWrapper] that delegates
-// streaming operations to d. If stream is already a *ClientStreamWrapper
-// its context is updated in place and the existing wrapper is reused,
-// avoiding unnecessary nesting.
+// streaming operations to d. An existing *ClientStreamWrapper is reused, its
+// context updated in place, when d is nil or the wrapper has no driver yet
+// (d is adopted); otherwise a new wrapper is nested so that every driver
+// receives its stream hooks.
 func NewClientStreamWrapper(ctx context.Context, stream grpc.ClientStream, d driver.Driver) *ClientStreamWrapper {
-	if e, ok := stream.(*ClientStreamWrapper); ok {
+	if e, ok := stream.(*ClientStreamWrapper); ok && (d == nil || e.d == nil) {
 		e.ctx = ctx
+		if d != nil {
+			e.d = d
+		}
 		return e
 	}
 	return &ClientStreamWrapper{ClientStream: stream, ctx: ctx, d: d}
@@ -44,8 +48,15 @@ func (w *ClientStreamWrapper) Context() context.Context {
 	return w.ctx
 }
 
-// SendMsg sends message and notifies driver via PostMsgSent.
+// SendMsg runs the driver's PreMsgSend hook, sends the message it returns and
+// notifies the driver via PostMsgSent.
 func (w *ClientStreamWrapper) SendMsg(m any) error {
+	if ps, ok := w.d.(driver.DriverStreamPreSend); ok {
+		var err error
+		if m, err = ps.PreMsgSend(w.ctx, m); err != nil {
+			return err
+		}
+	}
 	if ds, ok := w.d.(driver.DriverStream); ok {
 		return ds.PostMsgSent(w.ctx, m, w.ClientStream.SendMsg(m))
 	}
@@ -63,5 +74,8 @@ func (w *ClientStreamWrapper) RecvMsg(m any) error {
 // CloseSend closes send direction and calls PostCall.
 func (w *ClientStreamWrapper) CloseSend() error {
 	err := w.ClientStream.CloseSend()
+	if w.d == nil {
+		return err
+	}
 	return w.d.PostCall(w.ctx, nil, err)
 }

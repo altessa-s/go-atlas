@@ -41,6 +41,21 @@ type DriverStream interface {
 	PostMsgSent(ctx context.Context, resp any, err error) error
 }
 
+// DriverStreamPreSend is an optional streaming hook called before a message is
+// handed to the transport. It returns the message to send, which may be a
+// transformed copy, so a driver can sanitize an outgoing message without
+// mutating the caller's. A non-nil error aborts the send: the message is not
+// sent and the post-send hook of the same wrapper is not called.
+//
+// On a server, pre-send hooks of nested stream wrappers run from the
+// innermost interceptor (closest to the handler) outwards and post-send hooks
+// in the reverse order. On a client, wrappers are applied as the streamer
+// returns, so pre-send hooks run from the outermost interceptor inwards and
+// post-send hooks in the reverse order.
+type DriverStreamPreSend interface {
+	PreMsgSend(ctx context.Context, m any) (any, error)
+}
+
 // DrivenInterceptor provides metadata access and lifecycle hooks via Driver.
 // It is the entry point for implementing the Driven Interceptor pattern.
 //

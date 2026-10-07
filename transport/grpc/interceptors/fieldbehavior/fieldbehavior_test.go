@@ -11,11 +11,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	pbfieldbehavior "github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
@@ -237,4 +239,98 @@ func TestServerInterceptor_MaxDepthExceededOnRequest(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.True(t, errors.Is(err, pbfieldbehavior.ErrMaxDepthExceeded), "expected wrapped ErrMaxDepthExceeded, got %v", err)
+}
+
+// chainStream is a minimal grpc.ServerStream: it serves recv on RecvMsg and
+// records the messages handed to the transport on SendMsg.
+type chainStream struct {
+	grpc.ServerStream
+	ctx  context.Context
+	recv proto.Message
+	sent []proto.Message
+}
+
+func (s *chainStream) Context() context.Context { return s.ctx }
+func (s *chainStream) SendMsg(m any) error {
+	msg, _ := m.(proto.Message)
+	s.sent = append(s.sent, proto.Clone(msg)) // snapshot what goes on the wire
+	return nil
+}
+func (s *chainStream) RecvMsg(m any) error {
+	msg, _ := m.(proto.Message)
+	proto.Merge(msg, s.recv)
+	return nil
+}
+
+// runStream runs the fieldbehavior stream interceptor behind wrappers that
+// earlier interceptors put on the stream in the default server chain: one
+// without a driver (auth, realip, requestid, tracing) and one with another
+// driver (the driven metadata interceptor).
+func runStream(t *testing.T, method string, handler grpc.StreamHandler) *chainStream {
+	t.Helper()
+
+	base := &chainStream{ctx: t.Context(), recv: fullResource()}
+	var ss grpc.ServerStream = interceptors.NewServerWrappedStream(t.Context(), base, nil)
+	ss = interceptors.NewServerWrappedStream(t.Context(), ss, interceptors.NoopDriver())
+
+	stream := fieldbehavior.ServerInterceptor().ServerStreamInterceptor()
+	info := &grpc.StreamServerInfo{FullMethod: method, IsServerStream: true, IsClientStream: true}
+	require.NoError(t, stream(nil, ss, info, handler))
+
+	return base
+}
+
+// Streamed responses are stripped before they reach the transport, even
+// behind earlier wrappers, and the handler's message is left intact.
+func TestServerStreamInterceptor_StripsResponseBeforeSend(t *testing.T) {
+	t.Parallel()
+
+	resp := fullResource()
+	base := runStream(t, "/x.v1.X/GetResource", func(_ any, ss grpc.ServerStream) error {
+		return ss.SendMsg(resp)
+	})
+
+	require.Len(t, base.sent, 1)
+	sent, ok := base.sent[0].(*pb.Resource)
+	require.True(t, ok)
+	require.Empty(t, sent.GetPassword(), "INPUT_ONLY must not reach the wire")
+	require.Equal(t, "my-resource", sent.GetName())
+	require.Equal(t, "secret", resp.GetPassword(), "the handler's message must not be mutated")
+}
+
+// Streamed requests are stripped on receive behind earlier wrappers.
+func TestServerStreamInterceptor_StripsRequestOnReceive(t *testing.T) {
+	t.Parallel()
+
+	var got pb.Resource
+	runStream(t, "/x.v1.X/CreateResource", func(_ any, ss grpc.ServerStream) error {
+		return ss.RecvMsg(&got)
+	})
+
+	require.Empty(t, got.GetCreateTime(), "OUTPUT_ONLY must be cleared on a streamed Create")
+	require.Equal(t, "my-resource", got.GetName())
+}
+
+// A streamed response deeper than the strip depth is rejected with Internal
+// before it is cloned or sent.
+func TestServerStreamInterceptor_DepthLimitRejectsBeforeSend(t *testing.T) {
+	t.Parallel()
+
+	base := &chainStream{ctx: t.Context(), recv: fullResource()}
+	var ss grpc.ServerStream = interceptors.NewServerWrappedStream(t.Context(), base, nil)
+
+	stream := fieldbehavior.ServerInterceptor(fieldbehavior.WithMaxStripDepth(0)).ServerStreamInterceptor()
+	info := &grpc.StreamServerInfo{FullMethod: "/x.v1.X/GetResource", IsServerStream: true}
+
+	resp := fullResource()
+	resp.Profile = &pb.Profile{DisplayName: "dn", Secret: "nested-secret"}
+	var sendErr error
+	require.NoError(t, stream(nil, ss, info, func(_ any, s grpc.ServerStream) error {
+		sendErr = s.SendMsg(resp)
+		return nil
+	}))
+
+	require.Equal(t, codes.Internal, status.Code(sendErr))
+	require.ErrorIs(t, sendErr, pbfieldbehavior.ErrMaxDepthExceeded)
+	require.Empty(t, base.sent, "a rejected message must not reach the transport")
 }

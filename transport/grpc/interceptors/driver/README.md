@@ -13,6 +13,7 @@ signatures by delegating to a request-scoped `Driver` with PreCall/PostCall hook
 |----------------------|------------------------------------------------------------------------------|
 | `Driver`             | Request-scoped lifecycle hooks: PreCall (before handler) and PostCall (after) |
 | `DriverStream`       | Extends Driver with PostMsgReceive and PostMsgSent for streaming RPCs        |
+| `DriverStreamPreSend` | Optional PreMsgSend hook before a message reaches the transport; may replace it or abort the send |
 | `DrivenInterceptor`  | Entry point: returns a request-scoped Driver and modified context             |
 | `StreamType`         | Identifies streaming direction: None, Client, Server, Bidi                   |
 
