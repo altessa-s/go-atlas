@@ -9,7 +9,7 @@
 #  # Each backend has its own nested section; only the one named by 'type' is used.
 #  storage:
 #    # <string> Storage backend type.
-#    # Supported values: memory, nats, mongo, redis
+#    # Supported values: memory, nats, mongo, redis, sqldb
 #    # Default value: memory
 #    type: memory
 #
@@ -62,6 +62,25 @@
 #      # <duration> Per-key expiry applied on every write; zero persists forever.
 #      # Default value: 0s (persist)
 #      ttl: "0s"
+#
+#    # <object> SQL storage configuration (data/saga/storages/sqldb).
+#    # The *sql.DB is injected into the factory (UseSQLDB); the application
+#    # chooses and registers the driver.
+#    # Used when type is set to 'sqldb'.
+#    sqldb:
+#      # <string> SQL flavor.
+#      # Supported values: postgres (PostgreSQL 12+), mysql (MySQL 8.0+ and MariaDB 10.6+)
+#      # Default value: postgres
+#      dialect: postgres
+#
+#      # <string> Table that stores saga instances, optionally schema-qualified.
+#      # Default value: saga_instances
+#      table: saga_instances
+#
+#      # <bool> Create the table and its indexes while building the orchestrator.
+#      # Leave false when the schema is applied through migrations.
+#      # Default value: false
+#      ensureSchema: false
 #
 #  # <duration> Per-step timeout for a single action or compensation invocation.
 #  # Default value: 30s

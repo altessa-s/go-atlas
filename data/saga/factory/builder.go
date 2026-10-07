@@ -6,8 +6,10 @@ package factory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -23,6 +25,7 @@ import (
 	mongostore "github.com/altessa-s/go-atlas/data/saga/storages/mongo"
 	natsstore "github.com/altessa-s/go-atlas/data/saga/storages/nats"
 	redisstore "github.com/altessa-s/go-atlas/data/saga/storages/redis"
+	sqlstore "github.com/altessa-s/go-atlas/data/saga/storages/sqldb"
 	goredis "github.com/redis/go-redis/v9"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -30,7 +33,8 @@ import (
 // Builder assembles a [saga.Orchestrator] from a [sagaconfig.Config] and injected
 // backend clients, using a fluent API. Create instances with [New]. The state
 // store is selected by sagaconfig.Config.Storage.Type; the matching client must be
-// injected (UseJetStream / UseMongoDatabase / UseRedisClient) or Build fails.
+// injected (UseJetStream / UseMongoDatabase / UseRedisClient / UseSQLDB) or
+// Build fails.
 //
 // The builder is generic over the saga's shared data type T so it can return a
 // fully typed orchestrator. It is not safe for concurrent use.
@@ -44,6 +48,7 @@ type Builder[T any] struct {
 	js          jetstream.JetStream
 	mongoDB     *mongodriver.Database
 	redisClient goredis.UniversalClient
+	sqlDB       *sql.DB
 
 	// Optional orchestrator dependencies.
 	collector     metrics.Collector
@@ -125,9 +130,34 @@ func (b *Builder[T]) buildStore() (saga.Storage, error) {
 			redisstore.WithKeyPrefix(storage.Redis.KeysPrefix),
 			redisstore.WithTTL(storage.Redis.TTL),
 		), nil
+	case sagaconfig.StorageTypeSQL:
+		if err := b.RequireDependency(b.sqlDB, "SQL database"); err != nil {
+			return nil, err
+		}
+		return b.buildSQLStore(storage.SQL)
 	default:
 		return nil, fmt.Errorf("unsupported saga storage type %q", storage.Type)
 	}
+}
+
+// ensureSchemaTimeout bounds the schema creation buildSQLStore runs when the
+// config asks for it, so a lock wait cannot stall startup indefinitely.
+const ensureSchemaTimeout = 30 * time.Second
+
+// buildSQLStore creates the SQL store. With EnsureSchema set it creates the
+// table through the store's idempotent EnsureSchema; otherwise it performs no
+// I/O and the schema is expected to exist.
+func (b *Builder[T]) buildSQLStore(cfg *sagaconfig.SQLStorageConfig) (*sqlstore.Store, error) {
+	store, err := sqlstore.New(b.sqlDB, sqlstore.Dialect(cfg.Dialect), sqlstore.WithTableName(cfg.Table))
+	if err != nil || !cfg.EnsureSchema {
+		return store, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ensureSchemaTimeout)
+	defer cancel()
+	if err := store.EnsureSchema(ctx); err != nil {
+		return nil, b.WrapError(err, "ensure saga schema")
+	}
+	return store, nil
 }
 
 // orchestratorOptions translates the config and injected dependencies into

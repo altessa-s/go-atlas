@@ -43,6 +43,17 @@ const (
 	StorageTypeMongo StorageType = "mongo"
 	// StorageTypeRedis persists instances in Redis (hash + recovery index).
 	StorageTypeRedis StorageType = "redis"
+	// StorageTypeSQL persists instances in a SQL table (PostgreSQL, MySQL or
+	// MariaDB) through an injected *sql.DB.
+	StorageTypeSQL StorageType = "sqldb"
+)
+
+// SQL dialects accepted by [SQLStorageConfig.Dialect].
+const (
+	// SQLDialectPostgres targets PostgreSQL 12+.
+	SQLDialectPostgres = "postgres"
+	// SQLDialectMySQL targets MySQL 8.0+ and MariaDB 10.6+.
+	SQLDialectMySQL = "mysql"
 )
 
 var sagaStorageAllowedTypes = []StorageType{
@@ -50,6 +61,7 @@ var sagaStorageAllowedTypes = []StorageType{
 	StorageTypeNATS,
 	StorageTypeMongo,
 	StorageTypeRedis,
+	StorageTypeSQL,
 }
 
 // MemoryStorageConfig configures the in-process saga store
@@ -120,10 +132,35 @@ func (c *RedisStorageConfig) Validate() error {
 	)
 }
 
+// SQLStorageConfig configures the durable saga store backed by a SQL table
+// (data/saga/storages/sqldb). The *sql.DB itself is injected into the factory;
+// the caller chooses and registers the driver.
+type SQLStorageConfig struct {
+	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0+ and
+	// MariaDB 10.6+).
+	Dialect string `yaml:"dialect" default:"postgres"`
+	// Table is the table that stores saga instances, optionally
+	// schema-qualified.
+	Table string `yaml:"table" default:"saga_instances"`
+	// EnsureSchema makes the factory create the table and its indexes while
+	// building the orchestrator, through the store's idempotent EnsureSchema.
+	// Leave it false when the schema is applied through migrations.
+	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
+}
+
+// Validate performs validation of the SQL saga storage configuration.
+func (c *SQLStorageConfig) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
+		validation.Field(&c.Table, validation.Required),
+	)
+}
+
 // StorageConfig selects and configures the saga state-store backend. Each
 // backend has its own nested section; only the one named by Type is used.
 type StorageConfig struct {
-	// Type defines the storage backend type (memory, nats, mongo, or redis).
+	// Type defines the storage backend type (memory, nats, mongo, redis, or
+	// sqldb).
 	Type StorageType `yaml:"type" default:"memory"`
 
 	// Memory defines the in-memory configuration.
@@ -141,6 +178,10 @@ type StorageConfig struct {
 	// Redis defines the Redis configuration.
 	// Required when Type is StorageTypeRedis, ignored otherwise.
 	Redis *RedisStorageConfig `yaml:"redis" default:"-"`
+
+	// SQL defines the SQL database configuration.
+	// Required when Type is StorageTypeSQL, ignored otherwise.
+	SQL *SQLStorageConfig `yaml:"sqldb" default:"-"`
 }
 
 // DefaultStorage returns the default saga storage configuration (in-memory).
@@ -172,6 +213,10 @@ func (c *StorageConfig) Normalize() {
 		if c.Redis == nil {
 			c.Redis = &RedisStorageConfig{}
 		}
+	case StorageTypeSQL:
+		if c.SQL == nil {
+			c.SQL = &SQLStorageConfig{}
+		}
 	}
 }
 
@@ -181,6 +226,7 @@ func (c *StorageConfig) storageCases() []validationconfig.StorageCase[StorageTyp
 		{When: StorageTypeNATS, Field: &c.NATS},
 		{When: StorageTypeMongo, Field: &c.Mongo},
 		{When: StorageTypeRedis, Field: &c.Redis},
+		{When: StorageTypeSQL, Field: &c.SQL},
 	}
 }
 
