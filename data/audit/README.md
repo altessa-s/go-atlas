@@ -82,7 +82,7 @@ page, err := audit.FetchPage(ctx, storage, tokens, audit.Query{ActorID: "u1", Li
 - `Count` counts every event matching the filter; the page position, size and order are ignored.
 - `Query.Offset` was removed: offset paging skipped or repeated events under concurrent inserts and scanned the skipped rows.
 
-Every backend runs the shared conformance suite in `storages/internal/storagetest`.
+Every backend runs the shared conformance suite in [`storages/storagetest`](./storages/storagetest).
 
 ## Usage
 
@@ -120,3 +120,5 @@ auditor.NewEvent(audit.EventTypeDataChange, audit.ActionUpdate).
 | [storages/memory](./storages/memory)       | In-memory backend for dev/test    |
 | [storages/mongo](./storages/mongo)         | MongoDB-backed persistent storage |
 | [storages/clickhouse](./storages/clickhouse) | ClickHouse storage with schema drift checks |
+| [storages/sqldb](./storages/sqldb)         | PostgreSQL, MySQL, MariaDB storage |
+| [storages/storagetest](./storages/storagetest) | Conformance suite every storage runs |

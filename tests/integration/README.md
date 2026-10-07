@@ -9,6 +9,7 @@ tests/integration/
 ├── filterit/              # data/filter: shared corpus + one adapter per backend
 ├── leadelectit/           # data/leadelect: multi-node election against a live broker
 ├── dlockit/               # data/locks/dlock: contended locking against a live broker and SQL servers
+├── auditit/               # data/audit: storage conformance, atomic and idempotent batches on SQL servers
 ├── outboxit/              # data/outbox: transactional delivery against a live MongoDB
 ├── sagait/                # data/saga: storage contracts on SQL, Mongo and Redis + orchestrator over SQL
 └── schedulerit/           # service/scheduler: end-to-end scenarios + storage contracts on Mongo, Redis and SQL
@@ -236,6 +237,13 @@ probe events until one comes back through the handler, then clears the recording
 
 The third surfaced only because the Docker VM's clock sat ~40 ms behind the host's. That is the ordinary condition on a developer machine, and a
 badly synced production host is off by far more; the store now stamps `published_at` with `$$NOW`, the same clock the sweep compares against.
+
+## auditit — audit storage against live SQL servers
+
+The conformance suite from [`data/audit/storages/storagetest`](../../data/audit/storages/storagetest) — `(timestamp millisecond, ID)` order,
+page boundaries, continuation under inserts, `Count`, time ranges, replays and page-token bindings — runs against the SQL storage on PostgreSQL,
+MariaDB and MySQL, each contract over its own table. A batch split into several INSERTs is replayed without duplicating events, and a batch whose
+last INSERT the server rejects leaves no row behind.
 
 ## schedulerit — the scheduler against live storages
 

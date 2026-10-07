@@ -20,6 +20,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/audit/factory"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
 	"github.com/altessa-s/go-atlas/data/keyset"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
@@ -290,4 +291,41 @@ func TestBuildPageTokens(t *testing.T) {
 	_, err = factory.New(&weak).BuildPageTokens()
 	require.ErrorIs(t, err, keyset.ErrWeakKey)
 	require.Error(t, weak.Validate(), "the schema rejects a short signing key too")
+}
+
+func sqlConfig(ensureSchema bool) *auditconfig.Config {
+	return &auditconfig.Config{
+		Enabled: true,
+		Storage: auditconfig.Storage{
+			Type: auditconfig.StorageTypeSQL,
+			SQL: &auditconfig.StorageSQL{Dialect: auditconfig.SQLDialectMySQL, TableName: "app.audit", MaxBatchRows: 100,
+				EnsureSchema: ensureSchema},
+		},
+	}
+}
+
+func TestBuildStorage_SQLRequiresDatabase(t *testing.T) {
+	t.Parallel()
+	_, err := factory.New(sqlConfig(false)).BuildStorage()
+	require.ErrorIs(t, err, factory.ErrSQLDBRequired)
+}
+
+func TestBuildStorage_SQL(t *testing.T) {
+	t.Parallel()
+	for _, ensure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "no_schema", true: "ensure_schema"}[ensure], func(t *testing.T) {
+			t.Parallel()
+			db, fake := testhelpers.NewFakeSQL(t, nil)
+			storage, err := factory.New(sqlConfig(ensure)).UseSQLDB(db).BuildStorage()
+			require.NoError(t, err)
+			require.NotNil(t, storage)
+			var ddl int
+			for _, c := range fake.Calls() {
+				if strings.Contains(c.Query, "CREATE TABLE IF NOT EXISTS `app`.`audit`") {
+					ddl++
+				}
+			}
+			require.Equal(t, map[bool]int{false: 0, true: 1}[ensure], ddl)
+		})
+	}
 }
