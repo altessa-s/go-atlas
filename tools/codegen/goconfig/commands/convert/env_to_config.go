@@ -97,99 +97,88 @@ func (conv *EnvToConfigConverter) Convert(fromPath, toPath, format string) error
 	}
 
 	// Build config structure
-	configData := conv.buildConfigStructure(envVars)
+	configData, err := conv.buildConfigStructure(envVars)
+	if err != nil {
+		return err
+	}
 
 	return writeConfigFile(toPath, format, configData)
 }
 
 // buildConfigStructure builds nested config structure from flat env variables.
-func (conv *EnvToConfigConverter) buildConfigStructure(envVars map[string]string) map[string]any {
+func (conv *EnvToConfigConverter) buildConfigStructure(envVars map[string]string) (map[string]any, error) {
 	result := make(map[string]any)
 
 	for key, value := range envVars {
-		conv.setNestedValue(result, key, value)
+		if err := conv.setNestedValue(result, key, value); err != nil {
+			return nil, err
+		}
 	}
 
-	return result
+	return result, nil
 }
 
 // setNestedValue sets a value in nested map structure based on key path.
-func (conv *EnvToConfigConverter) setNestedValue(data map[string]any, key, value string) {
+// A purely numeric part following a field is an index into that field's
+// array: SERVERS__0__HOST sets servers[0].host, and PORTS__0 sets ports[0].
+func (conv *EnvToConfigConverter) setNestedValue(data map[string]any, key, value string) error {
 	// Split by __ (section delimiter) and . (array index)
 	parts := conv.splitKey(key)
 	if len(parts) == 0 {
-		return
+		return nil
 	}
 
 	current := data
-	for i, part := range parts[:len(parts)-1] {
+	for i := 0; i < len(parts); {
 		// Convert SCREAMING_SNAKE_CASE to camelCase
-		fieldName := corestrings.ScreamingSnakeToCamelCase(part)
+		fieldName := corestrings.ScreamingSnakeToCamelCase(parts[i])
 
-		// Check if next part is array index
-		if i+1 < len(parts) {
-			nextPart := parts[i+1]
-			if idx, parseErr := strconv.Atoi(nextPart); parseErr == nil {
-				// Next is array index
-				if _, exists := current[fieldName]; !exists {
-					current[fieldName] = make([]any, 0)
-				}
+		if i == len(parts)-1 {
+			current[fieldName] = conv.parseValue(value)
+			return nil
+		}
 
-				// Ensure it's a slice
-				slice, ok := current[fieldName].([]any)
-				if !ok {
-					slice = make([]any, 0)
-					current[fieldName] = slice
-				}
-
-				// Extend slice if needed
-				for len(slice) <= idx {
-					slice = append(slice, make(map[string]any))
-				}
-				current[fieldName] = slice
-
-				// Move to the array element
-				if element, ok := slice[idx].(map[string]any); ok {
-					current = element
-				} else {
-					newMap := make(map[string]any)
-					slice[idx] = newMap
-					current[fieldName] = slice
-					current = newMap
-				}
-
-				continue
+		idx, parseErr := strconv.Atoi(parts[i+1])
+		if parseErr != nil {
+			// Regular nested field: move to (or create) the nested map.
+			nestedMap, ok := current[fieldName].(map[string]any)
+			if !ok {
+				nestedMap = make(map[string]any)
+				current[fieldName] = nestedMap
 			}
-		}
-
-		// Regular nested field
-		if _, exists := current[fieldName]; !exists {
-			current[fieldName] = make(map[string]any)
-		}
-
-		// Move to nested map
-		if nestedMap, ok := current[fieldName].(map[string]any); ok {
 			current = nestedMap
-		} else {
-			// Create new map if current value is not a map
-			newMap := make(map[string]any)
-			current[fieldName] = newMap
-			current = newMap
+			i++
+			continue
 		}
+
+		if idx < 0 {
+			return fmt.Errorf("invalid array index %q in key %q", parts[i+1], key)
+		}
+
+		// The next part is an array index: extend the slice to cover it.
+		slice, _ := current[fieldName].([]any)
+		for len(slice) <= idx {
+			slice = append(slice, make(map[string]any))
+		}
+		current[fieldName] = slice
+
+		// A trailing index sets the array element itself.
+		if i+1 == len(parts)-1 {
+			slice[idx] = conv.parseValue(value)
+			return nil
+		}
+
+		// Move to the array element, consuming both the field and the index.
+		element, ok := slice[idx].(map[string]any)
+		if !ok {
+			element = make(map[string]any)
+			slice[idx] = element
+		}
+		current = element
+		i += 2
 	}
 
-	// Set the final value
-	lastPart := parts[len(parts)-1]
-
-	// Check if it's an array index
-	if idx, err := strconv.Atoi(lastPart); err == nil {
-		// This shouldn't happen in normal cases, but handle it
-		_ = idx
-		return
-	}
-
-	fieldName := corestrings.ScreamingSnakeToCamelCase(lastPart)
-	current[fieldName] = conv.parseValue(value)
+	return nil
 }
 
 // splitKey splits environment variable key into parts.
