@@ -5,6 +5,7 @@
 package sqldb_test
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
 	"regexp"
@@ -186,4 +187,37 @@ func TestProbe(t *testing.T) {
 	require.Error(t, l.Probe(t.Context()))
 	_, err = l.Lock(t.Context(), "k")
 	require.Error(t, err)
+}
+
+// TestMySQLRenewLocksRowFirst pins that a MySQL renewal locks the row and
+// only then compares the clock, in one transaction: UTC_TIMESTAMP is fixed
+// when a statement starts, so a renewal that waited for the row lock must not
+// read the clock in the statement that waited.
+func TestMySQLRenewLocksRowFirst(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, func(query string, _ []any) testhelpers.FakeSQLReply {
+		switch {
+		case strings.HasPrefix(query, "SELECT fencing"):
+			return testhelpers.FakeSQLReply{Columns: []string{"fencing"}, Rows: [][]driver.Value{{int64(1)}}}
+		case strings.HasPrefix(query, "SELECT 1"):
+			return testhelpers.FakeSQLReply{Columns: []string{"1"}, Rows: [][]driver.Value{{int64(1)}}}
+		}
+		return testhelpers.FakeSQLReply{Affected: 1}
+	})
+	l, err := sqldb.New(db, sqldb.DialectMySQL, sqldb.WithTTL(60*time.Millisecond))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close(context.Background()) })
+	_, err = l.Lock(t.Context(), "k")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		calls := fake.Calls()
+		for i, c := range calls {
+			if strings.Contains(c.Query, "SET renewed_at") {
+				prev := calls[i-1]
+				return c.InTx && prev.InTx && strings.HasSuffix(prev.Query, "FOR UPDATE")
+			}
+		}
+		return false
+	}, 2*time.Second, 5*time.Millisecond, "the renewal must follow a row lock in its transaction")
 }

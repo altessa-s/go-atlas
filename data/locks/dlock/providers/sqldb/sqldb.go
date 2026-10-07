@@ -74,9 +74,9 @@ type Locker struct {
 
 // statements are the fixed queries, rendered once for the dialect.
 type statements struct {
-	acquire, ensure, take, fencing string
-	read, readOwned                string
-	renew, release, releaseOwner   string
+	acquire, ensure, take, fencing, lockRow string
+	read, readOwned                         string
+	renew, release, releaseOwner            string
 }
 
 var (
@@ -147,6 +147,12 @@ func (l *Locker) buildStatements() statements {
 		// when nobody took it over.
 		renew: b("UPDATE "+t+" SET renewed_at = "+now+", expires_at = "+now+" + ?"+
 			" WHERE lock_key = ? AND owner = ? AND fencing = ?"+unexpired, 1),
+		// A renewal that waits for the row lock must not compare the clock it
+		// read before waiting: MySQL fixes UTC_TIMESTAMP when a statement
+		// starts, and PostgreSQL rechecks an UPDATE's condition after a lock
+		// wait only when the row changed meanwhile. Renewal therefore locks
+		// the row first and reads the clock in the next statement.
+		lockRow:      b("SELECT 1 FROM "+t+" WHERE lock_key = ? FOR UPDATE", 1),
 		release:      b("UPDATE "+t+" SET owner = '', expires_at = "+now+" WHERE lock_key = ? AND owner = ? AND fencing = ?", 1),
 		releaseOwner: b("UPDATE "+t+" SET owner = '', expires_at = "+now+" WHERE lock_key = ? AND owner = ?", 1),
 	}
@@ -542,13 +548,7 @@ func (lk *lock) renewLoop(lockCtx, renewCtx context.Context, leaseStart time.Tim
 func (lk *lock) renew(ctx context.Context) (renewed, keep bool) {
 	opCtx, cancel := context.WithTimeout(ctx, lk.locker.opts.operationsTimeout)
 	defer cancel()
-	d := lk.locker.dialect
-	res, err := lk.locker.db.ExecContext(opCtx, lk.locker.stmts.renew, lk.locker.opts.ttl.Microseconds(),
-		d.textArg(lk.key), d.textArg(lk.owner), lk.fencing)
-	var n int64
-	if err == nil {
-		n, err = res.RowsAffected()
-	}
+	n, err := lk.renewStmt(opCtx)
 	if err != nil {
 		if ctx.Err() == nil {
 			lk.locker.opts.logger.WarnContext(ctx, "failed to renew lock", slog.Any("error", err), slog.String("key", lk.key))
@@ -560,6 +560,35 @@ func (lk *lock) renew(ctx context.Context) (renewed, keep bool) {
 		return false, false
 	}
 	return true, true
+}
+
+// renewStmt runs the conditional renewal and returns the rows it changed. It
+// runs after locking the row in the same transaction, so the clock it
+// compares against is read after any lock wait.
+func (lk *lock) renewStmt(ctx context.Context) (int64, error) {
+	l, d := lk.locker, lk.locker.dialect
+	args := []any{l.opts.ttl.Microseconds(), d.textArg(lk.key), d.textArg(lk.owner), lk.fencing}
+	tx, err := l.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, l.stmts.lockRow, d.textArg(lk.key))
+	if err != nil {
+		return 0, err
+	}
+	if err = rows.Close(); err != nil {
+		return 0, err
+	}
+	res, err := tx.ExecContext(ctx, l.stmts.renew, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return n, tx.Commit()
 }
 
 // lose records that the lease ended without a release and unregisters the
