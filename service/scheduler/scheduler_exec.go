@@ -578,9 +578,10 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	// its in-flight tasks stuck in TaskStatusRunning, to be resurrected later
 	// by stale recovery with a bogus failure count. WithoutCancel detaches
 	// them; the storage timeout keeps them bounded, and Stop still waits for
-	// them because the goroutine has not returned yet.
-	recCtx, recCancel := s.storageCtx(context.WithoutCancel(ctx))
-	defer recCancel()
+	// them because the goroutine has not returned yet. History is recorded
+	// first, under a deadline of its own, so a slow history backend cannot
+	// spend the deadline of the state writes that follow.
+	detached := context.WithoutCancel(ctx)
 
 	// Record history unless disabled
 	if !state.DisableHistory {
@@ -598,12 +599,17 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 			history.Error = execErr.Error()
 		}
 
-		if histErr := s.storage.AddHistory(recCtx, history); histErr != nil {
-			s.logger.ErrorContext(recCtx, "failed to record task history",
+		histCtx, histCancel := s.storageCtx(detached)
+		if histErr := s.history.AddHistory(histCtx, history); histErr != nil {
+			s.logger.ErrorContext(histCtx, "failed to record task history",
 				slog.String("task_id", state.ID),
 				slog.Any("error", histErr))
 		}
+		histCancel()
 	}
+
+	recCtx, recCancel := s.storageCtx(detached)
+	defer recCancel()
 
 	// Re-read fresh state to minimize race with concurrent updates (e.g., Pause, SetInterval)
 	freshState, err := s.storage.GetTask(recCtx, state.ID)
@@ -685,7 +691,7 @@ func (s *Scheduler) cleanup() {
 	ctx, cancel := s.storageCtx(s.stopCtx)
 	defer cancel()
 
-	if err := s.storage.CleanupHistory(ctx, s.opts.historyRetention); err != nil {
+	if err := s.history.CleanupHistory(ctx, s.opts.historyRetention); err != nil {
 		s.logger.ErrorContext(ctx, "failed to cleanup history", slog.Any("error", err))
 	}
 }

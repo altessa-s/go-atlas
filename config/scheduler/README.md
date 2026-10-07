@@ -22,6 +22,9 @@ factories, which map them to generated options; runtime packages never import th
 | `StorageMemoryConfig` | Contains in-memory storage settings for the scheduler.                                       |
 | `StorageSQLConfig`    | Contains SQL-specific settings for the scheduler storage (service/scheduler/storages/sqldb). |
 | `StorageConfig`       | Configures the scheduler storage backend.                                                    |
+| `HistoryStorageType`      | Defines the backend of a history storage kept apart from the task state.                 |
+| `HistoryClickHouseConfig` | Contains ClickHouse settings for the history storage (service/scheduler/storages/clickhouse). |
+| `HistoryStorageConfig`    | Moves execution history out of the task storage (`historyStorage`; nil keeps it there).   |
 | `Config`                    | Configures the task scheduler service.                                                       |
 
 See the [config index](../README.md) for the other schema packages.

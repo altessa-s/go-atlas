@@ -15,6 +15,11 @@
 //   - MongoDB -- requires a [mongo.Database] supplied via [SchedulerBuilder.UseMongoDb].
 //   - Redis -- requires a [redis.UniversalClient] supplied via [SchedulerBuilder.UseRedisClient].
 //
+// The historyStorage section moves execution history to a backend of its own:
+//
+//   - ClickHouse -- requires a connection supplied via
+//     [SchedulerBuilder.UseClickHouseConn].
+//
 // # Usage
 //
 //	sched, err := factory.New(cfg).
