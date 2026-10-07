@@ -123,11 +123,10 @@ func WithSerializer(v Serializer) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		cacheDecision:       DefaultSuccessOnlyDecision(DefaultTTL),
 		cacheHeadersEnabled: true,
 		cacheTTL:            DefaultTTL,
 		ignorePatterns:      defaults.IgnorePatterns,
-		keyGenerator:        DefaultKeyGenerator,
+		keyGenerator:        newDefaultKeyGenerator(),
 		logger:              slog.New(slog.DiscardHandler),
 		methods:             make(map[string]*MethodConfig),
 		serializer:          NewDefaultSerializer(nil),

@@ -105,6 +105,18 @@ func BenchmarkDefaultKeyGenerator(b *testing.B) {
 	}
 }
 
+// BenchmarkInterceptorKeyGenerator measures the interceptor's default
+// generator, built once at construction; compare with
+// BenchmarkDefaultKeyGenerator, which rebuilds the key set per call.
+func BenchmarkInterceptorKeyGenerator(b *testing.B) {
+	gen := newDefaultKeyGenerator()
+	ctx := b.Context()
+	b.ReportAllocs()
+	for b.Loop() {
+		gen(ctx, "/svc/Get", "req") //nolint:errcheck
+	}
+}
+
 // BenchmarkDefaultSuccessOnlyDecision measures the per-response caching
 // decision on the success path.
 func BenchmarkDefaultSuccessOnlyDecision(b *testing.B) {

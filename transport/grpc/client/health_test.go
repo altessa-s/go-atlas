@@ -6,6 +6,7 @@ package client
 
 import (
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,4 +180,53 @@ func TestClientCloseStopsWatcher(t *testing.T) {
 	require.NoError(t, c.Close(t.Context()))
 	// Subsequent close on the helper is a noop.
 	c.health.detach()
+}
+
+// TestClientConcurrentCloseWithHealth releases several Close calls at once
+// against a client with health integration. Before detach was guarded by a
+// sync.Once the callers raced on the teardown fields and could invoke a
+// cleared cancel func (nil-func panic); run under -race.
+func TestClientConcurrentCloseWithHealth(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		pool bool
+	}{
+		{name: "single", pool: false},
+		{name: "pool", pool: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			coord := health.New()
+			t.Cleanup(coord.Close)
+
+			opts := []Option{WithInsecure(), WithHealthCoordinator(coord)}
+			if tc.pool {
+				p := pool.New(pool.WithCleanupInterval(50 * time.Millisecond))
+				stop, err := p.Start(t.Context())
+				require.NoError(t, err)
+				t.Cleanup(stop)
+				opts = append(opts, WithPool(p))
+			}
+
+			c, err := New(t.Context(), unreachableTarget, opts...)
+			require.NoError(t, err)
+
+			const callers = 8
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for range callers {
+				wg.Go(func() {
+					<-start
+					_ = c.Close(t.Context())
+				})
+			}
+			close(start)
+			wg.Wait()
+
+			require.Nil(t, c.health.cancel)
+			require.Nil(t, c.health.poolUnsub)
+		})
+	}
 }
