@@ -10,6 +10,8 @@ to translate.
 | [mongo](mongo) | `bson.D`                     | `nil`             | Ordered document — Mongo respects insertion order on `bson.D` only    |
 | [meili](meili) | `[]string` (`"field:asc"`)   | `nil`             | Mirrors `data/filter/translators/meili`                               |
 | [redisearch](redisearch) | `SortBy{Field, Descending}` | `SortBy{}` (`Field == ""`) | `FT.SEARCH ... SORTBY` accepts a single field; multi-key input is rejected |
+| [postgres](postgres) | `string` (`"col" DESC, …`) | `""` | `ORDER BY` body; mapped names must be column identifiers |
+| [mariadb](mariadb) | `string` (`` `col` DESC, … ``) | `""` | Same for MariaDB and MySQL |
 
 Empty-input outputs are deliberately uniform where the Go type allows: slice-returning translators (Mongo, Meili) yield `nil`, so the call site
 can use a single `if sort != nil { … }` check across both. RediSearch returns a value-type `SortBy` (no `nil`), and callers test
