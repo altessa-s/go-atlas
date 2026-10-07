@@ -328,3 +328,57 @@ func TestStorage_Steal_EmptyKey(t *testing.T) {
 	_, err := storage.Steal(t.Context(), "", []byte("any"), []byte("fresh"))
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
+
+// TestStorage_CompleteAndSteal_SameCAS pins that Complete and Steal share one
+// compare-and-set: both succeed on a matching value and report ErrLockStolen
+// on a mismatched, missing, or expired key, leaving the stored value intact.
+func TestStorage_CompleteAndSteal_SameCAS(t *testing.T) {
+	t.Parallel()
+	ops := map[string]func(t *testing.T, s *idempredis.Storage, expected []byte) error{
+		"complete": func(t *testing.T, s *idempredis.Storage, expected []byte) error {
+			return s.Complete(t.Context(), "k", []byte("new"), expected)
+		},
+		"steal": func(t *testing.T, s *idempredis.Storage, expected []byte) error {
+			token, err := s.Steal(t.Context(), "k", expected, []byte("new"))
+			if err == nil {
+				require.Equal(t, []byte("new"), token)
+			}
+			return err
+		},
+	}
+	cases := []struct {
+		name     string
+		lock     bool
+		expire   bool
+		expected []byte
+		wantErr  error
+		want     string
+	}{
+		{name: "matching", lock: true, expected: []byte("held"), want: "new"},
+		{name: "mismatched", lock: true, expected: []byte("other"), wantErr: storages.ErrLockStolen, want: "held"},
+		{name: "missing", expected: []byte("held"), wantErr: storages.ErrLockStolen},
+		{name: "expired", lock: true, expire: true, expected: []byte("held"), wantErr: storages.ErrLockStolen},
+	}
+	for opName, op := range ops {
+		for _, tc := range cases {
+			t.Run(opName+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+				client, mr := testhelpers.RedisClient(t)
+				s := idempredis.New(client, idempredis.WithTTL(time.Minute))
+				if tc.lock {
+					ok, _, _, err := s.AttemptLock(t.Context(), "k", []byte("held"))
+					require.NoError(t, err)
+					require.True(t, ok)
+				}
+				if tc.expire {
+					mr.FastForward(2 * time.Minute)
+				}
+
+				require.ErrorIs(t, op(t, s, tc.expected), tc.wantErr)
+				_, existing, _, err := s.AttemptLock(t.Context(), "k", []byte("probe"))
+				require.NoError(t, err)
+				require.Equal(t, tc.want, string(existing))
+			})
+		}
+	}
+}

@@ -277,13 +277,17 @@ func (i *Keeper) resolveMaxLockDuration(opts AttemptLockOpts) time.Duration {
 // Complete marks the key as successfully processed. The lockState
 // must be the *State returned by [Keeper.AttemptLock] — its embedded
 // CAS token gates the write. An empty key returns [ErrEmptyKey];
-// a nil lockState returns [ErrMissingLockState]; a stolen lock
-// returns [ErrLockStolen].
+// a nil lockState, or one without a lock token (such as the state
+// AttemptLock returns when the lock was not acquired), returns
+// [ErrMissingLockState]; a stolen lock returns [ErrLockStolen].
 func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *storages.State) error {
 	if key == "" {
 		return ErrEmptyKey
 	}
-	if lockState == nil {
+	// A tokenless state must never reach storage: backends treat a nil
+	// token as an unconditional overwrite, which would let a caller denied
+	// the lock replace the owner's state.
+	if len(lockState.LockToken()) == 0 {
 		return ErrMissingLockState
 	}
 
