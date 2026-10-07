@@ -20,7 +20,7 @@ func BenchmarkReadAndHashFile(b *testing.B) {
 
 	b.ResetTimer()
 	for b.Loop() {
-		_, _, _ = readAndHashFileWithCache(path, nil)
+		_, _, _ = readAndHashFile(path)
 	}
 }
 

@@ -108,7 +108,7 @@ func benchmarkReadAndHashFile(b *testing.B, size int) {
 	b.SetBytes(int64(size))
 	b.ResetTimer()
 	for b.Loop() {
-		_, _, _ = readAndHashFileWithCache(path, nil)
+		_, _, _ = readAndHashFile(path)
 	}
 }
 

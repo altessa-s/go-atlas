@@ -6,6 +6,7 @@ package fieldtracker_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -186,4 +187,81 @@ func TestTracker_Options(t *testing.T) {
 		changed2 := tr2.GetChangedFields(before, after)
 		require.Equal(t, []string{"l1.l2.val"}, changed2)
 	})
+}
+
+func TestTracker_InterfaceDynamicTypeChange(t *testing.T) {
+	t.Parallel()
+
+	type A struct {
+		X int `json:"x"`
+	}
+	type B struct {
+		Name string `json:"name"`
+		X    int    `json:"x"`
+	}
+	type S struct {
+		V any            `json:"v"`
+		M map[string]any `json:"m"`
+	}
+
+	tests := []struct {
+		name          string
+		before, after S
+		want          []string
+	}{
+		{"int to string", S{V: 1}, S{V: "x"}, []string{"v"}},
+		{"struct to other struct", S{V: A{X: 1}}, S{V: B{Name: "n", X: 1}}, []string{"v"}},
+		{"same type value change", S{V: 1}, S{V: 2}, []string{"v"}},
+		{"same type same value", S{V: 1}, S{V: 1}, nil},
+		{"map value int to string", S{M: map[string]any{"k": 1}}, S{M: map[string]any{"k": "x"}}, []string{"m[k]"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got []string
+			require.NotPanics(t, func() {
+				got = fieldtracker.GetChangedFields(&tc.before, &tc.after)
+			})
+			if tc.want == nil {
+				require.Empty(t, got)
+				return
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestTracker_SliceOfOpaqueStructs(t *testing.T) {
+	t.Parallel()
+
+	type Item struct {
+		Name string `json:"name"`
+	}
+	type S struct {
+		T     []time.Time `json:"t"`
+		Items []Item      `json:"items"`
+	}
+
+	tests := []struct {
+		name          string
+		before, after S
+		want          []string
+	}{
+		{"time element changed", S{T: []time.Time{time.Unix(1, 0)}}, S{T: []time.Time{time.Unix(2, 0)}}, []string{"t[0]"}},
+		{"time element unchanged", S{T: []time.Time{time.Unix(1, 0)}}, S{T: []time.Time{time.Unix(1, 0)}}, nil},
+		{"trackable element field changed", S{Items: []Item{{Name: "a"}}}, S{Items: []Item{{Name: "b"}}}, []string{"items[0].name"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := fieldtracker.GetChangedFields(&tc.before, &tc.after)
+			if tc.want == nil {
+				require.Empty(t, got)
+				return
+			}
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
