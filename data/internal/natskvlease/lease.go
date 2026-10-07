@@ -129,6 +129,12 @@ type Lease struct {
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
 
+	// releaseGuard (a one-slot semaphore, so waiting honors a context)
+	// serializes Release: stopping the camping loop makes it release the
+	// lease too, and a caller must not return while that attempt — which may
+	// fail and leave the lease held — is still in flight.
+	releaseGuard chan struct{}
+
 	logger *slog.Logger
 }
 
@@ -147,6 +153,8 @@ func NewLease(kv jetstream.KeyValue, cfg LeaseConfig) *Lease {
 		config:  cfg,
 		metrics: newLeaseMetrics(cfg.Collector),
 		logger:  scoped,
+
+		releaseGuard: make(chan struct{}, 1),
 	}
 	// Seed the race-safe value from the initial config. Take a defensive
 	// copy so a caller who mutates the slice they passed in does not
@@ -293,7 +301,17 @@ func (l *Lease) Renew(ctx context.Context) (bool, error) {
 // It is idempotent: the deferred release in a caller's critical section, a
 // provider shutting down, and the renewal loop's own teardown can all reach the
 // same lease, and exactly one of them performs the delete.
+// Concurrent calls are serialized, so none returns while another is still
+// releasing; a release that fails leaves the lease held, and a later Release
+// retries it.
 func (l *Lease) Release(ctx context.Context) error {
+	select {
+	case l.releaseGuard <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-l.releaseGuard }()
+
 	if !l.isHeld.CompareAndSwap(true, false) {
 		return nil
 	}
@@ -306,16 +324,16 @@ func (l *Lease) Release(ctx context.Context) error {
 	entry, err := l.ops.Get(ctx, l.config.Key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			return l.released()
+			l.released()
+			return nil
 		}
-		l.record("release", err)
-
-		return err
+		return l.releaseFailed(err)
 	}
 
 	// Check if entry is valid
 	if entry == nil || entry.Value() == nil {
-		return l.released()
+		l.released()
+		return nil
 	}
 
 	// Someone else holds the key now — ours expired and was taken over.
@@ -332,24 +350,33 @@ func (l *Lease) Release(ctx context.Context) error {
 	// would drop *their* lock. The revision makes the delete a compare-and-set.
 	if err := l.ops.DeleteWithRevision(ctx, l.config.Key, entry.Revision()); err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			return l.released()
+			l.released()
+			return nil
 		}
-		l.record("release", err)
-
-		return err
+		return l.releaseFailed(err)
 	}
 
-	return l.released()
+	l.released()
+	return nil
+}
+
+// releaseFailed records a release that did not reach the key and marks the
+// lease held again, so a later Release retries it instead of returning as a
+// no-op; renewal stays stopped, so an unretried lease lapses at its TTL.
+func (l *Lease) releaseFailed(err error) error {
+	l.record("release", err)
+	l.isHeld.Store(true)
+	l.metrics.leaseHeld.Set(1)
+
+	return err
 }
 
 // released records a completed release and fires the callback.
-func (l *Lease) released() error {
+func (l *Lease) released() {
 	if l.config.Callbacks.OnReleased != nil {
 		l.config.Callbacks.OnReleased()
 	}
 	l.record("release", nil)
-
-	return nil
 }
 
 // IsHeld returns true if the lease is currently held.
