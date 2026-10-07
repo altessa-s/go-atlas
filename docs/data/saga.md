@@ -165,13 +165,14 @@ flowchart LR
 
 Two things can leave an instance non-terminal: a process crash mid-flight, or a step that overran its saga deadline. The recovery cycle
 handles both. It fetches recoverable instances — those whose execution lease has expired, those past their deadline, or those left
-mid-compensation — and drives each one. An instance whose lease is still active is never fetched, even past its deadline.
+mid-compensation — and drives each one. An instance whose lease is still active is never fetched, even past its deadline. The fetch is scoped
+to the orchestrator's own definition before the batch limit applies, so sagas of other definitions sharing the store never fill its batch.
 
 ```mermaid
 flowchart TD
     Tick[recovery tick] --> Leader{leader?}
     Leader -- no --> Done[skip]
-    Leader -- yes --> Fetch[FetchRecoverable now, batch]
+    Leader -- yes --> Fetch[FetchRecoverable definition, now, batch]
     Fetch --> Loop{for each instance}
     Loop --> DL{RUNNING, past deadline and before pivot?}
     DL -- yes --> Flip[mark COMPENSATING auto-rollback]

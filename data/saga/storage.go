@@ -169,11 +169,16 @@ type Storage interface {
 	// interrupted compensation. Active leases exclude all candidates. See
 	// Instance.Recoverable. The recovery loop rechecks ownership with CAS.
 	//
+	// A non-empty definition restricts the result to instances of that saga
+	// definition; the restriction applies before the limit, so instances of
+	// other definitions sharing the store never occupy the batch. An empty
+	// definition returns instances of every definition.
+	//
 	// Durable backends (mongo, redis) persist the deadline as Unix seconds and
 	// so compare it at one-second granularity; the in-memory backend uses full
 	// time precision. This only affects sub-second deadlines, which the
 	// minute-scale recovery cadence makes immaterial in practice.
-	FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*Instance, error)
+	FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*Instance, error)
 
 	// Delete removes a (typically terminal) instance for retention. Deleting a
 	// missing instance is not an error.

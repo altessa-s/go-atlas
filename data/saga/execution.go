@@ -130,8 +130,8 @@ func (s boundedStorage) Update(ctx context.Context, inst *Instance) error {
 	}
 	return s.Storage.Update(ctx, inst)
 }
-func (s boundedStorage) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*Instance, error) {
+func (s boundedStorage) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*Instance, error) {
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, s.timeout)
 	defer cancel()
-	return s.Storage.FetchRecoverable(ctx, now, limit)
+	return s.Storage.FetchRecoverable(ctx, definition, now, limit)
 }

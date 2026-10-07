@@ -138,7 +138,7 @@ func TestRecoveryCompensatesUncheckpointedStageIntent(t *testing.T) {
 
 type blockingRecoveryStore struct{ saga.Storage }
 
-func (s blockingRecoveryStore) FetchRecoverable(ctx context.Context, _ time.Time, _ int) ([]*saga.Instance, error) {
+func (s blockingRecoveryStore) FetchRecoverable(ctx context.Context, _ string, _ time.Time, _ int) ([]*saga.Instance, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
