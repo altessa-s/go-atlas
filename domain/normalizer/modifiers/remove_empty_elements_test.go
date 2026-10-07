@@ -32,6 +32,23 @@ func TestRemoveEmptyElements_PtrStringSlice(t *testing.T) {
 	require.Nil(t, result.Error)
 }
 
+// A slice of pointers to a named string type keeps its non-empty elements: the
+// pointee is read through reflection, not asserted to *string, which would
+// fail for every element and empty the slice.
+func TestRemoveEmptyElementsFromSlice_NamedStringPointers(t *testing.T) {
+	t.Parallel()
+	type tag string
+	a, empty, blank, c := tag("a"), tag(""), tag("  "), tag("c")
+	input := []*tag{&a, &empty, nil, &blank, &c}
+
+	require.True(t, modifiers.RemoveEmptyElementsFromSlice(reflect.ValueOf(&input).Elem()))
+	require.Equal(t, []*tag{&a, &c}, input)
+
+	plain := []*tag{&a, &c}
+	require.False(t, modifiers.RemoveEmptyElementsFromSlice(reflect.ValueOf(&plain).Elem()))
+	require.Equal(t, []*tag{&a, &c}, plain)
+}
+
 func TestRemoveEmptyElementsFromSlice_StringSlice(t *testing.T) {
 	input := []string{"a", "", "b"}
 	v := reflect.ValueOf(&input).Elem()
