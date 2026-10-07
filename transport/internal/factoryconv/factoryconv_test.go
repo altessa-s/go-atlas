@@ -10,10 +10,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
+
+	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
 )
 
 func TestCompilePatterns(t *testing.T) {
@@ -81,14 +82,14 @@ func TestConvertFallbackBehavior(t *testing.T) {
 
 	tests := []struct {
 		name string
-		in   config.FallbackBehavior
+		in   middlewareconfig.FallbackBehavior
 		want fallback.Behavior
 	}{
-		{"allow", config.FallbackBehaviorAllow, fallback.Allow},
-		{"deny", config.FallbackBehaviorDeny, fallback.Deny},
-		{"error", config.FallbackBehaviorError, fallback.Error},
-		{"unknown fails closed to deny", config.FallbackBehavior("bogus"), fallback.Deny},
-		{"empty fails closed to deny", config.FallbackBehavior(""), fallback.Deny},
+		{"allow", middlewareconfig.FallbackBehaviorAllow, fallback.Allow},
+		{"deny", middlewareconfig.FallbackBehaviorDeny, fallback.Deny},
+		{"error", middlewareconfig.FallbackBehaviorError, fallback.Error},
+		{"unknown fails closed to deny", middlewareconfig.FallbackBehavior("bogus"), fallback.Deny},
+		{"empty fails closed to deny", middlewareconfig.FallbackBehavior(""), fallback.Deny},
 	}
 
 	for _, tc := range tests {
@@ -106,7 +107,7 @@ func TestConvertIpAclRule(t *testing.T) {
 	t.Run("valid rule", func(t *testing.T) {
 		t.Parallel()
 
-		rule, err := factoryconv.ConvertIpAclRule(config.IpAclRuleConfig{
+		rule, err := factoryconv.ConvertIpAclRule(middlewareconfig.IPACLRule{
 			Allowlist: []string{"10.0.0.0/8"},
 			Denylist:  []string{"192.168.1.1"},
 		})
@@ -118,7 +119,7 @@ func TestConvertIpAclRule(t *testing.T) {
 	t.Run("empty rule", func(t *testing.T) {
 		t.Parallel()
 
-		rule, err := factoryconv.ConvertIpAclRule(config.IpAclRuleConfig{})
+		rule, err := factoryconv.ConvertIpAclRule(middlewareconfig.IPACLRule{})
 		require.NoError(t, err)
 		require.Empty(t, rule.Allowlist)
 		require.Empty(t, rule.Denylist)
@@ -127,14 +128,14 @@ func TestConvertIpAclRule(t *testing.T) {
 	t.Run("invalid allowlist", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := factoryconv.ConvertIpAclRule(config.IpAclRuleConfig{Allowlist: []string{"bad"}})
+		_, err := factoryconv.ConvertIpAclRule(middlewareconfig.IPACLRule{Allowlist: []string{"bad"}})
 		require.Error(t, err)
 	})
 
 	t.Run("invalid denylist", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := factoryconv.ConvertIpAclRule(config.IpAclRuleConfig{Denylist: []string{"bad"}})
+		_, err := factoryconv.ConvertIpAclRule(middlewareconfig.IPACLRule{Denylist: []string{"bad"}})
 		require.Error(t, err)
 	})
 }
@@ -146,12 +147,12 @@ func TestBuildIpAclRegistry(t *testing.T) {
 		t.Parallel()
 
 		registry, err := factoryconv.BuildIpAclRegistry("deny",
-			[]config.IpAclRuleConfig{{
+			[]middlewareconfig.IPACLRule{{
 				Endpoints: []string{"/svc.Api/Get"},
 				Patterns:  []string{`^/svc\.Api/List.*$`},
 				Allowlist: []string{"10.0.0.0/8"},
 			}},
-			&config.IpAclRuleConfig{Denylist: []string{"192.168.0.0/16"}},
+			&middlewareconfig.IPACLRule{Denylist: []string{"192.168.0.0/16"}},
 		)
 		require.NoError(t, err)
 
@@ -182,7 +183,7 @@ func TestBuildIpAclRegistry(t *testing.T) {
 		t.Parallel()
 
 		_, err := factoryconv.BuildIpAclRegistry("deny",
-			[]config.IpAclRuleConfig{{Patterns: []string{`([`}}}, nil)
+			[]middlewareconfig.IPACLRule{{Patterns: []string{`([`}}}, nil)
 		require.Error(t, err)
 	})
 
@@ -190,7 +191,7 @@ func TestBuildIpAclRegistry(t *testing.T) {
 		t.Parallel()
 
 		_, err := factoryconv.BuildIpAclRegistry("deny",
-			[]config.IpAclRuleConfig{{Allowlist: []string{"bad"}}}, nil)
+			[]middlewareconfig.IPACLRule{{Allowlist: []string{"bad"}}}, nil)
 		require.Error(t, err)
 	})
 
@@ -198,7 +199,7 @@ func TestBuildIpAclRegistry(t *testing.T) {
 		t.Parallel()
 
 		_, err := factoryconv.BuildIpAclRegistry("deny", nil,
-			&config.IpAclRuleConfig{Denylist: []string{"bad"}})
+			&middlewareconfig.IPACLRule{Denylist: []string{"bad"}})
 		require.Error(t, err)
 	})
 }
@@ -206,7 +207,7 @@ func TestBuildIpAclRegistry(t *testing.T) {
 func TestConvertGeoAclRule(t *testing.T) {
 	t.Parallel()
 
-	rule := factoryconv.ConvertGeoAclRule(config.GeoAclRuleConfig{
+	rule := factoryconv.ConvertGeoAclRule(middlewareconfig.GeoACLRule{
 		AllowContinents: []string{"EU"},
 		DenyContinents:  []string{"AN"},
 		AllowCountries:  []string{"DE", "FR"},
@@ -232,12 +233,12 @@ func TestBuildGeoAclRegistry(t *testing.T) {
 		t.Parallel()
 
 		registry, err := factoryconv.BuildGeoAclRegistry("deny",
-			[]config.GeoAclRuleConfig{{
+			[]middlewareconfig.GeoACLRule{{
 				Endpoints:      []string{"/svc.Api/Get"},
 				Patterns:       []string{`^/svc\.Api/List.*$`},
 				AllowCountries: []string{"DE"},
 			}},
-			&config.GeoAclRuleConfig{DenyCountries: []string{"XX"}},
+			&middlewareconfig.GeoACLRule{DenyCountries: []string{"XX"}},
 		)
 		require.NoError(t, err)
 
@@ -268,7 +269,7 @@ func TestBuildGeoAclRegistry(t *testing.T) {
 		t.Parallel()
 
 		_, err := factoryconv.BuildGeoAclRegistry("deny",
-			[]config.GeoAclRuleConfig{{Patterns: []string{`([`}}}, nil)
+			[]middlewareconfig.GeoACLRule{{Patterns: []string{`([`}}}, nil)
 		require.Error(t, err)
 	})
 }

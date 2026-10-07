@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/io/wal"
 	"github.com/altessa-s/go-atlas/service/dispatch"
 
+	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
@@ -22,7 +22,7 @@ import (
 // concurrent use.
 type EngineBuilder[T any] struct {
 	corefactory.Base
-	cfg  *config.Dispatch
+	cfg  *dispatchconfig.Config
 	errs []error
 
 	// Dependencies
@@ -32,7 +32,7 @@ type EngineBuilder[T any] struct {
 
 // New creates an [EngineBuilder] for the given dispatch config.
 // Config can be nil — the error surfaces at [EngineBuilder.Build] time.
-func New[T any](cfg *config.Dispatch) *EngineBuilder[T] {
+func New[T any](cfg *dispatchconfig.Config) *EngineBuilder[T] {
 	return &EngineBuilder[T]{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,

@@ -108,7 +108,7 @@ src, err := oauth2client.ClientCredentialsFromDiscovery(ctx, provider, clientID,
 
 ### Config + factory
 
-Load a ready client_credentials source (or an `Exchanger`) from `config.OAuth2Client`. The endpoint comes from `tokenUrl`, or — when the
+Load a ready client_credentials source (or an `Exchanger`) from `authconfig.OAuth2Client`. The endpoint comes from `tokenUrl`, or — when the
 config sets `discoveryUrl` — from an injected OIDC discovery source.
 
 ```go
@@ -199,7 +199,7 @@ when the endpoint has not resolved.
 | `Principal(subject, tok)`                           | Build an `auth/principal.Principal` from a fetched token (does not verify it).   |
 | `ExchangeRequest`                                   | One exchange: `SubjectToken` (required), actor token, `Audience`/`Resource`, `Scopes`. |
 | `ErrTokenExchange` / `ErrSubjectTokenRequired` / `ErrNoTokenEndpoint` / `ErrTokenRequest` / `ErrRevocation` / `ErrDeviceAuth` / `ErrClientAssertion` | Sentinel errors matched with `errors.Is`. |
-| `factory.New(cfg).Build(ctx)` / `.BuildExchanger(ctx)` | Build a source / `Exchanger` from `config.OAuth2Client`.                     |
+| `factory.New(cfg).Build(ctx)` / `.BuildExchanger(ctx)` | Build a source / `Exchanger` from `authconfig.OAuth2Client`.                     |
 
 ## Design Notes
 

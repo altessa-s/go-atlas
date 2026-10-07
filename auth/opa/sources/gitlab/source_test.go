@@ -6,13 +6,12 @@ package gitlab
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
-
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 func TestNew_Valid(t *testing.T) {
@@ -20,6 +19,7 @@ func TestNew_Valid(t *testing.T) {
 
 	// Cannot actually connect, but validation should pass.
 	source, err := New(
+		WithHTTPClient(&http.Client{}),
 		WithEndpoint("https://gitlab.example.com"),
 		WithToken("test-token"),
 		WithProjectID(42),
@@ -29,24 +29,22 @@ func TestNew_Valid(t *testing.T) {
 	defer source.Close()
 }
 
-func TestWithHTTPClientOptions_Stores(t *testing.T) {
+func TestNew_MissingHTTPClient(t *testing.T) {
 	t.Parallel()
 
-	o := newOptions(
-		WithHTTPClientOptions(),
+	_, err := New(
+		WithEndpoint("https://gitlab.example.com"),
+		WithToken("test-token"),
+		WithProjectID(42),
 	)
-	require.Empty(t, o.httpClientOptions)
-
-	o = newOptions(
-		WithHTTPClientOptions(httpclient.WithoutProxy(), httpclient.WithoutProxy()),
-	)
-	require.Len(t, o.httpClientOptions, 2)
+	require.ErrorIs(t, err, ErrHTTPClientRequired)
 }
 
 func TestNew_MissingEndpoint(t *testing.T) {
 	t.Parallel()
 
 	_, err := New(
+		WithHTTPClient(&http.Client{}),
 		WithToken("test-token"),
 		WithProjectID(42),
 	)
@@ -58,6 +56,7 @@ func TestNew_MissingToken(t *testing.T) {
 	t.Parallel()
 
 	_, err := New(
+		WithHTTPClient(&http.Client{}),
 		WithEndpoint("https://gitlab.example.com"),
 		WithProjectID(42),
 	)
@@ -69,6 +68,7 @@ func TestNew_MissingProjectID(t *testing.T) {
 	t.Parallel()
 
 	_, err := New(
+		WithHTTPClient(&http.Client{}),
 		WithEndpoint("https://gitlab.example.com"),
 		WithToken("test-token"),
 	)
@@ -80,6 +80,7 @@ func TestSource_Name(t *testing.T) {
 	t.Parallel()
 
 	source, err := New(
+		WithHTTPClient(&http.Client{}),
 		WithEndpoint("https://gitlab.example.com"),
 		WithToken("test-token"),
 		WithProjectID(42),
@@ -96,6 +97,7 @@ func TestSource_Fetch_Closed(t *testing.T) {
 	t.Parallel()
 
 	source, err := New(
+		WithHTTPClient(&http.Client{}),
 		WithEndpoint("https://gitlab.example.com"),
 		WithToken("test-token"),
 		WithProjectID(42),
@@ -113,6 +115,7 @@ func TestSource_Close_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	source, err := New(
+		WithHTTPClient(&http.Client{}),
 		WithEndpoint("https://gitlab.example.com"),
 		WithToken("test-token"),
 		WithProjectID(42),
@@ -127,6 +130,7 @@ func TestSource_DefaultRef(t *testing.T) {
 	t.Parallel()
 
 	source, err := New(
+		WithHTTPClient(&http.Client{}),
 		WithEndpoint("https://gitlab.example.com"),
 		WithToken("test-token"),
 		WithProjectID(42),

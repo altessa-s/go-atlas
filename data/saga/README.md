@@ -75,7 +75,7 @@ run concurrently and share `*T`, so they must not write overlapping fields.
 |------------------------------------------|-------------------------------------------------------------------|
 | [engines/jetstream](./engines/jetstream) | JetStream work-queue engine: durable `Submit`, distributed `Run`. |
 | [errs](./errs)                           | Sentinel errors returned by the orchestrator and stores.          |
-| [factory](./factory)                     | Config-driven assembly of an `Orchestrator` from `config.Saga`.   |
+| [factory](./factory)                     | Config-driven assembly of an `Orchestrator` from `sagaconfig.Config`.   |
 | [storages/memory](./storages/memory)     | In-process `Store` backend (reference implementation).            |
 | [storages/mongo](./storages/mongo)       | Durable `Store` backend on a MongoDB collection.                  |
 | [storages/nats](./storages/nats)         | Durable `Store` backend on NATS JetStream KeyValue.               |

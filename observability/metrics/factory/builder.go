@@ -9,10 +9,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
 
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	promadapter "github.com/altessa-s/go-atlas/observability/metrics/adapters/prometheus"
 )
@@ -22,12 +22,12 @@ import (
 // Returns [metrics.Noop] when config is nil or metrics are disabled.
 type CollectorBuilder struct {
 	corefactory.Base
-	cfg  *config.Metrics
+	cfg  *observabilityconfig.Metrics
 	errs []error
 }
 
 // New creates a new [CollectorBuilder] for the given metrics config.
-func New(cfg *config.Metrics) *CollectorBuilder {
+func New(cfg *observabilityconfig.Metrics) *CollectorBuilder {
 	return &CollectorBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -60,19 +60,19 @@ func (b *CollectorBuilder) Build() (metrics.Collector, error) {
 
 // createAdapter creates an adapter based on configuration.
 func (b *CollectorBuilder) createAdapter() (adapters.Adapter, error) {
-	var adaptersCfg *config.MetricsAdapters
+	var adaptersCfg *observabilityconfig.MetricsAdapters
 	if b.cfg.Adapters != nil {
 		adaptersCfg = b.cfg.Adapters
 	}
 
 	switch b.cfg.Type {
-	case config.MetricsTypePrometheus:
-		var promCfg *config.MetricsPrometheus
+	case observabilityconfig.MetricsTypePrometheus:
+		var promCfg *observabilityconfig.MetricsPrometheus
 		if adaptersCfg != nil {
 			promCfg = adaptersCfg.Prometheus
 		}
 		return createPrometheusAdapter(promCfg), nil
-	case config.MetricsTypeNoop:
+	case observabilityconfig.MetricsTypeNoop:
 		return nil, nil //nolint:nilnil // Intentional: nil adapter signals noop mode
 	default:
 		return nil, b.Errorf("unknown metrics type: %s", b.cfg.Type)
@@ -80,7 +80,7 @@ func (b *CollectorBuilder) createAdapter() (adapters.Adapter, error) {
 }
 
 // createPrometheusAdapter creates a Prometheus adapter from config.
-func createPrometheusAdapter(cfg *config.MetricsPrometheus) *promadapter.Adapter {
+func createPrometheusAdapter(cfg *observabilityconfig.MetricsPrometheus) *promadapter.Adapter {
 	var opts []promadapter.Option
 
 	if cfg != nil && cfg.CustomRegistry {

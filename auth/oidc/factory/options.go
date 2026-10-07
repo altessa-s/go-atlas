@@ -51,7 +51,7 @@ func (b *ProviderBuilder) UseRevocationStorage(v oidc.RevocationStorage) *Provid
 // rejected valid tokens.
 //
 // The store MUST hold the same revocation set the filter is built from
-// (config.OIDCRevocation.Source); confirming against an unrelated store turns
+// (authconfig.OIDCRevocation.Source); confirming against an unrelated store turns
 // every hit into "not revoked" and silently disables revocation.
 func (b *ProviderBuilder) UseRevocationAuthoritative(v oidc.Authoritative) *ProviderBuilder {
 	b.revocationAuthoritative = v

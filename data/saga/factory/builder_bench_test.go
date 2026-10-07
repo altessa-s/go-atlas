@@ -7,13 +7,12 @@ package factory_test
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/config"
-
+	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
 	sagafactory "github.com/altessa-s/go-atlas/data/saga/factory"
 )
 
 func BenchmarkBuild(b *testing.B) {
-	cfg := config.DefaultSaga()
+	cfg := sagaconfig.Default()
 	def := orderDef()
 
 	b.ReportAllocs()

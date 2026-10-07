@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/data/mongo"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
@@ -19,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -28,7 +28,7 @@ import (
 // The builder is not safe for concurrent use.
 type MongoBuilder struct {
 	corefactory.Base
-	cfg  *config.Mongodb
+	cfg  *mongoconfig.Config
 	errs []error
 
 	// Dependencies
@@ -42,7 +42,7 @@ type MongoBuilder struct {
 
 // New creates a [MongoBuilder] for the given MongoDB config.
 // Config can be nil — the error surfaces at [MongoBuilder.Build] time.
-func New(cfg *config.Mongodb) *MongoBuilder {
+func New(cfg *mongoconfig.Config) *MongoBuilder {
 	return &MongoBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -84,7 +84,7 @@ func (b *MongoBuilder) Build(_ context.Context) (*mongo.Mongo, error) {
 }
 
 // ClientOptions creates MongoDB driver [mongoOptions.ClientOptions] from
-// the builder's configuration. When [config.Mongodb.ConnectionURI] is set, ApplyURI
+// the builder's configuration. When [mongoconfig.Config.ConnectionURI] is set, ApplyURI
 // is used as the base and pool/timeout/retry/TLS fields are applied on top. Otherwise,
 // options are built from individual config fields including hosts, credentials, and
 // compressors. Returns an error if TLS setup fails.
@@ -181,20 +181,20 @@ func (b *MongoBuilder) buildCredential() mongoOptions.Credential {
 	}
 
 	switch creds.AuthMechanism {
-	case config.MongoAuthMechanismTypeX509:
+	case mongoconfig.AuthMechanismTypeX509:
 		return mongoOptions.Credential{
-			AuthMechanism: config.MongoAuthMechanismTypeX509.String(),
+			AuthMechanism: mongoconfig.AuthMechanismTypeX509.String(),
 		}
-	case config.MongoAuthMechanismTypePLAIN:
+	case mongoconfig.AuthMechanismTypePLAIN:
 		if creds.Plain == nil {
 			return mongoOptions.Credential{}
 		}
 		return mongoOptions.Credential{
-			AuthMechanism: config.MongoAuthMechanismTypePLAIN.String(),
+			AuthMechanism: mongoconfig.AuthMechanismTypePLAIN.String(),
 			Username:      creds.Plain.Username,
 			Password:      creds.Plain.Password.Expose(),
 		}
-	case config.MongoAuthMechanismTypeSCRAMSHA1, config.MongoAuthMechanismTypeSCRAMSHA256:
+	case mongoconfig.AuthMechanismTypeSCRAMSHA1, mongoconfig.AuthMechanismTypeSCRAMSHA256:
 		if creds.Scram == nil {
 			return mongoOptions.Credential{}
 		}
@@ -224,7 +224,7 @@ func (b *MongoBuilder) applyEncryption(clientOpts *mongoOptions.ClientOptions, o
 
 	provider := b.kmsProvider
 
-	if b.cfg.Encryption.Type != config.MongoEncryptionTypeManual {
+	if b.cfg.Encryption.Type != mongoconfig.EncryptionTypeManual {
 		vaultDB := b.cfg.Database
 		if b.cfg.Encryption.VaultDatabase != nil {
 			vaultDB = *b.cfg.Encryption.VaultDatabase

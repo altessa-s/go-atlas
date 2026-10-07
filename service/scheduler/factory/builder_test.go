@@ -18,11 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/service/scheduler/factory"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
 
+	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
 	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -33,11 +33,11 @@ type noConn struct{}
 func (noConn) Connect(context.Context) (driver.Conn, error) { return nil, errors.New("not connected") }
 func (noConn) Driver() driver.Driver                        { return nil }
 
-func sqlConfig(dialect string) *config.Scheduler {
-	cfg := config.DefaultScheduler()
-	storageCfg := config.DefaultSchedulerStorageSQLConfig()
+func sqlConfig(dialect string) *schedulerconfig.Config {
+	cfg := schedulerconfig.Default()
+	storageCfg := schedulerconfig.DefaultStorageSQLConfig()
 	storageCfg.Dialect = dialect
-	cfg.Storage = &config.SchedulerStorageConfig{Type: config.SchedulerStorageTypeSQL, SQL: &storageCfg}
+	cfg.Storage = &schedulerconfig.StorageConfig{Type: schedulerconfig.StorageTypeSQL, SQL: &storageCfg}
 	return &cfg
 }
 
@@ -48,13 +48,13 @@ func TestBuildSQLStorage(t *testing.T) {
 
 	t.Run("requires_db", func(t *testing.T) {
 		t.Parallel()
-		_, err := factory.New(sqlConfig(config.SchedulerSQLDialectPostgres)).Build()
+		_, err := factory.New(sqlConfig(schedulerconfig.SQLDialectPostgres)).Build()
 		require.ErrorContains(t, err, "sql database")
 	})
 
 	t.Run("builds", func(t *testing.T) {
 		t.Parallel()
-		s, err := factory.New(sqlConfig(config.SchedulerSQLDialectMySQL)).UseSQLDB(db).Build()
+		s, err := factory.New(sqlConfig(schedulerconfig.SQLDialectMySQL)).UseSQLDB(db).Build()
 		require.NoError(t, err)
 		require.NotNil(t, s)
 	})
@@ -67,7 +67,7 @@ func TestBuildSQLStorage(t *testing.T) {
 
 	t.Run("ensure_schema", func(t *testing.T) {
 		t.Parallel()
-		cfg := sqlConfig(config.SchedulerSQLDialectPostgres)
+		cfg := sqlConfig(schedulerconfig.SQLDialectPostgres)
 		cfg.Storage.SQL.EnsureSchema = true
 		fakeDB, fake := testhelpers.NewFakeSQL(t, nil)
 		s, err := factory.New(cfg).UseSQLDB(fakeDB).Build()
@@ -84,7 +84,7 @@ func TestBuildSQLStorage(t *testing.T) {
 
 	t.Run("ensure_schema_failure", func(t *testing.T) {
 		t.Parallel()
-		cfg := sqlConfig(config.SchedulerSQLDialectMySQL)
+		cfg := sqlConfig(schedulerconfig.SQLDialectMySQL)
 		cfg.Storage.SQL.EnsureSchema = true
 		_, err := factory.New(cfg).UseSQLDB(db).Build()
 		require.ErrorContains(t, err, "not connected")
@@ -92,7 +92,7 @@ func TestBuildSQLStorage(t *testing.T) {
 
 	t.Run("requires_section", func(t *testing.T) {
 		t.Parallel()
-		cfg := sqlConfig(config.SchedulerSQLDialectPostgres)
+		cfg := sqlConfig(schedulerconfig.SQLDialectPostgres)
 		cfg.Storage.SQL = nil
 		_, err := factory.New(cfg).UseSQLDB(db).Build()
 		require.Error(t, err)
@@ -108,11 +108,11 @@ func TestBuildRedisStorage(t *testing.T) {
 	})
 	t.Cleanup(func() { _ = client.Close() })
 
-	redisConfig := func(ensureIndexes bool) *config.Scheduler {
-		cfg := config.DefaultScheduler()
-		storageCfg := config.DefaultSchedulerStorageRedisConfig()
+	redisConfig := func(ensureIndexes bool) *schedulerconfig.Config {
+		cfg := schedulerconfig.Default()
+		storageCfg := schedulerconfig.DefaultStorageRedisConfig()
 		storageCfg.EnsureIndexes = ensureIndexes
-		cfg.Storage = &config.SchedulerStorageConfig{Type: config.SchedulerStorageTypeRedis, Redis: &storageCfg}
+		cfg.Storage = &schedulerconfig.StorageConfig{Type: schedulerconfig.StorageTypeRedis, Redis: &storageCfg}
 		return &cfg
 	}
 
@@ -141,11 +141,11 @@ func TestBuildMongoStorage(t *testing.T) {
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 	db := client.Database("scheduler_factory_test")
 
-	mongoConfig := func(ensureIndexes bool) *config.Scheduler {
-		cfg := config.DefaultScheduler()
-		storageCfg := config.DefaultSchedulerStorageMongoConfig()
+	mongoConfig := func(ensureIndexes bool) *schedulerconfig.Config {
+		cfg := schedulerconfig.Default()
+		storageCfg := schedulerconfig.DefaultStorageMongoConfig()
 		storageCfg.EnsureIndexes = ensureIndexes
-		cfg.Storage = &config.SchedulerStorageConfig{Type: config.SchedulerStorageTypeMongodb, Mongodb: &storageCfg}
+		cfg.Storage = &schedulerconfig.StorageConfig{Type: schedulerconfig.StorageTypeMongo, Mongodb: &storageCfg}
 		return &cfg
 	}
 

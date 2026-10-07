@@ -12,10 +12,11 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/locks/dlock"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	lockconfig "github.com/altessa-s/go-atlas/config/lock"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
@@ -29,7 +30,7 @@ import (
 // The builder is not safe for concurrent use.
 type DLockBuilder struct {
 	corefactory.Base
-	cfg  *config.DistributionLock
+	cfg  *lockconfig.DistributionLock
 	errs []error
 
 	// Dependencies
@@ -41,7 +42,7 @@ type DLockBuilder struct {
 
 // New creates a [DLockBuilder] for the given distribution lock config.
 // Config can be nil — the error surfaces at [DLockBuilder.Build] time.
-func New(cfg *config.DistributionLock) *DLockBuilder {
+func New(cfg *lockconfig.DistributionLock) *DLockBuilder {
 	return &DLockBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -60,9 +61,9 @@ func (b *DLockBuilder) Build(ctx context.Context) (*dlock.DLock, error) {
 	}
 
 	switch b.cfg.Provider {
-	case config.DistributionLockProviderNats:
+	case lockconfig.DistributionLockProviderNats:
 		return b.createNatsDLock(ctx)
-	case config.DistributionLockProviderMongodb:
+	case lockconfig.DistributionLockProviderMongodb:
 		return b.createMongoDLock()
 	default:
 		return nil, b.Errorf("unknown distribution lock provider: %s", b.cfg.Provider)
@@ -124,8 +125,8 @@ func (b *DLockBuilder) applyDefaults() []dlock.Option {
 
 // bucketStorage maps the configured bucket storage onto JetStream's: file is
 // file storage, anything else — including unset — the memory default.
-func bucketStorage(v config.KVStorageType) jetstream.StorageType {
-	if v == config.KVStorageFile {
+func bucketStorage(v storageconfig.KVStorageType) jetstream.StorageType {
+	if v == storageconfig.KVStorageFile {
 		return jetstream.FileStorage
 	}
 	return jetstream.MemoryStorage

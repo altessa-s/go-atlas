@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 const (
@@ -24,7 +25,7 @@ const (
 )
 
 // validationOptionsFromConfig constructs validation options from configuration.
-func validationOptionsFromConfig(cfg *config.OIDCValidation, clockSkew time.Duration) ([]oidc.ValidationOption, error) {
+func validationOptionsFromConfig(cfg *authconfig.OIDCValidation, clockSkew time.Duration) ([]oidc.ValidationOption, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("validation configuration is required")
 	}
@@ -46,7 +47,7 @@ func validationOptionsFromConfig(cfg *config.OIDCValidation, clockSkew time.Dura
 }
 
 // presetFromConfig creates a validation preset from configuration.
-func presetFromConfig(preset *config.OIDCPreset, clockSkew time.Duration) (*oidc.ValidationPreset, error) {
+func presetFromConfig(preset *authconfig.OIDCPreset, clockSkew time.Duration) (*oidc.ValidationPreset, error) {
 	if preset == nil {
 		return nil, fmt.Errorf("preset configuration is required")
 	}
@@ -66,7 +67,7 @@ func presetFromConfig(preset *config.OIDCPreset, clockSkew time.Duration) (*oidc
 }
 
 // presetRuleFromConfig creates a preset selection rule from configuration.
-func presetRuleFromConfig(ctx context.Context, selector *config.OIDCSelector) oidc.PresetRule {
+func presetRuleFromConfig(ctx context.Context, selector *authconfig.OIDCSelector) oidc.PresetRule {
 	return oidc.PresetRule{
 		Priority:   selector.Priority,
 		Matcher:    oidc.CELMatcher(ctx, selector.Expression),
@@ -75,7 +76,7 @@ func presetRuleFromConfig(ctx context.Context, selector *config.OIDCSelector) oi
 }
 
 // buildCELValidationRule creates a CEL validation rule from expression configuration.
-func buildCELValidationRule(expr *config.OIDCExpression, defaultName string) oidc.ValidationOption {
+func buildCELValidationRule(expr *authconfig.OIDCExpression, defaultName string) oidc.ValidationOption {
 	if expr == nil || expr.Expression == "" {
 		return nil
 	}
@@ -89,7 +90,7 @@ func buildCELValidationRule(expr *config.OIDCExpression, defaultName string) oid
 }
 
 // buildClaimsValidationOptions creates validation options from claims configuration.
-func buildClaimsValidationOptions(claims *config.OIDCClaims) []oidc.ValidationOption {
+func buildClaimsValidationOptions(claims *authconfig.OIDCClaims) []oidc.ValidationOption {
 	if claims == nil {
 		return nil
 	}

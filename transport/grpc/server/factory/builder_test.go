@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
-
 	"google.golang.org/grpc/keepalive"
+
+	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
 )
 
 // TestKeepaliveEnforcementPolicy_NilConfig confirms that a completely
@@ -35,7 +35,7 @@ func TestKeepaliveEnforcementPolicy_NilConfig(t *testing.T) {
 func TestKeepaliveEnforcementPolicy_NilKeepAlive(t *testing.T) {
 	t.Parallel()
 
-	got := keepaliveEnforcementPolicy(&config.Grpc{})
+	got := keepaliveEnforcementPolicy(&grpcconfig.Config{})
 	require.Equal(t, keepalive.EnforcementPolicy{
 		MinTime:             DefaultGrpcEnforcementMinTime,
 		PermitWithoutStream: DefaultGrpcEnforcementPermitWithoutStream,
@@ -48,8 +48,8 @@ func TestKeepaliveEnforcementPolicy_NilKeepAlive(t *testing.T) {
 func TestKeepaliveEnforcementPolicy_NilEnforcementPolicy(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Grpc{
-		KeepAlive: &config.GrpcKeepAlive{
+	cfg := &grpcconfig.Config{
+		KeepAlive: &grpcconfig.KeepAlive{
 			Time:    20 * time.Second,
 			Timeout: 5 * time.Second,
 		},
@@ -67,9 +67,9 @@ func TestKeepaliveEnforcementPolicy_NilEnforcementPolicy(t *testing.T) {
 func TestKeepaliveEnforcementPolicy_HonorsConfig(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Grpc{
-		KeepAlive: &config.GrpcKeepAlive{
-			EnforcementPolicy: &config.GrpcEnforcementPolicy{
+	cfg := &grpcconfig.Config{
+		KeepAlive: &grpcconfig.KeepAlive{
+			EnforcementPolicy: &grpcconfig.KeepAliveEnforcementPolicy{
 				MinTime:             15 * time.Second,
 				PermitWithoutStream: true,
 			},
@@ -91,7 +91,7 @@ func TestKeepaliveEnforcementPolicy_HonorsConfig(t *testing.T) {
 func TestBuildGrpcOptions_AlwaysEmitsEnforcementPolicy(t *testing.T) {
 	t.Parallel()
 
-	b := New(&config.Grpc{})
+	b := New(&grpcconfig.Config{})
 	opts := b.buildGrpcOptions()
 
 	require.NotEmpty(t, opts,
@@ -100,7 +100,7 @@ func TestBuildGrpcOptions_AlwaysEmitsEnforcementPolicy(t *testing.T) {
 
 // TestDefaultGrpcEnforcement_AlignsWithConfigStructTag pins the contract
 // between the factory's default constants and the YAML struct tag in
-// [config.GrpcEnforcementPolicy]. When operators write `enforcementPolicy:
+// [grpcconfig.KeepAliveEnforcementPolicy]. When operators write `enforcementPolicy:
 // {}` (empty object) the loader fills in struct-tag defaults; we want
 // that to match the factory-side defaults so the resolution path
 // (explicit vs implicit) does not produce surprising different policies.

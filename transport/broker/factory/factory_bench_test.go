@@ -8,9 +8,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/broker"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
+
+	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 )
 
 // benchProvider is a minimal broker.Provider for benchmarks. Build does not call its methods.
@@ -21,14 +22,14 @@ func (benchProvider) PublishBatch(context.Context, ...msg.Message) error    { re
 func (benchProvider) Subscriber(broker.SubscriberFactory) broker.Subscriber { return nil }
 
 func BenchmarkBrokerBuilder_New(b *testing.B) {
-	cfg := &config.Broker{}
+	cfg := &brokerconfig.Config{}
 	for b.Loop() {
 		New(cfg)
 	}
 }
 
 func BenchmarkBrokerBuilder_Build(b *testing.B) {
-	cfg := &config.Broker{}
+	cfg := &brokerconfig.Config{}
 	provider := benchProvider{}
 	builder := New(cfg)
 	b.ResetTimer()

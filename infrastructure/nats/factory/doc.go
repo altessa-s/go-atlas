@@ -14,12 +14,12 @@
 //	    UseHealthCoordinator(coordinator).
 //	    Build()
 //
-// The builder integrates with [config.Nats] and [config.NatsConsumer] to create NATS
+// The builder integrates with [natsconfig.Config] and [natsconfig.Consumer] to create NATS
 // connections with NKey, token, or username/password authentication, optional
 // TLS, automatic reconnection with unlimited buffer, and compression.
 //
 // JetStream consumer configurations are produced by
-// [ConsumerConfig], which maps [config.NatsConsumer] fields
+// [ConsumerConfig], which maps [natsconfig.Consumer] fields
 // to [jetstream.ConsumerConfig] including delivery policy, ack policy, replay
 // policy, backoff schedules, and performance tuning.
 //

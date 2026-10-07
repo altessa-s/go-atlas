@@ -15,12 +15,12 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/gitlab"
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	embedsrc "github.com/altessa-s/go-atlas/auth/opa/sources/embed"
 	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
@@ -33,7 +33,7 @@ import (
 // injected dependencies using a fluent API with deferred error accumulation.
 type ManagerBuilder struct {
 	corefactory.Base
-	cfg  *config.OPA
+	cfg  *authconfig.OPA
 	errs []error
 
 	// Dependencies (set via Use*).
@@ -46,7 +46,7 @@ type ManagerBuilder struct {
 
 // New creates a new [ManagerBuilder] for the given OPA config.
 // A nil cfg is accepted; the error surfaces at [ManagerBuilder.Build] time.
-func New(cfg *config.OPA) *ManagerBuilder {
+func New(cfg *authconfig.OPA) *ManagerBuilder {
 	return &ManagerBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -92,11 +92,11 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*opa.Manager, error) {
 // buildSource creates a PolicySource from config based on the configured provider.
 func (b *ManagerBuilder) buildSource(ctx context.Context) (opa.PolicySource, error) {
 	switch b.cfg.Source {
-	case config.OPASourceGitLab:
+	case authconfig.OPASourceGitLab:
 		return b.buildGitLabSource()
-	case config.OPASourceEmbed:
+	case authconfig.OPASourceEmbed:
 		return b.buildEmbedSource()
-	case config.OPASourceS3:
+	case authconfig.OPASourceS3:
 		return b.buildS3Source(ctx)
 	default:
 		return b.buildFilesystemSource()
@@ -139,7 +139,8 @@ func (b *ManagerBuilder) buildGitLabSource() (opa.PolicySource, error) {
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize gitlab proxy options")
 	}
-	opts = slices.AppendIf(opts, len(proxyOpts) > 0, gitlab.WithHTTPClientOptions(proxyOpts...))
+	clientOpts := append([]httpclient.Option{httpclient.WithLogger(b.Logger())}, proxyOpts...)
+	opts = append(opts, gitlab.WithHTTPClient(httpclient.New(clientOpts...)))
 
 	opts = slices.AppendIf(opts, b.cfg.IncludeData, gitlab.WithIncludeData())
 
@@ -204,7 +205,7 @@ func (b *ManagerBuilder) buildS3Source(ctx context.Context) (opa.PolicySource, e
 }
 
 // resolveS3Client returns the injected S3 client or creates one from config.
-func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *config.OPAS3) (s3source.S3API, error) {
+func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *authconfig.OPAS3) (s3source.S3API, error) {
 	if b.s3Client != nil {
 		return b.s3Client, nil
 	}

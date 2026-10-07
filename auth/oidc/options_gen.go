@@ -5,14 +5,13 @@ package oidc
 
 import (
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
-
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 // Option is a functional option for configuring options.
@@ -51,13 +50,13 @@ func WithCollector(v metrics.Collector) Option {
 	}
 }
 
-// WithHTTPClientOptions appends to the httpClientOptions option.
-func WithHTTPClientOptions(v ...httpclient.Option) Option {
+// WithHTTPClient sets the httpClient option.
+func WithHTTPClient(v *http.Client) Option {
 	return func(o *options) {
-		if len(v) == 0 {
+		if v == nil {
 			return
 		}
-		o.httpClientOptions = append(o.httpClientOptions, v...)
+		o.httpClient = v
 	}
 }
 

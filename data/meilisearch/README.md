@@ -113,9 +113,9 @@ filter encodes.
 ## TLS
 
 The package does not parse TLS settings itself. Build an `*http.Client` with the desired `*tls.Config` and pass it via `WithHTTPClient`. The
-[infrastructure/meilisearch/factory](../../infrastructure/meilisearch/factory) builder threads `config.TlsClient` through automatically.
+[infrastructure/meilisearch/factory](../../infrastructure/meilisearch/factory) builder threads `tlsconfig.Client` through automatically.
 
 ## See also
 
 - [infrastructure/meilisearch/factory](../../infrastructure/meilisearch/factory) — configuration-driven builder, TLS support, health-coordinator hook
-- [config.Meilisearch](../../config/meilisearch.go) — YAML-facing config struct
+- [meilisearchconfig.Config](../../config/meilisearch/meilisearch.go) — YAML-facing config struct

@@ -9,16 +9,18 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
+	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+	lockconfig "github.com/altessa-s/go-atlas/config/lock"
+	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
 )
 
 // bucketTTLMigrationConfig gathers every config section that exposes the NATS
 // bucket flags.
 type bucketTTLMigrationConfig struct {
-	DistributionLock config.DistributionLock `yaml:"distributionLock"`
-	LeaderElector    config.LeaderElector    `yaml:"leaderElector"`
-	Idempotency      config.Idempotency      `yaml:"idempotency"`
-	Saga             config.Saga             `yaml:"saga"`
+	DistributionLock lockconfig.DistributionLock `yaml:"distributionLock"`
+	LeaderElector    lockconfig.LeaderElector    `yaml:"leaderElector"`
+	Idempotency      idempotencyconfig.Config    `yaml:"idempotency"`
+	Saga             sagaconfig.Config           `yaml:"saga"`
 }
 
 // TestMigrateBucketTTL_LoadsFromYAML pins the YAML keys of the NATS bucket

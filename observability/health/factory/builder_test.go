@@ -11,9 +11,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/observability/health/factory"
+
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
 
 // healthCheckTaskID is the ID the coordinator registers its check cycle under.
@@ -29,7 +30,7 @@ func TestBuild_RequiresConfig(t *testing.T) {
 func TestBuild_WithoutScheduler(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.DefaultHealth()
+	cfg := observabilityconfig.DefaultHealth()
 
 	coordinator, err := factory.New(&cfg).Build()
 	require.NoError(t, err)
@@ -56,7 +57,7 @@ func TestBuild_MapsHealthCheckIntervalToSchedule(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := config.DefaultHealth()
+			cfg := observabilityconfig.DefaultHealth()
 			cfg.HealthCheckInterval = tc.interval
 
 			registrar := &testhelpers.MockTaskRegistrar{}
@@ -76,7 +77,7 @@ func TestBuild_MapsHealthCheckIntervalToSchedule(t *testing.T) {
 func TestBuild_NoSchedulerRegistersNoTask(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.DefaultHealth()
+	cfg := observabilityconfig.DefaultHealth()
 	cfg.HealthCheckInterval = time.Second
 
 	registrar := &testhelpers.MockTaskRegistrar{}
@@ -90,7 +91,7 @@ func TestBuild_NoSchedulerRegistersNoTask(t *testing.T) {
 func TestBuild_ZeroIntervalRegistersNoTask(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.DefaultHealth()
+	cfg := observabilityconfig.DefaultHealth()
 	cfg.HealthCheckInterval = 0
 
 	registrar := &testhelpers.MockTaskRegistrar{}
@@ -105,7 +106,7 @@ func TestBuild_ZeroIntervalRegistersNoTask(t *testing.T) {
 func TestBuild_StillMapsCoordinatorTunables(t *testing.T) {
 	t.Parallel()
 
-	cfg := config.DefaultHealth()
+	cfg := observabilityconfig.DefaultHealth()
 	cfg.NumShards = 8
 	cfg.MaxConcurrentHealthChecks = 3
 	cfg.CheckTimeout = 750 * time.Millisecond
@@ -120,7 +121,7 @@ func TestBuild_StillMapsCoordinatorTunables(t *testing.T) {
 
 func TestBuild_ReturnsRegistrationError(t *testing.T) {
 	t.Parallel()
-	cfg := config.DefaultHealth()
+	cfg := observabilityconfig.DefaultHealth()
 	cfg.HealthCheckInterval = time.Second
 	boom := errors.New("registrar unavailable")
 	registrar := &testhelpers.MockTaskRegistrar{Err: boom}

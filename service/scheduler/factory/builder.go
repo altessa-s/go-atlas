@@ -14,12 +14,12 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
+	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	memorystorage "github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 	mongostorage "github.com/altessa-s/go-atlas/service/scheduler/storages/mongodb"
@@ -32,7 +32,7 @@ import (
 // The builder is not safe for concurrent use.
 type SchedulerBuilder struct {
 	corefactory.Base
-	cfg  *config.Scheduler
+	cfg  *schedulerconfig.Config
 	errs []error
 
 	// Dependencies
@@ -46,7 +46,7 @@ type SchedulerBuilder struct {
 
 // New creates a new [SchedulerBuilder] for the given scheduler config.
 // Config can be nil -- the error surfaces at [SchedulerBuilder.Build] time.
-func New(cfg *config.Scheduler) *SchedulerBuilder {
+func New(cfg *schedulerconfig.Config) *SchedulerBuilder {
 	return &SchedulerBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -107,19 +107,19 @@ func (b *SchedulerBuilder) createStorageFromConfig() (scheduler.Storage, error) 
 	}
 
 	switch b.cfg.Storage.Type {
-	case config.SchedulerStorageTypeMemory, "":
+	case schedulerconfig.StorageTypeMemory, "":
 		return b.createMemoryStorage()
-	case config.SchedulerStorageTypeMongodb:
+	case schedulerconfig.StorageTypeMongo:
 		if err := b.RequireDependency(b.mongoDb, "mongo database"); err != nil {
 			return nil, err
 		}
 		return b.createMongoStorage()
-	case config.SchedulerStorageTypeRedis:
+	case schedulerconfig.StorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
 		return b.createRedisStorage()
-	case config.SchedulerStorageTypeSQL:
+	case schedulerconfig.StorageTypeSQL:
 		if err := b.RequireDependency(b.sqlDB, "sql database"); err != nil {
 			return nil, err
 		}
@@ -132,7 +132,7 @@ func (b *SchedulerBuilder) createStorageFromConfig() (scheduler.Storage, error) 
 // createMemoryStorage creates an in-memory storage backend.
 func (b *SchedulerBuilder) createMemoryStorage() (*memorystorage.Storage, error) {
 	if b.cfg.Storage == nil || b.cfg.Storage.Memory == nil {
-		return memorystorage.New(config.DefaultSchedulerStorageMemoryConfig().MaxHistoryPerTask)
+		return memorystorage.New(schedulerconfig.DefaultStorageMemoryConfig().MaxHistoryPerTask)
 	}
 	return memorystorage.New(b.cfg.Storage.Memory.MaxHistoryPerTask)
 }
@@ -223,7 +223,7 @@ func (b *SchedulerBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 // The static strategy uses the efficient semaphore-based [scheduler.WithMaxConcurrentTasks];
 // all other strategies use [scheduler.WithConcurrencyLimitFunc] for dynamic evaluation.
 func (b *SchedulerBuilder) concurrencyOptions() ([]scheduler.Option, error) {
-	if b.cfg.Concurrency.Strategy == config.ConcurrencyStatic || b.cfg.Concurrency.Strategy == "" {
+	if b.cfg.Concurrency.Strategy == schedulerconfig.ConcurrencyStatic || b.cfg.Concurrency.Strategy == "" {
 		return []scheduler.Option{
 			scheduler.WithMaxConcurrentTasks(b.cfg.Concurrency.MaxTasks),
 		}, nil

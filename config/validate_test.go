@@ -2,85 +2,92 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package config
+package config_test
 
 import (
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
+	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
+	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
+	natsconfig "github.com/altessa-s/go-atlas/config/nats"
+	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 )
 
 func TestValidate_Auth_NilSubConfigs(t *testing.T) {
-	cfg := Auth{}
+	cfg := authconfig.Config{}
 	// Auth with nil sub-configs should still pass (NilOrNotEmpty)
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Grpc_Valid(t *testing.T) {
-	cfg := DefaultGrpc()
+	cfg := grpcconfig.Default()
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Grpc_InvalidAddress(t *testing.T) {
-	cfg := DefaultGrpc()
+	cfg := grpcconfig.Default()
 	cfg.ListenAddress = "not-valid"
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Http_Valid(t *testing.T) {
-	cfg := DefaultHttp()
+	cfg := httpconfig.Default()
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Http_InvalidAddress(t *testing.T) {
-	cfg := DefaultHttp()
+	cfg := httpconfig.Default()
 	cfg.ListenAddress = "invalid"
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Mongodb_Valid(t *testing.T) {
-	cfg := DefaultMongodb()
+	cfg := mongoconfig.Default()
 	cfg.Database = "testdb"
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Mongodb_NoHosts(t *testing.T) {
-	cfg := DefaultMongodb()
+	cfg := mongoconfig.Default()
 	cfg.Database = "testdb"
 	cfg.Hosts = nil
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Mongodb_NoDatabase(t *testing.T) {
-	cfg := DefaultMongodb()
+	cfg := mongoconfig.Default()
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Redis_Valid(t *testing.T) {
-	cfg := DefaultRedis()
+	cfg := redisconfig.Default()
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Redis_NoHosts(t *testing.T) {
-	cfg := DefaultRedis()
+	cfg := redisconfig.Default()
 	cfg.Hosts = nil
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Nats_Valid(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Nats_NoHosts(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	cfg.Hosts = nil
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Nats_ZeroPingInterval(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	cfg.PingInterval = 0 * time.Second
 	require.Error(t, cfg.Validate())
 }
@@ -88,13 +95,13 @@ func TestValidate_Nats_ZeroPingInterval(t *testing.T) {
 // --- ConnectionURI validation tests ---
 
 func TestValidate_Nats_ConnectionURI_Only(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	cfg.ConnectionURI = "nats://user:pass@nats:4222"
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Nats_ConnectionURI_NoHosts(t *testing.T) {
-	cfg := Nats{
+	cfg := natsconfig.Config{
 		ConnectionURI:  "nats://nats:4222",
 		PingInterval:   10 * time.Second,
 		ReconnectWait:  10 * time.Second,
@@ -105,35 +112,35 @@ func TestValidate_Nats_ConnectionURI_NoHosts(t *testing.T) {
 }
 
 func TestValidate_Nats_ConnectionURI_ConflictUsername(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	cfg.ConnectionURI = "nats://nats:4222"
 	cfg.Username = "user"
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Nats_ConnectionURI_ConflictPassword(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	cfg.ConnectionURI = "nats://nats:4222"
 	cfg.Password = "pass"
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Nats_ConnectionURI_ConflictToken(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	cfg.ConnectionURI = "nats://nats:4222"
 	cfg.Token = "tok"
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Nats_ConnectionURI_ConflictNkeySeed(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	cfg.ConnectionURI = "nats://nats:4222"
 	cfg.NkeySeed = "SUACSSL3UAHUDXKFSNVUZRF5UHPMWZ6BFDTJ7M6USDXIEDNPPQYYYCU3VY"
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Nats_ConnectionURI_MultipleConflicts(t *testing.T) {
-	cfg := DefaultNats()
+	cfg := natsconfig.Default()
 	cfg.ConnectionURI = "nats://nats:4222"
 	cfg.Username = "user"
 	cfg.Token = "tok"
@@ -141,13 +148,13 @@ func TestValidate_Nats_ConnectionURI_MultipleConflicts(t *testing.T) {
 }
 
 func TestValidate_Redis_ConnectionURI_Only(t *testing.T) {
-	cfg := DefaultRedis()
+	cfg := redisconfig.Default()
 	cfg.ConnectionURI = "redis://localhost:6379/0"
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Redis_ConnectionURI_NoHosts(t *testing.T) {
-	cfg := Redis{
+	cfg := redisconfig.Config{
 		ConnectionURI:  "redis://localhost:6379/0",
 		ConnectTimeout: 5 * time.Second,
 		SocketTimeout:  5 * time.Second,
@@ -157,28 +164,28 @@ func TestValidate_Redis_ConnectionURI_NoHosts(t *testing.T) {
 }
 
 func TestValidate_Redis_ConnectionURI_ConflictUsername(t *testing.T) {
-	cfg := DefaultRedis()
+	cfg := redisconfig.Default()
 	cfg.ConnectionURI = "redis://localhost:6379/0"
 	cfg.Username = "user"
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Redis_ConnectionURI_ConflictPassword(t *testing.T) {
-	cfg := DefaultRedis()
+	cfg := redisconfig.Default()
 	cfg.ConnectionURI = "redis://localhost:6379/0"
 	cfg.Password = "pass"
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Mongodb_ConnectionURI_Only(t *testing.T) {
-	cfg := DefaultMongodb()
+	cfg := mongoconfig.Default()
 	cfg.ConnectionURI = "mongodb://localhost:27017/testdb"
 	cfg.Database = "testdb"
 	require.NoError(t, cfg.Validate())
 }
 
 func TestValidate_Mongodb_ConnectionURI_NoHosts(t *testing.T) {
-	cfg := Mongodb{
+	cfg := mongoconfig.Config{
 		ConnectionURI:  "mongodb://localhost:27017/testdb",
 		Database:       "testdb",
 		ConnectTimeout: 30 * time.Second,
@@ -188,39 +195,39 @@ func TestValidate_Mongodb_ConnectionURI_NoHosts(t *testing.T) {
 }
 
 func TestValidate_Mongodb_ConnectionURI_DatabaseRequired(t *testing.T) {
-	cfg := DefaultMongodb()
+	cfg := mongoconfig.Default()
 	cfg.ConnectionURI = "mongodb://localhost:27017/testdb"
 	// Database is still required even with URI
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Mongodb_ConnectionURI_ConflictCredentials(t *testing.T) {
-	cfg := DefaultMongodb()
+	cfg := mongoconfig.Default()
 	cfg.ConnectionURI = "mongodb://user:pass@localhost:27017/testdb"
 	cfg.Database = "testdb"
-	cfg.Credentials = &MongodbCredentials{
-		AuthMechanism: MongoAuthMechanismTypePLAIN,
-		Plain:         &MongoPLAINCredentials{Username: "user", Password: "pass"},
+	cfg.Credentials = &mongoconfig.Credentials{
+		AuthMechanism: mongoconfig.AuthMechanismTypePLAIN,
+		Plain:         &mongoconfig.PLAINCredentials{Username: "user", Password: "pass"},
 	}
 	require.Error(t, cfg.Validate())
 }
 
 func TestValidate_Nats_UseConnectionURI(t *testing.T) {
-	n := &Nats{}
+	n := &natsconfig.Config{}
 	require.False(t, n.UseConnectionURI())
 	n.ConnectionURI = "nats://localhost:4222"
 	require.True(t, n.UseConnectionURI())
 }
 
 func TestValidate_Redis_UseConnectionURI(t *testing.T) {
-	r := &Redis{}
+	r := &redisconfig.Config{}
 	require.False(t, r.UseConnectionURI())
 	r.ConnectionURI = "redis://localhost:6379"
 	require.True(t, r.UseConnectionURI())
 }
 
 func TestValidate_Mongodb_UseConnectionURI(t *testing.T) {
-	m := &Mongodb{}
+	m := &mongoconfig.Config{}
 	require.False(t, m.UseConnectionURI())
 	m.ConnectionURI = "mongodb://localhost:27017"
 	require.True(t, m.UseConnectionURI())

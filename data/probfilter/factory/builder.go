@@ -18,7 +18,6 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/probfilter"
@@ -27,6 +26,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/probfilter/internal/redisfilter"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	bloomstorages "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages"
@@ -58,8 +58,8 @@ const (
 type FilterBuilder struct {
 	corefactory.Base
 	name     string
-	cfg      *config.ProbabilisticFilterConfig
-	defaults *config.ProbabilisticFilterDefaults
+	cfg      *probfilterconfig.Filter
+	defaults *probfilterconfig.Defaults
 	errs     []error
 
 	// Dependencies
@@ -100,7 +100,7 @@ func (b *FilterBuilder) checkEvictionPolicy() error {
 
 // NewFilter creates a [FilterBuilder] for the given filter name, config, and defaults.
 // Config and defaults can be nil — the errors surface at [FilterBuilder.Build] time.
-func NewFilter(name string, cfg *config.ProbabilisticFilterConfig, defaults *config.ProbabilisticFilterDefaults) *FilterBuilder {
+func NewFilter(name string, cfg *probfilterconfig.Filter, defaults *probfilterconfig.Defaults) *FilterBuilder {
 	return &FilterBuilder{
 		Base:     corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		name:     name,
@@ -134,9 +134,9 @@ func (b *FilterBuilder) Build() (probfilter.Filter, error) {
 	}
 
 	switch b.cfg.Type {
-	case config.ProbabilisticFilterTypeBloom:
+	case probfilterconfig.TypeBloom:
 		return b.createBloomFilter()
-	case config.ProbabilisticFilterTypeCuckoo:
+	case probfilterconfig.TypeCuckoo:
 		return b.createCuckooFilter()
 	default:
 		return nil, b.Errorf("unknown filter type: %s", b.cfg.Type)
@@ -206,7 +206,7 @@ func (b *FilterBuilder) wireBloomRebuild(filter *bloom.Filter) error {
 		return nil
 	}
 
-	if bloomStorageType(b.cfg.Bloom, b.defaults.Bloom) == config.ProbabilisticFilterStorageTypeMemory {
+	if bloomStorageType(b.cfg.Bloom, b.defaults.Bloom) == probfilterconfig.StorageTypeMemory {
 		return b.startLocalRebuild(filter, spec)
 	}
 
@@ -271,13 +271,13 @@ func (b *FilterBuilder) createBloomStorage() (bloomstorages.Storage, error) {
 	falsePositiveRate := bloomFalsePositiveRate(cfg, b.defaults.Bloom)
 
 	switch storageType {
-	case config.ProbabilisticFilterStorageTypeMemory:
+	case probfilterconfig.StorageTypeMemory:
 		return bloommemory.New(
 			bloommemory.WithExpectedItems(expectedItems),
 			bloommemory.WithFalsePositiveRate(falsePositiveRate),
 		), nil
 
-	case config.ProbabilisticFilterStorageTypeRedis:
+	case probfilterconfig.StorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
@@ -322,13 +322,13 @@ func (b *FilterBuilder) createCuckooStorage() (cuckoostorages.Storage, error) {
 	b.warnUnsupportedCuckooSettings(cfg, storageType)
 
 	switch storageType {
-	case config.ProbabilisticFilterStorageTypeMemory:
+	case probfilterconfig.StorageTypeMemory:
 		return cuckoomemory.New(
 			//nolint:gosec // G115: capacity is validated positive via config
 			cuckoomemory.WithCapacity(uint(capacity)),
 		), nil
 
-	case config.ProbabilisticFilterStorageTypeRedis:
+	case probfilterconfig.StorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
@@ -355,8 +355,8 @@ func (b *FilterBuilder) createCuckooStorage() (cuckoostorages.Storage, error) {
 // backend supports them. capacityMultiplier maps to RedisBloom EXPANSION and
 // has no in-memory equivalent.
 func (b *FilterBuilder) warnUnsupportedCuckooSettings(
-	cfg *config.ProbabilisticFilterCuckooConfig,
-	storageType config.ProbabilisticFilterStorageType,
+	cfg *probfilterconfig.CuckooConfig,
+	storageType probfilterconfig.StorageType,
 ) {
 	//nolint:staticcheck // SA1019: read only to warn that the deprecated settings are ignored.
 	fingerprintSize, maxCapacity := cfg.FingerprintSize, cfg.MaxCapacity
@@ -368,7 +368,7 @@ func (b *FilterBuilder) warnUnsupportedCuckooSettings(
 		b.Logger().Warn("probfilter: deprecated maxCapacity ignored, no backend enforces it",
 			slog.String("filter", b.name), slog.Int64("maxCapacity", *maxCapacity))
 	}
-	if cfg.CapacityMultiplier != nil && storageType == config.ProbabilisticFilterStorageTypeMemory {
+	if cfg.CapacityMultiplier != nil && storageType == probfilterconfig.StorageTypeMemory {
 		b.Logger().Warn("probfilter: capacityMultiplier ignored, only the redis storage can grow",
 			slog.String("filter", b.name), slog.Float64("capacityMultiplier", *cfg.CapacityMultiplier))
 	}
@@ -381,7 +381,7 @@ func (b *FilterBuilder) warnUnsupportedCuckooSettings(
 // The builder is not safe for concurrent use.
 type ManagerBuilder struct {
 	corefactory.Base
-	cfg  *config.ProbabilisticFilter
+	cfg  *probfilterconfig.Config
 	errs []error
 
 	// Dependencies
@@ -393,7 +393,7 @@ type ManagerBuilder struct {
 
 // NewManager creates a [ManagerBuilder] for the given probabilistic filter config.
 // Config can be nil — the error surfaces at [ManagerBuilder.Build] time.
-func NewManager(cfg *config.ProbabilisticFilter) *ManagerBuilder {
+func NewManager(cfg *probfilterconfig.Config) *ManagerBuilder {
 	return &ManagerBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -458,22 +458,22 @@ func closeFilter(filter probfilter.Filter) {
 }
 
 func bloomStorageType(
-	cfg *config.ProbabilisticFilterBloomConfig,
-	defaults *config.ProbabilisticFilterBloomDefaults,
-) config.ProbabilisticFilterStorageType {
+	cfg *probfilterconfig.BloomConfig,
+	defaults *probfilterconfig.BloomDefaults,
+) probfilterconfig.StorageType {
 	storage := cmp.Or(cfg.Storage, &defaults.Storage)
-	return cmp.Or(*storage, config.ProbabilisticFilterStorageTypeMemory)
+	return cmp.Or(*storage, probfilterconfig.StorageTypeMemory)
 }
 
-func bloomFalsePositiveRate(cfg *config.ProbabilisticFilterBloomConfig, defaults *config.ProbabilisticFilterBloomDefaults) float64 {
+func bloomFalsePositiveRate(cfg *probfilterconfig.BloomConfig, defaults *probfilterconfig.BloomDefaults) float64 {
 	positiveRate := cmp.Or(cfg.FalsePositiveRate, &defaults.FalsePositiveRate)
 	return cmp.Or(*positiveRate, defaultBloomFPR)
 }
 
 func cuckooStorageType(
-	cfg *config.ProbabilisticFilterCuckooConfig,
-	defaults *config.ProbabilisticFilterCuckooDefaults,
-) config.ProbabilisticFilterStorageType {
+	cfg *probfilterconfig.CuckooConfig,
+	defaults *probfilterconfig.CuckooDefaults,
+) probfilterconfig.StorageType {
 	storage := cmp.Or(cfg.Storage, &defaults.Storage)
-	return cmp.Or(*storage, config.ProbabilisticFilterStorageTypeMemory)
+	return cmp.Or(*storage, probfilterconfig.StorageTypeMemory)
 }

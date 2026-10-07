@@ -19,7 +19,7 @@ conn, err := factory.New(cfg.Nats).
 
 ## Authentication
 
-Authentication is selected automatically based on which credential fields are set in `config.Nats`. When `ConnectionURI` is set, authentication
+Authentication is selected automatically based on which credential fields are set in `natsconfig.Config`. When `ConnectionURI` is set, authentication
 fields are ignored because credentials are embedded in the URI.
 
 | Method            | Config field            | Description                                            |

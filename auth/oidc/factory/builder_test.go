@@ -22,7 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
-	"github.com/altessa-s/go-atlas/config"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 )
 
 // fakeAuthoritative is an exact revocation store that answers from a fixed set
@@ -47,14 +49,14 @@ func offlineRedisClient(t *testing.T) redis.UniversalClient {
 	return c
 }
 
-func memoryFilterRevocation() *config.OIDCRevocation {
-	storage := config.ProbabilisticFilterStorageTypeMemory
-	return &config.OIDCRevocation{
+func memoryFilterRevocation() *authconfig.OIDCRevocation {
+	storage := probfilterconfig.StorageTypeMemory
+	return &authconfig.OIDCRevocation{
 		Enabled:  true,
 		ItemType: "token",
-		Filter: &config.ProbabilisticFilterConfig{
-			Type: config.ProbabilisticFilterTypeBloom,
-			Bloom: &config.ProbabilisticFilterBloomConfig{
+		Filter: &probfilterconfig.Filter{
+			Type: probfilterconfig.TypeBloom,
+			Bloom: &probfilterconfig.BloomConfig{
 				Storage:       &storage,
 				ExpectedItems: 1000,
 			},
@@ -73,7 +75,7 @@ func TestProviderBuilder_Build_NilConfig(t *testing.T) {
 func TestProviderBuilder_BuildRevocationOptions_NotConfigured(t *testing.T) {
 	t.Parallel()
 
-	b := New(&config.OIDC{})
+	b := New(&authconfig.OIDC{})
 	opts, err := b.buildRevocationOptions()
 	require.NoError(t, err)
 	require.Nil(t, opts)
@@ -85,7 +87,7 @@ func TestProviderBuilder_BuildRevocationOptions_Disabled(t *testing.T) {
 	cfg := memoryFilterRevocation()
 	cfg.Enabled = false
 
-	b := New(&config.OIDC{Revocation: cfg})
+	b := New(&authconfig.OIDC{Revocation: cfg})
 	opts, err := b.buildRevocationOptions()
 	require.NoError(t, err)
 	require.Nil(t, opts)
@@ -96,7 +98,7 @@ func TestProviderBuilder_BuildRevocationOptions_Disabled(t *testing.T) {
 func TestProviderBuilder_BuildRevocationStorage_RequiresRedisClient(t *testing.T) {
 	t.Parallel()
 
-	b := New(&config.OIDC{Revocation: memoryFilterRevocation()})
+	b := New(&authconfig.OIDC{Revocation: memoryFilterRevocation()})
 	_, err := b.buildRevocationOptions()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "redis client")
@@ -107,7 +109,7 @@ func TestProviderBuilder_BuildRevocationStorage_RequiresRedisClient(t *testing.T
 func TestProviderBuilder_BuildRevocationOptions_CustomStorageBypassesRedis(t *testing.T) {
 	t.Parallel()
 
-	b := New(&config.OIDC{Revocation: memoryFilterRevocation()}).
+	b := New(&authconfig.OIDC{Revocation: memoryFilterRevocation()}).
 		UseRevocationStorage(stubStorage{})
 
 	opts, err := b.buildRevocationOptions()
@@ -123,7 +125,7 @@ func TestProviderBuilder_BuildRevocationStorage_ConfirmsFilterHits(t *testing.T)
 	t.Parallel()
 
 	auth := &fakeAuthoritative{revoked: map[string]bool{}}
-	b := New(&config.OIDC{Revocation: memoryFilterRevocation()}).
+	b := New(&authconfig.OIDC{Revocation: memoryFilterRevocation()}).
 		UseRedisClient(offlineRedisClient(t)).
 		UseRevocationAuthoritative(auth)
 
@@ -144,7 +146,7 @@ func TestProviderBuilder_BuildRevocationStorage_ConfirmsFilterHits(t *testing.T)
 func TestProviderBuilder_BuildRevocationStorage_LossyWithoutAuthoritative(t *testing.T) {
 	t.Parallel()
 
-	b := New(&config.OIDC{Revocation: memoryFilterRevocation()}).
+	b := New(&authconfig.OIDC{Revocation: memoryFilterRevocation()}).
 		UseRedisClient(offlineRedisClient(t))
 
 	storage, err := b.buildRevocationStorage(b.cfg.Revocation)
@@ -174,7 +176,7 @@ func TestProviderBuilder_BuildRevocationOptions_FailOpen(t *testing.T) {
 
 	cfg := memoryFilterRevocation()
 	cfg.FailOpen = true
-	b := New(&config.OIDC{Revocation: cfg}).UseRevocationStorage(stubStorage{})
+	b := New(&authconfig.OIDC{Revocation: cfg}).UseRevocationStorage(stubStorage{})
 
 	opts, err := b.buildRevocationOptions()
 	require.NoError(t, err)
@@ -206,8 +208,8 @@ func TestProviderBuilder_URLSourceSyncsThroughProviderClient(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	rev := memoryFilterRevocation()
-	rev.Source = &config.OIDCRevocationSource{URL: srv.URL + "/revoked"}
-	b := New(&config.OIDC{DiscoveryUrl: srv.URL, Revocation: rev}).UseRedisClient(offlineRedisClient(t))
+	rev.Source = &authconfig.OIDCRevocationSource{URL: srv.URL + "/revoked"}
+	b := New(&authconfig.OIDC{DiscoveryUrl: srv.URL, Revocation: rev}).UseRedisClient(offlineRedisClient(t))
 
 	opts, err := b.buildProviderOptions(t.Context())
 	require.NoError(t, err)
@@ -226,17 +228,17 @@ func TestProviderBuilder_URLSourceSyncsThroughProviderClient(t *testing.T) {
 func TestRevocationFilterName_BoundToRevocationDomain(t *testing.T) {
 	t.Parallel()
 
-	newCfg := func(discovery, itemType, url string) *config.OIDC {
+	newCfg := func(discovery, itemType, url string) *authconfig.OIDC {
 		rev := memoryFilterRevocation()
 		rev.ItemType = itemType
-		rev.Source = &config.OIDCRevocationSource{URL: url}
-		return &config.OIDC{DiscoveryUrl: discovery, Revocation: rev}
+		rev.Source = &authconfig.OIDCRevocationSource{URL: url}
+		return &authconfig.OIDC{DiscoveryUrl: discovery, Revocation: rev}
 	}
 	base := revocationFilterName(newCfg("https://a.example", "token", "https://a.example/revoked"))
 
 	require.Equal(t, base, revocationFilterName(newCfg("https://a.example", "token", "https://a.example/revoked")))
 	require.Regexp(t, `^oidc-revocation-[0-9a-f]{16}$`, base)
-	for name, cfg := range map[string]*config.OIDC{
+	for name, cfg := range map[string]*authconfig.OIDC{
 		"issuer":    newCfg("https://b.example", "token", "https://a.example/revoked"),
 		"item type": newCfg("https://a.example", "jti", "https://a.example/revoked"),
 		"source":    newCfg("https://a.example", "token", "https://a.example/other"),
@@ -266,7 +268,7 @@ func TestProviderBuilder_BuildRevocationStorage_FilterRebuildSettings(t *testing
 			rev := memoryFilterRevocation()
 			rev.Filter.Bloom.RebuildCron = tc.cron
 			rev.Filter.Bloom.RebuildOnStart = tc.onStart
-			b := New(&config.OIDC{Revocation: rev}).UseRedisClient(offlineRedisClient(t))
+			b := New(&authconfig.OIDC{Revocation: rev}).UseRedisClient(offlineRedisClient(t))
 
 			_, err := b.buildRevocationStorage(rev)
 			if tc.wantErr {

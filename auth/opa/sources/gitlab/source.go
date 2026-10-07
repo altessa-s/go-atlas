@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"path"
 	"strings"
 	"sync"
@@ -19,7 +18,6 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 	gitlabapi "gitlab.com/gitlab-org/api/client-go"
 )
 
@@ -34,6 +32,10 @@ var (
 	ErrTokenRequired = errors.New("gitlab token is required")
 	// ErrProjectIDRequired is returned when no GitLab project ID is configured.
 	ErrProjectIDRequired = errors.New("gitlab project ID is required")
+	// ErrHTTPClientRequired is returned when no client is passed with
+	// [WithHTTPClient]. Pass the resilient, SSRF-protected client from
+	// transport/http/client (httpclient.New()), as the factory does.
+	ErrHTTPClientRequired = errors.New("gitlab HTTP client is required")
 )
 
 // Source implements [opa.PolicySource] for GitLab-hosted policies.
@@ -65,18 +67,17 @@ func New(opts ...Option) (*Source, error) {
 		return nil, ErrProjectIDRequired
 	}
 
+	if o.httpClient == nil {
+		return nil, ErrHTTPClientRequired
+	}
+
 	logger := cmp.Or(o.logger, slog.New(slog.DiscardHandler))
 
-	// Always wire the go-atlas resilient HTTP client and disable
-	// gitlab's library-level retry so there is exactly one retry layer.
-	// Mirror of how auth/oidc unconditionally builds Provider.client via
-	// httpclient.New (see auth/oidc/provider.go) — caller customisation
-	// (proxy, retry, breaker) flows through WithHTTPClientOptions or
-	// the source's own WithRetryMax / WithRetryWaitMin / WithRetryWaitMax
-	// shortcuts.
+	// gitlab's library-level retry is disabled so the injected client is
+	// the only retry layer.
 	gitlabOpts := []gitlabapi.ClientOptionFunc{
 		gitlabapi.WithBaseURL(strings.TrimRight(o.endpoint, "/") + "/api/v4"),
-		gitlabapi.WithHTTPClient(newResilientHTTPClient(o, logger)),
+		gitlabapi.WithHTTPClient(o.httpClient),
 		gitlabapi.WithoutRetries(),
 	}
 
@@ -91,17 +92,6 @@ func New(opts ...Option) (*Source, error) {
 		client: client,
 		shas:   make(map[string]string),
 	}, nil
-}
-
-// newResilientHTTPClient builds the go-atlas HTTP client used for every
-// outbound GitLab API call. Mirrors auth/oidc.NewProvider's
-// unconditional httpclient.New: the resilient defaults (pooled
-// transport, retry, circuit breaker, env-proxy) apply unless the caller
-// overrides them via WithHTTPClientOptions(httpclient.WithRetryMax(N))
-// and friends — there is exactly one configuration channel.
-func newResilientHTTPClient(o *options, logger *slog.Logger) *http.Client {
-	clientOpts := append([]httpclient.Option{httpclient.WithLogger(logger)}, o.httpClientOptions...)
-	return httpclient.New(clientOpts...)
 }
 
 // Name returns the source identifier.

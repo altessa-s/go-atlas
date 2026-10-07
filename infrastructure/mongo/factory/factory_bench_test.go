@@ -7,11 +7,11 @@ package factory
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/config"
+	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
 )
 
 func BenchmarkClientOptions(b *testing.B) {
-	builder := New(&config.Mongodb{
+	builder := New(&mongoconfig.Config{
 		Hosts:       []string{"localhost:27017"},
 		Database:    "testdb",
 		MaxPoolSize: 100,
@@ -24,10 +24,10 @@ func BenchmarkClientOptions(b *testing.B) {
 }
 
 func BenchmarkBuildCredential_SCRAM(b *testing.B) {
-	builder := New(&config.Mongodb{
-		Credentials: &config.MongodbCredentials{
-			AuthMechanism: config.MongoAuthMechanismTypeSCRAMSHA256,
-			Scram:         &config.MongoSCRAMCredentials{Username: "u", Password: "p", AuthSource: "admin"},
+	builder := New(&mongoconfig.Config{
+		Credentials: &mongoconfig.Credentials{
+			AuthMechanism: mongoconfig.AuthMechanismTypeSCRAMSHA256,
+			Scram:         &mongoconfig.SCRAMCredentials{Username: "u", Password: "p", AuthSource: "admin"},
 		},
 	})
 	b.ResetTimer()
@@ -37,7 +37,7 @@ func BenchmarkBuildCredential_SCRAM(b *testing.B) {
 }
 
 func BenchmarkNew(b *testing.B) {
-	cfg := &config.Mongodb{
+	cfg := &mongoconfig.Config{
 		Hosts:       []string{"localhost:27017"},
 		Database:    "testdb",
 		MaxPoolSize: 100,
@@ -48,7 +48,7 @@ func BenchmarkNew(b *testing.B) {
 }
 
 func BenchmarkMongoBuilder_Build(b *testing.B) {
-	cfg := &config.Mongodb{
+	cfg := &mongoconfig.Config{
 		Hosts:       []string{"localhost:27017"},
 		Database:    "testdb",
 		MaxPoolSize: 100,

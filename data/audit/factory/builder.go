@@ -12,10 +12,10 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/service/dispatch"
 
+	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
@@ -39,7 +39,7 @@ var ErrMongoDatabaseRequired = errors.New("audit: mongo database is required for
 // The builder is not safe for concurrent use.
 type AuditorBuilder struct {
 	corefactory.Base
-	cfg  *config.Audit
+	cfg  *auditconfig.Config
 	errs []error
 
 	// Dependencies
@@ -50,7 +50,7 @@ type AuditorBuilder struct {
 
 // New creates an [AuditorBuilder] for the given audit config.
 // Config can be nil — the error surfaces at [AuditorBuilder.Build] time.
-func New(cfg *config.Audit) *AuditorBuilder {
+func New(cfg *auditconfig.Config) *AuditorBuilder {
 	return &AuditorBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -151,10 +151,10 @@ func (b *AuditorBuilder) onShutdown(hook coreruntime.ShutdownHook) {
 // createStorage resolves the configured storage type into an [audit.Storage].
 func (b *AuditorBuilder) createStorage() (audit.Storage, error) {
 	switch b.cfg.Storage.Type {
-	case config.AuditStorageTypeMemory:
+	case auditconfig.StorageTypeMemory:
 		return memorystorage.New(), nil
 
-	case config.AuditStorageTypeMongo:
+	case auditconfig.StorageTypeMongo:
 		return b.createMongoStorage()
 
 	default:

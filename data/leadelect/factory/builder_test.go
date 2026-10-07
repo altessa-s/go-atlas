@@ -11,10 +11,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/leadelect/factory"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	lockconfig "github.com/altessa-s/go-atlas/config/lock"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	lenats "github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
 )
 
@@ -38,9 +39,9 @@ func TestBuild_MigrateBucketTTL(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cfg := func(migrate bool) *config.LeaderElector {
-		return &config.LeaderElector{
-			Provider:         config.LeaderElectorProviderNats,
+	cfg := func(migrate bool) *lockconfig.LeaderElector {
+		return &lockconfig.LeaderElector{
+			Provider:         lockconfig.LeaderElectorProviderNats,
 			Ttl:              10 * time.Second,
 			MigrateBucketTTL: migrate,
 		}
@@ -75,9 +76,9 @@ func TestBuild_StrictBucketStorage(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	cfg := func(strict bool) *config.LeaderElector {
-		return &config.LeaderElector{
-			Provider:            config.LeaderElectorProviderNats,
+	cfg := func(strict bool) *lockconfig.LeaderElector {
+		return &lockconfig.LeaderElector{
+			Provider:            lockconfig.LeaderElectorProviderNats,
 			Ttl:                 10 * time.Second,
 			StrictBucketStorage: strict,
 		}
@@ -95,21 +96,21 @@ func TestBuild_StrictBucketStorage(t *testing.T) {
 func TestBuild_Storage(t *testing.T) {
 	t.Parallel()
 
-	for name, storage := range map[string]config.KVStorageType{"default": "", "file": config.KVStorageFile} {
+	for name, storage := range map[string]storageconfig.KVStorageType{"default": "", "file": storageconfig.KVStorageFile} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			ns := testhelpers.StartNATSServer(t)
 			nc, js := testhelpers.ConnectJetStream(t, ns)
 
-			_, err := factory.New(&config.LeaderElector{
-				Provider: config.LeaderElectorProviderNats,
+			_, err := factory.New(&lockconfig.LeaderElector{
+				Provider: lockconfig.LeaderElectorProviderNats,
 				Ttl:      10 * time.Second,
 				Storage:  storage,
 			}).UseNatsConn(nc).Build(t.Context())
 			require.NoError(t, err)
 
 			want := jetstream.MemoryStorage
-			if storage == config.KVStorageFile {
+			if storage == storageconfig.KVStorageFile {
 				want = jetstream.FileStorage
 			}
 			require.Equal(t, want, testhelpers.KVBucketStorage(t, js, lenats.DefaultBucket))

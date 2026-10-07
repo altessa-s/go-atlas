@@ -10,17 +10,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/limiters/budget/factory"
+
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 )
 
-func validConfig() *config.BudgetLimiter {
-	return &config.BudgetLimiter{
+func validConfig() *limiterconfig.Budget {
+	return &limiterconfig.Budget{
 		Limit:  1000,
 		Period: time.Hour,
-		Storage: &config.CacheStorageConfig{
-			Type:   config.CacheStorageTypeMemory,
-			Memory: &config.StorageMemoryConfig{},
+		Storage: &storageconfig.CacheStorageConfig{
+			Type:   storageconfig.CacheStorageTypeMemory,
+			Memory: &storageconfig.MemoryConfig{},
 		},
 	}
 }
@@ -46,9 +48,9 @@ func TestBuild_MemoryStorage(t *testing.T) {
 
 func TestBuild_RedisStorage_NoDependency(t *testing.T) {
 	cfg := validConfig()
-	cfg.Storage = &config.CacheStorageConfig{
-		Type:  config.CacheStorageTypeRedis,
-		Redis: &config.StorageRedisConfig{},
+	cfg.Storage = &storageconfig.CacheStorageConfig{
+		Type:  storageconfig.CacheStorageTypeRedis,
+		Redis: &storageconfig.RedisConfig{},
 	}
 
 	_, err := factory.New(cfg).Build()
@@ -57,9 +59,9 @@ func TestBuild_RedisStorage_NoDependency(t *testing.T) {
 
 func TestBuild_NatsStorage_NoDependency(t *testing.T) {
 	cfg := validConfig()
-	cfg.Storage = &config.CacheStorageConfig{
-		Type: config.CacheStorageTypeNats,
-		Nats: &config.StorageNATSConfig{},
+	cfg.Storage = &storageconfig.CacheStorageConfig{
+		Type: storageconfig.CacheStorageTypeNats,
+		Nats: &storageconfig.NATSConfig{},
 	}
 
 	_, err := factory.New(cfg).Build()
@@ -68,7 +70,7 @@ func TestBuild_NatsStorage_NoDependency(t *testing.T) {
 
 func TestBuild_UnsupportedStorageType(t *testing.T) {
 	cfg := validConfig()
-	cfg.Storage = &config.CacheStorageConfig{Type: "unknown"}
+	cfg.Storage = &storageconfig.CacheStorageConfig{Type: "unknown"}
 
 	_, err := factory.New(cfg).Build()
 	require.Error(t, err, "Build() with unsupported storage type should return error")

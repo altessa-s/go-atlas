@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package config
+package config_test
 
 import (
 	"testing"
@@ -10,6 +10,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
+	natsconfig "github.com/altessa-s/go-atlas/config/nats"
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
+	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -42,7 +48,7 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 			return c.Validate()
 		}},
 		{"Nats.MaxPingsOut", func() error {
-			c := DefaultNats()
+			c := natsconfig.Default()
 			c.MaxPingsOut = 0
 			return c.Validate()
 		}},
@@ -57,23 +63,18 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 			return c.Validate()
 		}},
 		{"Health.AdaptiveBufferThreshold", func() error {
-			c := DefaultHealth()
+			c := observabilityconfig.DefaultHealth()
 			c.AdaptiveBufferThreshold = 0
 			return c.Validate()
 		}},
 		{"Health.AdaptiveBufferMultiplier", func() error {
-			c := DefaultHealth()
+			c := observabilityconfig.DefaultHealth()
 			c.AdaptiveBufferMultiplier = 0
 			return c.Validate()
 		}},
 		{"Health.MaxAdaptiveBuffer", func() error {
-			c := DefaultHealth()
+			c := observabilityconfig.DefaultHealth()
 			c.MaxAdaptiveBuffer = 0
-			return c.Validate()
-		}},
-		{"InProgress.MaxEntries", func() error {
-			c := validInProgress()
-			c.MaxEntries = 0
 			return c.Validate()
 		}},
 		{"NatsConsumer.MaxAckPending", func() error {
@@ -87,67 +88,42 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 			return c.Validate()
 		}},
 		{"StorageNATSConfig.Replicas", func() error {
-			c := StorageNATSConfig{Bucket: "bucket", Replicas: 0}
-			return c.Validate()
-		}},
-		{"Outbox.FetchTimeout", func() error {
-			c := validOutbox()
-			c.FetchTimeout = 0
-			return c.Validate()
-		}},
-		{"Outbox.HandleTimeout", func() error {
-			c := validOutbox()
-			c.HandleTimeout = 0
-			return c.Validate()
-		}},
-		{"Outbox.UpdateTimeout", func() error {
-			c := validOutbox()
-			c.UpdateTimeout = 0
-			return c.Validate()
-		}},
-		{"Outbox.MessagesBatchSize", func() error {
-			c := validOutbox()
-			c.MessagesBatchSize = 0
-			return c.Validate()
-		}},
-		{"Outbox.RetryMaxAttempts", func() error {
-			c := validOutbox()
-			c.RetryMaxAttempts = 0
+			c := storageconfig.NATSConfig{Bucket: "bucket", Replicas: 0}
 			return c.Validate()
 		}},
 		{"NatsRecovery.MaxRecoveryAttempts", func() error {
-			c := DefaultNatsRecovery()
+			c := natsconfig.DefaultRecovery()
 			c.MaxRecoveryAttempts = 0
 			return c.Validate()
 		}},
 		{"ProbabilisticFilterBloomDefaults.FalsePositiveRate", func() error {
-			c := DefaultProbabilisticFilterBloomDefaults()
+			c := probfilterconfig.NewBloomDefaults()
 			c.FalsePositiveRate = 0
 			return c.Validate()
 		}},
 		{"ProbabilisticFilterCuckooDefaults.CapacityMultiplier", func() error {
-			c := DefaultProbabilisticFilterCuckooDefaults()
+			c := probfilterconfig.NewCuckooDefaults()
 			c.CapacityMultiplier = 0
 			return c.Validate()
 		}},
 		{"ProbabilisticFilterCuckooDefaults.MaxCapacity", func() error {
-			c := DefaultProbabilisticFilterCuckooDefaults()
+			c := probfilterconfig.NewCuckooDefaults()
 			c.MaxCapacity = 0
 			return c.Validate()
 		}},
 		{"ProbabilisticFilterBloomConfig.FalsePositiveRate", func() error {
 			rate := 0.0
-			c := ProbabilisticFilterBloomConfig{ExpectedItems: 1000, FalsePositiveRate: &rate}
+			c := probfilterconfig.BloomConfig{ExpectedItems: 1000, FalsePositiveRate: &rate}
 			return c.Validate()
 		}},
 		{"ProbabilisticFilterCuckooConfig.CapacityMultiplier", func() error {
 			mult := 0.0
-			c := ProbabilisticFilterCuckooConfig{Capacity: 1000, CapacityMultiplier: &mult}
+			c := probfilterconfig.CuckooConfig{Capacity: 1000, CapacityMultiplier: &mult}
 			return c.Validate()
 		}},
 		{"ProbabilisticFilterCuckooConfig.MaxCapacity", func() error {
 			maxCap := int64(0)
-			c := ProbabilisticFilterCuckooConfig{Capacity: 1000, MaxCapacity: &maxCap}
+			c := probfilterconfig.CuckooConfig{Capacity: 1000, MaxCapacity: &maxCap}
 			return c.Validate()
 		}},
 	}
@@ -167,16 +143,14 @@ func TestValidate_ZeroRejectedByMinGuardedFields_BaselinesAreValid(t *testing.T)
 
 	baselines := map[string]func() error{
 		"Saga":              func() error { c := validSaga(); return c.Validate() },
-		"Nats":              func() error { c := DefaultNats(); return c.Validate() },
+		"Nats":              func() error { c := natsconfig.Default(); return c.Validate() },
 		"WAL":               func() error { c := validWAL(t); return c.Validate() },
-		"Health":            func() error { c := DefaultHealth(); return c.Validate() },
-		"InProgress":        func() error { c := validInProgress(); return c.Validate() },
+		"Health":            func() error { c := observabilityconfig.DefaultHealth(); return c.Validate() },
 		"NatsConsumer":      func() error { c := validNatsConsumer(); return c.Validate() },
-		"StorageNATSConfig": func() error { c := StorageNATSConfig{Bucket: "bucket", Replicas: 3}; return c.Validate() },
-		"Outbox":            func() error { c := validOutbox(); return c.Validate() },
-		"NatsRecovery":      func() error { c := DefaultNatsRecovery(); return c.Validate() },
-		"BloomDefaults":     func() error { c := DefaultProbabilisticFilterBloomDefaults(); return c.Validate() },
-		"CuckooDefaults":    func() error { c := DefaultProbabilisticFilterCuckooDefaults(); return c.Validate() },
+		"StorageNATSConfig": func() error { c := storageconfig.NATSConfig{Bucket: "bucket", Replicas: 3}; return c.Validate() },
+		"NatsRecovery":      func() error { c := natsconfig.DefaultRecovery(); return c.Validate() },
+		"BloomDefaults":     func() error { c := probfilterconfig.NewBloomDefaults(); return c.Validate() },
+		"CuckooDefaults":    func() error { c := probfilterconfig.NewCuckooDefaults(); return c.Validate() },
 	}
 
 	for name, validate := range baselines {
@@ -210,17 +184,17 @@ func TestValidate_MinZeroDurationRejectsNegative(t *testing.T) {
 	require.Error(t, validation.Validate(-time.Second, validation.Min(time.Duration(0))))
 }
 
-func validSaga() Saga {
-	c := DefaultSaga()
-	c.Storage = DefaultSagaStorage()
+func validSaga() sagaconfig.Config {
+	c := sagaconfig.Default()
+	c.Storage = sagaconfig.DefaultStorage()
 
 	return c
 }
 
-func validWAL(t *testing.T) WAL {
+func validWAL(t *testing.T) dispatchconfig.WAL {
 	t.Helper()
 
-	return WAL{
+	return dispatchconfig.WAL{
 		Enabled:         true,
 		Dir:             t.TempDir(),
 		MaxSegmentBytes: 64 << 20,
@@ -229,52 +203,14 @@ func validWAL(t *testing.T) WAL {
 	}
 }
 
-func validInProgress() InProgress {
-	return InProgress{
-		Enabled:                  true,
-		TickSchedule:             defaultInProgressTickSchedule,
-		DefaultHeartbeatInterval: defaultInProgressHeartbeatInterval,
-		MaxEntries:               defaultInProgressMaxEntries,
-		Metrics: InProgressMetrics{
-			Enabled: defaultInProgressMetricsEnabled,
-			Prefix:  defaultInProgressMetricsPrefix,
-		},
-	}
-}
-
-func validNatsConsumer() NatsConsumer {
-	return NatsConsumer{
-		DeliverPolicy: DeliverPolicyAll,
-		AckPolicy:     AckPolicyExplicit,
+func validNatsConsumer() natsconfig.Consumer {
+	return natsconfig.Consumer{
+		DeliverPolicy: natsconfig.DeliverPolicyAll,
+		AckPolicy:     natsconfig.AckPolicyExplicit,
 		AckWait:       30 * time.Second,
 		MaxDeliver:    -1,
-		ReplayPolicy:  ReplayPolicyInstant,
+		ReplayPolicy:  natsconfig.ReplayPolicyInstant,
 		MaxAckPending: 1000,
 		MaxWaiting:    512,
-	}
-}
-
-func validOutbox() Outbox {
-	return Outbox{
-		Enabled:           defaultOutboxEnabled,
-		DispatchSchedule:  "@every 2s",
-		FetchTimeout:      defaultOutboxFetchTimeout,
-		HandleTimeout:     defaultOutboxHandleTimeout,
-		UpdateTimeout:     defaultOutboxUpdateTimeout,
-		CleanupSchedule:   "@every 10m",
-		UnlockSchedule:    "@every 11s",
-		MessagesBatchSize: defaultOutboxMessagesBatchSize,
-		RetryMaxAttempts:  defaultOutboxRetryMaxAttempts,
-		RetryBaseDelay:    defaultOutboxRetryBaseDelay,
-		RetryMaxDelay:     defaultOutboxRetryMaxDelay,
-		MaxLockTime:       defaultOutboxMaxLockTime,
-		MaxPayloadBytes:   defaultOutboxMaxPayloadBytes,
-		ExpireSchedule:    "@every 11s",
-		StatsSchedule:     "@every 30s",
-		DispatchTaskID:    "outbox-dispatch",
-		UnlockTaskID:      "outbox-unlock",
-		ExpireTaskID:      "outbox-expire",
-		CleanupTaskID:     "outbox-cleanup",
-		StatsTaskID:       "outbox-stats",
 	}
 }

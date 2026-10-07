@@ -9,9 +9,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/metrics/factory"
+
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
 
 func TestCollectorBuilder_Build_Disabled(t *testing.T) {
@@ -21,16 +22,16 @@ func TestCollectorBuilder_Build_Disabled(t *testing.T) {
 	require.True(t, metrics.IsNoop(collector), "expected Noop collector for nil config")
 
 	// Disabled config
-	cfg := &config.Metrics{Enabled: false}
+	cfg := &observabilityconfig.Metrics{Enabled: false}
 	collector, err = factory.New(cfg).Build()
 	require.NoError(t, err)
 	require.True(t, metrics.IsNoop(collector), "expected Noop collector for disabled config")
 }
 
 func TestCollectorBuilder_Build_Prometheus(t *testing.T) {
-	cfg := &config.Metrics{
+	cfg := &observabilityconfig.Metrics{
 		Enabled:     true,
-		Type:        config.MetricsTypePrometheus,
+		Type:        observabilityconfig.MetricsTypePrometheus,
 		ServiceName: "test",
 	}
 
@@ -41,9 +42,9 @@ func TestCollectorBuilder_Build_Prometheus(t *testing.T) {
 }
 
 func TestCollectorBuilder_Build_Noop(t *testing.T) {
-	cfg := &config.Metrics{
+	cfg := &observabilityconfig.Metrics{
 		Enabled: true,
-		Type:    config.MetricsTypeNoop,
+		Type:    observabilityconfig.MetricsTypeNoop,
 	}
 
 	collector, err := factory.New(cfg).Build()

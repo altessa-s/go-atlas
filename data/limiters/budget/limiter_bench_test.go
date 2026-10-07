@@ -16,8 +16,7 @@ import (
 // BenchmarkLimiter_Allow measures the happy path: the budget is never
 // exhausted, so every call increments the in-memory counter and succeeds.
 func BenchmarkLimiter_Allow(b *testing.B) {
-	cfg := &budget.Settings{Limit: math.MaxInt64, Period: time.Hour}
-	l, err := budget.New(cfg, memory.New())
+	l, err := budget.New(math.MaxInt64, time.Hour, memory.New())
 	if err != nil {
 		b.Fatalf("New: %v", err)
 	}

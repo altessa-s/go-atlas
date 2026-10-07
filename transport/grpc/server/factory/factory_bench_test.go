@@ -7,18 +7,18 @@ package factory
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/config"
+	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
 )
 
 func BenchmarkServerBuilder_New(b *testing.B) {
-	cfg := &config.Grpc{ListenAddress: "0.0.0.0:0"}
+	cfg := &grpcconfig.Config{ListenAddress: "0.0.0.0:0"}
 	for b.Loop() {
 		New(cfg)
 	}
 }
 
 func BenchmarkServerBuilder_Build(b *testing.B) {
-	cfg := &config.Grpc{ListenAddress: "0.0.0.0:0"}
+	cfg := &grpcconfig.Config{ListenAddress: "0.0.0.0:0"}
 	builder := New(cfg)
 	b.ResetTimer()
 	for b.Loop() {

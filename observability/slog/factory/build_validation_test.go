@@ -13,20 +13,21 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/slog/factory"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
+
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
 
 // isolatedCapture registers a uniquely named capture format and returns the
 // config's builder with an isolated level var, so tests can run in parallel
 // without touching slogx.GlobalLevel or sharing a buffer.
-func isolatedCapture(t *testing.T, cfg *config.Logger) (*factory.LoggerBuilder, *slog.LevelVar, *bytes.Buffer) {
+func isolatedCapture(t *testing.T, cfg *observabilityconfig.Logger) (*factory.LoggerBuilder, *slog.LevelVar, *bytes.Buffer) {
 	t.Helper()
 
 	var buf bytes.Buffer
-	format := config.LogFormat("capture-" + t.Name())
-	factory.RegisterHandler(format, func(_ io.Writer, _ *config.Logger, opts *slog.HandlerOptions) slog.Handler {
+	format := observabilityconfig.LogFormat("capture-" + t.Name())
+	factory.RegisterHandler(format, func(_ io.Writer, _ *observabilityconfig.Logger, opts *slog.HandlerOptions) slog.Handler {
 		return slog.NewJSONHandler(&buf, opts)
 	})
 	cfg.OutputFormat = format
@@ -52,22 +53,22 @@ func TestBuild_InvalidMaskRules(t *testing.T) {
 
 	tests := []struct {
 		name string
-		rule config.LoggerMaskRule
+		rule observabilityconfig.LoggerMaskRule
 	}{
-		{name: "unknown mask type", rule: config.LoggerMaskRule{Field: "ssn", Type: "no-such-mask"}},
-		{name: "params on a parameterless mask", rule: config.LoggerMaskRule{Field: "ssn", Type: "full", Params: map[string]any{"x": 1}}},
-		{name: "missing type", rule: config.LoggerMaskRule{Field: "ssn"}},
-		{name: "neither field nor pattern", rule: config.LoggerMaskRule{Type: "full"}},
-		{name: "invalid pattern regex", rule: config.LoggerMaskRule{Pattern: "(unclosed", Type: "full"}},
+		{name: "unknown mask type", rule: observabilityconfig.LoggerMaskRule{Field: "ssn", Type: "no-such-mask"}},
+		{name: "params on a parameterless mask", rule: observabilityconfig.LoggerMaskRule{Field: "ssn", Type: "full", Params: map[string]any{"x": 1}}},
+		{name: "missing type", rule: observabilityconfig.LoggerMaskRule{Field: "ssn"}},
+		{name: "neither field nor pattern", rule: observabilityconfig.LoggerMaskRule{Type: "full"}},
+		{name: "invalid pattern regex", rule: observabilityconfig.LoggerMaskRule{Pattern: "(unclosed", Type: "full"}},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := &config.Logger{
-				Level:     config.LoggerLevelInfo,
-				MaskRules: []config.LoggerMaskRule{{Field: "token", Type: "full"}, tc.rule},
+			cfg := &observabilityconfig.Logger{
+				Level:     observabilityconfig.LoggerLevelInfo,
+				MaskRules: []observabilityconfig.LoggerMaskRule{{Field: "token", Type: "full"}, tc.rule},
 			}
 			b, levelVar, _ := isolatedCapture(t, cfg)
 
@@ -85,9 +86,9 @@ func TestBuild_InvalidMaskRules(t *testing.T) {
 func TestBuild_InvalidMaskRules_AllReported(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Logger{
-		Level: config.LoggerLevelInfo,
-		MaskRules: []config.LoggerMaskRule{
+	cfg := &observabilityconfig.Logger{
+		Level: observabilityconfig.LoggerLevelInfo,
+		MaskRules: []observabilityconfig.LoggerMaskRule{
 			{Field: "a", Type: "no-such-mask"},
 			{Pattern: "(", Type: "full"},
 		},
@@ -104,9 +105,9 @@ func TestBuild_InvalidMaskRules_AllReported(t *testing.T) {
 func TestBuild_ValidMaskRules(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Logger{
-		Level: config.LoggerLevelInfo,
-		MaskRules: []config.LoggerMaskRule{
+	cfg := &observabilityconfig.Logger{
+		Level: observabilityconfig.LoggerLevelInfo,
+		MaskRules: []observabilityconfig.LoggerMaskRule{
 			{Field: "ssn", Type: "full"},
 			{Pattern: `(?i)^card_.*`, Type: "fixed", Params: map[string]any{"value": "[CARD]"}},
 		},
@@ -130,7 +131,7 @@ func TestBuild_DefaultMasksCaseInsensitive(t *testing.T) {
 
 	const bearer = "Bearer abcdefghijklmnop"
 
-	cfg := &config.Logger{Level: config.LoggerLevelInfo, EnableDefaultMasks: true}
+	cfg := &observabilityconfig.Logger{Level: observabilityconfig.LoggerLevelInfo, EnableDefaultMasks: true}
 	b, _, buf := isolatedCapture(t, cfg)
 
 	logger, err := b.Build()
@@ -148,10 +149,10 @@ func TestBuild_MaskRuleOverridesCaseFoldedDefault(t *testing.T) {
 	const email = "someone@example.com"
 
 	for range 20 {
-		cfg := &config.Logger{
-			Level:              config.LoggerLevelInfo,
+		cfg := &observabilityconfig.Logger{
+			Level:              observabilityconfig.LoggerLevelInfo,
 			EnableDefaultMasks: true,
-			MaskRules:          []config.LoggerMaskRule{{Field: "Email", Type: "fixed", Params: map[string]any{"value": "[E]"}}},
+			MaskRules:          []observabilityconfig.LoggerMaskRule{{Field: "Email", Type: "fixed", Params: map[string]any{"value": "[E]"}}},
 		}
 		b, _, buf := isolatedCapture(t, cfg)
 
@@ -169,9 +170,9 @@ func TestBuild_MaskRuleOverridesCaseFoldedDefault(t *testing.T) {
 func TestBuild_InvalidMaskRulesWithLevelNone(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Logger{
-		Level:     config.LoggerLevelNone,
-		MaskRules: []config.LoggerMaskRule{{Field: "ssn", Type: "no-such-mask"}},
+	cfg := &observabilityconfig.Logger{
+		Level:     observabilityconfig.LoggerLevelNone,
+		MaskRules: []observabilityconfig.LoggerMaskRule{{Field: "ssn", Type: "no-such-mask"}},
 	}
 	b, levelVar, _ := isolatedCapture(t, cfg)
 
@@ -186,9 +187,9 @@ func TestBuild_InvalidMaskRulesWithLevelNone(t *testing.T) {
 func TestBuild_LevelNoneDiscards(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Logger{
-		Level:     config.LoggerLevelNone,
-		MaskRules: []config.LoggerMaskRule{{Field: "ssn", Type: "full"}},
+	cfg := &observabilityconfig.Logger{
+		Level:     observabilityconfig.LoggerLevelNone,
+		MaskRules: []observabilityconfig.LoggerMaskRule{{Field: "ssn", Type: "full"}},
 	}
 	b, _, buf := isolatedCapture(t, cfg)
 

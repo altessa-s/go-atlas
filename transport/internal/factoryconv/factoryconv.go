@@ -8,11 +8,12 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
+
+	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
 )
 
 // CompilePatterns compiles string patterns to regexp.
@@ -31,12 +32,14 @@ func CompilePatterns(patterns []string) []*regexp.Regexp {
 var ParsePrefixes = clientip.ParsePrefixes
 
 // ConvertFallbackBehavior converts config FallbackBehavior to internal fallback.Behavior.
-func ConvertFallbackBehavior(fb config.FallbackBehavior) fallback.Behavior {
+func ConvertFallbackBehavior(fb middlewareconfig.FallbackBehavior) fallback.Behavior {
 	return fallback.ParseBehavior(string(fb))
 }
 
 // BuildIpAclRegistry builds an ipacl.Registry from configuration.
-func BuildIpAclRegistry(defaultPolicy string, rules []config.IpAclRuleConfig, defaultRule *config.IpAclRuleConfig) (*ipacl.Registry, error) {
+func BuildIpAclRegistry(
+	defaultPolicy string, rules []middlewareconfig.IPACLRule, defaultRule *middlewareconfig.IPACLRule,
+) (*ipacl.Registry, error) {
 	registry := ipacl.NewRegistry(ipacl.ParsePolicy(defaultPolicy))
 
 	for _, r := range rules {
@@ -70,7 +73,7 @@ func BuildIpAclRegistry(defaultPolicy string, rules []config.IpAclRuleConfig, de
 }
 
 // ConvertIpAclRule converts a config rule to an ipacl.AccessRule.
-func ConvertIpAclRule(r config.IpAclRuleConfig) (*ipacl.AccessRule, error) {
+func ConvertIpAclRule(r middlewareconfig.IPACLRule) (*ipacl.AccessRule, error) {
 	rule := &ipacl.AccessRule{}
 
 	if len(r.Allowlist) > 0 {
@@ -93,7 +96,9 @@ func ConvertIpAclRule(r config.IpAclRuleConfig) (*ipacl.AccessRule, error) {
 }
 
 // BuildGeoAclRegistry builds a geoacl.Registry from configuration.
-func BuildGeoAclRegistry(defaultPolicy string, rules []config.GeoAclRuleConfig, defaultRule *config.GeoAclRuleConfig) (*geoacl.Registry, error) {
+func BuildGeoAclRegistry(
+	defaultPolicy string, rules []middlewareconfig.GeoACLRule, defaultRule *middlewareconfig.GeoACLRule,
+) (*geoacl.Registry, error) {
 	registry := geoacl.NewRegistry(geoacl.ParsePolicy(defaultPolicy))
 
 	for _, r := range rules {
@@ -121,7 +126,7 @@ func BuildGeoAclRegistry(defaultPolicy string, rules []config.GeoAclRuleConfig, 
 }
 
 // ConvertGeoAclRule converts a config rule to a geoacl.AccessRule.
-func ConvertGeoAclRule(r config.GeoAclRuleConfig) *geoacl.AccessRule {
+func ConvertGeoAclRule(r middlewareconfig.GeoACLRule) *geoacl.AccessRule {
 	return &geoacl.AccessRule{
 		AllowContinents: r.AllowContinents,
 		DenyContinents:  r.DenyContinents,

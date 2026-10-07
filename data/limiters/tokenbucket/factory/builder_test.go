@@ -11,20 +11,22 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/factory"
+
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 )
 
-func validConfig() *config.TokenBucketLimiter {
-	return &config.TokenBucketLimiter{
+func validConfig() *limiterconfig.TokenBucket {
+	return &limiterconfig.TokenBucket{
 		IpCacheSize: 100,
-		Storage: &config.CacheStorageConfig{
-			Type:   config.CacheStorageTypeMemory,
-			Memory: &config.StorageMemoryConfig{},
+		Storage: &storageconfig.CacheStorageConfig{
+			Type:   storageconfig.CacheStorageTypeMemory,
+			Memory: &storageconfig.MemoryConfig{},
 		},
-		Rules: &config.TokenBucketLimiterRules{
-			Default: &config.TokenBucketLimiterDefaultRule{
+		Rules: &limiterconfig.TokenBucketRules{
+			Default: &limiterconfig.TokenBucketDefaultRule{
 				Limit:  1000,
 				Period: time.Hour,
 			},

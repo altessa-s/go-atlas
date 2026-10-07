@@ -12,19 +12,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
+	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
 )
 
-// withBodyLimitConfig returns a *config.Http carrying only the
+// withBodyLimitConfig returns a *httpconfig.Config carrying only the
 // bodylimit middleware block. Keeps the test surface narrow so a
 // regression in another middleware can't masquerade as a bodylimit bug.
-func withBodyLimitConfig(t *testing.T, requireContentLength bool) *config.Http {
+func withBodyLimitConfig(t *testing.T, requireContentLength bool) *httpconfig.Config {
 	t.Helper()
-	return &config.Http{
-		Middlewares: &config.MiddlewaresConfig{
-			BodyLimit: &config.HttpInterBodyLimitConfig{
-				BaseHttpMiddlewareConfig: config.BaseHttpMiddlewareConfig{
-					EnableMixin: config.EnableMixin{Enabled: true},
+	return &httpconfig.Config{
+		Middlewares: &httpconfig.Middlewares{
+			BodyLimit: &httpconfig.BodyLimitMiddleware{
+				BaseMiddleware: httpconfig.BaseMiddleware{
+					EnableMixin: middlewareconfig.EnableMixin{Enabled: true},
 				},
 				MaxSize:              1024,
 				RequireContentLength: requireContentLength,

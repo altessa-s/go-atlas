@@ -10,6 +10,7 @@
 //
 //	provider, _ := oidc.NewProvider(ctx,
 //	    "https://accounts.google.com/.well-known/openid-configuration",
+//	    oidc.WithHTTPClient(httpclient.New()),
 //	    oidc.WithDefaultValidationOptions(
 //	        oidc.WithValidationIssuer("https://accounts.google.com"),
 //	        oidc.WithValidationAudience("my-client-id"),

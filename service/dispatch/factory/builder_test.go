@@ -11,8 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/service/dispatch/factory"
+
+	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 )
 
 type mockSink struct{}
@@ -24,7 +25,7 @@ func (m *mockSink) StoreBatch(ctx context.Context, batch []string) error {
 func TestNew(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Dispatch{
+	cfg := &dispatchconfig.Config{
 		BatchSize:     100,
 		FlushInterval: 1 * time.Second,
 		Workers:       4,
@@ -37,7 +38,7 @@ func TestNew(t *testing.T) {
 func TestEngineBuilder_Build_RequiresSink(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Dispatch{
+	cfg := &dispatchconfig.Config{
 		BatchSize:     100,
 		FlushInterval: 1 * time.Second,
 		Workers:       4,
@@ -52,7 +53,7 @@ func TestEngineBuilder_Build_RequiresSink(t *testing.T) {
 func TestEngineBuilder_Build_Success(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Dispatch{
+	cfg := &dispatchconfig.Config{
 		BatchSize:     100,
 		FlushInterval: 1 * time.Second,
 		Workers:       4,
@@ -73,11 +74,11 @@ func TestEngineBuilder_Build_Success(t *testing.T) {
 func TestEngineBuilder_Build_WithWAL(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Dispatch{
+	cfg := &dispatchconfig.Config{
 		BatchSize:     100,
 		FlushInterval: 1 * time.Second,
 		Workers:       4,
-		WAL: &config.WAL{
+		WAL: &dispatchconfig.WAL{
 			Enabled: true,
 			Dir:     t.TempDir(),
 		},
@@ -101,11 +102,11 @@ func TestEngineBuilder_Build_WithWAL(t *testing.T) {
 func TestEngineBuilder_Build_WALRequiresCodec(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Dispatch{
+	cfg := &dispatchconfig.Config{
 		BatchSize:     100,
 		FlushInterval: 1 * time.Second,
 		Workers:       4,
-		WAL: &config.WAL{
+		WAL: &dispatchconfig.WAL{
 			Enabled: true,
 			Dir:     t.TempDir(),
 		},

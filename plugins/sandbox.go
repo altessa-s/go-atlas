@@ -8,9 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/runtime/capabilities"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -32,7 +30,7 @@ import (
 //     full access to host memory and can corrupt or exfiltrate anything in
 //     the address space.
 //
-// Use [SandboxOptionsFromConfig] to populate this from [config.PluginsSandbox].
+// Use [factory.SandboxOptionsFromConfig] to populate this from [pluginsconfig.Sandbox].
 type SandboxOptions struct {
 	// Enabled turns the sandbox on. When false the manager skips applySandbox
 	// entirely and every other field is ignored.
@@ -95,7 +93,7 @@ type SandboxOptions struct {
 // [ErrSandboxFailed]. Enabling Landlock also forces PR_SET_NO_NEW_PRIVS
 // on the host process — the underlying [landlock.Apply] sets it as a
 // kernel prerequisite, regardless of [SandboxOptions.NoNewPrivs]. Mirror
-// of [config.PluginsLandlock]; convert via [SandboxOptionsFromConfig].
+// of [pluginsconfig.Landlock]; convert via [factory.SandboxOptionsFromConfig].
 type LandlockOptions struct {
 	// Enabled turns the Landlock pass on. Independent from the rlimits — the
 	// surrounding [SandboxOptions.Enabled] must also be true for any sandbox
@@ -144,11 +142,11 @@ type LandlockOptions struct {
 // resolved via [capabilities.ParseName]). An unknown name fails
 // [Manager.Load] with [ErrSandboxFailed] wrapping
 // [capabilities.ErrInvalidOption]. Operator config is validated up-front
-// in [config.PluginsCapabilities.Validate], so a properly-loaded config
+// in [pluginsconfig.Capabilities.Validate], so a properly-loaded config
 // never reaches this stage with an unknown name.
 //
-// Mirror of [config.PluginsCapabilities]; convert via
-// [SandboxOptionsFromConfig].
+// Mirror of [pluginsconfig.Capabilities]; convert via
+// [factory.SandboxOptionsFromConfig].
 type CapabilitiesOptions struct {
 	// Enabled turns the capability-dropping pass on. Independent from
 	// the rlimits — the surrounding [SandboxOptions.Enabled] must also
@@ -160,43 +158,14 @@ type CapabilitiesOptions struct {
 	Keep []string
 }
 
-// SandboxOptionsFromConfig converts a [config.PluginsSandbox] block into the
-// runtime [SandboxOptions] consumed by the manager. The returned struct
-// owns its own copies of the slice fields ([LandlockOptions.ReadPaths],
-// [LandlockOptions.ReadWritePaths], [CapabilitiesOptions.Keep]) — mutating
-// the input config after conversion is safe and does not affect the
-// already-converted runtime options.
-func SandboxOptionsFromConfig(c config.PluginsSandbox) SandboxOptions {
-	return SandboxOptions{
-		Enabled:          c.Enabled,
-		NoNewPrivs:       c.NoNewPrivs,
-		MemoryLimitBytes: c.MemoryLimitBytes,
-		MaxOpenFiles:     c.MaxOpenFiles,
-		MaxProcesses:     c.MaxProcesses,
-		MaxFileSizeBytes: c.MaxFileSizeBytes,
-		DisableCoreDumps: c.DisableCoreDumps,
-		Capabilities: CapabilitiesOptions{
-			Enabled: c.Capabilities.Enabled,
-			Keep:    slices.Clone(c.Capabilities.Keep),
-		},
-		Landlock: LandlockOptions{
-			Enabled:         c.Landlock.Enabled,
-			AllowPluginDir:  c.Landlock.AllowPluginDir,
-			AllowSystemLibs: c.Landlock.AllowSystemLibs,
-			ReadPaths:       slices.Clone(c.Landlock.ReadPaths),
-			ReadWritePaths:  slices.Clone(c.Landlock.ReadWritePaths),
-		},
-	}
-}
-
 // Validate reports whether the runtime sandbox options are well-formed
 // enough for [Manager.Load] to apply them. Returns nil when the sandbox
 // is disabled.
 //
 // Validate covers the operator-config invariants that ozzo-validation
-// enforces in [config.PluginsSandbox.Validate], so callers that build
+// enforces in [pluginsconfig.Sandbox.Validate], so callers that build
 // SandboxOptions programmatically (rather than via
-// [SandboxOptionsFromConfig]) get the same fail-fast behavior:
+// [factory.SandboxOptionsFromConfig]) get the same fail-fast behavior:
 //
 //   - rlimit values must be non-negative (zero is the documented
 //     "unset" sentinel)
@@ -227,7 +196,7 @@ func (o SandboxOptions) Validate() error {
 }
 
 // Validate checks the Landlock options for the same invariants enforced
-// by [config.PluginsLandlock.Validate]: every path entry must be a
+// by [pluginsconfig.Landlock.Validate]: every path entry must be a
 // non-empty absolute filesystem path. Validate is a no-op when Landlock
 // is disabled.
 func (o LandlockOptions) Validate() error {
@@ -248,7 +217,7 @@ func (o LandlockOptions) Validate() error {
 }
 
 // Validate checks the capability options for the same invariants
-// enforced by [config.PluginsCapabilities.Validate]: every entry in
+// enforced by [pluginsconfig.Capabilities.Validate]: every entry in
 // Keep must be a parseable canonical CAP_* name. Validate is a no-op
 // when capability dropping is disabled.
 func (o CapabilitiesOptions) Validate() error {

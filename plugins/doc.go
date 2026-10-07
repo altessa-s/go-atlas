@@ -48,7 +48,7 @@
 //	    return nil
 //	}
 //
-// Init is invoked under a timeout ([config.Plugins.InitTimeout]) and wrapped
+// Init is invoked under a timeout ([pluginsconfig.Config.InitTimeout]) and wrapped
 // in panic recovery; failures mark the plugin as [StateFailed] and surface
 // through the joined error returned by [Manager.Load]. Plugins without an
 // Init symbol transition directly to [StateReady] after registration.
@@ -197,7 +197,7 @@
 //     PR_CAP_AMBIENT_*)
 //   - Landlock filesystem allowlisting (Linux 5.13+)
 //
-// All primitives are configured via [config.PluginsSandbox] and applied
+// All primitives are configured via [pluginsconfig.Sandbox] and applied
 // lazily on the first [Manager.Load]. The order is fixed:
 // noNewPrivs → rlimits → capabilities → landlock. Landlock runs last
 // because landlock_restrict_self requires PR_SET_NO_NEW_PRIVS (or
@@ -234,8 +234,8 @@
 //     plugin directory, the dynamic loader, libc, every shared library the
 //     plugin imports, and every host-side path the application needs. Two
 //     convenience flags merge common path sets at apply time:
-//     [config.PluginsLandlock.AllowPluginDir] auto-adds the plugin
-//     directory, and [config.PluginsLandlock.AllowSystemLibs] auto-adds
+//     [pluginsconfig.Landlock.AllowPluginDir] auto-adds the plugin
+//     directory, and [pluginsconfig.Landlock.AllowSystemLibs] auto-adds
 //     /lib, /lib64, /usr/lib, /usr/lib64 (glibc + musl mainstream distros).
 //   - Defense in depth, not isolation. A malicious plugin still has full
 //     access to host memory and can corrupt or exfiltrate anything in the
@@ -248,18 +248,18 @@
 // dangerous syscalls process-wide via TSYNC, and consumers can call
 // [seccomp.BlockDangerousSyscalls] directly during host startup before
 // constructing the plugin manager. It is intentionally NOT operator-
-// configurable from PluginsSandbox to keep the audited denylist
+// configurable from Sandbox to keep the audited denylist
 // stable.
 //
 // # Configuration
 //
-// The manager supports two filtering modes via [config.Plugins]:
+// The manager supports two filtering modes via [pluginsconfig.Config]:
 //   - Load: explicit allowlist of plugin filenames (takes priority)
 //   - Disabled: exclusion list; all plugins except these are loaded
 //
 // # Runtime watching
 //
-// When [config.Plugins.Watch] is true the factory starts a filesystem
+// When [pluginsconfig.Config.Watch] is true the factory starts a filesystem
 // watcher ([Manager.StartWatching]) after the initial [Manager.Load].
 // The watcher reacts to .so files appearing in the plugin directory and
 // invokes [Manager.Reload] after a configurable debounce window.

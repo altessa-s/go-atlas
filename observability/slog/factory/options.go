@@ -40,9 +40,9 @@ func (b *LoggerBuilder) WithPrefixColors(v map[string][]int) *LoggerBuilder {
 // WithEnableMasking enables the advanced masking handler wrapper, which
 // applies a curated default sensitive-field set (`password`, `token`,
 // `secret`, common patterns like `*api_key*`, ...) on top of any tags
-// declared in `config.Logger.SensitiveTags`.
+// declared in `observabilityconfig.Logger.SensitiveTags`.
 //
-// The wrapper is also enabled automatically when `config.Logger.SensitiveTags`
+// The wrapper is also enabled automatically when `observabilityconfig.Logger.SensitiveTags`
 // is non-empty, so this option is mainly useful for callers that want the
 // default field set without listing tags themselves.
 func (b *LoggerBuilder) WithEnableMasking() *LoggerBuilder {

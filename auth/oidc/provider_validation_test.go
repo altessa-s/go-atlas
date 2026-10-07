@@ -162,7 +162,7 @@ func (idp *testIdP) tryNewProvider(t testing.TB, opts ...Option) (*Provider, err
 	t.Helper()
 	base := []Option{
 		WithLogger(slog.New(slog.DiscardHandler)),
-		WithHTTPClientOptions(httpclient.WithRetryMax(0), httpclient.WithoutProxy()),
+		WithHTTPClient(httpclient.New(httpclient.WithRetryMax(0), httpclient.WithoutProxy())),
 		// httptest serves plain HTTP on loopback.
 		WithDiscoveryValidationMode(DiscoveryValidationModeDisabled),
 		WithDefaultValidationOptions(WithValidationAudience(testAudience)),

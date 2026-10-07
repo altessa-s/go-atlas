@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/auth/scope/factory"
 ```
 
-Builds a frozen [`scope.Registry`](../) from a [`config.ScopeRegistry`](../../../config). It is the config-driven counterpart to
+Builds a frozen [`scope.Registry`](../) from a [`authconfig.ScopeRegistry`](../../../config). It is the config-driven counterpart to
 constructing a registry by hand, giving the scope subsystem the same config→component path the [OPA factory](../../opa/factory) provides.
 
 Only the action-key→required-scope table is declarative. The matcher and the authorizer stay in code, since they depend on the caller's
@@ -14,7 +14,7 @@ principal type, which has no place in configuration.
 
 | Symbol                          | Description                                                                            |
 |---------------------------------|----------------------------------------------------------------------------------------|
-| `New(cfg *config.ScopeRegistry)`| Create a `RegistryBuilder`. A nil cfg is accepted; the error surfaces at `Build`.       |
+| `New(cfg *authconfig.ScopeRegistry)`| Create a `RegistryBuilder`. A nil cfg is accepted; the error surfaces at `Build`.       |
 | `RegistryBuilder.Build()`       | Register every rule and return the frozen `*scope.Registry`.                            |
 
 `Build` fails when the config is nil, when a rule lists no keys, or when an action key appears in more than one rule (an ambiguous policy
@@ -23,7 +23,7 @@ is a configuration error, not last-write-wins).
 ## Usage
 
 ```go
-reg, err := factory.New(&cfg.Scope).Build() // cfg.Scope is a config.ScopeRegistry
+reg, err := factory.New(&cfg.Scope).Build() // cfg.Scope is a authconfig.ScopeRegistry
 if err != nil {
     return err
 }

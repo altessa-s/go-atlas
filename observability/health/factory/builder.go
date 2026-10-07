@@ -10,10 +10,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -22,7 +22,7 @@ import (
 // using a fluent API with deferred error accumulation.
 type CoordinatorBuilder struct {
 	corefactory.Base
-	cfg  *config.Health
+	cfg  *observabilityconfig.Health
 	errs []error
 
 	// Dependencies
@@ -30,7 +30,7 @@ type CoordinatorBuilder struct {
 }
 
 // New creates a new [CoordinatorBuilder] for the given health config.
-func New(cfg *config.Health) *CoordinatorBuilder {
+func New(cfg *observabilityconfig.Health) *CoordinatorBuilder {
 	return &CoordinatorBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,

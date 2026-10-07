@@ -13,12 +13,14 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	probfilterfactory "github.com/altessa-s/go-atlas/data/probfilter/factory"
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 	proxyfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 )
 
@@ -26,7 +28,7 @@ import (
 // injected dependencies using a fluent API with deferred error accumulation.
 type ProviderBuilder struct {
 	corefactory.Base
-	cfg  *config.OIDC
+	cfg  *authconfig.OIDC
 	errs []error
 
 	// Dependencies (set via Use*).
@@ -38,7 +40,7 @@ type ProviderBuilder struct {
 
 // New creates a new [ProviderBuilder] for the given OIDC config.
 // A nil cfg is accepted; the error surfaces at [ProviderBuilder.Build] time.
-func New(cfg *config.OIDC) *ProviderBuilder {
+func New(cfg *authconfig.OIDC) *ProviderBuilder {
 	return &ProviderBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -114,7 +116,7 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize oidc proxy options")
 	}
-	opts = slices.AppendIf(opts, len(proxyOpts) > 0, oidc.WithHTTPClientOptions(proxyOpts...))
+	opts = append(opts, oidc.WithHTTPClient(httpclient.New(proxyOpts...)))
 
 	opts = append(opts, b.buildRefreshOptions()...)
 
@@ -188,7 +190,7 @@ func (b *ProviderBuilder) buildRevocationOptions() ([]oidc.Option, error) {
 // data loader and defaults with Bloom rebuilds disabled, and a per-filter
 // bloom.rebuildCron or bloom.rebuildOnStart: true — a second rebuild schedule
 // for the same filter — is rejected.
-func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oidc.RevocationStorage, error) {
+func (b *ProviderBuilder) buildRevocationStorage(cfg *authconfig.OIDCRevocation) (oidc.RevocationStorage, error) {
 	if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 		return nil, err
 	}
@@ -196,7 +198,7 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 		return nil, b.WrapError(err, "invalid revocation filter configuration")
 	}
 
-	pfDefaults := config.DefaultProbabilisticFilterDefaults()
+	pfDefaults := probfilterconfig.NewDefaults()
 	pfDefaults.Bloom.RebuildOnStart = false
 	pfDefaults.Bloom.RebuildCron = ""
 	filter, err := probfilterfactory.NewFilter(revocationFilterName(b.cfg), cfg.Filter, &pfDefaults).
@@ -213,7 +215,7 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 			loader = &oidc.FileRevocationLoader{Path: cfg.Source.File}
 		} else if cfg.Source.URL != "" {
 			// Client is intentionally left nil — oidc.NewProvider injects
-			// the shared HTTP client (built via httpclient.New + WithHTTPClientOptions)
+			// the shared HTTP client (built here via httpclient.New and WithHTTPClient)
 			// through the storage's SetHTTPClient, so revocation refresh reuses
 			// the same pool, retry policy and proxy resolver as discovery/JWKS/userinfo.
 			loader = &oidc.URLRevocationLoader{URL: cfg.Source.URL}
@@ -237,7 +239,7 @@ var errFilterRebuildSettings = errors.New("revocation.filter.bloom.rebuildCron a
 // rejectFilterRebuildSettings fails when filter asks for rebuilds of its own:
 // a non-empty bloom.rebuildCron or bloom.rebuildOnStart: true. Settings that
 // disable them agree with the provider's ownership and are accepted.
-func rejectFilterRebuildSettings(filter *config.ProbabilisticFilterConfig) error {
+func rejectFilterRebuildSettings(filter *probfilterconfig.Filter) error {
 	if filter == nil || filter.Bloom == nil {
 		return nil
 	}
@@ -252,7 +254,7 @@ func rejectFilterRebuildSettings(filter *config.ProbabilisticFilterConfig) error
 // after the provider's revocation domain — discovery URL, item type and
 // source — so independent providers sharing Redis never sync over each
 // other's revocation sets.
-func revocationFilterName(cfg *config.OIDC) string {
+func revocationFilterName(cfg *authconfig.OIDC) string {
 	var source string
 	if cfg.Revocation.Source != nil {
 		source = cfg.Revocation.Source.URL + "\x00" + cfg.Revocation.Source.File

@@ -78,8 +78,8 @@ Match with `errors.Is`.
 
 - **[`httpsign`](httpsign)** — the `net/http` adapter: `httpsign.Middleware(v)` reads the body once, verifies it, restores it for the
   handler, and rejects unauthentic requests (401). Kept in its own package so this one never imports `net/http`.
-- **[`factory`](factory)** + **[`config.WebhookSignature`](../../config)** — build a `Verifier` or `Signer` from a YAML template
-  (`scheme`, `secret`, `additionalSecrets`, `tolerance`) with the secret sourced through `config.Secret`.
+- **[`factory`](factory)** + **[`webhookconfig.Signature`](../../config)** — build a `Verifier` or `Signer` from a YAML template
+  (`scheme`, `secret`, `additionalSecrets`, `tolerance`) with the secret sourced through `redacted.RedactedString`.
 
 ## See also
 

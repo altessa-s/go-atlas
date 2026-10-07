@@ -12,15 +12,14 @@ import (
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 
-	"github.com/altessa-s/go-atlas/config"
-
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corespiffe "github.com/altessa-s/go-atlas/security/tlsutils/spiffe"
 )
 
 var (
-	// ErrNoConfig indicates a nil [config.SPIFFE] was passed to [New].
+	// ErrNoConfig indicates a nil [authconfig.SPIFFE] was passed to [New].
 	ErrNoConfig = errors.New("spiffe/factory: nil config")
 	// ErrNoAuthorizerSource indicates the configuration lists no trust domains
 	// and no IDs, so no peer authorizer can be derived. The stack is
@@ -28,15 +27,15 @@ var (
 	ErrNoAuthorizerSource = errors.New("spiffe/factory: no allowed trust domains or ids")
 )
 
-// Builder turns a [config.SPIFFE] into the options and provider for the core
+// Builder turns a [authconfig.SPIFFE] into the options and provider for the core
 // spiffe package. It mirrors the factory pattern used across the auth stack:
 // configuration in, opinionated construction out.
 type Builder struct {
-	cfg *config.SPIFFE
+	cfg *authconfig.SPIFFE
 }
 
 // New builds a Builder for the given configuration.
-func New(cfg *config.SPIFFE) *Builder {
+func New(cfg *authconfig.SPIFFE) *Builder {
 	return &Builder{cfg: cfg}
 }
 

@@ -14,9 +14,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/mongo"
 
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -46,7 +46,7 @@ var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 // The builder is not safe for concurrent use.
 type CursorStorageBuilder struct {
 	corefactory.Base
-	cfg  *config.CacheStorageConfig
+	cfg  *storageconfig.CacheStorageConfig
 	errs []error
 	ttl  time.Duration
 
@@ -58,7 +58,7 @@ type CursorStorageBuilder struct {
 
 // New creates a [CursorStorageBuilder] for the given cache storage config.
 // Config can be nil — the error surfaces at [CursorStorageBuilder.Build] time.
-func New(cfg *config.CacheStorageConfig) *CursorStorageBuilder {
+func New(cfg *storageconfig.CacheStorageConfig) *CursorStorageBuilder {
 	return &CursorStorageBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -77,14 +77,14 @@ func (b *CursorStorageBuilder) Build(ctx context.Context) (mongo.CursorStorage, 
 	}
 
 	switch b.cfg.Type {
-	case config.CacheStorageTypeMemory:
+	case storageconfig.CacheStorageTypeMemory:
 		return b.createMemoryStorage(), nil //nolint:contextcheck // memory storage handles its own context
-	case config.CacheStorageTypeRedis:
+	case storageconfig.CacheStorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
 		return b.createRedisStorage()
-	case config.CacheStorageTypeNats:
+	case storageconfig.CacheStorageTypeNats:
 		if err := b.RequireDependency(b.jetstream, "jetstream"); err != nil {
 			return nil, err
 		}

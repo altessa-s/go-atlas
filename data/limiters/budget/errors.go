@@ -6,6 +6,18 @@ package budget
 
 import "errors"
 
-// ErrBudgetExhausted is returned by [Limiter.Allow] when the request budget
-// for the current period has been fully consumed.
-var ErrBudgetExhausted = errors.New("budget exhausted for current period")
+var (
+	// ErrBudgetExhausted is returned by [Limiter.Allow] when the request budget
+	// for the current period has been fully consumed.
+	ErrBudgetExhausted = errors.New("budget exhausted for current period")
+
+	// ErrInvalidLimit is returned by [New] when the limit is not positive.
+	ErrInvalidLimit = errors.New("budget limit must be positive")
+
+	// ErrInvalidPeriod is returned by [New] when the period is shorter than
+	// [MinPeriod].
+	ErrInvalidPeriod = errors.New("budget period is too short")
+
+	// ErrNilStorage is returned by [New] when the storage is nil.
+	ErrNilStorage = errors.New("budget storage is required")
+)

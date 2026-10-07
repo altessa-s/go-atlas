@@ -13,9 +13,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
@@ -32,7 +32,7 @@ func TestLoggerBuilder_ConfigurableOptions(t *testing.T) {
 
 		// Level and OutputFormat are omitted deliberately: this subtest never
 		// builds a logger from cfg — it only reads the masking/group fields.
-		cfg := &config.Logger{
+		cfg := &observabilityconfig.Logger{
 			SensitiveTags: []string{"password"},
 			MaskString:    "[REDACTED]",
 			AppGroupName:  "metadata",
@@ -77,13 +77,13 @@ func TestLoggerBuilder_ConfigurableOptions(t *testing.T) {
 		const customFormat = "mock"
 		formatCalled := false
 
-		RegisterHandler(customFormat, func(w io.Writer, cfg *config.Logger, opts *slog.HandlerOptions) slog.Handler {
+		RegisterHandler(customFormat, func(w io.Writer, cfg *observabilityconfig.Logger, opts *slog.HandlerOptions) slog.Handler {
 			formatCalled = true
 			return slog.NewJSONHandler(w, opts)
 		})
 
-		cfg := &config.Logger{
-			Level:        config.LoggerLevelInfo,
+		cfg := &observabilityconfig.Logger{
+			Level:        observabilityconfig.LoggerLevelInfo,
 			OutputFormat: customFormat,
 		}
 
