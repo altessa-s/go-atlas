@@ -5,9 +5,9 @@
 package factory
 
 import (
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 
+	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
@@ -25,7 +25,7 @@ import (
 //	    },
 //	    factory.HealthOptions(cfg.HTTPHealth)...,
 //	)...)
-func HealthOptions(h *config.HTTPHealthClient) []httpclient.Option {
+func HealthOptions(h *clienthealthconfig.HTTP) []httpclient.Option {
 	if h == nil {
 		return nil
 	}

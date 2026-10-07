@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/auth/scope/factory"
-	"github.com/altessa-s/go-atlas/config"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 func BenchmarkBuild(b *testing.B) {
-	cfg := &config.ScopeRegistry{Rules: []config.ScopeRule{
+	cfg := &authconfig.ScopeRegistry{Rules: []authconfig.ScopeRule{
 		{Scope: "files:read", Keys: []string{"/files.v1.Files/Read", "/files.v1.Files/List"}},
 		{Scope: "files:write", Keys: []string{"/files.v1.Files/Write", "/files.v1.Files/Delete"}},
 		{Scope: "", Keys: []string{"/health.v1.Health/Check"}},

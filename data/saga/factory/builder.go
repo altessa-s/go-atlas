@@ -11,11 +11,11 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/data/saga"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -27,16 +27,16 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-// Builder assembles a [saga.Orchestrator] from a [config.Saga] and injected
+// Builder assembles a [saga.Orchestrator] from a [sagaconfig.Config] and injected
 // backend clients, using a fluent API. Create instances with [New]. The state
-// store is selected by config.Saga.Storage.Type; the matching client must be
+// store is selected by sagaconfig.Config.Storage.Type; the matching client must be
 // injected (UseJetStream / UseMongoDatabase / UseRedisClient) or Build fails.
 //
 // The builder is generic over the saga's shared data type T so it can return a
 // fully typed orchestrator. It is not safe for concurrent use.
 type Builder[T any] struct {
 	corefactory.Base
-	cfg  *config.Saga
+	cfg  *sagaconfig.Config
 	def  *saga.Definition[T]
 	errs []error
 
@@ -56,7 +56,7 @@ type Builder[T any] struct {
 
 // New creates a Builder for the given saga config and definition. Both may be
 // nil — the error surfaces at [Builder.Build] time.
-func New[T any](cfg *config.Saga, def *saga.Definition[T]) *Builder[T] {
+func New[T any](cfg *sagaconfig.Config, def *saga.Definition[T]) *Builder[T] {
 	return &Builder[T]{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -99,9 +99,9 @@ func (b *Builder[T]) Build() (*saga.Orchestrator[T], error) {
 func (b *Builder[T]) buildStore() (saga.Store, error) {
 	storage := b.cfg.Storage
 	switch storage.Type {
-	case config.SagaStorageTypeMemory:
+	case sagaconfig.StorageTypeMemory:
 		return memorystore.New(), nil
-	case config.SagaStorageTypeNats:
+	case sagaconfig.StorageTypeNATS:
 		if err := b.RequireDependency(b.js, "NATS JetStream"); err != nil {
 			return nil, err
 		}
@@ -112,12 +112,12 @@ func (b *Builder[T]) buildStore() (saga.Store, error) {
 		opts = coreslices.AppendIf(opts, storage.Nats.MigrateBucketTTL, natsstore.WithMigrateBucketTTL())
 		opts = coreslices.AppendIf(opts, storage.Nats.StrictBucketStorage, natsstore.WithStrictBucketStorage())
 		return natsstore.New(b.js, opts...)
-	case config.SagaStorageTypeMongo:
+	case sagaconfig.StorageTypeMongo:
 		if err := b.RequireDependency(b.mongoDB, "MongoDB database"); err != nil {
 			return nil, err
 		}
 		return mongostore.New(b.mongoDB, mongostore.WithCollectionName(storage.Mongo.Collection))
-	case config.SagaStorageTypeRedis:
+	case sagaconfig.StorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "Redis client"); err != nil {
 			return nil, err
 		}

@@ -8,11 +8,11 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/plugins"
 
+	pluginsconfig "github.com/altessa-s/go-atlas/config/plugins"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
@@ -22,7 +22,7 @@ import (
 // concurrent use.
 type ManagerBuilder struct {
 	corefactory.Base
-	cfg *config.Plugins
+	cfg *pluginsconfig.Config
 
 	healthCoordinator *health.Coordinator
 	healthServiceName string
@@ -30,7 +30,7 @@ type ManagerBuilder struct {
 
 // NewManager creates a [ManagerBuilder] for the given plugins config.
 // Config can be nil — the error surfaces at [ManagerBuilder.Build] time.
-func NewManager(cfg *config.Plugins) *ManagerBuilder {
+func NewManager(cfg *pluginsconfig.Config) *ManagerBuilder {
 	return &ManagerBuilder{
 		Base:              corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:               cfg,
@@ -65,9 +65,9 @@ func (b *ManagerBuilder) UseHealthServiceName(name string) *ManagerBuilder {
 // Build assembles the plugin manager, loads plugins from the configured
 // directory, and returns the ready manager.
 //
-// Returns an error if the configuration is nil or if [config.Plugins.IsEnabled]
+// Returns an error if the configuration is nil or if [pluginsconfig.Config.IsEnabled]
 // reports false. Callers that tolerate a disabled plugin manager should
-// check [config.Plugins.IsEnabled] before invoking Build, matching the
+// check [pluginsconfig.Config.IsEnabled] before invoking Build, matching the
 // pattern used by other optional subsystem factories (auth/opa, secrets).
 //
 // On any post-construction failure (Load failure, watcher start failure)
@@ -87,7 +87,7 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*plugins.Manager, error) {
 		plugins.WithDir(b.cfg.Dir),
 		plugins.WithInitTimeout(b.cfg.InitTimeout),
 		plugins.WithWatchDebounce(b.cfg.WatchDebounce),
-		plugins.WithSandbox(plugins.SandboxOptionsFromConfig(b.cfg.Sandbox)),
+		plugins.WithSandbox(SandboxOptionsFromConfig(b.cfg.Sandbox)),
 	}
 
 	// Auto-wire the host service version from appinfo when it has been

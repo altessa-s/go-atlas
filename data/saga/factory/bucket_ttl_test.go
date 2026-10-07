@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
 	sagafactory "github.com/altessa-s/go-atlas/data/saga/factory"
 	natsstore "github.com/altessa-s/go-atlas/data/saga/storages/nats"
 )
@@ -30,11 +30,11 @@ func TestBuildNatsMigrateBucketTTL(t *testing.T) {
 	_, err := natsstore.New(js, natsstore.WithBucket(bucket), natsstore.WithBucketTTL(time.Hour))
 	require.NoError(t, err)
 
-	cfg := func(migrate bool) *config.Saga {
-		c := config.DefaultSaga()
-		c.Storage = &config.SagaStorageConfig{
-			Type: config.SagaStorageTypeNats,
-			Nats: &config.SagaNatsStorageConfig{Bucket: bucket, MaxAge: 2 * time.Hour, MigrateBucketTTL: migrate},
+	cfg := func(migrate bool) *sagaconfig.Config {
+		c := sagaconfig.Default()
+		c.Storage = &sagaconfig.StorageConfig{
+			Type: sagaconfig.StorageTypeNATS,
+			Nats: &sagaconfig.NATSStorageConfig{Bucket: bucket, MaxAge: 2 * time.Hour, MigrateBucketTTL: migrate},
 		}
 		return &c
 	}
@@ -60,11 +60,11 @@ func TestBuildNatsStrictBucketStorage(t *testing.T) {
 	const bucket = "factory-saga-strict"
 	testhelpers.CreateNATSKV(t, js, bucket, time.Hour) // memory storage
 
-	cfg := func(strict bool) *config.Saga {
-		c := config.DefaultSaga()
-		c.Storage = &config.SagaStorageConfig{
-			Type: config.SagaStorageTypeNats,
-			Nats: &config.SagaNatsStorageConfig{Bucket: bucket, MaxAge: time.Hour, StrictBucketStorage: strict},
+	cfg := func(strict bool) *sagaconfig.Config {
+		c := sagaconfig.Default()
+		c.Storage = &sagaconfig.StorageConfig{
+			Type: sagaconfig.StorageTypeNATS,
+			Nats: &sagaconfig.NATSStorageConfig{Bucket: bucket, MaxAge: time.Hour, StrictBucketStorage: strict},
 		}
 		return &c
 	}

@@ -8,8 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/altessa-s/go-atlas/config"
-
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
@@ -21,7 +20,7 @@ import (
 // its protected default. A Disabled policy returns httpclient.WithoutSSRFProtection.
 // An enabled policy with AllowedCIDRs returns httpclient.WithSSRFAllowedCIDRs.
 // An unparseable CIDR surfaces as an error here rather than at request time.
-func SSRFOptions(s *config.HTTPClientSSRF) ([]httpclient.Option, error) {
+func SSRFOptions(s *httpconfig.ClientSSRF) ([]httpclient.Option, error) {
 	if s == nil {
 		return nil, nil
 	}

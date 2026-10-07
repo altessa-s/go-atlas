@@ -8,13 +8,12 @@ package oidc
 
 import (
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
-
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 const (
@@ -158,13 +157,12 @@ var DefaultRequiredClaims = []string{"sub", "aud", "exp", "iat", "iss"}
 // options holds the internal configuration state for the OIDC provider.
 // This struct is not exported and is modified through Option functions.
 type options struct {
-	// httpClientOptions are forwarded to httpclient.New when the Provider
-	// builds its outbound HTTP client. The factory layer uses this to
-	// inject a proxy resolver materialized from config.Proxy. Pass
-	// httpclient.WithRetryMax(0) etc. here if the resilient defaults
-	// (retry, breaker, env-proxy) are not desirable for a particular
-	// deployment.
-	httpClientOptions           []httpclient.Option     `opt:"HTTPClientOptions" optgen:"append"`
+	// httpClient serves every outbound call (discovery, JWKS, introspection,
+	// userinfo, revocation). Required: NewProvider fails with
+	// ErrHTTPClientRequired without it. The factory injects the resilient,
+	// SSRF-protected atlas client (retry, breaker, proxy) built from
+	// configuration.
+	httpClient                  *http.Client            `opt:"HTTPClient"`
 	jwksHTTPTimeout             time.Duration           `optgen:"default=DefaultJWKSHTTPTimeout"`
 	jwksMaxStaleness            time.Duration           `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
 	jwksFailureMode             JWKSFailureMode         `optgen:"manual,default=DefaultJWKSFailureMode"`

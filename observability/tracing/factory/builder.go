@@ -9,7 +9,6 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
@@ -17,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters/otlp"
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	proxyfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 )
@@ -26,12 +26,12 @@ import (
 // Returns [tracing.Noop] when config is nil or tracing is disabled.
 type TracerBuilder struct {
 	corefactory.Base
-	cfg  *config.Tracing
+	cfg  *observabilityconfig.Tracing
 	errs []error
 }
 
 // New creates a new [TracerBuilder] for the given tracing config.
-func New(cfg *config.Tracing) *TracerBuilder {
+func New(cfg *observabilityconfig.Tracing) *TracerBuilder {
 	return &TracerBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -73,15 +73,15 @@ func (b *TracerBuilder) Build(ctx context.Context) (tracing.Tracer, error) {
 // createAdapter creates an adapter based on configuration.
 func (b *TracerBuilder) createAdapter(ctx context.Context) (adapters.Adapter, error) {
 	switch b.cfg.Type {
-	case config.TracingTypeOTLP:
+	case observabilityconfig.TracingTypeOTLP:
 		return b.createOTLPAdapter(ctx)
-	case config.TracingTypeConsole:
-		var consoleCfg *config.TracingConsole
+	case observabilityconfig.TracingTypeConsole:
+		var consoleCfg *observabilityconfig.TracingConsole
 		if b.cfg.Adapters != nil {
 			consoleCfg = b.cfg.Adapters.Console
 		}
 		return createConsoleAdapter(consoleCfg), nil
-	case config.TracingTypeNoop:
+	case observabilityconfig.TracingTypeNoop:
 		return nil, nil //nolint:nilnil // Intentional: nil adapter signals noop mode
 	default:
 		return nil, b.Errorf("unknown tracing type: %s", b.cfg.Type)
@@ -90,18 +90,18 @@ func (b *TracerBuilder) createAdapter(ctx context.Context) (adapters.Adapter, er
 
 // createOTLPAdapter creates an OTLP adapter from config.
 func (b *TracerBuilder) createOTLPAdapter(ctx context.Context) (adapters.Adapter, error) {
-	var cfg *config.TracingOTLP
+	var cfg *observabilityconfig.TracingOTLP
 	if b.cfg.Adapters != nil {
 		cfg = b.cfg.Adapters.OTLP
 	}
 	if cfg == nil {
-		def := config.DefaultTracingOTLP()
+		def := observabilityconfig.DefaultTracingOTLP()
 		cfg = &def
 	}
 
 	opts := []otlp.Option{
 		otlp.WithEndpoint(cfg.Endpoint),
-		otlp.WithProtocol(otlp.Protocol(cmp.Or(cfg.Protocol, config.OTLPProtocolGRPC))),
+		otlp.WithProtocol(otlp.Protocol(cmp.Or(cfg.Protocol, observabilityconfig.OTLPProtocolGRPC))),
 		otlp.WithCompression(cfg.Compression),
 	}
 	opts = slices.AppendIf(opts, cfg.Insecure, otlp.WithInsecure())
@@ -117,7 +117,7 @@ func (b *TracerBuilder) createOTLPAdapter(ctx context.Context) (adapters.Adapter
 }
 
 // createConsoleAdapter creates a console adapter from config.
-func createConsoleAdapter(cfg *config.TracingConsole) adapters.Adapter {
+func createConsoleAdapter(cfg *observabilityconfig.TracingConsole) adapters.Adapter {
 	var opts []console.Option
 	if cfg != nil {
 		opts = slices.AppendIf(opts, cfg.PrettyPrint, console.WithPrettyPrint())
@@ -134,13 +134,13 @@ func (b *TracerBuilder) createSampler() (sampler.Sampler, error) {
 	}
 
 	switch cfg.Type {
-	case config.SamplerTypeAlwaysOn:
+	case observabilityconfig.SamplerTypeAlwaysOn:
 		return sampler.AlwaysOn(), nil
-	case config.SamplerTypeAlwaysOff:
+	case observabilityconfig.SamplerTypeAlwaysOff:
 		return sampler.AlwaysOff(), nil
-	case config.SamplerTypeTraceIDRatio:
+	case observabilityconfig.SamplerTypeTraceIDRatio:
 		return sampler.NewTraceIDRatio(cfg.Ratio), nil
-	case config.SamplerTypeParentBased:
+	case observabilityconfig.SamplerTypeParentBased:
 		root := sampler.NewTraceIDRatio(cfg.Ratio)
 		return sampler.NewParentBased(root), nil
 	default:

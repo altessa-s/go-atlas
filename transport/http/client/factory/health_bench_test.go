@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/http/client/factory"
+
+	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 )
 
 func BenchmarkHTTPHealthClientOptions(b *testing.B) {
-	h := config.HTTPHealthClient{
-		HealthClient: config.HealthClient{
+	h := clienthealthconfig.HTTP{
+		Config: clienthealthconfig.Config{
 			ServiceName: "benchmark-service",
 		},
 		RetryWindow:     60 * time.Second,

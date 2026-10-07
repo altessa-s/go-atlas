@@ -18,11 +18,11 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache"
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache/factory"
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	bloomredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -77,7 +77,7 @@ func isRevoked(t *testing.T, c *negcache.Cache, key string) bool {
 
 func TestBuild_AuthoritativeLoaderPopulatesOnStart(t *testing.T) {
 	t.Parallel()
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	auth := newLoaderAuth("revoked")
 
 	cache, err := factory.NewBuilder("denylist", memoryBloomConfig(), &defaults, auth).Build()
@@ -92,7 +92,7 @@ func TestBuild_AuthoritativeLoaderPopulatesOnStart(t *testing.T) {
 
 func TestBuild_RebuildOnStartDisabledLeavesCacheUnpopulated(t *testing.T) {
 	t.Parallel()
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	cfg := memoryBloomConfig()
 	cfg.Bloom.RebuildOnStart = new(false)
 	cfg.Bloom.RebuildCron = new("")
@@ -107,7 +107,7 @@ func TestBuild_RebuildOnStartDisabledLeavesCacheUnpopulated(t *testing.T) {
 
 func TestBuild_UseDataLoaderOverridesAuthoritative(t *testing.T) {
 	t.Parallel()
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	auth := newLoaderAuth("revoked")
 	explicit := newLoaderAuth("other")
 
@@ -122,7 +122,7 @@ func TestBuild_UseDataLoaderOverridesAuthoritative(t *testing.T) {
 
 func TestBuild_NonLoaderAuthoritativeLeavesSettingsInert(t *testing.T) {
 	t.Parallel()
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	auth := newLoaderAuth("revoked")
 	// Hide the DataLoader methods: only IsRevoked is visible.
 	plain := struct{ negcache.Authoritative }{auth}
@@ -136,7 +136,7 @@ func TestBuild_NonLoaderAuthoritativeLeavesSettingsInert(t *testing.T) {
 
 func TestBuild_LoaderFailureFailsBuild(t *testing.T) {
 	t.Parallel()
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	errScan := errors.New("scan failed")
 	auth := newLoaderAuth()
 	auth.err = errScan
@@ -145,11 +145,11 @@ func TestBuild_LoaderFailureFailsBuild(t *testing.T) {
 	require.ErrorIs(t, err, errScan)
 }
 
-func redisBloomConfig() *config.ProbabilisticFilterConfig {
-	storage := config.ProbabilisticFilterStorageTypeRedis
-	return &config.ProbabilisticFilterConfig{
-		Type: config.ProbabilisticFilterTypeBloom,
-		Bloom: &config.ProbabilisticFilterBloomConfig{
+func redisBloomConfig() *probfilterconfig.Filter {
+	storage := probfilterconfig.StorageTypeRedis
+	return &probfilterconfig.Filter{
+		Type: probfilterconfig.TypeBloom,
+		Bloom: &probfilterconfig.BloomConfig{
 			Storage:       &storage,
 			ExpectedItems: 1000,
 		},
@@ -159,7 +159,7 @@ func redisBloomConfig() *config.ProbabilisticFilterConfig {
 func TestBuild_RedisFilterRegistersSchedulerTask(t *testing.T) {
 	t.Parallel()
 	client, _ := testhelpers.RedisClient(t)
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	cfg := redisBloomConfig()
 	cfg.Bloom.RebuildOnStart = new(false) // miniredis cannot run RedisBloom commands
 	cfg.Bloom.RebuildCron = new("@every 5m")
@@ -199,7 +199,7 @@ func (l *leaseHolder) Count(context.Context) (int64, error) { return -1, nil }
 func TestBuild_PeerRebuildingSharedFilterBuildsUnpopulated(t *testing.T) {
 	t.Parallel()
 	client, _ := testhelpers.RedisClient(t)
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	cfg := redisBloomConfig()
 	cfg.Bloom.RebuildCron = new("")
 
@@ -239,7 +239,7 @@ func holdLease(t *testing.T, client goredis.UniversalClient, name string) {
 
 func TestCache_CloseStopsLocalCron(t *testing.T) {
 	t.Parallel()
-	defaults := config.DefaultProbabilisticFilterDefaults()
+	defaults := probfilterconfig.NewDefaults()
 	cfg := memoryBloomConfig()
 	cfg.Bloom.RebuildOnStart = new(false)
 	cfg.Bloom.RebuildCron = new("@every 1s")

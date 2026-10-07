@@ -11,10 +11,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/saga"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
 	sagafactory "github.com/altessa-s/go-atlas/data/saga/factory"
 )
 
@@ -39,14 +39,14 @@ func TestBuildNilConfig(t *testing.T) {
 
 func TestBuildNilDefinition(t *testing.T) {
 	t.Parallel()
-	cfg := config.DefaultSaga()
+	cfg := sagaconfig.Default()
 	_, err := sagafactory.New[order](&cfg, nil).Build()
 	require.ErrorContains(t, err, "definition is required")
 }
 
 func TestBuildMemory(t *testing.T) {
 	t.Parallel()
-	cfg := config.DefaultSaga()
+	cfg := sagaconfig.Default()
 
 	orch, err := sagafactory.New(&cfg, orderDef()).Build()
 	require.NoError(t, err)
@@ -58,10 +58,10 @@ func TestBuildMemory(t *testing.T) {
 
 func TestBuildNatsRequiresJetStream(t *testing.T) {
 	t.Parallel()
-	cfg := config.DefaultSaga()
-	cfg.Storage = &config.SagaStorageConfig{
-		Type: config.SagaStorageTypeNats,
-		Nats: &config.SagaNatsStorageConfig{Bucket: "saga", MaxAge: 720 * time.Hour},
+	cfg := sagaconfig.Default()
+	cfg.Storage = &sagaconfig.StorageConfig{
+		Type: sagaconfig.StorageTypeNATS,
+		Nats: &sagaconfig.NATSStorageConfig{Bucket: "saga", MaxAge: 720 * time.Hour},
 	}
 
 	_, err := sagafactory.New(&cfg, orderDef()).Build()
@@ -70,10 +70,10 @@ func TestBuildNatsRequiresJetStream(t *testing.T) {
 
 func TestBuildMongoRequiresDatabase(t *testing.T) {
 	t.Parallel()
-	cfg := config.DefaultSaga()
-	cfg.Storage = &config.SagaStorageConfig{
-		Type:  config.SagaStorageTypeMongo,
-		Mongo: &config.SagaMongoStorageConfig{Collection: "saga_instances"},
+	cfg := sagaconfig.Default()
+	cfg.Storage = &sagaconfig.StorageConfig{
+		Type:  sagaconfig.StorageTypeMongo,
+		Mongo: &sagaconfig.MongoStorageConfig{Collection: "saga_instances"},
 	}
 
 	_, err := sagafactory.New(&cfg, orderDef()).Build()
@@ -82,10 +82,10 @@ func TestBuildMongoRequiresDatabase(t *testing.T) {
 
 func TestBuildRedisRequiresClient(t *testing.T) {
 	t.Parallel()
-	cfg := config.DefaultSaga()
-	cfg.Storage = &config.SagaStorageConfig{
-		Type:  config.SagaStorageTypeRedis,
-		Redis: &config.SagaRedisStorageConfig{KeysPrefix: "saga:"},
+	cfg := sagaconfig.Default()
+	cfg.Storage = &sagaconfig.StorageConfig{
+		Type:  sagaconfig.StorageTypeRedis,
+		Redis: &sagaconfig.RedisStorageConfig{KeysPrefix: "saga:"},
 	}
 
 	_, err := sagafactory.New(&cfg, orderDef()).Build()
@@ -94,8 +94,8 @@ func TestBuildRedisRequiresClient(t *testing.T) {
 
 func TestBuildInvalidConfig(t *testing.T) {
 	t.Parallel()
-	cfg := config.DefaultSaga()
-	cfg.Storage = &config.SagaStorageConfig{Type: "bogus"}
+	cfg := sagaconfig.Default()
+	cfg.Storage = &sagaconfig.StorageConfig{Type: "bogus"}
 
 	_, err := sagafactory.New(&cfg, orderDef()).Build()
 	require.ErrorContains(t, err, "validate saga config")
@@ -105,10 +105,10 @@ func TestBuildRedis(t *testing.T) {
 	t.Parallel()
 	client, _ := testhelpers.RedisClient(t)
 
-	cfg := config.DefaultSaga()
-	cfg.Storage = &config.SagaStorageConfig{
-		Type:  config.SagaStorageTypeRedis,
-		Redis: &config.SagaRedisStorageConfig{KeysPrefix: "saga:"},
+	cfg := sagaconfig.Default()
+	cfg.Storage = &sagaconfig.StorageConfig{
+		Type:  sagaconfig.StorageTypeRedis,
+		Redis: &sagaconfig.RedisStorageConfig{KeysPrefix: "saga:"},
 	}
 
 	orch, err := sagafactory.New(&cfg, orderDef()).

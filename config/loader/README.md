@@ -65,26 +65,26 @@ Compared with earlier releases:
 
 ## Interfaces
 
-| Interface    | Method        | Purpose                                  |
-|--------------|---------------|------------------------------------------|
-| `Validator`  | `Validate()`  | Validate configuration after loading     |
-| `Defaulter`  | `Default()`   | Set programmatic defaults                |
-| `Normalizer` | `Normalize()` | Transform values to canonical form       |
+| Type                      | Description                                                      |
+|---------------------------|------------------------------------------------------------------|
+| `Validator`               | `Validate()`  | Validate configuration after loading             |
+| `Defaulter`               | `Default()`   | Set programmatic defaults                        |
+| `Normalizer`              | `Normalize()` | Transform values to canonical form               |
 
 ## Options
 
 | Option                  | Description                                      |
 |-------------------------|--------------------------------------------------|
-| `WithPath`              | Path to config file or directory                 |
-| `WithPathOnEnvKey`      | Resolve path from env variable with fallback     |
-| `WithEnvPrefix`         | Prefix for environment variable lookup           |
-| `WithEnvSectionDelimiter` | Nested struct delimiter (default `__`)         |
-| `WithStructTag`         | Struct tag name for field mapping (default `yaml`)|
-| `WithSkipEnv`           | Skip environment variable loading                |
-| `WithSkipDefaults`      | Skip default value application                   |
-| `WithAllowUnknownFields` | Ignore file keys that bind to no struct field instead of failing |
-| `WithStrict`            | Fail on undefined env vars and unassignable values |
-| `WithSecretsManager`    | Enable `$__secret{}` expansion                   |
+| `WithPath`                | Path to config file or directory                                 |
+| `WithPathOnEnvKey`        | Resolve path from env variable with fallback                     |
+| `WithEnvPrefix`           | Prefix for environment variable lookup                           |
+| `WithEnvSectionDelimiter` | Nested struct delimiter (default `__`)                           |
+| `WithStructTag`           | Struct tag name for field mapping (default `yaml`)               |
+| `WithSkipEnv`             | Skip environment variable loading                                |
+| `WithSkipDefaults`        | Skip default value application                                   |
+| `WithAllowUnknownFields`  | Ignore file keys that bind to no struct field instead of failing |
+| `WithStrict`              | Fail on undefined env vars and unassignable values               |
+| `WithSecretsManager`      | Enable `$__secret{}` expansion                                   |
 
 ## Environment variable expansion in values
 
@@ -107,7 +107,7 @@ trigger lookups and are safe in strict mode.
 
 | Error             | Meaning                                    |
 |-------------------|--------------------------------------------|
-| `ErrBindDefaults` | Default value cannot be bound to a field   |
-| `ErrBindEnv`      | Environment value cannot be bound          |
-| `ErrDecode`       | File decoding failed                       |
-| `ErrUnknownField` | A file key binds to no struct field (wrapped by `ErrDecode`) |
+| `ErrBindDefaults`         | Default value cannot be bound to a field                         |
+| `ErrBindEnv`              | Environment value cannot be bound                                |
+| `ErrDecode`               | File decoding failed                                             |
+| `ErrUnknownField`         | A file key binds to no struct field (wrapped by `ErrDecode`)     |

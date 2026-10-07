@@ -9,18 +9,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/security/hmacsign"
 	"github.com/altessa-s/go-atlas/security/hmacsign/factory"
+
+	webhookconfig "github.com/altessa-s/go-atlas/config/webhook"
 )
 
 func TestVerifierRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.WebhookSignature{
-		Scheme:    config.WebhookSchemeGitHub,
+	cfg := &webhookconfig.Signature{
+		Scheme:    webhookconfig.SchemeGitHub,
 		Secret:    "whsec_test",
-		Tolerance: config.DefaultWebhookTolerance,
+		Tolerance: webhookconfig.DefaultTolerance,
 	}
 
 	v, err := factory.Verifier(cfg)
@@ -34,10 +36,10 @@ func TestVerifierRoundTrip(t *testing.T) {
 func TestVerifierAcceptsRotationSecret(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.WebhookSignature{
-		Scheme:            config.WebhookSchemeGitHub,
+	cfg := &webhookconfig.Signature{
+		Scheme:            webhookconfig.SchemeGitHub,
 		Secret:            "whsec_new",
-		AdditionalSecrets: []config.Secret{"whsec_old"},
+		AdditionalSecrets: []redacted.RedactedString{"whsec_old"},
 	}
 
 	v, err := factory.Verifier(cfg)
@@ -51,7 +53,7 @@ func TestVerifierAcceptsRotationSecret(t *testing.T) {
 func TestSignerRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.WebhookSignature{Scheme: config.WebhookSchemeStripe, Secret: "whsec_test"}
+	cfg := &webhookconfig.Signature{Scheme: webhookconfig.SchemeStripe, Secret: "whsec_test"}
 
 	s, err := factory.Signer(cfg)
 	require.NoError(t, err)
@@ -66,7 +68,7 @@ func TestSignerRoundTrip(t *testing.T) {
 func TestUnknownScheme(t *testing.T) {
 	t.Parallel()
 
-	_, err := factory.Verifier(&config.WebhookSignature{Scheme: "nope", Secret: "s"})
+	_, err := factory.Verifier(&webhookconfig.Signature{Scheme: "nope", Secret: "s"})
 	require.Error(t, err)
 }
 

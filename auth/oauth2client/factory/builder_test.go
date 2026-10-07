@@ -15,7 +15,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/auth/oauth2client/factory"
-	"github.com/altessa-s/go-atlas/config"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 // staticEndpoint is a test [oauth2client.TokenEndpointSource].
@@ -42,7 +43,7 @@ func TestBuilderBuildFromTokenURL(t *testing.T) {
 	t.Parallel()
 	srv, form := tokenServer(t)
 
-	cfg := &config.OAuth2Client{
+	cfg := &authconfig.OAuth2Client{
 		TokenUrl:  srv.URL,
 		ClientId:  "svc",
 		AuthStyle: "params",
@@ -63,7 +64,7 @@ func TestBuilderBuildFromDiscovery(t *testing.T) {
 	t.Parallel()
 	srv, _ := tokenServer(t)
 
-	cfg := &config.OAuth2Client{
+	cfg := &authconfig.OAuth2Client{
 		DiscoveryUrl: "https://idp.example/.well-known/openid-configuration",
 		ClientId:     "svc",
 		AuthStyle:    "auto",
@@ -80,7 +81,7 @@ func TestBuilderBuildFromDiscovery(t *testing.T) {
 
 func TestBuilderDiscoveryWithoutSource(t *testing.T) {
 	t.Parallel()
-	cfg := &config.OAuth2Client{DiscoveryUrl: "https://idp.example/x", ClientId: "svc", AuthStyle: "auto"}
+	cfg := &authconfig.OAuth2Client{DiscoveryUrl: "https://idp.example/x", ClientId: "svc", AuthStyle: "auto"}
 	_, err := factory.New(cfg).Build(t.Context())
 	require.Error(t, err)
 }
@@ -93,11 +94,11 @@ func TestBuilderNilConfig(t *testing.T) {
 
 func TestBuilderBuildExchanger(t *testing.T) {
 	t.Parallel()
-	cfg := &config.OAuth2Client{
+	cfg := &authconfig.OAuth2Client{
 		TokenUrl:  "https://idp.example/token",
 		ClientId:  "svc",
 		AuthStyle: "auto",
-		Retry:     &config.OAuth2ClientRetry{Attempts: 2},
+		Retry:     &authconfig.OAuth2ClientRetry{Attempts: 2},
 	}
 	ex, err := factory.New(cfg).BuildExchanger(t.Context())
 	require.NoError(t, err)

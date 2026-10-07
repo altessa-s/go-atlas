@@ -10,11 +10,11 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache"
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	probfilterfactory "github.com/altessa-s/go-atlas/data/probfilter/factory"
@@ -40,8 +40,8 @@ import (
 type Builder struct {
 	corefactory.Base
 	name          string
-	filterCfg     *config.ProbabilisticFilterConfig
-	defaults      *config.ProbabilisticFilterDefaults
+	filterCfg     *probfilterconfig.Filter
+	defaults      *probfilterconfig.Defaults
 	authoritative negcache.Authoritative
 
 	// Optional dependencies (set via Use*).
@@ -60,8 +60,8 @@ type Builder struct {
 // at [Builder.Build] time.
 func NewBuilder(
 	name string,
-	filterCfg *config.ProbabilisticFilterConfig,
-	defaults *config.ProbabilisticFilterDefaults,
+	filterCfg *probfilterconfig.Filter,
+	defaults *probfilterconfig.Defaults,
 	authoritative negcache.Authoritative,
 ) *Builder {
 	return &Builder{

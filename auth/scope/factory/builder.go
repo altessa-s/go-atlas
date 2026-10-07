@@ -8,20 +8,21 @@ import (
 	"fmt"
 
 	"github.com/altessa-s/go-atlas/auth/scope"
-	"github.com/altessa-s/go-atlas/config"
+
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
 // RegistryBuilder assembles a frozen [scope.Registry] from a
-// [config.ScopeRegistry]. It is the config-driven counterpart to building a
+// [authconfig.ScopeRegistry]. It is the config-driven counterpart to building a
 // registry by hand with [scope.NewRegistry] + [scope.Registry.Register], giving
 // the scope subsystem the same config→component path the OPA factory provides.
 type RegistryBuilder struct {
-	cfg *config.ScopeRegistry
+	cfg *authconfig.ScopeRegistry
 }
 
 // New creates a [RegistryBuilder] for the given configuration. A nil cfg is
 // accepted; the error surfaces at [RegistryBuilder.Build] time.
-func New(cfg *config.ScopeRegistry) *RegistryBuilder {
+func New(cfg *authconfig.ScopeRegistry) *RegistryBuilder {
 	return &RegistryBuilder{cfg: cfg}
 }
 

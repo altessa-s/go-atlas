@@ -11,23 +11,28 @@ adapters intentionally connect capabilities. Go rejects actual import cycles; a 
 | Package role | Allowed dependencies and responsibility |
 |--------------|-----------------------------------------|
 | `core/*` | Standard library and other `core/*` packages. Narrow exceptions below. |
-| Root `config` | Schemas, defaults and validation; `core/*`, config internals and validation libraries. No runtime clients or component constructors. |
+| `config/*` schema packages | Schemas, defaults and validation, one package per capability (`grpcconfig`, `redisconfig`, ...). Import only `core/*`, other schema packages, config internals and validation libraries. No runtime clients or component constructors. The root `config` package declares no types. |
 | `config/loader/*` | Configuration sources and secret resolution; may use `security/secrets`, never transport clients directly. |
 | `domain/*` | Domain helpers, `core/*` and observability interfaces. Backend translators remain separate subpackages. |
 | `data/*` | Data contracts and implementations; storage providers depend on consumer-defined contracts. |
 | `infrastructure/*` | Connection construction and lifecycle for external systems. |
 | `observability/tracing`, `observability/metrics` | Backend-neutral contracts and dispatch to the `adapters` interface package; no concrete adapter or transport import. |
 | `*/adapters/*`, `*/storages/*`, `*/providers/*` | Concrete integration dependencies and the contracts they implement. |
-| `*/factory` | Composition from `config` and injected dependencies; may import concrete adapters, clients and providers. |
+| `*/factory` | Composition from schemas and injected dependencies; may import concrete adapters, clients, providers and other factories. The only readers of schemas besides `config/*` itself, together with the factory helper `transport/internal/factoryconv`. |
+| `plugins` | Runtime loader for `.so` plugins: discovery, signature checks, sandboxing, lifecycle and crash quarantine. The manager owns loaded plugins; `plugins/factory` maps `pluginsconfig` to options. |
 | `transport/*`, `auth/*`, `security/*`, `service/*` | Runtime capabilities assembled from interfaces, core helpers and required integrations. |
 
 `core/io/spoolbudget` uses `golang.org/x/sync/semaphore`. Linux capability, landlock, nonewprivs, rlimits and seccomp implementations use
 `golang.org/x/sys/unix`. These are explicit package-scoped exceptions. Universal value types (`optional`, `redacted`) have no external production
 imports; database codecs belong in `data/mongo/bsoncodec`.
 
-`make check-architecture` parses production imports on every platform and enforces the core, config, domain and base-observability boundaries above. The
-same check runs in CI. Test dependencies and the separate integration module are excluded. Other composition rules require ordinary code review; the
-check does not claim to enforce a complete layer ordering.
+Runtime and contract packages take generated options and injected dependencies: they never import schema packages or `*/factory` packages.
+A component that needs an outbound client accepts it (for example `oidc.WithHTTPClient(*http.Client)`); the factory builds the resilient
+client from configuration.
+
+`make check-architecture` parses production imports on every platform and enforces the core, schema, domain and base-observability boundaries above,
+that runtime packages read no schemas and that only composition imports factories. The same check runs in CI. Test dependencies and the separate
+integration module are excluded. Other composition rules require ordinary code review; the check does not claim to enforce a complete layer ordering.
 
 ```mermaid
 flowchart TD
@@ -44,8 +49,8 @@ flowchart TD
 ## Configuration and adapters
 
 Package constructors accept required dependencies as positional arguments and generated functional options for tunables. Configuration structs are
-schemas in `config`; runtime packages do not expose another mutable public Config as an alternative to options. Factories validate schemas and
-materialize options. Nil optional telemetry dependencies use no-ops; required storage, codecs and credentials remain required.
+schemas in the `config/*` packages; runtime packages do not expose another mutable public Config as an alternative to options. Factories validate
+schemas and materialize options. Nil optional telemetry dependencies use no-ops; required storage, codecs and credentials remain required.
 
 Outbound proxy mapping lives in `transport/proxydial/factory`: `HTTPClientOptions(cfg.Proxy)` and `GRPCClientOptions(cfg.Proxy)`. Client health and HTTP
 SSRF mapping live in `transport/http/client/factory` and `transport/grpc/client/factory`. See the [proxy guide](proxy.md).

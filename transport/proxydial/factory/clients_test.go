@@ -13,15 +13,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/proxydial/factory"
 
+	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 func TestProxy_ClientOptions_NilReceiver(t *testing.T) {
 	t.Parallel()
-	var p *config.Proxy
+	var p *proxyconfig.Config
 
 	httpOpts, err := factory.HTTPClientOptions(p)
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestProxy_ClientOptions_PassthroughReturnsNil(t *testing.T) {
 	// Empty Mode == "no override" — leave the underlying transport's
 	// env-based default in place (http.ProxyFromEnvironment for
 	// net/http, grpc-go's own HTTPS_PROXY lookup for gRPC).
-	cfg := config.Proxy{}
+	cfg := proxyconfig.Config{}
 
 	httpOpts, err := factory.HTTPClientOptions(&cfg)
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestProxy_ClientOptions_PassthroughReturnsNil(t *testing.T) {
 
 func TestProxy_ClientOptions_UnknownMode(t *testing.T) {
 	t.Parallel()
-	cfg := config.Proxy{Mode: "bogus"}
+	cfg := proxyconfig.Config{Mode: "bogus"}
 
 	httpOpts, err := factory.HTTPClientOptions(&cfg)
 	require.Error(t, err)
@@ -64,7 +64,7 @@ func TestProxy_ClientOptions_UnknownMode(t *testing.T) {
 
 func TestProxy_ClientOptions_URLParseError(t *testing.T) {
 	t.Parallel()
-	cfg := config.Proxy{Mode: config.ProxyModeURL, URL: "::bad"}
+	cfg := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "::bad"}
 
 	httpOpts, err := factory.HTTPClientOptions(&cfg)
 	require.Error(t, err)
@@ -80,14 +80,14 @@ func TestProxy_GrpcClientOptions_NonEnvReturnsOption(t *testing.T) {
 
 	cases := []struct {
 		name string
-		cfg  config.Proxy
+		cfg  proxyconfig.Config
 	}{
-		{"none", config.Proxy{Mode: config.ProxyModeNone}},
-		{"url", config.Proxy{Mode: config.ProxyModeURL, URL: "http://proxy:3128"}},
-		{"host_no_auth", config.Proxy{Mode: config.ProxyModeHost, Host: "proxy", Port: 3128}},
-		{"host_with_auth", config.Proxy{
-			Mode: config.ProxyModeHost, Host: "proxy", Port: 3128,
-			Auth: &config.ProxyAuth{Username: "svc", Password: "secret"},
+		{"none", proxyconfig.Config{Mode: proxyconfig.ModeNone}},
+		{"url", proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy:3128"}},
+		{"host_no_auth", proxyconfig.Config{Mode: proxyconfig.ModeHost, Host: "proxy", Port: 3128}},
+		{"host_with_auth", proxyconfig.Config{
+			Mode: proxyconfig.ModeHost, Host: "proxy", Port: 3128,
+			Auth: &proxyconfig.Auth{Username: "svc", Password: "secret"},
 		}},
 	}
 	for _, tc := range cases {
@@ -110,7 +110,7 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 	t.Run("mode_url", func(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, _ := newProxyServer(t)
-		cfg := config.Proxy{Mode: config.ProxyModeURL, URL: proxy.URL}
+		cfg := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: proxy.URL}
 		runProxiedGet(t, cfg)
 		require.Equal(t, "example.invalid", lastHost.Load())
 	})
@@ -119,7 +119,7 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
-		cfg := config.Proxy{Mode: config.ProxyModeHost, Host: host, Port: port}
+		cfg := proxyconfig.Config{Mode: proxyconfig.ModeHost, Host: host, Port: port}
 		runProxiedGet(t, cfg)
 		require.Equal(t, "example.invalid", lastHost.Load())
 		require.Empty(t, lastAuth.Load())
@@ -129,9 +129,9 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
-		cfg := config.Proxy{
-			Mode: config.ProxyModeHost, Host: host, Port: port,
-			Auth: &config.ProxyAuth{Username: "svc", Password: "secret"},
+		cfg := proxyconfig.Config{
+			Mode: proxyconfig.ModeHost, Host: host, Port: port,
+			Auth: &proxyconfig.Auth{Username: "svc", Password: "secret"},
 		}
 		runProxiedGet(t, cfg)
 		require.Equal(t, "example.invalid", lastHost.Load())
@@ -143,9 +143,9 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		t.Parallel()
 		proxy, _, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
-		cfg := config.Proxy{
-			Mode: config.ProxyModeHost, Host: host, Port: port,
-			Auth: &config.ProxyAuth{Username: "svc"},
+		cfg := proxyconfig.Config{
+			Mode: proxyconfig.ModeHost, Host: host, Port: port,
+			Auth: &proxyconfig.Auth{Username: "svc"},
 		}
 		runProxiedGet(t, cfg)
 		// "Basic c3ZjOg==" == base64("svc:")
@@ -163,7 +163,7 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		}))
 		t.Cleanup(target.Close)
 
-		cfg := config.Proxy{Mode: config.ProxyModeNone}
+		cfg := proxyconfig.Config{Mode: proxyconfig.ModeNone}
 		opts, err := factory.HTTPClientOptions(&cfg)
 		require.NoError(t, err)
 		require.Len(t, opts, 1)
@@ -213,7 +213,7 @@ func splitProxyURL(t *testing.T, raw string) (string, int) {
 // request reaches the proxy server (which always replies 204) and the
 // caller can inspect the captured proxy state via the returned values.
 
-func runProxiedGet(t *testing.T, cfg config.Proxy) {
+func runProxiedGet(t *testing.T, cfg proxyconfig.Config) {
 	t.Helper()
 	opts, err := factory.HTTPClientOptions(&cfg)
 	require.NoError(t, err)

@@ -17,9 +17,10 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/auth/oauth2client/factory"
-	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
@@ -47,13 +48,13 @@ func TestBuilderPrivateKeyJWTFromConfig(t *testing.T) {
 	require.NoError(t, err)
 	pemKey := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 
-	cfg := &config.OAuth2Client{
+	cfg := &authconfig.OAuth2Client{
 		TokenUrl:  srv.URL,
 		ClientId:  "svc",
 		AuthStyle: "auto",
-		ClientAuth: &config.OAuth2ClientAuth{
+		ClientAuth: &authconfig.OAuth2ClientAuth{
 			Method:     "private_key_jwt",
-			PrivateKey: config.Secret(pemKey),
+			PrivateKey: redacted.RedactedString(pemKey),
 			KeyId:      "key-1",
 			Algorithm:  "RS256",
 		},
@@ -78,12 +79,12 @@ func TestBuilderClientSecretJWTFromConfig(t *testing.T) {
 	t.Parallel()
 	srv, form := captureServer(t)
 
-	cfg := &config.OAuth2Client{
+	cfg := &authconfig.OAuth2Client{
 		TokenUrl:     srv.URL,
 		ClientId:     "svc",
-		ClientSecret: config.Secret("s3cr3t"),
+		ClientSecret: redacted.RedactedString("s3cr3t"),
 		AuthStyle:    "auto",
-		ClientAuth:   &config.OAuth2ClientAuth{Method: "client_secret_jwt"},
+		ClientAuth:   &authconfig.OAuth2ClientAuth{Method: "client_secret_jwt"},
 	}
 	src, err := factory.New(cfg).Build(t.Context())
 	require.NoError(t, err)
@@ -100,13 +101,13 @@ func TestBuilderClientSecretJWTFromConfig(t *testing.T) {
 
 func TestBuilderClientAuthBadKey(t *testing.T) {
 	t.Parallel()
-	cfg := &config.OAuth2Client{
+	cfg := &authconfig.OAuth2Client{
 		TokenUrl:  "https://idp.example/token",
 		ClientId:  "svc",
 		AuthStyle: "auto",
-		ClientAuth: &config.OAuth2ClientAuth{
+		ClientAuth: &authconfig.OAuth2ClientAuth{
 			Method:     "private_key_jwt",
-			PrivateKey: config.Secret("not-a-pem"),
+			PrivateKey: redacted.RedactedString("not-a-pem"),
 			KeyId:      "key-1",
 			Algorithm:  "RS256",
 		},

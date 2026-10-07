@@ -10,8 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/http/client/factory"
+
+	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 )
 
 func TestHTTPHealthClientOptions(t *testing.T) {
@@ -20,7 +21,7 @@ func TestHTTPHealthClientOptions(t *testing.T) {
 	t.Run("nil returns nil", func(t *testing.T) {
 		t.Parallel()
 
-		var h *config.HTTPHealthClient
+		var h *clienthealthconfig.HTTP
 		opts := factory.HealthOptions(h)
 		require.Nil(t, opts)
 	})
@@ -28,7 +29,7 @@ func TestHTTPHealthClientOptions(t *testing.T) {
 	t.Run("empty config returns empty options", func(t *testing.T) {
 		t.Parallel()
 
-		h := &config.HTTPHealthClient{}
+		h := &clienthealthconfig.HTTP{}
 		opts := factory.HealthOptions(h)
 		require.Empty(t, opts)
 	})
@@ -36,8 +37,8 @@ func TestHTTPHealthClientOptions(t *testing.T) {
 	t.Run("full config returns all options", func(t *testing.T) {
 		t.Parallel()
 
-		h := &config.HTTPHealthClient{
-			HealthClient: config.HealthClient{
+		h := &clienthealthconfig.HTTP{
+			Config: clienthealthconfig.Config{
 				ServiceName: "test-service",
 			},
 			RetryWindow:     120 * time.Second,
@@ -55,8 +56,8 @@ func TestHTTPHealthClientOptions(t *testing.T) {
 	t.Run("partial config returns partial options", func(t *testing.T) {
 		t.Parallel()
 
-		h := &config.HTTPHealthClient{
-			HealthClient: config.HealthClient{
+		h := &clienthealthconfig.HTTP{
+			Config: clienthealthconfig.Config{
 				ServiceName: "test-service",
 			},
 			RetryThreshold: 0.1,

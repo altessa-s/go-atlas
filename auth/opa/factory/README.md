@@ -61,8 +61,8 @@ proxy block into client options:
 
 | Source | Config field | Materialized as |
 |--------|--------------|-----------------|
-| GitLab | `cfg.GitLab.Proxy` ([`config.Proxy`](../../../config/proxy.go)) | `gitlab.WithHTTPClientOptions(httpclient.Option...)` — wires the resilient HTTP client unconditionally |
-| S3     | `cfg.S3.Proxy` ([`config.Proxy`](../../../config/proxy.go))     | `awsconfig.WithHTTPClient(httpclient.New(...))` — injected **only** when `Mode` is non-empty, so the AWS SDK keeps its own retry layer otherwise |
+| GitLab | `cfg.GitLab.Proxy` ([`proxyconfig.Proxy`](../../../config/proxy/proxy.go)) | `gitlab.WithHTTPClient(httpclient.New(...))` — always injects the resilient HTTP client |
+| S3     | `cfg.S3.Proxy` ([`proxyconfig.Proxy`](../../../config/proxy/proxy.go))     | `awsconfig.WithHTTPClient(httpclient.New(...))` — injected **only** when `Mode` is non-empty, so the AWS SDK keeps its own retry layer otherwise |
 
 A nil/empty `Proxy` block keeps env-based passthrough
 (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`). See the

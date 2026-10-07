@@ -10,9 +10,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/altessa-s/go-atlas/config"
-
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
@@ -24,7 +23,7 @@ var ekuByName = coremaps.NewImmutableMap(map[string]x509.ExtKeyUsage{
 	"any":        x509.ExtKeyUsageAny,
 })
 
-// Builder turns a [config.MTLS] into the [auth/mtls] validator options it
+// Builder turns a [authconfig.MTLS] into the [auth/mtls] validator options it
 // describes. It is the config-driven counterpart to assembling those options by
 // hand, giving the mTLS subsystem the same config→component path the OPA and
 // scope factories provide.
@@ -34,12 +33,12 @@ var ekuByName = coremaps.NewImmutableMap(map[string]x509.ExtKeyUsage{
 // returns options the transport adapter combines with its own — it does not build
 // a finished authenticator with a transport label baked in.
 type Builder struct {
-	cfg *config.MTLS
+	cfg *authconfig.MTLS
 }
 
 // New creates a [Builder] for the given configuration. A nil cfg is accepted;
 // the error surfaces at [Builder.Options] / [Builder.Authenticator] time.
-func New(cfg *config.MTLS) *Builder {
+func New(cfg *authconfig.MTLS) *Builder {
 	return &Builder{cfg: cfg}
 }
 

@@ -20,27 +20,27 @@ import (
 	"github.com/alicebob/miniredis/v2/server"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
 	"github.com/altessa-s/go-atlas/data/probfilter/factory"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	bloomredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 
 var errLoad = errors.New("load failed")
 
-func bloomCfg() *config.ProbabilisticFilterConfig {
-	return &config.ProbabilisticFilterConfig{
-		Type:  config.ProbabilisticFilterTypeBloom,
-		Bloom: &config.ProbabilisticFilterBloomConfig{ExpectedItems: 100},
+func bloomCfg() *probfilterconfig.Filter {
+	return &probfilterconfig.Filter{
+		Type:  probfilterconfig.TypeBloom,
+		Bloom: &probfilterconfig.BloomConfig{ExpectedItems: 100},
 	}
 }
 
-func defaults() *config.ProbabilisticFilterDefaults {
-	d := config.DefaultProbabilisticFilterDefaults()
+func defaults() *probfilterconfig.Defaults {
+	d := probfilterconfig.NewDefaults()
 	return &d
 }
 
@@ -140,9 +140,9 @@ func TestFilterBuilder_RebuildOnStart_Failure(t *testing.T) {
 
 // redisBloomCfg is a Redis-backed Bloom config without rebuild on start
 // (miniredis cannot run RedisBloom commands).
-func redisBloomCfg() *config.ProbabilisticFilterConfig {
+func redisBloomCfg() *probfilterconfig.Filter {
 	cfg := bloomCfg()
-	storage := config.ProbabilisticFilterStorageTypeRedis
+	storage := probfilterconfig.StorageTypeRedis
 	cfg.Bloom.Storage = &storage
 	cfg.Bloom.RebuildOnStart = new(false)
 	return cfg
@@ -267,9 +267,9 @@ func TestFilterBuilder_RegisterFailure(t *testing.T) {
 func TestFilterBuilder_CuckooDeprecatedSettingsWarn(t *testing.T) {
 	t.Parallel()
 	logger, logs := newLogger()
-	cfg := &config.ProbabilisticFilterConfig{
-		Type: config.ProbabilisticFilterTypeCuckoo,
-		Cuckoo: &config.ProbabilisticFilterCuckooConfig{
+	cfg := &probfilterconfig.Filter{
+		Type: probfilterconfig.TypeCuckoo,
+		Cuckoo: &probfilterconfig.CuckooConfig{
 			Capacity:           100,
 			FingerprintSize:    new(16),
 			CapacityMultiplier: new(3.0),
@@ -302,10 +302,10 @@ func TestFilterBuilder_CuckooRedisExpansion(t *testing.T) {
 	}))
 	require.NoError(t, mr.Server().Register("CF.INSERT", func(c *server.Peer, _ string, _ []string) { c.WriteInt(1) }))
 
-	storage := config.ProbabilisticFilterStorageTypeRedis
-	cfg := &config.ProbabilisticFilterConfig{
-		Type: config.ProbabilisticFilterTypeCuckoo,
-		Cuckoo: &config.ProbabilisticFilterCuckooConfig{
+	storage := probfilterconfig.StorageTypeRedis
+	cfg := &probfilterconfig.Filter{
+		Type: probfilterconfig.TypeCuckoo,
+		Cuckoo: &probfilterconfig.CuckooConfig{
 			Storage:            &storage,
 			Capacity:           100,
 			CapacityMultiplier: new(2.5),
@@ -329,9 +329,9 @@ func TestManagerBuilder_WiresLoadersSchedulerAndCollector(t *testing.T) {
 	t.Parallel()
 	sched := &testhelpers.MockTaskRegistrar{}
 	tc := testhelpers.NewTestCollector()
-	cfg := &config.ProbabilisticFilter{
+	cfg := &probfilterconfig.Config{
 		Defaults: defaults(),
-		Filters:  map[string]*config.ProbabilisticFilterConfig{"users": bloomCfg()},
+		Filters:  map[string]*probfilterconfig.Filter{"users": bloomCfg()},
 	}
 
 	mgr, err := factory.NewManager(cfg).
@@ -356,9 +356,9 @@ func TestManagerBuilder_LaterFailureDeactivatesEarlierTasks(t *testing.T) {
 	broken := bloomCfg()
 	broken.Bloom.RebuildCron = new("not a cron") // fails Build after the earlier filter registered its task
 
-	cfg := &config.ProbabilisticFilter{
+	cfg := &probfilterconfig.Config{
 		Defaults: defaults(),
-		Filters: map[string]*config.ProbabilisticFilterConfig{
+		Filters: map[string]*probfilterconfig.Filter{
 			"a-users":  redisBloomCfg(),
 			"b-broken": broken,
 		},

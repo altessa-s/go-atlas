@@ -11,10 +11,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/outbox"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
 )
 
@@ -23,7 +23,7 @@ func TestBuildPropagatesRegistrationFailureAndRetainsRetryableOutbox(t *testing.
 	t.Parallel()
 	boom := errors.New("registrar unavailable")
 	reg := &testhelpers.MockTaskRegistrar{Err: boom}
-	b := New(&config.Outbox{Enabled: true, DispatchSchedule: "@every 1m",
+	b := New(&brokerconfig.Outbox{Enabled: true, DispatchSchedule: "@every 1m",
 		DispatchTaskID: "dispatch", UnlockTaskID: "unlock", ExpireTaskID: "expire", CleanupTaskID: "cleanup", StatsTaskID: "stats",
 	}).UseScheduler(reg)
 	ob, err := b.createOutboxWithStore(nil, nil)
@@ -35,7 +35,7 @@ func TestBuildPropagatesRegistrationFailureAndRetainsRetryableOutbox(t *testing.
 
 func TestBuildWithSQLDB(t *testing.T) {
 	t.Parallel()
-	cfg := &config.Outbox{Enabled: true}
+	cfg := &brokerconfig.Outbox{Enabled: true}
 
 	_, err := New(cfg).BuildWithSQLDB(nil, outboxsql.DialectPostgres, nil)
 	require.ErrorContains(t, err, "SQL database")
@@ -58,7 +58,7 @@ func TestBuildWithSQLDBEnsureSchema(t *testing.T) {
 	t.Run("creates_schema", func(t *testing.T) {
 		t.Parallel()
 		db, fake := testhelpers.NewFakeSQL(t, nil)
-		ob, err := New(&config.Outbox{Enabled: true, EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectPostgres, handler)
+		ob, err := New(&brokerconfig.Outbox{Enabled: true, EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectPostgres, handler)
 		require.NoError(t, err)
 		require.NotNil(t, ob)
 		calls := fake.Calls()
@@ -69,7 +69,7 @@ func TestBuildWithSQLDBEnsureSchema(t *testing.T) {
 	t.Run("disabled_outbox_runs_no_ddl", func(t *testing.T) {
 		t.Parallel()
 		db, fake := testhelpers.NewFakeSQL(t, nil)
-		ob, err := New(&config.Outbox{EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectPostgres, handler)
+		ob, err := New(&brokerconfig.Outbox{EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectPostgres, handler)
 		require.NoError(t, err)
 		require.Nil(t, ob)
 		require.Empty(t, fake.Calls())
@@ -79,7 +79,7 @@ func TestBuildWithSQLDBEnsureSchema(t *testing.T) {
 		t.Parallel()
 		boom := errors.New("ddl denied")
 		db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: boom} })
-		_, err := New(&config.Outbox{Enabled: true, EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectMySQL, handler)
+		_, err := New(&brokerconfig.Outbox{Enabled: true, EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectMySQL, handler)
 		require.ErrorIs(t, err, boom)
 	})
 }

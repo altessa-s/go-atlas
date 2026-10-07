@@ -11,11 +11,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/limiters/budget"
 	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -29,7 +30,7 @@ import (
 // The builder is not safe for concurrent use.
 type BudgetLimiterBuilder struct {
 	corefactory.Base
-	cfg  *config.BudgetLimiter
+	cfg  *limiterconfig.Budget
 	errs []error
 
 	// Dependencies
@@ -41,7 +42,7 @@ type BudgetLimiterBuilder struct {
 
 // New creates a [BudgetLimiterBuilder] for the given budget limiter config.
 // Config can be nil — the error surfaces at [BudgetLimiterBuilder.Build] time.
-func New(cfg *config.BudgetLimiter) *BudgetLimiterBuilder {
+func New(cfg *limiterconfig.Budget) *BudgetLimiterBuilder {
 	return &BudgetLimiterBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -65,14 +66,7 @@ func (b *BudgetLimiterBuilder) Build() (*budget.Limiter, error) {
 		return nil, err
 	}
 
-	settings := &budget.Settings{
-		Limit:  b.cfg.Limit,
-		Period: b.cfg.Period,
-	}
-
-	opts := b.applyDefaults()
-
-	return budget.New(settings, storage, opts...)
+	return budget.New(b.cfg.Limit, b.cfg.Period, storage, b.applyDefaults()...)
 }
 
 // applyDefaults returns factory defaults as limiter options.
@@ -89,14 +83,14 @@ func (b *BudgetLimiterBuilder) createStorage() (storages.Storage, error) {
 	}
 
 	switch b.cfg.Storage.Type {
-	case config.CacheStorageTypeMemory:
+	case storageconfig.CacheStorageTypeMemory:
 		return b.createMemoryStorage()
-	case config.CacheStorageTypeRedis:
+	case storageconfig.CacheStorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
 		return b.createRedisStorage()
-	case config.CacheStorageTypeNats:
+	case storageconfig.CacheStorageTypeNats:
 		if err := b.RequireDependency(b.jetstream, "jetstream"); err != nil {
 			return nil, err
 		}

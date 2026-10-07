@@ -165,7 +165,7 @@ func (cf *Config) findFieldByPath(fieldPath string) *field {
 
 		// If this is the last part and it's a slice, create a field descriptor for it.
 		// Resolve struct field metadata via recursive walk so slices declared inside
-		// `,inline` embedded structs (e.g. BaseGrpcInterceptorConfig.IgnorePatterns)
+		// `,inline` embedded structs (e.g. grpcconfig.BaseInterceptor.IgnorePatterns)
 		// also work — direct iteration over NumField() would miss them.
 		if i == len(parts)-1 && fieldValue.Kind() == reflect.Slice {
 			structField, foundField := cf.findStructFieldRecursive(currentValue.Type(), part)
