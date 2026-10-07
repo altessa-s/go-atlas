@@ -51,8 +51,14 @@ type Server struct {
 	*baseserver.BaseServer
 
 	stopCh      chan struct{}       // coordination channel for shutdown
-	grpc        *grpc.Server        // underlying gRPC server instance
 	grpcOptions []grpc.ServerOption // additional gRPC server options
+
+	// lifecycle is a one-slot semaphore serializing Start with the shutdown
+	// claim, so a running server can never be replaced or leaked. A channel
+	// instead of a mutex lets Shutdown give up when its context expires.
+	lifecycle chan struct{}
+	grpc      *grpc.Server // underlying gRPC server; guarded by lifecycle
+	stopped   bool         // set once Shutdown claims the server; guarded by lifecycle
 
 	// interceptors contains registered server interceptors
 	interceptors []any
@@ -83,6 +89,7 @@ func New(opts ...Option) (*Server, error) {
 	srv := &Server{
 		BaseServer:  baseserver.NewBaseServer(cfg.baseOpts...),
 		stopCh:      make(chan struct{}),
+		lifecycle:   make(chan struct{}, 1),
 		grpcOptions: cfg.grpcOpts,
 		reflection:  cfg.reflection,
 	}
@@ -137,10 +144,22 @@ func (s *Server) IsStopped() bool {
 //  4. Starts serving in a background goroutine
 //  5. Waits for startup verification (2 seconds)
 //
-// Returns ErrServerAlreadyStarted if called multiple times.
+// Returns ErrServerAlreadyStarted if called multiple times and
+// ErrServerClosed once the server has been shut down; the running server is
+// left untouched in both cases. A failed start may be retried.
 // Returns network errors if listener creation or binding fails.
 // This method is non-blocking after successful startup verification.
 func (s *Server) Start() (err error) {
+	s.lifecycle <- struct{}{}
+	defer func() { <-s.lifecycle }()
+
+	if s.stopped {
+		return baseserver.ErrServerClosed
+	}
+	if s.grpc != nil {
+		return baseserver.ErrServerAlreadyStarted
+	}
+
 	// Prepare gRPC server options before starting
 	grpcOptions := make([]grpc.ServerOption, 0, len(s.interceptors)+len(s.grpcOptions))
 	grpcOptions = append(grpcOptions, s.grpcOptions...)
@@ -154,11 +173,11 @@ func (s *Server) Start() (err error) {
 	}
 
 	// Create gRPC server
-	s.grpc = grpc.NewServer(grpcOptions...)
+	srv := grpc.NewServer(grpcOptions...)
 
 	// Register handlers
 	for _, h := range s.handlers {
-		h.Register(s.grpc, s.stopCh)
+		h.Register(srv, s.stopCh)
 	}
 
 	// Enable reflection if configured. Reflection exposes the full
@@ -168,12 +187,12 @@ func (s *Server) Start() (err error) {
 	// grep for "reflection enabled" in their startup logs and catch
 	// accidental production-enablement.
 	if s.reflection {
-		reflection.Register(s.grpc)
+		reflection.Register(srv)
 		s.Logger().Warn("gRPC reflection enabled — service schema is publicly discoverable; disable in production")
 	}
 
 	// Use BaseServer.Start with gRPC-specific callback
-	return s.BaseServer.Start("grpc", func(ln net.Listener, errCh chan<- error) {
+	startErr := s.BaseServer.Start("grpc", func(ln net.Listener, errCh chan<- error) {
 		go func() {
 			// Recover panics that happen before grpc.Server.Serve has a
 			// chance to install its own per-stream recovery (e.g. during
@@ -182,7 +201,7 @@ func (s *Server) Start() (err error) {
 			// panic in the spawn goroutine cannot bring down the process.
 			defer panics.Handle(context.Background())
 
-			if err := s.grpc.Serve(ln); err != nil {
+			if err := srv.Serve(ln); err != nil {
 				// Non-blocking send to avoid panic if channel is no longer being read
 				select {
 				case errCh <- err:
@@ -191,6 +210,12 @@ func (s *Server) Start() (err error) {
 			}
 		}()
 	})
+	if startErr != nil {
+		return startErr
+	}
+
+	s.grpc = srv
+	return nil
 }
 
 // Shutdown gracefully stops the gRPC server.
@@ -200,9 +225,24 @@ func (s *Server) Start() (err error) {
 //  3. Force shutdown if context is canceled
 //
 // Returns nil on successful graceful shutdown.
-// Returns context.DeadlineExceeded or context.Canceled if context expires.
-// This method is safe to call multiple times (idempotent).
+// Returns context.DeadlineExceeded or context.Canceled if context expires,
+// including while waiting for an in-flight [Server.Start] to finish.
+// This method is safe to call multiple times (idempotent); it is a no-op on
+// a server that is not running.
 func (s *Server) Shutdown(ctx context.Context) error {
+	select {
+	case s.lifecycle <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	srv := s.grpc
+	if srv == nil || s.stopped {
+		<-s.lifecycle
+		return nil
+	}
+	s.stopped = true
+	<-s.lifecycle
+
 	return s.GracefulShutdown(ctx, func(ctx context.Context) error {
 		close(s.stopCh)
 
@@ -218,13 +258,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		ch := make(chan struct{}, 1)
 
 		go func(ch chan<- struct{}) {
-			s.grpc.GracefulStop()
+			srv.GracefulStop()
 			ch <- struct{}{}
 		}(ch)
 
 		select {
 		case <-ctx.Done():
-			s.grpc.Stop()
+			srv.Stop()
 			return ctx.Err()
 		case <-ch:
 			return nil
