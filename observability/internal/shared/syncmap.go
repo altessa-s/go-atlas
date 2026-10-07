@@ -36,12 +36,16 @@ func GetOrCreate[T any](m *sync.Map, key string, create func() T) T {
 // GetOrCreateWithCallback is like GetOrCreate but calls an optional callback
 // when a new value is created. Useful for registration or initialization side effects.
 //
+// Creation and onNew run under mu before the value is published, so no
+// caller can obtain the value until onNew has completed. Lookups of existing
+// values stay lock-free.
+//
 // Example:
 //
-//	counter := GetOrCreateWithCallback(&metrics, name, createCounter, func() {
+//	counter := GetOrCreateWithCallback(&metrics, &mu, name, createCounter, func() {
 //	    registerMetric(name)
 //	})
-func GetOrCreateWithCallback[T any](m *sync.Map, key string, create func() T, onNew func()) T {
+func GetOrCreateWithCallback[T any](m *sync.Map, mu *sync.Mutex, key string, create func() T, onNew func()) T {
 	// Fast path: value already exists
 	if existing, ok := m.Load(key); ok {
 		if t, ok := existing.(T); ok {
@@ -49,18 +53,21 @@ func GetOrCreateWithCallback[T any](m *sync.Map, key string, create func() T, on
 		}
 	}
 
-	// Create new value
-	newVal := create()
+	mu.Lock()
+	defer mu.Unlock()
 
-	// Store or get existing (handles race condition)
-	actual, loaded := m.LoadOrStore(key, newVal)
-
-	// Call callback only if we stored a new value
-	if !loaded && onNew != nil {
-		onNew()
+	// Re-check: another caller may have published it while we waited.
+	if existing, ok := m.Load(key); ok {
+		return existing.(T) //nolint:errcheck // Type is guaranteed by generic constraint
 	}
 
-	return actual.(T) //nolint:errcheck // Type is guaranteed by generic constraint
+	newVal := create()
+	if onNew != nil {
+		onNew()
+	}
+	m.Store(key, newVal)
+
+	return newVal
 }
 
 // Range iterates over all key-value pairs in a sync.Map with type-safe values.

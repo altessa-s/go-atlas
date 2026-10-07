@@ -122,3 +122,33 @@ func BenchmarkLabeledGaugeSet(b *testing.B) {
 		bound.Set(42)
 	}
 }
+
+// BenchmarkGaugeInc measures the unlabeled additive gauge path, which keeps
+// the shadow value and its publication consistent per series.
+func BenchmarkGaugeInc(b *testing.B) {
+	c := newPromCollector(b)
+	g := c.MustGauge(metrics.MetricOpts{
+		Name: "queue_depth",
+		Help: "bench",
+	})
+
+	b.ReportAllocs()
+	for b.Loop() {
+		g.Inc()
+	}
+}
+
+func BenchmarkLabeledGaugeInc(b *testing.B) {
+	c := newPromCollector(b)
+	g := c.MustGauge(metrics.MetricOpts{
+		Name:       "in_flight",
+		Help:       "bench",
+		LabelNames: []string{"method"},
+	})
+	bound := g.WithLabels(metrics.Labels{"method": "GET"})
+
+	b.ReportAllocs()
+	for b.Loop() {
+		bound.Inc()
+	}
+}
