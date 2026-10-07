@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strconv"
 	"time"
 
@@ -78,8 +79,8 @@ return 1
 // Because Redis is not query-capable, recoverable instances are tracked in a
 // sorted set scored by recover-eligibility time: a timed-out RUNNING instance
 // scores its deadline, a COMPENSATING instance scores 0 (always due), and any
-// other instance is absent. FetchRecoverable pages through a ZRANGEBYSCORE
-// over that set.
+// other instance is absent. FetchRecoverable reads the due ids with one
+// ZRANGEBYSCORE over that set and loads their instances page by page.
 type Store struct {
 	redisbase.Base
 	opts *options
@@ -168,8 +169,8 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 	}
 }
 
-// recoverablePageSize is the number of index entries FetchRecoverable reads
-// per round trip while it looks for matching instances.
+// recoverablePageSize is the number of instances FetchRecoverable loads per
+// round trip while it looks for matching instances.
 const recoverablePageSize = 64
 
 // FetchRecoverable returns up to limit non-terminal instances that are
@@ -177,28 +178,29 @@ const recoverablePageSize = 64
 // non-empty. A non-positive limit means no cap.
 //
 // The index is shared by every definition and also holds candidates whose
-// lease is still active, so it is read page by page and an entry counts
-// toward limit only once it matches definition and is recoverable at now;
-// otherwise non-matching entries could fill every batch and starve the rest.
+// lease is still active, so an entry counts toward limit only once it matches
+// definition and is recoverable at now; otherwise non-matching entries could
+// fill every batch and starve the rest. The due ids are read in one snapshot
+// and their instances loaded page by page: paging the live sorted set by
+// offset would skip entries whenever concurrent writes remove earlier ones.
 func (s *Store) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
-	page := int64(recoverablePageSize)
-	if limit > 0 {
-		page = max(page, int64(limit))
+	ids, err := s.Client().ZRangeByScore(ctx, s.indexKey(),
+		&redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(now.Unix(), 10)}).Result()
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "fetch recoverable saga ids from Redis")
 	}
-	maxScore := strconv.FormatInt(now.Unix(), 10)
+
+	page := recoverablePageSize
+	if limit > 0 {
+		page = max(page, limit)
+	}
 
 	var (
 		out   []*saga.Instance
 		stale []any
 	)
-	for offset := int64(0); ; offset += page {
-		ids, err := s.Client().ZRangeByScore(ctx, s.indexKey(),
-			&redis.ZRangeBy{Min: "-inf", Max: maxScore, Offset: offset, Count: page}).Result()
-		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "fetch recoverable saga ids from Redis")
-		}
-
-		insts, gone, err := s.loadInstances(ctx, ids)
+	for chunk := range slices.Chunk(ids, page) {
+		insts, gone, err := s.loadInstances(ctx, chunk)
 		if err != nil {
 			return nil, err
 		}
@@ -213,13 +215,11 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 				break
 			}
 		}
-
-		if (limit > 0 && len(out) == limit) || int64(len(ids)) < page {
+		if limit > 0 && len(out) == limit {
 			break
 		}
 	}
 
-	// Cleanup runs after the scan so removals do not shift the page offsets.
 	if len(stale) > 0 {
 		_ = s.Client().ZRem(ctx, s.indexKey(), stale...).Err() // Best-effort cleanup.
 	}

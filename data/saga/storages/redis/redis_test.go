@@ -5,11 +5,16 @@
 package redis_test
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
+
+	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/data/saga"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -146,6 +151,71 @@ func TestFetchRecoverableRespectsLimit(t *testing.T) {
 	rec, err := s.FetchRecoverable(ctx, "", baseTime, 1)
 	require.NoError(t, err)
 	require.Len(t, rec, 1)
+}
+
+// removeAfterFirstPipeline is a go-redis hook that, once the first instance
+// page has been loaded, removes the given members from the recoverable index —
+// a deterministic stand-in for concurrent writers finishing those sagas while
+// FetchRecoverable is mid-scan.
+type removeAfterFirstPipeline struct {
+	mr      *miniredis.Miniredis
+	members []string
+	done    bool
+}
+
+func (h *removeAfterFirstPipeline) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (h *removeAfterFirstPipeline) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return next
+}
+
+func (h *removeAfterFirstPipeline) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []goredis.Cmder) error {
+		err := next(ctx, cmds)
+		if !h.done {
+			h.done = true
+			for _, key := range h.mr.Keys() {
+				if strings.HasSuffix(key, "index:recoverable") {
+					for _, m := range h.members {
+						_, _ = h.mr.ZRem(key, m)
+					}
+				}
+			}
+		}
+		return err
+	}
+}
+
+// TestFetchRecoverableStableUnderConcurrentRemoval pins that entries removed
+// from the index while FetchRecoverable is between pages do not shift later
+// entries out of the scan.
+func TestFetchRecoverableStableUnderConcurrentRemoval(t *testing.T) {
+	t.Parallel()
+	client, mr := testhelpers.RedisClient(t)
+	s := sagaredis.New(client)
+	ctx := t.Context()
+
+	var first []string
+	for i := range 64 {
+		id := fmt.Sprintf("a-%02d", i)
+		other := instance(id, saga.StatusCompensating, time.Time{})
+		other.Definition = "ship-order"
+		require.NoError(t, s.Create(ctx, other))
+		first = append(first, id)
+	}
+	for i := range 2 {
+		require.NoError(t, s.Create(ctx, instance(fmt.Sprintf("z-%d", i), saga.StatusCompensating, time.Time{})))
+	}
+
+	client.AddHook(&removeAfterFirstPipeline{mr: mr, members: first})
+
+	rec, err := s.FetchRecoverable(ctx, "place-order", baseTime, 2)
+	require.NoError(t, err)
+	got := make([]string, 0, len(rec))
+	for _, inst := range rec {
+		got = append(got, inst.ID)
+	}
+	require.Equal(t, []string{"z-0", "z-1"}, got)
 }
 
 // TestFetchRecoverableSkipsNonMatchingPages pins that entries which do not
