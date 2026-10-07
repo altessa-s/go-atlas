@@ -140,7 +140,7 @@ func readTime(v reflect.Value) (time.Time, bool) {
 		return *(*time.Time)(unsafe.Pointer(v.UnsafeAddr())), true
 	}
 
-	t, ok := v.Interface().(time.Time)
+	t, ok := reflect.TypeAssert[time.Time](v)
 	return t, ok
 }
 
