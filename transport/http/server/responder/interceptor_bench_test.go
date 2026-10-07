@@ -16,7 +16,7 @@ func BenchmarkNewErrorInterceptor(b *testing.B) {
 	w := &mockErrorWriter{}
 	for b.Loop() {
 		ei := NewErrorInterceptor(rec, req, w)
-		ei.Flush()
+		ei.Finish()
 	}
 }
 
@@ -28,6 +28,6 @@ func BenchmarkErrorInterceptor_PassThrough(b *testing.B) {
 		ei := NewErrorInterceptor(rec, req, w)
 		ei.WriteHeader(http.StatusOK)
 		ei.Write([]byte("ok")) //nolint:errcheck
-		ei.Flush()
+		ei.Finish()
 	}
 }
