@@ -26,6 +26,7 @@ type gatedSource struct {
 	entered  chan struct{}
 	canceled chan struct{}
 	release  chan struct{}
+	ctxs     chan context.Context // context of each Fetch (dropped when full)
 
 	fetches    atomic.Int32
 	inFetch    atomic.Int32
@@ -38,6 +39,7 @@ func newGatedSource() *gatedSource {
 		entered:  make(chan struct{}, 64),
 		canceled: make(chan struct{}, 64),
 		release:  make(chan struct{}),
+		ctxs:     make(chan context.Context, 1024),
 	}
 }
 
@@ -45,6 +47,10 @@ func (s *gatedSource) Name() string { return "gated" }
 
 func (s *gatedSource) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 	s.fetches.Add(1)
+	select {
+	case s.ctxs <- ctx:
+	default:
+	}
 	s.inFetch.Add(1)
 	defer s.inFetch.Add(-1)
 	if s.closeCalls.Load() > 0 {
@@ -145,22 +151,39 @@ func TestManager_ConcurrentCloseWaitsForTeardown(t *testing.T) {
 	require.Zero(t, src.violations.Load())
 }
 
-// TestManager_StopIsFinalAfterRestart: after start/stop/start/stop no loop
-// survives — neither the first loop (which must not adopt the second loop's
-// context) nor the second one — so no Fetch happens once StopWatching returns.
-func TestManager_StopIsFinalAfterRestart(t *testing.T) {
+// TestManager_RestartUsesFreshContext observes each loop's Fetch contexts:
+// the first loop's context is canceled once StopWatching returns, the second
+// loop fetches under a different, live context, and once it is stopped no
+// Fetch happens at all.
+func TestManager_RestartUsesFreshContext(t *testing.T) {
 	t.Parallel()
 	src := newGatedSource()
 	m := newGatedManager(t, src)
 	t.Cleanup(func() { _ = m.Close() })
+	for len(src.ctxs) > 0 { // drop NewManager's initial load
+		<-src.ctxs
+	}
 
-	ctx1, cancel1 := context.WithCancel(t.Context())
-	t.Cleanup(cancel1)
-	require.NoError(t, m.StartWatching(ctx1))
-	m.StopWatching()
 	require.NoError(t, m.StartWatching(t.Context()))
+	first := <-src.ctxs
 	m.StopWatching()
+	require.Error(t, first.Err(), "the first loop's context must be canceled by StopWatching")
 
+	// StopWatching joined the first loop, so every context recorded from now
+	// on comes from the second loop.
+	for len(src.ctxs) > 0 {
+		<-src.ctxs
+	}
+	require.NoError(t, m.StartWatching(t.Context()))
+	second := <-src.ctxs
+	require.NotEqual(t, first, second, "the restarted loop must run under its own context")
+	require.NoError(t, second.Err(), "the second loop's context must be live while watching")
+	m.StopWatching()
+	require.Error(t, second.Err())
+
+	for len(src.ctxs) > 0 {
+		<-src.ctxs
+	}
 	before := src.fetches.Load()
 	time.Sleep(20 * time.Millisecond) // 20 poll intervals
 	require.Equal(t, before, src.fetches.Load(), "a poll loop kept fetching after StopWatching")

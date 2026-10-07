@@ -6,6 +6,9 @@ package selfjwt_test
 
 import (
 	"context"
+	"runtime"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +25,8 @@ type blockingProvider struct {
 	entered chan struct{}
 	release chan struct{}
 	done    chan error
+	calls   atomic.Int32
+	ctx     atomic.Pointer[context.Context] // lookup context of the latest call
 }
 
 func newBlockingProvider(t *testing.T) *blockingProvider {
@@ -35,6 +40,8 @@ func newBlockingProvider(t *testing.T) *blockingProvider {
 }
 
 func (p *blockingProvider) VerificationKey(ctx context.Context, subject, kid string) (selfjwt.VerificationKey, error) {
+	p.calls.Add(1)
+	p.ctx.Store(&ctx)
 	p.entered <- struct{}{}
 	select {
 	case <-p.release:
@@ -92,13 +99,32 @@ func TestVerifyKeyLookupIsBounded(t *testing.T) {
 	require.ErrorIs(t, <-p.done, context.DeadlineExceeded)
 }
 
+// waitForKeyWaiters blocks until n goroutines are parked in the verifier's
+// key-lookup wait, i.e. have joined the in-flight lookup.
+func waitForKeyWaiters(t *testing.T, n int) {
+	t.Helper()
+	buf := make([]byte, 1<<20)
+	for {
+		stacks := string(buf[:runtime.Stack(buf, true)])
+		if strings.Count(stacks, "selfjwt.(*Verifier).publicKey(") >= n {
+			return
+		}
+		select {
+		case <-t.Context().Done():
+			t.Fatal("waiters never joined the key lookup")
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
 // TestVerifyCanceledWaiterDoesNotFailPeers: the waiter that started the shared
-// lookup giving up must not cancel the lookup itself, which other waiters may
-// share; its result is still delivered and cached.
+// lookup giving up neither cancels the lookup nor fails a peer that joined it.
+//
+// Not parallel: waitForKeyWaiters inspects every goroutine's stack, so other
+// verifications in flight would be miscounted as waiters on this lookup.
 func TestVerifyCanceledWaiterDoesNotFailPeers(t *testing.T) {
-	t.Parallel()
 	p := newBlockingProvider(t)
-	v := selfjwt.NewVerifier(p, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, clockOpt(baseTime), selfjwt.WithCacheTTL(0))
 	token := mintFor(t, p)
 
 	canceledCtx, cancel := context.WithCancel(t.Context())
@@ -108,15 +134,20 @@ func TestVerifyCanceledWaiterDoesNotFailPeers(t *testing.T) {
 		canceled <- err
 	}()
 	<-p.entered // the shared lookup is in flight
+
+	live := make(chan error, 1)
+	go func() {
+		_, err := v.Verify(t.Context(), token)
+		live <- err
+	}()
+	waitForKeyWaiters(t, 2) // the live peer is waiting on the same flight
+
 	cancel()
 	require.ErrorIs(t, <-canceled, context.Canceled)
+	require.NoError(t, (*p.ctx.Load()).Err(), "the shared lookup context must outlive its initiator")
 
-	// The lookup outlived its initiator: release it and it completes normally
-	// (a canceled lookup context would report ctx.Err() on done instead).
 	close(p.release)
+	require.NoError(t, <-live)
 	require.NoError(t, <-p.done)
-
-	_, err := v.Verify(t.Context(), token)
-	require.NoError(t, err)
-	require.Len(t, p.entered, 0, "the completed lookup must have been cached")
+	require.Equal(t, int32(1), p.calls.Load(), "the peer must have shared the single lookup")
 }
