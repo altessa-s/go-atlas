@@ -93,21 +93,16 @@ type Manager struct {
 
 	// readAndHashFileFn abstracts file reading+hashing so tests can
 	// inject a stub without needing real .so files. Returns the raw
-	// file bytes and the SHA256 hex digest. Defaults to
-	// [readAndHashFileWithCache] backed by the manager's hash cache.
+	// file bytes and the SHA256 hex digest. Defaults to [readAndHashFile].
 	readAndHashFileFn func(string) ([]byte, string, error)
 
 	// metrics holds all metric collectors for observability.
 	metrics *pluginMetrics
 
-	// hashCache caches file hashes with mtime validation to avoid redundant I/O.
-	hashCache *hashCache
-
 	// Watcher state. Protected by watchMu so that iterator reads on mu
 	// (taken by [Manager.Reload] from inside the watch goroutine) do not
 	// contend with lifecycle transitions.
 	watchMu   sync.Mutex
-	watchCtx  context.Context
 	watchStop context.CancelFunc
 	watchDone chan struct{}
 	watching  bool
@@ -129,7 +124,6 @@ func NewManager(opt ...Option) *Manager {
 		opts.signature.mode = DefaultSignatureMode
 	}
 
-	cache := newHashCache()
 	mgr := &Manager{
 		plugins:               make(map[string]*Plugin),
 		opts:                  opts,
@@ -138,11 +132,8 @@ func NewManager(opt ...Option) *Manager {
 		sandboxApply:          applySandbox,
 		sandboxSystemLibPaths: defaultLandlockSystemLibPaths,
 		quarantine:            make(map[string]string),
-		readAndHashFileFn: func(path string) ([]byte, string, error) {
-			return readAndHashFileWithCache(path, cache)
-		},
-		metrics:   initMetrics(opts.metrics),
-		hashCache: cache,
+		readAndHashFileFn:     readAndHashFile,
+		metrics:               initMetrics(opts.metrics),
 	}
 
 	// Update initial state metrics
@@ -442,11 +433,6 @@ func (m *Manager) Close() error {
 	clear(m.quarantine)
 	m.quarantineMu.Unlock()
 
-	// Clear the hash cache
-	if m.hashCache != nil {
-		m.hashCache.clear()
-	}
-
 	return nil
 }
 
@@ -691,22 +677,10 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		p.setState(StateReady)
 	}
 
-	// Register only after Init has run to completion. This is the
-	// authoritative collision check: it runs under the write lock so
-	// two concurrent loaders racing on the same plugin name are
-	// guaranteed to see exactly one winner.
-	m.mu.Lock()
-	if _, exists := m.plugins[desc.Name]; exists {
-		m.mu.Unlock()
-		// The plugin we just initialized lost the race. Mark it
-		// as unloaded so [Plugin.State] reflects reality if some
-		// other code path holds a reference to it. The other
-		// loader's plugin remains the canonical one.
-		p.setState(StateUnloaded)
-		return coreerrs.Wrapf(ErrPluginAlreadyLoaded, "plugin %q (file %q)", desc.Name, filename)
+	// Register only after Init has run to completion.
+	if err = m.register(p, filename); err != nil {
+		return err
 	}
-	m.plugins[desc.Name] = p
-	m.mu.Unlock()
 
 	m.logger.Info("plugin loaded",
 		slog.String("plugin", desc.Name),
@@ -722,6 +696,36 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		m.updateStateMetrics()
 	}
 
+	return nil
+}
+
+// register inserts an initialized plugin into the registry. It is the
+// authoritative collision check: it runs under the write lock so two
+// concurrent loaders racing on the same plugin name see exactly one winner.
+//
+// It also rejects the plugin with [ErrManagerClosed] when [Manager.Close]
+// ran while the plugin was initializing. Close stores the closed flag before
+// taking the write lock, so a load either registers before Close clears the
+// registry or observes the flag here — it can never repopulate a closed
+// manager.
+//
+// A rejected plugin is marked [StateUnloaded] so [Plugin.State] reflects
+// reality if some other code path holds a reference to it.
+func (m *Manager) register(p *Plugin, filename string) error {
+	name := p.Name()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed.Load() {
+		p.setState(StateUnloaded)
+		return coreerrs.Wrapf(ErrManagerClosed, "plugin %q (file %q)", name, filename)
+	}
+	if _, exists := m.plugins[name]; exists {
+		p.setState(StateUnloaded)
+		return coreerrs.Wrapf(ErrPluginAlreadyLoaded, "plugin %q (file %q)", name, filename)
+	}
+	m.plugins[name] = p
 	return nil
 }
 

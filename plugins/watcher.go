@@ -67,7 +67,6 @@ func (m *Manager) StartWatching(ctx context.Context) error {
 
 	watchCtx, watchStop := context.WithCancel(ctx)
 	done := make(chan struct{})
-	m.watchCtx = watchCtx
 	m.watchStop = watchStop
 	m.watchDone = done
 	m.watching = true
@@ -101,7 +100,6 @@ func (m *Manager) StopWatching() {
 	stop := m.watchStop
 	done := m.watchDone
 	m.watching = false
-	m.watchCtx = nil
 	m.watchStop = nil
 	m.watchDone = nil
 	m.watchMu.Unlock()
@@ -216,7 +214,6 @@ func (m *Manager) resetWatchStateIfCurrent(done chan struct{}) {
 	}
 
 	m.watching = false
-	m.watchCtx = nil
 	m.watchStop = nil
 	m.watchDone = nil
 }
