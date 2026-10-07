@@ -43,6 +43,7 @@ auditor, err := factory.New(cfg.Audit).
 | `UseDispatcher` | Sets the `audit.Dispatcher` (must already be started); overrides `storage` and `dispatch` |
 | `UseMongoDatabase` | Sets the database for `storage.type: mongo` |
 | `UseClickHouseConn` | Sets the connection (e.g. from `infrastructure/clickhouse/factory`) for `storage.type: clickhouse` |
+| `UseSQLDB` | Sets the `*sql.DB` for `storage.type: sqldb`; the caller registers the driver |
 | `UseShutdownHooks` | Sets the `runtime.HookGroup` the builder registers what it owns into |
 
 ### Terminal
@@ -60,9 +61,10 @@ auditor, err := factory.New(cfg.Audit).
 | `memory`       | --       | In-process ring buffer; events are lost on restart |
 | `mongo`        | `UseMongoDatabase` | `storage.mongo` tunes collection name, index timeout and TTL; omitting the section means all defaults |
 | `clickhouse`   | `UseClickHouseConn` | `storage.clickhouse` is required; the builder applies `schemaMigrationMode`, then checks the table schema at startup |
+| `sqldb`        | `UseSQLDB` | `storage.sqldb` is required; `ensureSchema` creates the table at startup, otherwise the schema must exist |
 
 A `mongo` type without a database fails with `ErrMongoDatabaseRequired`, a `clickhouse` type without a connection with
-`ErrClickHouseConnRequired`, rather than silently falling back to memory. A dispatch `batchSize` below `MinRecommendedClickHouseBatchSize` logs
+`ErrClickHouseConnRequired`, an `sqldb` type without a database with `ErrSQLDBRequired`, rather than silently falling back to memory. A dispatch `batchSize` below `MinRecommendedClickHouseBatchSize` logs
 a warning for ClickHouse, since every flush creates a part to merge.
 
 ## Paging

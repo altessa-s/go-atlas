@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"database/sql"
 	"log/slog"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -41,6 +42,14 @@ func (b *AuditorBuilder) UseDispatcher(v audit.Dispatcher) *AuditorBuilder {
 // Required when `storage.type` is "mongo", ignored otherwise.
 func (b *AuditorBuilder) UseMongoDatabase(v *mongo.Database) *AuditorBuilder {
 	b.mongoDatabase = v
+	return b
+}
+
+// UseSQLDB sets the database handle the SQL storage writes to. Required when
+// `storage.type` is "sqldb", ignored otherwise. The caller owns it and
+// registers the driver.
+func (b *AuditorBuilder) UseSQLDB(v *sql.DB) *AuditorBuilder {
+	b.sqlDB = v
 	return b
 }
 

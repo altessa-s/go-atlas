@@ -7,9 +7,11 @@ package factory
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
@@ -25,6 +27,7 @@ import (
 	auditclickhouse "github.com/altessa-s/go-atlas/data/audit/storages/clickhouse"
 	memorystorage "github.com/altessa-s/go-atlas/data/audit/storages/memory"
 	mongostorage "github.com/altessa-s/go-atlas/data/audit/storages/mongo"
+	auditsql "github.com/altessa-s/go-atlas/data/audit/storages/sqldb"
 	dispatchfactory "github.com/altessa-s/go-atlas/service/dispatch/factory"
 )
 
@@ -59,6 +62,7 @@ type AuditorBuilder struct {
 	dispatcher     audit.Dispatcher
 	mongoDatabase  *mongo.Database
 	clickhouseConn auditclickhouse.Conn
+	sqlDB          *sql.DB
 	shutdownHooks  *coreruntime.HookGroup
 }
 
@@ -174,6 +178,9 @@ func (b *AuditorBuilder) createStorage() (audit.Storage, error) {
 	case auditconfig.StorageTypeClickHouse:
 		return b.createClickHouseStorage()
 
+	case auditconfig.StorageTypeSQL:
+		return b.createSQLStorage()
+
 	default:
 		return nil, coreerrs.Wrapf(
 			fmt.Errorf("unsupported storage type: %s", b.cfg.Storage.Type),
@@ -204,6 +211,42 @@ func (b *AuditorBuilder) createMongoStorage() (audit.Storage, error) {
 		return nil, coreerrs.WrapOperation(err, "create audit mongo storage")
 	}
 
+	return storage, nil
+}
+
+// ErrSQLDBRequired is returned by [AuditorBuilder.Build] when the configured
+// storage type is "sqldb" but no database was supplied via
+// [AuditorBuilder.UseSQLDB].
+var ErrSQLDBRequired = errors.New("audit: sql database is required for storage type sqldb")
+
+// ensureSchemaTimeout bounds the schema creation createSQLStorage runs when
+// the config asks for it, so a lock wait cannot stall startup indefinitely.
+const ensureSchemaTimeout = 30 * time.Second
+
+// createSQLStorage builds the SQL-backed storage. With EnsureSchema set it
+// creates the table through the storage's idempotent EnsureSchema; otherwise
+// it performs no I/O and the schema is expected to exist.
+func (b *AuditorBuilder) createSQLStorage() (audit.Storage, error) {
+	if b.sqlDB == nil {
+		return nil, ErrSQLDBRequired
+	}
+	cfg := b.cfg.Storage.SQL
+	if cfg == nil {
+		return nil, fmt.Errorf("sql storage configuration is required")
+	}
+	opts := []auditsql.Option{auditsql.WithTableName(cfg.TableName)}
+	opts = coreslices.AppendIf(opts, cfg.MaxBatchRows > 0, auditsql.WithMaxBatchRows(cfg.MaxBatchRows))
+	storage, err := auditsql.New(b.sqlDB, auditsql.Dialect(cfg.Dialect), opts...)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "create audit sql storage")
+	}
+	if cfg.EnsureSchema {
+		ctx, cancel := context.WithTimeout(context.Background(), ensureSchemaTimeout)
+		defer cancel()
+		if err := storage.EnsureSchema(ctx); err != nil {
+			return nil, coreerrs.WrapOperation(err, "create audit sql schema")
+		}
+	}
 	return storage, nil
 }
 

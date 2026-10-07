@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/audit"
-	"github.com/altessa-s/go-atlas/data/audit/storages/internal/storagetest"
+	"github.com/altessa-s/go-atlas/data/audit/storages/storagetest"
 	"github.com/altessa-s/go-atlas/data/keyset"
 
 	auditclickhouse "github.com/altessa-s/go-atlas/data/audit/storages/clickhouse"

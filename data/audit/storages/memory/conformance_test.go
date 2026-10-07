@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/audit"
-	"github.com/altessa-s/go-atlas/data/audit/storages/internal/storagetest"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
+	"github.com/altessa-s/go-atlas/data/audit/storages/storagetest"
 )
 
 func TestConformance(t *testing.T) {

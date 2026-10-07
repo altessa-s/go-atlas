@@ -23,6 +23,17 @@ const (
 	StorageTypeMongo  StorageType = "mongo"
 	// StorageTypeClickHouse stores audit events in a ClickHouse table.
 	StorageTypeClickHouse StorageType = "clickhouse"
+	// StorageTypeSQL stores audit events in a SQL table (PostgreSQL, MySQL or
+	// MariaDB) through an injected *sql.DB.
+	StorageTypeSQL StorageType = "sqldb"
+)
+
+// SQL dialects accepted by [StorageSQL.Dialect].
+const (
+	// SQLDialectPostgres targets PostgreSQL 12+.
+	SQLDialectPostgres = "postgres"
+	// SQLDialectMySQL targets MySQL 8.0+ and MariaDB 10.6+.
+	SQLDialectMySQL = "mysql"
 )
 
 // Config defines the configuration for the audit subsystem.
@@ -81,6 +92,41 @@ type Storage struct {
 	// ClickHouse holds ClickHouse-specific storage configuration.
 	// Required when Type is "clickhouse".
 	ClickHouse *StorageClickHouse `yaml:"clickhouse"`
+
+	// SQL holds SQL-specific storage configuration.
+	// Required when Type is "sqldb".
+	SQL *StorageSQL `yaml:"sqldb"`
+}
+
+// StorageSQL holds SQL-specific configuration for audit event storage
+// (data/audit/storages/sqldb). The *sql.DB itself is injected into the
+// factory; the caller chooses and registers the driver.
+type StorageSQL struct {
+	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0+ and
+	// MariaDB 10.6+).
+	Dialect string `yaml:"dialect" default:"postgres"`
+
+	// TableName is the table holding audit events, optionally
+	// schema-qualified.
+	TableName string `yaml:"tableName" default:"audit_events"`
+
+	// MaxBatchRows is the largest number of rows sent in a single INSERT; a
+	// larger batch is split into INSERTs of one transaction.
+	MaxBatchRows int `yaml:"maxBatchRows" default:"500"`
+
+	// EnsureSchema creates the table and its indexes on startup through the
+	// storage's idempotent EnsureSchema. Off by default: schema changes
+	// belong in a migration.
+	EnsureSchema bool `yaml:"ensureSchema"`
+}
+
+// Validate performs validation of the SQL storage configuration.
+func (c *StorageSQL) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Dialect, validation.Required, validation.In(SQLDialectPostgres, SQLDialectMySQL)),
+		validation.Field(&c.TableName, validation.Required),
+		validation.Field(&c.MaxBatchRows, validation.Min(0)),
+	)
 }
 
 // StorageClickHouse holds ClickHouse-specific configuration for audit event
@@ -196,8 +242,9 @@ func (a *Config) Validate() error {
 // Validate performs validation of the audit storage configuration.
 func (s *Storage) Validate() error {
 	return validationconfig.ValidateStruct(s,
-		validation.Field(&s.Type, validation.Required, validation.In(StorageTypeMemory, StorageTypeMongo, StorageTypeClickHouse)),
+		validation.Field(&s.Type, validation.Required, validation.In(StorageTypeMemory, StorageTypeMongo, StorageTypeClickHouse, StorageTypeSQL)),
 		validation.Field(&s.Mongo, validation.When(s.Type == StorageTypeMongo, validation.Required)),
 		validation.Field(&s.ClickHouse, validation.When(s.Type == StorageTypeClickHouse, validation.Required)),
+		validation.Field(&s.SQL, validation.When(s.Type == StorageTypeSQL, validation.Required)),
 	)
 }
