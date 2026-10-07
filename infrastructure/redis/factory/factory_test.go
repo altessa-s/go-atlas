@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -146,6 +147,47 @@ func TestUniversalOptions_ConnectionURI_InvalidURI(t *testing.T) {
 
 	_, err := b.UniversalOptions()
 	require.Error(t, err)
+}
+
+func TestUniversalOptions_CommonFieldsMatchAcrossPaths(t *testing.T) {
+	t.Parallel()
+
+	common := redisconfig.Config{
+		PoolSize:           20,
+		MinIdleConnections: 5,
+		ConnectTimeout:     3 * time.Second,
+		SocketTimeout:      5 * time.Second,
+		IdleTimeout:        60 * time.Second,
+		MaxConnectionAge:   120 * time.Second,
+		MaxRedirects:       3,
+		ReadOnly:           true,
+		RouteByLatency:     true,
+		RouteRandomly:      true,
+		MasterName:         "mymaster",
+		SentinelPassword:   "sentpass",
+	}
+
+	fieldsCfg := common
+	fieldsCfg.Hosts = []string{"host1:6379"}
+	fieldsCfg.Password = "pass"
+	fieldsCfg.Username = "user"
+	fieldsCfg.Database = 2
+	fromFields, err := New(&fieldsCfg).UniversalOptions()
+	require.NoError(t, err)
+
+	uriCfg := common
+	uriCfg.ConnectionURI = "redis://other:secret@redis-host:6380/3"
+	fromURI, err := New(&uriCfg).UniversalOptions()
+	require.NoError(t, err)
+
+	// Clear the path-specific fields; everything else must match.
+	for _, o := range []*redis.UniversalOptions{fromFields, fromURI} {
+		o.Addrs, o.Username, o.Password, o.DB, o.TLSConfig = nil, "", "", 0, nil
+	}
+	require.Equal(t, fromFields, fromURI)
+	require.Equal(t, 20, fromURI.PoolSize)
+	require.Equal(t, "mymaster", fromURI.MasterName)
+	require.Equal(t, "sentpass", fromURI.SentinelPassword)
 }
 
 func TestUniversalOptions_Fields(t *testing.T) {
