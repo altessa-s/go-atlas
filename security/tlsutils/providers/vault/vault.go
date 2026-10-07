@@ -31,11 +31,6 @@ type Vault struct {
 	authMethod vault.AuthMethod
 	options    *options
 
-	// ocspCtx controls the lifecycle of OCSP refresh goroutines.
-	// Canceled in Close() to stop all background refreshes.
-	ocspCtx    context.Context
-	ocspCancel context.CancelFunc
-
 	// Frequently accessed fields copied from options
 	ocspStapler tlsutils.OCSPStapler
 	logger      *slog.Logger
@@ -57,15 +52,8 @@ func New(opt ...Option) (*Vault, error) {
 		return nil, err
 	}
 
-	// OCSP staple-refresh runs on a detached background context (canceled
-	// by [Vault.Shutdown]) because it outlives any request-scoped
-	// context the caller might pass through New. Termination is honest:
-	// Shutdown invokes ocspCancel — no goroutine leak on stop.
-	ocspCtx, ocspCancel := context.WithCancel(context.Background())
 	v := &Vault{
 		options:     opts,
-		ocspCtx:     ocspCtx,
-		ocspCancel:  ocspCancel,
 		ocspStapler: opts.ocspStapler,
 		logger:      opts.logger,
 	}
@@ -143,7 +131,7 @@ func (v *Vault) TLSConfig() (*tls.Config, error) {
 }
 
 // Close cleans up resources used by the Vault provider.
-// It cancels OCSP refresh goroutines and closes the authentication method if present.
+// It closes the authentication method if present.
 // The context controls the graceful shutdown timeout for auth methods that support it.
 //
 // Example:
@@ -152,9 +140,6 @@ func (v *Vault) TLSConfig() (*tls.Config, error) {
 //	defer cancel()
 //	provider.Close(ctx)
 func (v *Vault) Close(ctx context.Context) error {
-	// Cancel OCSP context to stop all refresh goroutines
-	v.ocspCancel()
-
 	// Close auth method if it supports closing
 	if v.authMethod != nil {
 		type contextCloser interface {
