@@ -148,6 +148,38 @@ func TestManager_Load_AfterClose(t *testing.T) {
 	assert.ErrorIs(t, err, ErrManagerClosed)
 }
 
+func TestManager_Register_AfterClose(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewManager(WithSignatureDisabled())
+	// Close runs while a load is past Init but not yet registered.
+	require.NoError(t, mgr.Close())
+
+	p := newTestPlugin("late", StateReady)
+	err := mgr.register(p, "late.so")
+	require.ErrorIs(t, err, ErrManagerClosed)
+	require.Equal(t, StateUnloaded, p.State())
+	require.Zero(t, mgr.Len(), "a closed manager must stay empty")
+}
+
+func TestManager_Register_Collision(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewManager(WithSignatureDisabled())
+	first := newTestPlugin("dup", StateReady)
+	require.NoError(t, mgr.register(first, "a.so"))
+
+	second := newTestPlugin("dup", StateReady)
+	err := mgr.register(second, "b.so")
+	require.ErrorIs(t, err, ErrPluginAlreadyLoaded)
+	require.Equal(t, StateUnloaded, second.State())
+	require.Equal(t, StateReady, first.State())
+
+	got, err := mgr.Get("dup")
+	require.NoError(t, err)
+	require.Same(t, first, got)
+}
+
 func TestManager_Unload(t *testing.T) {
 	mgr := NewManager(WithSignatureDisabled())
 	mgr.plugins["test"] = newTestPlugin("test", StateReady)
