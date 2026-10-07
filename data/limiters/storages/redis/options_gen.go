@@ -32,6 +32,9 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 			if vv == "" {
 				return
 			}
+			if vv == "" {
+				panic(fmt.Errorf("keyPrefix is required"))
+			}
 			o.keyPrefix = vv
 		}
 	}

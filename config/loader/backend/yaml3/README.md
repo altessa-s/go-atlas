@@ -30,3 +30,5 @@ Security constraints:
 - Included paths must stay within the config root directory (no path traversal)
 - Circular includes are detected and rejected
 - Maximum nesting depth is 10 levels
+- With a positive `maxBytes` (the loader's `WithMaxConfigBytes` cap), each included file and the expanded document are
+  bounded by it; exceeding it returns an error wrapping `coreio.ErrReadLimitExceeded`

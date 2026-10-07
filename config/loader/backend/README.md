@@ -13,13 +13,14 @@ to add support for new configuration formats (JSON, INI, etc.).
 |----------------|--------------------------------------|------------------------------------------|
 | `Backend`      | `Decode`, `FileExtensions`, `StructTagName` | Main backend contract               |
 | `Decoder`      | `Decode(reader, any)`                | Decodes a reader into a struct           |
-| `Preprocessor` | `Preprocess(content, currentDir, rootDir)` | Optional content transformation    |
+| `Preprocessor` | `Preprocess(content, currentDir, rootDir, maxBytes)` | Optional content transformation bounded by `maxBytes` |
 | `KeyDecoder`   | `DecodeKeys(reader)`                 | Optional: reports which values a document sets |
 | `StrictDecoder` | `DecodeStrict(reader, any)`        | Optional: decodes and rejects keys that bind to no struct field |
 | `KeyNode`      | `IsNull`, `Fields`, `Entries`, `Elems` | A document value bound to destination types on demand |
 
 `Preprocessor` is optional. Backends that support directives like `!include` implement it to transform file
-content before decoding.
+content before decoding. The loader passes its `WithMaxConfigBytes` cap as `maxBytes`; a positive value bounds every file the
+preprocessor reads and the size of the content it returns.
 
 `StrictDecoder` is optional. The loader decodes with it unless `loader.WithAllowUnknownFields()` is set; its error wraps
 `backend.ErrUnknownField` and names every key that binds to no field of a destination struct. Map entry keys are never unknown, though

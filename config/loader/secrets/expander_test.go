@@ -231,6 +231,20 @@ func TestExpandStruct(t *testing.T) {
 		require.Equal(t, "plain", cfg.Env["HOST"])
 	})
 
+	t.Run("map defined string values", func(t *testing.T) {
+		type Credential string
+		type Config struct {
+			Creds map[string]Credential
+		}
+		cfg := &Config{Creds: map[string]Credential{
+			"db":    "$__secret{app:password}",
+			"plain": "plain",
+		}}
+		require.NoError(t, secrets.ExpandStruct(ctx, cfg, mgr))
+		require.Equal(t, Credential("s3cret"), cfg.Creds["db"])
+		require.Equal(t, Credential("plain"), cfg.Creds["plain"])
+	})
+
 	t.Run("nil manager", func(t *testing.T) {
 		type Config struct{ V string }
 		cfg := &Config{V: "$__secret{app:password}"}
