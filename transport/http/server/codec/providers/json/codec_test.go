@@ -119,6 +119,42 @@ func TestEncode_Error(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEncode_Modes(t *testing.T) {
+	t.Parallel()
+
+	data := map[string]string{"h": "<a&b>"}
+	tests := []struct {
+		name       string
+		indent     bool
+		escapeHTML bool
+		want       string
+	}{
+		{name: "compact escaped", escapeHTML: true, want: "{\"h\":\"\\u003ca\\u0026b\\u003e\"}"},
+		{name: "compact unescaped", want: `{"h":"<a&b>"}`},
+		{name: "indent escaped", indent: true, escapeHTML: true, want: "{\n  \"h\": \"\\u003ca\\u0026b\\u003e\"\n}"},
+		{name: "indent unescaped", indent: true, want: "{\n  \"h\": \"<a&b>\"\n}"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := New(WithIndent(tc.indent), WithEscapeHTML(tc.escapeHTML))
+			got, err := c.Encode(data)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, string(got))
+
+			// A later encode reuses the pooled buffer; the earlier result
+			// must not alias it.
+			_, err = c.Encode(map[string]string{"h": "overwrite-overwrite-overwrite"})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, string(got))
+
+			_, err = c.Encode(make(chan int))
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestEncode_IndentError(t *testing.T) {
 	c := New(WithIndent(true))
 	_, err := c.Encode(make(chan int))
