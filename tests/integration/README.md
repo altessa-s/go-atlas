@@ -248,7 +248,9 @@ the suite proves it never inherits the database defaults.
 The storage contract suite from [`data/saga/storages/storagetest`](../../data/saga/storages/storagetest) — insert-if-absent creation, the version
 compare-and-swap under concurrent writers, exact ID identity and the recovery predicate at full lease precision — runs against the SQL store on
 PostgreSQL, MariaDB and MySQL and against the MongoDB and Redis stores, each contract over its own throwaway table, database or key prefix. An
-orchestrator built through the factory, which creates the schema, then runs a compensating saga over each SQL server.
+orchestrator built through the factory, which creates the schema, then runs a compensating saga over each SQL server. The MongoDB contracts run only
+with `MONGO_URI` set (`mongodb://127.0.0.1:27019/?directConnection=true` for the compose stack), so the suite never touches another project's
+MongoDB on that port.
 
 ## Adding a backend
 

@@ -102,17 +102,19 @@ func tableName(tb testing.TB) string {
 	return "saga_" + safe[:min(len(safe), maxPrefix)] + "_" + strings.ToLower(rand.Text()[:8])
 }
 
-// mongoURI matches tests/integration/docker-compose.yml; directConnection is
-// required because the single-node replica set advertises its in-container
-// address.
-func mongoURI() string {
-	return envOr("MONGO_URI", "mongodb://127.0.0.1:27019/?directConnection=true")
-}
-
-// newMongoStore gives the test a throwaway database, dropped on cleanup.
+// newMongoStore gives the test a throwaway database, dropped on cleanup. It
+// runs only when MONGO_URI names the server: the compose port 27019 is a
+// common choice for other projects' MongoDB too, and a default would create
+// and drop databases on whatever answers there. For the compose stack use
+// MONGO_URI=mongodb://127.0.0.1:27019/?directConnection=true — directConnection
+// because the single-node replica set advertises its in-container address.
 func newMongoStore(tb testing.TB) saga.Storage {
 	tb.Helper()
-	client, err := mongo.Connect(mongoOptions.Client().ApplyURI(mongoURI()).SetServerSelectionTimeout(3 * time.Second))
+	uri := os.Getenv("MONGO_URI")
+	if uri == "" {
+		tb.Skip("MONGO_URI not set — export it to run the MongoDB contracts")
+	}
+	client, err := mongo.Connect(mongoOptions.Client().ApplyURI(uri).SetServerSelectionTimeout(3 * time.Second))
 	if err != nil {
 		tb.Skipf("MongoDB unreachable (%v) — start it with: make integration-up", err)
 	}
