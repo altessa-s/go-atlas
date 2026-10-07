@@ -36,6 +36,9 @@ func New(client redis.UniversalClient, opt ...Option) *Provider {
 }
 
 // Allow checks if a request should be allowed based on the rate limit using sliding window algorithm.
+//
+// The window has millisecond resolution: period is truncated to whole
+// milliseconds, and a sub-millisecond period is enforced as 1 ms.
 func (p *Provider) Allow(ctx context.Context, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	panics.MustNonNil(ctx, "context must not be nil")
 	panics.Must(key != "", "key must not be empty")
@@ -44,7 +47,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 
 	redisKey := p.Key(key)
 	now := time.Now().UnixMilli()
-	windowSeconds := int64(period.Seconds())
+	windowMs := max(period.Milliseconds(), 1)
 
 	// ZSET members are unique by value, so concurrent same-ms ZADDs with
 	// member=score collapse into one entry and let bursts bypass the limit.
@@ -55,7 +58,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 		return nil, coreerrs.Wrap(err, "redis rate limit member generation")
 	}
 
-	result, err := luaScript.Run(ctx, p.Client(), []string{redisKey}, windowSeconds, limit, now, member).Result()
+	result, err := luaScript.Run(ctx, p.Client(), []string{redisKey}, windowMs, limit, now, member).Result()
 	if err != nil {
 		return nil, coreerrs.Wrap(err, "redis rate limit script error")
 	}
