@@ -598,7 +598,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 			history.Error = execErr.Error()
 		}
 
-		if histErr := s.storage.AddHistory(recCtx, history); histErr != nil {
+		if histErr := s.history.AddHistory(recCtx, history); histErr != nil {
 			s.logger.ErrorContext(recCtx, "failed to record task history",
 				slog.String("task_id", state.ID),
 				slog.Any("error", histErr))
@@ -685,7 +685,7 @@ func (s *Scheduler) cleanup() {
 	ctx, cancel := s.storageCtx(s.stopCtx)
 	defer cancel()
 
-	if err := s.storage.CleanupHistory(ctx, s.opts.historyRetention); err != nil {
+	if err := s.history.CleanupHistory(ctx, s.opts.historyRetention); err != nil {
 		s.logger.ErrorContext(ctx, "failed to cleanup history", slog.Any("error", err))
 	}
 }

@@ -14,7 +14,9 @@ filter push-down.
 | Type / Interface | Description                                                                    |
 |------------------|--------------------------------------------------------------------------------|
 | `Scheduler`      | Core scheduler: register tasks, dispatch on tick, pause/resume/disable         |
-| `Storage`        | Persistence interface (15 methods) implemented by every backend                |
+| `Storage`        | Persistence interface implemented by every backend; embeds `HistoryStorage`    |
+| `HistoryStorage` | Execution-history half of `Storage`; `WithHistoryStorage` can move it apart    |
+| `HistoryDeleter` | Optional: a history backend that deletes one task's history on `Unregister`    |
 | `TaskState`      | Full persistent state of a task including schedule, priority, timestamps       |
 | `TaskSummary`    | Lightweight read-only view returned by listing endpoints                       |
 | `TaskHistory`    | Record of a single execution: start/end time, success flag, error, run ID     |
@@ -37,6 +39,7 @@ filter push-down.
 | `WithInstanceID`                | random    | Owner ID stamped on runs; must be unique per live instance    |
 | `WithStorageTimeout`            | 10s       | Per-operation deadline for scheduler-owned storage calls      |
 | `WithLeaderElector`             | nil       | Distributed leader elector -- only the leader dispatches      |
+| `WithHistoryStorage`            | nil       | Separate history backend; nil keeps history in the `Storage`  |
 | `WithLogger`                    | discard   | Structured logger for scheduler lifecycle and error events    |
 | `WithEnvironment`               | --        | Preset concurrency profile for a named environment            |
 
@@ -88,6 +91,7 @@ shared by `ClaimRun`, `RenewRun` and `FinishRun` are defined once, in the "Run o
 | [storages/mongo](./storages/mongo)     | MongoDB-backed persistent storage with indexed queries          |
 | [storages/redis](./storages/redis)     | Redis (RedisJSON + RediSearch) persistent storage               |
 | [storages/sqldb](./storages/sqldb)     | PostgreSQL / MySQL / MariaDB storage through `database/sql`     |
+| [storages/clickhouse](./storages/clickhouse) | ClickHouse `HistoryStorage` only, for `WithHistoryStorage` |
 | [storagetest](./storagetest)           | Storage contract suite for backends, including custom ones      |
 
 ## Atomic finalization

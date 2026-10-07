@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
+	chstorage "github.com/altessa-s/go-atlas/service/scheduler/storages/clickhouse"
 	memorystorage "github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 	mongostorage "github.com/altessa-s/go-atlas/service/scheduler/storages/mongo"
 	redisstorage "github.com/altessa-s/go-atlas/service/scheduler/storages/redis"
@@ -42,6 +44,7 @@ type SchedulerBuilder struct {
 	mongoDb        *mongo.Database
 	redisClient    redis.UniversalClient
 	sqlDB          *sql.DB
+	clickhouseConn chstorage.Conn
 }
 
 // New creates a new [SchedulerBuilder] for the given scheduler config.
@@ -69,12 +72,19 @@ func (b *SchedulerBuilder) Build() (*scheduler.Scheduler, error) {
 		return nil, err
 	}
 
+	var history scheduler.HistoryStorage
+	if b.cfg.HistoryStorage != nil {
+		if history, err = b.createHistoryStorageFromConfig(); err != nil {
+			return nil, err
+		}
+	}
+
 	concurrencyOpts, err := b.concurrencyOptions()
 	if err != nil {
 		return nil, err
 	}
 
-	configOpts := make([]scheduler.Option, 0, 6+len(concurrencyOpts)) //nolint:mnd
+	configOpts := make([]scheduler.Option, 0, 7+len(concurrencyOpts)) //nolint:mnd
 	configOpts = append(configOpts,
 		scheduler.WithTickInterval(b.cfg.TickInterval),
 		scheduler.WithHistoryRetention(b.cfg.HistoryRetention),
@@ -83,6 +93,7 @@ func (b *SchedulerBuilder) Build() (*scheduler.Scheduler, error) {
 		scheduler.WithInstanceID(b.cfg.InstanceID),
 		scheduler.WithCollector(b.collector),
 	)
+	configOpts = slices.AppendIf(configOpts, history != nil, scheduler.WithHistoryStorage(history))
 	configOpts = append(configOpts, concurrencyOpts...)
 
 	opts := b.applyDefaults(configOpts)
@@ -214,6 +225,48 @@ func (b *SchedulerBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 		return storage, err
 	}
 	if err := b.ensure("ensure scheduler schema", storage.EnsureSchema); err != nil {
+		return nil, err
+	}
+	return storage, nil
+}
+
+// createHistoryStorageFromConfig creates the history storage set by a non-nil
+// cfg.HistoryStorage.
+func (b *SchedulerBuilder) createHistoryStorageFromConfig() (scheduler.HistoryStorage, error) {
+	switch b.cfg.HistoryStorage.Type {
+	case schedulerconfig.HistoryStorageTypeClickHouse:
+		if err := b.RequireDependency(b.clickhouseConn, "clickhouse connection"); err != nil {
+			return nil, err
+		}
+		return b.createClickHouseHistoryStorage()
+	default:
+		return nil, b.Errorf("unsupported history storage type: %s", b.cfg.HistoryStorage.Type)
+	}
+}
+
+// createClickHouseHistoryStorage creates a ClickHouse history storage. A zero
+// TTL takes the scheduler's history retention. With ensureSchema set it creates
+// the table through the storage's EnsureSchema; otherwise it performs no I/O
+// and the table is expected to exist.
+func (b *SchedulerBuilder) createClickHouseHistoryStorage() (*chstorage.Storage, error) {
+	cfg := b.cfg.HistoryStorage.ClickHouse
+	if cfg == nil {
+		return nil, fmt.Errorf("configuration is required")
+	}
+
+	storage, err := chstorage.New(b.clickhouseConn,
+		chstorage.WithTableName(cfg.TableName),
+		chstorage.WithEngine(cfg.Engine),
+		chstorage.WithCluster(cfg.Cluster),
+		chstorage.WithTTL(cmp.Or(cfg.TTL, b.cfg.HistoryRetention)),
+	)
+	if err != nil {
+		return nil, b.WrapError(err, "create scheduler history storage")
+	}
+	if !cfg.EnsureSchema {
+		return storage, nil
+	}
+	if err := b.ensure("ensure scheduler history schema", storage.EnsureSchema); err != nil {
 		return nil, err
 	}
 	return storage, nil

@@ -5,6 +5,7 @@
 package scheduler
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -42,6 +43,7 @@ import (
 // All exported methods are safe for concurrent use.
 type Scheduler struct {
 	storage      Storage
+	history      HistoryStorage // storage unless WithHistoryStorage is set
 	opts         *options
 	logger       *slog.Logger
 	parser       cron.Parser
@@ -165,6 +167,7 @@ func New(storage Storage, opts ...Option) *Scheduler {
 
 	s := &Scheduler{
 		storage:        storage,
+		history:        cmp.Or[HistoryStorage](o.historyStorage, storage),
 		opts:           o,
 		logger:         o.logger,
 		tasks:          make(map[string]*registeredTask),
