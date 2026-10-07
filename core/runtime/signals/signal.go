@@ -439,12 +439,15 @@ func (s *Signal) Stop() error {
 // context error is returned. Passing a nil ctx returns an error.
 // Shutdown is idempotent; subsequent calls after the first return nil.
 func (s *Signal) Shutdown(ctx context.Context) error {
-	if !s.started.CompareAndSwap(true, false) {
-		return nil // Already stopped
-	}
-
+	// Validated before the state change: rejecting a nil ctx after marking
+	// the handler stopped would leave the listener running with no way to
+	// stop it.
 	if ctx == nil {
 		return fmt.Errorf("shutdown: ctx cannot be nil")
+	}
+
+	if !s.started.CompareAndSwap(true, false) {
+		return nil // Already stopped
 	}
 
 	// If caller didn't set a deadline, apply the configured shutdown timeout.

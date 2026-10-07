@@ -118,6 +118,12 @@ func doWithOptions(ctx context.Context, fn func(context.Context) error, cfg *opt
 			return err
 		}
 
+		// The last permitted attempt failed: return now rather than compute a
+		// delay, notify onRetry and sleep for a retry that never comes.
+		if cfg.maxAttempts >= 0 && attempt >= cfg.maxAttempts {
+			return err
+		}
+
 		if cfg.nextDelay == nil {
 			return err
 		}

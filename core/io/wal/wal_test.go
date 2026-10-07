@@ -136,6 +136,34 @@ func TestWAL_AppendAckClose_LeavesEmptyDir(t *testing.T) {
 	require.Empty(t, matches, "wal dir must be empty after clean shutdown")
 }
 
+// A segment whose records were all acked before it rolled must be deleted at
+// the roll: no later Ack reaches it, so keeping it would leak the file, hold
+// its bytes against WithMaxBytes, and replay acked records on reopen.
+func TestWAL_SegmentRoll_DropsFullyAckedSegment(t *testing.T) {
+	t.Parallel()
+	const payloadLen = 100
+	w, dir := newTestWAL(t, WithMaxSegmentBytes(int64(recordHeaderSize+payloadLen)))
+
+	payload := make([]byte, payloadLen)
+	first, err := w.Append(payload)
+	require.NoError(t, err)
+	w.Ack(first)
+	second, err := w.Append(payload) // rolls the fully acked first segment
+	require.NoError(t, err)
+	require.NotEqual(t, first.SegmentID, second.SegmentID)
+	require.Equal(t, 1, w.Stats().Segments, "only the active segment may remain: the fully acked one must not stay sealed")
+	w.Ack(second)
+	require.NoError(t, w.Close())
+
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.wal"))
+	require.Empty(t, matches, "no segment may survive when every record was acked")
+
+	w2, recovered, err := Open(dir, WithMaxSegmentBytes(int64(recordHeaderSize+payloadLen)))
+	require.NoError(t, err)
+	require.Empty(t, recovered, "acked records must not be replayed")
+	require.NoError(t, w2.Close())
+}
+
 func TestWAL_Ack_ZeroOffset_IsNoop(t *testing.T) {
 	t.Parallel()
 	w, _ := newTestWAL(t)
