@@ -257,10 +257,10 @@ func TestBuildFilter(t *testing.T) {
 			want:  bson.D{{Key: fieldContextTraceID, Value: "trace-1"}},
 		},
 		{
-			name: "limit offset and sort are not part of the filter",
+			name: "limit cursor and sort are not part of the filter",
 			query: &audit.Query{
 				Limit:     10,
-				Offset:    5,
+				Cursor:    &audit.Cursor{ID: "x"},
 				SortOrder: audit.SortOrderAsc,
 			},
 			want: bson.D{},

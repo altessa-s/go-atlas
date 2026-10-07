@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/audit"
 
 	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
+	auditclickhouse "github.com/altessa-s/go-atlas/data/audit/storages/clickhouse"
 )
 
 // UseLogger sets the logger for the builder and all created components.
@@ -40,6 +41,14 @@ func (b *AuditorBuilder) UseDispatcher(v audit.Dispatcher) *AuditorBuilder {
 // Required when `storage.type` is "mongo", ignored otherwise.
 func (b *AuditorBuilder) UseMongoDatabase(v *mongo.Database) *AuditorBuilder {
 	b.mongoDatabase = v
+	return b
+}
+
+// UseClickHouseConn sets the connection backing the ClickHouse audit storage,
+// typically opened with infrastructure/clickhouse/factory. Required when
+// `storage.type` is "clickhouse", ignored otherwise. The caller owns it.
+func (b *AuditorBuilder) UseClickHouseConn(v auditclickhouse.Conn) *AuditorBuilder {
+	b.clickhouseConn = v
 	return b
 }
 

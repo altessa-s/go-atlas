@@ -17,6 +17,15 @@ import (
 func (s *Storage) createIndexes(ctx context.Context) error {
 	indexes := []mongo.IndexModel{
 		{
+			// Keyset pagination orders and seeks by (timestamp, _id) under
+			// the simple collation queries use.
+			Keys: bson.D{
+				{Key: fieldTimestamp, Value: -1},
+				{Key: "_id", Value: -1},
+			},
+			Options: mongoOptions.Index().SetCollation(&mongoOptions.Collation{Locale: "simple"}),
+		},
+		{
 			Keys: bson.D{
 				{Key: fieldTimestamp, Value: -1},
 				{Key: fieldType, Value: 1},

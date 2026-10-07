@@ -1,0 +1,79 @@
+# ClickHouse configuration.
+# Defines settings for connecting to a ClickHouse server or cluster.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+#
+# Note for write-heavy consumers (e.g. the audit trail): ClickHouse creates
+# a part per INSERT and merges parts in the background, so it wants
+# thousands of rows per write. If the producer batches through
+# service/dispatch, raise its batchSize into the low thousands and
+# flushInterval to a few seconds — the defaults are tuned for a row store.
+
+#clickhouse:
+#  # <string> Full ClickHouse DSN, for example
+#  # "clickhouse://user:pass@host:9000/analytics".
+#  # When set, it replaces hosts, database, username and password —
+#  # setting those alongside it is a validation error.
+#  # Everything not expressible through the DSN (TLS certificates, pool
+#  # sizing, compression, query settings) is still applied on top.
+#  # Default value: not set
+#  connectionURI:
+#
+#  # <list[string]> ClickHouse servers as host:port.
+#  # The client fails over between them.
+#  # Default value: ["localhost:9000"]
+#  hosts:
+#    - "localhost:9000"
+#
+#  # <string> Database holding the target tables.
+#  # Default value: "default"
+#  database: "default"
+#
+#  # <string> ClickHouse user. Empty uses the server's "default" user.
+#  # Default value: not set
+#  username: "writer"
+#
+#  # <string> Password for the user above. Treated as a secret and never
+#  # logged. Prefer an environment variable or a secrets provider over a
+#  # literal value here.
+#  # Default value: not set
+#  password:
+#
+#  # <duration> Maximum time to establish a connection.
+#  # Default value: 5s
+#  dialTimeout: "5s"
+#
+#  # <duration> Maximum time to read a query result.
+#  # Default value: 30s
+#  readTimeout: "30s"
+#
+#  # <int> Maximum number of open connections in the pool.
+#  # Must be greater than 0.
+#  # Default value: 10
+#  maxOpenConns: 10
+#
+#  # <int> Maximum number of idle connections kept in the pool.
+#  # Default value: 5
+#  maxIdleConns: 5
+#
+#  # <duration> How long a pooled connection may be reused.
+#  # Default value: 1h
+#  connMaxLifetime: "1h"
+#
+#  # <string> Wire compression method.
+#  # One of: none, lz4, zstd, gzip, deflate, br.
+#  # LZ4 is the ClickHouse default and costs little for a large
+#  # bandwidth saving on wide audit rows.
+#  # Default value: "lz4"
+#  compression: "lz4"
+#
+#  # <map[string]string> Server-side query settings applied to every
+#  # statement issued through this connection.
+#  # Default value: not set
+#  settings:
+#    max_execution_time: "60"
+#
+#  # <object> TLS settings for encrypted connections. Leave commented for
+#  # plaintext (only safe on an internal network).
+#  # See tls-client.yaml for the full field list.
+#  !include tls-client.yaml

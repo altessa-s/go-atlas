@@ -42,8 +42,10 @@ func (s *Storage) StoreBatch(_ context.Context, events []*audit.Event) error {
 	return nil
 }
 
-// Query returns events matching the query criteria in reverse chronological order.
-// It snapshots the current events under a read lock and iterates without holding the lock.
+// Query returns events matching the query in the total order of the
+// timestamp (milliseconds) and ID, newest first unless ascending order is
+// requested, starting after query.Cursor. It sorts a snapshot taken under a
+// read lock and iterates without holding the lock.
 func (s *Storage) Query(_ context.Context, query *audit.Query) iter.Seq2[*audit.Event, error] {
 	return func(yield func(*audit.Event, error) bool) {
 		s.mu.RLock()
@@ -51,19 +53,26 @@ func (s *Storage) Query(_ context.Context, query *audit.Query) iter.Seq2[*audit.
 		snapshot := slices.Clone(s.events)
 		s.mu.RUnlock()
 
-		offset := query.Offset
+		asc := query.SortOrder == audit.SortOrderAsc
+		slices.SortStableFunc(snapshot, func(a, b *audit.Event) int {
+			c := audit.CursorOf(a).Compare(audit.CursorOf(b))
+			if asc {
+				return c
+			}
+			return -c
+		})
+
 		limit := query.Limit
 		if limit <= 0 {
 			limit = len(snapshot)
 		}
 
 		count := 0
-		for _, e := range slices.Backward(snapshot) {
+		for _, e := range snapshot {
 			if !matchesQuery(e, query) {
 				continue
 			}
-			if offset > 0 {
-				offset--
+			if query.Cursor != nil && !query.Cursor.Follows(e, query.SortOrder) {
 				continue
 			}
 			if count >= limit {
@@ -77,7 +86,8 @@ func (s *Storage) Query(_ context.Context, query *audit.Query) iter.Seq2[*audit.
 	}
 }
 
-// Count returns the number of events matching the query criteria.
+// Count returns the number of events matching the query filter. The page
+// position, size and order are ignored.
 func (s *Storage) Count(_ context.Context, query *audit.Query) (int64, error) {
 	s.mu.RLock()
 	snapshot := slices.Clone(s.events)
@@ -118,11 +128,16 @@ func (s *Storage) Reset() {
 	s.mu.Unlock()
 }
 
+// matchesQuery reports whether e satisfies the query filter. The time range
+// is compared at millisecond precision, as the persistent storages store and
+// bound timestamps, so a bound with a sub-millisecond part selects the same
+// events everywhere.
 func matchesQuery(e *audit.Event, q *audit.Query) bool {
-	if q.StartTime != nil && e.Timestamp.Before(*q.StartTime) {
+	ms := e.Timestamp.UnixMilli()
+	if q.StartTime != nil && ms < q.StartTime.UnixMilli() {
 		return false
 	}
-	if q.EndTime != nil && e.Timestamp.After(*q.EndTime) {
+	if q.EndTime != nil && ms > q.EndTime.UnixMilli() {
 		return false
 	}
 	if q.ActorID != "" && e.Actor.ID != q.ActorID {

@@ -42,6 +42,7 @@ auditor, err := factory.New(cfg.Audit).
 | `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseDispatcher` | Sets the `audit.Dispatcher` (must already be started); overrides `storage` and `dispatch` |
 | `UseMongoDatabase` | Sets the database for `storage.type: mongo` |
+| `UseClickHouseConn` | Sets the connection (e.g. from `infrastructure/clickhouse/factory`) for `storage.type: clickhouse` |
 | `UseShutdownHooks` | Sets the `runtime.HookGroup` the builder registers what it owns into |
 
 ### Terminal
@@ -49,6 +50,8 @@ auditor, err := factory.New(cfg.Audit).
 | Method | Description |
 |--------|-------------|
 | `Build` | Assembles, starts, and returns the audit auditor |
+| `BuildStorage` | Returns the configured `audit.Storage` for reading events (e.g. with `audit.FetchPage`); the caller closes it |
+| `BuildPageTokens` | Returns `*audit.PageTokens` from `paging`, or nil when `paging` is not configured |
 
 ## Storage
 
@@ -56,8 +59,16 @@ auditor, err := factory.New(cfg.Audit).
 |----------------|----------|-------|
 | `memory`       | --       | In-process ring buffer; events are lost on restart |
 | `mongo`        | `UseMongoDatabase` | `storage.mongo` tunes collection name, index timeout and TTL; omitting the section means all defaults |
+| `clickhouse`   | `UseClickHouseConn` | `storage.clickhouse` is required; the builder applies `schemaMigrationMode`, then checks the table schema at startup |
 
-A `mongo` type without a database fails with `ErrMongoDatabaseRequired` rather than silently falling back to memory.
+A `mongo` type without a database fails with `ErrMongoDatabaseRequired`, a `clickhouse` type without a connection with
+`ErrClickHouseConnRequired`, rather than silently falling back to memory. A dispatch `batchSize` below `MinRecommendedClickHouseBatchSize` logs
+a warning for ClickHouse, since every flush creates a part to merge.
+
+## Paging
+
+`paging.signingKey` (at least 32 bytes, the same on every replica), `paging.previousKeys` and `paging.tokenTTL` configure the page tokens
+`BuildPageTokens` returns for `audit.FetchPage`. Writing events does not need them.
 
 ## Ownership and shutdown
 

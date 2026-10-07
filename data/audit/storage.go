@@ -42,6 +42,20 @@ type Query struct {
 	RequestID    string
 	TraceID      string
 	Limit        int
-	Offset       int
 	SortOrder    SortOrder
+
+	// After is the page token returned with the previous page by [FetchPage].
+	// It is resolved by FetchPage and bound to the filter, the sort order and
+	// Subject; storages read Cursor instead.
+	After string
+
+	// Subject identifies the principal paging through the results, typically
+	// the authenticated caller. A page token issued to one subject is rejected
+	// for another.
+	Subject string
+
+	// Cursor is the exclusive position to continue after, set by [FetchPage]
+	// from After. Storages return only events strictly after it in the sort
+	// order. Nil starts from the first event.
+	Cursor *Cursor
 }
