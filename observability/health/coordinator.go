@@ -283,10 +283,13 @@ func (c *Coordinator) UnregisterService(name string) {
 // ListServices returns an iterator over all registered service names.
 func (c *Coordinator) ListServices() iter.Seq[string] {
 	return func(yield func(string) bool) {
+		// Snapshot under the lock so the loop body may register or
+		// unregister services without deadlocking.
 		c.servicesMu.RLock()
-		defer c.servicesMu.RUnlock()
+		names := slices.Collect(maps.Keys(c.services))
+		c.servicesMu.RUnlock()
 
-		for name := range c.services {
+		for _, name := range names {
 			if !yield(name) {
 				return
 			}
