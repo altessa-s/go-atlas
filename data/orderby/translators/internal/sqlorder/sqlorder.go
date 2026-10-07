@@ -13,6 +13,10 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// keySizeHint is the expected rendered size of one key: a quoted column of a
+// dozen characters, a direction and a separator.
+const keySizeHint = 24
+
 // Translate renders ob as the body of an ORDER BY clause — `col DIR, …`,
 // without the keywords — for the given quoting style. Each key must be
 // allowed by cfg; its mapped name must be a plain column or table.column
@@ -22,6 +26,7 @@ func Translate(cfg *orderby.TranslatorContext, style sqldialect.Style, ob orderb
 		return "", nil
 	}
 	var b strings.Builder
+	b.Grow(len(ob.Keys) * keySizeHint)
 	for i, k := range ob.Keys {
 		if !cfg.IsFieldAllowed(k.Name) {
 			return "", coreerrs.Wrapf(orderby.ErrFieldNotAllowed, "%s", k.Name)
