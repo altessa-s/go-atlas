@@ -57,6 +57,7 @@ func TestDo(t *testing.T) {
 	})
 
 	t.Run("NoDelayAfterLastAttempt", func(t *testing.T) {
+		t.Parallel()
 		for _, maxAttempts := range []int{0, 2} {
 			calls, delays, retries := 0, 0, 0
 			failErr := errors.New("fail")
