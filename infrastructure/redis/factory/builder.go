@@ -140,30 +140,12 @@ func (b *ClientBuilder) UniversalOptions() (*redis.UniversalOptions, error) {
 // universalOptionsFromFields builds UniversalOptions from individual config fields.
 func (b *ClientBuilder) universalOptionsFromFields() *redis.UniversalOptions {
 	opts := &redis.UniversalOptions{
-		Addrs:           b.cfg.Hosts,
-		Password:        b.cfg.Password.Expose(),
-		Username:        b.cfg.Username,
-		DB:              b.cfg.Database,
-		PoolSize:        b.cfg.PoolSize,
-		MinIdleConns:    b.cfg.MinIdleConnections,
-		DialTimeout:     b.cfg.ConnectTimeout,
-		ReadTimeout:     b.cfg.SocketTimeout,
-		WriteTimeout:    b.cfg.SocketTimeout,
-		ConnMaxIdleTime: b.cfg.IdleTimeout,
-		ConnMaxLifetime: b.cfg.MaxConnectionAge,
-		MaxRedirects:    b.cfg.MaxRedirects,
-		ReadOnly:        b.cfg.ReadOnly,
-		RouteByLatency:  b.cfg.RouteByLatency,
-		RouteRandomly:   b.cfg.RouteRandomly,
-		PoolTimeout:     DefaultPoolTimeout,
-		MaxRetries:      DefaultMaxRetries,
+		Addrs:    b.cfg.Hosts,
+		Password: b.cfg.Password.Expose(),
+		Username: b.cfg.Username,
+		DB:       b.cfg.Database,
 	}
-
-	// Sentinel mode: when MasterName is specified
-	if b.cfg.MasterName != "" {
-		opts.MasterName = b.cfg.MasterName
-		opts.SentinelPassword = b.cfg.SentinelPassword.Expose()
-	}
+	b.applyCommonOptions(opts)
 
 	// Apply TLS material if the operator wired it in via WithTLSConfig.
 	// Without this hook a field-based config (Hosts/Password/Database)
@@ -186,36 +168,43 @@ func (b *ClientBuilder) universalOptionsFromURI() (*redis.UniversalOptions, erro
 	}
 
 	opts := &redis.UniversalOptions{
-		Addrs:           []string{parsed.Addr},
-		Username:        parsed.Username,
-		Password:        parsed.Password,
-		DB:              parsed.DB,
-		PoolSize:        b.cfg.PoolSize,
-		MinIdleConns:    b.cfg.MinIdleConnections,
-		DialTimeout:     b.cfg.ConnectTimeout,
-		ReadTimeout:     b.cfg.SocketTimeout,
-		WriteTimeout:    b.cfg.SocketTimeout,
-		ConnMaxIdleTime: b.cfg.IdleTimeout,
-		ConnMaxLifetime: b.cfg.MaxConnectionAge,
-		MaxRedirects:    b.cfg.MaxRedirects,
-		ReadOnly:        b.cfg.ReadOnly,
-		RouteByLatency:  b.cfg.RouteByLatency,
-		RouteRandomly:   b.cfg.RouteRandomly,
-		PoolTimeout:     DefaultPoolTimeout,
-		MaxRetries:      DefaultMaxRetries,
+		Addrs:    []string{parsed.Addr},
+		Username: parsed.Username,
+		Password: parsed.Password,
+		DB:       parsed.DB,
 	}
+	b.applyCommonOptions(opts)
 
 	if parsed.TLSConfig != nil {
 		opts.TLSConfig = parsed.TLSConfig
 	}
+
+	return opts, nil
+}
+
+// applyCommonOptions sets the pool, timeout, routing, retry, and Sentinel
+// fields shared by the field-based and URI-based paths. Address, auth,
+// database, and TLS selection stay with each path.
+func (b *ClientBuilder) applyCommonOptions(opts *redis.UniversalOptions) {
+	opts.PoolSize = b.cfg.PoolSize
+	opts.MinIdleConns = b.cfg.MinIdleConnections
+	opts.DialTimeout = b.cfg.ConnectTimeout
+	opts.ReadTimeout = b.cfg.SocketTimeout
+	opts.WriteTimeout = b.cfg.SocketTimeout
+	opts.ConnMaxIdleTime = b.cfg.IdleTimeout
+	opts.ConnMaxLifetime = b.cfg.MaxConnectionAge
+	opts.MaxRedirects = b.cfg.MaxRedirects
+	opts.ReadOnly = b.cfg.ReadOnly
+	opts.RouteByLatency = b.cfg.RouteByLatency
+	opts.RouteRandomly = b.cfg.RouteRandomly
+	opts.PoolTimeout = DefaultPoolTimeout
+	opts.MaxRetries = DefaultMaxRetries
 
 	// Sentinel mode: when MasterName is specified
 	if b.cfg.MasterName != "" {
 		opts.MasterName = b.cfg.MasterName
 		opts.SentinelPassword = b.cfg.SentinelPassword.Expose()
 	}
-
-	return opts, nil
 }
 
 // detectMode returns a string describing the Redis mode based on configuration.

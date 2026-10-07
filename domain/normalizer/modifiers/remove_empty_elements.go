@@ -54,24 +54,28 @@ func RemoveEmptyElementsFromSlice(v reflect.Value) bool {
 	}
 
 	originalLen := v.Len()
-	newSlice := reflect.MakeSlice(v.Type(), 0, originalLen)
 
-	for i := range originalLen {
-		elem := v.Index(i)
+	// Find the first element to drop before allocating: the common
+	// all-populated input is then left untouched without any copy.
+	first := 0
+	for first < originalLen && shouldKeepElement(v.Index(first), isStringPtrSlice) {
+		first++
+	}
+	if first == originalLen {
+		return false
+	}
 
-		// Check if element should be kept
-		if shouldKeepElement(elem, isStringPtrSlice) {
+	newSlice := reflect.MakeSlice(v.Type(), first, originalLen-1)
+	reflect.Copy(newSlice, v.Slice(0, first))
+
+	for i := first + 1; i < originalLen; i++ {
+		if elem := v.Index(i); shouldKeepElement(elem, isStringPtrSlice) {
 			newSlice = reflect.Append(newSlice, elem)
 		}
 	}
 
-	// Only update if something was removed
-	if newSlice.Len() != originalLen {
-		v.Set(newSlice)
-		return true
-	}
-
-	return false
+	v.Set(newSlice)
+	return true
 }
 
 // shouldKeepElement determines if an element should be kept in the slice
