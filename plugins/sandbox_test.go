@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
@@ -24,39 +23,6 @@ func newStubbedManager(stub func(SandboxOptions) error, opts ...Option) *Manager
 	m := NewManager(opts...)
 	m.sandboxApply = stub
 	return m
-}
-
-func TestSandboxOptionsFromConfig(t *testing.T) {
-	cfg := config.PluginsSandbox{
-		Enabled:          true,
-		NoNewPrivs:       true,
-		MemoryLimitBytes: 1 << 28,
-		MaxOpenFiles:     1024,
-		MaxProcesses:     32,
-		MaxFileSizeBytes: 1 << 30,
-		DisableCoreDumps: true,
-		Landlock: config.PluginsLandlock{
-			Enabled:        true,
-			ReadPaths:      []string{"/lib64", "/usr/lib64"},
-			ReadWritePaths: []string{"/var/lib/myservice"},
-		},
-	}
-	got := SandboxOptionsFromConfig(cfg)
-	want := SandboxOptions{
-		Enabled:          true,
-		NoNewPrivs:       true,
-		MemoryLimitBytes: 1 << 28,
-		MaxOpenFiles:     1024,
-		MaxProcesses:     32,
-		MaxFileSizeBytes: 1 << 30,
-		DisableCoreDumps: true,
-		Landlock: LandlockOptions{
-			Enabled:        true,
-			ReadPaths:      []string{"/lib64", "/usr/lib64"},
-			ReadWritePaths: []string{"/var/lib/myservice"},
-		},
-	}
-	assert.Equal(t, want, got)
 }
 
 func TestApplySandbox_Disabled_NoOp(t *testing.T) {
@@ -372,19 +338,4 @@ func TestExpandSandboxOptions_DisabledLandlockIsPassthrough(t *testing.T) {
 
 	// When Landlock is disabled, the auto-add flags are ignored entirely.
 	assert.Equal(t, []string{"/etc/myservice"}, out.Landlock.ReadPaths)
-}
-
-func TestSandboxOptionsFromConfig_MirrorsAllowFlags(t *testing.T) {
-	cfg := config.PluginsSandbox{
-		Enabled: true,
-		Landlock: config.PluginsLandlock{
-			Enabled:         true,
-			AllowPluginDir:  true,
-			AllowSystemLibs: true,
-			ReadPaths:       []string{"/etc/myservice"},
-		},
-	}
-	got := SandboxOptionsFromConfig(cfg)
-	assert.True(t, got.Landlock.AllowPluginDir)
-	assert.True(t, got.Landlock.AllowSystemLibs)
 }

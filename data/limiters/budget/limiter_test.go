@@ -11,44 +11,58 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/limiters/budget"
+	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/data/limiters/storages/memory"
 )
 
-func validSettings() *budget.Settings {
-	return &budget.Settings{Limit: 10, Period: time.Minute}
-}
+func TestNew_Validation(t *testing.T) {
+	t.Parallel()
 
-func TestNew_NilSettings(t *testing.T) {
-	_, err := budget.New(nil, memory.New())
-	require.Error(t, err, "New(nil, ...) should return error")
-}
+	tests := []struct {
+		name    string
+		limit   int64
+		period  time.Duration
+		storage storages.Storage
+		wantErr error
+	}{
+		{"valid", 100, time.Hour, memory.New(), nil},
+		{"min valid period", 1, budget.MinPeriod, memory.New(), nil},
+		{"zero limit", 0, time.Hour, memory.New(), budget.ErrInvalidLimit},
+		{"negative limit", -1, time.Hour, memory.New(), budget.ErrInvalidLimit},
+		{"zero period", 100, 0, memory.New(), budget.ErrInvalidPeriod},
+		{"sub-second period", 100, 500 * time.Millisecond, memory.New(), budget.ErrInvalidPeriod},
+		{"nil storage", 100, time.Hour, nil, budget.ErrNilStorage},
+	}
 
-func TestNew_InvalidSettings(t *testing.T) {
-	_, err := budget.New(&budget.Settings{}, memory.New())
-	require.Error(t, err, "New(invalid, ...) should return error")
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestNew_NilStorage(t *testing.T) {
-	_, err := budget.New(validSettings(), nil)
-	require.Error(t, err, "New(..., nil) should return error")
-}
-
-func TestNew_Valid(t *testing.T) {
-	l, err := budget.New(validSettings(), memory.New())
-	require.NoError(t, err)
-	require.NotNil(t, l, "New() returned nil")
+			l, err := budget.New(tt.limit, tt.period, tt.storage)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				require.Nil(t, l)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, l)
+		})
+	}
 }
 
 func TestAllow_WithinBudget(t *testing.T) {
-	l, err := budget.New(validSettings(), memory.New())
+	t.Parallel()
+
+	l, err := budget.New(10, time.Minute, memory.New())
 	require.NoError(t, err)
 
 	require.NoError(t, l.Allow(t.Context(), "key-1"))
 }
 
 func TestAllow_BudgetExhausted(t *testing.T) {
-	cfg := &budget.Settings{Limit: 1, Period: time.Minute}
-	l, err := budget.New(cfg, memory.New())
+	t.Parallel()
+
+	l, err := budget.New(1, time.Minute, memory.New())
 	require.NoError(t, err)
 
 	// First request should succeed.
@@ -60,38 +74,13 @@ func TestAllow_BudgetExhausted(t *testing.T) {
 }
 
 func TestAllow_SeparateKeys(t *testing.T) {
-	cfg := &budget.Settings{Limit: 1, Period: time.Minute}
-	l, err := budget.New(cfg, memory.New())
+	t.Parallel()
+
+	l, err := budget.New(1, time.Minute, memory.New())
 	require.NoError(t, err)
 
 	require.NoError(t, l.Allow(t.Context(), "key-a"))
 
 	// Different key has its own budget.
 	require.NoError(t, l.Allow(t.Context(), "key-b"))
-}
-
-func TestSettings_Validate(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     budget.Settings
-		wantErr bool
-	}{
-		{"valid", budget.Settings{Limit: 100, Period: time.Hour}, false},
-		{"zero limit", budget.Settings{Limit: 0, Period: time.Hour}, true},
-		{"negative limit", budget.Settings{Limit: -1, Period: time.Hour}, true},
-		{"zero period", budget.Settings{Limit: 100, Period: 0}, true},
-		{"sub-second period", budget.Settings{Limit: 100, Period: 500 * time.Millisecond}, true},
-		{"min valid period", budget.Settings{Limit: 1, Period: time.Second}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.cfg.Validate()
-			if tt.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
 }

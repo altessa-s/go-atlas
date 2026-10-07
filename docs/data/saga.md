@@ -282,14 +282,14 @@ orch := saga.New(store, def,
 
 ### Durable backend via the factory
 
-In production, assemble the orchestrator from [`config.Saga`](../../config/saga.go) and an injected client. The factory picks the store named by
-`config.Saga.Storage.Type` and wires every option.
+In production, assemble the orchestrator from [`sagaconfig.Config`](../../config/saga/saga.go) and an injected client. The factory picks the store named by
+`sagaconfig.Config.Storage.Type` and wires every option.
 
 ```go
-cfg := config.DefaultSaga()
-cfg.Storage = &config.SagaStorageConfig{
-    Type:  config.SagaStorageTypeRedis,
-    Redis: &config.SagaRedisStorageConfig{KeysPrefix: "saga:"},
+cfg := sagaconfig.Default()
+cfg.Storage = &sagaconfig.StorageConfig{
+    Type:  sagaconfig.StorageTypeRedis,
+    Redis: &sagaconfig.RedisStorageConfig{KeysPrefix: "saga:"},
 }
 
 orch, err := factory.New(&cfg, def).

@@ -9,28 +9,28 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 )
 
 func TestStorageNATSConfig_Validate(t *testing.T) {
 	cases := []struct {
 		name      string
-		cfg       config.StorageNATSConfig
+		cfg       storageconfig.NATSConfig
 		wantValid bool
 	}{
 		{
 			name:      "Valid",
-			cfg:       config.StorageNATSConfig{Replicas: 3},
+			cfg:       storageconfig.NATSConfig{Replicas: 3},
 			wantValid: true,
 		},
 		{
 			name:      "ZeroReplicas",
-			cfg:       config.StorageNATSConfig{Replicas: 0},
+			cfg:       storageconfig.NATSConfig{Replicas: 0},
 			wantValid: false, // Required is what rejects it — Min(1) alone skips the zero value
 		},
 		{
 			name:      "TooManyReplicas",
-			cfg:       config.StorageNATSConfig{Replicas: 4}, // Max is 3
+			cfg:       storageconfig.NATSConfig{Replicas: 4}, // Max is 3
 			wantValid: false,
 		},
 	}
@@ -56,22 +56,22 @@ func TestStorageRedisConfig_Validate(t *testing.T) {
 
 	cases := []struct {
 		name      string
-		cfg       config.StorageRedisConfig
+		cfg       storageconfig.RedisConfig
 		wantValid bool
 	}{
 		{
 			name:      "Valid",
-			cfg:       config.StorageRedisConfig{KeysPrefix: validPrefix},
+			cfg:       storageconfig.RedisConfig{KeysPrefix: validPrefix},
 			wantValid: true,
 		},
 		{
 			name:      "EmptyPrefix",
-			cfg:       config.StorageRedisConfig{KeysPrefix: ""},
+			cfg:       storageconfig.RedisConfig{KeysPrefix: ""},
 			wantValid: true,
 		},
 		{
 			name:      "TooLongPrefix",
-			cfg:       config.StorageRedisConfig{KeysPrefix: string(invalidPrefix)},
+			cfg:       storageconfig.RedisConfig{KeysPrefix: string(invalidPrefix)},
 			wantValid: false,
 		},
 	}
@@ -91,35 +91,35 @@ func TestStorageRedisConfig_Validate(t *testing.T) {
 func TestCacheStorageConfig_Validate(t *testing.T) {
 	cases := []struct {
 		name      string
-		cfg       config.CacheStorageConfig
+		cfg       storageconfig.CacheStorageConfig
 		wantValid bool
 	}{
 		{
 			name: "Memory_Valid",
-			cfg: config.CacheStorageConfig{
-				Type:   config.CacheStorageTypeMemory,
-				Memory: &config.StorageMemoryConfig{CleanupSchedule: "@every 5m"},
+			cfg: storageconfig.CacheStorageConfig{
+				Type:   storageconfig.CacheStorageTypeMemory,
+				Memory: &storageconfig.MemoryConfig{CleanupSchedule: "@every 5m"},
 			},
 			wantValid: true,
 		},
 		{
 			name: "Memory_MissingConfig",
-			cfg: config.CacheStorageConfig{
-				Type: config.CacheStorageTypeMemory,
+			cfg: storageconfig.CacheStorageConfig{
+				Type: storageconfig.CacheStorageTypeMemory,
 			},
 			wantValid: true, // NilOrNotEmpty allows nil (field is optional)
 		},
 		{
 			name: "Redis_Valid",
-			cfg: config.CacheStorageConfig{
-				Type:  config.CacheStorageTypeRedis,
-				Redis: &config.StorageRedisConfig{},
+			cfg: storageconfig.CacheStorageConfig{
+				Type:  storageconfig.CacheStorageTypeRedis,
+				Redis: &storageconfig.RedisConfig{},
 			},
 			wantValid: true,
 		},
 		{
 			name: "InvalidType",
-			cfg: config.CacheStorageConfig{
+			cfg: storageconfig.CacheStorageConfig{
 				Type: "invalid",
 			},
 			wantValid: false,

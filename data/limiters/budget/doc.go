@@ -18,7 +18,7 @@
 //
 // # Usage
 //
-//	limiter, err := budget.New(&budget.Settings{Limit: 10000, Period: 24 * time.Hour}, storage)
+//	limiter, err := budget.New(10000, 24*time.Hour, storage)
 //	if err != nil {
 //	    // handle error
 //	}

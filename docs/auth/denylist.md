@@ -131,7 +131,7 @@ The factory (`negcache/factory.NewBuilder`) schedules the rebuilds itself: the a
 is), or a loader set with `UseDataLoader`, rebuilds the Bloom filter per `rebuildOnStart` (inside `Build`) and `rebuildCron` (a process-local cron for
 an in-memory filter, a task registered with the `UseScheduler` scheduler for a Redis filter). If another node is rebuilding the shared Redis filter
 during `Build`, `Build` still succeeds and the cache defers to the authoritative store until that rebuild is committed.
-`config.Denylist.RebuildInterval` (`rebuild_interval`) is for callers that run `cache.Rebuild` themselves; with a Bloom filter it requires
+`authconfig.Denylist.RebuildInterval` (`rebuild_interval`) is for callers that run `cache.Rebuild` themselves; with a Bloom filter it requires
 `filter.bloom.rebuildCron: ""`, so one filter never gets two schedules. `redis.Store.StreamValues` is complete only on a single Redis server; with a
 Cluster or Ring client it fails with `ErrUnsupportedClient` — inject an exact loader with `UseDataLoader` there.
 

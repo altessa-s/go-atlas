@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/config"
+	natsconfig "github.com/altessa-s/go-atlas/config/nats"
 )
 
 func BenchmarkNatsOptions(b *testing.B) {
-	builder := New(&config.Nats{
+	builder := New(&natsconfig.Config{
 		Hosts:          []string{"nats://localhost:4222"},
 		ClientName:     "bench",
 		ConnectTimeout: 5 * time.Second,
@@ -27,14 +27,14 @@ func BenchmarkNatsOptions(b *testing.B) {
 }
 
 func BenchmarkConsumerConfig(b *testing.B) {
-	cfg := &config.NatsConsumer{
+	cfg := &natsconfig.Consumer{
 		Description:    "bench",
 		DurableName:    "bench-durable",
 		FilterSubjects: []string{"events.>"},
 		MaxAckPending:  100,
 		AckWait:        30 * time.Second,
-		DeliverPolicy:  config.DeliverPolicyAll,
-		AckPolicy:      config.AckPolicyExplicit,
+		DeliverPolicy:  natsconfig.DeliverPolicyAll,
+		AckPolicy:      natsconfig.AckPolicyExplicit,
 	}
 	b.ResetTimer()
 	for b.Loop() {
@@ -43,7 +43,7 @@ func BenchmarkConsumerConfig(b *testing.B) {
 }
 
 func BenchmarkNew(b *testing.B) {
-	cfg := &config.Nats{
+	cfg := &natsconfig.Config{
 		Hosts:      []string{"nats://localhost:4222"},
 		ClientName: "bench",
 	}

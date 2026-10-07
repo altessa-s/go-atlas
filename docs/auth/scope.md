@@ -153,13 +153,13 @@ enf := scope.NewEnforcer(reg, authorize)
 ### Config-driven registry
 
 The registry can be built from configuration instead of by hand, symmetric with the OPA factory. `auth/scope/factory.New(cfg).Build()`
-registers the rules in a `config.ScopeRegistry` and returns a frozen registry. Only the key→scope table is declarative; the matcher and
+registers the rules in a `authconfig.ScopeRegistry` and returns a frozen registry. Only the key→scope table is declarative; the matcher and
 authorizer stay in code, since they depend on the principal type.
 
 ```go
 import scopefactory "github.com/altessa-s/go-atlas/auth/scope/factory"
 
-reg, err := scopefactory.New(&cfg.Scope).Build() // cfg.Scope is a config.ScopeRegistry
+reg, err := scopefactory.New(&cfg.Scope).Build() // cfg.Scope is a authconfig.ScopeRegistry
 if err != nil {
     return err
 }

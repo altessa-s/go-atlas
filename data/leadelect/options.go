@@ -16,7 +16,7 @@ import (
 const DefaultHandlerTimeout = 3 * time.Second
 
 // DefaultTTL is the default lease duration before leadership expires.
-// Matches the YAML default of [config.LeaderElector.Ttl].
+// Matches the YAML default of [lockconfig.LeaderElector.Ttl].
 const DefaultTTL = 10 * time.Second
 
 // options contains Leader configuration.

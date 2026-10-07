@@ -3,7 +3,7 @@
 // the LICENSE file.
 
 // Package factory creates [kms.Provider] instances from
-// [config.MongoKMS] configuration, routing to the appropriate cloud
+// [mongoconfig.KMS] configuration, routing to the appropriate cloud
 // or local KMS implementation (AWS, Azure, GCP, local).
 //
 //	provider, err := factory.New(cfg.Encryption.KMS).

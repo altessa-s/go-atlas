@@ -20,9 +20,37 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/config/loader"
 	"github.com/altessa-s/go-atlas/config/loader/backend/yaml3"
+
+	auditconfig "github.com/altessa-s/go-atlas/config/audit"
+	authconfig "github.com/altessa-s/go-atlas/config/auth"
+	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
+	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
+	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
+	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
+	lockconfig "github.com/altessa-s/go-atlas/config/lock"
+	meilisearchconfig "github.com/altessa-s/go-atlas/config/meilisearch"
+	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
+	natsconfig "github.com/altessa-s/go-atlas/config/nats"
+	nodeconfig "github.com/altessa-s/go-atlas/config/node"
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
+	pluginsconfig "github.com/altessa-s/go-atlas/config/plugins"
+	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
+	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
+	redisconfig "github.com/altessa-s/go-atlas/config/redis"
+	retryconfig "github.com/altessa-s/go-atlas/config/retry"
+	s3config "github.com/altessa-s/go-atlas/config/s3"
+	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
+	secretsconfig "github.com/altessa-s/go-atlas/config/secrets"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
+	vaultconfig "github.com/altessa-s/go-atlas/config/vault"
+	webhookconfig "github.com/altessa-s/go-atlas/config/webhook"
 )
 
 // The YAML files under templates/ are the operator-facing reference for the
@@ -53,79 +81,79 @@ func root[T any](key string) templateRoot {
 // root keys and their Go types. A template missing from this table fails
 // TestTemplates_EveryFileIsMapped.
 var templateCases = map[string][]templateRoot{
-	"audit.yaml":                             {root[config.Audit]("audit")},
-	"auth.yaml":                              {root[config.Auth]("auth")},
-	"auth_denylist.yaml":                     {root[config.Denylist]("denylist")},
-	"auth_mtls.yaml":                         {root[config.MTLS]("mtls")},
-	"auth_oidc.yaml":                         {root[config.OIDC]("oidc")},
-	"auth_scope.yaml":                        {root[config.ScopeRegistry]("scope")},
-	"broker.yaml":                            {root[config.Broker]("broker")},
-	"cache_storage.yaml":                     {root[config.CacheStorageConfig]("storage")},
-	"dispatch.yaml":                          {root[config.Dispatch]("dispatch")},
-	"dlock.yaml":                             {root[config.DistributionLock]("distributionLock")},
-	"grpc.yaml":                              {root[config.Grpc]("grpc")},
-	"grpc_proxy.yaml":                        {root[config.Proxy]("proxy")},
-	"health.yaml":                            {root[config.Health]("health")},
-	"health_client.yaml":                     {root[config.HTTPHealthClient]("httpHealthClient"), root[config.GRPCHealthClient]("grpcHealthClient")},
-	"health_client_grpc.yaml":                {root[config.GRPCHealthClient]("grpcHealthClient")},
-	"health_client_http.yaml":                {root[config.HTTPHealthClient]("httpHealthClient")},
-	"http.yaml":                              {root[config.Http]("http")},
-	"http_client_ssrf.yaml":                  {root[config.HTTPClientSSRF]("ssrf")},
-	"http_proxy.yaml":                        {root[config.Proxy]("proxy")},
-	"idempotency.yaml":                       {root[config.Idempotency]("idempotency")},
-	"leaderelect.yaml":                       {root[config.LeaderElector]("leaderElector")},
-	"limiter_budget.yaml":                    {root[config.BudgetLimiter]("budgetLimiter")},
-	"limiter_tokenbucket.yaml":               {root[config.TokenBucketLimiter]("tokenBucketLimiter")},
-	"logger.yaml":                            {root[config.Logger]("logger")},
-	"meilisearch.yaml":                       {root[config.Meilisearch]("meilisearch")},
-	"mongo.yaml":                             {root[config.Mongodb]("mongodb")},
-	"nats.yaml":                              {root[config.Nats]("nats")},
-	"node.yaml":                              {root[config.Node]("node")},
-	"oauth2_client.yaml":                     {root[config.OAuth2Client]("oauth2Client")},
-	"observability.yaml":                     {root[config.Observability]("observability")},
-	"opa.yaml":                               {root[config.OPA]("opa")},
-	"plugins.yaml":                           {root[config.Plugins]("plugins")},
-	"probabilistic_filter.yaml":              {root[config.ProbabilisticFilter]("probabilisticFilter")},
-	"redis.yaml":                             {root[config.Redis]("redis")},
-	"requests_limiter.yaml":                  {root[config.RequestsLimiter]("requestsLimiter")},
-	"retry.yaml":                             {root[config.Retry]("retry")},
-	"s3.yaml":                                {root[config.S3]("s3")},
-	"saga.yaml":                              {root[config.Saga]("saga")},
-	"scheduler.yaml":                         {root[config.Scheduler]("scheduler")},
-	"secrets.yaml":                           {root[config.Secrets]("secrets")},
-	"spiffe.yaml":                            {root[config.SPIFFE]("spiffe")},
-	"tls-client.yaml":                        {root[config.TlsClient]("tls")},
-	"tls-provider.yaml":                      {root[config.TlsProvider]("tlsProvider")},
-	"vault.yaml":                             {root[config.Vault]("vault")},
-	"wal.yaml":                               {root[config.WAL]("wal")},
-	"webhook.yaml":                           {root[config.WebhookSignature]("webhookSignature")},
-	"grpc_interceptors/auth.yaml":            {root[config.GrpcInterAuthConfig]("auth")},
-	"grpc_interceptors/cache.yaml":           {root[config.GrpcInterCacheConfig]("cache")},
-	"grpc_interceptors/errstatus.yaml":       {root[config.GrpcInterErrStatusConfig]("errStatus")},
-	"grpc_interceptors/geo_acl.yaml":         {root[config.GrpcInterGeoAclConfig]("geoAcl")},
-	"grpc_interceptors/health.yaml":          {root[config.GrpcInterHealthConfig]("health")},
-	"grpc_interceptors/idempotency.yaml":     {root[config.GrpcInterIdempotencyConfig]("idempotency")},
-	"grpc_interceptors/ip_acl.yaml":          {root[config.GrpcInterIpAclConfig]("ipAcl")},
-	"grpc_interceptors/limiter.yaml":         {root[config.GrpcInterLimiterConfig]("limiter")},
-	"grpc_interceptors/logger.yaml":          {root[config.GrpcInterLoggerConfig]("logger")},
-	"grpc_interceptors/metrics.yaml":         {root[config.GrpcInterMetricsConfig]("metrics")},
-	"grpc_interceptors/real_ip.yaml":         {root[config.GrpcInterRealIpConfig]("realIp")},
-	"grpc_interceptors/recovery.yaml":        {root[config.GrpcInterRecoveryConfig]("recovery")},
-	"grpc_interceptors/request_id.yaml":      {root[config.GrpcInterRequestIdConfig]("requestId")},
-	"grpc_interceptors/tracing.yaml":         {root[config.GrpcInterTracingConfig]("tracing")},
-	"http_middlewares/body_limit.yaml":       {root[config.HttpInterBodyLimitConfig]("bodyLimit")},
-	"http_middlewares/cors.yaml":             {root[config.HttpInterCorsConfig]("cors")},
-	"http_middlewares/geo_acl.yaml":          {root[config.HttpInterGeoAclConfig]("geoAcl")},
-	"http_middlewares/idempotency.yaml":      {root[config.HttpInterIdempotencyConfig]("idempotency")},
-	"http_middlewares/ip_acl.yaml":           {root[config.HttpInterIpAclConfig]("ipAcl")},
-	"http_middlewares/limiter.yaml":          {root[config.HttpInterLimiterConfig]("limiter")},
-	"http_middlewares/logger.yaml":           {root[config.HttpInterLoggerConfig]("logger")},
-	"http_middlewares/metrics.yaml":          {root[config.HttpInterMetricsConfig]("metrics")},
-	"http_middlewares/real_ip.yaml":          {root[config.HttpInterRealIpConfig]("realIp")},
-	"http_middlewares/recovery.yaml":         {root[config.HttpInterRecoveryConfig]("recovery")},
-	"http_middlewares/request_id.yaml":       {root[config.HttpInterRequestIdConfig]("requestId")},
-	"http_middlewares/security_headers.yaml": {root[config.HttpInterSecurityHeadersConfig]("securityHeaders")},
-	"http_middlewares/tracing.yaml":          {root[config.HttpInterTracingConfig]("tracing")},
+	"audit.yaml":                             {root[auditconfig.Config]("audit")},
+	"auth.yaml":                              {root[authconfig.Config]("auth")},
+	"auth_denylist.yaml":                     {root[authconfig.Denylist]("denylist")},
+	"auth_mtls.yaml":                         {root[authconfig.MTLS]("mtls")},
+	"auth_oidc.yaml":                         {root[authconfig.OIDC]("oidc")},
+	"auth_scope.yaml":                        {root[authconfig.ScopeRegistry]("scope")},
+	"broker.yaml":                            {root[brokerconfig.Config]("broker")},
+	"cache_storage.yaml":                     {root[storageconfig.CacheStorageConfig]("storage")},
+	"dispatch.yaml":                          {root[dispatchconfig.Config]("dispatch")},
+	"dlock.yaml":                             {root[lockconfig.DistributionLock]("distributionLock")},
+	"grpc.yaml":                              {root[grpcconfig.Config]("grpc")},
+	"grpc_proxy.yaml":                        {root[proxyconfig.Config]("proxy")},
+	"health.yaml":                            {root[observabilityconfig.Health]("health")},
+	"health_client.yaml":                     {root[clienthealthconfig.HTTP]("httpHealthClient"), root[clienthealthconfig.GRPC]("grpcHealthClient")},
+	"health_client_grpc.yaml":                {root[clienthealthconfig.GRPC]("grpcHealthClient")},
+	"health_client_http.yaml":                {root[clienthealthconfig.HTTP]("httpHealthClient")},
+	"http.yaml":                              {root[httpconfig.Config]("http")},
+	"http_client_ssrf.yaml":                  {root[httpconfig.ClientSSRF]("ssrf")},
+	"http_proxy.yaml":                        {root[proxyconfig.Config]("proxy")},
+	"idempotency.yaml":                       {root[idempotencyconfig.Config]("idempotency")},
+	"leaderelect.yaml":                       {root[lockconfig.LeaderElector]("leaderElector")},
+	"limiter_budget.yaml":                    {root[limiterconfig.Budget]("budgetLimiter")},
+	"limiter_tokenbucket.yaml":               {root[limiterconfig.TokenBucket]("tokenBucketLimiter")},
+	"logger.yaml":                            {root[observabilityconfig.Logger]("logger")},
+	"meilisearch.yaml":                       {root[meilisearchconfig.Config]("meilisearch")},
+	"mongo.yaml":                             {root[mongoconfig.Config]("mongodb")},
+	"nats.yaml":                              {root[natsconfig.Config]("nats")},
+	"node.yaml":                              {root[nodeconfig.Config]("node")},
+	"oauth2_client.yaml":                     {root[authconfig.OAuth2Client]("oauth2Client")},
+	"observability.yaml":                     {root[observabilityconfig.Config]("observability")},
+	"opa.yaml":                               {root[authconfig.OPA]("opa")},
+	"plugins.yaml":                           {root[pluginsconfig.Config]("plugins")},
+	"probabilistic_filter.yaml":              {root[probfilterconfig.Config]("probabilisticFilter")},
+	"redis.yaml":                             {root[redisconfig.Config]("redis")},
+	"requests_limiter.yaml":                  {root[limiterconfig.RequestRate]("requestsLimiter")},
+	"retry.yaml":                             {root[retryconfig.Config]("retry")},
+	"s3.yaml":                                {root[s3config.Config]("s3")},
+	"saga.yaml":                              {root[sagaconfig.Config]("saga")},
+	"scheduler.yaml":                         {root[schedulerconfig.Config]("scheduler")},
+	"secrets.yaml":                           {root[secretsconfig.Config]("secrets")},
+	"spiffe.yaml":                            {root[authconfig.SPIFFE]("spiffe")},
+	"tls-client.yaml":                        {root[tlsconfig.Client]("tls")},
+	"tls-provider.yaml":                      {root[tlsconfig.Provider]("tlsProvider")},
+	"vault.yaml":                             {root[vaultconfig.Config]("vault")},
+	"wal.yaml":                               {root[dispatchconfig.WAL]("wal")},
+	"webhook.yaml":                           {root[webhookconfig.Signature]("webhookSignature")},
+	"grpc_interceptors/auth.yaml":            {root[grpcconfig.AuthInterceptor]("auth")},
+	"grpc_interceptors/cache.yaml":           {root[grpcconfig.CacheInterceptor]("cache")},
+	"grpc_interceptors/errstatus.yaml":       {root[grpcconfig.ErrStatusInterceptor]("errStatus")},
+	"grpc_interceptors/geo_acl.yaml":         {root[grpcconfig.GeoACLInterceptor]("geoAcl")},
+	"grpc_interceptors/health.yaml":          {root[grpcconfig.HealthInterceptor]("health")},
+	"grpc_interceptors/idempotency.yaml":     {root[grpcconfig.IdempotencyInterceptor]("idempotency")},
+	"grpc_interceptors/ip_acl.yaml":          {root[grpcconfig.IPACLInterceptor]("ipAcl")},
+	"grpc_interceptors/limiter.yaml":         {root[grpcconfig.LimiterInterceptor]("limiter")},
+	"grpc_interceptors/logger.yaml":          {root[grpcconfig.LoggerInterceptor]("logger")},
+	"grpc_interceptors/metrics.yaml":         {root[grpcconfig.MetricsInterceptor]("metrics")},
+	"grpc_interceptors/real_ip.yaml":         {root[grpcconfig.RealIPInterceptor]("realIp")},
+	"grpc_interceptors/recovery.yaml":        {root[grpcconfig.RecoveryInterceptor]("recovery")},
+	"grpc_interceptors/request_id.yaml":      {root[grpcconfig.RequestIDInterceptor]("requestId")},
+	"grpc_interceptors/tracing.yaml":         {root[grpcconfig.TracingInterceptor]("tracing")},
+	"http_middlewares/body_limit.yaml":       {root[httpconfig.BodyLimitMiddleware]("bodyLimit")},
+	"http_middlewares/cors.yaml":             {root[httpconfig.CORSMiddleware]("cors")},
+	"http_middlewares/geo_acl.yaml":          {root[httpconfig.GeoACLMiddleware]("geoAcl")},
+	"http_middlewares/idempotency.yaml":      {root[httpconfig.IdempotencyMiddleware]("idempotency")},
+	"http_middlewares/ip_acl.yaml":           {root[httpconfig.IPACLMiddleware]("ipAcl")},
+	"http_middlewares/limiter.yaml":          {root[httpconfig.LimiterMiddleware]("limiter")},
+	"http_middlewares/logger.yaml":           {root[httpconfig.LoggerMiddleware]("logger")},
+	"http_middlewares/metrics.yaml":          {root[httpconfig.MetricsMiddleware]("metrics")},
+	"http_middlewares/real_ip.yaml":          {root[httpconfig.RealIPMiddleware]("realIp")},
+	"http_middlewares/recovery.yaml":         {root[httpconfig.RecoveryMiddleware]("recovery")},
+	"http_middlewares/request_id.yaml":       {root[httpconfig.RequestIDMiddleware]("requestId")},
+	"http_middlewares/security_headers.yaml": {root[httpconfig.SecurityHeadersMiddleware]("securityHeaders")},
+	"http_middlewares/tracing.yaml":          {root[httpconfig.TracingMiddleware]("tracing")},
 }
 
 // coverageExceptions lists field-path suffixes (as reported by the coverage

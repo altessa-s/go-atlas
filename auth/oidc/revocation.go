@@ -14,7 +14,6 @@ import (
 	"time"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 // RevocationStorage defines a unified interface for checking and managing revoked items
@@ -59,7 +58,7 @@ type filterRevocationStorage struct {
 // probabilistic filter, optionally confirmed by an exact store.
 //
 // A probabilistic filter has no false negatives but does have false positives
-// (the Bloom default is 1%, see config.ProbabilisticFilterBloomDefaults). It can
+// (the Bloom default is 1%, see probfilterconfig.BloomDefaults). It can
 // therefore prove an item is NOT revoked, but never that it IS. When
 // authoritative is non-nil every filter hit is confirmed against it, so a false
 // positive costs one exact lookup and nothing else.
@@ -111,15 +110,15 @@ func (s *filterRevocationStorage) MarkRevoked(ctx context.Context, item string, 
 
 // Compile-time guarantee that the filter storage forwards the provider's
 // shared HTTP client to its loader (see [filterRevocationStorage.SetHTTPClient]).
-var _ httpclient.HTTPClientSetter = (*filterRevocationStorage)(nil)
+var _ httpClientSetter = (*filterRevocationStorage)(nil)
 
-// SetHTTPClient implements [httpclient.HTTPClientSetter] by forwarding the
+// SetHTTPClient implements shared-client injection by forwarding the
 // client to the loader when the loader accepts one (e.g. [URLRevocationLoader]).
 // The loader keeps its own preserve-vs-overwrite policy. This lets
 // [NewProvider] inject its shared client into a storage that was assembled
 // outside the provider and passed via [WithRevocationStorage].
 func (s *filterRevocationStorage) SetHTTPClient(c *http.Client) {
-	if setter, ok := s.loader.(httpclient.HTTPClientSetter); ok {
+	if setter, ok := s.loader.(httpClientSetter); ok {
 		setter.SetHTTPClient(c)
 	}
 }
@@ -193,7 +192,7 @@ func (l *FileRevocationLoader) Count(_ context.Context) (int64, error) {
 //
 // Client is optional when the loader is wired into an OIDC [Provider] —
 // [NewProvider] injects its shared HTTP client via [SetHTTPClient] (the
-// loader implements [httpclient.HTTPClientSetter]) so the revocation
+// loader implements SetHTTPClient) so the revocation
 // refresh reuses the same pool, retry policy and proxy resolver as
 // discovery/JWKS/userinfo.
 //
@@ -211,9 +210,9 @@ type URLRevocationLoader struct {
 // HTTPClientSetter contract Provider relies on for shared-client
 // injection. Renaming or removing SetHTTPClient breaks at build time
 // instead of silently disabling the wiring at runtime.
-var _ httpclient.HTTPClientSetter = (*URLRevocationLoader)(nil)
+var _ httpClientSetter = (*URLRevocationLoader)(nil)
 
-// SetHTTPClient implements [httpclient.HTTPClientSetter] for URLRevocationLoader.
+// SetHTTPClient implements shared-client injection for URLRevocationLoader.
 // It adopts the supplied client only when no Client was set explicitly,
 // preserving the caller's escape-hatch override.
 func (l *URLRevocationLoader) SetHTTPClient(c *http.Client) {

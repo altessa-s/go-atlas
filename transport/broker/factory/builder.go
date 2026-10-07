@@ -14,13 +14,13 @@ import (
 	"github.com/nats-io/nats.go"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/transport/broker"
 	"github.com/altessa-s/go-atlas/transport/broker/inprogress"
 	"github.com/altessa-s/go-atlas/transport/broker/outbox"
 	"github.com/altessa-s/go-atlas/transport/broker/providers/nats/recovery"
 
+	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	outboxstore "github.com/altessa-s/go-atlas/data/outbox/store/mongo"
@@ -33,7 +33,7 @@ import (
 // reported at [BrokerBuilder.Build] time. The builder is not safe for concurrent use.
 type BrokerBuilder struct {
 	corefactory.Base
-	cfg  *config.Broker
+	cfg  *brokerconfig.Config
 	errs []error
 
 	// Dependencies
@@ -43,7 +43,7 @@ type BrokerBuilder struct {
 
 // New creates a new [BrokerBuilder] for the given broker config.
 // Config can be nil -- the error surfaces at [BrokerBuilder.Build] time.
-func New(cfg *config.Broker) *BrokerBuilder {
+func New(cfg *brokerconfig.Config) *BrokerBuilder {
 	return &BrokerBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -218,7 +218,7 @@ func (b *BrokerBuilder) CreateNatsProviderWithRecovery(conn *nats.Conn) (*NatsPr
 // builder's broker configuration. The recovery manager automatically recovers
 // deleted streams and consumers.
 //
-// If [config.Broker.Nats] is nil, or recovery is not enabled, returns nil, nil.
+// If [brokerconfig.Broker.Nats] is nil, or recovery is not enabled, returns nil, nil.
 //
 // The manager will register recovery tasks (health check, stale cleanup) if scheduler
 // is provided via builder options.

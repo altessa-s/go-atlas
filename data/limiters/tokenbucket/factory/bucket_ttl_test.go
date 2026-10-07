@@ -10,10 +10,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/factory"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
+	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	limitnats "github.com/altessa-s/go-atlas/data/limiters/storages/nats"
 )
 
@@ -30,16 +31,16 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 	_, err := limitnats.New(js, limitnats.WithBucket(bucket), limitnats.WithMaxAge(time.Hour))
 	require.NoError(t, err)
 
-	cfg := func(migrate bool) *config.TokenBucketLimiter {
-		storage := &config.CacheStorageConfig{
-			Type: config.CacheStorageTypeNats,
-			Nats: &config.StorageNATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
+	cfg := func(migrate bool) *limiterconfig.TokenBucket {
+		storage := &storageconfig.CacheStorageConfig{
+			Type: storageconfig.CacheStorageTypeNats,
+			Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, MigrateBucketTTL: migrate},
 		}
-		return &config.TokenBucketLimiter{
+		return &limiterconfig.TokenBucket{
 			IpCacheSize: 100,
 			Storage:     storage,
-			Rules: &config.TokenBucketLimiterRules{
-				Default: &config.TokenBucketLimiterDefaultRule{Limit: 1000, Period: time.Hour},
+			Rules: &limiterconfig.TokenBucketRules{
+				Default: &limiterconfig.TokenBucketDefaultRule{Limit: 1000, Period: time.Hour},
 			},
 		}
 	}
@@ -65,16 +66,16 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 	const bucket = "factory-tokenbucket-strict"
 	testhelpers.CreateNATSKV(t, js, bucket, limitnats.DefaultMaxAge) // memory storage
 
-	cfg := func(strict bool) *config.TokenBucketLimiter {
-		storage := &config.CacheStorageConfig{
-			Type: config.CacheStorageTypeNats,
-			Nats: &config.StorageNATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
+	cfg := func(strict bool) *limiterconfig.TokenBucket {
+		storage := &storageconfig.CacheStorageConfig{
+			Type: storageconfig.CacheStorageTypeNats,
+			Nats: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
 		}
-		return &config.TokenBucketLimiter{
+		return &limiterconfig.TokenBucket{
 			IpCacheSize: 100,
 			Storage:     storage,
-			Rules: &config.TokenBucketLimiterRules{
-				Default: &config.TokenBucketLimiterDefaultRule{Limit: 1000, Period: time.Hour},
+			Rules: &limiterconfig.TokenBucketRules{
+				Default: &limiterconfig.TokenBucketDefaultRule{Limit: 1000, Period: time.Hour},
 			},
 		}
 	}

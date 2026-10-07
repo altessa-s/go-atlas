@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/security/vault"
@@ -19,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/security/vault/auth/token"
 	"github.com/altessa-s/go-atlas/security/vault/auth/userpass"
 
+	vaultconfig "github.com/altessa-s/go-atlas/config/vault"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	vaultApi "github.com/hashicorp/vault/api"
 )
@@ -28,7 +28,7 @@ import (
 // The builder is not safe for concurrent use.
 type VaultBuilder struct {
 	corefactory.Base
-	cfg  *config.Vault
+	cfg  *vaultconfig.Config
 	errs []error
 
 	// Dependencies
@@ -39,7 +39,7 @@ type VaultBuilder struct {
 
 // New creates a [VaultBuilder] for the given Vault config.
 // Config can be nil — the error surfaces at [VaultBuilder.Build] time.
-func New(cfg *config.Vault) *VaultBuilder {
+func New(cfg *vaultconfig.Config) *VaultBuilder {
 	return &VaultBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -83,17 +83,17 @@ func (b *VaultBuilder) Build(ctx context.Context) (*vault.Vault, error) {
 func (b *VaultBuilder) createAuthMethod() (auth.Method, error) {
 	cfg := b.cfg.Auth
 	switch cfg.Method {
-	case config.VaultAuthMethodToken:
+	case vaultconfig.AuthMethodToken:
 		if err := b.RequireDependency(cfg.Token, "token config"); err != nil {
 			return nil, err
 		}
 		return token.New(cfg.Token.Expose()), nil
-	case config.VaultAuthMethodAppRole:
+	case vaultconfig.AuthMethodAppRole:
 		if err := b.RequireDependency(cfg.Approle, "approle config"); err != nil {
 			return nil, err
 		}
 		return approle.New(cfg.Approle.RoleId, cfg.Approle.SecretId.Expose(), approle.WithMountPath(cfg.Approle.MountPath)), nil
-	case config.VaultAuthMethodUserPass:
+	case vaultconfig.AuthMethodUserPass:
 		if err := b.RequireDependency(cfg.Userpass, "userpass config"); err != nil {
 			return nil, err
 		}

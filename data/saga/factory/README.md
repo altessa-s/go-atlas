@@ -4,7 +4,7 @@
 import sagafactory "github.com/altessa-s/go-atlas/data/saga/factory"
 ```
 
-Assembles a [`saga.Orchestrator`](../orchestrator.go) from a [`config.Saga`](../../../config/saga.go) and injected backend clients. The builder is
+Assembles a [`saga.Orchestrator`](../orchestrator.go) from a [`sagaconfig.Config`](../../../config/saga/saga.go) and injected backend clients. The builder is
 generic over the saga's shared data type `T`, so `Build` returns a fully typed `*saga.Orchestrator[T]`.
 
 ## Builder
@@ -16,7 +16,7 @@ generic over the saga's shared data type `T`, so `Build` returns a fully typed `
 
 ## Injected dependencies
 
-The store backend is chosen by `config.Saga.Storage.Type`; the matching client must be injected or `Build` fails with `<dependency> is required`.
+The store backend is chosen by `sagaconfig.Config.Storage.Type`; the matching client must be injected or `Build` fails with `<dependency> is required`.
 
 | Method             | Required for `storage.type` | Description                          |
 |--------------------|-----------------------------|--------------------------------------|
@@ -41,10 +41,10 @@ def := saga.NewDefinition[Order]("place-order").
 	Step("charge", charge).Compensate(refund).Pivot().
 	MustBuild()
 
-cfg := config.DefaultSaga()
-cfg.Storage = &config.SagaStorageConfig{
-	Type:  config.SagaStorageTypeMongo,
-	Mongo: &config.SagaMongoStorageConfig{Collection: "saga_instances"},
+cfg := sagaconfig.Default()
+cfg.Storage = &sagaconfig.StorageConfig{
+	Type:  sagaconfig.StorageTypeMongo,
+	Mongo: &sagaconfig.MongoStorageConfig{Collection: "saga_instances"},
 }
 
 orch, err := factory.New(&cfg, def).
@@ -55,5 +55,5 @@ orch, err := factory.New(&cfg, def).
 
 ## See also
 
-- [config.Saga](../../../config/saga.go) — the configuration this factory consumes.
+- [sagaconfig.Config](../../../config/saga/saga.go) — the configuration this factory consumes.
 - [storages](../storages) — the backends it selects between.

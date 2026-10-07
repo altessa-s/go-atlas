@@ -16,7 +16,6 @@ import (
 
 	"github.com/mattn/go-isatty"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/maps"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/runtime"
@@ -27,6 +26,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/prefixed"
 
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
@@ -37,7 +37,7 @@ import (
 // and can be used for runtime level changes via [LoggerBuilder.SetLevel] and
 // [LoggerBuilder.GetLevel].
 type LoggerBuilder struct {
-	cfg *config.Logger
+	cfg *observabilityconfig.Logger
 
 	// Configuration (set via With*).
 	prefixKey     string
@@ -50,7 +50,7 @@ type LoggerBuilder struct {
 }
 
 // New creates a new [LoggerBuilder] for the given logger config.
-func New(cfg *config.Logger) *LoggerBuilder {
+func New(cfg *observabilityconfig.Logger) *LoggerBuilder {
 	return &LoggerBuilder{
 		cfg:          cfg,
 		prefixKey:    ModuleKey,
@@ -63,11 +63,11 @@ func New(cfg *config.Logger) *LoggerBuilder {
 // Build assembles and returns the logger.
 //
 // It returns an error for a nil config and for any invalid entry in
-// [config.Logger.MaskRules] (missing type, neither field nor pattern, an
+// [observabilityconfig.Logger.MaskRules] (missing type, neither field nor pattern, an
 // unknown mask type or bad params, an invalid pattern regex) — whatever the
-// configured level, including [config.LoggerLevelNone]. Errors are reported
+// configured level, including [observabilityconfig.LoggerLevelNone]. Errors are reported
 // before any side effect: no logger is returned and the level variable is
-// left untouched. Build does not call [config.Logger.Validate].
+// left untouched. Build does not call [observabilityconfig.Logger.Validate].
 func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 	if b.cfg == nil {
 		return nil, fmt.Errorf("configuration is required")
@@ -78,7 +78,7 @@ func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 		return nil, err
 	}
 
-	if b.cfg.Level == config.LoggerLevelNone {
+	if b.cfg.Level == observabilityconfig.LoggerLevelNone {
 		return slog.New(slog.DiscardHandler), nil
 	}
 
@@ -136,8 +136,8 @@ func (b *LoggerBuilder) GetLevel() slog.Level {
 
 // getWriter returns the appropriate writer based on output configuration.
 func (b *LoggerBuilder) getWriter() *os.File {
-	writers := map[config.LoggerConsoleOutput]*os.File{
-		config.LoggerConsoleOutputStderr: os.Stderr,
+	writers := map[observabilityconfig.LoggerConsoleOutput]*os.File{
+		observabilityconfig.LoggerConsoleOutputStderr: os.Stderr,
 	}
 	return cmp.Or(writers[b.cfg.Output], os.Stdout)
 }
@@ -167,7 +167,7 @@ func (b *LoggerBuilder) createHandler(writer *os.File, maskString string) slog.H
 	}
 
 	switch b.cfg.OutputFormat {
-	case config.LogFormatJSON:
+	case observabilityconfig.LogFormatJSON:
 		return slog.NewJSONHandler(writer, opts)
 	default:
 		noColor := !b.cfg.Colorized || !isatty.IsTerminal(writer.Fd())
@@ -215,7 +215,7 @@ func (b *LoggerBuilder) wrapWithLeveledHandler(handler slog.Handler) slog.Handle
 // wrapWithPrefixedHandler adds prefix handling to the handler chain.
 func (b *LoggerBuilder) wrapWithPrefixedHandler(handler slog.Handler) slog.Handler {
 	formatter := prefixed.DefaultFormatter
-	if b.cfg.OutputFormat == config.LogFormatJSON {
+	if b.cfg.OutputFormat == observabilityconfig.LogFormatJSON {
 		formatter = prefixed.JsonFormatter
 	}
 
@@ -225,7 +225,7 @@ func (b *LoggerBuilder) wrapWithPrefixedHandler(handler slog.Handler) slog.Handl
 	)
 }
 
-// resolveMaskRules turns [config.Logger.MaskRules] into masking options,
+// resolveMaskRules turns [observabilityconfig.Logger.MaskRules] into masking options,
 // returning the joined errors of every invalid rule.
 func (b *LoggerBuilder) resolveMaskRules() ([]masking.Option, error) {
 	var (
@@ -246,7 +246,7 @@ func (b *LoggerBuilder) resolveMaskRules() ([]masking.Option, error) {
 
 // maskRuleOption validates a single mask rule and converts it to a masking
 // option. A field takes precedence over a pattern when both are set.
-func maskRuleOption(rule config.LoggerMaskRule) (masking.Option, error) {
+func maskRuleOption(rule observabilityconfig.LoggerMaskRule) (masking.Option, error) {
 	if err := rule.Validate(); err != nil {
 		return nil, err
 	}
@@ -305,15 +305,15 @@ func (b *LoggerBuilder) addAppMetadata(logger *slog.Logger, appGroupName string)
 }
 
 // parseLevel converts config level to slog.Level.
-func (b *LoggerBuilder) parseLevel(level config.LoggerLevel) slog.Level {
+func (b *LoggerBuilder) parseLevel(level observabilityconfig.LoggerLevel) slog.Level {
 	switch level {
-	case config.LoggerLevelDebug:
+	case observabilityconfig.LoggerLevelDebug:
 		return slog.LevelDebug
-	case config.LoggerLevelInfo:
+	case observabilityconfig.LoggerLevelInfo:
 		return slog.LevelInfo
-	case config.LoggerLevelWarning:
+	case observabilityconfig.LoggerLevelWarning:
 		return slog.LevelWarn
-	case config.LoggerLevelError:
+	case observabilityconfig.LoggerLevelError:
 		return slog.LevelError
 	default:
 		return slog.LevelError

@@ -35,7 +35,7 @@ the authoritative store itself when it implements `probfilter.DataLoader` (`auth
 | `bloom.rebuildCron` | In-memory filter: process-local cron. Redis filter: task `probfilter-rebuild-<name>` registered with the `UseScheduler` scheduler (logged as ignored without one). |
 
 Without a loader both settings are inert. A Cuckoo filter has no rebuild settings; rebuild it with `cache.Rebuild`. `cache.Close` stops the
-scheduled rebuilds. Do not combine these settings with caller-driven rebuilds (`config.Denylist.RebuildInterval`): validation requires
+scheduled rebuilds. Do not combine these settings with caller-driven rebuilds (`authconfig.Denylist.RebuildInterval`): validation requires
 `filter.bloom.rebuildCron: ""` when `rebuild_interval` is set. `redis.Store` streams only from a single Redis server; with a Cluster or Ring client
 its stream fails with `ErrUnsupportedClient`, so inject an exact loader with `UseDataLoader` there.
 

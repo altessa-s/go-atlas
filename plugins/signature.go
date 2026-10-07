@@ -47,7 +47,7 @@ const (
 
 // SignatureOptions configures plugin signature verification. Pass it to
 // [WithSignature] when constructing the manager, or use
-// [SignatureOptionsFromConfig] to convert from [config.PluginsSignature].
+// [SignatureOptionsFromConfig] to convert from [pluginsconfig.Signature].
 type SignatureOptions struct {
 	// Mode controls verification behavior. Default is [SignatureRequire].
 	Mode SignatureMode
@@ -238,7 +238,7 @@ func (m *Manager) verifyPluginSignature(filename, path string, data []byte, file
 	return coreerrs.Wrapf(ErrSignatureInvalid, "plugin %q", filename)
 }
 
-// SignatureOptionsFromConfig converts a [config.PluginsSignature] to
+// SignatureOptionsFromConfig converts a [pluginsconfig.Signature] to
 // runtime [SignatureOptions].
 func SignatureOptionsFromConfig(mode, publicKeyPath string) SignatureOptions {
 	return SignatureOptions{

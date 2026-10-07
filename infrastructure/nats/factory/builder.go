@@ -16,9 +16,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 
-	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	natsconfig "github.com/altessa-s/go-atlas/config/nats"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
@@ -38,23 +38,23 @@ const (
 // Policy conversion maps translate [config] policy constants to their
 // [jetstream] equivalents for consumer configuration.
 var (
-	deliverPolicyMap = map[config.DeliverPolicy]jetstream.DeliverPolicy{
-		config.DeliverPolicyAll:             jetstream.DeliverAllPolicy,
-		config.DeliverPolicyLast:            jetstream.DeliverLastPolicy,
-		config.DeliverPolicyNew:             jetstream.DeliverNewPolicy,
-		config.DeliverPolicyByStartSequence: jetstream.DeliverByStartSequencePolicy,
-		config.DeliverPolicyByStartTime:     jetstream.DeliverByStartTimePolicy,
+	deliverPolicyMap = map[natsconfig.DeliverPolicy]jetstream.DeliverPolicy{
+		natsconfig.DeliverPolicyAll:             jetstream.DeliverAllPolicy,
+		natsconfig.DeliverPolicyLast:            jetstream.DeliverLastPolicy,
+		natsconfig.DeliverPolicyNew:             jetstream.DeliverNewPolicy,
+		natsconfig.DeliverPolicyByStartSequence: jetstream.DeliverByStartSequencePolicy,
+		natsconfig.DeliverPolicyByStartTime:     jetstream.DeliverByStartTimePolicy,
 	}
 
-	ackPolicyMap = map[config.AckPolicy]jetstream.AckPolicy{
-		config.AckPolicyNone:     jetstream.AckNonePolicy,
-		config.AckPolicyAll:      jetstream.AckAllPolicy,
-		config.AckPolicyExplicit: jetstream.AckExplicitPolicy,
+	ackPolicyMap = map[natsconfig.AckPolicy]jetstream.AckPolicy{
+		natsconfig.AckPolicyNone:     jetstream.AckNonePolicy,
+		natsconfig.AckPolicyAll:      jetstream.AckAllPolicy,
+		natsconfig.AckPolicyExplicit: jetstream.AckExplicitPolicy,
 	}
 
-	replayPolicyMap = map[config.ReplayPolicy]jetstream.ReplayPolicy{
-		config.ReplayPolicyInstant:  jetstream.ReplayInstantPolicy,
-		config.ReplayPolicyOriginal: jetstream.ReplayOriginalPolicy,
+	replayPolicyMap = map[natsconfig.ReplayPolicy]jetstream.ReplayPolicy{
+		natsconfig.ReplayPolicyInstant:  jetstream.ReplayInstantPolicy,
+		natsconfig.ReplayPolicyOriginal: jetstream.ReplayOriginalPolicy,
 	}
 )
 
@@ -96,7 +96,7 @@ func natsErrorHandler(logger *slog.Logger) func(*nats.Conn, *nats.Subscription, 
 // The builder is not safe for concurrent use.
 type ConnectionBuilder struct {
 	corefactory.Base
-	cfg  *config.Nats
+	cfg  *natsconfig.Config
 	errs []error
 
 	// Dependencies
@@ -107,7 +107,7 @@ type ConnectionBuilder struct {
 
 // New creates a [ConnectionBuilder] for the given NATS config.
 // Config can be nil — the error surfaces at [ConnectionBuilder.Build] time.
-func New(cfg *config.Nats) *ConnectionBuilder {
+func New(cfg *natsconfig.Config) *ConnectionBuilder {
 	return &ConnectionBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -115,7 +115,7 @@ func New(cfg *config.Nats) *ConnectionBuilder {
 }
 
 // Build creates a NATS connection from configuration.
-// When [config.Nats.ConnectionURI] is set, it is used directly as the
+// When [natsconfig.Config.ConnectionURI] is set, it is used directly as the
 // connection URL. Otherwise, the URL is built by joining the configured Hosts.
 // If a [health.Coordinator] was provided via [ConnectionBuilder.UseHealthCoordinator],
 // a health checker is registered under the service name "nats".
@@ -164,8 +164,8 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 // compression, and logging handlers for disconnect/reconnect/error events.
 //
 // Authentication is selected automatically based on which credential fields
-// are set in [config.Nats]: NKey seed, token, or username/password.
-// When [config.Nats.ConnectionURI] is set, authentication fields are ignored
+// are set in [natsconfig.Config]: NKey seed, token, or username/password.
+// When [natsconfig.Config.ConnectionURI] is set, authentication fields are ignored
 // because they are embedded in the URI.
 func (b *ConnectionBuilder) NatsOptions() ([]nats.Option, error) {
 	if b.cfg == nil {
@@ -215,13 +215,13 @@ func (b *ConnectionBuilder) NatsOptions() ([]nats.Option, error) {
 	return natsOptions, nil
 }
 
-// ConsumerConfig converts [config.NatsConsumer] to [jetstream.ConsumerConfig].
+// ConsumerConfig converts [natsconfig.Consumer] to [jetstream.ConsumerConfig].
 // It maps delivery policy, ack policy, replay policy, filter subjects, backoff
 // schedules, and performance tuning. When the delivery policy is
-// [config.DeliverPolicyByStartSequence] or [config.DeliverPolicyByStartTime],
+// [natsconfig.DeliverPolicyByStartSequence] or [natsconfig.DeliverPolicyByStartTime],
 // the corresponding OptStartSeq or OptStartTime field is set.
 func ConsumerConfig(
-	cfg *config.NatsConsumer,
+	cfg *natsconfig.Consumer,
 ) (*jetstream.ConsumerConfig, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration is required")
@@ -242,11 +242,11 @@ func ConsumerConfig(
 		Name:              cfg.DurableName,
 	}
 
-	if cfg.DeliverPolicy == config.DeliverPolicyByStartSequence {
+	if cfg.DeliverPolicy == natsconfig.DeliverPolicyByStartSequence {
 		consumerCfg.OptStartSeq = cfg.OptStartSeq
 	}
 
-	if cfg.DeliverPolicy == config.DeliverPolicyByStartTime {
+	if cfg.DeliverPolicy == natsconfig.DeliverPolicyByStartTime {
 		consumerCfg.OptStartTime = cfg.OptStartTime
 	}
 
