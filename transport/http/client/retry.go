@@ -131,10 +131,8 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	firstAttempt := true
 	retryErr := coreretry.Do(ctx, func(ctx context.Context) error {
 		// Close previous response body if present from a prior attempt.
-		if lastResp != nil {
-			_ = lastResp.Body.Close()
-			lastResp = nil
-		}
+		closeBody(lastResp)
+		lastResp = nil
 
 		// Rewind the body for retry attempts; the first attempt uses the
 		// body installed above (or the caller's original one).
