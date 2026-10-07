@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"database/sql"
 	"log/slog"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -46,6 +47,13 @@ func (b *Builder[T]) UseMongoDatabase(v *mongodriver.Database) *Builder[T] {
 // UseRedisClient injects the Redis client used when the storage type is "redis".
 func (b *Builder[T]) UseRedisClient(v goredis.UniversalClient) *Builder[T] {
 	b.redisClient = v
+	return b
+}
+
+// UseSQLDB injects the database handle used when the storage type is "sqldb".
+// The caller owns the handle and registers the driver.
+func (b *Builder[T]) UseSQLDB(v *sql.DB) *Builder[T] {
+	b.sqlDB = v
 	return b
 }
 

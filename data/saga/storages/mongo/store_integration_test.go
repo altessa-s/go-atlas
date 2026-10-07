@@ -16,6 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/data/saga"
+	"github.com/altessa-s/go-atlas/data/saga/storages/storagetest"
 
 	sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
 	mongostore "github.com/altessa-s/go-atlas/data/saga/storages/mongo"
@@ -34,22 +35,22 @@ var integrationSequence atomic.Uint64
 
 // newIntegrationStore connects to a live MongoDB, skipping the test when none is
 // reachable. Each call gets its own throwaway database, dropped on cleanup.
-func newIntegrationStore(t *testing.T) *mongostore.Store {
-	t.Helper()
+func newIntegrationStore(tb testing.TB) *mongostore.Store {
+	tb.Helper()
 
 	client, err := mongo.Connect(mongoOptions.Client().ApplyURI(mongoURI()))
 	if err != nil {
-		t.Skipf("mongodb not available: %v", err)
+		tb.Skipf("mongodb not available: %v", err)
 	}
-	if err := client.Ping(t.Context(), nil); err != nil {
-		_ = client.Disconnect(context.WithoutCancel(t.Context()))
-		t.Skipf("mongodb not reachable at %s: %v", mongoURI(), err)
+	if err := client.Ping(tb.Context(), nil); err != nil {
+		_ = client.Disconnect(context.WithoutCancel(tb.Context()))
+		tb.Skipf("mongodb not reachable at %s: %v", mongoURI(), err)
 	}
 
 	dbName := "saga_it_" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + strconv.FormatUint(integrationSequence.Add(1), 10)
 	db := client.Database(dbName)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+	tb.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(tb.Context()), 5*time.Second)
 		defer cancel()
 		_ = db.Drop(ctx)
 		_ = client.Disconnect(ctx)
@@ -59,7 +60,7 @@ func newIntegrationStore(t *testing.T) *mongostore.Store {
 	// setup failure as "no usable server" and skip rather than fail.
 	store, err := mongostore.New(db)
 	if err != nil {
-		t.Skipf("mongodb store setup failed (server not usable for tests): %v", err)
+		tb.Skipf("mongodb store setup failed (server not usable for tests): %v", err)
 	}
 	return store
 }
@@ -185,4 +186,9 @@ func TestIntegrationFetchRecoverable(t *testing.T) {
 	require.NotContains(t, ids, "finished-lease")
 	require.Contains(t, ids, "abandoned")
 	require.Contains(t, ids, "zero-lease")
+}
+
+func TestIntegrationStorageContract(t *testing.T) {
+	t.Parallel()
+	storagetest.Run(t, func(tb testing.TB) saga.Storage { return newIntegrationStore(tb) })
 }
