@@ -135,3 +135,37 @@ func TestExtractor_Extract_AllPrivateXFFFallsBackToPeer(t *testing.T) {
 	}}
 	require.Equal(t, netip.MustParseAddr("203.0.114.7"), ext.Extract(t.Context(), peerIP, headers))
 }
+
+// TestExtractor_Extract_TrustedPublicProxyXFFFallsBackToPeer is the regression
+// guard for X-Forwarded-For being reprocessed by the generic header parser:
+// after the XFF walk rejected a configured public trusted proxy, the generic
+// parser accepted it again because it only filters private addresses, so
+// Extract reported the proxy instead of the peer.
+func TestExtractor_Extract_TrustedPublicProxyXFFFallsBackToPeer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		cache Option
+	}{
+		{name: "cache disabled", cache: WithCacheDisabled()},
+		{name: "cache enabled", cache: WithCacheSize(16)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ext, err := NewExtractor(tc.cache, WithTrustedProxies(netip.MustParsePrefix("8.8.8.8/32")))
+			require.NoError(t, err)
+
+			peerIP := netip.MustParseAddr("10.0.0.1")
+			headers := &mockHeaders{data: map[string][]string{HeaderXForwardedFor: {"8.8.8.8"}}}
+
+			// The second call is served from the LRU when caching is enabled.
+			for range 2 {
+				require.Equal(t, peerIP, ext.Extract(t.Context(), peerIP, headers))
+			}
+		})
+	}
+}
