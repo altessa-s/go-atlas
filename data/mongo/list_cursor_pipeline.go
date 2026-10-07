@@ -5,6 +5,7 @@
 package mongo
 
 import (
+	"fmt"
 	"maps"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -168,6 +169,26 @@ func dirFromInt(direction int64) int {
 		return sortDirectionDescending
 	}
 	return sortDirectionAscending
+}
+
+// validateCursorSort rejects sorts that buildCursorFilter cannot resume
+// correctly. The cursor stores the value of the primary sort field only and
+// breaks ties on cursorIdField in the primary direction, so a sort is accepted
+// when it is empty (the default applies), a single field, starts with
+// cursorIdField (unique, so later keys never apply), or is one field followed
+// by cursorIdField in the same direction. Any other secondary key or a
+// tiebreaker in the opposite direction would make pages skip or repeat
+// documents.
+func validateCursorSort(sort bson.D, cursorIdField string) error {
+	switch {
+	case len(sort) <= 1, sort[0].Key == cursorIdField:
+		return nil
+	case len(sort) == 2 && sort[1].Key == cursorIdField &&
+		getSortDirection(sort[1:]) == getSortDirection(sort):
+		return nil
+	default:
+		return fmt.Errorf("%w: %v (cursor ID field %q)", ErrUnsupportedCursorSort, sort, cursorIdField)
+	}
 }
 
 // ensureCursorIdInSort returns a sort specification guaranteed to include cursorIdField

@@ -151,6 +151,13 @@ var (
 	// for user-driven input).
 	ErrSortFieldNotAllowed = errors.New("sort field not allowed")
 
+	// ErrUnsupportedCursorSort is returned by [ListCursor] and
+	// [ListCursorSeq] for a sort the cursor predicate cannot resume
+	// correctly. A cursor carries a single sort value, so the sort must be
+	// one field, start with the cursor-ID field, or be one field followed by
+	// the cursor-ID field in the same direction.
+	ErrUnsupportedCursorSort = errors.New("unsupported cursor sort")
+
 	// ErrFilterContainsDangerousOperator is returned by [GetEntity] and
 	// [GetEntities] when the supplied filter references a MongoDB operator
 	// that executes server-side code or has a well-known abuse path. The

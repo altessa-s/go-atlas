@@ -58,6 +58,18 @@ const (
 	MinVersionArrayLength = 2
 )
 
+// clientEncryption is the subset of [mongo.ClientEncryption] the package
+// uses. It is an interface so the key-vault and encryption paths can be
+// exercised without libmongocrypt.
+type clientEncryption interface {
+	GetKeyByAltName(ctx context.Context, keyAltName string) *mongo.SingleResult
+	CreateDataKey(ctx context.Context, kmsProvider string, opts ...mongoOptions.Lister[mongoOptions.DataKeyOptions]) (bson.Binary, error)
+	Encrypt(ctx context.Context, val bson.RawValue, opts ...mongoOptions.Lister[mongoOptions.EncryptOptions]) (bson.Binary, error)
+	Close(ctx context.Context) error
+}
+
+var _ clientEncryption = (*mongo.ClientEncryption)(nil)
+
 // Mongo represents a MongoDB client wrapper.
 // It provides a high-level interface for MongoDB operations including:
 //   - Connection management with automatic retries
@@ -75,7 +87,7 @@ type Mongo struct {
 	client *mongo.Client
 
 	// encryptionClient handles Client-Side Field Level Encryption operations
-	encryptionClient *mongo.ClientEncryption
+	encryptionClient clientEncryption
 
 	// vaultNamespace is the full namespace for the key vault (database.collection)
 	vaultNamespace string
@@ -273,9 +285,11 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 		}
 
 		// Use the main client for encryption operations (MongoDB Go driver explicitly supports this)
-		if m.encryptionClient, err = mongo.NewClientEncryption(m.client, clientEncryptionOpts); err != nil {
+		var ce *mongo.ClientEncryption
+		if ce, err = mongo.NewClientEncryption(m.client, clientEncryptionOpts); err != nil {
 			return
 		}
+		m.encryptionClient = ce
 	}
 
 	// The budget covers both phases: waiting for a peer replica to finish

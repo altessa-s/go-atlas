@@ -56,13 +56,15 @@ func (c *Client) IndexExists(ctx context.Context, indexName string) (bool, error
 	return true, nil
 }
 
-// EnsureIndex creates name if missing and applies settings. Idempotent:
-// re-running with the same definition is safe — an existing index
-// surfaces ErrIndexAlreadyExists from the create call, which we treat
-// as a successful "create or update" outcome and fall through to the
-// settings update.
+// EnsureIndex creates name if missing and applies settings, returning once
+// both the creation and the settings tasks have completed. Idempotent:
+// re-running with the same definition is safe — an existing index is
+// reported as "index_already_exists" (by the creation task, or by the create
+// call itself), which we treat as a successful "create or update" outcome and
+// fall through to the settings update. Any other task failure is returned
+// wrapping [ErrTaskFailed].
 func (c *Client) EnsureIndex(ctx context.Context, name, primaryKey string, settings *IndexSettings) error {
-	_, err := c.sdk.CreateIndexWithContext(ctx, &msdk.IndexConfig{
+	info, err := c.sdk.CreateIndexWithContext(ctx, &msdk.IndexConfig{
 		Uid:        name,
 		PrimaryKey: primaryKey,
 	})
@@ -72,6 +74,8 @@ func (c *Client) EnsureIndex(ctx context.Context, name, primaryKey string, setti
 			return coreerrs.Wrapf(err, "create index %s", name)
 		}
 		c.logger.DebugContext(ctx, "index already exists", slog.String("index", name))
+	} else if err := c.awaitIndexCreation(ctx, name, info.TaskUID); err != nil {
+		return err
 	}
 
 	if settings != nil {
@@ -87,15 +91,40 @@ func (c *Client) EnsureIndex(ctx context.Context, name, primaryKey string, setti
 	return nil
 }
 
+// awaitIndexCreation waits for the index-creation task taskUID. A task that
+// failed because the index already exists is the idempotent outcome and
+// returns nil; any other failure wraps [ErrTaskFailed].
+func (c *Client) awaitIndexCreation(ctx context.Context, name string, taskUID int64) error {
+	task, err := c.sdk.WaitForTaskWithContext(ctx, taskUID, 0)
+	if err != nil {
+		return coreerrs.Wrapf(err, "wait for create index %s task %d", name, taskUID)
+	}
+	switch {
+	case task.Status == msdk.TaskStatusSucceeded:
+		return nil
+	case task.Error.Code == errCodeIndexAlreadyExists:
+		c.logger.DebugContext(ctx, "index already exists", slog.String("index", name))
+		return nil
+	default:
+		return coreerrs.Wrapf(taskFailure(taskUID, task), "create index %s", name)
+	}
+}
+
 // UpdateIndexSettings applies the searchable, filterable, and sortable
-// attribute lists to an existing index.
+// attribute lists to an existing index and waits for the settings task to
+// complete. A task that does not succeed yields an error wrapping
+// [ErrTaskFailed].
 func (c *Client) UpdateIndexSettings(ctx context.Context, indexName string, settings *IndexSettings) error {
-	_, err := c.sdk.Index(indexName).UpdateSettingsWithContext(ctx, &msdk.Settings{
+	info, err := c.sdk.Index(indexName).UpdateSettingsWithContext(ctx, &msdk.Settings{
 		SearchableAttributes: settings.SearchableAttributes,
 		FilterableAttributes: settings.FilterableAttributes,
 		SortableAttributes:   settings.SortableAttributes,
 	})
 	if err != nil {
+		return coreerrs.Wrapf(err, "update settings for %s", indexName)
+	}
+
+	if err := c.WaitForTask(ctx, info.TaskUID, 0); err != nil {
 		return coreerrs.Wrapf(err, "update settings for %s", indexName)
 	}
 

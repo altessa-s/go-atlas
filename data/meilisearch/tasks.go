@@ -31,9 +31,7 @@ func (c *Client) WaitForTask(ctx context.Context, taskUID int64, interval time.D
 	}
 
 	if task.Status != msdk.TaskStatusSucceeded {
-		return coreerrs.Wrapf(ErrTaskFailed,
-			"task %d finished with status %q (code %q: %s)",
-			taskUID, task.Status, task.Error.Code, task.Error.Message)
+		return taskFailure(taskUID, task)
 	}
 
 	c.logger.DebugContext(ctx, "task completed",
@@ -41,4 +39,12 @@ func (c *Client) WaitForTask(ctx context.Context, taskUID int64, interval time.D
 		slog.String("status", string(task.Status)))
 
 	return nil
+}
+
+// taskFailure builds the [ErrTaskFailed] error for a task that reached a
+// terminal state other than "succeeded".
+func taskFailure(taskUID int64, task *msdk.Task) error {
+	return coreerrs.Wrapf(ErrTaskFailed,
+		"task %d finished with status %q (code %q: %s)",
+		taskUID, task.Status, task.Error.Code, task.Error.Message)
 }

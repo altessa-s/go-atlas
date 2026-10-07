@@ -103,6 +103,27 @@ func TestLocal_Clear(t *testing.T) {
 	require.Len(t, creds["local"], 0)
 }
 
+func TestLocal_Clear_ZeroesCachedCredentials(t *testing.T) {
+	t.Parallel()
+
+	key := make([]byte, 96)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	p, err := kmslocal.New(kmslocal.WithMasterKey(string(key)))
+	require.NoError(t, err)
+
+	cached, ok := p.Credentials()["local"][kmslocal.MasterKey].([]byte)
+	require.True(t, ok)
+	require.Equal(t, key, cached)
+
+	p.Clear()
+
+	require.Equal(t, make([]byte, 96), cached, "Clear must zero the cached master-key copy")
+	require.NotContains(t, p.Credentials()["local"], kmslocal.MasterKey,
+		"Credentials after Clear must not return the master key")
+}
+
 func TestLocal_ImplementsProvider(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
 	var _ kms.Provider = p
