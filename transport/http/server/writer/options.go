@@ -32,4 +32,8 @@ type options struct {
 	// value false); set it with [WithResponseSanitizationDisabled] only when the
 	// caller has an external reason to emit INPUT_ONLY fields on the read path.
 	responseSanitizationDisabled bool
+
+	// responseSanitizationMaxDepth bounds how deep response sanitization walks
+	// nested messages; a deeper response fails with ErrResponseSanitization.
+	responseSanitizationMaxDepth int `optgen:"default=fieldbehavior.DefaultMaxDepth"`
 }
