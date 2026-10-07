@@ -4,10 +4,11 @@
 import "github.com/altessa-s/go-atlas/data/orderby"
 ```
 
-An [AIP-132](https://google.aip.dev/132#ordering) `order_by` parser with translators for MongoDB, Meilisearch, and RediSearch. One DSL string —
-`"create_time desc, slug"` — parses to a flat `Spec` value, then each translator emits the sort representation its backend expects (`bson.D` for
-Mongo, `"field:asc"` slices for Meili, single-key `SortBy` for RediSearch). Built with the same defense-in-depth posture as `data/filter`: length
-caps, key-count caps, identifier validation, allow-list with wildcards, and an explicit "untrusted input requires allow-list" guard.
+An [AIP-132](https://google.aip.dev/132#ordering) `order_by` parser with translators for MongoDB, ClickHouse, MariaDB/MySQL, PostgreSQL,
+Meilisearch, and RediSearch. One DSL string — `"create_time desc, slug"` — parses to a flat `Spec` value, then each translator emits the sort
+representation its backend expects (`bson.D` for Mongo, an `ORDER BY` body for the SQL dialects, `"field:asc"` slices for Meili, single-key
+`SortBy` for RediSearch). Built with the same defense-in-depth posture as `data/filter`: length caps, key-count caps, identifier validation,
+allow-list with wildcards, and an explicit "untrusted input requires allow-list" guard.
 
 ---
 
@@ -16,6 +17,7 @@ caps, key-count caps, identifier validation, allow-list with wildcards, and an e
 | Scenario | Use |
 |---|---|
 | Accept `order_by` from a `List*Request` and sort a MongoDB query | `Parser` + `translators/mongo.NewTranslator` |
+| Sort a ClickHouse, MariaDB/MySQL or PostgreSQL query | `translators/clickhouse`, `translators/mariadb`, `translators/postgres` |
 | Sort a Meilisearch search request | `translators/meili.NewTranslator` |
 | Sort a RediSearch `FT.SEARCH` (single key only) | `translators/redisearch.NewTranslator` |
 | Expose API field names that differ from storage columns | `WithFieldMapping` (exact) or `WithFieldPrefixMapping` (subtree) |
@@ -141,8 +143,9 @@ Allow-list keys match the **DSL** name (`Key.Name`), not the mapped DB column. P
 
 ## Nested paths
 
-Dotted field paths (`address.city`, `user.profile.name`) are accepted by the parser by default and emitted verbatim by all three translators —
-MongoDB, Meilisearch, and RediSearch all support them natively. Three knobs make working with nested schemas less verbose.
+Dotted field paths (`address.city`, `user.profile.name`) are accepted by the parser by default and emitted verbatim by the MongoDB, Meilisearch,
+and RediSearch translators, which all support them natively. The SQL translators read a dotted path as `table.column` and reject deeper paths —
+see [SQL](#sql-clickhouse-mariadbmysql-postgresql). Three knobs make working with nested schemas less verbose.
 
 ### Wildcard allow-list
 
@@ -207,8 +210,11 @@ concern; `orderby` validates the syntax only.
 | `translators/mongo` | `bson.D` (ordered) | `nil` | `bson.D` preserves sort precedence; `bson.M` does not |
 | `translators/meili` | `[]string` (`"field:asc"`) | `nil` | Mirrors `data/filter/translators/meili` |
 | `translators/redisearch` | `SortBy{Field, Descending}` | zero-value `SortBy{}` | RediSearch `FT.SEARCH … SORTBY` is single-key — multi-key input returns `ErrTooManySortKeys` |
+| `translators/postgres` | `string` (`"col" DESC, …`) | `""` | `ORDER BY` body; mapped names must be column identifiers |
+| `translators/mariadb` | `string` (`` `col` DESC, … ``) | `""` | Same for MariaDB and MySQL |
+| `translators/clickhouse` | `string` (`` `col` DESC, … ``) | `""` | Same for ClickHouse |
 
-All three constructors share the signature `NewTranslator(opts ...orderby.TranslatorOption) (*Translator, error)`. The constructor validates
+All constructors share the signature `NewTranslator(opts ...orderby.TranslatorOption) (*Translator, error)`. The constructor validates
 `WithUntrustedInput` + `WithAllowedFields` consistency once; the per-`Translate` hot path never reruns the check.
 
 ### MongoDB
@@ -249,6 +255,41 @@ sb, _ := trans.Translate(spec)
 Empty input returns zero-value `SortBy{}` (`Field == ""`). Multi-key input returns `ErrTooManySortKeys` — RediSearch `FT.SEARCH … SORTBY` takes
 one field. Whether the index declares the field as `SORTABLE` is the caller's responsibility.
 
+### SQL (ClickHouse, MariaDB/MySQL, PostgreSQL)
+
+```go
+trans, _ := clickhouse.NewTranslator(
+    orderby.WithUntrustedInput(),
+    orderby.WithAllowedFields("createdAt", "slug"),
+    orderby.WithFieldMapping(map[string]string{"createdAt": "created_at"}),
+)
+spec, _ := parser.Parse(ctx, "createdAt desc, slug")
+clause, _ := trans.Translate(spec)
+// clause == "`created_at` DESC, `slug` ASC"
+
+if clause != "" {
+    query += " ORDER BY " + clause
+}
+```
+
+The three dialects share one implementation and differ only in identifier quoting: double quotes for PostgreSQL, backticks for MariaDB/MySQL
+and ClickHouse. The output is the body of the clause without the `ORDER BY` keywords; empty input returns `""` so the caller can omit it.
+
+A sort column cannot be bound as a placeholder, so names are validated instead of spliced in. After field mapping, every key must be a `column`
+or `table.column` of plain identifiers (`[A-Za-z_][A-Za-z0-9_]*`, at most 63 characters per part); each part is quoted on its own. A mapping to
+anything else — an expression, a JSON path, a ClickHouse Map or subcolumn access, a quote — returns `ErrInvalidFieldPath`. To sort by a nested
+value, map the field onto a generated column (`MATERIALIZED` or `ALIAS` in ClickHouse).
+
+No `NULLS FIRST/LAST` is emitted, so NULL placement follows the database:
+
+| Dialect | `ASC` | `DESC` |
+|---|---|---|
+| PostgreSQL | last | first |
+| MariaDB/MySQL | first | last |
+| ClickHouse | last | last |
+
+Add a unique column as the last key for a deterministic order.
+
 ---
 
 ## Diagnostics
@@ -259,7 +300,7 @@ All errors are sentinels wrapped via `core/errors.Wrapf` for contextual detail. 
 |---|---|
 | `ErrParseFailed` | Clause cannot be tokenised into `field [asc\|desc]` |
 | `ErrEmptyClause` | Clause between commas is empty (`",a"`, `"a,,b"`) |
-| `ErrInvalidFieldPath` | Field path contains a non-ident character or empty segment |
+| `ErrInvalidFieldPath` | Field path contains a non-ident character or empty segment; a SQL translator's mapped name is not a column |
 | `ErrInvalidDirection` | Direction token other than `asc`/`desc` (case-sensitive when configured) |
 | `ErrExpressionTooLong` | Raw input exceeds `MaxExpressionLength` |
 | `ErrMaxKeysExceeded` | More clauses than `MaxKeys` |
@@ -292,6 +333,7 @@ Benchmarks on Apple M4 Pro (data may vary by host; bench source lives next to ea
 | Meili `Translate` (1 key) | ~50 | 2 |
 | Meili `Translate` (5 keys) | ~205 | 6 |
 | RediSearch `Translate` (1 key) | ~5 | 0 |
+| SQL `Translate` (5 keys, any dialect) | ~970 | 13 |
 
 The wildcard scan and prefix-mapping scan add O(P) overhead per key, where P is the configured prefix count. For typical P ≤ 10 the overhead is
 ~20-30 ns/key.

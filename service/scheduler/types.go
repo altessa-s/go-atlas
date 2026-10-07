@@ -321,6 +321,27 @@ type Storage interface {
 	// such backstop — an implementation that ignores it makes tasks fire early.
 	DueTasks(ctx context.Context, now int64) iter.Seq2[*TaskState, error]
 
+	// TasksPaginated returns up to (pg.Limit+1) task states whose ID is
+	// lexicographically greater than pg.AfterID, sorted by ID ascending.
+	// When f is non-nil the storage should apply the filter predicate at
+	// the query level (e.g. bson.M for MongoDB, RediSearch query for Redis,
+	// in-memory evaluator for the memory backend). Callers use the extra
+	// item to determine whether a next page exists.
+	TasksPaginated(ctx context.Context, pg Pagination, f Node) ([]*TaskState, error)
+
+	// HistoryStorage persists execution history next to the task state. DeleteTask
+	// removes a task's history along with the task.
+	HistoryStorage
+}
+
+// HistoryStorage defines the persistence interface for execution history. It is
+// part of [Storage], and [WithHistoryStorage] moves history to a backend of its
+// own — an append-only store such as ClickHouse — while task state stays in the
+// [Storage]. History needs none of the atomic operations of task state: entries
+// are only appended, listed and expired.
+//
+// Implementations must be safe for concurrent use by multiple goroutines.
+type HistoryStorage interface {
 	// AddHistory records a completed task execution as a [TaskHistory] entry.
 	AddHistory(ctx context.Context, history *TaskHistory) error
 
@@ -330,22 +351,27 @@ type Storage interface {
 	History(ctx context.Context, id string) iter.Seq2[*TaskHistory, error]
 
 	// CleanupHistory removes history entries whose EndedAt timestamp is older
-	// than the given retention duration relative to the current time.
+	// than the given retention duration relative to the current time. A backend
+	// that expires history on its own, such as a ClickHouse table TTL, may make
+	// it a no-op.
 	CleanupHistory(ctx context.Context, retention time.Duration) error
-
-	// TasksPaginated returns up to (pg.Limit+1) task states whose ID is
-	// lexicographically greater than pg.AfterID, sorted by ID ascending.
-	// When f is non-nil the storage should apply the filter predicate at
-	// the query level (e.g. bson.M for MongoDB, RediSearch query for Redis,
-	// in-memory evaluator for the memory backend). Callers use the extra
-	// item to determine whether a next page exists.
-	TasksPaginated(ctx context.Context, pg Pagination, f Node) ([]*TaskState, error)
 
 	// HistoryPaginated returns up to (pg.Limit+1) history entries for taskID,
 	// sorted by StartedAt descending with ID descending as a tie-breaker,
 	// starting after the cursor position in pg. When f is non-nil the storage
 	// should apply the filter predicate at the query level.
 	HistoryPaginated(ctx context.Context, taskID string, pg HistoryPagination, f Node) ([]*TaskHistory, error)
+}
+
+// HistoryDeleter is implemented by a [HistoryStorage] that can delete the history
+// of one task. [Scheduler.Unregister] calls it on a storage set with
+// [WithHistoryStorage], since [Storage.DeleteTask] only reaches history kept in
+// the [Storage] itself. The deletion is best effort: Unregister logs a failure
+// and succeeds, leaving the entries to the backend's retention.
+type HistoryDeleter interface {
+	// DeleteHistory removes every history entry of task id. Deleting the
+	// history of a task without any is not an error.
+	DeleteHistory(ctx context.Context, id string) error
 }
 
 // generateID generates a cryptographically secure random ID.

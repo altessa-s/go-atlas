@@ -178,3 +178,39 @@
 #      # the schema.
 #      # Default value: false
 #      ensureSchema: false
+#
+#  # <object> Separate storage for task execution history.
+#  # Moves history out of `storage` into a backend suited to an append-only log;
+#  # task state stays in `storage`. If not set, history is kept in `storage`.
+#  historyStorage:
+#    # <string> Type of the history backend.
+#    # Supported values: clickhouse
+#    # Default value: not set
+#    type: clickhouse
+#
+#    # <object> ClickHouse-specific configuration for the history storage.
+#    # The connection is injected into the factory (UseClickHouseConn).
+#    # Required when type is set to 'clickhouse'.
+#    clickhouse:
+#      # <string> Table name for task execution history, a plain identifier.
+#      # Default value: scheduler_history
+#      tableName: scheduler_history
+#
+#      # <string> Table engine used when the table is created (MergeTree family).
+#      # Default value: MergeTree
+#      engine: MergeTree
+#
+#      # <string> Adds ON CLUSTER to the table DDL and to history deletes.
+#      # Pair it with a Replicated* engine.
+#      # Default value: not set (single-node table)
+#      cluster: ""
+#
+#      # <duration> Table TTL after the end of a run. It replaces the periodic
+#      # cleanup as the retention; applied only when the table is created.
+#      # Default value: 0s (historyRetention)
+#      ttl: "0s"
+#
+#      # <bool> Create the table while building the scheduler, through the
+#      # storage's EnsureSchema. Leave false when migrations own the schema.
+#      # Default value: false
+#      ensureSchema: false
