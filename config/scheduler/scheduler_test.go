@@ -156,3 +156,64 @@ func TestScheduler_InstanceID(t *testing.T) {
 		})
 	}
 }
+
+func TestSchedulerHistoryStorageConfig(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		yaml    string
+		want    *schedulerconfig.HistoryStorageConfig
+		wantErr bool
+	}{
+		{name: "Omitted", yaml: "scheduler:\n  tickInterval: 1s\n"},
+		{
+			name: "ClickHouseDefaults",
+			yaml: "scheduler:\n  historyStorage:\n    type: clickhouse\n    clickhouse:\n      ensureSchema: true\n",
+			want: &schedulerconfig.HistoryStorageConfig{
+				Type: schedulerconfig.HistoryStorageTypeClickHouse,
+				ClickHouse: &schedulerconfig.HistoryClickHouseConfig{
+					TableName: "scheduler_history", Engine: "MergeTree", EnsureSchema: true,
+				},
+			},
+		},
+		{
+			name: "ClickHouseSet",
+			yaml: "scheduler:\n  historyStorage:\n    type: clickhouse\n    clickhouse:\n      tableName: runs\n      cluster: c1\n      ttl: 720h\n",
+			want: &schedulerconfig.HistoryStorageConfig{
+				Type: schedulerconfig.HistoryStorageTypeClickHouse,
+				ClickHouse: &schedulerconfig.HistoryClickHouseConfig{
+					TableName: "runs", Engine: "MergeTree", Cluster: "c1", TTL: 720 * time.Hour,
+				},
+			},
+		},
+		{name: "ClickHouseMissing", yaml: "scheduler:\n  historyStorage:\n    type: clickhouse\n", wantErr: true},
+		{name: "UnknownType", yaml: "scheduler:\n  historyStorage:\n    type: mongo\n", wantErr: true},
+		{
+			name:    "NegativeTTL",
+			yaml:    "scheduler:\n  historyStorage:\n    type: clickhouse\n    clickhouse:\n      ttl: -1h\n",
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(tc.yaml), 0o600))
+
+			type wrapper struct {
+				Scheduler schedulerconfig.Config `yaml:"scheduler"`
+			}
+			cfg := &wrapper{}
+			_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(cfg)
+			require.NoError(t, err)
+
+			if tc.wantErr {
+				require.Error(t, cfg.Scheduler.Validate())
+				return
+			}
+			require.Equal(t, tc.want, cfg.Scheduler.HistoryStorage)
+			require.NoError(t, cfg.Scheduler.Validate())
+		})
+	}
+}

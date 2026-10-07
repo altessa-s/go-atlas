@@ -14,6 +14,10 @@
 // isolated store (FinishRun and ReplaceTaskIf tolerate shared state; the others
 // expect an empty store) and fails the test on any contract violation.
 //
+// A backend that implements only [scheduler.HistoryStorage], for
+// [scheduler.WithHistoryStorage], runs [RunHistory] instead, plus
+// [HistoryCleanup] when its CleanupHistory enforces the retention.
+//
 // # Usage
 //
 //	func TestStorageContract(t *testing.T) {

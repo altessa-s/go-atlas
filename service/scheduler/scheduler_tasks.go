@@ -230,8 +230,9 @@ func completedFor(existing *TaskState, runAt int64) bool {
 }
 
 // Unregister removes a task from both the in-memory dispatch map and the
-// [Storage] backend. Any currently running instance of the task will complete
-// normally; only future dispatches are prevented.
+// [Storage] backend, together with its history — from a [WithHistoryStorage]
+// backend too when it is a [HistoryDeleter]. Any currently running instance of
+// the task will complete normally; only future dispatches are prevented.
 //
 // Returns [ErrTaskNotRegistered] if the task ID is not present in the
 // in-memory map.
@@ -248,6 +249,17 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 
 	if err := s.storage.DeleteTask(ctx, id); err != nil {
 		return coreerrs.WrapOperation(err, "delete task from storage")
+	}
+
+	// DeleteTask removed the history kept in the Storage; history kept apart
+	// is deleted here when its backend can, and otherwise left to expire. The
+	// task is gone either way, so a failure is logged rather than returned.
+	if d, ok := s.opts.historyStorage.(HistoryDeleter); ok {
+		if err := d.DeleteHistory(ctx, id); err != nil {
+			s.logger.ErrorContext(ctx, "failed to delete task history",
+				slog.String("task_id", id),
+				slog.Any("error", err))
+		}
 	}
 
 	s.logger.InfoContext(ctx, "task unregistered", slog.String("task_id", id))
@@ -454,7 +466,7 @@ func (s *Scheduler) Tasks(ctx context.Context) iter.Seq2[*TaskSummary, error] {
 // ordered by start time descending (most recent first). Use slices.Collect to
 // materialize the results as a slice when random access is needed.
 func (s *Scheduler) History(ctx context.Context, id string) iter.Seq2[*TaskHistory, error] {
-	return s.storage.History(ctx, id)
+	return s.history.History(ctx, id)
 }
 
 // TasksPaginated returns a paginated slice of [TaskSummary] values. Both
@@ -525,7 +537,7 @@ func (s *Scheduler) HistoryPaginated(ctx context.Context, taskID string, page Pa
 		Pagination:     Pagination{AfterID: afterID, Limit: limit},
 		AfterStartedAt: afterStartedAt,
 	}
-	entries, err := s.storage.HistoryPaginated(ctx, taskID, pg, filterNode)
+	entries, err := s.history.HistoryPaginated(ctx, taskID, pg, filterNode)
 	if err != nil {
 		return nil, err
 	}

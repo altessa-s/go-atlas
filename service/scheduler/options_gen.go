@@ -34,6 +34,16 @@ func WithHistoryRetention(v time.Duration) Option {
 	}
 }
 
+// WithHistoryStorage sets the historyStorage option.
+func WithHistoryStorage(v HistoryStorage) Option {
+	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
+		o.historyStorage = v
+	}
+}
+
 // WithInstanceID sets the instanceID option.
 func WithInstanceID[T interface{ string | *string }](v T) Option {
 	return func(o *options) {

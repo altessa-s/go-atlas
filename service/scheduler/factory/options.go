@@ -13,6 +13,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/service/scheduler"
+
+	chstorage "github.com/altessa-s/go-atlas/service/scheduler/storages/clickhouse"
 )
 
 // UseLogger sets the logger for the builder and all created components.
@@ -48,6 +50,14 @@ func (b *SchedulerBuilder) UseRedisClient(v redis.UniversalClient) *SchedulerBui
 // it and chooses the driver matching the configured dialect.
 func (b *SchedulerBuilder) UseSQLDB(v *sql.DB) *SchedulerBuilder {
 	b.sqlDB = v
+	return b
+}
+
+// UseClickHouseConn sets the connection backing the ClickHouse history storage,
+// typically opened with infrastructure/clickhouse/factory. Required when
+// `historyStorage.type` is "clickhouse", ignored otherwise. The caller owns it.
+func (b *SchedulerBuilder) UseClickHouseConn(v chstorage.Conn) *SchedulerBuilder {
+	b.clickhouseConn = v
 	return b
 }
 

@@ -267,6 +267,77 @@ func (c *StorageConfig) Validate() error {
 	return validationconfig.ValidateStorage(c, &c.Type, schedulerStorageAllowedTypes, c.storageCases())
 }
 
+// HistoryStorageType defines the backend of a history storage kept apart
+// from the task state.
+type HistoryStorageType string
+
+// HistoryStorageTypeClickHouse keeps execution history in a ClickHouse table
+// (service/scheduler/storages/clickhouse).
+const HistoryStorageTypeClickHouse HistoryStorageType = "clickhouse"
+
+// HistoryClickHouseConfig contains ClickHouse-specific settings for the
+// history storage. The connection itself is injected into the factory.
+type HistoryClickHouseConfig struct {
+	// TableName is the table holding execution history, a plain identifier.
+	// Defaults to "scheduler_history" if not specified.
+	TableName string `yaml:"tableName" default:"scheduler_history"`
+
+	// Engine is the table engine used when the table is created: a
+	// MergeTree-family engine. Defaults to "MergeTree" if not specified.
+	Engine string `yaml:"engine" default:"MergeTree"`
+
+	// Cluster adds an ON CLUSTER clause to the table DDL and to history
+	// deletes. Empty means a single-node table. Pair it with a Replicated*
+	// Engine: ON CLUSTER only distributes the statements.
+	Cluster string `yaml:"cluster"`
+
+	// TTL is the table TTL after the end of a run, which replaces the periodic
+	// cleanup as the retention. Zero means [Config.HistoryRetention]. Applied
+	// only when the table is created.
+	TTL time.Duration `yaml:"ttl"`
+
+	// EnsureSchema makes the factory create the table while building the
+	// scheduler, by calling the storage's EnsureSchema. Leave it false when the
+	// table is created through migrations. Defaults to false.
+	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
+}
+
+// Validate performs validation of the ClickHouse history storage configuration.
+func (c *HistoryClickHouseConfig) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.TableName, validation.Required),
+		validation.Field(&c.Engine, validation.Required),
+		validation.Field(&c.TTL, validation.Min(time.Duration(0))),
+	)
+}
+
+// HistoryStorageConfig moves execution history out of the task storage into a
+// backend of its own, suited to an append-only log. Task state stays in
+// [Config.Storage].
+//
+// Example:
+//
+//	history := &schedulerconfig.HistoryStorageConfig{
+//		Type:       schedulerconfig.HistoryStorageTypeClickHouse,
+//		ClickHouse: &schedulerconfig.HistoryClickHouseConfig{TableName: "scheduler_history"},
+//	}
+type HistoryStorageConfig struct {
+	// Type defines the history backend. Must be: clickhouse.
+	Type HistoryStorageType `yaml:"type"`
+
+	// ClickHouse defines ClickHouse-specific configuration.
+	// Required when Type is "clickhouse".
+	ClickHouse *HistoryClickHouseConfig `yaml:"clickhouse" default:"-"`
+}
+
+// Validate performs validation of the history storage configuration.
+func (c *HistoryStorageConfig) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Type, validation.Required, validation.In(HistoryStorageTypeClickHouse)),
+		validation.Field(&c.ClickHouse, validation.When(c.Type == HistoryStorageTypeClickHouse, validation.Required)),
+	)
+}
+
 // Config configures the task scheduler service.
 // Controls scheduler behavior including tick interval, history retention, and concurrency.
 //
@@ -315,6 +386,10 @@ type Config struct {
 	// Storage defines the storage backend configuration.
 	// If nil, defaults to in-memory storage.
 	Storage *StorageConfig `yaml:"storage" default:"-"`
+
+	// HistoryStorage keeps execution history in a backend of its own instead
+	// of Storage. If nil, history stays in Storage.
+	HistoryStorage *HistoryStorageConfig `yaml:"historyStorage" default:"-"`
 }
 
 // Default returns a Scheduler configuration with default values.
@@ -338,5 +413,6 @@ func (c *Config) Validate() error {
 		validation.Field(&c.StaleTaskTimeout, ozzo_rules.Duration(), validation.Min(0)),
 		validation.Field(&c.InstanceID, validation.Length(0, MaxSchedulerInstanceIDLength)),
 		validation.Field(&c.Storage),
+		validation.Field(&c.HistoryStorage),
 	)
 }
