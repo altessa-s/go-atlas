@@ -13,6 +13,7 @@
 // concurrent writers, with binary columns on a latin1 MySQL — only shows here.
 //
 // Tests skip rather than fail when a server is unreachable, so a machine
-// without the compose stack still gets a green build. See
-// tests/integration/README.md.
+// without the compose stack still gets a green build. The MongoDB contracts
+// run only when MONGO_URI is set, so the suite never writes to an unrelated
+// server listening on the compose port. See tests/integration/README.md.
 package sagait
