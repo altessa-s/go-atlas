@@ -29,7 +29,7 @@ func NilOnEmpty(v reflect.Value, _ map[string]string) ModifierResult {
 
 		// Handle *string
 		if v.Type().Elem().Kind() == reflect.String {
-			if strPtr, ok := v.Interface().(*string); ok && strPtr != nil {
+			if strPtr, ok := reflect.TypeAssert[*string](v); ok && strPtr != nil {
 				if *strPtr == "" {
 					// Return a nil *string
 					nilValue := reflect.Zero(v.Type())

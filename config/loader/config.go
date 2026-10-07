@@ -221,7 +221,7 @@ func (cf *Config) load() error {
 
 	for f := range cf.fields.All() {
 		if f.isStructPtr() && nilcheck.IsNotNilValue(f.value) {
-			if n, ok := f.value.Interface().(Normalizer); ok {
+			if n, ok := reflect.TypeAssert[Normalizer](f.value); ok {
 				n.Normalize()
 			}
 		}

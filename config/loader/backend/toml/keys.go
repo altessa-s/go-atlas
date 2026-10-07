@@ -89,7 +89,7 @@ func (k *keyNode) Entries(t reflect.Type) (map[any]backend.KeyNode, bool) {
 
 	out := make(map[any]backend.KeyNode, m.Elem().Len())
 	for it := m.Elem().MapRange(); it.Next(); {
-		p, _ := it.Value().Interface().(toml.Primitive)
+		p, _ := reflect.TypeAssert[toml.Primitive](it.Value())
 		out[it.Key().Interface()] = &keyNode{doc: k.doc, value: p}
 	}
 	return out, true
@@ -145,7 +145,7 @@ func (s *shadow) collect(v reflect.Value, doc *document) map[int]backend.KeyNode
 			continue
 		}
 		if !fv.IsZero() {
-			p, _ := fv.Interface().(toml.Primitive)
+			p, _ := reflect.TypeAssert[toml.Primitive](fv)
 			out[f.index] = &keyNode{doc: doc, value: p}
 		}
 	}

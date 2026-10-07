@@ -83,7 +83,7 @@ func shouldKeepElement(elem reflect.Value, isPointer bool) bool {
 		}
 
 		// Check if it's a valid *string and not empty
-		if strPtr, ok := elem.Interface().(*string); ok && strPtr != nil {
+		if strPtr, ok := reflect.TypeAssert[*string](elem); ok && strPtr != nil {
 			return !corestrings.IsEmptyOrWhitespace(*strPtr)
 		}
 		return false
