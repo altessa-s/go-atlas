@@ -23,12 +23,12 @@ var errTest = errors.New("boom")
 
 // newStore starts an isolated embedded NATS server with JetStream and returns
 // a Store over a fresh bucket. Server lifecycle is bound to the test.
-func newStore(t *testing.T) *natsstore.Store {
-	t.Helper()
-	ns := testhelpers.StartNATSServer(t)
-	_, js := testhelpers.ConnectJetStream(t, ns)
+func newStore(tb testing.TB) *natsstore.Store {
+	tb.Helper()
+	ns := testhelpers.StartNATSServer(tb)
+	_, js := testhelpers.ConnectJetStream(tb, ns)
 	s, err := natsstore.New(js, natsstore.WithBucket("saga_test"))
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	return s
 }
 

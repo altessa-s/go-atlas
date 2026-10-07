@@ -6,6 +6,7 @@ package factory_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,4 +120,62 @@ func TestBuildRedis(t *testing.T) {
 	inst, err := orch.Start(t.Context(), "o1", order{})
 	require.NoError(t, err)
 	require.Equal(t, saga.StatusCompleted, inst.Status)
+}
+
+func sqlConfig(dialect string, ensureSchema bool) sagaconfig.Config {
+	cfg := sagaconfig.Default()
+	cfg.Storage = &sagaconfig.StorageConfig{
+		Type: sagaconfig.StorageTypeSQL,
+		SQL:  &sagaconfig.SQLStorageConfig{Dialect: dialect, Table: "app.sagas", EnsureSchema: ensureSchema},
+	}
+	return cfg
+}
+
+func TestBuildSQLRequiresDatabase(t *testing.T) {
+	t.Parallel()
+	cfg := sqlConfig(sagaconfig.SQLDialectPostgres, false)
+	_, err := sagafactory.New(&cfg, orderDef()).Build()
+	require.ErrorContains(t, err, "SQL database is required")
+}
+
+func TestBuildSQLRejectsUnknownDialect(t *testing.T) {
+	t.Parallel()
+	db, _ := testhelpers.NewFakeSQL(t, nil)
+	cfg := sqlConfig("oracle", false)
+	_, err := sagafactory.New(&cfg, orderDef()).UseSQLDB(db).Build()
+	require.ErrorContains(t, err, "validate saga config")
+}
+
+func TestBuildSQL(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name         string
+		ensureSchema bool
+		wantDDL      bool
+	}{
+		{name: "no schema", ensureSchema: false},
+		{name: "ensure schema", ensureSchema: true, wantDDL: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			db, fake := testhelpers.NewFakeSQL(t, nil)
+			cfg := sqlConfig(sagaconfig.SQLDialectMySQL, tc.ensureSchema)
+
+			_, err := sagafactory.New(&cfg, orderDef()).UseSQLDB(db).Build()
+			require.NoError(t, err)
+
+			var ddl []string
+			for _, c := range fake.Calls() {
+				if strings.HasPrefix(c.Query, "CREATE TABLE") {
+					ddl = append(ddl, c.Query)
+				}
+			}
+			if !tc.wantDDL {
+				require.Empty(t, ddl)
+				return
+			}
+			require.Len(t, ddl, 1)
+			require.Contains(t, ddl[0], "`app`.`sagas`")
+		})
+	}
 }

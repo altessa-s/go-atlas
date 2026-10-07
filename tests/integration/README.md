@@ -10,6 +10,7 @@ tests/integration/
 ├── leadelectit/           # data/leadelect: multi-node election against a live broker
 ├── dlockit/               # data/locks/dlock: contended locking against a live broker
 ├── outboxit/              # data/outbox: transactional delivery against a live MongoDB
+├── sagait/                # data/saga: storage contracts on SQL, Mongo and Redis + orchestrator over SQL
 └── schedulerit/           # service/scheduler: end-to-end scenarios + storage contracts on Mongo, Redis and SQL
 ```
 
@@ -241,6 +242,13 @@ storage: MongoDB, Redis Stack, PostgreSQL, MariaDB and MySQL. The SQL backends a
 
 The MySQL service starts with `latin1` as its default character set on purpose: the SQL storage declares its own `utf8mb4` NO PAD collations, and
 the suite proves it never inherits the database defaults.
+
+## sagait — saga storages against live servers
+
+The storage contract suite from [`data/saga/storages/storagetest`](../../data/saga/storages/storagetest) — insert-if-absent creation, the version
+compare-and-swap under concurrent writers, exact ID identity and the recovery predicate at full lease precision — runs against the SQL store on
+PostgreSQL, MariaDB and MySQL and against the MongoDB and Redis stores, each contract over its own throwaway table, database or key prefix. An
+orchestrator built through the factory, which creates the schema, then runs a compensating saga over each SQL server.
 
 ## Adding a backend
 
