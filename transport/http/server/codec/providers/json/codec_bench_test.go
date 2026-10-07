@@ -39,6 +39,16 @@ func BenchmarkEncode_NoEscapeHTML(b *testing.B) {
 	_ = result
 }
 
+func BenchmarkEncode_IndentNoEscapeHTML(b *testing.B) {
+	c := New(WithIndent(true), WithEscapeHTML(false))
+	data := map[string]string{"html": "<b>bold</b>"}
+	var result []byte
+	for b.Loop() {
+		result, _ = c.Encode(data)
+	}
+	_ = result
+}
+
 func BenchmarkDecode(b *testing.B) {
 	c := New()
 	input := []byte(`{"key":"value","name":"test"}`)

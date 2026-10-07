@@ -5,6 +5,8 @@
 package client_test
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -234,6 +236,75 @@ func TestRequestBuilder_Build_NoURL(t *testing.T) {
 	rb := client.NewRequestBuilder(c)
 	_, err := rb.GET("").Build()
 	require.Error(t, err, "Build with empty URL should fail")
+}
+
+// newStreamingServer flushes "head;" and writes "tail" only once release is
+// closed, so the body is still streaming when Do returns.
+func newStreamingServer(t *testing.T, release <-chan struct{}) *httptest.Server {
+	t.Helper()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "head;")
+		_ = http.NewResponseController(w).Flush()
+		select {
+		case <-release:
+			_, _ = io.WriteString(w, "tail")
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestRequestTimeout_StreamingBodyReadable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		do   func(ctx context.Context, c client.HTTPClient, url string) (*http.Response, error)
+	}{
+		{
+			name: "WithRequestTimeout",
+			do: func(ctx context.Context, c client.HTTPClient, url string) (*http.Response, error) {
+				return c.GetWithOptions(ctx, url, client.WithRequestTimeout(time.Minute))
+			},
+		},
+		{
+			name: "WithRequestDeadline",
+			do: func(ctx context.Context, c client.HTTPClient, url string) (*http.Response, error) {
+				return c.GetWithOptions(ctx, url, client.WithRequestDeadline(time.Now().Add(time.Minute)))
+			},
+		},
+		{
+			name: "builder Timeout",
+			do: func(ctx context.Context, c client.HTTPClient, url string) (*http.Response, error) {
+				return c.NewRequest().GET(url).Timeout(time.Minute).Send(ctx)
+			},
+		},
+		{
+			name: "builder Deadline",
+			do: func(ctx context.Context, c client.HTTPClient, url string) (*http.Response, error) {
+				return c.NewRequest().GET(url).Deadline(time.Now().Add(time.Minute)).Send(ctx)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			release := make(chan struct{})
+			srv := newStreamingServer(t, release)
+
+			resp, err := tc.do(t.Context(), newTestClient(srv), srv.URL)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			close(release)
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err, "per-request timeout must not cancel the body before Close")
+			require.Equal(t, "head;tail", string(body))
+		})
+	}
 }
 
 func TestRequestBuilder_SendWithoutContext(t *testing.T) {

@@ -13,7 +13,7 @@ error responses using the same writer + builder pattern as handlers, regardless 
 | Type / Interface     | Description                                                                         |
 |----------------------|-------------------------------------------------------------------------------------|
 | `ErrorInterceptor`   | Wraps `http.ResponseWriter`, buffers error responses (status >= 400), rewrites as   |
-|                      | structured JSON/XML via content negotiation when flushed                             |
+|                      | structured JSON/XML via content negotiation on `Finish` (not on `Flush`)             |
 | `ErrorWriter`        | Interface injected into context by the server's error interceptor middleware         |
 
 ## Functions

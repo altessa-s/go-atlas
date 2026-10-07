@@ -5,6 +5,7 @@
 package json
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 
@@ -71,10 +72,13 @@ func New(opts ...Option) *Codec {
 
 // Encode serializes data into JSON bytes.
 func (c *Codec) Encode(data any) ([]byte, error) {
-	if c.indent {
-		return c.encodeIndent(data)
+	if !c.escapeHTML {
+		return c.encodeUnescaped(data)
 	}
-	return c.encodeCompact(data)
+	if c.indent {
+		return json.MarshalIndent(data, "", "  ")
+	}
+	return json.Marshal(data)
 }
 
 // Decode deserializes JSON bytes into out which must be a pointer.
@@ -87,57 +91,23 @@ func (c *Codec) ContentType() string {
 	return MimeType
 }
 
-func (c *Codec) encodeCompact(data any) ([]byte, error) {
-	if !c.escapeHTML {
-		buf := coreio.GetBuffer()
-		defer coreio.PutBuffer(buf)
+// encodeUnescaped encodes through a pooled [json.Encoder], the only stdlib
+// path that can disable HTML escaping.
+func (c *Codec) encodeUnescaped(data any) ([]byte, error) {
+	buf := coreio.GetBuffer()
+	defer coreio.PutBuffer(buf)
 
-		encoder := json.NewEncoder(buf)
-		encoder.SetEscapeHTML(false)
-		if err := encoder.Encode(data); err != nil {
-			return nil, err
-		}
-
-		// Remove trailing newline added by encoder and copy result
-		bytes := buf.Bytes()
-		if len(bytes) > 0 && bytes[len(bytes)-1] == '\n' {
-			bytes = bytes[:len(bytes)-1]
-		}
-
-		// Copy to avoid returning pooled buffer's backing array
-		result := make([]byte, len(bytes))
-		copy(result, bytes)
-		return result, nil
-	}
-
-	return json.Marshal(data)
-}
-
-func (c *Codec) encodeIndent(data any) ([]byte, error) {
-	if !c.escapeHTML {
-		buf := coreio.GetBuffer()
-		defer coreio.PutBuffer(buf)
-
-		encoder := json.NewEncoder(buf)
-		encoder.SetEscapeHTML(false)
+	encoder := json.NewEncoder(buf)
+	encoder.SetEscapeHTML(false)
+	if c.indent {
 		encoder.SetIndent("", "  ")
-		if err := encoder.Encode(data); err != nil {
-			return nil, err
-		}
-
-		// Remove trailing newline added by encoder and copy result
-		bytes := buf.Bytes()
-		if len(bytes) > 0 && bytes[len(bytes)-1] == '\n' {
-			bytes = bytes[:len(bytes)-1]
-		}
-
-		// Copy to avoid returning pooled buffer's backing array
-		result := make([]byte, len(bytes))
-		copy(result, bytes)
-		return result, nil
+	}
+	if err := encoder.Encode(data); err != nil {
+		return nil, err
 	}
 
-	return json.MarshalIndent(data, "", "  ")
+	// Drop the encoder's trailing newline and copy out of the pooled buffer.
+	return bytes.Clone(bytes.TrimSuffix(buf.Bytes(), []byte{'\n'})), nil
 }
 
 // EncodeStream writes JSON directly to w without buffering the entire response.

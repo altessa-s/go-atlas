@@ -124,8 +124,9 @@ func (w *drivenMiddlewareWrapper) Handler(next http.Handler) http.Handler {
 		if preErr == nil {
 			next.ServeHTTP(rr, r)
 		} else {
-			// If PreRequest returned an error, set 500 status
-			rr.statusCode = http.StatusInternalServerError
+			// Commit a generic 500 so the client sees the failure the hook
+			// reports; the internal error message is never exposed.
+			http.Error(rr, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}
 
 		// Post-request hook (always called)
