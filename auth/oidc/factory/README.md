@@ -57,7 +57,7 @@ conflicting second schedule (`rebuildCron: ""` / `rebuildOnStart: false` are acc
 
 ## Proxy wiring
 
-`Build(ctx)` materializes `cfg.Proxy` (a [`proxyconfig.Proxy`](../../../config/proxy/proxy.go))
+`Build(ctx)` materializes `cfg.Proxy` (a [`proxyconfig.Config`](../../../config/proxy/proxy.go))
 into `httpclient.Option` values via `cfg.Proxy.HTTPClientOptions()`, builds the resilient
 client with `httpclient.New` and injects it through `oidc.WithHTTPClient(...)`. A nil/empty `Proxy` block
 keeps the default `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` env passthrough.

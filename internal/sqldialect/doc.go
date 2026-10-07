@@ -3,7 +3,7 @@
 // the LICENSE file.
 
 // Package sqldialect holds the SQL text helpers shared by the database/sql
-// storages (service/scheduler/storages/sqldb and data/outbox/store/sqldb):
+// storages (service/scheduler/storages/sqldb and data/outbox/storages/sqldb):
 // table-name validation and quoting, index naming, placeholder binding, and
 // serialized PostgreSQL schema creation.
 //

@@ -108,8 +108,8 @@ src, err := oauth2client.ClientCredentialsFromDiscovery(ctx, provider, clientID,
 
 ### Config + factory
 
-Load a ready client_credentials source (or an `Exchanger`) from `authconfig.OAuth2Client`. The endpoint comes from `tokenUrl`, or — when the
-config sets `discoveryUrl` — from an injected OIDC discovery source.
+Load a ready client_credentials source (or an `Exchanger`) from `authconfig.OAuth2Client`. The endpoint comes from `tokenURL`, or — when the
+config sets `discoveryURL` — from an injected OIDC discovery source.
 
 ```go
 import "github.com/altessa-s/go-atlas/auth/oauth2client/factory"

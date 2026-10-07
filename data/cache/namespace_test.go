@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/cache/providers"
+	"github.com/altessa-s/go-atlas/data/cache/storages"
 )
 
 type tenantCtxKey struct{}
@@ -82,7 +82,7 @@ func (p *syncProvider) Get(_ context.Context, key string) ([]byte, error) {
 	if v, ok := p.store[key]; ok {
 		return v, nil
 	}
-	return nil, providers.ErrMissing
+	return nil, storages.ErrMissing
 }
 
 func (p *syncProvider) Delete(_ context.Context, key string) error {

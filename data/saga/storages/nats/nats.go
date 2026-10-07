@@ -31,7 +31,7 @@ var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 // left untouched.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
-// Store is a durable [saga.Store] backed by a NATS JetStream KeyValue bucket.
+// Store is a durable [saga.Storage] backed by a NATS JetStream KeyValue bucket.
 // Each saga instance is stored as a JSON document under its ID. The bucket's
 // monotonically increasing revision is used directly as the optimistic-
 // concurrency token ([saga.Instance.Version]), so two coordinators cannot
@@ -45,7 +45,7 @@ type Store struct {
 	opts *options
 }
 
-var _ saga.Store = (*Store)(nil)
+var _ saga.Storage = (*Store)(nil)
 
 // New creates a Store, creating the KeyValue bucket if it does not exist.
 // It returns an error if js is nil or the bucket cannot be provisioned.

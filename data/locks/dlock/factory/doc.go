@@ -10,7 +10,7 @@
 //
 //	dl, err := factory.New(cfg.DistributionLock).
 //	    UseLogger(logger).
-//	    UseNatsConn(natsConn).
+//	    UseNATSConn(natsConn).
 //	    Build(ctx)
 //	if err != nil {
 //	    log.Fatal(err)

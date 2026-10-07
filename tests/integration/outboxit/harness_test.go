@@ -20,7 +20,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/outbox"
 	"github.com/altessa-s/go-atlas/tests/integration/outboxit"
 
-	outboxstore "github.com/altessa-s/go-atlas/data/outbox/store/mongo"
+	outboxmongo "github.com/altessa-s/go-atlas/data/outbox/storages/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -103,13 +103,13 @@ func databaseName(tb testing.TB) string {
 // that run on every backend use only the fixture's methods, store and
 // recorder.
 type fixture struct {
-	store    outbox.Store
+	store    outbox.Storage
 	recorder *outboxit.Recorder
 
 	db         *mongo.Database
 	events     *mongo.Collection
 	orders     *mongo.Collection
-	mongoStore *outboxstore.Store
+	mongoStore *outboxmongo.Store
 	client     *mongo.Client
 
 	sql *sqlBackend // non-nil for a SQL fixture
@@ -148,7 +148,7 @@ func newFixture(tb testing.TB) *fixture {
 	require.NoError(tb, db.CreateCollection(ctx, eventsCollection))
 	require.NoError(tb, db.CreateCollection(ctx, ordersCollection))
 
-	store, err := outboxstore.NewWithCollectionOptions(db.Collection(eventsCollection))
+	store, err := outboxmongo.NewWithCollectionOptions(db.Collection(eventsCollection))
 	require.NoError(tb, err)
 
 	f := &fixture{

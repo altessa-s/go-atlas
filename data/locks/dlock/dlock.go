@@ -49,12 +49,12 @@ func New(provider providers.Provider, opts ...Option) *DLock {
 	return l
 }
 
-// NewWithNats creates a DLock with a NATS JetStream provider.
+// NewWithNATS creates a DLock with a NATS JetStream provider.
 //
 // Example:
 //
-//	dl, err := dlock.NewWithNats(ctx, conn, "locks")
-func NewWithNats(ctx context.Context, conn *natsio.Conn, bucket string, opts ...Option) (*DLock, error) {
+//	dl, err := dlock.NewWithNATS(ctx, conn, "locks")
+func NewWithNATS(ctx context.Context, conn *natsio.Conn, bucket string, opts ...Option) (*DLock, error) {
 	prov, err := nats.New(ctx, conn,
 		nats.WithBucket(bucket),
 	)

@@ -134,7 +134,7 @@ scheduler:
   tickInterval: 1s
   historyRetention: 168h
   staleTaskTimeout: 30m
-  instanceId: scheduler-0             # Optional. Unique per instance; default: random per process
+  instanceID: scheduler-0             # Optional. Unique per instance; default: random per process
 
   concurrency:
     strategy: static                  # static | environment | memory-aware | adaptive
@@ -154,14 +154,14 @@ scheduler:
     type: memory                      # memory | mongodb | redis | sql
     memory:
       maxHistoryPerTask: 1000
-    mongodb:
+    mongo:
       tasksCollection: scheduler_tasks
       historyCollection: scheduler_history
     redis:
       keyPrefix: scheduler
-      historyTtl: "0s"
+      historyTTL: "0s"
       maxHistoryPerTask: 1000
-    sql:
+    sqldb:
       dialect: postgres               # postgres | mysql (MySQL 8.0+, MariaDB 10.6+)
       tasksTable: scheduler_tasks
       historyTable: scheduler_history
@@ -175,7 +175,7 @@ scheduler:
 | `tickInterval`     | `duration` | `1s`    | Main loop evaluation interval. Lower = more precise, more CPU. Min: `1ms` |
 | `historyRetention` | `duration` | `168h`  | How long execution history is retained before cleanup                     |
 | `staleTaskTimeout` | `duration` | `30m`   | Run lease (min `5s`); runs whose lease expired are recovered              |
-| `instanceId`       | `string`   | random  | Owner ID stamped on runs; unique per instance sharing a storage (max 128) |
+| `instanceID`       | `string`   | random  | Owner ID stamped on runs; unique per instance sharing a storage (max 128) |
 
 ### Concurrency
 
@@ -504,11 +504,11 @@ storage:
 ### MongoDB
 
 ```go
-import "github.com/altessa-s/go-atlas/service/scheduler/storages/mongodb"
+import "github.com/altessa-s/go-atlas/service/scheduler/storages/mongo"
 
-store := mongodb.New(db,
-	mongodb.WithTasksCollection("scheduler_tasks"),
-	mongodb.WithHistoryCollection("scheduler_history"),
+store := schedmongo.New(db,
+	schedmongo.WithTasksCollection("scheduler_tasks"),
+	schedmongo.WithHistoryCollection("scheduler_history"),
 )
 
 if err := store.EnsureIndexes(ctx); err != nil {
@@ -520,8 +520,8 @@ Persistent storage for production multi-node deployments.
 
 ```yaml
 storage:
-  type: mongodb
-  mongodb:
+  type: mongo
+  mongo:
     tasksCollection: scheduler_tasks      # Default: scheduler_tasks
     historyCollection: scheduler_history  # Default: scheduler_history
 ```
@@ -592,7 +592,7 @@ storage:
   type: redis
   redis:
     keyPrefix: scheduler         # Default: scheduler
-    historyTtl: "0s"             # Default: 0s (disabled)
+    historyTTL: "0s"             # Default: 0s (disabled)
     maxHistoryPerTask: 1000      # Default: 1000
 ```
 
@@ -676,8 +676,8 @@ owns the `*sql.DB` and chooses the driver.
 
 ```yaml
 storage:
-  type: sql
-  sql:
+  type: sqldb
+  sqldb:
     dialect: postgres                # Default: postgres
     tasksTable: scheduler_tasks      # Default: scheduler_tasks
     historyTable: scheduler_history  # Default: scheduler_history

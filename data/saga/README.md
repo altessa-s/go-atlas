@@ -6,7 +6,7 @@ import "github.com/altessa-s/go-atlas/data/saga"
 
 Package `saga` runs inter-service distributed transactions with the orchestration-based saga pattern: a sequence of local steps, each with an optional
 compensating action. When a step fails, the already-completed steps are rolled back in reverse order, so the overall operation leaves no partial
-effects. The orchestrator is generic over the saga's shared data type `T` and persists a checkpoint to a pluggable [`Store`](./store.go) after every
+effects. The orchestrator is generic over the saga's shared data type `T` and persists a checkpoint to a pluggable [`Storage`](./storage.go) after every
 stage, so an instance survives a crash and can be resumed or automatically rolled back.
 
 ## Model
@@ -16,7 +16,7 @@ stage, so an instance survives a crash and can be resumed or automatically rolle
 | `Definition[T]`   | An ordered list of stages, built with the fluent `Builder`. A stage is one step or a parallel group of steps.  |
 | Step              | A forward action plus an optional `Compensate`. A step with no compensation is treated as read-only.           |
 | Pivot             | The point of no return: failures at or after the pivot stage roll forward (retry) instead of compensating.     |
-| `Orchestrator[T]` | Drives a definition over a `Store`; `Start` runs a new instance, `Resume` continues a persisted one.           |
+| `Orchestrator[T]` | Drives a definition over a `Storage`; `Start` runs a new instance, `Resume` continues a persisted one.           |
 | `Instance`        | The persisted state of one execution: status, stage cursor, serialized data, version, deadline.                |
 
 ## Status lifecycle
@@ -76,10 +76,10 @@ run concurrently and share `*T`, so they must not write overlapping fields.
 | [engines/jetstream](./engines/jetstream) | JetStream work-queue engine: durable `Submit`, distributed `Run`. |
 | [errs](./errs)                           | Sentinel errors returned by the orchestrator and stores.          |
 | [factory](./factory)                     | Config-driven assembly of an `Orchestrator` from `sagaconfig.Config`.   |
-| [storages/memory](./storages/memory)     | In-process `Store` backend (reference implementation).            |
-| [storages/mongo](./storages/mongo)       | Durable `Store` backend on a MongoDB collection.                  |
-| [storages/nats](./storages/nats)         | Durable `Store` backend on NATS JetStream KeyValue.               |
-| [storages/redis](./storages/redis)       | Durable `Store` backend on Redis (hash + sorted-set index).       |
+| [storages/memory](./storages/memory)     | In-process `Storage` backend (reference implementation).            |
+| [storages/mongo](./storages/mongo)       | Durable `Storage` backend on a MongoDB collection.                  |
+| [storages/nats](./storages/nats)         | Durable `Storage` backend on NATS JetStream KeyValue.               |
+| [storages/redis](./storages/redis)       | Durable `Storage` backend on Redis (hash + sorted-set index).       |
 
 ## Timeout composition
 

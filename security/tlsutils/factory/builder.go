@@ -24,7 +24,7 @@ import (
 	tlsocsp "github.com/altessa-s/go-atlas/security/tlsutils/ocsp"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 	tlsfile "github.com/altessa-s/go-atlas/security/tlsutils/providers/file"
-	tlsle "github.com/altessa-s/go-atlas/security/tlsutils/providers/le"
+	tlsletsencrypt "github.com/altessa-s/go-atlas/security/tlsutils/providers/letsencrypt"
 	tlss3 "github.com/altessa-s/go-atlas/security/tlsutils/providers/s3"
 	tlsvault "github.com/altessa-s/go-atlas/security/tlsutils/providers/vault"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -212,19 +212,19 @@ func (b *ProvidersBuilder) createVaultProvider() (*tlsvault.Vault, error) {
 }
 
 // createLetsEncryptProvider creates a Let's Encrypt TLS provider from configuration.
-func (b *ProvidersBuilder) createLetsEncryptProvider() (*tlsle.LetsEncrypt, error) {
+func (b *ProvidersBuilder) createLetsEncryptProvider() (*tlsletsencrypt.LetsEncrypt, error) {
 	cfg := b.cfg.LetsEncrypt
 	providerOpts := b.letsEncryptProviderOpts()
-	opts := make([]tlsle.Option, 0, 3+len(providerOpts))
+	opts := make([]tlsletsencrypt.Option, 0, 3+len(providerOpts))
 	opts = append(opts,
-		tlsle.WithDomains(cfg.Domain...),
-		tlsle.WithEmail(cfg.Email),
-		tlsle.WithRenewBefore(cfg.RenewBefore),
+		tlsletsencrypt.WithDomains(cfg.Domain...),
+		tlsletsencrypt.WithEmail(cfg.Email),
+		tlsletsencrypt.WithRenewBefore(cfg.RenewBefore),
 	)
 
 	opts = append(opts, providerOpts...)
 
-	return tlsle.New(opts...)
+	return tlsletsencrypt.New(opts...)
 }
 
 // fileProviderOpts returns common options for file provider.
@@ -255,13 +255,13 @@ func (b *ProvidersBuilder) vaultProviderOpts() []tlsvault.Option {
 }
 
 // letsEncryptProviderOpts returns common options for letsencrypt provider.
-func (b *ProvidersBuilder) letsEncryptProviderOpts() []tlsle.Option {
-	var opts []tlsle.Option
-	opts = slices.AppendIfFunc(opts, b.Logger() != nil, func() []tlsle.Option {
-		return []tlsle.Option{tlsle.WithLogger(b.Logger())}
+func (b *ProvidersBuilder) letsEncryptProviderOpts() []tlsletsencrypt.Option {
+	var opts []tlsletsencrypt.Option
+	opts = slices.AppendIfFunc(opts, b.Logger() != nil, func() []tlsletsencrypt.Option {
+		return []tlsletsencrypt.Option{tlsletsencrypt.WithLogger(b.Logger())}
 	})
-	opts = slices.AppendIfFunc(opts, b.cacheDir != "", func() []tlsle.Option {
-		return []tlsle.Option{tlsle.WithCacheDir(filepath.Join(b.cacheDir, "letsencrypt"))}
+	opts = slices.AppendIfFunc(opts, b.cacheDir != "", func() []tlsletsencrypt.Option {
+		return []tlsletsencrypt.Option{tlsletsencrypt.WithCacheDir(filepath.Join(b.cacheDir, "letsencrypt"))}
 	})
 	return opts
 }

@@ -65,7 +65,7 @@ type Vault struct {
 // GCP contains GCP Secret Manager-specific configuration.
 type GCP struct {
 	// ProjectID is the GCP project ID.
-	ProjectID string `yaml:"projectId"`
+	ProjectID string `yaml:"projectID"`
 	// ServiceAccountPath is the path to service account JSON file.
 	ServiceAccountPath string `yaml:"serviceAccountPath"`
 	// Labels filters secrets by GCP labels.
@@ -77,11 +77,11 @@ type GCP struct {
 // Lockbox contains Yandex Cloud Lockbox-specific configuration.
 type Lockbox struct {
 	// FolderID is the Yandex Cloud folder ID.
-	FolderID string `yaml:"folderId"`
+	FolderID string `yaml:"folderID"`
 	// KeyID is the service account key ID.
-	KeyID string `yaml:"keyId"`
+	KeyID string `yaml:"keyID"`
 	// ServiceKeyID is the service account ID.
-	ServiceKeyID string `yaml:"serviceKeyId"`
+	ServiceKeyID string `yaml:"serviceKeyID"`
 	// PrivateKeyPath is the path to the private key PEM file.
 	PrivateKeyPath string `yaml:"privateKeyPath"`
 	// Labels filters secrets by Yandex Cloud labels.

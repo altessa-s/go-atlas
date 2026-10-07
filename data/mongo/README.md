@@ -110,7 +110,7 @@ the backstop.
 | [kms/azure](./kms/azure)                             | Azure Key Vault provider      |
 | [kms/gcp](./kms/gcp)                                 | Google Cloud KMS provider     |
 | [kms/factory](./kms/factory)                         | KMS factory from config       |
-| [cursor_storages/memory](./cursor_storages/memory)   | In-memory cursor storage      |
-| [cursor_storages/redis](./cursor_storages/redis)     | Redis-backed cursor storage   |
-| [cursor_storages/nats](./cursor_storages/nats)       | NATS-backed cursor storage    |
-| [cursor_storages/kvstore](./cursor_storages/kvstore) | KV store-based cursor storage |
+| [cursorstorages/memory](./cursorstorages/memory)   | In-memory cursor storage      |
+| [cursorstorages/redis](./cursorstorages/redis)     | Redis-backed cursor storage   |
+| [cursorstorages/nats](./cursorstorages/nats)       | NATS-backed cursor storage    |
+| [cursorstorages/kvstore](./cursorstorages/kvstore) | KV store-based cursor storage |

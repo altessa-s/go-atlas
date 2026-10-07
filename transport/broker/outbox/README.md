@@ -13,7 +13,7 @@ NATS-specific retry logic, implementing the `broker.Outboxer` interface.
 |-------------------|------------------------------------------------------------------------------------------|
 | `Outbox`          | Broker-specific adapter wrapping the generic `data/outbox.Outbox`                       |
 | `Publisher`       | Interface for message transmission to external brokers                                  |
-| `Store`           | Alias for `data/outbox.Store` interface                                                 |
+| `Store`           | Alias for `data/outbox.Storage` interface                                                 |
 | `Event`           | Alias for `data/outbox.Event` type                                                      |
 | `Status`          | Alias for `data/outbox.Status` type                                                     |
 | `Stats`           | Alias for `data/outbox.Stats` snapshot                                                  |

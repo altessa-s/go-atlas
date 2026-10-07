@@ -66,7 +66,7 @@ type AdvisoryListener struct {
 
 // AdvisoryListenerConfig holds configuration for the AdvisoryListener.
 type AdvisoryListenerConfig struct {
-	NatsConn   *nats.Conn
+	NATSConn   *nats.Conn
 	Registry   *Registry
 	Supervisor *Supervisor
 	Logger     *slog.Logger
@@ -75,7 +75,7 @@ type AdvisoryListenerConfig struct {
 // NewAdvisoryListener creates a new AdvisoryListener.
 func NewAdvisoryListener(cfg AdvisoryListenerConfig) *AdvisoryListener {
 	return &AdvisoryListener{
-		nc:         cfg.NatsConn,
+		nc:         cfg.NATSConn,
 		registry:   cfg.Registry,
 		supervisor: cfg.Supervisor,
 		logger:     cfg.Logger,

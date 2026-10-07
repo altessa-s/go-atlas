@@ -78,7 +78,7 @@ tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
 - **Principal** — `Principal(subject, tok)` builds an [`auth/principal.Principal`](../principal) from a fetched token (subject + the
   granted `scope`), the same type the scope enforcer consumes. It does not verify the token.
 - **Config + factory** — [`authconfig.OAuth2Client`](../../config) + [`factory`](factory) build a ready client_credentials
-  `oauth2.TokenSource` (or `Exchanger`) from a YAML template, resolving the endpoint from `tokenUrl` or OIDC `discoveryUrl`.
+  `oauth2.TokenSource` (or `Exchanger`) from a YAML template, resolving the endpoint from `tokenURL` or OIDC `discoveryURL`.
 
 ## Client authentication (JWT assertion)
 
@@ -98,7 +98,7 @@ src := oauth2client.ClientCredentials(ctx, tokenURL, "svc", "", oauth2client.Wit
 ```
 
 Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`. Via YAML, set the [`authconfig.OAuth2Client`](../../config)
-`clientAuth` block (`method` + PEM `privateKey`/`keyId`/`algorithm`) and the [factory](factory) builds the authenticator for you.
+`clientAuth` block (`method` + PEM `privateKey`/`keyID`/`algorithm`) and the [factory](factory) builds the authenticator for you.
 
 ## Refresh timing and revocation
 

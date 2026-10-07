@@ -47,7 +47,7 @@
 #  # Takes precedence over logGrpcResponseCodes.
 #  # Example: [0, 1] to ignore OK and CANCELLED codes.
 #  # Default value: not set
-#  ignoreGrpcResponseCodes:
+#  ignoreGRPCResponseCodes:
 #    - 0  # OK
 #    - 1  # CANCELLED
 #
@@ -55,6 +55,6 @@
 #  # Example: [5, 13] to always log NOT_FOUND and INTERNAL codes.
 #  # Useful for ensuring important error responses are always captured.
 #  # Default value: not set
-#  logGrpcResponseCodes:
+#  logGRPCResponseCodes:
 #    - 5   # NOT_FOUND
 #    - 13  # INTERNAL

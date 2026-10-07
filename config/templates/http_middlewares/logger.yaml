@@ -49,6 +49,6 @@
 #
 #  # <list[string]> List of HTTP methods to skip logging for.
 #  # Default value: not set
-#  ignoreHttpMethods:
+#  ignoreHTTPMethods:
 #    - "OPTIONS"
 #    - "HEAD"

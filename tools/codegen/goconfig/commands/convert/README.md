@@ -19,4 +19,4 @@ Package `convert` implements the `goconfig convert` subcommand and the converter
 ## Naming conventions
 
 Environment variable keys follow the go-tools config parser conventions. Nested structures are delimited by `__` (double underscore)
-and `camelCase` field names become `SCREAMING_SNAKE_CASE` (e.g. `grpc.interceptors.realIp` becomes `GRPC__INTERCEPTORS__REAL_IP`).
+and `camelCase` field names become `SCREAMING_SNAKE_CASE` (e.g. `grpc.interceptors.realIP` becomes `GRPC__INTERCEPTORS__REAL_IP`).

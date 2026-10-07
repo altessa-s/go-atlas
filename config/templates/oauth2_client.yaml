@@ -7,17 +7,17 @@
 #oauth2Client:
 #  # <string> IdP token endpoint. Provide either this or discoveryUrl.
 #  # Default value: not set
-#  tokenUrl: "https://idp.example.com/oauth2/token"
+#  tokenURL: "https://idp.example.com/oauth2/token"
 #
 #  # <string> OIDC discovery document. When set instead of tokenUrl, the token
 #  # endpoint is resolved from discovery at build time (requires an injected
 #  # OIDC provider). Provide either this or tokenUrl.
 #  # Default value: not set
-#  discoveryUrl: "https://idp.example.com/.well-known/openid-configuration"
+#  discoveryURL: "https://idp.example.com/.well-known/openid-configuration"
 #
 #  # <string> OAuth2 client identifier authenticating this service. Required.
 #  # Default value: not set
-#  clientId: "my-service"
+#  clientID: "my-service"
 #
 #  # <string> OAuth2 client secret. Leave empty for a public client.
 #  # Supports secret references (env:, file:, vault:) via the Secret type.
@@ -59,7 +59,7 @@
 #
 #    # <string> kid header matching the public key registered with the IdP (private_key_jwt).
 #    # Default value: not set
-#    keyId: "key-1"
+#    keyID: "key-1"
 #
 #    # <string> Asymmetric JWA for private_key_jwt.
 #    # Supported values: EdDSA, ES256, ES384, ES512, RS256, RS384, RS512, PS256, PS384, PS512

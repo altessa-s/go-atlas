@@ -32,7 +32,7 @@ func (o *Orchestrator[T]) RegisterRecovery(ctx context.Context) error {
 	if o.recoveryTask.Registered() || nilcheck.IsNil(o.scheduler) || o.recoverySchedule == "" {
 		return nil
 	}
-	ctx, cancel := corecontext.WithMaxTimeout(ctx, o.storeTimeout)
+	ctx, cancel := corecontext.WithMaxTimeout(ctx, o.storageTimeout)
 	defer cancel()
 	if err := o.scheduler.Register(ctx, corescheduler.TaskConfig{
 		ID:             o.recoveryTaskID,
