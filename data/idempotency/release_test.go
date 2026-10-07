@@ -19,9 +19,12 @@ import (
 	idredis "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
 )
 
-func TestReleaseOwnership(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
+// ownershipStores lists every backend the ownership tests run against.
+func ownershipStores() []struct {
+	name     string
+	newStore func(*testing.T) storages.Storage
+} {
+	return []struct {
 		name     string
 		newStore func(*testing.T) storages.Storage
 	}{
@@ -38,7 +41,40 @@ func TestReleaseOwnership(t *testing.T) {
 			require.NoError(t, err)
 			return store
 		}},
-	} {
+	}
+}
+
+// TestCompleteRejectsDeniedState guards Complete's ownership check: the
+// state AttemptLock returns to a caller denied the lock carries no token,
+// and backends treat a nil token as an unconditional overwrite.
+func TestCompleteRejectsDeniedState(t *testing.T) {
+	t.Parallel()
+	for _, tc := range ownershipStores() {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			keeper := idempotency.New(tc.newStore(t))
+			ctx := t.Context()
+
+			acquired, owner, err := keeper.AttemptLock(ctx, "key")
+			require.NoError(t, err)
+			require.True(t, acquired)
+
+			acquired, denied, err := keeper.AttemptLock(ctx, "key")
+			require.NoError(t, err)
+			require.False(t, acquired)
+			require.ErrorIs(t, keeper.Complete(ctx, "key", "from-denied", denied), idempotency.ErrMissingLockState)
+
+			require.NoError(t, keeper.Complete(ctx, "key", "from-owner", owner), "the owner's lock must be untouched")
+			_, result, err := keeper.AttemptLock(ctx, "key")
+			require.NoError(t, err)
+			require.Equal(t, "from-owner", result.Data)
+		})
+	}
+}
+
+func TestReleaseOwnership(t *testing.T) {
+	t.Parallel()
+	for _, tc := range ownershipStores() {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := tc.newStore(t)
