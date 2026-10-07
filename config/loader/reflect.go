@@ -9,6 +9,7 @@ import (
 	"iter"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -342,7 +343,7 @@ func parseDuration(rvalue reflect.Value, value string) (val int64, err error) {
 // It handles both integer and string types (for duration parsing).
 func parseStringInt(fv reflect.Value) (val int64) {
 	val = fv.Int()
-	if vt, ok := fv.Interface().(string); ok {
+	if vt, ok := reflect.TypeAssert[string](fv); ok {
 		val, _ = parseDuration(reflect.Indirect(fv), vt) //nolint:errcheck
 	}
 
@@ -468,7 +469,7 @@ func fieldsList(structValue reflect.Value, structType reflect.Type, parent *fiel
 			field:    structField,
 			value:    structFieldValue,
 			parent:   parent,
-			index:    append(index[:len(index):len(index)], indx),
+			index:    append(slices.Clip(index), indx),
 			tags: map[string]string{
 				defaultValueTagName:  structField.Tag.Get(defaultValueTagName),
 				envTagName:           structField.Tag.Get(envTagName),
