@@ -96,7 +96,7 @@ func TestFetchRecoverable(t *testing.T) {
 	require.NoError(t, s.Create(ctx, &saga.Instance{ID: "compensating", Status: saga.StatusCompensating}))
 	require.NoError(t, s.Create(ctx, &saga.Instance{ID: "completed", Status: saga.StatusCompleted}))
 
-	got, err := s.FetchRecoverable(ctx, now, 0)
+	got, err := s.FetchRecoverable(ctx, "", now, 0)
 	require.NoError(t, err)
 
 	ids := map[string]bool{}
@@ -171,16 +171,16 @@ func TestLeaseExcludesExpiredDeadline(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, inst.PendingSteps, got.PendingSteps)
 	require.Equal(t, inst.LeaseUntil, got.LeaseUntil)
-	records, err := store.FetchRecoverable(t.Context(), now, 10)
+	records, err := store.FetchRecoverable(t.Context(), "", now, 10)
 	require.NoError(t, err)
 	require.Empty(t, records)
-	records, err = store.FetchRecoverable(t.Context(), now.Add(2*time.Minute), 10)
+	records, err = store.FetchRecoverable(t.Context(), "", now.Add(2*time.Minute), 10)
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	inst.Deadline = time.Time{}
 	inst.LeaseUntil = now.Add(-time.Second)
 	require.NoError(t, store.Update(t.Context(), inst))
-	records, err = store.FetchRecoverable(t.Context(), now, 10)
+	records, err = store.FetchRecoverable(t.Context(), "", now, 10)
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 }

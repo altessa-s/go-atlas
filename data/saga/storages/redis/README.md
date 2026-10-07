@@ -23,8 +23,9 @@ field used as the optimistic-concurrency token: `Update` is a Lua compare-and-se
 
 ## Recovery index
 
-Redis is not query-capable, so recoverable instances are tracked in a sorted set scored by recover-eligibility time. `FetchRecoverable` is a single
-`ZRANGEBYSCORE` from `-inf` to the current time. All writes keep the index consistent with the instance hash atomically (inside the same Lua script):
+Redis is not query-capable, so recoverable instances are tracked in a sorted set scored by recover-eligibility time. `FetchRecoverable` pages through
+`ZRANGEBYSCORE` from `-inf` to the current time, counting an entry toward the limit only once it matches the requested definition and is
+recoverable (its lease is not active). All writes keep the index consistent with the instance hash atomically (inside the same Lua script):
 
 | Instance state               | Index score      |
 |------------------------------|------------------|

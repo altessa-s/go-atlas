@@ -78,7 +78,8 @@ return 1
 // Because Redis is not query-capable, recoverable instances are tracked in a
 // sorted set scored by recover-eligibility time: a timed-out RUNNING instance
 // scores its deadline, a COMPENSATING instance scores 0 (always due), and any
-// other instance is absent. FetchRecoverable is a ZRANGEBYSCORE over that set.
+// other instance is absent. FetchRecoverable pages through a ZRANGEBYSCORE
+// over that set.
 type Store struct {
 	redisbase.Base
 	opts *options
@@ -167,20 +168,69 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 	}
 }
 
+// recoverablePageSize is the number of index entries FetchRecoverable reads
+// per round trip while it looks for matching instances.
+const recoverablePageSize = 64
+
 // FetchRecoverable returns up to limit non-terminal instances that are
-// mid-compensation or past their deadline. A non-positive limit means no cap.
-func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*saga.Instance, error) {
-	rangeBy := &redis.ZRangeBy{Min: "-inf", Max: strconv.FormatInt(now.Unix(), 10)}
+// mid-compensation or past their deadline, restricted to definition when it is
+// non-empty. A non-positive limit means no cap.
+//
+// The index is shared by every definition and also holds candidates whose
+// lease is still active, so it is read page by page and an entry counts
+// toward limit only once it matches definition and is recoverable at now;
+// otherwise non-matching entries could fill every batch and starve the rest.
+func (s *Store) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
+	page := int64(recoverablePageSize)
 	if limit > 0 {
-		rangeBy.Count = int64(limit)
+		page = max(page, int64(limit))
+	}
+	maxScore := strconv.FormatInt(now.Unix(), 10)
+
+	var (
+		out   []*saga.Instance
+		stale []any
+	)
+	for offset := int64(0); ; offset += page {
+		ids, err := s.Client().ZRangeByScore(ctx, s.indexKey(),
+			&redis.ZRangeBy{Min: "-inf", Max: maxScore, Offset: offset, Count: page}).Result()
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "fetch recoverable saga ids from Redis")
+		}
+
+		insts, gone, err := s.loadInstances(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		stale = append(stale, gone...)
+
+		for _, inst := range insts {
+			if (definition != "" && inst.Definition != definition) || !inst.Recoverable(now) {
+				continue
+			}
+			out = append(out, inst)
+			if limit > 0 && len(out) == limit {
+				break
+			}
+		}
+
+		if (limit > 0 && len(out) == limit) || int64(len(ids)) < page {
+			break
+		}
 	}
 
-	ids, err := s.Client().ZRangeByScore(ctx, s.indexKey(), rangeBy).Result()
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "fetch recoverable saga ids from Redis")
+	// Cleanup runs after the scan so removals do not shift the page offsets.
+	if len(stale) > 0 {
+		_ = s.Client().ZRem(ctx, s.indexKey(), stale...).Err() // Best-effort cleanup.
 	}
+	return out, nil
+}
+
+// loadInstances reads and decodes the instances for ids in one pipeline. Ids
+// whose instance key no longer exists are returned in gone.
+func (s *Store) loadInstances(ctx context.Context, ids []string) ([]*saga.Instance, []any, error) {
 	if len(ids) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	pipe := s.Client().Pipeline()
@@ -192,30 +242,24 @@ func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) 
 	// is inspected individually below, so its aggregate error is ignored here.
 	_, _ = pipe.Exec(ctx)
 
-	out := make([]*saga.Instance, 0, len(ids))
-	var stale []any
+	insts := make([]*saga.Instance, 0, len(ids))
+	var gone []any
 	for i, cmd := range cmds {
 		data, cErr := cmd.Bytes()
 		if cErr != nil {
 			if errors.Is(cErr, redis.Nil) {
-				stale = append(stale, ids[i]) // Key gone since it was indexed.
+				gone = append(gone, ids[i]) // Key gone since it was indexed.
 				continue
 			}
-			return nil, coreerrs.WrapOperation(cErr, "read recoverable saga instance from Redis")
+			return nil, nil, coreerrs.WrapOperation(cErr, "read recoverable saga instance from Redis")
 		}
 		inst, dErr := decodeInstance(data)
 		if dErr != nil {
-			return nil, dErr
+			return nil, nil, dErr
 		}
-		if inst.Recoverable(now) {
-			out = append(out, inst)
-		}
+		insts = append(insts, inst)
 	}
-
-	if len(stale) > 0 {
-		_ = s.Client().ZRem(ctx, s.indexKey(), stale...).Err() // Best-effort cleanup.
-	}
-	return out, nil
+	return insts, gone, nil
 }
 
 // Delete removes an instance and its recoverable-index entry. Deleting a
