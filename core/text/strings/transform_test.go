@@ -23,9 +23,24 @@ func TestToScreamingSnakeCase(t *testing.T) {
 		{"HTMLParser", "HTML_PARSER"},
 		{"simple", "SIMPLE"},
 		{"", ""},
+		// A lowercase "s" ending an acronym is a plural suffix.
+		{"IDs", "IDS"},
+		{"AllowedIDs", "ALLOWED_IDS"},
+		{"IssuerKeyIDs", "ISSUER_KEY_IDS"},
+		{"AllowedCIDRs", "ALLOWED_CIDRS"},
+		{"UUIDs", "UUIDS"},
+		{"URLsList", "URLS_LIST"},
+		{"IDs2", "IDS2"},
+		// An "s" followed by more lowercase letters starts a new word.
+		{"HTTPServer", "HTTP_SERVER"},
+		{"IDsearch", "I_DSEARCH"},
+		// The rune-based path for non-ASCII input applies the same rules.
+		{"AllowedIDsÜber", "ALLOWED_IDS_ÜBER"},
+		{"ÜberIDs", "ÜBER_IDS"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			require.Equal(t, tt.want, corestrings.ToScreamingSnakeCase(tt.input))
 		})
 	}
