@@ -48,6 +48,41 @@ func TestRemoveEmptyElementsFromSlice_NoChange(t *testing.T) {
 	require.False(t, changed, "RemoveEmptyElementsFromSlice should return false when no change")
 }
 
+func TestRemoveEmptyElementsFromSlice_PreservesOrderAndBacking(t *testing.T) {
+	t.Parallel()
+
+	a, b, c, empty := "a", "b", "c", " "
+	tests := []struct {
+		name        string
+		input       any
+		want        any
+		wantChanged bool
+	}{
+		{"strings untouched", []string{"a", "b", "c"}, []string{"a", "b", "c"}, false},
+		{"strings leading empty", []string{"", "a", "b"}, []string{"a", "b"}, true},
+		{"strings mixed", []string{"a", "b", "", "c", "  "}, []string{"a", "b", "c"}, true},
+		{"strings all empty", []string{"", " "}, []string{}, true},
+		{"ptrs untouched", []*string{&a, &b}, []*string{&a, &b}, false},
+		{"ptrs mixed", []*string{&a, nil, &b, &empty, &c}, []*string{&a, &b, &c}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			v := reflect.New(reflect.TypeOf(tc.input)).Elem()
+			v.Set(reflect.ValueOf(tc.input))
+			before := v.Pointer()
+
+			changed := modifiers.RemoveEmptyElementsFromSlice(v)
+			require.Equal(t, tc.wantChanged, changed)
+			require.Equal(t, tc.want, v.Interface())
+			if !tc.wantChanged {
+				require.Equal(t, before, v.Pointer(), "unchanged input must keep its backing array")
+			}
+		})
+	}
+}
+
 func TestModifierError_Error(t *testing.T) {
 	err := &modifiers.ModifierError{
 		FieldName:    "Name",
