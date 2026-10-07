@@ -64,6 +64,50 @@ func TestValidate_Mongodb_NoDatabase(t *testing.T) {
 	require.Error(t, cfg.Validate())
 }
 
+func TestValidate_Mongodb_DirectConnectionHosts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		hosts            []string
+		directConnection bool
+		wantErr          bool
+	}{
+		{name: "multiple hosts without direct connection", hosts: []string{"host1:27017", "host2:27017"}},
+		{name: "SRV host without direct connection", hosts: []string{"mongodb+srv://cluster.example.com"}},
+		{name: "single host with direct connection", hosts: []string{"host1:27017"}, directConnection: true},
+		{
+			name:             "multiple hosts with direct connection",
+			hosts:            []string{"host1:27017", "host2:27017"},
+			directConnection: true,
+			wantErr:          true,
+		},
+		{
+			name:             "SRV host with direct connection",
+			hosts:            []string{"mongodb+srv://cluster.example.com"},
+			directConnection: true,
+			wantErr:          true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := mongoconfig.Default()
+			cfg.Database = "testdb"
+			cfg.Hosts = tc.hosts
+			cfg.DirectConnection = tc.directConnection
+
+			if tc.wantErr {
+				require.Error(t, cfg.Validate())
+				return
+			}
+			require.NoError(t, cfg.Validate())
+		})
+	}
+}
+
 func TestValidate_Redis_Valid(t *testing.T) {
 	cfg := redisconfig.Default()
 	require.NoError(t, cfg.Validate())

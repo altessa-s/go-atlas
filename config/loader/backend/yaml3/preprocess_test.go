@@ -5,6 +5,7 @@
 package yaml3_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config/loader/backend/yaml3"
+
+	coreio "github.com/altessa-s/go-atlas/core/io"
 )
 
 func TestBackend_Preprocess_SimpleInclude(t *testing.T) {
@@ -25,7 +28,7 @@ func TestBackend_Preprocess_SimpleInclude(t *testing.T) {
 	mainContent := "main: config\n!include sub.yaml\nafter: include"
 
 	backend := &yaml3.Backend{}
-	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 	require.NoError(t, err)
 
 	require.Contains(t, result, "included: value")
@@ -47,7 +50,7 @@ func TestBackend_Preprocess_NestedInclude(t *testing.T) {
 	mainContent := "main: config\n!include sub.yaml"
 
 	backend := &yaml3.Backend{}
-	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 	require.NoError(t, err)
 
 	require.Contains(t, result, "deepest: value")
@@ -64,7 +67,7 @@ func TestBackend_Preprocess_IndentedInclude(t *testing.T) {
 	mainContent := "root:\n  !include sub.yaml"
 
 	backend := &yaml3.Backend{}
-	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 	require.NoError(t, err)
 
 	require.Contains(t, result, "  key1: value1")
@@ -76,7 +79,7 @@ func TestBackend_Preprocess_NoIncludes(t *testing.T) {
 	content := "key: value\nsection:\n  nested: data"
 
 	backend := &yaml3.Backend{}
-	result, err := backend.Preprocess(content, tmpDir, tmpDir)
+	result, err := backend.Preprocess(content, tmpDir, tmpDir, 0)
 	require.NoError(t, err)
 
 	// Result should have content plus trailing newlines from scanner
@@ -93,7 +96,7 @@ func TestBackend_Preprocess_InvalidExtension(t *testing.T) {
 	mainContent := "!include file.txt"
 
 	backend := &yaml3.Backend{}
-	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid extension")
 }
@@ -104,7 +107,7 @@ func TestBackend_Preprocess_PathTraversal(t *testing.T) {
 	mainContent := "!include ../../../etc/passwd.yaml"
 
 	backend := &yaml3.Backend{}
-	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "security error")
 }
@@ -124,7 +127,7 @@ func TestBackend_Preprocess_CircularInclude(t *testing.T) {
 	mainContent := "!include a.yaml"
 
 	backend := &yaml3.Backend{}
-	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "circular include")
 }
@@ -135,7 +138,7 @@ func TestBackend_Preprocess_FileNotFound(t *testing.T) {
 	mainContent := "!include nonexistent.yaml"
 
 	backend := &yaml3.Backend{}
-	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to read included file")
 }
@@ -158,11 +161,63 @@ func TestBackend_Preprocess_MaxDepth(t *testing.T) {
 	mainContent := "!include " + yamlName(0)
 
 	backend := &yaml3.Backend{}
-	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "max include depth"))
 }
 
 func yamlName(i int) string {
 	return "level" + string(rune('0'+i)) + ".yaml"
+}
+
+func TestBackend_Preprocess_MaxBytes(t *testing.T) {
+	t.Parallel()
+
+	const limit = 1024
+
+	tests := []struct {
+		name    string
+		files   map[string]string
+		main    string
+		wantErr bool
+	}{
+		{
+			name:    "include larger than the limit",
+			files:   map[string]string{"big.yaml": "filler: " + strings.Repeat("a", 4*limit) + "\n"},
+			main:    "main: config\n!include big.yaml\n",
+			wantErr: true,
+		},
+		{
+			name:    "small includes expanding beyond the limit",
+			files:   map[string]string{"part.yaml": "filler: " + strings.Repeat("a", limit/4) + "\n"},
+			main:    "a:\n  !include part.yaml\nb:\n  !include part.yaml\nc:\n  !include part.yaml\nd:\n  !include part.yaml\n",
+			wantErr: true,
+		},
+		{
+			name:  "under the limit",
+			files: map[string]string{"part.yaml": "key: value\n"},
+			main:  "a:\n  !include part.yaml\nb:\n  !include part.yaml\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			for name, content := range tc.files {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600))
+			}
+
+			backend := &yaml3.Backend{}
+			out, err := backend.Preprocess(tc.main, dir, dir, limit)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.True(t, errors.Is(err, coreio.ErrReadLimitExceeded), "got %v", err)
+				return
+			}
+			require.NoError(t, err)
+			require.LessOrEqual(t, len(out), limit)
+		})
+	}
 }

@@ -35,7 +35,7 @@ another:
 
 	b.ResetTimer()
 	for b.Loop() {
-		_, err := backend.Preprocess(content, tmpDir, tmpDir)
+		_, err := backend.Preprocess(content, tmpDir, tmpDir, 0)
 		if err != nil {
 			b.Fatalf("Preprocess error: %v", err)
 		}
@@ -67,7 +67,7 @@ after: include
 
 	b.ResetTimer()
 	for b.Loop() {
-		_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
+		_, err := backend.Preprocess(mainContent, tmpDir, tmpDir, 0)
 		if err != nil {
 			b.Fatalf("Preprocess error: %v", err)
 		}

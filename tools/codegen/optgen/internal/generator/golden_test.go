@@ -5,8 +5,11 @@
 package generator
 
 import (
+	"go/ast"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,15 +22,58 @@ import (
 
 func TestGenerator_Golden_Default(t *testing.T) {
 	t.Parallel()
-	runGeneratorGolden(t, false, "testdata/basic", "options_gen.golden")
+	runGeneratorGolden(t, false, "testdata/basic", "basic", "options_gen.golden")
 }
 
 func TestGenerator_Golden_OptionError(t *testing.T) {
 	t.Parallel()
-	runGeneratorGolden(t, true, "testdata/basic", "options_gen_error.golden")
+	runGeneratorGolden(t, true, "testdata/basic", "basic", "options_gen_error.golden")
 }
 
-func runGeneratorGolden(t *testing.T, optionReturnsError bool, relDir, goldenName string) {
+// The typed fixture covers field types that must be rendered verbatim (fixed
+// arrays, func signatures, anonymous structs with tags, interface literals)
+// and is type-checked together with the generated options.
+func TestGenerator_Golden_Typed(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name               string
+		optionReturnsError bool
+		golden             string
+	}{
+		{name: "default", golden: "options_gen.golden"},
+		{name: "option error", optionReturnsError: true, golden: "options_gen_error.golden"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := runGeneratorGolden(t, tc.optionReturnsError, "testdata/typed", "typed", tc.golden)
+			typeCheckGenerated(t, "testdata/typed", got)
+		})
+	}
+}
+
+// typeCheckGenerated type-checks the fixture sources together with the
+// generated file, so the generated code must compile against them.
+func typeCheckGenerated(t *testing.T, relDir string, generated []byte) {
+	t.Helper()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller failed")
+	dir := filepath.Join(filepath.Dir(thisFile), relDir)
+
+	fset := token.NewFileSet()
+	input, err := parser.ParseFile(fset, filepath.Join(dir, "input.go"), nil, 0)
+	require.NoError(t, err, "parse input")
+	output, err := parser.ParseFile(fset, "options_gen.go", generated, 0)
+	require.NoError(t, err, "parse generated output")
+
+	conf := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
+	_, err = conf.Check(input.Name.Name, fset, []*ast.File{input, output}, nil)
+	require.NoError(t, err, "generated options must type-check")
+}
+
+func runGeneratorGolden(t *testing.T, optionReturnsError bool, relDir, pkgName, goldenName string) []byte {
 	t.Helper()
 
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -37,8 +83,8 @@ func runGeneratorGolden(t *testing.T, optionReturnsError bool, relDir, goldenNam
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, dir, nil, parser.ParseComments)
 	require.NoError(t, err, "ParseDir")
-	pkg, ok := pkgs["basic"]
-	require.True(t, ok, "expected package %q in %s", "basic", dir)
+	pkg, ok := pkgs[pkgName]
+	require.True(t, ok, "expected package %q in %s", pkgName, dir)
 
 	result, err := optparser.FindOptFields(pkg, "options", false)
 	require.NoError(t, err, "FindOptFields")
@@ -47,7 +93,7 @@ func runGeneratorGolden(t *testing.T, optionReturnsError bool, relDir, goldenNam
 
 	g := New()
 	got, err := g.Generate(GenerateInput{
-		PackageName:         "basic",
+		PackageName:         pkgName,
 		TypeName:            "options",
 		OptionType:          "Option",
 		GenerateOptionType:  true,
@@ -72,4 +118,6 @@ func runGeneratorGolden(t *testing.T, optionReturnsError bool, relDir, goldenNam
 	require.NoError(t, err, "read golden %s (set UPDATE_GOLDEN=1 to create)", goldenPath)
 
 	require.Equal(t, string(want), string(got), "golden mismatch: %s (set UPDATE_GOLDEN=1 to update)", goldenPath)
+
+	return got
 }

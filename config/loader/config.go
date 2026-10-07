@@ -167,8 +167,10 @@ func (cf *Config) load() error {
 		cf.present = nil
 	}()
 
-	// load configuration from file(s).
+	// load configuration from file(s). Discovery starts from an empty
+	// collection on every load so files removed since the last one are gone.
 	if cf.options.path != "" {
+		cf.files = newFiles()
 		if err = cf.loadFiles(); err != nil {
 			return err
 		}
@@ -350,11 +352,9 @@ func (cf *Config) loadFile(filePath string, fileInfo os.FileInfo) (err error) {
 	_, fileName := filepath.Split(filePath)
 
 	cf.files.add(&file{
-		name:      fileName,
-		path:      filePath,
-		isSymlink: fileInfo.Mode()&os.ModeSymlink != 0,
-		decoder:   cf.backend,
-		sum:       "",
+		name:    fileName,
+		path:    filePath,
+		decoder: cf.backend,
 	})
 
 	return

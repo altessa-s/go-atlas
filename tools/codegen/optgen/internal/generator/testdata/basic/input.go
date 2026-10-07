@@ -20,6 +20,7 @@ type options struct {
 	maxItems  int               `opt:"MaxItems" optval:"positive"`
 	threshold int               `opt:"Threshold" optval:"positive=allow_zero"`
 	mandatory bool              `opt:"Mandatory" optval:"param" optgen:"default=true"`
+	name      string            `opt:"Name" optcheck:"minlen=3"`
 }
 
 var errInvalidIP = func() error { return nil }()

@@ -49,7 +49,7 @@ func (r MongoDirectionConnectRule) Validate(v any) error {
 		return r.err
 	}
 
-	if _, ok := value.(bool); ok {
+	if direct, ok := value.(bool); ok && direct {
 		containsSrvSchema := false
 		for _, host := range r.hosts {
 			if strings.HasPrefix(strings.ToLower(host), "mongodb+srv://") {

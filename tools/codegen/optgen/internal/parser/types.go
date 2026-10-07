@@ -5,7 +5,10 @@
 package parser
 
 import (
+	"bytes"
 	"go/ast"
+	"go/printer"
+	"go/token"
 	"strings"
 
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
@@ -19,12 +22,12 @@ const typeAny = "any"
 //   - Basic identifiers (int, string)
 //   - Qualified types (pkg.Type)
 //   - Pointer types (*T)
-//   - Slice types ([]T)
+//   - Slice and array types ([]T, [N]T)
 //   - Map types (map[K]V)
 //   - Channel types (chan T, chan<- T, <-chan T)
-//   - Interface types (any)
-//   - Struct types (struct{})
-//   - Function types (simplified as func(...))
+//   - Interface types (any for the empty interface, the literal otherwise)
+//   - Anonymous struct types, field tags included
+//   - Function types, with their full signature
 //   - Variadic types (...T)
 //   - Parenthesized expressions
 func TypeToString(expr ast.Expr) string {
@@ -36,13 +39,19 @@ func TypeToString(expr ast.Expr) string {
 	case *ast.StarExpr:
 		return "*" + TypeToString(t.X)
 	case *ast.ArrayType:
+		if t.Len != nil {
+			return "[" + printNode(t.Len) + "]" + TypeToString(t.Elt)
+		}
 		return "[]" + TypeToString(t.Elt)
 	case *ast.MapType:
 		return "map[" + TypeToString(t.Key) + "]" + TypeToString(t.Value)
 	case *ast.InterfaceType:
-		return typeAny
+		if t.Methods == nil || len(t.Methods.List) == 0 {
+			return typeAny
+		}
+		return printNode(t)
 	case *ast.FuncType:
-		return "func(...)" // simplified
+		return printNode(t)
 	case *ast.ChanType:
 		// Handle channel types: chan, chan<-, <-chan
 		switch t.Dir {
@@ -55,7 +64,7 @@ func TypeToString(expr ast.Expr) string {
 		}
 	case *ast.StructType:
 		// Handle anonymous struct types
-		return "struct{}"
+		return printNode(t)
 	case *ast.Ellipsis:
 		// Handle variadic types: ...T
 		return "..." + TypeToString(t.Elt)
@@ -75,6 +84,16 @@ func TypeToString(expr ast.Expr) string {
 	default:
 		return typeAny
 	}
+}
+
+// printNode renders an AST node as Go source. Unlike types.ExprString it keeps
+// every detail that affects type identity, such as struct field tags.
+func printNode(node ast.Node) string {
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, token.NewFileSet(), node); err != nil {
+		return typeAny
+	}
+	return buf.String()
 }
 
 // ExtractImportsFromType recursively extracts package imports from a type expression.
@@ -210,11 +229,11 @@ func IsInterfaceType(expr ast.Expr) bool {
 // IsNilableType checks if the AST expression represents a type that can be nil.
 // Returns true for pointers, slices, maps, channels, functions, and interfaces.
 func IsNilableType(expr ast.Expr) bool {
-	switch expr.(type) {
+	switch t := expr.(type) {
 	case *ast.StarExpr: // pointer
 		return true
-	case *ast.ArrayType: // slice (arrays are handled differently but []T is nilable)
-		return true
+	case *ast.ArrayType: // a slice is nilable, a fixed-size array is not
+		return t.Len == nil
 	case *ast.MapType: // map
 		return true
 	case *ast.ChanType: // channel

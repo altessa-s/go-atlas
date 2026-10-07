@@ -40,7 +40,7 @@ func TestBackend_Preprocess_SymlinkTraversalBlocked(t *testing.T) {
 
 	mainContent := "!include legit.yaml\n"
 	backend := &yaml3.Backend{}
-	result, err := backend.Preprocess(mainContent, rootDir, rootDir)
+	result, err := backend.Preprocess(mainContent, rootDir, rootDir, 0)
 
 	require.Error(t, err, "symlink to outside rootDir MUST be rejected — this is the audit finding")
 	require.Contains(t, err.Error(), "security error",
@@ -68,7 +68,7 @@ func TestBackend_Preprocess_SymlinkToNonYAMLBlocked(t *testing.T) {
 
 	mainContent := "!include fake.yaml\n"
 	backend := &yaml3.Backend{}
-	_, err := backend.Preprocess(mainContent, rootDir, rootDir)
+	_, err := backend.Preprocess(mainContent, rootDir, rootDir, 0)
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "non-YAML target",
@@ -95,7 +95,7 @@ func TestBackend_Preprocess_SymlinkInsideRootStillWorks(t *testing.T) {
 
 	mainContent := "!include alias.yaml\n"
 	backend := &yaml3.Backend{}
-	result, err := backend.Preprocess(mainContent, rootDir, rootDir)
+	result, err := backend.Preprocess(mainContent, rootDir, rootDir, 0)
 
 	require.NoError(t, err, "symlinks WITHIN rootDir to .yaml targets must continue to work")
 	require.Contains(t, result, "included: real",
