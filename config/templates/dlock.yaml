@@ -5,7 +5,7 @@
 
 #distributionLock:
 #  # <string> Specifies the provider for the distributed lock.
-#  # Supported values: nats, mongo
+#  # Supported values: nats, mongo, sqldb
 #  # Default value: not set (required)
 #  provider: nats
 #
@@ -43,3 +43,21 @@
 #    # <string> Collection holding one lease document per lock key.
 #    # Default value: dlocks
 #    collection: dlocks
+#
+#  # <object> SQL provider configuration, applicable only if the provider is 'sqldb'.
+#  # The *sql.DB is injected into the factory (UseSQLDB); the application chooses
+#  # and registers the driver.
+#  sqldb:
+#    # <string> SQL flavor.
+#    # Supported values: postgres (PostgreSQL 12+), mysql (MySQL 8.0+ and MariaDB 10.6+)
+#    # Default value: postgres
+#    dialect: postgres
+#
+#    # <string> Table holding one lease row per lock key, optionally schema-qualified.
+#    # Default value: dlocks
+#    table: dlocks
+#
+#    # <bool> Create the table while building the lock.
+#    # Leave false when the schema is applied through migrations.
+#    # Default value: false
+#    ensureSchema: false

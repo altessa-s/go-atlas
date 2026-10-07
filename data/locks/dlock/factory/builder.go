@@ -6,8 +6,10 @@ package factory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -22,6 +24,7 @@ import (
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	mongoprovider "github.com/altessa-s/go-atlas/data/locks/dlock/providers/mongo"
 	natsprovider "github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
+	sqlprovider "github.com/altessa-s/go-atlas/data/locks/dlock/providers/sqldb"
 	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -36,6 +39,7 @@ type DLockBuilder struct {
 	// Dependencies
 	natsConn          *nats.Conn
 	mongoDB           *mongodrv.Database
+	sqlDB             *sql.DB
 	healthCoordinator *health.Coordinator
 	healthServiceName string
 }
@@ -65,6 +69,8 @@ func (b *DLockBuilder) Build(ctx context.Context) (*dlock.DLock, error) {
 		return b.createNatsDLock(ctx)
 	case lockconfig.DistributionLockProviderMongo:
 		return b.createMongoDLock()
+	case lockconfig.DistributionLockProviderSQL:
+		return b.createSQLDLock(ctx)
 	default:
 		return nil, b.Errorf("unknown distribution lock provider: %s", b.cfg.Provider)
 	}
@@ -112,6 +118,35 @@ func (b *DLockBuilder) createMongoDLock() (*dlock.DLock, error) {
 	}
 	return dlock.New(prov, b.applyDefaults()...), nil
 }
+
+// createSQLDLock creates a DLock with the SQL provider. With EnsureSchema set
+// it creates the table through the provider's idempotent EnsureSchema, bounded
+// by ensureSchemaTimeout; otherwise it performs no I/O.
+func (b *DLockBuilder) createSQLDLock(ctx context.Context) (*dlock.DLock, error) {
+	if b.cfg.SQL == nil {
+		return nil, fmt.Errorf("configuration is required")
+	}
+	if err := b.RequireDependency(b.sqlDB, "sql database"); err != nil {
+		return nil, err
+	}
+	prov, err := sqlprovider.New(b.sqlDB, sqlprovider.Dialect(b.cfg.SQL.Dialect),
+		sqlprovider.WithLogger(b.Logger()), sqlprovider.WithTableName(b.cfg.SQL.Table))
+	if err != nil {
+		return nil, coreerrs.Provider("sql distributed lock", err)
+	}
+	if b.cfg.SQL.EnsureSchema {
+		schemaCtx, cancel := context.WithTimeout(ctx, ensureSchemaTimeout)
+		defer cancel()
+		if err := prov.EnsureSchema(schemaCtx); err != nil {
+			return nil, coreerrs.Provider("sql distributed lock", err)
+		}
+	}
+	return dlock.New(prov, b.applyDefaults()...), nil
+}
+
+// ensureSchemaTimeout bounds the schema creation createSQLDLock runs when the
+// config asks for it, so a lock wait cannot stall startup indefinitely.
+const ensureSchemaTimeout = 30 * time.Second
 
 // applyDefaults returns builder default options.
 func (b *DLockBuilder) applyDefaults() []dlock.Option {

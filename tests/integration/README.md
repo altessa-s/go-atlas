@@ -8,7 +8,7 @@ tests/integration/
 ├── docker-compose.yml     # the backends the suite runs against
 ├── filterit/              # data/filter: shared corpus + one adapter per backend
 ├── leadelectit/           # data/leadelect: multi-node election against a live broker
-├── dlockit/               # data/locks/dlock: contended locking against a live broker
+├── dlockit/               # data/locks/dlock: contended locking against a live broker and SQL servers
 ├── outboxit/              # data/outbox: transactional delivery against a live MongoDB
 └── schedulerit/           # service/scheduler: end-to-end scenarios + storage contracts on Mongo, Redis and SQL
 ```
@@ -144,6 +144,10 @@ resigning. A failover after an abrupt loss is therefore bounded by the latter, w
 
 A lock that is never contested is indistinguishable from no lock at all. These scenarios put several holders on one key through a real broker and
 check that their critical sections never coincide.
+
+The SQL provider runs the contract suite from [`data/locks/dlock/providers/providertest`](../../data/locks/dlock/providers/providertest) on
+PostgreSQL, MariaDB and MySQL — each contract over its own table, with leases aged out by writing `expires_at` directly — and the same
+critical-section recording with several `dlock` instances racing for one key.
 
 | Scenario                                  | Asserts                                                                                    |
 |-------------------------------------------|--------------------------------------------------------------------------------------------|
