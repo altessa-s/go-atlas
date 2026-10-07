@@ -129,6 +129,28 @@ func TestLocker_Close_ReleasesActiveLocks(t *testing.T) {
 	require.NoError(t, locker.Close(ctx))
 }
 
+// TestLocker_StaleReleaseKeepsNewerLockTracked guards the tracker against a
+// repeated release of an older lock: tracking is keyed by resource key, so
+// untracking unconditionally removed the newer lock B and Close never
+// released it.
+func TestLocker_StaleReleaseKeepsNewerLockTracked(t *testing.T) {
+	t.Parallel()
+	locker := setupLocker(t)
+	ctx := t.Context()
+
+	lockA, err := locker.Lock(ctx, "k")
+	require.NoError(t, err)
+	require.NoError(t, lockA.Release(ctx))
+
+	_, err = locker.Lock(ctx, "k")
+	require.NoError(t, err)
+	require.NoError(t, lockA.Release(ctx), "releasing an already released lock is idempotent")
+
+	require.NoError(t, locker.Close(ctx))
+	_, err = locker.GetLockInfo(ctx, "k")
+	require.ErrorIs(t, err, errs.ErrLockNotHeld, "Close must release the newer lock")
+}
+
 func TestLocker_Lock_WithTimeout(t *testing.T) {
 	locker := setupLocker(t)
 
