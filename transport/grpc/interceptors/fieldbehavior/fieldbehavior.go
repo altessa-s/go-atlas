@@ -6,7 +6,9 @@ package fieldbehavior
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
@@ -166,22 +168,67 @@ func (ri *requestInterceptor) PostMsgReceive(ctx context.Context, req any, err e
 	return ri.stripRequest(ctx, req)
 }
 
-// PostMsgSent runs on every outgoing streaming message and applies the
-// response-side Strip mirroring the unary PostCall path.
-func (ri *requestInterceptor) PostMsgSent(ctx context.Context, resp any, err error) error {
-	if err != nil {
-		return err
-	}
+// PreMsgSend runs before every outgoing streaming message is handed to the
+// transport and strips INPUT_ONLY fields from it. The handler's message is not
+// mutated: when it holds a populated INPUT_ONLY field, a clone is stripped and
+// sent instead.
+func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, err error) {
+	// Detection and cloning run outside runStrip; recover their panics the same
+	// way so a traversal failure becomes codes.Internal, not a crashed SendMsg.
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
+		ri.LogError(ctx, "fieldbehavior strip panicked", ri.meta.Method(), nil,
+			slog.String("side", "response"),
+			slog.Any("panic", r),
+		)
+		out = nil
+		err = interceptors.NewError(
+			status.New(codes.Internal, "Internal Error"),
+			nil,
+		)
+	})
 
 	if ri.meta != nil && ri.meta.IsClient {
-		return nil
+		return m, nil
 	}
 
 	if ri.shouldSkip() || ri.opts.skipResponse {
-		return nil
+		return m, nil
 	}
 
-	return ri.stripResponse(ctx, resp)
+	msg, ok := m.(proto.Message)
+	if !ok {
+		return m, nil
+	}
+
+	// A strict pass detects populated INPUT_ONLY fields without mutating msg.
+	detectErr := pbfieldbehavior.StripResponse(msg, append(slices.Clone(ri.stripOpts), pbfieldbehavior.WithStrict())...)
+	if detectErr == nil {
+		return m, nil
+	}
+
+	// Any failure other than a violation (e.g. ErrMaxDepthExceeded) rejects the
+	// message before it is cloned.
+	if _, ok := errors.AsType[*pbfieldbehavior.BehaviorViolationError](detectErr); !ok {
+		ri.LogError(ctx, "fieldbehavior strip failed", ri.meta.Method(), detectErr,
+			slog.String("side", "response"),
+			slog.String("kind", "response"),
+		)
+		return nil, interceptors.NewError(status.New(codes.Internal, "Internal Error"), detectErr)
+	}
+
+	// Strip a clone so the handler's message stays intact.
+	clone := proto.Clone(msg)
+	if err := ri.runStrip(ctx, clone, pbfieldbehavior.StripResponse, "response", "response"); err != nil {
+		return nil, err
+	}
+
+	return clone, nil
+}
+
+// PostMsgSent passes the send result through; responses are stripped before
+// sending, in PreMsgSend.
+func (ri *requestInterceptor) PostMsgSent(_ context.Context, _ any, err error) error {
+	return err
 }
 
 // shouldSkip reports whether the current method is filtered out via

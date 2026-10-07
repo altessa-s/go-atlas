@@ -136,9 +136,10 @@ Each behavior violation carries the dot-separated field path and a human descrip
 
 ## Streaming
 
-`PostMsgReceive` / `PostMsgSent` mirror the unary path so the same per-method classification applies to every message in a streaming RPC.
-Classification is computed once at stream start from `info.FullMethod`; the `read_mask` captured on the first frame is reused for every
-subsequent response frame.
+`PostMsgReceive` and `PreMsgSend` mirror the unary path so the same per-method classification applies to every message in a streaming RPC; the read mask
+is applied to a clone of each outgoing message before it reaches the transport. Classification is computed once at stream start from `info.FullMethod`;
+the `read_mask` of the first request is captured once, as an owned copy, and reused for every response frame: later requests and handler changes to the
+request do not alter it, and concurrent sends and receives on a bidi stream are safe.
 
 ## See also
 

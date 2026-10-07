@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
@@ -75,9 +76,27 @@ func (i *interceptor) Dependencies() []string {
 // requestInterceptor holds per-call state captured at PreCall time.
 type requestInterceptor struct {
 	*interceptor
-	meta     *sharedmetadata.CallMetadata
-	kind     Kind
-	readMask *fieldmaskpb.FieldMask // captured at PreCall for KindRead methods
+	meta *sharedmetadata.CallMetadata
+	kind Kind
+	// readMask is the read_mask of the first request of a KindRead call,
+	// published once. A stored snapshot with a nil mask records a request
+	// without one. Sends on a stream may run concurrently with receives, so
+	// readers load one stable snapshot per response.
+	readMask atomic.Pointer[readMaskSnapshot]
+}
+
+// readMaskSnapshot is the captured read_mask, owned by the interceptor.
+type readMaskSnapshot struct {
+	mask *fieldmaskpb.FieldMask
+}
+
+// capturedReadMask returns the captured read_mask, or nil when none applies.
+func (ri *requestInterceptor) capturedReadMask() *fieldmaskpb.FieldMask {
+	snap := ri.readMask.Load()
+	if snap == nil || len(snap.mask.GetPaths()) == 0 {
+		return nil
+	}
+	return snap.mask
 }
 
 // DrivenInterceptor implements the driver.DrivenInterceptor interface.
@@ -191,21 +210,50 @@ func (ri *requestInterceptor) PostMsgReceive(ctx context.Context, req any, err e
 	return ri.handleRequest(ctx, req)
 }
 
-// PostMsgSent runs on every outgoing streaming message.
-func (ri *requestInterceptor) PostMsgSent(ctx context.Context, resp any, err error) error {
-	if err != nil {
-		return err
-	}
-
+// PreMsgSend runs before every outgoing streaming message is handed to the
+// transport and applies the read mask to it. The handler's message is not
+// mutated: the mask is applied to a clone, which is sent instead.
+func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, err error) {
 	if ri.meta != nil && ri.meta.IsClient {
-		return nil
+		return m, nil
 	}
 
 	if ri.shouldSkip() || ri.opts.skipReadMask {
-		return nil
+		return m, nil
 	}
 
-	return ri.handleResponse(ctx, resp)
+	mask := ri.capturedReadMask()
+	msg, ok := m.(proto.Message)
+	if !ok || ri.kind != KindRead || mask == nil {
+		return m, nil
+	}
+
+	// Cloning runs outside filterResponse; recover its panics the same way so
+	// the response is rejected with Internal instead of crashing SendMsg.
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
+		ri.LogError(ctx, "fieldmask read_mask panicked", ri.meta.Method(), nil,
+			slog.String("side", "response"),
+			slog.Any("panic", r),
+		)
+		out = nil
+		err = interceptors.NewError(
+			status.New(codes.Internal, "Internal Error"),
+			nil,
+		)
+	})
+
+	clone := proto.Clone(msg)
+	if err := ri.filterResponse(ctx, clone, mask); err != nil {
+		return nil, err
+	}
+
+	return clone, nil
+}
+
+// PostMsgSent passes the send result through; the read mask is applied before
+// sending, in PreMsgSend.
+func (ri *requestInterceptor) PostMsgSent(_ context.Context, _ any, err error) error {
+	return err
 }
 
 // shouldSkip reports whether the current method should bypass the interceptor.
@@ -244,7 +292,8 @@ func (ri *requestInterceptor) handleRequest(ctx context.Context, req any) error 
 // handleResponse applies the captured read_mask to the response payload for
 // KindRead methods.
 func (ri *requestInterceptor) handleResponse(ctx context.Context, resp any) error {
-	if ri.kind != KindRead || ri.readMask == nil || len(ri.readMask.GetPaths()) == 0 {
+	mask := ri.capturedReadMask()
+	if ri.kind != KindRead || mask == nil {
 		return nil
 	}
 
@@ -253,7 +302,7 @@ func (ri *requestInterceptor) handleResponse(ctx context.Context, resp any) erro
 		return nil
 	}
 
-	return ri.filterResponse(ctx, msg, ri.readMask)
+	return ri.filterResponse(ctx, msg, mask)
 }
 
 // applyUpdateMask runs ApplyUpdateMask against the request and writes the
@@ -314,17 +363,23 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 	return nil
 }
 
-// captureReadMask records the request's read_mask for later use in PostCall.
-// Missing mask is a silent passthrough — the handler will see the request
-// as-is and PostCall will skip filtering.
+// captureReadMask records the read_mask of the first request, as an owned
+// copy, so later requests on a stream and handler mutations of the request
+// cannot change it. A missing mask is recorded too and is a silent
+// passthrough: responses are not filtered.
 func (ri *requestInterceptor) captureReadMask(ctx context.Context, req proto.Message) {
-	mask, ok := ri.resolveRead(ctx, req)
-	if !ok {
-		ri.LogDebug(ctx, "fieldmask read_mask not present", ri.meta.Method())
+	if ri.readMask.Load() != nil {
 		return
 	}
 
-	ri.readMask = mask
+	snap := &readMaskSnapshot{}
+	if mask, ok := ri.resolveRead(ctx, req); ok {
+		snap.mask, _ = proto.Clone(mask).(*fieldmaskpb.FieldMask)
+	} else {
+		ri.LogDebug(ctx, "fieldmask read_mask not present", ri.meta.Method())
+	}
+
+	ri.readMask.CompareAndSwap(nil, snap)
 }
 
 // filterResponse applies the captured read_mask to resp. Panics are

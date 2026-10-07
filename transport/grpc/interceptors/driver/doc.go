@@ -13,6 +13,8 @@
 //     [Driver.PostCall]).
 //   - [DriverStream] -- optional extension of [Driver] with per-message hooks
 //     ([DriverStream.PostMsgSent], [DriverStream.PostMsgReceive]).
+//   - [DriverStreamPreSend] -- optional hook run before a message reaches the
+//     transport; it may replace the message or abort the send.
 //
 // Use [NoopDriver] to obtain a pass-through [Driver] for cases where no
 // interception is needed.
