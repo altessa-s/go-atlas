@@ -84,6 +84,8 @@ func NewHandler(inner slog.Handler, opts ...Option) *Handler {
 		opt(&o)
 	}
 
+	b := base.NewBase(inner) // panics on a nil inner before the worker starts
+
 	p := &pipeline{
 		opts:    o,
 		records: make(chan entry, o.bufferSize),
@@ -93,7 +95,7 @@ func NewHandler(inner slog.Handler, opts ...Option) *Handler {
 	}
 	go p.worker()
 
-	return &Handler{Base: base.NewBase(inner), p: p}
+	return &Handler{Base: b, p: p}
 }
 
 // Enabled delegates to the inner handler.

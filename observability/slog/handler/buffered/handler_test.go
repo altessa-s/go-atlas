@@ -207,6 +207,15 @@ func TestHandler_DerivedHandlersShareWorker(t *testing.T) {
 	require.Contains(t, output, "clone=7 g.n=7")
 }
 
+func TestHandler_NilInnerPanicsWithoutWorker(t *testing.T) {
+	// Serial: runtime.NumGoroutine is process-wide.
+	before := runtime.NumGoroutine()
+	for range 20 {
+		require.Panics(t, func() { NewHandler(nil) })
+	}
+	require.Less(t, runtime.NumGoroutine()-before, 10, "a panicking constructor must not start a worker")
+}
+
 func TestHandler_ShutdownDerivedStopsSharedPipeline(t *testing.T) {
 	t.Parallel()
 
