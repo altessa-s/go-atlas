@@ -9,5 +9,5 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
-// Key types: [StorageType], [Config], [Storage], [StorageMongo].
+// Key types: [StorageType], [Config], [Storage], [StorageMongo], [StorageSQL].
 package auditconfig
