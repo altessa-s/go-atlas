@@ -456,15 +456,16 @@ func (rb *requestBuilder) Send(ctx context.Context) (*http.Response, error) {
 		rb.Release()
 		return nil, coreerrs.WrapOperation(err, "build request")
 	}
-	if cancel := cancelFromContext(req.Context()); cancel != nil { //nolint:contextcheck // context attached by builder
-		defer cancel()
-	}
+	cancel := cancelFromContext(req.Context()) //nolint:contextcheck // context attached by builder
 	resp, err := rb.client.Do(req)
 	rb.Release()
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, coreerrs.Wrapf(err, "request execution failed for %s %s", req.Method, req.URL.String())
 	}
-	return resp, nil
+	return attachCancel(resp, cancel), nil
 }
 
 // Release returns the builder to the pool and clears any sensitive data.
@@ -490,7 +491,8 @@ func (rb *requestBuilder) Build() (*http.Request, error) {
 // Unlike [RequestBuilder.Send], it does not return the builder to the pool; the caller must
 // call [RequestBuilder.Release] when finished. If a per-request [RequestBuilder.Timeout] or
 // [RequestBuilder.Deadline] was set, the returned request's context will carry a
-// [context.CancelFunc] that is called automatically by [RequestBuilder.Send] but must be
+// [context.CancelFunc] that [RequestBuilder.Send] calls when the response body is closed (or
+// immediately on a failed request) but must be
 // managed by the caller when using BuildWithContext directly.
 func (rb *requestBuilder) BuildWithContext(ctx context.Context) (*http.Request, error) { //nolint:contextcheck
 	if rb.method == "" {
