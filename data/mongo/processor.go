@@ -71,6 +71,10 @@ func (fp *documentFieldProcessor) applyPreProcessingFilters() fieldProcessingRes
 // processFieldDirect handles field processing with direct method dispatch instead of Strategy pattern
 func (fp *documentFieldProcessor) processFieldDirect() (bson.M, bson.M, error) {
 	switch {
+	case fp.meta.shouldEncrypt && fp.meta.algorithmString != NestedEncryptionKey:
+		// A field marked for value encryption is encrypted as a whole, whatever
+		// its kind; the type-specific branches below would store it in clear.
+		return fp.processDefaultField()
 	case fp.meta.fieldKind == reflect.Bool:
 		return fp.processBoolField()
 	case fp.mongo.isSliceField(fp.meta.fieldValue, fp.meta.fieldType, fp.update) &&

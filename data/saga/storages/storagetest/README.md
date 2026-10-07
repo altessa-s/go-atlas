@@ -23,6 +23,7 @@ rests on insert-if-absent creation, the version compare-and-swap of `Update` and
 | `FetchRecoverable`           | The predicate of `Instance.Recoverable`: active leases and terminal instances are excluded                               |
 | `FetchRecoverableBoundaries` | A lease a nanosecond in the future is never returned; expired leases may be reported up to `Granularity` late            |
 | `FetchRecoverableLimit`      | A positive limit caps the result; a non-positive one does not                                                            |
+| `FetchRecoverableDefinition` | A definition filter applies before the limit; an empty definition returns every definition                               |
 
 Fixtures use whole-second `CreatedAt`, `UpdatedAt`, `Deadline` and step times, which durable backends may store at one-second precision.
 Versions are opaque: a contract checks only that a successful `Update` changes the version and writes it back.
