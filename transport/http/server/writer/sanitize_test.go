@@ -1,18 +1,25 @@
-// Copyright 2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
 package writer_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
+
+	"google.golang.org/protobuf/types/known/anypb"
 
 	testpb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
@@ -137,4 +144,113 @@ func TestWriteStream_StripsInputOnly(t *testing.T) {
 	data := dataField(body)
 	require.NotContains(t, data, "password", "stream path must strip INPUT_ONLY")
 	require.Equal(t, "public-name", data["name"])
+}
+
+// TestWrite_StripsInputOnly_Collections covers INPUT_ONLY fields reached
+// through repeated and map message fields and a oneof, while OUTPUT_ONLY
+// fields are left in the response.
+func TestWrite_StripsInputOnly_Collections(t *testing.T) {
+	t.Parallel()
+
+	res := &testpb.Resource{
+		Name:       "public-name",
+		CreateTime: "2026-01-01T00:00:00Z",
+		Aliases:    []*testpb.Profile{{DisplayName: "a", Secret: "alias-secret"}},
+		Labels:     map[string]*testpb.Profile{"k": {DisplayName: "l", Secret: "label-secret"}},
+		Source:     &testpb.Resource_SourceToken{SourceToken: "oneof-secret"},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "application/json")
+	require.NoError(t, writer.New().Write(rec, req, res))
+
+	body := rec.Body.String()
+	require.Contains(t, body, "2026-01-01T00:00:00Z", "OUTPUT_ONLY must survive response sanitization")
+	require.Contains(t, body, "public-name")
+	for _, secret := range []string{"alias-secret", "label-secret", "oneof-secret"} {
+		require.NotContains(t, body, secret, "INPUT_ONLY in repeated, map and oneof fields must be stripped")
+	}
+}
+
+// TestWrite_TypedNilMessage passes a nil *Resource: nothing to strip, no error.
+func TestWrite_TypedNilMessage(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "application/json")
+
+	require.NoError(t, writer.New().Write(rec, req, (*testpb.Resource)(nil)))
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestWrite_AnyIsNotSanitized pins the documented boundary: the contents of a
+// google.protobuf.Any are opaque bytes and pass through unchanged.
+func TestWrite_AnyIsNotSanitized(t *testing.T) {
+	t.Parallel()
+
+	packed, err := anypb.New(resourceWithSecrets())
+	require.NoError(t, err)
+	value := slices.Clone(packed.GetValue())
+
+	data := dataField(writeJSON(t, writer.New(), packed))
+
+	encoded, ok := data["value"].(string)
+	require.True(t, ok)
+	got, err := base64.StdEncoding.DecodeString(encoded)
+	require.NoError(t, err)
+	require.Equal(t, value, got, "Any contents are documented as not sanitized")
+}
+
+// TestWriteStream_SanitizationDisabled pins the opt-out on the streaming path.
+func TestWriteStream_SanitizationDisabled(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept", "application/json")
+
+	require.NoError(t, writer.New(writer.WithResponseSanitizationDisabled()).WriteStream(rec, req, resourceWithSecrets()))
+	require.Contains(t, rec.Body.String(), "top-secret")
+}
+
+// TestWrite_SanitizationFailure exceeds the configured depth: the client gets
+// a 500 without the payload, the caller gets ErrResponseSanitization wrapping
+// the cause, and the failure is logged.
+func TestWrite_SanitizationFailure(t *testing.T) {
+	t.Parallel()
+
+	for name, write := range map[string]func(*writer.Writer, http.ResponseWriter, *http.Request, any) error{
+		"Write":       (*writer.Writer).Write,
+		"WriteStream": (*writer.Writer).WriteStream,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var logs bytes.Buffer
+			wr := writer.New(
+				writer.WithResponseSanitizationMaxDepth(0),
+				writer.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))),
+			)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Header.Set("Accept", "application/json")
+
+			err := write(wr, rec, req, resourceWithSecrets())
+			require.ErrorIs(t, err, writer.ErrResponseSanitization)
+			require.ErrorIs(t, err, fieldbehavior.ErrMaxDepthExceeded)
+			require.Equal(t, http.StatusInternalServerError, rec.Code)
+			require.NotContains(t, rec.Body.String(), "top-secret")
+			require.NotContains(t, rec.Body.String(), "public-name")
+			require.Contains(t, logs.String(), "response sanitization failed")
+		})
+	}
+}
+
+// TestWrite_SanitizationMaxDepth shows a deep enough limit sanitizes normally.
+func TestWrite_SanitizationMaxDepth(t *testing.T) {
+	t.Parallel()
+
+	data := dataField(writeJSON(t, writer.New(writer.WithResponseSanitizationMaxDepth(4)), resourceWithSecrets()))
+	require.NotContains(t, data, "password")
 }
