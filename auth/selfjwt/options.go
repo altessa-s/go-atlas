@@ -36,6 +36,12 @@ const (
 	// DefaultCacheMaxEntries caps the verification-key cache so a churn of
 	// short-lived subjects or rotated-away kids cannot grow it without bound.
 	DefaultCacheMaxEntries = 10000
+
+	// DefaultKeyLookupTimeout bounds a key-provider lookup on a cache miss. The
+	// lookup is shared by concurrent verifications of the same (subject, kid)
+	// and detached from any single caller's cancellation, so it needs its own
+	// deadline.
+	DefaultKeyLookupTimeout = 10 * time.Second
 )
 
 // defaultRand is the production randomness source for jti generation.
@@ -49,6 +55,7 @@ type options struct {
 	leeway            time.Duration `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
 	cacheTTL          time.Duration `optgen:"default=DefaultCacheTTL" optval:"positive=allow_zero"`
 	cacheMaxEntries   int           `optgen:"default=DefaultCacheMaxEntries"`
+	keyLookupTimeout  time.Duration `optgen:"default=DefaultKeyLookupTimeout" optval:"positive"`
 	allowedAlgorithms []Algorithm   `optgen:"manual,default=defaultAllowedAlgorithms"`
 	rand              io.Reader     `optgen:"default=defaultRand"`
 	clock             Clock         `optgen:"default=defaultClock"`

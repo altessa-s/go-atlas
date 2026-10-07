@@ -54,9 +54,11 @@ const (
 const DefaultMaxCacheEntries = 4096
 
 type options struct {
-	httpClient        *http.Client
-	retryPolicy       RetryPolicy `optgen:"notnil"`
-	logger            *slog.Logger
+	httpClient  *http.Client
+	retryPolicy RetryPolicy `optgen:"notnil"`
+	logger      *slog.Logger
+	// enableCompression requests gzip-encoded responder replies (decoded with
+	// the same 1 MiB cap). The cache always holds raw DER.
 	enableCompression bool        `opt:"Compression"`
 	failureMode       FailureMode `optgen:"manual,default=DefaultFailureMode"`
 	maxCacheEntries   int         `optgen:"default=DefaultMaxCacheEntries"`
