@@ -17,8 +17,10 @@ injected into the top-level `dlock.DLock` to supply the underlying locking mecha
 
 ## Subpackages
 
-| Package            | Description                        |
-|--------------------|------------------------------------|
-| [mongo](./mongo)   | MongoDB provider                   |
-| [nats](./nats)     | NATS JetStream provider            |
-| [noop](./noop)     | No-op provider for testing         |
+| Package                        | Description                         |
+|--------------------------------|-------------------------------------|
+| [mongo](./mongo)               | MongoDB provider                    |
+| [nats](./nats)                 | NATS JetStream provider             |
+| [noop](./noop)                 | No-op provider for testing          |
+| [sqldb](./sqldb)               | PostgreSQL, MySQL, MariaDB provider |
+| [providertest](./providertest) | Provider contract suite             |

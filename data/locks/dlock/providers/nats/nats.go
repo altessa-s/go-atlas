@@ -85,7 +85,17 @@ type Locker struct {
 	// Track active locks for cleanup
 	activeLocks *lockTracker
 	closed      atomic.Bool
+
+	// mu orders Lock's closed check and registration against Close, and
+	// inflight counts the acquisitions past that check, which Close waits
+	// for: an acquisition completing while Close runs is either registered
+	// before Close drains the locks or released by Lock itself.
+	mu       sync.Mutex
+	inflight sync.WaitGroup
 }
+
+// errClosed reports an operation on a closed provider.
+var errClosed = errors.New("provider is closed")
 
 var (
 	_ providers.Provider = (*Locker)(nil)
@@ -165,10 +175,14 @@ func bucketConfig(o *options) natskvlease.BucketConfig {
 // [WithAcquireTimeout]. The returned [providers.Lock] should still be released
 // explicitly when the work is done.
 func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
-	// Check if provider is closed
+	l.mu.Lock()
 	if l.closed.Load() {
-		return nil, errors.New("provider is closed")
+		l.mu.Unlock()
+		return nil, errClosed
 	}
+	l.inflight.Add(1)
+	l.mu.Unlock()
+	defer l.inflight.Done()
 
 	lk := newLock(&config{Key: key, TTL: l.opts.ttl, Value: uuid.NewString()}, l.kvOps, l.opts.logger, l.opts.renewRatio)
 	ok, err := lk.run(ctx, l.opts.acquireTimeout)
@@ -181,8 +195,19 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 		return nil, errs.ErrLockNotHeld
 	}
 
-	// Track active lock
+	l.mu.Lock()
+	if l.closed.Load() {
+		l.mu.Unlock()
+		releaseCtx, cancel := corectx.ApplyTimeout(context.WithoutCancel(ctx), DefaultOperationsTimeout)
+		defer cancel()
+		if err := lk.Release(releaseCtx); err != nil && l.opts.logger != nil {
+			l.opts.logger.ErrorContext(ctx, "failed to release a lock acquired while closing",
+				slog.Any("error", err), slog.String("key", key))
+		}
+		return nil, errClosed
+	}
 	l.activeLocks.Store(key, lk)
+	l.mu.Unlock()
 
 	// Wrap the lock to remove from tracking on release
 	return &trackedLock{
@@ -202,8 +227,24 @@ func (l *Locker) GetLockInfo(ctx context.Context, key string) (*providers.LockIn
 // It releases all active locks before closing.
 func (l *Locker) Close(ctx context.Context) error {
 	// Mark as closed to prevent new locks
+	l.mu.Lock()
 	if !l.closed.CompareAndSwap(false, true) {
+		l.mu.Unlock()
 		return errors.New("provider already closed")
+	}
+	l.mu.Unlock()
+
+	// Acquisitions already past the closed check register before the drain
+	// below or release themselves; wait until they have done either.
+	drained := make(chan struct{})
+	go func() {
+		l.inflight.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+	case <-ctx.Done():
+		return coreerrs.Wrap(ctx.Err(), "wait for in-flight lock acquisitions")
 	}
 
 	if l.opts.logger != nil {
@@ -237,7 +278,7 @@ func (l *Locker) Close(ctx context.Context) error {
 // [dlock.DLock.CheckHealth] for readiness probes.
 func (l *Locker) Probe(ctx context.Context) error {
 	if l.closed.Load() {
-		return errors.New("provider is closed")
+		return errClosed
 	}
 	if l.client == nil || l.client.Status() != nats.CONNECTED {
 		return errors.New("nats client not connected")
@@ -263,9 +304,12 @@ func (t *trackedLock) GetLockInfo(ctx context.Context) (*providers.LockInfo, err
 	return t.lock.GetLockInfo(ctx)
 }
 
-// Release releases the lock with context support.
+// Release releases the lock with context support. A failed release keeps the
+// lock tracked, so it can be retried — by Release or by Close.
 func (t *trackedLock) Release(ctx context.Context) error {
-	err := t.lock.Release(ctx)
+	if err := t.lock.Release(ctx); err != nil {
+		return err
+	}
 	t.tracker.Delete(t.key)
-	return err
+	return nil
 }
