@@ -16,27 +16,35 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa"
 )
 
-// gatedSource serves a fixed bundle. While gated, each Fetch signals entered
-// and then blocks until release is closed, ignoring its context like a slow
-// source would. It records Close calls and any Fetch that overlaps or follows
-// Close.
+// gatedSource serves a fixed bundle. While gated, a Fetch signals entered,
+// waits for its context to be canceled (only StopWatching/Close cancel a poll
+// loop's context), signals canceled, and then keeps running until release is
+// closed, like a slow source that does not abort promptly. It records Close
+// calls and any Fetch that overlaps or follows Close.
 type gatedSource struct {
-	gated   atomic.Bool
-	entered chan struct{}
-	release chan struct{}
+	gated    atomic.Bool
+	entered  chan struct{}
+	canceled chan struct{}
+	release  chan struct{}
 
+	fetches    atomic.Int32
 	inFetch    atomic.Int32
 	closeCalls atomic.Int32
 	violations atomic.Int32 // Fetch after Close, or Close during Fetch
 }
 
 func newGatedSource() *gatedSource {
-	return &gatedSource{entered: make(chan struct{}, 64), release: make(chan struct{})}
+	return &gatedSource{
+		entered:  make(chan struct{}, 64),
+		canceled: make(chan struct{}, 64),
+		release:  make(chan struct{}),
+	}
 }
 
 func (s *gatedSource) Name() string { return "gated" }
 
-func (s *gatedSource) Fetch(context.Context) (*opa.PolicyBundle, error) {
+func (s *gatedSource) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
+	s.fetches.Add(1)
 	s.inFetch.Add(1)
 	defer s.inFetch.Add(-1)
 	if s.closeCalls.Load() > 0 {
@@ -44,6 +52,8 @@ func (s *gatedSource) Fetch(context.Context) (*opa.PolicyBundle, error) {
 	}
 	if s.gated.Load() {
 		s.entered <- struct{}{}
+		<-ctx.Done()
+		s.canceled <- struct{}{}
 		<-s.release
 	}
 	return &opa.PolicyBundle{
@@ -67,15 +77,18 @@ func newGatedManager(t *testing.T, src *gatedSource) *opa.Manager {
 	return m
 }
 
-// releaseLater unblocks the gated Fetch shortly after the caller starts
-// waiting. The delay only keeps the test live; the assertions hold for any
-// interleaving because they inspect state at the moment the waiter returns.
-func releaseLater(src *gatedSource) {
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		src.gated.Store(false)
-		close(src.release)
-	}()
+// requireStillWaiting asserts that waiter has not returned although the loop
+// it must join is still inside Fetch. The caller has already observed the
+// loop's cancellation, so the waiter is past its cancel step: a correct waiter
+// never returns here (no false failures), while one that does not join returns
+// within the grace period.
+func requireStillWaiting(t *testing.T, waiter <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-waiter:
+		require.Fail(t, msg)
+	case <-time.After(50 * time.Millisecond):
+	}
 }
 
 // TestManager_StopWatchingJoinsPollLoop: StopWatching must not return while
@@ -88,11 +101,20 @@ func TestManager_StopWatchingJoinsPollLoop(t *testing.T) {
 
 	src.gated.Store(true)
 	require.NoError(t, m.StartWatching(t.Context()))
-	<-src.entered // the loop is blocked inside Fetch
+	<-src.entered // the loop is inside Fetch
 
-	releaseLater(src)
-	m.StopWatching()
-	require.Zero(t, src.inFetch.Load(), "StopWatching returned while the poll loop was in Fetch")
+	stopped := make(chan struct{})
+	go func() {
+		m.StopWatching()
+		close(stopped)
+	}()
+	<-src.canceled // StopWatching canceled the loop; Fetch still runs
+	requireStillWaiting(t, stopped, "StopWatching returned while the poll loop was in Fetch")
+
+	src.gated.Store(false)
+	close(src.release)
+	<-stopped
+	require.Zero(t, src.inFetch.Load())
 }
 
 // TestManager_ConcurrentCloseWaitsForTeardown: no Close caller returns before
@@ -107,24 +129,48 @@ func TestManager_ConcurrentCloseWaitsForTeardown(t *testing.T) {
 	require.NoError(t, m.StartWatching(t.Context()))
 	<-src.entered
 
-	releaseLater(src)
-	var wg sync.WaitGroup
-	for range 2 {
-		wg.Go(func() {
-			_ = m.Close()
-			if src.inFetch.Load() != 0 || src.closeCalls.Load() != 1 {
-				t.Error("Close returned before the poll loop exited and the source was closed")
-			}
-		})
-	}
-	wg.Wait()
+	first, second := make(chan struct{}), make(chan struct{})
+	go func() { _ = m.Close(); close(first) }()
+	<-src.canceled // the first Close has begun its teardown
+	go func() { _ = m.Close(); close(second) }()
+	requireStillWaiting(t, first, "Close returned while the poll loop was in Fetch")
+	requireStillWaiting(t, second, "a concurrent Close returned before the teardown finished")
+	require.Zero(t, src.closeCalls.Load(), "source closed while Fetch was running")
+
+	src.gated.Store(false)
+	close(src.release)
+	<-first
+	<-second
 	require.Equal(t, int32(1), src.closeCalls.Load())
-	require.Zero(t, src.violations.Load(), "source closed while Fetch was running")
+	require.Zero(t, src.violations.Load())
 }
 
-// TestManager_RestartDoesNotLeakPollLoops: a stop/start/Close storm leaves no
-// loop running after Close and never fetches after the source is closed.
-func TestManager_RestartDoesNotLeakPollLoops(t *testing.T) {
+// TestManager_StopIsFinalAfterRestart: after start/stop/start/stop no loop
+// survives — neither the first loop (which must not adopt the second loop's
+// context) nor the second one — so no Fetch happens once StopWatching returns.
+func TestManager_StopIsFinalAfterRestart(t *testing.T) {
+	t.Parallel()
+	src := newGatedSource()
+	m := newGatedManager(t, src)
+	t.Cleanup(func() { _ = m.Close() })
+
+	ctx1, cancel1 := context.WithCancel(t.Context())
+	t.Cleanup(cancel1)
+	require.NoError(t, m.StartWatching(ctx1))
+	m.StopWatching()
+	require.NoError(t, m.StartWatching(t.Context()))
+	m.StopWatching()
+
+	before := src.fetches.Load()
+	time.Sleep(20 * time.Millisecond) // 20 poll intervals
+	require.Equal(t, before, src.fetches.Load(), "a poll loop kept fetching after StopWatching")
+	require.Zero(t, src.inFetch.Load())
+}
+
+// TestManager_RestartStormWithClose: stop/start storms racing Close leave no
+// loop running once Close returns, never fetch after the source is closed, and
+// refuse to start afterwards.
+func TestManager_RestartStormWithClose(t *testing.T) {
 	t.Parallel()
 	src := newGatedSource()
 	m := newGatedManager(t, src)
@@ -138,12 +184,21 @@ func TestManager_RestartDoesNotLeakPollLoops(t *testing.T) {
 			}
 		})
 	}
-	wg.Go(func() { _ = m.StartWatching(t.Context()) })
+	closed := make(chan struct{})
+	wg.Go(func() {
+		if err := m.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+		if src.inFetch.Load() != 0 || src.closeCalls.Load() != 1 {
+			t.Error("Close returned before every poll loop exited and the source was closed")
+		}
+		close(closed)
+	})
 	wg.Wait()
+	<-closed
 
-	require.NoError(t, m.Close())
 	require.ErrorIs(t, m.StartWatching(t.Context()), opa.ErrManagerClosed)
-	require.Zero(t, src.inFetch.Load(), "a poll loop is still fetching after Close")
-	require.Zero(t, src.violations.Load())
 	require.False(t, m.IsWatching())
+	require.Zero(t, src.inFetch.Load())
+	require.Zero(t, src.violations.Load(), "Fetch ran after (or during) source Close")
 }
