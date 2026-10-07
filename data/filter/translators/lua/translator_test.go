@@ -457,3 +457,18 @@ func TestNewTranslator_UntrustedInput_EmptyAllowlist(t *testing.T) {
 	)
 	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 }
+
+// Nothing is a member of an empty list; the translation must be valid Lua
+// rather than the empty group `()`.
+func TestTranslator_InEmptyList(t *testing.T) {
+	t.Parallel()
+	tr := mustTranslator(t, "d")
+
+	got, err := tr.Translate(testhelpers.MustParseFilter(t, `status in []`))
+	require.NoError(t, err)
+	require.Equal(t, luaFalse, got)
+
+	got, err = tr.Translate(testhelpers.MustParseFilter(t, `!(status in [])`))
+	require.NoError(t, err)
+	require.Equal(t, "(not "+luaFalse+")", got)
+}
