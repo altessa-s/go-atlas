@@ -3,5 +3,6 @@
 // the LICENSE file.
 
 // Package sqlorder renders an orderby.Spec as a SQL ORDER BY body for the
-// PostgreSQL and MariaDB translators, which differ only in identifier quoting.
+// PostgreSQL, MariaDB and ClickHouse translators, which differ only in
+// identifier quoting.
 package sqlorder

@@ -128,6 +128,7 @@ cursor, err := col.Find(ctx, filter, options.Find().SetSort(sort))
 | [translators/redisearch](./translators/redisearch)   | `SortBy{Field, Descending}`  | `NewTranslator(opts ...orderby.TranslatorOption)`        |
 | [translators/postgres](./translators/postgres)       | `string` (`ORDER BY` body)   | `NewTranslator(opts ...orderby.TranslatorOption)`        |
 | [translators/mariadb](./translators/mariadb)         | `string` (`ORDER BY` body)   | `NewTranslator(opts ...orderby.TranslatorOption)`        |
+| [translators/clickhouse](./translators/clickhouse)   | `string` (`ORDER BY` body)   | `NewTranslator(opts ...orderby.TranslatorOption)`        |
 
 The MongoDB translator emits `bson.D` (not `bson.M`) because sort precedence is significant — the MongoDB driver respects insertion order only on
 ordered documents. RediSearch's `FT.SEARCH ... SORTBY` accepts a single field; multi-key inputs return `ErrTooManySortKeys`.
