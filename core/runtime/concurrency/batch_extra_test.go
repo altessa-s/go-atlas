@@ -7,6 +7,7 @@ package concurrency_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -171,6 +172,52 @@ func TestProcess_Sequential_CancellationSemantics(t *testing.T) {
 		}, concurrency.WithConcurrency[int](1))
 		require.NoError(t, err, "every item was processed")
 		require.Equal(t, int32(2), calls.Load())
+	})
+}
+
+// Canceling mid-batch on the parallel path stops dispatch: the batch reports
+// context.Canceled, items after the cancellation never run, and
+// ProcessCollect returns exactly the processed items, in input order, with no
+// zero values standing in for the rest.
+func TestProcess_Parallel_MidBatchCancellation(t *testing.T) {
+	t.Parallel()
+	const n = 64
+	items := make([]int, n)
+	for i := range items {
+		items[i] = i
+	}
+
+	t.Run("process", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(t.Context())
+		var calls atomic.Int32
+		err := concurrency.Process(ctx, items, func(_ context.Context, item int) error {
+			calls.Add(1)
+			if item == 0 {
+				cancel()
+			}
+			return nil
+		}, concurrency.WithConcurrency[int](2))
+		require.ErrorIs(t, err, context.Canceled)
+		require.Less(t, calls.Load(), int32(n), "dispatch must stop after the cancellation")
+	})
+
+	t.Run("process_collect", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(t.Context())
+		var calls atomic.Int32
+		results, err := concurrency.ProcessCollect(ctx, items, func(_ context.Context, item int) (int, error) {
+			calls.Add(1)
+			if item == 0 {
+				cancel()
+			}
+			return item + 1, nil // never zero, so a fabricated result shows
+		}, concurrency.WithConcurrency[int](2))
+		require.ErrorIs(t, err, context.Canceled)
+		require.Len(t, results, int(calls.Load()), "one result per processed item")
+		require.Less(t, len(results), n)
+		require.True(t, slices.IsSorted(results), "completed results keep input order: %v", results)
+		require.NotContains(t, results, 0, "no zero value for an unprocessed item")
 	})
 }
 
