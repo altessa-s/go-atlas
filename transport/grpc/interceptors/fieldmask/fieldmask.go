@@ -107,6 +107,9 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 		meta:        meta,
 		kind:        i.classify(meta.Method()),
 	}
+	if ri.kind == KindRead {
+		ctx = context.WithValue(ctx, readMaskKey{}, ri)
+	}
 
 	return ri, ctx
 }
