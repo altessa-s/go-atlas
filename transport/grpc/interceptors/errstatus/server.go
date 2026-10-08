@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strconv"
 
 	"github.com/altessa-s/go-atlas/data/cache/lru"
@@ -48,6 +49,10 @@ type interceptor struct {
 	options      *options
 	cache        lru.Cacher[string, *cacheEntry]
 	allSentinels []error // Pre-built list of all sentinel errors
+	// skipCustomCache disables the cached-custom shortcut: with a NoCache
+	// converter configured, a cached result of a later converter could
+	// pre-empt it for an error it would match.
+	skipCustomCache bool
 }
 
 // Dependencies declares that errstatus must run after requestid so that
@@ -94,6 +99,7 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 		options:         opts,
 		cache:           cache,
 		allSentinels:    allSentinels,
+		skipCustomCache: slices.ContainsFunc(opts.errorConverters, func(c ErrorConverter) bool { return c.NoCache }),
 	}
 }
 
@@ -160,15 +166,16 @@ func (i *interceptor) logErrorConversion(ctx context.Context, err error, extraAt
 }
 
 // tryCustomConverters attempts to convert an error using custom errorConverters.
-// Returns the converted status if a converter matches, nil otherwise.
-func (i *interceptor) tryCustomConverters(ctx context.Context, err error) *status.Status {
+// Returns the converted status if a converter matches, nil otherwise, and
+// whether the status may be cached (see [ErrorConverter.NoCache]).
+func (i *interceptor) tryCustomConverters(ctx context.Context, err error) (*status.Status, bool) {
 	for _, converter := range i.options.errorConverters {
 		if converter.Matcher(ctx, err) {
 			i.LogDebug(ctx, "matched custom converter", convertOperation, slog.Any("error", err))
-			return converter.Convert(ctx, err)
+			return converter.Convert(ctx, err), !converter.NoCache
 		}
 	}
-	return nil
+	return nil, false
 }
 
 // getCachedEntry retrieves a cached error conversion if available.
@@ -227,19 +234,21 @@ func (i *interceptor) handleServerError(ctx context.Context, srv any, err error)
 
 		// Check cache first.
 		entry := i.getCachedEntry(ctx, err)
-		if entry != nil && entry.isCustom {
+		if entry != nil && entry.isCustom && !i.skipCustomCache {
 			// Custom cache entry - use it immediately without checking errorConverters again.
 			return interceptors.NewError(entry.status, err)
 		}
 
 		// Try custom errorConverters (they override non-custom cache).
-		if customSt := i.tryCustomConverters(ctx, err); customSt != nil {
-			i.cacheStatus(err, customSt, true)
+		if customSt, cacheable := i.tryCustomConverters(ctx, err); customSt != nil {
+			if cacheable {
+				i.cacheStatus(err, customSt, true)
+			}
 			return interceptors.NewError(customSt, err)
 		}
 
 		// Use non-custom cache entry if available.
-		if entry != nil {
+		if entry != nil && !entry.isCustom {
 			return interceptors.NewError(entry.status, err)
 		}
 

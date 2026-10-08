@@ -149,6 +149,17 @@ func TestWithDomainFinalizer(t *testing.T) {
 		require.True(t, called, "original finalizer should have been called")
 	})
 
+	t.Run("custom_finalizer_still_runs", func(t *testing.T) {
+		var called bool
+		custom := Finalizer(func(_ context.Context, err error) error {
+			called = true
+			return err
+		})
+		result := withDomainFinalizer(custom, "test.example.com")(t.Context(), status.New(codes.Internal, "fail").Err())
+		require.True(t, called, "a domain must not replace the configured finalizer")
+		require.Equal(t, "test.example.com", requireErrorInfo(t, result).Domain)
+	})
+
 	t.Run("non_empty_domain", func(t *testing.T) {
 		wrapped := withDomainFinalizer(DefaultFinalizer, "test.example.com")
 		result := wrapped(t.Context(), status.New(codes.Internal, "fail").Err())
