@@ -251,7 +251,7 @@ func TestStorageQueryPagingIsStableOnEqualTimestamps(t *testing.T) {
 	seen := make(map[string]int, total)
 
 	query := &audit.Query{Limit: 2}
-	for page := 0; page < total/2; page++ {
+	for page := range total / 2 {
 		got := collect(t, s.Query(t.Context(), query))
 		require.Len(t, got, 2, "page %d", page)
 
