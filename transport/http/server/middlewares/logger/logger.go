@@ -14,10 +14,10 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
 	"github.com/altessa-s/go-atlas/observability/tracing"
+	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
-	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/observability"
 
 	coreio "github.com/altessa-s/go-atlas/core/io"
