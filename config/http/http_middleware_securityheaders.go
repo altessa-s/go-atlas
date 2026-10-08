@@ -48,6 +48,15 @@ type SecurityHeadersMiddleware struct {
 
 	// XssProtectionDisabled sets X-XSS-Protection: 0.
 	XssProtectionDisabled bool `yaml:"xssProtectionDisabled" default:"true"`
+
+	// CacheControl sets a default Cache-Control header (e.g. "no-store");
+	// handlers may override it.
+	CacheControl string `yaml:"cacheControl"`
+
+	// NoDefaultIgnores applies the headers to the health, metrics and pprof
+	// paths the middleware skips by default; only IgnorePaths and
+	// IgnorePatterns are then skipped.
+	NoDefaultIgnores bool `yaml:"noDefaultIgnores" default:"false"`
 }
 
 // Validate performs validation of the SecurityHeadersMiddleware.
