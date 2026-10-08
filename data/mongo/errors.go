@@ -96,6 +96,16 @@ func IsErrorCollectionNotFound(err error) bool {
 	return false
 }
 
+// IsErrorCollectionExists reports whether err is MongoDB's NamespaceExists
+// error (code 48), returned when creating a collection or view that already
+// exists.
+func IsErrorCollectionExists(err error) bool {
+	if se, ok := errors.AsType[mongo.ServerError](err); ok {
+		return se.HasErrorCode(MongoErrorCodeCollectionExists)
+	}
+	return false
+}
+
 // IsErrorIndexNotFound checks if the error is an index not found error.
 func IsErrorIndexNotFound(err error) bool {
 	if se, ok := errors.AsType[mongo.ServerError](err); ok {
