@@ -56,7 +56,7 @@ func Handshake(tb testing.TB, cfg *tls.Config) []byte {
 		// SNI makes crypto/tls consult GetCertificate even when
 		// Config.Certificates is populated.
 		ServerName:         "localhost",
-		InsecureSkipVerify: true, //nolint:gosec // test peer uses a self-signed certificate
+		InsecureSkipVerify: true, // #nosec G402 -- test peer uses a self-signed certificate
 		MinVersion:         tls.VersionTLS12,
 	})
 	if err := client.HandshakeContext(tb.Context()); err != nil {
