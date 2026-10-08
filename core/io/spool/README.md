@@ -13,6 +13,7 @@ Materializes a streaming `io.Reader` into a local, rewindable backing store. Con
 | `WithMemThreshold(n int64)` | `4 MiB` | Maximum bytes to hold in memory before spilling to a temp file |
 | `WithMaxBytes(n int64)` | `0` (unlimited) | Hard cap on total materialized size; returns `ErrTooLarge` when exceeded |
 | `WithTee(w io.Writer)` | `nil` | Mirror every byte read from the source into w during materialization |
+| `WithTempDir(dir string)` | `""` (os.TempDir) | Directory for the spill file; it must exist |
 
 ## Key types
 
