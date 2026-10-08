@@ -286,7 +286,7 @@ func buildItemsAggregationStages(limit int64, projection bson.M, decorationStage
 		bson.M{"$limit": limit + paginationLookaheadCount},
 	}
 	stages = append(stages, decorationStages...)
-	stages = slices.AppendIf[any](stages, projection != nil, bson.M{"$project": projection})
+	stages = slices.AppendIf[any](stages, len(projection) > 0, bson.M{"$project": projection})
 	return stages
 }
 

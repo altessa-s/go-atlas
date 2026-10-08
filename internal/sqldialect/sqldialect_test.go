@@ -15,7 +15,7 @@ import (
 
 func TestTable(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"", "t; DROP TABLE x", "a.b.c", "1tasks", `"quoted"`, "tab le", ".t", "s.",
+	for _, name := range []string{"", "t; DROP TABLE x", "a.b.c", "1tasks", `"quoted"`, "tab le", ".t", "s.", "a..b", "s.1t", "t\n", "t-x", "ü",
 		strings.Repeat("t", sqldialect.MaxIdentLen+1), "s." + strings.Repeat("t", sqldialect.MaxIdentLen+1)} {
 		_, err := sqldialect.Postgres.Table(name)
 		require.ErrorIs(t, err, sqldialect.ErrInvalidTableName, name)
@@ -28,6 +28,7 @@ func TestTable(t *testing.T) {
 		{sqldialect.Postgres, "app.events", `"app"."events"`},
 		{sqldialect.MySQL, "app.events", "`app`.`events`"},
 		{sqldialect.MySQL, "_T1", "`_T1`"},
+		{sqldialect.Postgres, "a1_.B_2", `"a1_"."B_2"`},
 	} {
 		got, err := tc.style.Table(tc.name)
 		require.NoError(t, err, tc.name)

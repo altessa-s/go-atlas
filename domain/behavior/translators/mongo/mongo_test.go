@@ -5,7 +5,6 @@
 package mongo_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -42,7 +41,7 @@ type user struct {
 func insert(t *testing.T, v any, opts ...mongo.Option) bson.M {
 	t.Helper()
 	eng := behavior.New[bson.M](mongo.NewInsertTranslator(opts...))
-	got, err := eng.Translate(context.Background(), v)
+	got, err := eng.Translate(t.Context(), v)
 	require.NoError(t, err)
 	return got
 }
@@ -52,7 +51,7 @@ func insert(t *testing.T, v any, opts ...mongo.Option) bson.M {
 func update(t *testing.T, v any, behOpts []behavior.Option, opts ...mongo.Option) bson.M {
 	t.Helper()
 	eng := behavior.New[bson.M](mongo.NewUpdateTranslator(opts...), behOpts...)
-	got, err := eng.Translate(context.Background(), v)
+	got, err := eng.Translate(t.Context(), v)
 	require.NoError(t, err)
 	return got
 }
@@ -77,49 +76,54 @@ func TestInsertTranslator(t *testing.T) {
 
 	got := insert(t, &u)
 
+	// The insert document is the codec's encoding of u, decoded: values carry
+	// their BSON Go types (Binary, DateTime) and every field is present.
 	want := bson.M{
 		"_id":         "u1",
 		"name":        "Ann",
 		"active":      true,
 		"tags":        bson.A{"a", "b"},
-		"blob":        []byte{0x01, 0x02},
-		"create_time": ct,
+		"blob":        bson.Binary{Data: []byte{0x01, 0x02}},
+		"create_time": bson.NewDateTimeFromTime(ct),
 		"tenant_id":   "t1",
 		"password":    "secret",
-		"home":        bson.M{"city": "NYC", "secret": "s"},
-		"aliases":     bson.A{bson.M{"city": "LA", "secret": "x"}},
-		"labels":      bson.M{"k": "v"},
+		"home":        bson.D{{Key: "city", Value: "NYC"}, {Key: "secret", Value: "s"}},
+		"aliases":     bson.A{bson.D{{Key: "city", Value: "LA"}, {Key: "secret", Value: "x"}}},
+		"labels":      bson.D{{Key: "k", Value: "v"}},
 	}
 	require.Equal(t, want, got)
+	matchesDriver(t, &u)
 }
 
 func TestInsertTranslatorOmitemptyAndEmptyCollections(t *testing.T) {
 	t.Parallel()
 
-	// Nick is nil pointer with omitempty -> absent. Empty slices/maps absent.
+	// Nick is a nil pointer with omitempty -> absent. Nil collections without
+	// omitempty are written as null, as the codec writes them; empty non-nil
+	// ones as [] / {}.
 	got := insert(t, &user{Name: "Bob"})
 
 	require.NotContains(t, got, "nick")
-	require.NotContains(t, got, "tags")
-	require.NotContains(t, got, "blob")
-	require.NotContains(t, got, "aliases")
-	require.NotContains(t, got, "labels")
-	// A nil pointer-to-struct without omitempty is written as a nil value on
-	// insert (it falls through to the default case).
+	for _, k := range []string{"tags", "blob", "aliases", "labels"} {
+		require.Contains(t, got, k)
+	}
+	matchesDriver(t, &user{Name: "Bob"})
+	matchesDriver(t, &user{Name: "Bob", Tags: []string{}, Aliases: []address{}, Labels: map[string]string{}})
+	// A nil pointer-to-struct without omitempty is written as null.
 	require.Contains(t, got, "home")
-	require.Equal(t, (*address)(nil), got["home"])
+	require.Nil(t, got["home"])
 	require.Equal(t, "Bob", got["name"])
 	require.Equal(t, false, got["active"])
 
-	// time.Time is an opaque leaf: written as value, not recursed.
-	require.IsType(t, time.Time{}, got["create_time"])
+	// time.Time is written as a BSON datetime, not recursed.
+	require.IsType(t, bson.DateTime(0), got["create_time"])
 }
 
 func TestInsertTranslatorOmitemptyPresentPointer(t *testing.T) {
 	t.Parallel()
 
 	got := insert(t, &user{Name: "Cy", Nick: new("cy")})
-	require.Equal(t, new("cy"), got["nick"])
+	require.Equal(t, "cy", got["nick"], "the codec writes the pointer's target")
 }
 
 func TestInsertTranslatorOmitemptyZeroValues(t *testing.T) {
@@ -139,14 +143,14 @@ func TestInsertTranslatorOmitemptyZeroValues(t *testing.T) {
 
 	// A non-nil pointer is not zero, even when it points at a zero value.
 	got = insert(t, &doc{Count: 1, Nick: new("")})
-	require.Equal(t, bson.M{"count": 1, "nick": new("")}, got)
+	require.Equal(t, bson.M{"count": int32(1), "nick": ""}, got)
 }
 
 func TestInsertTranslatorByteSliceIsOpaque(t *testing.T) {
 	t.Parallel()
 
 	got := insert(t, &user{Name: "Di", Blob: []byte{0xDE, 0xAD}})
-	require.Equal(t, []byte{0xDE, 0xAD}, got["blob"])
+	require.Equal(t, bson.Binary{Data: []byte{0xDE, 0xAD}}, got["blob"])
 }
 
 func TestUpdateTranslator(t *testing.T) {
@@ -231,7 +235,7 @@ func projection(t *testing.T, v any, kinds []behavior.Kind, opts ...mongo.Option
 	t.Helper()
 	eng := behavior.New[bson.M](mongo.NewProjectionTranslator(opts...),
 		behavior.WithKinds(kinds...), behavior.WithSchemaWalk())
-	got, err := eng.Translate(context.Background(), v)
+	got, err := eng.Translate(t.Context(), v)
 	require.NoError(t, err)
 	return got
 }
@@ -274,9 +278,11 @@ func TestProjectionTranslatorMapOfStructs(t *testing.T) {
 	type doc struct {
 		Labels map[string]address `bson:"labels"`
 	}
-	// Nil map, yet schema-walk resolves the value type and emits the nested path.
+	// Nil map, yet schema-walk resolves the value type. Map values sit under
+	// dynamic keys (labels.<key>.secret), which no path can address, so the
+	// whole map is excluded rather than leaking the secret.
 	got := projection(t, doc{}, behavior.DefaultResponseKinds)
-	require.Equal(t, bson.M{"labels.secret": 0}, got)
+	require.Equal(t, bson.M{"labels": 0}, got)
 }
 
 func TestProjectionTranslatorNestedCollections(t *testing.T) {
@@ -288,9 +294,10 @@ func TestProjectionTranslatorNestedCollections(t *testing.T) {
 	}
 
 	// Zero value as type carrier: schema-walk unwraps the nested collection
-	// layers down to the struct element and emits an unindexed path.
+	// layers down to the struct element and emits an unindexed path through
+	// arrays; a map layer has dynamic keys, so the map is excluded whole.
 	got := projection(t, doc{}, behavior.DefaultResponseKinds)
-	want := bson.M{"grid.secret": 0, "by_key.secret": 0}
+	want := bson.M{"grid.secret": 0, "by_key": 0}
 	require.Equal(t, want, got)
 
 	// Populated values resolve through synthetic wrapper objects and must emit
@@ -310,7 +317,9 @@ func TestInsertTranslatorMapOfStructs(t *testing.T) {
 	}
 	// Insert is unfiltered: behavior-tagged fields inside map values are written.
 	got := insert(t, &doc{Labels: map[string]address{"a": {City: "NYC", Secret: "s"}}})
-	require.Equal(t, bson.M{"labels": bson.M{"a": bson.M{"city": "NYC", "secret": "s"}}}, got)
+	require.Equal(t, bson.M{"labels": bson.D{{Key: "a", Value: bson.D{
+		{Key: "city", Value: "NYC"}, {Key: "secret", Value: "s"},
+	}}}}, got)
 }
 
 func TestUpdateTranslatorStripsInsideNestedValues(t *testing.T) {
@@ -348,21 +357,23 @@ func TestMapDollarKeyRejected(t *testing.T) {
 		Labels map[string]any `bson:"labels"`
 	}
 	eng := behavior.New[bson.M](mongo.NewInsertTranslator())
-	_, err := eng.Translate(context.Background(), &doc{Labels: map[string]any{"$set": 1}})
+	_, err := eng.Translate(t.Context(), &doc{Labels: map[string]any{"$set": 1}})
 	require.Error(t, err)
 	require.ErrorContains(t, err, "$")
 }
 
-func TestMapNonStringKeyRejected(t *testing.T) {
+func TestMapNonStringKey(t *testing.T) {
 	t.Parallel()
 
 	type doc struct {
 		M map[int]string `bson:"m"`
 	}
-	eng := behavior.New[bson.M](mongo.NewInsertTranslator())
-	_, err := eng.Translate(context.Background(), &doc{M: map[int]string{1: "a"}})
-	require.Error(t, err)
-	require.ErrorContains(t, err, "map key must be string")
+	v := &doc{M: map[int]string{1: "a"}}
+	matchesDriver(t, v)
+
+	eng := behavior.New[bson.M](mongo.NewUpdateTranslator())
+	_, err := eng.Translate(t.Context(), v)
+	require.ErrorContains(t, err, "map key must be string", "update folds maps and needs string keys")
 }
 
 func TestCustomTagNames(t *testing.T) {
@@ -377,7 +388,7 @@ func TestCustomTagNames(t *testing.T) {
 	// bson tag name is the translator's concern; behavior tag name belongs to the
 	// engine and is set via behavior.WithTagName.
 	ins, err := behavior.New[bson.M](mongo.NewInsertTranslator(mongo.WithBsonTagName("db")),
-		behavior.WithTagName("beh")).Translate(context.Background(), &d)
+		behavior.WithTagName("beh")).Translate(t.Context(), &d)
 	require.NoError(t, err)
 	require.Equal(t, bson.M{"_id": "x", "name": "n"}, ins)
 
@@ -414,6 +425,6 @@ func TestNilInputRejected(t *testing.T) {
 	t.Parallel()
 
 	eng := behavior.New[bson.M](mongo.NewInsertTranslator())
-	_, err := eng.Translate(context.Background(), nil)
+	_, err := eng.Translate(t.Context(), nil)
 	require.Error(t, err)
 }

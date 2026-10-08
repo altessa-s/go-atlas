@@ -16,11 +16,14 @@
 //
 // # Translators
 //
-//   - [NewInsertTranslator] builds an insert document. Each exported field
-//     becomes a BSON field named by its bson tag (lowercased Go name as
-//     fallback); omitempty drops nil / indirect-zero pointers and empty
-//     collections are absent. It applies no behavior-kind filtering, so drive it
-//     with no behavior.WithKinds.
+//   - [NewInsertTranslator] builds an insert document. An insert applies no
+//     behavior-kind filtering, so under the default bson tag the document is
+//     the BSON codec's own encoding of the value, decoded into a bson.M
+//     (nested documents as bson.D, arrays as bson.A, values as their BSON Go
+//     types such as bson.DateTime and bson.Binary): exactly what the driver
+//     stores. With a custom tag (WithBsonTagName) the codec cannot read the
+//     names, and the document is folded field by field instead. Drive it with
+//     no behavior.WithKinds.
 //   - [NewUpdateTranslator] builds an update document of the form
 //     {"$set": …, "$unset": …}. Nil pointers and empty collections of a
 //     non-stripped field go to $unset, nested values are full-replaced in $set,
@@ -31,6 +34,20 @@
 //     every stripped field, using dot-notation paths for nested fields. It is
 //     type-driven, so the engine MUST be built with behavior.WithSchemaWalk();
 //     drive it with behavior.WithKinds(behavior.DefaultResponseKinds...).
+//   - [NewFieldPathsTranslator] returns [FieldPaths]: the selectable and the
+//     denied dot-notation paths of a model, ready for the
+//     data/projection allow-list and WithDeniedStorageFields. Same engine
+//     setup as the projection translator.
+//
+// # Document layout
+//
+// Documents and projection paths follow the layout the v2 BSON struct codec
+// derives from each struct type: a `bson:",inline"` struct's fields, and an
+// inline map's entries, sit at the parent level; the shallowest field of a
+// name dominates, so an own field shadows an inlined one even when omitted or
+// stripped; same-depth duplicates and inline map keys naming a field are
+// errors, decided by the type. An embedded struct without inline is a
+// subdocument named after its type, as the codec stores it.
 //
 // # Type handling
 //

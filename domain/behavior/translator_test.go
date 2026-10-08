@@ -97,6 +97,38 @@ func TestEngineTranslateSchemaWalkResolvesAbsentNested(t *testing.T) {
 	}, got)
 }
 
+func TestEngineTranslateSchemaWalkResolvesNilEmbeddedPointer(t *testing.T) {
+	t.Parallel()
+
+	type Credentials struct {
+		Secret string `behavior:"input_only"`
+		Login  string
+	}
+	type entry struct {
+		*Credentials
+		Name string
+	}
+
+	// Without schema-walk the fields promoted through the nil pointer are
+	// unreachable and skipped.
+	plain := behavior.New[[]string](pathCollector{}, behavior.WithKinds(behavior.InputOnly))
+	got, err := plain.Translate(t.Context(), entry{})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"Name"}, got)
+
+	// Schema-walk resolves them from the declared type, so a type-driven
+	// translator sees the stripped field.
+	walk := behavior.New[[]string](pathCollector{},
+		behavior.WithKinds(behavior.InputOnly), behavior.WithSchemaWalk())
+	got, err = walk.Translate(t.Context(), entry{})
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"Secret!", "Login", "Name"}, got)
+
+	got, err = walk.Translate(t.Context(), map[string]any{}["x"])
+	require.Error(t, err, "a nil interface is still rejected")
+	require.Nil(t, got)
+}
+
 func TestEngineTranslateRejectsNonStruct(t *testing.T) {
 	t.Parallel()
 
