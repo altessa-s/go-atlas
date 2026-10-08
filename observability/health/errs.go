@@ -34,6 +34,10 @@ var (
 	// timeout ([WithCheckTimeout]).
 	ErrCheckTimeout = errors.New("health: check timeout")
 
+	// ErrNotServing is returned by [Coordinator.Health] when the overall
+	// status is anything but [StatusServing].
+	ErrNotServing = errors.New("health: not serving")
+
 	// ErrSchedulerManaged is returned by [Coordinator.RunHealthCheckCycle] when
 	// the cycle is managed by a scheduler via [Coordinator.RegisterHealthCheckSchedulerFunc].
 	// Direct calls are not allowed in this mode.

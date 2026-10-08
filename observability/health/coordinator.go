@@ -6,6 +6,7 @@ package health
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"log/slog"
 	"maps"
@@ -319,6 +320,18 @@ func (c *Coordinator) CheckServiceHealth(ctx context.Context, service string) Se
 	}
 
 	return checker.CheckHealth(ctx)
+}
+
+// Health reports the overall status as an error: nil while [CheckHealth]
+// returns [StatusServing], otherwise an error wrapping [ErrNotServing] that
+// names the status. It lets a Coordinator stand in wherever a
+// Health(ctx) error dependency is expected — the gRPC health interceptor
+// (transport/grpc/interceptors/health) among them — without an adapter.
+func (c *Coordinator) Health(ctx context.Context) error {
+	if st := c.CheckHealth(ctx); st != StatusServing {
+		return fmt.Errorf("%w: %s", ErrNotServing, st)
+	}
+	return nil
 }
 
 // CheckHealth checks overall health by polling all registered services.
