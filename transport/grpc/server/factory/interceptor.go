@@ -484,6 +484,7 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 	})
 	opts = slices.AppendIf(opts, c.CacheDisabled, errstatus.WithCacheDisabled())
 	opts = slices.AppendIf(opts, c.CacheOnlySentinel, errstatus.WithCacheOnlySentinel())
+	opts = append(opts, b.errStatusOptions...)
 
 	b.interceptors = append(b.interceptors, errstatus.ServerInterceptor(opts...))
 	return b
