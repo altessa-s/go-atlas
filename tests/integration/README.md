@@ -11,6 +11,7 @@ tests/integration/
 ├── dlockit/               # data/locks/dlock: contended locking against a live broker and SQL servers
 ├── auditit/               # data/audit: storage conformance, atomic and idempotent batches on SQL servers
 ├── outboxit/              # data/outbox: transactional delivery against a live MongoDB
+├── projectionit/          # data/projection: projections accepted by MongoDB and PostgreSQL, keyset paging under a projection
 ├── sagait/                # data/saga: storage contracts on SQL, Mongo and Redis + orchestrator over SQL
 └── schedulerit/           # service/scheduler: end-to-end scenarios + storage contracts on Mongo, Redis and SQL
 ```

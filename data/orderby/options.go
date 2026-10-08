@@ -5,12 +5,7 @@
 package orderby
 
 import (
-	"cmp"
-	"slices"
-	"strings"
-
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/data/internal/fieldpolicy"
 )
 
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=translatorOptions --output=translator_options_gen.go --option-type=TranslatorOption
@@ -22,29 +17,16 @@ import (
 // [TranslatorContext] type alias and the read methods defined on
 // *translatorOptions below.
 //
-// allowedFields and fieldMapping are stored as [coremaps.ImmutableMap]
-// — they are built once by [WithAllowedFields] / [WithFieldMapping] and
-// only read afterwards, which is precisely the build-once-read-many
-// shape AGENTS.md mandates ImmutableMap for. The prefix collections
-// (allowedFieldPrefixes, fieldPrefixMapping) stay as plain sorted slices
-// because they need longest/linear scan rather than hash lookup. All
-// option setters except [WithUntrustedInput] are hand-written because
-// optgen cannot express the variadic / map-to-ImmutableMap / slice-of-
-// struct conversions.
+// The allow-list and the field mapping are frozen [fieldpolicy] values —
+// built once by [WithAllowedFields] / [WithFieldMapping] /
+// [WithFieldPrefixMapping] and only read afterwards. The policy logic is
+// shared with data/projection. All option setters except
+// [WithUntrustedInput] are hand-written because optgen cannot express the
+// variadic / map conversions.
 type translatorOptions struct {
-	allowedFields        *coremaps.ImmutableMap[string, struct{}] `opt:"-"`
-	allowedFieldPrefixes []string                                 `opt:"-"`
-	fieldMapping         *coremaps.ImmutableMap[string, string]   `opt:"-"`
-	fieldPrefixMapping   []prefixMapping                          `opt:"-"`
-	untrustedInput       bool                                     `opt:"UntrustedInput"`
-}
-
-// prefixMapping describes a single (From → To) prefix rewrite produced
-// by [WithFieldPrefixMapping]. Both ends always include the trailing dot
-// so applying the rewrite cannot accidentally cross a segment boundary.
-type prefixMapping struct {
-	From string
-	To   string
+	allowedFields  fieldpolicy.AllowList `opt:"-"`
+	fieldMapping   fieldpolicy.Mapping   `opt:"-"`
+	untrustedInput bool                  `opt:"UntrustedInput"`
 }
 
 // TranslatorContext is the public read-side handle that database
@@ -99,28 +81,7 @@ func NewTranslatorContext(opts ...TranslatorOption) (*TranslatorContext, error) 
 //	))
 func WithAllowedFields(fields ...string) TranslatorOption {
 	return func(o *translatorOptions) {
-		exact := make(map[string]struct{}, len(fields))
-		var prefixes []string
-		for _, f := range fields {
-			if f == "*" {
-				prefixes = append(prefixes, "")
-				continue
-			}
-			if strings.HasSuffix(f, ".*") && !strings.Contains(f[:len(f)-2], "*") {
-				prefixes = append(prefixes, f[:len(f)-1]) // keep the dot, drop the star
-				continue
-			}
-			exact[f] = struct{}{}
-		}
-		// Sort prefixes by length descending so overlapping entries
-		// ("address.", "address.deep.") have deterministic match order
-		// and the longest match wins on the first hit during the
-		// IsFieldAllowed linear scan.
-		slices.SortFunc(prefixes, func(a, b string) int {
-			return cmp.Compare(len(b), len(a))
-		})
-		o.allowedFields = coremaps.NewImmutableMap(exact)
-		o.allowedFieldPrefixes = prefixes
+		o.allowedFields = fieldpolicy.NewAllowList(fields...)
 	}
 }
 
@@ -137,7 +98,7 @@ func WithAllowedFields(fields ...string) TranslatorOption {
 //	}))
 func WithFieldMapping(mapping map[string]string) TranslatorOption {
 	return func(o *translatorOptions) {
-		o.fieldMapping = coremaps.NewImmutableMap(mapping)
+		o.fieldMapping = o.fieldMapping.WithExact(mapping)
 	}
 }
 
@@ -159,17 +120,7 @@ func WithFieldMapping(mapping map[string]string) TranslatorOption {
 //	}))
 func WithFieldPrefixMapping(mapping map[string]string) TranslatorOption {
 	return func(o *translatorOptions) {
-		pm := make([]prefixMapping, 0, len(mapping))
-		for from, to := range mapping {
-			pm = coreslices.AppendIf(pm,
-				strings.HasSuffix(from, ".") && strings.HasSuffix(to, "."),
-				prefixMapping{From: from, To: to},
-			)
-		}
-		slices.SortFunc(pm, func(a, b prefixMapping) int {
-			return cmp.Compare(len(b.From), len(a.From))
-		})
-		o.fieldPrefixMapping = pm
+		o.fieldMapping = o.fieldMapping.WithPrefixes(mapping)
 	}
 }
 
@@ -177,40 +128,14 @@ func WithFieldPrefixMapping(mapping map[string]string) TranslatorOption {
 // lookup order is: exact mapping (constant-time), then prefix mappings
 // (longest first), then the input field unchanged when nothing matches.
 func (o *translatorOptions) ApplyFieldMapping(field string) string {
-	if o.fieldMapping != nil {
-		if mapped, ok := o.fieldMapping.Get(field); ok {
-			return mapped
-		}
-	}
-	for _, pm := range o.fieldPrefixMapping {
-		if strings.HasPrefix(field, pm.From) {
-			return pm.To + field[len(pm.From):]
-		}
-	}
-	return field
+	return o.fieldMapping.Apply(field)
 }
 
 // IsFieldAllowed reports whether a field is in the allow-list. Returns
 // true when no allow-list is configured at all. Checks the exact set
-// first, then linear-scans the wildcard prefixes (sorted longest-first
-// by [WithAllowedFields], so the first match is the most specific).
-//
-// The fast path is inlined here rather than delegating to a helper so
-// the common "no allow-list" case stays a single nil/len check on the
-// translation hot path.
+// first, then the wildcard prefixes, longest first.
 func (o *translatorOptions) IsFieldAllowed(field string) bool {
-	if o.allowedFields == nil && len(o.allowedFieldPrefixes) == 0 {
-		return true
-	}
-	if o.allowedFields != nil && o.allowedFields.Contains(field) {
-		return true
-	}
-	for _, p := range o.allowedFieldPrefixes {
-		if strings.HasPrefix(field, p) {
-			return true
-		}
-	}
-	return false
+	return o.allowedFields.Allows(field)
 }
 
 // requireAllowlist returns [ErrAllowlistRequired] when the translator was
@@ -228,12 +153,7 @@ func (o *translatorOptions) IsFieldAllowed(field string) bool {
 // more useful to fail loudly than to silently reject every sort. A
 // wildcard entry counts as a non-empty allow-list.
 func (o *translatorOptions) requireAllowlist() error {
-	if !o.untrustedInput {
-		return nil
-	}
-	hasExact := o.allowedFields != nil && o.allowedFields.Len() > 0
-	hasPrefix := len(o.allowedFieldPrefixes) > 0
-	if !hasExact && !hasPrefix {
+	if o.untrustedInput && o.allowedFields.IsEmpty() {
 		return ErrAllowlistRequired
 	}
 	return nil

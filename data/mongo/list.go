@@ -323,7 +323,7 @@ func buildPipeline(opts *listOptions) bson.A {
 	itemsPipeline = append(itemsPipeline, bson.M{"$limit": opts.limit})
 
 	// Add projection if specified (after pagination to reduce data transfer)
-	itemsPipeline = slices.AppendIf[any](itemsPipeline, opts.projection != nil, bson.M{"$project": opts.projection})
+	itemsPipeline = slices.AppendIf[any](itemsPipeline, len(opts.projection) > 0, bson.M{"$project": opts.projection})
 
 	// Facet stage with optimized branches
 	facetStage := bson.M{

@@ -29,3 +29,12 @@ func BenchmarkIndexName(b *testing.B) {
 		_ = sqldialect.MySQL.IndexName(table, "task")
 	}
 }
+
+// BenchmarkTable measures identifier validation and quoting, which the SQL
+// translators run once per selected or sorted column.
+func BenchmarkTable(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = sqldialect.Postgres.Table("app.created_at")
+	}
+}

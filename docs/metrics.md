@@ -460,6 +460,17 @@ increments once per failed attempt.
 
 ---
 
+## projection
+
+Package: `data/projection`
+
+| Name                                | Type      | Labels | Description            |
+|-------------------------------------|-----------|--------|------------------------|
+| `projection_parse_duration_seconds` | Histogram | --     | fields parse duration  |
+| `projection_parse_errors_total`     | Counter   | --     | fields parse errors    |
+
+---
+
 ## probfilter
 
 Package: `data/probfilter`

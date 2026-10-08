@@ -158,6 +158,13 @@ var (
 	// the cursor-ID field in the same direction.
 	ErrUnsupportedCursorSort = errors.New("unsupported cursor sort")
 
+	// ErrProjectionDropsCursorField is returned by [ListCursor] and
+	// [ListCursorSeq] when the projection does not fully return the cursor-ID
+	// field or the primary sort field. The next-page cursor is read from the
+	// last returned item, so a projected-out field would yield a zero or nil
+	// boundary and pages would skip or repeat documents.
+	ErrProjectionDropsCursorField = errors.New("projection drops a cursor field")
+
 	// ErrFilterContainsDangerousOperator is returned by [GetEntity] and
 	// [GetEntities] when the supplied filter references a MongoDB operator
 	// that executes server-side code or has a well-known abuse path. The

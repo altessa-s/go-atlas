@@ -7,6 +7,7 @@ package behavior
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 
@@ -56,7 +57,7 @@ func fieldsFor(t reflect.Type, tag string) ([]fieldInfo, error) {
 	}
 
 	var infos []fieldInfo
-	if err := collectFields(t, tag, nil, &infos); err != nil {
+	if err := collectFields(t, tag, nil, nil, &infos); err != nil {
 		return nil, err
 	}
 
@@ -68,8 +69,12 @@ func fieldsFor(t reflect.Type, tag string) ([]fieldInfo, error) {
 // prefixing each field index with indexPrefix. Untagged embedded (anonymous)
 // structs — by value or by pointer — are inlined so their fields promote to the
 // parent, matching encoding/json and the BSON driver. An embedded struct that
-// itself carries a behavior tag is treated as an ordinary field instead.
-func collectFields(t reflect.Type, tag string, indexPrefix []int, out *[]fieldInfo) error {
+// itself carries a behavior tag is treated as an ordinary field instead, and
+// so is one that embeds a type already on the current embedding chain
+// (type Node struct{ *Node }): promoting it would never terminate, while as
+// an ordinary field it is walked at bind time under [WithMaxDepth].
+func collectFields(t reflect.Type, tag string, indexPrefix []int, chain []reflect.Type, out *[]fieldInfo) error {
+	chain = append(chain, t)
 	for i := range t.NumField() {
 		f := t.Field(i)
 		index := append(append([]int(nil), indexPrefix...), i)
@@ -86,8 +91,8 @@ func collectFields(t reflect.Type, tag string, indexPrefix []int, out *[]fieldIn
 		// own unexported fields. A nil embedded pointer is handled at bind time
 		// ([resolve] uses FieldByIndexErr and skips unreachable promoted fields).
 		if f.Anonymous && len(kinds) == 0 {
-			if et := indirectStructType(f.Type); et != nil {
-				if err := collectFields(et, tag, index, out); err != nil {
+			if et := indirectStructType(f.Type); et != nil && !slices.Contains(chain, et) {
+				if err := collectFields(et, tag, index, chain, out); err != nil {
 					return err
 				}
 				continue
