@@ -420,6 +420,7 @@ func (b *ServerBuilder) WithSecurityHeadersMiddleware() *ServerBuilder {
 		securityheadersmw.WithPermissionsPolicy(c.PermissionsPolicy),
 		securityheadersmw.WithHstsMaxAge(c.HstsMaxAge),
 		securityheadersmw.WithIgnorePaths(c.IgnorePaths...),
+		securityheadersmw.WithCacheControl(c.CacheControl),
 	}
 
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
@@ -430,6 +431,7 @@ func (b *ServerBuilder) WithSecurityHeadersMiddleware() *ServerBuilder {
 	configOpts = slices.AppendIf(configOpts, c.HstsPreload, securityheadersmw.WithHstsPreload())
 	configOpts = slices.AppendIf(configOpts, c.ContentTypeNoSniff, securityheadersmw.WithContentTypeNoSniff())
 	configOpts = slices.AppendIf(configOpts, c.XssProtectionDisabled, securityheadersmw.WithXSSProtectionDisabled())
+	configOpts = slices.AppendIf(configOpts, c.NoDefaultIgnores, securityheadersmw.WithNoDefaultIgnores())
 
 	b.configMW = append(b.configMW, securityheadersmw.New(configOpts...))
 	return b
