@@ -50,6 +50,13 @@ func WithCollector(v metrics.Collector) Option {
 	}
 }
 
+// WithDiscoveryAllowLoopbackHTTP enables the discoveryAllowLoopbackHTTP option.
+func WithDiscoveryAllowLoopbackHTTP() Option {
+	return func(o *options) {
+		o.discoveryAllowLoopbackHTTP = true
+	}
+}
+
 // WithHTTPClient sets the httpClient option.
 func WithHTTPClient(v *http.Client) Option {
 	return func(o *options) {

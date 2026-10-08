@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -103,6 +104,8 @@ type discoveryInfo struct {
 	JwksURL          string   `json:"jwks_uri"`
 	UserInfoURL      string   `json:"userinfo_endpoint"`
 	IntrospectionURL string   `json:"introspection_endpoint"`
+	EndSessionURL    string   `json:"end_session_endpoint"`
+	RevocationURL    string   `json:"revocation_endpoint"`
 	Algorithms       []string `json:"id_token_signing_alg_values_supported"`
 }
 
@@ -337,6 +340,35 @@ func (p *Provider) UserinfoEndpoint() string {
 // TokenEndpoint returns the token endpoint URL from OIDC discovery.
 func (p *Provider) TokenEndpoint() string {
 	return p.discoveryInfo.TokenURL
+}
+
+// AuthorizationEndpoint returns the authorization endpoint URL from OIDC
+// discovery, or "" when the IdP does not advertise one.
+func (p *Provider) AuthorizationEndpoint() string {
+	if p.discoveryInfo == nil {
+		return ""
+	}
+	return p.discoveryInfo.AuthURL
+}
+
+// EndSessionEndpoint returns the RP-initiated logout endpoint
+// (end_session_endpoint, OpenID Connect RP-Initiated Logout 1.0) from OIDC
+// discovery, or "" when the IdP does not advertise one.
+func (p *Provider) EndSessionEndpoint() string {
+	if p.discoveryInfo == nil {
+		return ""
+	}
+	return p.discoveryInfo.EndSessionURL
+}
+
+// RevocationEndpoint returns the token revocation endpoint
+// (revocation_endpoint, RFC 7009) from OIDC discovery, or "" when the IdP
+// does not advertise one.
+func (p *Provider) RevocationEndpoint() string {
+	if p.discoveryInfo == nil {
+		return ""
+	}
+	return p.discoveryInfo.RevocationURL
 }
 
 // headerToMap converts a verified authjwt.Header into the map[string]any header
@@ -798,7 +830,8 @@ func deriveExpectedIssuer(discoveryURL string) string {
 // validateDiscoveredEndpoints enforces the discovery issuer/endpoint contract
 // selected by [WithDiscoveryValidationMode]: the document's issuer must equal
 // the configured issuer, and every advertised endpoint must be HTTPS and share
-// the issuer's host. In [DiscoveryValidationModeWarn] violations are logged and
+// the issuer's host — plain http is accepted on a loopback issuer host with
+// [WithDiscoveryAllowLoopbackHTTP]. In [DiscoveryValidationModeWarn] violations are logged and
 // the document is accepted; in [DiscoveryValidationModeDisabled] the check is
 // skipped entirely.
 func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
@@ -817,9 +850,11 @@ func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
 	}
 
 	issuerHost := ""
+	allowHTTP := false
 	if u, err := url.Parse(expectedIssuer); err == nil {
 		issuerHost = u.Host
-		if u.Scheme != "https" {
+		allowHTTP = p.opts.discoveryAllowLoopbackHTTP && isLoopbackHost(u.Hostname())
+		if u.Scheme != "https" && (u.Scheme != "http" || !allowHTTP) {
 			violations = append(violations, fmt.Sprintf("issuer %q is not HTTPS", expectedIssuer))
 		}
 	}
@@ -830,6 +865,8 @@ func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
 		{"introspection_endpoint", d.IntrospectionURL},
 		{"userinfo_endpoint", d.UserInfoURL},
 		{"authorization_endpoint", d.AuthURL},
+		{"end_session_endpoint", d.EndSessionURL},
+		{"revocation_endpoint", d.RevocationURL},
 	} {
 		if ep.raw == "" {
 			continue
@@ -839,7 +876,9 @@ func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
 			violations = append(violations, fmt.Sprintf("%s %q is not a valid URL", ep.name, ep.raw))
 			continue
 		}
-		if u.Scheme != "https" {
+		// allowHTTP holds only for a loopback issuer, and the host check
+		// below pins the endpoint to that same host.
+		if u.Scheme != "https" && (u.Scheme != "http" || !allowHTTP) {
 			violations = append(violations, fmt.Sprintf("%s %q is not HTTPS", ep.name, ep.raw))
 		}
 		if issuerHost != "" && u.Host != issuerHost {
@@ -860,6 +899,16 @@ func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
 	}
 
 	return coreerrs.Wrapf(ErrDiscoveryValidation, "%s", strings.Join(violations, "; "))
+}
+
+// isLoopbackHost reports whether host (without port) is "localhost" or a
+// loopback IP literal.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }
 
 // initializeJWKS sets up JWKS storage with automatic refresh.
