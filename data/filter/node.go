@@ -4,7 +4,11 @@
 
 package filter
 
-import "iter"
+import (
+	"iter"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+)
 
 //go:generate stringer -type=NodeKind,Operator -output=node_string.go
 
@@ -231,6 +235,24 @@ func IsFieldReference(n Node) bool {
 	default:
 		return false
 	}
+}
+
+// CheckFieldReference returns nil when n is a field reference (see
+// [IsFieldReference]) and otherwise the error a translator reports for n in
+// field position: [ErrUnsupportedOperation] for a function call the backend
+// cannot use there (substring(), …), [ErrInvalidExpression] for anything else
+// (a literal, an operator, a missing node).
+func CheckFieldReference(n Node) error {
+	switch {
+	case n == nil:
+		return coreerrs.Wrap(ErrInvalidExpression, "missing field reference")
+	case IsFieldReference(n):
+		return nil
+	}
+	if call, ok := n.(*CallNode); ok {
+		return coreerrs.Wrapf(ErrUnsupportedOperation, "function %v in field position", call.Op)
+	}
+	return coreerrs.Wrapf(ErrInvalidExpression, "expected field reference, got %T", n)
 }
 
 // AllNodes returns an iterator over all nodes in the AST in depth-first order.

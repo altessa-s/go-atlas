@@ -303,11 +303,8 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 	// CallNode whose Target is nil — and accepting a nil Node panics. That
 	// makes a filter expression a client controls able to crash the process, so
 	// the absent target is reported as the malformed expression it is.
-	if node == nil {
-		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "missing field reference")
-	}
-	if !filter.IsFieldReference(node) {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field reference, got %T", node)
+	if err := filter.CheckFieldReference(node); err != nil {
+		return "", err
 	}
 
 	result, err := node.Accept(t)
