@@ -52,6 +52,20 @@ func WithMaxLockDuration(v time.Duration) Option {
 	}
 }
 
+// WithOwner sets the owner option.
+func WithOwner(v OwnerFunc) Option {
+	return func(o *options) {
+		o.owner = v
+	}
+}
+
+// WithReplayAuthorizer sets the replayAuthorizer option.
+func WithReplayAuthorizer(v ReplayAuthorizer) Option {
+	return func(o *options) {
+		o.replayAuthorizer = v
+	}
+}
+
 // WithSerializer sets the serializer option.
 func WithSerializer(v serializer.Serializer) Option {
 	return func(o *options) {
@@ -65,9 +79,11 @@ func WithSerializer(v serializer.Serializer) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		keyNamespace: nil,
-		logger:       slog.New(slog.DiscardHandler),
-		serializer:   &serializer.JSON{},
+		keyNamespace:     nil,
+		logger:           slog.New(slog.DiscardHandler),
+		owner:            nil,
+		replayAuthorizer: nil,
+		serializer:       &serializer.JSON{},
 	}
 }
 

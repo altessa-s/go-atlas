@@ -47,4 +47,22 @@ type options struct {
 	// keyNamespace, when set, isolates idempotency keys by a per-context
 	// namespace (typically tenant/subject). Nil = no prefixing.
 	keyNamespace KeyNamespaceFunc `optgen:"default=nil"`
+	// owner, when set, records the caller's identity with each lock; a
+	// caller with another identity is refused the stored state (see
+	// replayAuthorizer). Nil = no owner check.
+	owner OwnerFunc `optgen:"default=nil"`
+	// replayAuthorizer decides whether a caller may see a record another
+	// owner created. Nil refuses every other owner with ErrOwnerMismatch.
+	replayAuthorizer ReplayAuthorizer `optgen:"default=nil"`
 }
+
+// OwnerFunc returns the identity of the caller in ctx (a subject or a
+// tenant-qualified subject) recorded with each lock. "" records no owner.
+type OwnerFunc func(ctx context.Context) string
+
+// ReplayAuthorizer reports whether the caller in ctx may see the state of a
+// key that owner created: nil allows it, an error is returned to the caller
+// wrapped in ErrOwnerMismatch.
+// Use it when several principals share a key namespace and some may read
+// each other's records (an admin, a service account).
+type ReplayAuthorizer func(ctx context.Context, owner string) error
