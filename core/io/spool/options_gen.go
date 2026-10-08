@@ -5,6 +5,7 @@ package spool
 
 import (
 	"io"
+	"strings"
 )
 
 // Option is a functional option for configuring options.
@@ -28,6 +29,29 @@ func WithMemThreshold(v int64) Option {
 func WithTee(v io.Writer) Option {
 	return func(o *options) {
 		o.tee = v
+	}
+}
+
+// WithTempDir sets the tempDir option.
+func WithTempDir[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.tempDir = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.tempDir = vv
+		}
 	}
 }
 
