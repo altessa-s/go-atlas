@@ -38,6 +38,7 @@ structured logging.
 | `WithLogger`             | discard           | Structured logger                                                 |
 | `WithConverterOptions`   | --                | Extra `converter.Option`s threaded into `GetEntity`/`GetEntities` |
 | `WithDeduplicationIdentity` | nil            | Per-context identity segment for the read singleflight key (see below) |
+| `WithRollbackMigrationsOnFailure` | off      | Roll back every applied migration when one fails (see Migrations) |
 
 ## Read deduplication and tenant isolation
 
@@ -45,6 +46,9 @@ structured logging.
 issuing the **same** filter at the same time run one query and share its result. That is correct only when the result is a pure function of the
 filter. If caller identity affects what a query returns but lives **outside** the filter — e.g. per-tenant CSFLE data keys, a read scope applied by a
 session, or a read preference bound to the caller — then collapsing identical filters across tenants can hand one tenant another's result.
+
+A read whose context carries a session (inside `WithTransaction` or any `mongo.NewSessionContext`) is never deduplicated: it must see its
+transaction's snapshot, and a read outside the transaction must never see its uncommitted writes.
 
 **Contract:** in such deployments, configure `WithDeduplicationIdentity` so the identity (tenant/subject) is mixed into the deduplication key. Callers
 are then only collapsed when they share an identity:
@@ -83,7 +87,8 @@ second non-ID key, or an ID tiebreaker in the opposite direction — would skip 
 
 ## Migrations
 
-`Connect` applies all pending `mongo-migrate` migrations before returning. The underlying library reads the current schema version and writes the new
+`Connect` applies all pending `mongo-migrate` migrations before returning. When one fails, `Connect` returns its error and the migrations applied
+before it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back every migration — the whole schema, idempotency indexes included. The underlying library reads the current schema version and writes the new
 one with nothing in between, so two replicas starting together would both read version N and both run migration N+1. Migration bodies are arbitrary
 code rather than idempotent DDL, so running one twice is not generally safe.
 

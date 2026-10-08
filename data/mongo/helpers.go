@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -344,6 +345,18 @@ func validateFilterValue(v any) error {
 //
 // Use case: In distributed systems with concurrent identical queries, this key enables
 // deduplication to ensure only one query executes while others wait for the result.
+// deduplicate runs fn through the singleflight group under key, unless ctx
+// carries a session: a read inside a transaction must see that transaction's
+// snapshot, and a read outside it must never see its uncommitted writes, so
+// session-bound reads are never shared in either direction.
+func (m *Mongo) deduplicate(ctx context.Context, key string, fn func() (any, error)) (any, error) {
+	if mongo.SessionFromContext(ctx) != nil {
+		return fn()
+	}
+	data, err, _ := m.singleFlight.Do(key, fn)
+	return data, err
+}
+
 // deduplicationKey builds the singleflight key for a read, mixing in the
 // optional per-context identity segment (WithDeduplicationIdentity) ahead of the
 // db:collection base. When no identity func is configured, or it returns "", the
