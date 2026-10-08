@@ -505,11 +505,8 @@ func (t *Translator) translateHas(target filter.Node) (bson.M, error) {
 
 // getFieldName extracts the field name from a node.
 func (t *Translator) getFieldName(node filter.Node) (string, error) {
-	if node == nil {
-		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "missing field reference")
-	}
-	if !filter.IsFieldReference(node) {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field reference, got %T", node)
+	if err := filter.CheckFieldReference(node); err != nil {
+		return "", err
 	}
 
 	result, err := node.Accept(t)
