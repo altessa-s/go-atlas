@@ -4,14 +4,14 @@
 import "github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
 ```
 
-MongoDB registry for [`optional.Optional[T]`](../../../core/types/optional) and `shopspring/decimal`, keeping database dependencies out of
-universal value types. Existing driver codecs and custom inner-type codecs continue to work.
+MongoDB registry for [`optional.Optional[T]`](../../../core/types/optional), `shopspring/decimal` and `civil.Date`, keeping database
+dependencies out of universal value types. Existing driver codecs and custom inner-type codecs continue to work.
 
 ## API
 
 | Function | Behavior |
 |----------|----------|
-| `NewRegistry()` | Driver defaults plus codecs for every Optional instantiation and for `shopspring/decimal`; configure before concurrent use |
+| `NewRegistry()` | Driver defaults plus codecs for every Optional instantiation, `shopspring/decimal` and `civil.Date`; configure before concurrent use |
 
 ## Usage
 
@@ -38,8 +38,16 @@ omitted without invoking the codec.
 
 The [`data/mongo`](../README.md) client constructor installs this registry unless explicitly overridden. Injected clients and custom registries remain
 the caller's responsibility. RedactedString's fixed redaction hook also works with this registry and with the driver's default registry.
+
 Pass the same registry to the [`domain/behavior/translators/mongo`](../../../domain/behavior/translators/mongo) translators with `WithRegistry`,
-so that they write decimals and Optionals as units instead of folding them field by field.
+so that they write decimals, civil dates and Optionals as units instead of folding them field by field.
+
+## Civil dates
+
+`civil.Date` (`cloud.google.com/go/civil`), a calendar date without time or zone, is stored as its `YYYY-MM-DD` string: nothing can shift it
+across a day boundary, and strings of that form sort in date order, so range queries and indexes work on them. The zero `Date` is stored as
+null; an invalid date or a year outside 0–9999 fails with `ErrInvalidDate`. Decoding accepts only such strings and null — a BSON date is an
+instant, and reading it as a calendar date would pick a zone silently.
 
 ## Decimal
 

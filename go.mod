@@ -7,6 +7,7 @@ toolchain go1.26.6
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260709200747-435963d16310.1
 	buf.build/go/protovalidate v1.2.0
+	cloud.google.com/go v0.123.0
 	cloud.google.com/go/secretmanager v1.21.0
 	github.com/BurntSushi/toml v1.6.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.47.0
