@@ -51,6 +51,11 @@ type ErrorConverter struct {
 	Matcher func(context.Context, error) bool
 	// Convert transforms the matched error into a gRPC status
 	Convert func(context.Context, error) *status.Status
+	// NoCache keeps the converted status out of the conversion cache. Set it
+	// when the status depends on more than what the cache keys on — the
+	// error text, under [WithCacheOnlySentinel], where every error wrapping
+	// a sentinel shares one entry.
+	NoCache bool
 }
 
 // StatusConverter defines a custom status-to-error conversion strategy for
@@ -130,6 +135,7 @@ func WithErrorConverters(converters ...ErrorConverter) Option {
 // If message is empty, uses err.Error() as the status message.
 func WithErrorMapping(target error, code codes.Code, message string) Option {
 	return WithErrorConverters(ErrorConverter{
+		NoCache: message == "",
 		Matcher: func(ctx context.Context, err error) bool {
 			return errors.Is(err, target)
 		},
@@ -141,6 +147,62 @@ func WithErrorMapping(target error, code codes.Code, message string) Option {
 			return status.New(code, msg)
 		},
 	})
+}
+
+// ErrorRule maps every error matching Target (via [errors.Is]) to a gRPC
+// status. Unlike [WithErrorMapping], the error text stays private by default:
+// with an empty Message the status message is the code's name ("NotFound")
+// unless Expose is set, which publishes err.Error() — set it only for errors
+// whose text is safe for clients.
+type ErrorRule struct {
+	// Target is the sentinel matched with errors.Is.
+	Target error
+	// Code is the status code.
+	Code codes.Code
+	// Message is the client-facing status message.
+	Message string
+	// Reason is the [errdetails.ErrorInfo] reason attached to the status;
+	// empty leaves it to the finalizer, which derives it from the code
+	// ([GrpcStatusToReasonCode]).
+	Reason string
+	// Expose uses err.Error() as the message when Message is empty.
+	Expose bool
+}
+
+// status builds the status for err under the rule.
+func (r ErrorRule) status(err error) *status.Status {
+	msg := r.Message
+	if msg == "" {
+		if r.Expose {
+			msg = err.Error()
+		} else {
+			msg = r.Code.String()
+		}
+	}
+	st := status.New(r.Code, msg)
+	if r.Reason == "" {
+		return st
+	}
+	if withInfo, err := st.WithDetails(&errdetails.ErrorInfo{Reason: r.Reason}); err == nil {
+		return withInfo
+	}
+	return st
+}
+
+// WithErrorRules adds [ErrorRule] converters, evaluated in order after any
+// converters registered before them; the first match wins.
+func WithErrorRules(rules ...ErrorRule) Option {
+	converters := make([]ErrorConverter, 0, len(rules))
+	for _, r := range rules {
+		converters = append(converters, ErrorConverter{
+			Matcher: func(_ context.Context, err error) bool { return errors.Is(err, r.Target) },
+			Convert: func(_ context.Context, err error) *status.Status { return r.status(err) },
+			// An exposed error text differs per error; a cached status
+			// would hand one request's text to another.
+			NoCache: r.Expose && r.Message == "",
+		})
+	}
+	return WithErrorConverters(converters...)
 }
 
 // WithErrorTypeMapping adds a type-safe converter for custom error types using Go generics.
@@ -325,14 +387,21 @@ func rebuildStatusWithDomain(st *status.Status, domain string) *status.Status {
 }
 
 // withDomainFinalizer wraps a [Finalizer] so that the configured domain is
-// injected into the [defaultFinalize] call. Returns f unchanged if domain
-// is empty.
+// injected: f runs first, then [defaultFinalize] adds the ErrorInfo and
+// domain to its result. Returns f unchanged if domain is empty.
 func withDomainFinalizer(f Finalizer, domain string) Finalizer {
 	if domain == "" {
 		return f
 	}
+	if f == nil {
+		return func(ctx context.Context, err error) error {
+			return defaultFinalize(ctx, err, domain)
+		}
+	}
+	// Run the configured finalizer first, then fill in the domain, so a
+	// custom finalizer is not replaced by setting a domain.
 	return func(ctx context.Context, err error) error {
-		return defaultFinalize(ctx, err, domain)
+		return defaultFinalize(ctx, f(ctx, err), domain)
 	}
 }
 

@@ -50,6 +50,7 @@ srv, err := factory.New(cfg.Grpc).
 | `UseCacher` | Sets the cacher used by the cache interceptor |
 | `UseAuth(authFn, clientAuth)` | Sets the authentication function and optional client auth handler |
 | `UseHealthChecker` | Sets the health checker used by the health interceptor |
+| `UseErrStatusOptions` | Adds code-supplied errstatus options (error rules, converters) to the configured interceptor, after the config-built ones |
 
 ### Configuration
 

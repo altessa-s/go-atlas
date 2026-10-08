@@ -55,6 +55,11 @@ type IdempotencyInterceptor struct {
 
 	// EnforceMandatory controls whether the idempotency key is mandatory for all methods.
 	EnforceMandatory bool `yaml:"enforceMandatory" default:"false"`
+
+	// DisableRequestFingerprint stops recording a fingerprint of the request
+	// with each key. With it recorded (the default), a key reused for a
+	// different request is refused instead of being treated as a replay.
+	DisableRequestFingerprint bool `yaml:"disableRequestFingerprint" default:"false"`
 }
 
 // IsEnabled returns true if idempotency checking is enabled.

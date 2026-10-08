@@ -9,12 +9,7 @@ package securityheaders
 import (
 	"log/slog"
 	"regexp"
-
-	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
-
-// Use defaults package for optgen code generation
-var _ = defaults.IgnorePatterns
 
 // FrameOptions represents the X-Frame-Options header value.
 type FrameOptions string
@@ -107,7 +102,17 @@ const (
 type options struct {
 	logger         *slog.Logger
 	ignorePaths    []string
-	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
+	ignorePatterns []*regexp.Regexp
+
+	// noDefaultIgnores drops the default ignore patterns (health, metrics,
+	// pprof), so the headers reach every path except those set explicitly
+	// with WithIgnorePaths / WithIgnorePatterns.
+	noDefaultIgnores bool
+
+	// cacheControl sets a default Cache-Control header, e.g. "no-store" for
+	// pages carrying session data. Handlers may override it. Empty string
+	// means the header is not set.
+	cacheControl string
 
 	// frameOptions controls the X-Frame-Options header.
 	// Default: DENY

@@ -6,11 +6,14 @@ package idempotency
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/core/io/spool"
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
@@ -70,6 +73,15 @@ func New(storage Idempotency, opt ...Option) *middleware {
 	if opts.errorHandler == nil {
 		opts.errorHandler = defaultErrorHandler
 	}
+	// A non-positive limit falls back to the default; the cap keeps the
+	// spool's one-byte look-ahead from overflowing.
+	if opts.fingerprintMaxBody <= 0 {
+		opts.fingerprintMaxBody = DefaultFingerprintMaxBody
+	}
+	opts.fingerprintMaxBody = min(opts.fingerprintMaxBody, math.MaxInt64-1)
+	if opts.fingerprintMemThreshold <= 0 {
+		opts.fingerprintMemThreshold = DefaultFingerprintMemThreshold
+	}
 
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
@@ -101,6 +113,14 @@ func defaultErrorHandler(w http.ResponseWriter, _ *http.Request, scenario ErrorS
 		http.Error(w, "A request with this idempotency key is currently being processed", http.StatusConflict)
 	case ErrorIDKAlreadyUsed:
 		http.Error(w, "This idempotency key has already been used", http.StatusUnprocessableEntity)
+	case ErrorIDKMismatch:
+		http.Error(w, "This idempotency key was used for a different request", http.StatusUnprocessableEntity)
+	case ErrorIDKForbidden:
+		http.Error(w, "This idempotency key belongs to another caller", http.StatusForbidden)
+	case ErrorIDKBodyTooLarge:
+		http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+	case ErrorIDKBodyUnreadable:
+		http.Error(w, "Request body could not be read", http.StatusBadRequest)
 	default:
 		http.Error(w, "Unknown idempotency error", http.StatusInternalServerError)
 	}
@@ -111,6 +131,10 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. Check/Lock
 		storageKey, lockState, err := m.checkIdempotency(w, r)
+		// A fingerprinted body was spooled; release it once r is served.
+		if sp, ok := r.Body.(*spool.Spool); ok {
+			defer func() { _ = sp.Close() }() //nolint:errcheck // best-effort temp file removal
+		}
 		if err != nil {
 			return
 		}
@@ -183,9 +207,31 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 	m.LogDebug(ctx, "checking idempotency key", path,
 		m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 
-	// Try to acquire lock
-	locked, state, err := m.i.AttemptLock(ctx, storageKey)
+	fingerprint, err := m.requestFingerprint(r)
 	if err != nil {
+		scenario := ErrorIDKBodyUnreadable
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge || errors.Is(err, spool.ErrTooLarge) {
+			scenario = ErrorIDKBodyTooLarge
+		}
+		m.LogDebug(ctx, "request body could not be fingerprinted", path, slog.Any("error", err))
+		m.opts.errorHandler(w, r, scenario, nil)
+		return "", nil, errKeyNotUnique
+	}
+
+	// Try to acquire lock
+	locked, state, err := m.i.AttemptLockWithOpts(ctx, storageKey, idempotency.AttemptLockOpts{
+		Fingerprint: fingerprint,
+	})
+	switch {
+	case errors.Is(err, idempotency.ErrFingerprintMismatch):
+		m.LogDebug(ctx, "idempotency key used for a different request", path, m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
+		m.opts.errorHandler(w, r, ErrorIDKMismatch, nil)
+		return "", nil, errKeyNotUnique
+	case errors.Is(err, idempotency.ErrOwnerMismatch):
+		m.LogDebug(ctx, "idempotency key belongs to another caller", path, m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
+		m.opts.errorHandler(w, r, ErrorIDKForbidden, nil)
+		return "", nil, errKeyNotUnique
+	case err != nil:
 		return "", nil, m.handleStorageError(w, r, err)
 	}
 
@@ -221,6 +267,42 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 
 	// Return the *State so Handler can pass its CAS token to Complete.
 	return storageKey, state, nil
+}
+
+// requestFingerprint returns the fingerprint of r's method, path, query and
+// whole body, or nil when fingerprinting is off. The body is hashed while it
+// is spooled — in memory up to a threshold, then in a temp file — and r.Body
+// is replaced with the spool (a *spool.Spool, which Handler closes), so the
+// handler reads exactly what the client sent. A body over
+// fingerprintMaxBody fails with [spool.ErrTooLarge], one that fails to read
+// with its read error; the request must then be refused, since part of its
+// body has been consumed.
+func (m *middleware) requestFingerprint(r *http.Request) ([]byte, error) {
+	if !m.opts.requestFingerprint {
+		return nil, nil
+	}
+	bodyHash := sha256.New()
+	if r.Body != nil && r.Body != http.NoBody {
+		sp, err := spool.New(r.Body,
+			spool.WithMaxBytes(m.opts.fingerprintMaxBody),
+			spool.WithMemThreshold(min(m.opts.fingerprintMaxBody, m.opts.fingerprintMemThreshold)),
+			spool.WithTee(bodyHash),
+			spool.WithTempDir(m.opts.fingerprintTempDir),
+		)
+		// The spool read what it needs and the request now reads from the
+		// spool: close the original, so a wrapper (a decompressor, a file)
+		// releases its resources.
+		closeErr := r.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		if closeErr != nil {
+			_ = sp.Close() //nolint:errcheck // already failing
+			return nil, closeErr
+		}
+		r.Body = sp
+	}
+	return idempotency.Fingerprint([]byte(r.Method), []byte(r.URL.Path), []byte(r.URL.RawQuery), bodyHash.Sum(nil)), nil
 }
 
 // keyLogHashLength is the number of hex characters of the SHA-256 digest kept

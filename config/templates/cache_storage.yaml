@@ -1,5 +1,5 @@
 # Cache storage configuration template.
-# Common storage settings for features using CacheStorageConfig (limiter, budget limiter, idempotency, etc.).
+# Common storage settings for features using CacheStorageConfig (limiter, budget limiter, etc.).
 # This file is included via !include directive in other configuration templates.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

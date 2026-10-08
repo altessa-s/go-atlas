@@ -17,4 +17,5 @@ var (
 	FieldKeyHTTPPath   loggerfields.FieldKey = corestrings.InternString("http.path")
 	FieldKeyHTTPProto  loggerfields.FieldKey = corestrings.InternString("http.proto")
 	FieldKeyHTTPStatus loggerfields.FieldKey = corestrings.InternString("http.status")
+	FieldKeyHTTPQuery  loggerfields.FieldKey = corestrings.InternString("http.query")
 )

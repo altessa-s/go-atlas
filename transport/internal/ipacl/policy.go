@@ -7,7 +7,7 @@ package ipacl
 import (
 	"net/netip"
 
-	"github.com/altessa-s/go-atlas/transport/internal/clientip"
+	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/endpointrule"
 )
 

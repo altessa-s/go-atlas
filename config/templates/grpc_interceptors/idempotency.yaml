@@ -48,3 +48,8 @@
 #  # <bool> Enforce mandatory idempotency key for all methods.
 #  # Default value: false
 #  enforceMandatory: false
+#
+#  # <bool> Stop recording a fingerprint of the request with each key.
+#  # With it recorded, a key reused for a different request is refused instead of treated as a replay.
+#  # Default value: false
+#  disableRequestFingerprint: false

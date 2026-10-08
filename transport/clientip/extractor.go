@@ -8,6 +8,7 @@ import (
 	"context"
 	"iter"
 	"log/slog"
+	"net/http"
 	"net/netip"
 	"slices"
 	"strings"
@@ -24,6 +25,15 @@ import (
 type HeaderGetter interface {
 	// GetHeader returns all values for the given header name.
 	GetHeader(name string) []string
+}
+
+// HTTPHeader adapts an [http.Header] to [HeaderGetter]:
+// extractor.Extract(ctx, peerIP, clientip.HTTPHeader(r.Header)).
+type HTTPHeader http.Header
+
+// GetHeader returns all values for the given header name.
+func (h HTTPHeader) GetHeader(name string) []string {
+	return http.Header(h).Values(name)
 }
 
 // Extractor resolves the real client IP from a request's peer address and

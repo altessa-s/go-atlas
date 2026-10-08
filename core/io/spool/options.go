@@ -23,4 +23,7 @@ type options struct {
 	// tee mirrors every byte read from the source into this writer during
 	// materialization so callers can compute a digest in one pass.
 	tee io.Writer
+	// tempDir is the directory for the spill file. Empty means the default
+	// directory for temporary files (os.TempDir).
+	tempDir string
 }

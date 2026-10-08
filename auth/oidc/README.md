@@ -39,7 +39,24 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 | `WithJWKSRefreshSchedule`       | --                 | Local cron schedule for JWKS refresh                   |
 | `WithRevocationSyncSchedule`    | --                 | Local cron schedule for revocation sync                |
 | `WithServiceConfigPath`         | --                 | Path to JSON service configuration file                |
+| `WithDiscoveryValidationMode`   | enforce            | Discovery issuer/endpoint checks: `enforce`, `warn`, `disabled` |
+| `WithDiscoveryAllowLoopbackHTTP`| off                | Accept plain-http discovery on a loopback issuer host (local IdP); endpoints stay pinned to that host |
 | `WithLogger`                    | discard            | Structured logger (`*slog.Logger`)                     |
+
+## Discovered endpoints
+
+| Method                          | Discovery field          |
+|---------------------------------|--------------------------|
+| `AuthorizationEndpoint()`       | `authorization_endpoint` |
+| `TokenEndpoint()`               | `token_endpoint`         |
+| `UserinfoEndpoint()`            | `userinfo_endpoint`      |
+| `EndSessionEndpoint()`          | `end_session_endpoint`   |
+| `RevocationEndpoint()`          | `revocation_endpoint`    |
+| `IntrospectionEndpoint()`       | `introspection_endpoint` |
+
+Each returns `""` when the IdP does not advertise the endpoint. Every advertised endpoint passes the discovery validation: HTTPS on the issuer's
+host, or plain http on a loopback issuer host with `WithDiscoveryAllowLoopbackHTTP`. The factory's SSRF-protected HTTP client may still refuse
+loopback addresses; a local IdP needs a client that allows them.
 
 ## Revocation accuracy
 

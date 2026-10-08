@@ -78,5 +78,7 @@ func NewRegistry() *bson.Registry {
 			return nil
 		}),
 	)
+	registerDecimal(reg)
+	registerCivil(reg)
 	return reg
 }

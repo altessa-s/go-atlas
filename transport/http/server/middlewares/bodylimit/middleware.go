@@ -43,26 +43,8 @@ var _ middlewares.Middleware = (*middleware)(nil)
 
 type middleware struct {
 	middlewares.BaseMiddleware
-	maxSize              int64
-	requireContentLength bool
-}
-
-// Option configures a [middleware] instance. Use the With… helpers to
-// produce values.
-type Option func(*middleware)
-
-// WithRequireContentLength rejects body-bearing requests
-// (POST/PUT/PATCH/DELETE) that arrive without a declared Content-Length
-// (e.g. Transfer-Encoding: chunked) with 411 Length Required. Off by
-// default — chunked uploads are still accepted and the size cap is
-// enforced lazily by http.MaxBytesReader once the handler reads the
-// body. Turn this on when you need the cap rejected UP FRONT (e.g. a
-// public endpoint where a chunked-drip attacker should not be allowed
-// to keep a request goroutine alive until the full ReadTimeout).
-func WithRequireContentLength() Option {
-	return func(m *middleware) {
-		m.requireContentLength = true
-	}
+	maxSize int64
+	opts    *options
 }
 
 // bodyMethods enumerates HTTP methods that ordinarily carry a request
@@ -85,15 +67,16 @@ func (m *middleware) Dependencies() []string { return nil }
 // If the request Content-Length exceeds the limit, it returns 413 Request Entity Too Large.
 // It also wraps the request body in http.MaxBytesReader to enforce the limit during reading.
 //
-// Error responses are written using the responder.WriteError helper, which enables
-// structured error responses via content negotiation (JSON/XML based on Accept header).
+// Error responses are written by the [WithErrorWriter] writer when one is set,
+// otherwise with the responder.WriteError helper, which enables structured
+// error responses via content negotiation (JSON/XML based on Accept header).
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if m.maxSize > 0 {
+		if limit := m.limit(r); limit > 0 {
 			// Declared-size pre-check: cheap up-front rejection for
 			// clients that politely told us they were too big.
-			if r.ContentLength > m.maxSize {
-				_ = responder.WriteError(w, r, ErrBodyTooLarge, http.StatusRequestEntityTooLarge) //nolint:errcheck // Best effort
+			if r.ContentLength > limit {
+				m.writeError(w, r, ErrBodyTooLarge, http.StatusRequestEntityTooLarge)
 				return
 			}
 			// Chunked / unknown-size strictness: with
@@ -103,28 +86,48 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			// bypass the pre-check and a handler that never reads the
 			// body lets the attacker hold the connection until
 			// ReadTimeout — turning the size cap into a soft bound.
-			if m.requireContentLength && r.ContentLength < 0 {
+			if m.opts.requireContentLength && r.ContentLength < 0 {
 				if bodyMethods.Contains(r.Method) {
-					_ = responder.WriteError(w, r, ErrLengthRequired, http.StatusLengthRequired) //nolint:errcheck // Best effort
+					m.writeError(w, r, ErrLengthRequired, http.StatusLengthRequired)
 					return
 				}
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, m.maxSize)
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
+// limit returns the body limit for r: the [LimitFunc] result when one is
+// set and returns non-zero, the static limit otherwise.
+func (m *middleware) limit(r *http.Request) int64 {
+	if m.opts.limitFunc != nil {
+		if limit := m.opts.limitFunc(r); limit != 0 {
+			return limit
+		}
+	}
+	return m.maxSize
+}
+
+// writeError writes a rejection with the configured error writer, or
+// [responder.WriteError] when none is set.
+func (m *middleware) writeError(w http.ResponseWriter, r *http.Request, err error, status int) {
+	if m.opts.errorWriter != nil {
+		_ = m.opts.errorWriter.WriteError(w, r, err, status) //nolint:errcheck // Best effort
+		return
+	}
+	_ = responder.WriteError(w, r, err, status) //nolint:errcheck // Best effort
+}
+
 // New creates a new body limit middleware with the given maximum request body size.
+// A maxSize of zero or less leaves requests unlimited unless a [LimitFunc]
+// sets a limit.
 func New(maxSize int64, opts ...Option) *middleware {
-	m := &middleware{
+	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddleware(middlewareName, nil),
 		maxSize:        maxSize,
+		opts:           newOptions(opts...),
 	}
-	for _, opt := range opts {
-		opt(m)
-	}
-	return m
 }
 
 // Middleware returns an HTTP middleware that limits the request body size.

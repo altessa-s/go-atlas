@@ -9,8 +9,10 @@ component factories, which map them to generated options; runtime packages never
 
 ## Key types
 
-| Type          | Description                                               |
-|---------------|-----------------------------------------------------------|
-| `Config` | Defines the configuration for idempotency key management. |
+| Type                 | Description                                                                  |
+|----------------------|------------------------------------------------------------------------------|
+| `Config`             | Defines the configuration for idempotency key management.                    |
+| `StorageConfig`      | Selects the key store: `memory`, `redis`, `nats` or `mongo`                  |
+| `MongoStorageConfig` | MongoDB collection for the keys; they commit with the caller's transaction   |
 
 See the [config index](../README.md) for the other schema packages.

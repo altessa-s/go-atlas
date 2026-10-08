@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
+
 	"github.com/altessa-s/go-atlas/domain/behavior"
 )
 
@@ -110,7 +112,7 @@ func (o *options) collectField(f *behavior.Field, path string, named bool, ps *p
 	if named {
 		ps.all = append(ps.all, path)
 	}
-	if f.Value.IsValid() && leafLayer(f.Value.Type()) {
+	if f.Value.IsValid() && leafLayer(f.Value.Type(), o.registry) {
 		// Encoded as a unit (bson.Binary, a marshaler, …), directly or as the
 		// element of its pointer and collection layers: no document paths
 		// below it. A pointer-receiver marshaler is skipped for a value the
@@ -167,10 +169,11 @@ func (o *options) containsStrip(obj behavior.Object) (bool, error) {
 }
 
 // leafLayer reports whether t, or a type reached from it through pointer,
-// slice, array and map layers, is a codec leaf (see isCodecLeafType).
-func leafLayer(t reflect.Type) bool {
+// slice, array and map layers, is a codec leaf (see isCodecLeafType) or a
+// leaf of reg (see registryLeaf).
+func leafLayer(t reflect.Type, reg *bson.Registry) bool {
 	for range maxCollectionLayers {
-		if isCodecLeafType(t) {
+		if isCodecLeafType(t) || registryLeaf(reg, t) {
 			return true
 		}
 		switch t.Kind() {

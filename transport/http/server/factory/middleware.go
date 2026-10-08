@@ -6,8 +6,8 @@ package factory
 
 import (
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
@@ -160,7 +160,8 @@ func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		idempotencymw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
-	configOpts = append(configOpts, idempotencymw.WithEnforceMandatory(c.EnforceMandatory))
+	configOpts = append(configOpts, idempotencymw.WithEnforceMandatory(c.EnforceMandatory),
+		idempotencymw.WithRequestFingerprint(!c.DisableRequestFingerprint))
 
 	// ParseKeyLogMode falls back to hashed, so an unrecognized configured value
 	// keeps raw keys out of the log rather than exposing them.
@@ -277,8 +278,15 @@ func (b *ServerBuilder) WithLoggerMiddleware() *ServerBuilder {
 
 	configOpts = slices.AppendIf(configOpts, c.LogRequest, loggermw.WithLogRequest())
 	configOpts = slices.AppendIf(configOpts, c.LogResponse, loggermw.WithLogResponse())
+	configOpts = slices.AppendIf(configOpts, c.LogQuery, loggermw.WithLogQuery())
+	configOpts = slices.AppendIf(configOpts, len(c.RedactQueryParams) > 0, loggermw.WithRedactQueryParams(c.RedactQueryParams...))
 
-	b.configMW = append(b.configMW, loggermw.New(loggermw.Slog(b.Logger()), configOpts...))
+	levels, err := c.SlogStatusLevels()
+	if err != nil {
+		b.errs = append(b.errs, err)
+		return b
+	}
+	b.configMW = append(b.configMW, loggermw.New(loggermw.SlogWithLevels(b.Logger(), levels), configOpts...))
 	return b
 }
 
@@ -420,6 +428,7 @@ func (b *ServerBuilder) WithSecurityHeadersMiddleware() *ServerBuilder {
 		securityheadersmw.WithPermissionsPolicy(c.PermissionsPolicy),
 		securityheadersmw.WithHstsMaxAge(c.HstsMaxAge),
 		securityheadersmw.WithIgnorePaths(c.IgnorePaths...),
+		securityheadersmw.WithCacheControl(c.CacheControl),
 	}
 
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
@@ -430,6 +439,7 @@ func (b *ServerBuilder) WithSecurityHeadersMiddleware() *ServerBuilder {
 	configOpts = slices.AppendIf(configOpts, c.HstsPreload, securityheadersmw.WithHstsPreload())
 	configOpts = slices.AppendIf(configOpts, c.ContentTypeNoSniff, securityheadersmw.WithContentTypeNoSniff())
 	configOpts = slices.AppendIf(configOpts, c.XssProtectionDisabled, securityheadersmw.WithXSSProtectionDisabled())
+	configOpts = slices.AppendIf(configOpts, c.NoDefaultIgnores, securityheadersmw.WithNoDefaultIgnores())
 
 	b.configMW = append(b.configMW, securityheadersmw.New(configOpts...))
 	return b
