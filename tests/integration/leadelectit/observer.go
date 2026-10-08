@@ -16,7 +16,8 @@ import (
 // on the consumer side, so the checker can also be pointed at a fake.
 type Elector interface {
 	NodeId() string
-	IsLeader() bool
+	// Fence is non-zero exactly while the node holds a fresh lease, so it
+	// also answers whether the node is the leader.
 	Fence() uint64
 }
 
@@ -98,11 +99,12 @@ func (o *Observer) Stop() {
 func (o *Observer) sample() {
 	round := Round{At: time.Now()}
 	for _, e := range o.electors {
-		// Read Fence before IsLeader is re-evaluated inside Fence: a node that
-		// self-demotes between the two calls reports Fence 0, which is exactly
-		// what a downstream store would see.
-		if e.IsLeader() {
-			round.Claims = append(round.Claims, Claim{Node: e.NodeId(), Fence: e.Fence()})
+		// One call decides both: Fence is non-zero exactly while the node is a
+		// fresh leader. Separate IsLeader and Fence calls race with a stop or
+		// a lease expiry in between, recording a leader at fence 0 — a sampling
+		// artifact the fence checks would report as a regression.
+		if f := e.Fence(); f != 0 {
+			round.Claims = append(round.Claims, Claim{Node: e.NodeId(), Fence: f})
 		}
 	}
 
