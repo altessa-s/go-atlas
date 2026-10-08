@@ -9,6 +9,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -35,6 +36,12 @@ func (b *KeeperBuilder) UseRedisClient(v redis.UniversalClient) *KeeperBuilder {
 // UseJetstream sets the NATS JetStream context for NATS storage backends.
 func (b *KeeperBuilder) UseJetstream(v jetstream.JetStream) *KeeperBuilder {
 	b.jetstream = v
+	return b
+}
+
+// UseMongoDatabase sets the MongoDB database for the mongo storage backend.
+func (b *KeeperBuilder) UseMongoDatabase(v *mongo.Database) *KeeperBuilder {
+	b.mongoDatabase = v
 	return b
 }
 

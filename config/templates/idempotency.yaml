@@ -20,5 +20,5 @@
 #
 #  # <object> Storage configuration for idempotency keys.
 #  # Supports multiple storage backends with provider-specific settings.
-#  !include cache_storage.yaml
+#  !include idempotency_storage.yaml
 #

@@ -25,8 +25,8 @@ const (
 //
 //	idem := &idempotencyconfig.Config{
 //		TTL: 24 * time.Hour,
-//		Storage: &storageconfig.CacheStorageConfig{
-//			Type: storageconfig.CacheStorageTypeRedis,
+//		Storage: &idempotencyconfig.StorageConfig{
+//			Type: idempotencyconfig.StorageTypeRedis,
 //		},
 //	}
 type Config struct {
@@ -46,7 +46,100 @@ type Config struct {
 
 	// Storage defines the storage configuration for idempotency keys.
 	// Required, specifies backend and settings.
-	Storage *storageconfig.CacheStorageConfig `yaml:"storage"`
+	Storage *StorageConfig `yaml:"storage"`
+}
+
+// StorageType selects the backend that stores idempotency keys.
+type StorageType string
+
+const (
+	// StorageTypeMemory keeps keys in process memory (single instance).
+	StorageTypeMemory StorageType = "memory"
+	// StorageTypeRedis stores keys in Redis.
+	StorageTypeRedis StorageType = "redis"
+	// StorageTypeNATS stores keys in a NATS KeyValue bucket.
+	StorageTypeNATS StorageType = "nats"
+	// StorageTypeMongo stores keys in a MongoDB collection; operations join
+	// the caller's transaction, so a key commits with the business change.
+	StorageTypeMongo StorageType = "mongo"
+)
+
+var storageAllowedTypes = []StorageType{StorageTypeMemory, StorageTypeRedis, StorageTypeNATS, StorageTypeMongo}
+
+// MongoStorageConfig configures the MongoDB key store
+// (data/idempotency/storages/mongo).
+type MongoStorageConfig struct {
+	// Collection is the MongoDB collection that stores the keys.
+	Collection string `yaml:"collection" default:"idempotency_keys"`
+}
+
+// Validate performs validation of the MongoDB storage configuration.
+func (c *MongoStorageConfig) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Collection, validation.Required),
+	)
+}
+
+// StorageConfig selects and configures the idempotency key store. Each
+// backend has its own nested section; only the one named by Type is used.
+type StorageConfig struct {
+	// Type defines the storage backend type (memory, redis, nats or mongo).
+	Type StorageType `yaml:"type"`
+
+	// Memory defines the in-memory configuration.
+	// Required when Type is StorageTypeMemory, ignored otherwise.
+	Memory *storageconfig.MemoryConfig `yaml:"memory" default:"-"`
+
+	// NATS defines the NATS KeyValue configuration.
+	// Required when Type is StorageTypeNATS, ignored otherwise.
+	NATS *storageconfig.NATSConfig `yaml:"nats" default:"-"`
+
+	// Redis defines the Redis configuration.
+	// Required when Type is StorageTypeRedis, ignored otherwise.
+	Redis *storageconfig.RedisConfig `yaml:"redis" default:"-"`
+
+	// Mongo defines the MongoDB configuration.
+	// Required when Type is StorageTypeMongo, ignored otherwise.
+	Mongo *MongoStorageConfig `yaml:"mongo" default:"-"`
+}
+
+// Normalize allocates the provider-specific sub-config implied by
+// [StorageConfig.Type]. Call Normalize before Validate so the correct
+// sub-struct is present for validation.
+func (c *StorageConfig) Normalize() {
+	switch c.Type {
+	case StorageTypeMemory:
+		if c.Memory == nil {
+			c.Memory = &storageconfig.MemoryConfig{}
+		}
+	case StorageTypeNATS:
+		if c.NATS == nil {
+			c.NATS = &storageconfig.NATSConfig{}
+		}
+	case StorageTypeRedis:
+		if c.Redis == nil {
+			c.Redis = &storageconfig.RedisConfig{}
+		}
+	case StorageTypeMongo:
+		if c.Mongo == nil {
+			c.Mongo = &MongoStorageConfig{}
+		}
+	}
+}
+
+func (c *StorageConfig) storageCases() []validationconfig.StorageCase[StorageType] {
+	return []validationconfig.StorageCase[StorageType]{
+		{When: StorageTypeMemory, Field: &c.Memory},
+		{When: StorageTypeNATS, Field: &c.NATS},
+		{When: StorageTypeRedis, Field: &c.Redis},
+		{When: StorageTypeMongo, Field: &c.Mongo},
+	}
+}
+
+// Validate ensures the storage type is valid and its configuration is
+// provided.
+func (c *StorageConfig) Validate() error {
+	return validationconfig.ValidateStorage(c, &c.Type, storageAllowedTypes, c.storageCases())
 }
 
 // Default returns an Idempotency configuration with default values.

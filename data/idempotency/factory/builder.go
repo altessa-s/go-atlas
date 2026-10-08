@@ -10,17 +10,18 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
-	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	memorystorage "github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
+	mongostorage "github.com/altessa-s/go-atlas/data/idempotency/storages/mongo"
 	natsstorage "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
 	redisstorage "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
 )
@@ -34,10 +35,11 @@ type KeeperBuilder struct {
 	errs []error
 
 	// Dependencies
-	redisClient redis.UniversalClient
-	jetstream   jetstream.JetStream
-	scheduler   corescheduler.TaskRegistrar
-	collector   metrics.Collector
+	redisClient   redis.UniversalClient
+	jetstream     jetstream.JetStream
+	mongoDatabase *mongo.Database
+	scheduler     corescheduler.TaskRegistrar
+	collector     metrics.Collector
 }
 
 // New creates a [KeeperBuilder] for the given idempotency config.
@@ -87,18 +89,23 @@ func (b *KeeperBuilder) createStorage() (storages.Storage, error) {
 	}
 
 	switch b.cfg.Storage.Type {
-	case storageconfig.CacheStorageTypeMemory:
+	case idempotencyconfig.StorageTypeMemory:
 		return b.createMemoryStorage()
-	case storageconfig.CacheStorageTypeRedis:
+	case idempotencyconfig.StorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
 		return b.createRedisStorage()
-	case storageconfig.CacheStorageTypeNATS:
+	case idempotencyconfig.StorageTypeNATS:
 		if err := b.RequireDependency(b.jetstream, "jetstream"); err != nil {
 			return nil, err
 		}
 		return b.createNatsStorage()
+	case idempotencyconfig.StorageTypeMongo:
+		if err := b.RequireDependency(b.mongoDatabase, "mongo database"); err != nil {
+			return nil, err
+		}
+		return b.createMongoStorage()
 	default:
 		return nil, b.Errorf("unsupported storage type: %s", b.cfg.Storage.Type)
 	}
@@ -126,6 +133,17 @@ func (b *KeeperBuilder) createRedisStorage() (*redisstorage.Storage, error) {
 		redisstorage.WithTTL(b.cfg.TTL),
 		redisstorage.WithKeyPrefix(b.cfg.Storage.Redis.KeysPrefix),
 	), nil
+}
+
+// createMongoStorage creates a MongoDB storage from configuration.
+func (b *KeeperBuilder) createMongoStorage() (*mongostorage.Storage, error) {
+	if b.cfg.Storage.Mongo == nil {
+		return nil, fmt.Errorf("configuration is required")
+	}
+	return mongostorage.New(b.mongoDatabase,
+		mongostorage.WithCollectionName(b.cfg.Storage.Mongo.Collection),
+		mongostorage.WithTTL(b.cfg.TTL),
+	)
 }
 
 // createNatsStorage creates a NATS storage from configuration.
