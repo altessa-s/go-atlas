@@ -17,6 +17,7 @@ named services, caches status results, and delivers changes to subscribers via s
 | `Subscriber`          | Subscription for reactive status change notifications            |
 | `ServingStatus`       | Status enum: `Serving`, `NotServing`, `Degraded`, `Unknown`      |
 | `RunHealthCheckCycle` | Single check cycle method for scheduler integration              |
+| `Coordinator.Health`  | `Health(ctx) error`: nil while serving, else `ErrNotServing` — plugs into the gRPC health interceptor directly |
 
 ## Features
 
