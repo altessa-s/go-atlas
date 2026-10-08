@@ -9,11 +9,33 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithCacheControl sets the cacheControl option.
+func WithCacheControl[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.cacheControl = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.cacheControl = vv
+		}
+	}
+}
 
 // WithContentSecurityPolicy sets the contentSecurityPolicy option.
 func WithContentSecurityPolicy[T interface{ string | *string }](v T) Option {
@@ -137,6 +159,13 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithNoDefaultIgnores enables the noDefaultIgnores option.
+func WithNoDefaultIgnores() Option {
+	return func(o *options) {
+		o.noDefaultIgnores = true
+	}
+}
+
 // WithPermissionsPolicy sets the permissionsPolicy option.
 func WithPermissionsPolicy[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -181,7 +210,6 @@ func defaultOptions() *options {
 		frameOptions:          FrameOptionsDeny,
 		hstsIncludeSubDomains: true,
 		hstsMaxAge:            31536000,
-		ignorePatterns:        defaults.IgnorePatterns,
 		logger:                slog.New(slog.DiscardHandler),
 		referrerPolicy:        ReferrerPolicyStrictOriginWhenCrossOrigin,
 		xssProtectionDisabled: true,

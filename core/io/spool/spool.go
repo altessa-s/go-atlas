@@ -87,7 +87,7 @@ func newNoTee(r io.Reader, o *options) (*Spool, error) {
 		return sp, nil
 	}
 
-	f, err := os.CreateTemp("", "spool-*")
+	f, err := os.CreateTemp(o.tempDir, "spool-*")
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create spool file")
 	}
@@ -122,7 +122,7 @@ func newWithTee(r io.Reader, o *options) (*Spool, error) {
 		return sp, nil
 	}
 
-	f, err := os.CreateTemp("", "spool-*")
+	f, err := os.CreateTemp(o.tempDir, "spool-*")
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create spool file")
 	}

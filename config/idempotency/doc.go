@@ -9,5 +9,5 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
-// Key types: [Config].
+// Key types: [Config], [StorageConfig], [MongoStorageConfig].
 package idempotencyconfig

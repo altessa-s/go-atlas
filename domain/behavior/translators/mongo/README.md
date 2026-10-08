@@ -29,6 +29,15 @@ The first three return `behavior.Translator[bson.M]`. `NewProjectionTranslator` 
 | Option            | Default  | Description                                                            |
 |-------------------|----------|-----------------------------------------------------------------------|
 | `WithBsonTagName` | `"bson"` | Struct tag key for the document name plus `omitempty` / `omitonupdate`. |
+| `WithRegistry`    | driver default | BSON registry the driver encodes with; see [Custom codecs](#custom-codecs). |
+
+## Custom codecs
+
+The translators fold a struct field by field unless the codec encodes it as a unit. Pass the registry the driver uses —
+`mongo.WithRegistry(bsoncodec.NewRegistry())` with [`data/mongo/bsoncodec`](../../../../data/mongo/bsoncodec) — so that a type it encodes
+with an encoder of its own (`decimal.Decimal`, `optional.Optional[T]`) is written as a unit in update documents and projections, and the
+insert document is encoded with it. Without it, such a type is folded as an ordinary struct: a `decimal.Decimal` has no exported fields and
+becomes `{}`.
 
 ## Insert documents
 

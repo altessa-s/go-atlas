@@ -17,13 +17,15 @@ top-level `idempotency.Keeper` to supply the underlying storage backend.
 
 `Steal` is a low-level CAS-replace primitive used by Keeper's orphan-lock reclaim path: when a collision-time check spots an abandoned InProgress entry
 older than the configured threshold, Keeper builds a fresh wire and atomically swaps it in via `Steal(ctx, key, expectedVal, newVal)`. Backends
-implement it on top of their existing CAS mechanism (mutex+`bytes.Equal` for memory, Lua GET-compare-SET for Redis, `kv.Update(... revision)` for NATS).
+implement it on top of their existing CAS mechanism (mutex+`bytes.Equal` for memory, Lua GET-compare-SET for Redis, `kv.Update(... revision)` for NATS,
+an `UpdateOne` filtered on the stored bytes for MongoDB).
 
 ## Subpackages
 
 | Package                | Description                        |
 |------------------------|------------------------------------|
 | [memory](./memory)     | In-memory backend with TTL         |
+| [mongo](./mongo)       | MongoDB storage, joins transactions|
 | [nats](./nats)         | NATS JetStream storage             |
 | [redis](./redis)       | Distributed Redis storage          |
 

@@ -5,9 +5,13 @@
 package idempotency
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,10 +31,12 @@ import (
 // uses it to detect orphan locks left behind by crashed holders. The
 // public [State] type does NOT carry these fields.
 type serializedState struct {
-	Status   storages.Status `json:"status"`
-	Data     any             `json:"data,omitempty"`
-	Nonce    string          `json:"nonce,omitempty"`
-	LockedAt time.Time       `json:"locked_at,omitzero"`
+	Status      storages.Status `json:"status"`
+	Data        any             `json:"data,omitempty"`
+	Nonce       string          `json:"nonce,omitempty"`
+	LockedAt    time.Time       `json:"locked_at,omitzero"`
+	Fingerprint []byte          `json:"fingerprint,omitempty"`
+	Owner       string          `json:"owner,omitempty"`
 }
 
 // Re-export types from storages for convenience
@@ -63,7 +69,18 @@ var ErrLockStolen = storages.ErrLockStolen
 // guard. Re-exported from [storages.ErrMissingLockState].
 var ErrMissingLockState = storages.ErrMissingLockState
 
-// AttemptLockOpts customizes a single AttemptLockWithOpts call. Both
+// ErrFingerprintMismatch is returned by [Keeper.AttemptLockWithOpts] when
+// the key is already recorded for a request with another fingerprint: the
+// key was reused for a different command. Transports map it to 422
+// Unprocessable Content (HTTP) or InvalidArgument (gRPC).
+var ErrFingerprintMismatch = errors.New("idempotency: key reused with a different request")
+
+// ErrOwnerMismatch is returned by [Keeper.AttemptLockWithOpts] when the key
+// was recorded by another owner (see [WithOwner]) and no
+// [ReplayAuthorizer] allows the caller to see it.
+var ErrOwnerMismatch = errors.New("idempotency: key belongs to another owner")
+
+// AttemptLockOpts customizes a single AttemptLockWithOpts call. All
 // fields are optional; zero values fall back to Keeper / backend
 // defaults.
 type AttemptLockOpts struct {
@@ -78,6 +95,14 @@ type AttemptLockOpts struct {
 	// ([DefaultMaxLockDuration]). Set the Keeper-wide value via
 	// [WithMaxLockDuration].
 	MaxLockDuration time.Duration
+
+	// Fingerprint identifies the request the key is used for, e.g. a
+	// [Fingerprint] of the method and the canonical request body. It is
+	// recorded with the key; a later attempt with the same key and another
+	// fingerprint fails with [ErrFingerprintMismatch] instead of receiving
+	// the stored state. Nil skips the check, as does a record written
+	// without a fingerprint.
+	Fingerprint []byte
 }
 
 // Idempotency defines the interface for idempotency key operations.
@@ -199,10 +224,13 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 	// the same key produce distinct serialized bytes. Storage backends
 	// that CAS on byte equality (memory, redis) need this to tell two
 	// holders apart. NATS uses revisions and ignores the field.
+	owner := i.ownerOf(ctx)
 	wire := serializedState{
-		Status:   storages.StatusInProgress,
-		Nonce:    uuid.NewString(),
-		LockedAt: time.Now(),
+		Status:      storages.StatusInProgress,
+		Nonce:       uuid.NewString(),
+		LockedAt:    time.Now(),
+		Fingerprint: slices.Clone(opts.Fingerprint),
+		Owner:       owner,
 	}
 
 	val, err := i.opts.serializer.Serialize(wire)
@@ -221,9 +249,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 		// Carry the CAS token on the State so Complete can validate
 		// our claim later. The State itself isn't serialized at this
 		// point; we hand the freshly-built object back to the caller.
-		acquired := &storages.State{Status: storages.StatusInProgress}
-		acquired.SetLockToken(lockToken)
-		return true, acquired, nil
+		return true, i.heldState(lockToken, wire.Fingerprint, owner), nil
 	}
 
 	// Lock failed, key exists. Deserialize existing state via the
@@ -235,21 +261,38 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 		return false, nil, coreerrs.WrapOperation(err, "deserialize existing state")
 	}
 
+	// The owner check comes first, so a caller who may not see the record
+	// learns nothing about it, not even whether its fingerprint matches.
+	if err := i.checkReplay(ctx, existing, owner, opts.Fingerprint); err != nil {
+		i.metrics.locksDenied.Inc()
+		return false, nil, err
+	}
+
 	// Orphan-steal: an InProgress entry whose LockedAt is older than
 	// the resolved MaxLockDuration belongs to a crashed (or hung)
 	// holder. CAS-steal it so retries don't get stuck behind an
 	// abandoned lock until the bucket TTL expires.
-	if existing.Status == storages.StatusInProgress {
+	// Only the record's own owner may take it over: a ReplayAuthorizer
+	// grants seeing another owner's record, not acting in its place.
+	if existing.Status == storages.StatusInProgress && i.mayTakeOver(existing, owner) {
 		if maxLock := i.resolveMaxLockDuration(opts); maxLock > 0 &&
 			!existing.LockedAt.IsZero() &&
 			time.Since(existing.LockedAt) > maxLock {
-			newToken, stealErr := i.storage.Steal(ctx, ek, existingVal, val)
+			// The takeover keeps the record's fingerprint and owner, so a
+			// caller without them cannot erase them.
+			if len(existing.Fingerprint) > 0 {
+				wire.Fingerprint = existing.Fingerprint
+			}
+			wire.Owner = cmp.Or(existing.Owner, wire.Owner)
+			stealVal, err := i.opts.serializer.Serialize(wire)
+			if err != nil {
+				return false, nil, coreerrs.WrapOperation(err, "serialize state")
+			}
+			newToken, stealErr := i.storage.Steal(ctx, ek, existingVal, stealVal)
 			switch {
 			case stealErr == nil:
 				i.metrics.locksAcquired.Inc()
-				stolen := &storages.State{Status: storages.StatusInProgress}
-				stolen.SetLockToken(newToken)
-				return true, stolen, nil
+				return true, i.heldState(newToken, wire.Fingerprint, wire.Owner), nil
 			case errors.Is(stealErr, storages.ErrLockStolen):
 				// Race: someone else stole or the entry vanished
 				// between our Get and Steal. Fall through and surface
@@ -262,7 +305,54 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 	}
 
 	i.metrics.locksDenied.Inc()
-	return false, &storages.State{Status: existing.Status, Data: existing.Data}, nil
+	denied := &storages.State{Status: existing.Status, Data: existing.Data}
+	denied.SetFingerprint(existing.Fingerprint)
+	denied.SetOwner(existing.Owner)
+	return false, denied, nil
+}
+
+// heldState returns the state of a lock the caller holds: the CAS token, and
+// the fingerprint and owner Complete keeps on the record.
+func (i *Keeper) heldState(lockToken, fingerprint []byte, owner string) *storages.State {
+	st := &storages.State{Status: storages.StatusInProgress}
+	st.SetLockToken(lockToken)
+	st.SetFingerprint(fingerprint)
+	st.SetOwner(owner)
+	return st
+}
+
+// mayTakeOver reports whether the caller may take over existing's lock: the
+// owner check is off, the record has no owner, or it is the caller's.
+func (i *Keeper) mayTakeOver(existing serializedState, owner string) bool {
+	return i.opts.owner == nil || existing.Owner == "" || existing.Owner == owner
+}
+
+// ownerOf returns the caller's owner identity, "" without [WithOwner].
+func (i *Keeper) ownerOf(ctx context.Context) string {
+	if i.opts.owner == nil {
+		return ""
+	}
+	return i.opts.owner(ctx)
+}
+
+// checkReplay decides whether a caller denied the lock may see existing: an
+// owner other than the caller's needs the [ReplayAuthorizer]'s consent
+// ([ErrOwnerMismatch], wrapping its refusal), and a recorded fingerprint must equal
+// the caller's ([ErrFingerprintMismatch]). A record or a caller without an
+// owner or a fingerprint skips that check.
+func (i *Keeper) checkReplay(ctx context.Context, existing serializedState, owner string, fingerprint []byte) error {
+	if i.opts.owner != nil && existing.Owner != "" && existing.Owner != owner {
+		if i.opts.replayAuthorizer == nil {
+			return ErrOwnerMismatch
+		}
+		if err := i.opts.replayAuthorizer(ctx, existing.Owner); err != nil {
+			return fmt.Errorf("%w: %w", ErrOwnerMismatch, err)
+		}
+	}
+	if len(fingerprint) > 0 && len(existing.Fingerprint) > 0 && !bytes.Equal(fingerprint, existing.Fingerprint) {
+		return ErrFingerprintMismatch
+	}
+	return nil
 }
 
 // resolveMaxLockDuration returns the per-call override when set,
@@ -291,9 +381,13 @@ func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *
 		return ErrMissingLockState
 	}
 
-	state := storages.State{
-		Status: storages.StatusSuccess,
-		Data:   data,
+	// The record keeps the fingerprint and owner it was locked with, so a
+	// later replay is still checked against them.
+	state := serializedState{
+		Status:      storages.StatusSuccess,
+		Data:        data,
+		Fingerprint: lockState.Fingerprint(),
+		Owner:       lockState.Owner(),
 	}
 
 	val, err := i.opts.serializer.Serialize(state)

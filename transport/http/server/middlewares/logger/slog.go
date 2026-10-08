@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
@@ -35,8 +36,19 @@ func (f LogHandlerFunc) Log(ctx context.Context, msg string, statusCode int, fie
 // 5xx and 401/403 produce Error, 4xx produce Warn, and all others produce
 // Info. Fields are converted to slog attributes with dot-notation grouping.
 func Slog(l *slog.Logger) LogHandler {
+	return SlogWithLevels(l, nil)
+}
+
+// SlogWithLevels is [Slog] with per-status level overrides: a status code in
+// levels logs at its level (e.g. 401 at Info for a login page), any other at
+// Slog's default.
+func SlogWithLevels(l *slog.Logger, levels map[int]slog.Level) LogHandler {
+	overrides := coremaps.NewImmutableMap(levels)
 	return LogHandlerFunc(func(ctx context.Context, msg string, statusCode int, fields slogx.Fields) {
-		level := httpStatusToLevel(statusCode)
+		level, ok := overrides.Get(statusCode)
+		if !ok {
+			level = httpStatusToLevel(statusCode)
+		}
 
 		attrs := slogx.FieldsToAttrs(fields.Unique())
 

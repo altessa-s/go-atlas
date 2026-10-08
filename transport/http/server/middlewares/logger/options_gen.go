@@ -85,6 +85,13 @@ func WithIgnoreResponseCodes(v ...int) Option {
 	}
 }
 
+// WithLogQuery enables the logQuery option.
+func WithLogQuery() Option {
+	return func(o *options) {
+		o.logQuery = true
+	}
+}
+
 // WithLogRequest enables the logRequest option.
 func WithLogRequest() Option {
 	return func(o *options) {
@@ -107,6 +114,21 @@ func WithLogResponseCodes(v ...int) Option {
 		}
 		v = slices.Deduplicate(v)
 		o.logResponseCodes = v
+	}
+}
+
+// WithRedactQueryParams sets the redactQueryParams option.
+func WithRedactQueryParams(v ...string) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		transformed := make([]string, len(v))
+		for i, val := range v {
+			transformed[i] = strings.TrimSpace(val)
+		}
+		transformed = slices.Deduplicate(transformed)
+		o.redactQueryParams = transformed
 	}
 }
 

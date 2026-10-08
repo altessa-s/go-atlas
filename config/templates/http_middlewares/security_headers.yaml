@@ -19,6 +19,10 @@
 #  ignorePatterns:
 #    - "^/health\\..*"
 #
+#  # <bool> Apply the headers to the health, metrics and pprof paths skipped by default.
+#  # Default value: false
+#  noDefaultIgnores: false
+#
 #  # <string> X-Frame-Options header value.
 #  # Default value: DENY
 #  frameOptions: DENY
@@ -58,3 +62,7 @@
 #  # <bool> Set X-XSS-Protection: 0 to disable browser XSS filter.
 #  # Default value: true
 #  xssProtectionDisabled: true
+#
+#  # <string> Default Cache-Control header; handlers may override it.
+#  # Default value: not set (empty string)
+#  cacheControl: ""

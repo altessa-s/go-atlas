@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
 
 // Header names as constants for consistency.
@@ -26,6 +27,7 @@ const (
 	HeaderCrossOriginOpenerPol   = "Cross-Origin-Opener-Policy"
 	HeaderCrossOriginEmbedderPol = "Cross-Origin-Embedder-Policy"
 	HeaderCrossOriginResourcePol = "Cross-Origin-Resource-Policy"
+	HeaderCacheControl           = "Cache-Control"
 )
 
 const middlewareName = "securityheaders"
@@ -75,6 +77,11 @@ func (m *middleware) Dependencies() []string {
 //	handler := securityheaders.Middleware()(yourHandler)
 func New(opt ...Option) *middleware {
 	opts := newOptions(opt...)
+	// Without explicit WithIgnorePatterns the default patterns apply, unless
+	// WithNoDefaultIgnores drops them.
+	if opts.ignorePatterns == nil && !opts.noDefaultIgnores {
+		opts.ignorePatterns = defaults.IgnorePatterns
+	}
 
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
@@ -126,7 +133,7 @@ func (m *middleware) setHeaders(w http.ResponseWriter) {
 // buildHeaders computes the configured header name/value pairs once at
 // construction time.
 func buildHeaders(opts *options) []headerValue {
-	hv := make([]headerValue, 0, 10)
+	hv := make([]headerValue, 0, 11)
 
 	// X-Content-Type-Options: nosniff — prevents MIME type sniffing attacks.
 	hv = slices.AppendIf(hv, opts.contentTypeNoSniff,
@@ -160,6 +167,9 @@ func buildHeaders(opts *options) []headerValue {
 		headerValue{HeaderCrossOriginEmbedderPol, string(opts.crossOriginEmbedderPolicy)})
 	hv = slices.AppendIf(hv, opts.crossOriginResourcePolicy != "",
 		headerValue{HeaderCrossOriginResourcePol, string(opts.crossOriginResourcePolicy)})
+	// Cache-Control — a default handlers may override, set before them.
+	hv = slices.AppendIf(hv, opts.cacheControl != "",
+		headerValue{HeaderCacheControl, opts.cacheControl})
 
 	return hv
 }

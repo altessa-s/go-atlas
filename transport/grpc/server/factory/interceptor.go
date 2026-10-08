@@ -7,6 +7,7 @@ package factory
 import (
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/tracing"
+	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
@@ -20,7 +21,6 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
-	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
@@ -362,7 +362,8 @@ func (b *ServerBuilder) WithIdempotencyInterceptor() *ServerBuilder {
 		idempotency.WithIgnoreMethods(c.IgnoreMethods...),
 	}
 
-	configOpts = append(configOpts, idempotency.WithEnforceMandatory(c.EnforceMandatory))
+	configOpts = append(configOpts, idempotency.WithEnforceMandatory(c.EnforceMandatory),
+		idempotency.WithRequestFingerprint(!c.DisableRequestFingerprint))
 
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		idempotency.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
@@ -484,6 +485,7 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 	})
 	opts = slices.AppendIf(opts, c.CacheDisabled, errstatus.WithCacheDisabled())
 	opts = slices.AppendIf(opts, c.CacheOnlySentinel, errstatus.WithCacheOnlySentinel())
+	opts = append(opts, b.errStatusOptions...)
 
 	b.interceptors = append(b.interceptors, errstatus.ServerInterceptor(opts...))
 	return b

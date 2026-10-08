@@ -21,3 +21,14 @@ logger.New(h, logger.WithLogRequest(), logger.WithBodyRedactor(myScrubber))
 // Opt into raw bodies (explicit, not the default):
 logger.New(h, logger.WithLogRequest(), logger.WithBodyRedactor(func(b string) string { return b }))
 ```
+
+## Query strings
+
+The query string is not logged by default. `WithLogQuery()` (YAML `logQuery: true`) adds it as `http.query`; `WithRedactQueryParams(names...)`
+(YAML `redactQueryParams`) logs the values of the listed parameters as `REDACTED`, keeping the order and encoding of the rest. Names match
+exactly, after unescaping; both `&` and `;` count as separators.
+
+## Levels
+
+`Slog` logs 5xx, 401 and 403 at Error, other 4xx at Warn and everything else at Info. `SlogWithLevels(l, map[int]slog.Level{401: slog.LevelInfo})`
+(YAML `statusLevels: {401: info}`) overrides the level per status code. The default status codes include the 303, 307 and 308 redirects.

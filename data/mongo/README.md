@@ -85,6 +85,40 @@ A cursor resumes on the value of one sort field, with the cursor-ID field as the
 single sort field, that field followed by the cursor-ID field in the same direction, or a sort led by the cursor-ID field. Any other shape — a
 second non-ID key, or an ID tiebreaker in the opposite direction — would skip or repeat documents and fails with `ErrUnsupportedCursorSort`.
 
+## Keyset pages
+
+`FindPage[T](ctx, coll, codec, KeysetQuery{...})` reads one page with a plain `find`, positioned by a signed [`data/keyset`](../keyset) token
+instead of an offset. It works with any `_id` type (ObjectID, string, UUID), needs no `created_at` field and streams documents, so a page is
+not bound by the 16 MB document limit that the `ListCursor` aggregation has.
+
+| Field        | Meaning                                                                                                   |
+|--------------|-----------------------------------------------------------------------------------------------------------|
+| `Filter`     | Query predicate, bound into the token                                                                     |
+| `Sort`       | `bson.D` of fields with `1` / `-1` (`ParseSortString`, data/orderby); `_id` ascending is the tie-breaker  |
+| `Projection` | Returned fields; must keep the sort fields, only plainly included (`ErrKeysetProjection` otherwise)       |
+| `Limit`      | Page size, `DefaultKeysetPageSize` (100) when not positive, at most `MaxKeysetPageSize`                   |
+| `After`      | Token of the page to read; empty for the first page                                                       |
+| `Subject`    | Principal the token is bound to                                                                           |
+
+A token replayed under another filter, sort or subject fails with the `keyset` errors. Every document needs a comparable scalar of one BSON
+type in each sort field; a missing, null or array value fails with `ErrKeysetMissingKey` rather than skipping documents. Index the sort fields
+(plus `_id`) so each page is a range scan. Paging is keyset-based, not a snapshot.
+
+```go
+page, err := mongo.FindPage[Order](ctx, coll, codec, mongo.KeysetQuery{
+    Filter:  bson.D{{Key: "tenant", Value: tenant}},
+    Sort:    bson.D{{Key: "total", Value: -1}},
+    Limit:   50,
+    After:   req.PageToken,
+    Subject: userID,
+})
+```
+
+## Errors
+
+`IsErrorDuplicate`, `IsErrorCollectionNotFound`, `IsErrorCollectionExists` (code 48, e.g. a concurrent `CreateCollection` in a migration) and
+`IsErrorIndexNotFound` classify server errors through any wrapping.
+
 ## Migrations
 
 `Connect` applies all pending `mongo-migrate` migrations before returning. When one fails, `Connect` returns its error and the migrations applied

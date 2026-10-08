@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
@@ -74,6 +75,7 @@ type ServerBuilder struct {
 	healthChecker          health.Health
 	geoResolver            geoacl.GeoResolver
 	reasonCode             bufhelpers.ReasonCoder
+	errStatusOptions       []errstatus.Option
 
 	// Interceptors
 	interceptors []interceptors.ServerInterceptor

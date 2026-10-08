@@ -26,8 +26,14 @@ vulnerabilities including XSS, clickjacking, and MIME sniffing attacks.
 | `Cross-Origin-Opener-Policy`  | `WithCrossOriginOpenerPolicy`   | Browsing-context isolation (COOP)     |
 | `Cross-Origin-Embedder-Policy`| `WithCrossOriginEmbedderPolicy` | Cross-origin isolation (COEP) — disruptive |
 | `Cross-Origin-Resource-Policy`| `WithCrossOriginResourcePolicy` | Who may embed this response (CORP)    |
+| `Cache-Control`               | `WithCacheControl`              | Default caching policy (`no-store`); handlers may override it |
 
 All optional headers are off by default — the middleware already ships secure-by-default for the non-breaking headers, while CSP, HSTS and the Cross-Origin-* trio stay opt-in because a blanket default would break real applications.
+
+## Ignored paths
+
+By default the middleware skips the health, metrics and pprof paths. `WithNoDefaultIgnores` (YAML `noDefaultIgnores: true`) drops those
+defaults, so only the paths set with `WithIgnorePaths` / `WithIgnorePatterns` are skipped.
 
 ## Presets
 

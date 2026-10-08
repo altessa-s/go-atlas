@@ -145,6 +145,13 @@ func WithKeyFormatValidator(v KeyFormatValidator) Option {
 	}
 }
 
+// WithRequestFingerprint sets the requestFingerprint option.
+func WithRequestFingerprint(v bool) Option {
+	return func(o *options) {
+		o.requestFingerprint = v
+	}
+}
+
 // WithStatusCreator sets the statusCreator option.
 func WithStatusCreator(v StatusCreator) Option {
 	return func(o *options) {
@@ -163,6 +170,7 @@ func defaultOptions() *options {
 		idempotencyKeyStatusMetadata:   DefaultIdempotencyKeyStatusMetadata,
 		ignorePatterns:                 defaults.IgnorePatterns,
 		keyFormatValidator:             DefaultKeyValidator,
+		requestFingerprint:             true,
 	}
 }
 

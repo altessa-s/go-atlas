@@ -44,6 +44,43 @@ func WithFallbackBehavior(v fallback.Behavior) Option {
 	}
 }
 
+// WithFingerprintMaxBody sets the fingerprintMaxBody option.
+func WithFingerprintMaxBody(v int64) Option {
+	return func(o *options) {
+		o.fingerprintMaxBody = v
+	}
+}
+
+// WithFingerprintMemThreshold sets the fingerprintMemThreshold option.
+func WithFingerprintMemThreshold(v int64) Option {
+	return func(o *options) {
+		o.fingerprintMemThreshold = v
+	}
+}
+
+// WithFingerprintTempDir sets the fingerprintTempDir option.
+func WithFingerprintTempDir[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.fingerprintTempDir = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.fingerprintTempDir = vv
+		}
+	}
+}
+
 // WithIdempotencyKeyEntityIDHeader sets the idempotencyKeyEntityIdHeader option.
 func WithIdempotencyKeyEntityIDHeader[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -163,11 +200,20 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithRequestFingerprint sets the requestFingerprint option.
+func WithRequestFingerprint(v bool) Option {
+	return func(o *options) {
+		o.requestFingerprint = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
 		enforceMandatory:             false,
 		fallbackBehavior:             fallback.Deny,
+		fingerprintMaxBody:           DefaultFingerprintMaxBody,
+		fingerprintMemThreshold:      DefaultFingerprintMemThreshold,
 		idempotencyKeyEntityIdHeader: DefaultIdempotencyKeyEntityIdHeader,
 		idempotencyKeyHeader:         DefaultIdempotencyKeyHeader,
 		idempotencyKeyStatusHeader:   DefaultIdempotencyKeyStatusHeader,
@@ -175,6 +221,7 @@ func defaultOptions() *options {
 		keyFormatValidator:           DefaultKeyValidator,
 		keyLogMode:                   DefaultKeyLogMode,
 		logger:                       slog.New(slog.DiscardHandler),
+		requestFingerprint:           true,
 	}
 }
 

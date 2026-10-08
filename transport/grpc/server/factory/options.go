@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
@@ -133,6 +134,15 @@ func (b *ServerBuilder) UseHealthChecker(v health.Health) *ServerBuilder {
 // UseGeoResolver sets the geo resolver used by the geoacl interceptor.
 func (b *ServerBuilder) UseGeoResolver(v geoacl.GeoResolver) *ServerBuilder {
 	b.geoResolver = v
+	return b
+}
+
+// UseErrStatusOptions adds code-supplied errstatus options — error rules,
+// converters, sentinel errors — to the interceptor the configuration
+// enables. They are applied after the options built from configuration, so
+// a code-supplied finalizer replaces the configured one.
+func (b *ServerBuilder) UseErrStatusOptions(opts ...errstatus.Option) *ServerBuilder {
+	b.errStatusOptions = append(b.errStatusOptions, opts...)
 	return b
 }
 

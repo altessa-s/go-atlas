@@ -5,6 +5,8 @@ package mongo
 
 import (
 	"strings"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Option is a functional option for configuring options.
@@ -30,6 +32,16 @@ func WithBsonTagName[T interface{ string | *string }](v T) Option {
 			}
 			o.bsonTagName = vv
 		}
+	}
+}
+
+// WithRegistry sets the registry option.
+func WithRegistry(v *bson.Registry) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.registry = v
 	}
 }
 

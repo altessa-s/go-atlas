@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"net/netip"
 
+	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/headers"
 
 	"google.golang.org/grpc/peer"

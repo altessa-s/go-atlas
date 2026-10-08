@@ -4,8 +4,9 @@
 import "github.com/altessa-s/go-atlas/data/idempotency"
 ```
 
-Package `idempotency` provides duplicate request detection using idempotency keys. Supports multiple storage backends (memory, Redis, NATS) for
-single-instance and distributed systems.
+Package `idempotency` provides duplicate request detection using idempotency keys. Supports multiple storage backends (memory, Redis, NATS,
+MongoDB) for single-instance and distributed systems; the [MongoDB backend](storages/mongo) joins the caller's transaction, so a key commits
+atomically with the business change.
 
 ## Tenant isolation (multi-tenant deployments)
 
@@ -27,6 +28,26 @@ k := idempotency.New(storage,
 
 Returning `""` leaves keys unchanged, so existing single-tenant callers are unaffected.
 
+## Request fingerprints
+
+A key identifies one command. Pass a fingerprint of the request with `AttemptLockOpts.Fingerprint` — `Fingerprint(parts...)` hashes the
+operation and a canonical encoding of the request, e.g. a deterministic protobuf marshal — and it is stored with the key. A later attempt with
+the same key and another fingerprint fails with `ErrFingerprintMismatch` instead of receiving the stored result; transports answer it with 422
+(HTTP) or `InvalidArgument` (gRPC). Records or callers without a fingerprint are not checked.
+
+```go
+fp := idempotency.Fingerprint([]byte(method), canonicalBody)
+ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOpts{Fingerprint: fp})
+if errors.Is(err, idempotency.ErrFingerprintMismatch) { /* the key was reused for another command */ }
+```
+
+## Owners
+
+`WithKeyNamespace` separates keyspaces. Within one namespace, `WithOwner(func(ctx) string)` records the caller's identity with each key: a
+caller with another identity gets `ErrOwnerMismatch` and nothing of the record — neither its result nor whether its fingerprint matches —
+and cannot take over its orphaned lock. `WithReplayAuthorizer(func(ctx, owner) error)` lets chosen callers (an administrator, a service
+account) see records of other owners; its error is returned wrapped in `ErrOwnerMismatch`. Records written without an owner are not checked.
+
 ## Stolen-lock detection
 
 `AttemptLock` returns a `*State` carrying an opaque CAS token. `Complete` requires that same `*State` back; if the lock has been taken over by another
@@ -40,6 +61,7 @@ Backend-specific CAS primitives:
 | memory | mutex-protected byte comparison of stored value vs lockToken |
 | redis | Lua script: `GET == lockToken ? SET : ErrLockStolen` |
 | nats | `kv.Update(key, val, revision)` — server rejects on revision mismatch |
+| mongo | `UpdateOne` filtered on the stored bytes; a lock is one atomic upsert |
 
 Pass the `*State` from AttemptLock straight back to Complete:
 
@@ -72,6 +94,7 @@ ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOp
 |-------------------|----------------------------------------------------------------------|
 | `LockTTL`         | Use the backend's configured TTL (`WithTTL` / `WithMaxAge` / YAML).  |
 | `MaxLockDuration` | Use the Keeper's configured value (`WithMaxLockDuration`, default 5m). |
+| `Fingerprint`     | No fingerprint is recorded or checked.                               |
 
 Useful when different keys legitimately need different lock lifetimes within one Keeper instance — e.g. short-lived OTP tokens vs longer broker-driven
 webhook processing.
@@ -126,6 +149,9 @@ the race" path and skip writing.
 | `WithLogger`            | discard                  | Structured logger                                          |
 | `WithSerializer`        | JSON                     | Serialization format                                       |
 | `WithMaxLockDuration`   | `DefaultMaxLockDuration` (5m) | Threshold for orphan-lock CAS-steal on AttemptLock collision |
+| `WithKeyNamespace`      | none                     | Per-context key prefix (tenant / subject)                  |
+| `WithOwner`             | none                     | Caller identity recorded with each key (see Owners)        |
+| `WithReplayAuthorizer`  | none (refuse)            | Lets chosen callers see records of other owners            |
 
 ## Subpackages
 
@@ -135,6 +161,7 @@ the race" path and skip writing.
 | [storages/memory](./storages/memory)     | In-memory backend with TTL           |
 | [storages/redis](./storages/redis)       | Distributed Redis storage            |
 | [storages/nats](./storages/nats)         | NATS JetStream storage               |
+| [storages/mongo](./storages/mongo)       | MongoDB storage, joins transactions  |
 
 ## Ownership-safe release
 

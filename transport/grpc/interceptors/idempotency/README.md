@@ -28,6 +28,7 @@ from gRPC metadata (default header: `Idempotency-Key`). Uses the driven intercep
 | `WithKeyFormatValidator`          | UUID v4                    | Custom key format validation function        |
 | `WithEntityIDExtractor`           | nil                        | Extract entity ID from response              |
 | `WithExposeEntityID`              | false (off)                | Echo the stored entity ID to duplicate callers (see below) |
+| `WithRequestFingerprint`          | true                       | Refuse a key reused for a different request (see below) |
 | `WithStatusCreator`               | default messages           | Custom error status creation function        |
 
 ### Entity-ID exposure is opt-in
@@ -38,6 +39,13 @@ principal that created the original entity, so echoing it unconditionally would 
 the key. Enable `WithExposeEntityID()` only when idempotency keys are unguessable and scoped per principal, or when the entity ID is not sensitive.
 | `WithIgnoreMethods`               | --                         | Methods to skip idempotency checking         |
 | `WithIgnorePatterns`              | reflection, health         | Regex patterns for methods to skip           |
+
+## Request fingerprints and owners
+
+Each key records a fingerprint of the method and the deterministically marshaled request. A key reused for a different request is refused
+with `InvalidArgument` and reason `IDEMPOTENCY_KEY_MISMATCH` instead of being treated as a replay; `WithRequestFingerprint(false)` (YAML
+`disableRequestFingerprint: true`) turns this off. When the Keeper records owners (`idempotency.WithOwner`), a key of another caller is refused
+with `PermissionDenied` and reason `IDEMPOTENCY_KEY_FORBIDDEN`, and nothing of its record is returned.
 
 ## Client helpers
 

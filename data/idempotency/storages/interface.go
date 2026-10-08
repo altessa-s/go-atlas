@@ -6,6 +6,7 @@ package storages
 
 import (
 	"context"
+	"slices"
 	"time"
 )
 
@@ -35,6 +36,12 @@ type State struct {
 	// nil when the State was deserialized for a non-acquired view
 	// (i.e. the caller observed an existing lock held by someone else).
 	lockToken []byte `json:"-"`
+
+	// fingerprint and owner are the request fingerprint and the owner
+	// recorded with the lock (see the Keeper's AttemptLockOpts.Fingerprint
+	// and WithOwner); the Keeper keeps them on the record when completing.
+	fingerprint []byte `json:"-"`
+	owner       string `json:"-"`
 }
 
 // LockToken returns the opaque CAS token associated with this state.
@@ -55,6 +62,41 @@ func (s *State) SetLockToken(token []byte) {
 		return
 	}
 	s.lockToken = token
+}
+
+// Fingerprint returns a copy of the request fingerprint recorded with the
+// key, nil when none was.
+func (s *State) Fingerprint() []byte {
+	if s == nil {
+		return nil
+	}
+	return slices.Clone(s.fingerprint)
+}
+
+// SetFingerprint records the request fingerprint on this state. Used by the
+// Keeper; ordinary callers don't invoke it.
+func (s *State) SetFingerprint(fp []byte) {
+	if s == nil {
+		return
+	}
+	s.fingerprint = slices.Clone(fp)
+}
+
+// Owner returns the owner recorded with the key, "" when none was.
+func (s *State) Owner() string {
+	if s == nil {
+		return ""
+	}
+	return s.owner
+}
+
+// SetOwner records the owner on this state. Used by the Keeper; ordinary
+// callers don't invoke it.
+func (s *State) SetOwner(owner string) {
+	if s == nil {
+		return
+	}
+	s.owner = owner
 }
 
 // Storage interface for idempotency key storage.
