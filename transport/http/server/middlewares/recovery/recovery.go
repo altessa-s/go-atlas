@@ -78,6 +78,10 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
+		// Track whether the response has started, for HeadersWritten and
+		// the default handler.
+		tracked := &trackingWriter{ResponseWriter: writer}
+
 		// Create panic handling options
 		panicOpts := panics.NewHandleOpts().SetReallyPanic(false)
 
@@ -93,16 +97,17 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 
 			// Call custom handler if provided
 			if m.handler != nil {
-				m.handler(ctx, writer, request, p)
-			} else {
-				// Default handler: return 500
-				writer.WriteHeader(http.StatusInternalServerError)
+				m.handler(ctx, tracked, request, p)
+			} else if !tracked.started {
+				// Default handler: return 500 unless the response has
+				// already started.
+				tracked.WriteHeader(http.StatusInternalServerError)
 			}
 		}
 
 		defer panics.HandleWithOpts(request.Context(), panicOpts, httpPanicHandler)
 
-		next.ServeHTTP(writer, request)
+		next.ServeHTTP(tracked, request)
 	})
 }
 
