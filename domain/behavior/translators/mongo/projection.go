@@ -37,56 +37,28 @@ type projectionTranslator struct {
 //	    behavior.WithKinds(behavior.DefaultResponseKinds...), behavior.WithSchemaWalk())
 //	p, err := proj.Translate(ctx, Entity{})
 //
-// For slices and maps of structs the field path is emitted without an index
-// ("items.secret", "labels.secret"): MongoDB applies the exclusion across every
-// embedded document reachable by that path.
+// For slices of structs the field path is emitted without an index
+// ("items.secret"): MongoDB applies the exclusion across every element. Map
+// values sit under dynamic keys ("labels.<key>.secret") no path can address,
+// so a map whose values carry a stripped field is excluded whole ("labels").
 func NewProjectionTranslator(opts ...Option) behavior.Translator[bson.M] {
 	return &projectionTranslator{o: newOptions(opts...)}
 }
 
 // Translate folds root into an exclusion projection. The returned map is empty
-// (non-nil) when no field matches.
+// (non-nil) when no field matches. A map whose values carry a stripped field
+// is excluded whole, since its keys are dynamic. It fails with
+// [ErrStrippedInline] for stripped data in a `bson:",inline"` field.
 func (t *projectionTranslator) Translate(_ context.Context, root behavior.Object) (bson.M, error) {
-	out := bson.M{}
-	t.project(root, "", out)
-	return out, nil
-}
-
-// project walks obj, appending an exclusion entry for every stripped field and
-// recursing into nested struct/slice/map element schemas. With the engine in
-// schema-walk mode, f.Nested and f.Collection are populated from the declared
-// type even when the runtime value is absent, so a single representative element
-// suffices to enumerate every nested path.
-func (t *projectionTranslator) project(obj behavior.Object, prefix string, out bson.M) {
-	for i := range obj.Fields {
-		f := &obj.Fields[i]
-
-		// A synthetic unnamed field wraps a nested-collection element; it carries
-		// no document name of its own, so pass the prefix through unchanged.
-		path := prefix
-		if f.Name != "" {
-			name, _, _ := parseBSONTag(f.Tag.Get(t.o.bsonTagName), f.Name)
-			if name == "" {
-				continue
-			}
-			path = joinPath(prefix, name)
-		}
-
-		if f.Strip {
-			out[path] = 0
-			continue
-		}
-
-		if f.Nested != nil {
-			t.project(*f.Nested, path, out)
-			continue
-		}
-		// One representative element (schema-walk) is enough: the path carries no
-		// index, so the same exclusion covers every element of the collection.
-		if c := f.Collection; c != nil && len(c.Items) > 0 {
-			t.project(c.Items[0], path, out)
-		}
+	var ps pathSet
+	if err := t.o.collectPaths(root, "", &ps); err != nil {
+		return nil, err
 	}
+	out := make(bson.M, len(ps.denied))
+	for _, p := range ps.denied {
+		out[p] = 0
+	}
+	return out, nil
 }
 
 // joinPath joins prefix and name with a dot; an empty prefix yields name.
