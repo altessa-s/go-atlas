@@ -160,7 +160,8 @@ func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		idempotencymw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
-	configOpts = append(configOpts, idempotencymw.WithEnforceMandatory(c.EnforceMandatory))
+	configOpts = append(configOpts, idempotencymw.WithEnforceMandatory(c.EnforceMandatory),
+		idempotencymw.WithRequestFingerprint(!c.DisableRequestFingerprint))
 
 	// ParseKeyLogMode falls back to hashed, so an unrecognized configured value
 	// keeps raw keys out of the log rather than exposing them.

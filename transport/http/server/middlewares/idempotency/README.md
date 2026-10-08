@@ -9,6 +9,14 @@ PUT, PATCH, DELETE) via the Idempotency-Key header (lowercase UUID v4). The midd
 the handler runs; on success the key is marked complete, on failure it is deleted so the client can retry. Safe methods (GET, HEAD,
 OPTIONS) bypass the check. Supports configurable fallback behavior when storage is unavailable.
 
+## Request fingerprints and owners
+
+Each key records a fingerprint of the method, path, query and whole body. The body is hashed while it is spooled — up to
+`WithFingerprintMemThreshold` (1 MiB) in memory, the rest in a temp file under `WithFingerprintTempDir` — and handed to the handler unchanged; a
+body over `WithFingerprintMaxBody` (32 MiB) gets 413 and one that fails to read gets 400, before any key is locked. A key reused for a different
+request gets 422 instead of being treated as a replay; `WithRequestFingerprint(false)` (YAML `disableRequestFingerprint: true`) turns this off.
+When the Keeper records owners (`idempotency.WithOwner`), a key of another caller gets 403, without the entity ID header.
+
 ## Security
 
 Keys are caller-chosen and may embed user data, and the invalid-format branch sees values that failed validation. `WithKeyLogMode`

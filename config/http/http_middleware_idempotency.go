@@ -66,6 +66,11 @@ type IdempotencyMiddleware struct {
 	// this defaults to "hashed" — a truncated SHA-256 digest that keeps
 	// records correlated without carrying the raw value.
 	KeyLogMode IdempotencyKeyLogMode `yaml:"keyLogMode" default:"hashed"`
+
+	// DisableRequestFingerprint stops recording a fingerprint of the request
+	// with each key. With it recorded (the default), a key reused for a
+	// different request is refused instead of being treated as a replay.
+	DisableRequestFingerprint bool `yaml:"disableRequestFingerprint" default:"false"`
 }
 
 // Validate performs validation of the IdempotencyMiddleware.

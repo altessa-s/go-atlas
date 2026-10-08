@@ -362,7 +362,8 @@ func (b *ServerBuilder) WithIdempotencyInterceptor() *ServerBuilder {
 		idempotency.WithIgnoreMethods(c.IgnoreMethods...),
 	}
 
-	configOpts = append(configOpts, idempotency.WithEnforceMandatory(c.EnforceMandatory))
+	configOpts = append(configOpts, idempotency.WithEnforceMandatory(c.EnforceMandatory),
+		idempotency.WithRequestFingerprint(!c.DisableRequestFingerprint))
 
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		idempotency.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
