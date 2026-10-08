@@ -119,6 +119,13 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithRollbackMigrationsOnFailure enables the RollbackMigrationsOnFailure option.
+func WithRollbackMigrationsOnFailure() Option {
+	return func(o *config) {
+		o.RollbackMigrationsOnFailure = true
+	}
+}
+
 // WithVaultCollection sets the VaultCollection option.
 func WithVaultCollection[T interface{ string | *string }](v T) Option {
 	return func(o *config) {

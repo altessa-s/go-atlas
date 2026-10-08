@@ -317,7 +317,8 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 //     that must be used for all database operations within the transaction.
 //
 // Returns:
-//   - error: Error if transaction fails or if handler panics
+//   - error: Error if transaction fails, or ErrTransactionPanicked if the
+//     handler panicked — the transaction is then aborted, never committed
 //
 // Example:
 //
@@ -356,24 +357,21 @@ func (m *Mongo) WithTransaction(ctx context.Context, handler func(ctx context.Co
 	}
 
 	var panicErr error
-	_, err = sess.WithTransaction(ctxWithTimeout, func(sessCtx context.Context) (any, error) {
-		// Handle panics within the transaction
+	_, err = sess.WithTransaction(ctxWithTimeout, func(sessCtx context.Context) (_ any, txErr error) {
+		// A recovered panic must abort the transaction: the driver commits
+		// whenever the callback returns a nil error, so the panic becomes the
+		// callback's error through the named result.
 		defer panics.HandleWithOpts(sessCtx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
 			if m.config.Logger != nil {
 				m.config.Logger.Error("transaction panicked", slog.Any("panic", r))
 			}
-			panicErr = fmt.Errorf("transaction panicked: %v", r)
+			panicErr = fmt.Errorf("%w: %v", ErrTransactionPanicked, r)
+			txErr = panicErr
 		})
 
 		if handlerErr := handler(sessCtx); handlerErr != nil {
 			return nil, handlerErr
 		}
-
-		// Check if panic occurred during handler execution
-		if panicErr != nil {
-			return nil, panicErr
-		}
-
 		return struct{}{}, nil // Return empty struct instead of nil value
 	}, txnOpts)
 
@@ -516,7 +514,7 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 	deduplicationKey := m.deduplicationKey(ctx, col.Database().Name()+":"+col.Name(), filter)
 
 	// Use singleflight to prevent duplicate concurrent requests
-	data, err, _ := m.singleFlight.Do(deduplicationKey, func() (any, error) {
+	data, err := m.deduplicate(ctx, deduplicationKey, func() (any, error) {
 		// Apply timeout for database operation
 		ctxWithTimeout, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
 		defer cancel()
@@ -603,7 +601,7 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 	deduplicationKey := m.deduplicationKey(ctx, col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, filter)
 
 	// Use singleflight to prevent duplicate concurrent requests
-	data, err, _ := m.singleFlight.Do(deduplicationKey, func() (any, error) {
+	data, err := m.deduplicate(ctx, deduplicationKey, func() (any, error) {
 		// Apply timeout for database operation
 		ctxWithTimeout, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
 		defer cancel()

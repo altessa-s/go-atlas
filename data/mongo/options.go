@@ -129,6 +129,12 @@ type config struct {
 	// Logger sets a custom structured logger for the MongoDB client.
 	Logger *slog.Logger
 
+	// RollbackMigrationsOnFailure makes a failed migration run roll back every
+	// applied migration (migrate.Down to the beginning). Off by default: a full
+	// rollback drops the whole schema — idempotency indexes included — because
+	// of one failing step, which is rarely what a running service wants.
+	RollbackMigrationsOnFailure bool
+
 	// Collector provides Prometheus-compatible metrics for MongoDB operations.
 	Collector metrics.Collector `optgen:"notnil"`
 

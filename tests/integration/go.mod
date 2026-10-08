@@ -18,6 +18,7 @@ require (
 	github.com/nats-io/nats.go v1.52.0
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/stretchr/testify v1.11.1
+	github.com/xakep666/mongo-migrate v0.4.1
 	go.mongodb.org/mongo-driver/v2 v2.8.0
 )
 
@@ -55,7 +56,6 @@ require (
 	github.com/rogpeppe/go-internal v1.6.1 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
-	github.com/xakep666/mongo-migrate v0.4.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect

@@ -165,6 +165,10 @@ var (
 	// boundary and pages would skip or repeat documents.
 	ErrProjectionDropsCursorField = errors.New("projection drops a cursor field")
 
+	// ErrTransactionPanicked is returned by [Mongo.WithTransaction] when the
+	// handler panicked; the transaction is aborted, never committed.
+	ErrTransactionPanicked = errors.New("transaction panicked")
+
 	// ErrFilterContainsDangerousOperator is returned by [GetEntity] and
 	// [GetEntities] when the supplied filter references a MongoDB operator
 	// that executes server-side code or has a well-known abuse path. The
