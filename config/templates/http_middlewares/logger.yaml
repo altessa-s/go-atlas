@@ -52,3 +52,17 @@
 #  ignoreHTTPMethods:
 #    - "OPTIONS"
 #    - "HEAD"
+#
+#  # <bool> Log the raw query string as http.query. Query strings can carry tokens: list them in redactQueryParams.
+#  # Default value: false
+#  logQuery: false
+#
+#  # <list[string]> Query parameter names whose values are logged as REDACTED.
+#  # Default value: not set
+#  redactQueryParams:
+#    - "access_token"
+#
+#  # <map[int]string> Log level per status code (debug, info, warn, error); other codes keep the default level.
+#  # Default value: not set
+#  statusLevels:
+#    401: info

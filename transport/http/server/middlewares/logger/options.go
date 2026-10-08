@@ -48,4 +48,14 @@ type options struct {
 	// If nil, context injection is disabled (default behavior).
 	contextLogger *slog.Logger   `optgen:"default=nil"`
 	bodyRedactor  BodyRedactFunc `optgen:"default=nil"`
+	// logQuery adds the raw query string as the http.query field. Off by
+	// default: query strings can carry tokens and personal data.
+	logQuery bool
+	// redactQueryParams lists query parameter names (exact, case-sensitive)
+	// whose values are replaced with [RedactedQueryValue] in http.query.
+	redactQueryParams []string
 }
+
+// RedactedQueryValue replaces the value of a query parameter listed in
+// [WithRedactQueryParams].
+const RedactedQueryValue = "REDACTED"

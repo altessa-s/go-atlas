@@ -5,6 +5,9 @@
 package httpconfig
 
 import (
+	"fmt"
+	"log/slog"
+
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
 
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
@@ -41,6 +44,34 @@ type LoggerMiddleware struct {
 	// IgnoreHttpMethods is a list of HTTP methods to skip logging for.
 	// Example: ["OPTIONS", "HEAD"] to skip logging preflight and HEAD requests.
 	IgnoreHttpMethods []string `yaml:"ignoreHTTPMethods"`
+
+	// LogQuery adds the raw query string to each entry as http.query.
+	// CAUTION: query strings can carry tokens; list them in RedactQueryParams.
+	LogQuery bool `yaml:"logQuery" default:"false"`
+
+	// RedactQueryParams lists query parameter names whose values are logged
+	// as REDACTED.
+	RedactQueryParams []string `yaml:"redactQueryParams"`
+
+	// StatusLevels overrides the log level per status code, e.g. {401: info}.
+	// Levels: debug, info, warn, error. Other codes keep the default level.
+	StatusLevels map[int]string `yaml:"statusLevels"`
+}
+
+// SlogStatusLevels parses StatusLevels into slog levels.
+func (c *LoggerMiddleware) SlogStatusLevels() (map[int]slog.Level, error) {
+	if len(c.StatusLevels) == 0 {
+		return nil, nil //nolint:nilnil // no overrides
+	}
+	levels := make(map[int]slog.Level, len(c.StatusLevels))
+	for code, name := range c.StatusLevels {
+		var level slog.Level
+		if err := level.UnmarshalText([]byte(name)); err != nil {
+			return nil, fmt.Errorf("statusLevels[%d]: %w", code, err)
+		}
+		levels[code] = level
+	}
+	return levels, nil
 }
 
 // Validate performs validation of the LoggerMiddleware.
@@ -52,6 +83,16 @@ func (c *LoggerMiddleware) Validate() error {
 			validation.Field(&c.IgnoreResponseCodes, validation.Each(validation.Min(httpStatusMin), validation.Max(httpStatusMax))),
 			validation.Field(&c.LogResponseCodes, validation.Each(validation.Min(httpStatusMin), validation.Max(httpStatusMax))),
 			validation.Field(&c.IgnoreHttpMethods, validation.Each(validation.Required)),
+			validation.Field(&c.RedactQueryParams, validation.Each(validation.Required)),
+			validation.Field(&c.StatusLevels, validation.By(func(any) error {
+				for code := range c.StatusLevels {
+					if code < httpStatusMin || code > httpStatusMax {
+						return fmt.Errorf("status code %d out of range [%d, %d]", code, httpStatusMin, httpStatusMax)
+					}
+				}
+				_, err := c.SlogStatusLevels()
+				return err
+			})),
 		)
 	})
 }
