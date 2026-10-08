@@ -44,6 +44,12 @@ const (
 	ErrorIDKInProgress
 	// ErrorIDKAlreadyUsed indicates that the idempotency key has already been successfully used.
 	ErrorIDKAlreadyUsed
+	// ErrorIDKMismatch indicates that the idempotency key was used for a
+	// different request (see [WithRequestFingerprint]).
+	ErrorIDKMismatch
+	// ErrorIDKForbidden indicates that the idempotency key belongs to another
+	// caller (see idempotency.WithOwner).
+	ErrorIDKForbidden
 )
 
 // Reason codes attached to the [errdetails.ErrorInfo] detail of idempotency
@@ -53,6 +59,8 @@ const (
 	ReasonIDKInvalidFormat = "IDEMPOTENCY_KEY_INVALID_FORMAT"
 	ReasonIDKInProgress    = "IDEMPOTENCY_KEY_IN_PROGRESS"
 	ReasonIDKAlreadyUsed   = "IDEMPOTENCY_KEY_ALREADY_USED"
+	ReasonIDKMismatch      = "IDEMPOTENCY_KEY_MISMATCH"
+	ReasonIDKForbidden     = "IDEMPOTENCY_KEY_FORBIDDEN"
 )
 
 // KeyFormatValidator validates the format of an idempotency key.
@@ -80,6 +88,10 @@ type options struct {
 	keyFormatValidator             KeyFormatValidator `optgen:"default=DefaultKeyValidator"`
 	entityIdExtractor              EntityIdExtractor
 	statusCreator                  StatusCreator
+	// requestFingerprint records a fingerprint of the method and the
+	// deterministically marshaled request with each key, so a key reused
+	// for a different request is refused with ErrorIDKMismatch.
+	requestFingerprint bool `optgen:"default=true" optval:"param"`
 }
 
 // EntityIdExtractor serves for extracting entity ID from the response.

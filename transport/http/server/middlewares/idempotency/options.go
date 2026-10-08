@@ -96,7 +96,29 @@ const (
 	ErrorIDKInProgress
 	// ErrorIDKAlreadyUsed indicates that the idempotency key has already been successfully used.
 	ErrorIDKAlreadyUsed
+	// ErrorIDKMismatch indicates that the idempotency key was used for a
+	// different request (see [WithRequestFingerprint]).
+	ErrorIDKMismatch
+	// ErrorIDKForbidden indicates that the idempotency key belongs to another
+	// caller (see idempotency.WithOwner).
+	ErrorIDKForbidden
+	// ErrorIDKBodyTooLarge indicates that the request body exceeds the size
+	// the middleware reads to fingerprint it (see [WithFingerprintMaxBody]).
+	ErrorIDKBodyTooLarge
+	// ErrorIDKBodyUnreadable indicates that the request body failed to read
+	// while it was fingerprinted.
+	ErrorIDKBodyUnreadable
 )
+
+// DefaultFingerprintMaxBody is the largest request body
+// [WithRequestFingerprint] reads to fingerprint a request (32 MiB). A
+// request with a larger body is refused with [ErrorIDKBodyTooLarge]; bodies
+// beyond the spool's memory threshold are buffered in a temp file.
+const DefaultFingerprintMaxBody int64 = 32 << 20
+
+// DefaultFingerprintMemThreshold is the part of a body kept in memory while
+// it is fingerprinted (1 MiB); the rest goes to a temp file.
+const DefaultFingerprintMemThreshold int64 = 1 << 20
 
 // KeyFormatValidator validates the format of an idempotency key.
 // Implementations must return nil if the key is valid, or [ErrInvalidFormat]
@@ -129,6 +151,17 @@ type options struct {
 	keyLogMode                   KeyLogMode         `optgen:"default=DefaultKeyLogMode"`
 	entityIdExtractor            EntityIdExtractor
 	errorHandler                 ErrorHandler
+	// requestFingerprint records a fingerprint of the method, path, query
+	// and body with each key, so a key reused for a different request is
+	// refused with ErrorIDKMismatch.
+	requestFingerprint bool `optgen:"default=true" optval:"param"`
+	// fingerprintMaxBody bounds the body read for the fingerprint.
+	fingerprintMaxBody int64 `optgen:"default=DefaultFingerprintMaxBody"`
+	// fingerprintMemThreshold bounds the part of a body kept in memory.
+	fingerprintMemThreshold int64 `optgen:"default=DefaultFingerprintMemThreshold"`
+	// fingerprintTempDir is where a body beyond the memory threshold is
+	// buffered while it is fingerprinted; "" is the system temp dir.
+	fingerprintTempDir string
 }
 
 // EntityIdExtractor extracts an entity identifier from a successful response.

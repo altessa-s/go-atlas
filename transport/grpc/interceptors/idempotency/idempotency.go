@@ -6,6 +6,7 @@ package idempotency
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"sync/atomic"
 
@@ -117,6 +118,10 @@ func defaultStatusCreator(_ context.Context, scenario ErrorScenario, _ *idempote
 		st, reason = status.New(codes.Aborted, "A request with this idempotency key is currently being processed"), ReasonIDKInProgress
 	case ErrorIDKAlreadyUsed:
 		st, reason = status.New(codes.FailedPrecondition, "This idempotency key has already been used"), ReasonIDKAlreadyUsed
+	case ErrorIDKMismatch:
+		st, reason = status.New(codes.InvalidArgument, "This idempotency key was used for a different request"), ReasonIDKMismatch
+	case ErrorIDKForbidden:
+		st, reason = status.New(codes.PermissionDenied, "This idempotency key belongs to another caller"), ReasonIDKForbidden
 	default:
 		return status.New(codes.Internal, "Unknown idempotency error")
 	}
@@ -153,8 +158,15 @@ func (ri *requestInterceptor) checkIdempotency(ctx context.Context, req any) err
 
 	storageKey := ri.buildKey(strings.InternString(ri.meta.FullyMethodName), idempotencyKey)
 
-	locked, state, err := ri.i.AttemptLock(ctx, storageKey)
-	if err != nil {
+	locked, state, err := ri.i.AttemptLockWithOpts(ctx, storageKey, idempotency.AttemptLockOpts{
+		Fingerprint: ri.requestFingerprint(req),
+	})
+	switch {
+	case errors.Is(err, idempotency.ErrFingerprintMismatch):
+		return interceptors.NewError(ri.opts.statusCreator(ctx, ErrorIDKMismatch, nil), nil)
+	case errors.Is(err, idempotency.ErrOwnerMismatch):
+		return interceptors.NewError(ri.opts.statusCreator(ctx, ErrorIDKForbidden, nil), nil)
+	case err != nil:
 		return ri.handleStorageError(err)
 	}
 
@@ -189,6 +201,24 @@ func (ri *requestInterceptor) checkIdempotency(ctx context.Context, req any) err
 	ri.lockedKey = storageKey
 	ri.lockedState = state
 	return nil
+}
+
+// requestFingerprint returns the fingerprint of the method and the
+// deterministically marshaled request, or nil when fingerprinting is off or
+// req is not a protobuf message that marshals.
+func (ri *requestInterceptor) requestFingerprint(req any) []byte {
+	if !ri.opts.requestFingerprint {
+		return nil
+	}
+	msg, ok := req.(proto.Message)
+	if !ok {
+		return nil
+	}
+	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(msg)
+	if err != nil {
+		return nil
+	}
+	return idempotency.Fingerprint([]byte(ri.meta.FullyMethodName), body)
 }
 
 // PostMsgReceive is called after the message is received.
