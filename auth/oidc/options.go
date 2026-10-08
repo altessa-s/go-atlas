@@ -194,6 +194,12 @@ type options struct {
 	// revocationInitialSyncWait bounds the initial-sync retries — see
 	// DefaultRevocationInitialSyncWait.
 	revocationInitialSyncWait time.Duration `optgen:"default=DefaultRevocationInitialSyncWait"`
+	// discoveryAllowLoopbackHTTP lets enforce and warn validation accept a
+	// plain-http issuer and endpoints when the issuer host is a loopback
+	// address (localhost, 127.0.0.0/8, ::1) — a local IdP in development or
+	// tests. The issuer match and the same-host rule still apply, so an
+	// endpoint can only be http on the issuer's own loopback host.
+	discoveryAllowLoopbackHTTP bool `opt:"DiscoveryAllowLoopbackHTTP"`
 
 	// Health check configuration
 	healthCoordinator *health.Coordinator
