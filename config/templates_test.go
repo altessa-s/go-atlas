@@ -90,6 +90,7 @@ var templateCases = map[string][]templateRoot{
 	"auth_scope.yaml":                        {root[authconfig.ScopeRegistry]("scope")},
 	"broker.yaml":                            {root[brokerconfig.Config]("broker")},
 	"cache_storage.yaml":                     {root[storageconfig.CacheStorageConfig]("storage")},
+	"idempotency_storage.yaml":               {root[idempotencyconfig.StorageConfig]("storage")},
 	"dispatch.yaml":                          {root[dispatchconfig.Config]("dispatch")},
 	"dlock.yaml":                             {root[lockconfig.DistributionLock]("distributionLock")},
 	"grpc.yaml":                              {root[grpcconfig.Config]("grpc")},
