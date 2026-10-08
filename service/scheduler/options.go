@@ -41,6 +41,9 @@ const (
 	// every [Storage] call the scheduler makes on its own behalf.
 	// See [WithStorageTimeout].
 	DefaultStorageTimeout = 10 * time.Second
+	// DefaultRunOnStartGrace is the default window within which a recent run
+	// suppresses a RunOnStart run. See [WithRunOnStartGrace].
+	DefaultRunOnStartGrace = 5 * time.Minute
 	// maxStaleRecoveryInterval caps the stale recovery ticker interval.
 	maxStaleRecoveryInterval = 5 * time.Minute
 	// minRunLease is the shortest run lease an instance persists, whatever
@@ -64,6 +67,13 @@ type options struct {
 	// on a caller-supplied context (Register, PauseTask, TasksPaginated, …)
 	// keep that caller's deadline instead.
 	storageTimeout time.Duration `optgen:"default=DefaultStorageTimeout"`
+
+	// runOnStartGrace dedupes RunOnStart across instances: when a periodic
+	// task is registered again (an instance restarts), it runs at once only if
+	// it has not started within this window, so a rolling restart of several
+	// replicas triggers one run. Non-positive values keep the default; pass
+	// time.Nanosecond to run on every start.
+	runOnStartGrace time.Duration `optgen:"default=DefaultRunOnStartGrace"`
 
 	// instanceID identifies this scheduler as the owner of the runs it
 	// executes; it prefixes every run ID. It must be unique among the schedulers

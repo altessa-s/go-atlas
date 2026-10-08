@@ -101,6 +101,16 @@ func WithReservedHighPrioritySlots(v int) Option {
 	}
 }
 
+// WithRunOnStartGrace sets the runOnStartGrace option.
+func WithRunOnStartGrace(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.runOnStartGrace = v
+	}
+}
+
 // WithStaleTaskTimeout sets the staleTaskTimeout option.
 func WithStaleTaskTimeout(v time.Duration) Option {
 	return func(o *options) {
@@ -139,6 +149,7 @@ func defaultOptions() *options {
 		logger:                    slog.New(slog.DiscardHandler),
 		maxConcurrentTasks:        DefaultMaxConcurrentTasks,
 		reservedHighPrioritySlots: DefaultReservedHighPrioritySlots,
+		runOnStartGrace:           DefaultRunOnStartGrace,
 		staleTaskTimeout:          DefaultStaleTaskTimeout,
 		storageTimeout:            DefaultStorageTimeout,
 		tickInterval:              DefaultTickInterval,

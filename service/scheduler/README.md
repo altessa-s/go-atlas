@@ -38,6 +38,7 @@ filter push-down.
 | `WithStaleTaskTimeout`          | 30min     | Run lease (min 5s); runs whose lease expired are recovered    |
 | `WithInstanceID`                | random    | Owner ID stamped on runs; must be unique per live instance    |
 | `WithStorageTimeout`            | 10s       | Per-operation deadline for scheduler-owned storage calls      |
+| `WithRunOnStartGrace`           | 5m        | `RunOnStart` of an already stored task runs only if the task has not started within this window (one run per rolling restart); `time.Nanosecond` runs on every start |
 | `WithLeaderElector`             | nil       | Distributed leader elector -- only the leader dispatches      |
 | `WithHistoryStorage`            | nil       | Separate history backend; nil keeps history in the `Storage`  |
 | `WithLogger`                    | discard   | Structured logger for scheduler lifecycle and error events    |
