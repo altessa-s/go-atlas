@@ -40,6 +40,8 @@ type encCtx struct {
 	// values of a map — although the engine resolved them through addressable
 	// copies, so pointer-receiver marshalers stay unused, as in the codec.
 	noAddr bool
+	// reg is the configured registry, nil for the driver's default.
+	reg *bson.Registry
 }
 
 // foldObject builds the set/unset maps for a single resolved object, laid out
@@ -189,6 +191,9 @@ func crossesPointer(t reflect.Type, index []int) bool {
 // bson.D, which it writes as a document rather than an array.
 func isCodecLeaf(fv reflect.Value, ec encCtx) bool {
 	t := fv.Type()
+	if registryLeaf(ec.reg, t) {
+		return true
+	}
 	if pointerOnlyMarshaler(t) {
 		// The codec uses the marshaler only for an addressable value; for a
 		// copy — a map value — it falls back to the type's ordinary encoding:
@@ -318,9 +323,11 @@ func encodeLeaf(fv reflect.Value, ec encCtx) (any, error) {
 		return nil, nil //nolint:nilnil // a nil interface element is stored as null
 	}
 	if !ec.minSize && !needsCodec(dynamicType(fv)) {
+		// A registry leaf is returned as is too: the driver encodes it with
+		// the same registry.
 		return fv.Interface(), nil
 	}
-	raw, err := encodeWrapped(fv, ec.minSize, fv.CanAddr() && !ec.noAddr)
+	raw, err := encodeWrapped(fv, ec.minSize, fv.CanAddr() && !ec.noAddr, ec.reg)
 	if err != nil {
 		return nil, err
 	}
@@ -412,8 +419,9 @@ var wrappers sync.Map // map[wrapperKey]reflect.Type
 // minsize when minSize is set. When addr is set, the wrapper holds a pointer
 // to fv itself: the codec reaches fv through it with its addressability and
 // its receiver identity — a pointer marshaler sees fv's own address. Otherwise
-// it holds a copy, as non-addressable as fv is to the codec.
-func encodeWrapped(fv reflect.Value, minSize, addr bool) (bson.RawValue, error) {
+// it holds a copy, as non-addressable as fv is to the codec. A non-nil reg
+// encodes in place of the default registry.
+func encodeWrapped(fv reflect.Value, minSize, addr bool, reg *bson.Registry) (bson.RawValue, error) {
 	ft := fv.Type()
 	if addr {
 		ft = reflect.PointerTo(ft)
@@ -436,7 +444,7 @@ func encodeWrapped(fv reflect.Value, minSize, addr bool) (bson.RawValue, error) 
 	} else {
 		wrapper.Field(0).Set(fv)
 	}
-	doc, err := bson.Marshal(wrapper.Interface())
+	doc, err := marshal(wrapper.Interface(), reg)
 	if err != nil {
 		return bson.RawValue{}, err
 	}
@@ -744,7 +752,7 @@ func NewUpdateTranslator(opts ...Option) behavior.Translator[bson.M] {
 // Translate folds root into a BSON document for the translator's mode.
 func (t *docTranslator) Translate(_ context.Context, root behavior.Object) (bson.M, error) {
 	if t.mode == modeUpdate {
-		set, unset, err := foldObject(root, t.o, modeUpdate, encCtx{})
+		set, unset, err := foldObject(root, t.o, modeUpdate, encCtx{reg: t.o.registry})
 		if err != nil {
 			return nil, err
 		}
@@ -770,9 +778,9 @@ func (t *docTranslator) Translate(_ context.Context, root behavior.Object) (bson
 	}
 
 	if t.o.bsonTagName == DefaultBSONTagName && root.Value.IsValid() {
-		return encodeInsert(root.Value)
+		return encodeInsert(root.Value, t.o.registry)
 	}
-	set, _, err := foldObject(root, t.o, modeInsert, encCtx{})
+	set, _, err := foldObject(root, t.o, modeInsert, encCtx{reg: t.o.registry})
 	if err != nil {
 		return nil, err
 	}
@@ -801,9 +809,10 @@ func checkPathName(name string) error {
 // documents as ordered bson.D, arrays as bson.A, values as their BSON Go
 // types). v is
 // encoded through its address when it has one, as the driver encodes a
-// pointer. Keys starting with "$" are rejected at any depth, as on the folding
-// path, so no map can smuggle an operator-like key into the document.
-func encodeInsert(v reflect.Value) (bson.M, error) {
+// pointer, with reg when it is non-nil. Keys starting with "$" are rejected at
+// any depth, as on the folding path, so no map can smuggle an operator-like key
+// into the document.
+func encodeInsert(v reflect.Value, reg *bson.Registry) (bson.M, error) {
 	// The codec recurses forever on a struct inlined into itself; reject what
 	// layoutOf rejects before handing the value over.
 	if !staticallySafe(v.Type()) {
@@ -815,7 +824,7 @@ func encodeInsert(v reflect.Value) (bson.M, error) {
 	if v.CanAddr() {
 		target = v.Addr().Interface()
 	}
-	raw, err := bson.Marshal(target)
+	raw, err := marshal(target, reg)
 	if err != nil {
 		return nil, fmt.Errorf("behavior/mongo: encode insert document: %w", err)
 	}

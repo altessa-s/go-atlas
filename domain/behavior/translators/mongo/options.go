@@ -4,6 +4,8 @@
 
 package mongo
 
+import "go.mongodb.org/mongo-driver/v2/bson"
+
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
 // DefaultBSONTagName is the default struct tag key read to resolve a field's
@@ -21,4 +23,10 @@ const DefaultBSONTagName = "bson"
 // [github.com/altessa-s/go-atlas/domain/behavior.WithKinds].
 type options struct {
 	bsonTagName string `optgen:"default=DefaultBSONTagName"`
+	// registry is the BSON registry the driver encodes with. A type it
+	// encodes with an encoder of its own (a type encoder, such as the
+	// data/mongo/bsoncodec decimal codec) is written as a unit rather than
+	// folded field by field, and the insert document is encoded with it.
+	// Nil means the driver's default registry.
+	registry *bson.Registry
 }
