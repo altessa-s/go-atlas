@@ -463,8 +463,10 @@ func (t *Translator) translateTextSearch(
 
 // getFieldName extracts the field name from a node.
 func (t *Translator) getFieldName(node filter.Node) (string, error) {
-	if node != nil && !filter.IsFieldReference(node) {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field reference, got %T", node)
+	if node != nil {
+		if err := filter.CheckFieldReference(node); err != nil {
+			return "", err
+		}
 	}
 	return t.acceptString(node, "field name")
 }
