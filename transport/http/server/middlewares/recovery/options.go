@@ -20,7 +20,8 @@ var _ = defaults.IgnorePatterns
 
 // PanicHandler is a function that handles panics in HTTP handlers.
 // It receives the context, ResponseWriter, Request, and the recovered panic
-// value. It should write an appropriate error response to the client.
+// value. It should write an appropriate error response to the client unless
+// [HeadersWritten] reports the response has already started.
 // Configure with [WithHandler]; if nil, the middleware writes a bare 500
 // status code.
 type PanicHandler func(ctx context.Context, w http.ResponseWriter, r *http.Request, p any)
