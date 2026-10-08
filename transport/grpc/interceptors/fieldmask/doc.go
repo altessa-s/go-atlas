@@ -17,7 +17,9 @@
 // On classified read methods (Get*, List*, Search*, BatchGet*) the
 // interceptor extracts the read_mask from the request before the handler runs
 // and applies [fieldmask.FieldMask.Filter] to the successful response so
-// fields outside the mask are pruned before serialization.
+// fields outside the mask are pruned before serialization. The handler can
+// read the same mask with [ReadMaskFromContext] and push it down to storage
+// as a projection.
 //
 // # Method classification
 //

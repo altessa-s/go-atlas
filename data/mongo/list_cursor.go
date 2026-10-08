@@ -183,8 +183,16 @@ func WithListCursorFilter(filter bson.M) ListCursorOption {
 // Parameters:
 //   - projection: MongoDB projection specification using bson.M syntax
 //
+// The next-page cursor is read from the last returned item, so the projection
+// must return the cursor ID field and the primary sort field in full and as
+// stored — with a 1/true flag on the field or an ancestor, never an
+// expression; [ListCursor] rejects one that does not with
+// [ErrProjectionDropsCursorField]. Use dotted paths: the nested-document form
+// ({a: {b: 1}}) is not recognized and is rejected for cursor fields.
+// An empty projection adds no $project stage.
+//
 // Example:
-//   - WithListCursorProjection(bson.M{"name": 1, "email": 1}) // include only name and email
+//   - WithListCursorProjection(bson.M{"name": 1, "email": 1}) // include only name and email (_id stays)
 //   - WithListCursorProjection(bson.M{"password": 0}) // exclude password field
 func WithListCursorProjection(projection bson.M) ListCursorOption {
 	return func(options *listCursorOptions) {
@@ -505,6 +513,9 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 	}
 
 	if err := validateCursorSort(opts.sort, opts.cursorIdField); err != nil {
+		return nil, err
+	}
+	if err := validateCursorProjection(opts.projection, opts.cursorIdField, opts.sort); err != nil {
 		return nil, err
 	}
 
