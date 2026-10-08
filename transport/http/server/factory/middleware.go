@@ -6,8 +6,8 @@ package factory
 
 import (
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 
 	httpconfig "github.com/altessa-s/go-atlas/config/http"

@@ -12,10 +12,10 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
+	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
-	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 
 	"google.golang.org/grpc/codes"

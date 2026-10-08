@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/altessa-s/go-atlas/transport/internal/clientip"
+	"github.com/altessa-s/go-atlas/transport/clientip"
 )
 
 const (
