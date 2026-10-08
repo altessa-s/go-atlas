@@ -277,8 +277,15 @@ func (b *ServerBuilder) WithLoggerMiddleware() *ServerBuilder {
 
 	configOpts = slices.AppendIf(configOpts, c.LogRequest, loggermw.WithLogRequest())
 	configOpts = slices.AppendIf(configOpts, c.LogResponse, loggermw.WithLogResponse())
+	configOpts = slices.AppendIf(configOpts, c.LogQuery, loggermw.WithLogQuery())
+	configOpts = slices.AppendIf(configOpts, len(c.RedactQueryParams) > 0, loggermw.WithRedactQueryParams(c.RedactQueryParams...))
 
-	b.configMW = append(b.configMW, loggermw.New(loggermw.Slog(b.Logger()), configOpts...))
+	levels, err := c.SlogStatusLevels()
+	if err != nil {
+		b.errs = append(b.errs, err)
+		return b
+	}
+	b.configMW = append(b.configMW, loggermw.New(loggermw.SlogWithLevels(b.Logger(), levels), configOpts...))
 	return b
 }
 

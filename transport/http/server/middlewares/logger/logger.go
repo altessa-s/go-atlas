@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 	"github.com/altessa-s/go-atlas/transport/internal/observability"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreio "github.com/altessa-s/go-atlas/core/io"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
@@ -54,6 +56,7 @@ type middleware struct {
 	ignoreMethodsMap map[string]struct{}
 	logCodesSet      map[int]struct{}
 	ignoreCodesSet   map[int]struct{}
+	redactQuery      *coremaps.ImmutableMap[string, struct{}]
 }
 
 // Dependencies returns middlewares that logger reads from context.
@@ -100,6 +103,9 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			slogx.Field{Key: FieldKeyHTTPPath, Value: request.URL.Path},
 			slogx.Field{Key: FieldKeyHTTPProto, Value: request.Proto},
 		)
+		if m.opts.logQuery && request.URL.RawQuery != "" {
+			fields = append(fields, slogx.Field{Key: FieldKeyHTTPQuery, Value: m.redactedQuery(request.URL.RawQuery)})
+		}
 
 		// Extract peer IP
 		peerIP, _, splitErr := net.SplitHostPort(request.RemoteAddr)
@@ -244,6 +250,11 @@ func New(logHandler LogHandler, opt ...Option) *middleware {
 		ignoreCodesSet[code] = struct{}{}
 	}
 
+	redactQuery := make(map[string]struct{}, len(opts.redactQueryParams))
+	for _, name := range opts.redactQueryParams {
+		redactQuery[name] = struct{}{}
+	}
+
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
 			middlewareName,
@@ -256,6 +267,7 @@ func New(logHandler LogHandler, opt ...Option) *middleware {
 		ignoreMethodsMap: ignoreMethodsMap,
 		logCodesSet:      logCodesSet,
 		ignoreCodesSet:   ignoreCodesSet,
+		redactQuery:      coremaps.NewImmutableMap(redactQuery),
 	}
 }
 
@@ -312,6 +324,42 @@ type readCloser struct {
 type errReader struct{ err error }
 
 func (r errReader) Read([]byte) (int, error) { return 0, r.err }
+
+// redactedQuery returns raw with the value of every parameter listed in
+// [WithRedactQueryParams] replaced by [RedactedQueryValue], keeping the
+// parameters' order, separators and encoding. Both "&" and ";" separate
+// parameters, since a handler behind [http.AllowQuerySemicolons] reads ";"
+// as one. A name is compared after unescaping, so an encoded name
+// ("acc%65ss_token") is redacted too.
+func (m *middleware) redactedQuery(raw string) string {
+	if m.redactQuery.Len() == 0 {
+		return raw
+	}
+	var b strings.Builder
+	b.Grow(len(raw))
+	for raw != "" {
+		part := raw
+		sep := ""
+		if i := strings.IndexAny(raw, "&;"); i >= 0 {
+			part, sep, raw = raw[:i], raw[i:i+1], raw[i+1:]
+		} else {
+			raw = ""
+		}
+		key, _, _ := strings.Cut(part, "=")
+		name, err := url.QueryUnescape(key)
+		if err != nil {
+			name = key
+		}
+		if m.redactQuery.Contains(name) {
+			b.WriteString(key)
+			b.WriteString("=" + RedactedQueryValue)
+		} else {
+			b.WriteString(part)
+		}
+		b.WriteString(sep)
+	}
+	return b.String()
+}
 
 // shouldLogStatusCode determines if a status code should be logged based on pre-computed sets.
 // Both lookups are O(1) for optimal performance in the hot path.
