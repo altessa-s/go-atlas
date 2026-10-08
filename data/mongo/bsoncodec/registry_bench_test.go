@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
@@ -25,5 +26,24 @@ func BenchmarkOptionalEncode(b *testing.B) {
 	for b.Loop() {
 		out.Reset()
 		require.NoError(b, enc.Encode(value))
+	}
+}
+
+func BenchmarkDecimalRoundTrip(b *testing.B) {
+	in := struct {
+		Amount decimal.Decimal `bson:"amount"`
+	}{Amount: decimal.RequireFromString("12345.6789")}
+	b.ReportAllocs()
+	for b.Loop() {
+		raw, err := marshal(in)
+		if err != nil {
+			b.Fatal(err)
+		}
+		var out struct {
+			Amount decimal.Decimal `bson:"amount"`
+		}
+		if err := unmarshal(raw, &out); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

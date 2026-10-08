@@ -4,14 +4,14 @@
 import "github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
 ```
 
-MongoDB registry for [`optional.Optional[T]`](../../../core/types/optional), keeping database dependencies out of universal value types. Existing driver
-codecs and custom inner-type codecs continue to work.
+MongoDB registry for [`optional.Optional[T]`](../../../core/types/optional) and `shopspring/decimal`, keeping database dependencies out of
+universal value types. Existing driver codecs and custom inner-type codecs continue to work.
 
 ## API
 
 | Function | Behavior |
 |----------|----------|
-| `NewRegistry()` | Driver defaults plus codecs for every Optional instantiation; configure before concurrent use |
+| `NewRegistry()` | Driver defaults plus codecs for every Optional instantiation and for `shopspring/decimal`; configure before concurrent use |
 
 ## Usage
 
@@ -38,3 +38,18 @@ omitted without invoking the codec.
 
 The [`data/mongo`](../README.md) client constructor installs this registry unless explicitly overridden. Injected clients and custom registries remain
 the caller's responsibility. RedactedString's fixed redaction hook also works with this registry and with the driver's default registry.
+Pass the same registry to the [`domain/behavior/translators/mongo`](../../../domain/behavior/translators/mongo) translators with `WithRegistry`,
+so that they write decimals and Optionals as units instead of folding them field by field.
+
+## Decimal
+
+`decimal.Decimal`, `*decimal.Decimal` and `decimal.NullDecimal` are stored as BSON `Decimal128`, exactly: trailing zeros fold into the exponent, and a
+value that still needs more than 34 significant digits, or an exponent outside the Decimal128 range, fails with `ErrDecimalOutOfRange` instead of
+being rounded or panicking.
+
+| Stored BSON | Decoded as |
+|-------------|------------|
+| `Decimal128` | The exact value; NaN or ±Infinity fail with `ErrDecimalNotFinite` |
+| `Int32`, `Int64` | The exact integer |
+| `Double` | Error: binary floating point is never converted silently |
+| Null | Zero `Decimal`; invalid `NullDecimal`; nil pointer |
