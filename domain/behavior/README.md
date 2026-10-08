@@ -57,7 +57,7 @@ reference would silently be overwritten with another value's data.
 | Translator                                       | Output  | Purpose                                                          |
 |--------------------------------------------------|---------|-----------------------------------------------------------------|
 | `Strip` / `Clean` (this package)                 | struct  | Cleaned struct, in place or as a copy — the default output      |
-| [`translators/mongo`](translators/mongo)         | `bson.M`| MongoDB `$set`/`$unset` documents and exclusion projections     |
+| [`translators/mongo`](translators/mongo)         | `bson.M`, `FieldPaths` | MongoDB `$set`/`$unset` documents, exclusion projections, projection field paths |
 
 ## Tag vocabulary
 
@@ -86,8 +86,8 @@ token is a build-time-style error returned by `Strip`.
 ### Schema walk
 
 By default the walk stops where a nested value is absent (a nil pointer-to-struct, an empty slice/map of structs). `WithSchemaWalk` makes
-it resolve nested struct *types* anyway: a nil pointer descends a fresh zero, and an empty collection contributes one representative element
-from its element/value type. The resolved `Object` is then type-complete (one representative per collection) and each synthesized
+it resolve nested struct *types* anyway: a nil pointer descends a fresh zero, fields promoted through a nil embedded pointer are resolved from
+its type, and an empty collection contributes one representative element from its element/value type. The resolved `Object` is then type-complete (one representative per collection) and each synthesized
 `Field.Value` is a non-addressable zero. It is for read-only, type-driven translators (for example a query projection that enumerates nested
 paths regardless of runtime contents) — `Strip`, `Clean`, and the in-place fold ignore the flag and fold real instance values only.
 

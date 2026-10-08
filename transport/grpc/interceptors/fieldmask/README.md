@@ -96,6 +96,28 @@ that replace the read extractor wholesale via `WithDefaultReadExtractor` or `Wit
 entries — for the nested example above, that updates `req.Options.UpdateMask` so the handler sees a coherent `(mask, resource)` pair. Return `nil`
 from the writeback slot to skip writeback (when the handler already reads the original mask and ignores OUTPUT_ONLY paths).
 
+### Pushing the read mask down to storage
+
+`ReadMaskFromContext(ctx)` hands the handler the read mask the interceptor captured for the current `KindRead` call — resolved by the same
+extractor chain, returned as a copy — so the selection can become a database projection through [`data/projection`](../../../../data/projection)
+instead of loading the full resource and trimming it afterwards. It reports `ok=false` for non-read methods, skipped calls and requests without a
+mask (AIP-157: all fields). On a server stream, call it after the first `Recv`.
+
+```go
+if mask, ok := fieldmask.ReadMaskFromContext(ctx); ok {
+    spec, err := parser.ParsePaths(ctx, mask.GetPaths())
+    if err != nil {
+        return nil, status.Error(codes.InvalidArgument, err.Error())
+    }
+    proj, err = translator.Translate(spec)
+}
+```
+
+The response filter still runs and is a no-op on a response storage already trimmed; `WithSkipReadMask()` turns it off while the mask stays
+available through `ReadMaskFromContext`. Mask paths address the response message the filter runs on: for a `Get*` that is the resource itself,
+for a `List*` the envelope (`items.name, next_page_token`). Re-root an envelope mask at the collection field with `Spec.Relative("items")` before
+translating it; `ok=false` means the items were not requested at all.
+
 ## Usage
 
 ```go

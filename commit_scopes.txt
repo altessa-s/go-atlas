@@ -107,6 +107,8 @@ data/orderby                # AIP-132 order_by DSL parser
 data/orderby/translators    # Order_by DB translators (Mongo, Meili, RediSearch)
 data/outbox                 # Transactional outbox
 data/outbox/factory         # Outbox factory
+data/projection             # AIP-157 fields parser -> DB projections
+data/projection/translators # Projection DB translators (Mongo, SQL)
 data/probfilter             # Probabilistic filters
 data/probfilter/factory     # Probfilter factory
 data/uniq                   # Uniqueness constraints

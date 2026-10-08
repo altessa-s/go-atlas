@@ -16,12 +16,23 @@ import (
 // intermediate representation a [Translator] folds into its output model.
 type Object struct {
 	Fields []Field
+	// Value is the struct value the object was resolved from, so a translator
+	// can reach fields the walk does not report on their own — such as an
+	// embedded struct whose exported fields were promoted into Fields. It is
+	// invalid for the synthetic object that wraps a nested-collection element
+	// and for an element placeholder.
+	Value reflect.Value
 }
 
 // Field is one resolved exported field within an [Object]. Translators read it to
 // build their output; they decide representation, the engine decides traversal
 // and policy (see Strip).
 type Field struct {
+	// Index is the field's [reflect.Value.FieldByIndex] path within the struct
+	// of the enclosing [Object]; it has more than one element only for a field
+	// promoted from an embedded struct. It is shared with the engine's type
+	// cache: treat it as read-only. Nil for the synthetic collection wrapper.
+	Index []int
 	// Name is the Go field name (already promoted for embedded structs). It is
 	// empty only for the synthetic field that wraps a nested-collection element
 	// (a slice/array/map stored directly inside another collection).
@@ -184,16 +195,21 @@ func resolve(sv reflect.Value, o *options, a *arena, depth int) (Object, error) 
 		return Object{}, err
 	}
 
-	obj := Object{Fields: a.allocFields(len(infos))[:0]}
+	obj := Object{Fields: a.allocFields(len(infos))[:0], Value: sv}
 	for _, info := range infos {
 		// A nil embedded pointer in the index path leaves promoted fields
-		// unreachable; skip them rather than panic.
+		// unreachable; skip them rather than panic. Schema-walk resolves them
+		// from the declared type instead, like any other nil pointer, so a
+		// type-driven translator still sees every promoted field.
 		fv, err := sv.FieldByIndexErr(info.index)
 		if err != nil {
-			continue
+			if !o.schemaWalk {
+				continue
+			}
+			fv = fieldByIndexZero(sv, info.index)
 		}
 
-		f := Field{Name: info.name, Tag: info.tag, Kinds: info.kinds, Value: fv}
+		f := Field{Index: info.index, Name: info.name, Tag: info.tag, Kinds: info.kinds, Value: fv}
 
 		// The mask AND rejects non-matching fields cheaply; on a hit matchKind
 		// is guaranteed to find the first intersecting kind.
@@ -214,6 +230,24 @@ func resolve(sv reflect.Value, o *options, a *arena, depth int) (Object, error) 
 	}
 
 	return obj, nil
+}
+
+// fieldByIndexZero is [reflect.Value.FieldByIndex] that steps through a nil
+// embedded pointer by substituting a zero of its element type. The result is
+// a non-addressable zero for every field behind such a pointer, matching the
+// other values schema-walk synthesizes.
+func fieldByIndexZero(v reflect.Value, index []int) reflect.Value {
+	for i, x := range index {
+		if i > 0 && v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				v = reflect.Zero(v.Type().Elem())
+			} else {
+				v = v.Elem()
+			}
+		}
+		v = v.Field(x)
+	}
+	return v
 }
 
 // descend populates f.Nested or f.Collection from fv based on its runtime kind. Nil
