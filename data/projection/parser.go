@@ -65,22 +65,22 @@ func (p *Parser) Parse(ctx context.Context, expression string) (Spec, error) {
 	stop := p.metrics.parseDuration.Start()
 	defer stop()
 
-	var (
-		spec Spec
-		err  error
-	)
-	if p.cache != nil {
-		spec, err = p.cache.GetOrCompute(ctx, expression, func(_ context.Context) (Spec, error) {
-			return p.parseInternal(expression)
-		})
-	} else {
-		spec, err = p.parseInternal(expression)
-	}
+	spec, err := p.parseCached(ctx, expression)
 	if err != nil {
 		p.metrics.parseErrors.Inc()
 		return Spec{}, err
 	}
 	return spec.Clone(), nil
+}
+
+// parseCached parses expr through the cache when the parser has one.
+func (p *Parser) parseCached(ctx context.Context, expr string) (Spec, error) {
+	if p.cache == nil {
+		return p.parseInternal(expr)
+	}
+	return p.cache.GetOrCompute(ctx, expr, func(_ context.Context) (Spec, error) {
+		return p.parseInternal(expr)
+	})
 }
 
 // ParsePaths parses an already-split path list, such as
