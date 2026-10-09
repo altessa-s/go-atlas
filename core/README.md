@@ -18,7 +18,7 @@ Foundation packages for the Atlas framework. Every package under `core/` uses on
 | [runtime](./runtime)           | Finalizers, shutdown hooks, concurrency, signals, panics   |
 | [scheduler](./scheduler)       | Task scheduling interface and priority model               |
 | [text](./text)                 | String manipulation, interning, secure storage             |
-| [time](./time)                 | Safe timer management and time formatting                  |
+| [time](./time)                 | Time formatting and calendar dates (`time/civil`)          |
 | [types](./types)               | Bits, constraints, nil checks, optional, pointers, redacted strings, result |
 
 ## Design principles
