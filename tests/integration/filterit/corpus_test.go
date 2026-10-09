@@ -321,10 +321,6 @@ func Cases() []Case {
 			Name: "in empty list matches nothing",
 			Expr: `status in []`,
 			Want: nil,
-			Skip: map[Backend]string{
-				Meili:      "an empty IN list is a syntax error in the filter grammar",
-				RediSearch: "an empty TAG set is a syntax error in the query syntax",
-			},
 		},
 
 		// -- Null and existence -------------------------------------

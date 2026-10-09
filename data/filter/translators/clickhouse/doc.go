@@ -5,7 +5,7 @@
 // Package clickhouse provides a translator that converts filter AST nodes to ClickHouse SQL WHERE clauses.
 //
 // The translator implements the filter.Visitor interface and maps the CEL operations onto native ClickHouse
-// operators and functions — comparisons, logical operators, IN lists, the string predicates, length() and
+// operators and functions — comparisons, logical operators, IN lists, the string predicates, Unicode string/array size and
 // null checks. Operations without a ClickHouse counterpart return filter.ErrUnsupportedOperation.
 //
 // # Basic Usage
@@ -53,7 +53,7 @@
 //	String:     contains()                      → position(col, ?) > 0
 //	            startsWith(), endsWith()        → startsWith(col, ?), endsWith(col, ?)
 //	            matches()                       → match(col, ?)
-//	Size:       size()                          → length(col), inside a comparison only
+//	Size:       size()                          → Unicode string or array length, inside a comparison only
 //
 // substring() is rejected, as it is by every other translator. size() used on its own — outside a
 // comparison — is rejected too: length() is an integer expression, and there is no predicate to test.
