@@ -74,6 +74,17 @@ Two matrices:
 The middle assertion is the one unit tests cannot make. A clause can match a golden string byte for byte and still be a syntax error, name a
 function the server does not have, or type-mismatch on the wire.
 
+### Audit regressions
+
+`audit_regression_test.go` executes dynamic SQL operands, Unicode string/array sizes, escaped RediSearch tags, empty membership, and Lua expressions
+through Redis `EVAL`. Unsupported dynamic Meilisearch operands must return `ErrUnsupportedOperation` before reaching the server.
+
+The filter suite uses the MariaDB translator for MySQL too. To repeat its corpus and SQL regressions against the compose MySQL service:
+
+```bash
+MARIADB_DSN='atlas:atlas@tcp(127.0.0.1:13307)/atlas?parseTime=true&loc=UTC&charset=utf8mb4' go test -C tests/integration -race -count=1 -run 'TestMariaDB|TestRegexAnchors/mariadb|TestLiveSQLAudit/mariadb' ./filterit
+```
+
 ### Divergence is asserted, not tolerated
 
 Where a backend returns a *different but correct* answer, `Case.Differs` pins it:
@@ -249,9 +260,9 @@ last INSERT the server rejects leaves no row behind.
 
 ## schedulerit — the scheduler against live storages
 
-Every scenario (dispatch round trip, at-most-once across instances, crash recovery, leadership gating, failure recording) and the storage contract
-suite from [`service/scheduler/storages/storagetest`](../../service/scheduler/storages/storagetest) — each contract over its own throwaway storage — run against each
-storage: MongoDB, Redis Stack, PostgreSQL, MariaDB and MySQL. The SQL backends additionally run the SQL-only semantics: non-ASCII
+Every scenario (dispatch round trip, at-most-once across instances, crash recovery, leadership gating, failure recording) and the storage contract suite
+from [`service/scheduler/storages/storagetest`](../../service/scheduler/storages/storagetest) — each contract over its own throwaway storage — run
+against each storage: MongoDB, Redis Stack, PostgreSQL, MariaDB and MySQL. The SQL backends additionally run the SQL-only semantics: non-ASCII
 `endsWith`/`size()` and history errors larger than 64 KB.
 
 The MySQL service starts with `latin1` as its default character set on purpose: the SQL storage declares its own `utf8mb4` NO PAD collations, and

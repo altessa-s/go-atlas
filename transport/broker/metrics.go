@@ -54,26 +54,25 @@ func (m *brokerMetrics) subjectLabel(subject string) string {
 	return subject
 }
 
+func (m *brokerMetrics) counterFor(cache *sync.Map, c metrics.Counter, subject string) metrics.Counter {
+	subject = m.subjectLabel(subject)
+	if v, ok := cache.Load(subject); ok {
+		return v.(metrics.Counter) //nolint:errcheck
+	}
+	v, _ := cache.LoadOrStore(subject, c.WithLabels(metrics.Labels{"subject": subject}))
+	return v.(metrics.Counter) //nolint:errcheck
+}
+
 // publishedFor returns the messagesPublished counter bound to the subject,
 // binding the label set on first use.
 func (m *brokerMetrics) publishedFor(subject string) metrics.Counter {
-	subject = m.subjectLabel(subject)
-	if v, ok := m.published.Load(subject); ok {
-		return v.(metrics.Counter) //nolint:errcheck
-	}
-	v, _ := m.published.LoadOrStore(subject, m.messagesPublished.WithLabels(metrics.Labels{"subject": subject}))
-	return v.(metrics.Counter) //nolint:errcheck
+	return m.counterFor(&m.published, m.messagesPublished, subject)
 }
 
 // errorsFor returns the publishErrors counter bound to the subject,
 // binding the label set on first use.
 func (m *brokerMetrics) errorsFor(subject string) metrics.Counter {
-	subject = m.subjectLabel(subject)
-	if v, ok := m.errors.Load(subject); ok {
-		return v.(metrics.Counter) //nolint:errcheck
-	}
-	v, _ := m.errors.LoadOrStore(subject, m.publishErrors.WithLabels(metrics.Labels{"subject": subject}))
-	return v.(metrics.Counter) //nolint:errcheck
+	return m.counterFor(&m.errors, m.publishErrors, subject)
 }
 
 func newBrokerMetrics(c metrics.Collector, labelLimit int) *brokerMetrics {

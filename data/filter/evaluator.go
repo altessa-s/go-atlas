@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
@@ -240,9 +241,10 @@ func (e *evaluation) VisitCall(n *CallNode) (any, error) {
 
 // VisitList evaluates a list literal.
 func (e *evaluation) VisitList(n *ListNode) (any, error) {
-	if err := e.checkOps(); err != nil {
+	if err := e.enterNode(); err != nil {
 		return nil, err
 	}
+	defer e.leaveNode()
 	result := make([]any, 0, len(n.Elements))
 	for _, elem := range n.Elements {
 		val, err := elem.Accept(e)
@@ -535,6 +537,16 @@ func compare(op Operator, left, right any) (bool, error) {
 	if left == nil || right == nil {
 		return compareNil(op, left, right)
 	}
+	if l, ok := left.(time.Time); ok {
+		if r, ok := right.(time.Time); ok {
+			return compareResult(op, l.Compare(r))
+		}
+	}
+	if l, ok := left.([]byte); ok {
+		if r, ok := right.([]byte); ok {
+			return compareResult(op, bytes.Compare(l, r))
+		}
+	}
 
 	// Integers compare exactly: through float64, distinct values above 2^53
 	// would collapse into one.
@@ -629,6 +641,10 @@ func toFloat64(v any) (float64, bool) {
 // interfaces holding the same non-comparable type panics, so bytes compare by
 // content and anything else not comparable is unequal.
 func valuesEqual(a, b any) bool {
+	if at, ok := a.(time.Time); ok {
+		bt, ok := b.(time.Time)
+		return ok && at.Equal(bt)
+	}
 	if c, ok := compareIntegers(a, b); ok {
 		return c == 0
 	}

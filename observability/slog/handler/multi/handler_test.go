@@ -47,12 +47,12 @@ func (s *spy) WithGroup(name string) slog.Handler {
 func TestEnabled(t *testing.T) {
 	t.Run("true if any child enabled", func(t *testing.T) {
 		h := NewHandler(newSpy(false), newSpy(true), newSpy(false))
-		require.True(t, h.Enabled(context.Background(), slog.LevelInfo))
+		require.True(t, h.Enabled(t.Context(), slog.LevelInfo))
 	})
 
 	t.Run("false if none enabled", func(t *testing.T) {
 		h := NewHandler(newSpy(false), newSpy(false))
-		require.False(t, h.Enabled(context.Background(), slog.LevelInfo))
+		require.False(t, h.Enabled(t.Context(), slog.LevelInfo))
 	})
 }
 
@@ -63,7 +63,7 @@ func TestHandle(t *testing.T) {
 	h := NewHandler(s1, s2, s3)
 
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "hello", 0)
-	require.NoError(t, h.Handle(context.Background(), r))
+	require.NoError(t, h.Handle(t.Context(), r))
 
 	require.Len(t, s1.records, 1)
 	require.Len(t, s2.records, 1)
@@ -81,7 +81,7 @@ func TestHandle_ErrorCollection(t *testing.T) {
 	h := NewHandler(s1, s2)
 
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
-	err := h.Handle(context.Background(), r)
+	err := h.Handle(t.Context(), r)
 	require.Error(t, err)
 	require.ErrorIs(t, err, errA)
 	require.ErrorIs(t, err, errB)
@@ -150,9 +150,9 @@ func TestHandlers(t *testing.T) {
 
 func TestNewHandler_Empty(t *testing.T) {
 	h := NewHandler()
-	require.False(t, h.Enabled(context.Background(), slog.LevelInfo))
+	require.False(t, h.Enabled(t.Context(), slog.LevelInfo))
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
-	require.NoError(t, h.Handle(context.Background(), r))
+	require.NoError(t, h.Handle(t.Context(), r))
 	require.Empty(t, h.Handlers())
 }
 
@@ -164,7 +164,7 @@ func TestNewHandler_DefensiveCopy(t *testing.T) {
 	spies[0] = newSpy(false)
 
 	// Handler should still have the original spy.
-	require.True(t, h.Handlers()[0].Enabled(context.Background(), slog.LevelInfo), "handler should retain original child after external slice mutation")
+	require.True(t, h.Handlers()[0].Enabled(t.Context(), slog.LevelInfo), "handler should retain original child after external slice mutation")
 }
 
 // --- Concurrent handler tests ---
@@ -176,7 +176,7 @@ func TestHandle_Concurrent(t *testing.T) {
 	h := NewConcurrentHandler(s1, s2, s3)
 
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "hello", 0)
-	require.NoError(t, h.Handle(context.Background(), r))
+	require.NoError(t, h.Handle(t.Context(), r))
 
 	s1.mu.Lock()
 	defer s1.mu.Unlock()
@@ -201,7 +201,7 @@ func TestHandle_Concurrent_ErrorCollection(t *testing.T) {
 	h := NewConcurrentHandler(s1, s2)
 
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
-	err := h.Handle(context.Background(), r)
+	err := h.Handle(t.Context(), r)
 	require.Error(t, err)
 	require.ErrorIs(t, err, errA)
 	require.ErrorIs(t, err, errB)
@@ -233,7 +233,7 @@ func TestHandle_Concurrent_SlowHandler(t *testing.T) {
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
 
 	start := time.Now()
-	require.NoError(t, h.Handle(context.Background(), r))
+	require.NoError(t, h.Handle(t.Context(), r))
 	elapsed := time.Since(start)
 
 	// With concurrent dispatch, the total time should be ~1s (the slow

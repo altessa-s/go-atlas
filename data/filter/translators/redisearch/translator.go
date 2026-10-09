@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/filter"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -29,6 +30,8 @@ const (
 
 // tagEscaper replaces the RediSearch special characters in a query value.
 var tagEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	`$`, `\$`,
 	`,`, `\,`,
 	`.`, `\.`,
 	`!`, `\!`,
@@ -53,7 +56,7 @@ var tagEscaper = strings.NewReplacer(
 // Translator converts filter AST nodes to RediSearch query strings.
 type Translator struct {
 	config *filter.TranslatorContext
-	schema map[string]FieldType
+	schema *coremaps.ImmutableMap[string, FieldType]
 	depth  filter.DepthGuard
 }
 
@@ -69,12 +72,15 @@ func NewTranslator(schema map[string]FieldType, opts ...filter.TranslatorOption)
 	if err != nil {
 		return nil, err
 	}
-	return &Translator{config: ctx, schema: schema, depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
+	return &Translator{config: ctx, schema: coremaps.NewImmutableMap(schema), depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 
 // Translate converts a filter AST node to a RediSearch query string.
 // Returns "*" for a nil node (match all).
 func (t *Translator) Translate(node filter.Node) (string, error) {
+	if err := t.config.CheckLimits(node); err != nil {
+		return "", err
+	}
 	if node == nil {
 		return "*", nil
 	}
@@ -195,7 +201,11 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
-	return filter.VisitElements(t, n)
+	if err := t.depth.Enter(); err != nil {
+		return nil, err
+	}
+	defer t.depth.Leave()
+	return filter.VisitLiteralElements(t, n)
 }
 
 // translateComparison handles comparison operators (==, !=, <, >, <=, >=).
@@ -211,7 +221,7 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return "", err
 	}
 
-	value, err := right.Accept(t)
+	value, err := filter.AcceptLiteral(t, right)
 	if err != nil {
 		return "", err
 	}
@@ -341,7 +351,7 @@ func (t *Translator) translateNot(operand filter.Node) (string, error) {
 		return fmt.Sprintf("-@%s:{true}", mapped), nil
 	}
 
-	inner, err := t.getQueryString(operand)
+	inner, err := t.acceptPredicate(operand)
 	if err != nil {
 		return "", err
 	}
@@ -383,6 +393,14 @@ func (t *Translator) translateIn(left, right filter.Node) (string, error) {
 // actually understands: a union of degenerate ranges for NUMERIC, a tag
 // set for TAG, a term union for TEXT.
 func (t *Translator) buildIn(field string, values []any, ft FieldType) (string, error) {
+	if len(values) == 0 {
+		// A clause and its negation match nothing, including absent fields.
+		clause, err := t.buildComparison(field, filter.OpEqual, int64(0), ft)
+		if err != nil {
+			return "", err
+		}
+		return "(" + clause + " -" + clause + ")", nil
+	}
 	rendered := make([]string, 0, len(values))
 
 	switch ft {
@@ -444,7 +462,7 @@ func (t *Translator) translateTextSearch(
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "%s requires exactly 1 argument", name)
 	}
 
-	arg, err := args[0].Accept(t)
+	arg, err := filter.AcceptLiteral(t, args[0])
 	if err != nil {
 		return "", err
 	}
@@ -502,7 +520,7 @@ func (t *Translator) acceptString(node filter.Node, want string) (string, error)
 // fieldType returns the FieldType for a given field name.
 // Defaults to FieldTypeTag if not found in schema.
 func (t *Translator) fieldType(field string) FieldType {
-	if ft, ok := t.schema[field]; ok {
+	if ft, ok := t.schema.Get(field); ok {
 		return ft
 	}
 	return FieldTypeTag

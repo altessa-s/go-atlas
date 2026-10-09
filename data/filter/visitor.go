@@ -4,6 +4,8 @@
 
 package filter
 
+import coreerrs "github.com/altessa-s/go-atlas/core/errors"
+
 // Visitor defines the interface for traversing the filter AST.
 // Implementations translate the AST into target representations (e.g., MongoDB bson.M).
 type Visitor interface {
@@ -43,6 +45,30 @@ func VisitElements(v Visitor, n *ListNode) ([]any, error) {
 			return nil, err
 		}
 		result = append(result, val)
+	}
+	return result, nil
+}
+
+// AcceptLiteral visits a literal operand, rejecting expressions that a backend
+// cannot evaluate in value position. In particular, a rendered field name must
+// never be mistaken for a string literal.
+func AcceptLiteral(v Visitor, node Node) (any, error) {
+	if literal, ok := node.(*LiteralNode); ok && literal != nil {
+		return literal.Accept(v)
+	}
+	return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "expected literal operand, got %T", node)
+}
+
+// VisitLiteralElements visits a list whose backend requires constant members.
+// Dynamic members are rejected rather than converted to their rendered names.
+func VisitLiteralElements(v Visitor, n *ListNode) ([]any, error) {
+	result := make([]any, 0, len(n.Elements))
+	for _, elem := range n.Elements {
+		value, err := AcceptLiteral(v, elem)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, value)
 	}
 	return result, nil
 }

@@ -32,3 +32,11 @@ only ever indexed as a TAG, and a NUMERIC or TEXT rendering of `true` would not 
 `filter.ErrUnsupportedOperation`. Two further limits belong to RediSearch itself rather than to the translator: an infix `contains()` query needs
 the field declared `WITHSUFFIXTRIE`, and a prefix shorter than `MINPREFIX` (2 by default) is dropped, so `startsWith("A")` matches nothing. Both
 predicates match case-insensitively — a TEXT field is tokenized case-folded, and a TAG field folds case unless declared `CASESENSITIVE`.
+
+## Literal operands
+
+Comparison values, `in` list elements, and string-function arguments must be literals. Dynamic operands such as `a == b`, `a in [b]`, or `a.contains(b)`
+return `filter.ErrUnsupportedOperation`; a field reference is never converted into a string value.
+
+The constructor copies the schema; subsequent caller mutations do not change the translator. Empty `in` lists match nothing for TAG, TEXT, and NUMERIC
+fields, including under negation. Literal escaping covers backslashes and query parameter markers as well as query punctuation.

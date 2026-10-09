@@ -26,7 +26,7 @@ var luaStringEscaper = strings.NewReplacer(
 	"\n", `\n`,
 	"\r", `\r`,
 	"\t", `\t`,
-	"\x00", `\0`,
+	"\x00", `\000`,
 )
 
 // Translator converts filter AST nodes to Lua boolean expressions.
@@ -56,6 +56,9 @@ func NewTranslator(tableVar string, opts ...filter.TranslatorOption) (*Translato
 // Translate converts a filter AST node to a Lua boolean expression string.
 // Returns "true" for a nil node (match all).
 func (t *Translator) Translate(node filter.Node) (string, error) {
+	if err := t.config.CheckLimits(node); err != nil {
+		return "", err
+	}
 	if node == nil {
 		return luaTrue, nil
 	}
@@ -69,16 +72,12 @@ func (t *Translator) Translate(node filter.Node) (string, error) {
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected filter clause, got literal %T", lit.Value)
 	}
 
-	result, err := node.Accept(t)
+	result, err := t.getExprString(node)
 	if err != nil {
 		return "", err
 	}
 
-	s, ok := result.(string)
-	if !ok {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected string, got %T", result)
-	}
-	return s, nil
+	return result, nil
 }
 
 // VisitLiteral converts a literal value to its Lua representation.
@@ -154,7 +153,19 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
-	return filter.VisitElements(t, n)
+	if err := t.depth.Enter(); err != nil {
+		return nil, err
+	}
+	defer t.depth.Leave()
+	values := make([]any, 0, len(n.Elements))
+	for _, element := range n.Elements {
+		value, err := t.valueString(element)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, nil
 }
 
 // fieldRef builds a Lua table access expression from a dotted field name.
@@ -165,7 +176,7 @@ func (t *Translator) fieldRef(field string) string {
 	b.WriteString(t.tableVar)
 	for _, p := range parts {
 		b.WriteString(`["`)
-		b.WriteString(p)
+		b.WriteString(escapeLuaString(p))
 		b.WriteString(`"]`)
 	}
 	return b.String()
@@ -281,13 +292,9 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return "", err
 	}
 
-	rightResult, err := right.Accept(t)
+	rightStr, err := t.valueString(right)
 	if err != nil {
 		return "", err
-	}
-	rightStr, ok := rightResult.(string)
-	if !ok {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected literal value, got %T", rightResult)
 	}
 
 	luaOp, err := t.luaOperator(op)
@@ -436,13 +443,9 @@ func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.Ca
 		return "", err
 	}
 
-	rightResult, err := right.Accept(t)
+	rightStr, err := t.valueString(right)
 	if err != nil {
 		return "", err
-	}
-	rightStr, ok := rightResult.(string)
-	if !ok {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected literal value, got %T", rightResult)
 	}
 
 	luaOp, err := t.luaOperator(op)
@@ -450,7 +453,10 @@ func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.Ca
 		return "", err
 	}
 
-	return fmt.Sprintf("(#%s %s %s)", t.fieldRef(field), luaOp, rightStr), nil
+	ref := t.fieldRef(field)
+	// Count UTF-8 leading bytes on Lua 5.1, which has no utf8 library.
+	size := fmt.Sprintf(`(type(%s) == "string" and select(2, string.gsub(%s, "[%%z\1-\127\194-\244]", "")) or #%s)`, ref, ref, ref)
+	return fmt.Sprintf("(%s %s %s)", size, luaOp, rightStr), nil
 }
 
 // translateHas handles has(field) → field ~= nil.
@@ -464,6 +470,12 @@ func (t *Translator) translateHas(target filter.Node) (string, error) {
 
 // getExprString accepts a node and ensures the result is an expression string.
 func (t *Translator) getExprString(node filter.Node) (string, error) {
+	if _, ok := node.(*filter.LiteralNode); ok {
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "literal is not a predicate")
+	}
+	if _, ok := node.(*filter.IdentNode); ok {
+		return t.valueString(node)
+	}
 	result, err := node.Accept(t)
 	if err != nil {
 		return "", err
@@ -473,6 +485,22 @@ func (t *Translator) getExprString(node filter.Node) (string, error) {
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected expression string, got %T", result)
 	}
 	return s, nil
+}
+
+// valueString renders a scalar operand without confusing field names with literals.
+func (t *Translator) valueString(node filter.Node) (string, error) {
+	switch value := node.(type) {
+	case *filter.IdentNode:
+		field, err := t.getFieldName(node)
+		if err != nil {
+			return "", err
+		}
+		return t.fieldRef(field), nil
+	case *filter.LiteralNode:
+		return t.formatLiteral(value.Value)
+	default:
+		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "expected scalar operand, got %T", node)
+	}
 }
 
 // Ensure Translator implements filter.Visitor

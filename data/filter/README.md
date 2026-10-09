@@ -53,6 +53,9 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 }
 ```
 
+Custom visitors can call `TranslatorContext.CheckLimits(node)` before walking the AST to enforce the same operation and depth budgets.
+`AcceptLiteral` and `VisitLiteralElements` reject field references in positions where a backend accepts only constants.
+
 ## Parser options
 
 | Option                         | Default | Description                                        |
@@ -83,8 +86,8 @@ working set can replace old patterns.
 | `WithMaxOperations`  | 1000     | Maximum AST node visits per translation; protects against wide expressions (e.g. hundreds of OR-ed conditions)    |
 | `WithUntrustedInput` | --       | Mark translator/evaluator as receiving untrusted input — requires `WithAllowedFields`, otherwise the constructor returns `ErrAllowlistRequired` |
 
-These options also apply to `NewEvaluator`. `WithMaxRegexLength` and
-`WithMaxOperations` are the evaluator's primary DoS guards.
+These options also apply to `NewEvaluator`. `WithMaxRegexLength` and `WithMaxOperations` bound evaluation and translation. Translation checks the entire
+AST before rendering; evaluation counts visited nodes and retains short-circuit behavior. Lists consume nesting depth too.
 
 Every translator constructor (`mongo.NewTranslator`,
 `clickhouse.NewTranslator`, `mariadb.NewTranslator`,

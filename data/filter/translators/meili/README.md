@@ -35,3 +35,8 @@ Both halves are therefore covered explicitly:
 A bare identifier used as a condition becomes a boolean test — `active` translates to `active = true` — at the root of an expression and on
 either side of `AND` / `OR` alike. `CONTAINS` and `STARTS WITH` are gated behind Meilisearch's `containsFilter` experimental feature; enable it
 on the server before using `contains()` or `startsWith()`.
+
+## Literal operands
+
+Comparison values, `in` list elements, and string-function arguments must be literals. Dynamic operands such as `a == b`, `a in [b]`, or `a.contains(b)`
+return `filter.ErrUnsupportedOperation`; a field reference is never converted into a string value.

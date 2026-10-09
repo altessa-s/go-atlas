@@ -5,7 +5,6 @@
 package idempotency
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -70,7 +69,8 @@ func TestDefaultStatusCreator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			st := defaultStatusCreator(context.Background(), tt.scenario, tt.state)
+			t.Parallel()
+			st := defaultStatusCreator(t.Context(), tt.scenario, tt.state)
 
 			require.Equal(t, tt.wantCode, st.Code())
 			require.Equal(t, tt.wantMsg, st.Message())
@@ -84,7 +84,8 @@ func TestDefaultStatusCreator(t *testing.T) {
 }
 
 func TestDefaultStatusCreator_UnknownScenario(t *testing.T) {
-	st := defaultStatusCreator(context.Background(), ErrorScenario(999), nil)
+	t.Parallel()
+	st := defaultStatusCreator(t.Context(), ErrorScenario(999), nil)
 
 	require.Equal(t, codes.Internal, st.Code())
 	require.Equal(t, "Unknown idempotency error", st.Message())

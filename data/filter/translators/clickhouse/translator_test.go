@@ -290,19 +290,19 @@ func TestTranslator_Size(t *testing.T) {
 		{
 			"method form",
 			`tags.size() > 2`,
-			"length(`tags`) > ?",
+			"if(startsWith(toTypeName(`tags`), 'Array('), length(`tags`), lengthUTF8(toString(`tags`))) > ?",
 			[]any{int64(2)},
 		},
 		{
 			"function form",
 			`size(tags) == 0`,
-			"length(`tags`) = ?",
+			"if(startsWith(toTypeName(`tags`), 'Array('), length(`tags`), lengthUTF8(toString(`tags`))) = ?",
 			[]any{int64(0)},
 		},
 		{
 			"on the right-hand side",
 			`3 <= tags.size()`,
-			"? <= length(`tags`)",
+			"? <= if(startsWith(toTypeName(`tags`), 'Array('), length(`tags`), lengthUTF8(toString(`tags`)))",
 			[]any{int64(3)},
 		},
 	}
@@ -514,7 +514,7 @@ func TestTranslateInline(t *testing.T) {
 		{"in list", `status in ["a", "b"]`, "`status` IN ('a', 'b')"},
 		{"contains", `name.contains("oh")`, "position(`name`, 'oh') > 0"},
 		{"matches", `name.matches("^Jo")`, "match(`name`, '^Jo')"},
-		{"size", `tags.size() > 2`, "length(`tags`) > 2"},
+		{"size", `tags.size() > 2`, "if(startsWith(toTypeName(`tags`), 'Array('), length(`tags`), lengthUTF8(toString(`tags`))) > 2"},
 		{
 			"timestamp",
 			`createdAt > timestamp("2024-01-02T03:04:05.123Z")`,

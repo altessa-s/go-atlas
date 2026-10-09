@@ -311,43 +311,62 @@ const HalfUpLastRemainderPrecision = 28
 // rational arithmetic and splits a negative m as its absolute value, every
 // part negated; [HalfUpLastRemainder] is defined on decimals (see there).
 func (m Money) AllocateBy(method AllocationMethod, ratios ...decimal.Decimal) ([]Money, error) {
-	total, err := m.minorBig()
-	if err != nil {
+	if _, err := m.minorBig(); err != nil {
 		return nil, err
 	}
-	if len(ratios) == 0 {
-		return nil, fmt.Errorf("%w: none given", ErrInvalidRatios)
+	if err := checkRatios(ratios); err != nil {
+		return nil, err
 	}
-	sum := new(big.Rat)
-	rats := make([]*big.Rat, len(ratios))
-	for i, r := range ratios {
-		if r.IsNegative() {
-			return nil, fmt.Errorf("%w: ratio %d is negative", ErrInvalidRatios, i)
-		}
-		rats[i] = r.Rat()
-		sum.Add(sum, rats[i])
-	}
-	if sum.Sign() == 0 {
-		return nil, fmt.Errorf("%w: ratios sum to zero", ErrInvalidRatios)
-	}
-
 	switch method {
 	case LargestRemainder:
+		return m.largestRemainder(ratios), nil
 	case HalfUpLastRemainder:
 		return m.halfUpLastRemainder(ratios), nil
 	default:
 		return nil, fmt.Errorf("money: unknown allocation method %d", uint8(method))
 	}
+}
 
+// checkRatios fails with [ErrInvalidRatios] for no ratios, a negative one,
+// or ratios summing to zero.
+func checkRatios(ratios []decimal.Decimal) error {
+	if len(ratios) == 0 {
+		return fmt.Errorf("%w: none given", ErrInvalidRatios)
+	}
+	positive := false
+	for i, r := range ratios {
+		if r.IsNegative() {
+			return fmt.Errorf("%w: ratio %d is negative", ErrInvalidRatios, i)
+		}
+		positive = positive || r.IsPositive()
+	}
+	if !positive {
+		return fmt.Errorf("%w: ratios sum to zero", ErrInvalidRatios)
+	}
+	return nil
+}
+
+// largestRemainder implements [LargestRemainder] on validated ratios, with
+// exact rational shares; a negative m is split as its absolute value and
+// every part negated.
+func (m Money) largestRemainder(ratios []decimal.Decimal) []Money {
+	total, _ := m.minorBig() //nolint:errcheck // checked by AllocateBy
 	negative := total.Sign() < 0
 	total.Abs(total)
+
+	sum := new(big.Rat)
+	rats := make([]*big.Rat, len(ratios))
+	for i, r := range ratios {
+		rats[i] = r.Rat()
+		sum.Add(sum, rats[i])
+	}
 	totalRat := new(big.Rat).SetInt(total)
 	exact := make([]*big.Rat, len(rats))
 	for i, r := range rats {
 		exact[i] = new(big.Rat).Mul(totalRat, r)
 		exact[i].Quo(exact[i], sum)
 	}
-	parts := largestRemainder(total, exact)
+	parts := apportionLargestRemainder(total, exact)
 
 	out := make([]Money, len(parts))
 	for i, p := range parts {
@@ -356,7 +375,7 @@ func (m Money) AllocateBy(method AllocationMethod, ratios ...decimal.Decimal) ([
 		}
 		out[i] = Money{amount: decimal.NewFromBigInt(p, -m.currency.minorUnits), currency: m.currency}
 	}
-	return out, nil
+	return out
 }
 
 // floorRat returns the floor of the non-negative r.
@@ -364,9 +383,9 @@ func floorRat(r *big.Rat) *big.Int {
 	return new(big.Int).Quo(r.Num(), r.Denom())
 }
 
-// largestRemainder implements [LargestRemainder] on non-negative exact
-// shares of total, in minor units.
-func largestRemainder(total *big.Int, exact []*big.Rat) []*big.Int {
+// apportionLargestRemainder rounds the non-negative exact shares of total,
+// in minor units, by the largest remainder method.
+func apportionLargestRemainder(total *big.Int, exact []*big.Rat) []*big.Int {
 	type share struct {
 		index     int
 		remainder *big.Rat
