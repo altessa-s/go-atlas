@@ -127,3 +127,10 @@ goroutine, or guard it with a mutex.
 
 - [`data/filter`](../..) — parser, AST, and the shared translator options
 - [`translators/mariadb`](../mariadb), [`translators/clickhouse`](../clickhouse) — the other SQL dialects
+
+## Field operands
+
+Comparisons, `in` list elements, and `contains` / `startsWith` / `endsWith` arguments can reference other fields. Field mappings and allowlists apply to
+every reference. Lists containing dynamic operands render as equality disjunctions; constant lists retain `IN`. Literal values remain bound parameters.
+
+`matches` requires a literal pattern so regex validation and length limits apply before execution.

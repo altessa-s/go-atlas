@@ -262,12 +262,12 @@ func TestTranslator_SizeFunction(t *testing.T) {
 		{
 			name: "size equal",
 			expr: `tags.size() == 3`,
-			want: `(#d["tags"] == 3)`,
+			want: `((type(d["tags"]) == "string" and select(2, string.gsub(d["tags"], "[%z\1-\127\194-\244]", "")) or #d["tags"]) == 3)`,
 		},
 		{
 			name: "size greater than",
 			expr: `tags.size() > 0`,
-			want: `(#d["tags"] > 0)`,
+			want: `((type(d["tags"]) == "string" and select(2, string.gsub(d["tags"], "[%z\1-\127\194-\244]", "")) or #d["tags"]) > 0)`,
 		},
 	}
 

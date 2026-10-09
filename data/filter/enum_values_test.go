@@ -82,7 +82,7 @@ func TestEvaluator_EnumValues_NoConfig(t *testing.T) {
 	node, err := p.Parse(t.Context(), `role == 10`)
 	require.NoError(t, err, "Parse")
 	_, err = eval.Evaluate(node, map[string]any{"role": int64(1)})
-	require.NotErrorIs(t, err, filter.ErrEnumValueNotAllowed)
+	require.NoError(t, err)
 }
 
 // TestEvaluator_EnumValues_WithoutFieldKind guards the CheckLiteralKind
@@ -126,9 +126,7 @@ func TestEvaluator_EnumValues_ErrorMessage(t *testing.T) {
 // internal enumInt64 normalizer: CEL emits a uint64 LiteralNode for the
 // unsigned-suffix form (`Nu`) and must be enforced against the same
 // int64-keyed set as a plain integer literal. Values above MaxInt64
-// cannot fit the set and are passed through silently — the overflow
-// guard exists to keep the normalizer total without producing a
-// spurious ErrEnumValueNotAllowed.
+// cannot fit the set and must be rejected.
 func TestEvaluator_EnumValues_UintLiteral(t *testing.T) {
 	p := newTestParser(t)
 	eval := mustEvaluator(t,
@@ -152,13 +150,11 @@ func TestEvaluator_EnumValues_UintLiteral(t *testing.T) {
 		require.ErrorIs(t, err, filter.ErrEnumValueNotAllowed)
 	})
 
-	t.Run("uint overflow above MaxInt64 is skipped", func(t *testing.T) {
-		// 9223372036854775808u > math.MaxInt64 — enumInt64 reports
-		// (0, false) so the membership check is bypassed rather than
-		// producing a false ErrEnumValueNotAllowed.
+	t.Run("uint overflow above MaxInt64 is rejected", func(t *testing.T) {
+		// Values above MaxInt64 cannot belong to an int64 enum.
 		node, err := p.Parse(t.Context(), `role == 9223372036854775808u`)
 		require.NoError(t, err, "Parse")
 		_, err = eval.Evaluate(node, data)
-		require.NotErrorIs(t, err, filter.ErrEnumValueNotAllowed)
+		require.ErrorIs(t, err, filter.ErrEnumValueNotAllowed)
 	})
 }

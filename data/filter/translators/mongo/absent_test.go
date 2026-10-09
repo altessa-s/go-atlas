@@ -172,9 +172,9 @@ func TestTranslator_ZeroWhenAbsentSizeRejectsNonNumbers(t *testing.T) {
 		require.ErrorIs(t, err, filter.ErrInvalidExpression, expr)
 	}
 
-	// An undeclared field keeps today's behavior.
+	// Undeclared fields must also reject expression-like string operands.
 	_, err := mustTranslator(t).Translate(testhelpers.MustParseFilter(t, `name.size() < "x"`))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, filter.ErrInvalidExpression)
 }
 
 func TestTranslator_ZeroWhenAbsentTimestamp(t *testing.T) {

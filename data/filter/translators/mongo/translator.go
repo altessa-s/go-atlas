@@ -48,6 +48,9 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 // caller pass an absent filter straight through — the same contract the
 // SQL and RediSearch translators offer.
 func (t *Translator) Translate(node filter.Node) (bson.M, error) {
+	if err := t.config.CheckLimits(node); err != nil {
+		return nil, err
+	}
 	if node == nil {
 		return bson.M{}, nil
 	}
@@ -168,7 +171,11 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
-	return filter.VisitElements(t, n)
+	if err := t.depth.Enter(); err != nil {
+		return nil, err
+	}
+	defer t.depth.Leave()
+	return filter.VisitLiteralElements(t, n)
 }
 
 // regexTransform transforms a string argument into a regex pattern.
@@ -233,7 +240,7 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return nil, err
 	}
 
-	value, err := right.Accept(t)
+	value, err := filter.AcceptLiteral(t, right)
 	if err != nil {
 		return nil, err
 	}
@@ -284,17 +291,17 @@ func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.Ca
 		return nil, err
 	}
 
-	value, err := right.Accept(t)
+	value, err := filter.AcceptLiteral(t, right)
 	if err != nil {
 		return nil, err
 	}
 
+	if err = sizeOperand(value); err != nil {
+		return nil, err
+	}
 	kind, declared := t.zeroKind(call.Target)
 	if !declared {
 		return t.buildSizeFilter(field, op, value)
-	}
-	if err = sizeOperand(value); err != nil {
-		return nil, err
 	}
 	base, err := t.buildSizeFilter(field, op, value)
 	if err != nil {
@@ -393,16 +400,11 @@ func (t *Translator) translateNot(operand filter.Node) (bson.M, error) {
 	}
 
 	// For complex expressions, use $nor
-	inner, err := operand.Accept(t)
+	inner, err := t.acceptPredicate(operand)
 	if err != nil {
 		return nil, err
 	}
-	innerM, ok := inner.(bson.M)
-	if !ok {
-		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M for not operand, got %T", inner)
-	}
-
-	return bson.M{"$nor": bson.A{innerM}}, nil
+	return bson.M{"$nor": bson.A{inner}}, nil
 }
 
 // translateIn handles the in operator.
@@ -446,7 +448,7 @@ func (t *Translator) translateRegexOp(target filter.Node, args []filter.Node, tr
 		return nil, coreerrs.Wrap(filter.ErrInvalidExpression, "string function requires exactly 1 argument")
 	}
 
-	arg, err := args[0].Accept(t)
+	arg, err := filter.AcceptLiteral(t, args[0])
 	if err != nil {
 		return nil, err
 	}

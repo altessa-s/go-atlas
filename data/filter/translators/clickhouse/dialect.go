@@ -35,9 +35,10 @@ func (dialect) QuoteIdent(name string) (string, error) {
 // Placeholder renders ClickHouse's positional bind marker.
 func (dialect) Placeholder(int) string { return "?" }
 
-// SizeExpr renders size() as length(), which covers both String and
-// Array columns.
-func (dialect) SizeExpr(col string) string { return "length(" + col + ")" }
+// SizeExpr counts Unicode code points in strings and elements in arrays.
+func (dialect) SizeExpr(col string) string {
+	return "if(startsWith(toTypeName(" + col + "), 'Array('), length(" + col + "), lengthUTF8(toString(" + col + ")))"
+}
 
 // stringPredicates maps the string predicates onto native ClickHouse
 // functions. All four take the needle as a plain string, so nothing

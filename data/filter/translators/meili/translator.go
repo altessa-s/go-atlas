@@ -44,6 +44,9 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 // lets a caller pass an absent filter straight through — the same
 // contract the SQL and RediSearch translators offer.
 func (t *Translator) Translate(node filter.Node) (string, error) {
+	if err := t.config.CheckLimits(node); err != nil {
+		return "", err
+	}
 	if node == nil {
 		return "", nil
 	}
@@ -124,7 +127,11 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
-	return filter.VisitElements(t, n)
+	if err := t.depth.Enter(); err != nil {
+		return nil, err
+	}
+	defer t.depth.Leave()
+	return filter.VisitLiteralElements(t, n)
 }
 
 // translateComparison handles comparison operators.
@@ -144,7 +151,7 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return "", err
 	}
 
-	value, err := right.Accept(t)
+	value, err := filter.AcceptLiteral(t, right)
 	if err != nil {
 		return "", err
 	}
@@ -275,7 +282,7 @@ func (t *Translator) translateStringFunc(target filter.Node, args []filter.Node,
 		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "string function requires exactly 1 argument")
 	}
 
-	arg, err := args[0].Accept(t)
+	arg, err := filter.AcceptLiteral(t, args[0])
 	if err != nil {
 		return "", err
 	}
