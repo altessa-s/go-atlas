@@ -55,6 +55,10 @@ func TestBuild_Mongo(t *testing.T) {
 		_ = client.Disconnect(context.WithoutCancel(t.Context()))
 		t.Skipf("mongodb not reachable: %v", err)
 	}
+	if _, err := client.ListDatabaseNames(t.Context(), bson.D{}); err != nil {
+		_ = client.Disconnect(context.WithoutCancel(t.Context()))
+		t.Skipf("mongodb not usable for tests: %v", err)
+	}
 	db := client.Database("idempotency_factory_" + strconv.FormatInt(time.Now().UnixNano(), 36))
 	t.Cleanup(func() {
 		_ = db.Drop(context.WithoutCancel(t.Context()))

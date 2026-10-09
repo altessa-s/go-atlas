@@ -153,6 +153,10 @@ func TestReplayAuthorizer(t *testing.T) {
 	_, _, err = k.AttemptLock(withOwner(t.Context(), "bob"), "key")
 	require.ErrorIs(t, err, errForbidden)
 	require.ErrorIs(t, err, idempotency.ErrOwnerMismatch, "transports recognize the refusal")
+
+	// The authorizer alone decides: it may refuse the record's own owner.
+	_, _, err = k.AttemptLock(withOwner(t.Context(), "alice"), "key")
+	require.ErrorIs(t, err, errForbidden, "the authorizer decides every replay")
 }
 
 func TestOwnerBlocksOrphanSteal(t *testing.T) {
@@ -224,4 +228,38 @@ func TestFingerprintNotAliased(t *testing.T) {
 	_, st, err := k.AttemptLockWithOpts(t.Context(), "key", idempotency.AttemptLockOpts{Fingerprint: []byte("fingerprint-a")})
 	require.NoError(t, err)
 	require.Equal(t, idempotency.StatusSuccess, st.Status, "the fingerprint captured at acquisition is kept")
+}
+
+// TestReplayAuthorizerDecidesEveryReplay pins the access-check rule: the
+// replay goes to whoever may read the record, decided from its owner label.
+func TestReplayAuthorizerDecidesEveryReplay(t *testing.T) {
+	t.Parallel()
+
+	errNotFound := errors.New("not found")
+	var seen []string
+	k := newKeeper(
+		idempotency.WithOwner(ownerOf),
+		idempotency.WithReplayAuthorizer(func(ctx context.Context, owner string) error {
+			seen = append(seen, owner)
+			if ownerOf(ctx) == "auditor" || ownerOf(ctx) == owner {
+				return nil
+			}
+			return errNotFound
+		}),
+	)
+	ok, held, err := k.AttemptLock(withOwner(t.Context(), "le-1"), "key")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, k.Complete(withOwner(t.Context(), "le-1"), "key", "payment-7", held))
+
+	_, st, err := k.AttemptLock(withOwner(t.Context(), "le-1"), "key")
+	require.NoError(t, err)
+	require.Equal(t, "payment-7", st.Data)
+	_, st, err = k.AttemptLock(withOwner(t.Context(), "auditor"), "key")
+	require.NoError(t, err, "a reader other than the owner gets the replay")
+	require.Equal(t, "payment-7", st.Data)
+	_, st, err = k.AttemptLock(withOwner(t.Context(), "le-2"), "key")
+	require.ErrorIs(t, err, errNotFound, "an invisible record reads as the service's NotFound")
+	require.Nil(t, st)
+	require.Equal(t, []string{"le-1", "le-1", "le-1"}, seen, "the authorizer gets the recorded label every time")
 }

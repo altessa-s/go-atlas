@@ -75,9 +75,9 @@ var ErrMissingLockState = storages.ErrMissingLockState
 // Unprocessable Content (HTTP) or InvalidArgument (gRPC).
 var ErrFingerprintMismatch = errors.New("idempotency: key reused with a different request")
 
-// ErrOwnerMismatch is returned by [Keeper.AttemptLockWithOpts] when the key
-// was recorded by another owner (see [WithOwner]) and no
-// [ReplayAuthorizer] allows the caller to see it.
+// ErrOwnerMismatch is returned by [Keeper.AttemptLockWithOpts] when the
+// caller may not see the key's record: it was recorded by another owner (see
+// [WithOwner]), or the [ReplayAuthorizer] refused, its error wrapped.
 var ErrOwnerMismatch = errors.New("idempotency: key belongs to another owner")
 
 // AttemptLockOpts customizes a single AttemptLockWithOpts call. All
@@ -335,19 +335,20 @@ func (i *Keeper) ownerOf(ctx context.Context) string {
 	return i.opts.owner(ctx)
 }
 
-// checkReplay decides whether a caller denied the lock may see existing: an
-// owner other than the caller's needs the [ReplayAuthorizer]'s consent
-// ([ErrOwnerMismatch], wrapping its refusal), and a recorded fingerprint must equal
-// the caller's ([ErrFingerprintMismatch]). A record or a caller without an
-// owner or a fingerprint skips that check.
+// checkReplay decides whether a caller denied the lock may see existing.
+// With a [ReplayAuthorizer] it alone decides, for every record ([ErrOwnerMismatch]
+// wrapping its refusal); without one, an owner other than the caller's is
+// refused ([ErrOwnerMismatch]) and a record without an owner is not checked.
+// Then a recorded fingerprint must equal the caller's
+// ([ErrFingerprintMismatch]); a record or a caller without one skips that.
 func (i *Keeper) checkReplay(ctx context.Context, existing serializedState, owner string, fingerprint []byte) error {
-	if i.opts.owner != nil && existing.Owner != "" && existing.Owner != owner {
-		if i.opts.replayAuthorizer == nil {
-			return ErrOwnerMismatch
-		}
+	switch {
+	case i.opts.replayAuthorizer != nil:
 		if err := i.opts.replayAuthorizer(ctx, existing.Owner); err != nil {
 			return fmt.Errorf("%w: %w", ErrOwnerMismatch, err)
 		}
+	case i.opts.owner != nil && existing.Owner != "" && existing.Owner != owner:
+		return ErrOwnerMismatch
 	}
 	if len(fingerprint) > 0 && len(existing.Fingerprint) > 0 && !bytes.Equal(fingerprint, existing.Fingerprint) {
 		return ErrFingerprintMismatch

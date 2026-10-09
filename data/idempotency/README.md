@@ -43,10 +43,17 @@ if errors.Is(err, idempotency.ErrFingerprintMismatch) { /* the key was reused fo
 
 ## Owners
 
-`WithKeyNamespace` separates keyspaces. Within one namespace, `WithOwner(func(ctx) string)` records the caller's identity with each key: a
-caller with another identity gets `ErrOwnerMismatch` and nothing of the record — neither its result nor whether its fingerprint matches —
-and cannot take over its orphaned lock. `WithReplayAuthorizer(func(ctx, owner) error)` lets chosen callers (an administrator, a service
-account) see records of other owners; its error is returned wrapped in `ErrOwnerMismatch`. Records written without an owner are not checked.
+`WithKeyNamespace` separates keyspaces. Within one namespace, `WithOwner(func(ctx) string)` records an owner label with each key — a
+subject, or whatever access attributes the service needs later (a legal entity and an employee, encoded). The label is opaque to the
+Keeper:
+
+- without a `ReplayAuthorizer`, a caller with another label gets `ErrOwnerMismatch` and nothing of the record — neither its result nor
+  whether its fingerprint matches;
+- with `WithReplayAuthorizer(func(ctx, owner) error)`, the authorizer alone decides every replay from the recorded label, so the replay
+  goes to whoever may read the record. Its error is returned wrapped in `ErrOwnerMismatch`: return the service's NotFound error to hide an
+  invisible record — `errors.Is` still matches it, and the gRPC interceptor answers with its status.
+
+Only the record's own owner may take over its orphaned lock. Records written without an owner are not checked unless an authorizer is set.
 
 ## Stolen-lock detection
 
