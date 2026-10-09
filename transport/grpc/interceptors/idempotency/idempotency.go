@@ -165,6 +165,11 @@ func (ri *requestInterceptor) checkIdempotency(ctx context.Context, req any) err
 	case errors.Is(err, idempotency.ErrFingerprintMismatch):
 		return interceptors.NewError(ri.opts.statusCreator(ctx, ErrorIDKMismatch, nil), nil)
 	case errors.Is(err, idempotency.ErrOwnerMismatch):
+		// A ReplayAuthorizer refusal carrying a gRPC status (NotFound to
+		// hide the record) is answered with that status.
+		if se, ok := errors.AsType[grpcStatusError](err); ok {
+			return interceptors.NewError(se.GRPCStatus(), nil)
+		}
 		return interceptors.NewError(ri.opts.statusCreator(ctx, ErrorIDKForbidden, nil), nil)
 	case err != nil:
 		return ri.handleStorageError(err)
@@ -201,6 +206,12 @@ func (ri *requestInterceptor) checkIdempotency(ctx context.Context, req any) err
 	ri.lockedKey = storageKey
 	ri.lockedState = state
 	return nil
+}
+
+// grpcStatusError is an error carrying a gRPC status, as status.Error makes.
+type grpcStatusError interface {
+	error
+	GRPCStatus() *status.Status
 }
 
 // requestFingerprint returns the fingerprint of the method and the

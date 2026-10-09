@@ -36,3 +36,17 @@ func BenchmarkRound(b *testing.B) {
 		_ = m.Round(money.HalfEven)
 	}
 }
+
+func BenchmarkAllocateHalfUpLastRemainder(b *testing.B) {
+	m, err := money.FromMinor(1_000_000, eur)
+	if err != nil {
+		b.Fatal(err)
+	}
+	ratios := []decimal.Decimal{decimal.NewFromInt(3), decimal.NewFromInt(5), decimal.NewFromInt(7), decimal.NewFromInt(11)}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := m.AllocateBy(money.HalfUpLastRemainder, ratios...); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

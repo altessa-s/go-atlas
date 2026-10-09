@@ -47,22 +47,26 @@ type options struct {
 	// keyNamespace, when set, isolates idempotency keys by a per-context
 	// namespace (typically tenant/subject). Nil = no prefixing.
 	keyNamespace KeyNamespaceFunc `optgen:"default=nil"`
-	// owner, when set, records the caller's identity with each lock; a
-	// caller with another identity is refused the stored state (see
-	// replayAuthorizer). Nil = no owner check.
+	// owner, when set, records the caller's owner label with each lock.
+	// Without replayAuthorizer, a caller with another label is refused the
+	// stored state. Nil = no owner recorded.
 	owner OwnerFunc `optgen:"default=nil"`
-	// replayAuthorizer decides whether a caller may see a record another
-	// owner created. Nil refuses every other owner with ErrOwnerMismatch.
+	// replayAuthorizer, when set, decides every replay from the recorded
+	// owner label, instead of comparing labels.
 	replayAuthorizer ReplayAuthorizer `optgen:"default=nil"`
 }
 
-// OwnerFunc returns the identity of the caller in ctx (a subject or a
-// tenant-qualified subject) recorded with each lock. "" records no owner.
+// OwnerFunc returns the owner label recorded with each lock the caller in
+// ctx takes: a subject, or any access attributes the service needs to
+// decide visibility later (a tenant and a subject, an encoded resource
+// owner). The label is opaque to the Keeper. "" records no owner.
 type OwnerFunc func(ctx context.Context) string
 
-// ReplayAuthorizer reports whether the caller in ctx may see the state of a
-// key that owner created: nil allows it, an error is returned to the caller
-// wrapped in ErrOwnerMismatch.
-// Use it when several principals share a key namespace and some may read
-// each other's records (an admin, a service account).
+// ReplayAuthorizer decides whether the caller in ctx may see the state of a
+// key recorded with owner (the [OwnerFunc] label, "" when none was
+// recorded). When set, it is called for every replay instead of comparing
+// owner labels: nil lets the caller see the record, an error is returned to
+// the caller wrapped in ErrOwnerMismatch — return the service's NotFound
+// error to hide the record, and gRPC transports answer with its status.
+// Taking over an orphaned lock still requires the same owner label.
 type ReplayAuthorizer func(ctx context.Context, owner string) error
