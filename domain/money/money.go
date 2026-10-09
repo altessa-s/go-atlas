@@ -258,16 +258,59 @@ func (m Money) String() string {
 	return m.amount.StringFixed(places) + " " + m.currency.code
 }
 
-// Allocate splits m into parts proportional to ratios without losing or
-// creating a minor unit: the parts sum to m exactly. Each part gets its
-// share rounded toward zero, and the minor units left over go one each to
-// the parts with the largest discarded remainders, ties to the earlier
-// part (the largest remainder method). m must be in whole minor units
-// ([ErrNotRounded]) that fit in an int64 ([ErrOverflow]); ratios must be
-// non-negative and not all zero
-// ([ErrInvalidRatios]). A negative m is split as its absolute value and
-// every part negated.
+// AllocationMethod selects how [Money.AllocateBy] rounds the shares to
+// minor units while keeping their sum equal to the amount.
+type AllocationMethod uint8
+
+const (
+	// LargestRemainder rounds every share toward zero and hands the minor
+	// units left over one each to the shares with the largest discarded
+	// remainders, ties to the earlier share. No share differs from its
+	// exact value by a minor unit or more.
+	LargestRemainder AllocationMethod = iota
+	// HalfUpLastRemainder rounds every share but the last half-up (away from
+	// zero) and gives the last share the remainder. When the rounded shares
+	// would push the last one below zero, the missing units are taken back
+	// one at a time from the earlier shares rounded up the most over their
+	// exact value, ties to the later share. Exact shares are computed as
+	// amount*ratio/sum rounded to [HalfUpLastRemainderPrecision] decimal
+	// places, so the result matches implementations of this convention on
+	// shopspring decimals share for share. The convention is defined for
+	// non-negative amounts; a negative amount is split as its absolute value
+	// and every part negated.
+	HalfUpLastRemainder
+)
+
+// String returns the method name.
+func (a AllocationMethod) String() string {
+	switch a {
+	case LargestRemainder:
+		return "largest-remainder"
+	case HalfUpLastRemainder:
+		return "half-up-last-remainder"
+	default:
+		return fmt.Sprintf("AllocationMethod(%d)", uint8(a))
+	}
+}
+
+// Allocate splits m into parts proportional to ratios with the
+// [LargestRemainder] method. See [Money.AllocateBy].
 func (m Money) Allocate(ratios ...decimal.Decimal) ([]Money, error) {
+	return m.AllocateBy(LargestRemainder, ratios...)
+}
+
+// HalfUpLastRemainderPrecision is the number of decimal places of the exact
+// shares [HalfUpLastRemainder] rounds.
+const HalfUpLastRemainderPrecision = 28
+
+// AllocateBy splits m into parts proportional to ratios without losing or
+// creating a minor unit: the parts sum to m exactly, rounded to minor units
+// by method. m must be in whole minor units ([ErrNotRounded]) that fit in an
+// int64 ([ErrOverflow]); ratios must be non-negative and not all zero
+// ([ErrInvalidRatios]). [LargestRemainder] computes exact shares with
+// rational arithmetic and splits a negative m as its absolute value, every
+// part negated; [HalfUpLastRemainder] is defined on decimals (see there).
+func (m Money) AllocateBy(method AllocationMethod, ratios ...decimal.Decimal) ([]Money, error) {
 	total, err := m.minorBig()
 	if err != nil {
 		return nil, err
@@ -288,33 +331,23 @@ func (m Money) Allocate(ratios ...decimal.Decimal) ([]Money, error) {
 		return nil, fmt.Errorf("%w: ratios sum to zero", ErrInvalidRatios)
 	}
 
+	switch method {
+	case LargestRemainder:
+	case HalfUpLastRemainder:
+		return m.halfUpLastRemainder(ratios), nil
+	default:
+		return nil, fmt.Errorf("money: unknown allocation method %d", uint8(method))
+	}
+
 	negative := total.Sign() < 0
 	total.Abs(total)
 	totalRat := new(big.Rat).SetInt(total)
-
-	type share struct {
-		index     int
-		remainder *big.Rat
-	}
-	parts := make([]*big.Int, len(rats))
-	shares := make([]share, len(rats))
-	allocated := new(big.Int)
+	exact := make([]*big.Rat, len(rats))
 	for i, r := range rats {
-		exact := new(big.Rat).Mul(totalRat, r)
-		exact.Quo(exact, sum)
-		floor := new(big.Int).Quo(exact.Num(), exact.Denom())
-		parts[i] = floor
-		allocated.Add(allocated, floor)
-		shares[i] = share{index: i, remainder: exact.Sub(exact, new(big.Rat).SetInt(floor))}
+		exact[i] = new(big.Rat).Mul(totalRat, r)
+		exact[i].Quo(exact[i], sum)
 	}
-
-	// Hand the leftover units to the largest remainders; the stable sort
-	// keeps the earlier part first among equal remainders.
-	slices.SortStableFunc(shares, func(a, b share) int { return b.remainder.Cmp(a.remainder) })
-	left := new(big.Int).Sub(total, allocated).Int64() // < len(ratios)
-	for i := range left {
-		parts[shares[i].index].Add(parts[shares[i].index], big.NewInt(1))
-	}
+	parts := largestRemainder(total, exact)
 
 	out := make([]Money, len(parts))
 	for i, p := range parts {
@@ -326,8 +359,91 @@ func (m Money) Allocate(ratios ...decimal.Decimal) ([]Money, error) {
 	return out, nil
 }
 
-// Split divides m into n parts as equal as possible: Split(3) of 10.00 is
-// 3.34, 3.33, 3.33. See [Money.Allocate].
+// floorRat returns the floor of the non-negative r.
+func floorRat(r *big.Rat) *big.Int {
+	return new(big.Int).Quo(r.Num(), r.Denom())
+}
+
+// largestRemainder implements [LargestRemainder] on non-negative exact
+// shares of total, in minor units.
+func largestRemainder(total *big.Int, exact []*big.Rat) []*big.Int {
+	type share struct {
+		index     int
+		remainder *big.Rat
+	}
+	parts := make([]*big.Int, len(exact))
+	shares := make([]share, len(exact))
+	allocated := new(big.Int)
+	for i, e := range exact {
+		parts[i] = floorRat(e)
+		allocated.Add(allocated, parts[i])
+		shares[i] = share{index: i, remainder: new(big.Rat).Sub(e, new(big.Rat).SetInt(parts[i]))}
+	}
+	// The stable sort keeps the earlier share first among equal remainders.
+	slices.SortStableFunc(shares, func(a, b share) int { return b.remainder.Cmp(a.remainder) })
+	left := new(big.Int).Sub(total, allocated).Int64() // < len(exact)
+	for i := range left {
+		parts[shares[i].index].Add(parts[shares[i].index], big.NewInt(1))
+	}
+	return parts
+}
+
+// halfUpLastRemainder implements [HalfUpLastRemainder] on validated ratios.
+func (m Money) halfUpLastRemainder(ratios []decimal.Decimal) []Money {
+	if m.amount.IsNegative() {
+		parts := m.Neg().halfUpLastRemainder(ratios)
+		for i := range parts {
+			parts[i] = parts[i].Neg()
+		}
+		return parts
+	}
+	places := m.currency.minorUnits
+	sum := decimal.Zero
+	for _, r := range ratios {
+		sum = sum.Add(r)
+	}
+	n := len(ratios)
+	exact := make([]decimal.Decimal, n)
+	for i, r := range ratios {
+		exact[i] = m.amount.Mul(r).DivRound(sum, HalfUpLastRemainderPrecision)
+	}
+	shares := make([]decimal.Decimal, n)
+	allocated := decimal.Zero
+	for i := range n - 1 {
+		shares[i] = exact[i].Round(places)
+		allocated = allocated.Add(shares[i])
+	}
+	shares[n-1] = m.amount.Sub(allocated)
+
+	unit := decimal.New(1, -places)
+	for shares[n-1].IsNegative() {
+		best := -1
+		bestExcess := decimal.Zero
+		for i := range n - 1 {
+			excess := shares[i].Sub(exact[i])
+			if excess.IsPositive() && (best < 0 || excess.GreaterThanOrEqual(bestExcess)) {
+				best, bestExcess = i, excess
+			}
+		}
+		if best < 0 {
+			// Unreachable for exact shares of a non-negative amount: a
+			// negative remainder means some earlier share was rounded up.
+			break
+		}
+		shares[best] = shares[best].Sub(unit)
+		shares[n-1] = shares[n-1].Add(unit)
+	}
+
+	out := make([]Money, n)
+	for i, sh := range shares {
+		out[i] = Money{amount: sh, currency: m.currency}
+	}
+	return out
+}
+
+// Split divides m into n parts as equal as possible with the
+// [LargestRemainder] method: Split(3) of 10.00 is 3.34, 3.33, 3.33. See
+// [Money.AllocateBy].
 func (m Money) Split(n int) ([]Money, error) {
 	if n <= 0 {
 		return nil, fmt.Errorf("%w: %d parts", ErrInvalidRatios, n)
