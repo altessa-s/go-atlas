@@ -639,6 +639,20 @@ provider, _ := oidc.NewProvider(ctx, discoveryURL,
 The staleness check is not exposed through YAML — leave the threshold at zero to keep the legacy "validate on whatever the cache holds"
 behavior, or opt in via Go options when a freshness guarantee is required.
 
+#### Discovery validation (Go-only)
+
+The discovery document's `issuer` must equal the configured issuer, and every advertised endpoint (`jwks_uri`, `token_endpoint`,
+`introspection_endpoint`, `userinfo_endpoint`, `authorization_endpoint`, `end_session_endpoint`, `revocation_endpoint`) must be HTTPS on the
+issuer's host. The provider exposes them as `AuthorizationEndpoint()`, `TokenEndpoint()`, `UserinfoEndpoint()`, `EndSessionEndpoint()`,
+`RevocationEndpoint()` and `IntrospectionEndpoint()`; each returns `""` when the IdP does not advertise the endpoint.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithDiscoveryValidationMode(mode)` | `DiscoveryValidationModeEnforce` | `Enforce` (fail with `ErrDiscoveryValidation`), `Warn` (log and accept), `Disabled` (no check) |
+| `WithDiscoveryAllowLoopbackHTTP()` | off | Accept plain-http issuer and endpoints when the issuer host is loopback (`localhost`, `127.0.0.0/8`, `::1`); endpoints stay pinned to that host |
+
+The factory's SSRF-protected HTTP client may still refuse loopback addresses, so a local IdP also needs a client that allows them.
+
 The HTTP client used for JWKS refresh, OIDC discovery, introspection, userinfo, and URL-based revocation honors `oidc.proxy` (see [Proxy](../proxy.md))
 — so a single proxy block applies to every outbound OIDC call. Sub-components (e.g. URL revocation loaders) inherit the Provider's HTTP client via
 the `httpclient.HTTPClientSetter` interface.

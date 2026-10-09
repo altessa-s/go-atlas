@@ -11,7 +11,7 @@ tests/integration/
 ├── dlockit/               # data/locks/dlock: contended locking against a live broker and SQL servers
 ├── auditit/               # data/audit: storage conformance, atomic and idempotent batches on SQL servers
 ├── outboxit/              # data/outbox: transactional delivery against a live MongoDB
-├── mongoit/               # data/mongo: transactions abort on panic, failed migrations keep applied ones
+├── mongoit/               # data/mongo: transactions abort on panic, migration failure and rollback, keyset paging with FindPage
 ├── projectionit/          # data/projection: projections accepted by MongoDB and PostgreSQL, keyset paging under a projection
 ├── sagait/                # data/saga: storage contracts on SQL, Mongo and Redis + orchestrator over SQL
 └── schedulerit/           # service/scheduler: end-to-end scenarios + storage contracts on Mongo, Redis and SQL
@@ -19,9 +19,10 @@ tests/integration/
 
 ## Why a separate module
 
-Exercising the SQL filter translators needs `clickhouse-go`, `pgx` and `go-sql-driver/mysql`. Those are test dependencies of a *library*, so
-putting them in the root `go.mod` would push all three into the dependency graph and `go.sum` of every project that imports go-atlas. A separate
-module with `replace github.com/altessa-s/go-atlas => ../..` keeps the toolkit's own graph clean, the same way `devtools/` does.
+Exercising the SQL filter translators needs `pgx` and `go-sql-driver/mysql` (`clickhouse-go` is already a root dependency of the ClickHouse audit
+storage). Those are test dependencies of a *library*, so putting them in the root `go.mod` would push both into the dependency graph and `go.sum`
+of every project that imports go-atlas. A separate module with `replace github.com/altessa-s/go-atlas => ../..` keeps the toolkit's own graph
+clean, the same way `devtools/` does.
 
 The cost: these tests are not part of the root module's `go test ./...`. Run them explicitly.
 
@@ -250,6 +251,16 @@ probe events until one comes back through the handler, then clears the recording
 
 The third surfaced only because the Docker VM's clock sat ~40 ms behind the host's. That is the ordinary condition on a developer machine, and a
 badly synced production host is off by far more; the store now stamps `published_at` with `$$NOW`, the same clock the sweep compares against.
+
+## mongoit — data/mongo against a live replica set
+
+`mongo_integration_test.go` checks that a transaction whose handler panics is aborted rather than committed, that a failing migration keeps the
+migrations already applied unless a full rollback is requested, and that concurrent clients each migrate their own database. The test migrations
+register in the global mongo-migrate registry, as an application's do; `1_marker_test.go` and `2_gate_test.go` carry the versions in their names.
+
+`keyset_integration_test.go` pages through `FindPage` with [`data/keyset`](../../data/keyset) tokens: ties broken by `_id` values of several BSON
+types, tokens refused under a changed filter, sort or subject, a document missing the sort value (`ErrKeysetMissingKey`) and paging under a
+projection.
 
 ## auditit — audit storage against live SQL servers
 

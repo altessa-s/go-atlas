@@ -391,17 +391,19 @@ Both functions return a no-op cancel func when no new context is created, so `de
 
 ### Use `singleflight` for request deduplication
 
-When multiple goroutines may request the same resource concurrently (cache miss, secret fetch, database metadata), use `singleflight.Group` to
-coalesce calls and prevent cache stampede:
+When multiple goroutines may request the same resource concurrently (cache miss, secret fetch, database metadata), use
+[`core/runtime/singleflight`](../../../core/runtime/singleflight/README.md) to coalesce calls and prevent cache stampede:
 
 ```go
-result, err, _ := t.fetchGroup.Do(key, func() (any, error) {
-    return t.updateValueWithRetry(ctx, key)
+group := singleflight.New[string, Value]()
+value, err := group.Do(ctx, key, func(work context.Context) (Value, error) {
+    return t.updateValueWithRetry(work, key)
 })
 ```
 
-Only the first caller executes the function; all others block and receive the same result. This pattern is used in the cache, secrets manager, and
-Mongo client.
+Only the first caller executes the function; all others wait for the same result. Each caller can stop waiting on its own context, the shared call
+runs under the group timeout (`WithTimeout`), and a new key at `WithMaxConcurrent` capacity returns `ErrOverloaded`. The cache uses this package;
+the secrets manager and Mongo client use `golang.org/x/sync/singleflight`.
 
 ### Reuse timers in loops
 

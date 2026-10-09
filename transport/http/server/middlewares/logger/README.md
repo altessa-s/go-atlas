@@ -8,6 +8,23 @@ Package `logger` provides HTTP middleware for structured request/response loggin
 IP for each request. Supports configurable path filtering to exclude health-check and metrics endpoints from log output. Integrates with
 the `realip` middleware for accurate client IP logging when behind proxies or load balancers.
 
+## Options
+
+| Option                    | Default                  | Description                                                  |
+|---------------------------|--------------------------|--------------------------------------------------------------|
+| `WithTimeFormat`          | `timeformat.RFC3339`     | Time format of logged timestamps                             |
+| `WithLogRequest`          | off                      | Log the request body (redacted, see below)                   |
+| `WithLogResponse`         | off                      | Log the response body (redacted, see below)                  |
+| `WithBodyRedactor`        | full mask when bodies on | Scrubs logged bodies                                         |
+| `WithLogQuery`            | off                      | Log the query string as `http.query`                         |
+| `WithRedactQueryParams`   | --                       | Query parameters logged as `REDACTED`                        |
+| `WithLogResponseCodes`    | `DefaultLogStatusCodes`  | Status codes that are logged                                 |
+| `WithIgnoreResponseCodes` | --                       | Status codes that are not logged                             |
+| `WithIgnoreMethods`       | --                       | HTTP methods to skip                                         |
+| `WithIgnorePaths`         | --                       | Paths to skip                                                |
+| `WithIgnorePatterns`      | health, metrics, pprof   | Regex patterns for paths to skip                             |
+| `WithContextLogger`       | nil                      | Store the request-enriched logger in the context             |
+
 ## Body logging is redacted by default
 
 `WithLogRequest` / `WithLogResponse` capture request and response bodies, which routinely contain credentials, tokens, or PII. To keep those out
@@ -31,4 +48,5 @@ exactly, after unescaping; both `&` and `;` count as separators.
 ## Levels
 
 `Slog` logs 5xx, 401 and 403 at Error, other 4xx at Warn and everything else at Info. `SlogWithLevels(l, map[int]slog.Level{401: slog.LevelInfo})`
-(YAML `statusLevels: {401: info}`) overrides the level per status code. The default status codes include the 303, 307 and 308 redirects.
+(YAML `statusLevels: {401: info}`) overrides the level per status code. `DefaultLogStatusCodes`, logged when `WithLogResponseCodes` is unset,
+include the 303, 307 and 308 redirects.

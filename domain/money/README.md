@@ -10,11 +10,12 @@ codec, which keeps them as exact `Decimal128`.
 
 ## Key types
 
-| Symbol           | Description                                                                                      |
-|------------------|--------------------------------------------------------------------------------------------------|
-| `Currency`       | Code plus minor units; `ParseCurrency` (active ISO 4217 codes), `NewCurrency` (custom units)      |
-| `Money`          | Immutable amount of a currency: `New`, `Parse`, `FromMinor`, `Zero`                              |
-| `RoundingMode`   | `HalfEven` (banker's), `HalfUp`, `Down`, `Up`, `Floor`, `Ceiling`                                 |
+| Symbol             | Description                                                                                  |
+|--------------------|----------------------------------------------------------------------------------------------|
+| `Currency`         | Code plus minor units; `ParseCurrency` (active ISO 4217 codes), `NewCurrency` (custom units) |
+| `Money`            | Immutable amount of a currency: `New`, `Parse`, `FromMinor`, `Zero`                          |
+| `RoundingMode`     | `HalfEven` (banker's), `HalfUp`, `Down`, `Up`, `Floor`, `Ceiling`                            |
+| `AllocationMethod` | `LargestRemainder` (default of `Allocate` and `Split`), `HalfUpLastRemainder`                |
 
 ## Operations
 
@@ -47,7 +48,8 @@ every part negated.
 
 `AllocateBy(HalfUpLastRemainder, ratios...)` follows the convention where every share but the last is rounded half-up and the last takes
 the remainder. When the rounded-up shares would push the last one below zero, units are taken back one at a time from the earlier shares
-rounded up the most, ties to the later share, so no share is negative.
+rounded up the most, ties to the later share, so no share is negative. Exact shares are computed on decimals rounded to
+`HalfUpLastRemainderPrecision` (28) places, matching implementations of this convention on `shopspring/decimal` share for share.
 
 | Method                | 100.00 split 1:1:1           | 0.03 split six ways                      |
 |-----------------------|------------------------------|------------------------------------------|

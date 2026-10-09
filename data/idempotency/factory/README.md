@@ -23,6 +23,7 @@ keeper, err := factory.New(cfg.Idempotency).
 | `memory` | In-process map with TTL | `UseScheduler` (optional) |
 | `redis` | Redis | `UseRedisClient` |
 | `nats` | NATS JetStream KV | `UseJetstream` |
+| `mongo` | MongoDB collection, joins the caller's transaction | `UseMongoDatabase` |
 
 ## Methods
 
@@ -37,9 +38,12 @@ keeper, err := factory.New(cfg.Idempotency).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends |
 | `UseJetstream` | Sets the NATS JetStream context for NATS storage backends |
+| `UseMongoDatabase` | Sets the MongoDB database for the mongo storage backend |
 | `UseScheduler` | Sets the scheduler for background cleanup task registration |
+| `UseCollector` | Sets the metrics collector passed to the keeper |
 
 ### Terminal
 

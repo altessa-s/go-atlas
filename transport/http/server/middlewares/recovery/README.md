@@ -9,6 +9,16 @@ Internal Server Error response. Panics with `http.ErrAbortHandler` are re-raised
 convention. Supports a custom `PanicHandler` for application-specific error responses. Declares a dependency on `requestid` for log
 correlation.
 
+## Options
+
+| Option               | Default                | Description                                         |
+|----------------------|------------------------|-----------------------------------------------------|
+| `WithHandler`        | bare 500               | `PanicHandler` that writes the error response       |
+| `WithLogStack`       | `true`                 | Log the stack trace with the panic                  |
+| `WithIgnorePaths`    | --                     | Paths to skip                                       |
+| `WithIgnorePatterns` | health, metrics, pprof | Regex patterns for paths to skip                    |
+| `WithLogger`         | discard                | Structured logger                                   |
+
 ## Started responses
 
 A panic can come after the handler has begun the response. `HeadersWritten(w)` reports, from inside a `PanicHandler`, whether the status and

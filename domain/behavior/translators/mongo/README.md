@@ -26,9 +26,9 @@ The first three return `behavior.Translator[bson.M]`. `NewProjectionTranslator` 
 
 ## Options
 
-| Option            | Default  | Description                                                            |
-|-------------------|----------|-----------------------------------------------------------------------|
-| `WithBsonTagName` | `"bson"` | Struct tag key for the document name plus `omitempty` / `omitonupdate`. |
+| Option            | Default        | Description                                                                 |
+|-------------------|----------------|-----------------------------------------------------------------------------|
+| `WithBsonTagName` | `"bson"`       | Struct tag key for the document name plus `omitempty` / `omitonupdate`.     |
 | `WithRegistry`    | driver default | BSON registry the driver encodes with; see [Custom codecs](#custom-codecs). |
 
 ## Custom codecs

@@ -35,5 +35,5 @@ if err != nil {
 allowlist/denylist prefixes. `CompilePatterns`, in contrast, drops invalid patterns silently — it backs best-effort ignore lists where a typo
 must not prevent server startup.
 
-See the sibling packages [`ipacl`](../ipacl/), [`geoacl`](../geoacl/), [`fallback`](../fallback/), and [`clientip`](../clientip/) for the
+See the sibling packages [`ipacl`](../ipacl/), [`geoacl`](../geoacl/), [`fallback`](../fallback/), and [`clientip`](../../clientip/) for the
 target runtime types.

@@ -48,22 +48,22 @@ DDL, logs and debugging, and prefer `Translate` for anything driven by request d
 
 ## Operation mapping
 
-| CEL                          | ClickHouse                       |
-|------------------------------|----------------------------------|
-| `==` `!=` `<` `>` `<=` `>=`  | `=` `!=` `<` `>` `<=` `>=`       |
-| `&&` `\|\|` `!`              | `AND` `OR` `NOT`                 |
-| `field`                      | `` `field` = true ``             |
-| `field in [a, b]`            | `` `field` IN (?, ?) ``          |
-| `field in []`                | `1 = 0`                          |
-| `field == null`              | `` `field` IS NULL ``            |
-| `field != null`              | `` `field` IS NOT NULL ``        |
-| `has(field)`                 | `` `field` IS NOT NULL ``        |
-| `field.contains(s)`          | `` position(`field`, ?) > 0 ``   |
-| `field.startsWith(s)`        | `` startsWith(`field`, ?) ``     |
-| `field.endsWith(s)`          | `` endsWith(`field`, ?) ``       |
-| `field.matches(re)`          | `` match(`field`, ?) ``          |
-| `field.size()` / `size(f)`   | `lengthUTF8` for strings, `length` for arrays            |
-| `substring()`                | `filter.ErrUnsupportedOperation` |
+| CEL                          | ClickHouse                                             |
+|------------------------------|--------------------------------------------------------|
+| `==` `!=` `<` `>` `<=` `>=`  | `=` `!=` `<` `>` `<=` `>=`                             |
+| `&&` `\|\|` `!`              | `AND` `OR` `NOT`                                       |
+| `field`                      | `` `field` = true ``                                   |
+| `field in [a, b]`            | `` `field` IN (?, ?) ``                                |
+| `field in []`                | `1 = 0`                                                |
+| `field == null`              | `` `field` IS NULL ``                                  |
+| `field != null`              | `` `field` IS NOT NULL ``                              |
+| `has(field)`                 | `` `field` IS NOT NULL ``                              |
+| `field.contains(s)`          | `` position(`field`, ?) > 0 ``                         |
+| `field.startsWith(s)`        | `` startsWith(`field`, ?) ``                           |
+| `field.endsWith(s)`          | `` endsWith(`field`, ?) ``                             |
+| `field.matches(re)`          | `` match(`field`, ?) ``                                |
+| `field.size()` / `size(f)`   | `lengthUTF8` for strings, `length` for arrays          |
+| `substring()`                | `filter.ErrUnsupportedOperation`                       |
 
 `contains` compiles to `position()` rather than `LIKE '%…%'` so that a `%` or `_` in the operand stays literal — there is no pattern escaping
 to get wrong. `size()` is rejected outside a comparison: a length is an integer expression, and on its own there is no predicate for `WHERE`
@@ -95,13 +95,6 @@ is millisecond-precision and drops anything finer; the parameterized form leaves
 A `Translator` accumulates per-call state (nesting depth, collected arguments) and is **not** safe for concurrent use. Construct one per
 goroutine, or guard it with a mutex.
 
-## See also
-
-- [`data/filter`](../..) — parser, AST, and the shared translator options
-- [`translators/mariadb`](../mariadb), [`translators/postgres`](../postgres) — the other SQL dialects, sharing the walk in
-  [`internal/sqlbase`](../internal/sqlbase)
-- [`translators/mongo`](../mongo), [`translators/meili`](../meili), [`translators/redisearch`](../redisearch), [`translators/lua`](../lua)
-
 ## Field operands
 
 Comparisons, `in` list elements, and `contains` / `startsWith` / `endsWith` arguments can reference other fields. Field mappings and allowlists apply to
@@ -111,3 +104,10 @@ every reference. Lists containing dynamic operands render as equality disjunctio
 
 `size()` selects array length or UTF-8 code-point length using the column type. Both branches remain type-correct for String and Array columns; byte
 length does not stand in for character count.
+
+## See also
+
+- [`data/filter`](../..) — parser, AST, and the shared translator options
+- [`translators/mariadb`](../mariadb), [`translators/postgres`](../postgres) — the other SQL dialects, sharing the walk in
+  [`internal/sqlbase`](../internal/sqlbase)
+- [`translators/mongo`](../mongo), [`translators/meili`](../meili), [`translators/redisearch`](../redisearch), [`translators/lua`](../lua)

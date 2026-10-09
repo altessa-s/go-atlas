@@ -28,7 +28,7 @@ Package `concurrency` provides adaptive concurrency limit calculation and a conc
 | Factory                          | Strategy                            |
 |----------------------------------|-------------------------------------|
 | `ConcurrencyForEnvironment`      | Preset limits by workload profile   |
-| `MemoryAwareConcurrency`         | Scale by remaining memory budget      |
+| `MemoryAwareConcurrency`         | Scale by remaining memory budget    |
 | `LoadAwareConcurrency`           | Scale by system load average        |
 | `AdaptiveConcurrency`            | Combine memory + load factors       |
 | `ConnectionPoolAwareConcurrency` | Limit by available pool connections |

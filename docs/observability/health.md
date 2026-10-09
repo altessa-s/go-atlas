@@ -149,6 +149,7 @@ defer coord.Close()
 | `(c) CheckStatus(ctx, service)`            | Read status (cached when fresh); empty `service` = overall              |
 | `(c) CheckServiceHealth(ctx, service)`     | Bypass cache, run the named checker once                                |
 | `(c) CheckHealth(ctx)`                     | Bypass cache, return `SERVING` only if every checker is `SERVING`       |
+| `(c) Health(ctx) error`                    | `CheckHealth` as an error: nil while `SERVING`, else wraps `ErrNotServing`; fits the gRPC health interceptor |
 | `(c) ListStatuses(ctx)`                    | Fan-out check across all services (bounded by `MaxConcurrentHealthChecks`) |
 | `(c) Subscribe(ctx, service)`              | Get a `Subscription` for status change updates                          |
 | `(c) NotifyStatusChange(service, status)`  | Push an explicit status change to watchers and update the cache         |
@@ -445,6 +446,7 @@ Runtime gauges (live values, not Prometheus metrics) come from `Coordinator.GetM
 | `ErrCoordinatorShutdown`    | `Subscribe` after `Close`                                            |
 | `ErrWatcherLimitExceeded`   | `Subscribe` when `MaxWatchersPerService` is reached                  |
 | `ErrSchedulerManaged`       | `RunHealthCheckCycle` after `RegisterHealthCheckSchedulerFunc`       |
+| `ErrNotServing`             | `Health` when the overall status is not `SERVING`                    |
 | `ErrServiceNotFound`        | Reserved; not returned by this package                               |
 | `ErrCheckTimeout`           | Reserved for callers wrapping their own checker timeouts              |
 | `ErrInvalidServiceName`     | Reserved for callers validating registration input                   |

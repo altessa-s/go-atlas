@@ -9,6 +9,41 @@ PUT, PATCH, DELETE) via the Idempotency-Key header (lowercase UUID v4). The midd
 the handler runs; on success the key is marked complete, on failure it is deleted so the client can retry. Safe methods (GET, HEAD,
 OPTIONS) bypass the check. Supports configurable fallback behavior when storage is unavailable.
 
+## Options
+
+| Option                            | Default                     | Description                                                   |
+|-----------------------------------|-----------------------------|---------------------------------------------------------------|
+| `WithIdempotencyKeyHeader`        | `Idempotency-Key`           | Request header carrying the key                               |
+| `WithIdempotencyKeyStatusHeader`  | `Idempotency-Key-Status`    | Response header with the key status                           |
+| `WithIdempotencyKeyEntityIDHeader`| `Idempotency-Key-Entity-Id` | Response header with the entity ID                            |
+| `WithFallbackBehavior`            | `fallback.Deny`             | Behavior on storage failure                                   |
+| `WithEnforceMandatory`            | `false`                     | Require a key on every non-safe request                       |
+| `WithKeyFormatValidator`          | `DefaultKeyValidator`       | Key format check (lowercase UUID v4)                          |
+| `WithKeyLogMode`                  | `KeyLogHashed`              | How the key reaches debug logs (see Security)                 |
+| `WithEntityIDExtractor`           | nil                         | Extracts the entity ID from the response                      |
+| `WithExposeEntityID`              | off                         | Echo the stored entity ID to a duplicate request              |
+| `WithRequestFingerprint`          | `true`                      | Refuse a key reused for a different request                   |
+| `WithFingerprintMaxBody`          | `DefaultFingerprintMaxBody` (32 MiB) | Largest body read for the fingerprint                |
+| `WithFingerprintMemThreshold`     | `DefaultFingerprintMemThreshold` (1 MiB) | Part of the body kept in memory while hashing    |
+| `WithFingerprintTempDir`          | system temp dir             | Spool directory for the rest of the body                      |
+| `WithErrorHandler`                | plain-text responses        | Writes the response for each `ErrorScenario`                  |
+| `WithIgnorePaths`                 | --                          | Paths to skip                                                 |
+| `WithIgnorePatterns`              | health, metrics, pprof      | Regex patterns for paths to skip                              |
+| `WithLogger`                      | discard                     | Structured logger                                             |
+
+## Error scenarios
+
+| Scenario                 | Default status |
+|--------------------------|----------------|
+| `ErrorIDKMissing`        | 400            |
+| `ErrorIDKInvalidFormat`  | 400            |
+| `ErrorIDKInProgress`     | 409            |
+| `ErrorIDKAlreadyUsed`    | 422            |
+| `ErrorIDKMismatch`       | 422            |
+| `ErrorIDKForbidden`      | 403            |
+| `ErrorIDKBodyTooLarge`   | 413            |
+| `ErrorIDKBodyUnreadable` | 400            |
+
 ## Request fingerprints and owners
 
 Each key records a fingerprint of the method, path, query and whole body. The body is hashed while it is spooled — up to

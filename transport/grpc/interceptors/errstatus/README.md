@@ -11,7 +11,8 @@ mappings with optional `Finalizer` and internal LRU cache. Client-side: `StatusC
 
 | Type / Interface  | Description                                                                     |
 |-------------------|---------------------------------------------------------------------------------|
-| `ErrorConverter`  | Server-side: Matcher + Convert function for transforming errors to gRPC status  |
+| `ErrorConverter`  | Server-side: Matcher + Convert function for transforming errors to gRPC status; `NoCache` keeps its result out of the cache |
+| `ErrorRule`       | Server-side: sentinel → code, message, `ErrorInfo.Reason`; error text private unless `Expose` |
 | `StatusConverter` | Client-side: Matcher + Convert function for translating statuses to errors      |
 | `Finalizer`       | Post-processing function for enriching converted errors (e.g., ErrorInfo)       |
 | `StatusError`     | Interface for service-level custom error conversion                             |
@@ -25,6 +26,7 @@ mappings with optional `Finalizer` and internal LRU cache. Client-side: `StatusC
 | `WithErrorRules`           | --                    | `ErrorRule` mappings: code, `ErrorInfo.Reason`, message hidden unless `Expose` |
 | `WithErrorTypeMapping`     | --                    | Type-safe converter using `errors.As` with generics |
 | `WithFinalizer`            | nil                   | Post-processing for converted errors              |
+| `WithDomain`               | --                    | `ErrorInfo.Domain`; runs after any `WithFinalizer`, which it does not replace |
 | `WithCacheSize`            | 1000                  | Maximum entries in conversion LRU cache           |
 | `WithCacheDisabled`        | false                 | Completely disable error conversion caching        |
 | `WithCacheOnlySentinel`    | false                 | Restrict caching to sentinel errors only          |

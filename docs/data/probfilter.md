@@ -284,8 +284,9 @@ step (a pointer swap, or `RENAME`).
   hash without TTL and replaced by the outcome afterwards, so a client retry of the same request after a lost reply returns the outcome — or an
   error when the outcome could not be recorded — instead of removing a second, colliding fingerprint. A request may only execute within one
   minute (server time) of its creation, and records are pruned only after that, so a late retry is rejected too.
-- Redis must not evict probfilter keys behind its back: use `noeviction` or a `volatile-*` policy (checked by the factory, see below). Filters and delete records carry no TTL;
-  only staging keys and commit markers expire, and losing one early only fails a rebuild or makes its outcome indeterminate.
+- Redis must not evict probfilter keys behind its back: use `noeviction` or a `volatile-*` policy (checked by the factory, see below). Filters and
+  delete records carry no TTL; only staging keys and commit markers expire, and losing one early only fails a rebuild or makes its outcome
+  indeterminate.
 - All Redis metadata lives under the reserved `__probfilter__:` key prefix (hex-encoding the filter key); filter keys in that namespace are rejected
   with `ErrReservedKey`, so metadata never overwrites a filter.
 - Rebuilds of one filter are serialized. `Close` interrupts a running rebuild and waits for it; afterwards `Rebuild` returns `ErrFilterClosed`, so no

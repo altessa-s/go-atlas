@@ -8,10 +8,18 @@ Deduplicates concurrent computations using Go key equality. Each caller can canc
 
 ## Options
 
-| Option              | Default | Meaning                                                   |
-|---------------------|---------|-----------------------------------------------------------|
-| `WithMaxConcurrent` | 1024    | Distinct active keys; non-positive disables the limit       |
-| `WithTimeout`       | 15s     | Shared callback deadline; non-positive disables the timeout |
+| Option              | Default                       | Meaning                                                     |
+|---------------------|-------------------------------|-------------------------------------------------------------|
+| `WithMaxConcurrent` | `DefaultMaxConcurrent` (1024) | Distinct active keys; non-positive disables the limit       |
+| `WithTimeout`       | `DefaultTimeout` (15s)        | Shared callback deadline; non-positive disables the timeout |
+
+## Key types
+
+| Symbol          | Description                                                                 |
+|-----------------|-----------------------------------------------------------------------------|
+| `Group[K, V]`   | Shares one computation among callers with equal keys; create it with `New`  |
+| `ErrOverloaded` | A new key was refused because the group is at `WithMaxConcurrent` capacity  |
+| `ErrAborted`    | The callback exited with `runtime.Goexit` instead of returning              |
 
 ## Usage
 

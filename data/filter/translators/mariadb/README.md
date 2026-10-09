@@ -127,14 +127,14 @@ containing a backslash comes out with it doubled — a fidelity bug, never an in
 A `Translator` accumulates per-call state (nesting depth, collected arguments) and is **not** safe for concurrent use. Construct one per
 goroutine, or guard it with a mutex.
 
-## See also
-
-- [`data/filter`](../..) — parser, AST, and the shared translator options
-- [`translators/postgres`](../postgres), [`translators/clickhouse`](../clickhouse) — the other SQL dialects
-
 ## Field operands
 
 Comparisons, `in` list elements, and `contains` / `startsWith` / `endsWith` arguments can reference other fields. Field mappings and allowlists apply to
 every reference. Lists containing dynamic operands render as equality disjunctions; constant lists retain `IN`. Literal values remain bound parameters.
 
 `matches` requires a literal pattern so regex validation and length limits apply before execution.
+
+## See also
+
+- [`data/filter`](../..) — parser, AST, and the shared translator options
+- [`translators/postgres`](../postgres), [`translators/clickhouse`](../clickhouse) — the other SQL dialects

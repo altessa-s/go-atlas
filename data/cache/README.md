@@ -45,6 +45,8 @@ Capacity remains occupied until the callback exits, even after every waiter canc
 | `WithMaxConcurrentFallbacks` | 1024 | Maximum distinct active fallbacks; non-positive disables the limit |
 | `WithFallbackTimeout` | 15s | Shared fallback and write deadline; non-positive disables the deadline |
 | `WithNegativeTTL` | 0 | Cache missing results; zero disables negative caching |
+| `WithCollector` | no-op | Metrics collector |
+| `WithName` | `""` | Cache name used in metric labels |
 
 ## Tenant isolation (multi-tenant deployments)
 
