@@ -117,7 +117,8 @@ func DefaultLimitFunc() int {
 }
 
 // MemoryAwareConcurrency creates a concurrency limit function that adjusts based on available memory.
-// It reads runtime memory statistics and adjusts concurrency based on memory pressure.
+// By default it uses remaining GOMEMLIMIT headroom. Without a configured runtime
+// budget it returns DefaultLimitFunc; WithAvailableMemory supplies another source.
 //
 // Memory stats are cached with a TTL (default 1 second) to avoid frequent
 // runtime.ReadMemStats calls which cause stop-the-world pauses.
@@ -129,10 +130,14 @@ func DefaultLimitFunc() int {
 //   - highMemoryMB: memory threshold (in MB) above which concurrency is aggressive
 //
 // Returns a function that can be used with WithConcurrencyLimitFunc options.
-func MemoryAwareConcurrency(lowMemoryMB, mediumMemoryMB, highMemoryMB uint64) ConcurrencyLimitFunc {
+func MemoryAwareConcurrency(lowMemoryMB, mediumMemoryMB, highMemoryMB uint64, opts ...MemoryOption) ConcurrencyLimitFunc {
+	options := newMemoryOptions(opts...)
 	return func() int {
 		// Use cached memory stats to avoid frequent STW pauses
-		availableMemoryMB := getAvailableMemoryMB()
+		availableMemoryMB, known := getAvailableMemoryMB(options.availableMemory)
+		if !known {
+			return DefaultLimitFunc()
+		}
 
 		cpuCount := runtime.NumCPU()
 
@@ -177,7 +182,8 @@ func LoadAwareConcurrency(getLoad func() float64, highLoadThreshold, mediumLoadT
 }
 
 // AdaptiveConcurrency creates a concurrency limit function that considers multiple factors.
-// It combines memory usage, time of day, and system load to determine optimal concurrency.
+// It combines remaining memory budget and system load. Memory penalties are
+// skipped when the source reports an unknown budget.
 //
 // Memory stats are cached with a TTL (default 1 second) to avoid frequent
 // runtime.ReadMemStats calls which cause stop-the-world pauses.
@@ -187,7 +193,8 @@ func LoadAwareConcurrency(getLoad func() float64, highLoadThreshold, mediumLoadT
 //   - config: configuration for adaptive concurrency behavior
 //
 // Returns a function that can be used with WithConcurrencyLimitFunc options.
-func AdaptiveConcurrency(config AdaptiveConcurrencyConfig) ConcurrencyLimitFunc {
+func AdaptiveConcurrency(config AdaptiveConcurrencyConfig, opts ...MemoryOption) ConcurrencyLimitFunc {
+	options := newMemoryOptions(opts...)
 	return func() int {
 		cpuCount := runtime.NumCPU()
 		baseConcurrency := cpuCount * DefaultConcurrencyMultiplier
@@ -197,11 +204,11 @@ func AdaptiveConcurrency(config AdaptiveConcurrencyConfig) ConcurrencyLimitFunc 
 
 		// Apply memory pressure penalty using cached stats
 		if config.MemoryLowThresholdMB > 0 {
-			availableMemoryMB := getAvailableMemoryMB()
+			availableMemoryMB, known := getAvailableMemoryMB(options.availableMemory)
 
-			if availableMemoryMB < config.MemoryLowThresholdMB {
+			if known && availableMemoryMB < config.MemoryLowThresholdMB {
 				concurrency *= severePressureFactor // Severe memory pressure
-			} else if availableMemoryMB < config.MemoryMediumThresholdMB {
+			} else if known && availableMemoryMB < config.MemoryMediumThresholdMB {
 				concurrency *= mediumPressureFactor // Medium memory pressure
 			}
 		}

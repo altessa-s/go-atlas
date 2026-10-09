@@ -136,21 +136,11 @@ func (dp *documentProcessor) convertEntityToDocuments(ctx context.Context, entit
 	// Step 2: Process fields
 	setDoc, unsetDoc, err := dp.processFieldsWithErrorHandling(ctx, fieldsMetadata, update)
 
-	// Explicit cleanup to avoid defer closure allocations
-	dp.cleanupFieldMetadata(fieldsMetadata)
-
 	if err != nil {
 		return nil, nil, coreerrs.Wrapf(err, "document conversion failed during %s", "field processing")
 	}
 
 	return setDoc, unsetDoc, nil
-}
-
-// cleanupFieldMetadata returns fieldMetadata objects to pool without closure overhead
-func (dp *documentProcessor) cleanupFieldMetadata(fieldsMetadata []fieldMetadata) {
-	// Note: fieldsMetadata contains values, not pointers from pool
-	// In our optimized parser, we return pooled objects immediately after use
-	// This function is for future extensibility if needed
 }
 
 // collectFieldsMetadataWithValidation collects field metadata with validation

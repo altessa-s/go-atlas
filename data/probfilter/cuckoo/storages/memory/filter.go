@@ -64,11 +64,6 @@ func newCuckooFilter(capacity uint) *cuckooFilter {
 	}
 }
 
-// slots returns the total number of fingerprint slots.
-func (f *cuckooFilter) slots() uint {
-	return uint(len(f.buckets)) * bucketSize
-}
-
 // locate returns the fingerprint and both candidate buckets of value.
 func (f *cuckooFilter) locate(value string) (fingerprint, uint64, uint64) {
 	h := maphash.String(f.seed, value)

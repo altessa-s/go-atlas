@@ -19,10 +19,10 @@ import (
 	"sync"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
+	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
 	"github.com/altessa-s/go-atlas/core/io/files"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -40,6 +40,7 @@ var (
 type Source struct {
 	path       string
 	opts       *options
+	checksums  *checksum.Manifest
 	logger     *slog.Logger
 	extensions *coremaps.ImmutableMap[string, struct{}]
 
@@ -62,6 +63,8 @@ func New(path string, opts ...Option) (*Source, error) {
 	}
 
 	o := newOptions(opts...)
+	manifest := checksum.New(o.checksums)
+	o.checksums = nil
 
 	extensions := make(map[string]struct{}, len(o.extensions))
 	for _, ext := range o.extensions {
@@ -71,6 +74,7 @@ func New(path string, opts ...Option) (*Source, error) {
 	return &Source{
 		path:       path,
 		opts:       o,
+		checksums:  manifest,
 		logger:     cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
 		extensions: coremaps.NewImmutableMap(extensions),
 	}, nil
@@ -218,41 +222,12 @@ func relativePolicyPath(root, filePath string) string {
 	return filepath.ToSlash(rel)
 }
 
-// verifyChecksum checks a single file against the checksums manifest.
-// It is a no-op when checksums are not configured (s.opts.checksums == nil).
 func (s *Source) verifyChecksum(relPath string, content []byte) error {
-	if s.opts.checksums == nil {
-		return nil
-	}
-
-	expected, ok := s.opts.checksums[relPath]
-	if !ok {
-		return coreerrs.Wrapf(ErrUnexpectedPolicyFile, "%s", relPath)
-	}
-
-	actual := corehash.SHA256HexBytes(content)
-
-	if actual != expected {
-		return coreerrs.Wrapf(ErrChecksumMismatch, "%s (expected %s, got %s)", relPath, expected, actual)
-	}
-
-	return nil
+	return s.checksums.Verify(relPath, content, ErrChecksumMismatch, ErrUnexpectedPolicyFile)
 }
 
-// verifyAllChecksumsCovered ensures every entry in the checksums manifest has a corresponding loaded module.
-// It is a no-op when checksums are not configured.
 func (s *Source) verifyAllChecksumsCovered(loaded map[string]string) error {
-	if s.opts.checksums == nil {
-		return nil
-	}
-
-	for path := range s.opts.checksums {
-		if _, ok := loaded[path]; !ok {
-			return coreerrs.Wrapf(ErrMissingPolicyFile, "%s", path)
-		}
-	}
-
-	return nil
+	return s.checksums.Covered(loaded, ErrMissingPolicyFile)
 }
 
 // Close releases resources held by the source.

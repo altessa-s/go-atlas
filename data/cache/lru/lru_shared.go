@@ -6,21 +6,16 @@ package lru
 
 import (
 	"context"
-	"encoding/binary"
-	"fmt"
-	"hash"
-	"hash/fnv"
+	"hash/maphash"
 	"iter"
 	"runtime"
-	"sync"
-	"unsafe"
 )
 
 // ShardedCache is a thread-safe, sharded LRU cache to reduce lock contention.
 type ShardedCache[K comparable, V any] struct {
-	shards     []*Cache[K, V]
-	shardMask  uint64
-	hasherPool sync.Pool
+	shards    []*Cache[K, V]
+	shardMask uint64
+	seed      maphash.Seed
 }
 
 // NewShardedCache creates a new sharded LRU cache.
@@ -53,46 +48,12 @@ func NewShardedCache[K comparable, V any](totalSize int, opts ...Option) (*Shard
 	return &ShardedCache[K, V]{
 		shards:    shards,
 		shardMask: uint64(o.shardCount - 1), //nolint:gosec // G115: shardCount is validated positive and small (power of 2)
-		hasherPool: sync.Pool{
-			New: func() any {
-				return fnv.New64a()
-			},
-		},
+		seed:      maphash.MakeSeed(),
 	}, nil
 }
 
 func (sc *ShardedCache[K, V]) getShard(key K) *Cache[K, V] {
-	obj := sc.hasherPool.Get()
-	hasher, ok := obj.(hash.Hash64)
-	if !ok {
-		// Should never happen
-		return sc.shards[0]
-	}
-	defer sc.hasherPool.Put(hasher)
-	hasher.Reset()
-
-	switch k := any(key).(type) {
-	case string:
-		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(k), len(k))) // #nosec G103 -- zero-copy read-only access for hashing
-	case []byte:
-		_, _ = hasher.Write(k)
-	case int:
-		var buf [8]byte //nolint:mnd // Stack-allocated buffer for int-to-bytes hashing
-		binary.LittleEndian.PutUint64(buf[:], uint64(int64(k)))
-		_, _ = hasher.Write(buf[:])
-	case int64:
-		var buf [8]byte //nolint:mnd // Stack-allocated buffer for int64-to-bytes hashing
-		binary.LittleEndian.PutUint64(buf[:], uint64(k))
-		_, _ = hasher.Write(buf[:])
-	case uint64:
-		var buf [8]byte //nolint:mnd // Stack-allocated buffer for uint64-to-bytes hashing
-		binary.LittleEndian.PutUint64(buf[:], k)
-		_, _ = hasher.Write(buf[:])
-	default:
-		_, _ = hasher.Write(fmt.Appendf(nil, "%v", key))
-	}
-
-	return sc.shards[hasher.Sum64()&sc.shardMask]
+	return sc.shards[maphash.Comparable(sc.seed, key)&sc.shardMask]
 }
 
 // Get returns the value for key from the appropriate shard.

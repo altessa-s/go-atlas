@@ -25,6 +25,16 @@ func WithCollector(v metrics.Collector) Option {
 	}
 }
 
+// WithFallbackTimeout sets the fallbackTimeout option.
+func WithFallbackTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.fallbackTimeout = v
+	}
+}
+
 // WithKeyNamespace sets the keyNamespace option.
 func WithKeyNamespace(v KeyNamespaceFunc) Option {
 	return func(o *options) {
@@ -92,6 +102,7 @@ func WithTTL(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		fallbackTimeout:        DefaultFallbackTimeout,
 		keyNamespace:           nil,
 		maxConcurrentFallbacks: DefaultMaxConcurrentFallbacks,
 		serializer:             &serializer.JSON{},

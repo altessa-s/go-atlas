@@ -44,8 +44,8 @@ func TestKeyNamespace_IsolatesEntries(t *testing.T) {
 	// Same bare key, two tenants → two distinct namespaced entries, no bare key.
 	_, bare := mp.store["user:1"]
 	require.False(t, bare, "bare (un-namespaced) key must not be written")
-	require.Contains(t, mp.store, "A:user:1")
-	require.Contains(t, mp.store, "B:user:1")
+	require.Contains(t, mp.store, "1:A:user:1")
+	require.Contains(t, mp.store, "1:B:user:1")
 
 	// Each tenant reads back its own value.
 	var got string
@@ -56,8 +56,8 @@ func TestKeyNamespace_IsolatesEntries(t *testing.T) {
 
 	// Delete is namespaced too: deleting under A leaves B intact.
 	require.NoError(t, c.Delete(ctxA, "user:1"))
-	require.NotContains(t, mp.store, "A:user:1")
-	require.Contains(t, mp.store, "B:user:1")
+	require.NotContains(t, mp.store, "1:A:user:1")
+	require.Contains(t, mp.store, "1:B:user:1")
 }
 
 // syncProvider is a concurrency-safe in-memory provider for the singleflight
@@ -133,7 +133,7 @@ func TestKeyNamespace_SingleflightIsolation(t *testing.T) {
 				var out string
 				// Assert only on the test goroutine after Wait — require.FailNow
 				// must not be called from a spawned goroutine.
-				errs[i] = c.GetWithFallback(ctx, "user:1", &out, func() (any, time.Duration, error) {
+				errs[i] = c.GetWithFallback(ctx, "user:1", &out, func(_ context.Context) (any, time.Duration, error) {
 					calls.Add(1)
 					started <- struct{}{}
 					<-release // hold the fallback in-flight until the barrier lifts

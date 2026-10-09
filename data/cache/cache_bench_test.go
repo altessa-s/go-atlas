@@ -52,7 +52,7 @@ func BenchmarkGetWithFallback(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		var result string
-		_ = c.GetWithFallback(ctx, "bench-key", &result, func() (any, time.Duration, error) {
+		_ = c.GetWithFallback(ctx, "bench-key", &result, func(_ context.Context) (any, time.Duration, error) {
 			return "fallback", TTLUseDefault, nil
 		})
 	}
@@ -69,7 +69,7 @@ func BenchmarkGetWithFallbackT(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		_, _ = GetWithFallbackT(ctx, c, "bench-key", func() (string, time.Duration, error) {
+		_, _ = GetWithFallbackT(ctx, c, "bench-key", func(_ context.Context) (string, time.Duration, error) {
 			return "fallback", TTLUseDefault, nil
 		})
 	}

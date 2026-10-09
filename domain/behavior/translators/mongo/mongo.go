@@ -292,7 +292,7 @@ func isCodecEmpty(fv reflect.Value) bool {
 		return isCodecEmpty(fv.Elem())
 	}
 	if (kind != reflect.Pointer || !fv.IsNil()) && fv.Type().Implements(zeroerType) {
-		z, _ := fv.Interface().(bson.Zeroer)
+		z, _ := reflect.TypeAssert[bson.Zeroer](fv)
 		return z.IsZero()
 	}
 	switch kind {

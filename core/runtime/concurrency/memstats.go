@@ -5,7 +5,9 @@
 package concurrency
 
 import (
+	"math"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -123,18 +125,29 @@ func InvalidateMemStatsCache() {
 	globalMemStatsCache.lastUpdated.Store(0)
 }
 
-// getAvailableMemoryMB returns the available memory in MB using cached stats.
-// Available memory is calculated as: Sys (total memory obtained from OS) - Alloc (currently allocated)
-// Note: BytesToMB = 1024 (bytes to KB), so dividing twice gives bytes to MB conversion (1024 * 1024 = 1,048,576)
-//
-// IMPORTANT: This function handles the edge case where Sys < Alloc (which can happen
-// in rare scenarios or during rapid memory allocation/deallocation). In such cases,
-// we return 0 to indicate no available memory rather than causing an underflow.
-func getAvailableMemoryMB() uint64 {
-	stats := getCachedMemStats()
-	// Handle potential underflow: if Alloc > Sys, return 0 instead of wrapping around
-	if stats.Alloc > stats.Sys {
-		return 0
+// runtimeMemoryHeadroom measures the remaining Go runtime memory budget set
+// through GOMEMLIMIT/debug.SetMemoryLimit. Runtime-managed memory is Sys minus
+// HeapReleased, as defined by SetMemoryLimit; it is not machine free RAM.
+func runtimeMemoryHeadroom() (uint64, bool) {
+	limit := debug.SetMemoryLimit(-1)
+	if limit == math.MaxInt64 {
+		return 0, false
 	}
-	return (stats.Sys - stats.Alloc) / BytesToMB / BytesToMB
+	return memoryHeadroom(getCachedMemStats(), limit)
+}
+
+func memoryHeadroom(stats *runtime.MemStats, limit int64) (uint64, bool) {
+	if limit < 0 || limit == math.MaxInt64 {
+		return 0, false
+	}
+	used := stats.Sys - min(stats.Sys, stats.HeapReleased)
+	if used >= uint64(limit) {
+		return 0, true
+	}
+	return uint64(limit) - used, true
+}
+
+func getAvailableMemoryMB(source MemorySource) (uint64, bool) {
+	available, known := source()
+	return available / BytesToMB / BytesToMB, known
 }

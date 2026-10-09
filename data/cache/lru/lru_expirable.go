@@ -10,7 +10,7 @@ import (
 	"slices"
 	"time"
 
-	"golang.org/x/sync/singleflight"
+	"github.com/altessa-s/go-atlas/core/runtime/singleflight"
 
 	expirablelru "github.com/hashicorp/golang-lru/v2/expirable"
 )
@@ -26,7 +26,7 @@ import (
 // The TTL is per entry and starts at insertion; reads do not extend it.
 type ExpirableCache[K comparable, V any] struct {
 	cache *expirablelru.LRU[K, V]
-	group singleflight.Group
+	group *singleflight.Group[K, V]
 }
 
 // NewExpirableCache creates a cache holding at most size entries, each expiring
@@ -38,6 +38,7 @@ type ExpirableCache[K comparable, V any] struct {
 func NewExpirableCache[K comparable, V any](size int, ttl time.Duration) *ExpirableCache[K, V] {
 	return &ExpirableCache[K, V]{
 		cache: expirablelru.NewLRU[K, V](size, nil, ttl),
+		group: singleflight.New[K, V](singleflight.WithMaxConcurrent(0)),
 	}
 }
 
@@ -98,7 +99,7 @@ func (c *ExpirableCache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(
 	if v, ok := c.Get(key); ok {
 		return v, nil
 	}
-	return computeOnce(ctx, &c.group, c.Get, c.Put, key, fn)
+	return computeOnce(ctx, c.group, c.Get, c.Put, key, fn)
 }
 
 var (

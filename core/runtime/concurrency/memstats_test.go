@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// The tests in this file run serially (no t.Parallel) because they all mutate
+// Tests of the shared cache run serially (no t.Parallel) because they mutate
 // the package-level mem-stats cache singleton (globalMemStatsCache) via
 // SetMemStatsCacheTTL and InvalidateMemStatsCache.
 
@@ -107,15 +107,27 @@ func TestInvalidateMemStatsCache(t *testing.T) {
 	require.NotNil(t, stats2, "getCachedMemStats returned nil after invalidation")
 }
 
-func TestGetAvailableMemoryMB(t *testing.T) {
-	InvalidateMemStatsCache()
-
-	memMB := getAvailableMemoryMB()
-
-	// Available memory should be positive and reasonable
-	// (at least some MB available, less than 1TB)
-	require.NotZero(t, memMB, "available memory is 0, expected positive value")
-	require.LessOrEqual(t, memMB, uint64(1024*1024), "available memory %d MB seems unreasonably high", memMB)
+func TestMemoryHeadroom(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                string
+		limit               int64
+		sys, released, want uint64
+		known               bool
+	}{
+		{"budget", 100, 80, 20, 40, true},
+		{"exhausted", 50, 80, 20, 0, true},
+		{"zero", 0, 80, 20, 0, true},
+		{"unknown", -1, 80, 20, 0, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, known := memoryHeadroom(&runtime.MemStats{Sys: tc.sys, HeapReleased: tc.released}, tc.limit)
+			require.Equal(t, tc.want, got)
+			require.Equal(t, tc.known, known)
+		})
+	}
 }
 
 func TestSetMemStatsCacheTTL_NegativeValue(t *testing.T) {

@@ -68,6 +68,7 @@ func findParserField(fields []fieldMetadata, name string) (fieldMetadata, bool) 
 }
 
 func TestParser_ParseStruct_Fields(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	meta := p.ParseStruct(parserSimpleStruct{ID: "42", Name: "alice", Age: 30})
 
@@ -83,6 +84,7 @@ func TestParser_ParseStruct_Fields(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
+			t.Parallel()
 			f, ok := findParserField(meta.Fields, tt.field)
 			require.True(t, ok, "field %q not found", tt.field)
 			require.Equal(t, tt.want, f.fieldValue.Interface())
@@ -91,6 +93,7 @@ func TestParser_ParseStruct_Fields(t *testing.T) {
 }
 
 func TestParser_CacheHit_FieldValuesRefreshed(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	p.ParseStruct(parserSimpleStruct{ID: "1", Name: "alice", Age: 10}) // populate cache
 
@@ -106,6 +109,7 @@ func TestParser_CacheHit_FieldValuesRefreshed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
+			t.Parallel()
 			f, ok := findParserField(meta.Fields, tt.field)
 			require.True(t, ok, "field %q not found", tt.field)
 			require.Equal(t, tt.want, f.fieldValue.Interface())
@@ -114,6 +118,7 @@ func TestParser_CacheHit_FieldValuesRefreshed(t *testing.T) {
 }
 
 func TestParser_CacheHit_StructuralMetadataPreserved(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	p.ParseStruct(parserSimpleStruct{})
 
@@ -126,6 +131,7 @@ func TestParser_CacheHit_StructuralMetadataPreserved(t *testing.T) {
 }
 
 func TestParser_FieldIndex_DirectFields(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	meta := p.ParseStruct(parserSimpleStruct{ID: "x", Name: "y", Age: 1})
 
@@ -139,6 +145,7 @@ func TestParser_FieldIndex_DirectFields(t *testing.T) {
 }
 
 func TestParser_FieldIndex_EmbeddedFields_FullPathFromRoot(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	entity := parserEmbeddedStruct{
 		ParserBaseFields: ParserBaseFields{CreatedAt: 1, UpdatedAt: 2},
@@ -158,6 +165,7 @@ func TestParser_FieldIndex_EmbeddedFields_FullPathFromRoot(t *testing.T) {
 }
 
 func TestParser_EmbeddedFields_CacheHit_ValuesRefreshed(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	p.ParseStruct(parserEmbeddedStruct{
 		ParserBaseFields: ParserBaseFields{CreatedAt: 10, UpdatedAt: 20},
@@ -179,6 +187,7 @@ func TestParser_EmbeddedFields_CacheHit_ValuesRefreshed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
+			t.Parallel()
 			f, ok := findParserField(meta.Fields, tt.field)
 			require.True(t, ok, "field %q not found", tt.field)
 			require.Equal(t, tt.want, f.fieldValue.Interface())
@@ -187,6 +196,7 @@ func TestParser_EmbeddedFields_CacheHit_ValuesRefreshed(t *testing.T) {
 }
 
 func TestParser_NestedType_DeterminedByType_NotValue(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		entity any
@@ -202,6 +212,7 @@ func TestParser_NestedType_DeterminedByType_NotValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			p := NewParser()
 			meta := p.ParseStruct(tt.entity)
 			f, ok := findParserField(meta.Fields, tt.field)
@@ -212,6 +223,7 @@ func TestParser_NestedType_DeterminedByType_NotValue(t *testing.T) {
 }
 
 func TestParser_NestedType_ConsistentAcrossCacheHits(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 
 	// First parse with nil pointer — populates cache
@@ -227,6 +239,7 @@ func TestParser_NestedType_ConsistentAcrossCacheHits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			meta := p.ParseStruct(tt.entity)
 			f, ok := findParserField(meta.Fields, "nested")
 			require.True(t, ok, "field \"nested\" not found")
@@ -236,6 +249,7 @@ func TestParser_NestedType_ConsistentAcrossCacheHits(t *testing.T) {
 }
 
 func TestParser_NestedType_NoNesting_NonStructTypes(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	s := "x"
 	meta := p.ParseStruct(parserScalarNestingStruct{
@@ -250,6 +264,7 @@ func TestParser_NestedType_NoNesting_NonStructTypes(t *testing.T) {
 }
 
 func TestParser_FieldIndex_PointerEmbeddedFields_FullPathFromRoot(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	entity := parserPtrEmbeddedStruct{
 		ParserBaseFields: &ParserBaseFields{CreatedAt: 1, UpdatedAt: 2},
@@ -267,6 +282,7 @@ func TestParser_FieldIndex_PointerEmbeddedFields_FullPathFromRoot(t *testing.T) 
 }
 
 func TestParser_PtrEmbeddedFields_CacheHit_ValuesRefreshed(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	p.ParseStruct(parserPtrEmbeddedStruct{
 		ParserBaseFields: &ParserBaseFields{CreatedAt: 10, UpdatedAt: 20},
@@ -288,6 +304,7 @@ func TestParser_PtrEmbeddedFields_CacheHit_ValuesRefreshed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
+			t.Parallel()
 			f, ok := findParserField(meta.Fields, tt.field)
 			require.True(t, ok, "field %q not found", tt.field)
 			require.Equal(t, tt.want, f.fieldValue.Interface())
@@ -296,6 +313,7 @@ func TestParser_PtrEmbeddedFields_CacheHit_ValuesRefreshed(t *testing.T) {
 }
 
 func TestParser_CacheHit_PointerFieldValue_Refreshed(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	p.ParseStruct(parserPointerStruct{Name: "first", Nested: &parserNestedStruct{Value: "v1"}})
 
@@ -310,6 +328,7 @@ func TestParser_CacheHit_PointerFieldValue_Refreshed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			meta := p.ParseStruct(tt.entity)
 			f, ok := findParserField(meta.Fields, "nested")
 			require.True(t, ok, "field \"nested\" not found")
@@ -323,6 +342,7 @@ func TestParser_CacheHit_PointerFieldValue_Refreshed(t *testing.T) {
 }
 
 func TestParser_CacheHit_NestedStructsPopulated(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	first := p.ParseStruct(parserPointerStruct{Name: "a", Nested: &parserNestedStruct{Value: "v"}})
 
@@ -334,19 +354,8 @@ func TestParser_CacheHit_NestedStructsPopulated(t *testing.T) {
 	require.Contains(t, second.NestedStructs, nestedType, "cache hit: NestedStructs missing entry for parserNestedStruct")
 }
 
-func TestParser_CacheHit_NestedMetadataCleared(t *testing.T) {
-	p := NewParser()
-	p.ParseStruct(parserPointerStruct{Name: "a", Nested: &parserNestedStruct{Value: "v"}})
-
-	meta := p.ParseStruct(parserPointerStruct{Name: "b", Nested: &parserNestedStruct{Value: "w"}})
-
-	f, ok := findParserField(meta.Fields, "nested")
-	require.True(t, ok, "field \"nested\" not found")
-	require.Nil(t, f.nestedMetadata, "cache hit: nestedMetadata should be nil")
-	require.False(t, f.hasNestedData, "cache hit: hasNestedData should be false")
-}
-
 func TestParser_CacheHit_ReturnedCopiesAreIndependent(t *testing.T) {
+	t.Parallel()
 	p := NewParser()
 	p.ParseStruct(parserSimpleStruct{ID: "1", Name: "alice", Age: 10})
 
@@ -362,4 +371,42 @@ func TestParser_CacheHit_ReturnedCopiesAreIndependent(t *testing.T) {
 
 	// Verify they are separate slices (mutating one doesn't affect the other)
 	require.False(t, &meta1.Fields[0] == &meta2.Fields[0], "meta1.Fields and meta2.Fields share underlying array")
+}
+
+func TestParserEncryptionModelOwnership(t *testing.T) {
+	t.Parallel()
+	typ := reflect.TypeFor[parserSimpleStruct]()
+	model := &EncryptionModel{Fields: []EncryptionField{{FieldName: "Name", Algorithm: "deterministic", KeyAltName: "original"}}}
+	models := map[reflect.Type]*EncryptionModel{typ: model}
+	parser := NewParser(WithParserEncryptionModels(models))
+	model.Fields[0].KeyAltName = "changed"
+	clear(models)
+	metadata := parser.ParseStruct(parserSimpleStruct{Name: "value"})
+	for _, field := range metadata.Fields {
+		if field.fieldType.Name == "Name" {
+			require.True(t, field.shouldEncrypt)
+			require.Equal(t, "original", field.keyAltName)
+			return
+		}
+	}
+	require.FailNow(t, "Name field missing")
+}
+
+func TestParserRecursiveMetadataStaysTypeOnly(t *testing.T) {
+	t.Parallel()
+	type recursive struct {
+		Value string
+		Next  *recursive
+	}
+	parser := NewParser()
+	for range 2 {
+		metadata := parser.ParseStruct(&recursive{Value: "value"})
+		nested := metadata.NestedStructs[reflect.TypeFor[recursive]()]
+		require.NotNil(t, nested)
+		require.NotSame(t, metadata, nested)
+		for _, field := range nested.Fields {
+			require.False(t, field.fieldValue.IsValid())
+		}
+		clear(nested.Fields)
+	}
 }

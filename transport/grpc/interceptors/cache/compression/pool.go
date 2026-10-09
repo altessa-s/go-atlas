@@ -28,6 +28,7 @@ var (
 
 // pooled wrapper types for readers to enable pooling
 type gzipReader struct {
+	input        bytes.Reader
 	reader       *gzip.Reader
 	failureCount int // Track consecutive failures to prevent leaky readers from pooling
 }
@@ -82,7 +83,11 @@ func getWriterPool(level int) (*sync.Pool, error) {
 			level, gzip.DefaultCompression, gzip.BestCompression)
 	}
 
-	// Create new pool factory function - this will only be called if needed
+	if cached, ok := gzipWriterPools.Load(level); ok {
+		return cached.(*sync.Pool), nil //nolint:errcheck // only pools are stored
+	}
+
+	// Allocate the factory only on a cache miss.
 	createPool := func() *sync.Pool {
 		return &sync.Pool{
 			New: func() any {
@@ -131,6 +136,14 @@ func getGzipReader() *gzipReader {
 const maxReaderFailures = 3 // Maximum consecutive failures before discarding reader
 
 func putGzipReader(r *gzipReader) {
+	if resetGzipReader(r) {
+		gzipReaderPool.Put(r)
+	}
+}
+
+// resetGzipReader detaches the input before publishing the reader to the pool.
+func resetGzipReader(r *gzipReader) bool {
+	r.input.Reset(nil)
 	if r.reader != nil {
 		// Log close errors to detect potential resource leaks
 		if err := r.reader.Close(); err != nil {
@@ -148,17 +161,14 @@ func putGzipReader(r *gzipReader) {
 					"maxAllowed", maxReaderFailures,
 					"operation", "putGzipReader")
 				r.reader = nil
-				return // Don't put back in pool
+				return false // Don't put back in pool
 			}
 		} else {
 			// Reset failure count on successful close
 			r.failureCount = 0
 		}
-		r.reader = nil
+		r.reader.Header = gzip.Header{}
 	}
 
-	// Only return to pool if failure count is reasonable
-	if r.failureCount < maxReaderFailures {
-		gzipReaderPool.Put(r)
-	}
+	return r.failureCount < maxReaderFailures
 }

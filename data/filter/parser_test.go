@@ -372,7 +372,8 @@ func TestParser_Cache(t *testing.T) {
 	node2, err := p.Parse(t.Context(), expr)
 	require.NoError(t, err, "second Parse()")
 
-	require.Same(t, node1, node2, "cache did not return same node instance")
+	require.Equal(t, node1, node2, "cached parses differ")
+	require.NotSame(t, node1, node2, "cached AST must be caller-owned")
 }
 
 func TestNodeKind_String(t *testing.T) {

@@ -25,8 +25,9 @@
 //	err = c.Get(ctx, "user:123", &user)
 //
 //	// Fallback with Singleflight
-//	err = c.GetWithFallback(ctx, "key", &result, func() (any, time.Duration, error) {
-//	    return db.Fetch(), 5*time.Minute, nil
+//	err = c.GetWithFallback(ctx, "key", &result, func(work context.Context) (any, time.Duration, error) {
+//	    value, err := db.Fetch(work)
+//	    return value, 5*time.Minute, err
 //	})
 //
 // # Performance

@@ -61,7 +61,7 @@ func encodeDecimal(_ bson.EncodeContext, vw bson.ValueWriter, v reflect.Value) e
 	if !v.IsValid() || v.Type() != decimalType {
 		return bson.ValueEncoderError{Name: "DecimalEncodeValue", Types: []reflect.Type{decimalType}, Received: v}
 	}
-	d, _ := v.Interface().(decimal.Decimal)
+	d, _ := reflect.TypeAssert[decimal.Decimal](v)
 	d128, err := toDecimal128(d)
 	if err != nil {
 		return err
@@ -73,7 +73,7 @@ func encodeNullDecimal(ec bson.EncodeContext, vw bson.ValueWriter, v reflect.Val
 	if !v.IsValid() || v.Type() != nullDecimalType {
 		return bson.ValueEncoderError{Name: "NullDecimalEncodeValue", Types: []reflect.Type{nullDecimalType}, Received: v}
 	}
-	nd, _ := v.Interface().(decimal.NullDecimal)
+	nd, _ := reflect.TypeAssert[decimal.NullDecimal](v)
 	if !nd.Valid {
 		return vw.WriteNull()
 	}

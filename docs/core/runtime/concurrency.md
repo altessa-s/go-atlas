@@ -94,8 +94,9 @@ n := concurrency.ConcurrencyForEnvironment(concurrency.EnvironmentIOBound) // in
 
 ### Memory-aware
 
-Reads `runtime.MemStats` (cached with 1s TTL to avoid stop-the-world pauses) and scales concurrency by available memory, computed as
-`MemStats.Sys - MemStats.Alloc` (memory obtained from the OS but not currently allocated to heap objects — not host free memory):
+Uses the remaining runtime budget set through `GOMEMLIMIT` / `debug.SetMemoryLimit`: `max(0, limit - (MemStats.Sys - MemStats.HeapReleased))`.
+`runtime.MemStats` is cached with a 1s TTL. Without a finite budget, the strategy returns `DefaultLimitFunc`; adaptive mode skips memory scaling.
+Pass `WithAvailableMemory(source)` to either strategy for an application-supplied host or container budget (`bytes, known`).
 
 ```go
 limitFn := concurrency.MemoryAwareConcurrency(

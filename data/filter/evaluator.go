@@ -14,24 +14,21 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas/data/cache/lru"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
-// regexCache caches compiled regular expressions to avoid recompilation
-// on every evalMatches call. The sync.Map is ideal here: patterns are
-// written once and read many times. Bounded to maxRegexCacheSize entries
-// to prevent unbounded memory growth.
-var regexCache sync.Map // map[string]*regexp.Regexp
+// regexCache evicts old patterns so a changing working set stays cacheable.
+var regexCache = panics.MustResult(lru.NewCache[string, *regexp.Regexp](maxRegexCacheSize))
 
-// maxRegexCacheSize is the upper bound on cached regex entries. Once reached,
-// new patterns are compiled but not cached.
 const maxRegexCacheSize = 256
 
 // Performance counters for the regex pattern cache.
 var (
 	regexHits   atomic.Uint64
 	regexMisses atomic.Uint64
-	regexSize   atomic.Int64
 )
 
 // RegexCacheStats holds a point-in-time snapshot of regex pattern cache
@@ -69,7 +66,7 @@ func RegexCacheStatsSnapshot() RegexCacheStats {
 	return RegexCacheStats{
 		Hits:   regexHits.Load(),
 		Misses: regexMisses.Load(),
-		Size:   regexSize.Load(),
+		Size:   int64(regexCache.Len()),
 	}
 }
 
@@ -81,23 +78,16 @@ func ResetRegexCacheStats() {
 }
 
 func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
-	if cached, ok := regexCache.Load(pattern); ok {
+	if re, ok := regexCache.Get(pattern); ok {
 		regexHits.Add(1)
-		return cached.(*regexp.Regexp), nil //nolint:errcheck // type is guaranteed by store
+		return re, nil
 	}
-
+	regexMisses.Add(1)
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, err
 	}
-
-	if regexSize.Load() < maxRegexCacheSize {
-		if _, loaded := regexCache.LoadOrStore(pattern, re); !loaded {
-			regexSize.Add(1)
-		}
-	}
-
-	regexMisses.Add(1)
+	regexCache.Put(pattern, re)
 	return re, nil
 }
 

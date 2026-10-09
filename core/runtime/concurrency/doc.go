@@ -11,7 +11,7 @@
 //
 // The package offers several strategies for determining optimal concurrency:
 //   - Environment-based: predefined limits for common scenarios (CPU-bound, IO-bound, etc.)
-//   - Memory-aware: adjusts limits based on available system memory
+//   - Memory-aware: adjusts limits based on remaining configured memory budget
 //   - Load-aware: adjusts limits based on system load averages
 //   - Adaptive: combines multiple factors for complex resource management
 //

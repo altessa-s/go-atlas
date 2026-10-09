@@ -14,33 +14,27 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
-// KeyNamespaceFunc derives a namespace prefix from the request context so cache
-// entries and in-flight singleflight de-duplication are isolated per
-// tenant/subject. It is the recommended way to prevent cross-tenant fan-in when
-// callers might otherwise build the same bare key for different principals.
-// Returning "" disables prefixing for that call, which is the backward-compatible
-// default (no namespace configured).
+// KeyNamespaceFunc derives a namespace from context. Namespace/key pairs are
+// encoded with a length prefix; an empty namespace is distinct from every
+// non-empty namespace. Nil disables namespacing.
 type KeyNamespaceFunc func(context.Context) string
 
 // DefaultTTL is the default time-to-live for cache items (1 hour).
 const DefaultTTL = 1 * time.Hour
 
-// DefaultMaxConcurrentFallbacks bounds the number of fallback functions
-// the cache will run in parallel, regardless of how many distinct keys
-// arrive at GetWithFallback. Without this bound an attacker driving
-// arbitrary cache keys (one per request) can launch an unbounded number
-// of slow downstream calls in parallel — singleflight only dedupes
-// IDENTICAL keys, so distinct attacker-chosen keys all pass through.
-//
-// 1024 is high enough that legitimate traffic never queues in practice
-// (singleflight already collapses repeats of hot keys), but low enough
-// that the worst-case memory footprint of in-flight fallbacks is
-// bounded and the downstream gets reasonable backpressure under attack.
+// DefaultMaxConcurrentFallbacks bounds distinct active fallback computations.
+// New keys at capacity return ErrOverloaded without creating background work.
+// Calls sharing an active key can still join it. Non-positive values disable
+// this admission limit.
 const DefaultMaxConcurrentFallbacks = 1024
+
+// DefaultFallbackTimeout bounds the shared fallback and cache write context.
+const DefaultFallbackTimeout = 15 * time.Second
 
 // options contains Cache configuration.
 type options struct {
 	ttl                    time.Duration `optgen:"default=DefaultTTL"`
+	fallbackTimeout        time.Duration `optgen:"default=DefaultFallbackTimeout"`
 	negativeTtl            time.Duration // zero = disabled
 	maxConcurrentFallbacks int           `optgen:"default=DefaultMaxConcurrentFallbacks"`
 	serializer             serializer.Serializer
