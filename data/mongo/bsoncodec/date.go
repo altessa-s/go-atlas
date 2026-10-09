@@ -12,6 +12,8 @@ import (
 
 	"cloud.google.com/go/civil"
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	atlascivil "github.com/altessa-s/go-atlas/core/time/civil"
 )
 
 // ErrInvalidDate is returned when a date that is not a valid calendar date
@@ -40,7 +42,8 @@ var (
 // nothing can shift it across a day boundary, and the strings sort in date
 // order. The zero date is stored as null, or as "" with
 // [WithDateZeroAsEmptyString]; both decode to the zero date. An invalid date
-// or a year outside 0–9999 fails with [ErrInvalidDate]; a BSON date is
+// or a year outside 0–9999 fails with [ErrInvalidDate], as does one that T
+// rejects through a Valid() bool method; a BSON date is
 // rejected, since reading an instant as a calendar date would pick a zone.
 // Pointers to T are handled by the driver's pointer codec (nil <-> null).
 // Register before the registry is used concurrently.
@@ -50,7 +53,7 @@ func RegisterDateType[T any](reg *bson.Registry, opts ...DateOption) error {
 	if err != nil {
 		return err
 	}
-	c := &dateCodec{t: t, fields: fields, opts: newDateOptions(opts...)}
+	c := &dateCodec{t: t, fields: fields, opts: newDateOptions(opts...), validates: reflect.PointerTo(t).Implements(reflect.TypeFor[dateValidator]())}
 	reg.RegisterTypeEncoder(t, bson.ValueEncoderFunc(c.encode))
 	reg.RegisterTypeDecoder(t, bson.ValueDecoderFunc(c.decode))
 	return nil
@@ -92,7 +95,13 @@ type dateCodec struct {
 	t      reflect.Type
 	fields dateFields
 	opts   *dateOptions
+	// validates is set when T or *T has a Valid() bool method, which then
+	// also bounds the dates the codec writes and reads.
+	validates bool
 }
+
+// dateValidator is a date type with its own validity rule.
+type dateValidator interface{ Valid() bool }
 
 func (c *dateCodec) encode(_ bson.EncodeContext, vw bson.ValueWriter, v reflect.Value) error {
 	if !v.IsValid() || v.Type() != c.t {
@@ -107,7 +116,7 @@ func (c *dateCodec) encode(_ bson.EncodeContext, vw bson.ValueWriter, v reflect.
 		}
 		return vw.WriteNull()
 	}
-	if !validDate(year, month, day) {
+	if !validDate(year, month, day) || !c.typeValid(v) {
 		return fmt.Errorf("%w: %04d-%02d-%02d", ErrInvalidDate, year, int(month), day)
 	}
 	return vw.WriteString(fmt.Sprintf("%04d-%02d-%02d", year, int(month), day))
@@ -137,7 +146,11 @@ func (c *dateCodec) decode(_ bson.DecodeContext, vr bson.ValueReader, v reflect.
 		if err != nil || len(s) != len(dateLayout) {
 			return fmt.Errorf("%w: %q", ErrInvalidDate, s)
 		}
-		c.set(v, parsed.Year(), parsed.Month(), parsed.Day())
+		d := c.date(parsed.Year(), parsed.Month(), parsed.Day())
+		if !c.typeValid(d) {
+			return fmt.Errorf("%w: %q", ErrInvalidDate, s)
+		}
+		v.Set(d)
 		return nil
 	default:
 		return fmt.Errorf("bsoncodec: cannot decode %v into a calendar date", t)
@@ -146,11 +159,28 @@ func (c *dateCodec) decode(_ bson.DecodeContext, vr bson.ValueReader, v reflect.
 
 // set stores the date parts in v, leaving any other fields of T zero.
 func (c *dateCodec) set(v reflect.Value, year int, month time.Month, day int) {
+	v.Set(c.date(year, month, day))
+}
+
+// date builds a T from the date parts, any other fields zero.
+func (c *dateCodec) date(year int, month time.Month, day int) reflect.Value {
 	d := reflect.New(c.t).Elem()
 	d.Field(c.fields.year).SetInt(int64(year))
 	d.Field(c.fields.month).SetInt(int64(month))
 	d.Field(c.fields.day).SetInt(int64(day))
-	v.Set(d)
+	return d
+}
+
+// typeValid applies T's own Valid() rule to the non-zero date v, when T or
+// *T has one; a copy is addressed, so a pointer receiver applies too.
+func (c *dateCodec) typeValid(v reflect.Value) bool {
+	if !c.validates {
+		return true
+	}
+	p := reflect.New(c.t)
+	p.Elem().Set(v)
+	dv, _ := p.Interface().(dateValidator)
+	return dv.Valid()
 }
 
 // validDate reports whether the parts form a real date in years 0–9999.
@@ -162,9 +192,14 @@ func validDate(year int, month time.Month, day int) bool {
 	return t.Year() == year && t.Month() == month && t.Day() == day
 }
 
-// registerCivil installs the codec for cloud.google.com/go/civil.Date.
+// registerCivil installs the codecs for cloud.google.com/go/civil.Date and
+// go-atlas [atlascivil.Date]. The go-atlas date stores its zero value as "",
+// the same as its text form.
 func registerCivil(reg *bson.Registry) {
 	if err := RegisterDateType[civil.Date](reg); err != nil {
 		panic(err) // civil.Date has the date fields; unreachable
+	}
+	if err := RegisterDateType[atlascivil.Date](reg, WithDateZeroAsEmptyString()); err != nil {
+		panic(err) // atlascivil.Date has the date fields; unreachable
 	}
 }
