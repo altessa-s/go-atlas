@@ -61,6 +61,11 @@ func TestAllocateByErrors(t *testing.T) {
 	m := mustParse(t, "1.00", "EUR")
 	_, err := m.AllocateBy(money.AllocationMethod(9), dec("1"))
 	require.Error(t, err)
+	// Amount and ratios are checked before the method.
+	_, err = money.Money{}.AllocateBy(money.AllocationMethod(9))
+	require.ErrorIs(t, err, money.ErrInvalidCurrency)
+	_, err = m.AllocateBy(money.AllocationMethod(9))
+	require.ErrorIs(t, err, money.ErrInvalidRatios)
 	_, err = m.AllocateBy(money.HalfUpLastRemainder)
 	require.ErrorIs(t, err, money.ErrInvalidRatios)
 	require.Equal(t, "half-up-last-remainder", money.HalfUpLastRemainder.String())
