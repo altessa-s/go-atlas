@@ -12,6 +12,7 @@ dependencies out of universal value types. Existing driver codecs and custom inn
 | Function | Behavior |
 |----------|----------|
 | `NewRegistry()` | Driver defaults plus codecs for every Optional instantiation, `shopspring/decimal` and `civil.Date`; configure before concurrent use |
+| `RegisterDateType[T](reg, opts...)` | Adds the calendar-date codec for a struct with `Year int`, `Month time.Month`, `Day int` fields |
 
 ## Usage
 
@@ -40,14 +41,29 @@ The [`data/mongo`](../README.md) client constructor installs this registry unles
 the caller's responsibility. RedactedString's fixed redaction hook also works with this registry and with the driver's default registry.
 
 Pass the same registry to the [`domain/behavior/translators/mongo`](../../../domain/behavior/translators/mongo) translators with `WithRegistry`,
-so that they write decimals, civil dates and Optionals as units instead of folding them field by field.
+so that they write decimals, calendar dates and Optionals as units instead of folding them field by field.
 
-## Civil dates
+## Calendar dates
 
-`civil.Date` (`cloud.google.com/go/civil`), a calendar date without time or zone, is stored as its `YYYY-MM-DD` string: nothing can shift it
-across a day boundary, and strings of that form sort in date order, so range queries and indexes work on them. The zero `Date` is stored as
-null; an invalid date or a year outside 0–9999 fails with `ErrInvalidDate`. Decoding accepts only such strings and null — a BSON date is an
-instant, and reading it as a calendar date would pick a zone silently.
+A calendar date without time or zone is stored as its `YYYY-MM-DD` string: nothing can shift it across a day boundary, and strings of that form
+sort in date order, so range queries and indexes work on them. `NewRegistry` registers the codec for `civil.Date` (`cloud.google.com/go/civil`);
+`RegisterDateType[T](reg, opts...)` registers it for any struct with the fields `Year int`, `Month time.Month` and `Day int` — a service's own
+date type — and fails with `ErrNotADateType` for any other.
+
+| Stored BSON        | Encoded from / decoded to                                                                       |
+|--------------------|-------------------------------------------------------------------------------------------------|
+| `"YYYY-MM-DD"`     | A valid date in years 0–9999; anything else fails with `ErrInvalidDate`                          |
+| Null               | The zero date (the default encoding of it); a nil pointer                                       |
+| `""`               | The zero date; written instead of null with `WithDateZeroAsEmptyString()`                        |
+| BSON date, others  | Error: an instant read as a calendar date would pick a zone silently                            |
+
+```go
+reg := bsoncodec.NewRegistry()
+if err := bsoncodec.RegisterDateType[civil.Date](reg, bsoncodec.WithDateZeroAsEmptyString()); err != nil { // the service's own civil.Date
+    return err
+}
+// data/mongo: pass mongoOptions.Client().SetRegistry(reg) through WithClientOptions; it overrides the default registry.
+```
 
 ## Decimal
 
