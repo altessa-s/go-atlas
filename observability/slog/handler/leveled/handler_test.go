@@ -6,7 +6,6 @@ package leveled
 
 import (
 	"bytes"
-	"context"
 	"log/slog"
 	"testing"
 
@@ -37,11 +36,11 @@ func TestEnabled_WithSubsystem(t *testing.T) {
 	grpcLogger := logger.With(slogx.Module("grpc"))
 
 	h := schedLogger.Handler()
-	assert.True(t, h.Enabled(context.Background(), slog.LevelDebug), "scheduler should allow debug")
+	assert.True(t, h.Enabled(t.Context(), slog.LevelDebug), "scheduler should allow debug")
 
 	h = grpcLogger.Handler()
-	assert.False(t, h.Enabled(context.Background(), slog.LevelInfo), "grpc should reject info")
-	assert.True(t, h.Enabled(context.Background(), slog.LevelWarn), "grpc should allow warn")
+	assert.False(t, h.Enabled(t.Context(), slog.LevelInfo), "grpc should reject info")
+	assert.True(t, h.Enabled(t.Context(), slog.LevelWarn), "grpc should allow warn")
 }
 
 func TestEnabled_WithoutSubsystem(t *testing.T) {
@@ -54,7 +53,7 @@ func TestEnabled_WithoutSubsystem(t *testing.T) {
 	)
 
 	// Without captured subsystem, delegates to base (which has LevelDebug)
-	assert.True(t, h.Enabled(context.Background(), slog.LevelDebug),
+	assert.True(t, h.Enabled(t.Context(), slog.LevelDebug),
 		"without subsystem, should delegate to base handler")
 }
 
@@ -305,7 +304,7 @@ func TestIntegration_SubsystemFiltering(t *testing.T) {
 				WithDefaultLevel(slog.LevelInfo),
 				WithSubsystemLevels(subsystemLevels),
 			)
-			logger.Log(context.Background(), tt.level, tt.msg, slogx.Module(tt.subsystem))
+			logger.Log(t.Context(), tt.level, tt.msg, slogx.Module(tt.subsystem))
 			if tt.want {
 				require.Contains(t, buf.String(), tt.msg)
 			} else {
