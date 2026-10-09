@@ -61,3 +61,8 @@ func TestCuckooFilter_AltIsInvolution(t *testing.T) {
 		}
 	}
 }
+
+// slots returns the total number of fingerprint slots.
+func (f *cuckooFilter) slots() uint {
+	return uint(len(f.buckets)) * bucketSize
+}

@@ -369,7 +369,8 @@ concurrency:
 
 ### Memory-aware
 
-Dynamically adjusts concurrency based on available system memory, evaluated on each tick.
+Adjusts concurrency based on the remaining Go runtime budget (`GOMEMLIMIT` / `debug.SetMemoryLimit`), evaluated on each tick using cached statistics.
+Without a finite budget, the memory strategy uses the default concurrency limit. Supply a custom limit function for host or container headroom.
 
 ```go
 sched := scheduler.New(store,

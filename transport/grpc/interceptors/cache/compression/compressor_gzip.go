@@ -317,14 +317,15 @@ func (c *GzipCompressor) doDecompress(data []byte, expectedSize int) ([]byte, er
 	pooledReader := getGzipReader()
 	defer putGzipReader(pooledReader) // This will handle reader.Close() properly
 
+	pooledReader.input.Reset(data)
 	var err error
 	if pooledReader.reader == nil {
-		pooledReader.reader, err = gzip.NewReader(bytes.NewReader(data))
+		pooledReader.reader, err = gzip.NewReader(&pooledReader.input)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "create gzip reader")
 		}
 	} else {
-		err = pooledReader.reader.Reset(bytes.NewReader(data))
+		err = pooledReader.reader.Reset(&pooledReader.input)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "reset gzip reader")
 		}

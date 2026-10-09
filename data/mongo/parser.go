@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -31,10 +32,6 @@ const (
 
 	// DefaultCacheEvictionAge is the default time after which cached entries are evicted
 	DefaultCacheEvictionAge = 10 * time.Minute
-
-	// Memory optimization constants
-	CapacityBufferMultiplier = 1.25 // Multiplier for capacity estimation buffer
-	LargeStructThreshold     = 100  // Threshold for large structs
 
 	// Advanced caching constants
 	MaxCacheSize           = 1000 // Maximum number of cached types
@@ -309,496 +306,181 @@ func (tp *tagParser) parseEncryptionTag(tag string) (algorithm, keyAltName strin
 	return parts[AlgorithmIndex], parts[KeyAltNameIndex], true
 }
 
-// nestedStructureDetector handles detection of nested structures
-type nestedStructureDetector struct{}
+// StructMetadata describes a struct and its fields. ParseStruct binds direct
+// fields to the supplied instance; NestedStructs contains type descriptions
+// only. Returned slices and maps do not alias the parser cache.
+type StructMetadata struct {
+	StructType    reflect.Type
+	Fields        []fieldMetadata
+	NestedStructs map[reflect.Type]*StructMetadata
+}
 
-// detectNestedType determines the type of nested structure
-func (nsd *nestedStructureDetector) detectNestedType(fieldValue reflect.Value) NestedStructType {
-	switch {
-	case nsd.isPointerToStruct(fieldValue):
+// Parser caches type descriptions without retaining entity values. It is safe
+// for concurrent use; callers own the metadata returned by ParseStruct.
+type Parser struct {
+	encryptionModels  *coremaps.ImmutableMap[reflect.Type, EncryptionModel]
+	bsonTagName       string
+	encryptionTagName string
+	cache             *ParserCache
+}
+
+// NewParser creates a parser with a private snapshot of its encryption schema.
+func NewParser(opts ...ParserOption) *Parser {
+	o := newParserOptions(opts...)
+	cache := newParserCache(o.cacheSize)
+	if o.cacheEvictionAge > 0 {
+		cache.SetEvictionAge(o.cacheEvictionAge)
+	}
+	models := make(map[reflect.Type]EncryptionModel, len(o.encryptionModels))
+	for typ, model := range o.encryptionModels {
+		if model != nil {
+			cp := *model
+			cp.Type = nil // the map key already identifies the type; do not retain a sample entity
+			cp.Fields = slices.Clone(model.Fields)
+			models[typ] = cp
+		}
+	}
+	return &Parser{encryptionModels: coremaps.NewImmutableMap(models), bsonTagName: o.bsonTagName,
+		encryptionTagName: o.encryptionTagName, cache: cache}
+}
+
+// ParseStruct returns fields bound to entity. Nil embedded pointers omit their
+// promoted fields for this instance only. Invalid or nil inputs yield no fields.
+func (p *Parser) ParseStruct(entity any) *StructMetadata {
+	value := reflect.ValueOf(entity)
+	for value.IsValid() && value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return &StructMetadata{}
+		}
+		value = value.Elem()
+	}
+	if !value.IsValid() || value.Kind() != reflect.Struct {
+		return &StructMetadata{}
+	}
+	typ := value.Type()
+	layout, ok := p.cache.Get(typ)
+	if !ok {
+		layout = p.describeType(typ, make(map[reflect.Type]*StructMetadata))
+		p.cache.Put(typ, layout)
+	}
+	result := &StructMetadata{StructType: typ, Fields: slices.Clone(layout.Fields)}
+	if len(layout.NestedStructs) > 0 {
+		result.NestedStructs = make(map[reflect.Type]*StructMetadata, len(layout.NestedStructs))
+		copies := make(map[*StructMetadata]*StructMetadata)
+		for nestedType, nested := range layout.NestedStructs {
+			result.NestedStructs[nestedType] = copyMetadata(nested, copies)
+		}
+	}
+	fields := result.Fields[:0]
+	for _, field := range result.Fields {
+		fieldValue, err := value.FieldByIndexErr(field.fieldIndex)
+		if err != nil {
+			continue
+		} // nil embedded pointer in this particular entity
+		field.fieldValue = fieldValue
+		fields = append(fields, field)
+	}
+	result.Fields = fields
+	return result
+}
+
+// ClearCache releases all cached type descriptions.
+func (p *Parser) ClearCache() { p.cache.Clear() }
+
+func (p *Parser) describeType(typ reflect.Type, seen map[reflect.Type]*StructMetadata) *StructMetadata {
+	if meta, ok := seen[typ]; ok {
+		return meta
+	}
+	meta := &StructMetadata{StructType: typ, NestedStructs: make(map[reflect.Type]*StructMetadata)}
+	seen[typ] = meta
+	meta.Fields = p.describeFields(typ, typ, nil, nil)
+	for _, field := range meta.Fields {
+		nested := nestedStructType(field.fieldType.Type)
+		if nested != nil {
+			meta.NestedStructs[nested] = p.describeType(nested, seen)
+		}
+	}
+	return meta
+}
+
+func (p *Parser) describeFields(root, typ reflect.Type, prefix []int, ancestors []reflect.Type) []fieldMetadata {
+	if slices.Contains(ancestors, typ) {
+		return nil
+	}
+	ancestors = append(ancestors, typ)
+	fields := make([]fieldMetadata, 0, typ.NumField())
+	for sf := range typ.Fields() {
+		if !sf.IsExported() {
+			continue
+		}
+		name, omitEmpty, omitUpdate, skip := (&tagParser{}).parseBSONTag(sf.Tag.Get(p.bsonTagName))
+		if skip {
+			continue
+		}
+		index := append(slices.Clone(prefix), sf.Index...)
+		if sf.Anonymous && indirectType(sf.Type).Kind() == reflect.Struct {
+			fields = append(fields, p.describeFields(root, indirectType(sf.Type), index, ancestors)...)
+			continue
+		}
+		algorithm, key, encrypt := p.encryptionInfo(root, sf)
+		fields = append(fields, fieldMetadata{
+			fieldType: sf, fieldIndex: index, fieldName: cmp.Or(name, corestrings.InternLowerString(sf.Name)),
+			fieldKind: sf.Type.Kind(), isOmitEmpty: omitEmpty, isOmitOnUpdate: omitUpdate,
+			algorithmString: algorithm, keyAltName: key, shouldEncrypt: encrypt, nestedType: nestingKind(sf.Type),
+		})
+	}
+	return fields
+}
+
+func (p *Parser) encryptionInfo(typ reflect.Type, sf reflect.StructField) (string, string, bool) {
+	if model, ok := p.encryptionModels.Get(typ); ok {
+		for _, field := range model.Fields {
+			if field.FieldName == sf.Name {
+				return field.Algorithm, field.KeyAltName, true
+			}
+		}
+	}
+	return (&tagParser{}).parseEncryptionTag(sf.Tag.Get(p.encryptionTagName))
+}
+
+func nestedStructType(typ reflect.Type) reflect.Type {
+	switch typ.Kind() { //nolint:exhaustive // Only container kinds can wrap nested structs.
+	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+		elem := indirectType(typ.Elem())
+		if elem.Kind() == reflect.Struct {
+			return elem
+		}
+	}
+	return nil
+}
+
+func nestingKind(typ reflect.Type) NestedStructType {
+	if nestedStructType(typ) == nil {
+		return NoNesting
+	}
+	switch typ.Kind() {
+	case reflect.Pointer:
 		return PointerStruct
-	case nsd.isSliceOfStructs(fieldValue):
+	case reflect.Slice, reflect.Array:
 		return SliceStruct
-	case nsd.isMapWithStructValues(fieldValue):
+	case reflect.Map:
 		return MapStruct
 	default:
 		return NoNesting
 	}
 }
 
-// isPointerToStruct checks if the field type is a pointer to a struct.
-func (nsd *nestedStructureDetector) isPointerToStruct(fieldValue reflect.Value) bool {
-	return fieldValue.Kind() == reflect.Pointer &&
-		fieldValue.Type().Elem().Kind() == reflect.Struct
-}
-
-// isSliceOfStructs checks if the field type is a slice/array of structs.
-func (nsd *nestedStructureDetector) isSliceOfStructs(fieldValue reflect.Value) bool {
-	if fieldValue.Kind() != reflect.Slice && fieldValue.Kind() != reflect.Array {
-		return false
+func copyMetadata(src *StructMetadata, seen map[*StructMetadata]*StructMetadata) *StructMetadata {
+	if previous, ok := seen[src]; ok {
+		return previous
 	}
-
-	elemType := getElementType(fieldValue)
-	return elemType.Kind() == reflect.Struct
-}
-
-// isMapWithStructValues checks if the field type is a map with struct values.
-func (nsd *nestedStructureDetector) isMapWithStructValues(fieldValue reflect.Value) bool {
-	if fieldValue.Kind() != reflect.Map {
-		return false
-	}
-
-	elemType := getElementType(fieldValue)
-	return elemType.Kind() == reflect.Struct
-}
-
-// fieldProcessor processes individual fields and creates metadata
-type fieldProcessor struct {
-	parser         *Parser
-	tagParser      *tagParser
-	nestedDetector *nestedStructureDetector
-}
-
-// newFieldProcessor creates a new field processor
-func newFieldProcessor(parser *Parser) *fieldProcessor {
-	return &fieldProcessor{
-		parser:         parser,
-		tagParser:      &tagParser{},
-		nestedDetector: &nestedStructureDetector{},
-	}
-}
-
-// processField creates metadata for a single field
-func (fp *fieldProcessor) processField(fieldType reflect.StructField, fieldValue reflect.Value, parentType reflect.Type) *fieldMetadata {
-	// Extract field name from BSON tag
-	fieldName, omitEmpty, omitOnUpdate, skip := fp.tagParser.parseBSONTag(fieldType.Tag.Get(fp.parser.bsonTagName))
-	if skip {
-		return nil
-	}
-	fieldName = cmp.Or(fieldName, corestrings.InternLowerString(fieldType.Name))
-
-	// Use pooled fieldMetadata to reduce allocations
-	meta := getFieldMetadata()
-
-	// Fill metadata directly without builder overhead
-	meta.fieldName = fieldName
-	meta.fieldValue = fieldValue
-	meta.fieldKind = fieldValue.Kind()
-	meta.fieldType = fieldType
-	meta.fieldIndex = fieldType.Index
-	meta.isOmitEmpty = omitEmpty
-	meta.isOmitOnUpdate = omitOnUpdate
-
-	// Add encryption information
-	algorithm, keyAltName, shouldEncrypt := fp.getEncryptionInfo(parentType, fieldType)
-	meta.algorithmString = algorithm
-	meta.keyAltName = keyAltName
-	meta.shouldEncrypt = shouldEncrypt
-
-	// Detect nested structures
-	meta.nestedType = fp.nestedDetector.detectNestedType(fieldValue)
-
-	return meta
-}
-
-// getEncryptionInfo retrieves encryption information for a field
-func (fp *fieldProcessor) getEncryptionInfo(entityType reflect.Type, fieldType reflect.StructField) (string, string, bool) {
-	// First, try to get encryption info from configured models
-	if model, exists := fp.parser.encryptionModels[entityType]; exists {
-		for _, field := range model.Fields {
-			if field.FieldName == fieldType.Name {
-				return field.Algorithm, field.KeyAltName, true
-			}
+	dst := &StructMetadata{StructType: src.StructType, Fields: slices.Clone(src.Fields)}
+	seen[src] = dst
+	if len(src.NestedStructs) > 0 {
+		dst.NestedStructs = make(map[reflect.Type]*StructMetadata, len(src.NestedStructs))
+		for typ, nested := range src.NestedStructs {
+			dst.NestedStructs[typ] = copyMetadata(nested, seen)
 		}
 	}
-
-	// Fallback to struct tags
-	return fp.tagParser.parseEncryptionTag(fieldType.Tag.Get(fp.parser.encryptionTagName))
-}
-
-// embeddedStructProcessor handles embedded struct processing
-type embeddedStructProcessor struct {
-	fieldProcessor *fieldProcessor
-}
-
-// processEmbeddedStruct processes embedded structs recursively
-func (esp *embeddedStructProcessor) processEmbeddedStruct(
-	fieldType reflect.StructField, fieldValue reflect.Value, parentType reflect.Type,
-) []fieldMetadata {
-	// An embedded struct tagged bson:"-" is excluded with all its fields.
-	if _, _, _, skip := esp.fieldProcessor.tagParser.parseBSONTag(fieldType.Tag.Get(esp.fieldProcessor.parser.bsonTagName)); skip {
-		return nil
-	}
-
-	// Handle pointer to embedded struct
-	if fieldValue.Kind() == reflect.Pointer {
-		if fieldValue.IsNil() {
-			return nil
-		}
-		fieldValue = fieldValue.Elem()
-	}
-
-	// Only process struct types
-	embeddedType := indirectType(fieldType.Type)
-	if embeddedType.Kind() != reflect.Struct {
-		return nil
-	}
-
-	var embeddedFields []fieldMetadata
-
-	// Process each field in the embedded struct
-	for i := range embeddedType.NumField() {
-		embeddedFieldType := embeddedType.Field(i)
-		embeddedFieldValue := fieldValue.Field(i)
-
-		// Skip unexported fields
-		if embeddedFieldType.PkgPath != "" {
-			continue
-		}
-
-		// Handle nested embedded structs recursively
-		if embeddedFieldType.Anonymous {
-			nestedFields := esp.processEmbeddedStruct(embeddedFieldType, embeddedFieldValue, parentType)
-			embeddedFields = append(embeddedFields, nestedFields...)
-			continue
-		}
-
-		// Process regular field
-		if meta := esp.fieldProcessor.processField(embeddedFieldType, embeddedFieldValue, parentType); meta != nil {
-			// For embedded fields, we don't process deep nesting to avoid complexity
-			meta.nestedType = esp.fieldProcessor.nestedDetector.detectNestedType(embeddedFieldValue)
-			meta.hasNestedData = false
-			// processField sets fieldIndex relative to the embedded struct; override with
-			// the full path from parentType so FieldByIndex works correctly on cache hits.
-			if sf, ok := parentType.FieldByName(embeddedFieldType.Name); ok {
-				meta.fieldIndex = sf.Index
-			}
-			embeddedFields = append(embeddedFields, *meta)
-		}
-	}
-
-	return embeddedFields
-}
-
-// StructMetadata contains complete metadata information for a parsed structure.
-// This includes the struct's own fields and any nested structure information.
-type StructMetadata struct {
-	// StructType is the reflect.Type of the parsed struct
-	StructType reflect.Type
-	// Fields contains metadata for all direct fields of the struct
-	Fields []fieldMetadata
-	// NestedStructs contains metadata for nested structures found during parsing
-	NestedStructs map[reflect.Type]*StructMetadata
-}
-
-// Parser handles struct field parsing and metadata collection for MongoDB document conversion.
-// It provides separation between metadata collection and business logic processing.
-// All methods are thread-safe and can be used concurrently with advanced caching.
-type Parser struct {
-	// Configuration
-	encryptionModels map[reflect.Type]*EncryptionModel
-
-	// Tag names
-	bsonTagName       string
-	encryptionTagName string
-
-	// Advanced caching system - thread-safe internally
-	cache *ParserCache
-
-	// Options
-	update        bool
-	shouldEncrypt bool
-}
-
-// NewParser creates a new Parser instance with the specified options.
-// The parser is responsible for extracting metadata from struct fields and nested structures.
-// Uses advanced caching by default for optimal performance.
-func NewParser(opts ...ParserOption) *Parser {
-	o := newParserOptions(opts...)
-
-	cache := newParserCache(o.cacheSize)
-	if o.cacheEvictionAge > 0 {
-		cache.SetEvictionAge(o.cacheEvictionAge)
-	}
-
-	return &Parser{
-		encryptionModels:  o.encryptionModels,
-		bsonTagName:       o.bsonTagName,
-		encryptionTagName: o.encryptionTagName,
-		cache:             cache,
-		update:            o.update,
-		shouldEncrypt:     o.shouldEncrypt,
-	}
-}
-
-// ParseStruct parses a Go struct with advanced caching and reference counting.
-// This method is thread-safe and can be called concurrently with optimal performance.
-func (p *Parser) ParseStruct(entity any) *StructMetadata {
-	entityType := indirectType(reflect.TypeOf(entity))
-	entityValue := reflect.Indirect(reflect.ValueOf(entity))
-
-	// Fast path: structural metadata is cached per-type, but field values are
-	// instance-specific and must be refreshed from the current entity on every call
-	if cached, hit := p.cache.Get(entityType); hit {
-		return p.refreshFieldValues(cached, entityValue)
-	}
-
-	// Slow path: need to parse - no external locking needed (cache handles it)
-	// Initialize metadata with smart capacity estimation
-	estimatedCapacity := p.estimateFieldCapacity(entityType)
-	structMeta := &StructMetadata{
-		StructType:    entityType,
-		Fields:        make([]fieldMetadata, 0, estimatedCapacity),
-		NestedStructs: make(map[reflect.Type]*StructMetadata),
-	}
-
-	// Get pooled processors to reduce allocations
-	fieldProcessor := getFieldProcessor(p)
-	defer putFieldProcessor(fieldProcessor)
-
-	embeddedProcessor := &embeddedStructProcessor{fieldProcessor: fieldProcessor}
-
-	// For large structs, use chunk processing to reduce peak memory
-	fieldCount := entityType.NumField()
-	var fieldsMetadata []fieldMetadata
-	if fieldCount > LargeStructThreshold {
-		fieldsMetadata = p.processLargeStruct(entityType, entityValue, fieldProcessor, embeddedProcessor, structMeta)
-	} else {
-		fieldsMetadata = p.processRegularStruct(entityType, entityValue, fieldProcessor, embeddedProcessor, structMeta)
-	}
-
-	structMeta.Fields = fieldsMetadata
-
-	// Store in advanced cache with reference counting
-	p.cache.Put(entityType, structMeta)
-
-	return structMeta
-}
-
-// ClearCache clears all cached metadata, useful for testing or memory cleanup
-func (p *Parser) ClearCache() {
-	p.cache.Clear()
-}
-
-// refreshFieldValues returns a new StructMetadata by copying cached structural metadata
-// and rebinding all instance-specific field values from entityValue.
-func (p *Parser) refreshFieldValues(cached *StructMetadata, entityValue reflect.Value) *StructMetadata {
-	result := &StructMetadata{
-		StructType:    cached.StructType,
-		Fields:        make([]fieldMetadata, len(cached.Fields)),
-		NestedStructs: cached.NestedStructs,
-	}
-
-	for i, meta := range cached.Fields {
-		result.Fields[i] = meta
-		result.Fields[i].fieldValue = entityValue.FieldByIndex(meta.fieldIndex)
-		if meta.hasNestedData {
-			result.Fields[i].nestedMetadata = nil
-			result.Fields[i].hasNestedData = false
-		}
-	}
-
-	return result
-}
-
-// estimateFieldCapacity estimates the total number of fields including embedded structs
-func (p *Parser) estimateFieldCapacity(entityType reflect.Type) int {
-	capacity := 0
-	for field := range entityType.Fields() {
-		if field.PkgPath != "" {
-			continue // Skip unexported fields
-		}
-
-		if field.Anonymous {
-			// For embedded structs, recursively estimate capacity
-			embeddedType := indirectType(field.Type)
-			if embeddedType.Kind() == reflect.Struct {
-				capacity += p.estimateFieldCapacity(embeddedType)
-			}
-		} else {
-			capacity++
-		}
-	}
-	// Add buffer to avoid edge case reallocations
-	return int(float64(capacity) * CapacityBufferMultiplier)
-}
-
-func (p *Parser) processStructField(
-	entityType reflect.Type,
-	entityValue reflect.Value,
-	fieldIndex int,
-	fieldProcessor *fieldProcessor,
-	embeddedProcessor *embeddedStructProcessor,
-	structMeta *StructMetadata,
-	fieldsMetadata *[]fieldMetadata,
-) {
-	fieldType := entityType.Field(fieldIndex)
-	fieldValue := entityValue.Field(fieldIndex)
-
-	// Skip unexported fields
-	if fieldType.PkgPath != "" {
-		return
-	}
-
-	// Handle embedded structs
-	if fieldType.Anonymous {
-		embeddedFields := embeddedProcessor.processEmbeddedStruct(fieldType, fieldValue, entityType)
-		*fieldsMetadata = append(*fieldsMetadata, embeddedFields...)
-		return
-	}
-
-	// Process regular field
-	if meta := fieldProcessor.processField(fieldType, fieldValue, entityType); meta != nil {
-		// Handle nested structures for non-embedded fields
-		p.processNestedStructures(meta, structMeta)
-		*fieldsMetadata = append(*fieldsMetadata, *meta)
-		// Return pooled fieldMetadata immediately after use
-		putFieldMetadata(meta)
-	}
-}
-
-// processRegularStruct handles normal-sized structs with optimized memory allocation
-func (p *Parser) processRegularStruct(
-	entityType reflect.Type,
-	entityValue reflect.Value,
-	fieldProcessor *fieldProcessor,
-	embeddedProcessor *embeddedStructProcessor,
-	structMeta *StructMetadata,
-) []fieldMetadata {
-	// Use smart capacity estimation to avoid reallocations
-	estimatedCapacity := p.estimateFieldCapacity(entityType)
-	fieldsMetadata := make([]fieldMetadata, 0, estimatedCapacity)
-
-	fieldCount := entityType.NumField()
-	for i := range fieldCount {
-		p.processStructField(entityType, entityValue, i, fieldProcessor, embeddedProcessor, structMeta, &fieldsMetadata)
-	}
-
-	return fieldsMetadata
-}
-
-// processLargeStruct handles large structs (>100 fields) with chunk processing to reduce peak memory
-func (p *Parser) processLargeStruct(
-	entityType reflect.Type,
-	entityValue reflect.Value,
-	fieldProcessor *fieldProcessor,
-	embeddedProcessor *embeddedStructProcessor,
-	structMeta *StructMetadata,
-) []fieldMetadata {
-	fieldCount := entityType.NumField()
-	// Use smart capacity estimation even for large structs to avoid reallocations
-	estimatedCapacity := p.estimateFieldCapacity(entityType)
-	fieldsMetadata := make([]fieldMetadata, 0, estimatedCapacity)
-
-	// Process in chunks of 50 to limit memory spikes
-	const chunkSize = 50
-
-	for chunkStart := 0; chunkStart < fieldCount; chunkStart += chunkSize {
-		chunkEnd := min(chunkStart+chunkSize, fieldCount)
-
-		// Process chunk
-		for i := chunkStart; i < chunkEnd; i++ {
-			p.processStructField(entityType, entityValue, i, fieldProcessor, embeddedProcessor, structMeta, &fieldsMetadata)
-		}
-	}
-
-	return fieldsMetadata
-}
-
-// processNestedStructures handles nested structure processing with improved clarity
-func (p *Parser) processNestedStructures(meta *fieldMetadata, parentMeta *StructMetadata) {
-	switch meta.nestedType {
-	case NoNesting:
-		// No nested structure processing needed
-		return
-	case PointerStruct:
-		p.processPointerStruct(meta, parentMeta)
-	case SliceStruct:
-		p.processSliceStruct(meta, parentMeta)
-	case MapStruct:
-		p.processMapStruct(meta, parentMeta)
-	}
-}
-
-// processPointerStruct processes pointer to struct with better error handling
-func (p *Parser) processPointerStruct(meta *fieldMetadata, parentMeta *StructMetadata) {
-	if meta.fieldValue.IsNil() {
-		return
-	}
-
-	nestedValue := meta.fieldValue.Elem().Interface()
-	nestedStructMeta := p.ParseStruct(nestedValue)
-
-	meta.nestedMetadata = nestedStructMeta.Fields
-	meta.hasNestedData = len(meta.nestedMetadata) > 0
-	parentMeta.NestedStructs[nestedStructMeta.StructType] = nestedStructMeta
-}
-
-// processSliceStruct processes slice of structs with improved structure
-func (p *Parser) processSliceStruct(meta *fieldMetadata, parentMeta *StructMetadata) {
-	if meta.fieldValue.Len() == 0 {
-		return
-	}
-	firstElem := p.getFirstNonNilElement(meta.fieldValue)
-	p.processNestedStructValue(meta, parentMeta, firstElem)
-}
-
-// processMapStruct processes map with struct values
-func (p *Parser) processMapStruct(meta *fieldMetadata, parentMeta *StructMetadata) {
-	if meta.fieldValue.Len() == 0 {
-		return
-	}
-	firstValue := p.getFirstMapValue(meta.fieldValue)
-	p.processNestedStructValue(meta, parentMeta, firstValue)
-}
-
-// Helper functions for better code organization
-
-// getFirstNonNilElement gets the first non-nil element from slice/array
-func (p *Parser) getFirstNonNilElement(value reflect.Value) *reflect.Value {
-	firstElem := value.Index(0)
-	for firstElem.Kind() == reflect.Pointer {
-		if firstElem.IsNil() {
-			return nil
-		}
-		firstElem = firstElem.Elem()
-	}
-	return &firstElem
-}
-
-// getFirstMapValue gets the first value from a map
-func (p *Parser) getFirstMapValue(value reflect.Value) *reflect.Value {
-	mapIter := value.MapRange()
-	if !mapIter.Next() {
-		return nil
-	}
-
-	firstValue := mapIter.Value()
-	for firstValue.Kind() == reflect.Pointer {
-		if firstValue.IsNil() {
-			return nil
-		}
-		firstValue = firstValue.Elem()
-	}
-	return &firstValue
-}
-
-func (p *Parser) processNestedStructValue(meta *fieldMetadata, parentMeta *StructMetadata, v *reflect.Value) {
-	if v == nil || v.Kind() != reflect.Struct {
-		return
-	}
-
-	nestedStructMeta := p.ParseStruct(v.Interface())
-	meta.nestedMetadata = nestedStructMeta.Fields
-	meta.hasNestedData = len(meta.nestedMetadata) > 0
-	parentMeta.NestedStructs[nestedStructMeta.StructType] = nestedStructMeta
-}
-
-// getElementType returns the underlying element type, dereferencing pointer types
-func getElementType(fieldValue reflect.Value) reflect.Type {
-	elemType := fieldValue.Type().Elem()
-	for elemType.Kind() == reflect.Pointer {
-		elemType = elemType.Elem()
-	}
-	return elemType
+	return dst
 }

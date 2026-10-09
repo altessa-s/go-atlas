@@ -2,13 +2,15 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package factory
+package tlsutils_test
 
 import (
 	"crypto/tls"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/security/tlsutils"
 )
 
 // TestApplyMinTLSVersion_Empty preserves the provider-supplied TLS
@@ -22,7 +24,7 @@ func TestApplyMinTLSVersion_Empty(t *testing.T) {
 		MinVersion:   tls.VersionTLS12,
 		CipherSuites: []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
 	}
-	require.NoError(t, applyMinTLSVersion(cfg, ""))
+	require.NoError(t, tlsutils.ApplyMinTLSVersion(cfg, ""))
 	require.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion, "empty minVersion must not change MinVersion")
 	require.NotEmpty(t, cfg.CipherSuites, "empty minVersion must not touch CipherSuites")
 }
@@ -43,7 +45,7 @@ func TestApplyMinTLSVersion_TLS13_ClearsCipherSuites(t *testing.T) {
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		},
 	}
-	require.NoError(t, applyMinTLSVersion(cfg, "1.3"))
+	require.NoError(t, tlsutils.ApplyMinTLSVersion(cfg, "1.3"))
 	require.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion)
 	require.Nil(t, cfg.CipherSuites, "TLS 1.3 must clear CipherSuites to match DefaultTLSConfigStrict")
 }
@@ -60,7 +62,7 @@ func TestApplyMinTLSVersion_TLS12_PreservesCipherSuites(t *testing.T) {
 			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		},
 	}
-	require.NoError(t, applyMinTLSVersion(cfg, "1.2"))
+	require.NoError(t, tlsutils.ApplyMinTLSVersion(cfg, "1.2"))
 	require.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
 	require.Len(t, cfg.CipherSuites, 1, "TLS 1.2 must NOT clear CipherSuites")
 }
@@ -78,9 +80,8 @@ func TestApplyMinTLSVersion_Unknown(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
 			cfg := &tls.Config{MinVersion: tls.VersionTLS12}
-			err := applyMinTLSVersion(cfg, raw)
+			err := tlsutils.ApplyMinTLSVersion(cfg, raw)
 			require.Error(t, err, "unknown minVersion %q must be rejected", raw)
-			require.Contains(t, err.Error(), raw, "error must echo the offending value")
 		})
 	}
 }

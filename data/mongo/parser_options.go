@@ -24,8 +24,6 @@ const (
 // parserOptions holds [Parser] configuration. All fields are populated
 // by generated [ParserOption] setters in parser_options_gen.go.
 type parserOptions struct {
-	update            bool                              `opt:"ParserUpdate"`
-	shouldEncrypt     bool                              `opt:"ParserEncryption"`
 	encryptionModels  map[reflect.Type]*EncryptionModel `opt:"ParserEncryptionModels" optgen:"default=make(map[reflect.Type]*EncryptionModel)"`
 	bsonTagName       string                            `opt:"ParserBSONTagName" optgen:"default=DefaultParserBSONTagName"`
 	encryptionTagName string                            `opt:"ParserEncryptionTagName" optgen:"default=DefaultParserEncryptionTagName"`

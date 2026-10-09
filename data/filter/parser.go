@@ -93,7 +93,8 @@ func mergeCustomFunctions(cfg *parserConfig) map[string]CustomFunction {
 	return out
 }
 
-// Parse parses a CEL expression and returns the corresponding AST node.
+// Parse parses a CEL expression and returns a caller-owned AST. Mutating it
+// cannot change future parses or another caller's result.
 func (p *Parser) Parse(ctx context.Context, expression string) (Node, error) {
 	if corestrings.IsEmpty(expression) {
 		return nil, ErrEmptyExpression
@@ -123,7 +124,10 @@ func (p *Parser) Parse(ctx context.Context, expression string) (Node, error) {
 		return nil, err
 	}
 
-	return node, nil
+	if p.cache == nil {
+		return node, nil
+	}
+	return cloneAST(node)
 }
 
 // MustParse parses a CEL expression and panics if parsing fails.
@@ -326,7 +330,8 @@ func (p *Parser) convertCustomFunction(c *exprpb.Expr_Call) (Node, error) {
 		return nil, coreerrs.Wrapf(ErrInvalidExpression,
 			"custom function %q returned nil node", c.Function)
 	}
-	return out, nil
+	// Snapshot handler-owned nodes before they enter the parser cache.
+	return cloneAST(out)
 }
 
 // convertTimestamp converts a timestamp() call to a LiteralNode with time.Time.

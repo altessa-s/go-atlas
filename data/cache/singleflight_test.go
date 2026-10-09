@@ -38,7 +38,7 @@ func TestGetWithFallback_LosingCallerLeavesOnItsOwnContext(t *testing.T) {
 	entered := make(chan struct{})
 	var once sync.Once
 
-	fallback := func() (any, time.Duration, error) {
+	fallback := func(_ context.Context) (any, time.Duration, error) {
 		once.Do(func() { close(entered) })
 		<-release
 
@@ -82,7 +82,7 @@ func TestGetWithFallback_WinnerCancellationDoesNotPoisonWaiters(t *testing.T) {
 	release := make(chan struct{})
 	var calls atomic.Int32
 
-	fallback := func() (any, time.Duration, error) {
+	fallback := func(_ context.Context) (any, time.Duration, error) {
 		if calls.Add(1) == 1 {
 			close(entered)
 			<-release
@@ -118,7 +118,7 @@ func TestGetWithFallback_WinnerCancellationDoesNotPoisonWaiters(t *testing.T) {
 		require.NoError(t, err, "the winner's cancellation must not fail a healthy waiter")
 		require.Equal(t, "value", waited)
 	case <-time.After(5 * time.Second):
-		t.Fatal("waiter never completed")
+		require.FailNow(t, "waiter never completed")
 	}
 
 	winner.Wait()
@@ -141,7 +141,7 @@ func TestGetWithFallback_CanceledCallerKeepsFallbackPermit(t *testing.T) {
 	doneA := make(chan error, 1)
 	go func() {
 		var out string
-		doneA <- c.GetWithFallback(ctxA, "a", &out, func() (any, time.Duration, error) {
+		doneA <- c.GetWithFallback(ctxA, "a", &out, func(_ context.Context) (any, time.Duration, error) {
 			close(enteredA)
 			<-releaseA
 			return "a", cache.TTLUseDefault, nil
@@ -151,27 +151,10 @@ func TestGetWithFallback_CanceledCallerKeepsFallbackPermit(t *testing.T) {
 	cancelA()
 	require.ErrorIs(t, <-doneA, context.Canceled)
 
-	startedB := make(chan struct{})
-	doneB := make(chan error, 1)
-	go func() {
-		var out string
-		doneB <- c.GetWithFallback(t.Context(), "b", &out, func() (any, time.Duration, error) {
-			close(startedB)
-			return "b", cache.TTLUseDefault, nil
-		})
-	}()
-
-	select {
-	case <-startedB:
-		t.Fatal("fallback for b started while a's fallback still held the only permit")
-	case <-time.After(100 * time.Millisecond):
-	}
-
+	var out string
+	err = c.GetWithFallback(t.Context(), "b", &out, func(context.Context) (any, time.Duration, error) {
+		panic("overloaded work must not start")
+	})
+	require.ErrorIs(t, err, cache.ErrOverloaded)
 	close(releaseA)
-	select {
-	case <-startedB:
-	case <-time.After(5 * time.Second):
-		t.Fatal("fallback for b never started after a's fallback finished")
-	}
-	require.NoError(t, <-doneB)
 }

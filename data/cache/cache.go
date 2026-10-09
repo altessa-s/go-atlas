@@ -9,15 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas/core/runtime/singleflight"
 	"github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/data/cache/storages/noop"
-
-	"golang.org/x/sync/semaphore"
-	"golang.org/x/sync/singleflight"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 )
@@ -33,8 +32,9 @@ const defaultContextTimeout = 15 * time.Second
 
 // Fallback is a function called when a cache key is not found.
 // It returns the value to cache, optional TTL (use TTLUseDefault for cache default), and any error.
+// Use the supplied shared context for I/O; it has the configured fallback timeout.
 // If it returns a nil value, ErrMissing is returned to the caller.
-type Fallback = func() (value any, ttl time.Duration, err error)
+type Fallback = func(context.Context) (value any, ttl time.Duration, err error)
 
 // negativeSentinel is a single null byte stored as the value for negative cache entries.
 // It cannot collide with JSON/msgpack serializer output.
@@ -46,14 +46,12 @@ func isNegativeSentinel(data []byte) bool {
 
 // Cache provides caching functionality with configurable providers and serializers.
 // It uses singleflight to deduplicate concurrent requests for the same key
-// and bounds the total number of in-flight fallback functions via a
-// semaphore (see [DefaultMaxConcurrentFallbacks]).
+// and rejects new distinct work at capacity (see [DefaultMaxConcurrentFallbacks]).
 type Cache struct {
 	provider     Storage
 	ttl          time.Duration
 	negativeTtl  time.Duration
-	group        *singleflight.Group
-	fallbackSem  *semaphore.Weighted // nil when maxConcurrentFallbacks <= 0
+	group        *singleflight.Group[string, any]
 	serializer   serializer.Serializer
 	metrics      *cacheMetrics
 	keyNamespace KeyNamespaceFunc // nil = no per-context namespacing
@@ -71,16 +69,15 @@ func New(p Storage, opts ...Option) *Cache {
 	options := newOptions(opts...)
 
 	c := &Cache{
-		provider:     p,
-		ttl:          options.ttl,
-		negativeTtl:  options.negativeTtl,
-		group:        &singleflight.Group{},
+		provider:    p,
+		ttl:         options.ttl,
+		negativeTtl: options.negativeTtl,
+		group: singleflight.New[string, any](
+			singleflight.WithMaxConcurrent(options.maxConcurrentFallbacks),
+			singleflight.WithTimeout(options.fallbackTimeout)),
 		serializer:   options.serializer,
 		metrics:      newCacheMetrics(options.collector, options.name),
 		keyNamespace: options.keyNamespace,
-	}
-	if options.maxConcurrentFallbacks > 0 {
-		c.fallbackSem = semaphore.NewWeighted(int64(options.maxConcurrentFallbacks))
 	}
 	return c
 }
@@ -95,34 +92,26 @@ func NewNoop(opts ...Option) *Cache {
 	return New(noop.New(), opts...)
 }
 
-// effectiveKey applies the optional per-context namespace so cache entries and
-// singleflight de-duplication are isolated by tenant/subject. It is applied
-// uniformly to every provider operation and to the singleflight key, so a Get
-// and its matching Save always agree. A nil namespace or an empty result leaves
-// the key unchanged (backward-compatible default).
+// effectiveKey encodes a namespace and key without ambiguous delimiters.
 func (c *Cache) effectiveKey(ctx context.Context, key string) string {
 	if c.keyNamespace == nil {
 		return key
 	}
-	if ns := c.keyNamespace(ctx); ns != "" {
-		return ns + ":" + key
-	}
-	return key
+	return namespacePrefix(c.keyNamespace(ctx)) + key
 }
 
-// effectiveKeys maps effectiveKey over a slice, allocating only when a non-empty
-// namespace is actually applied.
+func namespacePrefix(ns string) string {
+	return strconv.Itoa(len(ns)) + ":" + ns + ":"
+}
+
 func (c *Cache) effectiveKeys(ctx context.Context, keys []string) []string {
 	if c.keyNamespace == nil {
 		return keys
 	}
-	ns := c.keyNamespace(ctx)
-	if ns == "" {
-		return keys
-	}
+	prefix := namespacePrefix(c.keyNamespace(ctx))
 	out := make([]string, len(keys))
-	for i, k := range keys {
-		out[i] = ns + ":" + k
+	for i, key := range keys {
+		out[i] = prefix + key
 	}
 	return out
 }
@@ -134,8 +123,9 @@ func (c *Cache) effectiveKeys(ctx context.Context, keys []string) []string {
 // Example:
 //
 //	var user User
-//	err := c.GetWithFallback(ctx, "user:123", &user, func() (any, time.Duration, error) {
-//		return db.GetUser(123), cache.TTLUseDefault, nil
+//	err := c.GetWithFallback(ctx, "user:123", &user, func(work context.Context) (any, time.Duration, error) {
+//		user, err := db.GetUser(work, 123)
+//		return user, cache.TTLUseDefault, err
 //	})
 func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fallback Fallback) error {
 	panics.Must(!strings.IsEmpty(key), "key must be provided")
@@ -174,10 +164,11 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 //
 // Example:
 //
-//	user, err := cache.GetWithFallbackT(ctx, c, "user:123", func() (User, time.Duration, error) {
-//		return db.GetUser(123), cache.TTLUseDefault, nil
+//	user, err := cache.GetWithFallbackT(ctx, c, "user:123", func(work context.Context) (User, time.Duration, error) {
+//		user, err := db.GetUser(work, 123)
+//		return user, cache.TTLUseDefault, err
 //	})
-func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback func() (T, time.Duration, error)) (T, error) {
+func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback func(context.Context) (T, time.Duration, error)) (T, error) {
 	var out T
 	panics.Must(!strings.IsEmpty(key), "key must be provided")
 	panics.MustNonNil(fallback, "fallback must be provided")
@@ -200,8 +191,8 @@ func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback
 
 	// The boxing wrapper is built only on the miss path; hits stay free of
 	// per-call closures.
-	fv, err := c.runFallback(ctx, ek, func() (any, time.Duration, error) {
-		return fallback()
+	fv, err := c.runFallback(ctx, ek, func(work context.Context) (any, time.Duration, error) {
+		return fallback(work)
 	})
 	if err != nil {
 		return out, err
@@ -241,56 +232,13 @@ func (c *Cache) lookupRaw(ctx context.Context, ek string) (data []byte, found bo
 	return nil, false, nil
 }
 
-// runFallback executes fallback under the concurrency semaphore and the
+// runFallback executes fallback under bounded admission and the
 // singleflight group, persisting the produced value (or the negative
 // sentinel) exactly as the lookup flow expects.
 func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (any, error) {
-	ch := c.group.DoChan(ek, func() (any, error) {
-		// Bound the total number of in-flight fallbacks across all keys.
-		// singleflight only collapses requests for the SAME key — an
-		// attacker driving distinct keys can launch one fallback per key
-		// and starve the downstream. The semaphore provides backpressure
-		// independent of key cardinality.
-		//
-		// The permit belongs to the shared work, not to a caller: a caller
-		// that leaves early must not release it while the fallback still
-		// runs, or canceled requests would let fallbacks exceed the bound.
-		// The wait is detached from the caller's cancellation for the same
-		// reason the write context below is, and bounded so a saturated
-		// semaphore cannot pin the group forever; each caller still stops
-		// waiting on its own context in the select at the end.
-		if c.fallbackSem != nil {
-			acquireCtx, cancelAcquire := context.WithTimeout(context.WithoutCancel(ctx), defaultContextTimeout)
-			err := c.fallbackSem.Acquire(acquireCtx, 1)
-			cancelAcquire()
-			if err != nil {
-				c.metrics.errors.Inc()
-				return nil, err
-			}
-			defer c.fallbackSem.Release(1)
-		}
-
-		// The shared write runs on a context detached from whoever happened to
-		// win the group. On the winner's context, that caller's cancellation
-		// would fail the fetch for everyone waiting behind it — including
-		// callers whose own contexts are still perfectly alive. Values are
-		// kept; only cancellation is dropped, and a deadline of our own stops
-		// a wedged downstream from pinning the group forever.
-		//
-		// It is built here rather than outside the closure so its lifetime
-		// belongs to the shared work: DoChan runs this in its own goroutine,
-		// which outlives a caller that leaves early, and it may not run it at
-		// all when another caller already holds the group.
-		//
-		// This cannot reach into the caller-supplied fallback itself:
-		// [Fallback] takes no context, so whatever that closure captured is
-		// what it uses. A fallback that does I/O should be given a context of
-		// its own rather than the request's.
-		sharedCtx, cancelShared := context.WithTimeout(context.WithoutCancel(ctx), defaultContextTimeout)
-		defer cancelShared()
-
+	return c.group.Do(ctx, ek, func(sharedCtx context.Context) (any, error) {
 		stop := c.metrics.fallbackDuration.Start()
-		val, ttl, fErr := fallback()
+		val, ttl, fErr := fallback(sharedCtx)
 		stop()
 		if fErr != nil {
 			// ErrMissing from the fallback signals an authoritative
@@ -307,7 +255,7 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 			return nil, fErr
 		}
 
-		if vv := reflect.ValueOf(val); vv.Kind() == reflect.Pointer && vv.IsNil() {
+		if vv := reflect.ValueOf(val); val == nil || (vv.Kind() == reflect.Pointer && vv.IsNil()) {
 			if c.negativeTtl > 0 {
 				if sErr := c.provider.Save(sharedCtx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
 					c.metrics.errors.Inc()
@@ -332,16 +280,6 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 
 		return val, nil
 	})
-
-	// Each caller waits on its own context. Without this, a caller whose
-	// request was canceled would still be pinned until the shared fetch
-	// finished.
-	select {
-	case res := <-ch:
-		return res.Val, res.Err
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
 }
 
 // Save stores a value in the cache with the given key.

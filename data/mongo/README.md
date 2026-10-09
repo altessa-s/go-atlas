@@ -40,6 +40,14 @@ structured logging.
 | `WithDeduplicationIdentity` | nil            | Per-context identity segment for the read singleflight key (see below) |
 | `WithRollbackMigrationsOnFailure` | off      | Roll back every applied migration when one fails (see Migrations) |
 
+## Parser metadata
+
+`Parser` caches type descriptions and binds field values for each `ParseStruct` call. Nil embedded pointers omit promoted fields only for that
+instance; a later non-nil instance of the same type is parsed fully. The cache retains no entity values.
+
+Returned metadata belongs to the caller. `NestedStructs` contains type descriptions, without instance values. Encryption models are copied at
+construction. The unused `WithParserUpdate` and `WithParserEncryption` options were removed; operation modes belong to document processing.
+
 ## Read deduplication and tenant isolation
 
 `GetEntity` and `GetEntities` collapse concurrent identical reads through a `singleflight` group keyed by `db:collection:hash(filter)`. Two callers

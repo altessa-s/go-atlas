@@ -55,13 +55,6 @@ func WithParserCacheSize(v int) ParserOption {
 	}
 }
 
-// WithParserEncryption enables the shouldEncrypt option.
-func WithParserEncryption() ParserOption {
-	return func(o *parserOptions) {
-		o.shouldEncrypt = true
-	}
-}
-
 // WithParserEncryptionModels sets the encryptionModels option.
 func WithParserEncryptionModels(v map[reflect.Type]*EncryptionModel) ParserOption {
 	return func(o *parserOptions) {
@@ -89,13 +82,6 @@ func WithParserEncryptionTagName[T interface{ string | *string }](v T) ParserOpt
 			}
 			o.encryptionTagName = vv
 		}
-	}
-}
-
-// WithParserUpdate enables the update option.
-func WithParserUpdate() ParserOption {
-	return func(o *parserOptions) {
-		o.update = true
 	}
 }
 

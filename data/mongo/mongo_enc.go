@@ -479,14 +479,12 @@ type fieldMetadata struct {
 	keyAltName      string
 
 	// Nested structure information
-	nestedType     NestedStructType
-	nestedMetadata []fieldMetadata // Metadata for nested struct fields
+	nestedType NestedStructType
 
 	// Processing flags and state (grouped to minimize padding)
 	isOmitEmpty    bool
 	isOmitOnUpdate bool
 	shouldEncrypt  bool
-	hasNestedData  bool // Indicates if nested parsing was performed
 }
 
 // collectFieldsMetadata extracts and parses metadata for all struct fields.

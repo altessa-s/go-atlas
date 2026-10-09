@@ -32,7 +32,7 @@ func encodeCivilDate(_ bson.EncodeContext, vw bson.ValueWriter, v reflect.Value)
 	if !v.IsValid() || v.Type() != civilDateType {
 		return bson.ValueEncoderError{Name: "CivilDateEncodeValue", Types: []reflect.Type{civilDateType}, Received: v}
 	}
-	d, _ := v.Interface().(civil.Date)
+	d, _ := reflect.TypeAssert[civil.Date](v)
 	if d.IsZero() {
 		return vw.WriteNull()
 	}

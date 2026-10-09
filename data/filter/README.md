@@ -65,6 +65,10 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 | `WithoutGlobalCustomFunctions` | --      | Skip the package-level registry (see below)        |
 | `WithParserCollector`          | --      | Prometheus metrics collector for parse latency, error counters, and regex-cache stats |
 
+`Parse` returns a caller-owned AST, including copied byte literals. Mutating it cannot change cached results or another caller's tree.
+Custom-function results are copied before caching. The evaluator's regex cache holds 256 patterns and evicts least-recently-used entries so a new
+working set can replace old patterns.
+
 ## Translator options
 
 | Option               | Default  | Description                                                                                                       |
@@ -136,9 +140,9 @@ parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.Custo
 }))
 ```
 
-Handlers receive already-converted argument nodes and may return any
-node — including nested `BinaryOpNode` trees — so multi-argument
-functions like `between(field, lo, hi)` are also expressible.
+Handlers receive already-converted argument nodes and return trees of the built-in node types, including nested `BinaryOpNode` trees.
+Literals support scalar values, `time.Time`, and `[]byte`; custom node implementations and other mutable literal types fail explicitly.
+Functions like `between(field, lo, hi)` are also expressible.
 
 Names must not collide with built-in CEL functions (`contains`,
 `startsWith`, `endsWith`, `matches`, `size`, `has`, `timestamp`,

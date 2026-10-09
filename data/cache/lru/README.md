@@ -27,3 +27,12 @@ cache := lru.NewExpirableCache[string, Decision](1000, 5*time.Minute)
 ```
 
 A size of zero means unbounded and a TTL of zero disables expiry; passing both as zero builds a cache that never releases anything.
+
+## Concurrent loads
+
+`GetOrCompute` groups calls by Go key equality; values of different dynamic types and distinct pointers remain distinct even when their printed
+forms match. Sharding uses the same equality contract. A nil value is a valid cached result when `V` permits it.
+
+Each caller cancels its own wait. The shared callback retains the first caller's context values and receives a 15-second deadline, independent of
+that caller's cancellation. Use the callback context for I/O. The number of distinct LRU computations is unrestricted; use
+[`singleflight`](../../../core/runtime/singleflight) with an admission limit when managing uncached work directly.

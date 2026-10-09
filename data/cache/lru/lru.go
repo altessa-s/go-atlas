@@ -6,12 +6,10 @@ package lru
 
 import (
 	"context"
-	"fmt"
 	"iter"
 	"slices"
-	"strconv"
 
-	"golang.org/x/sync/singleflight"
+	"github.com/altessa-s/go-atlas/core/runtime/singleflight"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 )
@@ -42,7 +40,7 @@ type Cacher[K comparable, V any] interface {
 // Cache is a thread-safe LRU cache.
 type Cache[K comparable, V any] struct {
 	cache *lru.Cache[K, V]
-	group singleflight.Group
+	group *singleflight.Group[K, V]
 }
 
 // NewCache creates a new thread-safe LRU cache with the given size.
@@ -51,7 +49,7 @@ func NewCache[K comparable, V any](size int) (*Cache[K, V], error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Cache[K, V]{cache: cache}, nil
+	return &Cache[K, V]{cache: cache, group: singleflight.New[K, V](singleflight.WithMaxConcurrent(0))}, nil
 }
 
 // Get returns the value for key and true if found, or the zero value and false.
@@ -103,12 +101,13 @@ func (sc *Cache[K, V]) All() iter.Seq2[K, V] {
 }
 
 // GetOrCompute returns the cached value for key, or calls fn exactly once
-// (via singleflight) to compute and cache the result on a miss.
+// (via singleflight) to compute and cache the result on a miss. Callers cancel
+// independently; shared callbacks receive a context with a 15-second timeout.
 func (sc *Cache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(ctx context.Context) (V, error)) (V, error) {
 	if v, ok := sc.Get(key); ok {
 		return v, nil
 	}
-	return computeOnce(ctx, &sc.group, sc.Get, sc.Put, key, fn)
+	return computeOnce(ctx, sc.group, sc.Get, sc.Put, key, fn)
 }
 
 // computeOnce is the miss path shared by [Cache.GetOrCompute] and
@@ -122,59 +121,22 @@ func (sc *Cache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(ctx cont
 // this type exists to make cheap.
 func computeOnce[K comparable, V any](
 	ctx context.Context,
-	group *singleflight.Group,
+	group *singleflight.Group[K, V],
 	get func(K) (V, bool),
 	put func(K, V) bool,
 	key K,
 	fn func(ctx context.Context) (V, error),
 ) (V, error) {
-	val, err, _ := group.Do(formatKey(key), func() (any, error) {
+	return group.Do(ctx, key, func(work context.Context) (V, error) {
 		if v, ok := get(key); ok {
 			return v, nil
 		}
-
-		v, err := fn(ctx)
-		if err != nil {
-			return nil, err
+		v, err := fn(work)
+		if err == nil {
+			put(key, v)
 		}
-
-		put(key, v)
-		return v, nil
+		return v, err
 	})
-
-	if err != nil {
-		var zero V
-		return zero, err
-	}
-
-	result, ok := val.(V)
-	if !ok {
-		var zero V
-		return zero, fmt.Errorf("cache type assertion failed: got %T, expected %T", val, zero)
-	}
-
-	return result, nil
 }
 
-// formatKey converts a comparable key to a string for singleflight deduplication.
-// Uses type-switch fast paths for common key types to avoid fmt.Sprintf reflection overhead.
-func formatKey[K comparable](key K) string {
-	switch k := any(key).(type) {
-	case string:
-		return k
-	case int:
-		return strconv.Itoa(k)
-	case int64:
-		return strconv.FormatInt(k, 10)
-	case uint64:
-		return strconv.FormatUint(k, 10)
-	case int32:
-		return strconv.FormatInt(int64(k), 10)
-	default:
-		return fmt.Sprintf("%v", key)
-	}
-}
-
-var (
-	_ Cacher[string, any] = (*Cache[string, any])(nil)
-)
+var _ Cacher[string, any] = (*Cache[string, any])(nil)

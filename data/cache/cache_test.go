@@ -73,6 +73,7 @@ func (m *mockProvider) Exists(_ context.Context, key string) (bool, error) {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	require.NotNil(t, c, "New returned nil")
@@ -80,15 +81,12 @@ func TestNew(t *testing.T) {
 }
 
 func TestNew_NilProviderPanics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for nil provider")
-		}
-	}()
-	New(nil)
+	t.Parallel()
+	require.Panics(t, func() { New(nil) })
 }
 
 func TestNewNoop(t *testing.T) {
+	t.Parallel()
 	c := NewNoop()
 	require.NotNil(t, c, "NewNoop returned nil")
 	_, ok := c.provider.(*noop.Storage)
@@ -96,6 +94,7 @@ func TestNewNoop(t *testing.T) {
 }
 
 func TestSave(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
@@ -107,6 +106,7 @@ func TestSave(t *testing.T) {
 }
 
 func TestGet_Hit(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
@@ -120,6 +120,7 @@ func TestGet_Hit(t *testing.T) {
 }
 
 func TestGet_Miss(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
@@ -130,6 +131,7 @@ func TestGet_Miss(t *testing.T) {
 }
 
 func TestExists(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
@@ -146,6 +148,7 @@ func TestExists(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
@@ -160,6 +163,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestDeleteMany(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
@@ -173,6 +177,7 @@ func TestDeleteMany(t *testing.T) {
 }
 
 func TestGetWithFallback_CacheHit(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
@@ -180,7 +185,7 @@ func TestGetWithFallback_CacheHit(t *testing.T) {
 	_ = c.Save(ctx, "key1", "cached")
 
 	var result string
-	err := c.GetWithFallback(ctx, "key1", &result, func() (any, time.Duration, error) {
+	err := c.GetWithFallback(ctx, "key1", &result, func(_ context.Context) (any, time.Duration, error) {
 		t.Error("fallback should not be called on cache hit")
 		return "fallback", TTLUseDefault, nil
 	})
@@ -189,12 +194,13 @@ func TestGetWithFallback_CacheHit(t *testing.T) {
 }
 
 func TestGetWithFallback_CacheMiss_FallbackHit(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
 
 	var result string
-	err := c.GetWithFallback(ctx, "key1", &result, func() (any, time.Duration, error) {
+	err := c.GetWithFallback(ctx, "key1", &result, func(_ context.Context) (any, time.Duration, error) {
 		return "from-fallback", TTLUseDefault, nil
 	})
 	require.NoError(t, err)
@@ -202,26 +208,28 @@ func TestGetWithFallback_CacheMiss_FallbackHit(t *testing.T) {
 }
 
 func TestGetWithFallback_FallbackError(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
 
 	wantErr := errors.New("db error")
 	var result string
-	err := c.GetWithFallback(ctx, "key1", &result, func() (any, time.Duration, error) {
+	err := c.GetWithFallback(ctx, "key1", &result, func(_ context.Context) (any, time.Duration, error) {
 		return nil, TTLUseDefault, wantErr
 	})
 	require.ErrorIs(t, err, wantErr)
 }
 
 func TestGetWithFallbackT_CacheHit(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
 
 	_ = c.Save(ctx, "key1", "cached")
 
-	result, err := GetWithFallbackT(ctx, c, "key1", func() (string, time.Duration, error) {
+	result, err := GetWithFallbackT(ctx, c, "key1", func(_ context.Context) (string, time.Duration, error) {
 		t.Error("fallback should not be called on cache hit")
 		return "fallback", TTLUseDefault, nil
 	})
@@ -230,18 +238,19 @@ func TestGetWithFallbackT_CacheHit(t *testing.T) {
 }
 
 func TestGetWithFallbackT_CacheMiss_FallbackHit(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
 
-	result, err := GetWithFallbackT(ctx, c, "key1", func() (string, time.Duration, error) {
+	result, err := GetWithFallbackT(ctx, c, "key1", func(_ context.Context) (string, time.Duration, error) {
 		return "from-fallback", TTLUseDefault, nil
 	})
 	require.NoError(t, err)
 	require.Equal(t, "from-fallback", result)
 
 	// The fallback result must be persisted: the second call is a hit.
-	result, err = GetWithFallbackT(ctx, c, "key1", func() (string, time.Duration, error) {
+	result, err = GetWithFallbackT(ctx, c, "key1", func(_ context.Context) (string, time.Duration, error) {
 		t.Error("fallback should not be called once the value is cached")
 		return "", TTLUseDefault, nil
 	})
@@ -250,18 +259,20 @@ func TestGetWithFallbackT_CacheMiss_FallbackHit(t *testing.T) {
 }
 
 func TestGetWithFallbackT_FallbackError(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
 
 	wantErr := errors.New("db error")
-	_, err := GetWithFallbackT(ctx, c, "key1", func() (string, time.Duration, error) {
+	_, err := GetWithFallbackT(ctx, c, "key1", func(_ context.Context) (string, time.Duration, error) {
 		return "", TTLUseDefault, wantErr
 	})
 	require.ErrorIs(t, err, wantErr)
 }
 
 func TestGetWithFallbackT_PointerType(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
@@ -269,13 +280,13 @@ func TestGetWithFallbackT_PointerType(t *testing.T) {
 	// Pointer-typed T must round-trip through fallback, serialization, and
 	// the cache-hit path.
 	type payload struct{ Name string }
-	got, err := GetWithFallbackT(ctx, c, "key1", func() (*payload, time.Duration, error) {
+	got, err := GetWithFallbackT(ctx, c, "key1", func(_ context.Context) (*payload, time.Duration, error) {
 		return &payload{Name: "acme"}, TTLUseDefault, nil
 	})
 	require.NoError(t, err)
 	require.Equal(t, "acme", got.Name)
 
-	got, err = GetWithFallbackT(ctx, c, "key1", func() (*payload, time.Duration, error) {
+	got, err = GetWithFallbackT(ctx, c, "key1", func(_ context.Context) (*payload, time.Duration, error) {
 		t.Error("fallback should not be called on cache hit")
 		return nil, TTLUseDefault, nil
 	})
@@ -284,12 +295,13 @@ func TestGetWithFallbackT_PointerType(t *testing.T) {
 }
 
 func TestGetWithFallback_Singleflight(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p)
 	ctx := t.Context()
 
 	calls := 0
-	fallback := func() (any, time.Duration, error) {
+	fallback := func(_ context.Context) (any, time.Duration, error) {
 		calls++
 		return "value", TTLUseDefault, nil
 	}
@@ -307,47 +319,35 @@ func TestGetWithFallback_Singleflight(t *testing.T) {
 }
 
 func TestEmptyKeyPanics(t *testing.T) {
+	t.Parallel()
 	c := NewNoop()
 	ctx := t.Context()
 
-	panics := func(name string, fn func()) {
-		t.Helper()
-		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("%s: expected panic for empty key", name)
-			}
-		}()
-		fn()
-	}
-
-	panics("Save", func() { _ = c.Save(ctx, "", "v") })
-	panics("Get", func() { _ = c.Get(ctx, "", new(string)) })
-	panics("Delete", func() { _ = c.Delete(ctx, "") })
-	panics("Exists", func() { _, _ = c.Exists(ctx, "") })
-	panics("GetWithFallback", func() {
-		_ = c.GetWithFallback(ctx, "", new(string), func() (any, time.Duration, error) {
+	require.Panics(t, func() { _ = c.Save(ctx, "", "v") })
+	require.Panics(t, func() { _ = c.Get(ctx, "", new(string)) })
+	require.Panics(t, func() { _ = c.Delete(ctx, "") })
+	require.Panics(t, func() { _, _ = c.Exists(ctx, "") })
+	require.Panics(t, func() {
+		_ = c.GetWithFallback(ctx, "", new(string), func(_ context.Context) (any, time.Duration, error) {
 			return nil, 0, nil
 		})
 	})
 }
 
 func TestDeleteMany_NoKeysPanics(t *testing.T) {
+	t.Parallel()
 	c := NewNoop()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for no keys")
-		}
-	}()
-	_ = c.DeleteMany(t.Context())
+	require.Panics(t, func() { _ = c.DeleteMany(t.Context()) })
 }
 
 func TestGetWithFallback_NegativeCaching_Disabled(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p) // no WithNegativeTTL
 	ctx := t.Context()
 
 	calls := 0
-	fallback := func() (any, time.Duration, error) {
+	fallback := func(_ context.Context) (any, time.Duration, error) {
 		calls++
 		return (*string)(nil), TTLUseDefault, nil
 	}
@@ -367,12 +367,13 @@ func TestGetWithFallback_NegativeCaching_Disabled(t *testing.T) {
 }
 
 func TestGetWithFallback_NegativeCaching_StoresSentinel(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	var result string
-	err := c.GetWithFallback(ctx, "missing", &result, func() (any, time.Duration, error) {
+	err := c.GetWithFallback(ctx, "missing", &result, func(_ context.Context) (any, time.Duration, error) {
 		return (*string)(nil), TTLUseDefault, nil
 	})
 	require.ErrorIs(t, err, ErrMissing)
@@ -386,12 +387,13 @@ func TestGetWithFallback_NegativeCaching_StoresSentinel(t *testing.T) {
 }
 
 func TestGetWithFallback_NegativeCaching_ReturnsMissing(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	calls := 0
-	fallback := func() (any, time.Duration, error) {
+	fallback := func(_ context.Context) (any, time.Duration, error) {
 		calls++
 		return (*string)(nil), TTLUseDefault, nil
 	}
@@ -407,6 +409,7 @@ func TestGetWithFallback_NegativeCaching_ReturnsMissing(t *testing.T) {
 }
 
 func TestGet_NegativeEntry_ReturnsMissing(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
@@ -420,6 +423,7 @@ func TestGet_NegativeEntry_ReturnsMissing(t *testing.T) {
 }
 
 func TestExists_NegativeEntry_ReturnsFalse(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
@@ -433,12 +437,13 @@ func TestExists_NegativeEntry_ReturnsFalse(t *testing.T) {
 }
 
 func TestDelete_ClearsNegativeEntry(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	calls := 0
-	fallback := func() (any, time.Duration, error) {
+	fallback := func(_ context.Context) (any, time.Duration, error) {
 		calls++
 		return (*string)(nil), TTLUseDefault, nil
 	}
@@ -456,6 +461,7 @@ func TestDelete_ClearsNegativeEntry(t *testing.T) {
 }
 
 func TestSave_OverwritesNegativeEntry(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
@@ -480,12 +486,13 @@ func TestSave_OverwritesNegativeEntry(t *testing.T) {
 // returned the error without writing the sentinel, leaving every
 // repeated attacker-driven miss to stampede the downstream.
 func TestGetWithFallback_ErrMissingWritesNegativeCache(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	calls := 0
-	fallback := func() (any, time.Duration, error) {
+	fallback := func(_ context.Context) (any, time.Duration, error) {
 		calls++
 		return nil, TTLUseDefault, ErrMissing
 	}
@@ -512,13 +519,14 @@ func TestGetWithFallback_ErrMissingWritesNegativeCache(t *testing.T) {
 // Transient failures (network, serializer, etc.) must surface to the
 // caller without persisting a misleading "not found" sentinel.
 func TestGetWithFallback_TransientErrorDoesNotPoisonNegativeCache(t *testing.T) {
+	t.Parallel()
 	p := newMockProvider()
 	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	transient := errors.New("downstream temporarily unavailable")
 	calls := 0
-	fallback := func() (any, time.Duration, error) {
+	fallback := func(_ context.Context) (any, time.Duration, error) {
 		calls++
 		return nil, TTLUseDefault, transient
 	}
@@ -536,23 +544,4 @@ func TestGetWithFallback_TransientErrorDoesNotPoisonNegativeCache(t *testing.T) 
 	err = c.GetWithFallback(ctx, "tx-err", &result, fallback)
 	require.ErrorIs(t, err, transient)
 	require.Equal(t, 2, calls, "transient failures must keep retrying — no implicit negative cache")
-}
-
-// TestNew_DefaultFallbackSemBound pins the default behavior of the
-// in-flight cap. A cache constructed with the public defaults must
-// install a semaphore so attacker-driven distinct keys cannot launch
-// unbounded parallel downstream calls.
-func TestNew_DefaultFallbackSemBound(t *testing.T) {
-	c := New(newMockProvider())
-	require.NotNil(t, c.fallbackSem,
-		"default options must install the in-flight fallback semaphore — otherwise distinct-key DoS is open by default")
-}
-
-// TestNew_DisabledFallbackSem proves the opt-out path: setting the
-// option to <=0 disables the cap (matches the legacy pre-fix behavior
-// for operators who explicitly want unbounded parallel fallbacks).
-func TestNew_DisabledFallbackSem(t *testing.T) {
-	c := New(newMockProvider(), WithMaxConcurrentFallbacks(0))
-	require.Nil(t, c.fallbackSem,
-		"WithMaxConcurrentFallbacks(0) must disable the cap")
 }
