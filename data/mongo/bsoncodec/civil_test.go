@@ -5,6 +5,7 @@
 package bsoncodec_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestCivilDateInvalid(t *testing.T) {
 		require.ErrorIs(t, err, bsoncodec.ErrInvalidDate, "%v", d)
 	}
 
-	for _, s := range []string{"2026-02-30", "2026-2-1", "26-02-01", "2026-02-01T00:00:00Z", ""} {
+	for _, s := range []string{"2026-02-30", "2026-2-1", "26-02-01", "2026-02-01T00:00:00Z", " "} {
 		raw, err := bson.Marshal(bson.M{"from": s})
 		require.NoError(t, err)
 		var out period
@@ -83,4 +84,114 @@ func TestCivilDateInvalid(t *testing.T) {
 	require.NoError(t, err)
 	var out period
 	require.Error(t, unmarshal(raw, &out), "a BSON date is an instant, not a calendar date")
+}
+
+func TestCivilDateEmptyStringDecodesAsZero(t *testing.T) {
+	t.Parallel()
+
+	raw, err := bson.Marshal(bson.M{"from": ""})
+	require.NoError(t, err)
+	var out period
+	require.NoError(t, unmarshal(raw, &out))
+	require.True(t, out.From.IsZero())
+}
+
+// serviceDate has the shape of a service's own calendar date type, with a
+// method set of its own.
+type serviceDate struct {
+	Year  int
+	Month time.Month
+	Day   int
+}
+
+func (d serviceDate) IsZero() bool { return d == serviceDate{} }
+
+type invoice struct {
+	Due  serviceDate  `bson:"due"`
+	Paid *serviceDate `bson:"paid"`
+}
+
+func serviceRegistry(t *testing.T, opts ...bsoncodec.DateOption) *bson.Registry {
+	t.Helper()
+	reg := bsoncodec.NewRegistry()
+	require.NoError(t, bsoncodec.RegisterDateType[serviceDate](reg, opts...))
+	return reg
+}
+
+func marshalReg(t *testing.T, reg *bson.Registry, v any) bson.Raw {
+	t.Helper()
+	var buf bytes.Buffer
+	enc := bson.NewEncoder(bson.NewDocumentWriter(&buf))
+	enc.SetRegistry(reg)
+	require.NoError(t, enc.Encode(v))
+	return buf.Bytes()
+}
+
+func unmarshalReg(t *testing.T, reg *bson.Registry, raw bson.Raw, v any) error {
+	t.Helper()
+	dec := bson.NewDecoder(bson.NewDocumentReader(bytes.NewReader(raw)))
+	dec.SetRegistry(reg)
+	return dec.Decode(v)
+}
+
+func TestRegisterDateTypeOwnType(t *testing.T) {
+	t.Parallel()
+
+	reg := serviceRegistry(t)
+	paid := serviceDate{Year: 2026, Month: time.March, Day: 1}
+	raw := marshalReg(t, reg, invoice{Due: serviceDate{Year: 2026, Month: time.February, Day: 28}, Paid: &paid})
+	require.Equal(t, "2026-02-28", raw.Lookup("due").StringValue())
+	require.Equal(t, "2026-03-01", raw.Lookup("paid").StringValue())
+
+	var out invoice
+	require.NoError(t, unmarshalReg(t, reg, raw, &out))
+	require.Equal(t, serviceDate{Year: 2026, Month: time.February, Day: 28}, out.Due)
+	require.Equal(t, paid, *out.Paid)
+
+	raw = marshalReg(t, reg, invoice{})
+	require.Equal(t, bson.TypeNull, raw.Lookup("due").Type, "the zero date is null by default")
+}
+
+func TestRegisterDateTypeZeroAsEmptyString(t *testing.T) {
+	t.Parallel()
+
+	reg := serviceRegistry(t, bsoncodec.WithDateZeroAsEmptyString())
+	raw := marshalReg(t, reg, invoice{})
+	require.Equal(t, bson.TypeString, raw.Lookup("due").Type)
+	require.Empty(t, raw.Lookup("due").StringValue(), "the zero date is the empty string")
+	require.Equal(t, bson.TypeNull, raw.Lookup("paid").Type, "a nil pointer stays null")
+
+	var out invoice
+	require.NoError(t, unmarshalReg(t, reg, raw, &out))
+	require.True(t, out.Due.IsZero())
+
+	for _, bad := range []serviceDate{{Year: 2026, Month: 13, Day: 1}, {Year: 2026, Month: time.April, Day: 31}, {Year: 10000, Month: 1, Day: 1}} {
+		var buf bytes.Buffer
+		enc := bson.NewEncoder(bson.NewDocumentWriter(&buf))
+		enc.SetRegistry(reg)
+		require.ErrorIs(t, enc.Encode(invoice{Due: bad}), bsoncodec.ErrInvalidDate, "%v", bad)
+	}
+}
+
+func TestRegisterDateTypeRejectsOtherTypes(t *testing.T) {
+	t.Parallel()
+
+	type noDay struct {
+		Year  int
+		Month time.Month
+	}
+	type wrongMonth struct {
+		Year, Month, Day int
+	}
+	type unexported struct {
+		Year  int
+		Month time.Month
+		day   int
+	}
+	reg := bson.NewRegistry()
+	require.ErrorIs(t, bsoncodec.RegisterDateType[noDay](reg), bsoncodec.ErrNotADateType)
+	require.ErrorIs(t, bsoncodec.RegisterDateType[wrongMonth](reg), bsoncodec.ErrNotADateType)
+	require.ErrorIs(t, bsoncodec.RegisterDateType[unexported](reg), bsoncodec.ErrNotADateType)
+	require.ErrorIs(t, bsoncodec.RegisterDateType[string](reg), bsoncodec.ErrNotADateType)
+	_ = unexported{}.day
 }
