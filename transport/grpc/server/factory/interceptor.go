@@ -364,6 +364,7 @@ func (b *ServerBuilder) WithIdempotencyInterceptor() *ServerBuilder {
 
 	configOpts = append(configOpts, idempotency.WithEnforceMandatory(c.EnforceMandatory),
 		idempotency.WithRequestFingerprint(!c.DisableRequestFingerprint))
+	configOpts = slices.AppendIf(configOpts, c.ExposeEntityID, idempotency.WithExposeEntityID())
 
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		idempotency.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))

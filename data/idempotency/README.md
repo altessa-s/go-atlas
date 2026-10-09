@@ -51,7 +51,8 @@ Keeper:
   whether its fingerprint matches;
 - with `WithReplayAuthorizer(func(ctx, owner) error)`, the authorizer alone decides every replay from the recorded label, so the replay
   goes to whoever may read the record. Its error is returned wrapped in `ErrOwnerMismatch`: return the service's NotFound error to hide an
-  invisible record — `errors.Is` still matches it, and the gRPC interceptor answers with its status.
+  invisible record — `errors.Is` still matches it, the gRPC interceptor answers with its status and the HTTP middleware with its
+  `HTTPStatus()`.
 
 Only the record's own owner may take over its orphaned lock. Records written without an owner are not checked unless an authorizer is set.
 

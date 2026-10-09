@@ -184,3 +184,64 @@ func TestOriginalBodyClosed(t *testing.T) {
 		})
 	}
 }
+
+// entityEcho answers 201 with an entity id the extractor stores.
+var entityEcho = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusCreated)
+	_, _ = w.Write([]byte("order-42"))
+})
+
+func extractBody(_ *http.Request, _ string, body []byte) string { return string(body) }
+
+func TestEntityIDHeaderOptIn(t *testing.T) {
+	t.Parallel()
+
+	off := Middleware(newKeeper(), WithEntityIDExtractor(extractBody))(entityEcho)
+	require.Equal(t, http.StatusCreated, post(t, off, t.Context(), "/orders", "a").Code)
+	rec := post(t, off, t.Context(), "/orders", "a")
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	require.Empty(t, rec.Header().Get(DefaultIdempotencyKeyEntityIdHeader), "not echoed by default")
+
+	on := Middleware(newKeeper(), WithEntityIDExtractor(extractBody), WithExposeEntityID())(entityEcho)
+	require.Equal(t, http.StatusCreated, post(t, on, t.Context(), "/orders", "a").Code)
+	rec = post(t, on, t.Context(), "/orders", "a")
+	require.Equal(t, "order-42", rec.Header().Get(DefaultIdempotencyKeyEntityIdHeader))
+}
+
+// statusErr is an error carrying an HTTP status, as writer.HTTPStatuser.
+type statusErr int
+
+func (e statusErr) Error() string   { return http.StatusText(int(e)) }
+func (e statusErr) HTTPStatus() int { return int(e) }
+
+func TestReplayAuthorizerHTTPStatus(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		refusal error
+		want    int
+	}{
+		"not_found":      {statusErr(http.StatusNotFound), http.StatusNotFound},
+		"plain_error":    {errors.New("no"), http.StatusForbidden},
+		"non_error_code": {statusErr(http.StatusOK), http.StatusForbidden},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			k := newKeeper(
+				idempotency.WithOwner(func(ctx context.Context) string { s, _ := ctx.Value(ownerCtxKey{}).(string); return s }),
+				idempotency.WithReplayAuthorizer(func(ctx context.Context, owner string) error {
+					if ctx.Value(ownerCtxKey{}) == owner {
+						return nil
+					}
+					return tc.refusal
+				}),
+			)
+			h := Middleware(k)(echo)
+			require.Equal(t, http.StatusCreated, post(t, h, context.WithValue(t.Context(), ownerCtxKey{}, "alice"), "/orders", "a").Code)
+			rec := post(t, h, context.WithValue(t.Context(), ownerCtxKey{}, "bob"), "/orders", "a")
+			require.Equal(t, tc.want, rec.Code)
+			require.NotContains(t, rec.Body.String(), "alice")
+		})
+	}
+}

@@ -71,6 +71,12 @@ type IdempotencyMiddleware struct {
 	// with each key. With it recorded (the default), a key reused for a
 	// different request is refused instead of being treated as a replay.
 	DisableRequestFingerprint bool `yaml:"disableRequestFingerprint" default:"false"`
+
+	// ExposeEntityID echoes the stored entity id to a duplicate request.
+	// Off by default: the caller presenting a duplicate key is not verified
+	// to be the principal that created the entity, unless the Keeper checks
+	// owners.
+	ExposeEntityID bool `yaml:"exposeEntityID" default:"false"`
 }
 
 // Validate performs validation of the IdempotencyMiddleware.

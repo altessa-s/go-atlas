@@ -229,6 +229,14 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 		return "", nil, errKeyNotUnique
 	case errors.Is(err, idempotency.ErrOwnerMismatch):
 		m.LogDebug(ctx, "idempotency key belongs to another caller", path, m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
+		// A ReplayAuthorizer refusal carrying an HTTP status (404 to hide
+		// the record) is answered with that status and its standard text.
+		if se, ok := errors.AsType[httpStatusError](err); ok {
+			if code := se.HTTPStatus(); code >= http.StatusBadRequest && code <= 599 {
+				http.Error(w, http.StatusText(code), code)
+				return "", nil, errKeyNotUnique
+			}
+		}
 		m.opts.errorHandler(w, r, ErrorIDKForbidden, nil)
 		return "", nil, errKeyNotUnique
 	case err != nil:
@@ -254,8 +262,10 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 				m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 
 			w.Header().Set(m.opts.idempotencyKeyStatusHeader, "success")
-			if strVal, ok := state.Data.(string); ok && strVal != "" {
-				w.Header().Set(m.opts.idempotencyKeyEntityIdHeader, strVal)
+			if m.opts.exposeEntityID {
+				if strVal, ok := state.Data.(string); ok && strVal != "" {
+					w.Header().Set(m.opts.idempotencyKeyEntityIdHeader, strVal)
+				}
 			}
 			m.opts.errorHandler(w, r, ErrorIDKAlreadyUsed, state)
 			return "", nil, errKeyNotUnique
@@ -267,6 +277,13 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 
 	// Return the *State so Handler can pass its CAS token to Complete.
 	return storageKey, state, nil
+}
+
+// httpStatusError is an error carrying an HTTP status, as
+// writer.HTTPStatuser errors do.
+type httpStatusError interface {
+	error
+	HTTPStatus() int
 }
 
 // requestFingerprint returns the fingerprint of r's method, path, query and
