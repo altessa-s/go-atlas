@@ -11,7 +11,7 @@ dependencies out of universal value types. Existing driver codecs and custom inn
 
 | Function | Behavior |
 |----------|----------|
-| `NewRegistry()` | Driver defaults plus codecs for every Optional instantiation, `shopspring/decimal` and `civil.Date`; configure before concurrent use |
+| `NewRegistry()` | Driver defaults plus codecs for every Optional instantiation, `shopspring/decimal`, `civil.Date` and go-atlas `core/time/civil.Date`; configure before concurrent use |
 | `RegisterDateType[T](reg, opts...)` | Adds the calendar-date codec for a struct with `Year int`, `Month time.Month`, `Day int` fields |
 
 ## Usage
@@ -46,7 +46,8 @@ so that they write decimals, calendar dates and Optionals as units instead of fo
 ## Calendar dates
 
 A calendar date without time or zone is stored as its `YYYY-MM-DD` string: nothing can shift it across a day boundary, and strings of that form
-sort in date order, so range queries and indexes work on them. `NewRegistry` registers the codec for `civil.Date` (`cloud.google.com/go/civil`);
+sort in date order, so range queries and indexes work on them. `NewRegistry` registers the codec for `civil.Date` (`cloud.google.com/go/civil`)
+and for go-atlas [`core/time/civil.Date`](../../../core/time/civil) (zero stored as `""`, matching its text form);
 `RegisterDateType[T](reg, opts...)` registers it for any struct with the fields `Year int`, `Month time.Month` and `Day int` — a service's own
 date type — and fails with `ErrNotADateType` for any other.
 
