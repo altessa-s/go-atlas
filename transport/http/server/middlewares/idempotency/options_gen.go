@@ -37,6 +37,13 @@ func WithErrorHandler(v ErrorHandler) Option {
 	}
 }
 
+// WithExposeEntityID enables the exposeEntityID option.
+func WithExposeEntityID() Option {
+	return func(o *options) {
+		o.exposeEntityID = true
+	}
+}
+
 // WithFallbackBehavior sets the fallbackBehavior option.
 func WithFallbackBehavior(v fallback.Behavior) Option {
 	return func(o *options) {

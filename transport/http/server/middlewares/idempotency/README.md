@@ -15,7 +15,12 @@ Each key records a fingerprint of the method, path, query and whole body. The bo
 `WithFingerprintMemThreshold` (1 MiB) in memory, the rest in a temp file under `WithFingerprintTempDir` — and handed to the handler unchanged; a
 body over `WithFingerprintMaxBody` (32 MiB) gets 413 and one that fails to read gets 400, before any key is locked. A key reused for a different
 request gets 422 instead of being treated as a replay; `WithRequestFingerprint(false)` (YAML `disableRequestFingerprint: true`) turns this off.
-When the Keeper records owners (`idempotency.WithOwner`), a key of another caller gets 403, without the entity ID header.
+When the Keeper records owners (`idempotency.WithOwner`), a key of another caller gets 403. A `ReplayAuthorizer` refusal that carries an
+HTTP status (`HTTPStatus() int`, as `writer.HTTPStatuser` errors do) is answered with that status instead — return a 404 error to hide the
+record.
+
+The stored entity ID is echoed to a duplicate request only with `WithExposeEntityID()` (YAML `exposeEntityID: true`): the caller presenting
+a duplicate key is not verified to be the entity's creator unless the Keeper checks owners.
 
 ## Security
 

@@ -159,6 +159,11 @@ type options struct {
 	fingerprintMaxBody int64 `optgen:"default=DefaultFingerprintMaxBody"`
 	// fingerprintMemThreshold bounds the part of a body kept in memory.
 	fingerprintMemThreshold int64 `optgen:"default=DefaultFingerprintMemThreshold"`
+	// exposeEntityID echoes the stored entity id to a duplicate request in
+	// the entity id header. Off by default: the caller presenting a
+	// duplicate key is not verified to be the principal that created the
+	// entity, unless the Keeper checks owners.
+	exposeEntityID bool
 	// fingerprintTempDir is where a body beyond the memory threshold is
 	// buffered while it is fingerprinted; "" is the system temp dir.
 	fingerprintTempDir string
