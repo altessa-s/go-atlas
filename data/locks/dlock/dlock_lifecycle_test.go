@@ -60,7 +60,7 @@ func TestSynchronize_HoldsLockForTheWholeCallback(t *testing.T) {
 	err := dl.Synchronize(t.Context(), "resource", func(context.Context) error {
 		time.Sleep(4 * time.Second) // outlive the acquire timeout
 
-		_, infoErr := dl.GetLockInfo(context.Background(), "resource")
+		_, infoErr := dl.GetLockInfo(t.Context(), "resource")
 		heldThroughout.Store(infoErr == nil)
 
 		return nil
@@ -89,9 +89,9 @@ func TestSynchronize_ExcludesASecondHolder(t *testing.T) {
 	err := holder.Synchronize(t.Context(), "resource", func(context.Context) error {
 		deadline := time.Now().Add(5 * time.Second) // well past the acquire timeout
 		for time.Now().Before(deadline) {
-			if lk, lockErr := contender.Lock(context.Background(), "resource"); lockErr == nil {
+			if lk, lockErr := contender.Lock(t.Context(), "resource"); lockErr == nil {
 				intruded.Store(true)
-				_ = lk.Release(context.Background())
+				_ = lk.Release(t.Context())
 
 				return nil
 			}
@@ -125,7 +125,7 @@ func TestLock_TTLAboveTheDefaultStillHolds(t *testing.T) {
 
 	time.Sleep(locknats.DefaultBucketKeysTTL + 3*time.Second)
 
-	_, err = locker.GetLockInfo(context.Background(), "resource")
+	_, err = locker.GetLockInfo(t.Context(), "resource")
 	require.NoError(t, err, "the lock key expired while its holder still believed it had the lease")
 }
 
@@ -153,7 +153,7 @@ func TestRelease_StopsTheRenewalGoroutine(t *testing.T) {
 	require.Eventually(t, func() bool { return camping() == before+1 },
 		2*time.Second, 10*time.Millisecond, "a held lock should have exactly one renewal goroutine")
 
-	require.NoError(t, lk.Release(context.Background()))
+	require.NoError(t, lk.Release(t.Context()))
 
 	require.Eventually(t, func() bool { return camping() == before },
 		2*time.Second, 10*time.Millisecond, "the renewal goroutine outlived Release")
@@ -181,7 +181,7 @@ func TestLock_RenewRatioIsHonored(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		info, infoErr := lk.GetLockInfo(context.Background())
+		info, infoErr := lk.GetLockInfo(t.Context())
 		return infoErr == nil && info.FencingToken > first.FencingToken
 	}, 2*time.Second, 50*time.Millisecond, "no renewal happened — WithRenewRatio is not reaching the lease")
 }

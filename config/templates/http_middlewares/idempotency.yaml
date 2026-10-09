@@ -56,3 +56,8 @@
 #  # With it recorded, a key reused for a different request is refused instead of treated as a replay.
 #  # Default value: false
 #  disableRequestFingerprint: false
+#
+#  # <bool> Echo the stored entity id to a duplicate request.
+#  # The caller presenting a duplicate key is not verified to be the entity's creator unless the Keeper checks owners.
+#  # Default value: false
+#  exposeEntityID: false

@@ -8,6 +8,8 @@ import (
 	"maps"
 	"sync"
 
+	"github.com/google/cel-go/common/operators"
+
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -64,17 +66,16 @@ var reservedFunctionNames = coremaps.NewImmutableMap(map[string]struct{}{
 
 // isUserFunction reports whether name is a user-callable named
 // function subject to [WithAllowedFunctions]. CEL operator function
-// ids start with _, @, or ! (e.g. _==_, @in, !_) and the has() macro
-// is part of the baseline grammar — none of them are user functions.
+// ids and the has() macro are baseline grammar. A leading underscore alone
+// does not identify an operator: custom functions may use that prefix too.
 func isUserFunction(name string) bool {
-	if name == "" {
+	switch name {
+	case "", operators.Has, operators.Equals, operators.NotEquals,
+		operators.Less, operators.LessEquals, operators.Greater, operators.GreaterEquals,
+		operators.LogicalAnd, operators.LogicalOr, operators.LogicalNot, operators.In:
 		return false
 	}
-	switch name[0] {
-	case '_', '@', '!':
-		return false
-	}
-	return name != "has"
+	return true
 }
 
 // validateCustomFunctions rejects nil handlers and names that collide

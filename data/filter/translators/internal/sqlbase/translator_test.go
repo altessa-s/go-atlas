@@ -177,10 +177,9 @@ func TestNew_UntrustedInputRequiresAllowlist(t *testing.T) {
 func TestVisitList(t *testing.T) {
 	t.Parallel()
 
-	trans := mustTranslator(t, failing{})
-
 	t.Run("returns the element values in order", func(t *testing.T) {
 		t.Parallel()
+		trans := mustTranslator(t, failing{})
 
 		got, err := trans.VisitList(&filter.ListNode{Elements: []filter.Node{
 			&filter.LiteralNode{Value: int64(1)},
@@ -193,6 +192,7 @@ func TestVisitList(t *testing.T) {
 
 	t.Run("empty list", func(t *testing.T) {
 		t.Parallel()
+		trans := mustTranslator(t, failing{})
 
 		got, err := trans.VisitList(&filter.ListNode{})
 		require.NoError(t, err)
@@ -201,6 +201,7 @@ func TestVisitList(t *testing.T) {
 
 	t.Run("propagates an element failure", func(t *testing.T) {
 		t.Parallel()
+		trans := mustTranslator(t, failing{})
 
 		_, err := trans.VisitList(&filter.ListNode{Elements: []filter.Node{
 			&filter.LiteralNode{Value: struct{}{}},

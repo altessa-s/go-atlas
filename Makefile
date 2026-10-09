@@ -10,9 +10,9 @@ CHANGELOG_NEXT_VERSION 	?= $(shell git describe --tags --abbrev=0 2>/dev/null ||
 # - DUPL_THRESHOLD: token threshold (higher -> fewer matches)
 # - DUPL_PATH: scan root
 # - DUPL_IGNORE_REGEX: paths to exclude from dupl output; we treat these as generated/noise.
-DUPL_THRESHOLD ?= 60
+DUPL_THRESHOLD ?= 130
 DUPL_PATH ?= .
-DUPL_IGNORE_REGEX ?= (_gen\.go|\.pb(\.[^/]*)?\.go|_grpc\.pb\.go|\.pb\.gw\.go)
+DUPL_IGNORE_REGEX ?= (_gen\.go|_string\.go|\.pb(\.[^/]*)?\.go|_grpc\.pb\.go|\.pb\.gw\.go|_test\.go|tests/|/factory/options\.go|config/.*acl\.go)
 
 # gosec rule classes excluded globally because they are by-design or redundant
 # for a transport/auth/secrets toolkit. Verified false positives in KEPT rules

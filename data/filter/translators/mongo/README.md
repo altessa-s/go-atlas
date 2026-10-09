@@ -38,8 +38,8 @@ CEL field name — and every predicate over them matches a document lacking the 
 The decision follows MongoDB's own semantics on the stored zero — comparisons match only within a type class, so `description == 0` does not
 select an absent description and `description != 0` does; timestamps compare at the millisecond precision of a BSON date; `null` never equals a
 zero. It covers comparisons, `in`, `size()`, the string predicates and `matches()`; `has()` on a declared field always holds. Each predicate is
-exact on its own, so negation and `&&` / `||` nesting compose. A `size()` comparison over a declared field must compare with a number —
-anything else is rejected with `filter.ErrInvalidExpression`. Undeclared fields translate as before. String comparisons are judged byte-wise, as
+exact on its own, so negation and `&&` / `||` nesting compose. Every `size()` comparison must compare with a numeric literal —
+anything else is rejected with `filter.ErrInvalidExpression`. String comparisons are judged byte-wise, as
 under MongoDB's default simple collation; a query or collection with a locale collation (which may, for example, ignore whitespace or case) can
 match a stored `""` where the translator's decision for an absent field differs, so use the option with the simple collation.
 
@@ -57,3 +57,8 @@ cannot backtrack) and enforces a length cap, but MongoDB executes the pattern wi
 backtrack catastrophically — a DB-side ReDoS the length cap bounds but does not eliminate. Expose `matches()` only to trusted callers, or
 tighten the cap via `filter.WithMaxRegexLength`. `contains()`, `startsWith()`, and `endsWith()` escape their argument with
 `regexp.QuoteMeta` and are not affected.
+
+## Literal operands
+
+Comparison values, `in` list elements, and string-function arguments must be literals. Dynamic operands such as `a == b`, `a in [b]`, or `a.contains(b)`
+return `filter.ErrUnsupportedOperation`; a field reference is never converted into a string value.

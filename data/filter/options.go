@@ -27,7 +27,7 @@ const DefaultMaxRegexLength = 1024
 // Prevents excessive memory usage during parsing and LRU cache pollution.
 const DefaultMaxExpressionLength = 4096
 
-// DefaultMaxOperations is the maximum number of AST node visits during evaluation.
+// DefaultMaxOperations is the maximum number of AST node visits per evaluation or translation.
 // Prevents DoS via wide expressions (e.g., 100 OR-ed conditions at depth 1).
 const DefaultMaxOperations = 1000
 
@@ -451,6 +451,9 @@ func checkSingleLiteral(field string, kind FieldKind, value any) error {
 // checkEnumLiteral rejects an integer literal that is not in the field's
 // declared enum set; nil (CEL null) and non-integer literals are accepted.
 func checkEnumLiteral(field string, set *coremaps.ImmutableMap[int64, struct{}], value any) error {
+	if v, ok := value.(uint64); ok && v > math.MaxInt64 {
+		return coreerrs.Wrapf(ErrEnumValueNotAllowed, "field %q: value %d exceeds the enum's int64 range", field, v)
+	}
 	v, ok := enumInt64(value)
 	if !ok || set.Contains(v) {
 		return nil
@@ -462,10 +465,8 @@ func checkEnumLiteral(field string, set *coremaps.ImmutableMap[int64, struct{}],
 // enumInt64 normalizes a CEL integer literal to int64. CEL's parser emits
 // int64 for plain integer literals (`5`) and uint64 for the unsigned-suffix
 // form (`5u`); both must be enforced against the same int64-keyed set.
-// Uint64 values above [math.MaxInt64] cannot fit the set and are reported
-// as (0, false) so the membership check is bypassed rather than producing
-// a spurious ErrEnumValueNotAllowed. Non-integer literals report false and
-// are left to the kind check.
+// Values outside the int64 range report false; checkEnumLiteral rejects them
+// before normalization. Non-integer literals are left to the kind check.
 func enumInt64(value any) (int64, bool) {
 	switch v := value.(type) {
 	case int64:

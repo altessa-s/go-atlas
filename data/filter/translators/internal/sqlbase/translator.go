@@ -91,6 +91,9 @@ func (t *Translator) run(node filter.Node, inline bool) (string, error) {
 	t.depth.Reset()
 	t.inline = inline
 	t.args = nil
+	if err := t.config.CheckLimits(node); err != nil {
+		return "", err
+	}
 
 	if node == nil {
 		return MatchAll, nil
@@ -179,6 +182,10 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
+	if err := t.depth.Enter(); err != nil {
+		return nil, err
+	}
+	defer t.depth.Leave()
 	return filter.VisitElements(t, n)
 }
 
@@ -271,25 +278,29 @@ func (t *Translator) translateIn(left, right filter.Node) (string, error) {
 		t.args = t.args[:argsBefore]
 		return MatchNone, nil
 	}
-
-	// Routed through VisitList rather than walking the elements here so
-	// that the Visitor method is the single implementation. It is public
-	// surface — the walker is embedded in the dialect translators, which
-	// therefore satisfy filter.Visitor — and an implementation nothing
-	// calls is one nothing tests either.
-	values, err := t.VisitList(list)
-	if err != nil {
-		return "", err
+	for _, elem := range list.Elements {
+		if _, literal := elem.(*filter.LiteralNode); !literal {
+			// ClickHouse requires a constant IN set. Equality disjunctions
+			// preserve dynamic operands on every dialect. Render the left
+			// operand for each branch to keep positional bind slots aligned.
+			t.args = t.args[:argsBefore]
+			parts := make([]string, 0, len(list.Elements))
+			for _, item := range list.Elements {
+				part, err := t.translateComparison(filter.OpEqual, left, item)
+				if err != nil {
+					return "", err
+				}
+				parts = append(parts, "("+part+")")
+			}
+			return "(" + strings.Join(parts, " OR ") + ")", nil
+		}
 	}
 
-	elements, ok := values.([]any)
-	if !ok {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected list elements, got %T", values)
-	}
-
-	rendered := make([]string, 0, len(elements))
-	for _, value := range elements {
-		sql, err := t.value(value)
+	// Render each node in operand position so a column reference stays SQL
+	// syntax while literals remain bound values.
+	rendered := make([]string, 0, len(list.Elements))
+	for _, elem := range list.Elements {
+		sql, err := t.operandSQL(elem)
 		if err != nil {
 			return "", err
 		}
@@ -312,8 +323,19 @@ func (t *Translator) translateStringPredicate(n *filter.CallNode) (string, error
 	if len(n.Args) != 1 {
 		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "string function requires exactly 1 argument")
 	}
+	if _, ok := n.Args[0].(*filter.IdentNode); ok {
+		if n.Op == filter.OpMatches {
+			return "", coreerrs.Wrap(filter.ErrUnsupportedOperation, "matches() requires a literal pattern for validation")
+		}
+		needle, columnErr := t.column(n.Args[0])
+		if columnErr != nil {
+			return "", columnErr
+		}
+		// A column needs no bind slot, even when endsWith uses it repeatedly.
+		return t.dialect.StringPredicate(n.Op, col, "", func(any) (string, error) { return needle, nil })
+	}
 
-	arg, err := n.Args[0].Accept(t)
+	arg, err := filter.AcceptLiteral(t, n.Args[0])
 	if err != nil {
 		return "", err
 	}
