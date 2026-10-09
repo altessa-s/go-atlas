@@ -161,6 +161,8 @@ Constraints:
   runs at `NewParser` — misconfiguration fails fast.
 - Handlers run on every parser cache miss; keep them cheap and side-effect free.
 - The parser does not bound the depth of trees a handler returns. `WithMaxDepth` enforces the cap during translator/evaluator traversal.
+- Handlers return trees of the built-in node types. Results are copied before caching; literals may hold scalars, `time.Time` and `[]byte`,
+  and any other literal type or custom node implementation fails with `ErrUnsupportedType`.
 - The expanded AST contains the **target** field (`createdAt`), so `WithFieldMapping` and `WithAllowedFields` operate on that name, not on
   the virtual one.
 
@@ -285,6 +287,12 @@ case-insensitive (and, being PAD SPACE, make `==`, `!=`, `<`, `<=`, `>`, `>=` an
 `boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as one (Nested) column instead of a qualified
 `"table"."column"`.
 
+The SQL translators also accept another field as an operand — in comparisons, `in` list elements and `contains` / `startsWith` / `endsWith`
+arguments — with field mapping and the allowlist applied to every reference. A list with a field reference renders as an equality disjunction
+instead of `IN`, and `matches()` still requires a literal pattern. The MongoDB, Meilisearch and RediSearch translators accept literals only in
+value positions and return `ErrUnsupportedOperation` for `a == b`, `a in [b]` or `a.contains(b)`; custom visitors get the same check from
+`filter.AcceptLiteral` and `filter.VisitLiteralElements`.
+
 ### Search back ends
 
 `translators/meili` rejects `endsWith`, `matches` (regex), and `size()` with `ErrUnsupportedOperation` — Meilisearch's filter grammar has no
@@ -309,7 +317,7 @@ wrong rather than rejected.
 | `WithMaxExpressionLength` | 4096 bytes | Reject before parsing — protects parser memory and the LRU cache |
 | `WithParserCacheSize` | 1000 entries | LRU cache for parsed AST |
 | `WithMaxDepth` | 20 levels | AST nesting during translation/evaluation |
-| `WithMaxOperations` | 1000 visits | Total node visits per evaluation — kills wide flat ORs |
+| `WithMaxOperations` | 1000 visits | Total node visits per evaluation or translation — kills wide flat ORs. Translation checks the whole AST before rendering (`TranslatorContext.CheckLimits`) |
 | `WithMaxRegexLength` | 1024 bytes | Pattern length passed to `matches()` |
 | `WithAllowedFields` | (none) | Whitelist of queryable field names |
 | `WithAllowedFunctions` | (none) | Whitelist of callable function names (built-in and custom). Operators and `has()` always allowed |

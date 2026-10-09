@@ -13,7 +13,7 @@ Let's Encrypt), key formats (PKCS#8, PKCS#1, SEC1), and TLS 1.2+ defaults.
 |-------------------------------|------------------------------------------|
 | `LoadFromFile`                | Load cert + key from separate files      |
 | `LoadFromConcatenatedFile`    | Load cert + key from a single PEM file   |
-| `ApplyMinTLSVersion` | Enforce the same configured TLS minimum in HTTP and gRPC servers |
+| `ApplyMinTLSVersion`          | Apply a YAML `minVersion` (`1.2`/`1.3`) to a server `tls.Config`; TLS 1.3 clears the 1.2 cipher list |
 | `DefaultTLSConfig`            | Secure TLS 1.2+ server configuration     |
 | `DefaultClientTLSConfig`      | Secure TLS 1.2+ client configuration     |
 | `ClientTLSConfig`             | Strict client mTLS config presenting a cert from a provider |

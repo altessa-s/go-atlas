@@ -117,7 +117,10 @@ value is a nil pointer or an empty/nil slice/array/map (one representative eleme
 ### MongoDB translators
 
 [`translators/mongo`](../../domain/behavior/translators/mongo) exposes only `behavior.Translator[bson.M]` constructors — the strip-kind and tag policy lives
-on the engine via `behavior.WithKinds` / `behavior.WithTagName`, and the package keeps only its own concern, the `bson` tag (`WithBsonTagName`).
+on the engine via `behavior.WithKinds` / `behavior.WithTagName`, and the package keeps only its own concerns: the `bson` tag (`WithBsonTagName`) and
+the driver's BSON registry (`WithRegistry`). Pass the registry the driver uses (for example `bsoncodec.NewRegistry()` from
+[`data/mongo/bsoncodec`](../../data/mongo/bsoncodec)) so that types with an encoder of their own, such as `decimal.Decimal` and `optional.Optional[T]`,
+are written as a unit instead of folded field by field.
 
 ```go
 import (

@@ -67,7 +67,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`data/audit`](data/audit/) | Async audit-event dispatcher with pluggable storage |
 | [`data/cache`](data/cache/) | Multi-backend caching with singleflight, fallback, and TTL management |
 | [`data/filter`](data/filter/) | CEL expression parser with translators for MongoDB, ClickHouse, MariaDB, PostgreSQL, Meilisearch, RediSearch, and Lua |
-| [`data/idempotency`](data/idempotency/) | Idempotency key management (Redis, NATS, memory) |
+| [`data/idempotency`](data/idempotency/) | Idempotency key management (Redis, NATS, MongoDB, memory) |
 | [`data/leadelect`](data/leadelect/) | Leader election (NATS KV-based) |
 | [`data/limiters`](data/limiters/) | Token-bucket rate limiting (Redis, NATS, memory) |
 | [`data/locks`](data/locks/) | Distributed locking (NATS) |
@@ -82,6 +82,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`domain/converter`](domain/converter/) | Generic struct-to-struct conversion with codecs and lazy iterators |
 | [`domain/eventbus`](domain/eventbus/) | Synchronous, lock-free, transaction-safe in-process event bus for decoupling domains |
 | [`domain/fieldtracker`](domain/fieldtracker/) | Struct field change tracking |
+| [`domain/money`](domain/money/) | Currency amounts with exact decimal arithmetic, minor-unit rounding, and allocation without losing a minor unit |
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |
 | [`domain/proto`](domain/proto/) | Protobuf field mask and `field_behavior`-driven payload sanitization |
 | [`domain/validation`](domain/validation/) | ISO 7064 MOD 11-10 check-digit computation and validation |
@@ -103,6 +104,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`service/id`](service/id/) | Service identity (ULID/UUID) from env, file, or static |
 | [`service/scheduler`](service/scheduler/) | Distributed cron scheduler with priority queues and leader election |
 | [`transport/broker`](transport/broker/) | Message broker abstraction (NATS JetStream, outbox) |
+| [`transport/clientip`](transport/clientip/) | Real client IP resolution behind trusted reverse proxies, shared by the HTTP and gRPC `realip` stages |
 | [`transport/grpc`](transport/grpc/) | gRPC server, interceptors, factory, gRPC client |
 | [`transport/http`](transport/http/) | HTTP server, middlewares, codec registry, HTTP client |
 | [`transport/proxydial`](transport/proxydial/) | Forward-proxy dialers (HTTP CONNECT, SOCKS5) for non-`net/http` clients |

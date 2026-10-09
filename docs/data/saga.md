@@ -284,8 +284,8 @@ orch := saga.New(store, def,
 
 ### Durable backend via the factory
 
-In production, assemble the orchestrator from [`sagaconfig.Config`](../../config/saga/saga.go) and an injected client. The factory picks the store named by
-`sagaconfig.Config.Storage.Type` and wires every option.
+In production, assemble the orchestrator from [`sagaconfig.Config`](../../config/saga/saga.go) and an injected client. The factory picks the store
+named by `sagaconfig.Config.Storage.Type` and wires every option.
 
 ```go
 cfg := sagaconfig.Default()

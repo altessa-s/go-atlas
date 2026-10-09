@@ -36,6 +36,7 @@ structured logging.
 | `WithClientOptions`      | nil               | Custom `mongo.ClientOptions`                                      |
 | `WithTransactionOptions` | snapshot/majority | Transaction read/write concerns                                   |
 | `WithLogger`             | discard           | Structured logger                                                 |
+| `WithCollector`          | no-op             | Metrics collector for MongoDB operations                          |
 | `WithConverterOptions`   | --                | Extra `converter.Option`s threaded into `GetEntity`/`GetEntities` |
 | `WithDeduplicationIdentity` | nil            | Per-context identity segment for the read singleflight key (see below) |
 | `WithRollbackMigrationsOnFailure` | off      | Roll back every applied migration when one fails (see Migrations) |
@@ -109,8 +110,10 @@ not bound by the 16 MB document limit that the `ListCursor` aggregation has.
 | `Subject`    | Principal the token is bound to                                                                           |
 
 A token replayed under another filter, sort or subject fails with the `keyset` errors. Every document needs a comparable scalar of one BSON
-type in each sort field; a missing, null or array value fails with `ErrKeysetMissingKey` rather than skipping documents. Index the sort fields
-(plus `_id`) so each page is a range scan. Paging is keyset-based, not a snapshot.
+type in each sort field; a missing, null or array value fails with `ErrKeysetMissingKey` rather than skipping documents. A sort direction other
+than `1`/`-1`, or an empty or repeated field, fails with `ErrKeysetSort`. A nil codec reads a single page with no `Next` token, and a non-empty
+`After` then fails with `ErrKeysetTokensRequired`. Index the sort fields (plus `_id`) so each page is a range scan. Paging is keyset-based, not
+a snapshot.
 
 ```go
 page, err := mongo.FindPage[Order](ctx, coll, codec, mongo.KeysetQuery{
@@ -130,9 +133,10 @@ page, err := mongo.FindPage[Order](ctx, coll, codec, mongo.KeysetQuery{
 ## Migrations
 
 `Connect` applies all pending `mongo-migrate` migrations before returning. When one fails, `Connect` returns its error and the migrations applied
-before it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back every migration — the whole schema, idempotency indexes included. The underlying library reads the current schema version and writes the new
-one with nothing in between, so two replicas starting together would both read version N and both run migration N+1. Migration bodies are arbitrary
-code rather than idempotent DDL, so running one twice is not generally safe.
+before it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back every migration — the whole schema, idempotency indexes included.
+The underlying library reads the current schema version and writes the new one with nothing in between, so two replicas starting together would
+both read version N and both run migration N+1. Migration bodies are arbitrary code rather than idempotent DDL, so running one twice is not
+generally safe.
 
 The package therefore takes a database-wide lock around the migration run. It is a single document in a **separate** collection —
 `migrations_lock`, never `migrations`, because `mongo-migrate` derives the schema version from the greatest `_id` in its own collection and would

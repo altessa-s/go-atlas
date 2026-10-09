@@ -13,7 +13,7 @@ top-level `idempotency.Keeper` to supply the underlying storage backend.
 |------------------|----------------------------------------------------------------|
 | `Storage`        | Interface: AttemptLock, AttemptLockWithTTL, Complete, Steal, Release, Delete |
 | `Status`         | Key state: `StatusInProgress`, `StatusSuccess`                 |
-| `State`          | Holds the current status and optional response data for a key  |
+| `State`          | Holds the current status, optional response data, and the recorded fingerprint and owner (`Fingerprint`, `Owner`) for a key |
 
 `Steal` is a low-level CAS-replace primitive used by Keeper's orphan-lock reclaim path: when a collision-time check spots an abandoned InProgress entry
 older than the configured threshold, Keeper builds a fresh wire and atomically swaps it in via `Steal(ctx, key, expectedVal, newVal)`. Backends
@@ -32,5 +32,6 @@ an `UpdateOne` filtered on the stored bytes for MongoDB).
 ## Release contract
 
 Implementations must atomically compare the ownership token and remove the matching entry in `Release(ctx, key, lockToken)`. A read followed by
-unconditional `Delete` is insufficient. Memory uses its mutex, Redis uses compare-and-delete Lua, and NATS uses `kv.Delete` with
-`jetstream.LastRevision`. Missing tokens fail with `ErrMissingLockState`; a missing or replaced entry fails with `ErrLockStolen`.
+unconditional `Delete` is insufficient. Memory uses its mutex, Redis uses compare-and-delete Lua, NATS uses `kv.Delete` with
+`jetstream.LastRevision`, and MongoDB uses a `DeleteOne` filtered on the stored bytes. Missing tokens fail with `ErrMissingLockState`; a missing or
+replaced entry fails with `ErrLockStolen`.

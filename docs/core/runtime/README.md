@@ -16,6 +16,7 @@ import "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 | Shutdown hooks, GC resource cleanup | this file |
 | Application metadata, version queries, env vars, directory paths | [appinfo.md](appinfo.md) |
 | Adaptive concurrency limits, batch processing, retry loops, panic recovery | [concurrency.md](concurrency.md) |
+| Request deduplication by key (`singleflight`) | [concurrency.md](concurrency.md#use-singleflight-for-request-deduplication) |
 | Linux process hardening: capabilities, seccomp, landlock, rlimits, no-new-privs | [security.md](security.md) |
 | OS signal handling with priority and worker pools | [signals.md](signals.md) |
 

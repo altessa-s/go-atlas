@@ -156,6 +156,7 @@ the race" path and skip writing.
 |-------------------------|--------------------------|------------------------------------------------------------|
 | `WithLogger`            | discard                  | Structured logger                                          |
 | `WithSerializer`        | JSON                     | Serialization format                                       |
+| `WithCollector`         | none                     | Metrics collector                                          |
 | `WithMaxLockDuration`   | `DefaultMaxLockDuration` (5m) | Threshold for orphan-lock CAS-steal on AttemptLock collision |
 | `WithKeyNamespace`      | none                     | Per-context key prefix (tenant / subject)                  |
 | `WithOwner`             | none                     | Caller identity recorded with each key (see Owners)        |
