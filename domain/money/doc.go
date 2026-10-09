@@ -22,7 +22,8 @@
 //
 // [Money.Allocate] splits an amount by ratios and [Money.Split] into equal
 // parts; the parts always sum to the amount, the leftover minor units going
-// to the largest remainders.
+// to the largest remainders. [Money.AllocateBy] selects another
+// [AllocationMethod], such as [HalfUpLastRemainder].
 //
 //	total, _ := money.Parse("100.00", "EUR")
 //	parts, _ := total.Split(3) // 33.34, 33.33, 33.33

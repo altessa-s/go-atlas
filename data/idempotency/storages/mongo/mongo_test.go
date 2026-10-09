@@ -47,6 +47,12 @@ func testDB(tb testing.TB) *mongo.Database {
 		_ = client.Disconnect(context.WithoutCancel(tb.Context()))
 		tb.Skipf("mongodb not reachable at %s: %v", mongoURI(), err)
 	}
+	// A reachable server may still reject us (authentication): ping needs
+	// none, listing databases does.
+	if _, err := client.ListDatabaseNames(tb.Context(), bson.D{}); err != nil {
+		_ = client.Disconnect(context.WithoutCancel(tb.Context()))
+		tb.Skipf("mongodb at %s not usable for tests: %v", mongoURI(), err)
+	}
 	db := client.Database("idempotency_it_" + strconv.FormatInt(time.Now().UnixNano(), 36) + "_" + strconv.FormatUint(sequence.Add(1), 10))
 	tb.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(tb.Context()), 5*time.Second)

@@ -107,3 +107,26 @@ func TestRequestFingerprintValue(t *testing.T) {
 	other := &requestInterceptor{interceptor: ri.interceptor, meta: &sharedmetadata.CallMetadata{FullyMethodName: "/a/C"}}
 	require.NotEqual(t, fp, other.requestFingerprint(wrapperspb.String("x")), "the method is part of the fingerprint")
 }
+
+func TestReplayAuthorizerStatusPassesThrough(t *testing.T) {
+	t.Parallel()
+
+	k := idempotency.New(memory.New(),
+		idempotency.WithMaxLockDuration(time.Minute),
+		idempotency.WithOwner(func(ctx context.Context) string { s, _ := ctx.Value(ownerCtxKey{}).(string); return s }),
+		idempotency.WithReplayAuthorizer(func(ctx context.Context, owner string) error {
+			if ctx.Value(ownerCtxKey{}) == owner {
+				return nil
+			}
+			return status.Error(codes.NotFound, "payment not found")
+		}),
+	)
+	ic := newTestInterceptor(k)
+	require.NoError(t, check(t, ic, context.WithValue(t.Context(), ownerCtxKey{}, "alice"), wrapperspb.String("pay 10")))
+
+	err := check(t, ic, context.WithValue(t.Context(), ownerCtxKey{}, "bob"), wrapperspb.String("pay 10"))
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.NotFound, st.Code())
+	require.Equal(t, "payment not found", st.Message(), "the service's own status, nothing of the record")
+}

@@ -24,7 +24,8 @@ codec, which keeps them as exact `Decimal128`.
 | `Mul(factor)`             | Exact product, every decimal place kept                                                          |
 | `Round(mode)`             | Rounds to the currency's minor units                                                             |
 | `MinorUnits()`            | `int64` minor units; `ErrNotRounded` for extra places, `ErrOverflow` beyond `int64`              |
-| `Allocate(ratios...)`     | Parts proportional to the ratios, summing to the amount exactly                                  |
+| `Allocate(ratios...)`     | Parts proportional to the ratios, summing to the amount exactly (largest remainder)              |
+| `AllocateBy(method, ...)` | `Allocate` with an explicit `AllocationMethod`                                                   |
 | `Split(n)`                | `n` parts as equal as possible                                                                   |
 | `String()`                | `12.30 EUR`, with exactly the currency's minor units unless the amount has more                  |
 
@@ -43,6 +44,15 @@ vat := price.Mul(decimal.RequireFromString("0.2")).Round(money.HalfEven) // 4.00
 parts with the largest discarded remainders, ties to the earlier part. Shares are computed with exact rational arithmetic, so the result does
 not depend on the order or scale of the ratios. The amount must be in whole minor units; a negative amount is split as its absolute value and
 every part negated.
+
+`AllocateBy(HalfUpLastRemainder, ratios...)` follows the convention where every share but the last is rounded half-up and the last takes
+the remainder. When the rounded-up shares would push the last one below zero, units are taken back one at a time from the earlier shares
+rounded up the most, ties to the later share, so no share is negative.
+
+| Method                | 100.00 split 1:1:1           | 0.03 split six ways                      |
+|-----------------------|------------------------------|------------------------------------------|
+| `LargestRemainder`    | 33.34, 33.33, 33.33          | 0.01, 0.01, 0.01, 0.00, 0.00, 0.00       |
+| `HalfUpLastRemainder` | 33.33, 33.33, 33.34          | 0.01, 0.01, 0.01, 0.00, 0.00, 0.00       |
 
 ```go
 rent, _ := money.Parse("1000.00", "EUR")
