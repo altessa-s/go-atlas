@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/altessa-s/go-atlas/data/audit"
@@ -40,6 +41,15 @@ type Storage struct {
 	table     string // quoted
 	tableName string // unqualified, for index names and the DDL lock
 	opts      *options
+	// lastInsert caches the most recently rendered INSERT: dispatcher
+	// batches repeat their size, and rendering binds every placeholder.
+	lastInsert atomic.Pointer[insertStatement]
+}
+
+// insertStatement is a rendered INSERT for a fixed number of rows.
+type insertStatement struct {
+	rows int
+	sql  string
 }
 
 // New creates a [Storage] over db for the given dialect. It performs no I/O;
@@ -124,6 +134,16 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 // PostgreSQL, a no-op ON DUPLICATE KEY UPDATE on MySQL (unlike INSERT IGNORE,
 // it lets every other error through).
 func (s *Storage) insert(n int) string {
+	if cached := s.lastInsert.Load(); cached != nil && cached.rows == n {
+		return cached.sql
+	}
+	query := s.renderInsert(n)
+	s.lastInsert.Store(&insertStatement{rows: n, sql: query})
+	return query
+}
+
+// renderInsert builds the INSERT returned by insert.
+func (s *Storage) renderInsert(n int) string {
 	row := "(?" + strings.Repeat(", ?", columnsPerRow-1) + ")"
 	var b strings.Builder
 	b.WriteString("INSERT INTO " + s.table + " (id, ts_ms, " + strings.Join(filterColumns, ", ") + ", payload) VALUES ")
