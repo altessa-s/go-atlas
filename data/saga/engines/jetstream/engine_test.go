@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -851,7 +852,21 @@ func TestInvalidUTF8IDIsRejected(t *testing.T) {
 	}, "invalid UTF-8 ID was not terminated")
 }
 
-func TestNATSKVInvalidKeyIsTerminated(t *testing.T) {
+func TestNATSKVIDThatIsNoKeyCompletes(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	store, err := natsstore.New(e.js, natsstore.WithBucket("saga_ids"))
+	require.NoError(t, err)
+	engine := newEngine(t, e, store, definition("place", ok))
+	stop := run(t, engine)
+	defer func() { require.NoError(t, stop()) }()
+
+	// Not a valid NATS KV key as it is; the store escapes it.
+	require.NoError(t, engine.Submit(t.Context(), "order 1", order{}))
+	waitStatus(t, store, "order 1", saga.StatusCompleted)
+}
+
+func TestNATSKVKeyTooLongIsTerminated(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	store, err := natsstore.New(e.js, natsstore.WithBucket("saga_ids"))
@@ -861,11 +876,11 @@ func TestNATSKVInvalidKeyIsTerminated(t *testing.T) {
 	stop := run(t, engine)
 	defer func() { require.NoError(t, stop()) }()
 
-	// Valid UTF-8, but not a valid NATS KV key: retrying could never succeed.
-	require.NoError(t, engine.Submit(t.Context(), "order 1", order{}))
+	// Escaped, the ID exceeds the KV key budget: retrying could never succeed.
+	require.NoError(t, engine.Submit(t.Context(), strings.Repeat(":", 2000), order{}))
 	testhelpers.WaitFor(t, waitTimeout, func() bool {
 		return testhelpers.GetCounterValue(t, tc, "test_saga_engine_terminated_total") == 1
-	}, "an ID the KV store rejects must be terminated, not retried")
+	}, "an ID the KV store cannot hold must be terminated, not retried")
 	require.Equal(t, uint64(0), streamMsgs(t, e.js))
 }
 

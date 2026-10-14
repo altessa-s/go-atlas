@@ -23,6 +23,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/data/internal/natskey"
 	"github.com/altessa-s/go-atlas/data/saga"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -483,7 +484,8 @@ func (e *Engine[T]) execute(ctx context.Context, msg jetstream.Msg) {
 	switch {
 	case inst != nil && inst.Status.IsTerminal():
 		e.settle(msg, msg.Ack, e.metrics.acked, "ack")
-	case errors.Is(err, sagaerrs.ErrDefinitionNotFound), errors.Is(err, jetstream.ErrInvalidKey):
+	case errors.Is(err, sagaerrs.ErrDefinitionNotFound), errors.Is(err, jetstream.ErrInvalidKey),
+		errors.Is(err, natskey.ErrKeyTooLong):
 		// The ID belongs to another definition, or the NATS KV store cannot
 		// hold it as a key: retrying can never succeed.
 		e.logger.Error("saga engine: terminating command the store cannot run", slog.String("id", cmd.ID), slog.Any("error", err))

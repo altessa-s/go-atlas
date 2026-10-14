@@ -35,6 +35,16 @@ valid. The election key is not copied: with every instance stopped there is no l
 buckets the migration rejects and how a mirror bucket is re-synced are in
 [NATS KeyValue bucket storage migration](../../../../docs/data/nats-kv-storage-migration.md).
 
+## Keys
+
+NATS KeyValue accepts only `[-/_=.a-zA-Z0-9]` in a key, with no leading or trailing dot and no empty token, so election keys are escaped before they
+reach the bucket: every other byte, `=` itself, and every dot that would leave an empty token become `=HH` (upper-case hex). The election key
+`scheduler:eu` is stored as `scheduler=3Aeu`; `Start` rejects an oversized key before it starts campaigning. A key that is already valid and contains no
+`=` is stored under itself, so existing data stays reachable. A key containing `=` now maps to another physical key than the raw one earlier releases
+wrote; migrate such entries or start on a fresh bucket. Upgrade every process sharing the bucket together: an old and a new process would otherwise
+address such a key under different physical keys. The escaped key may be at most 3072 bytes (an escaped byte takes three); a longer one fails with
+`ErrKeyTooLong` before any network I/O.
+
 ## Lease renewal
 
 Renewals tick every `min(electionTTL, bucketKeyTTL) × renewRatio`. The ratio therefore decides how many renewal attempts fall inside one lease

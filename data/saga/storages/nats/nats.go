@@ -10,10 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/data/internal/natsbase"
+	"github.com/altessa-s/go-atlas/data/internal/natskey"
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 	"github.com/altessa-s/go-atlas/data/saga"
 
@@ -31,6 +33,15 @@ var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 // left untouched.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
+// ErrKeyTooLong is returned, before any network I/O, for an instance ID whose
+// escaped form exceeds the NATS KeyValue key budget (see the package README).
+var ErrKeyTooLong = natskey.ErrKeyTooLong
+
+// ErrInvalidID is returned, before any network I/O, for an instance ID that is
+// not valid UTF-8. The instance is stored as JSON, which would rewrite such an
+// ID, so it could not be found again under the ID it was created with.
+var ErrInvalidID = errors.New("saga instance id is not valid UTF-8")
+
 // Store is a durable [saga.Storage] backed by a NATS JetStream KeyValue bucket.
 // Each saga instance is stored as a JSON document under its ID. The bucket's
 // monotonically increasing revision is used directly as the optimistic-
@@ -38,8 +49,9 @@ var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 // advance the same instance — the loser's Update fails with
 // [sagaerrs.ErrVersionConflict].
 //
-// Instance IDs are used verbatim as KV keys and so must be valid NATS KV keys
-// (letters, digits, and -_/=.). ULIDs and UUIDs qualify.
+// Instance IDs are escaped into valid NATS KV keys, so any valid UTF-8 ID works;
+// an ID that already is a valid key without '=' (ULIDs and UUIDs) is stored
+// verbatim. An ID that is not valid UTF-8 is rejected with [ErrInvalidID].
 type Store struct {
 	natsbase.Base
 	opts *options
@@ -88,7 +100,12 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 		return coreerrs.WrapOperation(err, "marshal saga instance")
 	}
 
-	rev, err := s.KV().Create(ctx, inst.ID, data)
+	key, err := physicalKey(inst.ID)
+	if err != nil {
+		return err
+	}
+
+	rev, err := s.KV().Create(ctx, key, data)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			return sagaerrs.ErrInstanceExists
@@ -103,7 +120,12 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 // Get loads an instance, returning [sagaerrs.ErrInstanceNotFound] when absent.
 // The returned instance's Version reflects the current KV revision.
 func (s *Store) Get(ctx context.Context, id string) (*saga.Instance, error) {
-	entry, err := s.KV().Get(ctx, id)
+	key, err := physicalKey(id)
+	if err != nil {
+		return nil, err
+	}
+
+	entry, err := s.KV().Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return nil, sagaerrs.ErrInstanceNotFound
@@ -124,11 +146,16 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		return coreerrs.WrapOperation(err, "marshal saga instance")
 	}
 
+	key, err := physicalKey(inst.ID)
+	if err != nil {
+		return err
+	}
+
 	// KV revisions start at 1, so version 0 matches no stored instance; KV
 	// Update would read revision 0 as "create if absent", so it is resolved
 	// here without a write.
 	if inst.Version == 0 {
-		if _, gerr := s.KV().Get(ctx, inst.ID); errors.Is(gerr, jetstream.ErrKeyNotFound) {
+		if _, gerr := s.KV().Get(ctx, key); errors.Is(gerr, jetstream.ErrKeyNotFound) {
 			return sagaerrs.ErrInstanceNotFound
 		} else if gerr != nil {
 			return coreerrs.WrapOperation(gerr, "update saga instance in NATS")
@@ -136,7 +163,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		return sagaerrs.ErrVersionConflict
 	}
 
-	rev, err := s.KV().Update(ctx, inst.ID, data, versionToRev(inst.Version))
+	rev, err := s.KV().Update(ctx, key, data, versionToRev(inst.Version))
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return sagaerrs.ErrInstanceNotFound
@@ -146,7 +173,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		// missing key also reports wrong-last-sequence). Disambiguate with a
 		// Get so the caller sees ErrInstanceNotFound vs ErrVersionConflict.
 		if errors.Is(err, jetstream.ErrKeyExists) {
-			if _, gerr := s.KV().Get(ctx, inst.ID); errors.Is(gerr, jetstream.ErrKeyNotFound) {
+			if _, gerr := s.KV().Get(ctx, key); errors.Is(gerr, jetstream.ErrKeyNotFound) {
 				return sagaerrs.ErrInstanceNotFound
 			}
 			return sagaerrs.ErrVersionConflict
@@ -175,6 +202,7 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 	defer func() { _ = lister.Stop() }()
 
 	var out []*saga.Instance
+	// Listed keys are physical: read them back as they are.
 	for key := range lister.Keys() {
 		entry, err := s.KV().Get(ctx, key)
 		if err != nil {
@@ -203,7 +231,12 @@ func (s *Store) FetchRecoverable(ctx context.Context, definition string, now tim
 // Delete removes an instance. NATS KV deletes are idempotent, so removing a
 // missing instance is not an error.
 func (s *Store) Delete(ctx context.Context, id string) error {
-	if err := s.KV().Delete(ctx, id); err != nil {
+	key, err := physicalKey(id)
+	if err != nil {
+		return err
+	}
+
+	if err := s.KV().Delete(ctx, key); err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return nil
 		}
@@ -228,3 +261,17 @@ func decodeEntry(entry jetstream.KeyValueEntry) (*saga.Instance, error) {
 // ceiling, and Version is always non-negative, so the conversions are safe.
 func revToVersion(rev uint64) int64 { return int64(rev) } //nolint:gosec // KV revision fits int64
 func versionToRev(v int64) uint64   { return uint64(v) }  //nolint:gosec // Version is non-negative
+
+// physicalKey maps an instance ID onto the NATS KeyValue key it is stored
+// under. FetchRecoverable reads the listed physical keys directly and must not
+// pass them through here.
+func physicalKey(id string) (string, error) {
+	if !utf8.ValidString(id) {
+		return "", ErrInvalidID
+	}
+	key, err := natskey.Encode(id)
+	if err != nil {
+		return "", coreerrs.WrapOperation(err, "encode NATS KeyValue key")
+	}
+	return key, nil
+}

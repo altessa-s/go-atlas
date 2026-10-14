@@ -7,6 +7,16 @@ import "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
 Package `nats` implements idempotency storage using NATS JetStream key-value store. Provides distributed idempotency detection with TTL support
 via NATS infrastructure.
 
+## Keys
+
+NATS KeyValue accepts only `[-/_=.a-zA-Z0-9]` in a key, with no leading or trailing dot and no empty token, so logical keys are escaped before they
+reach the bucket: every other byte, `=` itself, and every dot that would leave an empty token become `=HH` (upper-case hex). The key
+`idk:POST:/orders:123` the HTTP middleware builds is stored as `idk=3APOST=3A/orders=3A123`. A key that is already valid and contains no `=` is stored
+under itself, so existing data stays reachable. A key containing `=` now maps to another physical key than the raw one earlier releases wrote; migrate
+such entries or start on a fresh bucket. Upgrade every process sharing the bucket together: an old and a new process would otherwise address such a key
+under different physical keys. The escaped key may be at most 3072 bytes (an escaped byte takes three); a longer one fails with `ErrKeyTooLong` before
+any network I/O.
+
 ## Bucket TTL
 
 The bucket's key TTL (`WithMaxAge`) expires every key in the bucket, including keys written by other processes sharing it. When the bucket already

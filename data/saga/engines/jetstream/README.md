@@ -55,8 +55,8 @@ process cannot change retention or ack timing for the others.
 - **Envelope.** A command is `{"id":"<saga id>","data":"<base64 of T encoded with WithSerializer>"}` on `<prefix>.<definition>`; other producers
   may publish it directly (the body must be valid UTF-8 JSON and `data` must be present).
 - **Saga IDs.** Any non-empty valid UTF-8 string; `Submit` rejects anything else with `ErrInvalidID`, because the durable stores persist
-  instances as JSON/BSON, which would rewrite such an ID. With the [NATS KV store](../../storages/nats) IDs must also be valid KV keys (letters,
-  digits, `-_/=.`): a command whose ID the store rejects (`jetstream.ErrInvalidKey`) is terminated rather than retried forever.
+  instances as JSON/BSON, which would rewrite such an ID. The [NATS KV store](../../storages/nats) escapes IDs into valid KV keys; a command
+  whose escaped ID exceeds its key budget (`ErrKeyTooLong`) is terminated rather than retried forever.
 - **De-duplication key encoding.** The key is base64url-encoded: header values are normalized on the wire (trailing whitespace trimmed, CR/LF
   replaced), which would otherwise map IDs such as `order` and `order ` to one key.
 - **Fetching.** `Run` reserves free execution slots first and fetches at most that many commands, so a fetched command starts at once; nothing

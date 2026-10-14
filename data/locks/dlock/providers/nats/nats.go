@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/data/internal/natskey"
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/errs"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers"
@@ -33,6 +34,10 @@ var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 // with another storage type and [WithStrictBucketStorage] is set. The bucket is
 // left untouched.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
+// ErrKeyTooLong is returned, before any network I/O, for a lock key whose
+// escaped form exceeds the NATS KeyValue key budget (see the package README).
+var ErrKeyTooLong = natskey.ErrKeyTooLong
 
 // lockTracker efficiently tracks active locks for cleanup
 type lockTracker struct {

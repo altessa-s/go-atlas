@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/altessa-s/go-atlas/data/internal/natskey"
 )
 
 const (
@@ -262,6 +264,13 @@ func (h *KVHelper) reconcile(ctx context.Context, kv jetstream.KeyValue, cfg Buc
 }
 
 // KVOps provides common KeyValue CRUD operations with retry logic.
+//
+// Its methods take logical keys and map each onto the physical KeyValue key
+// with [natskey.Encode] before the first attempt, so a key NATS would reject
+// (a colon, a leading dot, Unicode) still works and an oversized one fails
+// with [natskey.ErrKeyTooLong] without being retried. KVOps is the only
+// place the dlock and leadelect providers encode keys: pass it logical keys
+// only, never [jetstream.KeyValueEntry.Key] values, which are physical.
 type KVOps struct {
 	kv     jetstream.KeyValue
 	logger *slog.Logger
@@ -280,49 +289,74 @@ func NewKVOps(kv jetstream.KeyValue, logger *slog.Logger) *KVOps {
 
 // Get retrieves a value from the KeyValue store.
 func (o *KVOps) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+	physical, err := natskey.Encode(key)
+	if err != nil {
+		return nil, err
+	}
 	return Retry(ctx, func() (jetstream.KeyValueEntry, error) {
-		return o.kv.Get(ctx, key)
+		return o.kv.Get(ctx, physical)
 	})
 }
 
 // Create creates a new key-value pair. Fails if key already exists.
 func (o *KVOps) Create(ctx context.Context, key string, value []byte) (uint64, error) {
+	physical, err := natskey.Encode(key)
+	if err != nil {
+		return 0, err
+	}
 	return Retry(ctx, func() (uint64, error) {
-		return o.kv.Create(ctx, key, value)
+		return o.kv.Create(ctx, physical, value)
 	})
 }
 
 // Update updates an existing key with optimistic locking using revision.
 func (o *KVOps) Update(ctx context.Context, key string, value []byte, revision uint64) (uint64, error) {
+	physical, err := natskey.Encode(key)
+	if err != nil {
+		return 0, err
+	}
 	return Retry(ctx, func() (uint64, error) {
-		return o.kv.Update(ctx, key, value, revision)
+		return o.kv.Update(ctx, physical, value, revision)
 	})
 }
 
 // Delete deletes a key from the store.
 func (o *KVOps) Delete(ctx context.Context, key string) error {
-	_, err := Retry(ctx, func() (struct{}, error) {
-		return struct{}{}, o.kv.Delete(ctx, key)
+	physical, err := natskey.Encode(key)
+	if err != nil {
+		return err
+	}
+	_, err = Retry(ctx, func() (struct{}, error) {
+		return struct{}{}, o.kv.Delete(ctx, physical)
 	})
 	return err
 }
 
 // DeleteWithRevision deletes a key with optimistic locking using revision.
 func (o *KVOps) DeleteWithRevision(ctx context.Context, key string, revision uint64) error {
-	_, err := Retry(ctx, func() (struct{}, error) {
-		return struct{}{}, o.kv.Delete(ctx, key, jetstream.LastRevision(revision))
+	physical, err := natskey.Encode(key)
+	if err != nil {
+		return err
+	}
+	_, err = Retry(ctx, func() (struct{}, error) {
+		return struct{}{}, o.kv.Delete(ctx, physical, jetstream.LastRevision(revision))
 	})
 	return err
 }
 
-// Watch creates a watcher for changes to a specific key.
+// Watch creates a watcher for changes to a specific key. The key is a single
+// logical key, not a pattern: the encoding escapes '*' and '>'.
 func (o *KVOps) Watch(ctx context.Context, key string) (jetstream.KeyWatcher, error) {
+	physical, err := natskey.Encode(key)
+	if err != nil {
+		return nil, err
+	}
 	return Retry(ctx, func() (jetstream.KeyWatcher, error) {
-		return o.kv.Watch(ctx, key)
+		return o.kv.Watch(ctx, physical)
 	})
 }
 
-// KV returns the underlying KeyValue store.
+// KV returns the underlying KeyValue store, which takes physical keys.
 func (o *KVOps) KV() jetstream.KeyValue {
 	return o.kv
 }
