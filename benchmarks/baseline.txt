@@ -1,0 +1,726 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/client/pool
+cpu: Apple M4 Pro
+BenchmarkGetAndReturnConnection-14                    	 2518999	        95.31 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetAndReturnConnection_ParallelTargets-14    	 3428820	        71.65 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/clientip
+cpu: Apple M4 Pro
+BenchmarkExtractor_Extract_UntrustedPeer-14    	 3407545	        68.82 ns/op	       0 B/op	       0 allocs/op
+BenchmarkExtractor_Extract_WithHeaders-14      	 1819441	       130.5 ns/op	      16 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth
+cpu: Apple M4 Pro
+BenchmarkExtractBearerToken-14    	 4606231	        51.72 ns/op	      24 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/client
+cpu: Apple M4 Pro
+BenchmarkHTTPClientMetrics_Cached/durationFor-14         	27486291	         8.812 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/totalFor-14            	13664929	        17.78 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/errorsFor-14           	27393091	         8.690 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger
+cpu: Apple M4 Pro
+BenchmarkMiddleware_SlogDisabledLevel-14    	  628395	       323.6 ns/op	    1280 B/op	      12 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/opa
+cpu: Apple M4 Pro
+BenchmarkEvaluate_Cached-14    	  533500	       430.0 ns/op	     264 B/op	       9 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/oidc
+cpu: Apple M4 Pro
+BenchmarkObserveValidation/noop-14         	46573680	         5.108 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/noop-parallel-14         	468803792	         0.5727 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/prometheus-14            	 2644840	        89.91 ns/op	      48 B/op	       1 allocs/op
+BenchmarkObserveValidation/prometheus-parallel-14   	 1000000	       257.4 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/filter
+cpu: Apple M4 Pro
+BenchmarkParseShared_Cached-14    	14126787	        16.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkValidateRegex-14         	21613832	        13.56 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/limiters/storages/memory
+cpu: Apple M4 Pro
+BenchmarkProvider_Allow-14                   	 2500912	        82.26 ns/op	      67 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=1-14         	  748080	       283.7 ns/op	      24 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=8-14         	 1677032	       168.1 ns/op	      20 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=16-14        	 2075662	       118.9 ns/op	      22 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelHotKey-14                  	  928492	       267.7 ns/op	      27 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/keyset
+cpu: Apple M4 Pro
+BenchmarkCodec_Issue-14      	  544484	       417.4 ns/op	     176 B/op	       1 allocs/op
+BenchmarkCodec_Resolve-14    	  466188	       539.6 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/runtime/concurrency
+cpu: Apple M4 Pro
+BenchmarkProcessEmpty-14                     	120015127	         2.000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProcessSmallParallel-14             	  138258	      1826 ns/op	     577 B/op	      14 allocs/op
+BenchmarkProcessLargeBatch-14                	     565	    428471 ns/op	    1054 B/op	      22 allocs/op
+BenchmarkProcessCollectParallel-14           	  112228	      2173 ns/op	    1248 B/op	      17 allocs/op
+BenchmarkProcessCollectLargeCheapBatch-14    	      45	   5069331 ns/op	  910363 B/op	      25 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/io/wal
+cpu: Apple M4 Pro
+BenchmarkWAL_Append_Small-14       	    5670	     42655 ns/op	   1.50 MB/s	       0 B/op	       0 allocs/op
+BenchmarkWAL_Append_Large-14       	     388	    542104 ns/op	   7.56 MB/s	      25 B/op	       0 allocs/op
+BenchmarkWAL_Append_Parallel-14    	    4272	     51758 ns/op	   1.24 MB/s	      10 B/op	       0 allocs/op
+BenchmarkReadPending-14            	    4834	     48912 ns/op	   18592 B/op	     112 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/metrics
+cpu: Apple M4 Pro
+BenchmarkCounterInc-14           	100000000	         2.070 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/prebound-14         	100000000	         2.059 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/per_call-14         	 3003897	        79.31 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGaugeInc-14                           	55185619	         4.304 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/tracing
+cpu: Apple M4 Pro
+BenchmarkRecorderStartEnd/root-14         	  990456	       247.3 ns/op	     697 B/op	       6 allocs/op
+BenchmarkRecorderStartEnd/child-14        	 1000000	       248.9 ns/op	     729 B/op	       7 allocs/op
+BenchmarkRecorderStartEnd/child_with_link-14         	  566007	       416.9 ns/op	     985 B/op	      13 allocs/op
+BenchmarkRecorderStartEnd/child_parallel-14          	  876792	       390.3 ns/op	     732 B/op	       7 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/slog/handler/masking
+cpu: Apple M4 Pro
+BenchmarkHandlerHandle/clean_struct-14         	 3175659	        75.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHandlerHandle/sensitive_struct-14     	  322738	       706.1 ns/op	     376 B/op	       7 allocs/op
+BenchmarkHandlerHandle/sensitive_with_slice-14 	   84812	      2825 ns/op	    2041 B/op	      44 allocs/op
+BenchmarkHandlerHandle/group_attrs-14          	 1000000	       270.7 ns/op	     256 B/op	       4 allocs/op
+BenchmarkHandlerHandle/nested_mixed_case_group-14         	  824635	       306.9 ns/op	     288 B/op	       4 allocs/op
+BenchmarkHandlerHandle/defaults_mixed_case_group-14       	   52652	      4518 ns/op	     209 B/op	       5 allocs/op
+BenchmarkHandlerHandle/defaults_clean_struct-14           	   20730	     11395 ns/op	     685 B/op	      16 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/domain/fieldtracker
+cpu: Apple M4 Pro
+BenchmarkGetChangedFields_ReuseTracker-14    	 1471281	       162.1 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_OneOff-14          	  161881	      1970 ns/op	    2122 B/op	      45 allocs/op
+BenchmarkGetChangedFields_LargeStruct-14     	  885254	       255.9 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_LargeSlice-14      	   35420	      6907 ns/op	      32 B/op	       2 allocs/op
+BenchmarkGetChangedFields_NestedMap-14       	  163580	      1723 ns/op	     576 B/op	      36 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/security/secrets
+cpu: Apple M4 Pro
+BenchmarkManager_Value-14    	 2980692	        78.89 ns/op	     128 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/client/pool
+cpu: Apple M4 Pro
+BenchmarkGetAndReturnConnection-14                    	 2419958	        98.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetAndReturnConnection_ParallelTargets-14    	 3780434	        65.09 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/clientip
+cpu: Apple M4 Pro
+BenchmarkExtractor_Extract_UntrustedPeer-14    	 3103045	        76.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkExtractor_Extract_WithHeaders-14      	 1611494	       148.3 ns/op	      16 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth
+cpu: Apple M4 Pro
+BenchmarkExtractBearerToken-14    	 4119378	        54.71 ns/op	      24 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/client
+cpu: Apple M4 Pro
+BenchmarkHTTPClientMetrics_Cached/durationFor-14         	26852395	         8.527 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/totalFor-14            	13613641	        17.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/errorsFor-14           	28143274	         8.531 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger
+cpu: Apple M4 Pro
+BenchmarkMiddleware_SlogDisabledLevel-14    	  582091	       404.2 ns/op	    1280 B/op	      12 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/opa
+cpu: Apple M4 Pro
+BenchmarkEvaluate_Cached-14    	  502459	       520.7 ns/op	     264 B/op	       9 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/oidc
+cpu: Apple M4 Pro
+BenchmarkObserveValidation/noop-14         	47940476	         5.291 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/noop-parallel-14         	375091574	         0.7105 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/prometheus-14            	 2086756	       115.6 ns/op	      48 B/op	       1 allocs/op
+BenchmarkObserveValidation/prometheus-parallel-14   	  933866	       236.3 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/filter
+cpu: Apple M4 Pro
+BenchmarkParseShared_Cached-14    	 9706642	        23.09 ns/op	       0 B/op	       0 allocs/op
+BenchmarkValidateRegex-14         	15779827	        15.27 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/limiters/storages/memory
+cpu: Apple M4 Pro
+BenchmarkProvider_Allow-14                   	 1926133	       109.3 ns/op	      82 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=1-14         	  739988	       310.9 ns/op	      24 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=8-14         	 1540551	       156.3 ns/op	      20 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=16-14        	 1846418	       127.5 ns/op	      23 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelHotKey-14                  	  936417	       269.0 ns/op	      26 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/keyset
+cpu: Apple M4 Pro
+BenchmarkCodec_Issue-14      	  462535	       473.3 ns/op	     176 B/op	       1 allocs/op
+BenchmarkCodec_Resolve-14    	  413685	       593.9 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/runtime/concurrency
+cpu: Apple M4 Pro
+BenchmarkProcessEmpty-14                     	100000000	         2.082 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProcessSmallParallel-14             	  132001	      2013 ns/op	     577 B/op	      14 allocs/op
+BenchmarkProcessLargeBatch-14                	     523	    448369 ns/op	    1061 B/op	      22 allocs/op
+BenchmarkProcessCollectParallel-14           	  112909	      2057 ns/op	    1248 B/op	      17 allocs/op
+BenchmarkProcessCollectLargeCheapBatch-14    	      51	   5107825 ns/op	  910494 B/op	      25 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/io/wal
+cpu: Apple M4 Pro
+BenchmarkWAL_Append_Small-14       	    4341	     79887 ns/op	   0.80 MB/s	       0 B/op	       0 allocs/op
+BenchmarkWAL_Append_Large-14       	    1111	    256669 ns/op	  15.96 MB/s	      18 B/op	       0 allocs/op
+BenchmarkWAL_Append_Parallel-14    	    4693	     43440 ns/op	   1.47 MB/s	      11 B/op	       0 allocs/op
+BenchmarkReadPending-14            	    3822	     57196 ns/op	   18593 B/op	     112 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/metrics
+cpu: Apple M4 Pro
+BenchmarkCounterInc-14           	100000000	         2.052 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/prebound-14         	100000000	         2.058 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/per_call-14         	 3045286	        78.34 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGaugeInc-14                           	54007927	         4.297 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/tracing
+cpu: Apple M4 Pro
+BenchmarkRecorderStartEnd/root-14         	 1098153	       226.6 ns/op	     697 B/op	       6 allocs/op
+BenchmarkRecorderStartEnd/child-14        	  970480	       239.2 ns/op	     729 B/op	       7 allocs/op
+BenchmarkRecorderStartEnd/child_with_link-14         	  742507	       324.7 ns/op	     986 B/op	      13 allocs/op
+BenchmarkRecorderStartEnd/child_parallel-14          	 1000000	       204.8 ns/op	     734 B/op	       7 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/slog/handler/masking
+cpu: Apple M4 Pro
+BenchmarkHandlerHandle/clean_struct-14         	 3790428	        62.92 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHandlerHandle/sensitive_struct-14     	  372456	       605.4 ns/op	     376 B/op	       7 allocs/op
+BenchmarkHandlerHandle/sensitive_with_slice-14 	   98841	      2563 ns/op	    2041 B/op	      44 allocs/op
+BenchmarkHandlerHandle/group_attrs-14          	 1000000	       214.2 ns/op	     256 B/op	       4 allocs/op
+BenchmarkHandlerHandle/nested_mixed_case_group-14         	  916759	       270.8 ns/op	     288 B/op	       4 allocs/op
+BenchmarkHandlerHandle/defaults_mixed_case_group-14       	   61699	      3869 ns/op	     209 B/op	       5 allocs/op
+BenchmarkHandlerHandle/defaults_clean_struct-14           	   24420	      9775 ns/op	     683 B/op	      16 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/domain/fieldtracker
+cpu: Apple M4 Pro
+BenchmarkGetChangedFields_ReuseTracker-14    	 1527363	       156.1 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_OneOff-14          	  161811	      1436 ns/op	    2121 B/op	      45 allocs/op
+BenchmarkGetChangedFields_LargeStruct-14     	 1000000	       213.7 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_LargeSlice-14      	   40642	      5892 ns/op	      32 B/op	       2 allocs/op
+BenchmarkGetChangedFields_NestedMap-14       	  188665	      1268 ns/op	     576 B/op	      36 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/security/secrets
+cpu: Apple M4 Pro
+BenchmarkManager_Value-14    	 3069807	        78.70 ns/op	     128 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/client/pool
+cpu: Apple M4 Pro
+BenchmarkGetAndReturnConnection-14                    	 2448214	        95.99 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetAndReturnConnection_ParallelTargets-14    	 3466915	        76.81 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/clientip
+cpu: Apple M4 Pro
+BenchmarkExtractor_Extract_UntrustedPeer-14    	 3676017	        66.68 ns/op	       0 B/op	       0 allocs/op
+BenchmarkExtractor_Extract_WithHeaders-14      	 1723251	       137.8 ns/op	      16 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth
+cpu: Apple M4 Pro
+BenchmarkExtractBearerToken-14    	 4254391	        55.63 ns/op	      24 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/client
+cpu: Apple M4 Pro
+BenchmarkHTTPClientMetrics_Cached/durationFor-14         	26677536	         8.798 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/totalFor-14            	13638138	        17.71 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/errorsFor-14           	27178912	         8.733 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger
+cpu: Apple M4 Pro
+BenchmarkMiddleware_SlogDisabledLevel-14    	  647311	       413.5 ns/op	    1280 B/op	      12 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/opa
+cpu: Apple M4 Pro
+BenchmarkEvaluate_Cached-14    	  558139	       425.3 ns/op	     264 B/op	       9 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/oidc
+cpu: Apple M4 Pro
+BenchmarkObserveValidation/noop-14         	47215048	         5.053 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/noop-parallel-14         	474766881	         0.5936 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/prometheus-14            	 2093580	       114.8 ns/op	      48 B/op	       1 allocs/op
+BenchmarkObserveValidation/prometheus-parallel-14   	  701532	       363.9 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/filter
+cpu: Apple M4 Pro
+BenchmarkParseShared_Cached-14    	10608027	        21.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkValidateRegex-14         	15374061	        13.75 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/limiters/storages/memory
+cpu: Apple M4 Pro
+BenchmarkProvider_Allow-14                   	 2180270	        94.95 ns/op	      74 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=1-14         	  724090	       309.3 ns/op	      24 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=8-14         	 1620744	       155.1 ns/op	      23 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=16-14        	 2149183	       113.0 ns/op	      22 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelHotKey-14                  	  919363	       277.8 ns/op	      27 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/keyset
+cpu: Apple M4 Pro
+BenchmarkCodec_Issue-14      	  438956	       478.5 ns/op	     176 B/op	       1 allocs/op
+BenchmarkCodec_Resolve-14    	  372561	       605.4 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/runtime/concurrency
+cpu: Apple M4 Pro
+BenchmarkProcessEmpty-14                     	100000000	         2.085 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProcessSmallParallel-14             	  148021	      1618 ns/op	     577 B/op	      14 allocs/op
+BenchmarkProcessLargeBatch-14                	     714	    308819 ns/op	    1057 B/op	      22 allocs/op
+BenchmarkProcessCollectParallel-14           	   94064	      2371 ns/op	    1248 B/op	      17 allocs/op
+BenchmarkProcessCollectLargeCheapBatch-14    	      37	   5670036 ns/op	  910950 B/op	      26 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/io/wal
+cpu: Apple M4 Pro
+BenchmarkWAL_Append_Small-14       	    4890	     80817 ns/op	   0.79 MB/s	       0 B/op	       0 allocs/op
+BenchmarkWAL_Append_Large-14       	    2343	    568431 ns/op	   7.21 MB/s	       4 B/op	       0 allocs/op
+BenchmarkWAL_Append_Parallel-14    	    4766	     47543 ns/op	   1.35 MB/s	       8 B/op	       0 allocs/op
+BenchmarkReadPending-14            	   10000	     56097 ns/op	   18583 B/op	     112 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/metrics
+cpu: Apple M4 Pro
+BenchmarkCounterInc-14           	100000000	         2.200 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/prebound-14         	106957786	         2.264 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/per_call-14         	 2951036	        80.63 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGaugeInc-14                           	54829458	         4.746 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/tracing
+cpu: Apple M4 Pro
+BenchmarkRecorderStartEnd/root-14         	  958702	       246.8 ns/op	     697 B/op	       6 allocs/op
+BenchmarkRecorderStartEnd/child-14        	  991104	       256.9 ns/op	     729 B/op	       7 allocs/op
+BenchmarkRecorderStartEnd/child_with_link-14         	  723244	       403.3 ns/op	     986 B/op	      13 allocs/op
+BenchmarkRecorderStartEnd/child_parallel-14          	 1000000	       697.9 ns/op	     730 B/op	       7 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/slog/handler/masking
+cpu: Apple M4 Pro
+BenchmarkHandlerHandle/clean_struct-14         	 2994256	        80.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHandlerHandle/sensitive_struct-14     	  302395	       731.8 ns/op	     376 B/op	       7 allocs/op
+BenchmarkHandlerHandle/sensitive_with_slice-14 	   85888	      2979 ns/op	    2041 B/op	      44 allocs/op
+BenchmarkHandlerHandle/group_attrs-14          	  977518	       239.9 ns/op	     256 B/op	       4 allocs/op
+BenchmarkHandlerHandle/nested_mixed_case_group-14         	  877232	       285.2 ns/op	     288 B/op	       4 allocs/op
+BenchmarkHandlerHandle/defaults_mixed_case_group-14       	   56164	      4061 ns/op	     209 B/op	       5 allocs/op
+BenchmarkHandlerHandle/defaults_clean_struct-14           	   24205	      9757 ns/op	     683 B/op	      16 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/domain/fieldtracker
+cpu: Apple M4 Pro
+BenchmarkGetChangedFields_ReuseTracker-14    	 1537916	       154.7 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_OneOff-14          	  179607	      1320 ns/op	    2122 B/op	      45 allocs/op
+BenchmarkGetChangedFields_LargeStruct-14     	 1000000	       216.5 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_LargeSlice-14      	   41325	      5804 ns/op	      32 B/op	       2 allocs/op
+BenchmarkGetChangedFields_NestedMap-14       	  183061	      1299 ns/op	     576 B/op	      36 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/security/secrets
+cpu: Apple M4 Pro
+BenchmarkManager_Value-14    	 2918810	        79.54 ns/op	     128 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/client/pool
+cpu: Apple M4 Pro
+BenchmarkGetAndReturnConnection-14                    	 2508549	        96.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetAndReturnConnection_ParallelTargets-14    	 3169837	        72.23 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/clientip
+cpu: Apple M4 Pro
+BenchmarkExtractor_Extract_UntrustedPeer-14    	 3768957	        62.42 ns/op	       0 B/op	       0 allocs/op
+BenchmarkExtractor_Extract_WithHeaders-14      	 1891591	       127.2 ns/op	      16 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth
+cpu: Apple M4 Pro
+BenchmarkExtractBearerToken-14    	 4555876	        52.14 ns/op	      24 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/client
+cpu: Apple M4 Pro
+BenchmarkHTTPClientMetrics_Cached/durationFor-14         	26875948	         8.908 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/totalFor-14            	12898314	        17.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/errorsFor-14           	27846132	         8.781 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger
+cpu: Apple M4 Pro
+BenchmarkMiddleware_SlogDisabledLevel-14    	  591788	       347.4 ns/op	    1280 B/op	      12 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/opa
+cpu: Apple M4 Pro
+BenchmarkEvaluate_Cached-14    	  502122	       413.6 ns/op	     264 B/op	       9 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/oidc
+cpu: Apple M4 Pro
+BenchmarkObserveValidation/noop-14         	48016804	         5.038 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/noop-parallel-14         	415856857	         0.5975 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/prometheus-14            	 2598751	        90.85 ns/op	      48 B/op	       1 allocs/op
+BenchmarkObserveValidation/prometheus-parallel-14   	 1466680	       183.4 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/filter
+cpu: Apple M4 Pro
+BenchmarkParseShared_Cached-14    	13072754	        18.21 ns/op	       0 B/op	       0 allocs/op
+BenchmarkValidateRegex-14         	19292409	        12.08 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/limiters/storages/memory
+cpu: Apple M4 Pro
+BenchmarkProvider_Allow-14                   	 2305370	        90.10 ns/op	      71 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=1-14         	  798579	       374.2 ns/op	      24 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=8-14         	 1489656	       169.5 ns/op	      20 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=16-14        	 1778473	       121.0 ns/op	      23 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelHotKey-14                  	  881852	       283.5 ns/op	      27 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/keyset
+cpu: Apple M4 Pro
+BenchmarkCodec_Issue-14      	  434100	       478.6 ns/op	     176 B/op	       1 allocs/op
+BenchmarkCodec_Resolve-14    	  371398	       624.1 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/runtime/concurrency
+cpu: Apple M4 Pro
+BenchmarkProcessEmpty-14                     	100000000	         2.074 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProcessSmallParallel-14             	  144582	      1697 ns/op	     577 B/op	      14 allocs/op
+BenchmarkProcessLargeBatch-14                	     560	    415081 ns/op	    1016 B/op	      22 allocs/op
+BenchmarkProcessCollectParallel-14           	  103749	      2055 ns/op	    1248 B/op	      17 allocs/op
+BenchmarkProcessCollectLargeCheapBatch-14    	      39	   5287996 ns/op	  910385 B/op	      25 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/io/wal
+cpu: Apple M4 Pro
+BenchmarkWAL_Append_Small-14       	    2760	     90624 ns/op	   0.71 MB/s	       0 B/op	       0 allocs/op
+BenchmarkWAL_Append_Large-14       	     636	    337207 ns/op	  12.15 MB/s	      32 B/op	       0 allocs/op
+BenchmarkWAL_Append_Parallel-14    	    7720	     40184 ns/op	   1.59 MB/s	       3 B/op	       0 allocs/op
+BenchmarkReadPending-14            	    7873	     41929 ns/op	   18585 B/op	     112 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/metrics
+cpu: Apple M4 Pro
+BenchmarkCounterInc-14           	100000000	         2.163 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/prebound-14         	100000000	         2.431 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/per_call-14         	 2569969	        91.95 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGaugeInc-14                           	49060531	         4.871 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/tracing
+cpu: Apple M4 Pro
+BenchmarkRecorderStartEnd/root-14         	  939681	       257.1 ns/op	     697 B/op	       6 allocs/op
+BenchmarkRecorderStartEnd/child-14        	  891902	       265.6 ns/op	     729 B/op	       7 allocs/op
+BenchmarkRecorderStartEnd/child_with_link-14         	  693800	       331.6 ns/op	     986 B/op	      13 allocs/op
+BenchmarkRecorderStartEnd/child_parallel-14          	 1000000	       219.6 ns/op	     734 B/op	       7 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/slog/handler/masking
+cpu: Apple M4 Pro
+BenchmarkHandlerHandle/clean_struct-14         	 3792877	        63.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHandlerHandle/sensitive_struct-14     	  358458	       634.3 ns/op	     376 B/op	       7 allocs/op
+BenchmarkHandlerHandle/sensitive_with_slice-14 	   97112	      2462 ns/op	    2041 B/op	      44 allocs/op
+BenchmarkHandlerHandle/group_attrs-14          	 1000000	       204.1 ns/op	     256 B/op	       4 allocs/op
+BenchmarkHandlerHandle/nested_mixed_case_group-14         	  976502	       253.1 ns/op	     288 B/op	       4 allocs/op
+BenchmarkHandlerHandle/defaults_mixed_case_group-14       	   61528	      3855 ns/op	     208 B/op	       5 allocs/op
+BenchmarkHandlerHandle/defaults_clean_struct-14           	   24367	      9855 ns/op	     686 B/op	      16 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/domain/fieldtracker
+cpu: Apple M4 Pro
+BenchmarkGetChangedFields_ReuseTracker-14    	 1541678	       155.9 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_OneOff-14          	  151268	      1393 ns/op	    2121 B/op	      45 allocs/op
+BenchmarkGetChangedFields_LargeStruct-14     	 1000000	       215.1 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_LargeSlice-14      	   39547	      6137 ns/op	      32 B/op	       2 allocs/op
+BenchmarkGetChangedFields_NestedMap-14       	  183079	      1334 ns/op	     576 B/op	      36 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/security/secrets
+cpu: Apple M4 Pro
+BenchmarkManager_Value-14    	 2861014	        85.32 ns/op	     128 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/client/pool
+cpu: Apple M4 Pro
+BenchmarkGetAndReturnConnection-14                    	 2129682	       110.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetAndReturnConnection_ParallelTargets-14    	 3187416	        71.08 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/clientip
+cpu: Apple M4 Pro
+BenchmarkExtractor_Extract_UntrustedPeer-14    	 2940226	        81.97 ns/op	       0 B/op	       0 allocs/op
+BenchmarkExtractor_Extract_WithHeaders-14      	 1341631	       166.3 ns/op	      16 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth
+cpu: Apple M4 Pro
+BenchmarkExtractBearerToken-14    	 3551242	        67.32 ns/op	      24 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/client
+cpu: Apple M4 Pro
+BenchmarkHTTPClientMetrics_Cached/durationFor-14         	22406870	        10.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/totalFor-14            	11868360	        21.68 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/errorsFor-14           	24357445	         9.970 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger
+cpu: Apple M4 Pro
+BenchmarkMiddleware_SlogDisabledLevel-14    	  495517	       447.0 ns/op	    1280 B/op	      12 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/opa
+cpu: Apple M4 Pro
+BenchmarkEvaluate_Cached-14    	  503064	       477.9 ns/op	     264 B/op	       9 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/oidc
+cpu: Apple M4 Pro
+BenchmarkObserveValidation/noop-14         	42648340	         5.611 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/noop-parallel-14         	249056421	         1.522 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/prometheus-14            	 1950704	       119.0 ns/op	      48 B/op	       1 allocs/op
+BenchmarkObserveValidation/prometheus-parallel-14   	  585336	       394.1 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/filter
+cpu: Apple M4 Pro
+BenchmarkParseShared_Cached-14    	11086111	        20.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkValidateRegex-14         	16202030	        13.01 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/limiters/storages/memory
+cpu: Apple M4 Pro
+BenchmarkProvider_Allow-14                   	 2249960	        92.06 ns/op	      72 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=1-14         	  792426	       314.5 ns/op	      24 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=8-14         	 1615885	       142.0 ns/op	      23 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=16-14        	 2216944	       127.5 ns/op	      22 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelHotKey-14                  	 1000000	       251.0 ns/op	      28 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/keyset
+cpu: Apple M4 Pro
+BenchmarkCodec_Issue-14      	  474104	       460.9 ns/op	     176 B/op	       1 allocs/op
+BenchmarkCodec_Resolve-14    	  391449	       640.5 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/runtime/concurrency
+cpu: Apple M4 Pro
+BenchmarkProcessEmpty-14                     	100000000	         2.084 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProcessSmallParallel-14             	  127923	      1755 ns/op	     577 B/op	      14 allocs/op
+BenchmarkProcessLargeBatch-14                	     556	    414982 ns/op	    1001 B/op	      22 allocs/op
+BenchmarkProcessCollectParallel-14           	  108552	      2120 ns/op	    1248 B/op	      17 allocs/op
+BenchmarkProcessCollectLargeCheapBatch-14    	      45	   5010370 ns/op	  910946 B/op	      26 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/io/wal
+cpu: Apple M4 Pro
+BenchmarkWAL_Append_Small-14       	  149187	      1680 ns/op	  38.09 MB/s	       0 B/op	       0 allocs/op
+BenchmarkWAL_Append_Large-14       	   49838	      5934 ns/op	 690.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkWAL_Append_Parallel-14    	  309750	       944.5 ns/op	  67.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkReadPending-14            	   10000	     21620 ns/op	   18582 B/op	     112 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/metrics
+cpu: Apple M4 Pro
+BenchmarkCounterInc-14           	100000000	         2.054 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/prebound-14         	100000000	         2.012 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/per_call-14         	 3058683	        79.31 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGaugeInc-14                           	56326458	         4.316 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/tracing
+cpu: Apple M4 Pro
+BenchmarkRecorderStartEnd/root-14         	  824068	       274.7 ns/op	     697 B/op	       6 allocs/op
+BenchmarkRecorderStartEnd/child-14        	 1000000	       300.9 ns/op	     729 B/op	       7 allocs/op
+BenchmarkRecorderStartEnd/child_with_link-14         	  531693	       426.2 ns/op	     986 B/op	      13 allocs/op
+BenchmarkRecorderStartEnd/child_parallel-14          	 1000000	       215.2 ns/op	     734 B/op	       7 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/slog/handler/masking
+cpu: Apple M4 Pro
+BenchmarkHandlerHandle/clean_struct-14         	 3818053	        63.00 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHandlerHandle/sensitive_struct-14     	  348285	       630.5 ns/op	     376 B/op	       7 allocs/op
+BenchmarkHandlerHandle/sensitive_with_slice-14 	   97165	      2389 ns/op	    2041 B/op	      44 allocs/op
+BenchmarkHandlerHandle/group_attrs-14          	 1201440	       201.2 ns/op	     256 B/op	       4 allocs/op
+BenchmarkHandlerHandle/nested_mixed_case_group-14         	  967855	       260.9 ns/op	     288 B/op	       4 allocs/op
+BenchmarkHandlerHandle/defaults_mixed_case_group-14       	   62725	      3834 ns/op	     208 B/op	       5 allocs/op
+BenchmarkHandlerHandle/defaults_clean_struct-14           	   24340	      9854 ns/op	     686 B/op	      16 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/domain/fieldtracker
+cpu: Apple M4 Pro
+BenchmarkGetChangedFields_ReuseTracker-14    	 1559877	       153.4 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_OneOff-14          	  179550	      1275 ns/op	    2122 B/op	      45 allocs/op
+BenchmarkGetChangedFields_LargeStruct-14     	 1000000	       219.2 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_LargeSlice-14      	   38096	      6062 ns/op	      32 B/op	       2 allocs/op
+BenchmarkGetChangedFields_NestedMap-14       	  185301	      1308 ns/op	     576 B/op	      36 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/security/secrets
+cpu: Apple M4 Pro
+BenchmarkManager_Value-14    	 3132362	        75.97 ns/op	     128 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/client/pool
+cpu: Apple M4 Pro
+BenchmarkGetAndReturnConnection-14                    	 2398838	        95.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGetAndReturnConnection_ParallelTargets-14    	 3458158	        81.97 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/clientip
+cpu: Apple M4 Pro
+BenchmarkExtractor_Extract_UntrustedPeer-14    	 4091181	        59.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkExtractor_Extract_WithHeaders-14      	 1890074	       126.8 ns/op	      16 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth
+cpu: Apple M4 Pro
+BenchmarkExtractBearerToken-14    	 4402376	        52.21 ns/op	      24 B/op	       2 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/client
+cpu: Apple M4 Pro
+BenchmarkHTTPClientMetrics_Cached/durationFor-14         	26556262	         8.663 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/totalFor-14            	13582662	        17.44 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHTTPClientMetrics_Cached/errorsFor-14           	28982444	         8.615 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger
+cpu: Apple M4 Pro
+BenchmarkMiddleware_SlogDisabledLevel-14    	  690112	       334.2 ns/op	    1280 B/op	      12 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/opa
+cpu: Apple M4 Pro
+BenchmarkEvaluate_Cached-14    	  573040	       417.1 ns/op	     264 B/op	       9 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/auth/oidc
+cpu: Apple M4 Pro
+BenchmarkObserveValidation/noop-14         	47582850	         4.958 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/noop-parallel-14         	497775565	         0.5241 ns/op	       0 B/op	       0 allocs/op
+BenchmarkObserveValidation/prometheus-14            	 2700757	        85.26 ns/op	      48 B/op	       1 allocs/op
+BenchmarkObserveValidation/prometheus-parallel-14   	 1000000	       228.8 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/filter
+cpu: Apple M4 Pro
+BenchmarkParseShared_Cached-14    	14234840	        19.16 ns/op	       0 B/op	       0 allocs/op
+BenchmarkValidateRegex-14         	21289334	        11.20 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/limiters/storages/memory
+cpu: Apple M4 Pro
+BenchmarkProvider_Allow-14                   	 2579640	        80.93 ns/op	      65 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=1-14         	  847045	       279.1 ns/op	      23 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=8-14         	 1785723	       136.4 ns/op	      23 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelSpread/shards=16-14        	 1861389	       115.3 ns/op	      23 B/op	       1 allocs/op
+BenchmarkProvider_Allow_ParallelHotKey-14                  	 1000000	       218.7 ns/op	      28 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/data/keyset
+cpu: Apple M4 Pro
+BenchmarkCodec_Issue-14      	  585898	       403.5 ns/op	     176 B/op	       1 allocs/op
+BenchmarkCodec_Resolve-14    	  463003	       518.8 ns/op	      48 B/op	       1 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/runtime/concurrency
+cpu: Apple M4 Pro
+BenchmarkProcessEmpty-14                     	129973927	         1.842 ns/op	       0 B/op	       0 allocs/op
+BenchmarkProcessSmallParallel-14             	  153646	      1675 ns/op	     577 B/op	      14 allocs/op
+BenchmarkProcessLargeBatch-14                	    1180	    395768 ns/op	     976 B/op	      22 allocs/op
+BenchmarkProcessCollectParallel-14           	  114921	      2191 ns/op	    1248 B/op	      17 allocs/op
+BenchmarkProcessCollectLargeCheapBatch-14    	      36	   6280067 ns/op	  910484 B/op	      25 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/core/io/wal
+cpu: Apple M4 Pro
+BenchmarkWAL_Append_Small-14       	    2538	     84023 ns/op	   0.76 MB/s	       0 B/op	       0 allocs/op
+BenchmarkWAL_Append_Large-14       	     814	    286881 ns/op	  14.28 MB/s	      18 B/op	       0 allocs/op
+BenchmarkWAL_Append_Parallel-14    	    7105	     44090 ns/op	   1.45 MB/s	       4 B/op	       0 allocs/op
+BenchmarkReadPending-14            	    7468	     35578 ns/op	   18585 B/op	     112 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/metrics
+cpu: Apple M4 Pro
+BenchmarkCounterInc-14           	100000000	         2.034 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/prebound-14         	100000000	         2.056 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLabeledCounterInc/per_call-14         	 3030354	        79.51 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGaugeInc-14                           	53936619	         4.336 ns/op	       0 B/op	       0 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/tracing
+cpu: Apple M4 Pro
+BenchmarkRecorderStartEnd/root-14         	 1098008	       215.9 ns/op	     697 B/op	       6 allocs/op
+BenchmarkRecorderStartEnd/child-14        	 1000000	       226.9 ns/op	     729 B/op	       7 allocs/op
+BenchmarkRecorderStartEnd/child_with_link-14         	  810513	       323.5 ns/op	     986 B/op	      13 allocs/op
+BenchmarkRecorderStartEnd/child_parallel-14          	 1000000	       206.7 ns/op	     734 B/op	       7 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/observability/slog/handler/masking
+cpu: Apple M4 Pro
+BenchmarkHandlerHandle/clean_struct-14         	 3854672	        62.25 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHandlerHandle/sensitive_struct-14     	  356602	       670.0 ns/op	     376 B/op	       7 allocs/op
+BenchmarkHandlerHandle/sensitive_with_slice-14 	  101262	      2396 ns/op	    2041 B/op	      44 allocs/op
+BenchmarkHandlerHandle/group_attrs-14          	 1000000	       202.3 ns/op	     256 B/op	       4 allocs/op
+BenchmarkHandlerHandle/nested_mixed_case_group-14         	 1000000	       267.1 ns/op	     288 B/op	       4 allocs/op
+BenchmarkHandlerHandle/defaults_mixed_case_group-14       	   61761	      3903 ns/op	     209 B/op	       5 allocs/op
+BenchmarkHandlerHandle/defaults_clean_struct-14           	   24374	      9832 ns/op	     683 B/op	      16 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/domain/fieldtracker
+cpu: Apple M4 Pro
+BenchmarkGetChangedFields_ReuseTracker-14    	 1530508	       159.6 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_OneOff-14          	  162087	      1475 ns/op	    2121 B/op	      45 allocs/op
+BenchmarkGetChangedFields_LargeStruct-14     	 1000000	       221.8 ns/op	      32 B/op	       1 allocs/op
+BenchmarkGetChangedFields_LargeSlice-14      	   40729	      5852 ns/op	      32 B/op	       2 allocs/op
+BenchmarkGetChangedFields_NestedMap-14       	  175587	      1316 ns/op	     576 B/op	      36 allocs/op
+goos: darwin
+goarch: arm64
+pkg: github.com/altessa-s/go-atlas/security/secrets
+cpu: Apple M4 Pro
+BenchmarkManager_Value-14    	 2728220	        82.38 ns/op	     128 B/op	       2 allocs/op

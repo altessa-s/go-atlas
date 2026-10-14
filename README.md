@@ -168,6 +168,7 @@ cd go-atlas
 | `make test-all` | Tests with race detector, shuffle, and coverage |
 | `make bench` | Run all benchmarks |
 | `make security-scan` | Run `govulncheck` and `gosec` |
+| `make bench-gate` | Fail on hot-path benchmark regressions against the local baseline ([details](CONTRIBUTING.md#benchmark-regression-gate)) |
 | `make generate` | Run `go generate` across all packages |
 | `make ci` | Run full CI checks locally (lint, test, security, dupl) |
 | `make clean` | Remove generated artifacts |

@@ -123,6 +123,14 @@ test-coverage-func: ## Run tests and show formatted per-package coverage
 	  { \
 	    st=$$1; gsub(/^[ \t]+|[ \t]+$$/, "", st); \
 	    pkg=$$2; gsub(/^[ \t]+|[ \t]+$$/, "", pkg); sub(/github.com\/altessa-s\/go-atlas\//, "", pkg); \
+.PHONY: bench-gate
+bench-gate: ## Fail if hot-path benchmarks regressed against benchmarks/baseline.txt (same machine only)
+	@./benchmarks/bench-gate.sh gate
+
+.PHONY: bench-baseline
+bench-baseline: ## Regenerate benchmarks/baseline.txt from the hot-path list on this machine
+	@./benchmarks/bench-gate.sh baseline
+
 	    if (st=="ok") cs="32"; else if (st=="FAIL") cs="31"; else cs="33"; \
 	    cov=$$4; gsub(/^[ \t]+|[ \t]+$$/, "", cov); \
 	    match(cov, /[0-9]+\.[0-9]+/); pct=substr(cov,RSTART,RLENGTH)+0; \

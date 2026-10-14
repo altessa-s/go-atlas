@@ -1,0 +1,67 @@
+name: Bench
+
+# Benchmark regression gate for the hot paths in benchmarks/hotpaths.txt.
+#
+# The committed benchmarks/baseline.txt describes a developer machine and is
+# meaningless on a CI runner, so this job never reads it. Instead it checks
+# out the PR and its base side by side and benchmarks both on the same runner,
+# interleaving the two round by round so runner drift hits both equally. The
+# PR's copy of the list and the script is used for both sides.
+on:
+  pull_request:
+    branches: [develop, main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: Benchmark regression gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          path: pr
+
+      - name: Checkout base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: |
+            pr/go.sum
+            pr/devtools/go.sum
+            base/go.sum
+
+      # A sec/op-only failure is measured a second time before it fails the
+      # job (see the script header); allocs/op regressions fail at once.
+      - name: Benchmark base and PR, then compare
+        run: |
+          status=0
+          pr/benchmarks/bench-gate.sh pair base pr bench > compare.txt || status=$?
+          cat compare.txt
+          { echo '```'; cat compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench
+          path: |
+            bench/
+            compare.txt
+          if-no-files-found: ignore
+          retention-days: 14
