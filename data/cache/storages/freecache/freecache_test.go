@@ -146,3 +146,20 @@ func TestProvider_Concurrent(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestGetMany(t *testing.T) {
+	t.Parallel()
+
+	p := freecache.New()
+	ctx := t.Context()
+	require.NoError(t, p.Save(ctx, "a", []byte("1"), 0))
+	require.NoError(t, p.Save(ctx, "b", []byte("2"), time.Minute))
+
+	got, err := p.GetMany(ctx, []string{"a", "b", "missing"})
+	require.NoError(t, err)
+	require.Equal(t, map[string][]byte{"a": []byte("1"), "b": []byte("2")}, got)
+
+	got, err = p.GetMany(ctx, nil)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}

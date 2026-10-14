@@ -26,4 +26,9 @@
 //
 // When a [health.Coordinator] is provided via [ClientBuilder.UseHealthCoordinator],
 // the builder registers a health checker that pings Redis on each check.
+//
+// [ClientBuilder.Build] pings Redis before returning the client. For a
+// service that must start while Redis is down, [ClientBuilder.SkipStartupPing]
+// drops the ping and [ClientBuilder.WithoutHealth] drops the health checker;
+// go-redis reconnects by itself once Redis is reachable.
 package factory

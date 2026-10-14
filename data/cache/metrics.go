@@ -23,7 +23,22 @@ type cacheMetrics struct {
 	size             metrics.Gauge
 	writeDuration    metrics.Timer
 	fallbackDuration metrics.Timer
+
+	// fail_open_total, one pre-bound series per op; recorded only by a cache
+	// built with WithFailOpen.
+	failOpenGet      metrics.Counter
+	failOpenDecode   metrics.Counter
+	failOpenSave     metrics.Counter
+	failOpenOverload metrics.Counter
 }
+
+// Values of the op label of the fail_open_total counter.
+const (
+	failOpenOpGet      = "get"
+	failOpenOpDecode   = "decode"
+	failOpenOpSave     = "save"
+	failOpenOpOverload = "overload"
+)
 
 func newCacheMetrics(c metrics.Collector, cacheName string) *cacheMetrics {
 	if c == nil {
@@ -33,7 +48,20 @@ func newCacheMetrics(c metrics.Collector, cacheName string) *cacheMetrics {
 	scoped := c.WithSubsystem("cache")
 	labels := metrics.Labels{"cache_name": cacheName}
 
+	failOpen := scoped.MustCounter(metrics.MetricOpts{
+		Name:       "fail_open_total",
+		Help:       "Total number of cache failures degraded by fail-open mode, by operation.",
+		LabelNames: []string{"cache_name", "op"},
+	})
+	failOpenFor := func(op string) metrics.Counter {
+		return failOpen.WithLabels(metrics.Labels{"cache_name": cacheName, "op": op})
+	}
+
 	return &cacheMetrics{
+		failOpenGet:      failOpenFor(failOpenOpGet),
+		failOpenDecode:   failOpenFor(failOpenOpDecode),
+		failOpenSave:     failOpenFor(failOpenOpSave),
+		failOpenOverload: failOpenFor(failOpenOpOverload),
 		hits: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "hits_total",
 			Help:       "Total number of cache hits.",

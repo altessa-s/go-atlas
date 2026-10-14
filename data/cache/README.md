@@ -47,6 +47,42 @@ Capacity remains occupied until the callback exits, even after every waiter canc
 | `WithNegativeTTL` | 0 | Cache missing results; zero disables negative caching |
 | `WithCollector` | no-op | Metrics collector |
 | `WithName` | `""` | Cache name used in metric labels |
+| `WithFailOpen(ioTimeout)` | off | Storage and decode failures become misses; positive `ioTimeout` bounds each storage call (see below) |
+| `WithIsolatedResults()` | off | Collapsed callers share serialized bytes and each decodes its own copy (see below) |
+
+## Fail-open mode
+
+`WithFailOpen(ioTimeout)` makes the cache an optimization that never fails a request on its own. A positive `ioTimeout` bounds every
+storage `Get`, `GetMany` and `Save` call; zero adds no bound beyond the caller's context.
+
+| Situation | Default | Fail-open |
+|-----------|---------|-----------|
+| Storage read error or timeout | error returned | miss: `GetWithFallback*` runs the fallback, `Get` returns `ErrMissing`, `GetManyRaw` omits the keys |
+| Stored value fails to decode | error returned | miss, and the key is deleted best-effort |
+| Fallback rejected with `ErrOverloaded` | `ErrOverloaded` | the fallback runs directly in the caller, unshared, within `WithFallbackTimeout` |
+| Write after a successful fallback fails | error returned | the loaded value is returned |
+| `Save` fails or times out | error returned | `nil` |
+| Fallback error, `ErrMissing`, negative caching | unchanged | unchanged |
+
+The caller's own context cancellation is still returned. Every degraded event increments `cache_errors_total` (except overload) and
+`cache_fail_open_total{cache_name, op}`, where `op` is `get`, `decode`, `save` or `overload`.
+
+## Isolated results
+
+By default the callers collapsed onto one `GetWithFallback` / `GetWithFallbackT` fallback receive the value the fallback returned, so a slice,
+map or pointer inside it is shared and one caller's mutation is visible to the others. `WithIsolatedResults()` shares the serialized bytes
+instead: every caller, including the one that ran the fallback, decodes its own copy. It costs one decode per caller on the miss path.
+
+## Batch reads
+
+```go
+raw, err := c.GetManyRaw(ctx, []string{"user:1", "user:2"})          // map[string][]byte of found keys
+users, err := cache.GetManyT[User](ctx, c, []string{"user:1", "user:2"}) // each hit decoded into its own User
+```
+
+Results are keyed by the caller's keys (namespacing applies to storage keys only); missing and negatively cached keys are absent. The read is a
+single `storages.MultiGetter.GetMany` call when the storage implements it, otherwise a loop of `Get`. Hits, misses and negative hits are counted
+per key. In `GetManyT` a value that fails to decode returns the error, or with fail-open is a miss for that key and is deleted best-effort.
 
 ## Tenant isolation (multi-tenant deployments)
 
@@ -64,7 +100,7 @@ c := cache.New(provider, cache.WithKeyNamespace(func(ctx context.Context) string
 }))
 ```
 
-`WithKeyNamespace` is applied uniformly to `Get`, `Save`, `Exists`, `Delete`, `DeleteMany`, and both the backend and
+`WithKeyNamespace` is applied uniformly to `Get`, `GetManyRaw`, `GetManyT`, `Save`, `Exists`, `Delete`, `DeleteMany`, and both the backend and
 singleflight key inside `GetWithFallback`, so a `Get` and its matching `Save` always agree. With a namespace function configured, keys are encoded as
 `<namespace byte length>:<namespace>:<key>`. An empty namespace is encoded too. Without a namespace function, keys are unchanged.
 

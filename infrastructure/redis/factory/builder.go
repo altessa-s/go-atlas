@@ -53,6 +53,10 @@ type ClientBuilder struct {
 	// path to TLS at all before this hook — operators got plaintext
 	// connections silently regardless of deployment posture.
 	tlsConfig *tls.Config
+	// skipPing and noHealth make construction independent of Redis being
+	// reachable (see SkipStartupPing and WithoutHealth).
+	skipPing bool
+	noHealth bool
 }
 
 // WithTLSConfig installs a *tls.Config to apply to the Redis client.
@@ -61,6 +65,23 @@ type ClientBuilder struct {
 // hook, field-based configs silently fall back to plaintext.
 func (b *ClientBuilder) WithTLSConfig(cfg *tls.Config) *ClientBuilder {
 	b.tlsConfig = cfg
+	return b
+}
+
+// SkipStartupPing builds the client without the startup ping, so
+// [ClientBuilder.Build] succeeds while Redis is down. go-redis dials lazily and
+// reconnects on its own; commands fail until Redis becomes reachable. Use it
+// when Redis is optional for the service (for example a fail-open cache).
+func (b *ClientBuilder) SkipStartupPing() *ClientBuilder {
+	b.skipPing = true
+	return b
+}
+
+// WithoutHealth builds the client without registering a health checker, even
+// when a coordinator was set with [ClientBuilder.UseHealthCoordinator], so an
+// unreachable Redis does not mark the service as not serving.
+func (b *ClientBuilder) WithoutHealth() *ClientBuilder {
+	b.noHealth = true
 	return b
 }
 
@@ -76,9 +97,10 @@ func New(cfg *redisconfig.Config) *ClientBuilder {
 // Build creates a [redis.UniversalClient] from configuration.
 // After creating the client it performs a health-check ping within
 // [DefaultPingTimeout]; if the ping fails the client is closed and an error
-// is returned. If a [health.Coordinator] was provided via
-// [ClientBuilder.UseHealthCoordinator], a health checker is registered under
-// the service name "redis".
+// is returned; [ClientBuilder.SkipStartupPing] disables the ping. If a
+// [health.Coordinator] was provided via [ClientBuilder.UseHealthCoordinator],
+// a health checker is registered under the service name "redis" unless
+// [ClientBuilder.WithoutHealth] was called.
 func (b *ClientBuilder) Build(ctx context.Context) (redis.UniversalClient, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -94,6 +116,29 @@ func (b *ClientBuilder) Build(ctx context.Context) (redis.UniversalClient, error
 	}
 	client := redis.NewUniversalClient(opts)
 
+	if !b.skipPing {
+		if err := b.ping(ctx, client); err != nil {
+			return nil, err
+		}
+	}
+
+	mode := b.detectMode()
+	b.Logger().Debug("Redis client created",
+		slog.String("mode", mode),
+		slog.Any("hosts", b.cfg.Hosts))
+
+	if b.healthCoordinator != nil && !b.noHealth {
+		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "redis"), &redisHealthChecker{
+			client: client,
+			logger: b.Logger(),
+		})
+	}
+
+	return client, nil
+}
+
+// ping checks client within [DefaultPingTimeout] and closes it on failure.
+func (b *ClientBuilder) ping(ctx context.Context, client redis.UniversalClient) error {
 	pingCtx, cancel := corectx.ApplyTimeout(ctx, DefaultPingTimeout)
 	defer cancel()
 
@@ -102,22 +147,9 @@ func (b *ClientBuilder) Build(ctx context.Context) (redis.UniversalClient, error
 			b.Logger().Warn("failed to close Redis client after ping failure",
 				slog.Any("error", closeErr))
 		}
-		return nil, b.WrapError(err, "health check failed")
+		return b.WrapError(err, "health check failed")
 	}
-
-	mode := b.detectMode()
-	b.Logger().Debug("Redis client created",
-		slog.String("mode", mode),
-		slog.Any("hosts", b.cfg.Hosts))
-
-	if b.healthCoordinator != nil {
-		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "redis"), &redisHealthChecker{
-			client: client,
-			logger: b.Logger(),
-		})
-	}
-
-	return client, nil
+	return nil
 }
 
 // UniversalOptions builds [redis.UniversalOptions] from configuration.

@@ -43,3 +43,13 @@ func TestNoop_DeleteMany(t *testing.T) {
 	err := p.DeleteMany(t.Context(), "k1", "k2")
 	require.NoError(t, err)
 }
+
+func TestNoop_GetMany(t *testing.T) {
+	t.Parallel()
+
+	p := New()
+	require.NoError(t, p.Save(t.Context(), "key", []byte("value"), time.Minute))
+	got, err := p.GetMany(t.Context(), []string{"key"})
+	require.NoError(t, err)
+	require.Empty(t, got)
+}

@@ -12,6 +12,7 @@ top-level `cache.Cache` to supply the underlying storage backend.
 | Type / Interface | Description                                                       |
 |------------------|-------------------------------------------------------------------|
 | `Storage`       | Interface: Save, Get, Delete, DeleteMany, Exists                  |
+| `MultiGetter`    | Optional interface: `GetMany(ctx, keys)` returns found keys only; missing keys are absent. Implemented by every subpackage (Redis uses a pipeline of GETs, not MGET, so Cluster cross-slot keys work) |
 | `ErrMissing`     | Sentinel error returned when a cache key is not found             |
 
 ## Subpackages

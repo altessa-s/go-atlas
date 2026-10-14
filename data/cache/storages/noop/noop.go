@@ -41,4 +41,12 @@ func (p *Storage) Exists(_ context.Context, _ string) (bool, error) { return fal
 // DeleteMany is a no-op and returns nil.
 func (p *Storage) DeleteMany(_ context.Context, _ ...string) error { return nil }
 
-var _ storages.Storage = (*Storage)(nil)
+// GetMany always returns an empty map since no data is stored.
+func (p *Storage) GetMany(_ context.Context, _ []string) (map[string][]byte, error) {
+	return map[string][]byte{}, nil
+}
+
+var (
+	_ storages.Storage     = (*Storage)(nil)
+	_ storages.MultiGetter = (*Storage)(nil)
+)

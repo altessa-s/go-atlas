@@ -29,5 +29,15 @@ type Storage interface {
 	Exists(ctx context.Context, key string) (bool, error)
 }
 
+// MultiGetter is an optional interface a [Storage] implements to read many
+// keys in one round trip. Callers type-assert for it and fall back to a loop
+// of Get calls when it is absent. Implementations must be safe for
+// concurrent use.
+type MultiGetter interface {
+	// GetMany returns the values of the keys that are present. Missing keys
+	// are absent from the map; a missing key is not an error.
+	GetMany(ctx context.Context, keys []string) (map[string][]byte, error)
+}
+
 // ErrMissing is returned when a cache key is not found.
 var ErrMissing = errors.New("no cache found")

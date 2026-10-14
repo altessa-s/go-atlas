@@ -55,6 +55,11 @@ type Cache struct {
 	serializer   serializer.Serializer
 	metrics      *cacheMetrics
 	keyNamespace KeyNamespaceFunc // nil = no per-context namespacing
+
+	fallbackTimeout time.Duration // bounds a fallback run outside the group (fail-open overload)
+	failOpen        bool
+	ioTimeout       time.Duration // bounds each storage call when positive
+	isolated        bool          // collapsed callers share serialized bytes
 }
 
 // New creates a new Cache instance with the given provider and options.
@@ -78,6 +83,11 @@ func New(p Storage, opts ...Option) *Cache {
 		serializer:   options.serializer,
 		metrics:      newCacheMetrics(options.collector, options.name),
 		keyNamespace: options.keyNamespace,
+
+		fallbackTimeout: options.fallbackTimeout,
+		failOpen:        options.failOpen,
+		ioTimeout:       options.ioTimeout,
+		isolated:        options.isolatedResults,
 	}
 	return c
 }
@@ -144,7 +154,11 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		return err
 	}
 	if found {
-		return c.serializer.Deserialize(data, value)
+		err = c.serializer.Deserialize(data, value)
+		if err == nil || !c.failOpen {
+			return err
+		}
+		c.dropCorrupt(ctx, ek)
 	}
 
 	fv, err := c.runFallback(ctx, ek, fallback)
@@ -152,7 +166,15 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		return err
 	}
 
-	reflect.Indirect(reflect.ValueOf(value)).Set(reflect.Indirect(reflect.ValueOf(fv)))
+	dst := reflect.Indirect(reflect.ValueOf(value))
+	if c.isolated {
+		// fv is this caller's view of the shared serialized bytes; decode a
+		// private copy over a zeroed destination, mirroring the full overwrite
+		// of the shared-value path.
+		dst.SetZero()
+		return c.serializer.Deserialize(fv.([]byte), value)
+	}
+	dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
 
 	return nil
 }
@@ -183,10 +205,16 @@ func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback
 		return out, err
 	}
 	if found {
-		if err = c.serializer.Deserialize(data, &out); err != nil {
+		err = c.serializer.Deserialize(data, &out)
+		if err == nil {
+			return out, nil
+		}
+		if !c.failOpen {
 			return out, err
 		}
-		return out, nil
+		c.dropCorrupt(ctx, ek)
+		var zero T
+		out = zero
 	}
 
 	// The boxing wrapper is built only on the miss path; hits stay free of
@@ -196,6 +224,14 @@ func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback
 	})
 	if err != nil {
 		return out, err
+	}
+
+	if c.isolated {
+		if err = c.serializer.Deserialize(fv.([]byte), &out); err != nil {
+			var zero T
+			return zero, err
+		}
+		return out, nil
 	}
 
 	// A concurrent untyped caller may have won the singleflight with a *T:
@@ -212,9 +248,10 @@ func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback
 
 // lookupRaw performs the provider read with negative-sentinel handling and
 // hit/miss metrics. found=false with a nil error means a plain miss — the
-// caller should run the fallback path.
+// caller should run the fallback path. In fail-open mode a storage error or
+// timeout is also reported as a plain miss.
 func (c *Cache) lookupRaw(ctx context.Context, ek string) (data []byte, found bool, err error) {
-	val, err := c.provider.Get(ctx, ek)
+	val, err := c.storageGet(ctx, ek)
 	if err == nil {
 		if isNegativeSentinel(val) {
 			c.metrics.negativeHits.Inc()
@@ -225,6 +262,10 @@ func (c *Cache) lookupRaw(ctx context.Context, ek string) (data []byte, found bo
 	}
 	if !errors.Is(err, ErrMissing) {
 		c.metrics.errors.Inc()
+		if c.failOpen && ctx.Err() == nil {
+			c.metrics.failOpenGet.Inc()
+			return nil, false, nil
+		}
 		return nil, false, err
 	}
 
@@ -232,54 +273,126 @@ func (c *Cache) lookupRaw(ctx context.Context, ek string) (data []byte, found bo
 	return nil, false, nil
 }
 
+// storageGet reads ek from the provider, bounded by the fail-open I/O timeout.
+func (c *Cache) storageGet(ctx context.Context, ek string) ([]byte, error) {
+	ioCtx, cancel := c.ioContext(ctx)
+	defer cancel()
+	return c.provider.Get(ioCtx, ek)
+}
+
+// storageSave writes ek to the provider, bounded by the fail-open I/O timeout.
+func (c *Cache) storageSave(ctx context.Context, ek string, data []byte, ttl time.Duration) error {
+	ioCtx, cancel := c.ioContext(ctx)
+	defer cancel()
+	return c.provider.Save(ioCtx, ek, data, ttl)
+}
+
+// ioContext applies the fail-open I/O timeout to ctx when one is configured.
+func (c *Cache) ioContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.ioTimeout > 0 {
+		return context.WithTimeout(ctx, c.ioTimeout)
+	}
+	return ctx, func() {}
+}
+
+// dropCorrupt records a stored value that failed to decode in fail-open mode
+// and deletes it best-effort so the next read reloads it.
+func (c *Cache) dropCorrupt(ctx context.Context, ek string) {
+	c.metrics.errors.Inc()
+	c.metrics.failOpenDecode.Inc()
+	ioCtx, cancel := c.ioContext(ctx)
+	defer cancel()
+	_ = c.provider.Delete(ioCtx, ek)
+}
+
+// failOpenSaveError reports whether a failed write may be ignored: the cache
+// is fail-open and the caller has not gone away. It records the event.
+func (c *Cache) failOpenSaveError(ctx context.Context) bool {
+	if !c.failOpen || ctx.Err() != nil {
+		return false
+	}
+	c.metrics.failOpenSave.Inc()
+	return true
+}
+
 // runFallback executes fallback under bounded admission and the
 // singleflight group, persisting the produced value (or the negative
-// sentinel) exactly as the lookup flow expects.
+// sentinel) exactly as the lookup flow expects. With isolated results the
+// shared value is the serialized []byte, not the loaded value. In fail-open
+// mode a call rejected with [ErrOverloaded] runs the fallback directly in the
+// caller, without sharing it.
 func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (any, error) {
-	return c.group.Do(ctx, ek, func(sharedCtx context.Context) (any, error) {
-		stop := c.metrics.fallbackDuration.Start()
-		val, ttl, fErr := fallback(sharedCtx)
-		stop()
-		if fErr != nil {
-			// ErrMissing from the fallback signals an authoritative
-			// not-found. Write the negative-cache sentinel so a stream
-			// of attacker-driven misses for the same key does NOT keep
-			// stampeding the downstream — previously this branch
-			// skipped the negative write and every subsequent miss
-			// re-ran the fallback.
-			if errors.Is(fErr, ErrMissing) && c.negativeTtl > 0 {
-				if sErr := c.provider.Save(sharedCtx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
-					c.metrics.errors.Inc()
-				}
-			}
-			return nil, fErr
-		}
-
-		if vv := reflect.ValueOf(val); val == nil || (vv.Kind() == reflect.Pointer && vv.IsNil()) {
-			if c.negativeTtl > 0 {
-				if sErr := c.provider.Save(sharedCtx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
-					c.metrics.errors.Inc()
-				}
-			}
-			return nil, ErrMissing
-		}
-
-		cacheData, fErr := c.serializer.Serialize(val)
-		if fErr != nil {
-			return nil, fErr
-		}
-
-		cacheTtl := c.ttl
-		if ttl > TTLUseDefault {
-			cacheTtl = ttl
-		}
-
-		if fErr = c.provider.Save(sharedCtx, ek, cacheData, cacheTtl); fErr != nil {
-			return nil, fErr
-		}
-
-		return val, nil
+	v, err := c.group.Do(ctx, ek, func(sharedCtx context.Context) (any, error) {
+		return c.loadAndStore(sharedCtx, ek, fallback)
 	})
+	if !c.failOpen || !errors.Is(err, ErrOverloaded) {
+		return v, err
+	}
+
+	c.metrics.failOpenOverload.Inc()
+	if c.fallbackTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.fallbackTimeout)
+		defer cancel()
+	}
+	return c.loadAndStore(ctx, ek, fallback)
+}
+
+// loadAndStore runs fallback and writes its result (or the negative sentinel)
+// under ek. It returns the loaded value, or its serialized bytes when results
+// are isolated.
+func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) (any, error) {
+	stop := c.metrics.fallbackDuration.Start()
+	val, ttl, fErr := fallback(ctx)
+	stop()
+	if fErr != nil {
+		// ErrMissing from the fallback signals an authoritative
+		// not-found. Write the negative-cache sentinel so a stream
+		// of attacker-driven misses for the same key does NOT keep
+		// stampeding the downstream — previously this branch
+		// skipped the negative write and every subsequent miss
+		// re-ran the fallback.
+		if errors.Is(fErr, ErrMissing) && c.negativeTtl > 0 {
+			if sErr := c.storageSave(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
+				c.metrics.errors.Inc()
+			}
+		}
+		return nil, fErr
+	}
+
+	if vv := reflect.ValueOf(val); val == nil || (vv.Kind() == reflect.Pointer && vv.IsNil()) {
+		if c.negativeTtl > 0 {
+			if sErr := c.storageSave(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
+				c.metrics.errors.Inc()
+			}
+		}
+		return nil, ErrMissing
+	}
+
+	cacheData, fErr := c.serializer.Serialize(val)
+	if fErr != nil {
+		return nil, fErr
+	}
+
+	cacheTtl := c.ttl
+	if ttl > TTLUseDefault {
+		cacheTtl = ttl
+	}
+
+	if fErr = c.storageSave(ctx, ek, cacheData, cacheTtl); fErr != nil {
+		if !c.failOpen {
+			return nil, fErr
+		}
+		// The loaded value is still good: count the failed write and
+		// hand the value to the callers.
+		c.metrics.errors.Inc()
+		c.metrics.failOpenSave.Inc()
+	}
+
+	if c.isolated {
+		return cacheData, nil
+	}
+	return val, nil
 }
 
 // Save stores a value in the cache with the given key.
@@ -305,8 +418,12 @@ func (c *Cache) Save(ctx context.Context, key string, value any, ttl ...time.Dur
 	}
 
 	stop := c.metrics.writeDuration.Start()
-	err = c.provider.Save(ctx, c.effectiveKey(ctx, key), cacheData, cacheTtl)
+	err = c.storageSave(ctx, c.effectiveKey(ctx, key), cacheData, cacheTtl)
 	stop()
+	if err != nil && c.failOpenSaveError(ctx) {
+		c.metrics.errors.Inc()
+		return nil
+	}
 	return err
 }
 
@@ -352,12 +469,17 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	data, err := c.provider.Get(ctx, c.effectiveKey(ctx, key))
+	ek := c.effectiveKey(ctx, key)
+	data, err := c.storageGet(ctx, ek)
 	if err != nil {
 		if errors.Is(err, ErrMissing) {
 			c.metrics.misses.Inc()
 		} else {
 			c.metrics.errors.Inc()
+			if c.failOpen && ctx.Err() == nil {
+				c.metrics.failOpenGet.Inc()
+				return ErrMissing
+			}
 		}
 		return err
 	}
@@ -368,7 +490,12 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 	}
 
 	c.metrics.hits.Inc()
-	return c.serializer.Deserialize(data, value)
+	err = c.serializer.Deserialize(data, value)
+	if err != nil && c.failOpen {
+		c.dropCorrupt(ctx, ek)
+		return ErrMissing
+	}
+	return err
 }
 
 func pointerToStructAssertion(value any) {

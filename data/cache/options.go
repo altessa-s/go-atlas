@@ -43,4 +43,40 @@ type options struct {
 	// keyNamespace, when set, isolates cache entries and singleflight de-dup by a
 	// per-context namespace (typically tenant/subject). Nil = no prefixing.
 	keyNamespace KeyNamespaceFunc `optgen:"default=nil"`
+	// failOpen, set by [WithFailOpen], degrades storage and decode failures to
+	// cache misses instead of returning them.
+	failOpen bool `opt:"-"`
+	// ioTimeout, set by [WithFailOpen], bounds every storage call; zero adds no bound.
+	ioTimeout time.Duration `opt:"-"`
+	// isolatedResults, set by [WithIsolatedResults], makes collapsed callers
+	// share serialized bytes and decode their own copy.
+	isolatedResults bool `opt:"-"`
+}
+
+// WithFailOpen makes the cache an optimization that never fails a request on
+// its own: a storage error or timeout on a read is a miss, a stored value that
+// cannot be decoded is a miss (and is deleted best-effort), a failed write is
+// ignored, and a fallback rejected with [ErrOverloaded] runs directly in the
+// caller. Each such event is counted in the errors and fail_open metrics.
+// Fallback errors, [ErrMissing] and negative caching are unchanged, and a
+// caller's own context cancellation is still returned.
+//
+// A positive ioTimeout bounds every storage Get, GetMany and Save call; zero
+// adds no bound beyond the caller's context. Negative values are treated as zero.
+func WithFailOpen(ioTimeout time.Duration) Option {
+	return func(o *options) {
+		o.failOpen = true
+		o.ioTimeout = max(ioTimeout, 0)
+	}
+}
+
+// WithIsolatedResults makes callers collapsed onto one fallback by
+// [Cache.GetWithFallback] and [GetWithFallbackT] share the serialized bytes
+// rather than the loaded value: every caller, the one that ran the fallback
+// included, decodes its own copy, so no slice, map or pointer is shared
+// between callers. It costs one decode per caller on the miss path.
+func WithIsolatedResults() Option {
+	return func(o *options) {
+		o.isolatedResults = true
+	}
 }

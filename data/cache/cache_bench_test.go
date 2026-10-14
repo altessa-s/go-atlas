@@ -74,3 +74,21 @@ func BenchmarkGetWithFallbackT(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkGetManyT(b *testing.B) {
+	p := &benchProvider{store: make(map[string][]byte)}
+	c := New(p)
+	ctx := b.Context()
+	keys := []string{"k1", "k2", "k3", "k4", "missing"}
+	for _, k := range keys[:4] {
+		if err := c.Save(ctx, k, "value"); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	for b.Loop() {
+		if _, err := GetManyT[string](ctx, c, keys); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
