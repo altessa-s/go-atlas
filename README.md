@@ -104,6 +104,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`service/id`](service/id/) | Service identity (ULID/UUID) from env, file, or static |
 | [`service/scheduler`](service/scheduler/) | Distributed cron scheduler with priority queues and leader election |
 | [`transport/broker`](transport/broker/) | Message broker abstraction (NATS JetStream, outbox) |
+| [`transport/broker/idempotency`](transport/broker/idempotency/) | Consumer deduplication middleware over at-least-once broker delivery |
 | [`transport/clientip`](transport/clientip/) | Real client IP resolution behind trusted reverse proxies, shared by the HTTP and gRPC `realip` stages |
 | [`transport/grpc`](transport/grpc/) | gRPC server, interceptors, factory, gRPC client |
 | [`transport/http`](transport/http/) | HTTP server, middlewares, codec registry, HTTP client |
