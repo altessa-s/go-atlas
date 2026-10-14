@@ -130,6 +130,16 @@ Package: `transport/broker/inprogress`
 
 ---
 
+## broker_idempotency
+
+Package: `transport/broker/idempotency`
+
+| Name                                | Type    | Labels                | Description                                                          |
+|-------------------------------------|---------|-----------------------|----------------------------------------------------------------------|
+| `broker_idempotency_outcomes_total` | Counter | `consumer`, `outcome` | Broker idempotency outcome counters (processed, duplicate, busy...) |
+
+---
+
 ## budget_limiter
 
 Package: `data/limiters/budget`
