@@ -28,15 +28,18 @@ var randBufs = sync.Pool{
 	New: func() any { return &randBuf{pos: randBufSize} },
 }
 
-// readRandom copies len(dst) cryptographically secure random bytes into dst.
-func readRandom(dst []byte) {
+// readRandom fills a and b with cryptographically secure random bytes from a
+// single chunk checkout; b may be nil. A root span needs both IDs, so one
+// pool round trip serves them.
+func readRandom(a, b []byte) {
 	r := randBufs.Get().(*randBuf) //nolint:errcheck,forcetypeassert // only *randBuf is stored
-	if r.pos+len(dst) > randBufSize {
+	n := len(a) + len(b)
+	if r.pos+n > randBufSize {
 		_, _ = rand.Read(r.buf[:]) //nolint:errcheck // only fails on reader exhaustion
 		r.pos = 0
 	}
-	copy(dst, r.buf[r.pos:r.pos+len(dst)])
-	r.pos += len(dst)
+	r.pos += copy(a, r.buf[r.pos:])
+	r.pos += copy(b, r.buf[r.pos:])
 	randBufs.Put(r)
 }
 
@@ -56,11 +59,9 @@ func newSpanContextImpl(parent SpanContext) *spanContextImpl {
 		traceFlags: FlagsSampled,
 	}
 
-	// Generate new span ID from buffered CSPRNG (amortizes syscall overhead)
-	readRandom(sc.spanID[:])
-
-	// Inherit or generate trace ID
+	// IDs come from a buffered CSPRNG (amortizes syscall overhead).
 	if parent != nil && parent.IsValid() {
+		readRandom(sc.spanID[:], nil)
 		// Inherit parent trace ID
 		sc.traceID = traceIDOf(parent)
 		sc.remote = false
@@ -68,8 +69,7 @@ func newSpanContextImpl(parent SpanContext) *spanContextImpl {
 			sc.traceState = state.TraceState()
 		}
 	} else {
-		// Generate new trace ID
-		readRandom(sc.traceID[:])
+		readRandom(sc.spanID[:], sc.traceID[:])
 	}
 
 	return sc
