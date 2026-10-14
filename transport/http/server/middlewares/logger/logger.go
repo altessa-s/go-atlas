@@ -143,17 +143,22 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 
 		// Get status code
 		status := http.StatusOK
-		var responseBody string
-		if sw, ok := writer.(*middlewares.ResponseWriter); ok {
-			status = sw.StatusCode()
-			if m.opts.logResponse {
-				responseBody = sw.BodyString()
-			}
+		rw, isRW := writer.(*middlewares.ResponseWriter)
+		if isRW {
+			status = rw.StatusCode()
 		}
 
 		// Check if this status code should be logged (O(1) lookup)
 		if !shouldLogStatusCode(status, m.logCodesSet, m.ignoreCodesSet) {
 			return
+		}
+		// Skip building the completion record when the handler would drop it.
+		if lc, ok := m.logHandler.(levelChecker); ok && !lc.Enabled(ctx, status) {
+			return
+		}
+		var responseBody string
+		if isRW && m.opts.logResponse {
+			responseBody = rw.BodyString()
 		}
 
 		// Add timing fields

@@ -43,17 +43,40 @@ func Slog(l *slog.Logger) LogHandler {
 // levels logs at its level (e.g. 401 at Info for a login page), any other at
 // Slog's default.
 func SlogWithLevels(l *slog.Logger, levels map[int]slog.Level) LogHandler {
-	overrides := coremaps.NewImmutableMap(levels)
-	return LogHandlerFunc(func(ctx context.Context, msg string, statusCode int, fields slogx.Fields) {
-		level, ok := overrides.Get(statusCode)
-		if !ok {
-			level = httpStatusToLevel(statusCode)
-		}
+	return &slogHandler{logger: l, overrides: coremaps.NewImmutableMap(levels)}
+}
 
-		attrs := slogx.FieldsToAttrs(fields.Unique())
+// levelChecker is an optional [LogHandler] capability: the middleware skips
+// building the completion record when the handler would drop it.
+type levelChecker interface {
+	Enabled(ctx context.Context, statusCode int) bool
+}
 
-		l.LogAttrs(ctx, level, msg, attrs...)
-	})
+// slogHandler is the [LogHandler] behind [Slog] and [SlogWithLevels].
+type slogHandler struct {
+	logger    *slog.Logger
+	overrides *coremaps.ImmutableMap[int, slog.Level]
+}
+
+func (h *slogHandler) level(statusCode int) slog.Level {
+	if level, ok := h.overrides.Get(statusCode); ok {
+		return level
+	}
+	return httpStatusToLevel(statusCode)
+}
+
+// Enabled reports whether a record for statusCode would be logged.
+func (h *slogHandler) Enabled(ctx context.Context, statusCode int) bool {
+	return h.logger.Enabled(ctx, h.level(statusCode))
+}
+
+// Log implements [LogHandler].
+func (h *slogHandler) Log(ctx context.Context, msg string, statusCode int, fields slogx.Fields) {
+	level := h.level(statusCode)
+	if !h.logger.Enabled(ctx, level) {
+		return
+	}
+	h.logger.LogAttrs(ctx, level, msg, slogx.FieldsToAttrs(fields.Unique())...)
 }
 
 // Matches the logic used in gRPC logger for consistency.
