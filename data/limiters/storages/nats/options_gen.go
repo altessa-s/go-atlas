@@ -44,6 +44,26 @@ func WithMaxAge(v time.Duration) Option {
 	}
 }
 
+// WithMaxCASAttempts sets the maxCASAttempts option.
+func WithMaxCASAttempts(v int) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.maxCASAttempts = v
+	}
+}
+
+// WithMaxCASBackoff sets the maxCASBackoff option.
+func WithMaxCASBackoff(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.maxCASBackoff = v
+	}
+}
+
 // WithMigrateBucketTTL enables the migrateBucketTTL option.
 func WithMigrateBucketTTL() Option {
 	return func(o *options) {
@@ -68,9 +88,11 @@ func WithStrictBucketStorage() Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		bucket:   defaultBucket(),
-		maxAge:   DefaultMaxAge,
-		replicas: DefaultReplicas,
+		bucket:         defaultBucket(),
+		maxAge:         DefaultMaxAge,
+		maxCASAttempts: DefaultMaxCASAttempts,
+		maxCASBackoff:  DefaultMaxCASBackoff,
+		replicas:       DefaultReplicas,
 	}
 }
 

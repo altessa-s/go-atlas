@@ -19,6 +19,15 @@ const (
 
 	// DefaultReplicas is the default number of replicas for the KeyValue bucket.
 	DefaultReplicas = 1
+
+	// DefaultMaxCASAttempts is the default number of read-modify-write
+	// attempts [Provider.Allow] makes on one call before it gives up on a
+	// key other writers keep updating and returns [ErrContention].
+	DefaultMaxCASAttempts = 64
+
+	// DefaultMaxCASBackoff is the default ceiling of the randomized pause
+	// between two attempts of [Provider.Allow] after a revision conflict.
+	DefaultMaxCASBackoff = 20 * time.Millisecond
 )
 
 // options contains NATS rate limiting storage provider configuration.
@@ -36,6 +45,16 @@ type options struct {
 	// Higher replica counts provide better availability but increase storage overhead.
 	// Default is 1.
 	replicas int `optgen:"default=DefaultReplicas" optcheck:"nonempty"`
+
+	// maxCASAttempts caps the read-modify-write attempts of one Allow call
+	// on a key other callers update concurrently. A call exhausting it
+	// returns [ErrContention]. Non-positive values keep the default.
+	maxCASAttempts int `optgen:"default=DefaultMaxCASAttempts" optval:"positive"`
+
+	// maxCASBackoff caps the randomized pause between two attempts after a
+	// revision conflict: the n-th pause is drawn uniformly from
+	// (0, min(maxCASBackoff, 1ms * 2^n)]. Non-positive values keep the default.
+	maxCASBackoff time.Duration `optgen:"default=DefaultMaxCASBackoff" optcheck:"nonempty"`
 
 	// migrateBucketTTL updates a pre-existing bucket whose key TTL differs
 	// from the configured one instead of rejecting it with

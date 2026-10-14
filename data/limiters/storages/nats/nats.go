@@ -9,13 +9,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"slices"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/core/retry"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/internal/natsbase"
+	"github.com/altessa-s/go-atlas/data/internal/natskey"
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 	"github.com/altessa-s/go-atlas/data/limiters/storages"
 
@@ -33,6 +36,10 @@ var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 // left untouched.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
+// ErrKeyTooLong is returned, before any network I/O, for a key whose escaped
+// form exceeds the NATS KeyValue key budget (see the package README).
+var ErrKeyTooLong = natskey.ErrKeyTooLong
+
 // bucketData represents the rate limiting data stored in NATS KeyValue.
 type bucketData struct {
 	Requests []int64 `json:"requests"` // Unix timestamps in milliseconds
@@ -44,7 +51,8 @@ type bucketData struct {
 // Provider implements a NATS JetStream KeyValue-based rate limiting provider using sliding window algorithm.
 type Provider struct {
 	natsbase.Base
-	options *options
+	options   *options
+	casPolicy *retry.Policy
 }
 
 // Ensure Provider implements Storage interface
@@ -77,8 +85,9 @@ func New(js jetstream.JetStream, opts ...Option) (*Provider, error) {
 	}
 
 	return &Provider{
-		Base:    base,
-		options: config,
+		Base:      base,
+		options:   config,
+		casPolicy: newCASPolicy(config.maxCASAttempts, config.maxCASBackoff),
 	}, nil
 }
 
@@ -94,95 +103,149 @@ func bucketConfig(o *options) natskvlease.BucketConfig {
 	}
 }
 
-// maxAllowCASAttempts caps the number of retries the read-modify-write loop
-// in [Provider.Allow] performs on a NATS KV revision conflict. With per-call
-// random jitter unlikely (the algorithm itself is deterministic), pure
-// exponential contention beyond this limit usually indicates a hot key worth
-// rejecting rather than retrying indefinitely.
-const maxAllowCASAttempts = 5
+// ErrContention is returned by [Provider.Allow] when other writers kept
+// updating the key between every read and write of the call until its attempt
+// budget ([WithMaxCASAttempts]) ran out. It is not a rate limit decision: the
+// request was neither admitted nor counted, and the caller decides whether to
+// fail open or closed. The error also wraps the last revision conflict
+// ([jetstream.ErrKeyExists]).
+var ErrContention = errors.New("NATS rate limit key too contended")
+
+// casBaseBackoff is the ceiling of the first randomized pause after a
+// revision conflict; it doubles per attempt up to the configured maximum.
+const casBaseBackoff = time.Millisecond
+
+// casMaxShift bounds the doubling of casBaseBackoff so the shift never
+// overflows; 2^30 ms is far above any sensible maximum backoff.
+const casMaxShift = 30
+
+// newCASPolicy builds the retry policy of the read-modify-write loop in
+// [Provider.Allow]: up to attempts attempts, retrying revision conflicts only,
+// with full-jitter exponential backoff capped at maxBackoff. Full jitter
+// spreads contenders that collided on one revision over the whole interval,
+// so they do not collide again in lockstep.
+func newCASPolicy(attempts int, maxBackoff time.Duration) *retry.Policy {
+	return retry.NewPolicy(
+		retry.WithMaxAttempts(attempts-1),
+		retry.WithShouldRetry(func(err error) bool { return errors.Is(err, jetstream.ErrKeyExists) }),
+		retry.WithNextDelay(func(attempt int, _ error) time.Duration {
+			ceiling := min(maxBackoff, casBaseBackoff<<min(max(attempt, 0), casMaxShift))
+			// A pause of at least 1ns: core/retry stops on a non-positive delay.
+			return time.Duration(rand.Int64N(int64(ceiling))) + 1 // #nosec G404 -- jitter, not a secret
+		}),
+	)
+}
 
 // Allow checks if a request should be allowed based on the rate limit using sliding window algorithm.
 //
 // The read-modify-write cycle uses NATS KeyValue revision-based CAS:
 // [jetstream.KeyValue.Create] for the first write to a key and
 // [jetstream.KeyValue.Update] with the entry revision for subsequent writes.
-// Concurrent updates that race on the same key are detected via
-// [jetstream.ErrKeyExists] and retried up to [maxAllowCASAttempts] times,
-// after which the call fails with a wrapped error rather than silently
-// dropping a competing update — losing a write here would let a burst slip
-// past the limit.
+// A write that loses a race on the same key ([jetstream.ErrKeyExists]) is
+// never dropped — that would let a burst slip past the limit — but re-read,
+// recomputed and retried after a randomized backoff, up to
+// [WithMaxCASAttempts] attempts and as long as ctx allows. Rejections write
+// nothing, so retrying can never admit more than limit requests. A call that
+// exhausts its attempts returns [ErrContention].
 func (p *Provider) Allow(ctx context.Context, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	panics.MustNonNil(ctx, "context must not be nil")
 	panics.Must(key != "", "key must not be empty")
 	panics.Must(limit > 0, "limit must be greater than 0")
 	panics.Must(period > 0, "period must be greater than 0")
 
-	windowMs := period.Milliseconds()
-
-	for range maxAllowCASAttempts {
-		now := time.Now().UnixMilli()
-
-		data, revision, err := p.loadBucket(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-
-		// Update bucket parameters.
-		data.Limit = limit
-		data.Window = windowMs
-		data.LastUsed = now
-
-		// Remove expired requests (sliding window).
-		cutoff := now - windowMs
-		filteredSeq := coreslices.Filter(data.Requests, func(reqTime int64) bool {
-			return reqTime > cutoff
-		})
-		data.Requests = slices.Collect(filteredSeq)
-
-		// Calculate reset time.
-		resetTime := uint64(0)
-		if len(data.Requests) > 0 {
-			//nolint:mnd
-			resetTime = uint64((data.Requests[0] + windowMs) / 1000) // #nosec G115 -- timestamps are positive
-		}
-
-		currentCount := int64(len(data.Requests))
-
-		info := &storages.LimitInfo{
-			Remaining: max(limit-currentCount, 0),
-			Reset:     int64(resetTime), // #nosec G115 -- resetTime is Unix seconds, fits int64
-		}
-
-		if currentCount >= limit {
-			// No write needed when the limit is already exceeded; no race to
-			// guard against because we are not mutating shared state.
-			return info, storages.ErrLimitExceeded
-		}
-
-		// Reserve a slot in our local copy.
-		data.Requests = append(data.Requests, now)
-		info.Remaining = max(limit-int64(len(data.Requests)), 0)
-
-		jsonData, err := json.Marshal(data)
-		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "marshal rate limit data")
-		}
-
-		if err := p.casPut(ctx, key, jsonData, revision); err != nil {
-			if errors.Is(err, jetstream.ErrKeyExists) {
-				// Another writer raced us. Re-read and recompute on the next
-				// iteration; do not surface this as a user-visible error
-				// unless we exhaust the retry budget.
-				continue
-			}
-			return nil, coreerrs.WrapOperation(err, "store rate limit data in NATS KeyValue")
-		}
-
-		return info, nil
+	key, err := physicalKey(key)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, coreerrs.Wrap(errors.New("revision conflict"),
-		"NATS rate limit CAS exhausted after concurrent updates")
+	// Windows are tracked in whole milliseconds; a sub-millisecond period
+	// still gets a 1ms window rather than none, matching the Redis storage.
+	windowMs := max(period.Milliseconds(), 1)
+
+	var info *storages.LimitInfo
+	err = p.casPolicy.Do(ctx, func(ctx context.Context) error {
+		var attemptErr error
+		info, attemptErr = p.tryAllow(ctx, key, limit, windowMs)
+		return attemptErr
+	})
+	switch {
+	case err == nil:
+		return info, nil
+	case errors.Is(err, storages.ErrLimitExceeded):
+		return info, err
+	case errors.Is(err, jetstream.ErrKeyExists):
+		return nil, fmt.Errorf("%w after %d attempts: %w", ErrContention, p.options.maxCASAttempts, err)
+	default:
+		return nil, err
+	}
+}
+
+// tryAllow makes one read-modify-write attempt of [Provider.Allow]. It returns
+// [jetstream.ErrKeyExists] unwrapped when another writer updated the key
+// since it was read.
+func (p *Provider) tryAllow(ctx context.Context, key string, limit, windowMs int64) (*storages.LimitInfo, error) {
+	now := time.Now().UnixMilli()
+
+	data, revision, err := p.loadBucket(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update bucket parameters.
+	data.Limit = limit
+	data.Window = windowMs
+	data.LastUsed = now
+
+	// Remove expired requests (sliding window).
+	cutoff := now - windowMs
+	filteredSeq := coreslices.Filter(data.Requests, func(reqTime int64) bool {
+		return reqTime > cutoff
+	})
+	data.Requests = slices.Collect(filteredSeq)
+
+	// Calculate reset time.
+	resetTime := uint64(0)
+	if len(data.Requests) > 0 {
+		//nolint:mnd
+		resetTime = uint64((data.Requests[0] + windowMs) / 1000) // #nosec G115 -- timestamps are positive
+	}
+
+	currentCount := int64(len(data.Requests))
+
+	info := &storages.LimitInfo{
+		Remaining: max(limit-currentCount, 0),
+		Reset:     int64(resetTime), // #nosec G115 -- resetTime is Unix seconds, fits int64
+	}
+
+	if currentCount >= limit {
+		// No write needed when the limit is already exceeded; no race to
+		// guard against because we are not mutating shared state.
+		return info, storages.ErrLimitExceeded
+	}
+
+	// Reserve a slot in our local copy. Into an empty window it is the oldest
+	// request, so the window frees its first slot when it expires.
+	data.Requests = append(data.Requests, now)
+	info.Remaining = max(limit-int64(len(data.Requests)), 0)
+	if currentCount == 0 {
+		info.Reset = (now + windowMs) / 1000 //nolint:mnd // milliseconds to Unix seconds
+	}
+
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "marshal rate limit data")
+	}
+
+	if err := p.casPut(ctx, key, jsonData, revision); err != nil {
+		if errors.Is(err, jetstream.ErrKeyExists) {
+			// Another writer raced us: the retry policy re-reads and
+			// recomputes on the next attempt.
+			return nil, err
+		}
+		return nil, coreerrs.WrapOperation(err, "store rate limit data in NATS KeyValue")
+	}
+
+	return info, nil
 }
 
 // loadBucket fetches the current bucket entry and returns the parsed data
@@ -223,11 +286,27 @@ func (p *Provider) Reset(ctx context.Context, key string) error {
 	panics.MustNonNil(ctx, "context must not be nil")
 	panics.Must(key != "", "key must not be empty")
 
+	key, err := physicalKey(key)
+	if err != nil {
+		return err
+	}
+
 	// Try to delete the key - ignore if it doesn't exist
-	err := p.KV().Delete(ctx, key)
+	err = p.KV().Delete(ctx, key)
 	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return coreerrs.WrapOperation(err, "reset rate limit data in NATS KeyValue")
 	}
 
 	return nil
+}
+
+// physicalKey maps a logical rate-limit key (an IPv6 address, a
+// "service:recognizer" budget key, a token) onto the NATS KeyValue key it is
+// stored under. Allow and Reset apply it once, so both reach the same entry.
+func physicalKey(key string) (string, error) {
+	physical, err := natskey.Encode(key)
+	if err != nil {
+		return "", coreerrs.WrapOperation(err, "encode NATS KeyValue key")
+	}
+	return physical, nil
 }

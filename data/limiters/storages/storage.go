@@ -14,7 +14,11 @@ import (
 // LimitInfo contains information about the current rate limit state.
 type LimitInfo struct {
 	Remaining int64
-	Reset     int64
+
+	// Reset is the Unix time, in whole seconds rounded down, at which the
+	// oldest request in the sliding window leaves it and frees a slot. On an
+	// admission into an empty window that is the admitted request itself.
+	Reset int64
 }
 
 // ErrLimitExceeded is returned by [Storage.Allow] when the request rate

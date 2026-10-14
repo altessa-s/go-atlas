@@ -16,6 +16,7 @@ Package `limiterconfig` defines rate limiter schemas: token bucket, request budg
 | `TokenBucketTargetRule`  | Defines rate limiting settings for specific targets.           |
 | `TokenBucketRules`       | Defines the complete set of rate limiting rules.               |
 | `TokenBucket`            | Defines the configuration for token-bucket rate limiting.      |
+| `NATSContention`         | Tunes NATS storage CAS retries (`natsContention` in both limiters). |
 | `RequestRate`               | Represents the configuration for rate limiting HTTP requests.  |
 
 See the [config index](../README.md) for the other schema packages.

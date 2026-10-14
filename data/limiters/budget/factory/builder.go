@@ -133,6 +133,10 @@ func (b *BudgetLimiterBuilder) createNatsStorage() (*natsstorage.Provider, error
 	}
 	opts = coreslices.AppendIf(opts, b.cfg.Storage.NATS.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())
 	opts = coreslices.AppendIf(opts, b.cfg.Storage.NATS.StrictBucketStorage, natsstorage.WithStrictBucketStorage())
+	if c := b.cfg.NATSContention; c != nil {
+		opts = coreslices.AppendIf(opts, c.MaxCASAttempts > 0, natsstorage.WithMaxCASAttempts(c.MaxCASAttempts))
+		opts = coreslices.AppendIf(opts, c.MaxCASBackoff > 0, natsstorage.WithMaxCASBackoff(c.MaxCASBackoff))
+	}
 
 	return natsstorage.New(b.jetstream, opts...)
 }

@@ -34,6 +34,24 @@ func BenchmarkProvider_Allow(b *testing.B) {
 	}
 }
 
+// BenchmarkProvider_Allow_Contended races parallel callers on one key. The
+// limit is never reached and the window is short, so every call admits and
+// writes — each one a CAS that can lose to the others — while the stored
+// window stays small.
+func BenchmarkProvider_Allow_Contended(b *testing.B) {
+	provider := benchSetup(b)
+	ctx := b.Context()
+	b.SetParallelism(4)
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := provider.Allow(ctx, "contended-key", 1<<40, 50*time.Millisecond); err != nil {
+				b.Error(err)
+				return
+			}
+		}
+	})
+}
+
 func BenchmarkProvider_Reset(b *testing.B) {
 	provider := benchSetup(b)
 	ctx := b.Context()

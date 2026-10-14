@@ -20,27 +20,27 @@ import (
 func TestLuaScript_MillisecondWindow(t *testing.T) {
 	t.Parallel()
 
+	// reset is floor((oldest request in the window + window) / 1000); an
+	// admission into an empty window is that oldest request itself.
 	type call struct {
 		now     int64
 		allowed bool
+		reset   int64
 	}
 	tests := []struct {
-		name      string
-		windowMs  int64
-		calls     []call
-		wantReset int64
+		name     string
+		windowMs int64
+		calls    []call
 	}{
 		{
-			name:      "half second",
-			windowMs:  500,
-			calls:     []call{{1000, true}, {1400, false}, {1501, true}},
-			wantReset: 1,
+			name:     "half second",
+			windowMs: 500,
+			calls:    []call{{1000, true, 1}, {1400, false, 1}, {1501, true, 2}},
 		},
 		{
-			name:      "one and a half seconds",
-			windowMs:  1500,
-			calls:     []call{{1000, true}, {2100, false}, {2501, true}},
-			wantReset: 2,
+			name:     "one and a half seconds",
+			windowMs: 1500,
+			calls:    []call{{1000, true, 2}, {2100, false, 2}, {2501, true, 4}},
 		},
 	}
 
@@ -55,9 +55,7 @@ func TestLuaScript_MillisecondWindow(t *testing.T) {
 					tc.windowMs, 1, c.now, "m"+strconv.Itoa(i)).Slice()
 				require.NoError(t, err)
 				require.Equal(t, c.allowed, toInt64(res[3]) == 1, "call at now=%d", c.now)
-				if i == 1 {
-					require.Equal(t, tc.wantReset, toInt64(res[2]), "reset is in Unix seconds")
-				}
+				require.Equal(t, c.reset, toInt64(res[2]), "reset of the call at now=%d, in Unix seconds", c.now)
 			}
 			require.Equal(t, time.Duration(tc.windowMs)*time.Millisecond, mr.TTL(key))
 		})

@@ -6,6 +6,28 @@ import "github.com/altessa-s/go-atlas/data/limiters/storages/nats"
 
 Package `nats` implements token bucket storage using NATS JetStream key-value store. Provides distributed rate limiting via NATS infrastructure.
 
+## Keys
+
+NATS KeyValue accepts only `[-/_=.a-zA-Z0-9]` in a key, with no leading or trailing dot and no empty token, so limiter keys are escaped before they
+reach the bucket: every other byte, `=` itself, and every dot that would leave an empty token become `=HH` (upper-case hex). An IPv6 client key
+`2001:db8::1` is stored as `2001=3Adb8=3A=3A1`. A key that is already valid and contains no `=` is stored under itself, so existing data stays
+reachable. A key containing `=` now maps to another physical key than the raw one earlier releases wrote; migrate such entries or start on a fresh
+bucket. Upgrade every process sharing the bucket together: an old and a new process would otherwise address such a key under different physical keys.
+The escaped key may be at most 3072 bytes (an escaped byte takes three); a longer one fails with `ErrKeyTooLong` before any network I/O.
+
+## Contention
+
+`Allow` updates a key with a compare-and-swap on its revision. A write that loses the race to another caller is re-read, recomputed and retried
+after a randomized pause (full jitter, from 1 ms doubling up to `WithMaxCASBackoff`, 20 ms by default), so a hot key costs latency rather than
+errors; rejections write nothing, so retrying never admits more than the limit. After `WithMaxCASAttempts` attempts (64 by default), or when the
+context ends, the call stops: exhausting the attempts returns `ErrContention`, which is neither an admission nor an `ErrLimitExceeded` — the request
+was not counted, and the caller decides whether to fail open or closed.
+
+| Option                 | Default | Description                                               |
+|------------------------|---------|-----------------------------------------------------------|
+| `WithMaxCASAttempts`   | `64`    | Read-modify-write attempts per `Allow` call               |
+| `WithMaxCASBackoff`    | `20ms`  | Ceiling of the randomized pause after a revision conflict |
+
 ## Bucket TTL
 
 The bucket's key TTL (`WithMaxAge`) expires every key in the bucket, including keys written by other processes sharing it. When the bucket already
