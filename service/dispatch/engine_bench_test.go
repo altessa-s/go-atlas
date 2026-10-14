@@ -6,6 +6,9 @@ package dispatch_test
 
 import (
 	"context"
+	"fmt"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -138,5 +141,53 @@ func (b benchBlockingSink) StoreBatch(ctx context.Context, _ []int) error {
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// BenchmarkEngine_Submit_WithWAL_Contended measures the durable path the way
+// production runs it: parallel producers append to the WAL while workers keep
+// claiming batches (ReadPending under the WAL lock) and acking them. Compare
+// worker counts to see how much claiming contends with Append; p99-ns/op is
+// the tail Enqueue latency from a 1-in-64 sample.
+func BenchmarkEngine_Submit_WithWAL_Contended(b *testing.B) {
+	for _, workers := range []int{1, 4, 8} {
+		b.Run(fmt.Sprintf("workers=%d", workers), func(b *testing.B) {
+			eng := newBenchEngine(b,
+				dispatch.WithWorkers[int](workers),
+				dispatch.WithBatchSize[int](64),
+				dispatch.WithFlushInterval[int](time.Millisecond),
+				dispatch.WithWAL[int](b.TempDir(), intCodec{},
+					wal.WithMaxSegmentBytes(64<<20),
+					wal.WithFsyncInterval(time.Hour),
+				),
+			)
+
+			var (
+				mu      sync.Mutex
+				samples []time.Duration
+			)
+			b.ReportAllocs()
+			b.RunParallel(func(pb *testing.PB) {
+				local := make([]time.Duration, 0, 1024)
+				for i := 0; pb.Next(); i++ {
+					if i%64 != 0 {
+						eng.Submit(1)
+						continue
+					}
+					start := time.Now()
+					eng.Submit(1)
+					local = append(local, time.Since(start))
+				}
+				mu.Lock()
+				samples = append(samples, local...)
+				mu.Unlock()
+			})
+			b.StopTimer()
+
+			if len(samples) > 0 {
+				slices.Sort(samples)
+				b.ReportMetric(float64(samples[len(samples)*99/100].Nanoseconds()), "p99-ns/op")
+			}
+		})
 	}
 }
