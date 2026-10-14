@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"hash/crc32"
-	"io"
 	"os"
 )
 
@@ -46,6 +45,11 @@ func (w *WAL) ReadPending(limit int, skip func(Offset) bool) ([]Record, error) {
 	return records, nil
 }
 
+// pendingReadWindow is the span ReadPending fetches per read syscall. Headers
+// of skipped and acknowledged records are parsed from memory instead of
+// costing one pread each while the WAL lock is held.
+const pendingReadWindow = 64 << 10
+
 func (w *WAL) readPendingSegment(seg *segmentRef, limit int, skip func(Offset) bool, out *[]Record) error {
 	if seg.unacked == 0 {
 		return nil
@@ -55,11 +59,23 @@ func (w *WAL) readPendingSegment(seg *segmentRef, limit int, skip func(Offset) b
 		return err
 	}
 	defer f.Close() //nolint:errcheck // read-only descriptor
-	var header [recordHeaderSize]byte
+	if w.readBuf == nil {
+		w.readBuf = make([]byte, pendingReadWindow)
+	}
+	var (
+		window      []byte // bytes of the segment starting at windowStart
+		windowStart int64
+	)
 	for pos := seg.pendingPosition; pos < seg.size && len(*out) < limit; {
-		if _, err := f.ReadAt(header[:], pos); err != nil {
-			return err
+		rel := pos - windowStart
+		if window == nil || rel+recordHeaderSize > int64(len(window)) {
+			n := min(int64(len(w.readBuf)), seg.size-pos)
+			if _, err := f.ReadAt(w.readBuf[:n], pos); err != nil {
+				return err
+			}
+			window, windowStart, rel = w.readBuf[:n], pos, 0
 		}
+		header := window[rel : rel+recordHeaderSize]
 		n := int64(binary.LittleEndian.Uint32(header[:4]))
 		next := pos + recordHeaderSize + n
 		if n == 0 || n > maxRecordBytes || next > seg.size {
@@ -73,7 +89,9 @@ func (w *WAL) readPendingSegment(seg *segmentRef, limit int, skip func(Offset) b
 		}
 		if !acked && (skip == nil || !skip(offset)) {
 			payload := make([]byte, n)
-			if _, err := io.ReadFull(io.NewSectionReader(f, pos+recordHeaderSize, n), payload); err != nil {
+			if start := rel + recordHeaderSize; start+n <= int64(len(window)) {
+				copy(payload, window[start:start+n])
+			} else if _, err := f.ReadAt(payload, pos+recordHeaderSize); err != nil {
 				return err
 			}
 			if crc32.ChecksumIEEE(payload) != binary.LittleEndian.Uint32(header[4:]) {
