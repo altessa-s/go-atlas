@@ -29,11 +29,20 @@ single item may reappear after a crash-and-replay sequence, so
 implementations should be idempotent on the records' natural identity
 (e.g. event ID).
 
+Acks live only in memory, and a segment is removed only once every record
+in it is acked. When `Shutdown` returns `ErrBacklog` (the sink kept
+failing or the deadline ran out), `Start` on a new engine using the same
+WAL directory therefore replays every segment that still holds an
+undelivered record — including records of those segments that were already
+delivered and acked. The same holds after a crash for the active segment,
+which is removed only when it rolls over or at `Close`.
+
 ## Durability guarantees
 
 | Scenario                      | Guarantee                                                    |
 |-------------------------------|--------------------------------------------------------------|
 | Graceful `Shutdown(ctx)`      | Full drain to `Sink`, acked segments removed                 |
+| `Shutdown` with a backlog     | `ErrBacklog`; a new engine on the WAL replays whole segments |
 | `SIGKILL` / `panic` / OOM     | Records past the last fsync are replayed on next `Start`    |
 | Loss window                   | Bounded by the WAL fsync interval (default 5 ms)             |
 | Sink temporarily unavailable  | Records accumulate in the WAL up to its configured max bytes |
