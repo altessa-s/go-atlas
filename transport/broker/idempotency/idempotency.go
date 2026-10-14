@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/broker"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
+
+	"google.golang.org/protobuf/proto"
 )
 
 // StorageKeyPrefix is the namespace prefix prepended to all storage keys managed by this package.
@@ -179,7 +179,7 @@ func (w *wrappedHandler) Handle(ctx context.Context, m *msg.Message) {
 	cp := *m
 	msg.WithAcker(dec)(&cp)
 
-	defer func() {
+	defer func() { //nolint:contextcheck // release derives its context from the acker's ctx via WithoutCancel
 		if r := recover(); r != nil {
 			dec.releaseOnPanic()
 			panic(r)

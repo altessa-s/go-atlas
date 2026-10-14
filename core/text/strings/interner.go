@@ -177,7 +177,6 @@ type Interner struct {
 	maxSize     int64        // Maximum number of entries
 	evicting    atomic.Int32 // Atomic flag for eviction coordination
 
-
 	// Performance counters
 	hotHits   atomic.Uint64
 	coldHits  atomic.Uint64
@@ -421,7 +420,6 @@ func (si *Interner) Reset() {
 	for i := range si.hotCache {
 		si.hotCache[i].Store(nil)
 	}
-
 
 	// Reset performance counters
 	si.ResetStats()

@@ -179,7 +179,7 @@ func (c *dateCodec) typeValid(v reflect.Value) bool {
 	}
 	p := reflect.New(c.t)
 	p.Elem().Set(v)
-	dv, _ := p.Interface().(dateValidator)
+	dv, _ := reflect.TypeAssert[dateValidator](p)
 	return dv.Valid()
 }
 

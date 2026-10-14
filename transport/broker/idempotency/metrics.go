@@ -48,7 +48,7 @@ func newBrokerMetrics(c metrics.Collector, consumer string) *brokerMetrics {
 	})
 
 	m := &brokerMetrics{}
-	for i := 0; i < int(numOutcomes); i++ {
+	for i := range int(numOutcomes) {
 		m.counters[i] = outcomes.WithLabels(metrics.Labels{
 			"consumer": consumer,
 			"outcome":  outcomeNames[i],

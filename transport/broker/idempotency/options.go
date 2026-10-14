@@ -40,12 +40,12 @@ var (
 
 // options contains configuration fields for the broker idempotency middleware.
 type options struct {
-	keyFunc      KeyFunc                     `optgen:"default=DefaultKeyFunc,notnil"`
-	busyBackOff  msg.BackOffFunc             `optgen:"default=DefaultBusyBackOff,notnil"`
-	errorBackOff msg.BackOffFunc             `optgen:"default=DefaultErrorBackOff,notnil"`
+	keyFunc      KeyFunc         `optgen:"default=DefaultKeyFunc,notnil"`
+	busyBackOff  msg.BackOffFunc `optgen:"default=DefaultBusyBackOff,notnil"`
+	errorBackOff msg.BackOffFunc `optgen:"default=DefaultErrorBackOff,notnil"`
 	lockOpts     idempotency.AttemptLockOpts
 	logger       *slog.Logger
-	collector    metrics.Collector           `optgen:"notnil"`
+	collector    metrics.Collector `optgen:"notnil"`
 }
 
 // WithMetrics is a convenience alias for [WithCollector].
