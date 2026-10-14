@@ -427,7 +427,11 @@ func (c *Coordinator) getHealthStatus(ctx context.Context, service string) Servi
 	} else {
 		status = c.CheckServiceHealth(checkCtx, service)
 	}
-	c.setCachedStatus(service, status)
+	// Unknown names come from callers (HTTP and gRPC health requests);
+	// caching them would retain every distinct name ever asked for.
+	if status != StatusServiceUnknown {
+		c.setCachedStatus(service, status)
+	}
 	return status
 }
 
