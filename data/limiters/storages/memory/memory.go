@@ -209,8 +209,12 @@ func (p *Provider) touchLocked(sh *shard, b *bucket, limit int64, period time.Du
 		return &storages.LimitInfo{Remaining: 0, Reset: int64(resetTime)}, storages.ErrLimitExceeded
 	}
 
-	// Record the new request
+	// Record the new request. Into an empty window it is the oldest request,
+	// so the window frees its first slot when it expires.
 	b.requests = append(b.requests, now)
+	if validRequests == 0 {
+		resetTime = uint64(now.Add(period).Unix()) // #nosec G115 -- Unix timestamps are positive
+	}
 
 	return &storages.LimitInfo{
 		Remaining: max(limit-int64(len(b.requests)-b.head), 0),

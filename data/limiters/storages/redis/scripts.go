@@ -56,5 +56,10 @@ redis.call('pexpire', key, window)
 -- Recalculate remaining after adding current request
 remaining = math.max(0, limit - current - 1)
 
+-- Into an empty window the current request is the oldest one.
+if current == 0 then
+    reset_time = math.floor((now + window) / 1000)
+end
+
 return {limit, remaining, reset_time, 1}  -- 1 = allowed
 `)

@@ -37,6 +37,52 @@ func TestProvider_Allow_ExceedsLimit(t *testing.T) {
 	require.Equal(t, int64(0), info.Remaining)
 }
 
+// TestProvider_Allow_ResetTime asserts Reset is the second the oldest request
+// in the window leaves it. On an admission into an empty window — a new key,
+// a reset key or a window whose requests all expired — that is the admitted
+// request itself, not zero.
+func TestProvider_Allow_ResetTime(t *testing.T) {
+	t.Parallel()
+
+	const period = 30 * time.Second
+	p := memory.New()
+	ctx := t.Context()
+
+	// admit makes one admitted call and returns its Reset together with the
+	// range the admitted request can have produced.
+	admit := func(key string, limit int64, window time.Duration) (reset, lo, hi int64) {
+		t.Helper()
+		before := time.Now()
+		info, err := p.Allow(ctx, key, limit, window)
+		after := time.Now()
+		require.NoError(t, err)
+		return info.Reset, before.Add(window).Unix(), after.Add(window).Unix()
+	}
+
+	reset, lo, hi := admit("fresh", 2, period)
+	require.GreaterOrEqual(t, reset, lo, "first admission of an empty window")
+	require.LessOrEqual(t, reset, hi)
+
+	second, _, _ := admit("fresh", 2, period)
+	require.Equal(t, reset, second, "the first request is still the oldest")
+
+	info, err := p.Allow(ctx, "fresh", 2, period)
+	require.ErrorIs(t, err, storages.ErrLimitExceeded)
+	require.Equal(t, reset, info.Reset)
+
+	require.NoError(t, p.Reset(ctx, "fresh"))
+	reset, lo, hi = admit("fresh", 2, period)
+	require.GreaterOrEqual(t, reset, lo, "first admission after Reset")
+	require.LessOrEqual(t, reset, hi)
+
+	const short = 50 * time.Millisecond
+	_, _, _ = admit("expiring", 1, short)
+	time.Sleep(2 * short)
+	reset, lo, hi = admit("expiring", 1, short)
+	require.GreaterOrEqual(t, reset, lo, "first admission after the window expired")
+	require.LessOrEqual(t, reset, hi)
+}
+
 func TestProvider_Allow_DifferentKeys(t *testing.T) {
 	p := memory.New()
 	ctx := t.Context()

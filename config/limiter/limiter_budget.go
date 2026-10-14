@@ -33,6 +33,10 @@ type Budget struct {
 	// Storage defines the storage configuration for budget counters.
 	// Required, specifies backend and settings (memory, nats, or redis).
 	Storage *storageconfig.CacheStorageConfig `yaml:"storage"`
+
+	// NATSContention tunes compare-and-swap retries of the NATS storage.
+	// Optional; ignored by other storages.
+	NATSContention *NATSContention `yaml:"natsContention"`
 }
 
 // Validate performs validation of the budget limiter configuration.
@@ -42,6 +46,7 @@ func (b *Budget) Validate() error {
 		validation.Field(&b.Limit, validation.Required, validation.Min(int64(1))),
 		validation.Field(&b.Period, validation.Required, ozzo_rules.Duration(), validation.Min(time.Second)),
 		validation.Field(&b.Storage, validation.Required),
+		validation.Field(&b.NATSContention),
 	)
 }
 

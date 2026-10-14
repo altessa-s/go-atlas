@@ -42,8 +42,10 @@ func (s *RateLimitSettings) IsSkip() bool {
 	return s == nil || s.Limit == math.MinInt64 && s.Period == math.MinInt64
 }
 
-// LimitInfo returns a [LimitInfo] snapshot derived from these settings.
-// For unlimited settings, all fields are set to [math.MaxInt64].
+// LimitInfo returns a [LimitInfo] snapshot derived from these settings, with
+// Reset as the Unix time one period from now — the same absolute timestamp
+// storages report. For unlimited settings, all fields are set to
+// [math.MaxInt64].
 func (s *RateLimitSettings) LimitInfo() *LimitInfo {
 	if s.IsUnlimited() {
 		return &LimitInfo{
@@ -56,7 +58,7 @@ func (s *RateLimitSettings) LimitInfo() *LimitInfo {
 	return &LimitInfo{
 		Limit:     s.Limit,
 		Remaining: s.Limit, // Initially, all requests are remaining
-		Reset:     int64(s.Period.Seconds()),
+		Reset:     time.Now().Add(s.Period).Unix(),
 	}
 }
 

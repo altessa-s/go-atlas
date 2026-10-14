@@ -123,6 +123,10 @@ type TokenBucket struct {
 	// Rules contains the rate limiting rules configuration.
 	// Includes default settings and specific rules for targeted clients.
 	Rules *TokenBucketRules `yaml:"rules"`
+
+	// NATSContention tunes compare-and-swap retries of the NATS storage.
+	// Optional; ignored by other storages.
+	NATSContention *NATSContention `yaml:"natsContention"`
 }
 
 // DefaultTokenBucket returns a TokenBucket configuration with default values.
@@ -141,5 +145,6 @@ func (l *TokenBucket) Validate() error {
 		validation.Field(&l.IpCacheSize, validation.Min(0)),
 		validation.Field(&l.Storage, validation.Required),
 		validation.Field(&l.Rules, validation.Required),
+		validation.Field(&l.NATSContention),
 	)
 }

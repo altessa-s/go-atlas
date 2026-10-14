@@ -59,10 +59,13 @@ func TestRateLimitSettings_IsSkip(t *testing.T) {
 func TestRateLimitSettings_LimitInfo(t *testing.T) {
 	t.Run("normal", func(t *testing.T) {
 		s := &tokenbucket.RateLimitSettings{Limit: 100, Period: time.Minute}
+		before := time.Now().Add(time.Minute).Unix()
 		info := s.LimitInfo()
+		after := time.Now().Add(time.Minute).Unix()
 		require.Equal(t, int64(100), info.Limit)
 		require.Equal(t, int64(100), info.Remaining)
-		require.Equal(t, int64(60), info.Reset)
+		require.GreaterOrEqual(t, info.Reset, before, "Reset is an absolute Unix time")
+		require.LessOrEqual(t, info.Reset, after)
 	})
 
 	t.Run("unlimited", func(t *testing.T) {

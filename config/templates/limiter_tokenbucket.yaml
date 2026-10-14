@@ -48,3 +48,14 @@
 #        # <duration> The time window for the limit.
 #        period: "1h"
 #
+#
+#  # <object> Compare-and-swap retry tuning for the NATS storage; ignored by other storages.
+#  # Default value: not set (storage defaults apply)
+#  natsContention:
+#    # <int> Read-modify-write attempts per check before it fails with a contention error.
+#    # Default value: 64
+#    maxCASAttempts: 64
+#
+#    # <duration> Ceiling of the randomized pause after a revision conflict.
+#    # Default value: 20ms
+#    maxCASBackoff: "20ms"
