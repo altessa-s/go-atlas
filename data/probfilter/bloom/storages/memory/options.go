@@ -12,8 +12,12 @@ const DefaultExpectedItems = 100000
 // DefaultFalsePositiveRate is the default target false positive rate.
 const DefaultFalsePositiveRate = 0.01
 
+// DefaultShards is the default number of shards for reducing lock contention.
+const DefaultShards = 16
+
 // options contains memory Bloom filter storage configuration.
 type options struct {
 	expectedItems     int64   `optgen:"default=DefaultExpectedItems" optval:"positive"`
 	falsePositiveRate float64 `optgen:"default=DefaultFalsePositiveRate" optval:"positive=allow_zero"`
+	shards            int     `optgen:"default=DefaultShards" optval:"positive"`
 }
