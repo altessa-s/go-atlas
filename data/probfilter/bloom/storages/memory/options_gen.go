@@ -26,11 +26,22 @@ func WithFalsePositiveRate(v float64) Option {
 	}
 }
 
+// WithShards sets the shards option.
+func WithShards(v int) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.shards = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
 		expectedItems:     DefaultExpectedItems,
 		falsePositiveRate: DefaultFalsePositiveRate,
+		shards:            DefaultShards,
 	}
 }
 

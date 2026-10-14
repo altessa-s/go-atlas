@@ -9,9 +9,11 @@ import (
 	"iter"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bits-and-blooms/bloom/v3"
+	"github.com/cespare/xxhash/v2"
 
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom/storages"
 	"github.com/altessa-s/go-atlas/data/probfilter/stats"
@@ -20,17 +22,37 @@ import (
 // bitsPerByte is the number of bits in a byte, used for memory calculation.
 const bitsPerByte = 8
 
-// Storage is an in-memory Bloom filter storage using bits-and-blooms/bloom.
+type shard struct {
+	filter *bloom.BloomFilter
+	mu     sync.RWMutex
+}
+
+// Storage is an in-memory Bloom filter storage using sharded bits-and-blooms/bloom filters.
+// Sharding reduces RWMutex contention under concurrent read/write workloads across multi-core systems.
 // It is safe for concurrent use.
 type Storage struct {
-	filter      *bloom.BloomFilter
-	mu          sync.RWMutex
+	shards      []shard
+	numShards   uint64
 	opts        *options
-	itemCount   int64
-	lastRebuild time.Time
+	itemCount   atomic.Int64
+	lastRebuild atomic.Pointer[time.Time]
+	commitMu    sync.Mutex
 }
 
 var _ storages.Storage = (*Storage)(nil)
+
+func newShards(numShards int, expectedItems int64, fpRate float64) []shard {
+	if numShards <= 0 {
+		numShards = DefaultShards
+	}
+	itemsPerShard := max(uint(math.Ceil(float64(expectedItems)/float64(numShards))), 1)
+
+	shards := make([]shard, numShards)
+	for i := range shards {
+		shards[i].filter = bloom.NewWithEstimates(itemsPerShard, fpRate)
+	}
+	return shards
+}
 
 // New creates a new in-memory Bloom filter Storage.
 //
@@ -39,40 +61,58 @@ var _ storages.Storage = (*Storage)(nil)
 //	storage := memory.New(
 //	    memory.WithExpectedItems(100000),
 //	    memory.WithFalsePositiveRate(0.01),
+//	    memory.WithShards(16),
 //	)
 func New(opt ...Option) *Storage {
 	opts := newOptions(opt...)
+	shards := newShards(opts.shards, opts.expectedItems, opts.falsePositiveRate)
 	return &Storage{
-		//nolint:gosec // G115: expectedItems is validated positive via options
-		filter: bloom.NewWithEstimates(uint(opts.expectedItems), opts.falsePositiveRate),
-		opts:   opts,
+		shards:    shards,
+		numShards: uint64(len(shards)),
+		opts:      opts,
 	}
+}
+
+func (s *Storage) shardIndex(value string) uint64 {
+	if s.numShards <= 1 {
+		return 0
+	}
+	return xxhash.Sum64String(value) % s.numShards
 }
 
 // MightExist checks if a value might exist in the filter.
 func (s *Storage) MightExist(_ context.Context, value string) (bool, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.filter.TestString(value), nil
+	idx := s.shardIndex(value)
+	sh := &s.shards[idx]
+	sh.mu.RLock()
+	exists := sh.filter.TestString(value)
+	sh.mu.RUnlock()
+	return exists, nil
 }
 
 // Add inserts a value into the filter.
 func (s *Storage) Add(_ context.Context, value string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.filter.AddString(value)
-	s.itemCount++
+	idx := s.shardIndex(value)
+	sh := &s.shards[idx]
+	sh.mu.Lock()
+	sh.filter.AddString(value)
+	sh.mu.Unlock()
+	s.itemCount.Add(1)
 	return nil
 }
 
 // AddBatch inserts multiple values into the filter.
 func (s *Storage) AddBatch(_ context.Context, values iter.Seq[string]) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	var count int64
 	for v := range values {
-		s.filter.AddString(v)
-		s.itemCount++
+		idx := s.shardIndex(v)
+		sh := &s.shards[idx]
+		sh.mu.Lock()
+		sh.filter.AddString(v)
+		sh.mu.Unlock()
+		count++
 	}
+	s.itemCount.Add(count)
 	return nil
 }
 
@@ -84,24 +124,26 @@ func (s *Storage) Stage(_ context.Context, expectedItems int64) (storages.Stagin
 		expectedItems = s.opts.expectedItems
 	}
 
+	shards := newShards(s.opts.shards, expectedItems, s.opts.falsePositiveRate)
 	return &staging{
-		live: s,
-		//nolint:gosec // G115: expectedItems is validated positive above
-		filter: bloom.NewWithEstimates(uint(expectedItems), s.opts.falsePositiveRate),
+		live:   s,
+		shards: shards,
 	}, nil
 }
 
 // staging is a replacement filter built off to the side of the live one.
 type staging struct {
 	live      *Storage
-	filter    *bloom.BloomFilter
+	shards    []shard
 	itemCount int64
 }
 
 // AddBatch inserts values into the replacement filter.
 func (st *staging) AddBatch(_ context.Context, values iter.Seq[string]) error {
 	for v := range values {
-		st.filter.AddString(v)
+		idx := st.live.shardIndex(v)
+		sh := &st.shards[idx]
+		sh.filter.AddString(v)
 		st.itemCount++
 	}
 	return nil
@@ -112,67 +154,80 @@ func (st *staging) Commit(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	st.live.mu.Lock()
-	defer st.live.mu.Unlock()
-	st.live.filter = st.filter
-	st.live.itemCount = st.itemCount
+	st.live.commitMu.Lock()
+	defer st.live.commitMu.Unlock()
+
+	// Acquire write locks on all live shards in order
+	for i := range st.live.shards {
+		st.live.shards[i].mu.Lock()
+		defer st.live.shards[i].mu.Unlock()
+	}
+
+	st.live.shards = st.shards
+	st.live.numShards = uint64(len(st.shards))
+	st.live.itemCount.Store(st.itemCount)
 	return nil
 }
 
 // Abort discards the replacement filter.
 func (st *staging) Abort(_ context.Context) error {
-	st.filter = nil
+	st.shards = nil
 	return nil
 }
 
-// Stats returns current filter statistics.
+// Stats returns current filter statistics aggregated across all shards.
 func (s *Storage) Stats(_ context.Context) (*stats.FilterStats, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	var (
+		totalCapacity    int64
+		totalApproxCount int64
+		totalBits        int64
+		k                float64
+	)
 
-	//nolint:gosec // G115: filter.Cap() returns uint, bloom filter capacity fits in int64
-	capacity := int64(s.filter.Cap())
-	// ApproximatedSize gives an estimate based on bit array state
-	approxCount := int64(s.filter.ApproximatedSize()) //nolint:gosec // G115: same as capacity
-
-	var fillRatio float64
-	if capacity > 0 {
-		fillRatio = float64(approxCount) / float64(capacity)
+	for i := range s.shards {
+		sh := &s.shards[i]
+		sh.mu.RLock()
+		totalCapacity += int64(sh.filter.Cap())
+		totalApproxCount += int64(sh.filter.ApproximatedSize())
+		totalBits += int64(sh.filter.Cap())
+		k = float64(sh.filter.K())
+		sh.mu.RUnlock()
 	}
 
-	// Estimate false positive rate based on current fill
-	// FPR = (1 - e^(-k*n/m))^k where k=hash functions, n=items, m=bits
-	k := float64(s.filter.K())
-	m := float64(s.filter.Cap())
-	n := float64(s.itemCount)
+	var fillRatio float64
+	if totalCapacity > 0 {
+		fillRatio = float64(totalApproxCount) / float64(totalCapacity)
+	}
+
+	n := float64(s.itemCount.Load())
+	m := float64(totalBits)
 	estimatedFPR := s.opts.falsePositiveRate
 	if m > 0 && n > 0 {
 		estimatedFPR = math.Pow(1-math.Exp(-k*n/m), k)
 	}
 
 	return &stats.FilterStats{
-		Capacity:          capacity,
-		ItemCount:         approxCount,
+		Capacity:          totalCapacity,
+		ItemCount:         totalApproxCount,
 		FillRatio:         fillRatio,
 		FalsePositiveRate: estimatedFPR,
-		MemoryUsageBytes:  int64(s.filter.Cap() / bitsPerByte), //nolint:gosec // G115: capacity in bytes fits int64
-		LastRebuild:       s.lastRebuild,
+		MemoryUsageBytes:  totalBits / bitsPerByte,
+		LastRebuild:       s.LastRebuild(),
 		StorageType:       "memory",
 	}, nil
 }
 
 // LastRebuild returns the time of the last successful rebuild.
 func (s *Storage) LastRebuild() time.Time {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.lastRebuild
+	if p := s.lastRebuild.Load(); p != nil {
+		return *p
+	}
+	return time.Time{}
 }
 
 // SetLastRebuild updates the last rebuild timestamp.
 func (s *Storage) SetLastRebuild(t time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.lastRebuild = t
+	s.lastRebuild.Store(&t)
 }
 
 // Close releases resources associated with the storage.
