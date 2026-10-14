@@ -166,12 +166,18 @@ cd go-atlas
 | `make lint` | Run golangci-lint with the repo config (`.golangci.yml`) |
 | `make test` | Run all tests |
 | `make test-all` | Tests with race detector, shuffle, and coverage |
+| `make test-stress` | Stress tests under `-race`, `STRESS_DURATION` (default 30s) each |
 | `make bench` | Run all benchmarks |
-| `make security-scan` | Run `govulncheck` and `gosec` |
 | `make bench-gate` | Fail on hot-path benchmark regressions against the local baseline ([details](CONTRIBUTING.md#benchmark-regression-gate)) |
+| `make security-scan` | Run `govulncheck` and `gosec` |
 | `make generate` | Run `go generate` across all packages |
 | `make ci` | Run full CI checks locally (lint, test, security, dupl) |
 | `make clean` | Remove generated artifacts |
+
+Stress tests live next to the code they exercise in `*_stress_test.go` files behind the `stress` build tag, so `go test ./...` never runs them.
+Each one mixes every operation of its package concurrently for `ATLAS_STRESS_DURATION` (default 30s) and checks invariants as it goes; run one
+with `ATLAS_STRESS_DURATION=10s go test -tags stress -race -run '^TestStress' ./core/io/wal`. The dlock test needs the NATS broker from
+`make integration-up` (`NATS_URL` overrides it) and skips without one. The `Stress` workflow runs them nightly.
 
 ## Contributing
 

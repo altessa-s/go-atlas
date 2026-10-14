@@ -36,6 +36,14 @@ GOSEC_EXCLUDED_RULES ?= G104,G115,G117,G304,G702,G703,G704,G705
 FUZZTIME ?= 30s
 FUZZPKG ?= ./...
 
+# Stress configuration (tests behind the `stress` build tag, see AGENTS.md)
+# - STRESS_DURATION: run length of each stress test (ATLAS_STRESS_DURATION).
+# - STRESS_TIMEOUT: go test -timeout for the whole run.
+# - STRESS_PKG: packages to run; defaults to every package with a *_stress_test.go.
+STRESS_DURATION ?= 30s
+STRESS_TIMEOUT ?= 30m
+STRESS_PKG ?= $(sort $(dir $(shell find . -name '*_stress_test.go' -not -path './tests/*' -not -path '*/.*')))
+
 .PHONY: all
 all: help
 
@@ -115,14 +123,6 @@ bench-count: ## Run benchmarks multiple times for benchstat (COUNT=5)
 	@go test -bench=. -benchmem -run=^$$ -count=$${COUNT:-5} ./... | tee bench.txt
 	@echo "Results saved to bench.txt (use benchstat bench.txt)"
 
-.PHONY: test-coverage-func
-test-coverage-func: ## Run tests and show formatted per-package coverage
-	@go test -cover ./... 2>&1 | awk -F'\t' '\
-	  function pad(s,w, _l,_p) { gsub(/^[ \t]+|[ \t]+$$/, "", s); _l=length(s); _p=""; while(_l++<w) _p=_p" "; return s _p } \
-	  function color(s,c) { return "\033[" c "m" s "\033[0m" } \
-	  { \
-	    st=$$1; gsub(/^[ \t]+|[ \t]+$$/, "", st); \
-	    pkg=$$2; gsub(/^[ \t]+|[ \t]+$$/, "", pkg); sub(/github.com\/altessa-s\/go-atlas\//, "", pkg); \
 .PHONY: bench-gate
 bench-gate: ## Fail if hot-path benchmarks regressed against benchmarks/baseline.txt (same machine only)
 	@./benchmarks/bench-gate.sh gate
@@ -131,6 +131,14 @@ bench-gate: ## Fail if hot-path benchmarks regressed against benchmarks/baseline
 bench-baseline: ## Regenerate benchmarks/baseline.txt from the hot-path list on this machine
 	@./benchmarks/bench-gate.sh baseline
 
+.PHONY: test-coverage-func
+test-coverage-func: ## Run tests and show formatted per-package coverage
+	@go test -cover ./... 2>&1 | awk -F'\t' '\
+	  function pad(s,w, _l,_p) { gsub(/^[ \t]+|[ \t]+$$/, "", s); _l=length(s); _p=""; while(_l++<w) _p=_p" "; return s _p } \
+	  function color(s,c) { return "\033[" c "m" s "\033[0m" } \
+	  { \
+	    st=$$1; gsub(/^[ \t]+|[ \t]+$$/, "", st); \
+	    pkg=$$2; gsub(/^[ \t]+|[ \t]+$$/, "", pkg); sub(/github.com\/altessa-s\/go-atlas\//, "", pkg); \
 	    if (st=="ok") cs="32"; else if (st=="FAIL") cs="31"; else cs="33"; \
 	    cov=$$4; gsub(/^[ \t]+|[ \t]+$$/, "", cov); \
 	    match(cov, /[0-9]+\.[0-9]+/); pct=substr(cov,RSTART,RLENGTH)+0; \
@@ -174,6 +182,11 @@ fuzz: ## Fuzz every target for FUZZTIME each (FUZZTIME=30s FUZZPKG=./...)
 .PHONY: test-integration
 test-integration: ## Run the integration suite against live backends (see tests/integration/README.md)
 	@go test -C tests/integration -race -count=1 ./...
+
+.PHONY: test-stress
+test-stress: ## Run the stress tests under -race, STRESS_DURATION each (needs NATS from integration-up for dlock)
+	@ATLAS_STRESS_DURATION=$(STRESS_DURATION) go test -tags stress -race -count=1 -p 1 -timeout $(STRESS_TIMEOUT) \
+	    -run '^(TestStress|TestWALCrashRecovery$$)' $(STRESS_PKG)
 
 .PHONY: integration-up
 integration-up: ## Start the backends the integration suite runs against
