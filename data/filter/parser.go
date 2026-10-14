@@ -108,17 +108,7 @@ func (p *Parser) Parse(ctx context.Context, expression string) (Node, error) {
 	stop := p.metrics.parseDuration.Start()
 	defer stop()
 
-	var node Node
-	var err error
-
-	if p.cache != nil {
-		node, err = p.cache.GetOrCompute(ctx, expression, func(ctx context.Context) (Node, error) {
-			return p.parseInternal(expression)
-		})
-	} else {
-		node, err = p.parseInternal(expression)
-	}
-
+	node, err := p.parseCached(ctx, expression)
 	if err != nil {
 		p.metrics.parseErrors.Inc()
 		return nil, err
@@ -130,10 +120,53 @@ func (p *Parser) Parse(ctx context.Context, expression string) (Node, error) {
 	return cloneAST(node)
 }
 
+// ParseShared parses a CEL expression and returns a shared (read-only) AST
+// from cache when available. Callers MUST NOT mutate the returned Node tree:
+// mutating it corrupts subsequent reads from the parser's cache.
+// For a safe, caller-owned AST copy, use [Parser.Parse].
+func (p *Parser) ParseShared(ctx context.Context, expression string) (Node, error) {
+	if corestrings.IsEmpty(expression) {
+		return nil, ErrEmptyExpression
+	}
+
+	if len(expression) > p.maxExpressionLength {
+		p.metrics.parseErrors.Inc()
+		return nil, coreerrs.Wrapf(ErrExpressionTooLong, "length %d exceeds maximum %d", len(expression), p.maxExpressionLength)
+	}
+
+	stop := p.metrics.parseDuration.Start()
+	defer stop()
+
+	node, err := p.parseCached(ctx, expression)
+	if err != nil {
+		p.metrics.parseErrors.Inc()
+		return nil, err
+	}
+
+	return node, nil
+}
+
+// parseCached parses expression through the cache when the parser has one.
+func (p *Parser) parseCached(ctx context.Context, expression string) (Node, error) {
+	if p.cache != nil {
+		return p.cache.GetOrCompute(ctx, expression, func(_ context.Context) (Node, error) {
+			return p.parseInternal(expression)
+		})
+	}
+	return p.parseInternal(expression)
+}
+
 // MustParse parses a CEL expression and panics if parsing fails.
 // Use this for compile-time expressions to catch errors at startup.
 func (p *Parser) MustParse(expression string) Node {
 	return panics.MustResult(p.Parse(context.Background(), expression))
+}
+
+// MustParseShared parses a CEL expression and returns a shared (read-only) AST,
+// panicking if parsing fails. Callers MUST NOT mutate the returned Node tree.
+// Use this for compile-time expressions to catch errors at startup.
+func (p *Parser) MustParseShared(expression string) Node {
+	return panics.MustResult(p.ParseShared(context.Background(), expression))
 }
 
 // parseInternal performs the actual parsing without caching.
