@@ -10,32 +10,34 @@ import (
 	"sync"
 )
 
-// randBufSize is the size of the buffered CSPRNG pool. Each refill is a single
-// syscall to crypto/rand; between refills the bytes are served from memory.
+// randBufSize is the size of each buffered CSPRNG chunk. Each refill is a
+// single crypto/rand read; between refills the bytes are served from memory.
 const randBufSize = 4096
 
-// randPool amortizes crypto/rand syscall overhead by reading in bulk.
-type randPool struct {
-	mu  sync.Mutex
+// randBuf is a chunk of crypto/rand output owned by one goroutine at a time.
+type randBuf struct {
 	buf [randBufSize]byte
 	pos int
 }
 
-// rng is the package-level buffered random source.
-// pos starts at randBufSize to force an immediate fill on first use.
-var rng = &randPool{pos: randBufSize}
+// randBufs hands out per-P chunks so concurrent span starts do not serialize
+// on one lock. A chunk is checked out exclusively and every byte is served at
+// most once; chunks dropped by the GC only discard unread bytes.
+var randBufs = sync.Pool{
+	// pos starts at randBufSize to force a fill on first use.
+	New: func() any { return &randBuf{pos: randBufSize} },
+}
 
-// read copies len(dst) cryptographically-secure random bytes into dst.
-func (r *randPool) read(dst []byte) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+// readRandom copies len(dst) cryptographically secure random bytes into dst.
+func readRandom(dst []byte) {
+	r := randBufs.Get().(*randBuf) //nolint:errcheck,forcetypeassert // only *randBuf is stored
 	if r.pos+len(dst) > randBufSize {
 		_, _ = rand.Read(r.buf[:]) //nolint:errcheck // only fails on reader exhaustion
 		r.pos = 0
 	}
 	copy(dst, r.buf[r.pos:r.pos+len(dst)])
 	r.pos += len(dst)
+	randBufs.Put(r)
 }
 
 // spanContextImpl is the concrete implementation of SpanContext.
@@ -55,19 +57,19 @@ func newSpanContextImpl(parent SpanContext) *spanContextImpl {
 	}
 
 	// Generate new span ID from buffered CSPRNG (amortizes syscall overhead)
-	rng.read(sc.spanID[:])
+	readRandom(sc.spanID[:])
 
 	// Inherit or generate trace ID
 	if parent != nil && parent.IsValid() {
-		// Parse parent trace ID
-		sc.traceID = parseTraceID(parent.TraceID())
+		// Inherit parent trace ID
+		sc.traceID = traceIDOf(parent)
 		sc.remote = false
 		if state, ok := parent.(interface{ TraceState() string }); ok {
 			sc.traceState = state.TraceState()
 		}
 	} else {
 		// Generate new trace ID
-		rng.read(sc.traceID[:])
+		readRandom(sc.traceID[:])
 	}
 
 	return sc
@@ -125,6 +127,31 @@ func (sc *spanContextImpl) TraceIDBytes() [16]byte {
 // SpanIDBytes returns the span ID as bytes.
 func (sc *spanContextImpl) SpanIDBytes() [8]byte {
 	return sc.spanID
+}
+
+// rawSpanContext exposes binary IDs so in-package consumers skip the hex
+// round trip of TraceID/SpanID.
+type rawSpanContext interface {
+	TraceIDBytes() [16]byte
+	SpanIDBytes() [8]byte
+}
+
+// traceIDOf returns sc's trace ID, parsing the hex form only for foreign
+// SpanContext implementations.
+func traceIDOf(sc SpanContext) [16]byte {
+	if raw, ok := sc.(rawSpanContext); ok {
+		return raw.TraceIDBytes()
+	}
+	return parseTraceID(sc.TraceID())
+}
+
+// spanIDOf returns sc's span ID, parsing the hex form only for foreign
+// SpanContext implementations.
+func spanIDOf(sc SpanContext) [8]byte {
+	if raw, ok := sc.(rawSpanContext); ok {
+		return raw.SpanIDBytes()
+	}
+	return parseSpanID(sc.SpanID())
 }
 
 // Ensure spanContextImpl implements SpanContext.

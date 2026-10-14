@@ -176,31 +176,27 @@ func (s *recordingSpan) export() {
 			linkAttrs[j] = adapters.Attribute{Key: attr.Key, Value: attr.Value}
 		}
 		adapterLinks[i] = adapters.SpanLink{
-			TraceID:    parseTraceID(link.SpanContext.TraceID()),
-			SpanID:     parseSpanID(link.SpanContext.SpanID()),
+			TraceID:    traceIDOf(link.SpanContext),
+			SpanID:     spanIDOf(link.SpanContext),
 			Attributes: linkAttrs,
 		}
 	}
 
 	spanData := &adapters.SpanData{
-		TraceID:    s.spanContext.traceID,
-		SpanID:     s.spanContext.spanID,
-		ParentID:   s.parentID,
-		Name:       s.name,
-		Kind:       adapters.SpanKind(s.kind),
-		StartTime:  s.startTime,
-		EndTime:    s.endTime,
-		Attributes: adapterAttrs,
-		Events:     s.events,
-		Links:      adapterLinks,
-		Status:     adapters.StatusCode(s.status),
-		StatusDesc: s.statusDesc,
-		Resource:   s.recorder.tracer.resource,
-		InstrumentationScope: &adapters.InstrumentationScope{
-			Name:      s.recorder.name,
-			Version:   s.recorder.config.InstrumentationVersion(),
-			SchemaURL: s.recorder.config.SchemaURL(),
-		},
+		TraceID:               s.spanContext.traceID,
+		SpanID:                s.spanContext.spanID,
+		ParentID:              s.parentID,
+		Name:                  s.name,
+		Kind:                  adapters.SpanKind(s.kind),
+		StartTime:             s.startTime,
+		EndTime:               s.endTime,
+		Attributes:            adapterAttrs,
+		Events:                s.events,
+		Links:                 adapterLinks,
+		Status:                adapters.StatusCode(s.status),
+		StatusDesc:            s.statusDesc,
+		Resource:              s.recorder.tracer.resource,
+		InstrumentationScope:  s.recorder.scope,
 		DroppedAttributeCount: s.droppedAttrCount,
 		DroppedEventCount:     s.droppedEventCount,
 		DroppedLinkCount:      s.droppedLinkCount,

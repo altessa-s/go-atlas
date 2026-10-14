@@ -5,6 +5,7 @@
 package tracing
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -74,4 +75,54 @@ func TestNewSpanContextImpl_UniqueIDs(t *testing.T) {
 		require.False(t, seen[id], "generated duplicate ID")
 		seen[id] = true
 	}
+}
+
+// TestNewSpanContextImpl_UniqueIDsConcurrent checks that pooled random chunks
+// never hand the same bytes to two goroutines.
+func TestNewSpanContextImpl_UniqueIDsConcurrent(t *testing.T) {
+	t.Parallel()
+
+	const workers, perWorker = 16, 2000
+	ids := make([][perWorker][8]byte, workers)
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Go(func() {
+			for i := range perWorker {
+				ids[w][i] = newSpanContextImpl(nil).spanID
+			}
+		})
+	}
+	wg.Wait()
+
+	seen := make(map[[8]byte]struct{}, workers*perWorker)
+	for w := range ids {
+		for _, id := range ids[w] {
+			_, dup := seen[id]
+			require.False(t, dup, "generated duplicate span ID")
+			seen[id] = struct{}{}
+		}
+	}
+}
+
+// foreignSpanContext implements SpanContext without the binary ID accessors.
+type foreignSpanContext struct{ SpanContext }
+
+func TestIDOf_FallsBackToHex(t *testing.T) {
+	t.Parallel()
+
+	sc := NewRemoteSpanContext(
+		[16]byte{0x0a, 0xf7, 0x65, 0x19, 0x16, 0xcd, 0x43, 0xdd, 0x84, 0x48, 0xeb, 0x21, 0x1c, 0x80, 0x31, 0x9c},
+		[8]byte{0xb7, 0xad, 0x6b, 0x71, 0x69, 0x20, 0x33, 0x31},
+		FlagsSampled,
+	)
+	raw := sc.(*spanContextImpl)
+	foreign := foreignSpanContext{SpanContext: sc}
+
+	require.Equal(t, raw.traceID, traceIDOf(sc))
+	require.Equal(t, raw.spanID, spanIDOf(sc))
+	require.Equal(t, raw.traceID, traceIDOf(foreign))
+	require.Equal(t, raw.spanID, spanIDOf(foreign))
+
+	child := newSpanContextImpl(foreign)
+	require.Equal(t, raw.traceID, child.traceID)
 }

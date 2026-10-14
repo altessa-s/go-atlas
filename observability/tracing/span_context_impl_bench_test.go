@@ -35,3 +35,12 @@ func BenchmarkSpanContextImpl_SpanID(b *testing.B) {
 		sc.SpanID()
 	}
 }
+
+func BenchmarkNewSpanContextImpl_Parallel(b *testing.B) {
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			newSpanContextImpl(nil)
+		}
+	})
+}

@@ -124,14 +124,23 @@ type recorder struct {
 	tracer *tracer
 	name   string
 	config *RecorderConfig
+	// scope is immutable per recorder and shared by every exported span,
+	// like tracer.resource.
+	scope *adapters.InstrumentationScope
 }
 
 // newRecorder creates a new recorder.
 func newRecorder(t *tracer, name string, opts ...RecorderOption) *recorder {
+	cfg := ApplyRecorderOptions(opts...)
 	return &recorder{
 		tracer: t,
 		name:   name,
-		config: ApplyRecorderOptions(opts...),
+		config: cfg,
+		scope: &adapters.InstrumentationScope{
+			Name:      name,
+			Version:   cfg.InstrumentationVersion(),
+			SchemaURL: cfg.SchemaURL(),
+		},
 	}
 }
 
@@ -191,7 +200,7 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 
 	// Set parent ID if we have a parent
 	if parentSpanContext != nil && parentSpanContext.IsValid() {
-		span.parentID = parseSpanID(parentSpanContext.SpanID())
+		span.parentID = spanIDOf(parentSpanContext)
 	}
 
 	return ContextWithSpan(ctx, span), span
@@ -203,8 +212,8 @@ func extractSamplerSpanContext(sc SpanContext) *sampler.SpanContext {
 		return nil
 	}
 	return &sampler.SpanContext{
-		TraceID:   parseTraceID(sc.TraceID()),
-		SpanID:    parseSpanID(sc.SpanID()),
+		TraceID:   traceIDOf(sc),
+		SpanID:    spanIDOf(sc),
 		IsSampled: sc.IsSampled(),
 		IsRemote:  sc.IsRemote(),
 	}
