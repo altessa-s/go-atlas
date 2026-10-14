@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/transport/clientip"
@@ -129,7 +130,7 @@ func (m *middleware) rateLimit(w http.ResponseWriter, r *http.Request) error {
 			m.LogDebug(ctx, "rate limit exceeded", path,
 				slog.String("method", r.Method))
 			if info != nil {
-				w.Header().Set(headers.RetryAfter, strconv.FormatInt(info.Reset, 10))
+				w.Header().Set(headers.RetryAfter, strconv.FormatInt(retryAfterSeconds(info.Reset, time.Now()), 10))
 			}
 			http.Error(w, "Rate Limit Exceeded", StatusTooManyRequests)
 			return err
@@ -162,4 +163,12 @@ func extractBearerToken(r *http.Request) string {
 		return strings.TrimSpace(authHeader[len(bearerPrefix):])
 	}
 	return ""
+}
+
+// retryAfterSeconds converts a Unix reset time into the delay-seconds form
+// Retry-After requires (RFC 9110 §10.2.3). Storages round the reset down to
+// whole seconds, so one second is added to keep a client from retrying just
+// before the window frees a slot.
+func retryAfterSeconds(reset int64, now time.Time) int64 {
+	return max(reset-now.Unix()+1, 1)
 }

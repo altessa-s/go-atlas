@@ -8,7 +8,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -97,4 +99,50 @@ func TestMiddleware_Dependencies(t *testing.T) {
 	reqDeps := m.RequiredDependencies()
 	require.Len(t, reqDeps, 1)
 	require.Equal(t, "realip", reqDeps[0])
+}
+
+// TestMiddleware_RetryAfterIsDelaySeconds pins that Retry-After carries the
+// seconds until the window frees a slot, while X-RateLimit-Reset keeps the
+// absolute Unix time.
+func TestMiddleware_RetryAfterIsDelaySeconds(t *testing.T) {
+	t.Parallel()
+	reset := time.Now().Add(30 * time.Second).Unix()
+	lim := &mockLimiter{
+		info: &sharedlimiter.LimitInfo{Limit: 100, Remaining: 0, Reset: reset},
+		err:  sharedlimiter.ErrLimitExceeded,
+	}
+	handler := Middleware(lim)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/test", nil))
+
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	require.Equal(t, strconv.FormatInt(reset, 10), rec.Header().Get("X-RateLimit-Reset"))
+	retryAfter, err := strconv.ParseInt(rec.Header().Get("Retry-After"), 10, 64)
+	require.NoError(t, err)
+	require.InDelta(t, 31, retryAfter, 1)
+}
+
+func TestRetryAfterSeconds(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_000, 0)
+	// The reset is rounded down: an expiry at 1042.9 is reported as 1042,
+	// so even from 1000.1 a client must wait 43s, not 42.
+	fractional := time.Unix(1_000, 100*int64(time.Millisecond))
+	tests := []struct {
+		name  string
+		reset int64
+		want  int64
+	}{
+		{name: "future", reset: 1_042, want: 43},
+		{name: "now", reset: 1_000, want: 1},
+		{name: "past", reset: 900, want: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, retryAfterSeconds(tc.reset, now))
+		})
+	}
+	require.Equal(t, int64(43), retryAfterSeconds(1_042, fractional))
 }
