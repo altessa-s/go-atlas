@@ -147,3 +147,17 @@ func BenchmarkEvaluate_Matches(b *testing.B) {
 		_, _ = eval.Evaluate(node, data)
 	}
 }
+
+// BenchmarkEvaluate_InList measures `x in [...]` membership against a list
+// literal of eight elements.
+func BenchmarkEvaluate_InList(b *testing.B) {
+	p, _ := filter.NewParser(filter.WithParserNoCache())
+	eval := mustEvaluator(b)
+	node, _ := p.Parse(b.Context(), `status in ["a", "b", "c", "d", "e", "f", "g", "active"]`)
+	data := map[string]any{"status": "active"}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = eval.Evaluate(node, data)
+	}
+}

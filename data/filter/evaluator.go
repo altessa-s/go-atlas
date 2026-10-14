@@ -329,6 +329,9 @@ func (e *evaluation) evalIn(left, right Node) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if ln, ok := right.(*ListNode); ok {
+		return e.evalInList(lv, ln)
+	}
 	rv, err := right.Accept(e)
 	if err != nil {
 		return nil, err
@@ -343,6 +346,26 @@ func (e *evaluation) evalIn(left, right Node) (any, error) {
 		}
 	}
 	return false, nil
+}
+
+// evalInList is [evaluation.VisitList] fused with the membership test: it
+// charges the same operation and depth budget and evaluates every element in
+// order, so a later element's error still surfaces after a match, but it does
+// not materialize the []any.
+func (e *evaluation) evalInList(lv any, n *ListNode) (any, error) {
+	if err := e.enterNode(); err != nil {
+		return nil, err
+	}
+	defer e.leaveNode()
+	found := false
+	for _, elem := range n.Elements {
+		val, err := elem.Accept(e)
+		if err != nil {
+			return nil, err
+		}
+		found = found || valuesEqual(lv, val)
+	}
+	return found, nil
 }
 
 // stringCallArgs resolves the target and the single string argument shared by
@@ -771,7 +794,7 @@ func ValidateRegex(pattern string, maxLength int) error {
 	if len(pattern) > maxLength {
 		return coreerrs.Wrapf(ErrInvalidRegex, "pattern length %d exceeds maximum %d", len(pattern), maxLength)
 	}
-	if _, err := regexp.Compile(pattern); err != nil {
+	if _, err := getCompiledRegex(pattern); err != nil {
 		return coreerrs.Wrapf(ErrInvalidRegex, "%v", err)
 	}
 	return nil

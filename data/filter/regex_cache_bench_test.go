@@ -34,3 +34,11 @@ func BenchmarkRegexCacheSaturation(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkValidateRegex(b *testing.B) {
+	const pattern = `^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$`
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = filter.ValidateRegex(pattern, 1024)
+	}
+}
