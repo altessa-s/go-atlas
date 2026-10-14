@@ -7,10 +7,13 @@ package keyset_test
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/keyset"
@@ -180,4 +183,116 @@ func TestNew_CopiesKeys(t *testing.T) {
 	clear(previous)
 	_, err = c.Resolve(token, bindings)
 	require.NoError(t, err)
+}
+
+// Tokens longer than one internal coding chunk round-trip, encode exactly as
+// one-shot base64 does, and reject any tampering across the whole length.
+func TestCodec_LargeTokens(t *testing.T) {
+	t.Parallel()
+
+	c := newCodec(t)
+	for _, size := range []int{1, 150, 191, 192, 193, 400, keyset.MaxPayloadLength - 1, keyset.MaxPayloadLength} {
+		payload := make([]byte, size)
+		for i := range payload {
+			payload[i] = byte(i * 7)
+		}
+		token, err := c.Issue(payload, bindings)
+		require.NoError(t, err)
+
+		raw, err := base64.RawURLEncoding.Strict().DecodeString(token)
+		require.NoError(t, err)
+		require.Equal(t, base64.RawURLEncoding.EncodeToString(raw), token)
+
+		got, err := c.Resolve(token, bindings)
+		require.NoError(t, err)
+		require.Equal(t, payload, got)
+
+		for i := 0; i < len(raw); i += 37 {
+			tampered := bytes.Clone(raw)
+			tampered[i] ^= 0x80
+			_, err := c.Resolve(base64.RawURLEncoding.EncodeToString(tampered), bindings)
+			require.ErrorIs(t, err, keyset.ErrInvalidToken, "size %d, byte %d", size, i)
+		}
+		_, err = c.Resolve(token[:len(token)-1], bindings)
+		require.ErrorIs(t, err, keyset.ErrInvalidToken, "size %d truncated", size)
+		_, err = c.Resolve(token+"A", bindings)
+		require.ErrorIs(t, err, keyset.ErrInvalidToken, "size %d extended", size)
+	}
+}
+
+// A final character with non-zero unused bits decodes to the same bytes but
+// is not canonical, so it is rejected.
+func TestCodec_RejectsNonCanonicalFinalCharacter(t *testing.T) {
+	t.Parallel()
+
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	c := newCodec(t)
+	for size := range 3 {
+		token, err := c.Issue(make([]byte, 300+size), bindings)
+		require.NoError(t, err)
+		if len(token)%4 == 0 {
+			continue
+		}
+		last := strings.IndexByte(alphabet, token[len(token)-1])
+		mutated := token[:len(token)-1] + string(alphabet[last^1])
+		_, err = c.Resolve(mutated, bindings)
+		require.ErrorIs(t, err, keyset.ErrInvalidToken)
+	}
+}
+
+// Resolve returns a payload the caller owns: it survives later resolves that
+// reuse internal buffers, and changing it does not affect them.
+func TestCodec_ResolvedPayloadIsOwned(t *testing.T) {
+	t.Parallel()
+
+	c := newCodec(t)
+	first, err := c.Issue([]byte("first-payload"), bindings)
+	require.NoError(t, err)
+	second, err := c.Issue([]byte("second-payload"), bindings)
+	require.NoError(t, err)
+
+	p1, err := c.Resolve(first, bindings)
+	require.NoError(t, err)
+	p2, err := c.Resolve(second, bindings)
+	require.NoError(t, err)
+	require.Equal(t, []byte("first-payload"), p1)
+	require.Equal(t, []byte("second-payload"), p2)
+
+	clear(p1)
+	p1again, err := c.Resolve(first, bindings)
+	require.NoError(t, err)
+	require.Equal(t, []byte("first-payload"), p1again)
+}
+
+// Concurrent signing and verification under the current and a previous key
+// never mix MAC states: valid tokens always resolve and forged ones never do.
+func TestCodec_ConcurrentKeys(t *testing.T) {
+	t.Parallel()
+
+	old, err := keyset.New(otherKey)
+	require.NoError(t, err)
+	rotated := newCodec(t, keyset.WithPreviousKeys(otherKey))
+	foreign, err := keyset.New(bytes.Repeat([]byte{3}, keyset.MinKeyLength))
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for g := range 8 {
+		wg.Go(func() {
+			for i := range 200 {
+				payload := []byte(fmt.Sprintf("g%d-i%d", g, i))
+				for _, issuer := range []*keyset.Codec{rotated, old} {
+					token, err := issuer.Issue(payload, bindings)
+					assert.NoError(t, err)
+					got, err := rotated.Resolve(token, bindings)
+					assert.NoError(t, err)
+					assert.Equal(t, payload, got)
+				}
+				forged, err := foreign.Issue(payload, bindings)
+				assert.NoError(t, err)
+				_, err = rotated.Resolve(forged, bindings)
+				assert.ErrorIs(t, err, keyset.ErrInvalidToken)
+			}
+		})
+	}
+	wg.Wait()
 }
