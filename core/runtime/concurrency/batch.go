@@ -7,6 +7,7 @@ package concurrency
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -45,16 +46,32 @@ func Process[T any](
 		return nil
 	}
 	cfg := newOptions(opts...)
-	return processWithOptions(ctx, items, fn, cfg)
+	return processWithOptions(ctx, items, batchFunc[T]{item: fn}, cfg)
 }
 
-// processWithOptions is the shared implementation of [Process] that
-// accepts an already-materialized options value. It is used by
-// [ProcessCollect] to avoid re-applying option functions.
+// batchFunc is the per-item work of a batch: either an item callback
+// ([Process]) or an index callback ([ProcessCollect], which stores results
+// by position). Holding the caller's func directly avoids allocating an
+// adapter closure per call.
+type batchFunc[T any] struct {
+	item  ProcessFunc[T]
+	index func(ctx context.Context, idx int) error
+}
+
+func (f batchFunc[T]) call(ctx context.Context, items []T, idx int) error {
+	if f.index != nil {
+		return f.index(ctx, idx)
+	}
+	return f.item(ctx, items[idx])
+}
+
+// processWithOptions is the shared implementation of [Process] and
+// [ProcessCollect]. Work is addressed by item index; callbacks still
+// receive the items themselves.
 func processWithOptions[T any](
 	ctx context.Context,
 	items []T,
-	fn ProcessFunc[T],
+	fn batchFunc[T],
 	cfg *options[T],
 ) error {
 	concurrency := getConcurrency(cfg)
@@ -76,8 +93,9 @@ func processWithOptions[T any](
 	// Mutex for OnSuccess/OnError callbacks
 	var cbMx sync.Mutex
 
-	handle := func(item T) {
-		if err := fn(gCtx, item); err != nil {
+	handle := func(idx int) {
+		item := items[idx]
+		if err := fn.call(gCtx, items, idx); err != nil {
 			once.Do(func() {
 				firstErr = err
 				if cfg.stopOnError && cancel != nil {
@@ -97,42 +115,29 @@ func processWithOptions[T any](
 		}
 	}
 
-	// A fixed pool of workers consumes item indices from an unbuffered
-	// channel, so a batch spawns min(concurrency, len(items)) goroutines
-	// instead of one per item. The unbuffered channel keeps the dispatch
-	// gating identical to the former semaphore: an index handed over is an
-	// item being processed, and nothing is queued past a cancellation.
+	// A fixed pool of min(concurrency, len(items)) workers claims item
+	// indices from a shared atomic counter. Each worker checks the context
+	// before every claim, regardless of stopOnError, so a claimed index is
+	// an item being processed and nothing is started past a cancellation.
+	n := len(items)
+	var next atomic.Int64
 	var wg sync.WaitGroup
-	indexes := make(chan int)
-	for range min(concurrency, len(items)) {
+	for range min(concurrency, n) {
 		wg.Go(func() {
-			for idx := range indexes {
-				handle(items[idx])
+			for gCtx.Err() == nil {
+				idx := next.Add(1) - 1
+				if idx >= int64(n) {
+					return
+				}
+				handle(int(idx))
 			}
 		})
 	}
-
-	dispatched := 0
-feed:
-	for i := range items {
-		// Check if context is already canceled
-		if gCtx.Err() != nil {
-			break
-		}
-
-		select {
-		case indexes <- i:
-			dispatched++
-		case <-gCtx.Done():
-			break feed
-		}
-	}
-	close(indexes)
-
 	wg.Wait()
-	// Items left undispatched without a failure mean the caller's context was
+
+	// Unclaimed items without a failure mean the caller's context was
 	// canceled: the batch did not complete, so it must not report success.
-	if firstErr == nil && dispatched < len(items) {
+	if firstErr == nil && next.Load() < int64(n) {
 		return ctx.Err()
 	}
 	return firstErr
@@ -170,27 +175,7 @@ func ProcessCollect[T, R any](
 	// Process returns (wg.Wait provides happens-before guarantee).
 	completed := make([]bool, n)
 
-	// Process indices instead of wrapped items.
-	// An int (8 bytes) is much cheaper than struct{int, T} for large T.
-	indices := make([]int, n)
-	for i := range n {
-		indices[i] = i
-	}
-
-	// Translate options[T] → options[int] so we can reuse processWithOptions.
-	idxCfg := &options[int]{
-		concurrency: cfg.concurrency,
-		limitFunc:   cfg.limitFunc,
-		stopOnError: cfg.stopOnError,
-	}
-	if cfg.onSuccess != nil {
-		idxCfg.onSuccess = func(idx int) { cfg.onSuccess(items[idx]) }
-	}
-	if cfg.onError != nil {
-		idxCfg.onError = func(idx int, err error) { cfg.onError(items[idx], err) }
-	}
-
-	err := processWithOptions(ctx, indices, func(gCtx context.Context, idx int) error {
+	err := processWithOptions(ctx, items, batchFunc[T]{index: func(gCtx context.Context, idx int) error {
 		res, fnErr := fn(gCtx, items[idx])
 		if fnErr != nil {
 			return fnErr
@@ -198,7 +183,7 @@ func ProcessCollect[T, R any](
 		results[idx] = res
 		completed[idx] = true
 		return nil
-	}, idxCfg)
+	}}, cfg)
 
 	// Fast path: all items completed successfully (common case).
 	if err == nil {
@@ -241,11 +226,11 @@ func ProcessCollect[T, R any](
 func processSequential[T any](
 	ctx context.Context,
 	items []T,
-	fn ProcessFunc[T],
+	fn batchFunc[T],
 	cfg *options[T],
 ) error {
 	var firstErr error
-	for _, item := range items {
+	for idx, item := range items {
 		// Checked before each call: a canceled context runs no further
 		// callback, and a run that finished every item stays a success.
 		if err := ctx.Err(); err != nil {
@@ -254,7 +239,7 @@ func processSequential[T any](
 			}
 			return err
 		}
-		if err := fn(ctx, item); err != nil {
+		if err := fn.call(ctx, items, idx); err != nil {
 			if cfg.onError != nil {
 				cfg.onError(item, err)
 			}

@@ -84,3 +84,15 @@ func BenchmarkProcessCollectParallel(b *testing.B) {
 		_, _ = concurrency.ProcessCollect(ctx, items, transformDouble, concurrency.WithConcurrency[int](4))
 	}
 }
+
+// BenchmarkProcessCollectLargeCheapBatch stresses per-item dispatch overhead:
+// many trivial items, so scheduling cost dominates the transform itself.
+func BenchmarkProcessCollectLargeCheapBatch(b *testing.B) {
+	ctx := b.Context()
+	items := makeItems(100_000)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = concurrency.ProcessCollect(ctx, items, transformDouble, concurrency.WithConcurrency[int](8))
+	}
+}

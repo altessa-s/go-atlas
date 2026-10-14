@@ -264,6 +264,45 @@ func TestProcessCollect_Error(t *testing.T) {
 	require.Error(t, err, "ProcessCollect() expected error")
 }
 
+// Without stop-on-error the parallel path processes every item, hands the
+// callbacks the items themselves (not internal indices), and returns the
+// successful results in input order alongside the failure.
+func TestProcessCollect_Parallel_ErrorsKeepGoing(t *testing.T) {
+	t.Parallel()
+	errOdd := errors.New("odd")
+	items := []string{"a0", "b1", "c2", "d3", "e4", "f5", "g6", "h7"}
+
+	var (
+		mu        sync.Mutex
+		succeeded []string
+		failed    []string
+	)
+	results, err := concurrency.ProcessCollect(t.Context(), items, func(_ context.Context, item string) (string, error) {
+		if (item[1]-'0')%2 == 1 {
+			return "", errOdd
+		}
+		return item + "!", nil
+	},
+		concurrency.WithConcurrency[string](4),
+		concurrency.WithOnSuccess(func(item string) {
+			mu.Lock()
+			succeeded = append(succeeded, item)
+			mu.Unlock()
+		}),
+		concurrency.WithOnError(func(item string, err error) {
+			mu.Lock()
+			failed = append(failed, item)
+			mu.Unlock()
+			require.ErrorIs(t, err, errOdd)
+		}),
+	)
+
+	require.ErrorIs(t, err, errOdd)
+	require.Equal(t, []string{"a0!", "c2!", "e4!", "g6!"}, results)
+	require.ElementsMatch(t, []string{"a0", "c2", "e4", "g6"}, succeeded)
+	require.ElementsMatch(t, []string{"b1", "d3", "f5", "h7"}, failed)
+}
+
 func TestDefaultLimitFunc(t *testing.T) {
 	limit := concurrency.DefaultLimitFunc()
 	require.GreaterOrEqual(t, limit, 1)
