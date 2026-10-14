@@ -26,7 +26,6 @@ import (
 	"github.com/robfig/cron/v3"
 
 	"github.com/altessa-s/go-atlas/data/probfilter"
-	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -441,14 +440,14 @@ func (p *Provider) observeValidation(validate func() (map[string]any, error)) (m
 	if p.discoveryInfo != nil {
 		issuer = p.discoveryInfo.Issuer
 	}
-	issuerLabels := metrics.Labels{"issuer": issuer}
-	p.metrics.tokenValidations.WithLabels(issuerLabels).Inc()
+	counters := p.metrics.forIssuer(issuer)
+	counters.validations.Inc()
 	stop := p.metrics.validationDuration.Start()
 	defer stop()
 
 	claims, err := validate()
 	if err != nil {
-		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+		counters.errors.Inc()
 	}
 	return claims, err
 }

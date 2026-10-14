@@ -5,6 +5,8 @@
 package oidc
 
 import (
+	"sync/atomic"
+
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -27,6 +29,36 @@ type oidcMetrics struct {
 	jwksRefreshDuration   metrics.Timer
 	jwksStaleRejections   metrics.Counter
 	revocationCheckErrors metrics.Counter
+
+	// issuerBound caches the issuer-labeled validation counters so the hot
+	// path does not rebind them on every validation; see forIssuer.
+	issuerBound atomic.Pointer[issuerCounters]
+}
+
+// issuerCounters holds the validation counters bound to one issuer label.
+type issuerCounters struct {
+	issuer      string
+	validations metrics.Counter
+	errors      metrics.Counter
+}
+
+// forIssuer returns the validation counters bound to issuer, binding and
+// caching them on first use or when the issuer changes. Concurrent callers may
+// bind the same label set twice; both handles address the same series.
+func (m *oidcMetrics) forIssuer(issuer string) *issuerCounters {
+	if c := m.issuerBound.Load(); c != nil && c.issuer == issuer {
+		return c
+	}
+
+	labels := metrics.Labels{"issuer": issuer}
+	c := &issuerCounters{
+		issuer:      issuer,
+		validations: m.tokenValidations.WithLabels(labels),
+		errors:      m.validationErrors.WithLabels(labels),
+	}
+	m.issuerBound.Store(c)
+
+	return c
 }
 
 func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
