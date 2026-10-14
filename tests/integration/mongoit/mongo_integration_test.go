@@ -6,7 +6,6 @@ package mongoit_test
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"sync"
 	"testing"
@@ -16,9 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
+
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	datamongo "github.com/altessa-s/go-atlas/data/mongo"
+	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // client connects to the compose replica set and skips when it is not
@@ -26,11 +27,7 @@ import (
 // in-container address; see tests/integration/README.md.
 func client(t *testing.T) *mongo.Client {
 	t.Helper()
-	uri := os.Getenv("MONGO_URI")
-	if uri == "" {
-		uri = "mongodb://127.0.0.1:27019/?directConnection=true"
-	}
-	c, err := mongo.Connect(mongoopts.Client().ApplyURI(uri))
+	c, err := mongo.Connect(mongoopts.Client().ApplyURI(livebackend.MongoURI()))
 	if err != nil {
 		t.Skipf("mongodb not available: %v", err)
 	}

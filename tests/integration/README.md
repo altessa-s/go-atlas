@@ -49,7 +49,7 @@ when its server is unreachable, so `make test-integration` is green on a machine
 | MariaDB       | `127.0.0.1:13306`         | `MARIADB_DSN`                              |
 | MySQL         | `127.0.0.1:13307`         | `MYSQL_DSN`                                |
 | PostgreSQL    | `127.0.0.1:15432`         | `POSTGRES_DSN`                             |
-| MongoDB       | `127.0.0.1:27019` (replica set `rs0`) | `MONGO_URI`                    |
+| MongoDB       | `127.0.0.1:27019` (replica set `rs0`) | `MONGO_PORT`, `MONGO_URI`      |
 | Meilisearch   | `http://127.0.0.1:17700`  | `MEILI_URL`, `MEILI_KEY`                   |
 | RediSearch    | `127.0.0.1:16379`         | `REDIS_ADDR`                               |
 | NATS          | `nats://127.0.0.1:14222`  | `NATS_URL`                                 |
@@ -65,6 +65,11 @@ inside a transaction and transactions do not exist on a standalone mongod. The s
 Connect with **`directConnection=true`** — the default `MONGO_URI` already does. A single-node set advertises the address it sees inside its own
 container (`127.0.0.1:27017`), which is not the published one, so a driver doing topology discovery from the host follows that advertisement to a
 port nothing listens on and stalls until server selection times out.
+
+When host port 27019 is taken (another project's MongoDB), move the stack's port with `MONGO_PORT`: the compose file publishes MongoDB on it and
+the suites connect to it. Set it for both steps, e.g. `MONGO_PORT=27029 make integration-up` and `MONGO_PORT=27029 make test-integration`.
+`MONGO_URI` still overrides the whole address. The suites that require Mongo explicitly (`sagait`, `idempotencyit`) run their Mongo cases only
+when `MONGO_URI` is set.
 
 ## filterit — the data/filter corpus
 

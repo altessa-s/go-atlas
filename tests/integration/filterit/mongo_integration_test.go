@@ -11,11 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-atlas/data/filter"
-	mongotrans "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 	"github.com/altessa-s/go-atlas/tests/integration/filterit"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
+
+	mongotrans "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
+	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type mongoBackend struct {
@@ -33,7 +35,7 @@ func (b *mongoBackend) setup(tb testing.TB) {
 	// address it sees inside its own container. A driver doing topology
 	// discovery from the host would follow that advertisement to a port nothing
 	// listens on and time out in server selection.
-	uri := envOr("MONGO_URI", "mongodb://127.0.0.1:27019/?directConnection=true")
+	uri := livebackend.MongoURI()
 	client, err := mongo.Connect(mongoopts.Client().ApplyURI(uri))
 	if err != nil {
 		tb.Skipf("mongodb not available: %v", err)
