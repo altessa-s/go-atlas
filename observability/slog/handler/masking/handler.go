@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/altessa-s/go-atlas/observability/slog/handler/internal/base"
 
@@ -67,6 +68,11 @@ type Handler struct {
 	pathCache      atomic.Pointer[sync.Map]
 	pathCacheCount atomic.Int64
 	hasPatterns    bool
+	// nestedPaths reports whether a full "group.key" path can change the
+	// mask resolution: nested masking is on and either a rule key contains
+	// a '.' or a pattern may match the path. Otherwise the path is never
+	// built and lookups use the bare key.
+	nestedPaths bool
 	// typeVerdicts memoizes, per reflect.Type, whether a KindAny value of
 	// that type can transitively expose a field name matching a configured
 	// mask. Shared across derived handlers (the mask configuration is
@@ -174,6 +180,7 @@ func newHandler(inner slog.Handler, opts ...Option) (*Handler, error) {
 		}
 	}
 	h.hasPatterns = len(h.patterns) > 0
+	h.nestedPaths = o.maskNestedFields && (h.hasPatterns || hasDottedField(o.fields))
 	h.typeSkip = !h.hasPatterns
 	h.typeVerdicts = &sync.Map{}
 
@@ -221,6 +228,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		lowercaseFields: h.lowercaseFields,
 		patterns:        h.patterns,
 		hasPatterns:     h.hasPatterns,
+		nestedPaths:     h.nestedPaths,
 		typeVerdicts:    h.typeVerdicts,
 		typeSkip:        h.typeSkip,
 	}
@@ -244,6 +252,7 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		lowercaseFields: h.lowercaseFields,
 		patterns:        h.patterns,
 		hasPatterns:     h.hasPatterns,
+		nestedPaths:     h.nestedPaths,
 		typeVerdicts:    h.typeVerdicts,
 		typeSkip:        h.typeSkip,
 	}
@@ -272,7 +281,7 @@ func (h *Handler) maskAttribute(attr slog.Attr, groups []string) slog.Attr {
 			maskedGroup = append(maskedGroup, h.maskAttribute(ga, childGroups))
 		}
 
-		return slog.Group(attr.Key, attrsToAny(maskedGroup)...)
+		return slog.Attr{Key: attr.Key, Value: slog.GroupValue(maskedGroup...)}
 	}
 
 	// Check if field should be masked
@@ -682,7 +691,7 @@ func (h *Handler) getMaskForField(fieldName, fieldPath string) MaskFunc {
 		if h.opts.caseSensitive {
 			mask = h.opts.fields[fieldPath]
 		} else if h.lowercaseFields != nil {
-			mask, _ = h.lowercaseFields.Get(corestrings.InternLowerString(fieldPath))
+			mask = h.lookupLower(fieldPath)
 		}
 	}
 
@@ -691,7 +700,7 @@ func (h *Handler) getMaskForField(fieldName, fieldPath string) MaskFunc {
 		if h.opts.caseSensitive {
 			mask = h.opts.fields[fieldName]
 		} else if h.lowercaseFields != nil {
-			mask, _ = h.lowercaseFields.Get(corestrings.InternLowerString(fieldName))
+			mask = h.lookupLower(fieldName)
 		}
 	}
 
@@ -738,9 +747,65 @@ func (h *Handler) getMaskForField(fieldName, fieldPath string) MaskFunc {
 	return mask
 }
 
+// lookupLower resolves a case-insensitive rule for key. Pure-ASCII keys are
+// folded into a stack buffer instead of a heap copy; any other key
+// goes through strings.ToLower, which the rule keys were folded with.
+func (h *Handler) lookupLower(key string) MaskFunc {
+	var buf [64]byte
+	var mask MaskFunc
+	switch n := foldASCII(&buf, key); n {
+	case foldUnchanged:
+		mask, _ = h.lowercaseFields.Get(key)
+	case foldUnsupported:
+		mask, _ = h.lowercaseFields.Get(strings.ToLower(key))
+	default:
+		mask, _ = h.lowercaseFields.Get(string(buf[:n]))
+	}
+	return mask
+}
+
+const (
+	foldUnchanged   = -1 // key is ASCII without upper-case letters
+	foldUnsupported = -2 // key is non-ASCII or longer than the buffer
+)
+
+// foldASCII lower-cases a pure-ASCII key into buf and returns its length, or
+// one of the fold* sentinels when no folded copy was written.
+func foldASCII(buf *[64]byte, key string) int {
+	if len(key) > len(buf) {
+		return foldUnsupported
+	}
+	hasUpper := false
+	for i := range len(key) {
+		c := key[i]
+		if c >= utf8.RuneSelf {
+			return foldUnsupported
+		}
+		if 'A' <= c && c <= 'Z' {
+			hasUpper = true
+			c += 'a' - 'A'
+		}
+		buf[i] = c
+	}
+	if !hasUpper {
+		return foldUnchanged
+	}
+	return len(key)
+}
+
+// hasDottedField reports whether any rule key names a nested path.
+func hasDottedField(fields map[string]MaskFunc) bool {
+	for k := range fields {
+		if strings.Contains(k, ".") {
+			return true
+		}
+	}
+	return false
+}
+
 // buildFieldPath creates the full path for nested fields
 func (h *Handler) buildFieldPath(groups []string, field string) string {
-	if !h.opts.maskNestedFields || len(groups) == 0 {
+	if !h.nestedPaths || len(groups) == 0 {
 		return field
 	}
 
@@ -793,13 +858,4 @@ func (h *Handler) applyMask(attr slog.Attr, mask MaskFunc) slog.Attr {
 		str := fmt.Sprint(attr.Value.Any())
 		return slog.String(attr.Key, mask(str))
 	}
-}
-
-// attrsToAny converts attributes to []any for slog.Group
-func attrsToAny(attrs []slog.Attr) []any {
-	result := make([]any, len(attrs))
-	for i, attr := range attrs {
-		result[i] = attr
-	}
-	return result
 }
