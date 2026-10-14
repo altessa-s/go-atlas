@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
@@ -104,6 +105,105 @@ func TestSubscriber_Metrics(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 	require.Equal(t, float64(len(payloads)), counter("test_broker_messages_received_total", topic))
 	require.Zero(t, counter("test_broker_messages_received_total", "orders.t1.created"))
+}
+
+// TestSubscriber_DeduplicateIDReachesTheHandler verifies that the
+// deduplication ID, which travels as the JetStream Nats-Msg-Id header, comes
+// back as deduplicate_id metadata — on the first delivery and on a
+// redelivery — while an explicit deduplicate_id application header wins.
+func TestSubscriber_DeduplicateIDReachesTheHandler(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	conn, js := testhelpers.ConnectJetStream(t, ns)
+	_, err := js.CreateStream(t.Context(), jetstream.StreamConfig{Name: "INVOICES", Subjects: []string{"invoices.>"}})
+	require.NoError(t, err)
+	provider, err := natsprovider.New(conn)
+	require.NoError(t, err)
+
+	type delivery struct {
+		data string
+		meta msg.Meta
+	}
+	got := make(chan delivery, 8)
+	redelivered := false
+	sub := natsprovider.SubscriberWithConsumer(&jetstream.ConsumerConfig{
+		Durable:       "dedup-test",
+		FilterSubject: "invoices.>",
+		AckPolicy:     jetstream.AckExplicitPolicy,
+	})(provider)
+	require.NoError(t, sub.Subscribe(t.Context(), funcHandler{topic: "invoices.>", handle: func(_ context.Context, m *msg.Message) {
+		if string(m.Data) == "redeliver" && !redelivered {
+			redelivered = true // handlers of one consumer run sequentially
+			_ = m.Nak(0)
+		} else {
+			_ = m.Ack()
+		}
+		got <- delivery{data: string(m.Data), meta: m.Metadata}
+	}}))
+	t.Cleanup(sub.Unsubscribe)
+
+	receive := func() delivery {
+		t.Helper()
+		select {
+		case d := <-got:
+			return d
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "message was not delivered")
+			return delivery{}
+		}
+	}
+	dedupID := func(d delivery) (string, bool) {
+		var (
+			value string
+			count int
+		)
+		for _, m := range d.meta {
+			if m.Key == msg.MetaKeyDeduplicateId {
+				value = m.Value
+				count++
+			}
+		}
+		require.LessOrEqual(t, count, 1, "deduplicate_id appears more than once: %v", d.meta)
+		return value, count == 1
+	}
+
+	ctx := t.Context()
+	require.NoError(t, provider.Publish(ctx, *msg.NewMessageWithMeta("invoices.paid", []byte("keyed"),
+		msg.Meta{{Key: msg.MetaKeyDeduplicateId, Value: "invoice-9-paid"}, {Key: "tenant", Value: "t1"}})))
+	d := receive()
+	id, ok := dedupID(d)
+	require.True(t, ok, "metadata: %v", d.meta)
+	require.Equal(t, "invoice-9-paid", id)
+	tenant, _ := d.meta.Value("tenant")
+	require.Equal(t, "t1", tenant)
+
+	require.NoError(t, provider.Publish(ctx, *msg.NewMessage("invoices.paid", []byte("unkeyed"))))
+	d = receive()
+	_, ok = dedupID(d)
+	require.False(t, ok, "a message published without an ID must not gain one: %v", d.meta)
+
+	require.NoError(t, provider.Publish(ctx, *msg.NewMessageWithMeta("invoices.paid", []byte("redeliver"),
+		msg.Meta{{Key: msg.MetaKeyDeduplicateId, Value: "invoice-10-paid"}})))
+	for range 2 {
+		d = receive()
+		require.Equal(t, "redeliver", d.data)
+		id, ok = dedupID(d)
+		require.True(t, ok, "metadata: %v", d.meta)
+		require.Equal(t, "invoice-10-paid", id)
+	}
+
+	// A foreign publisher setting both headers: the application header wins.
+	raw := nats.NewMsg("invoices.paid")
+	raw.Data = []byte("explicit")
+	raw.Header.Set(jetstream.MsgIDHeader, "transport-id")
+	raw.Header.Set(msg.MetaKeyDeduplicateId, "business-id")
+	_, err = js.PublishMsg(ctx, raw)
+	require.NoError(t, err)
+	d = receive()
+	id, ok = dedupID(d)
+	require.True(t, ok, "metadata: %v", d.meta)
+	require.Equal(t, "business-id", id)
 }
 
 // TestSubscriber_EphemeralConsumerFiltersBySubject verifies that an ephemeral

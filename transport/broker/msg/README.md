@@ -61,7 +61,9 @@ and an `Acker` for acknowledgment. Data is copied on construction to ensure owne
 ## Deduplication
 
 Setting `MetaKeyDeduplicateId` on a message makes the NATS provider publish it with that value as `Nats-Msg-Id`, so JetStream drops a
-redelivery of the same identifier.
+duplicate publish of the same identifier. The subscriber maps `Nats-Msg-Id` back to `MetaKeyDeduplicateId` metadata, so consumers — the
+`transport/broker/idempotency` middleware's default key among them — see the identifier on every delivery and redelivery; an explicit
+`deduplicate_id` application header from another publisher takes precedence.
 
 **It reduces duplicates; it does not eliminate them.** The server only remembers an identifier for the length of the stream's duplicate
 window (`StreamConfig.Duplicates`, which the caller sets when creating the stream). A retry that arrives after that window is a fresh
