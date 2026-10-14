@@ -7,7 +7,6 @@ package outboxit_test
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/data/outbox"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 	"github.com/altessa-s/go-atlas/tests/integration/outboxit"
 
 	outboxmongo "github.com/altessa-s/go-atlas/data/outbox/storages/mongo"
@@ -61,10 +61,7 @@ const (
 // doing topology discovery from the host would follow that advertisement to a
 // port nothing listens on.
 func mongoURI() string {
-	if uri := os.Getenv("MONGO_URI"); uri != "" {
-		return uri
-	}
-	return "mongodb://127.0.0.1:27019/?directConnection=true"
+	return livebackend.MongoURI()
 }
 
 // dbSequence disambiguates database names. A timestamp alone is not enough:

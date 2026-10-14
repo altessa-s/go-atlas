@@ -18,6 +18,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	mongostore "github.com/altessa-s/go-atlas/service/scheduler/storages/mongo"
@@ -56,10 +57,7 @@ const (
 // doing topology discovery from the host would follow that advertisement to a
 // port nothing listens on.
 func mongoURI() string {
-	if uri := os.Getenv("MONGO_URI"); uri != "" {
-		return uri
-	}
-	return "mongodb://127.0.0.1:27019/?directConnection=true"
+	return livebackend.MongoURI()
 }
 
 // redisAddr returns the Redis address, matching tests/integration/docker-compose.yml.

@@ -16,11 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
+
+	"github.com/altessa-s/go-atlas/data/projection"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	datamongo "github.com/altessa-s/go-atlas/data/mongo"
-	"github.com/altessa-s/go-atlas/data/projection"
 	projmongo "github.com/altessa-s/go-atlas/data/projection/translators/mongo"
+	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 const docCount = 25
@@ -46,7 +48,7 @@ func mongoCollection(t *testing.T) *mongo.Collection {
 
 	// directConnection: the compose service is a single-node replica set that
 	// advertises its in-container address; see tests/integration/README.md.
-	uri := envOr("MONGO_URI", "mongodb://127.0.0.1:27019/?directConnection=true")
+	uri := livebackend.MongoURI()
 	client, err := mongo.Connect(mongoopts.Client().ApplyURI(uri))
 	if err != nil {
 		t.Skipf("mongodb not available: %v", err)
