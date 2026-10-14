@@ -50,3 +50,43 @@ func BenchmarkProvider_Reset(b *testing.B) {
 		_ = p.Reset(ctx, "bench-key")
 	}
 }
+
+// BenchmarkProvider_RunCleanup measures a cleanup cycle over a full provider
+// where no bucket is idle yet — the steady state of a scheduled sweep.
+func BenchmarkProvider_RunCleanup(b *testing.B) {
+	for _, size := range []int{10_000, 100_000} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			p := memory.New(memory.WithMaxBuckets(size), memory.WithMaxIdleTime(time.Hour))
+			ctx := b.Context()
+			for i := range size {
+				_, _ = p.Allow(ctx, "key-"+strconv.Itoa(i), 10, time.Minute)
+			}
+
+			b.ReportAllocs()
+			for b.Loop() {
+				p.RunCleanup()
+			}
+		})
+	}
+}
+
+// BenchmarkProvider_Allow_Parallel measures Allow under concurrent callers
+// spread over many keys, exposing provider lock contention.
+func BenchmarkProvider_Allow_Parallel(b *testing.B) {
+	const keys = 1024
+	p := memory.New()
+	ctx := b.Context()
+	names := make([]string, keys)
+	for i := range names {
+		names[i] = "key-" + strconv.Itoa(i)
+	}
+
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			_, _ = p.Allow(ctx, names[i%keys], 1_000_000, time.Minute)
+			i++
+		}
+	})
+}

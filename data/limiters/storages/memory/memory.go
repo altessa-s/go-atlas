@@ -71,10 +71,13 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	panics.Must(limit > 0, "limit must be greater than 0")
 	panics.Must(period > 0, "period must be greater than 0")
 
-	now := time.Now()
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	// Read the clock under the lock so lastUsed and request timestamps are
+	// non-decreasing in lock order: LRU order then equals lastUsed order,
+	// which lets runCleanupCycle stop at the first non-idle tail bucket.
+	now := time.Now()
 	b, exists := p.buckets[key]
 
 	if !exists {
