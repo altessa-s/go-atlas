@@ -73,6 +73,24 @@ func TestMemory_RunCleanup_NoTTL(t *testing.T) {
 	s.RunCleanup()
 }
 
+// TestMemory_RunCleanup_PerCallTTLWithoutDefault pins that per-call TTLs are
+// swept when the storage has no default TTL, while entries without an expiry
+// are kept.
+func TestMemory_RunCleanup_PerCallTTLWithoutDefault(t *testing.T) {
+	s := New(WithTTL(0))
+	ctx := t.Context()
+
+	_, _, _, _ = s.AttemptLockWithTTL(ctx, "expiring", []byte("v1"), time.Millisecond)
+	_, _, _, _ = s.AttemptLock(ctx, "permanent", []byte("v2"))
+	time.Sleep(10 * time.Millisecond)
+	s.RunCleanup()
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	require.NotContains(t, s.entries, "expiring")
+	require.Contains(t, s.entries, "permanent")
+}
+
 func TestMemory_RunCleanup_SchedulerManaged(t *testing.T) {
 	s := New()
 	s.cleanupTask.MarkRegistered()

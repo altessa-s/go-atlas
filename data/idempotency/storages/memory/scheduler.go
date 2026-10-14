@@ -52,13 +52,11 @@ func (s *Storage) RunCleanup() {
 // Callers must route through cleanupTask so overlapping cycles collapse
 // into a single execution.
 func (s *Storage) runCleanupCycle(context.Context) error {
-	if s.options.ttl <= 0 {
-		return nil // No TTL, nothing to clean
-	}
-
+	// Sweep even without a default TTL: AttemptLockWithTTL arms per-call
+	// expiries, and entries without one are kept by entry.expired.
 	now := time.Now()
 	memcleanup.Sweep(&s.mu, s.entries, func(e *entry) bool {
-		return now.After(e.expiresAt)
+		return e.expired(now)
 	})
 	return nil
 }
