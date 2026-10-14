@@ -402,24 +402,28 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 	// in the meantime.
 	revision := e.manager.Revision()
 
-	if r, ok := e.cached(revision, input); ok {
+	// The key is computed once and shared by the lookup and the store; ""
+	// means no cache or an input without a stable key (evaluated uncached).
+	key := e.cacheKey(revision, input)
+
+	if r, ok := e.cached(key); ok {
 		return e.finishEvaluation(ctx, r)
 	}
 
 	pq := e.manager.preparedEval.Load()
 	if pq == nil {
-		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "error"}).Inc()
+		e.manager.metrics.evalError.Inc()
 		return nil, ErrPoliciesNotLoaded
 	}
 
 	results, err := pq.Eval(ctx, rego.EvalInput(input))
 	if err != nil {
-		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "error"}).Inc()
+		e.manager.metrics.evalError.Inc()
 		return nil, coreerrs.WrapOperation(err, "evaluate policy")
 	}
 
 	r := e.resolveResult(results)
-	e.store(revision, input, r)
+	e.store(revision, key, r)
 
 	return e.finishEvaluation(ctx, r)
 }
@@ -428,7 +432,11 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 // runs for cache hits and misses alike, so caching cannot silently thin out the
 // metrics or the audit trail.
 func (e *regoEvaluator) finishEvaluation(ctx context.Context, r *Result) (*Result, error) {
-	e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": allowDenyLabel(r.Allow)}).Inc()
+	if r.Allow {
+		e.manager.metrics.evalAllow.Inc()
+	} else {
+		e.manager.metrics.evalDeny.Inc()
+	}
 
 	if err := e.recordDecision(ctx, r); err != nil {
 		return nil, err
@@ -437,16 +445,33 @@ func (e *regoEvaluator) finishEvaluation(ctx context.Context, r *Result) (*Resul
 	return r, nil
 }
 
-// cached looks the decision up, returning a copy with its own DecisionID.
-func (e *regoEvaluator) cached(revision string, input any) (*Result, bool) {
+// cacheKey returns the decision-cache key for input under revision, or "" when
+// no cache is configured or the input has no stable key.
+func (e *regoEvaluator) cacheKey(revision string, input any) string {
+	if e.manager.opts.decisionCache == nil {
+		return ""
+	}
+
+	key, ok := decisionCacheKey(revision, input)
+	if !ok {
+		return ""
+	}
+
+	return key
+}
+
+// cached looks the decision up by key, returning a copy with its own
+// DecisionID. An empty key (no stable input key) counts as a miss.
+func (e *regoEvaluator) cached(key string) (*Result, bool) {
 	cache := e.manager.opts.decisionCache
 	if cache == nil {
 		return nil, false
 	}
 
-	r, ok := cache.get(revision, input)
+	// Nothing is stored under "", so an empty key always misses.
+	r, ok := cache.get(key)
 	if !ok {
-		e.manager.metrics.decisionCacheLookups.WithLabels(metrics.Labels{"result": "miss"}).Inc()
+		e.manager.metrics.cacheMisses.Inc()
 		return nil, false
 	}
 
@@ -457,7 +482,7 @@ func (e *regoEvaluator) cached(revision string, input any) (*Result, bool) {
 		r.DecisionID = uuid.NewString()
 	}
 
-	e.manager.metrics.decisionCacheLookups.WithLabels(metrics.Labels{"result": "hit"}).Inc()
+	e.manager.metrics.cacheHits.Inc()
 
 	return r, true
 }
@@ -465,13 +490,13 @@ func (e *regoEvaluator) cached(revision string, input any) (*Result, bool) {
 // store caches the decision, unless a reload landed while it was being computed
 // — in that case the result belongs to a bundle that is no longer current and
 // caching it under either revision would be wrong.
-func (e *regoEvaluator) store(revision string, input any, r *Result) {
+func (e *regoEvaluator) store(revision, key string, r *Result) {
 	cache := e.manager.opts.decisionCache
-	if cache == nil || e.manager.Revision() != revision {
+	if cache == nil || key == "" || e.manager.Revision() != revision {
 		return
 	}
 
-	cache.put(revision, input, r)
+	cache.put(key, r)
 }
 
 // resolveResult maps an OPA result set onto a [Result], handling the boolean,
@@ -500,11 +525,15 @@ func (e *regoEvaluator) resolveResult(results rego.ResultSet) *Result {
 }
 
 // recordDecision forwards the evaluation outcome to the configured audit
-// recorder. The recorder is nil-safe and drops grants under its deny-only
-// policy, so this is called unconditionally. A record failure aborts an
+// recorder, if any; without one the decision is not even built. The recorder
+// drops grants under its deny-only policy. A record failure aborts an
 // allowed evaluation (so nothing proceeds unrecorded) only when the recorder
 // runs in required-failure mode; on a denial the error is ignored.
 func (e *regoEvaluator) recordDecision(ctx context.Context, r *Result) error {
+	if e.manager.opts.auditRecorder == nil {
+		return nil
+	}
+
 	d := audit.Decision{
 		Time:       time.Now().UTC(),
 		Allowed:    r.Allow,
@@ -524,13 +553,6 @@ func (e *regoEvaluator) recordDecision(ctx context.Context, r *Result) error {
 	}
 
 	return nil
-}
-
-func allowDenyLabel(allow bool) string {
-	if allow {
-		return "allow"
-	}
-	return "deny"
 }
 
 // buildResult creates a Result with optional DecisionID based on logging settings.

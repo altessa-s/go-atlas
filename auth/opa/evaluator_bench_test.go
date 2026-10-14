@@ -7,15 +7,19 @@ package opa_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	prometheusadapter "github.com/altessa-s/go-atlas/observability/metrics/adapters/prometheus"
 )
 
 func BenchmarkEvaluate_Boolean(b *testing.B) {
@@ -174,5 +178,103 @@ allow if input.role == "admin"
 		if _, err := evaluator.Evaluate(ctx, input); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// newBenchEvaluator loads the single-rule admin policy used by the cache
+// benchmarks.
+func newBenchEvaluator(b *testing.B, opts ...opa.Option) opa.Evaluator {
+	b.Helper()
+
+	dir := b.TempDir()
+	require.NoError(b, os.WriteFile(filepath.Join(dir, "policy.rego"), []byte(`
+package bench.authz
+import rego.v1
+allow if input.role == "admin"
+`), 0644))
+
+	source, err := filesystem.New(dir)
+	require.NoError(b, err)
+
+	manager, err := opa.NewManager(b.Context(), source, "data.bench.authz.allow", opts...)
+	require.NoError(b, err)
+	b.Cleanup(func() { _ = manager.Close() })
+
+	return manager.Evaluator()
+}
+
+// newPrometheusCollector returns a collector backed by a real Prometheus
+// registry: the no-op collector hides the cost of label binding.
+func newPrometheusCollector() metrics.Collector {
+	return metrics.New(
+		metrics.WithServiceName("bench"),
+		metrics.WithAdapter(prometheusadapter.New(prometheusadapter.WithRegisterer(prometheus.NewRegistry()))),
+	)
+}
+
+// BenchmarkEvaluate_Cached_Prometheus is BenchmarkEvaluate_Cached with a real
+// Prometheus collector.
+func BenchmarkEvaluate_Cached_Prometheus(b *testing.B) {
+	evaluator := newBenchEvaluator(b,
+		opa.WithDecisionCache(1000, time.Minute),
+		opa.WithCollector(newPrometheusCollector()))
+
+	ctx := b.Context()
+	input := map[string]any{"role": "admin"}
+
+	_, err := evaluator.Evaluate(ctx, input)
+	require.NoError(b, err)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if _, err := evaluator.Evaluate(ctx, input); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkEvaluate_CacheMiss measures a decision-cache miss: lookup, Rego
+// evaluation and insertion. A one-entry cache cycled over distinct inputs
+// makes every iteration miss.
+func BenchmarkEvaluate_CacheMiss(b *testing.B) {
+	const distinct = 1024
+
+	for _, size := range []struct {
+		name    string
+		headers int
+	}{
+		{name: "small", headers: 0},
+		{name: "medium", headers: 8},
+		{name: "large", headers: 64},
+	} {
+		b.Run(size.name, func(b *testing.B) {
+			evaluator := newBenchEvaluator(b, opa.WithDecisionCache(1, time.Minute))
+			ctx := b.Context()
+
+			inputs := make([]map[string]any, distinct)
+			for i := range inputs {
+				headers := make(map[string]any, size.headers)
+				for h := range size.headers {
+					headers["x-header-"+strconv.Itoa(h)] = "value-" + strconv.Itoa(h)
+				}
+				inputs[i] = map[string]any{
+					"role":    "admin",
+					"subject": map[string]any{"id": "user-" + strconv.Itoa(i), "tenant": "acme"},
+					"action":  "documents.read",
+					"headers": headers,
+				}
+			}
+
+			b.ReportAllocs()
+
+			i := 0
+			for b.Loop() {
+				if _, err := evaluator.Evaluate(ctx, inputs[i%distinct]); err != nil {
+					b.Fatal(err)
+				}
+				i++
+			}
+		})
 	}
 }
