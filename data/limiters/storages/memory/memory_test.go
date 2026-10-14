@@ -93,6 +93,42 @@ func TestProvider_RunCleanup(t *testing.T) {
 	require.Equal(t, int64(9), info.Remaining)
 }
 
+// TestProvider_RunCleanup_KeepsRecentlyUsed pins the tail-walk sweep: idle
+// buckets are dropped while buckets touched or created after the idle ones
+// survive, including an old key that was touched again.
+func TestProvider_RunCleanup_KeepsRecentlyUsed(t *testing.T) {
+	t.Parallel()
+	p := memory.New(memory.WithMaxIdleTime(20 * time.Millisecond))
+	ctx := t.Context()
+
+	for _, key := range []string{"idle1", "touched", "idle2"} {
+		_, err := p.Allow(ctx, key, 10, time.Minute)
+		require.NoError(t, err)
+	}
+	time.Sleep(40 * time.Millisecond)
+
+	_, err := p.Allow(ctx, "touched", 10, time.Minute)
+	require.NoError(t, err)
+	_, err = p.Allow(ctx, "fresh", 10, time.Minute)
+	require.NoError(t, err)
+
+	p.RunCleanup()
+
+	for _, tc := range []struct {
+		key       string
+		remaining int64
+	}{
+		{"touched", 7},
+		{"fresh", 8},
+		{"idle1", 9},
+		{"idle2", 9},
+	} {
+		info, err := p.Allow(ctx, tc.key, 10, time.Minute)
+		require.NoError(t, err)
+		require.Equal(t, tc.remaining, info.Remaining, tc.key)
+	}
+}
+
 func TestProvider_Allow_Panics(t *testing.T) {
 	p := memory.New()
 	ctx := t.Context()
