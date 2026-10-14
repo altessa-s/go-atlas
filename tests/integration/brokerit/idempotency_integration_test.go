@@ -244,10 +244,12 @@ func TestIdempotency_DeduplicateIDReachesTheSubscriber(t *testing.T) {
 }
 
 // The idempotency storage backed by NATS KV is the natural pairing for a
-// NATS-backed broker. The middleware builds its storage keys as
-// "ibk:{consumer}:{key}", but NATS KV accepts only [-/_=.a-zA-Z0-9] in a key,
-// so every lock attempt fails and every message is rejected as a storage error
-// and redelivered forever.
+// NATS-backed broker. The middleware composes its storage keys as
+// ("ibk", consumer, key) in the v2 format, which the Keeper wraps in its
+// namespace — "idk:v2:9:namespace0:32:idk:v2:3:ibk7:billing9:invoice-1" — and
+// NATS KV accepts only [-/_=.a-zA-Z0-9] in a key, so the storage must escape
+// the ':' rather than fail every lock attempt and redeliver every message
+// forever as a storage error.
 func TestIdempotency_NATSKVStorageAcceptsTheMiddlewareKeys(t *testing.T) {
 	t.Parallel()
 
@@ -258,6 +260,42 @@ func TestIdempotency_NATSKVStorageAcceptsTheMiddlewareKeys(t *testing.T) {
 	t.Cleanup(func() { _ = w.provider.JetStream().DeleteKeyValue(context.Background(), bucket) })
 
 	keeper := newKeeper(storage)
-	_, _, err = keeper.AttemptLock(t.Context(), brokeridem.BuildStorageKey(consumerScope, "invoice-1"))
+	key := brokeridem.BuildStorageKey(consumerScope, "invoice-1")
+	acquired, state, err := keeper.AttemptLock(t.Context(), key)
 	require.NoError(t, err, "the NATS KV storage rejects the key the broker middleware builds")
+	require.True(t, acquired)
+	require.NoError(t, keeper.Complete(t.Context(), key, nil, state))
+	requireKeyCompleted(t, keeper, "invoice-1")
+}
+
+// Two consumers of one subject share an idempotency store, scoped "a:b" and
+// "a", and the subject carries messages with IDs "c" and "b:c". Under the
+// former "ibk:{consumer}:{key}" layout ("a:b", "c") and ("a", "b:c") both
+// became "ibk:a:b:c", so whichever consumer came second acknowledged its
+// message as a duplicate without running its handler. Every consumer must
+// process every message of its own.
+func TestIdempotency_ConsumerScopesDoNotCollide(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	storage := newRedisStorage(t)
+	scopes := []string{"a:b", "a"}
+
+	recorders := make([]*brokerit.Recorder, len(scopes))
+	consumers := make([]string, len(scopes))
+	for i, scope := range scopes {
+		consumers[i] = fmt.Sprintf("%s-%d", uniqueName(t), i)
+		recorders[i] = brokerit.NewRecorder(w.subject, brokerit.Ack)
+		subscribe(t, w.provider, natsprovider.SubscriberWithConsumer(w.durable(consumers[i], 10*time.Second)),
+			brokeridem.Wrap(recorders[i], newKeeper(storage), scope))
+	}
+
+	w.publishKeyed(t, "c", "message-c")
+	w.publishKeyed(t, "b:c", "message-b:c")
+
+	for i, consumer := range consumers {
+		w.awaitSettled(t, consumer)
+		require.Equal(t, 1, recorders[i].Attempts("message-c"), "consumer %q must process message c", scopes[i])
+		require.Equal(t, 1, recorders[i].Attempts("message-b:c"), "consumer %q must process message b:c", scopes[i])
+	}
 }

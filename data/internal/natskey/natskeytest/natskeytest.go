@@ -12,16 +12,18 @@ const LegacyKey = "plain-key_1/v2.x"
 // "a:b" and "a=3Ab" are both included: they must not reach the same entry.
 func Keys() []string {
 	return []string{
-		"idk:POST:/orders:123", // transport middleware composite key
-		"ns:keeper-key",        // Keeper namespace prefix
-		"2001:db8::1",          // IPv6 limiter key
-		"xxxx.ü",               // Unicode
-		"a..b",                 // empty subject token
-		".lead",                // leading dot
-		"trail.",               // trailing dot
-		"a*b>c",                // subject wildcards
-		"with space",           // whitespace
-		"a:b",                  // escaped by the encoding...
-		"a=3Ab",                // ...and its escaped look-alike
+		// Transport key wrapped by the Keeper in the empty namespace.
+		"idk:v2:9:namespace0:38:idk:v2:9:transport12:POST:/orders3:123",
+		"idk:v2:9:namespace4:acme9:invoice-1", // Keeper namespace
+		"idk:POST:/orders:123",                // ':'-joined composite key
+		"2001:db8::1",                         // IPv6 limiter key
+		"xxxx.ü",                              // Unicode
+		"a..b",                                // empty subject token
+		".lead",                               // leading dot
+		"trail.",                              // trailing dot
+		"a*b>c",                               // subject wildcards
+		"with space",                          // whitespace
+		"a:b",                                 // escaped by the encoding...
+		"a=3Ab",                               // ...and its escaped look-alike
 	}
 }

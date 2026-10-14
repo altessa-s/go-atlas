@@ -9,10 +9,14 @@
 //
 // # Storage-key ABI
 //
-// [BuildStorageKey] owns the "idk:{service}:{key}" layout. Keys built with
-// it persist in external backends (Redis, NATS KV, memory), so the format
-// is an external ABI and must remain byte-for-byte stable. Both transport
-// packages pin it with literal-string tests.
+// [BuildStorageKey] composes the tuple ("transport", service, key) with
+// data/idempotency.ComposeKey into the length-prefixed v2 layout, e.g.
+// "idk:v2:9:transport17:users.UserService36:{key}", so distinct
+// (service, key) pairs never share a storage key. Keys built with it persist
+// in external backends (Redis, NATS KV, memory), so the format is an
+// external ABI. The v2 layout is frozen; an incompatible format needs a new
+// version and a migration. Both transport packages pin it with
+// literal-string tests.
 //
 // # Usage
 //

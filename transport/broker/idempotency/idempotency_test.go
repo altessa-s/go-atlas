@@ -504,3 +504,38 @@ func TestWrap_ConcurrentDeliveries(t *testing.T) {
 	wg.Wait()
 	require.Positive(t, processed.Load())
 }
+
+// TestBuildStorageKeyABIPinned pins the v2 storage-key bytes: keys persist in
+// storage backends, so the expected values are hard-coded literals on purpose.
+func TestBuildStorageKeyABIPinned(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "idk:v2:3:ibk7:billing9:invoice-1", brokeridem.BuildStorageKey("billing", "invoice-1"))
+	require.Equal(t, "idk:v2:3:ibk3:a:b1:c", brokeridem.BuildStorageKey("a:b", "c"))
+}
+
+// TestWrap_ConsumerAndKeyDoNotCollide pins that a ':' moved between the
+// consumer and the key reaches another record: under the former
+// "ibk:{consumer}:{key}" layout the second message was acknowledged as a
+// duplicate of the first without running its handler.
+func TestWrap_ConsumerAndKeyDoNotCollide(t *testing.T) {
+	t.Parallel()
+	keeper, _ := newTestKeeper(t)
+
+	deliver := func(consumer, key string) bool {
+		var called bool
+		h := &testSubscriberHandler{topic: "topic", fn: func(_ context.Context, in *msg.Message) {
+			called = true
+			require.NoError(t, in.Ack())
+		}}
+		m := msg.NewMessageWithMeta("topic", []byte("body"), msg.Meta{
+			{Key: msg.MetaKeyDeduplicateId, Value: key},
+		}, msg.WithAcker(&mockAcker{}))
+		brokeridem.Wrap(h, keeper, consumer).Handle(t.Context(), m)
+		return called
+	}
+
+	require.True(t, deliver("a:b", "c"))
+	require.True(t, deliver("a", "b:c"), "another consumer's record must not deduplicate this message")
+	require.False(t, deliver("a:b", "c"), "the consumer's own record must still deduplicate")
+}

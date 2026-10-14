@@ -15,11 +15,14 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
-// KeyNamespaceFunc derives a namespace prefix from the request context so
-// idempotency keys are isolated per tenant/subject. Without it, a bare key is
-// global: two tenants using the same idempotency key collide, and one can replay
-// the other's completed response. Returning "" disables prefixing for that call,
-// which is the backward-compatible default (no namespace configured).
+// KeyNamespaceFunc derives a namespace from the request context so idempotency
+// keys are isolated per tenant/subject. The namespace is one component of the
+// storage key [ComposeKey] builds, so namespaces and keys never collide
+// whatever bytes they hold. Without it, every key lives in the empty
+// namespace: two tenants using the same idempotency key collide, and one can
+// replay the other's completed response. Returning "" selects the empty
+// namespace for that call, the same one a nil KeyNamespaceFunc uses; the key
+// is still composed, never stored unchanged.
 type KeyNamespaceFunc func(context.Context) string
 
 // DefaultMaxLockDuration is the default threshold for treating an
@@ -45,7 +48,7 @@ type options struct {
 	// concern (set the field to zero post-construction in tests).
 	maxLockDuration time.Duration
 	// keyNamespace, when set, isolates idempotency keys by a per-context
-	// namespace (typically tenant/subject). Nil = no prefixing.
+	// namespace (typically tenant/subject). Nil = the empty namespace.
 	keyNamespace KeyNamespaceFunc `optgen:"default=nil"`
 	// owner, when set, records the caller's owner label with each lock.
 	// Without replayAuthorizer, a caller with another label is refused the

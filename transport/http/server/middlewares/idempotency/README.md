@@ -44,6 +44,14 @@ OPTIONS) bypass the check. Supports configurable fallback behavior when storage 
 | `ErrorIDKBodyTooLarge`   | 413            |
 | `ErrorIDKBodyUnreadable` | 400            |
 
+## Storage keys
+
+The middleware passes the Keeper the tuple `("transport", "{METHOD}:/{path}", key)` in the length-prefixed v2 format of
+[`data/idempotency.ComposeKey`](../../../../../data/idempotency#storage-key-format) — `POST /api/v1/users` with key `550e8400-…` becomes
+`idk:v2:9:transport18:POST:/api/v1/users36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage, so a
+`:` in the path or the key cannot make two requests share a record. The format replaced `idk:{METHOD}:/{path}:{key}` with a clean cut: follow
+the [rollout contract](../../../../../data/idempotency#rolling-out-the-v2-key-format) when upgrading.
+
 ## Request fingerprints and owners
 
 Each key records a fingerprint of the method, path, query and whole body. The body is hashed while it is spooled — up to

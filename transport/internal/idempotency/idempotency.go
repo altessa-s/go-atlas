@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/transport/internal/validation"
+
+	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 )
 
 // Canonical idempotency header/metadata names shared by the HTTP middleware
@@ -39,12 +41,15 @@ func DefaultKeyValidator(key string) error {
 	return nil
 }
 
-// BuildStorageKey constructs the storage key for an idempotency entry in the
-// "idk:{service}:{key}" format. The service part is transport-specific:
-// "{method}:/{path}" for HTTP and "package.Service" for gRPC.
+// BuildStorageKey constructs the storage key for an idempotency entry: the
+// tuple ("transport", service, key) composed by [idempotencydata.ComposeKey], so
+// distinct (service, key) pairs never share a storage key whatever bytes
+// they hold. The service part is transport-specific: "{METHOD}:/{path}" for
+// HTTP and "package.Service" for gRPC.
 //
-// The result persists in external storage backends and is an external ABI —
-// never change the layout.
+// The result persists in external storage backends and is an external ABI.
+// The v2 layout is frozen; an incompatible format needs a new version and a
+// migration.
 func BuildStorageKey(service, key string) string {
-	return "idk:" + service + ":" + key
+	return idempotencydata.ComposeKey("transport", service, key)
 }

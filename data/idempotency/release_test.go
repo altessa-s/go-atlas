@@ -79,10 +79,8 @@ func TestReleaseOwnership(t *testing.T) {
 			t.Parallel()
 			store := tc.newStore(t)
 			ctx := t.Context()
-			namespace, storageKey := "tenant", "tenant:key"
-			if tc.name == "nats" {
-				namespace, storageKey = "", "key"
-			}
+			const namespace = "tenant"
+			storageKey := idempotency.ComposeKey("namespace", namespace, "key")
 			keeper := idempotency.New(store, idempotency.WithMaxLockDuration(idempotency.DefaultMaxLockDuration),
 				idempotency.WithKeyNamespace(func(context.Context) string { return namespace }))
 			require.ErrorIs(t, keeper.Release(ctx, "", nil), idempotency.ErrEmptyKey)
