@@ -26,7 +26,27 @@ type gauge struct {
 	name      string
 	adapter   adapters.Adapter
 	unlabeled gaugeSeries
-	series    sync.Map // seriesKey(labels) → *gaugeSeries, shared by all equivalent handles
+	bound     adapters.BoundGauge // unlabeled child, bound at registration when supported
+	series    sync.Map            // seriesKey(labels) → *gaugeSeries, shared by all equivalent handles
+}
+
+// bindUnlabeled resolves the unlabeled child once. The collector calls it
+// after registration and before publishing the handle.
+func (g *gauge) bindUnlabeled() {
+	if b, ok := g.adapter.(adapters.Binder); ok {
+		if h, ok := b.BindGauge(g.name, nil); ok {
+			g.bound = h
+		}
+	}
+}
+
+// publishUnlabeled records the unlabeled value. Caller holds g.unlabeled.mu.
+func (g *gauge) publishUnlabeled() {
+	if g.bound != nil {
+		g.bound.Set(g.unlabeled.value)
+		return
+	}
+	g.adapter.RecordGauge(g.name, nil, g.unlabeled.value)
 }
 
 func newGauge(name string, adapter adapters.Adapter) *gauge {
@@ -40,7 +60,7 @@ func (g *gauge) Set(value float64) {
 	g.unlabeled.mu.Lock()
 	defer g.unlabeled.mu.Unlock()
 	g.unlabeled.value = value
-	g.adapter.RecordGauge(g.name, nil, value)
+	g.publishUnlabeled()
 }
 
 func (g *gauge) Inc() {
@@ -55,7 +75,7 @@ func (g *gauge) Add(delta float64) {
 	g.unlabeled.mu.Lock()
 	defer g.unlabeled.mu.Unlock()
 	g.unlabeled.value += delta
-	g.adapter.RecordGauge(g.name, nil, g.unlabeled.value)
+	g.publishUnlabeled()
 }
 
 func (g *gauge) Sub(delta float64) {

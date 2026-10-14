@@ -15,6 +15,17 @@ import (
 type counter struct {
 	name    string
 	adapter adapters.Adapter
+	bound   adapters.BoundCounter // unlabeled child, bound at registration when supported
+}
+
+// bindUnlabeled resolves the unlabeled child once. The collector calls it
+// after registration and before publishing the handle.
+func (c *counter) bindUnlabeled() {
+	if b, ok := c.adapter.(adapters.Binder); ok {
+		if h, ok := b.BindCounter(c.name, nil); ok {
+			c.bound = h
+		}
+	}
 }
 
 func newCounter(name string, adapter adapters.Adapter) *counter {
@@ -31,6 +42,10 @@ func (c *counter) Inc() {
 func (c *counter) Add(delta float64) {
 	if delta < 0 {
 		return // Counters can only increase
+	}
+	if c.bound != nil {
+		c.bound.Add(delta)
+		return
 	}
 	c.adapter.RecordCounter(c.name, nil, delta)
 }

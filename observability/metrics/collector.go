@@ -131,12 +131,19 @@ func must[T any](opts validator, create func() T) T {
 func (r *collector) getOrCreateCounter(subsystem string, opts MetricOpts) Counter {
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 
+	// Unlabeled metrics bind their child after registration and before the
+	// handle is published, so observations skip the per-call lookups.
+	var created *counter
 	return shared.GetOrCreateWithCallback(&r.metrics, &r.createMu, fullName,
 		func() *counter {
-			return newCounter(fullName, r.adapter)
+			created = newCounter(fullName, r.adapter)
+			return created
 		},
 		func() {
 			r.register(fullName, opts.Help, adapters.TypeCounter, opts.LabelNames, nil)
+			if len(opts.LabelNames) == 0 {
+				created.bindUnlabeled()
+			}
 		},
 	)
 }
@@ -145,12 +152,19 @@ func (r *collector) getOrCreateCounter(subsystem string, opts MetricOpts) Counte
 func (r *collector) getOrCreateGauge(subsystem string, opts MetricOpts) Gauge {
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 
+	// Unlabeled metrics bind their child after registration and before the
+	// handle is published, so observations skip the per-call lookups.
+	var created *gauge
 	return shared.GetOrCreateWithCallback(&r.metrics, &r.createMu, fullName,
 		func() *gauge {
-			return newGauge(fullName, r.adapter)
+			created = newGauge(fullName, r.adapter)
+			return created
 		},
 		func() {
 			r.register(fullName, opts.Help, adapters.TypeGauge, opts.LabelNames, nil)
+			if len(opts.LabelNames) == 0 {
+				created.bindUnlabeled()
+			}
 		},
 	)
 }
@@ -160,12 +174,19 @@ func (r *collector) getOrCreateHistogram(subsystem string, opts HistogramOpts) H
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 	buckets := bucketsOrDefault(opts.Buckets)
 
+	// Unlabeled metrics bind their child after registration and before the
+	// handle is published, so observations skip the per-call lookups.
+	var created *histogram
 	return shared.GetOrCreateWithCallback(&r.metrics, &r.createMu, fullName,
 		func() *histogram {
-			return newHistogram(fullName, r.adapter)
+			created = newHistogram(fullName, r.adapter)
+			return created
 		},
 		func() {
 			r.register(fullName, opts.Help, adapters.TypeHistogram, opts.LabelNames, buckets)
+			if len(opts.LabelNames) == 0 {
+				created.bindUnlabeled()
+			}
 		},
 	)
 }
@@ -175,12 +196,19 @@ func (r *collector) getOrCreateTimer(subsystem string, opts HistogramOpts) Timer
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 	buckets := bucketsOrDefault(opts.Buckets)
 
+	// Unlabeled metrics bind their child after registration and before the
+	// handle is published, so observations skip the per-call lookups.
+	var created *timer
 	return shared.GetOrCreateWithCallback(&r.metrics, &r.createMu, fullName,
 		func() *timer {
-			return newTimer(fullName, r.adapter)
+			created = newTimer(fullName, r.adapter)
+			return created
 		},
 		func() {
 			r.register(fullName, opts.Help, adapters.TypeHistogram, opts.LabelNames, buckets)
+			if len(opts.LabelNames) == 0 {
+				created.bindUnlabeled()
+			}
 		},
 	)
 }

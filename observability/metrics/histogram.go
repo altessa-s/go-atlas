@@ -10,6 +10,17 @@ import "github.com/altessa-s/go-atlas/observability/metrics/adapters"
 type histogram struct {
 	name    string
 	adapter adapters.Adapter
+	bound   adapters.BoundHistogram // unlabeled child, bound at registration when supported
+}
+
+// bindUnlabeled resolves the unlabeled child once. The collector calls it
+// after registration and before publishing the handle.
+func (h *histogram) bindUnlabeled() {
+	if b, ok := h.adapter.(adapters.Binder); ok {
+		if bh, ok := b.BindHistogram(h.name, nil); ok {
+			h.bound = bh
+		}
+	}
 }
 
 func newHistogram(name string, adapter adapters.Adapter) *histogram {
@@ -20,6 +31,10 @@ func newHistogram(name string, adapter adapters.Adapter) *histogram {
 }
 
 func (h *histogram) Observe(value float64) {
+	if h.bound != nil {
+		h.bound.Observe(value)
+		return
+	}
 	h.adapter.RecordHistogram(h.name, nil, value)
 }
 
