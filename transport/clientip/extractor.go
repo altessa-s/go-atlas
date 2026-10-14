@@ -76,6 +76,12 @@ func NewExtractor(opt ...Option) (*Extractor, error) {
 	}, nil
 }
 
+// debugEnabled reports whether debug logs are emitted. Debug calls are guarded
+// so disabled logging does not format addresses on every extraction.
+func (e *Extractor) debugEnabled(ctx context.Context) bool {
+	return e.opts.logger.Enabled(ctx, slog.LevelDebug)
+}
+
 // Extract determines the real client IP using the following strategy:
 //
 //  1. If peerIP is neither trusted nor private, it is returned immediately.
@@ -87,21 +93,27 @@ func NewExtractor(opt ...Option) (*Extractor, error) {
 // Returns an invalid [netip.Addr] only when peerIP itself is invalid and
 // no header yields a valid address.
 func (e *Extractor) Extract(ctx context.Context, peerIP netip.Addr, headers HeaderGetter) netip.Addr {
-	e.opts.logger.DebugContext(ctx, "peer IP",
-		slog.String("ip", peerIP.String()),
-		slog.Bool("is_private", IsPrivate(peerIP)),
-		slog.Bool("is_trusted", IsTrusted(peerIP, e.opts.trustedPeers)),
-	)
+	if e.debugEnabled(ctx) {
+		e.opts.logger.DebugContext(ctx, "peer IP",
+			slog.String("ip", peerIP.String()),
+			slog.Bool("is_private", IsPrivate(peerIP)),
+			slog.Bool("is_trusted", IsTrusted(peerIP, e.opts.trustedPeers)),
+		)
+	}
 
 	if !IsTrusted(peerIP, e.opts.trustedPeers) && !IsPrivate(peerIP) {
-		e.opts.logger.DebugContext(ctx, "using peer IP as real IP", slog.String("ip", peerIP.String()))
+		if e.debugEnabled(ctx) {
+			e.opts.logger.DebugContext(ctx, "using peer IP as real IP", slog.String("ip", peerIP.String()))
+		}
 		return peerIP
 	}
 
 	// Process headers only if enabled
 	if !e.opts.headersEnabled {
-		e.opts.logger.DebugContext(ctx, "headers processing disabled, falling back to peer IP",
-			slog.String("ip", peerIP.String()))
+		if e.debugEnabled(ctx) {
+			e.opts.logger.DebugContext(ctx, "headers processing disabled, falling back to peer IP",
+				slog.String("ip", peerIP.String()))
+		}
 		return peerIP
 	}
 
@@ -119,8 +131,10 @@ func (e *Extractor) Extract(ctx context.Context, peerIP netip.Addr, headers Head
 
 		if header == InternedHeaderXForwardedFor {
 			if ip := e.parseXForwardedForHeader(ctx, ips); ip.IsValid() {
-				e.opts.logger.DebugContext(ctx, "found IP from X-Forwarded-For",
-					slog.String("ip", ip.String()))
+				if e.debugEnabled(ctx) {
+					e.opts.logger.DebugContext(ctx, "found IP from X-Forwarded-For",
+						slog.String("ip", ip.String()))
+				}
 				return ip
 			}
 			// The XFF parser already rejected every entry as private or a
@@ -132,7 +146,9 @@ func (e *Extractor) Extract(ctx context.Context, peerIP netip.Addr, headers Head
 
 		for _, ip := range ips {
 			if totalProcessed >= MaxTotalIPs {
-				e.opts.logger.DebugContext(ctx, "reached total IP limit", slog.Int("limit", MaxTotalIPs))
+				if e.debugEnabled(ctx) {
+					e.opts.logger.DebugContext(ctx, "reached total IP limit", slog.Int("limit", MaxTotalIPs))
+				}
 				break
 			}
 			totalProcessed++
@@ -145,8 +161,10 @@ func (e *Extractor) Extract(ctx context.Context, peerIP netip.Addr, headers Head
 
 	// No valid IP found from headers — fall back to the peer IP.
 	// This handles local development (127.0.0.1, ::1) where no proxy headers are present.
-	e.opts.logger.DebugContext(ctx, "no IP from headers, falling back to peer IP",
-		slog.String("ip", peerIP.String()))
+	if e.debugEnabled(ctx) {
+		e.opts.logger.DebugContext(ctx, "no IP from headers, falling back to peer IP",
+			slog.String("ip", peerIP.String()))
+	}
 
 	return peerIP
 }
@@ -157,8 +175,10 @@ func (e *Extractor) getIPsFromHeader(ctx context.Context, header string, headers
 		return nil
 	}
 
-	e.opts.logger.DebugContext(ctx, "processing header",
-		slog.String("header", header), slog.Int("values_count", len(headerValues)))
+	if e.debugEnabled(ctx) {
+		e.opts.logger.DebugContext(ctx, "processing header",
+			slog.String("header", header), slog.Int("values_count", len(headerValues)))
+	}
 
 	ips := make([]string, 0, len(headerValues))
 	for _, headerValue := range headerValues {
@@ -190,13 +210,15 @@ func (e *Extractor) getIPsFromHeader(ctx context.Context, header string, headers
 	originalCount := len(ips)
 	if len(ips) > MaxIPsPerHeader {
 		ips = ips[:MaxIPsPerHeader]
-		e.opts.logger.DebugContext(ctx, "truncated IPs to limit",
-			slog.String("header", header),
-			slog.Int("original", originalCount),
-			slog.Int("truncated", len(ips)))
+		if e.debugEnabled(ctx) {
+			e.opts.logger.DebugContext(ctx, "truncated IPs to limit",
+				slog.String("header", header),
+				slog.Int("original", originalCount),
+				slog.Int("truncated", len(ips)))
+		}
 	}
 
-	if len(ips) > 0 {
+	if len(ips) > 0 && e.debugEnabled(ctx) {
 		e.opts.logger.DebugContext(ctx, "ips from header", slog.String("header", header),
 			slog.Any("ips", ips))
 	}
@@ -208,9 +230,11 @@ func (e *Extractor) parseAndCheckIP(ctx context.Context, ip, header string) (net
 	// Check cache first if available
 	if e.cache != nil {
 		if cachedAddr, ok := e.cache.Get(ip); ok {
-			e.opts.logger.DebugContext(ctx, "found in cache",
-				slog.String("ip", cachedAddr.String()),
-				slog.Bool("is_private", IsPrivate(cachedAddr)))
+			if e.debugEnabled(ctx) {
+				e.opts.logger.DebugContext(ctx, "found in cache",
+					slog.String("ip", cachedAddr.String()),
+					slog.Bool("is_private", IsPrivate(cachedAddr)))
+			}
 
 			if !IsPrivate(cachedAddr) {
 				return cachedAddr, true
@@ -236,14 +260,18 @@ func (e *Extractor) parseAndCheckIP(ctx context.Context, ip, header string) (net
 		e.cache.Put(internedIP, addr)
 	}
 
-	e.opts.logger.DebugContext(ctx, "parsed IP",
-		slog.String("ip", addr.String()),
-		slog.Bool("is_private", IsPrivate(addr)))
+	if e.debugEnabled(ctx) {
+		e.opts.logger.DebugContext(ctx, "parsed IP",
+			slog.String("ip", addr.String()),
+			slog.Bool("is_private", IsPrivate(addr)))
+	}
 
 	if !IsPrivate(addr) {
-		e.opts.logger.DebugContext(ctx, "found public IP",
-			slog.String("ip", addr.String()),
-			slog.String("header", header))
+		if e.debugEnabled(ctx) {
+			e.opts.logger.DebugContext(ctx, "found public IP",
+				slog.String("ip", addr.String()),
+				slog.String("header", header))
+		}
 		return addr, true
 	}
 
@@ -262,9 +290,11 @@ func (e *Extractor) parseXForwardedForHeader(ctx context.Context, ips []string) 
 		return netip.Addr{}
 	}
 
-	e.opts.logger.DebugContext(ctx, "parsing X-Forwarded-For",
-		slog.Any("ips", ips),
-		slog.Uint64("trusted_proxies_count", uint64(e.opts.trustedProxiesCount)))
+	if e.debugEnabled(ctx) {
+		e.opts.logger.DebugContext(ctx, "parsing X-Forwarded-For",
+			slog.Any("ips", ips),
+			slog.Uint64("trusted_proxies_count", uint64(e.opts.trustedProxiesCount)))
+	}
 
 	// X-Forwarded-For format: client, proxy1, proxy2, ...
 	// We need to find the rightmost IP that is not from a trusted proxy
@@ -274,14 +304,18 @@ func (e *Extractor) parseXForwardedForHeader(ctx context.Context, ips []string) 
 		index := len(ips) - int(e.opts.trustedProxiesCount) - 1 // #nosec G115 -- proxy count is small
 		if index >= 0 && index < len(ips) {
 			ip := ips[index]
-			e.opts.logger.DebugContext(ctx, "checking IP by trusted proxy count",
-				slog.String("ip", ip),
-				slog.Int("index", index))
+			if e.debugEnabled(ctx) {
+				e.opts.logger.DebugContext(ctx, "checking IP by trusted proxy count",
+					slog.String("ip", ip),
+					slog.Int("index", index))
+			}
 
 			addr, err := netip.ParseAddr(ip)
 			if err == nil && !IsPrivate(addr) {
-				e.opts.logger.DebugContext(ctx, "found IP by trusted proxy count",
-					slog.String("ip", addr.String()))
+				if e.debugEnabled(ctx) {
+					e.opts.logger.DebugContext(ctx, "found IP by trusted proxy count",
+						slog.String("ip", addr.String()))
+				}
 				return addr
 			}
 		}
