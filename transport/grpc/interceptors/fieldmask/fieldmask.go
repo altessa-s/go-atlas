@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
@@ -87,6 +88,10 @@ type requestInterceptor struct {
 // readMaskSnapshot is the captured read_mask, owned by the interceptor.
 type readMaskSnapshot struct {
 	mask *fieldmaskpb.FieldMask
+	// parsed builds the filter tree once per call or stream. Filter only
+	// reads it, so concurrent sends share it. A panic while parsing repeats
+	// on every call, reaching filterResponse's recovery each time.
+	parsed func() pbfieldmask.FieldMask
 }
 
 // capturedReadMask returns the captured read_mask, or nil when none applies.
@@ -376,6 +381,10 @@ func (ri *requestInterceptor) captureReadMask(ctx context.Context, req proto.Mes
 	snap := &readMaskSnapshot{}
 	if mask, ok := ri.resolveRead(ctx, req); ok {
 		snap.mask, _ = proto.Clone(mask).(*fieldmaskpb.FieldMask)
+		owned := snap.mask
+		snap.parsed = sync.OnceValue(func() pbfieldmask.FieldMask {
+			return pbfieldmask.FromProtoFieldMask(owned)
+		})
 	} else {
 		ri.LogDebug(ctx, "fieldmask read_mask not present", ri.meta.Method())
 	}
@@ -400,7 +409,12 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 		)
 	})
 
-	msk := pbfieldmask.FromProtoFieldMask(rawMask)
+	var msk pbfieldmask.FieldMask
+	if snap := ri.readMask.Load(); snap != nil && snap.mask == rawMask && snap.parsed != nil {
+		msk = snap.parsed()
+	} else {
+		msk = pbfieldmask.FromProtoFieldMask(rawMask)
+	}
 	msk.Filter(resp)
 
 	ri.LogDebug(ctx, "fieldmask read_mask applied", method,
