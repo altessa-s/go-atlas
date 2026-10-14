@@ -14,20 +14,10 @@ import (
 	internalrequestid "github.com/altessa-s/go-atlas/transport/internal/requestid"
 )
 
-func TestGrpcHeaderGetter(t *testing.T) {
-	md := metadata.Pairs("x-request-id", "abc-123")
-	g := &grpcHeaderGetter{md: md}
-
-	got := g.GetHeader("x-request-id")
-	require.Equal(t, "abc-123", got)
-	got = g.GetHeader("nonexistent")
-	require.Equal(t, "", got)
-}
-
-func TestGrpcHeaderGetter_NilMD(t *testing.T) {
-	g := &grpcHeaderGetter{md: nil}
-	got := g.GetHeader("any")
-	require.Equal(t, "", got)
+func TestHeaderValue(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "abc-123", headerValue("abc-123").GetHeader("x-request-id"))
+	require.Empty(t, headerValue("").GetHeader("x-request-id"))
 }
 
 func TestContext_RoundTrip(t *testing.T) {

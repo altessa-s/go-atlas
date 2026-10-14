@@ -153,21 +153,20 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 		return ctx, err
 	}
 
-	creds := Credentials{Base: credsReq.Base, Data: data}
-
-	md, ok := grpcmetadata.FromIncomingContext(ctx)
-	if ok {
-		creds.Headers = make(map[string]string, len(md))
-		for k, v := range md {
-			if isSensitiveHeader(k) {
-				continue
-			}
-			creds.Headers[k] = strings.Join(v, ",")
-		}
-	}
-
 	var newCtx = ctx
 	if i.opts.clientAuth != nil {
+		// Credentials only feed ClientAuth; build them, and copy the
+		// metadata, only when it is configured.
+		creds := Credentials{Base: credsReq.Base, Data: data}
+		if md, ok := grpcmetadata.FromIncomingContext(ctx); ok {
+			creds.Headers = make(map[string]string, len(md))
+			for k, v := range md {
+				if isSensitiveHeader(k) {
+					continue
+				}
+				creds.Headers[k] = strings.Join(v, ",")
+			}
+		}
 		newCtx, err = i.opts.clientAuth.ClientAuth(ctx, creds)
 		if err != nil {
 			i.LogWarn(ctx, "authentication failed", method, err)

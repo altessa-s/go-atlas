@@ -50,13 +50,3 @@ func BenchmarkContextWithRequestID(b *testing.B) {
 		_, _ = i.contextWithRequestID(ctx)
 	}
 }
-
-func BenchmarkGrpcHeaderGetter_GetHeader(b *testing.B) {
-	md := metadata.Pairs("x-request-id", "abc-123")
-	g := &grpcHeaderGetter{md: md}
-
-	b.ReportAllocs()
-	for b.Loop() {
-		g.GetHeader("x-request-id")
-	}
-}
