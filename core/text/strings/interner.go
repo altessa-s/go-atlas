@@ -34,10 +34,9 @@ const (
 	EvictionRatio = 4
 )
 
-// coarseTimestamp caches time.Now().Unix() to avoid a syscall on every intern hit.
-// It is refreshed only on every PromotionCheckInterval-th cold-cache hit of an
-// [Interner] (hot-cache hits and misses never refresh it), so it can lag behind
-// the wall clock while an interner sees few cold-cache hits.
+// coarseTimestamp caches time.Now().Unix() to avoid repeated time calls on every intern hit.
+// It is refreshed on cache misses and whenever a string reaches [HotCacheThreshold] or
+// multiples of [PromotionCheckInterval] accesses.
 var coarseTimestamp atomic.Int64
 
 func init() {
@@ -90,8 +89,8 @@ const (
 	HotCacheThreshold = 5
 
 	// PromotionCheckInterval controls how often the [Interner] evaluates whether
-	// a string should be promoted to the hot cache. A check occurs every
-	// PromotionCheckInterval accesses across all strings.
+	// an existing string should replace an occupied slot in the hot cache. Re-checks
+	// occur every PromotionCheckInterval accesses to that specific string.
 	PromotionCheckInterval = 50
 )
 
@@ -154,11 +153,10 @@ func (s InternerStats) TotalLookups() uint64 {
 //     frequently accessed strings, providing wait-free reads.
 //   - A cold cache backed by [sync.Map] for general-purpose interning.
 //
-// Promotion to the hot cache is evaluated on every [PromotionCheckInterval]-th
-// cold-cache hit (counted across all strings): if the string looked up at that
-// moment has reached [HotCacheThreshold] accesses, it is promoted. An occupied
-// hot slot is taken over only when the new string has more than twice the
-// occupant's access count. When the total number of interned strings exceeds
+// Promotion to the hot cache is evaluated when a string reaches [HotCacheThreshold]
+// accesses and periodically re-evaluated every [PromotionCheckInterval] accesses to
+// that string. An occupied hot slot is taken over only when the new string has more
+// than twice the occupant's access count. When the total number of interned strings exceeds
 // the configured maximum, a background goroutine evicts the least frequently
 // accessed entries, breaking ties by least recent access (see
 // [EvictionBatchSize] and [EvictionRatio]).
@@ -179,8 +177,6 @@ type Interner struct {
 	maxSize     int64        // Maximum number of entries
 	evicting    atomic.Int32 // Atomic flag for eviction coordination
 
-	// Promotion tracking
-	promotionCounter atomic.Int64
 
 	// Performance counters
 	hotHits   atomic.Uint64
@@ -268,11 +264,9 @@ func (si *Interner) String(s string) string {
 		entry.lastAccess.Store(coarseNowUnix())
 
 		// Periodically check for hot cache promotion and refresh coarse timestamp
-		if si.promotionCounter.Add(1)%PromotionCheckInterval == 0 {
+		if newAccessCount >= HotCacheThreshold && (newAccessCount == HotCacheThreshold || newAccessCount%PromotionCheckInterval == 0) {
 			coarseTimestamp.Store(time.Now().Unix())
-			if newAccessCount >= HotCacheThreshold {
-				si.promoteToHotCache(entry.value(), hotSlot, newAccessCount)
-			}
+			si.promoteToHotCache(entry.value(), hotSlot, newAccessCount)
 		}
 
 		return entry.value()
@@ -282,7 +276,8 @@ func (si *Interner) String(s string) string {
 	si.misses.Add(1)
 	handle := unique.Make(s)
 	canonicalString := handle.Value()
-	now := coarseNowUnix()
+	now := time.Now().Unix()
+	coarseTimestamp.Store(now)
 	newEntry := &internEntry{handle: handle}
 	newEntry.accessCount.Store(1)
 	newEntry.lastAccess.Store(now)
@@ -427,8 +422,6 @@ func (si *Interner) Reset() {
 		si.hotCache[i].Store(nil)
 	}
 
-	// Reset promotion counter
-	si.promotionCounter.Store(0)
 
 	// Reset performance counters
 	si.ResetStats()
