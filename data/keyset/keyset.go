@@ -12,6 +12,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -71,8 +74,8 @@ var tokenEncoding = base64.RawURLEncoding.Strict()
 // position payload, its issue time and digests of its [Bindings], signed with
 // HMAC-SHA256. It is safe for concurrent use.
 type Codec struct {
-	key      []byte
-	previous [][]byte
+	key      *signer
+	previous []*signer
 	opts     *options
 }
 
@@ -86,14 +89,14 @@ func New(key []byte, opts ...Option) (*Codec, error) {
 	o := newOptions(opts...)
 	// Keys are copied so later changes to the caller's buffers cannot alter
 	// which tokens verify.
-	previous := make([][]byte, len(o.previousKeys))
+	previous := make([]*signer, len(o.previousKeys))
 	for i, k := range o.previousKeys {
 		if len(k) < MinKeyLength {
 			return nil, fmt.Errorf("%w: previous key of %d bytes, minimum %d", ErrWeakKey, len(k), MinKeyLength)
 		}
-		previous[i] = bytes.Clone(k)
+		previous[i] = newSigner(k)
 	}
-	return &Codec{key: bytes.Clone(key), previous: previous, opts: o}, nil
+	return &Codec{key: newSigner(key), previous: previous, opts: o}, nil
 }
 
 // Issue returns a token carrying payload, bound to b.
@@ -102,15 +105,18 @@ func (c *Codec) Issue(payload []byte, b Bindings) (string, error) {
 		return "", fmt.Errorf("%w: %d bytes, maximum %d", ErrPayloadTooLarge, len(payload), MaxPayloadLength)
 	}
 
-	body := make([]byte, 0, headerLength+binary.MaxVarintLen64+len(payload)+macLength)
+	buf := rawBufPool.Get().(*[maxRawLength]byte) //nolint:errcheck // pool holds only this type
+	defer rawBufPool.Put(buf)
+
+	body := buf[:0]
 	body = append(body, version)
 	body = binary.BigEndian.AppendUint64(body, uint64(c.opts.clock().UnixMilli())) //nolint:gosec // epoch milliseconds are positive
 	body = appendDigests(body, b)
 	body = binary.AppendUvarint(body, uint64(len(payload)))
 	body = append(body, payload...)
-	body = append(body, sign(c.key, body)...)
+	body = c.key.appendMAC(body, body)
 
-	return tokenEncoding.EncodeToString(body), nil
+	return encodeToken(body), nil
 }
 
 // Resolve verifies token and returns its payload. The signature is checked
@@ -120,10 +126,14 @@ func (c *Codec) Resolve(token string, b Bindings) ([]byte, error) {
 	if token == "" || len(token) > maxTokenLength || !canonicalAlphabet(token) {
 		return nil, ErrInvalidToken
 	}
-	raw, err := tokenEncoding.DecodeString(token)
-	if err != nil || len(raw) < headerLength+1+macLength {
+	buf := rawBufPool.Get().(*[maxRawLength]byte) //nolint:errcheck // pool holds only this type
+	defer rawBufPool.Put(buf)
+
+	rawLength, err := decodeToken(buf[:], token)
+	if err != nil || rawLength < headerLength+1+macLength {
 		return nil, ErrInvalidToken
 	}
+	raw := buf[:rawLength]
 
 	body, mac := raw[:len(raw)-macLength], raw[len(raw)-macLength:]
 	if !c.verify(body, mac) {
@@ -143,12 +153,13 @@ func (c *Codec) Resolve(token string, b Bindings) ([]byte, error) {
 	}
 
 	digests := body[9:headerLength]
+	sortDigest, filterDigest, subjectDigest := digest(b.Sort), digest(b.Filter), digest(b.Subject)
 	switch {
-	case !hmac.Equal(digests[:digestLength], digest(b.Sort)):
+	case !hmac.Equal(digests[:digestLength], sortDigest[:]):
 		return nil, ErrSortChanged
-	case !hmac.Equal(digests[digestLength:2*digestLength], digest(b.Filter)):
+	case !hmac.Equal(digests[digestLength:2*digestLength], filterDigest[:]):
 		return nil, ErrFilterChanged
-	case !hmac.Equal(digests[2*digestLength:], digest(b.Subject)):
+	case !hmac.Equal(digests[2*digestLength:], subjectDigest[:]):
 		return nil, ErrSubjectMismatch
 	}
 
@@ -177,31 +188,108 @@ func canonicalAlphabet(token string) bool {
 
 // verify reports whether mac signs body under the current or a previous key.
 func (c *Codec) verify(body, mac []byte) bool {
-	if hmac.Equal(mac, sign(c.key, body)) {
+	if c.key.verify(body, mac) {
 		return true
 	}
 	for _, k := range c.previous {
-		if hmac.Equal(mac, sign(k, body)) {
+		if k.verify(body, mac) {
 			return true
 		}
 	}
 	return false
 }
 
-func sign(key, body []byte) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write(body)
-	return h.Sum(nil)
+// rawBufPool holds scratch buffers for a decoded or not yet encoded token.
+// A token is not secret (the client holds it), so buffers are not zeroed.
+var rawBufPool = sync.Pool{New: func() any { return new([maxRawLength]byte) }}
+
+// signer signs with one immutable key. HMAC states are pooled; each is
+// checked out by a single caller and Reset before use.
+type signer struct {
+	pool sync.Pool
+}
+
+type macState struct {
+	h   hash.Hash
+	sum [macLength]byte
+}
+
+func newSigner(key []byte) *signer {
+	// The key is copied so later changes to the caller's buffer cannot alter
+	// which tokens verify.
+	key = bytes.Clone(key)
+	return &signer{pool: sync.Pool{New: func() any {
+		return &macState{h: hmac.New(sha256.New, key)}
+	}}}
+}
+
+// appendMAC appends the MAC of body to dst.
+func (s *signer) appendMAC(dst, body []byte) []byte {
+	st := s.pool.Get().(*macState) //nolint:errcheck // pool holds only this type
+	defer s.pool.Put(st)
+	st.h.Reset()
+	st.h.Write(body)
+	return append(dst, st.h.Sum(st.sum[:0])...)
+}
+
+// verify reports in constant time whether mac is the MAC of body.
+func (s *signer) verify(body, mac []byte) bool {
+	st := s.pool.Get().(*macState) //nolint:errcheck // pool holds only this type
+	defer s.pool.Put(st)
+	st.h.Reset()
+	st.h.Write(body)
+	return hmac.Equal(mac, st.h.Sum(st.sum[:0]))
+}
+
+// codecChunk is the number of encoded characters handled per step by
+// encodeToken and decodeToken. It is a multiple of 4, so every chunk but the
+// last holds whole base64 quanta and chunked coding equals one-shot coding.
+const (
+	codecChunk = 256
+	// rawChunk is the number of raw bytes encoded into one codecChunk.
+	rawChunk = codecChunk / 4 * 3
+)
+
+// encodeToken returns the encoding of raw, building the string in place.
+func encodeToken(raw []byte) string {
+	var sb strings.Builder
+	sb.Grow(tokenEncoding.EncodedLen(len(raw)))
+	var chunk [codecChunk]byte
+	for len(raw) > 0 {
+		n := min(len(raw), rawChunk)
+		tokenEncoding.Encode(chunk[:], raw[:n])
+		sb.Write(chunk[:tokenEncoding.EncodedLen(n)])
+		raw = raw[n:]
+	}
+	return sb.String()
+}
+
+// decodeToken decodes token into dst without converting it to a byte slice.
+// dst must hold the decoded length.
+func decodeToken(dst []byte, token string) (int, error) {
+	var chunk [codecChunk]byte
+	n := 0
+	for len(token) > 0 {
+		k := copy(chunk[:], token)
+		m, err := tokenEncoding.Decode(dst[n:], chunk[:k])
+		if err != nil {
+			return 0, err
+		}
+		n += m
+		token = token[k:]
+	}
+	return n, nil
 }
 
 func appendDigests(dst []byte, b Bindings) []byte {
-	dst = append(dst, digest(b.Sort)...)
-	dst = append(dst, digest(b.Filter)...)
-	return append(dst, digest(b.Subject)...)
+	sortDigest, filterDigest, subjectDigest := digest(b.Sort), digest(b.Filter), digest(b.Subject)
+	dst = append(dst, sortDigest[:]...)
+	dst = append(dst, filterDigest[:]...)
+	return append(dst, subjectDigest[:]...)
 }
 
 // digest returns a truncated SHA-256 of a binding.
-func digest(s string) []byte {
+func digest(s string) [digestLength]byte {
 	sum := sha256.Sum256([]byte(s))
-	return sum[:digestLength]
+	return [digestLength]byte(sum[:digestLength])
 }

@@ -27,3 +27,17 @@ func BenchmarkCodec_Resolve(b *testing.B) {
 		_, _ = c.Resolve(token, bindings)
 	}
 }
+
+// BenchmarkCodec_ResolveParallel measures concurrent resolves sharing one
+// Codec, including a token signed with a previous key.
+func BenchmarkCodec_ResolveParallel(b *testing.B) {
+	old, _ := keyset.New(otherKey)
+	token, _ := old.Issue([]byte("1700000000000|01JABCDEFGHJKMNPQRSTVWXYZ00"), bindings)
+	c, _ := keyset.New(key, keyset.WithPreviousKeys(otherKey))
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _ = c.Resolve(token, bindings)
+		}
+	})
+}
