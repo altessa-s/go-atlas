@@ -135,3 +135,44 @@ func BenchmarkConvert_SparseMerge(b *testing.B) {
 		conv.Convert(&src, &dst)
 	}
 }
+
+// benchSmallDTO has the fields of BenchSmall under a distinct type, so slice
+// conversion converts every element instead of assigning the slice.
+type benchSmallDTO struct {
+	A, B, C int
+}
+
+type benchSliceHolder struct{ Items []BenchSmall }
+
+type benchSliceDTO struct {
+	Items    []benchSmallDTO
+	PtrItems []*benchSmallDTO
+}
+
+type benchPtrSliceHolder struct{ PtrItems []BenchSmall }
+
+func BenchmarkConvert_Slice_DifferentTypes(b *testing.B) {
+	items := make([]BenchSmall, 100)
+	for i := range items {
+		items[i] = BenchSmall{A: i, B: i, C: i}
+	}
+
+	b.Run("values", func(b *testing.B) {
+		conv := converter.New[benchSliceHolder, *benchSliceDTO]()
+		src := benchSliceHolder{Items: items}
+		b.ReportAllocs()
+		for b.Loop() {
+			var dst benchSliceDTO
+			conv.Convert(src, &dst)
+		}
+	})
+	b.Run("pointers", func(b *testing.B) {
+		conv := converter.New[benchPtrSliceHolder, *benchSliceDTO]()
+		src := benchPtrSliceHolder{PtrItems: items}
+		b.ReportAllocs()
+		for b.Loop() {
+			var dst benchSliceDTO
+			conv.Convert(src, &dst)
+		}
+	})
+}
