@@ -75,3 +75,23 @@ func BenchmarkFetchRecoverable(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkUpdate_LargePayload measures Update alone on an instance with a
+// 64 KiB payload and some history, reusing the version Update writes back.
+func BenchmarkUpdate_LargePayload(b *testing.B) {
+	s := newStore(b)
+	ctx := b.Context()
+	inst := instance("a", saga.StatusRunning, baseTime)
+	inst.Data = make([]byte, 64<<10)
+	inst.Steps = make([]saga.StepRecord, 32)
+	if err := s.Create(ctx, inst); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := s.Update(ctx, inst); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

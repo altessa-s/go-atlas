@@ -143,13 +143,15 @@ func (s *Store) Get(ctx context.Context, id string) (*saga.Instance, error) {
 func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 	newVersion := inst.Version + 1
 
-	next := inst.Clone()
+	// A shallow copy suffices: only Version changes, and the shared slices
+	// are only read while encoding. inst.Version moves after a successful CAS.
+	next := *inst
 	next.Version = newVersion
-	data, err := json.Marshal(next)
+	data, err := json.Marshal(&next)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "marshal saga instance")
 	}
-	score, indexed := recoverScore(next)
+	score, indexed := recoverScore(&next)
 
 	res, err := updateScript.Run(ctx, s.Client(),
 		[]string{s.instanceKey(inst.ID), s.indexKey()},
