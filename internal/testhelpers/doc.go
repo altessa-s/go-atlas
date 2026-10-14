@@ -32,6 +32,8 @@
 //     every statement, its arguments and whether it ran in a transaction, so
 //     SQL-building code is testable without a server or a third-party driver.
 //   - Polling helpers ([WaitFor]) and an audit helper ([NewTestAuditor]).
+//   - The run length of the `stress`-tagged soak tests ([StressDuration],
+//     set through [StressDurationEnv]).
 //
 // All helpers that accept [testing.TB] register cleanup functions automatically,
 // so callers do not need to manage teardown manually.

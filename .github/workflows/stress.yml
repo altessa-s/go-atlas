@@ -1,0 +1,63 @@
+name: Stress
+
+# Stress tests are a soak, not a gate. They sit behind the `stress` build tag so
+# `go test ./...` never runs them; this workflow gives them the time and the
+# race detector they need, once a night.
+on:
+  schedule:
+    # Nightly, off-peak, clear of the fuzz run.
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Run length of each stress test (Go duration, e.g. 2m)"
+        default: "2m"
+      pkg:
+        description: "Package pattern to stress (e.g. ./core/io/wal); empty runs every package with stress tests"
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    name: Stress
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # The dlock stress test locks through a live JetStream broker. It is
+      # started here rather than as a service container because services
+      # cannot pass the `-js` flag that enables JetStream. Waiting for it to
+      # report healthy keeps a broken broker from turning into a silent skip.
+      - name: Start NATS
+        run: |
+          docker run -d --name nats -p 14222:4222 -p 18222:8222 nats:2.11-alpine -js -m 8222
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:18222/healthz?js-enabled-only=true && exit 0
+            sleep 1
+          done
+          docker logs nats
+          exit 1
+
+      - name: Run stress tests
+        # Inputs reach the shell through the environment, never through
+        # expression interpolation into the script.
+        env:
+          NATS_URL: nats://127.0.0.1:14222
+          DURATION: ${{ inputs.duration || '2m' }}
+          PKG: ${{ inputs.pkg }}
+        run: make test-stress STRESS_DURATION="$DURATION" ${PKG:+STRESS_PKG="$PKG"}
+
+      - name: Stop NATS
+        if: always()
+        run: docker rm -f nats
