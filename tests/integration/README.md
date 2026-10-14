@@ -9,12 +9,18 @@ tests/integration/
 ├── filterit/              # data/filter: shared corpus + one adapter per backend
 ├── leadelectit/           # data/leadelect: multi-node election against a live broker
 ├── dlockit/               # data/locks/dlock: contended locking against a live broker and SQL servers
+├── limiterit/             # data/limiters: sliding-window contract on Redis and NATS vs memory, tokenbucket and budget on top
+├── probfilterit/          # data/probfilter: Bloom and Cuckoo filters on Redis Stack — membership, deletes, shared rebuilds
 ├── auditit/               # data/audit: storage conformance, atomic and idempotent batches on SQL servers
+├── brokerit/              # transport/broker: JetStream redelivery, restarts, shutdown, idempotency middleware over Redis
 ├── outboxit/              # data/outbox: transactional delivery against a live MongoDB
 ├── mongoit/               # data/mongo: transactions abort on panic, migration failure and rollback, keyset paging with FindPage
 ├── projectionit/          # data/projection: projections accepted by MongoDB and PostgreSQL, keyset paging under a projection
 ├── sagait/                # data/saga: storage contracts on SQL, Mongo and Redis + orchestrator over SQL
-└── schedulerit/           # service/scheduler: end-to-end scenarios + storage contracts on Mongo, Redis and SQL
+├── schedulerit/           # service/scheduler: end-to-end scenarios + storage contracts on Mongo, Redis and SQL
+├── idempotencyit/         # data/idempotency: storage contracts on Redis, Mongo and NATS + Keeper and HTTP middleware
+├── cacheit/               # data/cache: the Redis storage and the Cache facade (singleflight, negative caching) on Redis
+└── internal/livebackend/  # fixtures shared by several suites: Redis address and client, per-test names and key prefixes
 ```
 
 ## Why a separate module
@@ -187,6 +193,57 @@ holder to finish. Scenarios that need to be serialized rather than rejected loop
 lock guards. The acquisition attempt is bounded separately, by the provider's `WithAcquireTimeout` — folding that bound into the same context would
 release the lock the moment it elapsed.
 
+## limiterit — rate limiting against live Redis and NATS
+
+The unit tests run the Redis provider's Lua script on miniredis and the NATS provider on an embedded server. Here the sliding-window contract runs
+on the real servers, with the in-memory provider as the reference: `TestStorage_MatchesMemory` replays one call sequence on all three and compares
+every admission, `Remaining` and `Reset`.
+
+| Scenario                              | Asserts                                                                                         |
+|---------------------------------------|-------------------------------------------------------------------------------------------------|
+| `ExactlyLimitPerWindow`               | `limit` admissions, `Remaining` counting down, `Reset` = oldest request + period, the public sentinel |
+| `WindowSlidesPerRequest`              | Each request leaves the window on its own; a rejection occupies no slot                         |
+| `ResetClearsTheWindow`                | `Reset` gives the whole limit back; resetting an unknown key is not an error                    |
+| `KeysAreIsolated`                     | An exhausted key limits no other                                                                |
+| `ConcurrentCallersNeverExceedLimit`   | 32 goroutines on one key admit at most `limit`, and the window then holds exactly `limit`       |
+| `ReplicasShareOneLimit`               | The same race from two provider instances on their own connections                              |
+
+On top of each storage, `TestTokenBucket_RulesOverSharedStorage` drives IP, CIDR and token rules from two replicas, and `TestBudget_*` spends
+one budget from two replicas, sees it come back a period later, and reports an unreachable Redis as an error rather than an exhausted budget.
+
+**Contention costs the NATS provider latency, not correctness.** Its compare-and-swap loop retries a revision conflict after a randomized backoff,
+up to `WithMaxCASAttempts` attempts (64 by default), so under the 32-goroutine race and across two replicas every call still ends in a decision:
+the suite requires zero errors, and the limit is never exceeded. A call that exhausts its attempts returns `ErrContention`.
+
+## probfilterit — Bloom and Cuckoo filters on Redis Stack
+
+miniredis has no RedisBloom commands, so the unit tests of the Redis storages stop at structure. Here every path that touches a filter runs against
+Redis Stack: the reserve script, the journaled insert, the staging reserve, the journal drain, the commit with its journal replay, the rebuild lease
+and the generation-fenced delete — and the RedisBloom error texts the storages recognize, such as the "not found" of a `NOCREATE` insert.
+
+| Scenario                                    | Asserts                                                                                   |
+|---------------------------------------------|-------------------------------------------------------------------------------------------|
+| `Bloom_InstancesShareOneFilter`             | Two processes see each other's inserts; the filter is reserved with the configured capacity |
+| `Bloom_BatchLargerThanOneCommand`           | A batch split across several `BF.INSERT` commands loses no value                          |
+| `Bloom_FalsePositiveRate`                   | Measured over 20 000 values never added, at the expected size                              |
+| `Bloom_RebuildReplacesContents`             | Streamed and collected loads both swap atomically and leave no staging key, lease or journal |
+| `Bloom_FailedRebuildKeepsContents`          | A source failing midway publishes nothing and frees the lease                             |
+| `Bloom_InsertsDuringRebuildSurvive`         | Own, peer (a burst larger than one drain batch) and through-the-commit inserts all survive |
+| `Bloom_ConcurrentRebuildIsRefused`          | A second rebuild fails fast with `ErrRebuildInProgress`; the staging key carries a TTL until promoted |
+| `Bloom_SupersededRebuildDoesNotPublish`     | A rebuild whose lease lapsed is refused by the journal drain; its successor publishes      |
+| `Bloom_RecreatedFilterIsNotRebuilt`         | A deleted live key is recreated with its parameters, and no longer reports a committed rebuild |
+| `Bloom_CloseAbortsRunningRebuild`           | `Close` interrupts a rebuild, which leaves nothing behind                                 |
+| `Cuckoo_InstancesShareAddsAndDeletes`       | Inserts and deletes by one process are what another sees; stats count slots, not bytes    |
+| `Cuckoo_DuplicatesNeedOneDeleteEach`        | A value inserted twice stays present until deleted twice                                  |
+| `Cuckoo_MissingFilter`                      | Delete, lookup and stats of an uncreated filter are answers, not errors, and create nothing |
+| `Cuckoo_RebuildReplacesContents`            | A snapshot above the capacity fits the staging filter; deletes work across the generation bump |
+| `Cuckoo_InsertsDuringRebuild`               | Own inserts are replayed; a peer's are dropped, as documented                             |
+| `Cuckoo_SupersededRebuildDoesNotPublish`    | The commit script itself refuses a rebuild whose lease lapsed                             |
+| `Factory_BuildsRedisFilters`                | The factory checks the live eviction policy and rebuilds on start                         |
+
+The superseded scenarios delete the rebuild lease key to stand in for its expiry, so they name it with the metadata key layout of
+`data/probfilter/internal/redisfilter`; a change to that layout has to be mirrored in `harness_test.go`.
+
 ## outboxit — transactional delivery against a live MongoDB
 
 The unit tests for `data/outbox` run against in-memory stores and assert on the state the outbox *decided* to write. Whether that state survives a
@@ -287,6 +344,74 @@ PostgreSQL, MariaDB and MySQL and against the MongoDB and Redis stores, each con
 orchestrator built through the factory, which creates the schema, then runs a compensating saga over each SQL server. The MongoDB contracts run only
 with `MONGO_URI` set (`mongodb://127.0.0.1:27019/?directConnection=true` for the compose stack), so the suite never touches another project's
 MongoDB on that port.
+
+## idempotencyit — idempotency storages against live servers
+
+One contract suite runs on the Redis, MongoDB and NATS JetStream storages, each test over its own key prefix, database or bucket. The MongoDB
+backend runs only with `MONGO_URI` set, as in `sagait`. The Redis storage fences `Complete`, `Steal` and `Release` with Lua scripts comparing the
+stored bytes; every branch of both scripts — match, mismatch, missing key — runs against real Redis, with values that contain NUL bytes and are
+not valid UTF-8, since that is where miniredis and Redis can disagree.
+
+| Scenario                                  | Asserts                                                                                      |
+|-------------------------------------------|----------------------------------------------------------------------------------------------|
+| `Storage_AttemptLock`                     | The first caller acquires with a token; the next sees the holder's exact bytes and no token  |
+| `Storage_AcceptsTheKeysTheKeeperBuilds`   | Keys shaped as the transports and a Keeper namespace build them (`idk:POST:/orders:…`) work   |
+| `Storage_Complete`                        | Holder token writes; a foreign or stale token and a vanished key are refused without writing |
+| `Storage_Steal`                           | A matching expectation takes over and fences the old holder; a stale one or a missing key fails |
+| `Storage_Release`                         | Only the holder's token deletes; a completed result survives its holder's release             |
+| `Storage_PerCallTTLExpiresOnTheServer`    | `AttemptLockWithTTL` ages the key out on the server; the expired holder is refused afterwards |
+| `Storage_ConfiguredTTLExpiresOnTheServer` | The storage TTL ages out a lock and a completed result, whatever the lock's own TTL was       |
+| `Storage_Concurrent*HasOneWinner`         | 32 racing `AttemptLock`, `Steal` or `Release` calls: exactly one wins                         |
+| `Storage_LargeBinaryValues`               | The lifecycle with 512 KiB random values; a difference in the last byte is detected           |
+| `Redis_*`                                 | Lua writes renew the key with the storage TTL; refused or missing-key scripts write nothing   |
+| `Keeper_*`                                | Replay of a completed result, release and retry, orphan reclaim under contention, fingerprints, namespaces |
+| `Middleware_*`                            | The HTTP middleware end to end: replay refused, concurrent duplicate gets 409, failure retried |
+
+**Open bug: the NATS storage refuses the keys the layers above it build.** NATS KV keys allow only `[-/_=.a-zA-Z0-9]`, but the HTTP middleware,
+the gRPC interceptor and the broker wrapper build `idk:{service}:{key}`, and a Keeper namespace prefixes `{namespace}:`. `AttemptLock` fails with
+`nats: invalid key`, so every request through the middleware on the NATS backend is answered 503. The `nats` subtests of
+`Storage_AcceptsTheKeysTheKeeperBuilds`, `Keeper_NamespacesIsolateTenants` and `Middleware_*` fail until it is fixed.
+
+## cacheit — the cache against a live Redis
+
+The Redis cache storage needs no Lua — each operation is one command or a `MULTI`/`EXEC` pipeline — so the suite is about expiry on the server
+clock, large values and what the `Cache` facade leaves in Redis: its default TTL, `NoTTL`, the fallback's own TTL, one fallback run for many
+concurrent callers of `GetWithFallback`, negative entries that answer without the fallback until they expire, and per-tenant keys.
+
+## brokerit — transport/broker against a live JetStream
+
+The unit tests for `transport/broker` drive the NATS provider through fakes. What a broker promises — redelivery, terminal outcomes, durable
+progress across restarts — is decided by the server, so these scenarios run each verdict a handler can give through a real JetStream, every
+test on a memory stream of its own. The idempotency scenarios keep their records in Redis under a key prefix of their own.
+
+| Scenario                                              | Asserts                                                                                        |
+|-------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| `Delivery_RoundTripCarriesDataAndHeaders`             | Payload, subject, application headers and the creation stamp arrive; no `Nats-*` header leaks   |
+| `Delivery_BatchArrivesOnceAndSettles`                 | A pipelined batch is delivered once per message and leaves nothing pending                     |
+| `Delivery_NakWithBackOffWaitsTheScheduledDelay`       | Each redelivery waits the delay the schedule gives its delivery count, not the ack wait        |
+| `Delivery_NakRedeliversImmediately`                   | A plain `Nak` does not wait for the ack timer                                                  |
+| `Delivery_TermStopsRedeliveryAndReportsTheReason`     | A terminated message never comes back; the reason reaches the terminated advisory             |
+| `Delivery_MaxDeliverEndsRedeliveryWithAnAdvisory`     | Exactly `MaxDeliver` deliveries, then the max-deliveries advisory — the only dead-letter hook   |
+| `Delivery_UnackedMessageIsRedeliveredAfterTheAckWait` | No verdict means redelivery after the ack wait, which the message reports as `AckTimeout`      |
+| `Delivery_InProgressHeartbeatsHoldOffRedelivery`      | A handler holding a message for three ack waits keeps it through `inprogress.Manager`          |
+| `Delivery_PanicIsRedeliveredAndTheSubscriptionSurvives` | A recovered panic leaves the message for redelivery and the subscription consuming              |
+| `Restart_NothingLostWhenAConsumerDiesMidStream`       | A successor on the same durable consumer receives everything an abruptly lost instance did not ack |
+| `Restart_GracefulHandoverLosesAndDuplicatesNothing`   | `Unsubscribe` mid-stream drains and acks; the successor takes the rest, each message once      |
+| `Shutdown_UnsubscribeWaitsForTheInFlightHandler`      | `Unsubscribe` cancels the handler context, returns only after the handler, and its ack lands   |
+| `Shutdown_AbandonedInFlightMessageGoesToTheNextInstance` | A handler that gives up on cancellation leaves its message to the next instance             |
+| `Shutdown_SubscriberLifecycleLeaksNoGoroutines`       | Repeated subscribe/unsubscribe cycles return the goroutine count to its baseline (serial test) |
+| `Idempotency_DuplicatesAreProcessedOnce`              | Copies of one message ID run the handler once and are acknowledged without redelivery          |
+| `Idempotency_PanicReleasesTheKeyForTheRedelivery`     | A panicking handler's key is released, so the first redelivery is processed                    |
+| `Idempotency_ConcurrentDuplicatesAcrossTwoInstancesRunOnce` | Two instances racing for copies of one ID: one side effect per ID, the loser backs off  |
+| `Idempotency_DeduplicateIDReachesTheSubscriber`       | The deduplication ID survives the wire as `deduplicate_id`, so `DefaultKeyFunc` keys on it     |
+| `Idempotency_NATSKVStorageAcceptsTheMiddlewareKeys`   | **Fails:** NATS KV refuses the `ibk:{consumer}:{key}` keys the middleware builds               |
+
+The NATS provider maps `deduplicate_id` onto `Nats-Msg-Id` on publish and back onto `deduplicate_id` on receive, so the key the broker outbox
+sets on every event reaches a consumer. The failing scenario documents an open bug rather than a test fault: NATS KV accepts only
+`[-/_=.a-zA-Z0-9]` in a key, so the middleware over the NATS KV idempotency storage rejects every message as a storage error.
+
+The broker outbox's own NATS path — the event ID reused as `Nats-Msg-Id`, a republish collapsed by JetStream — is covered by `outboxit`
+(`Dedup_*`); its storages are MongoDB and SQL, so it has no NATS-only path to exercise here.
 
 ## Adding a backend
 
