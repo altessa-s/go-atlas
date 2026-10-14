@@ -7,6 +7,7 @@ package memory_test
 import (
 	"context"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,4 +168,41 @@ func TestStorage_Close(t *testing.T) {
 
 	err := storage.Close(ctx)
 	require.NoError(t, err)
+}
+
+// TestStorage_CommitConcurrentWithReadsAndWrites pins that Commit can swap the
+// shard set while readers and writers run (no data race under -race), and that
+// a write after Commit lands in the new set.
+func TestStorage_CommitConcurrentWithReadsAndWrites(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s := memory.New()
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	wg.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_, _ = s.MightExist(ctx, "x")
+				_ = s.Add(ctx, "y")
+				_, _ = s.Stats(ctx)
+			}
+		}
+	})
+	for range 50 {
+		st, err := s.Stage(ctx, 10)
+		require.NoError(t, err)
+		require.NoError(t, st.AddBatch(ctx, slices.Values([]string{"x"})))
+		require.NoError(t, st.Commit(ctx))
+	}
+	close(stop)
+	wg.Wait()
+
+	require.NoError(t, s.Add(ctx, "after-commit"))
+	ok, err := s.MightExist(ctx, "after-commit")
+	require.NoError(t, err)
+	require.True(t, ok)
 }

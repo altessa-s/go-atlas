@@ -27,12 +27,27 @@ type shard struct {
 	mu     sync.RWMutex
 }
 
+// shardSet is one generation of shards. Commit publishes a new set and marks
+// the old one retired while holding all of its shard locks, so a writer that
+// finds its set retired under the shard lock retries on the current one.
+type shardSet struct {
+	shards  []shard
+	retired atomic.Bool
+}
+
+// index returns the shard for value.
+func (set *shardSet) index(value string) *shard {
+	if len(set.shards) <= 1 {
+		return &set.shards[0]
+	}
+	return &set.shards[xxhash.Sum64String(value)%uint64(len(set.shards))]
+}
+
 // Storage is an in-memory Bloom filter storage using sharded bits-and-blooms/bloom filters.
 // Sharding reduces RWMutex contention under concurrent read/write workloads across multi-core systems.
 // It is safe for concurrent use.
 type Storage struct {
-	shards      []shard
-	numShards   uint64
+	set         atomic.Pointer[shardSet]
 	opts        *options
 	itemCount   atomic.Int64
 	lastRebuild atomic.Pointer[time.Time]
@@ -65,25 +80,33 @@ func newShards(numShards int, expectedItems int64, fpRate float64) []shard {
 //	)
 func New(opt ...Option) *Storage {
 	opts := newOptions(opt...)
-	shards := newShards(opts.shards, opts.expectedItems, opts.falsePositiveRate)
-	return &Storage{
-		shards:    shards,
-		numShards: uint64(len(shards)),
-		opts:      opts,
-	}
+	s := &Storage{opts: opts}
+	s.set.Store(&shardSet{shards: newShards(opts.shards, opts.expectedItems, opts.falsePositiveRate)})
+	return s
 }
 
-func (s *Storage) shardIndex(value string) uint64 {
-	if s.numShards <= 1 {
-		return 0
+// add inserts value into the current generation, retrying when a concurrent
+// Commit retired the set it loaded.
+func (s *Storage) add(value string) {
+	for {
+		set := s.set.Load()
+		sh := set.index(value)
+		sh.mu.Lock()
+		// Checked under the shard lock: Commit retires a set only while
+		// holding all of its shard locks, so the write cannot be lost.
+		if set.retired.Load() {
+			sh.mu.Unlock()
+			continue
+		}
+		sh.filter.AddString(value)
+		sh.mu.Unlock()
+		return
 	}
-	return xxhash.Sum64String(value) % s.numShards
 }
 
 // MightExist checks if a value might exist in the filter.
 func (s *Storage) MightExist(_ context.Context, value string) (bool, error) {
-	idx := s.shardIndex(value)
-	sh := &s.shards[idx]
+	sh := s.set.Load().index(value)
 	sh.mu.RLock()
 	exists := sh.filter.TestString(value)
 	sh.mu.RUnlock()
@@ -92,11 +115,7 @@ func (s *Storage) MightExist(_ context.Context, value string) (bool, error) {
 
 // Add inserts a value into the filter.
 func (s *Storage) Add(_ context.Context, value string) error {
-	idx := s.shardIndex(value)
-	sh := &s.shards[idx]
-	sh.mu.Lock()
-	sh.filter.AddString(value)
-	sh.mu.Unlock()
+	s.add(value)
 	s.itemCount.Add(1)
 	return nil
 }
@@ -105,11 +124,7 @@ func (s *Storage) Add(_ context.Context, value string) error {
 func (s *Storage) AddBatch(_ context.Context, values iter.Seq[string]) error {
 	var count int64
 	for v := range values {
-		idx := s.shardIndex(v)
-		sh := &s.shards[idx]
-		sh.mu.Lock()
-		sh.filter.AddString(v)
-		sh.mu.Unlock()
+		s.add(v)
 		count++
 	}
 	s.itemCount.Add(count)
@@ -126,24 +141,22 @@ func (s *Storage) Stage(_ context.Context, expectedItems int64) (storages.Stagin
 
 	shards := newShards(s.opts.shards, expectedItems, s.opts.falsePositiveRate)
 	return &staging{
-		live:   s,
-		shards: shards,
+		live: s,
+		set:  &shardSet{shards: shards},
 	}, nil
 }
 
 // staging is a replacement filter built off to the side of the live one.
 type staging struct {
 	live      *Storage
-	shards    []shard
+	set       *shardSet
 	itemCount int64
 }
 
 // AddBatch inserts values into the replacement filter.
 func (st *staging) AddBatch(_ context.Context, values iter.Seq[string]) error {
 	for v := range values {
-		idx := st.live.shardIndex(v)
-		sh := &st.shards[idx]
-		sh.filter.AddString(v)
+		st.set.index(v).filter.AddString(v)
 		st.itemCount++
 	}
 	return nil
@@ -157,21 +170,23 @@ func (st *staging) Commit(ctx context.Context) error {
 	st.live.commitMu.Lock()
 	defer st.live.commitMu.Unlock()
 
-	// Acquire write locks on all live shards in order
-	for i := range st.live.shards {
-		st.live.shards[i].mu.Lock()
-		defer st.live.shards[i].mu.Unlock()
+	// Hold every live shard lock so no write lands in the old set after it
+	// is retired; writers that then find it retired retry on the new set.
+	old := st.live.set.Load()
+	for i := range old.shards {
+		old.shards[i].mu.Lock()
+		defer old.shards[i].mu.Unlock()
 	}
 
-	st.live.shards = st.shards
-	st.live.numShards = uint64(len(st.shards))
+	old.retired.Store(true)
+	st.live.set.Store(st.set)
 	st.live.itemCount.Store(st.itemCount)
 	return nil
 }
 
 // Abort discards the replacement filter.
 func (st *staging) Abort(_ context.Context) error {
-	st.shards = nil
+	st.set = nil
 	return nil
 }
 
@@ -184,8 +199,9 @@ func (s *Storage) Stats(_ context.Context) (*stats.FilterStats, error) {
 		k                float64
 	)
 
-	for i := range s.shards {
-		sh := &s.shards[i]
+	set := s.set.Load()
+	for i := range set.shards {
+		sh := &set.shards[i]
 		sh.mu.RLock()
 		totalCapacity += int64(sh.filter.Cap())
 		totalApproxCount += int64(sh.filter.ApproximatedSize())
