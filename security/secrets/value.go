@@ -63,7 +63,6 @@ type Value[T any] struct {
 	// Format varies by provider (e.g., sequential numbers, timestamps, hashes)
 	Version string `json:"version"`
 
-	ss      *corestrings.SecureString
 	cleanup runtime.Cleanup
 }
 
@@ -100,12 +99,6 @@ func (v *Value[T]) Clear() {
 	// Stop and remove cleanup first to prevent unnecessary overhead
 	v.cleanup.Stop()
 	v.cleanup = runtime.Cleanup{}
-
-	// If we have a SecureString, clear it
-	if v.ss != nil {
-		v.ss.Clear()
-		v.ss = nil
-	}
 
 	// Securely clear the encoded value slice using optimized utility
 	if v.EncodedValue != nil {
@@ -188,16 +181,6 @@ func (v *Value[T]) clearValueField() {
 	}
 }
 
-type cleanupData struct {
-	encodedValue []byte
-	ss           *corestrings.SecureString
-	// We can't safely clear Value T via AddCleanup as it creates retention cycles
-	// Key, EncodedKey, Version are strings, capturing them captures their backing array pointers which is safe
-	key        string
-	encodedKey string
-	version    string
-}
-
 // NewValue creates a new Value with automatic cleanup via finalizer.
 // The finalizer ensures that sensitive data is cleared when the Value is
 // garbage collected, providing an additional layer of security.
@@ -216,45 +199,21 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 		Version:      version,
 	}
 
-	// If T is a string, initialize SecureString for better memory management
-	// (reflection also covers defined string types such as `type Secret string`).
-	if reflect.TypeFor[T]().Kind() == reflect.String {
-		// Read v.Value, already on the heap: taking value's address would
-		// move it there too.
-		v.ss = corestrings.NewSecureString(reflect.ValueOf(&v.Value).Elem().String())
+	// Zero the encoded bytes if v is collected without Clear. The argument is
+	// the slice itself, never v, so the cleanup does not keep v reachable.
+	// Same rationale as [Value.Clear]: Key / EncodedKey / Version are
+	// identifiers/metadata, not secret material. The typed Value cannot be
+	// reached from a cleanup (it lives inside v) and relies on Clear.
+	if len(encodedValue) > 0 {
+		v.cleanup = runtime.AddCleanup(v, corestrings.ZeroBytes, encodedValue)
 	}
-
-	// Prepare independent cleanup data to avoid capturing 'v' in the cleanup argument
-	// capturing 'v' would prevent garbage collection or cause runtime panic with AddCleanup
-	data := &cleanupData{
-		encodedValue: encodedValue,
-		ss:           v.ss,
-		key:          key,
-		encodedKey:   "", // NewValue doesn't set EncodedKey
-		version:      version,
-	}
-
-	// Set cleanup to automatically clear sensitive data using Go 1.24+ runtime mechanism.
-	// Same rationale as [Value.Clear]: only the secret-bearing fields
-	// (encodedValue bytes, the SecureString-wrapped typed value) get
-	// zeroed. Key / EncodedKey / Version are identifiers/metadata —
-	// running ZeroString over them costs a SIGSEGV+recover per call
-	// for interned strings without protecting anything sensitive.
-	v.cleanup = runtime.AddCleanup(v, func(d *cleanupData) {
-		if d.encodedValue != nil {
-			corestrings.ZeroBytes(d.encodedValue)
-		}
-		if d.ss != nil {
-			d.ss.Clear()
-		}
-	}, data)
 
 	return v
 }
 
 // clone returns a deep copy of v: the payload is copied with cloneSecret
 // (see its limits) and the encoded bytes are copied, and the copy has its
-// own SecureString and cleanup, so modifying or clearing either Value never
+// own cleanup, so modifying or clearing either Value never
 // affects the other.
 func (v *Value[T]) clone() *Value[T] {
 	if v == nil {

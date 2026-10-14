@@ -5,9 +5,15 @@
 package secrets
 
 import (
+	"bytes"
+	"runtime"
 	"testing"
+	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 type (
@@ -103,4 +109,53 @@ func TestNewValue_DefinedStringType(t *testing.T) {
 	require.Equal(t, definedString("payload"), v.Value)
 	v.Clear()
 	require.Empty(t, v.Value)
+}
+
+// TestValueClear_ZeroesSecretMemory checks that Clear zeroes the encoded bytes
+// and the string payload in place, and that a clone owns separate memory.
+func TestValueClear_ZeroesSecretMemory(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte("payload")
+	encoded := []byte("encoded")
+	orig := NewValue("key", string(payload), encoded, "v1")
+	c := orig.clone()
+	cEncoded := c.EncodedValue
+	cPayload := unsafe.Slice(unsafe.StringData(c.Value), len(c.Value))
+
+	orig.Clear()
+	require.Equal(t, make([]byte, len(encoded)), encoded)
+	require.Empty(t, orig.Value)
+	require.Nil(t, orig.EncodedValue)
+	require.Equal(t, "encoded", string(cEncoded))
+	require.Equal(t, "payload", string(cPayload))
+
+	c.Clear()
+	require.Equal(t, make([]byte, len(cEncoded)), cEncoded)
+	require.Equal(t, make([]byte, len(cPayload)), cPayload)
+
+	// A second Clear is a no-op.
+	c.Clear()
+}
+
+// TestNewValue_CleanupZeroesEncodedValue checks that an unreachable Value
+// that was never cleared still has its encoded bytes zeroed by the GC cleanup.
+func TestNewValue_CleanupZeroesEncodedValue(t *testing.T) {
+	t.Parallel()
+	if raceEnabled {
+		// The cleanup goroutine's write has no happens-before edge the race
+		// detector can see, so polling the bytes is reported as a race.
+		t.Skip("GC cleanup observation is not race-detector clean")
+	}
+
+	encoded := []byte("encoded-secret")
+	func() {
+		v := NewValue("key", string([]byte("payload")), encoded, "v1")
+		runtime.KeepAlive(v)
+	}()
+
+	testhelpers.WaitFor(t, 5*time.Second, func() bool {
+		runtime.GC()
+		return bytes.Equal(encoded, make([]byte, len(encoded)))
+	}, "encoded value not zeroed by cleanup")
 }
