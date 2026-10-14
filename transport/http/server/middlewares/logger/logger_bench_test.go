@@ -6,6 +6,7 @@ package logger
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -29,5 +30,19 @@ func BenchmarkSlog(b *testing.B) {
 	lh := Slog(slog.New(slog.DiscardHandler))
 	for b.Loop() {
 		lh.Log(b.Context(), "test", 200, nil)
+	}
+}
+
+// BenchmarkMiddleware_SlogDisabledLevel runs successful requests through the
+// Slog handler with the logger at Warn, so the Info completion record is
+// dropped; the middleware should not build it.
+func BenchmarkMiddleware_SlogDisabledLevel(b *testing.B) {
+	l := slog.New(slog.NewJSONHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	handler := Middleware(Slog(l))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	req := httptest.NewRequest(http.MethodGet, "/bench", nil)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		handler.ServeHTTP(httptest.NewRecorder(), req)
 	}
 }
