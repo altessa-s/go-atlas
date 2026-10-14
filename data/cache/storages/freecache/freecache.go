@@ -44,7 +44,8 @@ func (p *Storage) Save(_ context.Context, key string, value []byte, ttl time.Dur
 
 // Exists reports whether key is present in the cache.
 func (p *Storage) Exists(_ context.Context, key string) (bool, error) {
-	_, err := p.Cache.Get([]byte(key))
+	// GetFn lends the stored bytes instead of copying them, which Get does.
+	err := p.GetFn([]byte(key), func([]byte) error { return nil })
 	if err != nil {
 		if errors.Is(err, freecache.ErrNotFound) {
 			return false, nil

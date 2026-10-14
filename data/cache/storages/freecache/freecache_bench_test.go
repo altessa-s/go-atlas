@@ -50,3 +50,16 @@ func BenchmarkProvider_Exists(b *testing.B) {
 		_, _ = p.Exists(ctx, key)
 	}
 }
+
+// BenchmarkProvider_Exists_LargeValue checks existence of a 4 KiB value;
+// the check must not pay for copying the value.
+func BenchmarkProvider_Exists_LargeValue(b *testing.B) {
+	p := freecache.New(freecache.WithMaxSize(16 << 20))
+	ctx := b.Context()
+	_ = p.Save(ctx, "bench-key", make([]byte, 4<<10), 10*time.Second)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = p.Exists(ctx, "bench-key")
+	}
+}
