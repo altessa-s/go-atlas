@@ -80,9 +80,11 @@ type targetPool struct {
 	active  map[*grpc.ClientConn]*pooledConnection
 	idle    []*pooledConnection
 	changed chan struct{}
+	waiters int // borrowers blocked on changed; guarded by mu
 	closed  bool
 	dialing int
 	creates sync.WaitGroup
+	reused  metrics.Counter // connectionsReused bound to this target
 }
 
 // pooledConnection wraps a gRPC client connection with pool metadata.
@@ -280,6 +282,15 @@ func (cp *ConnectionPool) ReturnConnection(conn *grpc.ClientConn) {
 
 // getOrCreateTargetPool retrieves or creates a target pool for the specified address.
 func (cp *ConnectionPool) getOrCreateTargetPool(target string) (*targetPool, error) {
+	// Warm path: an existing pool needs no lifecycle lock. A pool stored
+	// before shutdown is closed by shutdown's Range, and targetPool
+	// re-checks closure under its own mutex.
+	if !cp.stopped.Load() {
+		if existing, ok := cp.pools.Load(target); ok {
+			tp, _ := existing.(*targetPool) //nolint:errcheck // Only targetPool values are stored.
+			return tp, nil
+		}
+	}
 	cp.lifecycleMu.Lock()
 	defer cp.lifecycleMu.Unlock()
 	if cp.stopped.Load() {
@@ -290,7 +301,8 @@ func (cp *ConnectionPool) getOrCreateTargetPool(target string) (*targetPool, err
 		return tp, nil
 	}
 	tp := &targetPool{pool: cp, target: target, opts: cp.opts,
-		logger: cp.logger.With("target", target), active: make(map[*grpc.ClientConn]*pooledConnection), changed: make(chan struct{})}
+		logger: cp.logger.With("target", target), active: make(map[*grpc.ClientConn]*pooledConnection), changed: make(chan struct{}),
+		reused: cp.metrics.connectionsReused.WithLabels(metrics.Labels{"target": target})}
 	cp.pools.Store(target, tp)
 	return tp, nil
 }
@@ -320,6 +332,9 @@ func (cp *ConnectionPool) cleanup() {
 
 // notifyLocked wakes all borrowers to re-check capacity and matching idle conns.
 func (tp *targetPool) notifyLocked() {
+	if tp.waiters == 0 {
+		return // nobody holds changed; skip the channel churn
+	}
 	close(tp.changed)
 	tp.changed = make(chan struct{})
 }
@@ -346,7 +361,7 @@ func (tp *targetPool) getConnection(ctx context.Context, binding *Binding) (*grp
 			tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
 			pc.inUse.Store(true)
 			pc.lastUsed.Store(time.Now().UnixNano())
-			tp.pool.metrics.connectionsReused.WithLabels(metrics.Labels{"target": tp.target}).Inc()
+			tp.reused.Inc()
 			tp.pool.metrics.connectionsIdle.Dec()
 			tp.pool.metrics.connectionsInUse.Inc()
 			tp.mu.Unlock()
@@ -366,13 +381,21 @@ func (tp *targetPool) getConnection(ctx context.Context, binding *Binding) (*grp
 			return tp.createConnection(ctx, binding)
 		}
 		changed := tp.changed
+		tp.waiters++
 		tp.mu.Unlock()
+		var err error
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			err = ctx.Err()
 		case <-tp.pool.ctx.Done():
-			return nil, ErrConnectionPoolClosed
+			err = ErrConnectionPoolClosed
 		case <-changed:
+		}
+		tp.mu.Lock()
+		tp.waiters--
+		tp.mu.Unlock()
+		if err != nil {
+			return nil, err
 		}
 	}
 }
