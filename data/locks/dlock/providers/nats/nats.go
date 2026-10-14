@@ -190,6 +190,9 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	defer l.inflight.Done()
 
 	lk := newLock(&config{Key: key, TTL: l.opts.ttl, Value: uuid.NewString()}, l.kvOps, l.opts.logger, l.opts.renewRatio)
+	// A lease released by ctx cancellation or lost to expiry never passes
+	// through trackedLock.Release, so untrack it when it ends.
+	lk.onTerminal = func() { l.activeLocks.DeleteIf(key, lk) }
 	ok, err := lk.run(ctx, l.opts.acquireTimeout)
 	if err != nil {
 		if l.opts.logger != nil {
@@ -213,6 +216,9 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	}
 	l.activeLocks.Store(key, lk)
 	l.mu.Unlock()
+	if lk.terminal.Load() { // ended before it was tracked
+		l.activeLocks.DeleteIf(key, lk)
+	}
 
 	// Wrap the lock to remove from tracking on release
 	return &trackedLock{

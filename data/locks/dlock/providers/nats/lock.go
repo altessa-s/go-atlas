@@ -30,9 +30,14 @@ type lockMetadata struct {
 
 type lock struct {
 	isLocked atomic.Bool
-	lease    *natskvlease.Lease
-	config   *config
-	logger   *slog.Logger
+	// terminal is set once the lease is released or definitively lost;
+	// onTerminal, set before acquisition, then untracks the lock. Together
+	// they keep context-scoped releases from leaking tracker entries.
+	terminal   atomic.Bool
+	onTerminal func()
+	lease      *natskvlease.Lease
+	config     *config
+	logger     *slog.Logger
 
 	metadata *lockMetadata
 }
@@ -67,8 +72,8 @@ func newLock(cfg *config, kvOps *natskvlease.KVOps, logger *slog.Logger, renewRa
 		},
 		Callbacks: natskvlease.LeaseCallbacks{
 			OnAcquired: func() { l.isLocked.Store(true) },
-			OnLost:     func() { l.isLocked.Store(false) },
-			OnReleased: func() { l.isLocked.Store(false) },
+			OnLost:     l.ended,
+			OnReleased: l.ended,
 			OnRenewed: func() {
 				l.metadata.LastRenewed = time.Now()
 				// Update value with new timestamp for next renewal visibility
@@ -81,6 +86,15 @@ func newLock(cfg *config, kvOps *natskvlease.KVOps, logger *slog.Logger, renewRa
 	})
 
 	return l
+}
+
+// ended marks the lease as over and untracks the lock.
+func (l *lock) ended() {
+	l.isLocked.Store(false)
+	l.terminal.Store(true)
+	if l.onTerminal != nil {
+		l.onTerminal()
+	}
 }
 
 // Release releases the lock with context support.

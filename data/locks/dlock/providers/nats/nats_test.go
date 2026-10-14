@@ -6,6 +6,7 @@ package nats_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -175,4 +176,21 @@ func TestLocker_Probe_AfterClose(t *testing.T) {
 
 func isErrLockNotHeld(err error) bool {
 	return err != nil && err.Error() == errs.ErrLockNotHeld.Error()
+}
+
+// TestLocker_ContextReleaseUntracksLock pins that a lock released by
+// canceling its context, without an explicit Release, stops being tracked:
+// otherwise every distinct key would be retained until Close.
+func TestLocker_ContextReleaseUntracksLock(t *testing.T) {
+	t.Parallel()
+	locker := setupLocker(t)
+
+	for i := range 20 {
+		ctx, cancel := context.WithCancel(t.Context())
+		_, err := locker.Lock(ctx, "ctx-key-"+strconv.Itoa(i))
+		require.NoError(t, err)
+		cancel()
+	}
+	require.Eventually(t, func() bool { return locker.TrackedLocks() == 0 },
+		5*time.Second, 10*time.Millisecond, "context-released locks must be untracked")
 }
