@@ -75,13 +75,16 @@ type Stats struct {
 }
 
 // segmentRef tracks a single segment file and its outstanding (unacked) record count.
+// The counters are atomic so the group-commit leader can publish a written
+// batch without w.mu; every other field is guarded by w.mu, and file and the
+// active pointer change only while holding both w.wmu and w.mu.
 type segmentRef struct {
 	id              uint64
 	path            string
-	file            *os.File // nil for sealed segments
-	size            int64
-	records         int64 // total records ever appended to this segment
-	unacked         int64 // records not yet acked by consumer
+	file            *os.File     // nil for sealed segments
+	size            atomic.Int64 // bytes of fully written records
+	records         atomic.Int64 // total records ever appended to this segment
+	unacked         atomic.Int64 // records not yet acked by consumer
 	acked           map[int64]struct{}
 	pendingPosition int64
 }
@@ -95,14 +98,22 @@ type WAL struct {
 	dir  string
 	opts *options
 
+	// mu guards segment state for readers, Ack and Stats. wmu serializes
+	// appends; lock order is wmu before mu.
 	mu     sync.Mutex
+	wmu    sync.Mutex
 	active *segmentRef   // current writable segment
 	sealed []*segmentRef // sealed segments waiting for full ack
 	nextID uint64
-	// scratch is the reusable encode buffer, guarded by mu. It is grow-only:
-	// a single large record (up to maxRecordBytes) permanently inflates it.
-	// Accepted trade-off — avoids per-Append allocation churn on the hot path.
-	scratch []byte
+	// Group commit, guarded by wmu: Append encodes into cur, and one leader
+	// at a time writes a whole batch outside the lock while the next one
+	// fills. Records of cur belong to generation curGen; doneGen is the last
+	// generation whose results are published. flushed is signaled with wmu.
+	cur      *appendBatch
+	curGen   uint64
+	doneGen  uint64
+	flushing bool
+	flushed  sync.Cond
 	// readBuf is the ReadPending read window, guarded by mu and allocated on
 	// first use (pendingReadWindow bytes).
 	readBuf []byte
@@ -146,7 +157,10 @@ func Open(dir string, opts ...Option) (*WAL, []Record, error) {
 		opts:      newOptions(opts...),
 		fsyncDone: make(chan struct{}),
 		nextID:    1, // 0 is reserved for "no record" so the zero Offset is unambiguous.
+		cur:       getAppendBatch(),
+		curGen:    1,
 	}
+	w.flushed.L = &w.wmu
 
 	recovered, err := w.recover()
 	if err != nil {
@@ -212,13 +226,10 @@ func (w *WAL) recover() ([]Record, error) {
 				return nil, coreerrs.Wrapf(err, "wal: truncate %s", sf.path)
 			}
 		}
-		ref := &segmentRef{
-			id:      sf.id,
-			path:    sf.path,
-			size:    validSize,
-			records: int64(len(recs)),
-			unacked: int64(len(recs)),
-		}
+		ref := &segmentRef{id: sf.id, path: sf.path}
+		ref.size.Store(validSize)
+		ref.records.Store(int64(len(recs)))
+		ref.unacked.Store(int64(len(recs)))
 		w.sealed = append(w.sealed, ref)
 		w.totalSz.Add(validSize)
 		if sf.id >= w.nextID {
@@ -280,8 +291,8 @@ func readSegment(path string) ([]rawRecord, int64, error) {
 }
 
 // openNewActiveLocked opens a fresh active segment file. Caller need not
-// hold w.mu when called from Open (single-threaded), but must hold it
-// when called during a roll inside Append.
+// hold the locks when called from Open (single-threaded), but must hold
+// w.wmu and w.mu when called during a roll.
 func (w *WAL) openNewActiveLocked() error {
 	id := w.nextID
 	w.nextID++
@@ -303,8 +314,9 @@ func (w *WAL) openNewActiveLocked() error {
 // be represented by the on-disk format and would be treated as corruption
 // on recovery, truncating every record written after them.
 //
-// Header and payload are coalesced into a single write under the lock,
-// which halves the syscall count relative to a naive two-write encoding.
+// Concurrent Appends are group-committed: each encodes its record under the
+// lock, and one caller writes the accumulated batch with a single Write
+// outside the lock. Append still returns only after its record is written.
 func (w *WAL) Append(payload []byte) (Offset, error) {
 	if len(payload) == 0 {
 		return Offset{}, ErrEmptyPayload
@@ -319,18 +331,13 @@ func (w *WAL) Append(payload []byte) (Offset, error) {
 		return Offset{}, ErrFull
 	}
 
-	total := int64(recordHeaderSize + len(payload))
 	crc := crc32.ChecksumIEEE(payload)
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.wmu.Lock()
+	defer w.wmu.Unlock()
 
-	// Re-check under the lock. Close stores w.closed = true while holding
-	// this same mutex and then nils w.active.file; an Appender that slipped
-	// past the early check above but lost the lock race to Close would
-	// otherwise reach seg.file.Write on a nil *os.File (which the stdlib
-	// surfaces as os.ErrInvalid, "invalid argument") or, worse, write
-	// through a just-closed fd.
+	// Re-check under the lock: Close stores w.closed = true while holding
+	// this mutex before it closes the active file.
 	if w.closed.Load() {
 		return Offset{}, ErrClosed
 	}
@@ -338,76 +345,119 @@ func (w *WAL) Append(payload []byte) (Offset, error) {
 		return Offset{}, ErrClosed
 	}
 
-	// Roll segment if needed.
-	if w.active.size+total > w.opts.maxSegmentBytes && w.active.records > 0 {
-		if err := w.sealActiveLocked(); err != nil {
-			return Offset{}, err
+	b, gen := w.cur, w.curGen
+	idx := b.add(payload, crc)
+	for w.doneGen < gen {
+		if !w.flushing {
+			w.flushLocked()
+			continue
 		}
-		if err := w.openNewActiveLocked(); err != nil {
-			return Offset{}, err
-		}
+		w.flushed.Wait()
 	}
 
-	// Encode [len][crc][payload] into the reusable scratch buffer held
-	// under the mutex, then issue a single Write. This avoids the per-
-	// record allocation of a fresh buffer and halves the syscall count
-	// compared to writing header and payload separately.
-	need := int(total)
-	if cap(w.scratch) < need {
-		w.scratch = make([]byte, need)
-	} else {
-		w.scratch = w.scratch[:need]
+	off, err := b.offs[idx], b.errs[idx]
+	if b.refs--; b.refs == 0 {
+		putAppendBatch(b)
 	}
-	binary.LittleEndian.PutUint32(w.scratch[0:4], uint32(len(payload)))
-	binary.LittleEndian.PutUint32(w.scratch[4:8], crc)
-	copy(w.scratch[recordHeaderSize:], payload)
+	return off, err
+}
 
-	seg := w.active
-	pos := seg.size
-	if n, err := seg.file.Write(w.scratch); err != nil {
-		// Partial-write roll-back. The io.Writer contract allows Write
-		// to return (n < len(p), err), and os.File honors it for errors
-		// such as ENOSPC or EFBIG that are hit mid-buffer. Those n bytes
-		// are already in the kernel page cache and advance the file's
-		// position cursor, so without a roll-back seg.size diverges
-		// from the on-disk length and every subsequent Append in this
-		// process writes at the wrong offset — corrupting the segment
-		// in-place (even though the next Open would cleanly truncate
-		// the torn trailer via the CRC check in readSegment).
-		//
-		// Best-effort: truncate the file back to seg.size and rewind
-		// the position. If either rollback syscall itself fails the
-		// segment is in an indeterminate state — retire its file
-		// handle so the re-checks above turn every future Append into
-		// ErrClosed. The on-disk prefix remains consistent up to the
-		// last successfully acked record, and the next Open recovers
-		// from there.
-		if n > 0 {
-			if truncErr := seg.file.Truncate(seg.size); truncErr != nil {
-				_ = seg.file.Close()
-				seg.file = nil
-				return Offset{}, coreerrs.Wrapf(err,
-					"wal: write record (truncate rollback failed: %v)", truncErr)
+// flushLocked writes the accumulating batch and publishes its results.
+// Caller must hold w.wmu; it is released around each Write. w.mu is taken
+// only to roll a segment or roll back a failed write, so ReadPending and Ack
+// never delay a commit.
+func (w *WAL) flushLocked() {
+	b := w.cur
+	gen := w.curGen
+	w.cur = getAppendBatch()
+	w.curGen++
+	w.flushing = true
+
+	for i := 0; i < b.len(); {
+		if w.closed.Load() || w.active == nil || w.active.file == nil {
+			b.fail(i, b.len(), ErrClosed)
+			break
+		}
+		// Roll segment if needed, with the same rule a single Append applies.
+		seg := w.active
+		if seg.size.Load()+b.size(i) > w.opts.maxSegmentBytes && seg.records.Load() > 0 {
+			w.mu.Lock()
+			err := w.sealActiveLocked()
+			if err == nil {
+				err = w.openNewActiveLocked()
 			}
-			if _, seekErr := seg.file.Seek(seg.size, io.SeekStart); seekErr != nil {
-				_ = seg.file.Close()
-				seg.file = nil
-				return Offset{}, coreerrs.Wrapf(err,
-					"wal: write record (seek rollback failed: %v)", seekErr)
+			w.mu.Unlock()
+			if err != nil {
+				b.fail(i, b.len(), err)
+				break
 			}
+			continue
 		}
-		return Offset{}, coreerrs.Wrap(err, "wal: write record")
-	}
-	seg.size += total
-	seg.records++
-	seg.unacked++
-	w.totalSz.Add(total)
+		// Take the longest run of records that fits the segment.
+		j, size, records := i, seg.size.Load(), seg.records.Load()
+		for j < b.len() && (size+b.size(j) <= w.opts.maxSegmentBytes || records == 0) {
+			size += b.size(j)
+			records++
+			j++
+		}
 
-	return Offset{SegmentID: seg.id, Position: pos}, nil
+		f := seg.file
+		w.wmu.Unlock()
+		n, err := f.Write(b.buf[b.starts[i]:b.starts[j]])
+		w.wmu.Lock()
+
+		if err != nil {
+			w.mu.Lock()
+			err = w.rollbackLocked(seg, n, err)
+			w.mu.Unlock()
+			b.fail(i, j, err)
+			i = j
+			continue
+		}
+		pos := seg.size.Load()
+		for k := i; k < j; k++ {
+			b.offs[k] = Offset{SegmentID: seg.id, Position: pos}
+			pos += b.size(k)
+		}
+		written := int64(j - i)
+		seg.records.Add(written)
+		seg.unacked.Add(written)
+		seg.size.Store(pos)
+		w.totalSz.Add(int64(b.starts[j] - b.starts[i]))
+		i = j
+	}
+
+	w.doneGen = gen
+	w.flushing = false
+	w.flushed.Broadcast()
+}
+
+// rollbackLocked undoes a partial write of n bytes and returns the error to
+// report. The io.Writer contract allows Write to return (n < len(p), err),
+// and os.File honors it for errors such as ENOSPC or EFBIG hit mid-buffer.
+// Those bytes advance the file position, so without a roll-back seg.size
+// diverges from the on-disk length and later writes land at the wrong
+// offset. If the roll-back itself fails the segment is in an indeterminate
+// state: its file handle is retired so every later Append returns
+// ErrClosed, and the next Open recovers the consistent prefix.
+func (w *WAL) rollbackLocked(seg *segmentRef, n int, err error) error {
+	if n > 0 && seg.file != nil {
+		if truncErr := seg.file.Truncate(seg.size.Load()); truncErr != nil {
+			_ = seg.file.Close()
+			seg.file = nil
+			return coreerrs.Wrapf(err, "wal: write record (truncate rollback failed: %v)", truncErr)
+		}
+		if _, seekErr := seg.file.Seek(seg.size.Load(), io.SeekStart); seekErr != nil {
+			_ = seg.file.Close()
+			seg.file = nil
+			return coreerrs.Wrapf(err, "wal: write record (seek rollback failed: %v)", seekErr)
+		}
+	}
+	return coreerrs.Wrap(err, "wal: write record")
 }
 
 // sealActiveLocked closes the active segment file and moves it to the
-// sealed list. Caller must hold w.mu.
+// sealed list. Caller must hold w.wmu and w.mu.
 func (w *WAL) sealActiveLocked() error {
 	seg := w.active
 	if seg == nil {
@@ -422,13 +472,13 @@ func (w *WAL) sealActiveLocked() error {
 		}
 		seg.file = nil
 	}
-	if seg.unacked > 0 {
+	if seg.unacked.Load() > 0 {
 		w.sealed = append(w.sealed, seg)
 	} else {
 		// Empty or fully acked: no later Ack would reach it, so remove it now
 		// rather than replay acked records on the next Open.
 		_ = os.Remove(seg.path)
-		w.totalSz.Add(-seg.size)
+		w.totalSz.Add(-seg.size.Load())
 	}
 	w.active = nil
 	return nil
@@ -451,9 +501,9 @@ func (w *WAL) Ack(offset Offset) {
 	for i, s := range w.sealed {
 		if s.id == offset.SegmentID {
 			s.ack(offset.Position)
-			if s.unacked <= 0 {
+			if s.unacked.Load() <= 0 {
 				_ = os.Remove(s.path)
-				w.totalSz.Add(-s.size)
+				w.totalSz.Add(-s.size.Load())
 				w.sealed = slices.Delete(w.sealed, i, i+1)
 			}
 			return
@@ -564,9 +614,18 @@ func (w *WAL) Close() error {
 	close(w.fsyncDone)
 	w.fsyncWG.Wait()
 
+	w.wmu.Lock()
+	defer w.wmu.Unlock()
+	w.mu.Lock()
+	w.closed.Store(true)
+	w.mu.Unlock()
+	// Let an in-flight group commit finish before closing its file; queued
+	// Appends then fail with ErrClosed.
+	for w.flushing {
+		w.flushed.Wait()
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.closed.Store(true)
 
 	var errs []error
 	if w.active != nil {
@@ -581,11 +640,11 @@ func (w *WAL) Close() error {
 		}
 		// If everything in the active segment was already acked, drop the
 		// file so a clean shutdown leaves the WAL directory empty.
-		if w.active.unacked <= 0 {
+		if w.active.unacked.Load() <= 0 {
 			if err := os.Remove(w.active.path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				errs = append(errs, coreerrs.Wrapf(err, "wal: remove %s", w.active.path))
 			}
-			w.totalSz.Add(-w.active.size)
+			w.totalSz.Add(-w.active.size.Load())
 			w.active = nil
 		}
 	}
@@ -598,10 +657,10 @@ func (w *WAL) Stats() Stats {
 	defer w.mu.Unlock()
 	s := Stats{TotalBytes: w.totalSz.Load()}
 	for _, seg := range w.sealed {
-		s.Pending += seg.unacked
+		s.Pending += seg.unacked.Load()
 	}
 	if w.active != nil {
-		s.Pending += w.active.unacked
+		s.Pending += w.active.unacked.Load()
 		s.Segments = 1 + len(w.sealed)
 	} else {
 		s.Segments = len(w.sealed)

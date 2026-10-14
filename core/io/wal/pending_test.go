@@ -6,10 +6,13 @@ package wal_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -155,4 +158,49 @@ func recordOffsets(records []wal.Record) []wal.Offset {
 		offsets = append(offsets, record.Offset)
 	}
 	return offsets
+}
+
+// TestReadPending_ConcurrentWithGroupCommit runs producers, a reader that
+// acks what it reads, and segment rolls together: every appended record must
+// be delivered exactly once, and nothing may stay pending.
+func TestReadPending_ConcurrentWithGroupCommit(t *testing.T) {
+	t.Parallel()
+	w, _, err := wal.Open(t.TempDir(), wal.WithMaxSegmentBytes(2<<10), wal.WithFsyncInterval(time.Hour))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+
+	const producers, perProducer = 6, 300
+	const total = producers * perProducer
+	var wg sync.WaitGroup
+	for p := range producers {
+		wg.Go(func() {
+			for i := range perProducer {
+				if _, err := w.Append(fmt.Appendf(nil, "%d-%d", p, i)); err != nil {
+					t.Errorf("Append: %v", err)
+					return
+				}
+			}
+		})
+	}
+
+	seen := make(map[string]int, total)
+	deadline := time.Now().Add(30 * time.Second)
+	for len(seen) < total && time.Now().Before(deadline) {
+		records, err := w.ReadPending(64, nil)
+		require.NoError(t, err)
+		for _, r := range records {
+			seen[string(r.Payload)]++
+			w.Ack(r.Offset)
+		}
+	}
+	wg.Wait()
+
+	require.Len(t, seen, total)
+	for payload, n := range seen {
+		require.Equal(t, 1, n, "record %q delivered %d times", payload, n)
+	}
+	rest, err := w.ReadPending(64, nil)
+	require.NoError(t, err)
+	require.Empty(t, rest)
+	require.Zero(t, w.Stats().Pending)
 }

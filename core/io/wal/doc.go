@@ -49,8 +49,9 @@
 // # Concurrency
 //
 // Append, Ack, Sync, Stats and Close are safe to call concurrently from
-// multiple goroutines. Append serializes on an internal mutex to keep
-// on-disk bytes and accounting consistent.
+// multiple goroutines. Appends serialize on an append lock that is separate
+// from the state lock used by ReadPending, Ack and Stats; the lock order is
+// append lock, then state lock.
 //
 // # Crash safety
 //
@@ -64,16 +65,18 @@
 //
 // # Performance
 //
-// Append holds an internal mutex for the duration of the file.Write
-// syscall, which serializes concurrent producers at the disk's write
-// latency. Header and payload are coalesced into a reusable scratch buffer
-// so each Append issues exactly one write syscall. The background fsync
+// Concurrent Appends are group-committed: each encodes its record into a
+// shared batch, and one caller writes the batch with a single write syscall
+// outside the append lock while the next batch fills. Append returns only
+// after its own record is written. Written batches are published through
+// atomic segment counters, so readers on the state lock never delay an
+// Append; only a segment roll takes both locks. The background fsync
 // goroutine holds the mutex only long enough to snapshot the active file
 // handle, not for the Sync syscall itself. Ack is O(N) over sealed
 // segments; the expected N is 1-2 in typical dispatcher configurations.
 //
-// For high-throughput producers that cannot tolerate the Append mutex as
-// a throughput bottleneck, front the WAL with the batching engine in
+// For producers that need delivery workers, retries and back-pressure on
+// top of the log, front the WAL with the batching engine in
 // [github.com/altessa-s/go-atlas/service/dispatch],
 // which accumulates items in memory and hands batches to this package.
 package wal

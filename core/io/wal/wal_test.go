@@ -25,7 +25,7 @@ func (w *WAL) activeUnacked() int64 {
 	if w.active == nil {
 		return 0
 	}
-	return w.active.unacked
+	return w.active.unacked.Load()
 }
 
 // newTestWAL opens a WAL in a fresh temp directory with a fast fsync cadence
@@ -455,4 +455,72 @@ func TestWAL_AppendRacesClose(t *testing.T) {
 
 	require.Zero(t, panicsSeen.Load(), "observed panics from Append")
 	require.Zero(t, nonClosedErrs.Load(), "observed non-ErrClosed errors from Append")
+}
+
+// TestWAL_GroupCommit_ConcurrentAppendsRecoverExactly pins the group-commit
+// contract: concurrent Appends that share batches and segment rolls each get
+// a distinct offset, and recovery returns exactly those records at exactly
+// those offsets, with no segment overflowing its size limit.
+func TestWAL_GroupCommit_ConcurrentAppendsRecoverExactly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const segBytes = 4 << 10
+	w, _, err := Open(dir, WithMaxSegmentBytes(segBytes), WithFsyncInterval(time.Hour))
+	require.NoError(t, err)
+
+	const producers, perProducer = 8, 400
+	var (
+		mu      sync.Mutex
+		written = make(map[Offset]string, producers*perProducer)
+		wg      sync.WaitGroup
+	)
+	for p := range producers {
+		wg.Go(func() {
+			for i := range perProducer {
+				payload := fmt.Sprintf("producer-%d-record-%d", p, i)
+				off, err := w.Append([]byte(payload))
+				if !assertNoErr(t, err) {
+					return
+				}
+				mu.Lock()
+				_, dup := written[off]
+				written[off] = payload
+				mu.Unlock()
+				if dup {
+					t.Errorf("offset %+v returned twice", off)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	require.NoError(t, w.Close())
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Greater(t, len(entries), 1, "the test must exercise segment rolls")
+	for _, e := range entries {
+		info, err := e.Info()
+		require.NoError(t, err)
+		require.LessOrEqual(t, info.Size(), int64(segBytes), e.Name())
+	}
+
+	w2, recovered, err := Open(dir, WithMaxSegmentBytes(segBytes), WithFsyncInterval(time.Hour))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w2.Close() })
+	require.Len(t, recovered, producers*perProducer)
+	for _, r := range recovered {
+		require.Equal(t, written[r.Offset], string(r.Payload), "offset %+v", r.Offset)
+	}
+}
+
+// assertNoErr reports err from a worker goroutine, where require must not be
+// used, and returns whether it was nil.
+func assertNoErr(t *testing.T, err error) bool {
+	t.Helper()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+		return false
+	}
+	return true
 }

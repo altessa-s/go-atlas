@@ -51,9 +51,12 @@ func (w *WAL) ReadPending(limit int, skip func(Offset) bool) ([]Record, error) {
 const pendingReadWindow = 64 << 10
 
 func (w *WAL) readPendingSegment(seg *segmentRef, limit int, skip func(Offset) bool, out *[]Record) error {
-	if seg.unacked == 0 {
+	if seg.unacked.Load() == 0 {
 		return nil
 	}
+	// The group-commit leader publishes size without w.mu; read it once so
+	// this pass sees one consistent prefix of fully written records.
+	size := seg.size.Load()
 	f, err := os.Open(seg.path)
 	if err != nil {
 		return err
@@ -66,10 +69,10 @@ func (w *WAL) readPendingSegment(seg *segmentRef, limit int, skip func(Offset) b
 		window      []byte // bytes of the segment starting at windowStart
 		windowStart int64
 	)
-	for pos := seg.pendingPosition; pos < seg.size && len(*out) < limit; {
+	for pos := seg.pendingPosition; pos < size && len(*out) < limit; {
 		rel := pos - windowStart
 		if window == nil || rel+recordHeaderSize > int64(len(window)) {
-			n := min(int64(len(w.readBuf)), seg.size-pos)
+			n := min(int64(len(w.readBuf)), size-pos)
 			if _, err := f.ReadAt(w.readBuf[:n], pos); err != nil {
 				return err
 			}
@@ -78,7 +81,7 @@ func (w *WAL) readPendingSegment(seg *segmentRef, limit int, skip func(Offset) b
 		header := window[rel : rel+recordHeaderSize]
 		n := int64(binary.LittleEndian.Uint32(header[:4]))
 		next := pos + recordHeaderSize + n
-		if n == 0 || n > maxRecordBytes || next > seg.size {
+		if n == 0 || n > maxRecordBytes || next > size {
 			return ErrCorruptRecord
 		}
 		offset := Offset{SegmentID: seg.id, Position: pos}
@@ -105,7 +108,7 @@ func (w *WAL) readPendingSegment(seg *segmentRef, limit int, skip func(Offset) b
 }
 
 func (s *segmentRef) ack(position int64) {
-	if position < s.pendingPosition || position < 0 || position >= s.size || s.unacked == 0 {
+	if position < s.pendingPosition || position < 0 || position >= s.size.Load() || s.unacked.Load() == 0 {
 		return
 	}
 	if _, ok := s.acked[position]; ok {
@@ -115,5 +118,5 @@ func (s *segmentRef) ack(position int64) {
 		s.acked = make(map[int64]struct{})
 	}
 	s.acked[position] = struct{}{}
-	s.unacked--
+	s.unacked.Add(-1)
 }
