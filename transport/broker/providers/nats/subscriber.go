@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
@@ -227,6 +228,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 			}
 			metaData = append(metaData, msg.MetaData{Key: k, Value: value})
 		}
+		metaData = appendDeduplicateID(metaData, headers)
 
 		// Prepare message options, including the Acker and AckTimeout.
 		msgOpts := make([]msg.Option, 0, 2)
@@ -255,6 +257,22 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	ss.mu.Unlock()
 
 	return nil
+}
+
+// appendDeduplicateID restores the [msg.MetaKeyDeduplicateId] metadata the
+// publisher moved into the JetStream Nats-Msg-Id header (see buildNatsMsg),
+// so consumers such as the broker idempotency middleware can key on it. An
+// application header carrying the key itself, even an empty one, takes
+// precedence and the Nats-Msg-Id is then not added.
+func appendDeduplicateID(metaData []msg.MetaData, headers nats.Header) []msg.MetaData {
+	ids := headers[jetstream.MsgIDHeader]
+	if len(ids) == 0 || ids[0] == "" {
+		return metaData
+	}
+	if _, explicit := headers[msg.MetaKeyDeduplicateId]; explicit {
+		return metaData
+	}
+	return append(metaData, msg.MetaData{Key: msg.MetaKeyDeduplicateId, Value: ids[0]})
 }
 
 // Closed returns a channel that closes when the consumer has fully stopped.

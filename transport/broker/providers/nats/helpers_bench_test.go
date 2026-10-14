@@ -4,7 +4,14 @@
 
 package natsprovider
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/altessa-s/go-atlas/transport/broker/msg"
+)
 
 func BenchmarkIsValidSubject_Valid(b *testing.B) {
 	for b.Loop() {
@@ -15,5 +22,16 @@ func BenchmarkIsValidSubject_Valid(b *testing.B) {
 func BenchmarkIsValidSubject_Invalid(b *testing.B) {
 	for b.Loop() {
 		IsValidSubject("topic.with.dots")
+	}
+}
+
+func BenchmarkAppendDeduplicateID(b *testing.B) {
+	headers := nats.Header{
+		jetstream.MsgIDHeader: {"invoice-9-paid"},
+		"tenant":              {"t1"},
+	}
+	metaData := make([]msg.MetaData, 0, len(headers))
+	for b.Loop() {
+		metaData = appendDeduplicateID(metaData[:0], headers)
 	}
 }
