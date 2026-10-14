@@ -47,5 +47,5 @@ vendor/
 *.swp
 *~
 
-# OS
 tmp/
+/plans/
