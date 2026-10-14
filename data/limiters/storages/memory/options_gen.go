@@ -69,11 +69,19 @@ func WithScheduler(v corescheduler.TaskRegistrar) Option {
 	}
 }
 
+// WithShards sets the shards option.
+func WithShards(v int) Option {
+	return func(o *options) {
+		o.shards = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
 		maxBuckets:  DefaultMaxBuckets,
 		maxIdleTime: DefaultMaxIdleTime,
+		shards:      DefaultShards,
 	}
 }
 

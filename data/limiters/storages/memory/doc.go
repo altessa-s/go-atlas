@@ -3,10 +3,31 @@
 // the LICENSE file.
 
 // Package memory provides in-memory rate limit storage for single-instance tokenbucket deployments.
-// Uses sliding window algorithm with automatic cleanup and thread-safe concurrent access.
+// It applies a sliding window per key and is safe for concurrent use.
+//
+// # Capacity and cleanup
+//
+// [WithMaxBuckets] caps the number of tracked keys; a new key at the cap
+// evicts the least recently used one. Idle buckets are removed by
+// [Provider.RunCleanup], either called manually or registered with a
+// scheduler via [WithScheduler] and [WithCleanupSchedule].
+//
+// # Sharding
+//
+// [WithShards] spreads keys over independently locked shards (default
+// [DefaultShards]; values below 1 mean 1). Allow calls on keys in different
+// shards then run in parallel, both for existing keys and for new keys while
+// the provider is below its cap. The cap and LRU eviction stay exact and
+// global, so a new key at the cap locks every shard. Use 8–16 shards when
+// the provider usually runs below its cap on a many-core host, and keep 1
+// when it is usually full with new keys arriving.
 //
 // Example:
 //
-//	storage := memory.New(memory.WithCleanupSchedule("@every 5m"))
+//	storage := memory.New(
+//		memory.WithShards(8),
+//		memory.WithScheduler(scheduler),
+//		memory.WithCleanupSchedule("@every 5m"),
+//	)
 //	defer storage.Close()
 package memory

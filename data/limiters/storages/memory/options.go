@@ -29,6 +29,11 @@ const (
 	// cardinality should reach for a Redis-backed limiter — the
 	// in-memory provider is for single-process / low-cardinality cases.
 	DefaultMaxBuckets = 100_000
+
+	// DefaultShards keeps a single lock over all keys. It is the right
+	// choice when the provider often runs at [DefaultMaxBuckets] with new
+	// keys arriving, because evicting at the cap locks every shard.
+	DefaultShards = 1
 )
 
 // options contains memory provider configuration.
@@ -42,7 +47,15 @@ type options struct {
 	// least-recently-used bucket is evicted to make room. Set to <= 0
 	// to disable the cap (back to legacy unbounded behavior — use at
 	// your own risk; see [DefaultMaxBuckets] for the rationale).
-	maxBuckets      int `optgen:"default=DefaultMaxBuckets"`
+	maxBuckets int `optgen:"default=DefaultMaxBuckets"`
+
+	// Shards splits the keys over independently locked shards so Allow
+	// calls on existing keys and new keys below MaxBuckets do not contend.
+	// Capacity and least-recently-used eviction stay exact and global, so a
+	// new key at the cap locks every shard: raise Shards (e.g. 8–16) when
+	// the provider usually runs below MaxBuckets, and keep 1 when it is
+	// usually full with new keys arriving. Values below 1 mean 1.
+	shards          int `optgen:"default=DefaultShards"`
 	cleanupSchedule string
 	scheduler       corescheduler.TaskRegistrar `optgen:"notnil"`
 }

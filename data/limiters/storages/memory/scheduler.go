@@ -46,30 +46,29 @@ func (p *Provider) RunCleanup() {
 
 // runCleanupCycle performs the actual cleanup, dropping buckets that have
 // been idle longer than the configured max idle time. Unlike the TTL-based
-// memory storages this sweep is idle-time-based and runs under a single
-// write lock. Allow stamps lastUsed under the lock, so the LRU list is
-// ordered by lastUsed and the sweep walks from the tail, stopping at the
-// first bucket still in use: O(expired) instead of O(buckets). Callers must
-// route through cleanupTask so overlapping cycles collapse into a single
-// execution.
+// memory storages this sweep is idle-time-based. It locks one shard at a
+// time, so hits on other shards keep running. Allow stamps lastUsed under
+// the shard lock, so each shard's LRU list is ordered by lastUsed and the
+// sweep walks each tail, stopping at the first bucket still in use:
+// O(shards + expired) instead of O(buckets). Callers must route through
+// cleanupTask so overlapping cycles collapse into a single execution.
 func (p *Provider) runCleanupCycle(context.Context) error {
 	now := time.Now()
 	cutoff := now.Add(-p.options.maxIdleTime)
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	for elem := p.lru.Back(); elem != nil; {
-		prev := elem.Prev()
-		key, ok := elem.Value.(string)
-		if !ok {
-			break
+	for i := range p.shards {
+		sh := &p.shards[i]
+		sh.mu.Lock()
+		for elem := sh.lru.Back(); elem != nil; {
+			prev := elem.Prev()
+			key, ok := elem.Value.(string)
+			if !ok || !sh.buckets[key].lastUsed.Before(cutoff) {
+				break
+			}
+			p.removeLocked(sh, key)
+			elem = prev
 		}
-		if !p.buckets[key].lastUsed.Before(cutoff) {
-			break
-		}
-		p.removeLocked(key)
-		elem = prev
+		sh.mu.Unlock()
 	}
 	return nil
 }
