@@ -460,18 +460,23 @@ func (conv *Converter[T, U]) convertSlices(fieldName string, srcValue reflect.Va
 		dstValue = dstValue.Elem()
 	}
 
-	dstValue.Set(reflect.MakeSlice(dstValue.Type(), EmptySliceLength, srcValue.Len()))
+	n := srcValue.Len()
+	dstValue.Set(reflect.MakeSlice(dstValue.Type(), EmptySliceLength, n))
+	// Convert straight into the backing array; the visible length grows only
+	// after each element converts, keeping the completed-prefix behavior.
+	slots := dstValue.Slice(0, n)
+	elemIsPointer := dstValue.Type().Elem().Kind() == reflect.Pointer
 
-	for i := range srcValue.Len() {
-		dstVal := reflect.New(IndirectType(dstValue.Type().Elem()))
-
-		conv.convertValue(makeFieldName(fieldName, strconv.Itoa(i)), srcValue.Index(i), dstVal.Elem())
-
-		if dstValue.Type().Elem().Kind() != reflect.Pointer {
-			dstValue.Set(reflect.Append(dstValue, dstVal.Elem()))
+	for i := range n {
+		name := makeFieldName(fieldName, strconv.Itoa(i))
+		if elemIsPointer {
+			dstVal := reflect.New(IndirectType(dstValue.Type().Elem()))
+			conv.convertValue(name, srcValue.Index(i), dstVal.Elem())
+			slots.Index(i).Set(dstVal)
 		} else {
-			dstValue.Set(reflect.Append(dstValue, dstVal))
+			conv.convertValue(name, srcValue.Index(i), slots.Index(i))
 		}
+		dstValue.SetLen(i + 1)
 	}
 }
 
