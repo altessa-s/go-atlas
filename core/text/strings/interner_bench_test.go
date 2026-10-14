@@ -13,8 +13,7 @@ import (
 
 // benchColdKeys returns n distinct pre-interned keys. With only
 // [corestrings.HotCacheSlots] hot slots, rotating over thousands of keys
-// keeps lookups on the cold-cache path — the one that bumps the shared
-// promotion counter on every hit.
+// keeps lookups on the cold-cache path.
 func benchColdKeys(si *corestrings.Interner, n int) []string {
 	keys := make([]string, n)
 	for i := range keys {
@@ -38,8 +37,7 @@ func BenchmarkInterner_ColdHit(b *testing.B) {
 }
 
 // BenchmarkInterner_ColdHitParallel exercises the same cold-cache path from
-// concurrent goroutines. Run with -cpu 1,8 to expose contention on the
-// process-wide promotion counter and the per-entry access atomics.
+// concurrent goroutines.
 func BenchmarkInterner_ColdHitParallel(b *testing.B) {
 	si := corestrings.NewInterner(corestrings.DefaultMaxSize)
 	keys := benchColdKeys(si, 4096)

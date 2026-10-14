@@ -201,7 +201,7 @@ The `Interner` deduplicates identical strings so only one copy is retained in me
    (wait-free reads).
 2. Cold cache: `sync.Map` for general interning with `unique.Handle` storage.
 
-Promotion is checked on every 50th cold-cache hit (counted across all strings): if the string being looked up at that moment has at least 5 accesses, it
+Promotion is evaluated when a string reaches 5 accesses and re-evaluated every 50 accesses to that string: if the string qualifies, it
 is promoted to the hot cache (an occupied slot is taken over only by a string with more than twice the occupant's access count). Background eviction
 runs when the interner exceeds capacity; it removes the least frequently accessed entries first (LFU), breaking ties by least recent access (LRU).
 
@@ -264,7 +264,7 @@ fmt.Printf("size: %d/%d, evictions: %d\n",
 | `DefaultMaxSize` | 8192 | Global interner capacity |
 | `HotCacheSlots` | 32 | Atomic pointer slots in hot cache |
 | `HotCacheThreshold` | 5 | Minimum access count for hot promotion |
-| `PromotionCheckInterval` | 50 | Cold-cache hits (across all strings) between promotion checks |
+| `PromotionCheckInterval` | 50 | Accesses per string between promotion re-evaluations |
 | `EvictionBatchSize` | 512 | Max entries per eviction pass |
 | `EvictionRatio` | 4 | Up to 25% of cache evicted per pass (`size/4`, capped by `EvictionBatchSize`) |
 
