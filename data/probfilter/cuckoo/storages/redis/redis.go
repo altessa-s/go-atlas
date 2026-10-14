@@ -7,6 +7,7 @@ package redis
 import (
 	"context"
 	"iter"
+	"math"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -207,22 +208,40 @@ func (s *Storage) Close(_ context.Context) error {
 }
 
 // parseCuckooInfo parses CF.INFO response into FilterStats.
+//
+// CF.INFO reports the memory footprint as "Size" (bytes), not as an item
+// count. Capacity is the number of fingerprint slots allocated now: "Number
+// of buckets" is the bucket count of the first sub-filter, and every
+// sub-filter added on expansion holds "Expansion rate" times as many buckets
+// as the one before it, each bucket holding "Bucket size" fingerprints. It is
+// not a guarantee that as many inserts succeed, nor a limit on further
+// expansion. Malformed fields are treated as missing.
 func parseCuckooInfo(result any) *stats.FilterStats {
 	fs := &stats.FilterStats{}
 
+	var buckets, bucketSize, filters, expansion int64
 	for key, raw := range redisfilter.InfoFields(result) {
+		val, err := redisfilter.ToInt64(raw)
+		if err != nil {
+			continue
+		}
 		switch key {
 		case "Size":
-			if val, err := redisfilter.ToInt64(raw); err == nil {
-				fs.Capacity = val
-			}
+			fs.MemoryUsageBytes = val
+		case "Number of buckets":
+			buckets = val
+		case "Bucket size":
+			bucketSize = val
+		case "Number of filters":
+			filters = val
+		case "Expansion rate":
+			expansion = val
 		case "Number of items inserted":
-			if val, err := redisfilter.ToInt64(raw); err == nil {
-				fs.ItemCount = val
-			}
+			fs.ItemCount = val
 		}
 	}
 
+	fs.Capacity = cuckooCapacity(buckets, bucketSize, filters, expansion)
 	if fs.Capacity > 0 {
 		fs.FillRatio = float64(fs.ItemCount) / float64(fs.Capacity)
 	}
@@ -232,4 +251,41 @@ func parseCuckooInfo(result any) *stats.FilterStats {
 	fs.FalsePositiveRate = defaultCuckooFPR
 
 	return fs
+}
+
+// cuckooCapacity returns the fingerprint slots currently allocated by a
+// RedisBloom Cuckoo filter whose first sub-filter has buckets buckets of
+// bucketSize slots, grown to filters sub-filters by a factor of expansion
+// each. A missing filter count means one sub-filter, and an expansion rate
+// below 2 adds sub-filters of the first one's size. It returns 0 (unknown)
+// when the bucket fields are missing or the count does not fit an int64.
+func cuckooCapacity(buckets, bucketSize, filters, expansion int64) int64 {
+	if buckets <= 0 || bucketSize <= 0 || buckets > math.MaxInt64/bucketSize {
+		return 0
+	}
+	slots := buckets * bucketSize
+	filters = max(filters, 1)
+	if expansion <= 1 {
+		if slots > math.MaxInt64/filters {
+			return 0
+		}
+		return slots * filters
+	}
+
+	// expansion >= 2 doubles slots at least every sub-filter, so the loop
+	// overflows (and returns) within 63 iterations.
+	var capacity int64
+	for i := range filters {
+		if capacity > math.MaxInt64-slots {
+			return 0
+		}
+		capacity += slots
+		if i+1 < filters {
+			if slots > math.MaxInt64/expansion {
+				return 0
+			}
+			slots *= expansion
+		}
+	}
+	return capacity
 }
