@@ -17,7 +17,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -269,20 +268,24 @@ func (o *Outbox) compactEventsByKey(events []Event) (toPublish, toSkip []Event) 
 		compactableEvents = events
 	}
 
-	// Group compactable events by key using core/collections/slices.GroupBy
-	grouped := coreslices.GroupBy(compactableEvents, func(e Event) string { return e.Key })
-
-	toPublish = make([]Event, 0, len(grouped)+len(nonCompactableEvents))
-	toSkip = make([]Event, 0, max(len(compactableEvents)-len(grouped), 0))
+	toPublish = make([]Event, 0, len(compactableEvents)+len(nonCompactableEvents))
+	toSkip = make([]Event, 0, len(compactableEvents)/2) //nolint:mnd // rough estimate
 
 	// Add non-compactable events (they always get dispatched)
 	toPublish = append(toPublish, nonCompactableEvents...)
 
-	// Process compactable events: keep only the latest per key, skip the rest.
-	// Direct range avoids intermediate slices from Collect/Map/Filter.
-	for _, group := range grouped {
-		toPublish = append(toPublish, group[len(group)-1])
-		toSkip = coreslices.AppendIf(toSkip, len(group) > 1, group[:len(group)-1]...)
+	// Keep only the latest event per key: a later event for a known key
+	// replaces the earlier one in place and moves it to toSkip. Events are
+	// sorted by CreatedAt, so the survivor is the latest one.
+	positions := make(map[string]int, len(compactableEvents))
+	for _, e := range compactableEvents {
+		if i, ok := positions[e.Key]; ok {
+			toSkip = append(toSkip, toPublish[i])
+			toPublish[i] = e
+			continue
+		}
+		positions[e.Key] = len(toPublish)
+		toPublish = append(toPublish, e)
 	}
 
 	return toPublish, toSkip
