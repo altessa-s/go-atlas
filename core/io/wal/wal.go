@@ -103,6 +103,9 @@ type WAL struct {
 	// a single large record (up to maxRecordBytes) permanently inflates it.
 	// Accepted trade-off — avoids per-Append allocation churn on the hot path.
 	scratch []byte
+	// readBuf is the ReadPending read window, guarded by mu and allocated on
+	// first use (pendingReadWindow bytes).
+	readBuf []byte
 	totalSz atomic.Int64
 	closed  atomic.Bool
 	closing atomic.Bool // single-winner guard for Close; see Close
