@@ -246,21 +246,38 @@ func (ft *Tracker) compareStructsFast(before, after reflect.Value, prefix string
 			pathBuf = append(pathBuf, '.')
 		}
 		pathBuf = append(pathBuf, field.jsonName...)
-		fieldPath := string(pathBuf)
 
-		// Skip ignored fields
-		if _, ok := ft.opts.ignoreFields[fieldPath]; ok {
+		// Skip ignored fields; the string(pathBuf) map key does not allocate.
+		if _, ok := ft.opts.ignoreFields[string(pathBuf)]; ok {
 			continue
 		}
 
 		beforeField := before.Field(field.index)
 		afterField := after.Field(field.index)
 
-		// Fast path for common types
+		// Compare primitives before materializing the path, so equal fields
+		// cost no allocation. Top-level fields reuse the cached JSON name.
+		if eq, ok := primitiveEqual(beforeField, afterField); ok {
+			if !eq {
+				*changed = append(*changed, fieldPathOf(prefix, field.jsonName, pathBuf))
+			}
+			continue
+		}
+
+		fieldPath := fieldPathOf(prefix, field.jsonName, pathBuf)
 		if !ft.fastCompare(beforeField, afterField, fieldPath, changed, depth+1) {
 			*changed = append(*changed, fieldPath)
 		}
 	}
+}
+
+// fieldPathOf returns the reported path of a struct field: the cached JSON
+// name at the top level, otherwise a copy of the "prefix.name" bytes in buf.
+func fieldPathOf(prefix, jsonName string, buf []byte) string {
+	if prefix == "" {
+		return jsonName
+	}
+	return string(buf)
 }
 
 // fastCompare uses type-specific fast paths for common cases
@@ -433,9 +450,14 @@ func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, ch
 		return true
 	}
 
-	beforeKeys := before.MapKeys()
-	for _, key := range beforeKeys {
-		beforeVal := before.MapIndex(key)
+	// Reuse one key/value pair across iterations instead of the per-entry
+	// copies MapIter.Key and MapIter.Value allocate.
+	mapType := before.Type()
+	key := reflect.New(mapType.Key()).Elem()
+	beforeVal := reflect.New(mapType.Elem()).Elem()
+	for iter := before.MapRange(); iter.Next(); {
+		key.SetIterKey(iter)
+		beforeVal.SetIterValue(iter)
 		afterVal := after.MapIndex(key)
 
 		if !afterVal.IsValid() {
@@ -447,15 +469,19 @@ func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, ch
 			continue
 		}
 
-		// Optimize for string keys (most common)
-		var mapPath string
-		if key.Kind() == reflect.String {
-			keyStr := key.String()
-			mapPath = prefix + "[" + keyStr + "]"
-		} else {
-			mapPath = prefix + "[" + formatMapKey(key) + "]"
+		// Compare primitives before building the path: equal entries then
+		// cost no allocation.
+		if eq, ok := primitiveEqual(beforeVal, afterVal); ok {
+			if !eq {
+				mapPath := prefix + "[" + formatMapKey(key) + "]"
+				if _, ok := ft.opts.ignoreFields[mapPath]; !ok {
+					*changed = append(*changed, mapPath)
+				}
+			}
+			continue
 		}
 
+		mapPath := prefix + "[" + formatMapKey(key) + "]"
 		if !ft.fastCompare(beforeVal, afterVal, mapPath, changed, depth) {
 			if _, ok := ft.opts.ignoreFields[mapPath]; !ok {
 				*changed = append(*changed, mapPath)
@@ -464,10 +490,9 @@ func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, ch
 	}
 
 	// Also detect keys present in "after" but missing in "before".
-	afterKeys := after.MapKeys()
-	for _, key := range afterKeys {
-		beforeVal := before.MapIndex(key)
-		if beforeVal.IsValid() {
+	for iter := after.MapRange(); iter.Next(); {
+		key.SetIterKey(iter)
+		if before.MapIndex(key).IsValid() {
 			continue
 		}
 
