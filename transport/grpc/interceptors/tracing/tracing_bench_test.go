@@ -5,9 +5,12 @@
 package tracing
 
 import (
+	"strconv"
 	"testing"
 
 	"google.golang.org/grpc/metadata"
+
+	"github.com/altessa-s/go-atlas/observability/tracing"
 )
 
 func BenchmarkParseMethod(b *testing.B) {
@@ -27,5 +30,21 @@ func BenchmarkMetadataCarrier_Get(b *testing.B) {
 	carrier := metadataCarrier(md)
 	for b.Loop() {
 		carrier.Get("traceparent")
+	}
+}
+
+// BenchmarkExtractTraceContext measures server-side trace extraction with a
+// realistic amount of unrelated incoming metadata.
+func BenchmarkExtractTraceContext(b *testing.B) {
+	pairs := []string{"traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}
+	for i := range 20 {
+		pairs = append(pairs, "x-meta-"+strconv.Itoa(i), "value")
+	}
+	ctx := metadata.NewIncomingContext(b.Context(), metadata.Pairs(pairs...))
+	i := ServerInterceptor(tracing.Noop())
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = i.extractTraceContext(ctx)
 	}
 }

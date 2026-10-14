@@ -252,6 +252,11 @@ func (i *Interceptor) ClientStreamInterceptor() grpc.StreamClientInterceptor {
 
 // extractTraceContext extracts trace context from incoming gRPC metadata.
 func (i *Interceptor) extractTraceContext(ctx context.Context) context.Context {
+	// The W3C propagator only reads traceparent and tracestate; read those
+	// keys instead of copying all incoming metadata.
+	if tc, ok := i.propagator.(*propagation.TraceContext); ok {
+		return tc.Extract(ctx, incomingCarrier{ctx: ctx})
+	}
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return ctx
@@ -261,11 +266,10 @@ func (i *Interceptor) extractTraceContext(ctx context.Context) context.Context {
 
 // injectTraceContext injects trace context into outgoing gRPC metadata.
 func (i *Interceptor) injectTraceContext(ctx context.Context) context.Context {
+	// FromOutgoingContext already returns a private copy.
 	md, ok := metadata.FromOutgoingContext(ctx)
 	if !ok {
 		md = metadata.New(nil)
-	} else {
-		md = md.Copy()
 	}
 
 	i.propagator.Inject(ctx, metadataCarrier(md))
@@ -308,6 +312,28 @@ func (s *tracingClientStream) RecvMsg(m any) error {
 		s.span.End()
 	}
 	return err
+}
+
+// incomingCarrier reads single keys of the incoming gRPC metadata without
+// copying the rest. It is read-only and serves the W3C extractor, which only
+// calls Get.
+type incomingCarrier struct{ ctx context.Context } //nolint:containedctx // short-lived extraction view
+
+// Get implements propagation.TextMapCarrier.
+func (c incomingCarrier) Get(key string) string {
+	if vals := metadata.ValueFromIncomingContext(c.ctx, key); len(vals) > 0 {
+		return vals[0]
+	}
+	return ""
+}
+
+// Set implements propagation.TextMapCarrier; extraction never sets.
+func (incomingCarrier) Set(string, string) {}
+
+// Keys implements propagation.TextMapCarrier.
+func (c incomingCarrier) Keys() []string {
+	md, _ := metadata.FromIncomingContext(c.ctx)
+	return metadataCarrier(md).Keys()
 }
 
 // metadataCarrier adapts gRPC metadata.MD to propagation.TextMapCarrier.
