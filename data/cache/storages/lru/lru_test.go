@@ -112,3 +112,22 @@ func TestProvider_ConcurrentSaveGetExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "fresh", string(v))
 }
+
+func TestGetMany(t *testing.T) {
+	t.Parallel()
+
+	p := newTestProvider(t)
+	ctx := t.Context()
+	require.NoError(t, p.Save(ctx, "a", []byte("1"), 0))
+	require.NoError(t, p.Save(ctx, "b", []byte("2"), time.Minute))
+	require.NoError(t, p.Save(ctx, "expired", []byte("3"), time.Nanosecond))
+	time.Sleep(time.Millisecond)
+
+	got, err := p.GetMany(ctx, []string{"a", "b", "expired", "missing"})
+	require.NoError(t, err)
+	require.Equal(t, map[string][]byte{"a": []byte("1"), "b": []byte("2")}, got)
+
+	got, err = p.GetMany(ctx, nil)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}

@@ -83,4 +83,24 @@ func (p *Storage) DeleteMany(ctx context.Context, key ...string) error {
 	})
 }
 
-var _ storages.Storage = (*Storage)(nil)
+// GetMany retrieves the values of the keys that are present and not expired.
+// Missing keys are absent from the returned map.
+func (p *Storage) GetMany(ctx context.Context, keys []string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(keys))
+	for _, key := range keys {
+		val, err := p.Get(ctx, key)
+		if err != nil {
+			if errors.Is(err, storages.ErrMissing) {
+				continue
+			}
+			return nil, err
+		}
+		out[key] = val
+	}
+	return out, nil
+}
+
+var (
+	_ storages.Storage     = (*Storage)(nil)
+	_ storages.MultiGetter = (*Storage)(nil)
+)

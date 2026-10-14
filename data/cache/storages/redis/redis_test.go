@@ -180,3 +180,55 @@ func TestProvider_WithPrefix_Isolation(t *testing.T) {
 	// Verify values are different
 	require.NotEqual(t, string(got1), string(got2), "provider1 and provider2 values should be different")
 }
+
+func TestProvider_GetMany(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		prefix string
+	}{
+		{name: "no prefix"},
+		{name: "prefix", prefix: "app"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, mr := testhelpers.RedisClient(t)
+			p := redis.New(client, redis.WithPrefix(tc.prefix))
+			ctx := t.Context()
+			require.NoError(t, p.Save(ctx, "a", []byte("1"), 0))
+			require.NoError(t, p.Save(ctx, "b", []byte("2"), time.Minute))
+
+			got, err := p.GetMany(ctx, []string{"a", "missing", "b"})
+			require.NoError(t, err)
+			require.Equal(t, map[string][]byte{"a": []byte("1"), "b": []byte("2")}, got)
+
+			// The values are stored under the prefixed keys.
+			if tc.prefix != "" {
+				require.False(t, mr.Exists("a"))
+			}
+
+			got, err = p.GetMany(ctx, nil)
+			require.NoError(t, err)
+			require.Empty(t, got)
+
+			got, err = p.GetMany(ctx, []string{"missing"})
+			require.NoError(t, err)
+			require.Empty(t, got)
+		})
+	}
+}
+
+func TestProvider_GetMany_ServerDown(t *testing.T) {
+	t.Parallel()
+
+	client, mr := testhelpers.RedisClient(t)
+	p := redis.New(client)
+	mr.Close()
+
+	_, err := p.GetMany(t.Context(), []string{"a"})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, storages.ErrMissing)
+}

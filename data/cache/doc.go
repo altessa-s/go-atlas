@@ -13,6 +13,9 @@
 //   - Custom serialization (JSON, MessagePack, Protobuf).
 //   - Distributed caching patterns with automatic key prefixing and TTL management.
 //   - Factory pattern for declarative configuration.
+//   - Optional fail-open mode ([WithFailOpen]) that degrades storage failures to misses.
+//   - Optional isolated results ([WithIsolatedResults]) so collapsed callers never share memory.
+//   - Batch reads ([Cache.GetManyRaw], [GetManyT]) through [storages.MultiGetter].
 //
 // # Usage
 //
@@ -29,6 +32,9 @@
 //	    value, err := db.Fetch(work)
 //	    return value, 5*time.Minute, err
 //	})
+//
+//	// Batch read: one round trip when the storage implements storages.MultiGetter
+//	users, err := cache.GetManyT[User](ctx, c, []string{"user:1", "user:2"})
 //
 // # Performance
 //

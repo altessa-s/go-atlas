@@ -6,6 +6,7 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -51,6 +52,39 @@ func (p *Storage) Get(ctx context.Context, key string) ([]byte, error) {
 	return redisutils.GetBytes(ctx, p.Client(), p.Key(key), storages.ErrMissing)
 }
 
+// GetMany retrieves several values in one round trip. It sends a pipeline of
+// GET commands rather than MGET, so keys that hash to different Redis Cluster
+// slots work. Missing keys are absent from the returned map.
+func (p *Storage) GetMany(ctx context.Context, keys []string) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(keys))
+	if len(keys) == 0 {
+		return out, nil
+	}
+
+	pipe := p.Client().Pipeline()
+	cmds := make([]*redis.StringCmd, len(keys))
+	for i, key := range keys {
+		cmds[i] = pipe.Get(ctx, p.Key(key))
+	}
+	// Exec reports the first failed command, which is redis.Nil for a missing
+	// key; the per-command results below tell the two apart.
+	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, redis.Nil) {
+		return nil, err
+	}
+
+	for i, cmd := range cmds {
+		val, err := cmd.Bytes()
+		if err != nil {
+			if errors.Is(err, redis.Nil) {
+				continue
+			}
+			return nil, err
+		}
+		out[keys[i]] = val
+	}
+	return out, nil
+}
+
 // Save stores a value in Redis with the given TTL.
 func (p *Storage) Save(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	return redisutils.SetBytes(ctx, p.Client(), p.Key(key), value, ttl)
@@ -61,4 +95,7 @@ func (p *Storage) Exists(ctx context.Context, key string) (bool, error) {
 	return p.Base.Exists(ctx, key)
 }
 
-var _ storages.Storage = (*Storage)(nil)
+var (
+	_ storages.Storage     = (*Storage)(nil)
+	_ storages.MultiGetter = (*Storage)(nil)
+)

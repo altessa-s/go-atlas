@@ -6,3 +6,5 @@ import "github.com/altessa-s/go-atlas/data/cache/storages/lru"
 
 Package `lru` implements the cache provider interface using an in-memory LRU eviction policy. Suitable for single-instance deployments where bounded
 memory usage is required.
+
+Implements the optional `storages.MultiGetter` batch read (`GetMany`).

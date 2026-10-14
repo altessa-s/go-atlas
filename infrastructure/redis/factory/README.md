@@ -41,11 +41,27 @@ Mode is detected automatically from configuration — no explicit mode field is 
 | `UseLogger`              | Sets the logger for the builder and all created components      |
 | `UseHealthCoordinator`   | Registers a health checker under service name `"redis"`         |
 
+### Startup behavior
+
+| Method            | Description                                                                                  |
+|-------------------|----------------------------------------------------------------------------------------------|
+| `SkipStartupPing` | Skips the startup ping, so `Build` succeeds while Redis is down; go-redis reconnects by itself |
+| `WithoutHealth`   | Does not register a health checker, even when a coordinator is set                           |
+
+Together they make Redis optional for the service, for example behind a fail-open cache:
+
+```go
+client, err := factory.New(cfg.Redis).
+    SkipStartupPing().
+    WithoutHealth().
+    Build(ctx)
+```
+
 ### Terminal
 
 | Method        | Description                                                                                    |
 |---------------|------------------------------------------------------------------------------------------------|
-| `Build(ctx)`  | Assembles the `redis.UniversalClient`, pings it within `DefaultPingTimeout`, and returns it    |
+| `Build(ctx)`  | Assembles the `redis.UniversalClient`, pings it within `DefaultPingTimeout` (unless skipped), and returns it |
 
 ## Constants
 

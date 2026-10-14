@@ -3,7 +3,8 @@
 // the LICENSE file.
 
 // Package storages defines the cache Storage interface and common errors.
-// Implementations are in subpackages: freecache, redis, noop.
+// Implementations are in subpackages: freecache, lru, redis, noop. All of them
+// also implement the optional [MultiGetter] batch read.
 //
 // Example:
 //
