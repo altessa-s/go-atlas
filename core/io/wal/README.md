@@ -101,14 +101,11 @@ and `BenchmarkWAL_OpenRecover` in `wal_bench_test.go`.
 
 ## Performance notes
 
-- `Append` serializes on an internal mutex during the `file.Write`
-  syscall to keep on-disk offsets and accounting consistent. On a slow
-  disk this limits per-process Append throughput to the disk's write
-  latency — batched upstream producers (e.g.
-  [`service/dispatch`](../../../service/dispatch))
-  hide this by accumulating in memory before calling `Append`.
-- Header and payload are coalesced into a single scratch buffer so
-  each `Append` issues exactly one `write` syscall.
+- Concurrent `Append`s are group-committed: each encodes its record into a shared batch under the append lock, and one caller writes the
+  whole batch with a single `write` syscall outside it while the next batch fills. `Append` still returns only after its own record is
+  written, so offsets and accounting stay exact and a lone producer pays one `write` per record.
+- The written batch is published through atomic segment counters, so `ReadPending`, `Ack` and `Stats` (which take the state lock) never
+  delay an `Append`; only a segment roll takes both locks.
 - `Ack` is O(N) over sealed segments; the expected N is 1–2 in typical
   dispatcher configurations.
 - The background fsync goroutine holds `w.mu` only long enough to

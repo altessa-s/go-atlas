@@ -139,3 +139,21 @@ func BenchmarkWAL_OpenRecover(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkWAL_Append_Parallel measures concurrent producers appending small
+// records, the shape a durable dispatcher sees under load.
+func BenchmarkWAL_Append_Parallel(b *testing.B) {
+	w := newBenchWAL(b)
+	payload := make([]byte, 64)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(payload)))
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			if _, err := w.Append(payload); err != nil {
+				b.Errorf("Append: %v", err)
+				return
+			}
+		}
+	})
+}
