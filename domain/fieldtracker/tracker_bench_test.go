@@ -82,3 +82,30 @@ func BenchmarkGetChangedFields_LargeSlice(b *testing.B) {
 		_ = tr.GetChangedFields(s1, s2)
 	}
 }
+
+func BenchmarkGetChangedFields_NestedMap(b *testing.B) {
+	type Profile struct {
+		Address struct {
+			City   string `json:"city"`
+			Street string `json:"street"`
+		} `json:"address"`
+		Labels map[string]string `json:"labels"`
+	}
+
+	labels := func() map[string]string {
+		m := make(map[string]string, 16)
+		for i := range 16 {
+			m[fmt.Sprintf("k%d", i)] = fmt.Sprintf("v%d", i)
+		}
+		return m
+	}
+	p1 := &Profile{Labels: labels()}
+	p2 := &Profile{Labels: labels()}
+	p1.Address.City, p2.Address.City = "Belgrade", "Novi Sad"
+	tr := fieldtracker.NewTracker()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = tr.GetChangedFields(p1, p2)
+	}
+}
