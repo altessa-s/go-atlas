@@ -51,15 +51,11 @@ func newDecisionCache(size int, ttl time.Duration) *decisionCache {
 	return &decisionCache{entries: lru.NewExpirableCache[string, Result](size, ttl)}
 }
 
-// get returns a copy of the cached decision for the input under revision.
+// get returns a copy of the cached decision under key (see
+// [decisionCacheKey]).
 //
 // Denials is shared by pointer, which is safe because it is an ImmutableMap.
-func (c *decisionCache) get(revision string, input any) (*Result, bool) {
-	key, ok := decisionCacheKey(revision, input)
-	if !ok {
-		return nil, false
-	}
-
+func (c *decisionCache) get(key string) (*Result, bool) {
 	entry, ok := c.entries.Get(key)
 	if !ok {
 		return nil, false
@@ -68,10 +64,9 @@ func (c *decisionCache) get(revision string, input any) (*Result, bool) {
 	return &entry, true
 }
 
-// put stores a decision. It is a no-op for inputs that have no stable key.
-func (c *decisionCache) put(revision string, input any, result *Result) {
-	key, ok := decisionCacheKey(revision, input)
-	if !ok || result == nil {
+// put stores a decision under key (see [decisionCacheKey]).
+func (c *decisionCache) put(key string, result *Result) {
+	if result == nil {
 		return
 	}
 

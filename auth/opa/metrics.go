@@ -23,6 +23,14 @@ type opaMetrics struct {
 	evaluationDuration   metrics.Timer
 	modulesLoaded        metrics.Gauge
 	decisionCacheLookups metrics.Counter
+
+	// Pre-bound children of the fixed-label counters above, so the
+	// evaluation path does not rebind a label set on every call.
+	evalAllow   metrics.Counter
+	evalDeny    metrics.Counter
+	evalError   metrics.Counter
+	cacheHits   metrics.Counter
+	cacheMisses metrics.Counter
 }
 
 func newOpaMetrics(c metrics.Collector) *opaMetrics {
@@ -32,7 +40,7 @@ func newOpaMetrics(c metrics.Collector) *opaMetrics {
 
 	scoped := c.WithSubsystem(DefaultMetricsSubsystem)
 
-	return &opaMetrics{
+	m := &opaMetrics{
 		policyReloads: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "policy_reloads_total",
 			Help:       "Total number of policy reload operations.",
@@ -68,4 +76,12 @@ func newOpaMetrics(c metrics.Collector) *opaMetrics {
 			LabelNames: []string{"result"},
 		}),
 	}
+
+	m.evalAllow = m.evaluations.WithLabels(metrics.Labels{"result": "allow"})
+	m.evalDeny = m.evaluations.WithLabels(metrics.Labels{"result": "deny"})
+	m.evalError = m.evaluations.WithLabels(metrics.Labels{"result": "error"})
+	m.cacheHits = m.decisionCacheLookups.WithLabels(metrics.Labels{"result": "hit"})
+	m.cacheMisses = m.decisionCacheLookups.WithLabels(metrics.Labels{"result": "miss"})
+
+	return m
 }
