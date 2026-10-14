@@ -129,6 +129,8 @@ All `.go` files must include the copyright header. Run `make copyright` to add i
 | `make test-coverage-func` | Per-package coverage breakdown |
 | `make bench` | Run all benchmarks |
 | `make bench-count` | Run benchmarks for benchstat |
+| `make bench-gate` | Fail if hot-path benchmarks regressed against `benchmarks/baseline.txt` |
+| `make bench-baseline` | Regenerate `benchmarks/baseline.txt` on this machine |
 | `make fuzz-list` | List every fuzz target |
 | `make fuzz-seed` | Run fuzz targets over their seed corpus only (no mutation) |
 | `make fuzz` | Fuzz every target for `FUZZTIME` each (`FUZZTIME=30s FUZZPKG=./...`) |
@@ -148,6 +150,27 @@ workflow does the same nightly with a larger budget, restoring the generated cor
 Write a fuzz target when the input is attacker-controlled or there is a property worth stating — a round trip, an allowlist that must hold, an
 invariant the code documents. "Does not panic" is the floor, not the goal: a target with no assertion passes for the wrong reasons. When a run
 fails, Go writes the minimized reproducer to the package's `testdata/fuzz/<Target>/`; commit it, so the case is pinned forever in the seed corpus.
+
+## Benchmark regression gate
+
+`benchmarks/hotpaths.txt` lists the hot-path benchmarks a change must not slow down; `benchmarks/bench-gate.sh` runs them (`-count=6`,
+`-benchtime=200ms`) and compares the results with `benchstat`, pinned in the `devtools` module. A change fails the gate when:
+
+| Metric | Fails when | Why |
+|--------|------------|-----|
+| `sec/op` | slower by more than 15%, significant at p < 0.05, in two measurements | Time is noisy: a margin, significance and a rerun are needed |
+| `allocs/op` | the median grows by any amount | Allocation counts are deterministic for a code path, so they are compared strictly |
+| missing | a benchmark has no result in the new run | A hot path must not drop out of the gate silently |
+
+When `sec/op` is the only failure, the gate measures everything once more and fails only on benchmarks that regress again; one noisy run on a busy
+machine is not enough. `B/op` is reported but not gated: amortized buffer growth makes it fractional and noisy, and a new allocation already shows
+up in `allocs/op`. Thresholds, count and benchtime can be overridden through the `BENCH_GATE_*` variables documented at the top of the script.
+
+Timings only compare on the same machine, so the committed `benchmarks/baseline.txt` belongs to the machine that produced it and the gate
+refuses a baseline whose `goos`/`goarch`/`cpu` differ from the current run. Locally, run `make bench-baseline` on the base commit (or keep
+the committed one if it is yours), then `make bench-gate` on your branch. In CI the `Bench` workflow ignores the committed baseline: it checks
+out the PR and its base side by side and benchmarks both on the same runner, interleaving them round by round so runner drift hits both
+equally. When you add, rename or remove an entry in `hotpaths.txt`, regenerate the baseline in the same change.
 
 ## Pull Request Process
 

@@ -1,0 +1,27 @@
+# Hot-path benchmarks guarded by the regression gate (benchmarks/bench-gate.sh).
+#
+# One line per package: <package dir> <benchmark regex>. The regex is passed to
+# -test.bench as is, so it must not contain '/' (Go splits the pattern on '/'
+# to match sub-benchmark levels). Keep the list focused: every entry costs
+# COUNT x BENCHTIME of wall time per side in CI.
+#
+# After adding, removing or renaming an entry, regenerate the local baseline
+# with `make bench-baseline`.
+
+./transport/grpc/client/pool               ^BenchmarkGetAndReturnConnection
+./transport/clientip                       ^BenchmarkExtractor_Extract_
+./transport/grpc/interceptors/auth         ^BenchmarkExtractBearerToken$
+./transport/http/client                    ^BenchmarkHTTPClientMetrics_Cached$
+./transport/http/server/middlewares/logger ^BenchmarkMiddleware_SlogDisabledLevel$
+./auth/opa                                 ^BenchmarkEvaluate_Cached$
+./auth/oidc                                ^BenchmarkObserveValidation$
+./data/filter                              ^(BenchmarkParseShared_Cached|BenchmarkValidateRegex)$
+./data/limiters/storages/memory            ^(BenchmarkProvider_Allow|BenchmarkProvider_Allow_ParallelSpread|BenchmarkProvider_Allow_ParallelHotKey)$
+./data/keyset                              ^BenchmarkCodec_(Issue|Resolve)$
+./core/runtime/concurrency                 ^(BenchmarkProcessEmpty|BenchmarkProcessSmallParallel|BenchmarkProcessLargeBatch|BenchmarkProcessCollectParallel|BenchmarkProcessCollectLargeCheapBatch)$
+./core/io/wal                              ^(BenchmarkWAL_Append_Small|BenchmarkWAL_Append_Large|BenchmarkWAL_Append_Parallel|BenchmarkReadPending)$
+./observability/metrics                    ^(BenchmarkCounterInc|BenchmarkLabeledCounterInc|BenchmarkGaugeInc)$
+./observability/tracing                    ^BenchmarkRecorderStartEnd$
+./observability/slog/handler/masking       ^BenchmarkHandlerHandle$
+./domain/fieldtracker                      ^BenchmarkGetChangedFields_
+./security/secrets                         ^BenchmarkManager_Value$
