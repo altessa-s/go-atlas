@@ -59,13 +59,13 @@ func TestBuildStorageKeyABIPinned(t *testing.T) {
 			name:    "gRPC-style service",
 			service: "users.UserService",
 			key:     "550e8400-e29b-41d4-a716-446655440000",
-			want:    "idk:users.UserService:550e8400-e29b-41d4-a716-446655440000",
+			want:    "idk:v2:9:transport17:users.UserService36:550e8400-e29b-41d4-a716-446655440000",
 		},
 		{
 			name:    "HTTP-style service",
 			service: "POST:/api/v1/users",
 			key:     "550e8400-e29b-41d4-a716-446655440000",
-			want:    "idk:POST:/api/v1/users:550e8400-e29b-41d4-a716-446655440000",
+			want:    "idk:v2:9:transport18:POST:/api/v1/users36:550e8400-e29b-41d4-a716-446655440000",
 		},
 	}
 
@@ -76,6 +76,16 @@ func TestBuildStorageKeyABIPinned(t *testing.T) {
 			require.Equal(t, tc.want, idempotency.BuildStorageKey(tc.service, tc.key))
 		})
 	}
+}
+
+// TestBuildStorageKeyDistinctPairs pins that (service, key) pairs whose
+// ':'-joined forms are equal get distinct storage keys, so one request can
+// never replay another's stored result.
+func TestBuildStorageKeyDistinctPairs(t *testing.T) {
+	t.Parallel()
+
+	require.NotEqual(t, idempotency.BuildStorageKey("a:b", "c"), idempotency.BuildStorageKey("a", "b:c"))
+	require.NotEqual(t, idempotency.BuildStorageKey("POST:/orders", "x"), idempotency.BuildStorageKey("POST", "/orders:x"))
 }
 
 func TestHeaderNames(t *testing.T) {

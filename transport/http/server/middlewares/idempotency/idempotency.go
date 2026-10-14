@@ -368,10 +368,10 @@ var errIdempotencyKeyMissing = http.ErrAbortHandler
 // errIdempotencyKeyInvalidFormat is an internal error indicating the key has invalid format.
 var errIdempotencyKeyInvalidFormat = http.ErrAbortHandler
 
-// buildKey constructs a storage key from HTTP method, path, and idempotency key.
-// Format idk:{service}:{idempotency_key}
-// For HTTP, service is represented as {method}:/{path}.
-// Example: idk:POST:/api/v1/users:550e8400-e29b-41d4-a716-446655440000
+// buildKey constructs a storage key from HTTP method, path, and idempotency key
+// with internalidem.BuildStorageKey: the tuple ("transport", service, key) in the
+// length-prefixed v2 format. For HTTP, service is represented as {method}:/{path}.
+// Example: idk:v2:9:transport18:POST:/api/v1/users36:550e8400-e29b-41d4-a716-446655440000
 func (m *middleware) buildKey(method, path, idempotencyKey string) string {
 	path = corestrings.InternString(strings.TrimPrefix(path, "/"))
 	return internalidem.BuildStorageKey(method+":/"+path, idempotencyKey)

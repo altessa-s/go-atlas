@@ -340,9 +340,10 @@ func (ri *requestInterceptor) isNilPointer(req any) bool {
 	}
 }
 
-// buildKey constructs a storage key from method name and idempotency key.
-// Format idk:{service}:{idempotency_key}
-// Example: idk:users.UserService:550e8400-e29b-41d4-a716-446655440000
+// buildKey constructs a storage key from method name and idempotency key with
+// internalidem.BuildStorageKey: the tuple ("transport", service, key) in the
+// length-prefixed v2 format, the service being the method without its name.
+// Example: idk:v2:9:transport17:users.UserService36:550e8400-e29b-41d4-a716-446655440000
 func (ri *requestInterceptor) buildKey(method, key string) string {
 	method = stdStrings.TrimPrefix(method, "/") // Remove leading slash if present
 	// Extract service name from fully qualified method name (e.g., "users.UserService/CreateUser" -> "users.UserService")

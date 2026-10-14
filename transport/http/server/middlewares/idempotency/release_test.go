@@ -21,11 +21,14 @@ func TestFailedRequestCannotReleaseNewOwner(t *testing.T) {
 	t.Parallel()
 	store := memory.New()
 	keeper := idempotency.New(store)
-	const key = "idk:POST:/users:550e8400-e29b-41d4-a716-446655440000"
+	// key is the Keeper key the middleware builds; the Keeper stores it in the
+	// empty namespace under storageKey.
+	const key = "idk:v2:9:transport11:POST:/users36:550e8400-e29b-41d4-a716-446655440000"
+	storageKey := idempotency.ComposeKey("namespace", "", key)
 	handler := middleware.Middleware(keeper)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, current, _, err := store.AttemptLock(r.Context(), key, nil)
+		_, current, _, err := store.AttemptLock(r.Context(), storageKey, nil)
 		require.NoError(t, err)
-		_, err = store.Steal(r.Context(), key, current, append(current, ' '))
+		_, err = store.Steal(r.Context(), storageKey, current, append(current, ' '))
 		require.NoError(t, err)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))

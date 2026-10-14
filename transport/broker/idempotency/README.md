@@ -15,7 +15,15 @@ offers effectively-once processing semantics over at-least-once message delivery
 | `KeyFunc` | Function signature for extracting an idempotency key from an incoming message |
 | `DefaultKeyFunc` | Extracts the key from message metadata (`deduplicate_id`, then `message_id`) |
 | `ProtoKeyFunc` | Generic helper extracting the key from a deserialized protobuf message payload |
-| `BuildStorageKey` | Builds namespaced storage keys (`ibk:{consumer}:{key}`) |
+| `BuildStorageKey` | Composes the `("ibk", consumer, key)` storage key in the v2 format (`idk:v2:3:ibk7:billing9:invoice-1`) |
+| `StorageKeyPrefix` | `"ibk"`, the domain tag that keeps broker keys apart from the HTTP and gRPC transport keys |
+
+## Storage keys
+
+`BuildStorageKey` composes its tuple with [`data/idempotency.ComposeKey`](../../../data/idempotency#storage-key-format): every component is
+length-prefixed, so distinct `(consumer, key)` pairs never share a record whatever bytes they hold. The v2 format replaced the colliding
+`ibk:{consumer}:{key}` layout with a clean cut: v1 records are never read, so follow the
+[rollout contract](../../../data/idempotency#rolling-out-the-v2-key-format) when upgrading.
 
 ## Options
 

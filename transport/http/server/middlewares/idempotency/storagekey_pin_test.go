@@ -10,9 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBuildKeyStorageABIPinned pins the exact storage-key format as an
+// TestBuildKeyStorageABIPinned pins the exact v2 storage-key format as an
 // external ABI: keys built here persist in Redis/NATS/memory backends, so
-// the literal byte layout must never change across refactors. The expected
+// the literal byte layout is frozen; an incompatible layout needs a new
+// version and a migration. The expected
 // values are hard-coded string literals on purpose — do not derive them
 // from the same helper that produces them.
 func TestBuildKeyStorageABIPinned(t *testing.T) {
@@ -32,14 +33,21 @@ func TestBuildKeyStorageABIPinned(t *testing.T) {
 			method: "POST",
 			path:   "/api/v1/users",
 			key:    "550e8400-e29b-41d4-a716-446655440000",
-			want:   "idk:POST:/api/v1/users:550e8400-e29b-41d4-a716-446655440000",
+			want:   "idk:v2:9:transport18:POST:/api/v1/users36:550e8400-e29b-41d4-a716-446655440000",
 		},
 		{
 			name:   "path without leading slash is normalized",
 			method: "PUT",
 			path:   "orders",
 			key:    "550e8400-e29b-41d4-a716-446655440000",
-			want:   "idk:PUT:/orders:550e8400-e29b-41d4-a716-446655440000",
+			want:   "idk:v2:9:transport11:PUT:/orders36:550e8400-e29b-41d4-a716-446655440000",
+		},
+		{
+			name:   "colon in the path stays inside the service component",
+			method: "POST",
+			path:   "/a:b",
+			key:    "c",
+			want:   "idk:v2:9:transport9:POST:/a:b1:c",
 		},
 	}
 

@@ -166,27 +166,37 @@ func TestKeeper_RejectsAKeyReusedForAnotherRequest(t *testing.T) {
 type tenantKey struct{}
 
 // TestKeeper_NamespacesIsolateTenants pins WithKeyNamespace on a shared
-// store: two tenants using the same key each get their own lock and result.
+// store: tenants using the same key each get their own lock and result, and
+// so do (tenant, key) pairs whose ':'-joined forms are equal, and a caller
+// without a tenant passing another tenant's joined or composed key.
 func TestKeeper_NamespacesIsolateTenants(t *testing.T) {
 	t.Parallel()
+	type request struct{ tenant, key string }
+	requests := []request{
+		{"acme", "invoice-1"},
+		{"globex", "invoice-1"},
+		{"a:b", "c"},
+		{"a", "b:c"},
+		{"", "acme:invoice-1"},
+		{"", idempotency.ComposeKey("namespace", "acme", "invoice-1")},
+	}
 	forEachBackend(t, func(t *testing.T, b backend) {
 		k := newKeeper(t, b, idempotency.WithKeyNamespace(func(ctx context.Context) string {
 			v, _ := ctx.Value(tenantKey{}).(string)
 			return v
 		}))
-		acme := context.WithValue(t.Context(), tenantKey{}, "acme")
-		globex := context.WithValue(t.Context(), tenantKey{}, "globex")
+		ctxOf := func(r request) context.Context { return context.WithValue(t.Context(), tenantKey{}, r.tenant) }
 
-		for _, ctx := range []context.Context{acme, globex} {
-			acquired, held, err := k.AttemptLock(ctx, "invoice-1")
+		for i, r := range requests {
+			acquired, held, err := k.AttemptLock(ctxOf(r), r.key)
 			require.NoError(t, err)
-			require.True(t, acquired, "tenants must not share a lock")
-			require.NoError(t, k.Complete(ctx, "invoice-1", ctx.Value(tenantKey{}), held))
+			require.True(t, acquired, "request %d (%q, %q) must not share a lock", i, r.tenant, r.key)
+			require.NoError(t, k.Complete(ctxOf(r), r.key, float64(i), held))
 		}
-		for _, ctx := range []context.Context{acme, globex} {
-			_, state, err := k.AttemptLock(ctx, "invoice-1")
+		for i, r := range requests {
+			_, state, err := k.AttemptLock(ctxOf(r), r.key)
 			require.NoError(t, err)
-			require.Equal(t, ctx.Value(tenantKey{}), state.Data, "a tenant must replay its own result")
+			require.Equal(t, float64(i), state.Data, "request %d (%q, %q) must replay its own result", i, r.tenant, r.key)
 		}
 	})
 }

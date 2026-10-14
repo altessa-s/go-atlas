@@ -10,12 +10,15 @@ via NATS infrastructure.
 ## Keys
 
 NATS KeyValue accepts only `[-/_=.a-zA-Z0-9]` in a key, with no leading or trailing dot and no empty token, so logical keys are escaped before they
-reach the bucket: every other byte, `=` itself, and every dot that would leave an empty token become `=HH` (upper-case hex). The key
-`idk:POST:/orders:123` the HTTP middleware builds is stored as `idk=3APOST=3A/orders=3A123`. A key that is already valid and contains no `=` is stored
-under itself, so existing data stays reachable. A key containing `=` now maps to another physical key than the raw one earlier releases wrote; migrate
-such entries or start on a fresh bucket. Upgrade every process sharing the bucket together: an old and a new process would otherwise address such a key
-under different physical keys. The escaped key may be at most 3072 bytes (an escaped byte takes three); a longer one fails with `ErrKeyTooLong` before
-any network I/O.
+reach the bucket: every other byte, `=` itself, and every dot that would leave an empty token become `=HH` (upper-case hex). The key the HTTP
+middleware builds for `POST /orders` with key `123`, which the `Keeper` stores as `idk:v2:9:namespace0:38:idk:v2:9:transport12:POST:/orders3:123`
+(see the [storage-key format](../../README.md#storage-key-format)), is stored as
+`idk=3Av2=3A9=3Anamespace0=3A38=3Aidk=3Av2=3A9=3Atransport12=3APOST=3A/orders3=3A123`. The key is escaped once, after both layers have composed
+it. As far as the escaping goes, a key that is already valid and contains no `=` is stored under itself, and a key containing `=` maps to another
+physical key than the raw one earlier releases wrote, so an old and a new process sharing a bucket would address such a key under different physical
+keys. The v2 key format itself is a clean cut that never reads earlier records: run it on a fresh bucket and follow the
+[rollout contract](../../README.md#rolling-out-the-v2-key-format). The escaped key may be at most 3072 bytes (an escaped byte takes three); a longer
+one fails with `ErrKeyTooLong` before any network I/O.
 
 ## Bucket TTL
 

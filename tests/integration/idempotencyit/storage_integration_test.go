@@ -7,13 +7,18 @@ package idempotencyit_test
 import (
 	"crypto/rand"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
+
+	idemnats "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
+	brokeridem "github.com/altessa-s/go-atlas/transport/broker/idempotency"
 )
 
 // TestStorage_AttemptLock pins the lock itself: the first caller acquires
@@ -41,26 +46,76 @@ func TestStorage_AttemptLock(t *testing.T) {
 }
 
 // TestStorage_AcceptsTheKeysTheKeeperBuilds pins that a storage takes every
-// key shape the layers above it produce: the HTTP middleware and the gRPC
-// interceptor build "idk:{service}:{key}", and a Keeper namespace prefixes
-// "{namespace}:". A storage that refuses them fails every request routed
-// through those layers.
+// key shape the layers above it produce, and keeps them apart: the HTTP
+// middleware and the gRPC interceptor compose ("transport", service, key),
+// the broker middleware ("ibk", consumer, key), and the Keeper wraps each in
+// ("namespace", namespace, key). Tuples whose ':'-joined forms are equal must
+// land on distinct entries, also after the NATS backend escapes them. A
+// storage that refuses the keys fails every request routed through those
+// layers.
 func TestStorage_AcceptsTheKeysTheKeeperBuilds(t *testing.T) {
 	t.Parallel()
+	const requestKey = "550e8400-e29b-41d4-a716-446655440000"
+	keeperKey := func(namespace, key string) string { return idempotency.ComposeKey("namespace", namespace, key) }
+	keys := []string{
+		keeperKey("", idempotency.ComposeKey("transport", "POST:/api/v1/orders", requestKey)),
+		keeperKey("", idempotency.ComposeKey("transport", "users.UserService", requestKey)),
+		keeperKey("acme", idempotency.ComposeKey("transport", "users.UserService", requestKey)),
+		keeperKey("", brokeridem.BuildStorageKey("billing", "invoice-1")),
+		keeperKey("acme", "invoice-1"),
+		// Pairs whose ':'-joined forms are equal.
+		keeperKey("a:b", "c"),
+		keeperKey("a", "b:c"),
+		keeperKey("", idempotency.ComposeKey("transport", "POST:/a:b", "c")),
+		keeperKey("", idempotency.ComposeKey("transport", "POST:/a", "b:c")),
+		// An unnamespaced caller passing another tenant's storage key.
+		keeperKey("", keeperKey("acme", "invoice-1")),
+	}
 	forEachBackend(t, func(t *testing.T, b backend) {
 		s := b.open(t, longTTL)
-		for _, key := range []string{
-			"idk:POST:/api/v1/orders:550e8400-e29b-41d4-a716-446655440000",
-			"idk:users.UserService:550e8400-e29b-41d4-a716-446655440000",
-			"acme:invoice-1",
-		} {
-			t.Run(key, func(t *testing.T) {
-				token := lock(t, s, key, payload("lock"))
-				require.NoError(t, s.Complete(t.Context(), key, payload("done"), token))
-				require.Equal(t, payload("done"), observe(t, s, key))
-			})
+		for _, key := range keys {
+			token := lock(t, s, key, payload("lock"))
+			require.NoError(t, s.Complete(t.Context(), key, payload(key), token))
+		}
+		for _, key := range keys {
+			require.Equal(t, payload(key), observe(t, s, key), "key %q must hold its own entry", key)
 		}
 	})
+}
+
+// TestStorage_NATSRefusesKeysEscapedBeyondTheLimit pins the NATS key-size
+// limit on the final key: the Keeper's composed key is escaped once, ':'
+// taking three bytes, and one whose escaped form exceeds 3072 bytes is
+// refused with ErrKeyTooLong rather than truncated, while one of exactly 3072
+// bytes is stored.
+func TestStorage_NATSRefusesKeysEscapedBeyondTheLimit(t *testing.T) {
+	t.Parallel()
+	const limit = 3072
+
+	// escapedLen is the NATS form's size of a key built from letters, digits,
+	// '/' and ':' only, the last being the one byte that is escaped.
+	escapedLen := func(key string) int { return len(key) + 2*strings.Count(key, ":") }
+	// keyOfSize returns the Keeper key of a transport request whose request
+	// key is n bytes.
+	keyOfSize := func(n int) string {
+		inner := idempotency.ComposeKey("transport", "POST:/orders", strings.Repeat("k", n))
+		return idempotency.ComposeKey("namespace", "", inner)
+	}
+
+	n := 1
+	for escapedLen(keyOfSize(n)) < limit {
+		n++
+	}
+	require.Equal(t, limit, escapedLen(keyOfSize(n)), "no request key size escapes to exactly the limit")
+
+	s := openNATS(t, longTTL)
+	atLimit := keyOfSize(n)
+	token := lock(t, s, atLimit, payload("lock"))
+	require.NoError(t, s.Complete(t.Context(), atLimit, payload("done"), token))
+	require.Equal(t, payload("done"), observe(t, s, atLimit))
+
+	_, _, _, err := s.AttemptLock(t.Context(), keyOfSize(n+1), payload("lock"))
+	require.ErrorIs(t, err, idemnats.ErrKeyTooLong)
 }
 
 // TestStorage_EmptyKeyIsRefused pins that no operation silently accepts an

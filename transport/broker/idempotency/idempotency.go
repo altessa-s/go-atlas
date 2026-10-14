@@ -18,7 +18,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// StorageKeyPrefix is the namespace prefix prepended to all storage keys managed by this package.
+// StorageKeyPrefix is the domain tag of the storage keys managed by this package: the first component of the tuple
+// [BuildStorageKey] composes, which keeps them apart from the keys of the HTTP and gRPC transports.
 const StorageKeyPrefix = "ibk"
 
 // KeyFunc extracts an idempotency key from an incoming message.
@@ -61,10 +62,11 @@ func ProtoKeyFunc[M proto.Message](newMsg func() M, get func(M) string) KeyFunc 
 	}
 }
 
-// BuildStorageKey formats the storage key for an idempotency record:
-// "ibk:{consumer}:{key}".
+// BuildStorageKey formats the storage key for an idempotency record: the tuple ([StorageKeyPrefix], consumer, key)
+// composed by [idempotency.ComposeKey], so distinct (consumer, key) pairs never share a storage key whatever bytes they
+// hold. The result persists in storage backends; see [idempotency.ComposeKey] for the frozen v2 layout.
 func BuildStorageKey(consumer, key string) string {
-	return StorageKeyPrefix + ":" + consumer + ":" + key
+	return idempotency.ComposeKey(StorageKeyPrefix, consumer, key)
 }
 
 // Wrap returns a [broker.SubscriberHandler] that deduplicates incoming messages

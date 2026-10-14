@@ -144,18 +144,19 @@ type Keeper struct {
 	metrics *keeperMetrics
 }
 
-// effectiveKey applies the optional per-context namespace so idempotency keys are
-// isolated by tenant/subject. It is applied uniformly to every storage operation
-// (AttemptLock/Steal/Complete/Delete). A nil namespace or an empty result leaves
-// the key unchanged (backward-compatible default).
+// effectiveKey returns the storage key for key: the tuple ("namespace",
+// namespace, key) composed by [ComposeKey], the namespace being the
+// per-context one (typically tenant/subject). It is applied uniformly to every
+// storage operation (AttemptLock/Steal/Complete/Release/Delete). The key is
+// wrapped even when the namespace is empty — a nil [KeyNamespaceFunc] and an
+// empty result are the same empty namespace — so no caller's raw key can
+// reach another namespace's storage key.
 func (i *Keeper) effectiveKey(ctx context.Context, key string) string {
-	if i.opts.keyNamespace == nil {
-		return key
+	var ns string
+	if i.opts.keyNamespace != nil {
+		ns = i.opts.keyNamespace(ctx)
 	}
-	if ns := i.opts.keyNamespace(ctx); ns != "" {
-		return ns + ":" + key
-	}
-	return key
+	return ComposeKey("namespace", ns, key)
 }
 
 var _ Idempotency = (*Keeper)(nil)

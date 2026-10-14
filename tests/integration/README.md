@@ -360,7 +360,8 @@ not valid UTF-8, since that is where miniredis and Redis can disagree.
 | Scenario                                  | Asserts                                                                                      |
 |-------------------------------------------|----------------------------------------------------------------------------------------------|
 | `Storage_AttemptLock`                     | The first caller acquires with a token; the next sees the holder's exact bytes and no token  |
-| `Storage_AcceptsTheKeysTheKeeperBuilds`   | Keys shaped as the transports and a Keeper namespace build them (`idk:POST:/orders:…`) work   |
+| `Storage_AcceptsTheKeysTheKeeperBuilds`   | Nested v2 keys of every layer work, each on its own entry, also for colliding `:`-joined tuples |
+| `Storage_NATSRefusesKeysEscaped…`         | NATS stores a key escaped to exactly 3072 bytes; one byte more fails with `ErrKeyTooLong`      |
 | `Storage_Complete`                        | Holder token writes; a foreign or stale token and a vanished key are refused without writing |
 | `Storage_Steal`                           | A matching expectation takes over and fences the old holder; a stale one or a missing key fails |
 | `Storage_Release`                         | Only the holder's token deletes; a completed result survives its holder's release             |
@@ -372,10 +373,10 @@ not valid UTF-8, since that is where miniredis and Redis can disagree.
 | `Keeper_*`                                | Replay of a completed result, release and retry, orphan reclaim under contention, fingerprints, namespaces |
 | `Middleware_*`                            | The HTTP middleware end to end: replay refused, concurrent duplicate gets 409, failure retried |
 
-**Open bug: the NATS storage refuses the keys the layers above it build.** NATS KV keys allow only `[-/_=.a-zA-Z0-9]`, but the HTTP middleware,
-the gRPC interceptor and the broker wrapper build `idk:{service}:{key}`, and a Keeper namespace prefixes `{namespace}:`. `AttemptLock` fails with
-`nats: invalid key`, so every request through the middleware on the NATS backend is answered 503. The `nats` subtests of
-`Storage_AcceptsTheKeysTheKeeperBuilds`, `Keeper_NamespacesIsolateTenants` and `Middleware_*` fail until it is fixed.
+The HTTP middleware and the gRPC interceptor compose `("transport", service, key)` and the broker wrapper `("ibk", consumer, key)` in the
+length-prefixed v2 format of [`data/idempotency.ComposeKey`](../../data/idempotency/README.md#storage-key-format), and the Keeper wraps every key
+in `("namespace", namespace, key)` — `idk:v2:9:namespace0:38:idk:v2:9:transport12:POST:/orders3:123`. NATS KV keys allow only
+`[-/_=.a-zA-Z0-9]`, so the NATS storage escapes the final key once (`:` becomes `=3A`) and refuses one longer than 3072 bytes after escaping.
 
 ## cacheit — the cache against a live Redis
 
@@ -409,11 +410,12 @@ test on a memory stream of its own. The idempotency scenarios keep their records
 | `Idempotency_PanicReleasesTheKeyForTheRedelivery`     | A panicking handler's key is released, so the first redelivery is processed                    |
 | `Idempotency_ConcurrentDuplicatesAcrossTwoInstancesRunOnce` | Two instances racing for copies of one ID: one side effect per ID, the loser backs off  |
 | `Idempotency_DeduplicateIDReachesTheSubscriber`       | The deduplication ID survives the wire as `deduplicate_id`, so `DefaultKeyFunc` keys on it     |
-| `Idempotency_NATSKVStorageAcceptsTheMiddlewareKeys`   | **Fails:** NATS KV refuses the `ibk:{consumer}:{key}` keys the middleware builds               |
+| `Idempotency_NATSKVStorageAcceptsTheMiddlewareKeys`   | The NATS KV storage locks and completes the escaped v2 key the middleware builds               |
+| `Idempotency_ConsumerScopesDoNotCollide`              | Consumers scoped `a:b` and `a` both process messages `c` and `b:c`: no record is shared         |
 
 The NATS provider maps `deduplicate_id` onto `Nats-Msg-Id` on publish and back onto `deduplicate_id` on receive, so the key the broker outbox
-sets on every event reaches a consumer. The failing scenario documents an open bug rather than a test fault: NATS KV accepts only
-`[-/_=.a-zA-Z0-9]` in a key, so the middleware over the NATS KV idempotency storage rejects every message as a storage error.
+sets on every event reaches a consumer. The broker wrapper composes `("ibk", consumer, key)` in the v2 key format, which NATS KV stores
+escaped, so a `:` in a consumer scope or a message ID can neither break the NATS KV storage nor make two consumers share a record.
 
 The broker outbox's own NATS path — the event ID reused as `Nats-Msg-Id`, a republish collapsed by JetStream — is covered by `outboxit`
 (`Dedup_*`); its storages are MongoDB and SQL, so it has no NATS-only path to exercise here.

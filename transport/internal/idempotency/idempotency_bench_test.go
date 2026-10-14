@@ -16,8 +16,13 @@ func BenchmarkDefaultKeyValidator(b *testing.B) {
 	}
 }
 
+// storageKeySink keeps the built keys escaping, so the benchmark counts the
+// allocation a request pays.
+var storageKeySink string
+
 func BenchmarkBuildStorageKey(b *testing.B) {
+	b.ReportAllocs()
 	for b.Loop() {
-		_ = idempotency.BuildStorageKey("users.UserService", "550e8400-e29b-41d4-a716-446655440000")
+		storageKeySink = idempotency.BuildStorageKey("users.UserService", "550e8400-e29b-41d4-a716-446655440000")
 	}
 }

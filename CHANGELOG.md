@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **Breaking — persisted idempotency keys.** Idempotency storage keys joined their components with `:` (`idk:{service}:{key}` in the HTTP
+  and gRPC transports, `ibk:{consumer}:{key}` in the broker middleware, `{namespace}:{key}` in `data/idempotency.Keeper`), so distinct
+  tuples shared a record — `(service "a:b", key "c")` and `("a", "b:c")` — and one request or tenant could replay another's stored result.
+  Keys are now composed by the new `data/idempotency.ComposeKey` in a length-prefixed v2 format (`idk:v2:9:transport17:users.UserService36:…`),
+  and the `Keeper` wraps every key as `("namespace", namespace, key)`, also without a namespace. The switch is a clean cut: v1 records are
+  never read. Deploy the release against a new Redis key prefix, NATS KV bucket or equivalent storage namespace; while old and new replicas
+  run side by side, and until the old records expire, the same operation can run on both versions, and a rollback carries the same risk.
+  Where duplicates are unacceptable, quiesce intake, drain handlers and wait out the old retention window before resuming. See
+  [data/idempotency](data/idempotency/README.md#rolling-out-the-v2-key-format).
 - `observability/tracing/factory` now honors `otlp.protocol` (`http` was ignored, gRPC was always used) and `otlp.compression: false` (gzip was
   always on).
 

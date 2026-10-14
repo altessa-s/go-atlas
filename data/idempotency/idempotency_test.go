@@ -315,12 +315,19 @@ func TestNew_NoWarnWhenExplicitDefault(t *testing.T) {
 	require.Equal(t, DefaultMaxLockDuration, k.opts.maxLockDuration)
 }
 
-// forgePastLockedAt rewrites the InProgress wire stored under key so
-// that LockedAt is `age` in the past. Used to exercise orphan-steal
-// without sleeping in tests.
+// forgePastLockedAt rewrites the InProgress wire a Keeper without a
+// namespace stores for key so that LockedAt is `age` in the past. Used
+// to exercise orphan-steal without sleeping in tests.
 func forgePastLockedAt(t *testing.T, s *testhelpers.MockIdempotencyStorage, key string, age time.Duration) {
 	t.Helper()
-	raw, ok := s.Entry(key)
+	forgeStoredLockedAt(t, s, ComposeKey("namespace", "", key), age)
+}
+
+// forgeStoredLockedAt rewrites the InProgress wire stored under
+// storageKey so that LockedAt is `age` in the past.
+func forgeStoredLockedAt(t *testing.T, s *testhelpers.MockIdempotencyStorage, storageKey string, age time.Duration) {
+	t.Helper()
+	raw, ok := s.Entry(storageKey)
 	require.True(t, ok, "key must exist in storage to forge LockedAt")
 
 	ser := &serializer.JSON{}
@@ -332,7 +339,7 @@ func forgePastLockedAt(t *testing.T, s *testhelpers.MockIdempotencyStorage, key 
 
 	forged, err := ser.Serialize(wire)
 	require.NoError(t, err)
-	s.SetEntry(key, forged)
+	s.SetEntry(storageKey, forged)
 }
 
 // TestComplete_StolenLock verifies that ErrLockStolen from the

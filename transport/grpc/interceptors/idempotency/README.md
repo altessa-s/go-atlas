@@ -41,6 +41,14 @@ principal that created the original entity, so echoing it unconditionally would 
 the key. Enable `WithExposeEntityID()` (YAML `exposeEntityID: true`) only when idempotency keys are unguessable and scoped per principal, or
 when the entity ID is not sensitive.
 
+## Storage keys
+
+The interceptor passes the Keeper the tuple `("transport", "package.Service", key)` in the length-prefixed v2 format of
+[`data/idempotency.ComposeKey`](../../../../data/idempotency#storage-key-format) — every method of `users.UserService` with key `550e8400-…`
+shares `idk:v2:9:transport17:users.UserService36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage.
+Keys are scoped by service, and the bytes of the key cannot reach another service's record. The format replaced `idk:{service}:{key}` with a
+clean cut: follow the [rollout contract](../../../../data/idempotency#rolling-out-the-v2-key-format) when upgrading.
+
 ## Request fingerprints and owners
 
 Each key records a fingerprint of the method and the deterministically marshaled request. A key reused for a different request is refused

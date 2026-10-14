@@ -40,15 +40,23 @@ func TestMiddleware_Dependencies(t *testing.T) {
 func TestBuildKey(t *testing.T) {
 	m := &middleware{}
 	key := m.buildKey("POST", "/api/v1/users", "550e8400-e29b-41d4-a716-446655440000")
-	want := "idk:POST:/api/v1/users:550e8400-e29b-41d4-a716-446655440000"
+	want := "idk:v2:9:transport18:POST:/api/v1/users36:550e8400-e29b-41d4-a716-446655440000"
 	require.Equal(t, want, key)
 }
 
 func TestBuildKey_LeadingSlash(t *testing.T) {
 	m := &middleware{}
 	key := m.buildKey("GET", "/test", "abc")
-	want := "idk:GET:/test:abc"
+	want := "idk:v2:9:transport9:GET:/test3:abc"
 	require.Equal(t, want, key)
+}
+
+// TestBuildKey_ColonsDoNotCollide pins that a ':' moved between the path and
+// the idempotency key yields another storage key: under the former
+// "idk:{service}:{key}" layout both requests shared one record.
+func TestBuildKey_ColonsDoNotCollide(t *testing.T) {
+	m := &middleware{}
+	require.NotEqual(t, m.buildKey("POST", "/a:b", "c"), m.buildKey("POST", "/a", "b:c"))
 }
 
 func TestIsSafeMethod(t *testing.T) {

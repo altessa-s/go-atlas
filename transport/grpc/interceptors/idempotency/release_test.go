@@ -22,9 +22,11 @@ func TestPostCallCannotReleaseNewOwner(t *testing.T) {
 	acquired, old, err := keeper.AttemptLock(t.Context(), "key")
 	require.NoError(t, err)
 	require.True(t, acquired)
-	_, current, _, err := store.AttemptLock(t.Context(), "key", nil)
+	// The Keeper stores "key" in the empty namespace under storageKey.
+	storageKey := idempotency.ComposeKey("namespace", "", "key")
+	_, current, _, err := store.AttemptLock(t.Context(), storageKey, nil)
 	require.NoError(t, err)
-	_, err = store.Steal(t.Context(), "key", current, append(current, ' '))
+	_, err = store.Steal(t.Context(), storageKey, current, append(current, ' '))
 	require.NoError(t, err)
 	ri := &requestInterceptor{interceptor: &interceptor{i: keeper}, lockedKey: "key", lockedState: old}
 	boom := errors.New("handler failed")
