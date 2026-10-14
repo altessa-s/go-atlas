@@ -130,3 +130,75 @@ func TestHandler_DepthLimitDoesNotLeak(t *testing.T) {
 	require.NotContains(t, out, secret, "the masked value survived the depth cutoff:\n%s", out)
 	require.NotContains(t, out, "Password:", "a struct was rendered raw at the depth cutoff:\n%s", out)
 }
+
+// TestHandler_KeyResolution pins case folding, nested-path precedence and
+// path-based patterns across the bare-key and full-path lookup modes.
+func TestHandler_KeyResolution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts []masking.Option
+		attr slog.Attr
+		want []string
+		deny []string
+	}{
+		{
+			name: "unicode key folds like strings.ToLower",
+			opts: []masking.Option{masking.WithField("xxxx", masking.FixedMask("MASKED"))},
+			attr: slog.String("xxxx", "v1"),
+			want: []string{"MASKED"},
+			deny: []string{"v1"},
+		},
+		{
+			name: "mixed-case ascii key inside nested group",
+			opts: []masking.Option{masking.WithMaskNestedFields(), masking.WithField("password", masking.FixedMask("MASKED"))},
+			attr: slog.Group("Request", slog.Group("Auth", slog.String("PassWord", "v1"), slog.String("User", "alice"))),
+			want: []string{"MASKED", "alice"},
+			deny: []string{"v1"},
+		},
+		{
+			name: "dotted rule wins over bare key",
+			opts: []masking.Option{
+				masking.WithMaskNestedFields(),
+				masking.WithField("token", masking.FixedMask("FLAT")),
+				masking.WithField("Req.Token", masking.FixedMask("NESTED")),
+			},
+			attr: slog.Group("req", slog.String("TOKEN", "v1"), slog.Group("other", slog.String("token", "v2"))),
+			want: []string{"NESTED", "FLAT"},
+			deny: []string{"v1", "v2"},
+		},
+		{
+			name: "pattern matches full path",
+			opts: []masking.Option{masking.WithMaskNestedFields(), masking.WithPattern(`^req\.id$`, masking.FixedMask("MASKED"))},
+			attr: slog.Group("req", slog.String("id", "v1")),
+			want: []string{"MASKED"},
+			deny: []string{"v1"},
+		},
+		{
+			name: "dotted rule ignored without nested masking",
+			opts: []masking.Option{masking.WithField("req.id", masking.FixedMask("MASKED"))},
+			attr: slog.Group("req", slog.String("id", "v1")),
+			want: []string{"v1"},
+			deny: []string{"MASKED"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			logger := slog.New(masking.NewHandler(slog.NewTextHandler(&buf, nil), tc.opts...))
+			logger.LogAttrs(t.Context(), slog.LevelInfo, "msg", tc.attr)
+
+			out := buf.String()
+			for _, s := range tc.want {
+				require.Contains(t, out, s)
+			}
+			for _, s := range tc.deny {
+				require.NotContains(t, out, s)
+			}
+		})
+	}
+}

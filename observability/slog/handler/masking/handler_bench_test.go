@@ -128,6 +128,42 @@ func BenchmarkHandlerHandle(b *testing.B) {
 		}
 	})
 
+	// Nested-field masking without dotted rules or patterns: the common
+	// grouped shape with mixed-case keys.
+	b.Run("nested_mixed_case_group", func(b *testing.B) {
+		nested := masking.NewHandler(benchDiscardHandler{},
+			masking.WithField("password", masking.FullMask()),
+			masking.WithField("token", masking.FullMask()),
+			masking.WithMaskNestedFields(),
+		)
+		rec := benchRecord(slog.Group("Request",
+			slog.String("RequestID", "req-123"),
+			slog.String("Method", "GET"),
+			slog.String("Password", "hunter2"),
+			slog.Group("Peer",
+				slog.String("Host", "localhost"),
+				slog.Int("Port", 8080),
+			),
+		))
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = nested.Handle(ctx, rec)
+		}
+	})
+
+	b.Run("defaults_mixed_case_group", func(b *testing.B) {
+		defaults := masking.NewHandler(benchDiscardHandler{}, masking.WithDefaults())
+		rec := benchRecord(slog.Group("Request",
+			slog.String("RequestID", "req-123"),
+			slog.String("Method", "GET"),
+			slog.String("UserEmail", "a@b.c"),
+		))
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = defaults.Handle(ctx, rec)
+		}
+	})
+
 	// WithDefaults registers regex patterns, which can match arbitrary
 	// paths — the walker must stay active for every type there.
 	b.Run("defaults_clean_struct", func(b *testing.B) {
