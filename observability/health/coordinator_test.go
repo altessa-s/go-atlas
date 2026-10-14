@@ -6,6 +6,7 @@ package health
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -170,4 +171,25 @@ func TestCoordinator_ListStatuses_HonorsOverride(t *testing.T) {
 	for name, s := range statuses {
 		require.Equal(t, StatusNotServing, s, "service %q should reflect override", name)
 	}
+}
+
+// TestCoordinator_CheckStatus_UnknownNamesNotRetained pins that caller-supplied
+// unknown service names are not cached: each distinct name would otherwise be
+// retained for the coordinator's lifetime.
+func TestCoordinator_CheckStatus_UnknownNamesNotRetained(t *testing.T) {
+	t.Parallel()
+	c := New()
+	c.RegisterService("svc", Func(func(context.Context) ServingStatus { return StatusServing }))
+
+	for i := range 1000 {
+		require.Equal(t, StatusServiceUnknown, c.CheckStatus(t.Context(), "unknown-"+strconv.Itoa(i)))
+	}
+	require.Equal(t, StatusServing, c.CheckStatus(t.Context(), "svc"))
+
+	cached := 0
+	c.statusCache.Range(func(any, any) bool {
+		cached++
+		return true
+	})
+	require.Equal(t, 1, cached, "only the registered service may be cached")
 }
