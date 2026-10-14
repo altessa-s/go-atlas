@@ -8,7 +8,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -436,4 +438,141 @@ func TestClient_CircuitBreakerOpenDetected(t *testing.T) {
 	err := do()
 	require.Error(t, err)
 	require.True(t, IsCircuitBreakerOpen(err), "client error must be detected as open breaker: %v", err)
+}
+
+// TestClient_DiscardedResponseReusesConnection verifies that a small
+// discarded retry response is drained so the HTTP/1.1 retry reuses the
+// connection, while large bodies are abandoned together with it.
+func TestClient_DiscardedResponseReusesConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		write503  func(w http.ResponseWriter)
+		wantConns int64
+	}{
+		{name: "small known length", write503: func(w http.ResponseWriter) {
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+		}, wantConns: 1},
+		{name: "unknown length", write503: func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.(http.Flusher).Flush() // forces chunked encoding
+			_, _ = io.WriteString(w, "busy")
+		}, wantConns: 1},
+		{name: "large known length", write503: func(w http.ResponseWriter) {
+			w.Header().Set("Content-Length", "1048576")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, strings.Repeat("x", 1<<20))
+		}, wantConns: 2},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var calls, conns atomic.Int64
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if calls.Add(1) == 1 {
+					tc.write503(w)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+				if s == http.StateNew {
+					conns.Add(1)
+				}
+			}
+			srv.Start()
+			t.Cleanup(srv.Close)
+
+			c := New(WithRetryMax(1), WithRetryWait(time.Nanosecond, time.Nanosecond))
+			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+			require.NoError(t, err)
+			resp, err := c.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.NoError(t, resp.Body.Close())
+			require.Equal(t, int64(2), calls.Load())
+			require.Equal(t, tc.wantConns, conns.Load())
+		})
+	}
+}
+
+// TestRetryRoundTripper_ReleasesDiscardedResponseBeforeBackoff verifies the
+// discarded response is closed before the backoff sleep, not after it.
+func TestRetryRoundTripper_ReleasesDiscardedResponseBeforeBackoff(t *testing.T) {
+	t.Parallel()
+
+	body := newTrackedBody()
+	var calls atomic.Int32
+	rt := &retryRoundTripper{
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: body, Request: req}, nil
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
+		}),
+		retryOpts: []coreretry.Option{
+			coreretry.WithMaxAttempts(1),
+			coreretry.WithNextDelay(func(int, error) time.Duration { return time.Hour }),
+		},
+		maxAttempts: 1,
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+		if err != nil {
+			done <- err
+			return
+		}
+		_, err = rt.RoundTrip(req) //nolint:bodyclose // the round trip fails with ctx canceled
+		done <- err
+	}()
+
+	testhelpers.WaitFor(t, 5*time.Second, body.closed.Load, "discarded body not closed before backoff")
+	require.Equal(t, int32(1), calls.Load())
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+}
+
+// TestRetryRoundTripper_ErrorHandlerReceivesReadableResponse verifies that
+// with an ErrorHandler the last response is kept readable across the backoff
+// sleep: when the context ends there, the handler still receives it intact.
+func TestRetryRoundTripper_ErrorHandlerReceivesReadableResponse(t *testing.T) {
+	t.Parallel()
+
+	attempted := make(chan struct{})
+	var got string
+	rt := &retryRoundTripper{
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
+			close(attempted)
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: newTrackedBody(), Request: req}, nil
+		}),
+		retryOpts: []coreretry.Option{
+			coreretry.WithMaxAttempts(1),
+			coreretry.WithNextDelay(func(int, error) time.Duration { return time.Hour }),
+		},
+		maxAttempts: 1,
+		errorHandler: func(resp *http.Response, err error, _ int) (*http.Response, error) {
+			b, rerr := io.ReadAll(resp.Body)
+			require.NoError(t, rerr)
+			got = string(b)
+			return nil, err
+		},
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		<-attempted
+		cancel()
+	}()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com", nil)
+	require.NoError(t, err)
+	_, err = rt.RoundTrip(req) //nolint:bodyclose // the round trip fails with ctx canceled
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, "body", got)
 }

@@ -112,6 +112,14 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		coreretry.WithShouldRetry(rt.shouldRetry),
 		coreretry.WithOnRetry(func(attempt int, err error, delay time.Duration) {
 			retryAttempts++
+			// A retry follows: release the discarded response before the
+			// backoff sleep so its connection returns to the pool meanwhile.
+			// With an ErrorHandler the response must stay readable in case
+			// the context ends during the sleep and the handler receives it.
+			if rt.errorHandler == nil && lastResp != nil && lastResp.Body != nil {
+				closeBody(lastResp)
+				lastResp.Body = http.NoBody
+			}
 			rt.metrics.retries.Inc()
 			if rt.logger != nil {
 				rt.logger.DebugContext(ctx,
@@ -221,11 +229,32 @@ func discardOnError(resp *http.Response, err error) (*http.Response, error) {
 	return resp, nil
 }
 
-// closeBody closes resp's body when there is one.
+// maxDiscardDrain caps how many bytes of a discarded response body are read
+// before closing it. Draining lets HTTP/1.1 reuse the connection; larger
+// bodies are cheaper to abandon together with their connection.
+const maxDiscardDrain = 64 << 10
+
+// closeBody drains (up to [maxDiscardDrain]) and closes resp's body when
+// there is one. Bodies of a larger known length and protocol upgrades are
+// closed without reading, and so is every body of a request without a
+// deadline: a stalled upstream must not block the caller indefinitely.
 func closeBody(resp *http.Response) {
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
+	if resp == nil || resp.Body == nil {
+		return
 	}
+	if drainable(resp) {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDiscardDrain))
+	}
+	_ = resp.Body.Close()
+}
+
+// drainable reports whether resp's discarded body is worth draining.
+func drainable(resp *http.Response) bool {
+	if resp.StatusCode == http.StatusSwitchingProtocols || resp.ContentLength > maxDiscardDrain || resp.Request == nil {
+		return false
+	}
+	_, ok := resp.Request.Context().Deadline()
+	return ok
 }
 
 // shouldRetry returns false for non-retryable error types.

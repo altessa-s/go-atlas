@@ -33,7 +33,7 @@ type httpClientMetrics struct {
 	// rebuild label maps per call. Cardinality is bounded by HTTP methods
 	// (× 5 status classes for totals).
 	durations sync.Map // method → metrics.Timer
-	totals    sync.Map // method+":"+status_class → metrics.Counter
+	totals    sync.Map // totalKey → metrics.Counter
 	errors    sync.Map // method → metrics.Counter
 }
 
@@ -47,25 +47,29 @@ func (m *httpClientMetrics) durationFor(method string) metrics.Timer {
 	return v.(metrics.Timer) //nolint:errcheck
 }
 
-func (m *httpClientMetrics) counterFor(cache *sync.Map, key string, c metrics.Counter, labels metrics.Labels) metrics.Counter {
-	if v, ok := cache.Load(key); ok {
-		return v.(metrics.Counter) //nolint:errcheck
-	}
-	v, _ := cache.LoadOrStore(key, c.WithLabels(labels))
-	return v.(metrics.Counter) //nolint:errcheck
-}
+// totalKey keys the totals cache; a comparable struct avoids building a
+// concatenated string key on every lookup.
+type totalKey struct{ method, statusClass string }
 
 // totalFor returns the requestsTotal counter bound to the (method,
 // status_class) label pair, binding it on first use.
 func (m *httpClientMetrics) totalFor(method, statusClass string) metrics.Counter {
-	key := method + ":" + statusClass
-	return m.counterFor(&m.totals, key, m.requestsTotal, metrics.Labels{"method": method, "status_class": statusClass})
+	key := totalKey{method: method, statusClass: statusClass}
+	if v, ok := m.totals.Load(key); ok {
+		return v.(metrics.Counter) //nolint:errcheck
+	}
+	v, _ := m.totals.LoadOrStore(key, m.requestsTotal.WithLabels(metrics.Labels{"method": method, "status_class": statusClass}))
+	return v.(metrics.Counter) //nolint:errcheck
 }
 
 // errorsFor returns the requestErrors counter bound to the method label,
 // binding it on first use.
 func (m *httpClientMetrics) errorsFor(method string) metrics.Counter {
-	return m.counterFor(&m.errors, method, m.requestErrors, metrics.Labels{"method": method})
+	if v, ok := m.errors.Load(method); ok {
+		return v.(metrics.Counter) //nolint:errcheck
+	}
+	v, _ := m.errors.LoadOrStore(method, m.requestErrors.WithLabels(metrics.Labels{"method": method}))
+	return v.(metrics.Counter) //nolint:errcheck
 }
 
 func newHTTPClientMetrics(c metrics.Collector, subsystem string) *httpClientMetrics {
