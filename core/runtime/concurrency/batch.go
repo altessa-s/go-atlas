@@ -239,7 +239,15 @@ func processSequential[T any](
 			}
 			return err
 		}
-		if err := fn.call(ctx, items, idx); err != nil {
+		// Branch inline rather than through batchFunc.call: the sequential
+		// loop runs per item and the extra call is measurable on cheap work.
+		var err error
+		if fn.index != nil {
+			err = fn.index(ctx, idx)
+		} else {
+			err = fn.item(ctx, item)
+		}
+		if err != nil {
 			if cfg.onError != nil {
 				cfg.onError(item, err)
 			}
