@@ -150,7 +150,7 @@ func writeMetadataToXXHasher(h *xxhash.Digest, md metadata.MD, relevantKeys []st
 				continue
 			}
 
-			writeHashField(h, tagMetadataValue, strings.InternString(v))
+			writeHashField(h, tagMetadataValue, v)
 			processedValues++
 
 			if processedValues >= maxMetadataValues {
@@ -193,7 +193,7 @@ func writeProcessedMetadataToXXHasher(h *xxhash.Digest, extra map[string]string)
 			continue
 		}
 		writeHashField(h, tagProcessedKey, strings.InternLowerString(k))
-		writeHashField(h, tagProcessedValue, strings.InternString(v))
+		writeHashField(h, tagProcessedValue, v)
 	}
 }
 

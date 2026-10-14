@@ -35,20 +35,14 @@ var ID = interceptors.Ref(interceptorName)
 // as a gRPC [codes.InvalidArgument] status.
 var ErrInvalidRequestId = errors.New("invalid request ID, it must be a UUID v4")
 
-// grpcHeaderGetter adapts gRPC metadata to the HeaderGetter interface.
-type grpcHeaderGetter struct {
-	md metadata.MD
-}
+// headerValue serves an already extracted request-ID value as a
+// [requestid.HeaderGetter], so the interceptor reads one metadata key instead
+// of copying the whole incoming metadata.
+type headerValue string
 
-// GetHeader returns the first value for the given metadata key.
-func (g *grpcHeaderGetter) GetHeader(name string) string {
-	if g.md == nil {
-		return ""
-	}
-	if vals := g.md.Get(name); len(vals) > 0 {
-		return vals[0]
-	}
-	return ""
+// GetHeader returns the extracted value regardless of name.
+func (v headerValue) GetHeader(string) string {
+	return string(v)
 }
 
 // ServerInterceptor returns a new interceptor that sets the request ID in the context.
@@ -183,7 +177,8 @@ func (i *interceptor) clientAttachRequestID(ctx context.Context) context.Context
 	// pooled and recycled.
 	var md metadata.MD
 	if existingMD, ok := metadata.FromOutgoingContext(ctx); ok {
-		md = existingMD.Copy()
+		// FromOutgoingContext already returns a private copy.
+		md = existingMD
 		md.Set(i.gen.HeaderName(), reqID)
 	} else {
 		md = metadata.Pairs(i.gen.HeaderName(), reqID)
@@ -192,11 +187,9 @@ func (i *interceptor) clientAttachRequestID(ctx context.Context) context.Context
 }
 
 func (i *interceptor) contextWithRequestID(ctx context.Context) (context.Context, error) {
-	var headers *grpcHeaderGetter
 	var raw string
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		headers = &grpcHeaderGetter{md: md}
-		raw = headers.GetHeader(i.gen.HeaderName())
+	if vals := metadata.ValueFromIncomingContext(ctx, i.gen.HeaderName()); len(vals) > 0 {
+		raw = vals[0]
 	}
 
 	if !i.gen.GenerateIfMissing() {
@@ -205,7 +198,7 @@ func (i *interceptor) contextWithRequestID(ctx context.Context) (context.Context
 		}
 	}
 
-	reqID := i.gen.Extract(headers)
+	reqID := i.gen.Extract(headerValue(raw))
 	if reqID == "" {
 		return ctx, nil // No valid request ID, return original context
 	}

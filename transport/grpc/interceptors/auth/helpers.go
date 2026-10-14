@@ -86,12 +86,10 @@ func ExtractBearerToken() TokenExtractor {
 // not cryptographic validation. Token validation should be done in the auth function.
 func ExtractTokenFromHeader(header string, fn func(t string) (string, error)) TokenExtractor {
 	return TokenExtractorFunc(func(ctx context.Context) (token string, err error) {
-		if md, ok := grpcmetadata.FromIncomingContext(ctx); ok {
-			authHeaders := md.Get(header)
-			if len(authHeaders) > 0 {
-				authHeader := strings.TrimSpace(authHeaders[0])
-				token, err = fn(authHeader)
-			}
+		// Read the single key rather than copying all incoming metadata.
+		if authHeaders := grpcmetadata.ValueFromIncomingContext(ctx, header); len(authHeaders) > 0 {
+			authHeader := strings.TrimSpace(authHeaders[0])
+			token, err = fn(authHeader)
 		}
 
 		if token == "" && err == nil {

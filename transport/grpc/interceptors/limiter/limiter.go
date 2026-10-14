@@ -182,12 +182,7 @@ func (i *interceptor) rateLimit(ctx context.Context, method string) (metadata.MD
 }
 
 func extractBearerToken(ctx context.Context) string {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return ""
-	}
-
-	authHeaders := md.Get("authorization")
+	authHeaders := metadata.ValueFromIncomingContext(ctx, "authorization")
 	if len(authHeaders) == 0 {
 		return ""
 	}
