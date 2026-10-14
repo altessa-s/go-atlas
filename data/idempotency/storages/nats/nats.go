@@ -16,6 +16,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 	"github.com/altessa-s/go-atlas/data/internal/natsbase"
+	"github.com/altessa-s/go-atlas/data/internal/natskey"
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -31,6 +32,10 @@ var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 // with another storage type and [WithStrictBucketStorage] is set. The bucket is
 // left untouched.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
+// ErrKeyTooLong is returned, before any network I/O, for a key whose escaped
+// form exceeds the NATS KeyValue key budget (see the package README).
+var ErrKeyTooLong = natskey.ErrKeyTooLong
 
 // Storage is a NATS JetStream KeyValue-backed idempotency key store.
 // TTL is handled at the bucket level via MaxAge configuration.
@@ -93,6 +98,10 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 	if key == "" {
 		return false, nil, nil, storages.ErrEmptyKey
 	}
+	key, err := physicalKey(key)
+	if err != nil {
+		return false, nil, nil, err
+	}
 
 	var createOpts []jetstream.KVCreateOpt
 	createOpts = coreslices.AppendIf(createOpts, lockTtl > 0, jetstream.KeyTTL(lockTtl))
@@ -130,11 +139,15 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToke
 	if key == "" {
 		return storages.ErrEmptyKey
 	}
+	key, err := physicalKey(key)
+	if err != nil {
+		return err
+	}
 
 	if lockToken == nil {
 		// No CAS guard requested — fall back to unconditional Put.
 		// Used by tests and adapters that bypass the safe path.
-		if _, err := s.KV().Put(ctx, key, val); err != nil {
+		if _, err = s.KV().Put(ctx, key, val); err != nil {
 			return coreerrs.WrapOperation(err, "complete idempotency key in NATS")
 		}
 		return nil
@@ -201,6 +214,10 @@ func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []b
 	if key == "" {
 		return nil, storages.ErrEmptyKey
 	}
+	key, err := physicalKey(key)
+	if err != nil {
+		return nil, err
+	}
 
 	entry, err := s.KV().Get(ctx, key)
 	if err != nil {
@@ -233,6 +250,10 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 	if key == "" {
 		return storages.ErrEmptyKey
 	}
+	key, err := physicalKey(key)
+	if err != nil {
+		return err
+	}
 
 	if err := s.KV().Delete(ctx, key); err != nil {
 		return coreerrs.WrapOperation(err, "delete idempotency key from NATS")
@@ -249,6 +270,10 @@ func (s *Storage) Release(ctx context.Context, key string, lockToken []byte) err
 	if len(lockToken) == 0 {
 		return storages.ErrMissingLockState
 	}
+	key, err := physicalKey(key)
+	if err != nil {
+		return err
+	}
 	revision, err := decodeRevisionToken(lockToken)
 	if err != nil {
 		return err
@@ -263,4 +288,16 @@ func (s *Storage) Release(ctx context.Context, key string, lockToken []byte) err
 		return coreerrs.WrapOperation(err, "release idempotency key in NATS")
 	}
 	return nil
+}
+
+// physicalKey maps a logical idempotency key onto the NATS KeyValue key it is
+// stored under. Every operation goes through it exactly once, so the composite
+// keys the transport middlewares and the Keeper build (with ':' and other
+// bytes NATS rejects) reach the same entry everywhere.
+func physicalKey(key string) (string, error) {
+	physical, err := natskey.Encode(key)
+	if err != nil {
+		return "", coreerrs.WrapOperation(err, "encode NATS KeyValue key")
+	}
+	return physical, nil
 }

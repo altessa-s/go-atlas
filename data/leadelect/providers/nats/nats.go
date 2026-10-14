@@ -17,6 +17,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas/data/internal/natskey"
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -34,6 +35,10 @@ var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 // with another storage type and [WithStrictBucketStorage] is set. The bucket is
 // left untouched.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
+// ErrKeyTooLong is returned by Start for an election key whose escaped form
+// exceeds the NATS KeyValue key budget (see the package README).
+var ErrKeyTooLong = natskey.ErrKeyTooLong
 
 const (
 	// minTTL is the shortest election TTL Start accepts. Below a second the
@@ -291,6 +296,12 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 	// nil dereference.
 	if cfg.Key == "" {
 		return errors.New("key cannot be empty")
+	}
+
+	// The key stays logical: the KV operations encode it. Checking here only
+	// rejects an oversized key before the provider claims to be running.
+	if _, err := natskey.Encode(cfg.Key); err != nil {
+		return err
 	}
 
 	if cfg.NodeId == "" {

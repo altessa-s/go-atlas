@@ -11,18 +11,28 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/data/internal/natsbase"
+	"github.com/altessa-s/go-atlas/data/internal/natskey"
 	"github.com/altessa-s/go-atlas/data/mongo/cursorstorages/kvstore"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
-// backend implements kvstore.Storage for NATS JetStream KeyValue.
+// ErrKeyTooLong is returned, before any network I/O, for a cursor key whose
+// escaped form exceeds the NATS KeyValue key budget (see the package README).
+var ErrKeyTooLong = natskey.ErrKeyTooLong
+
+// backend implements kvstore.Storage for NATS JetStream KeyValue. It takes
+// logical keys and escapes each into a valid KeyValue key.
 type backend struct {
 	natsbase.Base
 }
 
 // Get retrieves a value from NATS KeyValue.
 func (b *backend) Get(ctx context.Context, key string) ([]byte, error) {
+	key, err := natskey.Encode(key)
+	if err != nil {
+		return nil, err
+	}
 	entry, err := b.KV().Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
@@ -35,12 +45,20 @@ func (b *backend) Get(ctx context.Context, key string) ([]byte, error) {
 
 // Set stores a value in NATS KeyValue.
 func (b *backend) Set(ctx context.Context, key string, value []byte) error {
-	_, err := b.KV().Put(ctx, key, value)
+	key, err := natskey.Encode(key)
+	if err != nil {
+		return err
+	}
+	_, err = b.KV().Put(ctx, key, value)
 	return err
 }
 
 // Delete removes a key from NATS KeyValue (idempotent).
 func (b *backend) Delete(ctx context.Context, key string) error {
+	key, err := natskey.Encode(key)
+	if err != nil {
+		return err
+	}
 	if err := b.KV().Purge(ctx, key); err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return nil // Idempotent
@@ -115,6 +133,11 @@ func New(kv jetstream.KeyValue) *Storage {
 //
 // Thread-safe: NATS handles concurrent access.
 func (s *Storage) Delete(ctx context.Context, key string) error {
+	key, err := natskey.Encode(key)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "delete cursor from nats")
+	}
+
 	// Override to use Purge for NATS (removes all revisions)
 	if err := s.KV().Purge(ctx, key); err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
