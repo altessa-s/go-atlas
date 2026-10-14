@@ -92,3 +92,35 @@ func TestCustomMutableLiteralRejected(t *testing.T) {
 	_, err = p.Parse(t.Context(), "mutable()")
 	require.ErrorIs(t, err, filter.ErrUnsupportedType)
 }
+
+func TestParserShared_ReturnsSameNode(t *testing.T) {
+	t.Parallel()
+	p, err := filter.NewParser()
+	require.NoError(t, err)
+
+	expr := `name == "John" && age >= 18`
+	first, err := p.ParseShared(t.Context(), expr)
+	require.NoError(t, err)
+
+	second, err := p.ParseShared(t.Context(), expr)
+	require.NoError(t, err)
+	require.Same(t, first, second, "ParseShared must return the cached node directly without cloning")
+
+	owned, err := p.Parse(t.Context(), expr)
+	require.NoError(t, err)
+	require.Equal(t, first, owned)
+	require.NotSame(t, first, owned, "Parse must return a cloned, caller-owned node")
+
+	// MustParseShared
+	mustShared := p.MustParseShared(expr)
+	require.Same(t, first, mustShared)
+
+	// Error handling
+	_, err = p.ParseShared(t.Context(), "")
+	require.ErrorIs(t, err, filter.ErrEmptyExpression)
+
+	require.Panics(t, func() {
+		p.MustParseShared("")
+	})
+}
+

@@ -34,6 +34,36 @@ func BenchmarkParse_Complex(b *testing.B) {
 	}
 }
 
+func BenchmarkParse_Cached(b *testing.B) {
+	p, err := filter.NewParser()
+	if err != nil {
+		b.Fatal(err)
+	}
+	expr := `(name == "John" || name == "Jane") && age >= 18 && status in ["active", "pending"]`
+	// Warm up cache
+	_, _ = p.Parse(b.Context(), expr)
+
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = p.Parse(b.Context(), expr)
+	}
+}
+
+func BenchmarkParseShared_Cached(b *testing.B) {
+	p, err := filter.NewParser()
+	if err != nil {
+		b.Fatal(err)
+	}
+	expr := `(name == "John" || name == "Jane") && age >= 18 && status in ["active", "pending"]`
+	// Warm up cache
+	_, _ = p.ParseShared(b.Context(), expr)
+
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = p.ParseShared(b.Context(), expr)
+	}
+}
+
 func BenchmarkEvaluate_Simple(b *testing.B) {
 	p, _ := filter.NewParser(filter.WithParserNoCache())
 	eval := mustEvaluator(b)

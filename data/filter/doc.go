@@ -46,7 +46,7 @@
 //	    log.Fatal(err)
 //	}
 //
-//	// Parse a CEL expression
+//	// Parse a CEL expression (or parser.ParseShared for read-only ASTs passed to translators)
 //	ast, err := parser.Parse(ctx, `name == "John" && age >= 18`)
 //	if err != nil {
 //	    log.Fatal(err)
