@@ -149,6 +149,10 @@ func (p *Parser) ParseShared(ctx context.Context, expression string) (Node, erro
 // parseCached parses expression through the cache when the parser has one.
 func (p *Parser) parseCached(ctx context.Context, expression string) (Node, error) {
 	if p.cache != nil {
+		// Probe first so a hit does not allocate the compute closure.
+		if node, ok := p.cache.Get(expression); ok {
+			return node, nil
+		}
 		return p.cache.GetOrCompute(ctx, expression, func(_ context.Context) (Node, error) {
 			return p.parseInternal(expression)
 		})

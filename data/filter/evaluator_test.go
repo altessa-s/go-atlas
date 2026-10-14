@@ -447,6 +447,41 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 	})
 }
 
+// TestEvaluator_InListBudget pins that `in` evaluates every list element and
+// charges the list node against the depth budget even when an earlier element
+// already matches. The expression costs 6 operations (in, ident, list, 3
+// literals) and depth 2 (in, list).
+func TestEvaluator_InListBudget(t *testing.T) {
+	t.Parallel()
+
+	p := newTestParser(t)
+	node, err := p.Parse(t.Context(), `s in ["a", "b", "c"]`)
+	require.NoError(t, err)
+	data := map[string]any{"s": "a"}
+
+	tests := []struct {
+		name    string
+		opts    []filter.TranslatorOption
+		wantErr error
+	}{
+		{name: "fits", opts: []filter.TranslatorOption{filter.WithMaxOperations(6), filter.WithMaxDepth(2)}},
+		{name: "later element exceeds operations", opts: []filter.TranslatorOption{filter.WithMaxOperations(5)}, wantErr: filter.ErrMaxOperationsExceeded},
+		{name: "list exceeds depth", opts: []filter.TranslatorOption{filter.WithMaxDepth(1)}, wantErr: filter.ErrMaxDepthExceeded},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := mustEvaluator(t, tc.opts...).Evaluate(node, data)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, got)
+		})
+	}
+}
+
 // TestEvaluator_ConcurrentUse shares one Evaluator across parallel subtests,
 // each evaluating with its own data. Evaluate used to store the data and the
 // depth/operation counters on the Evaluator itself, so concurrent calls raced
