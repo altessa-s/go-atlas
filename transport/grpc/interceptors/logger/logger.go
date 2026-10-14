@@ -138,7 +138,7 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 	meta, _ := metadata.FromContext(ctx)
 
 	// Check if this method should be ignored
-	if i.ignoreChecker.ShouldFilter(strings.InternLowerString(meta.FullyMethodName)) {
+	if i.ignoreChecker.ShouldFilter(meta.FullyMethodName) {
 		return driver.NoopDriver(), ctx
 	}
 
