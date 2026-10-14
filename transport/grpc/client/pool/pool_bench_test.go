@@ -6,6 +6,7 @@ package pool
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -44,4 +45,33 @@ func BenchmarkGetAndReturnConnection(b *testing.B) {
 		}
 		p.ReturnConnection(conn)
 	}
+}
+
+func BenchmarkGetAndReturnConnection_ParallelTargets(b *testing.B) {
+	factory := func(ctx context.Context, target string) (*grpc.ClientConn, error) {
+		return grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	}
+	p := New(WithClientFactory(factory), WithSize(64))
+	ctx := b.Context()
+
+	stop, err := p.Start(ctx)
+	if err != nil {
+		b.Fatalf("Start() error = %v", err)
+	}
+	defer stop()
+
+	targets := []string{"localhost:1", "localhost:2", "localhost:3", "localhost:4"}
+	var next atomic.Uint32
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		target := targets[int(next.Add(1))%len(targets)]
+		for pb.Next() {
+			conn, err := p.GetConnection(ctx, target)
+			if err != nil {
+				b.Errorf("GetConnection() error = %v", err)
+				return
+			}
+			p.ReturnConnection(conn)
+		}
+	})
 }
