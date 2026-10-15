@@ -122,10 +122,13 @@ func isBase32Char(c rune) bool {
 		(c >= 'V' && c <= 'Z') // V-Z
 }
 
-// parseCursorToken detects cursor format and loads cursor accordingly.
-// Supports two formats:
-//  1. ULID (26 chars) - Server-side storage (stateful mode), requires CursorStorage
-//  2. Base64-encoded JSON - Client-side storage (stateless mode)
+// parseCursorToken loads a cursor in the format the configuration selects,
+// never the one the token's shape suggests:
+//  1. storage configured: the token must be a ULID storage key (stateful
+//     mode); anything else fails with [ErrInvalidCursorFormat], so a
+//     client-minted stateless token cannot bypass storage and subject binding
+//  2. no storage: the token must be base64-encoded JSON (stateless mode); a
+//     ULID fails with [ErrStorageRequired]
 //
 // Parameters:
 //   - ctx: Context for storage operations
@@ -142,11 +145,9 @@ func parseCursorToken(ctx context.Context, token string, storage CursorStorage, 
 		return nil, nil //nolint:nilnil // nil cursor with nil error is semantically correct here
 	}
 
-	// Detect format: ULID (26 chars) vs Base64 (variable length)
-	if isULID(token) {
-		// Server-side cursor format
-		if storage == nil {
-			return nil, coreerrs.Wrap(ErrStorageRequired, "received ULID cursor but no storage configured")
+	if storage != nil {
+		if !isULID(token) {
+			return nil, coreerrs.Wrap(ErrInvalidCursorFormat, "cursor storage is configured: only server-issued storage keys are accepted")
 		}
 
 		// Load metadata from storage
@@ -175,6 +176,10 @@ func parseCursorToken(ctx context.Context, token string, storage CursorStorage, 
 		return cursor, nil
 	}
 
+	if isULID(token) {
+		return nil, coreerrs.Wrap(ErrStorageRequired, "received ULID cursor but no storage configured")
+	}
+
 	// Stateless format: base64-encoded JSON
 	cursor, err := ParseCursor(token)
 	if err != nil {
@@ -187,6 +192,40 @@ func parseCursorToken(ctx context.Context, token string, storage CursorStorage, 
 	}
 
 	return cursor, nil
+}
+
+// validateStatelessCursor checks a client-supplied stateless cursor against
+// the server's pagination parameters: its ID must be an ObjectID, its checksum
+// and embedded sort/ID-field metadata must match sort and cursorIdField, and —
+// for a direct *Cursor, which skipped parseCursorToken — its filter hash must
+// match filter.
+func validateStatelessCursor(c *Cursor, sort bson.D, cursorIdField string, filter bson.M, direct bool) error {
+	if !isValidCursorId(c.CursorId) {
+		return coreerrs.Wrap(ErrInvalidCursor, "cursor_id must be a MongoDB ObjectID (24 hex characters)")
+	}
+	if err := c.ValidateChecksum(sort, cursorIdField); err != nil {
+		return err
+	}
+	if direct {
+		return c.ValidateFilter(filter)
+	}
+	return nil
+}
+
+// validateCursorSortValue checks the cursor's SortValue against the effective
+// sort: the server stores one only when the sort is led by a field other than
+// cursorIdField, and it must decode to a supported BSON scalar.
+func validateCursorSortValue(c *Cursor, sort bson.D, cursorIdField string) error {
+	if c.SortValue == "" {
+		return nil
+	}
+	if len(sort) == 0 || sort[0].Key == cursorIdField {
+		return coreerrs.Wrap(ErrInvalidCursor, "sort value present for a sort led by the cursor ID field")
+	}
+	if _, err := decodeSortValue(c.SortValue); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidCursor, err)
+	}
+	return nil
 }
 
 // generateNextCursorToken creates the next cursor token.

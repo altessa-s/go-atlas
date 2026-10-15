@@ -63,7 +63,7 @@ const (
 //	{"$or": [
 //	    {"updated_at": {"$lt": 1234567890}},
 //	    {"$and": [
-//	        {"updated_at": 1234567890},
+//	        {"updated_at": {"$eq": 1234567890}},
 //	        {"cursor_id": {"$lt": "01HQVZX3M8..."}}
 //	    ]}
 //	]}
@@ -115,7 +115,8 @@ func buildCursorFilter(cursor *Cursor, cursorIdField string, sort bson.D) bson.M
 				// Items with same sort value but smaller/larger cursor_id (tie-breaker)
 				bson.M{
 					"$and": bson.A{
-						bson.M{sortFieldName: sortValue},
+						// Explicit $eq: the value is an operand, never a query expression.
+						bson.M{sortFieldName: bson.M{"$eq": sortValue}},
 						bson.M{cursorIdField: bson.M{op: oid}},
 					},
 				},

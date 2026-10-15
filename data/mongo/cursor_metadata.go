@@ -194,10 +194,14 @@ func (m *CursorMetadata) ToCursor() (*Cursor, error) {
 	// Note: We don't have the actual filter here, only its hash
 	// This is fine because ToCursor is only used in stateful mode (server-side storage)
 	// where filter validation is done via CursorMetadata.ValidateFilter()
-	cursor, err := NewCursorWithMetadata(m.CursorId, sort, m.CursorIdField, nil, m.SortValue)
+	cursor, err := NewCursorWithMetadata(m.CursorId, sort, m.CursorIdField, nil, nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create cursor from metadata")
 	}
+
+	// m.SortValue is already base64 BSON: carry it over as is rather than
+	// encoding it a second time as a string.
+	cursor.SortValue = m.SortValue
 
 	return cursor, nil
 }
