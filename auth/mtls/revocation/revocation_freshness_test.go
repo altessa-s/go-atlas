@@ -118,3 +118,80 @@ func TestCheckHonorsStaleRevokedResponse(t *testing.T) {
 	err := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen)).Check(leaf)
 	require.ErrorIs(t, err, coremtls.ErrRevoked)
 }
+
+func TestCheckRejectsGoodResponseWithoutNextUpdatePastMaxAge(t *testing.T) {
+	t.Parallel()
+	ca := makeCA(t)
+	var hits atomic.Int32
+	now := time.Now()
+	srv := windowResponder(t, ca, ocsp.Good, now.Add(-2*revocation.DefaultMaxResponseAge), time.Time{}, &hits)
+	leaf := makeLeaf(t, ca, 42, srv.URL)
+
+	closed := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailClosed))
+	require.ErrorIs(t, closed.Check(leaf), revocation.ErrStaleResponse)
+	require.ErrorIs(t, closed.Check(leaf), revocation.ErrStaleResponse)
+	require.Equal(t, int32(2), hits.Load(), "a stale response must not be cached")
+
+	relaxed := revocation.New([]*x509.Certificate{ca.Cert},
+		revocation.WithFailMode(revocation.FailClosed), revocation.WithMaxResponseAge(3*revocation.DefaultMaxResponseAge))
+	require.NoError(t, relaxed.Check(leaf))
+}
+
+func TestCheckCapsCacheAtMaxResponseAge(t *testing.T) {
+	t.Parallel()
+	ca := makeCA(t)
+	var hits atomic.Int32
+	start := time.Now()
+	thisUpdate := start.Add(-revocation.DefaultMaxResponseAge + 10*time.Minute)
+	srv := windowResponder(t, ca, ocsp.Good, thisUpdate, time.Time{}, &hits)
+	leaf := makeLeaf(t, ca, 42, srv.URL)
+
+	var offset atomic.Int64
+	clock := func() time.Time { return start.Add(time.Duration(offset.Load())) }
+	c := revocation.New([]*x509.Certificate{ca.Cert},
+		revocation.WithFailMode(revocation.FailClosed), revocation.WithClock(clock), revocation.WithClockSkew(0))
+
+	require.NoError(t, c.Check(leaf))
+	offset.Store(int64(5 * time.Minute))
+	require.NoError(t, c.Check(leaf))
+	require.Equal(t, int32(1), hits.Load(), "cached within the max age")
+
+	// Past thisUpdate+maxResponseAge but well inside maxTTL: the cached status
+	// must expire and the refetched (same, now too old) response is rejected.
+	offset.Store(int64(15 * time.Minute))
+	require.ErrorIs(t, c.Check(leaf), revocation.ErrStaleResponse)
+	require.Equal(t, int32(2), hits.Load())
+}
+
+func TestCheckMaxResponseAgeHonorsClockSkew(t *testing.T) {
+	t.Parallel()
+	ca := makeCA(t)
+	var hits atomic.Int32
+	skew := revocation.DefaultClockSkew
+	srv := windowResponder(t, ca, ocsp.Good, time.Now().Add(-revocation.DefaultMaxResponseAge-skew/2), time.Time{}, &hits)
+	leaf := makeLeaf(t, ca, 42, srv.URL)
+
+	c := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailClosed))
+	require.NoError(t, c.Check(leaf))
+
+	strict := revocation.New([]*x509.Certificate{ca.Cert},
+		revocation.WithFailMode(revocation.FailClosed), revocation.WithClockSkew(0))
+	require.ErrorIs(t, strict.Check(leaf), revocation.ErrStaleResponse)
+}
+
+func TestCheckCachesOldRevokedResponseWithoutNextUpdate(t *testing.T) {
+	t.Parallel()
+	ca := makeCA(t)
+	var hits atomic.Int32
+	srv := windowResponder(t, ca, ocsp.Revoked, time.Now().Add(-2*revocation.DefaultMaxResponseAge), time.Time{}, &hits)
+	leaf := makeLeaf(t, ca, 42, srv.URL)
+
+	c := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen))
+	require.ErrorIs(t, c.Check(leaf), coremtls.ErrRevoked)
+
+	// A responder outage after the revocation must not let the certificate
+	// through under FailOpen: the revoked status stays cached.
+	srv.Close()
+	require.ErrorIs(t, c.Check(leaf), coremtls.ErrRevoked)
+	require.Equal(t, int32(1), hits.Load())
+}

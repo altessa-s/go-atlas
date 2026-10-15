@@ -32,7 +32,7 @@ The default identity is the certificate's SPIFFE ID (via [`auth/spiffe`](../spif
 | `ExpiryValidator(now, leeway)`      | Re-check the validity window each call (long-lived connections). `now` defaults to `time.Now`.   |
 | `TrustDomainValidator(domains…)`    | Pin accepted SPIFFE trust domains; empty list = any.                                            |
 | `RevocationList` / `NewRevocationList` | Concurrency-safe serial-number denylist; `Revoke`/`Restore`/`IsRevoked`, `Validator()` → `CertValidator`. |
-| `SubjectValidator(names…)`          | Pin accepted Subject DNs (classic-PKI identity); subset-match on `pkix.Name`, empty list = any.   |
+| `SubjectValidator(names…)`          | Pin accepted Subject DNs (classic-PKI identity); subset-match on every set `pkix.Name` field, `Names`/`ExtraNames` included; empty list = any. |
 | `IssuerValidator(names…)`           | Pin accepted issuer (CA) DNs; same subset rule, empty list = any.                                |
 | `AuthorityKeyIDValidator(keyIDs…)`  | Pin accepted issuing-CA Authority Key IDs; robust CA pin over the verified chain, empty = any.    |
 | `DNSNameValidator(names…)`          | Pin accepted DNS SANs via `VerifyHostname` (wildcard-aware); empty list = any.                    |
@@ -40,12 +40,14 @@ The default identity is the certificate's SPIFFE ID (via [`auth/spiffe`](../spif
 
 ## Validation beyond TLS
 
-The TLS handshake already verifies the certificate chain and validity window at connection time. Validators run on **every** call, which
-matters for long-lived connections (streams, pooled HTTP/2): `ExpiryValidator` re-checks the validity window so a connection that outlives
-its certificate is rejected; `TrustDomainValidator` pins SPIFFE trust domains, while `SubjectValidator` / `IssuerValidator` /
-`AuthorityKeyIDValidator` are the classic-PKI counterpart — pin the certificate DN, the issuer DN, or the issuing-CA key ID when identity
-lives in the DN rather than a SPIFFE URI. `DNSNameValidator` pins accepted DNS SANs (wildcard-aware), and `EKUValidator` requires extended
-key usages (`clientAuth` on a server verifying clients, `serverAuth` on a client verifying the server). For revocation, `RevocationList` is a built-in concurrency-safe
+The TLS handshake already verifies the certificate chain and validity window at connection time. Validators run on **every** call, which matters for
+long-lived connections (streams, pooled HTTP/2): `ExpiryValidator` re-checks the validity window so a connection that outlives its certificate is
+rejected; `TrustDomainValidator` pins SPIFFE trust domains, while `SubjectValidator` / `IssuerValidator` / `AuthorityKeyIDValidator` are the classic-PKI
+counterpart — pin the certificate DN, the issuer DN, or the issuing-CA key ID when identity lives in the DN rather than a SPIFFE URI. The DN match
+checks every field set in a candidate `pkix.Name` (CN, serial number, O, OU, C, L, ST, street, postal code) and requires each `Names` / `ExtraNames`
+attribute in the certificate with the same type and string value; a candidate attribute with a non-string value fails the validator closed with
+`ErrUnsupportedDNAttribute`. `DNSNameValidator` pins accepted DNS SANs (wildcard-aware), and `EKUValidator` requires extended key usages (`clientAuth`
+on a server verifying clients, `serverAuth` on a client verifying the server). For revocation, `RevocationList` is a built-in concurrency-safe
 serial-number denylist — feed it from a CRL poll, an admin action, or a cached OCSP result:
 
 ```go

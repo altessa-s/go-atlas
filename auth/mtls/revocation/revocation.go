@@ -46,8 +46,10 @@ var (
 	// ErrUnknownStatus indicates the responder answered "unknown".
 	ErrUnknownStatus = errors.New("revocation: OCSP responder returned unknown status")
 	// ErrStaleResponse indicates a "good" OCSP response outside its validity
-	// window: its nextUpdate has passed or its thisUpdate is in the future. It is
-	// treated as indeterminate, so the [FailMode] decides the outcome.
+	// window: its nextUpdate has passed, its thisUpdate is in the future, or —
+	// when it carries no nextUpdate — its thisUpdate is older than the maximum
+	// response age. It is treated as indeterminate, so the [FailMode] decides the
+	// outcome.
 	ErrStaleResponse = errors.New("revocation: OCSP response is not within its validity window")
 )
 
@@ -75,8 +77,9 @@ func shouldRetryOCSP(err error) bool {
 // and produces a [coremtls.CertValidator]. It is the network-backed counterpart
 // to the in-memory [coremtls.RevocationList]: instead of a static denylist it
 // queries the issuer's OCSP responder (the URL in the certificate's
-// authorityInfoAccess), caches each result until the response's NextUpdate, and
-// retries transient failures with backoff.
+// authorityInfoAccess), caches each result until the response's NextUpdate
+// (for a response without one: until its ThisUpdate plus the maximum response
+// age), and retries transient failures with backoff.
 //
 // An OCSP request is keyed by the issuer's name and public key, which the
 // single-leaf validator seam does not carry — so the trusting issuer
@@ -91,6 +94,7 @@ type Checker struct {
 	maxTTL          time.Duration
 	maxCacheEntries int
 	clockSkew       time.Duration
+	maxResponseAge  time.Duration
 	now             func() time.Time
 
 	mu    sync.RWMutex
@@ -124,6 +128,7 @@ func New(issuers []*x509.Certificate, opts ...Option) *Checker {
 		maxTTL:          o.maxTTL,
 		maxCacheEntries: o.maxCacheEntries,
 		clockSkew:       o.clockSkew,
+		maxResponseAge:  o.maxResponseAge,
 		now:             now,
 		cache:           make(map[string]cacheEntry),
 	}
@@ -177,11 +182,11 @@ func (c *Checker) checkOnce(key string, leaf, issuer *x509.Certificate) (bool, e
 		if e, ok := c.lookup(key); ok { // another caller may have just filled it
 			return e.revoked, nil
 		}
-		revoked, ttl, qerr := c.queryOCSP(leaf, issuer)
+		revoked, expiry, qerr := c.queryOCSP(leaf, issuer)
 		if qerr != nil {
 			return false, qerr
 		}
-		c.store(key, revoked, ttl)
+		c.store(key, revoked, expiry)
 		return revoked, nil
 	})
 	if err != nil {
@@ -225,8 +230,8 @@ func (c *Checker) lookup(key string) (cacheEntry, bool) {
 	return e, true
 }
 
-func (c *Checker) store(key string, revoked bool, ttl time.Duration) {
-	if ttl <= 0 {
+func (c *Checker) store(key string, revoked bool, expiry time.Time) {
+	if !expiry.After(c.now()) {
 		return
 	}
 	c.mu.Lock()
@@ -234,7 +239,7 @@ func (c *Checker) store(key string, revoked bool, ttl time.Duration) {
 	if _, exists := c.cache[key]; !exists && len(c.cache) >= c.maxCacheEntries {
 		c.evictLocked()
 	}
-	c.cache[key] = cacheEntry{revoked: revoked, expiry: c.now().Add(ttl)}
+	c.cache[key] = cacheEntry{revoked: revoked, expiry: expiry}
 }
 
 // evictLocked drops expired entries to make room; if none are expired it drops
@@ -257,10 +262,11 @@ func (c *Checker) evictLocked() {
 }
 
 // queryOCSP fetches and parses the OCSP status, retrying transient failures.
-func (c *Checker) queryOCSP(leaf, issuer *x509.Certificate) (revoked bool, ttl time.Duration, err error) {
+// expiry is the absolute time until which the status may be cached.
+func (c *Checker) queryOCSP(leaf, issuer *x509.Certificate) (revoked bool, expiry time.Time, err error) {
 	reqDER, err := ocsp.CreateRequest(leaf, issuer, &ocsp.RequestOptions{Hash: crypto.SHA256})
 	if err != nil {
-		return false, 0, coreerrs.Wrap(err, "revocation: build OCSP request")
+		return false, time.Time{}, coreerrs.Wrap(err, "revocation: build OCSP request")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), c.timeout)
@@ -289,25 +295,30 @@ func (c *Checker) queryOCSP(leaf, issuer *x509.Certificate) (revoked bool, ttl t
 		})),
 	)
 	if err != nil {
-		return false, 0, coreerrs.Wrap(err, "revocation: query OCSP")
+		return false, time.Time{}, coreerrs.Wrap(err, "revocation: query OCSP")
 	}
 
 	switch resp.Status {
 	case ocsp.Good:
 		// The parser checks the signature, not freshness: a replayed "good"
-		// response past its nextUpdate (or dated in the future) must not vouch
-		// for the certificate.
+		// response past its nextUpdate (dated in the future, or — without a
+		// nextUpdate — older than maxResponseAge) must not vouch for the
+		// certificate, nor be cached past that deadline.
 		if err := c.checkFreshness(resp); err != nil {
-			return false, 0, err
+			return false, time.Time{}, err
 		}
-		return false, c.ttlFor(resp), nil
+		expiry := c.expiryFor(resp)
+		if resp.NextUpdate.IsZero() {
+			expiry = earliest(expiry, resp.ThisUpdate.Add(c.maxResponseAge))
+		}
+		return false, expiry, nil
 	case ocsp.Revoked:
 		// A signed revocation is honored even when stale: revocation is
 		// permanent, and demoting it to indeterminate would accept the
 		// certificate under FailOpen.
-		return true, c.ttlFor(resp), nil
+		return true, c.expiryFor(resp), nil
 	default:
-		return false, 0, ErrUnknownStatus
+		return false, time.Time{}, ErrUnknownStatus
 	}
 }
 
@@ -329,7 +340,8 @@ func (c *Checker) post(ctx context.Context, url string, body []byte) ([]byte, er
 }
 
 // checkFreshness rejects a response whose validity window does not contain
-// now, tolerating clockSkew on both ends.
+// now, tolerating clockSkew on both ends. A response without a nextUpdate is
+// valid until its thisUpdate plus maxResponseAge.
 func (c *Checker) checkFreshness(resp *ocsp.Response) error {
 	now := c.now()
 	if resp.ThisUpdate.After(now.Add(c.clockSkew)) {
@@ -338,20 +350,30 @@ func (c *Checker) checkFreshness(resp *ocsp.Response) error {
 	if !resp.NextUpdate.IsZero() && now.After(resp.NextUpdate.Add(c.clockSkew)) {
 		return fmt.Errorf("%w: nextUpdate %s has passed", ErrStaleResponse, resp.NextUpdate.Format(time.RFC3339))
 	}
+	if resp.NextUpdate.IsZero() && now.After(resp.ThisUpdate.Add(c.maxResponseAge+c.clockSkew)) {
+		return fmt.Errorf("%w: thisUpdate %s is older than the maximum response age %s without a nextUpdate",
+			ErrStaleResponse, resp.ThisUpdate.Format(time.RFC3339), c.maxResponseAge)
+	}
 	return nil
 }
 
-// ttlFor derives the cache lifetime from the response NextUpdate, capped by
-// maxTTL. A zero/elapsed NextUpdate yields the cap / no caching respectively.
-func (c *Checker) ttlFor(resp *ocsp.Response) time.Duration {
+// expiryFor derives the cache expiry from the response NextUpdate, capped at
+// now+maxTTL. A zero NextUpdate yields the cap; an elapsed one yields a time in
+// the past, which store treats as "do not cache".
+func (c *Checker) expiryFor(resp *ocsp.Response) time.Time {
+	limit := c.now().Add(c.maxTTL)
 	if resp.NextUpdate.IsZero() {
-		return c.maxTTL
+		return limit
 	}
-	ttl := resp.NextUpdate.Sub(c.now())
-	if ttl <= 0 {
-		return 0
+	return earliest(resp.NextUpdate, limit)
+}
+
+// earliest returns the earlier of a and b.
+func earliest(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
 	}
-	return min(ttl, c.maxTTL)
+	return b
 }
 
 // cacheKey scopes a serial number to its issuer so serials never collide

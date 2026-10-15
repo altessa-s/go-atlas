@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -31,6 +32,11 @@ var (
 	// ErrIssuerMismatch indicates the certificate's Issuer DN matches none of the
 	// allowed names. Reported by [IssuerValidator].
 	ErrIssuerMismatch = errors.New("mtls: client certificate issuer not allowed")
+	// ErrUnsupportedDNAttribute indicates a [SubjectValidator] or [IssuerValidator]
+	// candidate name carries an attribute the matcher cannot compare (a non-string
+	// value). Such a validator rejects every certificate instead of silently
+	// ignoring the attribute.
+	ErrUnsupportedDNAttribute = errors.New("mtls: unsupported DN attribute in validator configuration")
 	// ErrUntrustedCA indicates the certificate's issuing-CA Authority Key ID is not
 	// in the allowed set. Reported by [AuthorityKeyIDValidator].
 	ErrUntrustedCA = errors.New("mtls: client certificate issuing CA not allowed")
@@ -150,38 +156,88 @@ func (rl *RevocationList) Validator() CertValidator {
 // certificate whose Subject matches any of names and rejects the rest with
 // [ErrSubjectMismatch]. Matching is subset-based — only the fields set in a
 // candidate name must match (so pkix.Name{CommonName: "billing"} matches any
-// certificate with that CN regardless of other RDNs). An empty names list is a
-// no-op. This is the classic-PKI counterpart to [TrustDomainValidator]: use it
-// when identity lives in the DN rather than a SPIFFE URI.
+// certificate with that CN regardless of other RDNs). Every populated field is
+// checked: CommonName, SerialNumber, Organization, OrganizationalUnit, Country,
+// Locality, Province, StreetAddress and PostalCode, plus every attribute listed
+// in Names and ExtraNames, which must appear in the certificate's parsed
+// attributes with the same type and string value (Names and ExtraNames add
+// requirements; they never relax a struct field). A pkix.Name copied from a
+// parsed certificate therefore matches that certificate. A candidate attribute
+// with a non-string value cannot be compared, so the whole validator fails
+// closed with [ErrUnsupportedDNAttribute] instead of ignoring it. An empty names
+// list is a no-op. This is the classic-PKI counterpart to [TrustDomainValidator]:
+// use it when identity lives in the DN rather than a SPIFFE URI.
 func SubjectValidator(names ...pkix.Name) CertValidator {
-	allowed := slices.Clone(names)
-	return func(cert *x509.Certificate) error {
-		if len(allowed) == 0 {
-			return nil
-		}
-		if dnMatchesAny(cert.Subject, allowed) {
-			return nil
-		}
-		return ErrSubjectMismatch
-	}
+	return dnValidator(names, func(c *x509.Certificate) pkix.Name { return c.Subject }, ErrSubjectMismatch)
 }
 
 // IssuerValidator pins the accepted issuer (CA) DNs by the same subset rule as
-// [SubjectValidator], rejecting a non-matching issuer with [ErrIssuerMismatch].
-// The TLS handshake already verified the certificate chains to a trusted CA;
-// this narrows that trust to a specific issuer identity. An empty names list is
-// a no-op.
+// [SubjectValidator], rejecting a non-matching issuer with [ErrIssuerMismatch]
+// and an uncheckable configuration with [ErrUnsupportedDNAttribute]. The TLS
+// handshake already verified the certificate chains to a trusted CA; this
+// narrows that trust to a specific issuer identity. An empty names list is a
+// no-op.
 func IssuerValidator(names ...pkix.Name) CertValidator {
-	allowed := slices.Clone(names)
+	return dnValidator(names, func(c *x509.Certificate) pkix.Name { return c.Issuer }, ErrIssuerMismatch)
+}
+
+// dnValidator builds the shared Subject/Issuer matcher over a deep copy of
+// names, so later mutation of the caller's values cannot change the policy.
+func dnValidator(names []pkix.Name, dn func(*x509.Certificate) pkix.Name, mismatch error) CertValidator {
+	allowed := make([]pkix.Name, 0, len(names))
+	for _, n := range names {
+		allowed = append(allowed, cloneName(n))
+	}
+	if err := checkDNSupported(allowed); err != nil {
+		return func(*x509.Certificate) error { return err }
+	}
 	return func(cert *x509.Certificate) error {
 		if len(allowed) == 0 {
 			return nil
 		}
-		if dnMatchesAny(cert.Issuer, allowed) {
+		if dnMatchesAny(dn(cert), allowed) {
 			return nil
 		}
-		return ErrIssuerMismatch
+		return mismatch
 	}
+}
+
+// cloneName deep-copies the parts of n the matcher reads.
+func cloneName(n pkix.Name) pkix.Name {
+	n.Country = slices.Clone(n.Country)
+	n.Organization = slices.Clone(n.Organization)
+	n.OrganizationalUnit = slices.Clone(n.OrganizationalUnit)
+	n.Locality = slices.Clone(n.Locality)
+	n.Province = slices.Clone(n.Province)
+	n.StreetAddress = slices.Clone(n.StreetAddress)
+	n.PostalCode = slices.Clone(n.PostalCode)
+	n.Names = cloneAttributes(n.Names)
+	n.ExtraNames = cloneAttributes(n.ExtraNames)
+	return n
+}
+
+func cloneAttributes(attrs []pkix.AttributeTypeAndValue) []pkix.AttributeTypeAndValue {
+	if attrs == nil {
+		return nil
+	}
+	out := make([]pkix.AttributeTypeAndValue, len(attrs))
+	for i, a := range attrs {
+		out[i] = pkix.AttributeTypeAndValue{Type: slices.Clone(a.Type), Value: a.Value}
+	}
+	return out
+}
+
+// checkDNSupported rejects a candidate attribute the matcher cannot compare:
+// only string values are supported.
+func checkDNSupported(names []pkix.Name) error {
+	for _, n := range names {
+		for _, a := range slices.Concat(n.Names, n.ExtraNames) {
+			if _, ok := a.Value.(string); !ok {
+				return fmt.Errorf("%w: attribute %s has a %T value", ErrUnsupportedDNAttribute, a.Type, a.Value)
+			}
+		}
+	}
+	return nil
 }
 
 // AuthorityKeyIDValidator pins the accepted issuing-CA Authority Key IDs: it
@@ -219,8 +275,9 @@ func dnMatchesAny(got pkix.Name, want []pkix.Name) bool {
 }
 
 // dnSubsetMatch reports whether every field set in want equals the matching
-// field in got. Unset fields in want are ignored, so a caller pins only the RDNs
-// it cares about.
+// field in got and every attribute in want.Names / want.ExtraNames is present
+// in got. Unset fields in want are ignored, so a caller pins only the RDNs it
+// cares about.
 func dnSubsetMatch(want, got pkix.Name) bool {
 	if want.CommonName != "" && want.CommonName != got.CommonName {
 		return false
@@ -230,7 +287,29 @@ func dnSubsetMatch(want, got pkix.Name) bool {
 	}
 	return containsAll(got.Organization, want.Organization) &&
 		containsAll(got.OrganizationalUnit, want.OrganizationalUnit) &&
-		containsAll(got.Country, want.Country)
+		containsAll(got.Country, want.Country) &&
+		containsAll(got.Locality, want.Locality) &&
+		containsAll(got.Province, want.Province) &&
+		containsAll(got.StreetAddress, want.StreetAddress) &&
+		containsAll(got.PostalCode, want.PostalCode) &&
+		hasAllAttributes(got, want.Names) &&
+		hasAllAttributes(got, want.ExtraNames)
+}
+
+// hasAllAttributes reports whether every attribute in want appears in got's
+// parsed (Names) or extra (ExtraNames) attributes with the same type and string
+// value. Values are known to be strings (see checkDNSupported).
+func hasAllAttributes(got pkix.Name, want []pkix.AttributeTypeAndValue) bool {
+	for _, w := range want {
+		equal := func(g pkix.AttributeTypeAndValue) bool {
+			gv, ok := g.Value.(string)
+			return ok && g.Type.Equal(w.Type) && gv == w.Value
+		}
+		if !slices.ContainsFunc(got.Names, equal) && !slices.ContainsFunc(got.ExtraNames, equal) {
+			return false
+		}
+	}
+	return true
 }
 
 // containsAll reports whether every needle is present in haystack.

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
@@ -47,6 +48,16 @@ func WithLogger(v *slog.Logger) Option {
 func WithMaxCacheEntries(v int) Option {
 	return func(o *options) {
 		o.maxCacheEntries = v
+	}
+}
+
+// WithMaxResponseAge sets the maxResponseAge option.
+func WithMaxResponseAge(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.maxResponseAge = v
 	}
 }
 
@@ -99,6 +110,7 @@ func defaultOptions() *options {
 		failureMode:     DefaultFailureMode,
 		logger:          slog.New(slog.DiscardHandler),
 		maxCacheEntries: DefaultMaxCacheEntries,
+		maxResponseAge:  DefaultMaxResponseAge,
 	}
 }
 

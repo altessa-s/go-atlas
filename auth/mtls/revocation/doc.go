@@ -11,7 +11,9 @@
 // but it does not ask whether that certificate has since been revoked. This
 // package closes that gap on the verifier side: a [Checker] queries the
 // issuer's OCSP responder for the peer's leaf certificate, caches the answer
-// until its NextUpdate, and rejects a revoked peer with
+// until its NextUpdate (a "good" answer without one is trusted only up to
+// [DefaultMaxResponseAge] after its ThisUpdate, see [WithMaxResponseAge]), and
+// rejects a revoked peer with
 // [github.com/altessa-s/go-atlas/auth/mtls.ErrRevoked].
 //
 // It complements the in-memory [github.com/altessa-s/go-atlas/auth/mtls.RevocationList]

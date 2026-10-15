@@ -16,6 +16,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,7 @@ import (
 
 	"golang.org/x/crypto/ocsp"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -51,7 +53,9 @@ const (
 )
 
 // ErrStaleResponse indicates an OCSP response outside its validity window: its
-// nextUpdate has passed or its thisUpdate is in the future.
+// nextUpdate has passed, its thisUpdate is in the future, or — when it carries
+// no nextUpdate — its thisUpdate is older than the maximum response age (see
+// [WithMaxResponseAge]).
 var ErrStaleResponse = errors.New("ocsp: response is not within its validity window")
 
 var _ tlsutils.OCSPStapler = (*Stapler)(nil)
@@ -88,6 +92,8 @@ type Stapler struct {
 	// know their cert population is small and want to skip eviction
 	// bookkeeping).
 	maxCacheEntries int
+	// maxResponseAge bounds the age of a response without a nextUpdate.
+	maxResponseAge time.Duration
 }
 
 // FailureMode returns the configured [FailureMode]. [StapleOCSPToConfig]
@@ -147,6 +153,7 @@ func NewOCSPStapler(opts ...Option) *Stapler {
 		enableCompression: o.enableCompression,
 		failureMode:       failureMode,
 		maxCacheEntries:   o.maxCacheEntries,
+		maxResponseAge:    o.maxResponseAge,
 		scheduler:         o.scheduler,
 	}
 
@@ -407,7 +414,7 @@ func (s *Stapler) fetchOCSPResponse(ctx context.Context, cert *tls.Certificate, 
 	// not-yet-valid "good" response must not be stapled (clients reject it, and
 	// in Hard mode it would mask a revocation that happened after NextUpdate).
 	now := time.Now()
-	if err := checkFreshness(parsedResp, now); err != nil {
+	if err := checkFreshness(parsedResp, now, s.maxResponseAge); err != nil {
 		return nil, time.Time{}, err
 	}
 
@@ -417,18 +424,30 @@ func (s *Stapler) fetchOCSPResponse(ctx context.Context, cert *tls.Certificate, 
 		// If no next update or too far in the future, refresh in 24 hours
 		nextUpdate = now.Add(DefaultOCSPExpiry)
 	}
+	if parsedResp.NextUpdate.IsZero() {
+		// A response without a nextUpdate is only trusted until thisUpdate plus
+		// the maximum response age; never serve it from cache past that.
+		if deadline := parsedResp.ThisUpdate.Add(s.maxResponseAge); deadline.Before(nextUpdate) {
+			nextUpdate = deadline
+		}
+	}
 
 	return ocspResp, nextUpdate, nil
 }
 
 // checkFreshness rejects a response whose validity window does not contain
-// now, tolerating ocspClockSkew on both ends.
-func checkFreshness(resp *ocsp.Response, now time.Time) error {
+// now, tolerating ocspClockSkew on both ends. A response without a nextUpdate
+// is valid until its thisUpdate plus maxAge.
+func checkFreshness(resp *ocsp.Response, now time.Time, maxAge time.Duration) error {
 	if resp.ThisUpdate.After(now.Add(ocspClockSkew)) {
 		return fmt.Errorf("%w: thisUpdate %s is in the future", ErrStaleResponse, resp.ThisUpdate.Format(time.RFC3339))
 	}
 	if !resp.NextUpdate.IsZero() && now.After(resp.NextUpdate.Add(ocspClockSkew)) {
 		return fmt.Errorf("%w: nextUpdate %s has passed", ErrStaleResponse, resp.NextUpdate.Format(time.RFC3339))
+	}
+	if resp.NextUpdate.IsZero() && now.After(resp.ThisUpdate.Add(maxAge+ocspClockSkew)) {
+		return fmt.Errorf("%w: thisUpdate %s is older than the maximum response age %s without a nextUpdate",
+			ErrStaleResponse, resp.ThisUpdate.Format(time.RFC3339), maxAge)
 	}
 	return nil
 }
@@ -622,6 +641,22 @@ func StapleCertificate(ctx context.Context, stapler tlsutils.OCSPStapler, cert *
 // produced; the default Soft-mode behavior serves the certificate
 // without a staple.
 //
+// crypto/tls serves a static certificate from config.Certificates without
+// calling GetCertificate when the client sends no SNI, which would bypass
+// stapling and Hard-mode enforcement. StapleOCSPToConfig therefore moves
+// config.Certificates (and NameToCertificate) into the wrapped GetCertificate,
+// leaving those fields empty, and reproduces crypto/tls's selection there: the
+// original GetCertificate when set and either SNI is present or no static
+// certificate exists, then NameToCertificate, the first certificate the client
+// supports, and finally the first one. When GetClientCertificate is unset, the
+// static certificates stay available to the client side through an installed
+// GetClientCertificate that selects like crypto/tls and, as before, does not
+// staple. Call it after Certificates is populated and do not repopulate
+// Certificates afterwards: a non-empty Certificates reopens the no-SNI path.
+// Configs returned by GetConfigForClient are not wrapped; apply
+// StapleOCSPToConfig to each of them. Enforcement applies to full handshakes —
+// a resumed session does not select a certificate again.
+//
 // Example:
 //
 //	config := tlsutils.DefaultTLSConfig()
@@ -631,24 +666,19 @@ func StapleOCSPToConfig(config *tls.Config, stapler tlsutils.OCSPStapler) error 
 		return errors.New("invalid config or stapler")
 	}
 
+	// Take ownership of the static certificates so every full handshake —
+	// with or without SNI — goes through the enforcing callback.
+	statics := slices.Clone(config.Certificates)
+	nameToCert := coremaps.NewImmutableMap(config.NameToCertificate) //nolint:staticcheck // reproduces crypto/tls selection
+	config.Certificates = nil
+	config.NameToCertificate = nil //nolint:staticcheck // moved into the callback with Certificates
+
 	// Store original GetCertificate function
 	originalGetCert := config.GetCertificate
 
 	// Wrap GetCertificate to add OCSP stapling
 	config.GetCertificate = func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-		var cert *tls.Certificate
-		var err error
-
-		switch {
-		case originalGetCert != nil:
-			cert, err = originalGetCert(hello)
-		case len(config.Certificates) > 0:
-			// Use first certificate if no GetCertificate function
-			cert = &config.Certificates[0]
-		default:
-			return nil, errors.New("no certificates available")
-		}
-
+		cert, err := selectServerCertificate(hello, originalGetCert, statics, nameToCert)
 		if err != nil {
 			return nil, err
 		}
@@ -662,7 +692,8 @@ func StapleOCSPToConfig(config *tls.Config, stapler tlsutils.OCSPStapler) error 
 
 	// Also handle client certificates if needed
 	originalGetClientCert := config.GetClientCertificate
-	if originalGetClientCert != nil {
+	switch {
+	case originalGetClientCert != nil:
 		config.GetClientCertificate = func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
 			cert, err := originalGetClientCert(info)
 			if err != nil {
@@ -675,7 +706,63 @@ func StapleOCSPToConfig(config *tls.Config, stapler tlsutils.OCSPStapler) error 
 
 			return stapleOrEnforce(ctx, stapler, cert)
 		}
+	case len(statics) > 0:
+		// Keep the moved certificates usable by a client-side handshake exactly
+		// as crypto/tls would pick them; static client certificates were never
+		// stapled, so this path does not staple either.
+		config.GetClientCertificate = func(info *tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			for i := range statics {
+				if info.SupportsCertificate(&statics[i]) == nil {
+					return &statics[i], nil
+				}
+			}
+			return new(tls.Certificate), nil
+		}
 	}
 
 	return nil
+}
+
+// selectServerCertificate mirrors crypto/tls (*Config).getCertificate over the
+// certificates StapleOCSPToConfig moved out of the config.
+func selectServerCertificate(
+	hello *tls.ClientHelloInfo,
+	getCert func(*tls.ClientHelloInfo) (*tls.Certificate, error),
+	statics []tls.Certificate,
+	nameToCert *coremaps.ImmutableMap[string, *tls.Certificate],
+) (*tls.Certificate, error) {
+	if getCert != nil && (len(statics) == 0 || hello.ServerName != "") {
+		cert, err := getCert(hello)
+		if cert != nil || err != nil {
+			return cert, err
+		}
+	}
+
+	switch len(statics) {
+	case 0:
+		return nil, errors.New("no certificates available")
+	case 1:
+		return &statics[0], nil
+	}
+
+	if nameToCert != nil {
+		name := strings.ToLower(hello.ServerName)
+		if cert, ok := nameToCert.Get(name); ok {
+			return cert, nil
+		}
+		if name != "" {
+			labels := strings.Split(name, ".")
+			labels[0] = "*"
+			if cert, ok := nameToCert.Get(strings.Join(labels, ".")); ok {
+				return cert, nil
+			}
+		}
+	}
+
+	for i := range statics {
+		if hello.SupportsCertificate(&statics[i]) == nil {
+			return &statics[i], nil
+		}
+	}
+	return &statics[0], nil
 }

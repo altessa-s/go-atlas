@@ -13,7 +13,11 @@
 //   - Automatic caching of OCSP responses with lazy expiration cleanup
 //   - Scheduler-based refresh via RunRefreshCycle for integration with service/scheduler
 //   - Response validation: issuer signature, leaf serial number, good status, and
-//     validity window (thisUpdate/nextUpdate with clock-skew tolerance)
+//     validity window (thisUpdate/nextUpdate with clock-skew tolerance; a
+//     response without nextUpdate expires DefaultMaxResponseAge after thisUpdate,
+//     see WithMaxResponseAge)
+//   - StapleOCSPToConfig enforces the failure mode with and without SNI: it moves
+//     Config.Certificates into the wrapped GetCertificate
 //   - Optional gzip transfer encoding for responder replies (WithCompression)
 //   - Configurable retry policies for network failures
 //   - Thread-safe concurrent operations
