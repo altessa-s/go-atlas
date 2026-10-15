@@ -57,7 +57,19 @@ type Extractor struct {
 //		clientip.WithTrustedProxies(netip.MustParsePrefix("10.0.0.0/8")),
 //	)
 func NewExtractor(opt ...Option) (*Extractor, error) {
+	const mappedIPv4PrefixBits = 96
+
 	opts := newOptions(opt...)
+	// Addresses are unmapped before trust checks, so mapped IPv4 prefixes
+	// must use the same representation. Clone to avoid changing caller slices.
+	for _, prefixes := range []*[]netip.Prefix{&opts.trustedPeers, &opts.trustedProxies} {
+		*prefixes = slices.Clone(*prefixes)
+		for i, prefix := range *prefixes {
+			if prefix.Addr().Is4In6() && prefix.Bits() >= mappedIPv4PrefixBits {
+				(*prefixes)[i] = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-mappedIPv4PrefixBits)
+			}
+		}
+	}
 
 	var cache lru.Cacher[string, netip.Addr]
 
@@ -84,24 +96,29 @@ func (e *Extractor) debugEnabled(ctx context.Context) bool {
 
 // Extract determines the real client IP using the following strategy:
 //
-//  1. If peerIP is neither trusted nor private, it is returned immediately.
+//  1. If peerIP is not trusted — not in the trusted peers or trusted proxies,
+//     and not private with [WithTrustPrivatePeers] set — it is returned
+//     immediately: an untrusted peer cannot speak for anyone else.
 //  2. Otherwise, configured proxy headers are walked in order; for
-//     X-Forwarded-For the rightmost non-trusted, non-private entry wins.
+//     X-Forwarded-For the rightmost non-trusted, non-private entry wins,
+//     or a nonzero trusted proxy count selects an exact position.
 //  3. If no public IP is found in any header, peerIP is returned as a
-//     fallback (covers local development with loopback addresses).
+//     fallback.
 //
 // Returns an invalid [netip.Addr] only when peerIP itself is invalid and
 // no header yields a valid address.
 func (e *Extractor) Extract(ctx context.Context, peerIP netip.Addr, headers HeaderGetter) netip.Addr {
+	trusted := e.peerTrusted(peerIP.Unmap())
+
 	if e.debugEnabled(ctx) {
 		e.opts.logger.DebugContext(ctx, "peer IP",
 			slog.String("ip", peerIP.String()),
-			slog.Bool("is_private", IsPrivate(peerIP)),
-			slog.Bool("is_trusted", IsTrusted(peerIP, e.opts.trustedPeers)),
+			slog.Bool("is_private", IsPrivate(peerIP.Unmap())),
+			slog.Bool("is_trusted", trusted),
 		)
 	}
 
-	if !IsTrusted(peerIP, e.opts.trustedPeers) && !IsPrivate(peerIP) {
+	if !trusted {
 		if e.debugEnabled(ctx) {
 			e.opts.logger.DebugContext(ctx, "using peer IP as real IP", slog.String("ip", peerIP.String()))
 		}
@@ -129,13 +146,18 @@ func (e *Extractor) Extract(ctx context.Context, peerIP netip.Addr, headers Head
 			continue
 		}
 
-		if header == InternedHeaderXForwardedFor {
+		if isForwardedFor(header) {
 			if ip := e.parseXForwardedForHeader(ctx, ips); ip.IsValid() {
 				if e.debugEnabled(ctx) {
 					e.opts.logger.DebugContext(ctx, "found IP from X-Forwarded-For",
 						slog.String("ip", ip.String()))
 				}
 				return ip
+			}
+			if e.opts.trustedProxiesCount > 0 {
+				// An unverifiable count-selected client must not be replaced
+				// by a claim from another forwarding header.
+				return peerIP
 			}
 			// The XFF parser already rejected every entry as private or a
 			// trusted proxy; the generic parser below would accept a public
@@ -169,6 +191,22 @@ func (e *Extractor) Extract(ctx context.Context, peerIP netip.Addr, headers Head
 	return peerIP
 }
 
+// peerTrusted reports whether peer may supply forwarding headers: it is a
+// configured trusted peer or trusted proxy, or it is private and private
+// peers were opted in with [WithTrustPrivatePeers].
+func (e *Extractor) peerTrusted(peer netip.Addr) bool {
+	return IsTrusted(peer, e.opts.trustedPeers) ||
+		IsTrusted(peer, e.opts.trustedProxies) ||
+		(e.opts.trustPrivatePeers && IsPrivate(peer))
+}
+
+// isForwardedFor reports whether header names X-Forwarded-For. Header names
+// are case-insensitive, and gRPC metadata keys are lowercase, so a configured
+// "x-forwarded-for" must still get the right-to-left treatment.
+func isForwardedFor(header string) bool {
+	return strings.EqualFold(header, HeaderXForwardedFor)
+}
+
 func (e *Extractor) getIPsFromHeader(ctx context.Context, header string, headers HeaderGetter) []string {
 	headerValues := headers.GetHeader(header)
 	if len(headerValues) == 0 {
@@ -178,6 +216,15 @@ func (e *Extractor) getIPsFromHeader(ctx context.Context, header string, headers
 	if e.debugEnabled(ctx) {
 		e.opts.logger.DebugContext(ctx, "processing header",
 			slog.String("header", header), slog.Int("values_count", len(headerValues)))
+	}
+
+	if isForwardedFor(header) {
+		ips := forwardedForIPs(headerValues)
+		if len(ips) > 0 && e.debugEnabled(ctx) {
+			e.opts.logger.DebugContext(ctx, "ips from header", slog.String("header", header),
+				slog.Any("ips", ips))
+		}
+		return ips
 	}
 
 	ips := make([]string, 0, len(headerValues))
@@ -226,6 +273,39 @@ func (e *Extractor) getIPsFromHeader(ctx context.Context, header string, headers
 	return ips
 }
 
+// forwardedForIPs returns the rightmost [MaxIPsPerHeader] entries of an
+// X-Forwarded-For chain in left-to-right order. Each proxy appends to the
+// right, so the trusted suffix lives there and the left end is whatever the
+// client sent: collecting from the left would let a client pad the chain until
+// the proxy-appended entry falls off the limit. Field lines are consumed last
+// to first and each one is split from its right end, so only the consumed
+// tail is scanned however long the header is. Empty and overlong entries keep
+// their positions as empty placeholders so proxy counts cannot shift left.
+func forwardedForIPs(values []string) []string {
+	ips := make([]string, 0, MaxIPsPerHeader)
+	parts := 0
+	for _, value := range slices.Backward(values) {
+		for parts < MaxIPsPerHeader {
+			i := strings.LastIndexByte(value, ',')
+			parts++
+			if trimmed := strings.TrimSpace(value[i+1:]); trimmed != "" && len(trimmed) <= MaxIPLength {
+				ips = append(ips, corestrings.InternString(trimmed))
+			} else {
+				ips = append(ips, "")
+			}
+			if i < 0 {
+				break
+			}
+			value = value[:i]
+		}
+		if parts >= MaxIPsPerHeader {
+			break
+		}
+	}
+	slices.Reverse(ips)
+	return ips
+}
+
 func (e *Extractor) parseAndCheckIP(ctx context.Context, ip, header string) (netip.Addr, bool) {
 	// Check cache first if available
 	if e.cache != nil {
@@ -247,7 +327,7 @@ func (e *Extractor) parseAndCheckIP(ctx context.Context, ip, header string) (net
 	// Intern the IP string for better memory efficiency
 	internedIP := corestrings.InternString(ip)
 
-	addr, err := netip.ParseAddr(internedIP)
+	addr, err := parseAddr(internedIP)
 	if err != nil {
 		e.opts.logger.WarnContext(ctx, "failed to parse IP",
 			slog.String("ip", internedIP),
@@ -278,6 +358,14 @@ func (e *Extractor) parseAndCheckIP(ctx context.Context, ip, header string) (net
 	return netip.Addr{}, false
 }
 
+// parseAddr parses a header entry and unmaps an IPv4-mapped IPv6 address, so
+// "::ffff:10.0.0.1" is classified, cached, and reported as the IPv4 address it
+// carries instead of slipping past the IPv4 private and trusted prefixes.
+func parseAddr(s string) (netip.Addr, error) {
+	addr, err := netip.ParseAddr(s)
+	return addr.Unmap(), err
+}
+
 // Headers returns an iterator over the configured header names in their
 // evaluation order.
 func (e *Extractor) Headers() iter.Seq[string] {
@@ -300,7 +388,10 @@ func (e *Extractor) parseXForwardedForHeader(ctx context.Context, ips []string) 
 	// We need to find the rightmost IP that is not from a trusted proxy
 
 	// If we have configured trusted proxies count, we can trust that many proxies from the right
-	if e.opts.trustedProxiesCount > 0 && uint(len(ips)) > e.opts.trustedProxiesCount {
+	if e.opts.trustedProxiesCount > 0 {
+		if uint(len(ips)) <= e.opts.trustedProxiesCount {
+			return netip.Addr{}
+		}
 		index := len(ips) - int(e.opts.trustedProxiesCount) - 1 // #nosec G115 -- proxy count is small
 		if index >= 0 && index < len(ips) {
 			ip := ips[index]
@@ -310,7 +401,7 @@ func (e *Extractor) parseXForwardedForHeader(ctx context.Context, ips []string) 
 					slog.Int("index", index))
 			}
 
-			addr, err := netip.ParseAddr(ip)
+			addr, err := parseAddr(ip)
 			if err == nil && !IsPrivate(addr) {
 				if e.debugEnabled(ctx) {
 					e.opts.logger.DebugContext(ctx, "found IP by trusted proxy count",
@@ -319,6 +410,7 @@ func (e *Extractor) parseXForwardedForHeader(ctx context.Context, ips []string) 
 				return addr
 			}
 		}
+		return netip.Addr{}
 	}
 
 	// Otherwise, iterate from right to left and find the first non-private, non-trusted IP
@@ -340,7 +432,7 @@ func (e *Extractor) parseXForwardedForHeader(ctx context.Context, ips []string) 
 			}
 		}
 
-		addr, err := netip.ParseAddr(internedIP)
+		addr, err := parseAddr(internedIP)
 		if err != nil {
 			continue
 		}

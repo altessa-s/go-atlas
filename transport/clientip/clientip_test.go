@@ -21,6 +21,7 @@ func (m *mockHeaders) GetHeader(name string) []string {
 }
 
 func TestIsPrivate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		ip   string
 		want bool
@@ -38,6 +39,7 @@ func TestIsPrivate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
+			t.Parallel()
 			addr := netip.MustParseAddr(tt.ip)
 			got := IsPrivate(addr)
 			require.Equal(t, tt.want, got)
@@ -46,6 +48,7 @@ func TestIsPrivate(t *testing.T) {
 }
 
 func TestIsTrusted(t *testing.T) {
+	t.Parallel()
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
 
 	tests := []struct {
@@ -59,6 +62,7 @@ func TestIsTrusted(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
+			t.Parallel()
 			addr := netip.MustParseAddr(tt.ip)
 			got := IsTrusted(addr, trusted)
 			require.Equal(t, tt.want, got)
@@ -67,22 +71,26 @@ func TestIsTrusted(t *testing.T) {
 }
 
 func TestInList(t *testing.T) {
+	t.Parallel()
 	require.False(t, InList(netip.MustParseAddr("1.2.3.4"), nil), "InList with nil prefixes should return false")
 }
 
 func TestNewExtractor_Default(t *testing.T) {
+	t.Parallel()
 	ext, err := NewExtractor()
 	require.NoError(t, err)
 	require.NotNil(t, ext)
 }
 
 func TestNewExtractor_CacheDisabled(t *testing.T) {
+	t.Parallel()
 	ext, err := NewExtractor(WithCacheDisabled())
 	require.NoError(t, err)
 	require.Nil(t, ext.cache)
 }
 
 func TestExtractor_Extract_UntrustedPeer(t *testing.T) {
+	t.Parallel()
 	ext, _ := NewExtractor()
 	peerIP := netip.MustParseAddr("8.8.8.8")
 	headers := &mockHeaders{}
@@ -92,8 +100,9 @@ func TestExtractor_Extract_UntrustedPeer(t *testing.T) {
 }
 
 func TestExtractor_Extract_FromXForwardedFor(t *testing.T) {
-	ext, _ := NewExtractor()
-	peerIP := netip.MustParseAddr("10.0.0.1") // private/trusted
+	t.Parallel()
+	ext, _ := NewExtractor(WithTrustedPeers(netip.MustParsePrefix("10.0.0.0/8")))
+	peerIP := netip.MustParseAddr("10.0.0.1") // trusted peer
 
 	headers := &mockHeaders{data: map[string][]string{
 		HeaderXForwardedFor: {"203.0.114.1, 10.0.0.2"},
@@ -105,7 +114,8 @@ func TestExtractor_Extract_FromXForwardedFor(t *testing.T) {
 }
 
 func TestExtractor_Extract_FromXRealIP(t *testing.T) {
-	ext, _ := NewExtractor()
+	t.Parallel()
+	ext, _ := NewExtractor(WithTrustedPeers(netip.MustParsePrefix("10.0.0.0/8")))
 	peerIP := netip.MustParseAddr("10.0.0.1")
 
 	headers := &mockHeaders{data: map[string][]string{
@@ -117,6 +127,7 @@ func TestExtractor_Extract_FromXRealIP(t *testing.T) {
 }
 
 func TestExtractor_Headers(t *testing.T) {
+	t.Parallel()
 	ext, _ := NewExtractor()
 	count := 0
 	for range ext.Headers() {
@@ -126,12 +137,14 @@ func TestExtractor_Headers(t *testing.T) {
 }
 
 func TestDefaultHeaders(t *testing.T) {
+	t.Parallel()
 	headers := DefaultHeaders()
 	require.NotEmpty(t, headers)
 	require.Equal(t, InternedHeaderXForwardedFor, headers[0])
 }
 
 func TestNewContext_FromContext(t *testing.T) {
+	t.Parallel()
 	ip := netip.MustParseAddr("1.2.3.4")
 	ctx := NewContext(t.Context(), ip)
 	got := FromContext(ctx)
@@ -139,6 +152,7 @@ func TestNewContext_FromContext(t *testing.T) {
 }
 
 func TestFromContext_Empty(t *testing.T) {
+	t.Parallel()
 	got := FromContext(t.Context())
 	require.False(t, got.IsValid(), "FromContext(empty) = %v, want invalid", got)
 }
@@ -152,7 +166,7 @@ func TestHTTPHeader(t *testing.T) {
 	require.Equal(t, []string{"1.1.1.1", "8.8.8.8"}, HTTPHeader(h).GetHeader("X-Forwarded-For"))
 	require.Empty(t, HTTPHeader(h).GetHeader("X-Real-IP"))
 
-	e, err := NewExtractor()
+	e, err := NewExtractor(WithTrustedPeers(netip.MustParsePrefix("10.0.0.0/8")))
 	require.NoError(t, err)
 	got := e.Extract(t.Context(), netip.MustParseAddr("10.0.0.1"), HTTPHeader(h))
 	require.Equal(t, "8.8.8.8", got.String())

@@ -9,8 +9,6 @@ package auth
 import (
 	"log/slog"
 	"regexp"
-
-	_ "github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
 
 // defaultTokenExtractor is the bearer-token extractor applied when callers do
@@ -24,6 +22,8 @@ type options struct {
 	tokenExtractor TokenExtractor `optgen:"default=defaultTokenExtractor"`
 	errorHandler   ErrorHandler
 	logger         *slog.Logger
+	// ignorePaths and ignorePatterns have no defaults: authentication exempts
+	// nothing unless the caller configures it.
 	ignorePaths    []string
-	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
+	ignorePatterns []*regexp.Regexp
 }

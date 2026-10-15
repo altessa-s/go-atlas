@@ -29,13 +29,17 @@ type RealIPInterceptor struct {
 
 	// TrustedProxiesCount specifies the number of trusted proxies that may append X-Forwarded-For.
 	// This helps prevent IP spoofing by limiting the number of hops we trust.
-	// Set to 0 to trust unlimited proxy hops (not recommended for production).
+	// Set to 0 to scan from the right, skipping private addresses and TrustedProxies.
 	TrustedProxiesCount uint `yaml:"trustedProxiesCount" default:"0"`
 
 	// TrustedPeers is a list of trusted peer IP addresses or CIDR blocks.
 	// These are additional trusted sources beyond the standard proxy list.
 	// Useful for direct connections from known services or clusters.
 	TrustedPeers []string `yaml:"trustedPeers"`
+
+	// TrustPrivatePeers restores implicit forwarding-header trust for private,
+	// loopback and reserved peers. Prefer explicit TrustedPeers or TrustedProxies.
+	TrustPrivatePeers bool `yaml:"trustPrivatePeers" default:"false"`
 
 	// Headers is a list of headers to check for real IP (in order of preference).
 	// The interceptor will check these headers in order until a valid IP is found.

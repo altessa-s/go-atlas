@@ -35,4 +35,10 @@ consumed by the component factories, which map them to generated options; runtim
 | `TracingInterceptor`           | Defines the configuration for the tracing interceptor.                   |
 | `Interceptors`               | Defines the configuration for gRPC interceptors.                         |
 
+## Authentication and proxy trust
+
+Enabled auth exempts no methods by default, including health and reflection. Configure `auth.ignoreMethods` or `auth.ignorePatterns` explicitly
+for public methods. Real IP extraction honors headers only from `realIP.trustedPeers` or `realIP.trustedProxies`; `realIP.trustPrivatePeers: true`
+restores implicit trust of private, loopback and reserved peers. This opt-out defaults to `false`.
+
 See the [config index](../README.md) for the other schema packages.

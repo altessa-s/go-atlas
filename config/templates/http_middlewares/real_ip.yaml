@@ -30,3 +30,8 @@
 #  trustedProxies:
 #    - "10.0.0.0/8"
 #    - "172.16.0.0/12"
+#
+#  # <bool> Trust all private, loopback and reserved peers to set forwarding headers.
+#  # Explicit trustedProxies are preferred; enable only to restore legacy trust.
+#  # Default value: false
+#  trustPrivatePeers: false

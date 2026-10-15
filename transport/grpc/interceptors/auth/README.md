@@ -28,9 +28,15 @@ an [`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/sc
 | `WithAuthFn`         | --                 | Authentication function (required)                |
 | `WithClientAuth`     | nil                | Additional client-level auth check                |
 | `WithTokenExtractor` | Bearer token       | Custom token extraction logic                     |
-| `WithIgnoreMethods`  | --                 | Methods to skip authentication                    |
-| `WithIgnorePatterns` | reflection, health | Regex patterns for methods to skip                |
+| `WithIgnoreMethods`  | --                 | Exact full method names to skip authentication    |
+| `WithIgnorePatterns` | --                 | Regex patterns for methods to skip                |
 | `WithLogger`         | discard            | Structured logger                                 |
+
+No method is exempt by default — gRPC health and reflection included. Exempt only what must be public, with exact full method names
+(`WithIgnoreMethods("/grpc.health.v1.Health/Check")`) or patterns anchored at both ends (`(?i)^/grpc\.health\.v1\.Health/(Check|Watch)$`). The
+reflection and health exemptions applied by default before are available as an explicit opt-in:
+`auth.WithIgnorePatterns(defaults.IgnorePatterns...)` (package [`defaults`](../defaults)); note that its health pattern also matches any
+service whose name starts with `grpc.health.v1.Health`.
 
 ## Client options
 

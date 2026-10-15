@@ -35,4 +35,9 @@ Package `httpconfig` defines the HTTP server schema, its middlewares, pprof, TLS
 | `TLS`                        | Configures Tls settings specifically for Http servers.                                                    |
 | `STS`                            | Configures Http Strict Transport Security (HSTS) headers.                                                 |
 
+## Real IP trust
+
+`middlewares.realIP.trustedProxies` explicitly identifies peers allowed to supply forwarding headers. Private addresses alone do not grant trust.
+`trustPrivatePeers: true` restores the previous implicit trust of private, loopback and reserved peers; the default is `false`.
+
 See the [config index](../README.md) for the other schema packages.

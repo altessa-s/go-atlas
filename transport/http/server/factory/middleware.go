@@ -357,6 +357,9 @@ func (b *ServerBuilder) WithRealIPMiddleware() *ServerBuilder {
 		clientip.WithLogger(b.Logger()),
 		clientip.WithHeaders(c.Headers...),
 	}
+	if c.TrustPrivatePeers {
+		extractorOpts = append(extractorOpts, clientip.WithTrustPrivatePeers())
+	}
 
 	if len(c.TrustedProxies) > 0 {
 		proxies, err := factoryconv.ParsePrefixes(c.TrustedProxies)

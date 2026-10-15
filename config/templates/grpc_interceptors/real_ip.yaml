@@ -40,6 +40,11 @@
 #  trustedPeers:
 #    - "::1"
 #
+#  # <bool> Trust all private, loopback and reserved peers to set forwarding headers.
+#  # Explicit trustedPeers/trustedProxies are preferred; enables legacy trust.
+#  # Default value: false
+#  trustPrivatePeers: false
+#
 #  # <list[string]> List of headers to check for real IP (in order of preference).
 #  # Default value: not set (falls back to X-Forwarded-For, X-Real-IP, X-Client-IP, CF-Connecting-IP, Fastly-Client-Ip, True-Client-Ip)
 #  headers:

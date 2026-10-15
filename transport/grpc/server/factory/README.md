@@ -31,6 +31,9 @@ srv, err := factory.New(cfg.Grpc).
 
 ## Methods
 
+`WithAuthInterceptor` exempts only explicitly configured `ignoreMethods` or `ignorePatterns`. `WithRealIPInterceptor` honors forwarding headers
+from configured `trustedPeers` or `trustedProxies`; `trustPrivatePeers: true` explicitly restores implicit private-peer trust.
+
 ### Constructor
 
 | Method | Description |

@@ -23,9 +23,14 @@ token extraction, validation, and error handling with path-based filtering.
 | `WithAuthFunc`        | --                       | Authentication function (required)  |
 | `WithTokenExtractor`  | Bearer token extractor   | Custom token extraction logic       |
 | `WithErrorHandler`    | Default 401 response     | Custom error response handler       |
-| `WithIgnorePaths`     | --                       | Paths to skip authentication        |
-| `WithIgnorePatterns`  | health, metrics patterns | Regex patterns for paths to skip    |
+| `WithIgnorePaths`     | --                       | Exact paths to skip authentication  |
+| `WithIgnorePatterns`  | --                       | Regex patterns for paths to skip    |
 | `WithLogger`          | discard                  | Structured logger                   |
+
+No path is exempt by default. Exempt only what must be public, with exact paths (`WithIgnorePaths("/healthz")`) or patterns anchored at
+both ends (`^/public/[^/]+$`): an unanchored pattern such as `/metrics/?$` also exempts `/admin/metrics`. The health, metrics, and pprof
+exemptions applied by default before are available as an explicit opt-in, with that caveat:
+`auth.WithIgnorePatterns(defaults.IgnorePatterns...)` (package [`defaults`](../defaults)).
 
 ## Usage
 

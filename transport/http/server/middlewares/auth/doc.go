@@ -65,12 +65,22 @@
 //
 // # Path Filtering
 //
-// Skip authentication for specific paths:
+// No path is exempt by default: every request is authenticated unless the
+// caller opts a path out. Prefer exact paths, or patterns anchored at both
+// ends, so an exemption cannot reach other routes:
 //
 //	middleware := auth.Middleware(
-//	    auth.WithIgnorePaths([]string{"/health", "/metrics"}),
+//	    auth.WithIgnorePaths("/healthz", "/readyz"),
+//	    auth.WithIgnorePatterns(regexp.MustCompile(`^/public/[^/]+$`)),
 //	    auth.WithAuthFunc(myAuthFunc),
 //	)
+//
+// The health, metrics, and pprof exemptions applied by default before are
+// available as an explicit opt-in. Those patterns are unanchored at the
+// start — they also exempt /admin/metrics or /api/pprof/heap — so use them
+// only when every route that matches is meant to be public:
+//
+//	auth.WithIgnorePatterns(defaults.IgnorePatterns...)
 //
 // # Subpackages
 //
