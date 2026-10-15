@@ -11,15 +11,13 @@
 #  enabled: false
 #
 #  # <list[string]> List of gRPC methods to skip authentication for.
-#  # Public methods that don't require authentication.
+#  # No methods are exempt by default, including health and reflection.
+#  # Example explicit exemption: ["/grpc.health.v1.Health/Check"]
 #  # Default value: not set
-#  ignoreMethods:
-#    - "/api.UserService/GetPublicInfo"
-#    - "/grpc.health.v1.Health/Check"
+#  ignoreMethods: []
 #
 #  # <list[string]> List of regex patterns for methods to skip authentication.
-#  # Pattern-based rules for authentication bypass.
+#  # Pattern-based rules for authentication bypass; opt in only for public APIs.
+#  # Example: ["(?i)^/api[.]PublicService/"]
 #  # Default value: not set
-#  ignorePatterns:
-#    - "^(?i)/api.public.*"
-#    - "^(?i)/grpc.health.v1.health/*"
+#  ignorePatterns: []

@@ -44,13 +44,15 @@ var spoofSeeds = []string{
 // every check downstream of this one, from a request that looks entirely
 // ordinary.
 //
-// The rule is the first line of Extract's own contract: a peer that is neither
-// trusted nor private is returned immediately, headers unread. So for such a
+// The rule is the first line of Extract's own contract: a peer that is not
+// explicitly trusted is returned immediately, headers unread. So for such a
 // peer the result must equal the peer address no matter what the headers say.
 func FuzzExtractIgnoresHeadersFromAnUntrustedPeer(f *testing.F) {
 	for _, seed := range spoofSeeds {
 		f.Add("8.8.8.8", seed, seed)
 		f.Add("203.0.113.1", seed, seed)
+		f.Add("192.168.1.1", seed, seed)
+		f.Add("127.0.0.1", seed, seed)
 	}
 
 	extractor, err := NewExtractor(
@@ -65,8 +67,8 @@ func FuzzExtractIgnoresHeadersFromAnUntrustedPeer(f *testing.F) {
 		if err != nil {
 			t.Skip("not an address; the caller supplies a parsed peer")
 		}
-		if IsTrusted(peer, extractor.opts.trustedPeers) || IsPrivate(peer) {
-			t.Skip("a trusted or private peer is allowed to be spoken for by its headers")
+		if netip.MustParsePrefix("10.0.0.0/8").Contains(peer.Unmap()) {
+			t.Skip("a trusted peer is allowed to be spoken for by its headers")
 		}
 
 		got := extractor.Extract(t.Context(), peer, &fuzzHeaders{data: map[string][]string{

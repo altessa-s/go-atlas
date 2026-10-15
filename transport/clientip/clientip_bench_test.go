@@ -35,7 +35,7 @@ func BenchmarkExtractor_Extract_UntrustedPeer(b *testing.B) {
 }
 
 func BenchmarkExtractor_Extract_WithHeaders(b *testing.B) {
-	ext, _ := NewExtractor()
+	ext, _ := NewExtractor(WithTrustedPeers(netip.MustParsePrefix("10.0.0.0/8")))
 	peerIP := netip.MustParseAddr("10.0.0.1")
 	headers := &benchHeaders{data: map[string][]string{
 		HeaderXForwardedFor: {"203.0.114.1"},

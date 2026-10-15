@@ -10,8 +10,6 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
-
-	_ "github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 )
 
 // Auth is an interface for authenticating requests.
@@ -63,7 +61,9 @@ type options struct {
 	authFn         Auth
 	logger         *slog.Logger
 	tokenExtractor TokenExtractor
+	// ignoreMethods and ignorePatterns have no defaults: authentication
+	// exempts nothing unless the caller configures it.
 	ignoreMethods  []string
-	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
+	ignorePatterns []*regexp.Regexp
 	clientAuth     ClientAuth
 }

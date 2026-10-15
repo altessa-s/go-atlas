@@ -187,6 +187,9 @@ func (b *ServerBuilder) WithRealIPInterceptor() *ServerBuilder {
 		clientip.WithLogger(b.Logger()),
 		clientip.WithTrustedProxiesCount(c.TrustedProxiesCount),
 	}
+	if c.TrustPrivatePeers {
+		extractorOpts = append(extractorOpts, clientip.WithTrustPrivatePeers())
+	}
 
 	if len(c.TrustedProxies) > 0 {
 		proxies, err := factoryconv.ParsePrefixes(c.TrustedProxies)

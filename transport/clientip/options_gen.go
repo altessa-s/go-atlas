@@ -60,6 +60,13 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithTrustPrivatePeers enables the trustPrivatePeers option.
+func WithTrustPrivatePeers() Option {
+	return func(o *options) {
+		o.trustPrivatePeers = true
+	}
+}
+
 // WithTrustedPeers sets the trustedPeers option.
 func WithTrustedPeers(v ...netip.Prefix) Option {
 	return func(o *options) {
@@ -95,6 +102,7 @@ func defaultOptions() *options {
 		headers:             DefaultHeaders(),
 		headersEnabled:      DefaultHeadersEnabled,
 		logger:              slog.New(slog.DiscardHandler),
+		trustPrivatePeers:   DefaultTrustPrivatePeers,
 		trustedProxiesCount: DefaultTrustedProxiesCount,
 	}
 }

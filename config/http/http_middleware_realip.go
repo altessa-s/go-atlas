@@ -23,6 +23,10 @@ type RealIPMiddleware struct {
 	// TrustedProxies is a list of IP addresses or CIDR ranges of trusted proxies.
 	// Only IP addresses from these proxies will be considered when extracting IP from headers.
 	TrustedProxies []string `yaml:"trustedProxies"`
+
+	// TrustPrivatePeers restores implicit forwarding-header trust for private,
+	// loopback and reserved peers. Prefer explicit TrustedProxies instead.
+	TrustPrivatePeers bool `yaml:"trustPrivatePeers" default:"false"`
 }
 
 // Validate performs validation of the RealIPMiddleware.

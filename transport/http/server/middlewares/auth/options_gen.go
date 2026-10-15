@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
 
 // Option is a functional option for configuring options.
@@ -75,7 +74,6 @@ func WithTokenExtractor(v TokenExtractor) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		ignorePatterns: defaults.IgnorePatterns,
 		logger:         slog.New(slog.DiscardHandler),
 		tokenExtractor: defaultTokenExtractor,
 	}

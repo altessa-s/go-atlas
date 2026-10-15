@@ -16,6 +16,12 @@
 // After successful authentication, [Credentials] are injected into the context
 // and can be retrieved with CredentialsFromContext.
 //
+// No method is exempt from authentication by default, gRPC health and
+// reflection included. Opt methods out with exact names via WithIgnoreMethods
+// or with patterns anchored at both ends via WithIgnorePatterns; the
+// reflection and health exemptions applied by default before are restored with
+// WithIgnorePatterns(defaults.IgnorePatterns...).
+//
 // The [oidc] sub-package provides [oidc.AuthFunc] for OIDC/JWT validation,
 // and [oidc/validator] provides a production-ready [validator.DefaultValidator].
 //

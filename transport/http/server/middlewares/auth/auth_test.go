@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
 
 type testUserInfo struct {
@@ -298,5 +300,52 @@ func TestMiddleware_NilAuthFunc_Rejects(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer x")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+// TestMiddleware_NoDefaultExemptions is a regression for SA-001: the
+// middleware used to default its ignore patterns to the shared unanchored
+// health/metrics/pprof list, so any route ending in /metrics or containing
+// /pprof/ — /admin/metrics, /api/v1/pprof/heap — was served without
+// authentication. Nothing is exempt unless configured.
+func TestMiddleware_NoDefaultExemptions(t *testing.T) {
+	t.Parallel()
+	handler := New().Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("handler must not be called without authentication")
+	}))
+
+	for _, path := range []string{
+		"/healthz",
+		"/health",
+		"/readyz",
+		"/metrics",
+		"/admin/metrics",
+		"/debug/pprof/heap",
+		"/api/v1/pprof/cmdline",
+	} {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+			require.Equal(t, http.StatusUnauthorized, rec.Code)
+		})
+	}
+}
+
+// TestMiddleware_LegacyIgnorePatternsOptIn pins the explicit opt-in that
+// restores the pre-SA-001 exemptions.
+func TestMiddleware_LegacyIgnorePatternsOptIn(t *testing.T) {
+	t.Parallel()
+	handler := New(WithIgnorePatterns(defaults.IgnorePatterns...)).Handler(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/users", nil))
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 }

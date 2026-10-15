@@ -20,6 +20,9 @@ srv, err := factory.New(cfg.Http).
 
 ## Middleware Control
 
+`WithRealIPMiddleware` honors forwarding headers only from configured `trustedProxies`. Set `trustPrivatePeers: true` in its configuration to
+restore implicit private-peer trust. Authentication must be installed explicitly with `WithMiddleware`; `WithMiddlewares` does not install it.
+
 Three levels of control are available:
 
 ### Level 1: All config-based middleware at once

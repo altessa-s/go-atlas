@@ -22,6 +22,11 @@ const (
 
 	// DefaultCacheDisabled indicates whether cache is disabled by default.
 	DefaultCacheDisabled = false
+
+	// DefaultTrustPrivatePeers indicates whether a peer in a private,
+	// loopback, or otherwise reserved range is trusted to supply forwarding
+	// headers without being listed in the trusted peers or proxies.
+	DefaultTrustPrivatePeers = false
 )
 
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
@@ -37,4 +42,5 @@ type options struct {
 	logger              *slog.Logger
 	cacheSize           int  `optgen:"default=DefaultCacheSize"`
 	cacheDisabled       bool `optgen:"default=DefaultCacheDisabled"`
+	trustPrivatePeers   bool `optgen:"default=DefaultTrustPrivatePeers"`
 }

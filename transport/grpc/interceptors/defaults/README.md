@@ -12,3 +12,6 @@ packages. Currently exposes `IgnorePatterns` which excludes gRPC reflection and 
 | Variable          | Description                                                                          |
 |-------------------|--------------------------------------------------------------------------------------|
 | `IgnorePatterns`  | Default `[]*regexp.Regexp` that matches gRPC reflection and health check methods     |
+
+The authentication interceptor ([`auth`](../auth)) does not apply `IgnorePatterns` by default, so gRPC health and reflection are
+authenticated unless configured. Pass `auth.WithIgnorePatterns(defaults.IgnorePatterns...)` to opt in explicitly.

@@ -10,6 +10,10 @@
 // [Extractor] walks the configured headers (X-Forwarded-For, CF-Connecting-IP,
 // etc.) right-to-left, skipping trusted proxies and private addresses, to
 // locate the first public IP that is not part of the trusted infrastructure.
+// Headers are honored only when the connection peer is explicitly trusted
+// through [WithTrustedPeers] or [WithTrustedProxies]. Private and loopback
+// peers are not automatically trusted; [WithTrustPrivatePeers] restores that
+// legacy behavior when explicitly requested.
 //
 // Parsed addresses are cached in an LRU to avoid repeated [netip.ParseAddr]
 // calls on hot paths. The cache, trusted-proxy list, and header set are all
