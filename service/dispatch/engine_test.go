@@ -124,7 +124,7 @@ func TestNewEngine_WithWALNoCodec_ReturnsErrCodecRequired(t *testing.T) {
 	// is therefore the dual: nil codec → WAL is disabled, Engine builds.
 	sink := &fakeSink{}
 	eng, err := dispatch.NewEngine[int](sink,
-		dispatch.WithWAL[int](t.TempDir(), nil),
+		dispatch.WithWAL[int](filepath.Join(t.TempDir(), "wal"), nil),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, eng)
@@ -185,7 +185,7 @@ func TestEngine_NoWAL_RoundTrip(t *testing.T) {
 
 func TestEngine_WithWAL_RoundTripAndCleanup(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "wal")
 	sink := &fakeSink{}
 	eng := newRunningEngine(t, sink,
 		dispatch.WithWAL[int](dir, intCodec{},
@@ -225,7 +225,7 @@ func (b *blockSink) StoreBatch(ctx context.Context, _ []int) error {
 
 func TestEngine_WAL_CrashRecovery(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "wal")
 
 	// Phase 1: write items, force fsync, "crash" without graceful shutdown.
 	{
@@ -280,7 +280,7 @@ func TestEngine_WAL_CrashRecovery(t *testing.T) {
 
 func TestEngine_RetriesAndAcks(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "wal")
 	sink := &fakeSink{failN: 1}
 	eng := newRunningEngine(t, sink,
 		dispatch.WithBatchSize[int](5),
@@ -367,7 +367,7 @@ func TestEngine_Submit_EncodeError_IsDrop(t *testing.T) {
 	sink := &fakeSink{}
 	var dropped atomic.Int64
 	eng := newRunningEngine(t, sink,
-		dispatch.WithWAL[int](t.TempDir(), errCodec{},
+		dispatch.WithWAL[int](filepath.Join(t.TempDir(), "wal"), errCodec{},
 			wal.WithFsyncInterval(time.Hour),
 		),
 		dispatch.WithOnDrop[int](func(int) { dropped.Add(1) }),
@@ -456,7 +456,7 @@ func TestEngine_Shutdown_WithWAL_NoError(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{}
 	eng := newRunningEngine(t, sink,
-		dispatch.WithWAL[int](t.TempDir(), intCodec{},
+		dispatch.WithWAL[int](filepath.Join(t.TempDir(), "wal"), intCodec{},
 			wal.WithFsyncInterval(2*time.Millisecond),
 		),
 	)
@@ -508,7 +508,7 @@ func TestEngine_Shutdown_CtxTimeout_ReturnsDeadlineErr(t *testing.T) {
 // primary caller that can exercise this race under load.
 func TestEngine_ShutdownWithActiveProducers(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "wal")
 	sink := &fakeSink{}
 	eng := newRunningEngine(t, sink,
 		dispatch.WithWAL[int](dir, intCodec{},

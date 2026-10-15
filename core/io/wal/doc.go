@@ -15,7 +15,15 @@
 // mean. Higher-level components (dispatchers, outboxes, durable queues)
 // layer their own encoding and semantics on top.
 //
-// Lifecycle:
+// # Permissions
+//
+// New directories/segments use 0700/0600. On Unix, existing group/other access
+// causes ErrInsecurePermissions before recovery modifies any segment. Stop the
+// service and restrict existing paths before upgrading; WithInsecurePermissions
+// restores legacy creation and acceptance. Ownership, ancestors and ACLs remain
+// the caller's responsibility; Windows callers must configure ACLs externally.
+//
+// # Usage
 //
 //	w, recovered, err := wal.Open("/var/lib/app/wal",
 //	    wal.WithFsyncInterval(2*time.Millisecond),

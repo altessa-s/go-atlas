@@ -154,7 +154,7 @@ func (b *buffer) writeKey(key string, colorAttrs []color.Attribute) {
 	if len(colorAttrs) == 0 {
 		colorAttrs = []color.Attribute{color.FgCyan}
 	}
-	b.writeColorized(key, colorAttrs...)
+	b.writeColorized(b.quoteIfNeeded(key, true), colorAttrs...)
 	b.writeBytes(equalSign)
 }
 

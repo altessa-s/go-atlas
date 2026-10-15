@@ -20,6 +20,14 @@ const (
 	// DefaultResponseSanitizationMaxDepth is the default nesting depth response
 	// sanitization walks. See [WithResponseSanitizationMaxDepth].
 	DefaultResponseSanitizationMaxDepth = fieldbehavior.DefaultMaxDepth
+
+	// DefaultMaxBodySize is the default cap, in bytes, on a request body
+	// [Writer.Read] accepts (4 MiB). See [WithMaxBodySize].
+	DefaultMaxBodySize int64 = 4 << 20
+
+	// UnlimitedBodySize passed to [WithMaxBodySize] disables the request body
+	// cap. Any negative value has the same effect.
+	UnlimitedBodySize int64 = -1
 )
 
 // options holds configuration for the Writer.
@@ -28,7 +36,6 @@ type options struct {
 	responseBuilder            Builder         `optgen:"default=NewDefault()"`
 	defaultCodec               string          `optgen:"default=DefaultCodecJSON"`
 	fallbackOnNegotiationError bool            `optgen:"default=true"`
-	maxBodySize                int64           // 0 means no limit
 	logger                     *slog.Logger    // for logging fallback errors
 	errorConverter             ErrorConverter  // optional custom error converter
 
@@ -37,6 +44,11 @@ type options struct {
 	// value false); set it with [WithResponseSanitizationDisabled] only when the
 	// caller has an external reason to emit INPUT_ONLY fields on the read path.
 	responseSanitizationDisabled bool
+
+	// maxBodySize caps the request body [Writer.Read] accepts, in bytes. Zero
+	// selects [DefaultMaxBodySize]; a negative value ([UnlimitedBodySize])
+	// disables the cap.
+	maxBodySize int64 `optgen:"default=DefaultMaxBodySize"`
 
 	// responseSanitizationMaxDepth bounds how deep response sanitization walks
 	// nested messages; a deeper response fails with ErrResponseSanitization.

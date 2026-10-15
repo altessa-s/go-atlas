@@ -262,9 +262,25 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 
 // maskAttribute recursively masks an attribute based on configuration
 func (h *Handler) maskAttribute(attr slog.Attr, groups []string) slog.Attr {
+	return h.maskAttributeDepth(attr, groups, 0)
+}
+
+// maskAttributeDepth shares one depth budget across resolved groups and reflection.
+func (h *Handler) maskAttributeDepth(attr slog.Attr, groups []string, depth int) slog.Attr {
 	// Skip empty attributes
 	if attr.Equal(slog.Attr{}) {
 		return attr
+	}
+
+	// Resolve before inspecting the kind or applying a mask. Resolve bounds
+	// direct LogValuer chains and recovers panics; depth also bounds values
+	// that return groups or containers containing themselves.
+	if attr.Value.Kind() == slog.KindLogValuer {
+		attr.Value = attr.Value.Resolve()
+	}
+	if depth >= maxMaskDescentDepth && (attr.Value.Kind() == slog.KindGroup ||
+		(attr.Value.Kind() == slog.KindAny && hasMaskableSubstructure(reflect.ValueOf(attr.Value.Any())))) {
+		return slog.String(attr.Key, depthLimitPlaceholder)
 	}
 
 	// Handle groups recursively. Group keys themselves are never
@@ -275,10 +291,13 @@ func (h *Handler) maskAttribute(attr slog.Attr, groups []string) slog.Attr {
 	if attr.Value.Kind() == slog.KindGroup {
 		groupAttrs := attr.Value.Group()
 		maskedGroup := make([]slog.Attr, 0, len(groupAttrs))
-		childGroups := slices.Concat(groups, []string{attr.Key})
+		childGroups := groups
+		if attr.Key != "" {
+			childGroups = slices.Concat(groups, []string{attr.Key})
+		}
 
 		for _, ga := range groupAttrs {
-			maskedGroup = append(maskedGroup, h.maskAttribute(ga, childGroups))
+			maskedGroup = append(maskedGroup, h.maskAttributeDepth(ga, childGroups, depth+1))
 		}
 
 		return slog.Attr{Key: attr.Key, Value: slog.GroupValue(maskedGroup...)}
@@ -297,7 +316,7 @@ func (h *Handler) maskAttribute(attr slog.Attr, groups []string) slog.Attr {
 	// original implementation flattened the value via fmt.Sprint and
 	// every nested secret leaked verbatim.
 	if attr.Value.Kind() == slog.KindAny {
-		if masked, ok := h.descendIntoAny(attr.Key, attr.Value, groups); ok {
+		if masked, ok := h.descendIntoAny(attr.Key, attr.Value, groups, depth); ok {
 			return masked
 		}
 	}
@@ -310,7 +329,7 @@ func (h *Handler) maskAttribute(attr slog.Attr, groups []string) slog.Attr {
 // false when descent is impossible (nil value, primitive type, or a
 // well-known atomic type like time.Time) — the caller should keep the
 // original attribute in that case.
-func (h *Handler) descendIntoAny(key string, value slog.Value, groups []string) (slog.Attr, bool) {
+func (h *Handler) descendIntoAny(key string, value slog.Value, groups []string, depth int) (slog.Attr, bool) {
 	raw := value.Any()
 	if raw == nil {
 		return slog.Attr{}, false
@@ -322,7 +341,7 @@ func (h *Handler) descendIntoAny(key string, value slog.Value, groups []string) 
 	if h.typeSkip && !h.typeCanMatch(reflect.TypeOf(raw)) {
 		return slog.Attr{}, false
 	}
-	walked, walkedOK := h.walkAny(reflect.ValueOf(raw), append(groups, key), 0)
+	walked, walkedOK := h.walkAny(reflect.ValueOf(raw), append(groups, key), depth)
 	if !walkedOK {
 		return slog.Attr{}, false
 	}
@@ -349,7 +368,16 @@ func (h *Handler) typeCanMatch(t reflect.Type) bool {
 // type, so they are conservatively a match too. The visiting set breaks
 // recursive types: revisiting a type cannot add names beyond its first pass.
 func (h *Handler) computeTypeCanMatch(t reflect.Type, visiting map[reflect.Type]bool) bool {
-	for t.Kind() == reflect.Pointer {
+	for depth := 0; ; depth++ {
+		if depth >= maxMaskDescentDepth {
+			return true
+		}
+		if t.Implements(logValuerType) {
+			return true
+		}
+		if t.Kind() != reflect.Pointer {
+			break
+		}
 		t = t.Elem()
 	}
 	if t.Kind() == reflect.Interface {
@@ -425,6 +453,10 @@ func (h *Handler) walkAny(rv reflect.Value, groups []string, depth int) (slog.Va
 		return slog.Value{}, false
 	}
 
+	if value, ok := reflectedLogValue(rv); ok {
+		return h.maskResolvedValue(value.Resolve(), groups, depth+1), true
+	}
+
 	// Unwrap pointers/interfaces. nil pointer/interface short-circuits.
 	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
 		if rv.IsNil() {
@@ -456,6 +488,50 @@ func (h *Handler) walkAny(rv reflect.Value, groups []string, depth int) (slog.Va
 	}
 }
 
+// reflectedLogValue preserves pointer receivers before reflection unwraps them.
+func reflectedLogValue(rv reflect.Value) (slog.Value, bool) {
+	for depth := 0; rv.IsValid(); depth++ {
+		if depth >= maxMaskDescentDepth {
+			return slog.StringValue(depthLimitPlaceholder), true
+		}
+		if rv.CanInterface() && rv.Type().Implements(logValuerType) {
+			return slog.AnyValue(rv.Interface()), true
+		}
+		if rv.Kind() != reflect.Pointer && rv.Kind() != reflect.Interface {
+			break
+		}
+		if rv.IsNil() {
+			break
+		}
+		rv = rv.Elem()
+	}
+	return slog.Value{}, false
+}
+
+// maskResolvedValue walks the representation of a nested LogValuer at its
+// existing field path, without adding a synthetic key to that path.
+func (h *Handler) maskResolvedValue(value slog.Value, groups []string, depth int) slog.Value {
+	if depth >= maxMaskDescentDepth {
+		return slog.StringValue(depthLimitPlaceholder)
+	}
+	switch value.Kind() {
+	case slog.KindGroup:
+		attrs := value.Group()
+		masked := make([]slog.Attr, len(attrs))
+		for i, attr := range attrs {
+			masked[i] = h.maskAttributeDepth(attr, groups, depth+1)
+		}
+		return slog.GroupValue(masked...)
+	case slog.KindAny:
+		if nested, ok := h.walkAny(reflect.ValueOf(value.Any()), groups, depth); ok {
+			return nested
+		}
+	default:
+		// Resolved scalar values have no nested fields to mask.
+	}
+	return value
+}
+
 // hasMaskableSubstructure reports whether rv could still contain a field a
 // masking rule would match — that is, whether walkAny would have descended into
 // it had depth allowed. It mirrors walkAny's dispatch deliberately: the two
@@ -464,6 +540,9 @@ func (h *Handler) walkAny(rv reflect.Value, groups []string, depth int) (slog.Va
 func hasMaskableSubstructure(rv reflect.Value) bool {
 	if !rv.IsValid() {
 		return false
+	}
+	if _, ok := reflectedLogValue(rv); ok {
+		return true
 	}
 	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
 		if rv.IsNil() {
@@ -581,6 +660,9 @@ func sliceIndexKey(i int) string {
 // and, if so, applies it to the stringified value. Otherwise it
 // recurses via walkAny (or passes the leaf through unchanged).
 func (h *Handler) attrForField(name string, field reflect.Value, parentGroups []string, depth int) slog.Attr {
+	if value, ok := reflectedLogValue(field); ok {
+		return h.maskAttributeDepth(slog.Attr{Key: name, Value: value}, parentGroups, depth+1)
+	}
 	fieldPath := h.buildFieldPath(parentGroups, name)
 	if mask := h.getMaskForField(name, fieldPath); mask != nil {
 		// Match: mask the stringified value. Use Interface() so types
@@ -650,15 +732,11 @@ var (
 
 // isAtomicType reports whether reflect descent must stop at this type.
 // Types that ship their own canonical representation (time.Time,
-// encoding.TextMarshaler implementations, slog.LogValuer
-// implementations, []byte) should be rendered as-is by the downstream
+// encoding.TextMarshaler implementations, []byte) should be rendered as-is by the downstream
 // handler, not flattened into a slog group.
 func isAtomicType(t reflect.Type) bool {
 	switch t {
 	case timeType, durationType, byteSliceType:
-		return true
-	}
-	if t.Implements(logValuerType) || reflect.PointerTo(t).Implements(logValuerType) {
 		return true
 	}
 	if t.Implements(textMarshalerType) || reflect.PointerTo(t).Implements(textMarshalerType) {
@@ -668,8 +746,8 @@ func isAtomicType(t reflect.Type) bool {
 	// hint, not a canonical encoding. A struct with sensitive fields that also
 	// implements String() must still be descended into and masked field by
 	// field; otherwise its String() output would be logged verbatim, bypassing
-	// the masking handler. Only slog.LogValuer (which explicitly controls log
-	// representation) and encoding.TextMarshaler stop descent here.
+	// the masking handler. LogValuer representations are resolved before this
+	// check; encoding.TextMarshaler still stops descent here.
 	return false
 }
 

@@ -103,6 +103,7 @@ func (b *EngineBuilder[T]) buildEngine() (*dispatch.Engine[T], error) {
 			return nil, fmt.Errorf("dispatch: codec is required when WAL is enabled")
 		}
 		var walOpts []wal.Option
+		walOpts = coreslices.AppendIf(walOpts, cfg.WAL.InsecurePermissions, wal.WithInsecurePermissions())
 		walOpts = coreslices.AppendIf(walOpts, cfg.WAL.MaxSegmentBytes > 0, wal.WithMaxSegmentBytes(cfg.WAL.MaxSegmentBytes))
 		walOpts = coreslices.AppendIf(walOpts, cfg.WAL.MaxBytes > 0, wal.WithMaxBytes(cfg.WAL.MaxBytes))
 		walOpts = coreslices.AppendIf(walOpts, cfg.WAL.FsyncInterval > 0, wal.WithFsyncInterval(cfg.WAL.FsyncInterval))

@@ -6,6 +6,7 @@ package dispatch_test
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestEngine_WALBytesGaugeUpdatedOnFlush(t *testing.T) {
 	tc := testhelpers.NewTestCollector()
 	sink := &fakeSink{}
 	e, err := dispatch.NewEngine[int](sink,
-		dispatch.WithWAL[int](t.TempDir(), intCodec{}),
+		dispatch.WithWAL[int](filepath.Join(t.TempDir(), "wal"), intCodec{}),
 		dispatch.WithCollector[int](tc),
 		dispatch.WithFlushInterval[int](20*time.Millisecond))
 	require.NoError(t, err)
@@ -114,7 +115,7 @@ func TestEngine_ConcurrentStartAndSubmit(t *testing.T) {
 
 	for i := range attempts {
 		e, err := dispatch.NewEngine[int](&fakeSink{},
-			dispatch.WithWAL[int](t.TempDir(), intCodec{}))
+			dispatch.WithWAL[int](filepath.Join(t.TempDir(), "wal"), intCodec{}))
 		require.NoError(t, err)
 
 		var (

@@ -5,7 +5,12 @@
 // Package colorized provides a slog.Handler with color-coded terminal output.
 // Use it for human-readable logs in CLI apps or development environments.
 //
-// Example:
+// # Attribute keys
+//
+// Keys and group prefixes are quoted and escaped before color formatting so
+// control characters and delimiters cannot inject new lines or attributes.
+//
+// # Usage
 //
 //	handler := colorized.NewHandler(os.Stdout, colorized.WithLevel(slog.LevelInfo))
 //	logger := slog.New(handler)

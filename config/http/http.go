@@ -33,6 +33,11 @@ const (
 //		ReadTimeout:   30 * time.Second,
 //	}
 type Config struct {
+	// MaxBodySize caps Writer.Read in bytes. Zero selects the writer default
+	// (4 MiB), or the installed bodylimit middleware's positive MaxSize.
+	// Negative values disable the writer cap; middleware limits remain independent.
+	MaxBodySize int64 `yaml:"maxBodySize" default:"0"`
+
 	// RouterPrefix is an optional prefix for all Http routes.
 	// Allows mounting the service under a specific path prefix.
 	// If empty, routes are mounted at the root level.

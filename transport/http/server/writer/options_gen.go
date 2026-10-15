@@ -104,6 +104,7 @@ func defaultOptions() *options {
 		defaultCodec:                 DefaultCodecJSON,
 		fallbackOnNegotiationError:   true,
 		logger:                       slog.New(slog.DiscardHandler),
+		maxBodySize:                  DefaultMaxBodySize,
 		registry:                     codec.DefaultRegistry(),
 		responseBuilder:              NewDefault(),
 		responseSanitizationMaxDepth: DefaultResponseSanitizationMaxDepth,

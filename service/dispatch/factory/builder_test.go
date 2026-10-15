@@ -6,6 +6,7 @@ package factory_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -68,7 +69,7 @@ func TestEngineBuilder_Build_Success(t *testing.T) {
 	require.NotNil(t, engine)
 
 	// Cleanup
-	require.NoError(t, engine.Shutdown(context.Background()))
+	require.NoError(t, engine.Shutdown(t.Context()))
 }
 
 func TestEngineBuilder_Build_WithWAL(t *testing.T) {
@@ -80,7 +81,7 @@ func TestEngineBuilder_Build_WithWAL(t *testing.T) {
 		Workers:       4,
 		WAL: &dispatchconfig.WAL{
 			Enabled: true,
-			Dir:     t.TempDir(),
+			Dir:     filepath.Join(t.TempDir(), "wal"),
 		},
 	}
 
@@ -96,7 +97,7 @@ func TestEngineBuilder_Build_WithWAL(t *testing.T) {
 	require.NotNil(t, engine)
 
 	// Cleanup
-	require.NoError(t, engine.Shutdown(context.Background()))
+	require.NoError(t, engine.Shutdown(t.Context()))
 }
 
 func TestEngineBuilder_Build_WALRequiresCodec(t *testing.T) {
@@ -108,7 +109,7 @@ func TestEngineBuilder_Build_WALRequiresCodec(t *testing.T) {
 		Workers:       4,
 		WAL: &dispatchconfig.WAL{
 			Enabled: true,
-			Dir:     t.TempDir(),
+			Dir:     filepath.Join(t.TempDir(), "wal"),
 		},
 	}
 

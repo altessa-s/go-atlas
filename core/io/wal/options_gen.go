@@ -21,6 +21,13 @@ func WithFsyncInterval(v time.Duration) Option {
 	}
 }
 
+// WithInsecurePermissions enables the insecurePermissions option.
+func WithInsecurePermissions() Option {
+	return func(o *options) {
+		o.insecurePermissions = true
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {

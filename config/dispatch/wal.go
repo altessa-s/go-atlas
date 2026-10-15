@@ -14,6 +14,10 @@ import (
 // WAL configures a write-ahead log backing an async dispatch engine.
 // Shared by all subsystems that use WAL-backed dispatch (audit, reqlog, etc.).
 type WAL struct {
+	// InsecurePermissions permits legacy WAL permissions (0755/0644) and skips
+	// POSIX permission validation. Prefer migrating existing paths to 0700/0600.
+	InsecurePermissions bool `yaml:"insecurePermissions" default:"false"`
+
 	// Enabled turns on local WAL durability.
 	Enabled bool `yaml:"enabled"`
 

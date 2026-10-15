@@ -7,6 +7,7 @@ package dispatch_test
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
@@ -42,7 +43,7 @@ func newBenchEngine(b *testing.B, opts ...dispatch.Option[int]) *dispatch.Engine
 	require.NoError(b, err)
 	require.NoError(b, eng.Start())
 	b.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(b.Context(), 5*time.Second)
 		defer cancel()
 		_ = eng.Shutdown(ctx)
 	})
@@ -80,7 +81,7 @@ func BenchmarkEngine_Submit_NoWAL_Parallel(b *testing.B) {
 // Append on the hot path. The difference between this and
 // BenchmarkEngine_Submit_NoWAL is the cost of durability.
 func BenchmarkEngine_Submit_WithWAL(b *testing.B) {
-	dir := b.TempDir()
+	dir := filepath.Join(b.TempDir(), "wal")
 	eng := newBenchEngine(b,
 		dispatch.WithWAL[int](dir, intCodec{},
 			wal.WithMaxSegmentBytes(64<<20),
@@ -115,7 +116,7 @@ func BenchmarkEngine_Submit_Drop(b *testing.B) {
 	require.NoError(b, err)
 	require.NoError(b, eng.Start())
 	b.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		ctx, cancel := context.WithTimeout(b.Context(), time.Second)
 		defer cancel()
 		_ = eng.Shutdown(ctx)
 	})
@@ -156,7 +157,7 @@ func BenchmarkEngine_Submit_WithWAL_Contended(b *testing.B) {
 				dispatch.WithWorkers[int](workers),
 				dispatch.WithBatchSize[int](64),
 				dispatch.WithFlushInterval[int](time.Millisecond),
-				dispatch.WithWAL[int](b.TempDir(), intCodec{},
+				dispatch.WithWAL[int](filepath.Join(b.TempDir(), "wal"), intCodec{},
 					wal.WithMaxSegmentBytes(64<<20),
 					wal.WithFsyncInterval(time.Hour),
 				),

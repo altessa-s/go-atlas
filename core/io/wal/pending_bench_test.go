@@ -5,6 +5,7 @@
 package wal_test
 
 import (
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,7 +17,7 @@ import (
 )
 
 func BenchmarkReadPending(b *testing.B) {
-	w, _, err := wal.Open(b.TempDir())
+	w, _, err := wal.Open(filepath.Join(b.TempDir(), "wal"))
 	require.NoError(b, err)
 	b.Cleanup(func() { require.NoError(b, w.Close()) })
 	for range 100 {
@@ -35,7 +36,7 @@ func BenchmarkReadPending(b *testing.B) {
 // excludes the first inFlight of them, mimicking the dispatch claim path.
 func openInFlightWAL(b *testing.B, total, inFlight int) (*wal.WAL, func(wal.Offset) bool) {
 	b.Helper()
-	w, _, err := wal.Open(b.TempDir(), wal.WithFsyncInterval(time.Hour))
+	w, _, err := wal.Open(filepath.Join(b.TempDir(), "wal"), wal.WithFsyncInterval(time.Hour))
 	require.NoError(b, err)
 	b.Cleanup(func() { require.NoError(b, w.Close()) })
 	skipped := make(map[wal.Offset]struct{}, inFlight)

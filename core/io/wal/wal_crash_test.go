@@ -66,6 +66,7 @@ func TestWALCrashRecovery(t *testing.T) {
 
 	const iterations = 6
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 	var lastSynced uint64
 	for iter := range iterations {
 		synced := runAndKillChild(t, dir)
