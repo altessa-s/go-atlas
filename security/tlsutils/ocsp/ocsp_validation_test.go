@@ -120,6 +120,11 @@ func TestGetOCSPStaple_ResponseValidation(t *testing.T) {
 			wantErr: ErrStaleResponse,
 		},
 		{
+			name:    "zero nextUpdate older than the max response age",
+			spec:    responderSpec{thisUpdate: now.Add(-2 * DefaultMaxResponseAge)},
+			wantErr: ErrStaleResponse,
+		},
+		{
 			name:    "thisUpdate in the future",
 			spec:    responderSpec{thisUpdate: now.Add(time.Hour), nextUpdate: now.Add(2 * time.Hour)},
 			wantErr: ErrStaleResponse,
@@ -156,6 +161,38 @@ func TestGetOCSPStaple_ResponseValidation(t *testing.T) {
 			require.Nil(t, stapled)
 		})
 	}
+}
+
+func TestGetOCSPStaple_MaxResponseAge(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cache expiry is capped at thisUpdate plus max age", func(t *testing.T) {
+		t.Parallel()
+		ca := testhelpers.NewCA(t)
+		thisUpdate := time.Now().Add(-DefaultMaxResponseAge + 10*time.Minute).Truncate(time.Second)
+		cert := chainFor(t, ca, testResponder(t, ca, responderSpec{thisUpdate: thisUpdate}))
+
+		s := NewOCSPStapler()
+		_, err := s.GetOCSPStaple(t.Context(), cert)
+		require.NoError(t, err)
+
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		require.Len(t, s.cache, 1)
+		for _, e := range s.cache {
+			require.False(t, e.nextUpdate.After(thisUpdate.Add(DefaultMaxResponseAge)),
+				"cached until %s, past the max-age deadline", e.nextUpdate)
+		}
+	})
+
+	t.Run("option widens the window", func(t *testing.T) {
+		t.Parallel()
+		ca := testhelpers.NewCA(t)
+		cert := chainFor(t, ca, testResponder(t, ca, responderSpec{thisUpdate: time.Now().Add(-2 * DefaultMaxResponseAge)}))
+
+		_, err := NewOCSPStapler(WithMaxResponseAge(3*DefaultMaxResponseAge)).GetOCSPStaple(t.Context(), cert)
+		require.NoError(t, err)
+	})
 }
 
 func TestGetOCSPStaple_GzipResponseBody(t *testing.T) {

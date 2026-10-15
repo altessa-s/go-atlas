@@ -45,6 +45,16 @@ func WithMaxCacheEntries(v int) Option {
 	}
 }
 
+// WithMaxResponseAge sets the maxResponseAge option.
+func WithMaxResponseAge(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.maxResponseAge = v
+	}
+}
+
 // WithMaxTTL sets the maxTTL option.
 func WithMaxTTL(v time.Duration) Option {
 	return func(o *options) {
@@ -72,6 +82,7 @@ func defaultOptions() *options {
 		failMode:        DefaultFailMode,
 		maxAttempts:     DefaultMaxAttempts,
 		maxCacheEntries: DefaultMaxCacheEntries,
+		maxResponseAge:  DefaultMaxResponseAge,
 		maxTTL:          DefaultMaxTTL,
 		timeout:         DefaultTimeout,
 	}

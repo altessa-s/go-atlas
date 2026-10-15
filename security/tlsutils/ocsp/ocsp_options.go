@@ -9,6 +9,7 @@ package ocsp
 import (
 	"log/slog"
 	"net/http"
+	"time"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -53,6 +54,12 @@ const (
 // enough to absorb realistic workloads while keeping the cap honest.
 const DefaultMaxCacheEntries = 4096
 
+// DefaultMaxResponseAge bounds how long after its thisUpdate an OCSP response
+// without a nextUpdate is accepted and cached. Such a response never expires on
+// its own, so without this bound a captured "good" answer could be stapled
+// indefinitely.
+const DefaultMaxResponseAge = 24 * time.Hour
+
 type options struct {
 	httpClient  *http.Client
 	retryPolicy RetryPolicy `optgen:"notnil"`
@@ -62,6 +69,9 @@ type options struct {
 	enableCompression bool        `opt:"Compression"`
 	failureMode       FailureMode `optgen:"manual,default=DefaultFailureMode"`
 	maxCacheEntries   int         `optgen:"default=DefaultMaxCacheEntries"`
+	// maxResponseAge bounds the age (from thisUpdate) of a response that
+	// carries no nextUpdate; non-positive values keep the default.
+	maxResponseAge time.Duration `optgen:"default=DefaultMaxResponseAge"`
 
 	// Scheduler configuration
 	scheduler       corescheduler.TaskRegistrar `optgen:"notnil"`

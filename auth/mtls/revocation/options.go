@@ -46,6 +46,11 @@ const (
 	// DefaultClockSkew is the tolerance applied to an OCSP response's
 	// thisUpdate and nextUpdate when checking that a "good" response is current.
 	DefaultClockSkew = 5 * time.Minute
+	// DefaultMaxResponseAge bounds how long after its thisUpdate an OCSP
+	// response without a nextUpdate is trusted. Such a response never expires
+	// on its own, so without this bound a captured "good" answer could be
+	// replayed indefinitely. It also caps how long that status is cached.
+	DefaultMaxResponseAge = 24 * time.Hour
 )
 
 type options struct {
@@ -56,6 +61,7 @@ type options struct {
 	maxTTL          time.Duration    `optgen:"default=DefaultMaxTTL"`
 	maxCacheEntries int              `optgen:"default=DefaultMaxCacheEntries"`
 	clockSkew       time.Duration    `optgen:"default=DefaultClockSkew" optval:"positive=allow_zero"`
+	maxResponseAge  time.Duration    `optgen:"default=DefaultMaxResponseAge"`
 	now             func() time.Time `opt:"-"`
 }
 

@@ -20,6 +20,7 @@ network-backed counterpart to the in-memory `coremtls.RevocationList`.
 | `WithMaxTTL(d)`         | Caps how long a status is cached, regardless of NextUpdate (default 1h).                       |
 | `WithMaxCacheEntries(n)`| Bounds the status cache (default 4096); on overflow it sweeps expired entries, then evicts one. |
 | `WithClockSkew(d)`      | Tolerance on a response's thisUpdate/nextUpdate (default 5m, zero allowed).                    |
+| `WithMaxResponseAge(d)` | Max age from thisUpdate of a response without nextUpdate; also caps its caching (default 24h). |
 | `WithClock(now)`        | Time source override (tests).                                                                  |
 
 ## Issuers
@@ -43,8 +44,10 @@ authFn := grpcmtls.AuthFunc(coremtls.WithValidator(checker.Validator()))
 `FailClosed` rejects anything it cannot confirm good. Choose per the cost of an outage versus the cost of accepting a revoked peer.
 
 A response is bound to the leaf (issuer signature and serial number). A `good` response outside its validity window — `nextUpdate`
-passed or `thisUpdate` in the future, beyond the clock skew — is indeterminate (`ErrStaleResponse`) and never cached. A signed `revoked`
-response is honored even when stale, since revocation is permanent.
+passed or `thisUpdate` in the future, beyond the clock skew — is indeterminate (`ErrStaleResponse`) and never cached. A `good` response
+without a `nextUpdate` never expires on its own, so it is valid only until `thisUpdate` plus `WithMaxResponseAge` (default 24h, plus the
+clock skew) and is cached no longer than that: a captured answer cannot be replayed for longer. A signed `revoked` response is honored
+even when stale, since revocation is permanent.
 
 ## Scope
 

@@ -20,6 +20,9 @@
 // validity window so a connection that outlives its certificate is rejected, and
 // [TrustDomainValidator] pins the accepted SPIFFE trust domains. A revocation
 // lookup (CRL/OCSP/denylist) is a caller-supplied [CertValidator].
+// [SubjectValidator] and [IssuerValidator] pin every populated DN field and
+// Names/ExtraNames string attribute. Unsupported attribute values fail closed
+// with [ErrUnsupportedDNAttribute].
 //
 // # Usage
 //
