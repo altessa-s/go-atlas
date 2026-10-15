@@ -20,6 +20,23 @@ data in a `Response` envelope. `ReadWriter` combines read and write operations i
 | `Messager`       | Interface for errors that provide a custom user-facing message                         |
 | `HTTPStatuser`   | Interface for errors that specify their HTTP status code                                |
 
+## Request body limit
+
+`Read` caps the request body at `DefaultMaxBodySize` (4 MiB). A declared `Content-Length` over the cap is rejected before anything is
+read; a chunked or understated body is cut off one byte past it. Overflow returns `ErrBodySizeLimitExceeded`, also when an upstream
+`http.MaxBytesReader` (the `bodylimit` middleware) trips first, and `WriteError` without an explicit status answers it with
+413 Request Entity Too Large.
+
+| Option                                | Effect                                            |
+|---------------------------------------|---------------------------------------------------|
+| `WithMaxBodySize(n)`, `n > 0`         | Cap of `n` bytes                                  |
+| `WithMaxBodySize(0)`                  | `DefaultMaxBodySize`                              |
+| `WithMaxBodySize(UnlimitedBodySize)`  | No cap (any negative value); the pre-4 MiB behavior |
+
+The cap protects only `Read`: a handler that reads `r.Body` directly needs the `bodylimit` middleware or its own `http.MaxBytesReader`.
+The server factory uses an explicit `maxBodySize` when nonzero; otherwise it aligns the cap with the positive
+`middlewares.bodyLimit.maxSize` of an installed, enabled middleware. Disabling the writer cap does not disable middleware limits.
+
 ## Response sanitization
 
 When the response value is a `proto.Message`, `Write` and `WriteStream` strip fields annotated `google.api.field_behavior = INPUT_ONLY`

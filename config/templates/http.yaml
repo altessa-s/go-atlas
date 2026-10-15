@@ -14,10 +14,12 @@
 #  # Default value: 0.0.0.0:9080
 #  listenAddress: 0.0.0.0:9080
 #
-#  # Body-size enforcement is configured under middlewares.bodyLimit
-#  # (see http_middlewares/body_limit.yaml). It is opt-in: bodyLimit.enabled
-#  # is `false` by default, so requests are not size-limited until the
-#  # operator turns it on.
+#  # <int64> Writer.Read request-body cap in bytes. Zero uses 4 MiB, or
+#  # the positive maxSize of an installed bodyLimit middleware. Negative
+#  # disables the writer cap. Middleware limits remain independent.
+#  # Direct r.Body reads need the bodyLimit middleware or their own cap.
+#  # Default value: 0
+#  maxBodySize: 0
 #
 #  # <duration> Maximum time from connection establishment to full request body read.
 #  # Protects against slow client attacks.

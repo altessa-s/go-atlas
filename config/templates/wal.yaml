@@ -5,6 +5,11 @@
 # Uncomment and configure as needed for your environment.
 
 #wal:
+#  # <bool> Restore legacy 0755/0644 permissions and accept existing permissive paths.
+#  # Prefer stopping the service and restricting directory/segments to 0700/0600.
+#  # Default value: false
+#  insecurePermissions: false
+#
 #  # <bool> Enable WAL durability.
 #  # Default value: false
 #  enabled: false

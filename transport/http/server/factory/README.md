@@ -174,3 +174,9 @@ factory.New(cfg.Http).
 | Method | Description |
 |--------|-------------|
 | `Build` | Assembles and returns the server |
+
+## Request body cap
+
+`Config.MaxBodySize` overrides the `Writer.Read` cap (negative disables it). When zero, an installed, enabled bodyLimit middleware supplies
+its positive MaxSize; otherwise the writer uses 4 MiB. Uninstalled or disabled middleware does not raise this default. Middleware limits
+still apply independently. Direct body reads require middleware or their own limit.

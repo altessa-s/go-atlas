@@ -68,6 +68,7 @@ func FuzzRecoverArbitrarySegment(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, raw []byte) {
 		dir := t.TempDir()
+		require.NoError(t, os.Chmod(dir, 0o700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, firstSegment), raw, 0o600))
 
 		w, recovered, err := wal.Open(dir)
@@ -109,6 +110,7 @@ func FuzzRecoverReturnsAnUnbrokenPrefix(f *testing.F) {
 		}
 
 		dir := t.TempDir()
+		require.NoError(t, os.Chmod(dir, 0o700))
 
 		w, _, err := wal.Open(dir)
 		require.NoError(t, err)

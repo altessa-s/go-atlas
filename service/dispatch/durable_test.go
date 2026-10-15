@@ -6,6 +6,7 @@ package dispatch_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 func TestDurableRetriesBeyondVolatileBudget(t *testing.T) {
 	t.Parallel()
 	sink := &fakeSink{failN: 5}
-	e := newRunningEngine(t, sink, dispatch.WithWorkers[int](1), dispatch.WithRetryAttempts[int](1), dispatch.WithRetryBackoff[int](time.Millisecond), dispatch.WithRetryMaxBackoff[int](time.Millisecond), dispatch.WithWAL[int](t.TempDir(), intCodec{}))
+	e := newRunningEngine(t, sink, dispatch.WithWorkers[int](1), dispatch.WithRetryAttempts[int](1), dispatch.WithRetryBackoff[int](time.Millisecond), dispatch.WithRetryMaxBackoff[int](time.Millisecond), dispatch.WithWAL[int](filepath.Join(t.TempDir(), "wal"), intCodec{}))
 	require.True(t, e.Submit(42))
 	testhelpers.WaitFor(t, 2*time.Second, func() bool { return len(sink.snapshot()) == 1 }, "durable retry stalled")
 	require.NoError(t, e.Shutdown(t.Context()))
@@ -28,7 +29,7 @@ func TestDurableRetriesBeyondVolatileBudget(t *testing.T) {
 func TestDurableAdmissionExceedsMemoryQueue(t *testing.T) {
 	t.Parallel()
 	sink := &slowSink{release: make(chan struct{})}
-	e := newRunningEngine(t, sink, dispatch.WithWorkers[int](1), dispatch.WithBufferSize[int](1), dispatch.WithBatchSize[int](1), dispatch.WithWAL[int](t.TempDir(), intCodec{}))
+	e := newRunningEngine(t, sink, dispatch.WithWorkers[int](1), dispatch.WithBufferSize[int](1), dispatch.WithBatchSize[int](1), dispatch.WithWAL[int](filepath.Join(t.TempDir(), "wal"), intCodec{}))
 	for i := range 50 {
 		tier, err := e.Enqueue(i)
 		require.NoError(t, err)
@@ -43,7 +44,7 @@ func TestDurableAdmissionExceedsMemoryQueue(t *testing.T) {
 }
 func TestShutdownReportsAndRetainsBacklog(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "wal")
 	e := newRunningEngine(t, &fakeSink{failN: 1000}, dispatch.WithWorkers[int](1), dispatch.WithRetryAttempts[int](1), dispatch.WithWAL[int](dir, intCodec{}))
 	require.True(t, e.Submit(42))
 	require.ErrorIs(t, e.Shutdown(t.Context()), dispatch.ErrBacklog)
@@ -54,7 +55,7 @@ func TestShutdownReportsAndRetainsBacklog(t *testing.T) {
 }
 func TestReplayDecodeErrorNeverAcknowledges(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "wal")
 	w, _, err := wal.Open(dir)
 	require.NoError(t, err)
 	_, err = w.Append([]byte("malformed"))

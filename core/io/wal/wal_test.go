@@ -33,6 +33,7 @@ func (w *WAL) activeUnacked() int64 {
 func newTestWAL(tb testing.TB, extraOpts ...Option) (*WAL, string) {
 	tb.Helper()
 	dir := tb.TempDir()
+	require.NoError(tb, os.Chmod(dir, 0o700))
 	opts := append([]Option{
 		WithMaxSegmentBytes(1 << 20),
 		WithFsyncInterval(2 * time.Millisecond),
@@ -222,6 +223,7 @@ func TestWAL_SegmentRoll_CreatesMultipleSegments(t *testing.T) {
 func TestWAL_Recovery_ReplaysUnackedRecords(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 
 	// First session: append but never ack, so records survive Close.
 	w1, recovered1, err := Open(dir, WithMaxSegmentBytes(128))
@@ -264,6 +266,7 @@ func TestWAL_Recovery_ReplaysUnackedRecords(t *testing.T) {
 func TestWAL_Recovery_TruncatesTornWrite(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 
 	w, _, err := Open(dir, WithMaxSegmentBytes(1<<20))
 	require.NoError(t, err)
@@ -305,6 +308,7 @@ func TestWAL_Recovery_TruncatesTornWrite(t *testing.T) {
 func TestWAL_Recovery_DropsCorruptPayload(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 
 	w, _, err := Open(dir)
 	require.NoError(t, err)
@@ -403,6 +407,7 @@ func TestWAL_ConcurrentAppendAck(t *testing.T) {
 func TestWAL_AppendRacesClose(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 
 	w, _, err := Open(dir,
 		WithMaxSegmentBytes(1<<20),
@@ -464,6 +469,7 @@ func TestWAL_AppendRacesClose(t *testing.T) {
 func TestWAL_GroupCommit_ConcurrentAppendsRecoverExactly(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 	const segBytes = 4 << 10
 	w, _, err := Open(dir, WithMaxSegmentBytes(segBytes), WithFsyncInterval(time.Hour))
 	require.NoError(t, err)

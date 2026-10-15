@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,12 +40,16 @@ const (
 	recordHeaderSize = 8 // 4 bytes length + 4 bytes crc32
 	maxRecordBytes   = 64 << 20
 
-	dirMode  os.FileMode = 0o755 // WAL directory permissions.
-	fileMode os.FileMode = 0o644 // WAL segment file permissions.
+	dirMode  os.FileMode = 0o700 // WAL directory permissions.
+	fileMode os.FileMode = 0o600 // WAL segment file permissions.
 )
 
 // Sentinel errors.
 var (
+	// ErrInsecurePermissions means a WAL directory or segment grants group or
+	// other users access. Restrict its permissions before reopening, or explicitly
+	// opt out with WithInsecurePermissions.
+	ErrInsecurePermissions = errors.New("wal: insecure permissions")
 	// ErrClosed is returned by operations on a closed WAL.
 	ErrClosed = errors.New("wal: closed")
 	// ErrFull is returned by Append when the max-bytes cap is exceeded.
@@ -139,7 +144,11 @@ type WAL struct {
 // order they were originally written; callers must replay them and call
 // Ack as records are processed.
 //
-// dir is created with 0755 if it does not exist. Additional tunables are
+// dir is created with 0700 and segments with 0600. Existing Unix paths
+// granting group/other access are rejected with ErrInsecurePermissions.
+// WithInsecurePermissions restores the legacy 0755/0644 behavior.
+// Ownership, ancestor paths and ACLs remain the caller's responsibility.
+// Additional tunables are
 // supplied via [Option] values (see [WithMaxSegmentBytes], [WithMaxBytes]
 // and [WithFsyncInterval]).
 //
@@ -148,13 +157,22 @@ func Open(dir string, opts ...Option) (*WAL, []Record, error) {
 	if dir == "" {
 		return nil, nil, errors.New("wal: dir is required")
 	}
-	if err := os.MkdirAll(dir, dirMode); err != nil {
+	resolved := newOptions(opts...)
+	mode := dirMode
+	if resolved.insecurePermissions {
+		mode = 0o755
+	}
+	if err := os.MkdirAll(dir, mode); err != nil {
 		return nil, nil, coreerrs.Wrap(err, "wal: mkdir")
+	}
+
+	if err := validatePath(dir, true, resolved.insecurePermissions); err != nil {
+		return nil, nil, err
 	}
 
 	w := &WAL{
 		dir:       dir,
-		opts:      newOptions(opts...),
+		opts:      resolved,
 		fsyncDone: make(chan struct{}),
 		nextID:    1, // 0 is reserved for "no record" so the zero Offset is unambiguous.
 		cur:       getAppendBatch(),
@@ -201,6 +219,12 @@ func (w *WAL) recover() ([]Record, error) {
 	}
 	slices.SortFunc(segs, func(a, b segFile) int { return cmp.Compare(a.id, b.id) })
 
+	// Preflight every target before recovery can delete or truncate any file.
+	for _, sf := range segs {
+		if err := validatePath(sf.path, false, w.opts.insecurePermissions); err != nil {
+			return nil, err
+		}
+	}
 	var recovered []Record
 	for _, sf := range segs {
 		recs, validSize, readErr := readSegment(sf.path)
@@ -243,6 +267,22 @@ func (w *WAL) recover() ([]Record, error) {
 		}
 	}
 	return recovered, nil
+}
+
+// validatePath follows symlinks under the caller-owned path trust boundary.
+// Windows callers must enforce access through ACLs rather than POSIX mode bits.
+func validatePath(path string, directory, insecure bool) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return coreerrs.Wrap(err, "wal: stat path")
+	}
+	if (directory && !info.IsDir()) || (!directory && !info.Mode().IsRegular()) {
+		return coreerrs.Wrap(os.ErrInvalid, "wal: expected directory or regular segment")
+	}
+	if !insecure && runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		return coreerrs.Wrapf(ErrInsecurePermissions, "wal: %s has permissions %04o", path, info.Mode().Perm())
+	}
+	return nil
 }
 
 type rawRecord struct {
@@ -298,7 +338,11 @@ func (w *WAL) openNewActiveLocked() error {
 	w.nextID++
 	name := fmt.Sprintf("%020d%s", id, fileSuffix)
 	path := filepath.Join(w.dir, name)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileMode)
+	mode := fileMode
+	if w.opts.insecurePermissions {
+		mode = 0o644
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
 		return coreerrs.Wrap(err, "wal: open active")
 	}

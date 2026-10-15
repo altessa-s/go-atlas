@@ -20,3 +20,9 @@ an inner handler. Supports full masks, fixed replacement strings, and per-field 
 | `FixedMask`        | Replace value with a fixed string                  |
 | `URLMask`          | Mask sensitive parts of URLs (buckets, paths)      |
 | `S3URLMask`        | Redact S3/cloud storage URLs for safe logging      |
+
+## Deferred values
+
+`LogValuer` values are resolved before masking, including values bound with `WithAttrs` and nested in structs, maps, slices or groups.
+The resolved representation is forwarded so downstream handlers do not invoke the original value again. Direct chains use slog's bounded
+resolution; nested groups/containers and pointer chains share bounded traversal and emit a placeholder on exhaustion.

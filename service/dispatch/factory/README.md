@@ -63,3 +63,8 @@ The builder consumes a [`dispatchconfig.Config`](../../../config/dispatch/dispat
 When `cfg.WAL.Dir` is set, the builder automatically enables write-ahead logging
 for durability. The WAL ensures events are persisted before dispatch and can
 recover from crashes. A codec must be provided via `WithCodec` when WAL is enabled.
+
+## WAL permissions
+
+`WAL.InsecurePermissions` maps to `wal.WithInsecurePermissions()`; its default is false. Existing Unix WAL directories and segments with
+group/other access must be restricted before startup, or explicitly opted out. See [WAL](../../../core/io/wal#permissions-and-migration).

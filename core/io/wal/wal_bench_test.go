@@ -5,6 +5,7 @@
 package wal
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -18,7 +19,7 @@ func newBenchWAL(b *testing.B, opts ...Option) *WAL {
 		WithMaxSegmentBytes(DefaultMaxSegmentBytes),
 		WithFsyncInterval(time.Hour),
 	}
-	w, _, err := Open(b.TempDir(), append(base, opts...)...)
+	w, _, err := Open(filepath.Join(b.TempDir(), "wal"), append(base, opts...)...)
 	if err != nil {
 		b.Fatalf("Open: %v", err)
 	}
@@ -105,7 +106,7 @@ func BenchmarkWAL_OpenRecover(b *testing.B) {
 	const records = 1024
 	const payloadSize = 128
 
-	dir := b.TempDir()
+	dir := filepath.Join(b.TempDir(), "wal")
 	w, _, err := Open(dir,
 		WithMaxSegmentBytes(DefaultMaxSegmentBytes),
 		WithFsyncInterval(time.Hour),

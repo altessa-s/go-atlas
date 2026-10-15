@@ -16,3 +16,9 @@ Package `colorized` provides a color-coded terminal `slog.Handler` for human-rea
 | `WithTimeFormat`       | Custom time format string                       |
 | `WithReplaceAttr`      | Attribute transformation function               |
 | `WithAttributeColors`  | Custom color map for attribute keys             |
+
+## Attribute keys
+
+Attribute keys are quoted and escaped when they contain whitespace, control characters, quotes, equals signs or invalid UTF-8.
+This applies to the complete flattened group path, including `WithGroup` and `WithAttrs`, before ANSI color is added. Ordinary keys keep
+their existing format and color selection uses the original key.

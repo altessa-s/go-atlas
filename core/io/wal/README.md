@@ -128,3 +128,16 @@ handles replay, retries, metrics, and graceful shutdown.
 **Do not** use `wal` as a distributed log: it is a single-process append
 log on a local filesystem. Cross-node durability belongs to the broker
 layer.
+
+## Permissions and migration
+
+New directories use 0700 and segment files use 0600 (subject to umask). On Unix, `Open` rejects an existing directory or recognized segment
+with any group/other permission bits, returning `ErrInsecurePermissions`. It validates every recognized segment before recovery reads,
+truncates or deletes files. The root must be a directory and segment targets must be regular files. Symlinks are followed.
+
+Before upgrading, stop the service, set the WAL directory to 0700 and its segment files to 0600, then restart. Existing paths are never
+automatically chmodded. `WithInsecurePermissions()` restores legacy 0755/0644 creation and bypasses permission checks; dispatch factories
+expose this as `wal.insecurePermissions: true`. Use it only when other local users may access the payloads.
+
+Mode checks do not verify ownership, ancestor paths or ACLs (including extended Unix ACLs). Keep the directory and symlink targets under
+trusted ownership and use a single writer. On Windows POSIX mode checks are skipped; configure restrictive ACLs externally.

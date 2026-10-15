@@ -30,6 +30,11 @@ const (
 // supplied separately as a positional argument and therefore intentionally
 // lives on the [WAL] struct rather than in this options bag.
 type options struct {
+	// insecurePermissions restores legacy 0755 directory / 0644 segment creation
+	// and skips POSIX permission validation on existing paths. Use only when
+	// payloads may be exposed to other local users.
+	insecurePermissions bool
+
 	// maxSegmentBytes is the maximum size of a single segment file before
 	// rolling over to a new one.
 	maxSegmentBytes int64 `optgen:"default=DefaultMaxSegmentBytes"`

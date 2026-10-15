@@ -19,6 +19,15 @@
 // For large payloads, [Writer.WriteStream] and [Writer.WriteStreamWithFlush]
 // write directly to the response without buffering the entire body.
 //
+// # Request body limit
+//
+// [Writer.Read] caps the request body at [DefaultMaxBodySize] (4 MiB); a
+// declared Content-Length over the cap is rejected before reading. Overflow
+// returns [ErrBodySizeLimitExceeded], which [Writer.WriteError] answers with
+// 413 Request Entity Too Large when no status is given. Change the cap with
+// [WithMaxBodySize]; [UnlimitedBodySize] disables it. Handlers that read
+// r.Body directly are not covered.
+//
 // # Response sanitization
 //
 // When the response value is a proto.Message, [Writer.Write] and

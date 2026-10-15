@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"math/rand/v2"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -82,7 +83,7 @@ func (s *chaosSink) StoreBatch(_ context.Context, items []int) error {
 // stay within the contract enforced by chaosSink.
 func TestStressDispatchWAL(t *testing.T) {
 	deadline := time.Now().Add(testhelpers.StressDuration(t))
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "wal")
 	sink := &chaosSink{t: t, delivered: make(map[int]int), allowance: make(map[int]int)}
 	sink.enabled.Store(true)
 

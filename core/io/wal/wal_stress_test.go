@@ -7,6 +7,7 @@
 package wal_test
 
 import (
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -26,6 +27,7 @@ import (
 func TestStressWAL(t *testing.T) {
 	duration := testhelpers.StressDuration(t)
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 	w, recovered, err := wal.Open(dir, wal.WithMaxSegmentBytes(4<<10), wal.WithFsyncInterval(time.Millisecond))
 	require.NoError(t, err)
 	require.Empty(t, recovered)

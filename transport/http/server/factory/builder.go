@@ -17,8 +17,10 @@ import (
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 	"github.com/altessa-s/go-atlas/transport/http/server"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/recovery"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
+	"github.com/altessa-s/go-atlas/transport/http/server/writer"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
@@ -187,7 +189,32 @@ func (b *ServerBuilder) buildServerOptions(router server.Router) []server.Option
 		opts = append(opts, server.WithIdleTimeout(b.cfg.IdleTimeout))
 	}
 
+	if w := b.bodyLimitWriter(); w != nil {
+		opts = append(opts, server.WithWriter(w))
+	}
+
 	return opts
+}
+
+// bodyLimitWriter applies an explicit reader cap, or aligns it with an installed
+// config bodylimit middleware. Disabled/uninstalled middleware cannot raise it.
+func (b *ServerBuilder) bodyLimitWriter() server.ResponseWriter {
+	if b.cfg.MaxBodySize != 0 {
+		return writer.New(writer.WithMaxBodySize(b.cfg.MaxBodySize))
+	}
+	cfg := b.middlewaresCfg()
+	if cfg == nil || !cfg.BodyLimit.IsEnabled() || cfg.BodyLimit.MaxSize <= 0 {
+		return nil
+	}
+	if _, disabled := b.disabledMW[bodylimit.Name()]; disabled {
+		return nil
+	}
+	for _, mw := range b.configMW {
+		if mw.Name() == bodylimit.Name() {
+			return writer.New(writer.WithMaxBodySize(cfg.BodyLimit.MaxSize))
+		}
+	}
+	return nil
 }
 
 // buildBaseOptions builds baseserver.Option slice.

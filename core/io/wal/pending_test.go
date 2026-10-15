@@ -21,7 +21,7 @@ import (
 
 func TestReadPendingLimitSkipAndDuplicateAck(t *testing.T) {
 	t.Parallel()
-	w, _, err := wal.Open(t.TempDir(), wal.WithMaxSegmentBytes(20))
+	w, _, err := wal.Open(filepath.Join(t.TempDir(), "wal"), wal.WithMaxSegmentBytes(20))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	var offsets []wal.Offset
@@ -58,6 +58,7 @@ func TestReadPendingLimitSkipAndDuplicateAck(t *testing.T) {
 func TestPendingReadAfterReopen(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 	w, _, err := wal.Open(dir)
 	require.NoError(t, err)
 	_, err = w.Append([]byte("pending"))
@@ -77,7 +78,7 @@ func TestPendingReadAfterReopen(t *testing.T) {
 
 func TestReadPendingSkippedRecordsRemainRetryable(t *testing.T) {
 	t.Parallel()
-	w, _, err := wal.Open(t.TempDir())
+	w, _, err := wal.Open(filepath.Join(t.TempDir(), "wal"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	var offsets []wal.Offset
@@ -107,7 +108,7 @@ func TestReadPendingSkippedRecordsRemainRetryable(t *testing.T) {
 
 func TestReadPendingAcrossReadWindows(t *testing.T) {
 	t.Parallel()
-	w, _, err := wal.Open(t.TempDir())
+	w, _, err := wal.Open(filepath.Join(t.TempDir(), "wal"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
 	// Sizes straddle and exceed the 64 KiB internal read window.
@@ -130,6 +131,7 @@ func TestReadPendingAcrossReadWindows(t *testing.T) {
 func TestReadPendingDetectsCorruptionAndTruncation(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	require.NoError(t, os.Chmod(dir, 0o700))
 	w, _, err := wal.Open(dir, wal.WithMaxSegmentBytes(32))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, w.Close()) })
@@ -165,7 +167,7 @@ func recordOffsets(records []wal.Record) []wal.Offset {
 // be delivered exactly once, and nothing may stay pending.
 func TestReadPending_ConcurrentWithGroupCommit(t *testing.T) {
 	t.Parallel()
-	w, _, err := wal.Open(t.TempDir(), wal.WithMaxSegmentBytes(2<<10), wal.WithFsyncInterval(time.Hour))
+	w, _, err := wal.Open(filepath.Join(t.TempDir(), "wal"), wal.WithMaxSegmentBytes(2<<10), wal.WithFsyncInterval(time.Hour))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = w.Close() })
 

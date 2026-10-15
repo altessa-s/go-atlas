@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"sync"
 
@@ -46,7 +47,10 @@ var (
 	ErrNilOutput = errors.New("output parameter cannot be nil")
 
 	// ErrBodySizeLimitExceeded is returned by [Writer.Read] when the request
-	// body exceeds the limit configured via [WithMaxBodySize].
+	// body exceeds the limit configured via [WithMaxBodySize] (default
+	// [DefaultMaxBodySize]) or an upstream [http.MaxBytesReader] limit.
+	// [Writer.WriteError] maps it to 413 Request Entity Too Large when no
+	// status code is given.
 	ErrBodySizeLimitExceeded = errors.New("request body size limit exceeded")
 )
 
@@ -115,7 +119,8 @@ func (wr *Writer) Write(w http.ResponseWriter, r *http.Request, data any) error 
 
 // Read reads and decodes request body into out.
 // Returns ErrNilRequest if request is nil, ErrNilOutput if out is nil,
-// ErrBodySizeLimitExceeded if body exceeds configured maxBodySize.
+// ErrBodySizeLimitExceeded if body exceeds the configured limit
+// ([DefaultMaxBodySize] unless changed with [WithMaxBodySize]).
 func (wr *Writer) Read(r *http.Request, out any) error {
 	if r == nil {
 		return ErrNilRequest
@@ -150,35 +155,64 @@ func (wr *Writer) Read(r *http.Request, out any) error {
 	return nil
 }
 
-// readBody reads the request body with optional size limiting.
-// Uses a pooled bytes.Buffer to avoid repeated growth allocations on every request.
+// readBody reads the request body, enforcing the configured size limit.
+// A declared Content-Length over the limit is rejected before anything is
+// read; a body of unknown or understated length is cut off one byte past
+// the limit. Uses a pooled bytes.Buffer to avoid repeated growth
+// allocations on every request.
 func (wr *Writer) readBody(r *http.Request) ([]byte, error) {
+	limit := wr.bodyLimit()
+	if limit > 0 && r.ContentLength > limit {
+		return nil, ErrBodySizeLimitExceeded
+	}
+
 	buf := coreio.GetBuffer()
 	defer coreio.PutBuffer(buf)
 
-	if wr.options.maxBodySize > 0 {
-		limitedReader := coreio.NewLimitedReadCloser(r.Body, wr.options.maxBodySize)
+	// limit+1 overflows at math.MaxInt64, a limit no body can reach anyway.
+	if limit > 0 && limit < math.MaxInt64 {
+		limitedReader := coreio.NewLimitedReadCloser(r.Body, limit)
 		defer func() { _ = limitedReader.Close() }()
 
 		if _, err := buf.ReadFrom(limitedReader); err != nil {
-			if errors.Is(err, coreio.ErrReadLimitExceeded) {
-				return nil, ErrBodySizeLimitExceeded
-			}
-			return nil, errors.Join(ErrReadBody, err)
+			return nil, readBodyError(err)
 		}
 		return bytes.Clone(buf.Bytes()), nil
 	}
 
 	if _, err := buf.ReadFrom(r.Body); err != nil {
-		return nil, errors.Join(ErrReadBody, err)
+		return nil, readBodyError(err)
 	}
 	return bytes.Clone(buf.Bytes()), nil
 }
 
+// bodyLimit returns the effective request body cap: zero selects
+// [DefaultMaxBodySize], a negative value means no cap.
+func (wr *Writer) bodyLimit() int64 {
+	if wr.options.maxBodySize == 0 {
+		return DefaultMaxBodySize
+	}
+	return wr.options.maxBodySize
+}
+
+// readBodyError maps a body read failure to the package sentinels. Both the
+// writer's own limit and an [http.MaxBytesReader] installed upstream (the
+// bodylimit middleware) report [ErrBodySizeLimitExceeded].
+func readBodyError(err error) error {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok || errors.Is(err, coreio.ErrReadLimitExceeded) {
+		return ErrBodySizeLimitExceeded
+	}
+	return errors.Join(ErrReadBody, err)
+}
+
 // WriteError writes an error response with optional status code.
-// If no status code is provided, defaults to 500 Internal Server Error.
+// If no status code is provided, it defaults to 413 Request Entity Too Large
+// for [ErrBodySizeLimitExceeded] and to 500 Internal Server Error otherwise.
 func (wr *Writer) WriteError(w http.ResponseWriter, r *http.Request, err error, statusCode ...int) error {
 	status := http.StatusInternalServerError
+	if errors.Is(err, ErrBodySizeLimitExceeded) {
+		status = http.StatusRequestEntityTooLarge
+	}
 	if len(statusCode) > 0 {
 		status = statusCode[0]
 	}
