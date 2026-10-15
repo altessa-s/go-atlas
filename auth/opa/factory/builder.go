@@ -21,6 +21,7 @@ import (
 	embedsrc "github.com/altessa-s/go-atlas/auth/opa/sources/embed"
 	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
+	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
@@ -135,6 +136,9 @@ func (b *ManagerBuilder) buildGitLabSource() (opa.PolicySource, error) {
 
 	opts = slices.AppendIf(opts, gl.Dir != "", gitlab.WithDir(gl.Dir))
 
+	if gl.Proxy != nil && gl.Proxy.Mode != "" && gl.Proxy.Mode != proxyconfig.ModeNone {
+		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
+	}
 	proxyOpts, err := proxyfactory.HTTPClientOptions(gl.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize gitlab proxy options")
@@ -231,6 +235,9 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *authconfig.
 	// own HTTP client (which already honors HTTP_PROXY/HTTPS_PROXY/
 	// NO_PROXY env vars) and its own retry layer, avoiding double-retry
 	// with our breaker / retry middleware.
+	if s3Cfg.Proxy != nil && s3Cfg.Proxy.Mode != "" && s3Cfg.Proxy.Mode != proxyconfig.ModeNone {
+		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
+	}
 	proxyOpts, err := proxyfactory.HTTPClientOptions(s3Cfg.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize s3 proxy options")

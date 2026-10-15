@@ -213,7 +213,8 @@ func TestProviderBuilder_URLSourceSyncsThroughProviderClient(t *testing.T) {
 	opts, err := b.buildProviderOptions(t.Context())
 	require.NoError(t, err)
 	// httptest serves plain HTTP on loopback.
-	opts = append(opts, oidc.WithDiscoveryValidationMode(oidc.DiscoveryValidationModeDisabled))
+	opts = append(opts, oidc.WithDiscoveryValidationMode(oidc.DiscoveryValidationModeDisabled),
+		oidc.WithHTTPClient(srv.Client()))
 
 	p, err := oidc.NewProvider(t.Context(), srv.URL, opts...)
 	require.NoError(t, err)

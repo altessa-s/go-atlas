@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -162,7 +163,7 @@ func (idp *testIdP) tryNewProvider(t testing.TB, opts ...Option) (*Provider, err
 	t.Helper()
 	base := []Option{
 		WithLogger(slog.New(slog.DiscardHandler)),
-		WithHTTPClient(httpclient.New(httpclient.WithRetryMax(0), httpclient.WithoutProxy())),
+		WithHTTPClient(httpclient.New(httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), httpclient.WithRetryMax(0), httpclient.WithoutProxy())),
 		// httptest serves plain HTTP on loopback.
 		WithDiscoveryValidationMode(DiscoveryValidationModeDisabled),
 		WithDefaultValidationOptions(WithValidationAudience(testAudience)),

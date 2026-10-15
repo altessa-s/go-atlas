@@ -16,12 +16,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSSRFControl_AllowsLoopback(t *testing.T) {
+func TestSSRFControl_BlocksLoopback(t *testing.T) {
+	t.Parallel()
 	ctrl := ssrfControl(nil)
 
-	// Loopback is exempt by default (IPv4 and IPv6).
-	assert.NoError(t, ctrl("tcp", "127.0.0.1:80", nil))
-	assert.NoError(t, ctrl("tcp", "[::1]:80", nil))
+	for _, addr := range []string{"127.0.0.1:80", "127.1.2.3:80", "[::1]:80", "[::ffff:127.0.0.1]:80", "[::ffff:10.0.0.1]:80"} {
+		err := ctrl("tcp", addr, nil)
+		require.ErrorIs(t, err, ErrSSRFBlocked, addr)
+	}
+}
+
+func TestSSRFControl_AllowedCIDRsExemptLoopback(t *testing.T) {
+	t.Parallel()
+	ctrl := ssrfControl([]netip.Prefix{
+		netip.MustParsePrefix("127.0.0.0/8"),
+		netip.MustParsePrefix("::1/128"),
+	})
+
+	require.NoError(t, ctrl("tcp", "127.0.0.1:80", nil))
+	require.NoError(t, ctrl("tcp", "[::1]:80", nil))
+	require.NoError(t, ctrl("tcp", "[::ffff:127.0.0.1]:80", nil))
 }
 
 func TestSSRFControl_BlocksPrivateRFC1918(t *testing.T) {
@@ -191,4 +205,12 @@ func TestSSRFControlSignature(t *testing.T) {
 	// Verify it satisfies the expected function signature
 	var fn func(network, address string, c syscall.RawConn) error = ctrl
 	assert.NotNil(t, fn)
+}
+
+func TestSSRFControlBlocksZonedAddresses(t *testing.T) {
+	t.Parallel()
+	for _, addr := range []string{"[fe80::1%en0]:80", "[::1%lo0]:80", "[fd00::1%en0]:80"} {
+		require.ErrorIs(t, ssrfControl(nil)("tcp6", addr, nil), ErrSSRFBlocked, addr)
+	}
+	require.NoError(t, ssrfControl([]netip.Prefix{netip.MustParsePrefix("fe80::/10")})("tcp6", "[fe80::1%en0]:80", nil))
 }

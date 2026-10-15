@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -35,6 +36,7 @@ func newTestRetryOpts(maxAttempts int) []coreretry.Option {
 }
 
 func TestRetryRoundTripper_Success(t *testing.T) {
+	t.Parallel()
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
@@ -50,6 +52,7 @@ func TestRetryRoundTripper_Success(t *testing.T) {
 }
 
 func TestRetryRoundTripper_RetryThenSuccess(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
@@ -71,6 +74,7 @@ func TestRetryRoundTripper_RetryThenSuccess(t *testing.T) {
 }
 
 func TestRetryRoundTripper_Exhaustion(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
@@ -88,6 +92,7 @@ func TestRetryRoundTripper_Exhaustion(t *testing.T) {
 }
 
 func TestRetryRoundTripper_NonRetryableStops(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
@@ -106,6 +111,7 @@ func TestRetryRoundTripper_NonRetryableStops(t *testing.T) {
 }
 
 func TestRetryRoundTripper_BodyReplay(t *testing.T) {
+	t.Parallel()
 	var bodies []string
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -130,6 +136,7 @@ func TestRetryRoundTripper_BodyReplay(t *testing.T) {
 }
 
 func TestRetryRoundTripper_ContextCancel(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
@@ -149,6 +156,7 @@ func TestRetryRoundTripper_ContextCancel(t *testing.T) {
 }
 
 func TestRetryRoundTripper_RetryableStatus(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -173,6 +181,7 @@ func TestRetryRoundTripper_RetryableStatus(t *testing.T) {
 }
 
 func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
+	t.Parallel()
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -195,6 +204,7 @@ func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
 }
 
 func TestRetryRoundTripper_ErrorHandler(t *testing.T) {
+	t.Parallel()
 	handlerCalled := false
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
@@ -214,6 +224,7 @@ func TestRetryRoundTripper_ErrorHandler(t *testing.T) {
 }
 
 func TestRetryRoundTripper_RetryPolicyHandler(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -239,6 +250,7 @@ func TestRetryRoundTripper_RetryPolicyHandler(t *testing.T) {
 }
 
 func TestRetryRoundTripper_ZeroRetries(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
 		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
@@ -376,7 +388,7 @@ func TestClient_ErrorResponsesAreClosed(t *testing.T) {
 				return &http.Response{StatusCode: tc.status, Body: b, Request: req}, nil
 			})
 			opts := []Option{
-				WithClient(&http.Client{Transport: transport}),
+				WithoutSSRFProtection(), WithClient(&http.Client{Transport: transport}),
 				WithRetryMax(tc.retryMax),
 				WithRetryWait(time.Nanosecond, time.Nanosecond),
 			}
@@ -416,7 +428,7 @@ func TestClient_CircuitBreakerOpenDetected(t *testing.T) {
 		return nil, errors.New("connection reset")
 	})
 	c := New(
-		WithClient(&http.Client{Transport: transport}),
+		WithoutSSRFProtection(), WithClient(&http.Client{Transport: transport}),
 		WithRetryMax(0),
 		WithCircuitBreakerSettings("breaker.test", &CircuitBreakerSettings{
 			ReadyToTrip: func(gobreaker.Counts) bool { return true },
@@ -485,7 +497,7 @@ func TestClient_DiscardedResponseReusesConnection(t *testing.T) {
 			srv.Start()
 			t.Cleanup(srv.Close)
 
-			c := New(WithRetryMax(1), WithRetryWait(time.Nanosecond, time.Nanosecond))
+			c := New(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(1), WithRetryWait(time.Nanosecond, time.Nanosecond))
 			ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 			defer cancel()
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)

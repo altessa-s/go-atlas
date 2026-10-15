@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func BenchmarkHTTPClient_PostBody(b *testing.B) {
 	ctx := b.Context()
 
 	b.Run("with_getbody_retries_enabled", func(b *testing.B) {
-		c := New(WithRetryMax(2))
+		c := New(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(2))
 		b.ReportAllocs()
 		for b.Loop() {
 			req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL, bytes.NewReader(payload))
@@ -59,7 +60,7 @@ func BenchmarkHTTPClient_PostBody(b *testing.B) {
 	})
 
 	b.Run("opaque_body_no_retries", func(b *testing.B) {
-		c := New(WithRetryMax(0))
+		c := New(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 		b.ReportAllocs()
 		for b.Loop() {
 			// Hide the reader type so net/http cannot derive GetBody.
@@ -84,7 +85,7 @@ func BenchmarkHTTPClient_Get(b *testing.B) {
 	}))
 	defer srv.Close()
 
-	c := NewHTTPClient(WithRetryMax(0))
+	c := NewHTTPClient(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 	ctx := b.Context()
 
 	for b.Loop() {
@@ -117,7 +118,7 @@ func BenchmarkHTTPClient_RetryAfter503(b *testing.B) {
 	srv.Start()
 	defer srv.Close()
 
-	c := New(WithRetryMax(1), WithRetryWait(time.Nanosecond, time.Nanosecond))
+	c := New(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(1), WithRetryWait(time.Nanosecond, time.Nanosecond))
 	// Discarded bodies are drained only under a deadline.
 	ctx, cancel := context.WithTimeout(b.Context(), time.Hour)
 	defer cancel()

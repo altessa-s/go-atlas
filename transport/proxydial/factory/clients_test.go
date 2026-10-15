@@ -168,7 +168,7 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, opts, 1)
 
-		c := httpclient.New(append(opts, httpclient.WithRetryMax(0))...)
+		c := httpclient.New(append(opts, httpclient.WithoutSSRFProtection(), httpclient.WithRetryMax(0))...)
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target.URL, nil)
 		require.NoError(t, err)
 		resp, err := c.Do(req)
@@ -218,7 +218,7 @@ func runProxiedGet(t *testing.T, cfg proxyconfig.Config) {
 	opts, err := factory.HTTPClientOptions(&cfg)
 	require.NoError(t, err)
 
-	c := httpclient.New(append(opts, httpclient.WithRetryMax(0))...)
+	c := httpclient.New(append(opts, httpclient.WithoutSSRFProtection(), httpclient.WithRetryMax(0))...)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
 		"http://example.invalid/path", nil)
 	require.NoError(t, err)

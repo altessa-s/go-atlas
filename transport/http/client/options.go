@@ -228,13 +228,15 @@ const DefaultSSRFProtection = true
 
 // WithSSRFProtection enables SSRF protection that blocks connections to
 // private IP addresses (RFC1918, link-local, ULA, cloud metadata, etc.).
-// Loopback (127.0.0.0/8, ::1) is exempt by default. The check runs after DNS
+// Loopback (127.0.0.0/8, ::1) is blocked too. The check runs after DNS
 // resolution but before the TCP connection is established, preventing both
 // direct private-IP requests and DNS rebinding attacks.
 //
 // SSRF protection is ON by default ([DefaultSSRFProtection]); this option is
 // only needed to re-enable it after a [WithoutSSRFProtection]. Use
-// [WithSSRFAllowedCIDRs] to exempt known internal networks.
+// [WithSSRFAllowedCIDRs] to exempt known internal networks. Environment proxies
+// are disabled; explicit proxies, custom TLS dialers and non-standard transports
+// cause construction to panic with an error wrapping [ErrSSRFUnsafeTransport].
 //
 // Example:
 //
@@ -287,7 +289,7 @@ func WithPerHostHealthChecks() Option {
 
 // WithSSRFAllowedCIDRs sets CIDR prefixes that are exempted from SSRF blocking.
 // Use this for known internal service-to-service communication that must reach
-// private addresses. Has no effect unless WithSSRFProtection is also set.
+// private addresses, including loopback. Protection is enabled by default.
 //
 // Example:
 //
@@ -308,10 +310,9 @@ func WithSSRFAllowedCIDRs(cidrs ...netip.Prefix) Option {
 // for this request"; returning a non-nil error aborts the request before
 // dialing.
 //
-// When [WithSSRFProtection] is also enabled, note that the SSRF check
-// runs against the dialed address — which becomes the proxy itself when
-// a proxy is configured. Add the proxy host's CIDR to
-// [WithSSRFAllowedCIDRs] if it lives on a private network.
+// Explicit proxy resolvers require [WithoutSSRFProtection]: the proxy can
+// resolve and dial targets outside the guarded dialer. Enforce egress restrictions
+// at the proxy when using this opt-out.
 type ProxyFunc = func(*http.Request) (*url.URL, error)
 
 // WithProxy routes all requests through an HTTP proxy at host:port with
@@ -327,7 +328,8 @@ type ProxyFunc = func(*http.Request) (*url.URL, error)
 //
 // Example:
 //
-//	httpclient.New(httpclient.WithProxy("proxy.corp", 3128, url.UserPassword("svc", token)))
+//	httpclient.New(httpclient.WithoutSSRFProtection(),
+//	    httpclient.WithProxy("proxy.corp", 3128, url.UserPassword("svc", token)))
 func WithProxy(host string, port int, auth *url.Userinfo) Option {
 	if host == "" {
 		return WithProxyFunc(failingProxy(errors.New("httpclient: WithProxy: empty host")))

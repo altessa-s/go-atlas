@@ -7,14 +7,14 @@ package client
 import (
 	"net/url"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkNew_WithProxyURL(b *testing.B) {
 	u, err := url.Parse("http://proxy.local:3128")
-	if err != nil {
-		b.Fatalf("url.Parse: %v", err)
-	}
+	require.NoError(b, err)
 	for b.Loop() {
-		_ = New(WithProxyURL(u))
+		_ = New(WithoutSSRFProtection(), WithProxyURL(u))
 	}
 }

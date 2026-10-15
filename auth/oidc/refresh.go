@@ -6,10 +6,8 @@ package oidc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
 
 	"github.com/MicahParks/jwkset"
 	"github.com/robfig/cron/v3"
@@ -139,28 +137,9 @@ func (p *Provider) refreshJWKSInternal(ctx context.Context) error {
 }
 
 func (p *Provider) doRefreshJWKS(ctx context.Context) error {
-	if p.discoveryInfo == nil || p.discoveryInfo.JwksURL == "" {
-		return coreerrs.Wrap(ErrDiscovery, "JWKS URL not available")
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.discoveryInfo.JwksURL, nil)
+	jwks, err := p.fetchJWKS(ctx)
 	if err != nil {
 		return err
-	}
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer drainAndClose(resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return coreerrs.Wrapf(ErrDiscovery, "unexpected status %d", resp.StatusCode)
-	}
-
-	var jwks jwkset.JWKSMarshal
-	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
-		return coreerrs.WrapOperation(err, "decode JWK Set")
 	}
 
 	newKeys := make([]jwkset.JWK, 0, len(jwks.Keys))

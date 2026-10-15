@@ -33,7 +33,7 @@ returns an `HTTPClient` with convenience methods (Get, PostJSON, fluent RequestB
 | `WithCircuitBreakerSettings` | --            | Per-host circuit breaker configuration                                                                                                               |
 | `WithMaxResponseSize`        | 0             | Maximum response body size in bytes (0 = unlimited)                                                                                                  |
 | `WithLimiter`                | nil           | Pluggable client-side rate limiter                                                                                                                   |
-| `WithSSRFProtection`         | false         | Enable blocking of connections to private/local IP addresses                                                                                         |
+| `WithSSRFProtection`         | true          | Enable blocking of connections to private/local IP addresses                                                                                         |
 | `WithSSRFAllowedCIDRs`       | --            | CIDR prefixes exempted from SSRF blocking                                                                                                            |
 | `WithLogger`                 | nil           | Structured logger for request logging                                                                                                                |
 | `WithClient`                 | pooled        | Custom `*http.Client` base                                                                                                                           |
@@ -114,3 +114,13 @@ _ = c
 | Package                    | Description                                               |
 |----------------------------|-----------------------------------------------------------|
 | [limiters](./limiters)     | Pluggable rate limiting layer for HTTP round-trippers     |
+
+## SSRF and proxy policy
+
+SSRF protection is enabled by default and blocks private, link-local and loopback destinations after DNS resolution.
+Allow local development explicitly with `WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128"))`.
+
+Protected clients disable environment proxy lookup. Explicit proxies, custom TLS dialers and custom round trippers cannot enforce this policy;
+`New` and `NewHTTPClient` panic with an error wrapping `ErrSSRFUnsafeTransport` when given these configurations.
+Use `WithoutSSRFProtection()` for trusted proxy/custom-transport clients and enforce destination restrictions in that transport or proxy.
+CIDR exceptions do not make a proxy safe. Caller-owned clients and transports are cloned before policy changes.

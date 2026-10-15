@@ -59,6 +59,10 @@ var (
 	// at the transport level before TCP connection is established.
 	// Use [IsSSRFError] to extract details.
 	ErrSSRFBlocked = errors.New("ssrf: connection blocked")
+
+	// ErrSSRFUnsafeTransport identifies a transport configuration that cannot
+	// enforce SSRF protection. New panics with an error wrapping this sentinel.
+	ErrSSRFUnsafeTransport = errors.New("ssrf: incompatible transport configuration")
 )
 
 // DefaultMaxBodySizeInError caps the response body size (in bytes) included in

@@ -19,7 +19,8 @@ import (
 // Mode selects the proxy-resolution strategy for the
 // transport/http/client and transport/grpc/client packages. The zero
 // value (empty string) means "no override" — the underlying transport
-// keeps its default env-based behavior. Every non-empty mode does
+// keeps its default behavior. SSRF-protected Atlas HTTP clients disable
+// environment proxies. Every non-empty mode does
 // something explicit.
 //
 // The env-based defaults differ per transport: net/http resolves via
@@ -65,7 +66,7 @@ var proxyAllowedSchemes = coremaps.NewImmutableMap(map[string]struct{}{
 
 // Config is the shared outbound proxy configuration. It contains schema and
 // validation only; transport/proxydial/factory converts it into client options.
-// Empty Mode retains the client's environment-based proxy defaults.
+// Empty Mode retains the client's defaults; protected HTTP clients connect directly.
 type Config struct {
 	// Mode selects which fields below are consulted; see Mode
 	// constants. Leave empty (the zero value) to keep the underlying

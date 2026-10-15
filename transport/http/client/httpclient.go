@@ -61,6 +61,9 @@ type Client struct {
 // expecting that type. For a higher-level API with convenience methods, use [NewHTTPClient].
 // If no options are provided, sensible defaults are used ([DefaultRetryMax],
 // [DefaultRetryWaitMin], [DefaultRetryWaitMax]).
+// New panics with an error wrapping [ErrSSRFUnsafeTransport] when default SSRF
+// protection is combined with an explicit proxy, custom TLS dialer or non-standard
+// transport. Use [WithoutSSRFProtection] for trusted configurations that need them.
 //
 // Example:
 //
@@ -79,6 +82,9 @@ func New(opt ...Option) *http.Client {
 }
 
 func (c *Client) retractableClient() *http.Client {
+	if err := validateSSRFTransport(&c.options); err != nil {
+		panic(err)
+	}
 	m := newHTTPClientMetrics(c.options.collector, c.options.metricsSubsystem)
 	cbClient := newCircuitBreakerClient(c.options, m)
 

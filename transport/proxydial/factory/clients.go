@@ -17,8 +17,8 @@ import (
 // of transport/http/client options ready to be passed to httpclient.New.
 //
 // A nil receiver or empty Mode returns (nil, nil) so the client keeps
-// the http.ProxyFromEnvironment default (HTTP_PROXY / HTTPS_PROXY /
-// NO_PROXY).
+// its default policy: SSRF protection disables environment proxies. Explicit
+// proxy modes require httpclient.WithoutSSRFProtection when constructing the client.
 //
 // An invalid URL in Mode url surfaces as an error here rather than at
 // request time.

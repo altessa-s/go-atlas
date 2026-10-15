@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"reflect"
 	"strconv"
@@ -48,7 +49,7 @@ func TestWithProxyURL_RoutesThroughProxy(t *testing.T) {
 	proxyURL, err := url.Parse(proxy.URL)
 	require.NoError(t, err)
 
-	c := New(WithProxyURL(proxyURL), WithRetryMax(0))
+	c := New(WithoutSSRFProtection(), WithProxyURL(proxyURL), WithRetryMax(0))
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/path", nil)
 	require.NoError(t, err)
 
@@ -77,7 +78,7 @@ func TestWithProxyFunc_DynamicRouting(t *testing.T) {
 		return urlB, nil
 	}
 
-	c := New(WithProxyFunc(resolver), WithRetryMax(0))
+	c := New(WithoutSSRFProtection(), WithProxyFunc(resolver), WithRetryMax(0))
 
 	for _, target := range []string{"http://a.example.invalid/x", "http://b.example.invalid/y"} {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
@@ -107,7 +108,7 @@ func TestWithoutProxy_OverridesEarlierOption(t *testing.T) {
 	}))
 	t.Cleanup(target.Close)
 
-	c := New(WithProxyURL(deadProxyURL), WithoutProxy(), WithRetryMax(0))
+	c := New(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithProxyURL(deadProxyURL), WithoutProxy(), WithRetryMax(0))
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, target.URL, nil)
 	require.NoError(t, err)
 	resp, err := c.Do(req)
@@ -126,7 +127,7 @@ func TestWithProxy_DoesNotMutateProvidedTransport(t *testing.T) {
 	provided := &http.Transport{}
 	require.Nil(t, provided.Proxy, "precondition")
 
-	_ = New(WithTransport(provided), WithProxyURL(proxyURL))
+	_ = New(WithoutSSRFProtection(), WithTransport(provided), WithProxyURL(proxyURL))
 
 	require.Nil(t, provided.Proxy, "WithProxyURL mutated caller-supplied transport")
 }
@@ -141,7 +142,7 @@ func TestWithProxy_DoesNotMutateProvidedClient(t *testing.T) {
 	origTransport := &http.Transport{}
 	custom := &http.Client{Transport: origTransport}
 
-	c := New(WithClient(custom), WithProxyURL(proxyURL), WithRetryMax(0))
+	c := New(WithoutSSRFProtection(), WithClient(custom), WithProxyURL(proxyURL), WithRetryMax(0))
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
 	require.NoError(t, err)
 	resp, err := c.Do(req)
@@ -183,7 +184,7 @@ func TestWithProxy_NilTransportClient_AppliesResolver(t *testing.T) {
 	proxyURL, err := url.Parse(proxy.URL)
 	require.NoError(t, err)
 
-	c := New(WithClient(&http.Client{}), WithProxyURL(proxyURL), WithRetryMax(0))
+	c := New(WithoutSSRFProtection(), WithClient(&http.Client{}), WithProxyURL(proxyURL), WithRetryMax(0))
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
 	require.NoError(t, err)
 	resp, err := c.Do(req)
@@ -209,7 +210,7 @@ func TestWithProxy_NonTransportRoundTripper_NoOp(t *testing.T) {
 	custom := &http.Client{Transport: rt}
 	proxyURL, _ := url.Parse("http://127.0.0.1:1")
 
-	c := New(WithClient(custom), WithProxyURL(proxyURL), WithRetryMax(0))
+	c := New(WithoutSSRFProtection(), WithClient(custom), WithProxyURL(proxyURL), WithRetryMax(0))
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
 	require.NoError(t, err)
 	resp, err := c.Do(req)
@@ -258,7 +259,7 @@ func TestWithProxy_HostPortAuth(t *testing.T) {
 				port, err := strconv.Atoi(proxyURL.Port())
 				require.NoError(t, err)
 
-				c := New(WithProxy(proxyURL.Hostname(), port, tc.auth), WithRetryMax(0))
+				c := New(WithoutSSRFProtection(), WithProxy(proxyURL.Hostname(), port, tc.auth), WithRetryMax(0))
 				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
 				require.NoError(t, err)
 				resp, err := c.Do(req)
@@ -285,7 +286,7 @@ func TestWithProxy_HostPortAuth(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				c := New(WithProxy(tc.host, tc.port, nil), WithRetryMax(0))
+				c := New(WithoutSSRFProtection(), WithProxy(tc.host, tc.port, nil), WithRetryMax(0))
 				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
 				require.NoError(t, err)
 				_, err = c.Do(req)
@@ -298,7 +299,7 @@ func TestWithProxy_HostPortAuth(t *testing.T) {
 func TestWithProxyURL_Nil_FailsAtRequestTime(t *testing.T) {
 	t.Parallel()
 
-	c := New(WithProxyURL(nil), WithRetryMax(0))
+	c := New(WithoutSSRFProtection(), WithProxyURL(nil), WithRetryMax(0))
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.invalid/", nil)
 	require.NoError(t, err)
 	_, err = c.Do(req)

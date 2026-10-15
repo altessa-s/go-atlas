@@ -191,8 +191,8 @@ func (l *FileRevocationLoader) Count(_ context.Context) (int64, error) {
 // URLRevocationLoader loads revoked items from a remote URL (one per line).
 //
 // Client is optional when the loader is wired into an OIDC [Provider] —
-// [NewProvider] injects its shared HTTP client via [SetHTTPClient] (the
-// loader implements SetHTTPClient) so the revocation
+// [NewProvider] clones the built-in loader before injecting its shared
+// HTTP client via SetHTTPClient, so the revocation
 // refresh reuses the same pool, retry policy and proxy resolver as
 // discovery/JWKS/userinfo.
 //

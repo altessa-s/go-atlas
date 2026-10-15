@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -52,7 +53,7 @@ func TestNew_CloseIdleConnectionsReachesTransport(t *testing.T) {
 			srv.Start()
 			t.Cleanup(srv.Close)
 
-			c := New(tc.opts...)
+			c := New(append(tc.opts, WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")))...)
 			resp, err := c.Get(srv.URL)
 			require.NoError(t, err)
 			_, _ = io.Copy(io.Discard, resp.Body)
