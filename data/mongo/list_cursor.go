@@ -232,8 +232,9 @@ func WithListCursorLimit(limit int64) ListCursorOption {
 //   - *string: Pointer to string
 //   - *Cursor: Direct cursor object (for backward compatibility)
 //
-// When using server-side storage, this should be the ULID token received from
-// the previous page. The actual cursor metadata will be loaded from storage.
+// When using server-side storage, this must be the ULID token received from
+// the previous page; the actual cursor metadata will be loaded from storage.
+// A stateless token or a *Cursor is then rejected with [ErrInvalidCursorFormat].
 //
 // Parameters:
 //   - cursor: Cursor from previous page response
@@ -289,6 +290,9 @@ func WithListCursorExplain() ListCursorOption {
 //   - Security: Clients cannot tamper with cursor metadata
 //   - Smaller tokens: Client receives only a storage key (ULID, ~26 chars)
 //   - Flexibility: Storage can implement TTL, rate limiting, audit logging
+//
+// With storage configured, only storage keys are accepted as cursors: a
+// stateless token or a direct *Cursor fails with [ErrInvalidCursorFormat].
 //
 // When storage is NOT provided (default), cursor metadata is base64-encoded and sent
 // to the client (stateless mode). This mode works without external dependencies
@@ -481,7 +485,14 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 
 	opts.limit = capListLimit(opts.limit, opts.logger)
 
-	// Parse cursor token if provided (handles both ULID and stateless formats)
+	// With storage configured, only a storage key loaded below is accepted: a
+	// direct *Cursor did not come from storage and carries no subject binding.
+	if opts.storage != nil && !opts.cursor.IsZero() {
+		return nil, coreerrs.Wrap(ErrInvalidCursorFormat, "cursor storage is configured: only server-issued storage keys are accepted")
+	}
+	directCursor := opts.cursorToken == ""
+
+	// Parse cursor token if provided (format selected by the storage configuration)
 	if opts.cursorToken != "" {
 		cursor, err := parseCursorToken(ctx, opts.cursorToken, opts.storage, opts.filter, opts.subject)
 		if err != nil {
@@ -493,9 +504,9 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 	// If cursor is provided, validate and use its metadata
 	// This ensures pagination parameters remain consistent between requests
 	if opts.cursor != nil && !opts.cursor.IsZero() {
-		// For stateless cursors (no storage), validate checksum
+		// Stateless cursors (no storage) are client-supplied: validate every field
 		if opts.storage == nil {
-			if err := opts.cursor.ValidateChecksum(opts.sort, opts.cursorIdField); err != nil {
+			if err := validateStatelessCursor(opts.cursor, opts.sort, opts.cursorIdField, opts.filter, directCursor); err != nil {
 				return nil, coreerrs.WrapOperation(err, "validate cursor")
 			}
 		}
@@ -510,6 +521,10 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 
 		// Use cursor's ID field, or default if empty (optimization for smaller cursors)
 		opts.cursorIdField = cmp.Or(opts.cursor.CursorIdField, DefaultCursorIdField)
+
+		if err := validateCursorSortValue(opts.cursor, opts.sort, opts.cursorIdField); err != nil {
+			return nil, coreerrs.WrapOperation(err, "validate cursor")
+		}
 	}
 
 	if err := validateCursorSort(opts.sort, opts.cursorIdField); err != nil {

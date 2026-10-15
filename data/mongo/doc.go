@@ -6,7 +6,15 @@
 // transaction handling, and structured logging. Use it for database operations
 // requiring encryption or simplified transaction management.
 //
-// Example:
+// # Cursor pagination
+//
+// ListCursor accepts only server-issued storage keys when cursor storage is
+// configured. Stateless cursors must match the requested sort, cursor ID field,
+// and filter; their sort values are restricted to BSON scalars. Stateless
+// checksums are not signatures: use storage with subject binding or signed
+// keyset tokens when callers must not choose their own continuation position.
+//
+// # Usage
 //
 //	client, err := mongo.New("myapp",
 //	    mongo.WithMongoClientOptions(options.Client().ApplyURI(uri)),

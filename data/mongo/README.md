@@ -88,6 +88,26 @@ res, err := mongo.ListCursor[User](ctx, coll,
 
 Binding is opt-in: a cursor minted without a subject stays replayable by any caller, so existing callers are unaffected.
 
+The cursor format follows the configuration, not the token's shape: with storage configured, `ListCursor` accepts only a ULID storage key and
+rejects a stateless base64 token or a direct `*Cursor` (`WithListCursorCursor(*Cursor)`) with `ErrInvalidCursorFormat`, so a client cannot mint
+its own cursor and skip the stored metadata and subject check. Storage origin does not bind a token to an endpoint: endpoints that share one
+storage accept each other's tokens when filter and subject match. Use a storage (or key prefix) per endpoint, or a subject that includes the
+endpoint, where that matters.
+
+## Stateless cursor integrity
+
+A stateless cursor is client-held, and its checksum is a plain SHA-256 of the sort and cursor-ID field with no secret. `ListCursor` therefore
+treats every field as untrusted: the embedded sort and cursor-ID field must equal the request's (else `ErrCursorChecksumMismatch`), the filter
+hash must match (`ErrCursorFilterMismatch`), and the sort value must decode to a BSON scalar — string, boolean, number, Decimal128, date,
+timestamp, ObjectID, binary or null — else `ErrInvalidCursor`. The tie-breaker equality is rendered as `{field: {$eq: value}}`. A client can
+still edit the cursor ID and sort value to start a page at another position within the same filter; use stateful mode or a signed
+[`data/keyset`](../keyset) token where that is not acceptable. Resuming a sort on an embedded-document or array field is not supported: issuing
+such a cursor fails with `ErrInvalidCursor`.
+
+For reliable continuation, the primary sort field must be present, non-null and have a consistent BSON type across the result set. The legacy
+cursor format omits a null/missing boundary and falls back to the cursor ID, which can skip items when another field defines the sort order.
+Scalar validation prevents query injection; it does not make null or mixed-type sort boundaries safe for pagination.
+
 ## Cursor sort shapes
 
 A cursor resumes on the value of one sort field, with the cursor-ID field as the tiebreaker in the same direction. `ListCursor` therefore accepts a

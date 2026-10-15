@@ -420,7 +420,26 @@ func encodeSortValue(value any) (string, error) {
 		return "", coreerrs.WrapOperation(err, "marshal sort value")
 	}
 
+	if err := checkSortValueType(bson.Raw(bsonBytes).Lookup("v").Type); err != nil {
+		return "", err
+	}
+
 	return base64.StdEncoding.EncodeToString(bsonBytes), nil
+}
+
+// checkSortValueType rejects sort values that are not BSON scalars. The value
+// is placed into the cursor filter as a comparison operand, so a document,
+// array, regex or code value is refused rather than given a chance to be read
+// as a query expression; keyset resumption over such values is not supported.
+func checkSortValueType(t bson.Type) error {
+	switch t {
+	case bson.TypeString, bson.TypeBoolean, bson.TypeInt32, bson.TypeInt64, bson.TypeDouble,
+		bson.TypeDecimal128, bson.TypeDateTime, bson.TypeTimestamp, bson.TypeObjectID,
+		bson.TypeBinary, bson.TypeNull:
+		return nil
+	default:
+		return coreerrs.Wrapf(ErrInvalidCursor, "sort value of BSON type %s is not a supported scalar", t)
+	}
 }
 
 // decodeSortValue decodes a base64-encoded BSON string back to its original value.
@@ -448,16 +467,24 @@ func decodeSortValue(encoded string) (any, error) {
 		return nil, coreerrs.WrapOperation(err, "decode sort value")
 	}
 
-	// Unmarshal BSON document
-	var doc bson.M
-	if err := bson.Unmarshal(bsonBytes, &doc); err != nil {
+	// The wrapper document must hold exactly one element, "v": a duplicate
+	// key must not let a second value slip past the type check below.
+	elems, err := bson.Raw(bsonBytes).Elements()
+	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "unmarshal sort value")
 	}
+	if len(elems) != 1 || elems[0].Key() != "v" {
+		return nil, coreerrs.Wrap(ErrInvalidCursor, "sort value document must hold exactly the 'v' field")
+	}
 
-	// Extract value from wrapper document
-	value, ok := doc["v"]
-	if !ok {
-		return nil, fmt.Errorf("sort value document missing 'v' field")
+	raw := elems[0].Value()
+	if err := checkSortValueType(raw.Type); err != nil {
+		return nil, err
+	}
+
+	var value any
+	if err := raw.Unmarshal(&value); err != nil {
+		return nil, coreerrs.WrapOperation(err, "unmarshal sort value")
 	}
 
 	return value, nil
@@ -613,6 +640,8 @@ func NewCursorWithMetadata(cursorId string, sort bson.D, cursorIdField string, f
 // ValidateChecksum validates the cursor's checksum against the provided parameters.
 // Returns an error if the checksum doesn't match, indicating that pagination parameters
 // have changed between requests, or if the cursor doesn't contain required metadata.
+// The sort and cursor ID field embedded in the cursor must also equal the expected
+// ones: the checksum carries no secret, so it does not authenticate them on its own.
 //
 // Parameters:
 //   - sort: Expected MongoDB sort specification as bson.D
@@ -664,6 +693,23 @@ func (c *Cursor) ValidateChecksum(sort bson.D, cursorIdField string) error {
 		return coreerrs.Wrapf(ErrCursorChecksumMismatch, "pagination parameters have changed (sort: %v→%v, cursor field: %s→%s)",
 			cursorSort, sort,
 			actualCursorIdField, cursorIdField)
+	}
+
+	// The checksum covers only the expected parameters and carries no secret,
+	// so it does not authenticate the metadata embedded in the cursor: the
+	// embedded sort and ID field must equal the expected ones as well.
+	// Comparing the BSON encodings treats int and int32 directions alike.
+	encodedCursorSort, err := encodeSortToString(cursorSort)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "encode cursor sort")
+	}
+	encodedSort, err := encodeSortToString(sort)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "encode sort")
+	}
+	if actual := cmp.Or(c.CursorIdField, DefaultCursorIdField); encodedCursorSort != encodedSort || actual != cursorIdField {
+		return coreerrs.Wrapf(ErrCursorChecksumMismatch, "cursor metadata does not match the pagination parameters (sort: %v→%v, cursor field: %s→%s)",
+			cursorSort, sort, actual, cursorIdField)
 	}
 
 	return nil
