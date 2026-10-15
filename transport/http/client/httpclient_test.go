@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -20,27 +21,31 @@ import (
 )
 
 func TestNew_ReturnsClient(t *testing.T) {
+	t.Parallel()
 	c := New()
 	require.NotNil(t, c)
 }
 
 func TestNew_WithOptions(t *testing.T) {
-	c := New(WithRetryMax(1), WithRetryWait(100*time.Millisecond, 500*time.Millisecond))
+	t.Parallel()
+	c := New(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(1), WithRetryWait(100*time.Millisecond, 500*time.Millisecond))
 	require.NotNil(t, c)
 }
 
 func TestNewHTTPClient(t *testing.T) {
+	t.Parallel()
 	c := NewHTTPClient()
 	require.NotNil(t, c)
 }
 
 func TestHTTPClient_Get(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	c := NewHTTPClient(WithRetryMax(0))
+	c := NewHTTPClient(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 	resp, err := c.Get(t.Context(), srv.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -48,71 +53,77 @@ func TestHTTPClient_Get(t *testing.T) {
 }
 
 func TestHTTPClient_PostJSON(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer srv.Close()
 
-	c := NewHTTPClient(WithRetryMax(0))
+	c := NewHTTPClient(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 	resp, err := c.PostJSON(t.Context(), srv.URL, map[string]string{"key": "value"})
 	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestHTTPClient_Delete(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodDelete, r.Method)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
-	c := NewHTTPClient(WithRetryMax(0))
+	c := NewHTTPClient(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 	resp, err := c.Delete(t.Context(), srv.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestHTTPClient_Head(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodHead, r.Method)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	c := NewHTTPClient(WithRetryMax(0))
+	c := NewHTTPClient(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 	resp, err := c.Head(t.Context(), srv.URL)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestHTTPClient_GetWithOptions(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "test", r.Header.Get("X-Custom"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	c := NewHTTPClient(WithRetryMax(0))
+	c := NewHTTPClient(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 	resp, err := c.GetWithOptions(t.Context(), srv.URL, WithHeader("X-Custom", "test"))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestWithBearerToken(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer my-token", r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	c := NewHTTPClient(WithRetryMax(0))
+	c := NewHTTPClient(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 	resp, err := c.GetWithOptions(t.Context(), srv.URL, WithBearerToken("my-token"))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestWithBasicAuth(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
 		require.True(t, ok, "BasicAuth should be present")
@@ -122,13 +133,14 @@ func TestWithBasicAuth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewHTTPClient(WithRetryMax(0))
+	c := NewHTTPClient(WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), WithRetryMax(0))
 	resp, err := c.GetWithOptions(t.Context(), srv.URL, WithBasicAuth("user", "pass"))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestWithRequestTimeout(t *testing.T) {
+	t.Parallel()
 	// Verify that WithRequestTimeout sets a context with deadline
 	req, _ := http.NewRequest("GET", "http://example.com", nil)
 	WithRequestTimeout(5 * time.Second)(req)
@@ -138,6 +150,7 @@ func TestWithRequestTimeout(t *testing.T) {
 }
 
 func TestWithRequestDeadline(t *testing.T) {
+	t.Parallel()
 	req, _ := http.NewRequest("GET", "http://example.com", nil)
 	dl := time.Now().Add(10 * time.Second)
 	WithRequestDeadline(dl)(req)
@@ -147,12 +160,14 @@ func TestWithRequestDeadline(t *testing.T) {
 }
 
 func TestIsUnexpectedStatusError(t *testing.T) {
+	t.Parallel()
 	statusErr := &UnexpectedStatusError{Status: 404}
 	require.NotNil(t, IsUnexpectedStatusError(statusErr))
 	require.Nil(t, IsUnexpectedStatusError(context.Canceled))
 }
 
 func TestIsCircuitBreakerOpen(t *testing.T) {
+	t.Parallel()
 	require.False(t, IsCircuitBreakerOpen(context.Canceled), "should be false for non-CB error")
 	require.True(t, IsCircuitBreakerOpen(fmt.Errorf("wrapped: %w", &CircuitBreakerError{Name: "x", State: "open"})))
 }
@@ -213,6 +228,7 @@ func TestAttachCancel(t *testing.T) {
 }
 
 func TestRoundTripFunc(t *testing.T) {
+	t.Parallel()
 	fn := testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK}, nil
 	})

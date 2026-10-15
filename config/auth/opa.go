@@ -119,8 +119,8 @@ type OPAGitLab struct {
 	Dir string `yaml:"dir"`
 
 	// Proxy configures the outbound HTTP proxy for GitLab API requests.
-	// When omitted entirely, the client honors the standard
-	// HTTP_PROXY/HTTPS_PROXY/NO_PROXY environment variables. To tune
+	// The factory disables environment proxies and rejects url/host modes
+	// under its default SSRF protection. To tune
 	// retry behavior, inject a client with the programmatic
 	// gitlab.WithHTTPClient — there is no YAML knob for retry (the factory
 	// uses httpclient.New defaults).
@@ -174,9 +174,8 @@ type OPAS3 struct {
 	// Proxy configures the outbound HTTP proxy for S3 API requests.
 	// When omitted, the AWS SDK's default transport applies, which
 	// already honors the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY
-	// environment variables. Setting this swaps the SDK's default
-	// HTTP client for go-atlas's resilient client wired with the
-	// supplied proxy resolver.
+	// environment variables. Mode none uses the protected Atlas client
+	// without a proxy; url/host modes return ErrSSRFUnsafeTransport.
 	Proxy *proxyconfig.Config `yaml:"proxy" default:"-"`
 }
 

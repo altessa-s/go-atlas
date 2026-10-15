@@ -19,9 +19,9 @@
 //   - Resilience: built-in retry policies with exponential backoff and jitter ([WithRetryMax], [WithRetryWait]).
 //   - Protection: per-host circuit breakers ([WithCircuitBreakerSettings]) and bulkhead patterns to prevent cascading failures.
 //   - Rate Limiting: pluggable client-side rate limiting via [WithLimiter] and [limiters.RequestsLimiter].
-//   - SSRF Protection: optional blocking of connections to private/local IPs; see [WithSSRFProtection] and [WithSSRFAllowedCIDRs].
+//   - SSRF Protection: default blocking of connections to private/local IPs; see [WithSSRFProtection] and [WithSSRFAllowedCIDRs].
 //   - Proxy: declarative outbound proxy configuration via [WithProxy], [WithProxyURL], [WithProxyFunc],
-//     or [WithoutProxy]; defaults to [http.ProxyFromEnvironment].
+//     or [WithoutProxy]; environment proxies apply only with [WithoutSSRFProtection].
 //   - Observability: request logging through [WithLogger], structured error types for inspection,
 //     and optional integration with [observability/health] via [WithHealthCoordinator] (see Health below).
 //
@@ -64,4 +64,8 @@
 //
 //	resp, _ := c.Get("https://api.example.com/v1/data")
 //	defer resp.Body.Close()
+//
+// SSRF protection also blocks loopback and disables environment proxies. Explicit
+// proxies, custom TLS dialers and non-standard transports require
+// [WithoutSSRFProtection]; otherwise construction panics with [ErrSSRFUnsafeTransport].
 package client

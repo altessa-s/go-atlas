@@ -73,8 +73,8 @@ type OIDC struct {
 
 	// Proxy configures the outbound HTTP proxy for every OIDC call:
 	// discovery, JWKS refresh, introspection, userinfo, and URL-based
-	// revocation loaders. When omitted entirely, the standard
-	// HTTP_PROXY/HTTPS_PROXY/NO_PROXY environment variables apply.
+	// revocation loaders. The factory uses SSRF protection: empty/none modes
+	// connect directly; explicit url/host modes return ErrSSRFUnsafeTransport.
 	Proxy *proxyconfig.Config `yaml:"proxy" default:"-"`
 }
 

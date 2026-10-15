@@ -33,8 +33,8 @@ Proxy support lives in three layers:
 
 **Passthrough is the default.** When the `proxy` block is omitted from YAML (or the receiver is `nil`):
 
-- `transport/http/client` uses `http.ProxyFromEnvironment` — the
-  `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables decide.
+- `transport/http/client` disables environment proxies under its default SSRF protection.
+  `WithoutSSRFProtection()` restores `http.ProxyFromEnvironment` lookup.
 - `transport/grpc/client` uses grpc-go's built-in env lookup
   (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`).
 
@@ -155,7 +155,8 @@ opa:
     !include http_proxy.yaml
 ```
 
-When the `!include` line stays commented, the consumer falls back to env-var passthrough.
+With no override, protected Atlas clients connect directly; gRPC and the default AWS SDK client retain their environment behavior.
+OIDC/OPA factories reject the `url`/`host` modes shown in this schema example.
 
 ---
 
@@ -172,19 +173,20 @@ import (
 
 // Host/port with credentials (most common).
 c := httpclient.New(
+    httpclient.WithoutSSRFProtection(),
     httpclient.WithProxy("proxy.corp", 3128, url.UserPassword("svc", token)),
     httpclient.WithLogger(logger),
 )
 
 // Full URL (use for socks5 or https proxy).
 u, _ := url.Parse("socks5://proxy.corp:1080")
-c = httpclient.New(httpclient.WithProxyURL(u))
+c = httpclient.New(httpclient.WithoutSSRFProtection(), httpclient.WithProxyURL(u))
 
 // Opt out of env-based proxy entirely.
 c = httpclient.New(httpclient.WithoutProxy())
 
 // Custom resolver — branch per-request.
-c = httpclient.New(httpclient.WithProxyFunc(func(req *http.Request) (*url.URL, error) {
+c = httpclient.New(httpclient.WithoutSSRFProtection(), httpclient.WithProxyFunc(func(req *http.Request) (*url.URL, error) {
     if strings.HasSuffix(req.URL.Host, ".internal") {
         return nil, nil // no proxy
     }
@@ -284,6 +286,8 @@ Every consumer that supports proxy configuration follows the same pattern: mater
 
 ### OIDC
 
+The factory rejects explicit proxy modes before the wiring below; only empty/`none` modes reach this code.
+
 `auth/oidc/factory/builder.go`:
 
 ```go
@@ -301,6 +305,8 @@ proxy. The same client also reaches a loader wrapped in a ready-made storage (`W
 
 ### OPA — GitLab source
 
+Explicit proxy modes are rejected before this wiring.
+
 `auth/opa/factory/builder.go`:
 
 ```go
@@ -314,7 +320,7 @@ opts = append(opts, gitlab.WithHTTPClient(httpclient.New(clientOpts...)))
 
 ### OPA — S3 source
 
-S3 is the one consumer that **conditionally injects** the resilient HTTP client — only when proxy is explicitly configured. Without an override the
+S3 is the one consumer that **conditionally injects** the resilient HTTP client — only for explicit mode `none`; modes `url` and `host` are rejected. Without an override the
 AWS SDK keeps its own HTTP client (which already honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) and its own retry layer, avoiding double-retry with
 go-atlas's breaker:
 
@@ -384,20 +390,19 @@ the address to the client.
 
 ## SSRF interaction
 
-When `WithSSRFProtection()` is combined with any of the `WithProxy*` options, the dialed address becomes **the proxy itself** (not the ultimate
-destination). If the proxy lives on a private network (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, …) the SSRF check will reject it.
+SSRF protection is enabled by default. Protected HTTP clients disable environment proxies and reject explicit proxies,
+custom TLS dialers and non-standard round trippers during construction with a panic wrapping `ErrSSRFUnsafeTransport`.
+A proxy can resolve and dial the final destination outside the guarded dialer, so adding its CIDR does not make it safe.
 
-Add the proxy's CIDR to the allowlist:
+For a trusted proxy, explicitly use `WithoutSSRFProtection()` and enforce destination restrictions at the proxy:
 
 ```go
-httpclient.New(
-    httpclient.WithProxyURL(corporateProxy),
-    httpclient.WithSSRFProtection(),
-    httpclient.WithSSRFAllowedCIDRs(
-        netip.MustParsePrefix("10.0.0.0/8"),
-    ),
-)
+httpclient.New(httpclient.WithoutSSRFProtection(), httpclient.WithProxyURL(corporateProxy))
 ```
+
+OIDC and OPA factories return `ErrSSRFUnsafeTransport` for explicit proxy modes `url` and `host`.
+Construct providers/sources directly with an explicitly configured client when this opt-out is needed.
+OPA S3 retains the AWS SDK client when no proxy mode is configured; that client has its own environment proxy behavior.
 
 ---
 
@@ -435,8 +440,8 @@ URL. The `host` / `port` / `auth` form with `password: $__secret{...}` keeps the
   must use env-var proxy (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`) instead. Full HTTP-exporter wiring would require separate
   `otlp.WithHTTPClientOptions([]otlptracehttp.Option)` plumbing and is tracked as a future enhancement.
 - **OPA — S3**: the AWS SDK has its own retry layer, so go-atlas's resilient
-  client is injected only when proxy is explicitly configured. If you need breaker / circuit-breaker semantics on S3 traffic without also setting a
-  proxy, open an issue — the current design trades that off for single-retry correctness.
+  client is injected only for explicit mode `none`; modes `url` and `host` are rejected.
+  Inject a separately constructed S3 client for custom HTTP behavior.
 - **Client-side DNS for SOCKS5**: not available — see
   [SOCKS5 vs SOCKS5h](#socks5-vs-socks5h).
 

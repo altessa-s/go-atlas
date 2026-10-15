@@ -58,8 +58,14 @@ conflicting second schedule (`rebuildCron: ""` / `rebuildOnStart: false` are acc
 ## Proxy wiring
 
 `Build(ctx)` materializes `cfg.Proxy` (a [`proxyconfig.Config`](../../../config/proxy/proxy.go))
-into `httpclient.Option` values via `cfg.Proxy.HTTPClientOptions()`, builds the resilient
+into `httpclient.Option` values via `proxyfactory.HTTPClientOptions(cfg.Proxy)`, builds the resilient
 client with `httpclient.New` and injects it through `oidc.WithHTTPClient(...)`. A nil/empty `Proxy` block
-keeps the default `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` env passthrough.
+keeps SSRF protection enabled and environment proxies disabled.
 See the [Proxy guide](../../../docs/proxy.md) for YAML modes and operator
 guidance.
+
+## Protected outbound clients
+
+Factory-created Atlas HTTP clients use SSRF protection, disable environment proxies and reject explicit proxy modes `url` and `host`
+with `httpclient.ErrSSRFUnsafeTransport`. Mode `none` is supported. For a trusted proxy, construct the provider/source directly with an
+explicitly supplied client using `httpclient.WithoutSSRFProtection()`; enforce destination restrictions at the proxy.

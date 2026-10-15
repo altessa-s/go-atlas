@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -18,11 +19,13 @@ import (
 	client "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
-func newTestClient(srv *httptest.Server) client.HTTPClient {
-	return client.NewHTTPClient(client.WithClient(srv.Client()), client.WithRetryMax(0))
+func newTestClient(t testing.TB, srv *httptest.Server) client.HTTPClient {
+	t.Helper()
+	return client.NewHTTPClient(client.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), client.WithClient(srv.Client()), client.WithRetryMax(0))
 }
 
 func TestRequestBuilder_GET(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %s, want GET", r.Method)
@@ -30,13 +33,14 @@ func TestRequestBuilder_GET(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL + "/test").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_POST_JSONBody(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("method = %s, want POST", r.Method)
@@ -45,13 +49,14 @@ func TestRequestBuilder_POST_JSONBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.POST(srv.URL + "/test").JSONBody(map[string]string{"key": "val"}).Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_PUT(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut {
 			t.Errorf("method = %s, want PUT", r.Method)
@@ -59,13 +64,14 @@ func TestRequestBuilder_PUT(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.PUT(srv.URL + "/test").StringBody("data").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_PATCH(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
 			t.Errorf("method = %s, want PATCH", r.Method)
@@ -73,13 +79,14 @@ func TestRequestBuilder_PATCH(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.PATCH(srv.URL + "/test").BytesBody([]byte("patch")).Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_DELETE(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("method = %s, want DELETE", r.Method)
@@ -87,13 +94,14 @@ func TestRequestBuilder_DELETE(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.DELETE(srv.URL + "/test").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_HEAD(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodHead {
 			t.Errorf("method = %s, want HEAD", r.Method)
@@ -101,13 +109,14 @@ func TestRequestBuilder_HEAD(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.HEAD(srv.URL + "/test").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_OPTIONS(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodOptions {
 			t.Errorf("method = %s, want OPTIONS", r.Method)
@@ -115,13 +124,14 @@ func TestRequestBuilder_OPTIONS(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.OPTIONS(srv.URL + "/test").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_CustomMethod(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "CUSTOM" {
 			t.Errorf("method = %s, want CUSTOM", r.Method)
@@ -129,13 +139,14 @@ func TestRequestBuilder_CustomMethod(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.Method("CUSTOM", srv.URL+"/test").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_Headers(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Custom") != "value" {
 			t.Errorf("X-Custom = %q", r.Header.Get("X-Custom"))
@@ -143,7 +154,7 @@ func TestRequestBuilder_Headers(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL+"/test").
 		Header("X-Custom", "value").
 		Accept("text/plain").
@@ -155,6 +166,7 @@ func TestRequestBuilder_Headers(t *testing.T) {
 }
 
 func TestRequestBuilder_QueryParams(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("key") != "val" {
 			t.Errorf("query key = %q", r.URL.Query().Get("key"))
@@ -162,13 +174,14 @@ func TestRequestBuilder_QueryParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL+"/test").QueryParam("key", "val").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_BearerToken(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
 			t.Error("expected Authorization header")
@@ -176,13 +189,14 @@ func TestRequestBuilder_BearerToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL + "/test").BearerToken("tok123").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_BasicAuth(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
 		if !ok || u != "user" || p != "pass" {
@@ -191,13 +205,14 @@ func TestRequestBuilder_BasicAuth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL+"/test").BasicAuth("user", "pass").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_APIKey(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-API-Key") == "" {
 			t.Error("expected X-API-Key header")
@@ -205,34 +220,37 @@ func TestRequestBuilder_APIKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL+"/test").APIKey("X-API-Key", "secret").Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_Timeout(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL + "/test").Timeout(5 * time.Second).Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_Body(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.POST(srv.URL + "/test").Body(strings.NewReader("raw")).Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_Build_NoURL(t *testing.T) {
-	c := client.NewHTTPClient(client.WithRetryMax(0))
+	t.Parallel()
+	c := client.NewHTTPClient(client.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), client.WithRetryMax(0))
 	rb := client.NewRequestBuilder(c)
 	_, err := rb.GET("").Build()
 	require.Error(t, err, "Build with empty URL should fail")
@@ -295,7 +313,7 @@ func TestRequestTimeout_StreamingBodyReadable(t *testing.T) {
 			release := make(chan struct{})
 			srv := newStreamingServer(t, release)
 
-			resp, err := tc.do(t.Context(), newTestClient(srv), srv.URL)
+			resp, err := tc.do(t.Context(), newTestClient(t, srv), srv.URL)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
@@ -308,20 +326,22 @@ func TestRequestTimeout_StreamingBodyReadable(t *testing.T) {
 }
 
 func TestRequestBuilder_SendWithoutContext(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL + "/test").SendWithoutContext()
 	require.NoError(t, err)
 	resp.Body.Close()
 }
 
 func TestRequestBuilder_Context(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 
-	rb := client.NewRequestBuilder(newTestClient(srv))
+	rb := client.NewRequestBuilder(newTestClient(t, srv))
 	resp, err := rb.GET(srv.URL + "/test").Context(t.Context()).Send(t.Context())
 	require.NoError(t, err)
 	resp.Body.Close()

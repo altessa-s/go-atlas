@@ -10,6 +10,7 @@ import (
 	"iter"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -47,7 +48,7 @@ func TestNewProvider_UsesInjectedClient(t *testing.T) {
 	t.Parallel()
 
 	srv := stubOIDCServer(t)
-	client := httpclient.New(httpclient.WithRetryMax(0), httpclient.WithoutProxy())
+	client := httpclient.New(httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), httpclient.WithRetryMax(0), httpclient.WithoutProxy())
 	p, err := NewProvider(t.Context(), srv.URL,
 		WithHTTPClient(client),
 		// httptest serves plain-HTTP on loopback; disable discovery endpoint
@@ -57,7 +58,9 @@ func TestNewProvider_UsesInjectedClient(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(p.Close)
 
-	require.Same(t, client, p.client)
+	require.NotSame(t, client, p.client)
+	require.Same(t, client.Transport, p.client.Transport)
+	require.Nil(t, client.CheckRedirect)
 }
 
 func TestNewProvider_RequiresClient(t *testing.T) {
@@ -76,7 +79,7 @@ func TestNewProvider_InjectsClientIntoURLRevocationLoader(t *testing.T) {
 	require.Nil(t, loader.Client, "precondition: loader has no client")
 
 	p, err := NewProvider(t.Context(), srv.URL,
-		WithHTTPClient(httpclient.New(httpclient.WithRetryMax(0))),
+		WithHTTPClient(httpclient.New(httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), httpclient.WithRetryMax(0))),
 		WithRevocationLoader(loader),
 		WithRevocationFilter(noopFilter{}),
 		// The stub filter cannot rebuild and the loader URL is unreachable,
@@ -90,7 +93,8 @@ func TestNewProvider_InjectsClientIntoURLRevocationLoader(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(p.Close)
 
-	require.Same(t, p.client, loader.Client,
+	require.Nil(t, loader.Client, "caller loader remains unchanged")
+	require.Same(t, p.client, p.revocationLoader.(*URLRevocationLoader).Client,
 		"Provider must inject its shared HTTP client into the URLRevocationLoader")
 }
 

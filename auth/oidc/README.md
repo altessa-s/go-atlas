@@ -145,3 +145,16 @@ For YAML-driven proxy configuration via `oidc.proxy`, see the
 | Package                  | Description                              |
 |--------------------------|------------------------------------------|
 | [factory](./factory)     | Config-based provider creation           |
+
+## Redirect and JWKS limits
+
+Provider HTTP clients are shallow-cloned, preserving the transport, cookie jar, timeout and caller redirect policy.
+Redirects must remain on the original HTTPS origin (scheme, hostname and effective port), in every discovery validation mode.
+The caller policy can restrict them further. `WithDiscoveryAllowLoopbackHTTP()` also permits same-origin HTTP redirects on loopback;
+it does not allow HTTPS downgrades. Violations return `ErrRedirectNotAllowed`.
+This applies to discovery, JWKS, userinfo, introspection and the built-in URL revocation loader, including its explicitly supplied client.
+Built-in URL loaders and their filter-storage wrappers are cloned for each provider; caller-owned loader wiring stays unchanged.
+Custom loaders remain responsible for their own HTTP behavior.
+
+JWKS responses are limited to 1 MiB and 100 raw keys at startup and refresh. Exceeding either limit returns `ErrJWKSTooLarge`.
+A failed refresh retains the previous keys and does not advance their freshness timestamp.

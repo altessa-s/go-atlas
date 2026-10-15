@@ -64,7 +64,12 @@ proxy block into client options:
 | GitLab | `cfg.GitLab.Proxy` ([`proxyconfig.Config`](../../../config/proxy/proxy.go)) | `gitlab.WithHTTPClient(httpclient.New(...))` — always injects the resilient HTTP client |
 | S3     | `cfg.S3.Proxy` ([`proxyconfig.Config`](../../../config/proxy/proxy.go))     | `awsconfig.WithHTTPClient(httpclient.New(...))` — injected **only** when `Mode` is non-empty, so the AWS SDK keeps its own retry layer otherwise |
 
-A nil/empty `Proxy` block keeps env-based passthrough
-(`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`). See the
+A nil/empty `Proxy` block disables environment proxies for GitLab; S3 retains the AWS SDK defaults. See the
 [Proxy guide](../../../docs/proxy.md) for YAML modes and the conditional-
 injection rationale for S3.
+
+## Protected outbound clients
+
+Factory-created Atlas HTTP clients use SSRF protection, disable environment proxies and reject explicit proxy modes `url` and `host`
+with `httpclient.ErrSSRFUnsafeTransport`. Mode `none` is supported. For a trusted proxy, construct the provider/source directly with an
+explicitly supplied client using `httpclient.WithoutSSRFProtection()`; enforce destination restrictions at the proxy.

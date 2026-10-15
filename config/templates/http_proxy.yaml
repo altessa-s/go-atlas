@@ -1,16 +1,15 @@
 # HTTP outbound proxy configuration for transport/http/client.
-# Loads into the shared config.Proxy struct (same schema as
-# grpc_proxy.yaml); materialized via Proxy.HTTPClientOptions().
-# When this section is omitted entirely, the client respects the standard
-# HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment variables (the
-# http.ProxyFromEnvironment default).
+# Loads into proxyconfig.Config; materialized via proxyfactory.HTTPClientOptions.
+# Default SSRF protection disables environment proxies. Explicit proxy modes
+# require WithoutSSRFProtection() on the HTTP client; OIDC/OPA factories reject them.
+# With protection disabled, an omitted section retains environment lookup.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 
 #proxy:
 #  # <string> Proxy resolution mode. One of: none | url | host.
 #  # Omit (or leave empty) to keep the underlying transport's default
-#  # behavior — the standard HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars.
+#  # behavior — direct under SSRF protection, environment lookup otherwise.
 #  #   none — disable proxy entirely, including the env-based lookup
 #  #   url  — route via a single proxy URL (set "url" below)
 #  #   host — route via a host + port (set "host" + "port" below,

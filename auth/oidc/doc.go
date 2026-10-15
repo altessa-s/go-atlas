@@ -18,4 +18,10 @@
 //	)
 //	defer provider.Close()
 //	claims, _ := provider.ValidateToken(ctx, token)
+//
+// # Outbound policy
+//
+// Redirects stay on the original HTTPS origin regardless of discovery validation
+// mode. WithDiscoveryAllowLoopbackHTTP permits same-origin HTTP loopback redirects.
+// JWKS fetches are bounded to 1 MiB and 100 keys; failed refreshes retain old keys.
 package oidc

@@ -17,6 +17,7 @@ import (
 
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
+	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	probfilterfactory "github.com/altessa-s/go-atlas/data/probfilter/factory"
@@ -112,6 +113,9 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	}
 	opts = append(opts, revOpts...)
 
+	if cfg.Proxy != nil && cfg.Proxy.Mode != "" && cfg.Proxy.Mode != proxyconfig.ModeNone {
+		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
+	}
 	proxyOpts, err := proxyfactory.HTTPClientOptions(cfg.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize oidc proxy options")

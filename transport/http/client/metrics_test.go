@@ -7,6 +7,7 @@ package client_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -20,13 +21,14 @@ import (
 // WithMetricsSubsystem keeps the legacy "http_client" namespace so existing
 // dashboards stay valid.
 func TestMetricsSubsystem_DefaultRegistersUnderHTTPClient(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	tc := testhelpers.NewTestCollector()
-	c := httpclient.New(
+	c := httpclient.New(httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")),
 		httpclient.WithCollector(tc),
 		httpclient.WithRetryMax(0),
 	)
@@ -44,13 +46,14 @@ func TestMetricsSubsystem_DefaultRegistersUnderHTTPClient(t *testing.T) {
 // motivating use case: a service with multiple HTTP clients (egrul, kfocus,
 // ...) can scope their metrics independently by passing WithMetricsSubsystem.
 func TestMetricsSubsystem_CustomRoutesMetricsToOwnNamespace(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	tc := testhelpers.NewTestCollector()
-	c := httpclient.New(
+	c := httpclient.New(httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")),
 		httpclient.WithCollector(tc),
 		httpclient.WithMetricsSubsystem("egrul"),
 		httpclient.WithRetryMax(0),
@@ -73,6 +76,7 @@ func TestMetricsSubsystem_CustomRoutesMetricsToOwnNamespace(t *testing.T) {
 // without panicking on duplicate metric registration — the bug that
 // motivated this option.
 func TestMetricsSubsystem_TwoClientsShareRegistry(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -81,12 +85,12 @@ func TestMetricsSubsystem_TwoClientsShareRegistry(t *testing.T) {
 	tc := testhelpers.NewTestCollector()
 
 	require.NotPanics(t, func() {
-		egrul := httpclient.New(
+		egrul := httpclient.New(httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")),
 			httpclient.WithCollector(tc),
 			httpclient.WithMetricsSubsystem("egrul"),
 			httpclient.WithRetryMax(0),
 		)
-		kfocus := httpclient.New(
+		kfocus := httpclient.New(httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")),
 			httpclient.WithCollector(tc),
 			httpclient.WithMetricsSubsystem("kfocus"),
 			httpclient.WithRetryMax(0),

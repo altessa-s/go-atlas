@@ -68,6 +68,15 @@ var (
 	// non-HTTPS or does not share the issuer's host. It signals a possible
 	// mix-up / SSRF attempt via a malicious or compromised discovery response.
 	ErrDiscoveryValidation = errors.New("discovery document failed issuer/endpoint validation")
+	// ErrRedirectNotAllowed is returned when an outbound provider call
+	// (discovery, JWKS, introspection, userinfo, revocation list) is
+	// redirected to a different origin or to a non-HTTPS URL. It signals a
+	// possible attempt to substitute attacker-controlled keys or to exfiltrate
+	// credentials through an open redirect on the IdP.
+	ErrRedirectNotAllowed = errors.New("redirect to a different origin or to non-HTTPS is not allowed")
+	// ErrJWKSTooLarge is returned when the JWKS document exceeds 1 MiB or
+	// holds more than 100 keys. The cached key set is left unchanged.
+	ErrJWKSTooLarge = errors.New("JWKS document too large")
 	// ErrRevocationCheck is returned when the revocation storage cannot answer
 	// (IsRevoked or the initial Sync fails) and the provider is fail-closed —
 	// the default unless [WithRevocationFailOpen] is set.
@@ -78,6 +87,15 @@ var (
 // endpoint. Discovery documents are a few KB in practice; anything larger
 // indicates a misbehaving or malicious IdP.
 const maxDiscoveryResponseSize = 1 << 20 // 1 MiB
+
+// maxJWKSResponseSize is the maximum bytes read from the JWKS endpoint. Real
+// key sets are a few KB; a larger document is rejected with [ErrJWKSTooLarge].
+const maxJWKSResponseSize = 1 << 20 // 1 MiB
+
+// maxJWKSKeys is the maximum number of keys accepted in a JWK Set. IdPs
+// publish a handful of keys (current, next, previous); a set with more keys is
+// rejected with [ErrJWKSTooLarge].
+const maxJWKSKeys = 100
 
 // maxDrainBytes bounds how much of an unread response body drainAndClose
 // consumes to keep the HTTP connection reusable. A body larger than this is
@@ -217,6 +235,7 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	if client == nil {
 		return nil, ErrHTTPClientRequired
 	}
+	client = protectedHTTPClient(client, o.discoveryAllowLoopbackHTTP)
 
 	// Create Provider from options
 	p := &Provider{
@@ -231,6 +250,8 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		verifierOptions:   o.verifierOptions,
 		metrics:           newOIDCMetrics(o.collector),
 	}
+
+	p.prepareRevocationClients()
 
 	// Share the Provider's HTTP client with any revocation loader that
 	// opts into injection by implementing SetHTTPClient(*http.Client).
@@ -293,7 +314,7 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	}
 
 	// Initialize JWKS with caching and automatic refresh
-	if err = p.initializeJWKS(); err != nil {
+	if err = p.initializeJWKS(ctx); err != nil {
 		return nil, err
 	}
 
@@ -763,7 +784,7 @@ func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
 
 	resp, err := p.client.Do(req) //nolint:bodyclose
 	if err != nil {
-		return coreerrs.Wrapf(ErrDiscovery, "%s", err)
+		return coreerrs.WrapOperation(errors.Join(ErrDiscovery, err), "fetch discovery")
 	}
 	defer drainAndClose(resp)
 
@@ -910,30 +931,33 @@ func isLoopbackHost(host string) bool {
 	return err == nil && ip.IsLoopback()
 }
 
-// initializeJWKS sets up JWKS storage with automatic refresh.
-func (p *Provider) initializeJWKS() error {
-	// Configure JWKS storage options with caching and automatic refresh
-	storageOptions := jwkset.HTTPClientStorageOptions{
-		Client:      p.client,
-		Ctx:         p.backgroundCtx,
-		HTTPTimeout: p.opts.jwksHTTPTimeout,
-		RefreshErrorHandler: func(ctx context.Context, err error) {
-			// Log JWKS refresh errors and expose the staleness age so
-			// operators tracking [WithJWKSMaxStaleness] can correlate the
-			// log line with the staleness budget. The cached keys keep
-			// being served until a refresh succeeds; whether validation
-			// keeps trusting them is controlled by checkJWKSStaleness.
-			p.logger.ErrorContext(ctx, "failed to refresh JWKS keys",
-				slog.Any("error", err),
-				slog.String("jwks_url", p.discoveryInfo.JwksURL),
-				slog.Duration("since_last_refresh", p.jwksAge()))
-		},
+// initializeJWKS loads bounded JWKS storage; the provider owns subsequent refreshes.
+func (p *Provider) initializeJWKS(ctx context.Context) error {
+	// Initialization preserves the dependency's strict validation policy and
+	// default timeout, while all network reads share the bounded fetch path.
+	timeout := p.opts.jwksHTTPTimeout
+	if timeout == 0 {
+		timeout = time.Minute
 	}
-
-	// Create JWKS storage from HTTP endpoint. Internal refresh interval is NOT set
-	// to allow management via RefreshJWKS and the provider's refresh cron.
-	storage, err := jwkset.NewStorageFromHTTP(p.discoveryInfo.JwksURL, storageOptions)
+	ctx, cancel := corectx.ApplyTimeout(ctx, timeout)
+	defer cancel()
+	jwks, err := p.fetchJWKS(ctx)
 	if err != nil {
+		return coreerrs.WrapOperation(err, "initialize JWKS storage")
+	}
+	keys := make([]jwkset.JWK, 0, len(jwks.Keys))
+	for _, marshal := range jwks.Keys {
+		key, keyErr := jwkset.NewJWKFromMarshal(marshal, jwkset.JWKMarshalOptions{Private: true}, jwkset.JWKValidateOptions{})
+		if errors.Is(keyErr, jwkset.ErrUnsupportedKey) {
+			continue
+		}
+		if keyErr != nil {
+			return coreerrs.WrapOperation(keyErr, "initialize JWK")
+		}
+		keys = append(keys, key)
+	}
+	storage := jwkset.NewMemoryStorage()
+	if err = storage.KeyReplaceAll(ctx, keys); err != nil {
 		return coreerrs.WrapOperation(err, "initialize JWKS storage")
 	}
 
