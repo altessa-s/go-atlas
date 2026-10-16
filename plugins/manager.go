@@ -21,6 +21,7 @@ import (
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	goplugin "plugin"
 )
 
 // Manager provides a facade for loading, discovering and managing dynamic
@@ -96,6 +97,22 @@ type Manager struct {
 	// file bytes and the SHA256 hex digest. Defaults to [readAndHashFile].
 	readAndHashFileFn func(string) ([]byte, string, error)
 
+	// openPluginFn opens a .so file and runs its package init code.
+	// Defaults to [openPlugin]; tests override it to observe the path the
+	// manager executes without needing a real .so file.
+	openPluginFn func(string) (*goplugin.Plugin, error)
+
+	// handles caches plugin handles by verified content hash. Defaults to
+	// the process-wide [processHandles]; tests use a private cache.
+	handles *handleCache
+
+	// Snapshot state. snapDir is the private directory holding the copies
+	// of verified plugin files that plugin.Open executes; see
+	// [Manager.openVerified]. Created on first use, removed by Close.
+	snapMu     sync.Mutex
+	snapDir    string
+	snapActive int
+
 	// metrics holds all metric collectors for observability.
 	metrics *pluginMetrics
 
@@ -133,6 +150,8 @@ func NewManager(opt ...Option) *Manager {
 		sandboxSystemLibPaths: defaultLandlockSystemLibPaths,
 		quarantine:            make(map[string]string),
 		readAndHashFileFn:     readAndHashFile,
+		openPluginFn:          openPlugin,
+		handles:               processHandles,
 		metrics:               initMetrics(opts.metrics),
 	}
 
@@ -409,10 +428,14 @@ func (m *Manager) Len() int {
 // Close marks all plugins as unloaded and clears the manager. If a watcher
 // is running it is stopped first and this method blocks until the watch
 // goroutine has exited. Subsequent calls to [Manager.Load] return
-// [ErrManagerClosed]. Close is idempotent.
+// [ErrManagerClosed]. Close is idempotent and retries failed snapshot cleanup.
+// Snapshot cleanup is deferred while a direct Load is inside plugin.Open;
+// errors from deferred cleanup are logged. Close still waits for watcher
+// reloads: plugin initialization must not call Close or StopWatching from
+// the watcher, or recursively load the same plugin.
 func (m *Manager) Close() error {
 	if m.closed.Swap(true) {
-		return nil
+		return m.removeSnapshotDir()
 	}
 
 	// Stop the watcher before clearing state so any in-flight Reload from
@@ -433,7 +456,7 @@ func (m *Manager) Close() error {
 	clear(m.quarantine)
 	m.quarantineMu.Unlock()
 
-	return nil
+	return m.removeSnapshotDir()
 }
 
 // resolvePluginFiles lists .so files in the configured directory and applies
@@ -495,28 +518,6 @@ func setOf(items []string) map[string]struct{} {
 	})
 }
 
-// recheckHashAfterOpen re-reads and re-hashes the plugin file after
-// [plugin.Open] and compares the result against the hash that passed
-// signature verification. Go's plugin API only accepts a path, so the bytes
-// it mapped are not necessarily the bytes that were verified; a mismatch
-// means the file was swapped inside the verify→open window. The file is
-// quarantined — under the new hash, so a subsequent operator fix clears the
-// entry — and [ErrPluginModified] is returned. A double swap that restores
-// the original file before this re-read is not detectable with a path-based
-// API; filesystem permissions remain the primary control.
-func (m *Manager) recheckHashAfterOpen(filename, path, verifiedHash string) error {
-	_, reHash, err := m.readAndHashFileFn(path)
-	if err != nil {
-		m.addQuarantine(filename, "")
-		return coreerrs.Wrapf(err, "plugin %q: re-hash after open", filename)
-	}
-	if reHash != verifiedHash {
-		m.addQuarantine(filename, reHash)
-		return coreerrs.Wrapf(ErrPluginModified, "plugin %q", filename)
-	}
-	return nil
-}
-
 // loadPlugin opens a single .so file, resolves its descriptor, runs Init
 // if present, and only then registers the plugin in the manager's
 // registry. Returned errors carry the failing plugin filename and wrap
@@ -570,31 +571,21 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		return coreerrs.Wrapf(ErrPluginQuarantined, "plugin %q (hash %s)", filename, fileHash[:min(hashPrefixLen, len(fileHash))])
 	}
 
-	// Verify the detached .sig BEFORE openPlugin executes init code.
-	// Note: openPlugin re-reads the file from disk (Go's plugin.Open does
-	// not accept pre-read bytes). An attacker with write access to the
-	// plugin directory could swap the .so between verification and Open;
-	// recheckHashAfterOpen below detects the swap after the fact. The
-	// primary mitigation remains filesystem permissions — the plugin
-	// directory must be writable only by the deployer, not the application
-	// user. See the Security section in doc.go.
+	// Verify the detached .sig BEFORE any plugin code runs.
 	if err := m.verifyPluginSignature(filename, path, pluginData, fileHash); err != nil {
 		return err
 	}
 
-	raw, err := openPlugin(path)
+	// Open a private snapshot of the verified bytes, never the original
+	// path: the file in the plugin directory may have changed since it was
+	// read. Snapshot failures are not the plugin's fault and are not
+	// quarantined.
+	raw, err := m.openVerified(filename, pluginData, fileHash)
 	if err != nil {
-		m.addQuarantine(filename, fileHash)
+		if _, ok := errors.AsType[*snapshotError](err); !ok {
+			m.addQuarantine(filename, fileHash)
+		}
 		return coreerrs.Wrapf(err, "plugin %q", filename)
-	}
-
-	// TOCTOU hardening: re-hash the file plugin.Open just loaded and compare
-	// against the signature-verified hash. On mismatch the plugin is
-	// quarantined and never registered — although the swapped file's init
-	// code has already run inside plugin.Open (Go cannot unload a plugin),
-	// none of its symbols are resolved or exposed to the host.
-	if err = m.recheckHashAfterOpen(filename, path, fileHash); err != nil {
-		return err
 	}
 
 	lookup := symbolLookupFromPlugin(raw)
@@ -647,7 +638,7 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		return coreerrs.Wrapf(ErrPluginAlreadyLoaded, "plugin %q (file %q)", desc.Name, filename)
 	}
 
-	p := newPlugin(*desc, path, raw)
+	p := newPlugin(*desc, path, fileHash, raw)
 
 	// Resolve Init outside the lock — both forms are accepted; see
 	// [resolveInit] for the supported shapes. A present-but-mis-typed
@@ -758,6 +749,16 @@ func (m *Manager) ensureSandbox() error {
 				slog.Any("error", err))
 			return
 		}
+		// Landlock must allow the snapshot directory, so it has to exist
+		// before the ruleset is applied.
+		if m.opts.sandbox.Landlock.Enabled {
+			if _, err := m.ensureSnapshotDir(); err != nil {
+				wrapped := coreerrs.JoinWrap(ErrSandboxFailed, err)
+				m.sandboxErr.Store(&errBox{err: wrapped})
+				m.logger.Error("plugin snapshot directory setup failed", slog.Any("error", err))
+				return
+			}
+		}
 		effective := m.expandSandboxOptions(m.opts.sandbox)
 		m.warnPerThreadPrimitives(effective)
 		if err := m.sandboxApply(effective); err != nil {
@@ -864,9 +865,19 @@ var defaultLandlockSystemLibPaths = []string{
 // surfaced as a Landlock setup failure. The plugin manager logs the
 // effective list at Info level so operators can audit what actually
 // got allowlisted on this host.
+//
+// The manager's private snapshot directory, once created, is always merged
+// into ReadWritePaths (cloned the same way): plugin.Open maps the snapshots
+// from there, so Landlock without it would reject every plugin.
 func (m *Manager) expandSandboxOptions(o SandboxOptions) SandboxOptions {
 	if !o.Landlock.Enabled {
 		return o
+	}
+
+	// The snapshot directory needs write access (snapshots are created and
+	// removed there) and read+execute access (plugin.Open maps them).
+	if dir := m.currentSnapshotDir(); dir != "" {
+		o.Landlock.ReadWritePaths = dedupePreserveOrder(slices.Concat(o.Landlock.ReadWritePaths, []string{dir}))
 	}
 
 	var extra []string

@@ -125,6 +125,29 @@ func WithMetrics(v metrics.Collector) Option {
 	}
 }
 
+// WithSnapshotDir sets the snapshotDir option.
+func WithSnapshotDir[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.snapshotDir = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.snapshotDir = vv
+		}
+	}
+}
+
 // WithWatchDebounce sets the watchDebounce option.
 func WithWatchDebounce(v time.Duration) Option {
 	return func(o *options) {
@@ -142,6 +165,7 @@ func defaultOptions() *options {
 		hostVersionMode: DefaultHostVersionMode,
 		initTimeout:     DefaultInitTimeout,
 		logger:          slog.New(slog.DiscardHandler),
+		snapshotDir:     DefaultSnapshotDir,
 		watchDebounce:   DefaultWatchDebounce,
 	}
 }

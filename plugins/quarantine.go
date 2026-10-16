@@ -77,7 +77,8 @@ func (m *Manager) addQuarantine(filename, fileHash string) {
 // from being loaded again on the next [Manager.Reload].
 //
 // The plugin transitions to [StateFailed], is removed from the
-// registry, and its file hash is recorded in the quarantine store.
+// registry, and the hash of the bytes it was loaded from is recorded in the
+// quarantine store.
 // On the next Reload, the file is skipped unless its SHA256 has
 // changed (i.e. the operator deployed a fix).
 //
@@ -97,19 +98,9 @@ func (m *Manager) Quarantine(name string) error {
 	delete(m.plugins, name)
 	m.mu.Unlock()
 
-	_, fileHash, err := m.readAndHashFileFn(p.Path())
-	if err != nil {
-		// Can't hash — still quarantine by path with empty hash.
-		// The empty hash won't match any future file read, so the
-		// plugin will be retried on the next Reload regardless.
-		m.logger.Warn("quarantine: cannot hash plugin file; quarantine is best-effort",
-			slog.String("plugin", name),
-			slog.Any("error", err),
-		)
-		fileHash = ""
-	}
-
-	m.addQuarantine(filepath.Base(p.Path()), fileHash)
+	// Quarantine the bytes that were loaded, not whatever the file holds
+	// now: re-hashing the mutable file would blacklist a replacement.
+	m.addQuarantine(filepath.Base(p.Path()), p.fileHash)
 	p.setErr(coreerrs.Wrapf(ErrPluginQuarantined, "plugin %q quarantined by host", name))
 	p.setState(StateFailed)
 

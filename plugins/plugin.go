@@ -25,6 +25,7 @@ type Plugin struct {
 	// Immutable after construction.
 	descriptor Descriptor
 	path       string
+	fileHash   string // SHA-256 of the verified bytes that were opened
 	raw        *goplugin.Plugin
 	loadedAt   time.Time
 
@@ -53,7 +54,7 @@ type errBox struct {
 //
 // Centralizing construction here keeps two invariants enforceable:
 //
-//   - Every required identity field (descriptor, path, raw) is set in one
+//   - Every required identity field (descriptor, path, fileHash, raw) is set in one
 //     place, so a future caller cannot accidentally build a Plugin with a
 //     zero-value Descriptor and a stale path.
 //   - The initial State is set explicitly via [Plugin.setState] rather
@@ -65,10 +66,11 @@ type errBox struct {
 // raw may be nil for tests that exercise the manager registry without a
 // real .so file; production callers always pass a non-nil handle from
 // [openPlugin].
-func newPlugin(desc Descriptor, path string, raw *goplugin.Plugin) *Plugin {
+func newPlugin(desc Descriptor, path, fileHash string, raw *goplugin.Plugin) *Plugin {
 	p := &Plugin{
 		descriptor: desc,
 		path:       path,
+		fileHash:   fileHash,
 		raw:        raw,
 		loadedAt:   time.Now(),
 	}
@@ -88,7 +90,9 @@ func (p *Plugin) Description() string { return p.descriptor.Description }
 // State returns the current lifecycle state of the plugin.
 func (p *Plugin) State() State { return State(p.state.Load()) }
 
-// Path returns the filesystem path of the loaded .so file.
+// Path returns the filesystem path of the .so file in the plugin directory.
+// The code the process runs is a private snapshot of the bytes verified
+// from that file at load time; the file at Path may have changed since.
 func (p *Plugin) Path() string { return p.path }
 
 // LoadedAt returns the time when the plugin was loaded.

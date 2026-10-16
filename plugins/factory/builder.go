@@ -85,6 +85,7 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*plugins.Manager, error) {
 	opts := []plugins.Option{
 		plugins.WithLogger(b.Logger()),
 		plugins.WithDir(b.cfg.Dir),
+		plugins.WithSnapshotDir(b.cfg.SnapshotDir),
 		plugins.WithInitTimeout(b.cfg.InitTimeout),
 		plugins.WithWatchDebounce(b.cfg.WatchDebounce),
 		plugins.WithSandbox(SandboxOptionsFromConfig(b.cfg.Sandbox)),

@@ -153,6 +153,7 @@ func TestManager_CheckHealth_RaceFreeWithSandboxFailure(t *testing.T) {
 // Landlock syscalls are stubbed because they would restrict the test process
 // for every other test in the same binary.
 func TestEnsureSandbox_LandlockReachedViaStub(t *testing.T) {
+	t.Parallel()
 	var captured SandboxOptions
 	mgr := newStubbedManager(
 		func(o SandboxOptions) error {
@@ -174,7 +175,8 @@ func TestEnsureSandbox_LandlockReachedViaStub(t *testing.T) {
 
 	assert.True(t, captured.Landlock.Enabled)
 	assert.Equal(t, []string{"/lib64", "/etc/myservice"}, captured.Landlock.ReadPaths)
-	assert.Equal(t, []string{"/var/lib/myservice"}, captured.Landlock.ReadWritePaths)
+	require.Equal(t, []string{"/var/lib/myservice", mgr.currentSnapshotDir()}, captured.Landlock.ReadWritePaths)
+	require.DirExists(t, mgr.currentSnapshotDir())
 }
 
 // TestExpandSandboxOptions_StrictModeUnchanged verifies that with both

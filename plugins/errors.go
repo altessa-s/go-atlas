@@ -68,15 +68,18 @@ var (
 	// (different SHA256). See [Manager.Quarantine] and [Manager.Quarantined].
 	ErrPluginQuarantined = errors.New("plugin quarantined")
 
-	// ErrPluginModified is returned when the plugin file's hash after
-	// [plugin.Open] differs from the hash that passed signature
-	// verification, i.e. the file was swapped on disk inside the
-	// verify→open window (TOCTOU). The plugin is quarantined under the
-	// new hash and never registered. Note that the swapped file's init
-	// code has already run inside plugin.Open — Go cannot unload a
-	// plugin — so filesystem permissions remain the primary control; see
-	// the Security section in the package documentation.
-	ErrPluginModified = errors.New("plugin file changed between signature verification and load")
+	// ErrPluginModified is returned when the private snapshot the manager
+	// executes does not hold the bytes it read and verified from the plugin
+	// directory. The snapshot is never opened. The plugin is not quarantined:
+	// the mismatch points at the snapshot storage, not at the plugin file.
+	// See [WithSnapshotDir].
+	ErrPluginModified = errors.New("plugin snapshot differs from the verified bytes")
+
+	// ErrInsecureSnapshotDir is returned by [Manager.Load] and
+	// [Manager.Reload] when the snapshot base directory ([WithSnapshotDir])
+	// is not a directory, or is writable by group or others without the
+	// sticky bit.
+	ErrInsecureSnapshotDir = errors.New("insecure plugin snapshot directory")
 
 	// ErrManagerClosed is returned when operations are attempted on a closed manager.
 	ErrManagerClosed = errors.New("plugin manager is closed")

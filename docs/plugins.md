@@ -458,10 +458,11 @@ Verifies `.so` files against a detached `.so.sig` signature before `plugin.Open`
 security.** Each `.so` needs a companion `.sig` file signed with the configured public key. To disable signature verification (development only),
 use `plugins.WithSignatureDisabled()`; the YAML schema does not accept `disabled`.
 
-> **TOCTOU note.** `plugin.Open` re-reads the file from disk — it doesn't accept
-> pre-read bytes. An attacker with write access to the plugin directory could swap the
-> `.so` between verification and `Open`. The primary defense is filesystem permissions:
-> the plugin directory must be writable only by the deployer. See the Security section.
+The manager writes the signature-verified bytes to a new 0600 file in a private 0700 directory, rechecks its hash, and opens only that
+snapshot. Source replacement cannot change the executed bytes. The file is unlinked after opening; `Close` cleans up the directory once
+active opens finish. `snapshotDir` / `WithSnapshotDir` selects a trusted executable base (default: OS temp directory); override it for
+`noexec` temp mounts. Base ownership, ancestors and ACLs must prevent producer tampering. Group/other-writable bases require the sticky bit;
+same-UID/root attackers are outside this boundary. See [runtime constraints and Landlock cleanup](../plugins/README.md#snapshot-runtime-constraints).
 
 ### Configuration
 

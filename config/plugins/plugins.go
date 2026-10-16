@@ -33,6 +33,11 @@ type Config struct {
 	// Defaults to "./plugins".
 	Dir string `yaml:"dir" default:"./plugins"`
 
+	// SnapshotDir is a trusted, executable base for private plugin snapshots.
+	// Empty uses os.TempDir. Its owner, ancestors and ACLs must prevent the
+	// plugin producer from replacing the manager's private directory.
+	SnapshotDir string `yaml:"snapshotDir"`
+
 	// Load is an explicit allowlist of plugin filenames to load.
 	// When non-empty, only these plugins are loaded and Disabled is ignored.
 	Load []string `yaml:"load"`

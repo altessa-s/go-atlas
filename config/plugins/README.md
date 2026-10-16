@@ -18,3 +18,9 @@ the component factories, which map them to generated options; runtime packages n
 | `Capabilities` | Configures Linux capability dropping applied via the standalone [github.com/altessa-s/go-atlas/core/runtime/capabilities] package. |
 
 See the [config index](../README.md) for the other schema packages.
+
+## Snapshot storage
+
+`snapshotDir` selects a trusted executable base directory for private plugin copies; empty uses the OS temp directory.
+Override it when the temp mount is `noexec`. Protect its ownership, ancestors and ACLs from plugin producers.
+See [plugin security](../../plugins/README.md#security).
