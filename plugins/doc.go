@@ -177,14 +177,32 @@
 //   - Pin plugin versions and verify integrity (checksum, signature) outside
 //     the manager when the deployment surface allows it.
 //
-// When signature verification is enabled, the manager verifies the detached
-// .sig against the file bytes BEFORE [plugin.Open] and re-hashes the file
-// AFTER plugin.Open, quarantining the plugin on mismatch
-// ([ErrPluginModified]). This narrows — but cannot fully close — the TOCTOU
-// window inherent to Go's path-based plugin API: a swapped file's init code
-// has already run by the time the mismatch is detected, and a double swap
-// that restores the original file before the re-read is undetectable.
-// Filesystem permissions (or a read-only mount) remain the primary control.
+// The manager copies the bytes checked by signature verification into a
+// private 0700 directory and a new 0600 file. It verifies that copy's hash
+// before passing only the copy's path to [plugin.Open], so replacing the
+// source cannot substitute code after verification. A snapshot mismatch
+// returns [ErrPluginModified] before any plugin code runs. Successful handles
+// are reused process-wide by content hash; each load still verifies its own
+// signature. Runtime quarantine records the hash of the loaded bytes.
+//
+// [WithSnapshotDir] selects the base directory (default: os.TempDir); its
+// mount must permit executable mappings. Group/other-writable bases require
+// the sticky bit. The host must trust the base owner, all ancestors and ACLs:
+// the producer must not be able to replace this private directory. These
+// permissions do not isolate attackers running as the host UID or root.
+// Snapshots are unlinked after opening; [Manager.Close] removes the directory,
+// deferred until any in-flight open finishes. Go cannot unload mapped code.
+// Landlock automatically allows read/write/execute access to the private
+// directory, created before installing the restriction.
+//
+// Landlock only grants access inside the snapshot directory. Removing that directory also needs permission on its parent: configure a
+// dedicated trusted `snapshotDir` in `Landlock.ReadWritePaths` for full cleanup, or arrange external cleanup of empty private directories.
+// `Close` returns removal errors and subsequent calls retry; errors deferred until an active open finishes are logged.
+//
+// Go cannot replace a loaded plugin identity with changed bytes; restart the host for upgrades. Plugins opened outside this manager cache
+// are not supported. Native dependencies using `$ORIGIN`/`@loader_path` no longer resolve beside the original `.so`; use trusted absolute
+// library paths. Dependency bytes are not authenticated by the plugin signature. Plugin initialization must not recursively load the same
+// plugin, or call `Close`/`StopWatching` during a watcher reload (those methods wait for the watcher).
 //
 // # Sandbox mode
 //

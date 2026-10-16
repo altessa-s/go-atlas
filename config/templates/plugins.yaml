@@ -27,6 +27,12 @@
 #  # Default value: ./plugins
 #  dir: ./plugins
 #
+#  # <string> Trusted executable base for private plugin snapshots (0700/0600).
+#  # Empty uses the OS temp directory; override if that mount is noexec.
+#  # Protect ownership, ancestors and ACLs from the plugin producer.
+#  # Default value: "" (OS temp directory)
+#  snapshotDir: ""
+#
 #  # <list[string]> Explicit allowlist of plugin filenames to load.
 #  # When non-empty, only these filenames (matched against base names in dir)
 #  # are loaded. Takes priority over `disabled` — when both are configured,

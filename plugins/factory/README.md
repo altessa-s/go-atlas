@@ -62,3 +62,4 @@ The builder consumes a [`pluginsconfig.Config`](../../config/plugins/plugins.go)
 When a health coordinator is provided, the manager automatically registers
 health checks for plugin loading and verification status. The health check
 monitors plugin states and reports degraded status on load failures.
+The `snapshotDir` configuration is forwarded to `plugins.WithSnapshotDir`; select a trusted executable mount when the OS temp mount is `noexec`.

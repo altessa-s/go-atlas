@@ -51,23 +51,32 @@ const (
 	HostVersionDisabled
 )
 
+// DefaultSnapshotDir selects the OS temporary directory.
+const DefaultSnapshotDir = ""
+
 // DefaultHostVersionMode is the default value applied via optgen.
 const DefaultHostVersionMode = HostVersionEnforce
 
 // options contains Manager configuration.
 type options struct {
 	logger          *slog.Logger
-	dir             string            `optgen:"default=DefaultDir"`
-	load            []string          `optgen:"append"`
-	disabled        []string          `optgen:"append"`
-	initTimeout     time.Duration     `optgen:"default=DefaultInitTimeout"`
-	watchDebounce   time.Duration     `optgen:"default=DefaultWatchDebounce"`
-	hostVersion     string            // host service semver, compared against Descriptor.HostVersion at load time
-	hostVersionMode HostVersionMode   `optgen:"default=DefaultHostVersionMode"`
-	sandbox         SandboxOptions    `optgen:"manual"`
-	signature       signatureState    `opt:"-"` // resolved key + mode; set by WithSignature
-	signatureErr    error             `opt:"-"` // deferred PEM parse error from WithSignature
-	metrics         metrics.Collector // metrics collector for observability
+	dir             string          `optgen:"default=DefaultDir"`
+	load            []string        `optgen:"append"`
+	disabled        []string        `optgen:"append"`
+	initTimeout     time.Duration   `optgen:"default=DefaultInitTimeout"`
+	watchDebounce   time.Duration   `optgen:"default=DefaultWatchDebounce"`
+	hostVersion     string          // host service semver, compared against Descriptor.HostVersion at load time
+	hostVersionMode HostVersionMode `optgen:"default=DefaultHostVersionMode"`
+	// snapshotDir is the base directory for the private copies of verified
+	// plugin files that plugin.Open executes. Empty means os.TempDir(). It
+	// must not be writable by the plugin producer, must allow mapping
+	// executable code (no noexec mount), and must be a directory that is
+	// not group- or world-writable unless the sticky bit is set.
+	snapshotDir  string            `optgen:"default=DefaultSnapshotDir"`
+	sandbox      SandboxOptions    `optgen:"manual"`
+	signature    signatureState    `opt:"-"` // resolved key + mode; set by WithSignature
+	signatureErr error             `opt:"-"` // deferred PEM parse error from WithSignature
+	metrics      metrics.Collector // metrics collector for observability
 }
 
 // WithSandbox configures Linux process-hardening primitives applied lazily on

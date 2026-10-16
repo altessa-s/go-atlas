@@ -5,11 +5,14 @@
 package factory_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/plugins"
 	"github.com/altessa-s/go-atlas/plugins/factory"
 
 	pluginsconfig "github.com/altessa-s/go-atlas/config/plugins"
@@ -64,4 +67,20 @@ func TestManagerBuilder_Build_WatchFailsOnMissingDir(t *testing.T) {
 	_, err := factory.NewManager(cfg).Build(t.Context())
 	// Load fails on the missing directory before watch gets a chance to start.
 	require.Error(t, err)
+}
+
+func TestManagerBuilder_Build_SnapshotDirectory(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	require.NoError(t, os.Chmod(base, 0o777))
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.so"), []byte("plugin"), 0o600))
+	cfg := &pluginsconfig.Config{
+		Enabled:     true,
+		Dir:         dir,
+		SnapshotDir: base,
+		Signature:   pluginsconfig.Signature{Mode: "disabled"},
+	}
+	_, err := factory.NewManager(cfg).Build(t.Context())
+	require.ErrorIs(t, err, plugins.ErrInsecureSnapshotDir)
 }
