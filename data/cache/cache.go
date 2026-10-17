@@ -171,8 +171,12 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		// fv is this caller's view of the shared serialized bytes; decode a
 		// private copy over a zeroed destination, mirroring the full overwrite
 		// of the shared-value path.
+		data, err := isolatedBytes(fv)
+		if err != nil {
+			return err
+		}
 		dst.SetZero()
-		return c.serializer.Deserialize(fv.([]byte), value)
+		return c.serializer.Deserialize(data, value)
 	}
 	dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
 
@@ -227,7 +231,11 @@ func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback
 	}
 
 	if c.isolated {
-		if err = c.serializer.Deserialize(fv.([]byte), &out); err != nil {
+		raw, err := isolatedBytes(fv)
+		if err != nil {
+			return out, err
+		}
+		if err = c.serializer.Deserialize(raw, &out); err != nil {
 			var zero T
 			return zero, err
 		}
@@ -393,6 +401,16 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 		return cacheData, nil
 	}
 	return val, nil
+}
+
+// isolatedBytes unwraps a fallback result in isolated mode, where
+// [Cache.runFallback] hands every collapsed caller the serialized bytes.
+func isolatedBytes(fv any) ([]byte, error) {
+	data, ok := fv.([]byte)
+	if !ok {
+		return nil, fmt.Errorf("cache: isolated fallback result is %T, want []byte", fv)
+	}
+	return data, nil
 }
 
 // Save stores a value in the cache with the given key.
