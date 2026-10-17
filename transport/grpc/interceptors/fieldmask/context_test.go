@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
-
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 
 	pbfieldmask "github.com/altessa-s/go-atlas/domain/proto/fieldmask"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"

@@ -9,10 +9,12 @@ import (
 	"runtime"
 	"testing"
 
-	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/io/wal"
 	"github.com/altessa-s/go-atlas/service/dispatch/factory"
-	"github.com/stretchr/testify/require"
+
+	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 )
 
 func TestBuild_WALPermissionPolicy(t *testing.T) {

@@ -14,9 +14,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
-
 	kmslocal "github.com/altessa-s/go-atlas/data/mongo/kms/local"
+	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // encryptedSubtype is the BSON binary subtype of a CSFLE ciphertext.

@@ -14,12 +14,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
+
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
 	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
-	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
 	stdGrpc "google.golang.org/grpc"
 )
 

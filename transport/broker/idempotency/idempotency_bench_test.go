@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/idempotency"
+	"github.com/altessa-s/go-atlas/transport/broker/msg"
+
 	memorystorage "github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
 	brokeridem "github.com/altessa-s/go-atlas/transport/broker/idempotency"
-	"github.com/altessa-s/go-atlas/transport/broker/msg"
 )
 
 type noopAcker struct{}

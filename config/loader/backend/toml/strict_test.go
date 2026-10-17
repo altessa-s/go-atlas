@@ -8,11 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	burnt "github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config/loader/backend"
 	"github.com/altessa-s/go-atlas/config/loader/backend/toml"
+
+	burnt "github.com/BurntSushi/toml"
 )
 
 type StrictBase struct {

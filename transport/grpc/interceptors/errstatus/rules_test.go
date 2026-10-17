@@ -107,7 +107,9 @@ func TestNoCacheConverterNotPreemptedByCache(t *testing.T) {
 
 	unary := ServerInterceptor(
 		WithErrorConverters(ErrorConverter{
-			Matcher: func(ctx context.Context, err error) bool { return ctx.Value(tenantKey{}) == "vip" && errors.Is(err, errSecret) },
+			Matcher: func(ctx context.Context, err error) bool {
+				return ctx.Value(tenantKey{}) == "vip" && errors.Is(err, errSecret)
+			},
 			Convert: func(context.Context, error) *status.Status { return status.New(codes.Unavailable, "vip") },
 			NoCache: true,
 		}),

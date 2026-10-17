@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"testing"
 
-	"google.golang.org/grpc/metadata"
-
 	"github.com/altessa-s/go-atlas/observability/tracing"
+
+	"google.golang.org/grpc/metadata"
 )
 
 func BenchmarkParseMethod(b *testing.B) {

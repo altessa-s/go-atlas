@@ -9,8 +9,9 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 )
 
 type secretLogValue struct{}
