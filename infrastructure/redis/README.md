@@ -1,7 +1,7 @@
 # redis
 
-Redis infrastructure for the Atlas framework. Provides a fluent builder for creating Redis clients with automatic mode detection
-(standalone, sentinel, cluster), authentication, connection pooling, and health-check integration.
+Redis infrastructure for the Atlas framework. Provides a fluent builder for creating Redis clients with automatic mode detection (standalone, sentinel,
+cluster), authentication, connection pooling, and health-check integration.
 
 ## Usage
 
@@ -18,6 +18,7 @@ client, err := factory.New(cfg.Redis).
   converging in `ClientBuilder.UniversalOptions`
 - **Auto mode detection** — sentinel when `MasterName` is set, cluster when multiple hosts are provided, standalone otherwise
 - **Authentication** — username/password with optional sentinel password
+- **TLS** — injected via `WithTLSConfig` on the field-based path; a `rediss://` connection URI carries its own TLS settings
 - **Connection pooling** — configurable pool size, idle connections, timeouts, and max connection age
 - **Startup health check** — `Build` pings the server within `DefaultPingTimeout` and closes the client on failure
 - **Health integration** — optional `health.Coordinator` registration via `UseHealthCoordinator`

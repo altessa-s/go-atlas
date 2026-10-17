@@ -5,14 +5,13 @@ import "github.com/altessa-s/go-atlas/domain/behavior"
 ```
 
 Package `behavior` strips fields from a plain Go struct based on `behavior` struct tags — the reflection-based counterpart to
-[`domain/proto/fieldbehavior`](../proto/fieldbehavior/README.md). Where the proto package reads `google.api.field_behavior` off a
-`proto.Message` descriptor, this package reads an equivalent vocabulary from `behavior:"…"` tags on an ordinary domain model, so one struct
-can declare which fields are server-owned, immutable, or input-only — instead of maintaining a separate Create/Update/storage struct per
-operation.
+[`domain/proto/fieldbehavior`](../proto/fieldbehavior/README.md). Where the proto package reads `google.api.field_behavior` off a `proto.Message`
+descriptor, this package reads an equivalent vocabulary from `behavior:"…"` tags on an ordinary domain model, so one struct can declare which fields are
+server-owned, immutable, or input-only — instead of maintaining a separate Create/Update/storage struct per operation.
 
-"Strip" clears a field by setting it to its zero value, which works the same for every representation: a plain `T` becomes its zero value, a
-`*T` becomes `nil`, an [`optional.Optional`](../../core/types/optional) becomes `None`, and a slice or map becomes `nil`. Callers are free to
-model partial updates with either `*T` or `Optional`; the outcome is identical.
+"Strip" clears a field by setting it to its zero value, which works the same for every representation: a plain `T` becomes its zero value, a `*T`
+becomes `nil`, an [`optional.Optional`](../../core/types/optional) becomes `None`, and a slice or map becomes `nil`. Callers are free to model partial
+updates with either `*T` or `Optional`; the outcome is identical.
 
 ## Functions
 
@@ -28,9 +27,9 @@ model partial updates with either `*T` or `Optional`; the outcome is identical.
 
 ## Architecture: core + translator
 
-The package is a core that runs a single reflection walk and hands the resolved tree to a pluggable `Translator`, so one walk can feed
-different output models. `Strip`/`Clean` are the built-in default outputs (a cleaned struct); other outputs live in their own subpackages
-under [`translators/`](translators) and depend only on `behavior` plus their backend driver — `behavior` itself stays dependency-free.
+The package is a core that runs a single reflection walk and hands the resolved tree to a pluggable `Translator`, so one walk can feed different output
+models. `Strip`/`Clean` are the built-in default outputs (a cleaned struct); other outputs live in their own subpackages under
+[`translators/`](translators) and depend only on `behavior` plus their backend driver — `behavior` itself stays dependency-free.
 
 ```go
 type Translator[Out any] interface {
@@ -42,15 +41,15 @@ eng := behavior.New[[]string](myTranslator, behavior.WithKinds(behavior.OutputOn
 out, err := eng.Translate(ctx, &bucket)
 ```
 
-`New` injects the translator; `Engine.Translate` resolves a struct or non-nil pointer-to-struct into an `Object`/`Field` tree (a stripped
-field is a leaf; a nested struct hangs off `Field.Nested`; slice/array/map elements — through arbitrarily nested collection layers — hang
-off `Field.Collection` as one `Object` per element, with map keys in `Collection.Keys`; an element that is itself a collection resolves to
-a synthetic `Object` with a single unnamed `Field`) and folds it with the translator. `Resolve` returns the same `Object` tree without
-folding, so a translator can recurse into values it meets at run time.
+`New` injects the translator; `Engine.Translate` resolves a struct or non-nil pointer-to-struct into an `Object`/`Field` tree (a stripped field is a
+leaf; a nested struct hangs off `Field.Nested`; slice/array/map elements — through arbitrarily nested collection layers — hang off `Field.Collection` as
+one `Object` per element, with map keys in `Collection.Keys`; an element that is itself a collection resolves to a synthetic `Object` with a single
+unnamed `Field`) and folds it with the translator. `Resolve` returns the same `Object` tree without folding, so a translator can recurse into values it
+meets at run time.
 
-A translator must not retain `root` — or any `Object`, `Field`, or `Collection` reachable from it — after `Translate` returns, and the
-returned value must not alias that memory. Under `WithPooling` the engine recycles the tree's storage for later walks, so a retained
-reference would silently be overwritten with another value's data.
+A translator must not retain `root` — or any `Object`, `Field`, or `Collection` reachable from it — after `Translate` returns, and the returned value
+must not alias that memory. Under `WithPooling` the engine recycles the tree's storage for later walks, so a retained reference would silently be
+overwritten with another value's data.
 
 ## Translators
 
@@ -69,8 +68,8 @@ reference would silently be overwritten with another value's data.
 | `immutable`     | `Immutable`   | `StripUpdate`                     |
 | `identifier`    | `Identifier`  | `StripCreate`, `StripUpdate`      |
 
-Combine with commas (`behavior:"required,immutable"`); a field matches when any of its behaviors intersect the strip set. An unrecognized
-token is a build-time-style error returned by `Strip`.
+Combine with commas (`behavior:"required,immutable"`); a field matches when any of its behaviors intersect the strip set. An unrecognized token is a
+build-time-style error returned by `Strip`.
 
 ## Options
 
@@ -85,11 +84,12 @@ token is a build-time-style error returned by `Strip`.
 
 ### Schema walk
 
-By default the walk stops where a nested value is absent (a nil pointer-to-struct, an empty slice/map of structs). `WithSchemaWalk` makes
-it resolve nested struct *types* anyway: a nil pointer descends a fresh zero, fields promoted through a nil embedded pointer are resolved from
-its type, and an empty collection contributes one representative element from its element/value type. The resolved `Object` is then type-complete (one representative per collection) and each synthesized
-`Field.Value` is a non-addressable zero. It is for read-only, type-driven translators (for example a query projection that enumerates nested
-paths regardless of runtime contents) — `Strip`, `Clean`, and the in-place fold ignore the flag and fold real instance values only.
+By default the walk stops where a nested value is absent (a nil pointer-to-struct, an empty slice/map of structs). `WithSchemaWalk` makes it resolve
+nested struct *types* anyway: a nil pointer descends a fresh zero, fields promoted through a nil embedded pointer are resolved from its type, and an
+empty collection contributes one representative element from its element/value type. The resolved `Object` is then type-complete (one representative per
+collection) and each synthesized `Field.Value` is a non-addressable zero. It is for read-only, type-driven translators (for example a query projection
+that enumerates nested paths regardless of runtime contents) — `Strip`, `Clean`, and the in-place fold ignore the flag and fold real instance values
+only.
 
 ```go
 // Type-driven translator: nested paths appear even for a zero-value carrier.
@@ -100,9 +100,9 @@ proj, err := eng.Translate(ctx, Entity{})
 
 ### Pooling
 
-The walk builds its `Object`/`Field` tree on an internal chunked arena. `Strip` and `Clean` always return that arena to a pool: their tree
-never escapes the call, so the reuse is invisible to callers. Engines hand the tree to a translator, so for them pooling is opt-in — enable
-`WithPooling` on hot paths once the translator honors the retention rule above. `Resolve` always returns a GC-owned tree.
+The walk builds its `Object`/`Field` tree on an internal chunked arena. `Strip` and `Clean` always return that arena to a pool: their tree never escapes
+the call, so the reuse is invisible to callers. Engines hand the tree to a translator, so for them pooling is opt-in — enable `WithPooling` on hot paths
+once the translator honors the retention rule above. `Resolve` always returns a GC-owned tree.
 
 ## Traversal semantics
 
@@ -114,12 +114,12 @@ never escapes the call, so the reuse is invisible to callers. Engines hand the t
 | Map with struct values                       | Field cleared          | Recursive descent into each value        |
 | Nested collections (`[][]T`, `map[K][]T`, …) | Field cleared          | Recursive descent down to struct elements |
 
-A `behavior` tag placed on a field *inside* an `Optional` is never applied — `Optional` is an opaque leaf and is only cleared when the field
-holding it is itself tagged.
+A `behavior` tag placed on a field *inside* an `Optional` is never applied — `Optional` is an opaque leaf and is only cleared when the field holding it
+is itself tagged.
 
-Tags on unexported fields are validated (a typo still fails loudly) but otherwise ignored — unexported fields cannot be set and never
-participate in a strip. Unlike `encoding/json`, name shadowing between an outer field and a field promoted from an embedded struct is not
-resolved: both fields are processed independently.
+Tags on unexported fields are validated (a typo still fails loudly) but otherwise ignored — unexported fields cannot be set and never participate in a
+strip. Unlike `encoding/json`, name shadowing between an outer field and a field promoted from an embedded struct is not resolved: both fields are
+processed independently.
 
 ## Usage
 

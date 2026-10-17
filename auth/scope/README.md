@@ -4,14 +4,14 @@
 import "github.com/altessa-s/go-atlas/auth/scope"
 ```
 
-Package `scope` is a transport-neutral, deny-by-default authorization policy built on permission scopes. It answers one question —
-may this principal perform this action? — with no knowledge of transports, I/O, or what a principal is, so the same policy drives
-gRPC and HTTP authorization and is trivially unit-testable.
+Package `scope` is a transport-neutral, deny-by-default authorization policy built on permission scopes. It answers one question — may this principal
+perform this action? — with no knowledge of transports, I/O, or what a principal is, so the same policy drives gRPC and HTTP authorization and is
+trivially unit-testable.
 
-A `Registry` maps an action key (a gRPC full method, an HTTP route, any stable identifier) to the `Scope` it requires; it is built
-once, frozen, then read concurrently. An `Enforcer` pairs that registry with an `Authorizer` — the single extension point that
-decides whether a principal of the caller's own type `P` satisfies a required scope. Scope matching, superuser bypass, role or
-tenant checks, and any extra principal fields are composed by the caller, so the core bakes in no identity fields.
+A `Registry` maps an action key (a gRPC full method, an HTTP route, any stable identifier) to the `Scope` it requires; it is built once, frozen, then
+read concurrently. An `Enforcer` pairs that registry with an `Authorizer` — the single extension point that decides whether a principal of the caller's
+own type `P` satisfies a required scope. Scope matching, superuser bypass, role or tenant checks, and any extra principal fields are composed by the
+caller, so the core bakes in no identity fields.
 
 ## Key types
 
@@ -36,7 +36,7 @@ tenant checks, and any extra principal fields are composed by the caller, so the
 | `Wildcard(sep)`                     | `Matcher` honoring hierarchical grants: `"*"` and `"files:*"` (with `sep` `":"`) cover more.  |
 | `ScopeAuthorizer(scopesOf, m)`      | Build the common `Authorizer`: `p` granted ⇔ its scopes satisfy `required` under matcher `m`. |
 | `AnyOf(authorizers…)`               | Compose authorizers with OR — granted if any is (empty denies). E.g. scope **or** superuser.  |
-| `AllOf(authorizers…)`               | Compose authorizers with AND — granted only if all are (empty grants). E.g. scope **and** gate. |
+| `AllOf(authorizers…)`               | Compose authorizers with AND — granted only if all are (empty denies). E.g. scope **and** gate. |
 | `NewEnforcer(reg, authorize)`       | Enforcer backed by `reg`, delegating the satisfy decision to `authorize`.                     |
 | `Enforcer.Enforce(p, key)`          | `nil` if allowed, else `ErrAccessDenied`.                                                     |
 
@@ -79,9 +79,9 @@ if err := enf.Enforce(p, "/files.v1.Files/Write"); err != nil {
 
 ## Object-level authorization
 
-When a decision depends on the specific resource being acted on (ownership, per-object ACLs), use the resource-aware variants. They
-mirror the action-level API with one extra resource parameter `R`, the same deny-by-default registry, and the same fail-closed
-decision (unregistered key denied, empty scope public and resource not consulted).
+When a decision depends on the specific resource being acted on (ownership, per-object ACLs), use the resource-aware variants. They mirror the
+action-level API with one extra resource parameter `R`, the same deny-by-default registry, and the same fail-closed decision (unregistered key denied,
+empty scope public and resource not consulted).
 
 | Type / Function                       | Description                                                                                       |
 |---------------------------------------|---------------------------------------------------------------------------------------------------|
@@ -105,9 +105,9 @@ if err := enf.Enforce(p, doc, "/docs.v1.Docs/Update"); err != nil {
 
 ## Role-based access
 
-Services that model access as roles rather than raw scopes can map roles to scopes with `RoleScopes` instead of hand-writing the
-expansion. The core stays role-agnostic: the role→scope table is the caller's policy, and a caller-supplied `rolesOf` extractor reads
-roles off the principal, so no role field enters the core. `RoleAuthorizer` composes the table and extractor into a plain `Authorizer`.
+Services that model access as roles rather than raw scopes can map roles to scopes with `RoleScopes` instead of hand-writing the expansion. The core
+stays role-agnostic: the role→scope table is the caller's policy, and a caller-supplied `rolesOf` extractor reads roles off the principal, so no role
+field enters the core. `RoleAuthorizer` composes the table and extractor into a plain `Authorizer`.
 
 | Type / Function                       | Description                                                                                       |
 |---------------------------------------|---------------------------------------------------------------------------------------------------|
@@ -135,6 +135,7 @@ enf := scope.NewEnforcer(reg, authorize)
 
 ## Transports
 
-This is a policy primitive only. The gRPC adapter `ScopeClientAuth` in
-[`transport/grpc/interceptors/auth`](../../transport/grpc/interceptors/auth) drives an `Enforcer` from the verified principal in
-`Credentials.Data`, keyed by the full method name. An HTTP adapter (keyed by route) is left to the transport layer.
+This is a policy primitive only. The gRPC adapter `ScopeClientAuth` in [`transport/grpc/interceptors/auth`](../../transport/grpc/interceptors/auth)
+drives an `Enforcer` from the verified principal in `Credentials.Data`, keyed by the full method name. The HTTP adapter `ScopeMiddleware` (with the
+`ScopeMiddlewarePrincipal` shorthand) in [`transport/http/server/middlewares/auth`](../../transport/http/server/middlewares/auth) reads the principal
+from the request context and keys the decision with a caller-supplied `keyFunc` (e.g. the route).

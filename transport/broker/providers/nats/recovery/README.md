@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/broker/providers/nats/recovery"
 ```
 
-Package `recovery` provides automatic recovery for NATS JetStream streams and consumers. Uses JetStream Advisory Events for instant
-deletion detection and periodic health checks as a fallback for missed events during reconnection or network issues.
+Package `recovery` provides automatic recovery for NATS JetStream streams and consumers. Uses JetStream Advisory Events for instant deletion detection
+and periodic health checks as a fallback for missed events during reconnection or network issues.
 
 ## Components
 
@@ -13,7 +13,7 @@ deletion detection and periodic health checks as a fallback for missed events du
 |--------------------------|---------------------------------------------------------------------------------|
 | `Manager`                | Main orchestrator composing all recovery components; safe for concurrent use    |
 | `Registry`               | Thread-safe storage for stream configurations and subscription data             |
-| `Supervisor`             | Handles recovery logic with linear backoff and concurrent-recovery guards       |
+| `Supervisor`             | Handles recovery with linear backoff; guards concurrent stream recovery, but does not deduplicate consumer recovery triggers       |
 | `AdvisoryListener`       | Subscribes to JetStream advisory events for instant deletion detection          |
 | `HealthMonitor`          | Fallback checks for missed events; designed for scheduler-managed execution     |
 | `RecoveryTimeoutMonitor` | Clears stale recovery marks to prevent permanent recovery blockage              |
@@ -40,6 +40,10 @@ deletion detection and periodic health checks as a fallback for missed events du
 | `Subscribe`               | Create a managed subscription with automatic consumer recovery                 |
 | `RunHealthCheckCycle`     | Execute a single health check cycle (register with scheduler)                  |
 | `RunStaleRecoveryCleanup` | Execute a single stale recovery cleanup cycle (register with scheduler)        |
+| `RegisterHealthCheckSchedulerFunc` | Return the health check task for a scheduler; direct `RunHealthCheckCycle` calls then return `corescheduler.ErrSchedulerManaged` |
+| `RegisterStaleCleanupSchedulerFunc` | Return the stale cleanup task for a scheduler; direct `RunStaleRecoveryCleanup` calls then return `corescheduler.ErrSchedulerManaged` |
+| `GetRegistry`             | Return the internal `Registry` (testing and advanced use)                      |
+| `GetSupervisor`           | Return the internal `Supervisor` (testing and advanced use)                    |
 
 ## Options
 
@@ -70,3 +74,18 @@ deletion detection and periodic health checks as a fallback for missed events du
 | `DefaultMaxRecoveryAttempts`        | 3      | Maximum recovery attempts before giving up              |
 | `DefaultRecoveryBackoff`            | 5s     | Base backoff duration between recovery attempts         |
 | `DefaultStaleRecoveryTimeout`       | 20m    | Timeout for clearing stale recovery marks               |
+
+## Errors
+
+| Error                            | Description                                                         |
+|----------------------------------|---------------------------------------------------------------------|
+| `ErrStreamNotRegistered`         | The stream is not registered for recovery                           |
+| `ErrConsumerNotRegistered`       | The consumer is not registered for recovery                         |
+| `ErrStreamAlreadyRegistered`     | Declared but currently unused; registering an existing stream updates its configuration                                    |
+| `ErrRecoveryInProgress`          | Declared but currently unused; duplicate stream recovery requests are silently ignored            |
+| `ErrMaxRecoveryAttemptsExceeded` | Declared but currently unused; exhausted recovery passes the actual retry error to `OnRecoveryFailure`           |
+| `ErrManagerClosed`               | The manager has been closed                                         |
+| `ErrNilJetStream`                | A JetStream instance is required                                    |
+| `ErrNilNATSConn`                 | A NATS connection is required                                       |
+| `ErrInvalidStreamConfig`         | The stream configuration is invalid                                 |
+| `ErrInvalidConsumerConfig`       | The consumer configuration is invalid                               |

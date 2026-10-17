@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/security/hmacsign/factory"
 ```
 
-Builds [`hmacsign`](..) signers and verifiers from a [`webhookconfig.Signature`](../../../config) template.
+Builds [`hmacsign`](..) signers and verifiers from a [`webhookconfig.Signature`](../../../config/webhook) template.
 
 | Function            | Description                                                                                    |
 |---------------------|------------------------------------------------------------------------------------------------|
@@ -28,4 +28,4 @@ mux.Handle("/webhooks/stripe", httpsign.Middleware(v)(handler))
 
 - [`hmacsign`](..) — the underlying signer/verifier and schemes.
 - [`hmacsign/httpsign`](../httpsign) — the `net/http` middleware that consumes the built verifier.
-- [`webhookconfig.Signature`](../../../config) — the configuration template.
+- [`webhookconfig.Signature`](../../../config/webhook) — the configuration template.

@@ -1,7 +1,7 @@
 # transport
 
-Transport layer for the Atlas framework. Provides message broker, gRPC, and HTTP abstractions with production-ready features including
-resilience, observability, security, and configuration-driven creation of all transport components.
+Transport layer for the Atlas framework. Provides message broker, gRPC, and HTTP abstractions with production-ready features including resilience,
+observability, security, and configuration-driven creation of all transport components.
 
 ## Design principles
 
@@ -15,6 +15,7 @@ resilience, observability, security, and configuration-driven creation of all tr
 | Package                | Description                                                                                        |
 |------------------------|----------------------------------------------------------------------------------------------------|
 | [broker](./broker)     | High-level message broker with Transactional Outbox pattern and NATS JetStream provider            |
+| [clientip](./clientip) | Real client IP extraction behind trusted proxies, shared by the HTTP and gRPC realip components |
 | [grpc](./grpc)         | gRPC server and client with connection pooling, interceptor chain, and service handlers            |
 | [http](./http)         | HTTP server and client with content negotiation, middleware chain, and pluggable router             |
 | [proxydial](./proxydial) | Forward-proxy dialers for non-HTTP client connections (SMTP, SOAP, raw TCP, gRPC over CONNECT/SOCKS5) |

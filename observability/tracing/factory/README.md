@@ -4,9 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/tracing/factory"
 ```
 
-Package `factory` provides a fluent builder for creating tracers from configuration.
-`TracerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
-Returns `tracing.Noop` when config is `nil` or tracing is disabled.
+Package `factory` provides a fluent builder for creating tracers from configuration. `TracerBuilder` uses deferred error accumulation — errors from any
+step are collected and returned at `Build()` time. Returns `tracing.Noop` when config is `nil` or tracing is disabled.
 
 ## Quick Start
 
@@ -37,6 +36,7 @@ tracer, err := factory.New(cfg.Tracing).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Uses `slog.Default()` as the logger |
 
 ### Terminal
 
@@ -46,14 +46,9 @@ tracer, err := factory.New(cfg.Tracing).
 
 ## Proxy wiring
 
-For the `otlp` adapter with `Protocol: grpc`, `Build(ctx)` materializes
-`cfg.OTLP.Proxy` (a [`proxyconfig.Config`](../../../config/proxy/proxy.go))
-into `grpcclient.Option` values via `cfg.OTLP.Proxy.GrpcClientOptions()` and
-forwards them through `otlp.WithGRPCClientOptions(...)`. A nil/empty
-`Proxy` block keeps grpc-go's `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` env
-passthrough.
+For the `otlp` adapter with `Protocol: grpc`, `Build(ctx)` materializes `cfg.Adapters.OTLP.Proxy` (YAML `tracing.adapters.otlp.proxy`, a
+[`proxyconfig.Config`](../../../config/proxy/proxy.go)) into `grpcclient.Option` values via `transport/proxydial/factory.GRPCClientOptions` and forwards
+them through `otlp.WithGRPCClientOptions(...)`. A nil/empty `Proxy` block keeps grpc-go's `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` env passthrough.
 
-`Protocol: http` does not support YAML-driven proxy: the config validator
-rejects `Protocol: http + Proxy: {...}` so misconfiguration surfaces at
-load time. Use env vars instead for the HTTP exporter. See the
-[Proxy guide](../../../docs/proxy.md) for full mode semantics.
+`Protocol: http` does not support YAML-driven proxy: the config validator rejects `Protocol: http + Proxy: {...}` so misconfiguration surfaces at load
+time. Use env vars instead for the HTTP exporter. See the [Proxy guide](../../../docs/proxy.md) for full mode semantics.

@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/orderby/translators/meili"
 ```
 
-Translates an `orderby.Spec` value into the Meilisearch `sort` argument shape: a `[]string` of `"field:asc"` / `"field:desc"` entries in the order
-they appear in the source.
+Translates an `orderby.Spec` value into the Meilisearch `sort` argument shape: a `[]string` of `"field:asc"` / `"field:desc"` entries in the order they
+appear in the source.
 
 ## Usage
 

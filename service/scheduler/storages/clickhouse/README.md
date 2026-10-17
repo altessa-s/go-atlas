@@ -4,10 +4,10 @@
 import "github.com/altessa-s/go-atlas/service/scheduler/storages/clickhouse"
 ```
 
-Package `clickhouse` keeps the scheduler's execution history in a ClickHouse table. It implements `scheduler.HistoryStorage`, not
-`scheduler.Storage`: task state needs atomic compare-and-swap writes that ClickHouse does not offer, so it stays in another backend
-([`memory`](../memory), [`mongo`](../mongo), [`redis`](../redis), [`sqldb`](../sqldb)), and `scheduler.WithHistoryStorage` moves only the history
-here. The caller owns the connection, typically opened with [`infrastructure/clickhouse/factory`](../../../../infrastructure/clickhouse/factory).
+Package `clickhouse` keeps the scheduler's execution history in a ClickHouse table. It implements `scheduler.HistoryStorage`, not `scheduler.Storage`:
+task state needs atomic compare-and-swap writes that ClickHouse does not offer, so it stays in another backend ([`memory`](../memory),
+[`mongo`](../mongo), [`redis`](../redis), [`sqldb`](../sqldb)), and `scheduler.WithHistoryStorage` moves only the history here. The caller owns the
+connection, typically opened with [`infrastructure/clickhouse/factory`](../../../../infrastructure/clickhouse/factory).
 
 ## Options
 
@@ -46,14 +46,14 @@ Timestamps are Unix seconds, as in `scheduler.TaskHistory`.
 
 ## Retention
 
-The table TTL replaces `CleanupHistory`, so the scheduler's `WithHistoryRetention` does not apply to this backend. ClickHouse deletes expired rows
-as it merges parts, so an expired entry stays visible until then; a row already past its TTL when written is dropped on insert. The TTL is fixed
-when the table is created — change it with `ALTER TABLE … MODIFY TTL`.
+The table TTL replaces `CleanupHistory`, so the scheduler's `WithHistoryRetention` does not apply to this backend. ClickHouse deletes expired rows as it
+merges parts, so an expired entry stays visible until then; a row already past its TTL when written is dropped on insert. The TTL is fixed when the
+table is created — change it with `ALTER TABLE … MODIFY TTL`.
 
 ## Filters
 
-Filters are translated by [`data/filter/translators/clickhouse`](../../../../data/filter/translators/clickhouse). Its `size()` is `length()`, which
-measures a string in bytes, not code points as the other backends do.
+Filters are translated by [`data/filter/translators/clickhouse`](../../../../data/filter/translators/clickhouse). Its `size()` counts code points in
+strings (`lengthUTF8`) and elements in arrays (`length`), as the other backends do.
 
 ## Usage
 

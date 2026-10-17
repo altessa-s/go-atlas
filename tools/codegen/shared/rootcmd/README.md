@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/tools/codegen/shared/rootcmd"
 ```
 
-Package `rootcmd` provides a reusable foundation for cobra-based CLI tools in the go-atlas codegen family. Handles version display
-sourced from `appinfo.Version`, command-suggestion distance, and panic recovery with full stack traces written to stderr.
+Package `rootcmd` provides a reusable foundation for cobra-based CLI tools in the go-atlas codegen family. Handles version display sourced from
+`appinfo.Version`, command-suggestion distance, and panic recovery with full stack traces written to stderr.
 
 ## Functions
 
@@ -13,6 +13,8 @@ sourced from `appinfo.Version`, command-suggestion distance, and panic recovery 
 |----------|----------------------------------------------------------------------------------------------------|
 | `New`    | Returns a configured `*cobra.Command` from a `Config`; callers extend or execute it directly       |
 | `Run`    | Convenience wrapper that sets args, installs panic recovery, and calls `Execute`                    |
+
+`New` panics when the `Config` is nil. `Command` wraps the `*cobra.Command` with the shared pre-run and post-run hooks, including panic recovery.
 
 ## Config fields
 

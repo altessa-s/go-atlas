@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/server/factory"
 ```
 
-Package `factory` provides a fluent builder for creating a gRPC `Server` and its interceptors from configuration.
-`ServerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating a gRPC `Server` and its interceptors from configuration. `ServerBuilder` uses deferred error
+accumulation — errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -31,8 +31,8 @@ srv, err := factory.New(cfg.Grpc).
 
 ## Methods
 
-`WithAuthInterceptor` exempts only explicitly configured `ignoreMethods` or `ignorePatterns`. `WithRealIPInterceptor` honors forwarding headers
-from configured `trustedPeers` or `trustedProxies`; `trustPrivatePeers: true` explicitly restores implicit private-peer trust.
+`WithAuthInterceptor` exempts only explicitly configured `ignoreMethods` or `ignorePatterns`. `WithRealIPInterceptor` honors forwarding headers from
+configured `trustedPeers` or `trustedProxies`; `trustPrivatePeers: true` explicitly restores implicit private-peer trust.
 
 ### Constructor
 
@@ -45,14 +45,20 @@ from configured `trustedPeers` or `trustedProxies`; `trustPrivatePeers: true` ex
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseTlsProviders` | Sets the TLS providers used for server TLS configuration |
 | `UseCacheMetadataProcessor` | Sets the metadata processor forwarded to the cache interceptor |
+| `UseCacheMethodConfigs` | Sets per-method cache configurations |
 | `UseTracer` | Sets the tracer used by the tracing interceptor |
+| `UseCollector` | Sets the metrics collector; without it the metrics interceptor falls back to `metrics.Noop()` |
+| `Collector` | Returns the configured collector, or `metrics.Noop()` when none was set |
 | `UseLimiter` | Sets the rate limiter used by the limiter interceptor |
 | `UseIdempotency` | Sets the idempotency keeper used by the idempotency interceptor |
 | `UseCacher` | Sets the cacher used by the cache interceptor |
 | `UseAuth(authFn, clientAuth)` | Sets the authentication function and optional client auth handler |
 | `UseHealthChecker` | Sets the health checker used by the health interceptor |
+| `UseGeoResolver` | Sets the geo resolver used by the geoacl interceptor |
+| `UseReasonCode` / `UseReasonCodeResolver` | Supplies service-defined reason codes for buf validation field violations |
 | `UseErrStatusOptions` | Adds code-supplied errstatus options (error rules, converters) to the configured interceptor, after the config-built ones |
 
 ### Configuration
@@ -71,6 +77,12 @@ from configured `trustedPeers` or `trustedProxies`; `trustPrivatePeers: true` ex
 | `WithCacheInterceptor()` | Adds a response caching interceptor |
 | `WithAuthInterceptor()` | Adds an authentication interceptor |
 | `WithHealthInterceptor()` | Adds a health gate interceptor |
+| `WithIpAclInterceptor()` | Adds an IP access control interceptor |
+| `WithGeoAclInterceptor()` | Adds a geographic access control interceptor |
+| `WithErrStatusInterceptor()` | Adds an error-to-status conversion interceptor |
+| `WithFieldBehaviorInterceptor()` | Adds the AIP-203 `field_behavior` strip interceptor; no config toggle — `WithInterceptors` adds it unless `fieldbehavior.ID` is excluded |
+| `WithBufValidatorInterceptor()` | Adds a buf protovalidate interceptor; no config toggle — `WithInterceptors` adds it unless `protovalidator.ID` is excluded |
+| `WithInterceptor(i ...)` | Adds pre-built interceptor instances |
 
 ### Terminal
 

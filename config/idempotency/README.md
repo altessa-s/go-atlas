@@ -12,6 +12,7 @@ component factories, which map them to generated options; runtime packages never
 | Type                 | Description                                                                  |
 |----------------------|------------------------------------------------------------------------------|
 | `Config`             | Defines the configuration for idempotency key management.                    |
+| `StorageType`        | Selects the backend that stores idempotency keys.                            |
 | `StorageConfig`      | Selects the key store: `memory`, `redis`, `nats` or `mongo`                  |
 | `MongoStorageConfig` | MongoDB collection for the keys; they commit with the caller's transaction   |
 

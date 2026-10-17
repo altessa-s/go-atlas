@@ -4,11 +4,9 @@
 import convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 ```
 
-Package `convcodec` provides the codec interface and chain execution engine for the converter. Individual
-codec implementations live in subpackages.
+Package `convcodec` provides the codec interface and chain execution engine for the converter. Individual codec implementations live in subpackages.
 
-A `Codec` either handles the conversion and returns, or delegates to `next`. Codecs execute in registration
-order inside a `Set`.
+A `Codec` either handles the conversion and returns, or delegates to `next`. Codecs execute in registration order inside a `Set`.
 
 ## Set
 

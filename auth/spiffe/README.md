@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/auth/spiffe"
 ```
 
-Parses [SPIFFE IDs](https://spiffe.io/) from X.509 certificates. A pure, transport-free primitive: given a verified leaf certificate (or a
-raw URI), it returns the workload's `ID` — the trust domain and path of an `spiffe://trust-domain/path` identity. It carries no transport or
-TLS concern; the [mTLS gRPC adapter](../../transport/grpc/interceptors/auth/mtls) wires it into the authentication seam.
+Parses [SPIFFE IDs](https://spiffe.io/) from X.509 certificates. A pure, transport-free primitive: given a verified leaf certificate (or a raw URI), it
+returns the workload's `ID` — the trust domain and path of an `spiffe://trust-domain/path` identity. It carries no transport or TLS concern;
+[`auth/mtls`](../mtls) (`SPIFFEIdentity`, the default identity behind the gRPC and HTTP mTLS adapters) wires it into the authentication seam.
 
 ## Key types
 
@@ -23,8 +23,7 @@ TLS concern; the [mTLS gRPC adapter](../../transport/grpc/interceptors/auth/mtls
 | `ID.String()`                 | Canonical `spiffe://…` form, or `""` for the zero ID.                                          |
 | `ID.IsZero()`                 | Whether the ID is empty.                                                                       |
 
-Errors: `ErrInvalidID`, `ErrNoSVID` (no URI SAN), `ErrMultipleURIs` (more than one URI SAN — never valid for an SVID). Match with
-`errors.Is`.
+Errors: `ErrInvalidID`, `ErrNoSVID` (no URI SAN), `ErrMultipleURIs` (more than one URI SAN — never valid for an SVID). Match with `errors.Is`.
 
 ## Usage
 
@@ -40,6 +39,6 @@ _ = id.String()    // "spiffe://example.org/ns/default/sa/billing"
 
 ## See also
 
-- [`transport/grpc/interceptors/auth/mtls`](../../transport/grpc/interceptors/auth/mtls) — gRPC interceptor that derives a principal from
-  the verified mTLS client certificate.
+- [`transport/grpc/interceptors/auth/mtls`](../../transport/grpc/interceptors/auth/mtls) — gRPC interceptor that derives a principal from the verified
+  mTLS client certificate.
 - [`docs/auth/README.md`](../../docs/auth/README.md) — auth subsystem overview.

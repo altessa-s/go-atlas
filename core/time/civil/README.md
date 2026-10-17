@@ -1,7 +1,11 @@
 # civil
 
-`Date` is a calendar date without a time zone: due dates, service periods, effective dates, deadlines. Converting it between zones
-can never move it to another day. No external dependencies.
+```go
+import "github.com/altessa-s/go-atlas/core/time/civil"
+```
+
+`Date` is a calendar date without a time zone: due dates, service periods, effective dates, deadlines. Converting it between zones can never move it to
+another day. No external dependencies.
 
 | API | Purpose |
 |-----|---------|
@@ -15,18 +19,18 @@ can never move it to another day. No external dependencies.
 
 ## No date
 
-The zero `Date` means "no date": it sorts before every date, `Time` and `In` return the zero `time.Time`, and `DaysSince` with it is 0.
-`AddDays` and `AddMonthsClamped` keep it zero, and also return the zero `Date` for an invalid receiver or a result outside years 1–9999, so
-arithmetic never invents a date. An anchor day below 1 gives the 1st. `Weekday` of the zero `Date` is meaningless; check `IsZero` first.
+The zero `Date` means "no date": it sorts before every date, `Time` and `In` return the zero `time.Time`, and `DaysSince` with it is 0. `AddDays` and
+`AddMonthsClamped` keep it zero, and also return the zero `Date` for an invalid receiver or a result outside years 1–9999, so arithmetic never invents a
+date. An anchor day below 1 gives the 1st. `Weekday` of the zero `Date` is meaningless; check `IsZero` first.
 
 ## Encoding
 
-- **Text / JSON**: `"YYYY-MM-DD"`, the zero date as `""`. `UnmarshalJSON` also accepts the legacy object form
-  `{"Year":2026,"Month":10,"Day":9}` written by encoding/json for date structs without text methods, so stored documents keep
-  decoding after a service adopts this type. Encoding an invalid non-zero date fails with `ErrInvalidDate`.
+- **Text / JSON**: `"YYYY-MM-DD"`, the zero date as `""`. `UnmarshalJSON` also accepts the legacy object form `{"Year":2026,"Month":10,"Day":9}` written
+  by encoding/json for date structs without text methods, so stored documents keep decoding after a service adopts this type. Encoding an invalid
+  non-zero date fails with `ErrInvalidDate`.
 - **JSON `null`** decodes to the zero date.
-- **MongoDB**: `data/mongo/bsoncodec.NewRegistry` registers the codec — the `"YYYY-MM-DD"` string, the zero date as `""`. The codec applies
-  `Valid`, so year 0 is refused when writing and reading.
+- **MongoDB**: `data/mongo/bsoncodec.NewRegistry` registers the codec — the `"YYYY-MM-DD"` string, the zero date as `""`. The codec applies `Valid`, so
+  year 0 is refused when writing and reading.
 
 ```go
 due := civil.MustNew(2026, time.January, 31)

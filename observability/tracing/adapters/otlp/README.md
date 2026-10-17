@@ -4,8 +4,7 @@
 import "github.com/altessa-s/go-atlas/observability/tracing/adapters/otlp"
 ```
 
-Package `otlp` provides an OpenTelemetry Protocol adapter for the Atlas
-tracing system. Exports spans over gRPC (`Protocol: grpc`, default) or HTTP
+Package `otlp` provides an OpenTelemetry Protocol adapter for the Atlas tracing system. Exports spans over gRPC (`Protocol: grpc`, default) or HTTP
 (`Protocol: http`) using the OTLP specification.
 
 ## Options
@@ -14,11 +13,11 @@ tracing system. Exports spans over gRPC (`Protocol: grpc`, default) or HTTP
 |-------------------------|------------------|-----------------------------------------------------------------------------|
 | `WithEndpoint`          | `localhost:4317` | OTLP collector endpoint                                                     |
 | `WithProtocol`          | `grpc`           | Wire protocol — `grpc` or `http`                                            |
-| `WithInsecure`          | false            | Skip TLS for the collector connection (gRPC only)                           |
+| `WithInsecure`          | false            | Disable TLS for the collector connection                                    |
 | `WithCompression(bool)` | true             | Gzip compression; `false` disables it                                       |
 | `WithHeaders`           | --               | Static headers attached to every export request                             |
-| `WithExportTimeout`     | 30s              | Per-export timeout                                                          |
-| `WithServiceName`       | --               | OpenTelemetry service.name resource attribute                               |
+| `WithExportTimeout`     | 30s              | Per-export timeout (gRPC only)                                              |
+| `WithServiceName`       | `unknown-service` | OpenTelemetry service.name resource attribute                               |
 | `WithServiceVersion`    | --               | OpenTelemetry service.version resource attribute                            |
 | `WithEnvironment`       | --               | OpenTelemetry deployment.environment resource attribute                     |
 | `WithResourceAttrs`     | --               | Additional resource attributes                                              |
@@ -28,8 +27,7 @@ tracing system. Exports spans over gRPC (`Protocol: grpc`, default) or HTTP
 
 ## Outbound proxy
 
-For `Protocol: grpc`, route the OTLP collector connection through a forward
-proxy by passing proxy options through `WithGRPCClientOptions`:
+For `Protocol: grpc`, route the OTLP collector connection through a forward proxy by passing proxy options through `WithGRPCClientOptions`:
 
 ```go
 import (
@@ -40,7 +38,7 @@ import (
 )
 
 proxyURL, _ := url.Parse("http://proxy.corp:3128")
-adapter, err := otlp.New(
+adapter, err := otlp.New(ctx,
     otlp.WithEndpoint("collector.internal:4317"),
     otlp.WithGRPCClientOptions(
         grpcclient.WithProxyURL(proxyURL),
@@ -50,11 +48,8 @@ adapter, err := otlp.New(
 )
 ```
 
-For YAML-driven configuration via `tracing.otlp.proxy`, see the
-[Proxy guide](../../../../docs/proxy.md) and the
+For YAML-driven configuration via `tracing.adapters.otlp.proxy`, see the [Proxy guide](../../../../docs/proxy.md) and the
 [tracing factory README](../../factory/).
 
-`Protocol: http` does **not** support `WithGRPCClientOptions` proxy wiring.
-The factory rejects the combination `Protocol: http + Proxy: {...}` at
-config-load — operators must use `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` env
-vars in that mode.
+`Protocol: http` does **not** support `WithGRPCClientOptions` proxy wiring. The config validator rejects the combination `Protocol: http + Proxy: {...}`
+at config-load — operators must use `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` env vars in that mode.

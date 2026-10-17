@@ -4,20 +4,19 @@
 import "github.com/altessa-s/go-atlas/config/<capability>"
 ```
 
-The `config` tree holds the configuration schemas of go-atlas, one package per capability. Each struct carries YAML tags and default-value
-tags; [`config/loader`](loader) populates them from files, environment variables and secret references. The root package declares no types.
+The `config` tree holds the configuration schemas of go-atlas, one package per capability. Each struct carries YAML tags and default-value tags;
+[`config/loader`](loader) populates them from files, environment variables and secret references. The root package declares no types.
 
 ## Rules
 
-- Schemas describe settings only. A schema package imports `core/*`, other schema packages and `config/internal`, never runtime
-  components.
-- Runtime packages never import schemas; they take generated options. Component factories (`*/factory`) read schemas and map them to
-  options. `make check-architecture` enforces both directions.
+- Schemas describe settings only. A schema package imports `core/*`, other schema packages and `config/internal`, never runtime components.
+- Runtime packages never import schemas; they take generated options. Component factories (`*/factory`) read schemas and map them to options.
+  `make check-architecture` enforces both directions.
 - Package names carry a `config` suffix (`grpcconfig`, `redisconfig`) so they do not clash with the driver packages factories import.
-- Every top-level schema exposes `Default*` constructors where defaults exist, `Normalize` where a type selector allocates a
-  sub-config, and `Validate`. Call `Normalize()` before `Validate()`.
-- Secret fields use [`redacted.RedactedString`](../core/types/redacted), which redacts the value in `fmt`, JSON, YAML and `slog` output;
-  `Expose()` returns it.
+- Every top-level schema exposes `Default*` constructors where defaults exist, `Normalize` where a type selector allocates a sub-config, and `Validate`.
+  Call `Normalize()` before `Validate()`.
+- Secret fields use [`redacted.RedactedString`](../core/types/redacted), which redacts the value in `fmt`, JSON, YAML and `slog` output; `Expose()`
+  returns it.
 
 ## Schema packages
 
@@ -57,10 +56,10 @@ tags; [`config/loader`](loader) populates them from files, environment variables
 
 ## Shared patterns
 
-Features that need distributed storage share `storageconfig.CacheStorageConfig`: a `Type` selector with optional `Memory`, `Nats` and
-`Redis` sub-configs. gRPC interceptor schemas embed `grpcconfig.BaseInterceptor` and HTTP middleware schemas embed
-`httpconfig.BaseMiddleware`; both build on `middlewareconfig.EnableMixin`, `middlewareconfig.FallbackBehavior` and the shared ACL
-rule types. `validationconfig` provides `ValidateStruct`, `PrettyError` and `ValidationErrorsToFlatMap`.
+Features that need distributed storage share `storageconfig.CacheStorageConfig`: a `Type` selector with optional `Memory`, `Nats` and `Redis`
+sub-configs. gRPC interceptor schemas embed `grpcconfig.BaseInterceptor` and HTTP middleware schemas embed `httpconfig.BaseMiddleware`; both build on
+`middlewareconfig.EnableMixin`, `middlewareconfig.FallbackBehavior` and the shared ACL rule types. `validationconfig` provides `ValidateStruct`,
+`PrettyError` and `ErrorsToFlatMap`.
 
 ## Other subpackages
 

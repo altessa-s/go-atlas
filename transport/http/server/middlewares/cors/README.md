@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/cors"
 ```
 
-Package `cors` provides middleware for Cross-Origin Resource Sharing. Manages all standard CORS headers: Allow-Origin, Allow-Methods,
-Allow-Headers, Allow-Credentials, Expose-Headers, and Max-Age. Supports preflight caching and private network access requests.
+Package `cors` provides middleware for Cross-Origin Resource Sharing. Manages all standard CORS headers: Allow-Origin, Allow-Methods, Allow-Headers,
+Allow-Credentials, Expose-Headers, and Max-Age. Supports preflight caching and private network access requests.
 
 ## Options
 
@@ -22,8 +22,9 @@ Allow-Headers, Allow-Credentials, Expose-Headers, and Max-Age. Supports prefligh
 | `WithAllowPrivateNetwork` | false           | Enable Private Network Access preflight support                    |
 | `WithOptionsPassthrough`  | false           | Pass OPTIONS requests to next handler instead of handling them     |
 | `WithOptionsSuccessStatus`| 204             | HTTP status code for successful OPTIONS responses                  |
-| `WithLogger`              | nil             | Structured logger for CORS events                                  |
+| `WithLogger`              | discard         | Structured logger for CORS events                                  |
 | `WithIgnorePaths`         | --              | Paths to exclude from CORS processing                              |
+| `WithIgnorePatterns`      | health, metrics, pprof | Regex patterns for paths to exclude from CORS processing    |
 
 ## Credentials safety
 

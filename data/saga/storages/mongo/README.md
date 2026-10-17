@@ -26,12 +26,14 @@ concurrent recovery cycles cannot double-advance the same instance.
 ## Indexes
 
 `New` creates a compound index on `(status, deadline)` that backs `FetchRecoverable`: the recovery scan filters by `status`, and by `deadline` for the
-timed-out `RUNNING` branch. The `status` prefix also serves the status-only `COMPENSATING` branch. Index creation is idempotent.
+timed-out `RUNNING` branch. The `status` prefix also serves the status-only `COMPENSATING` branch. A second index on `(status, lease_until)` serves the
+execution-lease check. Index creation is idempotent.
 
 ## Document shape
 
-Instance-level timestamps are stored as Unix seconds (`0` for an unset deadline), so `FetchRecoverable` evaluates deadline eligibility at one-second
-granularity. The instance ID is the document `_id`; `data` is the opaque serialized saga payload.
+Instance-level timestamps are stored as Unix seconds (an unset deadline is omitted on insert and written as `0` by `Update`) and the lease expiry as
+Unix nanoseconds, so `FetchRecoverable` evaluates deadline eligibility at one-second granularity. The instance ID is the document `_id`; `data` is the
+opaque serialized saga payload.
 
 | BSON field   | Source                |
 |--------------|-----------------------|
@@ -39,11 +41,14 @@ granularity. The instance ID is the document `_id`; `data` is the opaque seriali
 | `definition` | `Instance.Definition` |
 | `status`     | `Instance.Status`     |
 | `stage`      | `Instance.Stage`      |
+| `pending_steps` | `Instance.PendingSteps` |
 | `data`       | `Instance.Data`       |
 | `steps`      | `Instance.Steps`      |
 | `created_at` | `Instance.CreatedAt`  |
 | `updated_at` | `Instance.UpdatedAt`  |
 | `deadline`   | `Instance.Deadline`   |
+| `lease_owner` | `Instance.LeaseOwner` |
+| `lease_until` | `Instance.LeaseUntil` |
 | `version`    | `Instance.Version`    |
 | `last_error` | `Instance.LastError`  |
 

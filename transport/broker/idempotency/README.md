@@ -34,7 +34,7 @@ length-prefixed, so distinct `(consumer, key)` pairs never share a record whatev
 | `WithErrorBackOff` | `DefaultErrorBackOff` | Backoff schedule for `NakWithBackOff` upon transient storage errors |
 | `WithLockOpts` | zero | Per-call `idempotency.AttemptLockOpts` (e.g. `LockTTL`, `MaxLockDuration`) |
 | `WithLogger` | discard | Logger for warnings, key errors, and storage failures |
-| `WithCollector` / `WithMetrics` | no-op | Prometheus metrics collector recording outcome counters |
+| `WithCollector` / `WithMetrics` | no-op | Metrics collector for `broker_idempotency_outcomes_total` (labels `consumer`, `outcome`) |
 
 ## Usage
 
@@ -71,7 +71,8 @@ handler := brokeridem.Wrap(myHandler, keeper, "email_consumer",
 | Key is `IN_PROGRESS` | Redelivery delay (`NakWithBackOff`) with `busy` metric | No |
 
 Upon completion:
-- **`Ack`**: marks the lock as complete (`Complete`) and forwards `Ack`.
+- **`Ack`**: marks the lock as complete (`Complete`, `processed` metric) and forwards `Ack`; a `Complete` failure is logged and counted as
+  `lock_stolen` (`ErrLockStolen`) or `storage_error`, and `Ack` is still forwarded.
 - **`Nak` / `NakWithBackOff`**: releases the lock (`Release`) and forwards negative acknowledgment for redelivery.
 - **`Term`**: releases the lock (`Release`) and forwards terminal acknowledgment.
 - **Panic**: releases the lock (`Release`) and re-panics so the broker runtime can record failure.

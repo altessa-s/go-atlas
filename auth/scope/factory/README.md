@@ -4,11 +4,11 @@
 import "github.com/altessa-s/go-atlas/auth/scope/factory"
 ```
 
-Builds a frozen [`scope.Registry`](../) from a [`authconfig.ScopeRegistry`](../../../config). It is the config-driven counterpart to
-constructing a registry by hand, giving the scope subsystem the same config→component path the [OPA factory](../../opa/factory) provides.
+Builds a frozen [`scope.Registry`](../) from an [`authconfig.ScopeRegistry`](../../../config/auth). It is the config-driven counterpart to constructing
+a registry by hand, giving the scope subsystem the same config→component path the [OPA factory](../../opa/factory) provides.
 
-Only the action-key→required-scope table is declarative. The matcher and the authorizer stay in code, since they depend on the caller's
-principal type, which has no place in configuration.
+Only the action-key→required-scope table is declarative. The matcher and the authorizer stay in code, since they depend on the caller's principal type,
+which has no place in configuration.
 
 ## API
 
@@ -17,8 +17,8 @@ principal type, which has no place in configuration.
 | `New(cfg *authconfig.ScopeRegistry)`| Create a `RegistryBuilder`. A nil cfg is accepted; the error surfaces at `Build`.       |
 | `RegistryBuilder.Build()`       | Register every rule and return the frozen `*scope.Registry`.                            |
 
-`Build` fails when the config is nil, when a rule lists no keys, or when an action key appears in more than one rule (an ambiguous policy
-is a configuration error, not last-write-wins).
+`Build` fails when the config is nil, when a rule lists no keys, or when an action key appears in more than one rule (an ambiguous policy is a
+configuration error, not last-write-wins).
 
 ## Usage
 

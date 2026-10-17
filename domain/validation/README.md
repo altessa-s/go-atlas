@@ -1,7 +1,7 @@
 # validation
 
-Validation utilities for the Atlas framework domain layer. Provides check-digit and identifier validation algorithms that operate on
-plain Go values without infrastructure dependencies.
+Validation utilities for the Atlas framework domain layer. Provides check-digit and identifier validation algorithms that operate on plain Go values
+without infrastructure dependencies.
 
 ## Subpackages
 

@@ -4,8 +4,9 @@
 import "github.com/altessa-s/go-atlas/core/collections/slices"
 ```
 
-Package `slices` provides generic utilities for slice transformation, filtering, deduplication, grouping, and pooling. All functions return
-new slices without modifying inputs; nil slices are treated as empty and never cause panics.
+Package `slices` provides generic utilities for slice transformation, filtering, deduplication, grouping, and pooling. Functions return new slices
+without modifying inputs — except `Delete`, which removes in place like stdlib `slices.Delete`, and the `Append*` / `EnsureCapacity` helpers, which grow
+the slice they are given; nil slices are treated as empty and never cause panics.
 
 ## Functions
 
@@ -57,13 +58,16 @@ Lazy `iter.Seq` iterators for zero-allocation pipelines. Use `slices.Collect()` 
 
 ## Pool
 
-`Pool[T]` is a generic, concurrency-safe `sync.Pool` wrapper for reusing slice allocations. Slices exceeding 1024 capacity are discarded on return.
+`Pool[T]` (`NewPool(defaultCap)`, default capacity 64) is a generic, concurrency-safe `sync.Pool` wrapper for reusing slice allocations. `Get` /
+`GetWithCapacity` hand out a zero-length `*[]T`; `Put` returns it, discarding slices exceeding 1024 capacity.
 
-`EnsureCapacity` grows a slice to a required capacity, rounding up to the next power of two to reduce future reallocations in append loops.
+`EnsureCapacity` grows a slice to a required capacity, rounding up to the next power of two (for requests up to 1024; larger ones get the exact
+capacity) to reduce future reallocations in append loops.
 
 ## Performance
 
-- `Deduplicate` / `DeduplicateBy` use a map-based seen set with a fast path for consecutive duplicates, and return the input slice unchanged
-  (no result allocation) when it has no duplicates.
-- `MapParallel` / `FilterParallel` use goroutines for large datasets (50K+ elements).
-- `FilterFirst`, `All`, `Reduce` are zero-allocation with early return.
+- `Deduplicate` / `DeduplicateBy` use a map-based seen set with a fast path for consecutive duplicates, and return the input slice unchanged (no result
+  allocation) when it has no duplicates.
+- `MapParallel` / `FilterParallel` split the work across `runtime.NumCPU()` goroutines once the input reaches `64 × NumCPU` elements; smaller inputs run
+  sequentially.
+- `FilterFirst`, `All`, `Reduce` are zero-allocation; `FilterFirst` and `All` return early, `Reduce` visits every element.

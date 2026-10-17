@@ -1,7 +1,7 @@
 # cursorstorages
 
-Cursor storage implementations for MongoDB keyset pagination. Each subpackage provides a backend for persisting opaque cursor tokens that
-encode the position in a paginated result set.
+Cursor storage implementations for MongoDB keyset pagination. Each subpackage provides a backend for persisting opaque cursor tokens that encode the
+position in a paginated result set.
 
 ## Subpackages
 

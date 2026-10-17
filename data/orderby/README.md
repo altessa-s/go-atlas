@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/data/orderby"
 ```
 
-Package `orderby` parses the AIP-132 [`order_by`](https://google.aip.dev/132#ordering) DSL into a flat AST and translates it to database-specific
-sort representations via small per-backend translators. Includes the same defense-in-depth controls as `data/filter`: length caps, key count caps,
-field allow-lists, and an explicit "untrusted input requires allow-list" guard.
+Package `orderby` parses the AIP-132 [`order_by`](https://google.aip.dev/132#ordering) DSL into a flat AST and translates it to database-specific sort
+representations via small per-backend translators. Includes the same defense-in-depth controls as `data/filter`: length caps, key count caps, field
+allow-lists, and an explicit "untrusted input requires allow-list" guard.
 
 ## Grammar
 
@@ -17,10 +17,10 @@ field_path:= ident ("." ident)*
 direction := "asc" | "desc"
 ```
 
-Whitespace around commas and between the field and direction tokens is insignificant. The default direction is ascending. Empty or whitespace-only
-input parses to an empty `Spec` (no error) — AIP-132's "no ordering specified" semantics. Identifiers are case-sensitive. The parser rejects
-inputs that mention the same field path twice (`ErrDuplicateKey`) — `"slug, slug desc"` is almost always a client bug, and the wire-level
-semantics differ between backends, so flagging it at parse time gives one consistent error regardless of the target.
+Whitespace around commas and between the field and direction tokens is insignificant. The default direction is ascending. Empty or whitespace-only input
+parses to an empty `Spec` (no error) — AIP-132's "no ordering specified" semantics. Identifiers are case-sensitive. The parser rejects inputs that
+mention the same field path twice (`ErrDuplicateKey`) — `"slug, slug desc"` is almost always a client bug, and the wire-level semantics differ between
+backends, so flagging it at parse time gives one consistent error regardless of the target.
 
 ## Key types
 
@@ -60,9 +60,9 @@ semantics differ between backends, so flagging it at parse time gives one consis
 
 ### Nested paths
 
-Dotted field paths (`address.city`, `user.profile.name`) are accepted by the parser by default and emitted verbatim by the MongoDB,
-Meilisearch and RediSearch translators, which support them natively. The SQL translators read a dotted path as `table.column` and reject deeper
-ones; map nested fields onto columns there. Three knobs make working with nested schemas less verbose:
+Dotted field paths (`address.city`, `user.profile.name`) are accepted by the parser by default and emitted verbatim by the MongoDB, Meilisearch and
+RediSearch translators, which support them natively. The SQL translators read a dotted path as `table.column` and reject deeper ones; map nested fields
+onto columns there. Three knobs make working with nested schemas less verbose:
 
 ```go
 trans, err := mongo.NewTranslator(
@@ -89,8 +89,8 @@ Whether the backend actually has that index is the caller's concern — `orderby
 ### Untrusted input
 
 When translating order_by strings from external clients, pair `WithUntrustedInput()` with `WithAllowedFields(...)`. Without an allow-list a hostile
-client can sort on any indexed field, so the combination "untrusted + no allow-list" is treated as misconfiguration — `Translate` returns
-`ErrAllowlistRequired` instead of proceeding.
+client can sort on any indexed field, so the combination "untrusted + no allow-list" is treated as misconfiguration — `NewTranslator` returns
+`ErrAllowlistRequired` instead of building the translator.
 
 ```go
 trans, err := mongo.NewTranslator(

@@ -4,16 +4,15 @@
 import "github.com/altessa-s/go-atlas/auth/oauth2client"
 ```
 
-Acquires OAuth2 tokens from an external identity provider as a **client**. It is the acquisition counterpart to `auth/oidc` (which
-*verifies* inbound tokens) and `auth/selfjwt` (which *mints* self-issued tokens): this package *fetches* tokens for outbound,
-service-to-service calls.
+Acquires OAuth2 tokens from an external identity provider as a **client**. It is the acquisition counterpart to `auth/oidc` (which *verifies* inbound
+tokens) and `auth/selfjwt` (which *mints* self-issued tokens): this package *fetches* tokens for outbound, service-to-service calls.
 
 Every helper returns a `golang.org/x/oauth2.TokenSource` — the same type consumed by
-[`transport/grpc/client.NewInsecureTokenCredentials`](../../transport/grpc/client) and
-[`oidc.Provider.UserInfo`](../oidc) — so an acquired token drops straight into the transport layer with no adapter.
+[`transport/grpc/client.NewInsecureTokenCredentials`](../../transport/grpc/client) and [`oidc.Provider.UserInfo`](../oidc) — so an acquired token drops
+straight into the transport layer with no adapter.
 
-The three x/oauth2-native grants are thin wrappers that add consistent options and a self-refreshing source; RFC 8693 token exchange
-has no x/oauth2 equivalent and is implemented here as a spec-compliant client.
+The three x/oauth2-native grants are thin wrappers that add consistent options and a self-refreshing source; RFC 8693 token exchange has no x/oauth2
+equivalent and is implemented here as a spec-compliant client.
 
 ## Grants
 
@@ -71,21 +70,19 @@ tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
 
 ## Discovery, Principal, and config
 
-- **OIDC discovery** — `ClientCredentialsFromDiscovery` / `NewExchangerFromDiscovery` take the token endpoint from a
-  `TokenEndpointSource` (a narrow `interface{ TokenEndpoint() string }` satisfied by [`oidc.Provider`](../oidc)) instead of a literal
-  URL, so acquisition and verification point at the same IdP metadata. They return `ErrNoTokenEndpoint` if discovery has not resolved
-  one.
-- **Principal** — `Principal(subject, tok)` builds an [`auth/principal.Principal`](../principal) from a fetched token (subject + the
-  granted `scope`), the same type the scope enforcer consumes. It does not verify the token.
-- **Config + factory** — [`authconfig.OAuth2Client`](../../config) + [`factory`](factory) build a ready client_credentials
-  `oauth2.TokenSource` (or `Exchanger`) from a YAML template, resolving the endpoint from `tokenURL` or OIDC `discoveryURL`.
+- **OIDC discovery** — `ClientCredentialsFromDiscovery` / `NewExchangerFromDiscovery` take the token endpoint from a `TokenEndpointSource` (a narrow
+  `interface{ TokenEndpoint() string }` satisfied by [`oidc.Provider`](../oidc)) instead of a literal URL, so acquisition and verification point at the
+  same IdP metadata. They return `ErrNoTokenEndpoint` if discovery has not resolved one.
+- **Principal** — `Principal(subject, tok)` builds an [`auth/principal.Principal`](../principal) from a fetched token (subject + the granted `scope`),
+  the same type the scope enforcer consumes. It does not verify the token.
+- **Config + factory** — [`authconfig.OAuth2Client`](../../config/auth) + [`factory`](factory) build a ready client_credentials `oauth2.TokenSource` (or
+  `Exchanger`) from a YAML template, resolving the endpoint from `tokenURL` or OIDC `discoveryURL`.
 
 ## Client authentication (JWT assertion)
 
-Enterprise / FAPI IdPs often require the client to authenticate with a signed JWT assertion (RFC 7523) instead of a shared secret.
-`WithClientAuth` supplies one; it supersedes `WithAuthStyle`/`clientSecret` for `ClientCredentials` and `Exchanger` (the assertion is
-minted fresh per fetch — `iss`=`sub`=client id, `aud`=token endpoint, unique `jti`, short `exp`). `Refresh` and `AuthCode` keep the
-secret path.
+Enterprise / FAPI IdPs often require the client to authenticate with a signed JWT assertion (RFC 7523) instead of a shared secret. `WithClientAuth`
+supplies one; it supersedes `WithAuthStyle`/`clientSecret` for `ClientCredentials` and `Exchanger` (the assertion is minted fresh per fetch —
+`iss`=`sub`=client id, `aud`=token endpoint, unique `jti`, short `exp`). `Refresh` and `AuthCode` keep the secret path.
 
 | Constructor                                | Scheme             | Signs the assertion with                          |
 |--------------------------------------------|--------------------|---------------------------------------------------|
@@ -97,30 +94,30 @@ auth, _ := oauth2client.PrivateKeyJWT("svc", jwt.SigningKey{KeyID: "key-1", Algo
 src := oauth2client.ClientCredentials(ctx, tokenURL, "svc", "", oauth2client.WithClientAuth(auth))
 ```
 
-Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`. Via YAML, set the [`authconfig.OAuth2Client`](../../config)
+Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`. Via YAML, set the [`authconfig.OAuth2Client`](../../config/auth)
 `clientAuth` block (`method` + PEM `privateKey`/`keyID`/`algorithm`) and the [factory](factory) builds the authenticator for you.
 
 ## Refresh timing and revocation
 
-- **Early refresh** — `WithEarlyExpiry(d)` refreshes a token `d` before its `exp` to absorb clock skew and in-flight latency (for
-  `ClientCredentials` and `Exchanger.TokenSource`). `Refresh`/`AuthCode` keep x/oauth2's default window — overriding it there would
-  drop refresh-token rotation.
-- **Revocation** — `NewRevoker(revocationURL, id, secret).Revoke(ctx, token, WithTokenTypeHint(...))` revokes an acquired token at the
-  IdP (RFC 7009), reusing the same client auth (secret or assertion). Per the RFC the endpoint answers 200 even for an unknown token,
-  so a nil error means "not (or no longer) valid".
+- **Early refresh** — `WithEarlyExpiry(d)` refreshes a token `d` before its `exp` to absorb clock skew and in-flight latency (for `ClientCredentials`
+  and `Exchanger.TokenSource`). `Refresh`/`AuthCode` keep x/oauth2's default window — overriding it there would drop refresh-token rotation.
+- **Revocation** — `NewRevoker(revocationURL, id, secret).Revoke(ctx, token, WithTokenTypeHint(...))` revokes an acquired token at the IdP (RFC 7009),
+  reusing the same client auth (secret or assertion). Per the RFC the endpoint answers 200 even for an unknown token, so a nil error means "not (or no
+  longer) valid".
 
-**Retrying the native grants** — only `Exchanger` retries on its own. To add retries to the x/oauth2-backed grants
-(`ClientCredentials`, `Refresh`, `AuthCode`, `DeviceFlow`), wrap the transport with `RetryTransport` and inject it via
-`WithHTTPClient`; it retries transport errors, 429, and 5xx (only replayable requests; the last response is surfaced on exhaustion):
+**Retrying the native grants** — only `Exchanger` retries on its own. To add retries to the x/oauth2-backed grants (`ClientCredentials`, `Refresh`,
+`AuthCode`, `DeviceFlow`), wrap the transport with `RetryTransport` and inject it via `WithHTTPClient`; it retries transport errors, 429, and 5xx (only
+replayable requests; the last response is surfaced on exhaustion). Tune it with `WithTransportAttempts` (default `DefaultTransportRetryAttempts`, 2
+retries) and `WithTransportBackoff`:
 
 ```go
 client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport)}
 src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithHTTPClient(client))
 ```
 
-Two RFC edge cases are preserved verbatim (see `parseTokenResponse` godoc): a response without `expires_in` yields a never-expiring
-token (a self-refreshing source won't refresh it), and `token_type: "N_A"` (RFC 8693) is not a bearer credential — don't attach it with
-`SetAuthHeader`. Client secrets are held for the source lifetime and can't be zeroized; prefer `PrivateKeyJWT` when that matters.
+Two RFC edge cases are preserved verbatim (see `parseTokenResponse` godoc): a response without `expires_in` yields a never-expiring token (a
+self-refreshing source won't refresh it), and `token_type: "N_A"` (RFC 8693) is not a bearer credential — don't attach it with `SetAuthHeader`. Client
+secrets are held for the source lifetime and can't be zeroized; prefer `PrivateKeyJWT` when that matters.
 
 ## Observability
 
@@ -132,19 +129,18 @@ token (a self-refreshing source won't refresh it), and `token_type: "N_A"` (RFC 
 | `token_fetch_duration_seconds`      | histogram | `grant`, `status`| Acquisition latency.                                |
 | `token_fetch_retries_total`         | counter   | `grant`          | Retries after a transient token-exchange failure.   |
 
-`grant` is one of `client_credentials` / `refresh_token` / `authorization_code` / `token_exchange` / `device_code`. A metrics-wrapped source
-records only genuine acquisitions — when the reuse cache serves an unexpired token, nothing is recorded. `WithLogger` logs fetch failures and
-retry attempts at warn level (never the token itself). Both default to off, keeping the hot path allocation-free.
+`grant` is one of `client_credentials` / `refresh_token` / `authorization_code` / `token_exchange` / `device_code`. A metrics-wrapped source records
+only genuine acquisitions — when the reuse cache serves an unexpired token, nothing is recorded. `WithLogger` logs fetch failures and retry attempts at
+warn level (never the token itself). Both default to off, keeping the hot path allocation-free.
 
 ## Errors
 
-`ClientCredentials`, `Refresh`, and `AuthCode` surface the underlying x/oauth2 error unchanged (typically an `*oauth2.RetrieveError`, which
-carries the IdP status and body) — except `ClientCredentials` with `WithClientAuth`, whose hand-rolled request wraps `ErrTokenRequest` for a
-transport failure or a non-2xx response; an unparsable body or one without `access_token` wraps `ErrTokenExchange` (shared response parser).
-`Exchanger` returns `ErrSubjectTokenRequired` for a missing subject token and wraps `ErrTokenExchange` for a transport failure, a non-2xx
-response, or an unparsable body — match both with `errors.Is`. `Revoker.Revoke` wraps `ErrRevocation`, `DeviceFlow` wraps `ErrDeviceAuth`,
-a client authenticator that cannot build or sign its assertion wraps `ErrClientAssertion`, and the discovery-based constructors return
-`ErrNoTokenEndpoint` when the endpoint has not resolved.
+`ClientCredentials`, `Refresh`, and `AuthCode` surface the underlying x/oauth2 error unchanged (typically an `*oauth2.RetrieveError`, which carries the
+IdP status and body) — except `ClientCredentials` with `WithClientAuth`, whose hand-rolled request wraps `ErrTokenRequest` for a transport failure or a
+non-2xx response; an unparsable body or one without `access_token` wraps `ErrTokenExchange` (shared response parser). `Exchanger` returns
+`ErrSubjectTokenRequired` for a missing subject token and wraps `ErrTokenExchange` for a transport failure, a non-2xx response, or an unparsable body —
+match both with `errors.Is`. `Revoker.Revoke` wraps `ErrRevocation`, `DeviceFlow` wraps `ErrDeviceAuth`, a client authenticator that cannot build or
+sign its assertion wraps `ErrClientAssertion`, and the discovery-based constructors return `ErrNoTokenEndpoint` when the endpoint has not resolved.
 
 ## See also
 

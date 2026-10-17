@@ -158,8 +158,9 @@ type OAuth2ClientAuth struct {
 	// Method is "private_key_jwt" or "client_secret_jwt".
 	Method string `yaml:"method"`
 
-	// PrivateKey is the PEM-encoded signing key (private_key_jwt only). It is a
-	// Secret so it can be sourced from a file/env/vault reference.
+	// PrivateKey is the PEM-encoded signing key (private_key_jwt only). It is
+	// redacted in logs; source it from a secret store via the config loader's
+	// $__secret{namespace:key} expansion.
 	PrivateKey redacted.RedactedString `yaml:"privateKey"`
 
 	// KeyId is the assertion's kid header, matching the public key registered

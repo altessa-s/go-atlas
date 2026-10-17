@@ -5,9 +5,9 @@ import "github.com/altessa-s/go-atlas/auth/mtls"
 ```
 
 Turns a verified mutual-TLS client certificate into an authenticated principal. This is the transport-free policy core behind the
-[gRPC](../../transport/grpc/interceptors/auth/mtls) and [HTTP](../../transport/http/server/middlewares/auth/mtls) mTLS adapters: an
-`Authenticator` derives the identity, runs extra validators, and records an audit decision. The adapters only extract the verified
-certificate and map a failure to their status code.
+[gRPC](../../transport/grpc/interceptors/auth/mtls) and [HTTP](../../transport/http/server/middlewares/auth/mtls) mTLS adapters: an `Authenticator`
+derives the identity, runs extra validators, and records an audit decision. The adapters only extract the verified certificate and map a failure to
+their status code.
 
 The default identity is the certificate's SPIFFE ID (via [`auth/spiffe`](../spiffe)); override it with `WithIdentity`.
 
@@ -16,7 +16,7 @@ The default identity is the certificate's SPIFFE ID (via [`auth/spiffe`](../spif
 | Type            | Description                                                                                     |
 |-----------------|-------------------------------------------------------------------------------------------------|
 | `Authenticator` | Derives + validates the principal from a verified cert and records an audit decision.            |
-| `IdentityFunc`  | `func(*x509.Certificate) (any, error)` — derives the principal. Default `SPIFFEIdentity`.         |
+| `IdentityFunc`  | `func(*x509.Certificate) (any, error)` — derives the principal. Default `SPIFFEIdentity`; opt-in `PrincipalIdentity` yields a `principal.Principal`.         |
 | `CertValidator` | `func(*x509.Certificate) error` — an extra check run on every call, beyond the TLS handshake.     |
 
 ## Functions & options
@@ -56,9 +56,9 @@ rl.Revoke(cert.SerialNumber.String())
 auth := mtls.NewAuthenticator(mtls.WithValidator(rl.Validator())) // rejects listed serials with ErrRevoked
 ```
 
-The `security/tlsutils/ocsp` helpers staple the *server's own* certificate status during the handshake; they do not answer "is this peer
-certificate revoked". For **live** peer revocation the [`revocation`](./revocation) subpackage queries the issuer's OCSP responder, caches
-the result, and returns a `CertValidator` (`revocation.New(caCerts).Validator()`) — the network-backed complement to `RevocationList`.
+The `security/tlsutils/ocsp` helpers staple the *server's own* certificate status during the handshake; they do not answer "is this peer certificate
+revoked". For **live** peer revocation the [`revocation`](./revocation) subpackage queries the issuer's OCSP responder, caches the result, and returns a
+`CertValidator` (`revocation.New(caCerts).Validator()`) — the network-backed complement to `RevocationList`.
 
 ## Usage
 
@@ -71,11 +71,13 @@ auth := mtls.NewAuthenticator(
 principal, err := auth.Authenticate(ctx, verifiedCert)
 ```
 
-Errors: `ErrNoCertificate`, `ErrCertExpired`, `ErrUntrustedDomain` (match with `errors.Is`); SPIFFE parse errors propagate from
+Errors: `ErrNoCertificate`, `ErrCertExpired`, `ErrUntrustedDomain`, `ErrRevoked`, `ErrSubjectMismatch`, `ErrIssuerMismatch`,
+`ErrUnsupportedDNAttribute`, `ErrUntrustedCA`, `ErrDNSNameMismatch`, `ErrEKUMissing` (match with `errors.Is`); SPIFFE parse errors propagate from
 [`auth/spiffe`](../spiffe).
 
 ## See also
 
 - [`auth/spiffe`](../spiffe) — SPIFFE ID parsing.
-- [`transport/grpc/interceptors/auth/mtls`](../../transport/grpc/interceptors/auth/mtls) · [`transport/http/server/middlewares/auth/mtls`](../../transport/http/server/middlewares/auth/mtls) — the transport adapters.
+- [`transport/grpc/interceptors/auth/mtls`](../../transport/grpc/interceptors/auth/mtls) ·
+  [`transport/http/server/middlewares/auth/mtls`](../../transport/http/server/middlewares/auth/mtls) — the transport adapters.
 - [`auth/mtls/factory`](./factory) — build an authenticator's options from `authconfig.MTLS`.

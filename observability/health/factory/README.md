@@ -29,6 +29,7 @@ coordinator, err := factory.New(cfg.Health).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Uses `slog.Default()` as the logger |
 | `UseScheduler` | Sets the task scheduler that drives the periodic health check cycle |
 
 ### Terminal

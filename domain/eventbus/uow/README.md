@@ -4,10 +4,10 @@
 import "github.com/altessa-s/go-atlas/domain/eventbus/uow"
 ```
 
-In-process unit of work: pairs a database transaction with non-transactional side effects (S3/blobstore, cache, external calls) via
-**post-commit compensation** — an in-process saga. It is the companion to [`eventbus`](../README.md)'s synchronous-in-transaction
-delivery: the handler runs inside the transaction, `uow` handles the effects the handler cannot roll back. Storage-agnostic — the core
-imports no driver and no `eventbus`; the transaction is supplied through the consumer-defined [`Committer`](./uow.go) interface.
+In-process unit of work: pairs a database transaction with non-transactional side effects (S3/blobstore, cache, external calls) via **post-commit
+compensation** — an in-process saga. It is the companion to [`eventbus`](../README.md)'s synchronous-in-transaction delivery: the handler runs inside
+the transaction, `uow` handles the effects the handler cannot roll back. Storage-agnostic — the core imports no driver and no `eventbus`; the
+transaction is supplied through the consumer-defined [`Committer`](./uow.go) interface.
 
 ## Model
 
@@ -15,8 +15,8 @@ imports no driver and no `eventbus`; the transaction is supplied through the con
 2. Non-transactional `Effect`s are registered with `OnCommit` and applied **exactly once after** a successful commit.
 3. If a later effect fails, the already-applied ones are compensated in **LIFO** order.
 
-Applying after the commit means a driver-retried transaction never duplicates an effect and an aborted transaction never runs them
-(clean rollback, no compensation). Compensation covers the one remaining case — an effect that fails after the commit.
+Applying after the commit means a driver-retried transaction never duplicates an effect and an aborted transaction never runs them (clean rollback, no
+compensation). Compensation covers the one remaining case — an effect that fails after the commit.
 
 ## Key types
 
@@ -30,8 +30,8 @@ Applying after the commit means a driver-retried transaction never duplicates an
 
 ## Cancellation
 
-`Effect.Apply` runs on the caller's context (honors cancellation). `Effect.Compensate` runs on a `context.WithoutCancel` copy, so an
-caller cancellation does not skip the undo. The entire compensation pass has a deadline (default 30s); callbacks must honor it.
+`Effect.Apply` runs on the caller's context (honors cancellation). `Effect.Compensate` runs on a `context.WithoutCancel` copy, so a caller cancellation
+does not skip the undo. The entire compensation pass has a deadline (default 30s); callbacks must honor it.
 
 ## Options
 
@@ -59,5 +59,5 @@ err := runner.Run(ctx, func(txCtx context.Context) error {
 
 ## Durability caveat
 
-No outbox or durable relay: a crash between the commit and applying the effects leaves the database and the external store
-inconsistent — a deliberate single-process trade-off. For durable, cross-service rollback use [`data/saga`](../../../data/saga) instead.
+No outbox or durable relay: a crash between the commit and applying the effects leaves the database and the external store inconsistent — a deliberate
+single-process trade-off. For durable, cross-service rollback use [`data/saga`](../../../data/saga) instead.

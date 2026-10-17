@@ -4,10 +4,10 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
 ```
 
-HTTP adapter for mutual-TLS authentication. `Middleware` reads the verified peer certificate from the request's TLS state, derives a
-principal through a [`auth/mtls.Authenticator`](../../../../../../auth/mtls), and installs it into the request context with
-`auth.ContextWithPrincipal` so downstream authorization (e.g. `auth.ScopeMiddleware`) reads it via `FromContext`. Configure behavior with
-the core package's options; this adapter sets the `http` transport label.
+HTTP adapter for mutual-TLS authentication. `Middleware` reads the verified peer certificate from the request's TLS state, derives a principal through a
+[`auth/mtls.Authenticator`](../../../../../../auth/mtls), and installs it into the request context with `auth.ContextWithPrincipal` so downstream
+authorization (e.g. `auth.ScopeMiddleware`) reads it via `FromContext`. Configure behavior with the core package's options; this adapter sets the `http`
+transport label.
 
 ## API
 

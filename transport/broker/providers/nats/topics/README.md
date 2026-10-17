@@ -4,10 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/broker/providers/nats/topics"
 ```
 
-Package `topics` provides type-safe NATS subject templating. Define topic
-templates with curly-brace macros like `{TENANT}` or `{ORDER_ID}` and
-substitute concrete values at runtime. Subject sanitization, length, and
-wildcard positioning are enforced by `Topic.WithValidation`.
+Package `topics` provides type-safe NATS subject templating. Define topic templates with curly-brace macros like `{TENANT}` or `{ORDER_ID}` and
+substitute concrete values at runtime. Subject sanitization, length, and wildcard positioning are enforced by `Topic.WithValidation`.
 
 ## Key types
 
@@ -70,8 +68,7 @@ pattern := tenantOrders.With(
 // pattern == "orders.*.>"
 ```
 
-Sanitization replaces NATS metacharacters in macro values with `_`, except for
-the literal `Wildcard` and `FullWildcard` constants:
+Sanitization replaces NATS metacharacters in macro values with `_`, except for the literal `Wildcard` and `FullWildcard` constants:
 
 ```go
 tenantEvents.With("TENANT", "abc.123*def>ghi")
@@ -80,6 +77,5 @@ tenantEvents.With("TENANT", "abc.123*def>ghi")
 
 ## Concurrency
 
-`Topic` and `TopicKey` are immutable strings; all methods are safe for
-concurrent use. Parsed macros are cached in a process-global map keyed by
-template, so the cache is bounded by the number of distinct templates declared.
+`Topic` and `TopicKey` are immutable strings; all methods are safe for concurrent use. Parsed macros are cached permanently in a process-global map
+keyed by template. The cache grows with every distinct template used; prefer a fixed set of templates to keep its size bounded.

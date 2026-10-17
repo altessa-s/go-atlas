@@ -4,9 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 ```
 
-Shared config-to-runtime conversion helpers for the HTTP and gRPC server factories. Translates declarative `config` structures — regex pattern
-lists, IP/CIDR prefixes, fallback behavior strings, IP and geographic ACL rules — into the runtime types consumed by transport middlewares and
-interceptors.
+Shared config-to-runtime conversion helpers for the HTTP and gRPC server factories. Translates declarative `config` structures — regex pattern lists,
+IP/CIDR prefixes, fallback behavior strings, IP and geographic ACL rules — into the runtime types consumed by transport middlewares and interceptors.
 
 ## Key helpers
 
@@ -32,8 +31,8 @@ if err != nil {
 ## Error semantics
 
 `BuildIpAclRegistry` and `BuildGeoAclRegistry` reject invalid endpoint regex patterns with an error; `ConvertIpAclRule` rejects invalid
-allowlist/denylist prefixes. `CompilePatterns`, in contrast, drops invalid patterns silently — it backs best-effort ignore lists where a typo
-must not prevent server startup.
+allowlist/denylist prefixes. `CompilePatterns`, in contrast, drops invalid patterns silently — it backs best-effort ignore lists where a typo must not
+prevent server startup.
 
-See the sibling packages [`ipacl`](../ipacl/), [`geoacl`](../geoacl/), [`fallback`](../fallback/), and [`clientip`](../../clientip/) for the
-target runtime types.
+See the sibling packages [`ipacl`](../ipacl/), [`geoacl`](../geoacl/), [`fallback`](../fallback/), and [`clientip`](../../clientip/) for the target
+runtime types.

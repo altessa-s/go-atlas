@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 ```
 
-Package `metadata` provides gRPC call metadata extraction and context injection. Creates `CallMetadata` once per RPC with service name, method
-name, stream type, timing, client IP, and user agent. Parsed method names are cached process-wide via `sync.Map` for O(1) subsequent lookups.
+Package `metadata` provides gRPC call metadata extraction and context injection. Creates `CallMetadata` once per RPC with service name, method name,
+stream type, timing, client IP, and user agent. Parsed method names are cached process-wide via `sync.Map` for O(1) subsequent lookups.
 
 ## Key types
 
@@ -32,7 +32,9 @@ name, stream type, timing, client IP, and user agent. Parsed method names are ca
 | Function                  | Description                                                      |
 |---------------------------|------------------------------------------------------------------|
 | `NewCallMetadata`         | Creates CallMetadata from gRPC call information                  |
+| `NewCallMetadataFromMethod`| Creates CallMetadata from the full method name only             |
 | `FromContext`             | Retrieves CallMetadata from context                              |
+| `MethodFromContext`       | Returns the full method name stored in context, or empty         |
 | `NewContext`              | Returns a new context with CallMetadata injected                 |
 | `EnsureInContext`         | Get-or-create pattern for server interceptors                    |
 | `EnsureInContextFromMethod`| Get-or-create pattern for client interceptors                  |

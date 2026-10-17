@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/scheduler"
 ```
 
-Package `scheduler` defines the core interface and value types for task scheduling. Acts as a dependency-inversion boundary — subsystems
-register periodic or one-shot tasks via `TaskRegistrar` without importing the concrete scheduler implementation from `service/scheduler`.
+Package `scheduler` defines the core interface and value types for task scheduling. Acts as a dependency-inversion boundary — subsystems register
+periodic or one-shot tasks via `TaskRegistrar` without importing the concrete scheduler implementation from `service/scheduler`.
 
 ## Interface
 
@@ -17,10 +17,10 @@ register periodic or one-shot tasks via `TaskRegistrar` without importing the co
 
 ## ManagedTask
 
-Subsystems that expose both a scheduler task and a manual `RunXxx` entry point embed a `ManagedTask` per cycle. `SchedulerFunc(fn)` marks
-the cycle scheduler-managed and returns `fn` wrapped with the single-flight guard; `Run(ctx, fn)` is the manual entry point and returns
-`ErrSchedulerManaged` once the cycle is scheduler-managed; `TryRun(ctx, fn)` applies only the single-flight guard (for internal poll
-loops); `MarkRegistered()` / `Registered()` flip and read the flag directly.
+Subsystems that expose both a scheduler task and a manual `RunXxx` entry point embed a `ManagedTask` per cycle. `SchedulerFunc(fn)` marks the cycle
+scheduler-managed and returns `fn` wrapped with the single-flight guard; `Run(ctx, fn)` is the manual entry point and returns `ErrSchedulerManaged` once
+the cycle is scheduler-managed; `TryRun(ctx, fn)` applies only the single-flight guard (for internal poll loops); `MarkRegistered()` / `Registered()`
+flip and read the flag directly.
 
 | Symbol                | Description                                                          |
 |-----------------------|----------------------------------------------------------------------|
@@ -49,8 +49,12 @@ loops); `MarkRegistered()` / `Registered()` flip and read the flag directly.
 
 ## Priority levels
 
+`TaskPriority` is an `int32` aligned with the proto enum `scheduler.v1.TaskPriority`; `String` returns a lowercase label (`"unknown"` for unrecognized
+values).
+
 | Constant                | Value | Behavior                                       |
 |-------------------------|-------|------------------------------------------------|
+| `TaskPriorityUnspecified` | 0  | Zero value; the scheduler treats it as Normal  |
 | `TaskPriorityLow`      | 1     | Runs only when no higher-priority tasks wait   |
 | `TaskPriorityNormal`   | 2     | Default for most workloads                     |
 | `TaskPriorityHigh`     | 3     | Reserved slots, preempts Normal/Low            |

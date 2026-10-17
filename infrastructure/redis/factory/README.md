@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/infrastructure/redis/factory"
 ```
 
-Package `factory` provides a fluent builder for creating Redis clients from configuration.
-`ClientBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating Redis clients from configuration. `ClientBuilder` uses deferred error accumulation — errors
+from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -39,7 +39,10 @@ Mode is detected automatically from configuration — no explicit mode field is 
 | Method                   | Description                                                     |
 |--------------------------|-----------------------------------------------------------------|
 | `UseLogger`              | Sets the logger for the builder and all created components      |
-| `UseHealthCoordinator`   | Registers a health checker under service name `"redis"`         |
+| `UseDefaultLogger`       | Shorthand for `UseLogger(slog.Default())`                       |
+| `UseHealthCoordinator`   | Registers a health checker for the created client               |
+| `UseHealthServiceName`   | Name to register the checker under (default `"redis"`)          |
+| `WithTLSConfig`          | TLS for the field-based path; a URI takes TLS from `rediss://`  |
 
 ### Startup behavior
 
@@ -62,6 +65,7 @@ client, err := factory.New(cfg.Redis).
 | Method        | Description                                                                                    |
 |---------------|------------------------------------------------------------------------------------------------|
 | `Build(ctx)`  | Assembles the `redis.UniversalClient`, pings it within `DefaultPingTimeout` (unless skipped), and returns it |
+| `UniversalOptions()` | Renders the `redis.UniversalOptions` without creating a client                                 |
 
 ## Constants
 
@@ -73,5 +77,5 @@ client, err := factory.New(cfg.Redis).
 
 ## Configuration Modes
 
-When `ConnectionURI` is set, it is parsed via `redis.ParseURL` to extract address, auth, TLS, and database number; pool, timeout, sentinel, and
-routing fields from config are applied on top. Otherwise, options are built from individual config fields.
+When `ConnectionURI` is set, it is parsed via `redis.ParseURL` to extract address, auth, TLS, and database number; pool, timeout, sentinel, and routing
+fields from config are applied on top. Otherwise, options are built from individual config fields.

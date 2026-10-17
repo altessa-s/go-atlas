@@ -4,14 +4,15 @@
 import "github.com/altessa-s/go-atlas/transport/broker"
 ```
 
-Package `broker` provides a high-level message broker abstraction for reliable asynchronous communication. Supports multiple messaging
-systems and implements the Transactional Outbox pattern for exactly-once delivery semantics in distributed systems.
+Package `broker` provides a high-level message broker abstraction for reliable asynchronous communication. Supports multiple messaging systems and
+implements the Transactional Outbox pattern for at-least-once delivery in distributed systems; consumers deduplicate repeats by the stable event ID.
 
 ## Key types
 
 | Type                | Description                                                                                    |
 |---------------------|------------------------------------------------------------------------------------------------|
 | `Broker`            | Main entry point combining publishing and subscriber creation; safe for concurrent use         |
+| `Brokerer`          | Interface implemented by `Broker`: `Publisher` plus `Subscriber` creation                      |
 | `Provider`          | Interface for transport-specific implementations (e.g. NATS JetStream)                        |
 | `Subscriber`        | Interface for message subscription lifecycle: `Subscribe`, `Unsubscribe`, `Closed`             |
 | `Publisher`         | Interface for sending messages: `Publish`, `PublishBatch`, `PublishAny`                        |
@@ -34,6 +35,7 @@ systems and implements the Transactional Outbox pattern for exactly-once deliver
 
 | Option                  | Description                                                                                          |
 |-------------------------|------------------------------------------------------------------------------------------------------|
+| `WithCollector`         | Set the `metrics.Collector` for the `broker` publish metrics (default: no-op)                        |
 | `WithLogger`            | Set the `*slog.Logger` for the broker (default: discard)                                             |
 | `WithOutbox`            | Set a custom `Outboxer` for reliable delivery (default: direct publish)                              |
 | `WithPublishConverter`  | Set the `PublishConverter` function for `PublishAny`                                                 |
@@ -50,6 +52,7 @@ systems and implements the Transactional Outbox pattern for exactly-once deliver
 | Package                            | Description                                                        |
 |------------------------------------|--------------------------------------------------------------------|
 | [factory](./factory)               | Configuration-based creation of brokers and related components     |
+| [idempotency](./idempotency)       | Consumer deduplication middleware over at-least-once delivery      |
 | [inprogress](./inprogress)         | Periodic InProgress heartbeat manager for long-running tasks       |
 | [msg](./msg)                       | Message envelope with topic, payload, metadata, and acknowledgment |
 | [outbox](./outbox)                 | Broker-specific adapter for the transactional outbox pattern       |

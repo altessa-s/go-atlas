@@ -35,10 +35,9 @@ driver.
 | Retention  | None built in: delete old rows or partition the table through the database                                                   |
 | Close      | No-op; the `*sql.DB` belongs to the caller                                                                                   |
 
-Indexes: `(ts_ms, id)`, `(actor_id, ts_ms, id)`, `(resource_type, resource_id, ts_ms, id)`, `(request_id)`, `(trace_id)`. Each queryable field
-holds at most `MaxFilterBytes` (255) bytes and the ID `MaxIDLength` (255) characters: a longer value fails the batch with `ErrValueTooLong` before
-anything is written, so an index entry always fits and MySQL never truncates a value. `WithMaxBatchRows` is capped at 5461 rows, PostgreSQL's
-65535 bind parameters.
+Indexes: `(ts_ms, id)`, `(actor_id, ts_ms, id)`, `(resource_type, resource_id, ts_ms, id)`, `(request_id)`, `(trace_id)`. Each queryable field holds at
+most `MaxFilterBytes` (255) bytes and the ID `MaxIDLength` (255) characters: a longer value fails the batch with `ErrValueTooLong` before anything is
+written, so an index entry always fits and MySQL never truncates a value. `WithMaxBatchRows` is capped at 5461 rows, PostgreSQL's 65535 bind parameters.
 
 ## See also
 

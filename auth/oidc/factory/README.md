@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/auth/oidc/factory"
 ```
 
-Package `factory` provides a fluent builder for creating OIDC providers from configuration.
-`ProviderBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating OIDC providers from configuration. `ProviderBuilder` uses deferred error accumulation — errors
+from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -39,15 +39,16 @@ provider, err := factory.New(cfg.OIDC).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Uses `slog.Default()` as the logger |
 | `UseTokenCache` | Sets the cache for validated token caching |
 | `UseRedisClient` | Sets the Redis client for revocation filter storage |
 | `UseRevocationStorage` | Sets a custom revocation storage, bypassing auto-creation |
 | `UseRevocationAuthoritative` | Sets the exact store that confirms probabilistic filter hits |
 
-JWKS refresh (`jwks.refreshSchedule`) and revocation sync (`revocation.syncSchedule`) run on the provider's own process-local cron, on
-every replica; the builder needs no scheduler. The provider owns the revocation filter's rebuilds (the initial sync plus `syncSchedule`), so the
-filter is built without probfilter rebuild scheduling, and `revocation.filter.bloom.rebuildCron` or `rebuildOnStart: true` fails `Build` as a
-conflicting second schedule (`rebuildCron: ""` / `rebuildOnStart: false` are accepted).
+JWKS refresh (`jwks.refreshSchedule`) and revocation sync (`revocation.syncSchedule`) run on the provider's own process-local cron, on every replica;
+the builder needs no scheduler. The provider owns the revocation filter's rebuilds (the initial sync plus `syncSchedule`), so the filter is built
+without probfilter rebuild scheduling, and `revocation.filter.bloom.rebuildCron` or `rebuildOnStart: true` fails `Build` as a conflicting second
+schedule (`rebuildCron: ""` / `rebuildOnStart: false` are accepted).
 
 ### Terminal
 
@@ -57,15 +58,13 @@ conflicting second schedule (`rebuildCron: ""` / `rebuildOnStart: false` are acc
 
 ## Proxy wiring
 
-`Build(ctx)` materializes `cfg.Proxy` (a [`proxyconfig.Config`](../../../config/proxy/proxy.go))
-into `httpclient.Option` values via `proxyfactory.HTTPClientOptions(cfg.Proxy)`, builds the resilient
-client with `httpclient.New` and injects it through `oidc.WithHTTPClient(...)`. A nil/empty `Proxy` block
-keeps SSRF protection enabled and environment proxies disabled.
-See the [Proxy guide](../../../docs/proxy.md) for YAML modes and operator
-guidance.
+`Build(ctx)` materializes `cfg.Proxy` (a [`proxyconfig.Config`](../../../config/proxy/proxy.go)) into `httpclient.Option` values via
+`proxyfactory.HTTPClientOptions(cfg.Proxy)`, builds the resilient client with `httpclient.New` and injects it through `oidc.WithHTTPClient(...)`. A
+nil/empty `Proxy` block keeps SSRF protection enabled and environment proxies disabled. See the [Proxy guide](../../../docs/proxy.md) for YAML modes and
+operator guidance.
 
 ## Protected outbound clients
 
-Factory-created Atlas HTTP clients use SSRF protection, disable environment proxies and reject explicit proxy modes `url` and `host`
-with `httpclient.ErrSSRFUnsafeTransport`. Mode `none` is supported. For a trusted proxy, construct the provider/source directly with an
-explicitly supplied client using `httpclient.WithoutSSRFProtection()`; enforce destination restrictions at the proxy.
+Factory-created Atlas HTTP clients use SSRF protection, disable environment proxies and reject explicit proxy modes `url` and `host` with
+`httpclient.ErrSSRFUnsafeTransport`. Mode `none` is supported. For a trusted proxy, construct the provider/source directly with an explicitly supplied
+client using `httpclient.WithoutSSRFProtection()`; enforce destination restrictions at the proxy.

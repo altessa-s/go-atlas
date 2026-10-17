@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/audit/factory"
 ```
 
-Package `factory` provides a fluent builder for creating an audit auditor from configuration.
-`AuditorBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating an audit auditor from configuration. `AuditorBuilder` uses deferred error accumulation — errors
+from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -50,7 +50,7 @@ auditor, err := factory.New(cfg.Audit).
 
 | Method | Description |
 |--------|-------------|
-| `Build` | Assembles, starts, and returns the audit auditor |
+| `Build` | Assembles, starts, and returns the audit auditor; `ErrDisabled` when `enabled` is false |
 | `BuildStorage` | Returns the configured `audit.Storage` for reading events (e.g. with `audit.FetchPage`); the caller closes it |
 | `BuildPageTokens` | Returns `*audit.PageTokens` from `paging`, or nil when `paging` is not configured |
 
@@ -58,14 +58,14 @@ auditor, err := factory.New(cfg.Audit).
 
 | `storage.type` | Requires | Notes |
 |----------------|----------|-------|
-| `memory`       | --       | In-process ring buffer; events are lost on restart |
+| `memory`       | --       | In-process, unbounded; events are lost on restart |
 | `mongo`        | `UseMongoDatabase` | `storage.mongo` tunes collection name, index timeout and TTL; omitting the section means all defaults |
 | `clickhouse`   | `UseClickHouseConn` | `storage.clickhouse` is required; the builder applies `schemaMigrationMode`, then checks the table schema at startup |
 | `sqldb`        | `UseSQLDB` | `storage.sqldb` is required; `ensureSchema` creates the table at startup, otherwise the schema must exist |
 
-A `mongo` type without a database fails with `ErrMongoDatabaseRequired`, a `clickhouse` type without a connection with
-`ErrClickHouseConnRequired`, an `sqldb` type without a database with `ErrSQLDBRequired`, rather than silently falling back to memory. A dispatch `batchSize` below `MinRecommendedClickHouseBatchSize` logs
-a warning for ClickHouse, since every flush creates a part to merge.
+A `mongo` type without a database fails with `ErrMongoDatabaseRequired`, a `clickhouse` type without a connection with `ErrClickHouseConnRequired`, an
+`sqldb` type without a database with `ErrSQLDBRequired`, rather than silently falling back to memory. A dispatch `batchSize` below
+`MinRecommendedClickHouseBatchSize` logs a warning for ClickHouse, since every flush creates a part to merge.
 
 ## Paging
 
@@ -77,8 +77,8 @@ a warning for ClickHouse, since every flush creates a part to merge.
 When the builder creates the engine it also owns it, so it registers the engine's shutdown — an engine nobody stops keeps its workers and, with WAL
 enabled, its segment files open past the point the caller believes the subsystem is gone. `shutdownTimeout` bounds the drain.
 
-Those hooks go into the process-wide registry by default, which runs once for the whole program. Pass a
-[`runtime.HookGroup`](../../../core/runtime) via `UseShutdownHooks` when the subsystem must be stoppable on its own; the auditor is placed in the
-same scope, so stopping it stops the whole pipeline rather than half of it.
+Those hooks go into the process-wide registry by default, which runs once for the whole program. Pass a [`runtime.HookGroup`](../../../core/runtime) via
+`UseShutdownHooks` when the subsystem must be stoppable on its own; the auditor is placed in the same scope, so stopping it stops the whole pipeline
+rather than half of it.
 
 An injected dispatcher belongs to the caller and is never shut down by the builder.

@@ -15,6 +15,7 @@ Package `storages` defines the `Storage` interface for Cuckoo filter backends. I
 | `Staging`            | Replacement filter of a rebuild: AddBatch, Commit (atomic swap), Abort                      |
 | `ExclusiveRebuilder` | Optional: shared storages serialize rebuilds with a lease (`BeginRebuild` → `RebuildLease`) |
 | `StatsProvider`      | Optional interface for backends that expose filter statistics                               |
+| `RebuildCommitReporter` | Optional: shared (Redis) storages report whether a committed rebuild published the live filter |
 
 ## Subpackages
 

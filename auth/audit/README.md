@@ -4,14 +4,14 @@
 import "github.com/altessa-s/go-atlas/auth/audit"
 ```
 
-Package `audit` records **authorization decisions** — who was allowed or denied which action on which resource, and why — as durable,
-structured, queryable events, distinct from aggregate metrics and ephemeral logs. It is the access-control audit trail compliance
-regimes (SOC 2, ISO 27001, PCI, HIPAA) require, and the forensic record for "who could touch resource X, and when".
+Package `audit` records **authorization decisions** — who was allowed or denied which action on which resource, and why — as durable, structured,
+queryable events, distinct from aggregate metrics and ephemeral logs. It is the access-control audit trail compliance regimes (SOC 2, ISO 27001, PCI,
+HIPAA) require, and the forensic record for "who could touch resource X, and when".
 
-The deciding engines (`auth/scope`, `auth/opa`) stay pure and unaware of auditing. A transport adapter or the application builds a
-`Decision` from the request context — where timing, trace id, and peer live — and hands it to a `Recorder`. Persistence is a
-caller-supplied `Sink` (the project's `data/audit` dispatcher, a log stream, any store); this package ships no sink and performs no I/O
-of its own.
+`auth/scope` stays unaware of auditing; `auth/opa` records its own evaluations only when given a `Recorder` through `opa.WithAuditRecorder`. Otherwise a
+transport adapter or the application builds a `Decision` from the request context — where timing, trace id, and peer live — and hands it to a
+`Recorder`. Persistence is a caller-supplied `Sink` (the project's `data/audit` dispatcher, a log stream, any store); this package ships no sink and
+performs no I/O of its own.
 
 ## Key types
 
@@ -36,27 +36,28 @@ of its own.
 
 ## Attribute sanitization
 
-`Decision.Attributes` is a free-form `map[string]string`. It is convenient for context (tenant, trace id, transport) but a caller can accidentally
-place a secret in it (an `Authorization` value, a token, a cookie), which then reaches the sink and any downstream log. Sanitization is **opt-in**:
-audit is a record of truth, so nothing is altered by default. Pass `WithAttributeSanitizer` to scrub values before they are recorded — the caller's
-map is never mutated (a sanitized copy is sent to the sink):
+`Decision.Attributes` is a free-form `map[string]string`. It is convenient for context (tenant, trace id, transport) but a caller can accidentally place
+a secret in it (an `Authorization` value, a token, a cookie), which then reaches the sink and any downstream log. Sanitization is **opt-in**: audit is a
+record of truth, so nothing is altered by default. Pass `WithAttributeSanitizer` to scrub values before they are recorded — the caller's map is never
+mutated (a sanitized copy is sent to the sink):
 
 ```go
 rec := audit.NewRecorder(sink, audit.WithAttributeSanitizer(audit.RedactSensitiveAttributes))
 ```
 
-`RedactSensitiveAttributes` replaces the value of any attribute whose key contains a `DefaultSensitiveAttributeKeys` substring
-(`password`, `token`, `authorization`, `cookie`, `secret`, …, case-insensitive) with `RedactedAttributePlaceholder`. Keys are never changed. For
-other policies (hashing, dropping, domain-specific keys) supply your own `AttributeSanitizer func(key, value string) string`.
+`RedactSensitiveAttributes` replaces the value of any attribute whose key contains a `DefaultSensitiveAttributeKeys` substring (`password`, `token`,
+`authorization`, `cookie`, `secret`, …, case-insensitive) with `RedactedAttributePlaceholder`. Keys are never changed. For other value transformations
+(hashing, domain-specific redaction) supply your own `AttributeSanitizer func(key, value string) string`; it rewrites values and cannot drop attributes,
+so filter them before recording.
 
 ## Policies
 
-`PolicyMode` bounds volume: `PolicyDenyOnly` (default) captures the security-relevant denials without a write per authorized request;
-`PolicyAll` keeps a full access trail.
+`PolicyMode` bounds volume: `PolicyDenyOnly` (default) captures the security-relevant denials without a write per authorized request; `PolicyAll` keeps
+a full access trail.
 
-`FailureMode` decides what a sink write error means. `FailureBestEffort` (default) discards it — auditing must never become a
-denial-of-service vector. `FailureRequired` returns it wrapping `ErrAuditFailed` ("no audit, no action"); the returned error is the
-caller's signal to fail the request because it could not be recorded, not an authorization verdict.
+`FailureMode` decides what a sink write error means. `FailureBestEffort` (default) discards it — auditing must never become a denial-of-service vector.
+`FailureRequired` returns it wrapping `ErrAuditFailed` ("no audit, no action"); the returned error is the caller's signal to fail the request because it
+could not be recorded, not an authorization verdict.
 
 ## Usage
 
@@ -76,10 +77,10 @@ _ = rec.Record(ctx, audit.Decision{
 })
 ```
 
-`Decision.Time` is caller-supplied (the package keeps no clock); free-form fields should carry stable, low-cardinality tokens, and no
-field may hold raw credentials.
+`Decision.Time` is caller-supplied (the package keeps no clock); free-form fields should carry stable, low-cardinality tokens, and no field may hold raw
+credentials.
 
 ## Scope
 
-This is a primitive only. A `Sink` bridging to `data/audit` and the wiring into the gRPC/HTTP auth adapters (mapping `scope` /
-`opa` outcomes — including `scope`'s principal-type-mismatch versus genuine denial — into a `Decision`) are layered separately.
+This is a primitive only. A `Sink` bridging to `data/audit` ([`sinks/dataaudit`](sinks/dataaudit)) and the wiring into the gRPC/HTTP auth adapters
+(mapping `scope` / `opa` outcomes — including `scope`'s principal-type-mismatch versus genuine denial — into a `Decision`) are layered separately.

@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/factory"
 ```
 
-Package `factory` provides a base type and helpers for factory pattern implementations. Embed `Base` in concrete factories to get structured
-logging, dependency validation, and standardized error formatting out of the box without any boilerplate.
+Package `factory` provides a base type and helpers for factory pattern implementations. Embed `Base` in concrete factories to get structured logging,
+dependency validation, and standardized error formatting out of the box without any boilerplate.
 
 ## Base
 
@@ -13,6 +13,7 @@ logging, dependency validation, and standardized error formatting out of the box
 |--------------------------|----------------------------------------------------------|
 | `NewBase`                | Create `Base` with logger (nil-safe, uses discard)       |
 | `Logger`                 | Return the configured `*slog.Logger`                     |
+| `SetLogger`              | Replace the logger (nil is ignored)                      |
 | `RequireDependency`      | Error if a single dependency is nil                      |
 | `RequireAllDependencies` | Aggregate all nil entries of a `map[string]any` into one error via `errors.Join` |
 | `Errorf`                 | Formatted error (no wrapping)                            |

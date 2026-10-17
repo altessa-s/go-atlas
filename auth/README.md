@@ -1,9 +1,9 @@
 # auth
 
-Authentication and authorization subsystem for the Atlas framework. Provides a canonical verified-identity type, a low-level JWT
-signing/verification toolkit, OpenID Connect token validation, self-issued JWT minting and verification, client-side OAuth2 token
-acquisition for outbound calls, scope-based access control, Open Policy Agent integration, a shared token-revocation denylist, and an
-authorization-decision audit trail — all with pluggable backends and automatic lifecycle management.
+Authentication and authorization subsystem for the Atlas framework. Provides a canonical verified-identity type, a low-level JWT signing/verification
+toolkit, OpenID Connect token validation, self-issued JWT minting and verification, client-side OAuth2 token acquisition for outbound calls, scope-based
+access control, Open Policy Agent integration, a shared token-revocation denylist, and an authorization-decision audit trail — all with pluggable
+backends and automatic lifecycle management.
 
 ## Packages
 
@@ -29,7 +29,7 @@ authorization-decision audit trail — all with pluggable backends and automatic
 ## Design principles
 
 - **Standards-based** — OIDC discovery (RFC 8414), token introspection (RFC 7662), and OPA Rego policies.
-- **Secure by default** — asymmetric-only signing algorithms, revocation checks, checksum-verified policy files.
+- **Secure defaults** — asymmetric-only default signing algorithms, plus opt-in revocation checks and checksum-verified policy files.
 - **Factory-driven** — each subsystem includes a `factory` subpackage for configuration-based setup.
 - **Hot-reload** — JWKS key rotation and filesystem policy watching keep authorization current without restarts.
 - **Auditable** — every authn/authz decision can be recorded through the `audit` primitive without coupling the deciding engines to storage.

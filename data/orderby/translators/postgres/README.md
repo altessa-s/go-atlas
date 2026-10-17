@@ -23,8 +23,8 @@ Translates an [`orderby.Spec`](../..) into the body of a PostgreSQL `ORDER BY` c
 | NULLs       | No `NULLS FIRST/LAST`: NULL sorts as the largest value: last in `ASC`, first in `DESC`                                   |
 | Errors      | `ErrFieldNotAllowed`, `ErrInvalidFieldPath`, `ErrAllowlistRequired`                                                      |
 
-A sort column cannot be bound as a parameter, so mapped names are validated rather than spliced in: map a nested field onto a generated column to
-sort by it, and add a unique column last for a deterministic order.
+A sort column cannot be bound as a parameter, so mapped names are validated rather than spliced in: map a nested field onto a generated column to sort
+by it, and add a unique column last for a deterministic order.
 
 ## Usage
 

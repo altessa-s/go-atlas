@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/config/loader/backend/toml"
 ```
 
-Package `toml` provides a TOML backend for the configuration loader. It uses
-[github.com/BurntSushi/toml](https://github.com/BurntSushi/toml) for parsing.
+Package `toml` provides a TOML backend for the configuration loader. It uses [github.com/BurntSushi/toml](https://github.com/BurntSushi/toml) for
+parsing.
 
 ## Details
 

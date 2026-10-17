@@ -4,12 +4,12 @@
 import "github.com/altessa-s/go-atlas/core/types/optional"
 ```
 
-Package `optional` provides a generic `Optional[T]` value that holds either a value of type `T` or nothing. It makes the "value may be absent"
-intent explicit at the type level, for places where Go's idiomatic `(T, bool)` pair or `*T` is awkward — struct fields, channel elements, slice
-values, map values.
+Package `optional` provides a generic `Optional[T]` value that holds either a value of type `T` or nothing. It makes the "value may be absent" intent
+explicit at the type level, for places where Go's idiomatic `(T, bool)` pair or `*T` is awkward — struct fields, channel elements, slice values, map
+values.
 
-Internally `Optional[T]` carries `(value, present)` by value: `Some(v)` does **not** allocate, the type is comparable when `T` is comparable, and
-the zero value of `Optional[T]` is a valid `None`.
+Internally `Optional[T]` carries `(value, present)` by value: `Some(v)` does **not** allocate, the type is comparable when `T` is comparable, and the
+zero value of `Optional[T]` is a valid `None`.
 
 ## Functions
 
@@ -37,6 +37,18 @@ the zero value of `Optional[T]` is a valid `None`.
 | `MarshalJSON() ([]byte, error)`            | Some → `json.Marshal(v)`; None → `null`                              |
 | `UnmarshalJSON([]byte) error`              | JSON `null` → None; otherwise decode into `T` and store as Some      |
 
+## Reflection helpers
+
+For codecs and serializers that detect `Optional` fields by reflection; ordinary code should rely on the type system.
+
+| Function                    | Description                                                          |
+|-----------------------------|----------------------------------------------------------------------|
+| `IsOptionalType(t)`         | Reports whether `t` is an `Optional[T]` declared by this package     |
+| `InnerType(optType)`        | Type parameter `T`; panics on a non-`Optional` type                  |
+| `GetReflect(opt)`           | `(value, present)` pair from a `reflect.Value` of `Optional[T]`      |
+| `SomeReflect(optType, v)`   | Build `Some(v)` as a `reflect.Value` of `optType`                    |
+| `NoneReflect(optType)`      | Build `None` as a `reflect.Value` of `optType`                       |
+
 ## Serialization
 
 JSON support is built in: `Some(v)` encodes as `v`, `None` as `null`. Use `json:",omitzero"` to omit None fields with Go 1.25+. Present zero values
@@ -48,8 +60,8 @@ with `bson:",omitempty"` is omitted, and `Some(nil)` decodes as None because bot
 
 ## When to use
 
-- Struct fields where the zero value of `T` is itself a valid value and you need to distinguish it from "not set" — e.g. `Optional[string]` to
-  tell `Some("")` from `None`.
+- Struct fields where the zero value of `T` is itself a valid value and you need to distinguish it from "not set" — e.g. `Optional[string]` to tell
+  `Some("")` from `None`.
 - Channel/slice/map element types where `nil` would be ambiguous or where `T` is not nillable.
 - Function parameters whose presence carries semantic weight you want the type signature to advertise.
 
@@ -58,8 +70,8 @@ with `bson:",omitempty"` is omitted, and `Some(nil)` decodes as None because bot
 - **Ordinary lookups.** Keep the `value, ok := m[k]` and `value, ok := <-ch` idioms — wrapping each in `Optional` adds noise.
 - **Pointer fields where `nil` already means "absent".** `*T` is fine when callers cannot construct `Some(zero)` legitimately.
 - **"Value or error" cases.** Use [`core/types/result`](../result/README.md), not `Optional[T]` plus a side-channel error.
-- **Functional pipelines (`Map`, `AndThen`, `Then`, …).** In Go they read as nested closures rather than terse pipelines, so plain `if ok` stays
-  shorter and clearer. Convert back with `Get` and use ordinary control flow.
+- **Functional pipelines (`Map`, `AndThen`, `Then`, …).** In Go they read as nested closures rather than terse pipelines, so plain `if ok` stays shorter
+  and clearer. Convert back with `Get` and use ordinary control flow.
 
 ## Usage
 

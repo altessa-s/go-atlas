@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/auth/opa/sources/gitlab"
 ```
 
-Package `gitlab` provides an OPA policy source that reads policies from a GitLab repository.
-It uses the GitLab API to fetch `.rego` policy files and optional `.json` data files.
+Package `gitlab` provides an OPA policy source that reads policies from a GitLab repository. It uses the GitLab API to fetch `.rego` policy files and
+optional `.json` data files.
 
 ## Usage
 
@@ -36,7 +36,7 @@ bundle, err := source.Fetch(ctx)
 | `WithRef` | Git ref (branch/tag/commit) to fetch from |
 | `WithDir` | Directory path within the repository |
 | `WithIncludeData` | Include `.json` data files in bundle |
-| `WithHTTPClient` | Custom HTTP client for API requests |
+| `WithHTTPClient` | HTTP client for API requests — required (`ErrHTTPClientRequired` otherwise) |
 | `WithLogger` | Logger for debug output |
 
 ## Key Types
@@ -51,5 +51,5 @@ bundle, err := source.Fetch(ctx)
 - Support for both policies (`.rego`) and data (`.json`) files
 - Configurable branch/tag/commit references
 - Compatible with self-hosted GitLab instances
-- Retries, circuit breaking, proxying and SSRF protection through the injected `*http.Client` (required; GitLab's own retries are
-  disabled so the client is the only retry layer)
+- Retries, circuit breaking, proxying and SSRF protection through the injected `*http.Client` (required; GitLab's own retries are disabled so the client
+  is the only retry layer)

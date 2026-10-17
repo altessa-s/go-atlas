@@ -4,12 +4,11 @@
 import "github.com/altessa-s/go-atlas/domain/proto/fieldmask"
 ```
 
-Package `fieldmask` provides hierarchical field mask utilities for Protocol Buffers. A `FieldMask` is a nested map representing
-dot-separated field paths with support for filtering, pruning, set operations, and update-style validation of field annotations.
-Well-known types (`structpb.Struct`, `structpb.ListValue`, `structpb.Value`) are handled transparently — their dynamic keys are
-navigable by all mask operations. Update masks validate `google.api.field_behavior` annotations (`REQUIRED`, `IMMUTABLE`,
-`OUTPUT_ONLY`, `IDENTIFIER`) before applying changes. `IDENTIFIER` fields (AIP-203) are treated like `IMMUTABLE` in the update
-path — the identifier names the resource and must not be modified by an update.
+Package `fieldmask` provides hierarchical field mask utilities for Protocol Buffers. A `FieldMask` is a nested map representing dot-separated field
+paths with support for filtering, pruning, set operations, and update-style validation of field annotations. Well-known types (`structpb.Struct`,
+`structpb.ListValue`, `structpb.Value`) are handled transparently — their dynamic keys are navigable by all mask operations. Update masks validate
+`google.api.field_behavior` annotations (`REQUIRED`, `IMMUTABLE`, `OUTPUT_ONLY`, `IDENTIFIER`) before applying changes. `IDENTIFIER` fields (AIP-203)
+are treated like `IMMUTABLE` in the update path — the identifier names the resource and must not be modified by an update.
 
 ## Constructors
 
@@ -26,15 +25,21 @@ path — the identifier names the resource and must not be modified by an update
 |------------------------|--------------------------------------------------------------------------------------------------------|
 | `Filter`               | Keep only the fields present in the mask, clearing everything else                                     |
 | `Prune`                | Remove the fields present in the mask, keeping everything else                                         |
+| `PrunePaths`           | Package-level shorthand: prune the given paths from a message without building a mask first            |
 | `Union`                | Combine two masks into one that covers both sets of paths                                              |
 | `Intersection`         | Return a mask containing only the paths present in both masks                                          |
 | `Difference`           | Return a mask containing paths in the receiver but not in the argument                                 |
 | `ToPaths`              | Return a sorted slice of dot-separated path strings                                                    |
-| `ApplyUpdateMask`      | Copy masked fields from source to destination with field behavior validation                           |
+| `ApplyUpdateMask`      | Validate field behaviors, then clear fields outside the mask in place (mutates the receiver mask)      |
+| `ExpandMessagePaths`   | Expand message-typed leaves into their sub-fields for a full replacement update                        |
+| `Contains`             | Report whether a dot-separated path is present in the mask                                             |
+| `Validate`             | Check that every path exists in the message schema (`ValidationError` otherwise)                       |
+| `Clone`                | Deep copy of the mask                                                                                  |
+| `ToProtoFieldMask`     | Convert the mask to a `fieldmaskpb.FieldMask`                                                          |
 
-`ApplyUpdateMask` also rejects indexed access into repeated fields (`authors.0`, `authors.0.given_name`) as `ValidationError` per AIP-161:
-update masks address whole repeated fields, never a single element. To replace one entry, callers replace the entire list. Read paths
-(`Filter`, `Prune`, `Validate`) tolerate the same segments — AIP-161 lets the implementation ignore them on read.
+`ApplyUpdateMask` also rejects indexed access into repeated fields (`authors.0`, `authors.0.given_name`) as `ValidationError` per AIP-161: update masks
+address whole repeated fields, never a single element. To replace one entry, callers replace the entire list. Read paths (`Filter`, `Prune`, `Validate`)
+tolerate the same segments — AIP-161 lets the implementation ignore them on read.
 
 By default `ApplyUpdateMask` silently ignores paths absent from the message schema. `WithPathValidation` selects how those paths are treated (AIP-161),
 running `Validate` before any mutation:
@@ -58,9 +63,9 @@ err = mask.ApplyUpdateMask(msg,
 
 ### Backtick-quoted map keys (AIP-161)
 
-Map keys that contain a dot or other non-identifier characters are wrapped in backticks so the dot is not mistaken for a path separator. The
-parser (`FromPaths`, `Contains`, `Validate`) treats a backtick-quoted run as a single segment and strips the backticks; `ToPaths` re-quotes any
-key that still contains a dot, so the round-trip is lossless.
+Map keys that contain a dot or other non-identifier characters are wrapped in backticks so the dot is not mistaken for a path separator. The parser
+(`FromPaths`, `Contains`, `Validate`) treats a backtick-quoted run as a single segment and strips the backticks; `ToPaths` re-quotes any key that still
+contains a dot, so the round-trip is lossless.
 
 ```go
 mask := fieldmask.FromPaths(
@@ -76,9 +81,9 @@ The same syntax is honored by `Filter`, `Prune`, and `ApplyUpdateMask` when trav
 
 ### Wildcard segments (AIP-161)
 
-The `*` segment (constant `WildcardSegment`) matches every element of a repeated field or every value of a map field. It is honored by
-`Filter`, `Prune`, `Validate`, and `ApplyUpdateMask`. A leaf wildcard keeps (or, for `Prune`, clears) the whole collection; a branch wildcard
-applies the nested sub-mask to every element or value. For maps, a specific-key entry wins over the wildcard for matched keys.
+The `*` segment (constant `WildcardSegment`) matches every element of a repeated field or every value of a map field. It is honored by `Filter`,
+`Prune`, `Validate`, and `ApplyUpdateMask`. A leaf wildcard keeps (or, for `Prune`, clears) the whole collection; a branch wildcard applies the nested
+sub-mask to every element or value. For maps, a specific-key entry wins over the wildcard for matched keys.
 
 ```go
 fieldmask.FromPaths("aliases.*.display_name")   // keep display_name on every alias
@@ -90,9 +95,9 @@ mask := fieldmask.FromPaths(
 )
 ```
 
-`ApplyUpdateMask` strips OUTPUT_ONLY fields transitively through wildcard sub-masks: `aliases.*.updated_at` (where `updated_at` is
-OUTPUT_ONLY on `Profile`) is removed from the writeback mask before the handler sees it. When a wildcard sub-mask becomes empty after the
-strip, the parent collection is dropped from the mask as well.
+`ApplyUpdateMask` strips OUTPUT_ONLY fields transitively through wildcard sub-masks: `aliases.*.updated_at` (where `updated_at` is OUTPUT_ONLY on
+`Profile`) is removed from the writeback mask before the handler sees it. When a wildcard sub-mask becomes empty after the strip, the parent collection
+is dropped from the mask as well.
 
 ## Request extraction
 
@@ -104,8 +109,8 @@ Read the `update_mask` and the read mask off a gRPC request. There are three tra
 | AIP-157 (modern)             | gRPC metadata `x-goog-fieldmask` (or HTTP `$fields` mapped by gateway)   | `MetadataReadExtractor`                             |
 | AIP-157 via AIP-161 (legacy) | `read_mask` field on the request message — deprecated by AIP-161         | `ExtractReadMask` / `DefaultReadExtractor`          |
 
-Reflection helpers stay gRPC-unaware (descriptors only); the metadata helper reads `metadata.FromIncomingContext`. All three work from non-gRPC
-callers too. The interceptor in [`transport/grpc/interceptors/fieldmask`](../../../transport/grpc/interceptors/fieldmask/README.md) chains
+Reflection helpers stay gRPC-unaware (descriptors only); the metadata helper reads `metadata.FromIncomingContext`. All three work from non-gRPC callers
+too. The interceptor in [`transport/grpc/interceptors/fieldmask`](../../../transport/grpc/interceptors/fieldmask/README.md) chains
 `MetadataReadExtractor → DefaultReadExtractor` by default, so the modern path is preferred and the deprecated path keeps working.
 
 ### Reflection helpers
@@ -121,9 +126,9 @@ callers too. The interceptor in [`transport/grpc/interceptors/fieldmask`](../../
 
 ### Custom extractors
 
-For requests that do not follow the AIP-134 flat shape — most commonly when the mask lives inside an `Options` sub-message
-(`req.Options.UpdateMask`) — the reflection helpers above will not find the mask. Use the function-type API instead and plug a typed extractor into
-the gRPC interceptor via `WithUpdateExtractor` / `WithReadExtractor`.
+For requests that do not follow the AIP-134 flat shape — most commonly when the mask lives inside an `Options` sub-message (`req.Options.UpdateMask`) —
+the reflection helpers above will not find the mask. Use the function-type API instead and plug a typed extractor into the gRPC interceptor via
+`WithUpdateExtractor` / `WithReadExtractor`.
 
 | Symbol                                                                                                                   | Purpose                                                                                                                                |
 |--------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
@@ -143,9 +148,8 @@ extract := fieldmask.NewUpdateExtractor(
 
 ### Metadata-based read mask (AIP-157)
 
-AIP-161 deprecates the request-message `read_mask` and routes callers through AIP-157, which moves the mask onto a side channel — the
-`x-goog-fieldmask` gRPC metadata key in Google Cloud (and the matching `$fields` HTTP query, mapped by grpc-gateway). `MetadataReadExtractor`
-reads that header.
+AIP-161 deprecates the request-message `read_mask` and routes callers through AIP-157, which moves the mask onto a side channel — the `x-goog-fieldmask`
+gRPC metadata key in Google Cloud (and the matching `$fields` HTTP query, mapped by grpc-gateway). `MetadataReadExtractor` reads that header.
 
 | Symbol                                       | Purpose                                                                                                                                |
 |----------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
@@ -171,8 +175,8 @@ extract := fieldmask.MetadataReadExtractor(fieldmask.WithMetadataHeader("x-custo
 
 ### Chaining extractors
 
-`ChainReadExtractors` and `ChainUpdateExtractors` combine extractors and return the first one that signals `ok=true`. Nil entries are
-skipped; an empty chain returns `nil`.
+`ChainReadExtractors` and `ChainUpdateExtractors` combine extractors and return the first one that signals `ok=true`. Nil entries are skipped; an empty
+chain returns `nil`.
 
 | Symbol                          | Purpose                                                                                                       |
 |---------------------------------|---------------------------------------------------------------------------------------------------------------|

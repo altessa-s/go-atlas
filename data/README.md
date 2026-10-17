@@ -11,6 +11,7 @@ limiting, idempotency, outbox pattern, probabilistic filters, and search.
 | [cache](./cache)             | Unified caching interface with multiple backends and serialization  |
 | [filter](./filter)           | CEL expression parsing and database-specific query translation      |
 | [idempotency](./idempotency) | Duplicate request detection using idempotency keys                 |
+| [keyset](./keyset)           | Signed stateless page tokens for keyset pagination                 |
 | [leadelect](./leadelect)     | Distributed leader election for service coordination               |
 | [limiters](./limiters)       | Rate limiting interfaces and token bucket implementation           |
 | [locks](./locks)             | Distributed locking abstractions                                   |
@@ -19,3 +20,5 @@ limiting, idempotency, outbox pattern, probabilistic filters, and search.
 | [orderby](./orderby)         | AIP-132 `order_by` DSL parser with MongoDB / Meili / RediSearch translators ([deep dive](../docs/data/orderby.md)) |
 | [outbox](./outbox)           | Transactional Outbox pattern for at-least-once event delivery      |
 | [probfilter](./probfilter)   | Probabilistic data structures (Bloom, Cuckoo) for existence checks |
+| [projection](./projection)   | AIP-157 `fields` parser with MongoDB and SQL projection translators |
+| [saga](./saga)               | Orchestration-based saga with compensation and crash recovery      |

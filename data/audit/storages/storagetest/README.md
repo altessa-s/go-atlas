@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/audit/storages/storagetest"
 ```
 
-Conformance suite of `audit.Storage` implementations: every backend under `data/audit/storages` runs `Run` to prove it implements the ordering,
-paging and `Count` contract that `audit.FetchPage` relies on. A custom storage should run it too.
+Conformance suite of `audit.Storage` implementations: every backend under `data/audit/storages` runs `Run` to prove it implements the ordering, paging
+and `Count` contract that `audit.FetchPage` relies on. A custom storage should run it too.
 
 ## Contracts
 

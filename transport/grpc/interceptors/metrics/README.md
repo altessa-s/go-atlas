@@ -4,9 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
 ```
 
-Package `metrics` provides metrics collection for gRPC servers via the `observability/metrics.Collector` abstraction. Default metrics:
-requests_total, request_duration_seconds, requests_in_flight, requests_in_flight_by_method. Optional: request_size_bytes, response_size_bytes,
-stream messages.
+Package `metrics` provides metrics collection for gRPC servers via the `observability/metrics.Collector` abstraction. Default metrics: requests_total,
+request_duration_seconds, requests_in_flight, requests_in_flight_by_method. Optional: request_size_bytes, response_size_bytes, stream messages.
 
 ## Default metrics
 
@@ -28,20 +27,20 @@ Metric names are prefixed with the collector's service name and the configured s
 | `server_response_size_bytes`            | Histogram | method, status | `WithEnableSizeMetrics`          |
 | `server_stream_messages_sent_total`     | Counter   | method, status | `WithEnableStreamMetrics`        |
 | `server_stream_messages_received_total` | Counter   | method, status | `WithEnableStreamMetrics`        |
-| `server_stream_message_size_bytes`      | Histogram | method, dir    | `WithEnableStreamMetrics` + size |
+| `server_stream_message_size_bytes`      | Histogram | method, direction | `WithEnableStreamMetrics` + size |
 
 ## Options
 
 | Option                       | Default                 | Description                                                                                            |
 |------------------------------|-------------------------|--------------------------------------------------------------------------------------------------------|
-| `WithCollector`              | `metrics.Noop()`        | Metrics collector to register with; required for actual emission                                       |
+| `WithCollector`              | none (required)         | Metrics collector to register with; there is no no-op fallback, pass `metrics.Noop()` to disable       |
 | `WithMetricsSubsystem`       | `grpc`                  | Subsystem prefix; override per upstream so multiple servers can share one registry                     |
 | `WithEnableSizeMetrics`      | false                   | Enable request/response size histograms                                                                |
 | `WithEnableStreamMetrics`    | false                   | Enable per-stream message counters                                                                     |
 | `WithDurationBuckets`        | default latency buckets | Custom duration histogram buckets (seconds)                                                            |
 | `WithSizeBuckets`            | default size buckets    | Custom size histogram buckets (bytes)                                                                  |
 | `WithStreamSamplingRate`     | 1.0                     | Sampling rate for stream metrics (0.0–1.0)                                                             |
-| `WithStreamSamplingStrategy` | PerMessage              | Sampling strategy: PerMessage or PerStream                                                             |
+| `WithStreamSamplingStrategy` | `PerMessageSampling`    | Sampling strategy: `PerMessageSampling` or `PerStreamSampling`                                         |
 | `WithIgnoreMethods`          | --                      | Methods to skip metrics collection                                                                     |
 | `WithIgnorePatterns`         | reflection, health      | Regex patterns for methods to skip                                                                     |
 | `WithLogger`                 | discard                 | Structured logger                                                                                      |

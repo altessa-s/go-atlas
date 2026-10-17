@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/filter/translators/mariadb"
 ```
 
-Translates a `filter.Node` AST into a MariaDB SQL `WHERE` clause. Two output modes share one AST walk: a parameterized clause with `?`
-placeholders plus a bound argument slice, and a self-contained clause with literals rendered in place. The output is equally valid MySQL.
+Translates a `filter.Node` AST into a MariaDB SQL `WHERE` clause. Two output modes share one AST walk: a parameterized clause with `?` placeholders plus
+a bound argument slice, and a self-contained clause with literals rendered in place. The output is equally valid MySQL.
 
 ## Constructor
 
@@ -62,70 +62,67 @@ rows, err := db.QueryContext(ctx, "SELECT * FROM events WHERE "+where, args...)
 | `field.size()` / `size(f)`  | `` CHAR_LENGTH(`field`) ``                                                            |
 | `substring()`               | `filter.ErrUnsupportedOperation`                                                      |
 
-`contains` and `startsWith` go through `LOCATE`, which takes the needle as a plain string — there is no LIKE pattern, so a `%` or `_` in the
-operand stays literal. `startsWith` is `LOCATE = 1` because MariaDB has no dedicated function; the two are equivalent, including for an empty
-needle. `size()` is rejected outside a comparison: `CHAR_LENGTH` is an integer expression, and on its own there is no predicate for `WHERE` to
-test.
+`contains` and `startsWith` go through `LOCATE`, which takes the needle as a plain string — there is no LIKE pattern, so a `%` or `_` in the operand
+stays literal. `startsWith` is `LOCATE = 1` because MariaDB has no dedicated function; the two are equivalent, including for an empty needle. `size()`
+is rejected outside a comparison: `CHAR_LENGTH` is an integer expression, and on its own there is no predicate for `WHERE` to test.
 
-**`endsWith` binds its operand three times.** MariaDB has no `endsWith`, so the needle guards the length, sizes the suffix and is compared to
-it. One CEL argument consumes three placeholders — `args` reflects that, and any clause following it is numbered accordingly. The length guard
-is what keeps the predicate exact under a PAD SPACE collation: without it a column shorter than the needle comes back whole from `RIGHT` and is
-padded with spaces before the comparison, so `"a".endsWith("a ")` would be true.
+**`endsWith` binds its operand three times.** MariaDB has no `endsWith`, so the needle guards the length, sizes the suffix and is compared to it. One
+CEL argument consumes three placeholders — `args` reflects that, and any clause following it is numbered accordingly. The length guard is what keeps the
+predicate exact under a PAD SPACE collation: without it a column shorter than the needle comes back whole from `RIGHT` and is padded with spaces before
+the comparison, so `"a".endsWith("a ")` would be true.
 
 ## Column names
 
-Field names are checked against `WithAllowedFields`, run through `WithFieldMapping`, validated as plain SQL identifiers, and emitted
-backtick-quoted per dot-separated segment: `address.city` becomes `` `address`.`city` ``.
+Field names are checked against `WithAllowedFields`, run through `WithFieldMapping`, validated as plain SQL identifiers, and emitted backtick-quoted per
+dot-separated segment: `address.city` becomes `` `address`.`city` ``.
 
-The validation is stricter than backtick quoting requires: the column position is the one part of the generated SQL that no placeholder can
-cover, so anything that is not `[A-Za-z_][A-Za-z0-9_]*` (dot-separated) is rejected with `filter.ErrInvalidExpression`. To filter on a JSON
-path or a computed value, map the CEL name onto a generated column.
+The validation is stricter than backtick quoting requires: the column position is the one part of the generated SQL that no placeholder can cover, so
+anything that is not `[A-Za-z_][A-Za-z0-9_]*` (dot-separated) is rejected with `filter.ErrInvalidExpression`. To filter on a JSON path or a computed
+value, map the CEL name onto a generated column.
 
 ## Collation
 
-String comparison follows the column's collation, and MariaDB's defaults (`utf8mb4_general_ci` and friends) are **case-insensitive**. Every
-string predicate here inherits that: `contains`, `startsWith`, `endsWith`, `REGEXP` and plain equality all match case-insensitively unless the
-column or the connection says otherwise. This is a real semantic difference from the ClickHouse and PostgreSQL translators, which are
-case-sensitive. Use an explicit `_bin` or `_cs` collation where the distinction matters.
+String comparison follows the column's collation, and MariaDB's defaults (`utf8mb4_general_ci` and friends) are **case-insensitive**. Every string
+predicate here inherits that: `contains`, `startsWith`, `endsWith`, `REGEXP` and plain equality all match case-insensitively unless the column or the
+connection says otherwise. This is a real semantic difference from the ClickHouse and PostgreSQL translators, which are case-sensitive. Use an explicit
+`_bin` or `_cs` collation where the distinction matters.
 
 Most MariaDB and MySQL collations — `utf8mb4_bin` included — are **PAD SPACE**: strings compare as if the shorter one were padded with spaces.
-Comparisons and membership inherit that, so under such a collation `name == "a "` matches `a`, and `!=`, `<`, `<=`, `>`, `>=` and `in` likewise
-ignore trailing spaces. The string predicates do not: `contains` and `startsWith` (`LOCATE`) and `size()` (`CHAR_LENGTH`) see every character,
-and `endsWith` is length-guarded, so `a` does not end with `a `. Use a NO PAD collation (`_nopad_`, `utf8mb4_0900_*`) where trailing spaces in
-comparisons matter.
+Comparisons and membership inherit that, so under such a collation `name == "a "` matches `a`, and `!=`, `<`, `<=`, `>`, `>=` and `in` likewise ignore
+trailing spaces. The string predicates do not: `contains` and `startsWith` (`LOCATE`) and `size()` (`CHAR_LENGTH`) see every character, and `endsWith`
+is length-guarded, so `a` does not end with `a `. Use a NO PAD collation (`_nopad_`, `utf8mb4_0900_*`) where trailing spaces in comparisons matter.
 
 ## Null semantics
 
 A SQL row always carries every column of its table, so there is no "missing field" for `has()` to detect — it compiles to `IS NOT NULL` and is
-meaningful only against a nullable column. The same three-valued logic applies to `!=`: a NULL row does not satisfy `` `col` != 'x' ``, because
-the comparison yields NULL rather than true. Write `col != "x" || col == null` where the NULL row should match.
+meaningful only against a nullable column. The same three-valued logic applies to `!=`: a NULL row does not satisfy `` `col` != 'x' ``, because the
+comparison yields NULL rather than true. Write `col != "x" || col == null` where the NULL row should match.
 
 ## Regular expressions
 
-`matches()` compiles to `REGEXP`, which MariaDB 10.0.5+ evaluates with PCRE. Unlike RE2 it can backtrack, so a crafted pattern can be made
-expensive server-side. `filter.WithMaxRegexLength` bounds the blast radius but does not eliminate it — expose `matches()` to trusted callers,
-or tighten the cap.
+`matches()` compiles to `REGEXP`, which MariaDB 10.0.5+ evaluates with PCRE. Unlike RE2 it can backtrack, so a crafted pattern can be made expensive
+server-side. `filter.WithMaxRegexLength` bounds the blast radius but does not eliminate it — expose `matches()` to trusted callers, or tighten the cap.
 
-The pattern is RE2, as CEL defines `matches()`, and one difference in anchors is corrected before it is sent: outside multi-line mode RE2's `$`
-matches only at the very end, while PCRE (MariaDB) and ICU (MySQL 8) also match it before a final newline. Every such `$` is rewritten to `\z`
-(`^Jo$` is sent as `^Jo\z`); a `$` under `(?m)`, an escaped `\$` and a `$` in a character class are left alone. In inline mode the `\z`
-backslash is doubled like any other, so the caveat under [Inline rendering](#inline-rendering) applies.
+The pattern is RE2, as CEL defines `matches()`, and one difference in anchors is corrected before it is sent: outside multi-line mode RE2's `$` matches
+only at the very end, while PCRE (MariaDB) and ICU (MySQL 8) also match it before a final newline. Every such `$` is rewritten to `\z` (`^Jo$` is sent
+as `^Jo\z`); a `$` under `(?m)`, an escaped `\$` and a `$` in a character class are left alone. In inline mode the `\z` backslash is doubled like any
+other, so the caveat under [Inline rendering](#inline-rendering) applies.
 
 ## Timestamps
 
-`timestamp(...)` literals bind as `time.Time` in the parameterized form and render as a UTC `DATETIME` literal at microsecond precision inline.
-Store the corresponding columns in UTC.
+`timestamp(...)` literals bind as `time.Time` in the parameterized form and render as a UTC `DATETIME` literal at microsecond precision inline. Store
+the corresponding columns in UTC.
 
 ## Inline rendering
 
-`TranslateInline` doubles the quote in a string literal, which closes the break-out in **every** `sql_mode`. It also doubles the backslash,
-which is correct under the default mode where the backslash is an escape character. Under `NO_BACKSLASH_ESCAPES` it is not, and a value
-containing a backslash comes out with it doubled — a fidelity bug, never an injection. Use the parameterized form where exact values matter.
+`TranslateInline` doubles the quote in a string literal, which closes the break-out in **every** `sql_mode`. It also doubles the backslash, which is
+correct under the default mode where the backslash is an escape character. Under `NO_BACKSLASH_ESCAPES` it is not, and a value containing a backslash
+comes out with it doubled — a fidelity bug, never an injection. Use the parameterized form where exact values matter.
 
 ## Concurrency
 
-A `Translator` accumulates per-call state (nesting depth, collected arguments) and is **not** safe for concurrent use. Construct one per
-goroutine, or guard it with a mutex.
+A `Translator` accumulates per-call state (nesting depth, collected arguments) and is **not** safe for concurrent use. Construct one per goroutine, or
+guard it with a mutex.
 
 ## Field operands
 

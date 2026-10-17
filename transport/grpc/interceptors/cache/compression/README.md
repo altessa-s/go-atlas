@@ -13,6 +13,7 @@ Package `compression` provides high-performance gzip compression for cache opera
 |--------------------|---------------------------------------------------------------------------|
 | `Compressor`       | Interface: Compress, Decompress, ShouldCompress                           |
 | `GzipCompressor`   | Production implementation with size-based decisions and tiered pooling     |
+| `NoOpCompressor`   | Pass-through implementation used when compression is disabled             |
 | `Preset`           | Predefined compression configuration (None, Fast, Balanced, Best)         |
 | `Metadata`         | Compressed data metadata: IsCompressed, OriginalSize                      |
 

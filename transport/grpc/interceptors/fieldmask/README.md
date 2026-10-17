@@ -5,9 +5,9 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 ```
 
 Server-side gRPC interceptor that wires [`domain/proto/fieldmask`](../../../../domain/proto/fieldmask/README.md) into the chain: it runs
-`FieldMask.ApplyUpdateMask` on AIP-134 `Update*` requests and `FieldMask.Filter` on AIP-157 `Get*` / `List*` / `Search*` / `BatchGet*`
-responses, all driven by the gRPC method name. Behavior violations (REQUIRED cleared, IMMUTABLE modified, IDENTIFIER touched) are surfaced as
-the canonical `InvalidArgument` + `google.rpc.BadRequest` shape rather than leaking to the storage layer.
+`FieldMask.ApplyUpdateMask` on AIP-134 `Update*` requests and `FieldMask.Filter` on AIP-157 `Get*` / `List*` / `Search*` / `BatchGet*` responses, all
+driven by the gRPC method name. Behavior violations (REQUIRED cleared, IMMUTABLE modified, IDENTIFIER touched) are surfaced as the canonical
+`InvalidArgument` + `google.rpc.BadRequest` shape rather than leaking to the storage layer.
 
 ## Method classification
 
@@ -19,8 +19,8 @@ The short method name (the part after the final `/`) is matched case-sensitively
 | `Get*`, `List*`, `Search*`, `BatchGet*` | `KindRead`   | `PreCall` captures `read_mask`; `PostCall` runs `Filter(response)`    |
 | anything else                           | `KindNone`   | request and response untouched                                        |
 
-`Create*` is deliberately not handled — AIP-133 does not define a mask on the create path. Use `WithMethodKind` to override the
-classification for a specific fully-qualified method.
+`Create*` is deliberately not handled — AIP-133 does not define a mask on the create path. Use `WithMethodKind` to override the classification for a
+specific fully-qualified method.
 
 ## Options
 
@@ -35,16 +35,16 @@ classification for a specific fully-qualified method.
 | `WithDefaultUpdateExtractor(fn)`        | built-in reflection              | Global default update extractor used when no per-method override matches.  |
 | `WithDefaultReadExtractor(fn)`          | built-in chain                   | Global default read extractor.                                             |
 | `WithMetadataReadMaskHeader(name)`      | `"x-goog-fieldmask"`             | Override the gRPC metadata key the built-in AIP-157 read extractor reads.  |
-| `WithApplyEmptyUpdateMask()`            | off                              | AIP-134: when `update_mask` is present but empty, synthesise from `FromSetFields(resource)` and apply normally. |
+| `WithApplyEmptyUpdateMask()`            | off                              | AIP-134: when `update_mask` is present but empty, synthesize from `FromSetFields(resource)` and apply normally. |
 | `WithIgnoreMethods(...string)`          | --                               | Fully-qualified method names to bypass entirely.                           |
 | `WithIgnorePatterns(...*regexp.Regexp)` | `defaults.IgnorePatterns`        | Regex patterns to bypass (default skips reflection and health probes).     |
 | `WithLogger(*slog.Logger)`              | discard                          | Logger for debug/error messages.                                           |
 
 ## Custom extractors
 
-The built-in extractor assumes the canonical AIP-134 shape — `UpdateXxxRequest{Xxx resource, FieldMask update_mask}` — and finds the mask on the
-top level of the request via descriptor reflection. Requests that nest the mask inside an `Options` sub-message
-(`req.Options.UpdateMask`) are not reachable from there.
+The built-in extractor assumes the canonical AIP-134 shape — `UpdateXxxRequest{Xxx resource, FieldMask update_mask}` — and finds the mask on the top
+level of the request via descriptor reflection. Requests that nest the mask inside an `Options` sub-message (`req.Options.UpdateMask`) are not reachable
+from there.
 
 For those, plug a typed extractor in. The function types and the generic builders live in
 [`domain/proto/fieldmask`](../../../../domain/proto/fieldmask/README.md#custom-extractors) so non-gRPC callers can reuse them.
@@ -77,31 +77,32 @@ For every call the interceptor resolves the extractor in this order:
    - Read path: `pbfieldmask.ChainReadExtractors(MetadataReadExtractor, DefaultReadExtractor)` — modern AIP-157 metadata header first, deprecated
      AIP-161 request-message `read_mask` second.
 
-A custom extractor returning `ok=false` means "I do not handle this request" — the interceptor logs at Debug and passes through. It does **not**
-fall back to a lower tier. This keeps the precedence deterministic when callers register an extractor specifically to disable handling for a method.
+A custom extractor returning `ok=false` means "I do not handle this request" — the interceptor logs at Debug and passes through. It does **not** fall
+back to a lower tier. This keeps the precedence deterministic when callers register an extractor specifically to disable handling for a method.
 
 ### AIP-157 metadata read mask
 
-AIP-161 marks `read_mask` on the request message as **deprecated** and forwards callers to AIP-157, which transports the mask through a side
-channel: the gRPC metadata key `x-goog-fieldmask` (and the corresponding HTTP `$fields` query parameter, mapped by grpc-gateway). The built-in
-read chain consults that header first and falls back to the request-message `read_mask` when the header is absent. Explicit `"*"` and missing
-header both mean "all fields" per AIP-157 — the interceptor passes the response through unfiltered.
+AIP-161 marks `read_mask` on the request message as **deprecated** and forwards callers to AIP-157, which transports the mask through a side channel:
+the gRPC metadata key `x-goog-fieldmask` (and the corresponding HTTP `$fields` query parameter, mapped by grpc-gateway). The built-in read chain
+consults that header first and falls back to the request-message `read_mask`. An empty or explicit `"*"` header is treated like a missing one (both mean
+"all fields" per AIP-157), so the `read_mask` still applies; the response passes through unfiltered only when neither source supplies a restrictive
+mask.
 
-Override the header name with `WithMetadataReadMaskHeader("x-custom-fieldmask")`. The override applies only to the built-in chain; callers
-that replace the read extractor wholesale via `WithDefaultReadExtractor` or `WithReadExtractor` own their own header convention.
+Override the header name with `WithMetadataReadMaskHeader("x-custom-fieldmask")`. The override applies only to the built-in chain; callers that replace
+the read extractor wholesale via `WithDefaultReadExtractor` or `WithReadExtractor` own their own header convention.
 
 ### Writeback
 
-`UpdateExtractorFunc` returns an optional writeback closure. The interceptor calls it with the mask after `ApplyUpdateMask` removes OUTPUT_ONLY
-entries — for the nested example above, that updates `req.Options.UpdateMask` so the handler sees a coherent `(mask, resource)` pair. Return `nil`
-from the writeback slot to skip writeback (when the handler already reads the original mask and ignores OUTPUT_ONLY paths).
+`UpdateExtractorFunc` returns an optional writeback closure. The interceptor calls it with the mask after `ApplyUpdateMask` removes OUTPUT_ONLY entries
+— for the nested example above, that updates `req.Options.UpdateMask` so the handler sees a coherent `(mask, resource)` pair. Return `nil` from the
+writeback slot to skip writeback (when the handler already reads the original mask and ignores OUTPUT_ONLY paths).
 
 ### Pushing the read mask down to storage
 
-`ReadMaskFromContext(ctx)` hands the handler the read mask the interceptor captured for the current `KindRead` call — resolved by the same
-extractor chain, returned as a copy — so the selection can become a database projection through [`data/projection`](../../../../data/projection)
-instead of loading the full resource and trimming it afterwards. It reports `ok=false` for non-read methods, skipped calls and requests without a
-mask (AIP-157: all fields). On a server stream, call it after the first `Recv`.
+`ReadMaskFromContext(ctx)` hands the handler the read mask the interceptor captured for the current `KindRead` call — resolved by the same extractor
+chain, returned as a copy — so the selection can become a database projection through [`data/projection`](../../../../data/projection) instead of
+loading the full resource and trimming it afterwards. It reports `ok=false` for non-read methods, skipped calls and requests without a mask (AIP-157:
+all fields). On a server stream, call it after the first `Recv`.
 
 ```go
 if mask, ok := fieldmask.ReadMaskFromContext(ctx); ok {
@@ -113,10 +114,10 @@ if mask, ok := fieldmask.ReadMaskFromContext(ctx); ok {
 }
 ```
 
-The response filter still runs and is a no-op on a response storage already trimmed; `WithSkipReadMask()` turns it off while the mask stays
-available through `ReadMaskFromContext`. Mask paths address the response message the filter runs on: for a `Get*` that is the resource itself,
-for a `List*` the envelope (`items.name, next_page_token`). Re-root an envelope mask at the collection field with `Spec.Relative("items")` before
-translating it; `ok=false` means the items were not requested at all.
+The response filter still runs and is a no-op on a response storage already trimmed; `WithSkipReadMask()` turns it off while the mask stays available
+through `ReadMaskFromContext`. Mask paths address the response message the filter runs on: for a `Get*` that is the resource itself, for a `List*` the
+envelope (`items.name, next_page_token`). Re-root an envelope mask at the collection field with `Spec.Relative("items")` before translating it;
+`ok=false` means the items were not requested at all.
 
 ## Usage
 
@@ -140,9 +141,9 @@ if err != nil {
 server := grpc.NewServer(srvOpts...)
 ```
 
-`fieldmask` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `fieldbehavior` (and any payload
-sanitization) before `fieldmask` so the mask sees the already-stripped request, and place `protovalidator` after `fieldmask` so the
-validator runs against the final mask-cleaned payload.
+`fieldmask` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `fieldbehavior` (and any payload sanitization)
+before `fieldmask` so the mask sees the already-stripped request, and place `protovalidator` after `fieldmask` so the validator runs against the final
+mask-cleaned payload.
 
 ## Errors
 
@@ -165,9 +166,8 @@ request do not alter it, and concurrent sends and receives on a bidi stream are 
 
 ## See also
 
-- [`domain/proto/fieldmask`](../../../../domain/proto/fieldmask/README.md) — the underlying `FieldMask` operations and the
-  `ExtractUpdateMask` / `ExtractReadMask` / `SetUpdateMask` reflection helpers this interceptor uses.
+- [`domain/proto/fieldmask`](../../../../domain/proto/fieldmask/README.md) — the underlying `FieldMask` operations and the `ExtractUpdateMask` /
+  `ExtractReadMask` / `SetUpdateMask` reflection helpers this interceptor uses.
 - [`docs/domain/proto/fieldmask.md`](../../../../docs/domain/proto/fieldmask.md) — full reference, traversal semantics, performance.
 - [`transport/grpc/interceptors/fieldbehavior`](../fieldbehavior/README.md) — sibling AIP-203 interceptor; pair before `fieldmask`.
-- [`transport/grpc/interceptors/protovalidator`](../protovalidator/README.md) — pair after `fieldmask` so validation runs on the
-  mask-cleaned payload.
+- [`transport/grpc/interceptors/protovalidator`](../protovalidator/README.md) — pair after `fieldmask` so validation runs on the mask-cleaned payload.

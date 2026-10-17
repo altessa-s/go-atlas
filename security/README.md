@@ -1,12 +1,13 @@
 # security
 
-Security subsystem for the Atlas framework. Provides secret management, TLS certificate handling, and HashiCorp Vault integration — all with
-pluggable backends and automatic lifecycle management.
+Security subsystem for the Atlas framework. Provides secret management, TLS certificate handling, and HashiCorp Vault integration — all with pluggable
+backends and automatic lifecycle management.
 
 ## Packages
 
 | Package                | Description                                                    |
 |------------------------|----------------------------------------------------------------|
+| [hmacsign](./hmacsign) | Shared-secret HMAC signing and verification of webhook bodies  |
 | [secrets](./secrets)   | Centralized secret management with caching and watch API       |
 | [tlsutils](./tlsutils) | TLS certificate loading, OCSP stapling, and secure defaults   |
 | [vault](./vault)       | High-level Vault client with pluggable auth and token renewal  |

@@ -4,12 +4,12 @@
 import redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
 ```
 
-Redis-backed distributed exact revocation store for the [denylist](../../) subsystem. Each revoked key is a single Redis string
-(`keyPrefix+key` → `"1"`); Redis expires bounded revocations natively via per-key TTL, so no background sweeper is needed.
+Redis-backed distributed exact revocation store for the [denylist](../../) subsystem. Each revoked key is a single Redis string (`keyPrefix+key` →
+`"1"`); Redis expires bounded revocations natively via per-key TTL, so no background sweeper is needed.
 
-A `Store` satisfies the [negcache](../../negcache/) `Authoritative` interface structurally (via `IsRevoked`) — it deliberately does not
-import `negcache` — and implements [`probfilter.DataLoader`](../../../../data/probfilter/), so it can be both the authoritative tier
-behind a negative cache and the source that rebuilds the cache's filter.
+A `Store` satisfies the [negcache](../../negcache/) `Authoritative` interface structurally (via `IsRevoked`) — it deliberately does not import
+`negcache` — and implements [`probfilter.DataLoader`](../../../../data/probfilter/), so it can be both the authoritative tier behind a negative cache
+and the source that rebuilds the cache's filter.
 
 ## Options
 

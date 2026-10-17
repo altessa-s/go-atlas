@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/limiters/budget/factory"
 ```
 
-Package `factory` provides a fluent builder for creating a budget limiter from configuration.
-`BudgetLimiterBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating a budget limiter from configuration. `BudgetLimiterBuilder` uses deferred error accumulation —
+errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -37,6 +37,7 @@ limiter, err := factory.New(cfg.BudgetLimiter).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends |
 | `UseJetstream` | Sets the NATS JetStream context for NATS storage backends |
 | `UseScheduler` | Sets the scheduler for background cleanup task registration |

@@ -1,7 +1,9 @@
 # core
 
-Foundation packages for the Atlas framework. Every package under `core/` uses only the Go standard library — no third-party dependencies
-— and each package can be imported independently without pulling in the rest of the module or any external code.
+Foundation packages for the Atlas framework. Packages under `core/` use only the Go standard library and other `core/*` packages — with narrow,
+package-scoped exceptions: `io/spoolbudget` uses `golang.org/x/sync/semaphore`, and the Linux sandboxing packages (`runtime/capabilities`, `landlock`,
+`nonewprivs`, `rlimits`, `seccomp`) use `golang.org/x/sys/unix` (see [docs/architecture.md](../docs/architecture.md)). Each package can be imported
+independently without pulling in the rest of the module.
 
 ## Packages
 
@@ -15,7 +17,7 @@ Foundation packages for the Atlas framework. Every package under `core/` uses on
 | [io](./io)                     | Buffer pools, limited readers, file-system helpers, WAL    |
 | [net](./net)                   | HTTP round-tripper adapter                                 |
 | [retry](./retry)               | Stdlib-only retry loop with pluggable delay policies       |
-| [runtime](./runtime)           | Finalizers, shutdown hooks, concurrency, signals, panics   |
+| [runtime](./runtime)           | Shutdown hooks, concurrency, signals, panics, sandboxing   |
 | [scheduler](./scheduler)       | Task scheduling interface and priority model               |
 | [text](./text)                 | String manipulation, interning, secure storage             |
 | [time](./time)                 | Time formatting and calendar dates (`time/civil`)          |
@@ -23,7 +25,7 @@ Foundation packages for the Atlas framework. Every package under `core/` uses on
 
 ## Design principles
 
-- **Zero external dependencies** — only the Go standard library.
+- **Minimal dependencies** — the Go standard library, plus the package-scoped `golang.org/x` exceptions listed above.
 - **Thread-safe by default** — all exported functions and types are safe for concurrent use unless documented otherwise.
 - **Generic-first** — uses Go generics (`constraints.Integer`, `constraints.Primitive`, etc.) to minimize type-specific boilerplate.
 - **Allocation-aware** — `sync.Pool` wrappers, zero-copy conversions, and iterator-based APIs to reduce GC pressure.

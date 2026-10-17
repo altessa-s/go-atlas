@@ -1,7 +1,7 @@
 # goconfig
 
-CLI tool for converting configuration files between formats. Supports YAML, TOML, `.env`, and Markdown with auto-detection from file
-extensions, directory merging, comment handling, and optional AI-powered description generation via the Claude API.
+CLI tool for converting configuration files between formats. Supports YAML, TOML, `.env`, and Markdown with auto-detection from file extensions,
+directory merging, comment handling, and optional AI-powered description generation via the Claude API.
 
 ## Usage
 

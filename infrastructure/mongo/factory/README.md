@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/infrastructure/mongo/factory"
 ```
 
-Package `factory` provides a fluent builder for creating MongoDB clients from configuration.
-`MongoBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating MongoDB clients from configuration. `MongoBuilder` uses deferred error accumulation — errors
+from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -47,9 +47,12 @@ The returned `*mongo.Mongo` is not yet connected — call `Connect` to establish
 | Method                 | Description                                                                  |
 |------------------------|------------------------------------------------------------------------------|
 | `UseLogger`            | Sets the logger for the builder and all created components                   |
+| `UseDefaultLogger`     | Shorthand for `UseLogger(slog.Default())`                                    |
 | `UseTlsConfig`         | Sets the TLS configuration for secure connections                            |
 | `UseKmsProvider`       | Sets the KMS provider for client-side field level encryption                 |
-| `UseHealthCoordinator` | Registers a health checker under service name `"mongo"`                      |
+| `UseHealthCoordinator` | Registers a health checker for the created client                            |
+| `UseHealthServiceName` | Name to register the checker under (default `"mongo"`)                       |
+| `UseCollector`         | Sets the `metrics.Collector` for MongoDB metrics                             |
 | `UseConverterOptions`  | Forwards extra `converter.Option`s to `mongo.WithConverterOptions` (codecs)  |
 
 ### Terminal
@@ -57,11 +60,12 @@ The returned `*mongo.Mongo` is not yet connected — call `Connect` to establish
 | Method       | Description                                                                            |
 |--------------|----------------------------------------------------------------------------------------|
 | `Build(ctx)` | Assembles and returns the `*mongo.Mongo` wrapper (not yet connected)                   |
+| `ClientOptions()` | Renders the driver `ClientOptions` without building the client                           |
 
 ## Configuration Modes
 
 When `ConnectionURI` is set, `ApplyURI` is used as the base and pool/timeout/retry/TLS fields are layered on top. Otherwise, options are built from
 individual config fields including hosts, credentials, replica set, compressors, and direct connection flag.
 
-When `Encryption` is configured, CSFLE auto-encryption is applied in bypass mode so reads transparently decrypt while writes use the explicit
-encryption path.
+When `Encryption` is configured, CSFLE auto-encryption is applied in bypass mode so reads transparently decrypt while writes use the explicit encryption
+path.

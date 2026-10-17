@@ -4,10 +4,9 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
 ```
 
-Server-side gRPC interceptor that runs the matching
-[`domain/proto/fieldbehavior`](../../../../domain/proto/fieldbehavior/README.md) `Strip*` function against the request and the response based on the
-method name. Operates in mutation mode — it clears server-managed and INPUT_ONLY fields in place. Strict mode is intentionally not exposed here:
-rejecting payloads at the interceptor layer is a contract decision that belongs in the handler.
+Server-side gRPC interceptor that runs the matching [`domain/proto/fieldbehavior`](../../../../domain/proto/fieldbehavior/README.md) `Strip*` function
+against the request and the response based on the method name. Operates in mutation mode — it clears server-managed and INPUT_ONLY fields in place.
+Strict mode is intentionally not exposed here: rejecting payloads at the interceptor layer is a contract decision that belongs in the handler.
 
 ## Method classification
 
@@ -19,8 +18,8 @@ The short method name (the part after the final `/`) is matched case-sensitively
 | `Update*`, `Patch*`, `BatchUpdate*` | `KindUpdate` | `StripUpdate(req)` runs in `PreCall`     |
 | anything else                | `KindNone`    | request untouched, response still stripped     |
 
-Successful responses always pass through `StripResponse` (INPUT_ONLY → cleared) unless [`WithSkipResponse`](#options) is set or the method is
-classified `KindSkip`. The handler-error path skips response stripping because gRPC drops the body anyway.
+Successful responses always pass through `StripResponse` (INPUT_ONLY → cleared) unless [`WithSkipResponse`](#options) is set or the method is classified
+`KindSkip`. The handler-error path skips response stripping because gRPC drops the body anyway.
 
 ## Options
 
@@ -56,15 +55,14 @@ if err != nil {
 server := grpc.NewServer(srvOpts...)
 ```
 
-`fieldbehavior` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `protovalidator` after
-`fieldbehavior` so the validator never sees client-supplied `OUTPUT_ONLY` fields the strip is about to clear.
+`fieldbehavior` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `protovalidator` after `fieldbehavior` so the
+validator never sees client-supplied `OUTPUT_ONLY` fields the strip is about to clear.
 
 ## Streaming
 
-The interceptor strips every received message in `PostMsgReceive` and every outgoing message in `PreMsgSend`, before it reaches the transport.
-An outgoing message with populated INPUT_ONLY fields is stripped on a clone, so the handler's message is not mutated (the unary path still
-strips the returned response in place). Method classification is computed once at stream start from `info.FullMethod` and reused for every
-frame.
+The interceptor strips every received message in `PostMsgReceive` and every outgoing message in `PreMsgSend`, before it reaches the transport. An
+outgoing message with populated INPUT_ONLY fields is stripped on a clone, so the handler's message is not mutated (the unary path still strips the
+returned response in place). Method classification is computed once at stream start from `info.FullMethod` and reused for every frame.
 
 ## Errors
 

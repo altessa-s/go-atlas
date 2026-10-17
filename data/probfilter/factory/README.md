@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/probfilter/factory"
 ```
 
-Package `factory` provides fluent builders for creating probabilistic filters and their manager from configuration.
-Both `FilterBuilder` and `ManagerBuilder` use deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides fluent builders for creating probabilistic filters and their manager from configuration. Both `FilterBuilder` and
+`ManagerBuilder` use deferred error accumulation — errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -52,6 +52,7 @@ manager, err := factory.NewManager(cfg.ProbabilisticFilter).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseRedisClient` | Sets the Redis client for Redis-backed filter storages |
 | `UseDataLoader` | Sets the source a Bloom filter is rebuilt from; required for `rebuildOnStart` / `rebuildCron` |
 | `UseScheduler` | Sets the `core/scheduler.TaskRegistrar` that runs `rebuildCron` rebuilds of Redis filters (in-memory filters use a local cron) |
@@ -79,6 +80,7 @@ manager, err := factory.NewManager(cfg.ProbabilisticFilter).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the manager builder and all created components |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseRedisClient` | Sets the Redis client for Redis-backed filter storages |
 | `UseDataLoader(name, loader)` | Sets the rebuild source of the filter `name` (see `FilterBuilder.UseDataLoader`) |
 | `UseScheduler` | Sets the scheduler for `rebuildCron` rebuilds of every filter |

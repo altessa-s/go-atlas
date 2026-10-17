@@ -4,14 +4,16 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/driver"
 ```
 
-Package `driver` provides the Driven Middleware pattern for HTTP middlewares. Separates lifecycle hooks (PreRequest/PostRequest) from the
-HTTP handler mechanics, so middlewares that need pre/post processing are easier to implement. This pattern mirrors the gRPC interceptor
-driver pattern for consistency across transports.
+Package `driver` provides the Driven Middleware pattern for HTTP middlewares. Separates lifecycle hooks (PreRequest/PostRequest) from the HTTP handler
+mechanics, so middlewares that need pre/post processing are easier to implement. This pattern mirrors the gRPC interceptor driver pattern for
+consistency across transports.
 
 ## Key types
 
 | Type / Interface      | Description                                                                        |
 |-----------------------|------------------------------------------------------------------------------------|
-| `Driver`              | Interface: `PreRequest(ctx, r)` and `PostRequest(ctx, w, r, err)` lifecycle hooks  |
+| `Driver`              | Interface: `PreRequest(ctx, r)` and `PostRequest(ctx, resp, r, err)` lifecycle hooks |
 | `DrivenMiddleware`    | Interface: creates a request-scoped `Driver` for each incoming request             |
-| `HTTPDrivenMiddleware`| Wraps a `DrivenMiddleware` into a standard `middlewares.Middleware`                 |
+| `ResponseInfo`        | Response status and size passed to `PostRequest`                                   |
+| `HTTPDrivenMiddleware`| Function: wraps a `DrivenMiddleware` into a standard `middlewares.Middleware`      |
+| `NoopDriver`          | Function: returns a `Driver` whose hooks do nothing                                |

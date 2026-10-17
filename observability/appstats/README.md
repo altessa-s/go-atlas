@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/appstats"
 ```
 
-Package `appstats` provides high-performance application statistics monitoring. Collects CPU, memory, network I/O, and goroutine metrics
-with sub-microsecond latency using background caching and atomic reads. Integrates with the scheduler for periodic logging.
+Package `appstats` provides high-performance application statistics monitoring. Collects CPU, memory, network I/O, and goroutine metrics with
+sub-microsecond latency using background caching and atomic reads. Integrates with the scheduler for periodic logging.
 
 ## Functions
 
@@ -13,6 +13,7 @@ with sub-microsecond latency using background caching and atomic reads. Integrat
 |------------------------------------|----------------------------------------------------------|
 | `GetApplicationStats`              | Full snapshot: CPU, memory, network, runtime stats       |
 | `StartMetricsCollection`           | Start background collection goroutine                    |
+| `StartMetricsCollectionWithContext` | Start background collection bound to a context          |
 | `StopMetricsCollection`            | Stop background collection                               |
 | `CPULoad`                          | CPU usage for service and system                         |
 | `MemoryLoad`                       | Memory usage for service, system, and total              |
@@ -20,3 +21,4 @@ with sub-microsecond latency using background caching and atomic reads. Integrat
 | `NumGoroutines`                    | Current goroutine count                                  |
 | `Uptime`                           | Duration since process start                             |
 | `NewStatsLogger`                   | Create a periodic stats logger for scheduler integration |
+| `StatsLogger.RunLogCycle`          | Log one stats snapshot; register as a scheduler task     |

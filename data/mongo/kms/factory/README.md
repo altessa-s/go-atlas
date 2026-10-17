@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/mongo/kms/factory"
 ```
 
-Package `factory` provides a fluent builder for creating a MongoDB KMS provider from configuration.
-`ProviderBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating a MongoDB KMS provider from configuration. `ProviderBuilder` uses deferred error accumulation —
+errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -45,7 +45,8 @@ provider, err := factory.New(cfg.MongoKMS).
 
 | Method | Description |
 |--------|-------------|
-| `UseLogger` | Sets the logger for the builder and all created components |
+| `UseLogger` | Sets the logger for the builder |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseTlsConfig` | Sets the TLS configuration for cloud KMS providers |
 
 ### Terminal

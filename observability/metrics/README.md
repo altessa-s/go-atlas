@@ -4,13 +4,14 @@
 import "github.com/altessa-s/go-atlas/observability/metrics"
 ```
 
-Package `metrics` provides an abstract metrics collection system. Components depend on abstract interfaces (`Counter`, `Gauge`,
-`Histogram`, `Timer`); export happens through pluggable adapters such as Prometheus, StatsD, or OpenTelemetry.
+Package `metrics` provides an abstract metrics collection system. Components depend on abstract interfaces (`Counter`, `Gauge`, `Histogram`, `Timer`);
+export happens through pluggable adapters (Prometheus and in-memory ship in [adapters](./adapters); other backends implement `adapters.Adapter`).
 
 ## Key types
 
 | Type / Function | Description                                                 |
 |-----------------|-------------------------------------------------------------|
+| `New`           | Create a `Collector` (`WithServiceName` namespace, default `appinfo.Name`; `WithAdapter`) |
 | `Collector`     | Create and manage metrics; supports `WithSubsystem` scoping |
 | `Counter`       | Monotonically increasing value                              |
 | `Gauge`         | Value that can increase and decrease                        |
@@ -21,13 +22,13 @@ Package `metrics` provides an abstract metrics collection system. Components dep
 
 ## Naming convention
 
-Full metric name: `{namespace}_{subsystem}_{name}` (e.g., `myapp_broker_requests_total`).
-Subsystem is optional and defaults to empty.
+Full metric name: `{namespace}_{subsystem}_{name}` (e.g., `myapp_broker_requests_total`), where the namespace is the `WithServiceName` value. Subsystem
+is optional and defaults to empty.
 
 ## Interner metrics
 
-`InternerMetrics` bridges the core string interner's performance counters to the metrics system.
-Call `Report()` periodically (e.g., via `service/scheduler`) to push hit rate, miss, and eviction data.
+`InternerMetrics` bridges the core string interner's performance counters to the metrics system. Call `Report()` periodically (e.g., via
+`service/scheduler`) to push hit rate, miss, and eviction data.
 
 ```go
 im := metrics.NewInternerMetrics(collector, strings.GlobalInterner())
@@ -52,13 +53,15 @@ Exported metrics (subsystem `interner`):
 
 ## Regex cache metrics
 
-`RegexCacheMetrics` bridges the CEL filter regex pattern cache to the metrics system.
-Uses callback functions to avoid import cycles (`data/filter` → `observability/metrics`).
+`RegexCacheMetrics` bridges the CEL filter regex pattern cache to the metrics system. Uses callback functions to avoid import cycles (`data/filter` →
+`observability/metrics`).
 
 ```go
 rcm := metrics.NewRegexCacheMetrics(collector,
-    filter.RegexCacheStatsSnapshot,
-    filter.ResetRegexCacheStats,
+    func() metrics.RegexCacheStatsSnapshot { // stats provider (cumulative)
+        return metrics.RegexCacheStatsSnapshot(filter.RegexCacheStatsSnapshot())
+    },
+    nil, // resetFunc (legacy, optional)
 )
 sched.Register(ctx, scheduler.TaskConfig{
     ID:       "regex-cache-metrics",

@@ -18,9 +18,9 @@ Package `lru` provides generic thread-safe LRU cache implementations. Supports s
 
 ## Bounding staleness
 
-`Cache` evicts only when full, so a key written once and read forever never refreshes. `ExpirableCache` also bounds *age*: the TTL starts at
-insertion and reads do not extend it, so a hot key still expires on schedule. Reach for it when a stale entry is wrong rather than merely
-wasteful — a cached authorization decision, a resolved credential.
+`Cache` evicts only when full, so a key written once and read forever never refreshes. `ExpirableCache` also bounds *age*: the TTL starts at insertion
+and reads do not extend it, so a hot key still expires on schedule. Reach for it when a stale entry is wrong rather than merely wasteful — a cached
+authorization decision, a resolved credential.
 
 ```go
 cache := lru.NewExpirableCache[string, Decision](1000, 5*time.Minute)
@@ -30,9 +30,9 @@ A size of zero means unbounded and a TTL of zero disables expiry; passing both a
 
 ## Concurrent loads
 
-`GetOrCompute` groups calls by Go key equality; values of different dynamic types and distinct pointers remain distinct even when their printed
-forms match. Sharding uses the same equality contract. A nil value is a valid cached result when `V` permits it.
+`GetOrCompute` groups calls by Go key equality; values of different dynamic types and distinct pointers remain distinct even when their printed forms
+match. Sharding uses the same equality contract. A nil value is a valid cached result when `V` permits it.
 
-Each caller cancels its own wait. The shared callback retains the first caller's context values and receives a 15-second deadline, independent of
-that caller's cancellation. Use the callback context for I/O. The number of distinct LRU computations is unrestricted; use
+Each caller cancels its own wait. The shared callback retains the first caller's context values and receives a 15-second deadline, independent of that
+caller's cancellation. Use the callback context for I/O. The number of distinct LRU computations is unrestricted; use
 [`singleflight`](../../../core/runtime/singleflight) with an admission limit when managing uncached work directly.

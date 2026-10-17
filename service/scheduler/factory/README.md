@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/service/scheduler/factory"
 ```
 
-Package `factory` provides a fluent builder for creating a `scheduler.Scheduler` from configuration.
-`SchedulerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating a `scheduler.Scheduler` from configuration. `SchedulerBuilder` uses deferred error accumulation
+— errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -25,9 +25,9 @@ per-process random ID).
 | Type | Backend | Requires |
 |------|---------|----------|
 | `memory` | In-process (default) | — |
-| `mongodb` | MongoDB | `UseMongoDb` |
+| `mongo` | MongoDB | `UseMongoDb` |
 | `redis` | Redis | `UseRedisClient` |
-| `sql` | PostgreSQL / MySQL / MariaDB (`storage.sql.dialect`) | `UseSQLDB` |
+| `sqldb` | PostgreSQL / MySQL / MariaDB (`storage.sqldb.dialect`) | `UseSQLDB` |
 
 `historyStorage` moves execution history to a backend of its own (`scheduler.WithHistoryStorage`); task state stays in `storage`.
 
@@ -48,10 +48,13 @@ per-process random ID).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
+| `UseCollector` | Sets the metrics collector for the scheduler |
+| `UseReadinessProbe` | Sets the readiness probe that gates dispatch (`scheduler.WithReadinessProbe`) |
 | `UseLeaderElector` | Sets the leader elector for distributed scheduling |
-| `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends (set `storage.mongodb.ensureIndexes: true` to create the indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
+| `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends (set `storage.mongo.ensureIndexes: true` to create the indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends (set `storage.redis.ensureIndexes: true` to create the RediSearch indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
-| `UseSQLDB` | Sets the `*sql.DB` handle for SQL storage backends (set `storage.sql.ensureSchema: true` to create the schema during `Build`; otherwise create it first: `EnsureSchema` on a `sqldb.New` storage with the same handle, dialect and tables, or migrations) |
+| `UseSQLDB` | Sets the `*sql.DB` handle for SQL storage backends (set `storage.sqldb.ensureSchema: true` to create the schema during `Build`; otherwise create it first: `EnsureSchema` on a `sqldb.New` storage with the same handle, dialect and tables, or migrations) |
 | `UseClickHouseConn` | Sets the ClickHouse connection for the ClickHouse history storage (set `historyStorage.clickhouse.ensureSchema: true` to create the table during `Build`; otherwise create it first: `EnsureSchema` on the storage, or `SchemaDDL` through migrations) |
 
 ### Terminal

@@ -31,8 +31,8 @@ To convert the bucket, stop every instance and run `MigrateBucketStorage(ctx, nc
 including `WithStorage(jetstream.FileStorage)`. If it fails, fix the cause, confirm the run has exited and rerun with `MigrationOptions{Resume: true}`;
 until then `New` fails with `ErrBucketMigrationInProgress`. A second migration fails with `ErrBucketMigrationLocked` while one holds the bucket's lease.
 The bucket is recreated with its first revision just above the old bucket's last one, so `Fence()` keeps growing and fencing tokens kept downstream stay
-valid. The election key is not copied: with every instance stopped there is no leader, and the next start elects one. The full procedure, the
-buckets the migration rejects and how a mirror bucket is re-synced are in
+valid. The election key is not copied: with every instance stopped there is no leader, and the next start elects one. The full procedure, the buckets
+the migration rejects and how a mirror bucket is re-synced are in
 [NATS KeyValue bucket storage migration](../../../../docs/data/nats-kv-storage-migration.md).
 
 ## Keys
@@ -48,19 +48,19 @@ address such a key under different physical keys. The escaped key may be at most
 ## Lease renewal
 
 Renewals tick every `min(electionTTL, bucketKeyTTL) × renewRatio`. The ratio therefore decides how many renewal attempts fall inside one lease
-lifetime — `floor(1/ratio)` of them — and that count is the budget for surviving a transient NATS failure without a spurious re-election. At `0.75`
-the budget is a single attempt, so one dropped packet costs leadership; at `1/3` three ticks land inside the window, two of them with room to spare.
-One third is the usual choice for lease keepalives (etcd sessions and ZooKeeper heartbeats both renew at `TTL/3`).
+lifetime — `floor(1/ratio)` of them — and that count is the budget for surviving a transient NATS failure without a spurious re-election. At `0.75` the
+budget is a single attempt, so one dropped packet costs leadership; at `1/3` three ticks land inside the window, two of them with room to spare. One
+third is the usual choice for lease keepalives (etcd sessions and ZooKeeper heartbeats both renew at `TTL/3`).
 
 A ratio outside `(0, 1]` falls back to the default: a non-positive interval would make `time.NewTicker` panic inside the camping goroutine, where the
 recover would swallow it and leave an elector that reports itself running while never electing anyone.
 
 ## Bucket TTL
 
-The bucket's key TTL is the expiry mechanism behind the lease: it is what releases the election key when a holder dies without resigning. A
-pre-existing bucket with a different key TTL — or none, which would yield leases that never expire and hang the election until someone intervenes
-by hand — is therefore refused: `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched, since rewriting it would change the key
-lifetime of every process sharing it. Pass `WithMigrateBucketTTL()` to update such a bucket deliberately; through `leadelect/factory` the switch is
+The bucket's key TTL is the expiry mechanism behind the lease: it is what releases the election key when a holder dies without resigning. A pre-existing
+bucket with a different key TTL — or none, which would yield leases that never expire and hang the election until someone intervenes by hand — is
+therefore refused: `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched, since rewriting it would change the key lifetime of every
+process sharing it. Pass `WithMigrateBucketTTL()` to update such a bucket deliberately; through `leadelect/factory` the switch is
 `leaderElector.migrateBucketTTL: true`.
 
 ## Shutdown

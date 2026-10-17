@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/securityheaders"
 ```
 
-Package `securityheaders` provides middleware for adding security-related HTTP response headers. Protects against common web
-vulnerabilities including XSS, clickjacking, and MIME sniffing attacks.
+Package `securityheaders` provides middleware for adding security-related HTTP response headers. Protects against common web vulnerabilities including
+XSS, clickjacking, and MIME sniffing attacks.
 
 ## Default headers
 
@@ -28,12 +28,13 @@ vulnerabilities including XSS, clickjacking, and MIME sniffing attacks.
 | `Cross-Origin-Resource-Policy`| `WithCrossOriginResourcePolicy` | Who may embed this response (CORP)    |
 | `Cache-Control`               | `WithCacheControl`              | Default caching policy, e.g. `no-store` (YAML `cacheControl`); handlers may override it |
 
-All optional headers are off by default — the middleware already ships secure-by-default for the non-breaking headers, while CSP, HSTS and the Cross-Origin-* trio stay opt-in because a blanket default would break real applications.
+All optional headers are off by default — the middleware already ships secure-by-default for the non-breaking headers, while CSP, HSTS and the
+Cross-Origin-* trio stay opt-in because a blanket default would break real applications.
 
 ## Ignored paths
 
-By default the middleware skips the health, metrics and pprof paths. `WithNoDefaultIgnores` (YAML `noDefaultIgnores: true`) drops those
-defaults, so only the paths set with `WithIgnorePaths` / `WithIgnorePatterns` are skipped.
+By default the middleware skips the health, metrics and pprof paths. `WithNoDefaultIgnores` (YAML `noDefaultIgnores: true`) drops those defaults, so
+only the paths set with `WithIgnorePaths` / `WithIgnorePatterns` are skipped.
 
 ## Presets
 
@@ -50,5 +51,5 @@ mw := securityheaders.New(securityheaders.RecommendedOptions()...)
   omits `Cross-Origin-Embedder-Policy` (require-corp is the most disruptive header — enable it explicitly with `WithCrossOriginEmbedderPolicy`) and
   CSP/HSTS.
 
-CSP and HSTS remain the service's responsibility: they are application- and deployment-specific and can break a working site if imposed blindly.
-Append your own options after a preset to override any entry.
+CSP and HSTS remain the service's responsibility: they are application- and deployment-specific and can break a working site if imposed blindly. Append
+your own options after a preset to override any entry.

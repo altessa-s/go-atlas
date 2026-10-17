@@ -1,7 +1,7 @@
 # mongo
 
-MongoDB infrastructure for the Atlas framework. Provides a fluent builder for creating MongoDB driver clients and higher-level
-`mongo.Mongo` wrappers with authentication, TLS, connection pooling, compression, and client-side field level encryption (CSFLE).
+MongoDB infrastructure for the Atlas framework. Provides a fluent builder for creating MongoDB driver clients and higher-level `mongo.Mongo` wrappers
+with authentication, TLS, connection pooling, compression, and client-side field level encryption (CSFLE).
 
 ## Usage
 

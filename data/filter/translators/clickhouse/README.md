@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/filter/translators/clickhouse"
 ```
 
-Translates a `filter.Node` AST into a ClickHouse SQL `WHERE` clause. Two output modes share one AST walk: a parameterized clause with `?`
-placeholders plus a bound argument slice, and a self-contained clause with literals rendered in place.
+Translates a `filter.Node` AST into a ClickHouse SQL `WHERE` clause. Two output modes share one AST walk: a parameterized clause with `?` placeholders
+plus a bound argument slice, and a self-contained clause with literals rendered in place.
 
 ## Constructor
 
@@ -43,8 +43,8 @@ where, args, err := trans.Translate(ast)
 rows, err := conn.Query(ctx, "SELECT * FROM events WHERE "+where, args...)
 ```
 
-`TranslateInline` produces `` (`status` = 2) AND (`type` IN (1, 2)) `` for the same AST — use it for materialized view definitions, generated
-DDL, logs and debugging, and prefer `Translate` for anything driven by request data.
+`TranslateInline` produces `` (`status` = 2) AND (`type` IN (1, 2)) `` for the same AST — use it for materialized view definitions, generated DDL, logs
+and debugging, and prefer `Translate` for anything driven by request data.
 
 ## Operation mapping
 
@@ -65,35 +65,33 @@ DDL, logs and debugging, and prefer `Translate` for anything driven by request d
 | `field.size()` / `size(f)`   | `lengthUTF8` for strings, `length` for arrays          |
 | `substring()`                | `filter.ErrUnsupportedOperation`                       |
 
-`contains` compiles to `position()` rather than `LIKE '%…%'` so that a `%` or `_` in the operand stays literal — there is no pattern escaping
-to get wrong. `size()` is rejected outside a comparison: a length is an integer expression, and on its own there is no predicate for `WHERE`
-to test.
+`contains` compiles to `position()` rather than `LIKE '%…%'` so that a `%` or `_` in the operand stays literal — there is no pattern escaping to get
+wrong. `size()` is rejected outside a comparison: a length is an integer expression, and on its own there is no predicate for `WHERE` to test.
 
 ## Column names
 
 Field names are checked against `WithAllowedFields`, run through `WithFieldMapping`, validated as plain ClickHouse identifiers, and emitted
-backtick-quoted. Dots survive as part of a single quoted name — `address.city` becomes `` `address.city` ``, which is how Nested columns are
-stored.
+backtick-quoted. Dots survive as part of a single quoted name — `address.city` becomes `` `address.city` ``, which is how Nested columns are stored.
 
-The validation is stricter than backtick quoting requires: the column position is the one part of the generated SQL that no placeholder can
-cover, so anything that is not `[A-Za-z_][A-Za-z0-9_]*` (dot-separated) is rejected with `filter.ErrInvalidExpression`. To filter on a `Map`
-key or a computed value, map the CEL name onto a materialized column.
+The validation is stricter than backtick quoting requires: the column position is the one part of the generated SQL that no placeholder can cover, so
+anything that is not `[A-Za-z_][A-Za-z0-9_]*` (dot-separated) is rejected with `filter.ErrInvalidExpression`. To filter on a `Map` key or a computed
+value, map the CEL name onto a materialized column.
 
 ## Null semantics
 
-ClickHouse rows always carry every column of the table, so there is no "missing field" for `has()` to detect — it compiles to `IS NOT NULL`
-and is meaningful only against a `Nullable` column. The same three-valued logic applies to `!=`: a NULL row does not satisfy
-`` `col` != 'x' ``, because the comparison yields NULL rather than true. Write `col != "x" || col == null` where the NULL row should match.
+ClickHouse rows always carry every column of the table, so there is no "missing field" for `has()` to detect — it compiles to `IS NOT NULL` and is
+meaningful only against a `Nullable` column. The same three-valued logic applies to `!=`: a NULL row does not satisfy `` `col` != 'x' ``, because the
+comparison yields NULL rather than true. Write `col != "x" || col == null` where the NULL row should match.
 
 ## Timestamps
 
-`timestamp(...)` literals bind as `time.Time` in the parameterized form and render as `toDateTime64('…', 3, 'UTC')` inline. Inline rendering
-is millisecond-precision and drops anything finer; the parameterized form leaves precision to the driver.
+`timestamp(...)` literals bind as `time.Time` in the parameterized form and render as `toDateTime64('…', 3, 'UTC')` inline. Inline rendering is
+millisecond-precision and drops anything finer; the parameterized form leaves precision to the driver.
 
 ## Concurrency
 
-A `Translator` accumulates per-call state (nesting depth, collected arguments) and is **not** safe for concurrent use. Construct one per
-goroutine, or guard it with a mutex.
+A `Translator` accumulates per-call state (nesting depth, collected arguments) and is **not** safe for concurrent use. Construct one per goroutine, or
+guard it with a mutex.
 
 ## Field operands
 

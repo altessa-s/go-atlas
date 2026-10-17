@@ -16,10 +16,10 @@ replicas, with automatic re-election on node failures and a callback system for 
 
 ## Fencing
 
-`IsLeader` reports leadership but cannot, on its own, stop a frozen or partitioned former leader from acting on a stale belief. `Fence` closes that
-gap: it returns a monotonically non-decreasing token for the current leadership term (the NATS provider sources it from the JetStream KV revision), or
-`0` when this node is not a fresh leader. Thread the token into the conditional write of a downstream store — record the highest token accepted and
-reject any lower one — so a zombie leader's late write is rejected even if it still believes `IsLeader`.
+`IsLeader` reports leadership but cannot, on its own, stop a frozen or partitioned former leader from acting on a stale belief. `Fence` closes that gap:
+it returns a monotonically non-decreasing token for the current leadership term (the NATS provider sources it from the JetStream KV revision), or `0`
+when this node is not a fresh leader. Thread the token into the conditional write of a downstream store — record the highest token accepted and reject
+any lower one — so a zombie leader's late write is rejected even if it still believes `IsLeader`.
 
 ## Lifecycle
 
@@ -27,11 +27,12 @@ reject any lower one — so a zombie leader's late write is rejected even if it 
 
 `Stop` tears that down deterministically: it stops the provider first — so the provider's terminal notification still lands — then ends the dispatch
 goroutine and joins it. Once `Stop` returns, no callback is executing and none will start. A transition that `Stop` raced may be skipped; declining to
-begin new leadership work while shutting down is intended. The context given to `Stop` bounds the provider's own shutdown, including resignation of
-the lease.
+begin new leadership work while shutting down is intended. The context given to `Stop` bounds the provider's own shutdown, including resignation of the
+lease.
 
-Transitions are buffered, so a leadership change raised while a previous callback is still running is queued rather than dropped — losing a
-"leadership lost" edge is how a node keeps acting as leader after it is not.
+Transitions are buffered, so a leadership change raised while a previous callback is still running is queued rather than dropped — losing a "leadership
+lost" edge is how a node keeps acting as leader after it is not. The buffers are bounded: the NATS provider drops an event with a warning when its
+notification queue is full, so keep callbacks short and treat `IsLeader` and `Fence` as the source of truth.
 
 ## Constructor
 
@@ -40,6 +41,7 @@ le := leadelect.New(provider, key, nodeID, opts...)
 ```
 
 `key` and `nodeID` are required positional arguments — the election key shared across all replicas, and this instance's unique identifier.
+`NewWithNATS(ctx, conn, key, nodeID, opts...)` builds the same `Leader` over a NATS provider created from `conn`.
 
 ## Options
 

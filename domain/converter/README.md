@@ -4,9 +4,8 @@
 import "github.com/altessa-s/go-atlas/domain/converter"
 ```
 
-Package `converter` provides high-performance struct-to-struct conversion with field mapping, filtering,
-embedded structs, slices, maps, and protocol buffers. It caches type metadata and pools allocations for
-optimal throughput.
+Package `converter` provides high-performance struct-to-struct conversion with field mapping, filtering, embedded structs, slices, maps, and protocol
+buffers. It caches type metadata and pools allocations for optimal throughput.
 
 ## Options
 
@@ -23,8 +22,8 @@ optimal throughput.
 
 ## Value-handling semantics
 
-Three mutually exclusive options control how source values are applied to the destination. The last one passed wins. All examples below
-share these types:
+Three mutually exclusive options control how source values are applied to the destination. The last one passed wins. All examples below share these
+types:
 
 ```go
 type Address struct {
@@ -49,9 +48,9 @@ src := User{Name: ptr("Bob"), Address: &Address{City: ptr("Paris")}}
 
 ### Default (no option)
 
-Every matching exported field is copied. Nil struct-field pointers are skipped, but everything else overwrites the destination: a nil
-slice or map is assigned as-is and wipes the destination field, a zero scalar overwrites the stored value, and a nested struct of the
-same type is assigned as a whole pointer (the destination starts aliasing the source).
+Every matching exported field is copied. Nil struct-field pointers are skipped, but everything else overwrites the destination: a nil slice or map is
+assigned as-is and wipes the destination field, a zero scalar overwrites the stored value, and a nested struct of the same type is assigned as a whole
+pointer (the destination starts aliasing the source).
 
 ```go
 converter.Convert(&src, &dst)
@@ -63,8 +62,9 @@ converter.Convert(&src, &dst)
 
 ### WithIgnoreZeroValues
 
-Skips every zero source value: zero scalars, nil pointers, nil slices and maps, zero structs. Useful for "copy only what is set", but an
-explicit empty value can never be written — there is no way to clear a destination field.
+Skips every zero source value: zero scalars, nil pointers, nil slices and maps, zero structs. Useful for "copy only what is set", but a zero scalar can
+never be written — there is no way to zero a destination field with it. Non-nil empty slices and maps and non-nil pointers to zero values are not zero,
+so they still overwrite the destination.
 
 ```go
 converter.Convert(&src, &dst, converter.WithIgnoreZeroValues())
@@ -75,8 +75,8 @@ converter.Convert(&src, &dst, converter.WithIgnoreZeroValues())
 
 ### WithIgnoreNilValues
 
-Skips only nil pointers, slices, and maps; a pointer to a zero value is written, so explicit clearing of scalars works. Nested structs
-of the same type are still assigned wholesale, so untouched sibling fields inside them are lost.
+Skips only nil pointers, slices, and maps; a pointer to a zero value is written, so explicit clearing of scalars works. Nested structs of the same type
+are still assigned wholesale, so untouched sibling fields inside them are lost.
 
 ```go
 converter.Convert(&src, &dst, converter.WithIgnoreNilValues())
@@ -86,9 +86,9 @@ converter.Convert(&src, &dst, converter.WithIgnoreNilValues())
 
 ### WithSparseMerge
 
-Treats the source as a sparse patch applied onto the existing destination — the Go-struct analogue of JSON Merge Patch (RFC 7386). The
-option is mutually exclusive with `WithIgnoreZeroValues` and subsumes `WithIgnoreNilValues` — nil sources are skipped the same way. For
-each source field, at every nesting depth:
+Treats the source as a sparse patch applied onto the existing destination — the Go-struct analogue of JSON Merge Patch (RFC 7386). The option is
+mutually exclusive with `WithIgnoreZeroValues` and subsumes `WithIgnoreNilValues` — nil sources are skipped the same way. For each source field, at
+every nesting depth:
 
 | Source field value                                  | Effect on destination            |
 |-----------------------------------------------------|----------------------------------|
@@ -115,10 +115,9 @@ converter.Convert(&User{Address: &Address{}}, &dst, converter.WithSparseMerge())
 // dst.Address == nil
 ```
 
-The source must express optionality through pointers: a non-pointer scalar is always "present" and overwrites the destination,
-including with its zero value. A non-pointer nested struct carries no presence signal — it is always merged field-by-field and never
-triggers the clear-on-empty rule. Structs without exported fields (`time.Time` and similar opaque types) cannot be merged
-field-by-field and are assigned wholesale.
+The source must express optionality through pointers: a non-pointer scalar is always "present" and overwrites the destination, including with its zero
+value. A non-pointer nested struct carries no presence signal — it is always merged field-by-field and never triggers the clear-on-empty rule. Structs
+without exported fields (`time.Time` and similar opaque types) cannot be merged field-by-field and are assigned wholesale.
 
 ## Functions
 
@@ -126,6 +125,7 @@ field-by-field and are assigned wholesale.
 |-----------------|--------------------------------------------------------|
 | `Convert`       | One-shot struct/slice conversion                       |
 | `New`           | Create reusable generic `Converter[T, U]`              |
+| `NewShared`     | Like `New`, but reuses the shared global type caches   |
 | `NewAny`        | Create reusable non-generic `Converter[any, any]`      |
 | `ConvertSeq`    | Lazy iterator over converted slice elements            |
 | `ConvertMapSeq` | Lazy iterator over converted map key-value pairs       |

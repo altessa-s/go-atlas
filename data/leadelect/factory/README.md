@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/leadelect/factory"
 ```
 
-Package `factory` provides a fluent builder for creating a leader elector from configuration.
-`LeaderBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating a leader elector from configuration. `LeaderBuilder` uses deferred error accumulation — errors
+from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -13,6 +13,7 @@ Package `factory` provides a fluent builder for creating a leader elector from c
 leader, err := factory.New(cfg.LeaderElector).
     UseLogger(logger).
     UseNATSConn(natsConn).
+    WithNodeId(nodeID). // unique per replica; Start fails on an empty node ID
     Build(ctx)
 ```
 
@@ -29,14 +30,16 @@ leader, err := factory.New(cfg.LeaderElector).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseNATSConn` | Sets the NATS connection used for leader election |
+| `UseCollector` | Sets the metrics collector |
 
 ### Configuration
 
 | Method | Description |
 |--------|-------------|
 | `WithKey(v)` | Sets the leader election key (default: `appinfo.Name`) |
-| `WithNodeId(v)` | Sets the node identifier for leader election |
+| `WithNodeId(v)` | Sets this replica's unique node identifier (required: no default, `Start` fails when empty) |
 
 ### Terminal
 

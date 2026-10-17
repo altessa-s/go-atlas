@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/plugins/factory"
 ```
 
-Package `factory` provides a fluent builder for creating plugin managers from configuration.
-`ManagerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating plugin managers from configuration. `ManagerBuilder.Build(ctx)` checks the configuration,
+loads plugins, and optionally starts watching, returning on the first failing stage.
 
 ## Quick Start
 
@@ -46,20 +46,22 @@ manager, err := factory.NewManager(cfg.Plugins).
 
 | Method | Description |
 |--------|-------------|
-| `Build` | Assembles and returns the plugin manager |
+| `Build(ctx)` | Assembles the manager, loads plugins, starts the watcher when `watch` is set; fails when the config is nil or disabled |
 
 ## Configuration
 
 The builder consumes a [`pluginsconfig.Config`](../../config/plugins/plugins.go) struct which controls:
 
-- Plugin directory path
+- Plugin directory path and snapshot directory
+- Load allowlist, disabled list, Init timeout, and directory watching
 - Signature verification settings
-- Host version enforcement
-- Quarantine policies
+- Sandbox settings (mapped by `SandboxOptionsFromConfig`)
+
+The host version is not configured here: the builder auto-wires `plugins.WithHostVersion` from `appinfo.Version` when it is stamped (not empty and not
+`0.0.0`).
 
 ## Health Integration
 
-When a health coordinator is provided, the manager automatically registers
-health checks for plugin loading and verification status. The health check
-monitors plugin states and reports degraded status on load failures.
-The `snapshotDir` configuration is forwarded to `plugins.WithSnapshotDir`; select a trusted executable mount when the OS temp mount is `noexec`.
+When a health coordinator is provided, the manager is registered as a health check service. The check reports `StatusDegraded` when some plugins failed
+or a watcher reload failed, and `StatusNotServing` when all plugins failed, the sandbox failed, or the manager is closed. The `snapshotDir`
+configuration is forwarded to `plugins.WithSnapshotDir`; select a trusted executable mount when the OS temp mount is `noexec`.

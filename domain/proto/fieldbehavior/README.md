@@ -4,11 +4,11 @@
 import "github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 ```
 
-Package `fieldbehavior` strips fields from a `proto.Message` based on its `google.api.field_behavior` annotations (AIP-203). It solves a
-different problem than `domain/proto/fieldmask`: where fieldmask validates that a `FieldMask` does not reference immutable or output-only
-paths, fieldbehavior walks the payload itself and clears (or rejects) fields whose behavior makes them invalid for the current request
-kind. Use it on the resource embedded in a Create/Update request before validation, and on a server response before returning it to the
-caller, so server-managed identifiers, timestamps, and secrets never cross the wire in the wrong direction.
+Package `fieldbehavior` strips fields from a `proto.Message` based on its `google.api.field_behavior` annotations (AIP-203). It solves a different
+problem than `domain/proto/fieldmask`: where fieldmask validates that a `FieldMask` does not reference immutable or output-only paths, fieldbehavior
+walks the payload itself and clears (or rejects) fields whose behavior makes them invalid for the current request kind. Use it on the resource embedded
+in a Create/Update request before validation, and on a server response before returning it to the caller, so server-managed identifiers, timestamps, and
+secrets never cross the wire in the wrong direction.
 
 ## Functions
 
@@ -38,9 +38,9 @@ caller, so server-managed identifiers, timestamps, and secrets never cross the w
 | Repeated/map of scalars                          | Field cleared          | No-op                                          |
 | Oneof case                                       | Case cleared if set    | Recursive descent if the case is a message     |
 
-Fields carrying multiple behaviors (for example `REQUIRED` + `IMMUTABLE`) match when at least one of their behaviors intersects the
-configured set. `REQUIRED` and `UNORDERED_LIST` carry validation/semantic meaning rather than write-side restrictions and are not part of
-any default set; pass them through `WithBehaviors` explicitly when needed.
+Fields carrying multiple behaviors (for example `REQUIRED` + `IMMUTABLE`) match when at least one of their behaviors intersects the configured set.
+`REQUIRED` and `UNORDERED_LIST` carry validation/semantic meaning rather than write-side restrictions and are not part of any default set; pass them
+through `WithBehaviors` explicitly when needed.
 
 ## Example
 

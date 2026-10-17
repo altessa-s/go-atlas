@@ -14,15 +14,16 @@ Production-ready Go building blocks for distributed systems — transport, cachi
 go-atlas is a modular Go toolkit for distributed services. Each package is usable on its own and covers one concern: transport (HTTP, gRPC, NATS),
 caching, observability, authentication, secret management, configuration, and domain utilities.
 
-Every major component is defined by an interface, implementations are injected via functional options, and unset dependencies default to safe
-no-ops. Import the packages you need; applications own construction and lifecycle. See the [architecture](docs/architecture.md) for dependency and state ownership contracts.
+Every major component is defined by an interface, implementations are injected via functional options, and unset dependencies default to safe no-ops.
+Import the packages you need; applications own construction and lifecycle. See the [architecture](docs/architecture.md) for dependency and state
+ownership contracts.
 
-> **History.** go-atlas started in 2022 as an internal company project and ran in production for several years before it was extracted and
-> open-sourced on GitHub. As a result, the public git history begins at the point of import rather than at the project's actual inception.
+> **History.** go-atlas started in 2022 as an internal company project and ran in production for several years before it was extracted and open-sourced
+> on GitHub. As a result, the public git history begins at the point of import rather than at the project's actual inception.
 
 
-> **On AI tooling.** Yes, we use AI assistants on this project — deliberately and with purpose. Every change is reviewed, tested, and held to the
-> same standards as hand-written code. AI accelerates well-understood work; it does not replace design decisions or engineering judgment.
+> **On AI tooling.** Yes, we use AI assistants on this project — deliberately and with purpose. Every change is reviewed, tested, and held to the same
+> standards as hand-written code. AI accelerates well-understood work; it does not replace design decisions or engineering judgment.
 
 ## Requirements
 
@@ -40,9 +41,9 @@ Import only the packages you need:
 import "github.com/altessa-s/go-atlas/data/cache"
 ```
 
-The root `go.mod` declares every integration go-atlas supports (OPA, AWS, GCP, Vault, NATS, Redis, and more), so all of them appear in a
-consumer's `go.sum`. Go's build graph is per-package: only the packages you actually import are compiled and linked into your binary. Heavy
-integrations live behind their own subpackages, so an unused subsystem costs you `go.sum` entries — never build time or binary size.
+The root `go.mod` declares every integration go-atlas supports (OPA, AWS, GCP, Vault, NATS, Redis, and more), so all of them appear in a consumer's
+`go.sum`. Go's build graph is per-package: only the packages you actually import are compiled and linked into your binary. Heavy integrations live
+behind their own subpackages, so an unused subsystem costs you `go.sum` entries — never build time or binary size.
 
 ## Package Overview
 
@@ -68,14 +69,15 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`data/cache`](data/cache/) | Multi-backend caching with singleflight, fallback, and TTL management |
 | [`data/filter`](data/filter/) | CEL expression parser with translators for MongoDB, ClickHouse, MariaDB, PostgreSQL, Meilisearch, RediSearch, and Lua |
 | [`data/idempotency`](data/idempotency/) | Idempotency key management (Redis, NATS, MongoDB, memory) |
+| [`data/keyset`](data/keyset/) | Signed stateless page tokens for keyset pagination (HMAC, key rotation, TTL) |
 | [`data/leadelect`](data/leadelect/) | Leader election (NATS KV-based) |
 | [`data/limiters`](data/limiters/) | Token-bucket rate limiting (Redis, NATS, memory) |
-| [`data/locks`](data/locks/) | Distributed locking (NATS) |
+| [`data/locks`](data/locks/) | Distributed locking (NATS, MongoDB, SQL) |
 | [`data/meilisearch`](data/meilisearch/) | Meilisearch SDK wrapper with context propagation and sentinel-error classification |
 | [`data/mongo`](data/mongo/) | MongoDB repository patterns, cursor pagination, CSFLE, migrations |
 | [`data/orderby`](data/orderby/) | AIP-132 `order_by` DSL parser with translators for MongoDB, ClickHouse, MariaDB, PostgreSQL, Meilisearch, RediSearch |
 | [`data/projection`](data/projection/) | AIP-157 `fields` parser that pushes field selection down to storage: MongoDB projections and ClickHouse, MariaDB, PostgreSQL column lists |
-| [`data/outbox`](data/outbox/) | Transactional outbox (MongoDB-backed) |
+| [`data/outbox`](data/outbox/) | Transactional outbox (MongoDB, PostgreSQL, MySQL, MariaDB) |
 | [`data/probfilter`](data/probfilter/) | Bloom and Cuckoo probabilistic filters |
 | [`data/saga`](data/saga/) | Orchestration-based saga engine: sequential steps, compensating rollbacks, crash recovery |
 | [`domain/behavior`](domain/behavior/) | Struct-tag `field_behavior` strip for Create / Update / Response payloads |
@@ -86,6 +88,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |
 | [`domain/proto`](domain/proto/) | Protobuf field mask and `field_behavior`-driven payload sanitization |
 | [`domain/validation`](domain/validation/) | ISO 7064 MOD 11-10 check-digit computation and validation |
+| [`infrastructure/clickhouse/factory`](infrastructure/clickhouse/factory/) | ClickHouse connection setup and lifecycle |
 | [`infrastructure/meilisearch`](infrastructure/meilisearch/) | Meilisearch client setup and lifecycle |
 | [`infrastructure/mongo`](infrastructure/mongo/) | MongoDB client setup and lifecycle |
 | [`infrastructure/nats`](infrastructure/nats/) | NATS connection management |
@@ -116,7 +119,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | Tool | Description |
 |------|-------------|
 | [`tools/codegen/optgen`](tools/codegen/optgen/) | Code generator for the functional options pattern |
-| [`tools/codegen/goconfig`](tools/codegen/goconfig/) | Configuration struct code generator and format converter |
+| [`tools/codegen/goconfig`](tools/codegen/goconfig/) | Configuration file converter (YAML, TOML, `.env`, Markdown) |
 | [`cmd/plugin-sign`](cmd/plugin-sign/) | Sign and verify `.so` plugins with Ed25519 / ECDSA / RSA-PSS |
 
 [`cmd/optgen`](cmd/optgen/) and [`cmd/goconfig`](cmd/goconfig/) are equivalent installable wrappers around the `tools/codegen` packages.
@@ -136,7 +139,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [Logging (slog)](docs/observability/slog.md) | `slogx` helpers, context-scoped loggers, handler chain (buffered, colorized, leveled, masking, multi, prefixed) |
 | [Plugins](docs/plugins.md) | Dynamic plugin loading, signature verification, sandboxing |
 | [Proxy](docs/proxy.md) | Outbound HTTP/gRPC proxy: YAML modes, wiring, TLS to proxy |
-| [Metrics Reference](docs/metrics.md) | All 129 Prometheus metrics across 24 subsystems |
+| [Metrics Reference](docs/metrics.md) | Prometheus metrics across toolkit subsystems |
 | [Field Behavior](docs/domain/proto/fieldbehavior.md) | Strip `google.api.field_behavior` fields (OUTPUT_ONLY / IDENTIFIER / IMMUTABLE / INPUT_ONLY) from Create / Update / Response payloads |
 | [Event Bus](docs/domain/eventbus.md) | In-process event bus: delivery & transaction semantics, the `uow` post-commit compensation companion, pluggable database backends |
 
@@ -164,7 +167,7 @@ cd go-atlas
 |---------|-------------|
 | `make fmt` | Format code and sort imports |
 | `make lint` | Run golangci-lint with the repo config (`.golangci.yml`) |
-| `make test` | Run all tests |
+| `make test` | Run root-module tests with default build tags; integration and stress tests have separate targets |
 | `make test-all` | Tests with race detector, shuffle, and coverage |
 | `make test-stress` | Stress tests under `-race`, `STRESS_DURATION` (default 30s) each |
 | `make bench` | Run all benchmarks |
@@ -174,10 +177,10 @@ cd go-atlas
 | `make ci` | Run full CI checks locally (lint, test, security, dupl) |
 | `make clean` | Remove generated artifacts |
 
-Stress tests live next to the code they exercise in `*_stress_test.go` files behind the `stress` build tag, so `go test ./...` never runs them.
-Each one mixes every operation of its package concurrently for `ATLAS_STRESS_DURATION` (default 30s) and checks invariants as it goes; run one
-with `ATLAS_STRESS_DURATION=10s go test -tags stress -race -run '^TestStress' ./core/io/wal`. The dlock test needs the NATS broker from
-`make integration-up` (`NATS_URL` overrides it) and skips without one. The `Stress` workflow runs them nightly.
+Stress tests live next to the code they exercise in `*_stress_test.go` files behind the `stress` build tag, so `go test ./...` never runs them. Each one
+mixes every operation of its package concurrently for `ATLAS_STRESS_DURATION` (default 30s) and checks invariants as it goes; run one with
+`ATLAS_STRESS_DURATION=10s go test -tags stress -race -run '^TestStress' ./core/io/wal`. The dlock test needs the NATS broker from `make integration-up`
+(`NATS_URL` overrides it) and skips without one. The `Stress` workflow runs them nightly.
 
 ## Contributing
 

@@ -16,6 +16,21 @@ Package `signals` provides OS signal handling with priority-based execution and 
 | `WithHandlerTimeout`  | 5s         | Per-handler execution timeout        |
 | `WithExecutionMode`   | Sequential | `SequentialMode` or `ParallelMode`   |
 | `WithErrorHandler`    | —          | Callback for handler errors/panics   |
+| `WithSignalChannelBuffer` | 1      | Buffer size of the OS signal channel |
+
+## Signal methods
+
+`New(opts...)` returns a `*Signal`; registration and start methods return the `SignalHandler` interface for chaining.
+
+| Method                                          | Description                                                       |
+|-------------------------------------------------|-------------------------------------------------------------------|
+| `AddHandler(h, sigs...)`                        | Register a `ContextHandler` at `PriorityNormal` for given signals |
+| `AddHandlerWithPriority(h, p, sigs...)`         | Register a handler with an explicit `Priority`                    |
+| `AddBroadcastHandler(h)`                        | Register a handler for every received signal                      |
+| `AddBroadcastHandlerWithPriority(h, p)`         | Broadcast handler with an explicit `Priority`                     |
+| `Start()`                                       | Begin listening for the configured signals (idempotent)           |
+| `Shutdown(ctx)` / `Stop()`                      | Stop listening and wait for in-flight handlers (idempotent)       |
+| `Wait()`                                        | Block until the handler has stopped                               |
 
 ## Priority levels
 

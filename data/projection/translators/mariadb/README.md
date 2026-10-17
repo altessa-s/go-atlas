@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/projection/translators/mariadb"
 ```
 
-Translates a [`projection.Spec`](../../README.md) into the column list of a MariaDB/MySQL `SELECT` — quoted columns joined by `, `, without the
-keyword. The companion of [`data/orderby/translators/mariadb`](../../../orderby/translators/mariadb).
+Translates a [`projection.Spec`](../../README.md) into the column list of a MariaDB/MySQL `SELECT` — quoted columns joined by `, `, without the keyword.
+The companion of [`data/orderby/translators/mariadb`](../../../orderby/translators/mariadb).
 
 ## Output
 
@@ -16,8 +16,8 @@ keyword. The companion of [`data/orderby/translators/mariadb`](../../../orderby/
 | Empty request, no policy                         | `""` — the caller writes `*`                        |
 | Empty request, denied fields, no default         | `NewTranslator` fails with `ErrDefaultFieldsRequired` |
 
-Every storage name, after field mapping, must be `col` or `table.col`; anything else is rejected with `projection.ErrInvalidFieldPath`.
-Columns carry no aliases, so scan rows by column name.
+Every storage name, after field mapping, must be `col` or `table.col`; anything else is rejected with `projection.ErrInvalidFieldPath`. Columns carry no
+aliases, so scan rows by column name.
 
 ## Usage
 

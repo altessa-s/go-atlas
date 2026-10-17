@@ -12,6 +12,6 @@ dependency ordering, service handlers, and configuration-driven server creation.
 | Package                          | Description                                                                   |
 |----------------------------------|-------------------------------------------------------------------------------|
 | [client](./client)               | Generic gRPC client with connection pooling, retry, and error handling        |
-| [handlers](./handlers)           | Service handlers (health checking, scheduler) implementing the Handler iface  |
+| [handlers](./handlers)           | Service handlers (health checking, scheduler, service info) implementing the Handler iface |
 | [interceptors](./interceptors)   | Middleware chain for logging, auth, metrics, caching, recovery, and more      |
 | [server](./server)               | gRPC server lifecycle with graceful shutdown, TLS, and reflection             |

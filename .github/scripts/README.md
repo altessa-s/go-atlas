@@ -9,10 +9,10 @@ Validates commit messages against [Conventional Commits](https://www.conventiona
 
 ### Features
 
-- ✅ Validates Conventional Commits format: `type(scope): description`
+- ✅ Validates Conventional Commits format: `type[(scope)]: description` (the scope is optional)
 - ✅ Checks commit types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`, `perf`, `build`
-- ✅ Validates scopes against `commit_scopes.txt` 
-- ✅ Skips merge commits and automated commits (dependabot)
+- ✅ Validates scopes, when present, against `commit_scopes.txt`
+- ✅ Skips merge, revert, and auto-merge commits, and automated `build(deps)` / `chore(deps)` commits (dependabot)
 - ✅ Works for both PR and push events
 - ✅ Provides detailed error messages and examples
 
@@ -39,15 +39,14 @@ GITHUB_EVENT_NAME=push .github/scripts/validate-commits.sh
 ```
 feat(data/mongo): add cursor pagination support
 fix(transport/http): handle nil pointer in retry logic
-docs(README): update installation instructions
+docs: update installation instructions
 test(core/retry): add benchmark for exponential backoff
 chore(deps): update dependencies to latest versions
 ```
 
 **Invalid commit messages:**
 ```
-Add new feature                    # Missing type and scope
-feat: add feature                  # Missing scope  
+Add new feature                    # Missing type
 feat(invalid): add feature         # Invalid scope (not in commit_scopes.txt)
 Feat(data): add feature           # Type should be lowercase
 feat(data): Add feature           # Description should start lowercase
@@ -61,5 +60,5 @@ scopes.
 ### Exit Codes
 
 - `0`: All commits are valid
-- `1`: Invalid commits found (strict mode for PRs)
-- `0`: Invalid commits found but warning mode (legacy commits on push)
+- `1`: Invalid commits found on a `pull_request` event, or when a single commit was checked
+- `0`: Invalid commits found among several commits outside a `pull_request` event (warning mode for legacy commits on push)

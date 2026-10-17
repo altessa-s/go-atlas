@@ -4,15 +4,14 @@
 import "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/redis"
 ```
 
-Package `redis` implements Cuckoo filter storage using Redis for distributed probabilistic existence checks with deletion support shared across
-multiple service instances. Requires the [RedisBloom](https://redis.io/docs/latest/develop/data-types/probabilistic/cuckoo-filter/) module (`CF.*`
-commands).
+Package `redis` implements Cuckoo filter storage using Redis for distributed probabilistic existence checks with deletion support shared across multiple
+service instances. Requires the [RedisBloom](https://redis.io/docs/latest/develop/data-types/probabilistic/cuckoo-filter/) module (`CF.*` commands).
 
 ## Options
 
 | Option           | Default      | Description                           |
 |------------------|--------------|---------------------------------------|
-| `WithCapacity`   | `100000`     | Maximum number of items the filter holds |
+| `WithCapacity`   | `100000`     | Initial capacity reserved with `CF.RESERVE` |
 | `WithKeyPrefix`  | `"cuckoo:"`  | Redis key prefix for the filter        |
 | `WithExpansion`  | `0`          | RedisBloom `EXPANSION` growth factor; `0` keeps the RedisBloom default |
 
@@ -23,10 +22,10 @@ key atomically. The staging key carries a TTL, so a process that crashes mid-reb
 delayed past a rebuild does nothing instead of removing a colliding member of the rebuilt filter; `Delete` then returns an error ("filter replaced
 during delete") and the caller may retry against the new filter.
 
-`Stats` reads `CF.INFO`: `Capacity` is the number of fingerprint slots the filter has allocated now (buckets × bucket size over every sub-filter,
-so a reserved capacity of 1000 reports 1024), `MemoryUsageBytes` is the filter's `Size` in bytes, and `FillRatio` is items over slots. Before the
-filter exists, `Capacity` is the configured capacity.
+`Stats` reads `CF.INFO`: `Capacity` is the number of fingerprint slots the filter has allocated now (buckets × bucket size over every sub-filter, so a
+reserved capacity of 1000 reports 1024), `MemoryUsageBytes` is the filter's `Size` in bytes, and `FillRatio` is items over slots. Before the filter
+exists, `Capacity` is the configured capacity.
 
 Rebuilds of the shared filter are serialized across processes by a rebuild lease (`BeginRebuild`): a concurrent rebuild fails with
-`probfilter.ErrRebuildInProgress` before reading its source, and a rebuild that lost its lease cannot publish
-(`probfilter.ErrRebuildSuperseded`), so an older snapshot never overwrites a newer one.
+`probfilter.ErrRebuildInProgress` before reading its source, and a rebuild that lost its lease cannot publish (`probfilter.ErrRebuildSuperseded`), so an
+older snapshot never overwrites a newer one.

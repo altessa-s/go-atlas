@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/auth/opa/factory"
 ```
 
-Package `factory` provides a fluent builder for creating OPA managers from configuration.
-`ManagerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating OPA managers from configuration. `ManagerBuilder` uses deferred error accumulation — errors
+from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -30,8 +30,11 @@ manager, err := factory.New(cfg.OPA).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Uses `slog.Default()` as the logger |
 | `UseScheduler` | Sets the task registrar for periodic policy update cycles |
 | `UseHealthCoordinator` | Sets the health coordinator for manager health reporting |
+| `UseEmbedFS` | Sets the `fs.FS` and directory for the embed policy source |
+| `UseS3Client` | Injects an `s3source.S3API` client for the S3 source instead of building one from config |
 
 ### Terminal
 
@@ -56,20 +59,18 @@ against the number of distinct inputs seen in one `ttl` window rather than again
 
 ## Proxy wiring
 
-For network-backed policy sources, `Build(ctx)` materializes the per-source
-proxy block into client options:
+For network-backed policy sources, `Build(ctx)` materializes the per-source proxy block into client options:
 
 | Source | Config field | Materialized as |
 |--------|--------------|-----------------|
 | GitLab | `cfg.GitLab.Proxy` ([`proxyconfig.Config`](../../../config/proxy/proxy.go)) | `gitlab.WithHTTPClient(httpclient.New(...))` — always injects the resilient HTTP client |
 | S3     | `cfg.S3.Proxy` ([`proxyconfig.Config`](../../../config/proxy/proxy.go))     | `awsconfig.WithHTTPClient(httpclient.New(...))` — injected **only** when `Mode` is non-empty, so the AWS SDK keeps its own retry layer otherwise |
 
-A nil/empty `Proxy` block disables environment proxies for GitLab; S3 retains the AWS SDK defaults. See the
-[Proxy guide](../../../docs/proxy.md) for YAML modes and the conditional-
-injection rationale for S3.
+A nil/empty `Proxy` block disables environment proxies for GitLab; S3 retains the AWS SDK defaults. See the [Proxy guide](../../../docs/proxy.md) for
+YAML modes and the conditional-injection rationale for S3.
 
 ## Protected outbound clients
 
-Factory-created Atlas HTTP clients use SSRF protection, disable environment proxies and reject explicit proxy modes `url` and `host`
-with `httpclient.ErrSSRFUnsafeTransport`. Mode `none` is supported. For a trusted proxy, construct the provider/source directly with an
-explicitly supplied client using `httpclient.WithoutSSRFProtection()`; enforce destination restrictions at the proxy.
+Factory-created Atlas HTTP clients use SSRF protection, disable environment proxies and reject explicit proxy modes `url` and `host` with
+`httpclient.ErrSSRFUnsafeTransport`. Mode `none` is supported. For a trusted proxy, construct the provider/source directly with an explicitly supplied
+client using `httpclient.WithoutSSRFProtection()`; enforce destination restrictions at the proxy.

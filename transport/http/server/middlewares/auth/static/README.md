@@ -4,21 +4,21 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/static"
 ```
 
-Thin HTTP adapter over [`auth/static`](../../../../../../auth/static). Re-exports the store types/options and provides `AuthFunc`, which
-wraps store errors with [`auth.ErrUnauthorized`](..) while preserving the original cause for logs and custom `auth.ErrorHandler`
-implementations.
+Thin HTTP adapter over [`auth/static`](../../../../../../auth/static). Re-exports the store types/options and provides `AuthFunc` (with an optional
+`WithAudit` decision recorder), which wraps store errors with [`auth.ErrUnauthorized`](..) while preserving the original cause for logs and custom
+`auth.ErrorHandler` implementations.
 
 ## Error wrapping
 
 | `auth/static` error | Wrapped as                                                |
 |---------------------|------------------------------------------------------------|
-| `ErrInvalidToken`   | `auth.ErrUnauthorized` (cause preserved via `errors.Is`)   |
-| `ErrEmptyToken`     | `auth.ErrUnauthorized` (cause preserved)                   |
+| `ErrTokenInvalid`   | `auth.ErrUnauthorized` (cause preserved via `errors.Is`)   |
+| `ErrTokenEmpty`     | `auth.ErrUnauthorized` (cause preserved)                   |
 | `ErrRateLimited`    | `auth.ErrUnauthorized` (cause preserved)                   |
 | anything else       | wrapped with `auth:` prefix, original cause preserved      |
 
-Use `errors.Is(err, auth.ErrUnauthorized)` or `errors.Is(err, static.ErrInvalidToken)` (via `auth/static`) to branch on the failure
-mode in custom error handlers.
+Use `errors.Is(err, auth.ErrUnauthorized)` or `errors.Is(err, static.ErrTokenInvalid)` (via `auth/static`) to branch on the failure mode in custom error
+handlers.
 
 ## Re-exports
 
@@ -68,8 +68,8 @@ middleware := auth.Middleware(
 
 ### Rate limiting
 
-The decorator lives in `auth/static`; wire an external `RateLimiter` (for example one backed by `data/limiters/tokenbucket`) and pass the
-wrapped store to `AuthFunc`:
+The decorator lives in `auth/static`; wire an external `RateLimiter` (for example one backed by `data/limiters/tokenbucket`) and pass the wrapped store
+to `AuthFunc`:
 
 ```go
 store := static.NewRateLimitedStore(inner, myLimiter, func(ctx context.Context) string {
@@ -81,5 +81,4 @@ middleware := auth.Middleware(auth.WithAuthFunc(static.AuthFunc(store)))
 
 ## Security notes
 
-See the [`auth/static` README](../../../../../../auth/static/README.md) — storage, HMAC digest, and timing properties are inherited from
-that package.
+See the [`auth/static` README](../../../../../../auth/static/README.md) — storage, HMAC digest, and timing properties are inherited from that package.

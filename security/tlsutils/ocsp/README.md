@@ -16,15 +16,18 @@ is never cached past that deadline. `WithCompression` requests gzip-encoded resp
 |-----------------------|---------------------------------------------|
 | `NewOCSPStapler`      | Create stapler with caching                 |
 | `StapleOCSPToConfig`  | Apply stapler to `*tls.Config`              |
+| `StapleCertificate`   | Staple one certificate honoring `FailureMode`, for per-certificate callbacks |
 | `GetOCSPStaple`       | Get OCSP response for a certificate         |
 | `RunRefreshCycle`      | Refresh cycle method for scheduler          |
 | `RunRefreshAll`        | Refresh all cached OCSP responses           |
+| `RegisterRefreshAllSchedulerFunc` | Scheduler task func for refresh-all; direct `RunRefreshAll` calls then return `ErrSchedulerManaged` |
+| `NeedsRefresh`        | Report whether a certificate's cached response needs refreshing |
 
 ## StapleOCSPToConfig and SNI
 
-crypto/tls serves a certificate from `Config.Certificates` without calling `GetCertificate` when the client sends no SNI, which would
-skip stapling and Hard-mode enforcement. `StapleOCSPToConfig` therefore moves `Certificates` (and `NameToCertificate`) into the wrapped
-`GetCertificate`, leaving those fields empty, and selects among them exactly as crypto/tls does. When `GetClientCertificate` is unset, it
-installs one that selects from the moved certificates like crypto/tls and, as before, does not staple. Call it after `Certificates` is
-populated and do not repopulate `Certificates` afterwards. Configs returned by `GetConfigForClient` are not wrapped — apply
-`StapleOCSPToConfig` to each. Enforcement applies to full handshakes; a resumed session does not select a certificate again.
+crypto/tls serves a certificate from `Config.Certificates` without calling `GetCertificate` when the client sends no SNI, which would skip stapling and
+Hard-mode enforcement. `StapleOCSPToConfig` therefore moves `Certificates` (and `NameToCertificate`) into the wrapped `GetCertificate`, leaving those
+fields empty, and selects among them exactly as crypto/tls does. When `GetClientCertificate` is unset, it installs one that selects from the moved
+certificates like crypto/tls and, as before, does not staple. Call it after `Certificates` is populated and do not repopulate `Certificates` afterwards.
+Configs returned by `GetConfigForClient` are not wrapped — apply `StapleOCSPToConfig` to each. Enforcement applies to full handshakes; a resumed session
+does not select a certificate again.

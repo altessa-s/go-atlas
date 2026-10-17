@@ -4,17 +4,27 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/geoacl"
 ```
 
-Package `geoacl` provides HTTP middleware for geographic access control.
-It enforces allow and deny rules per URL path based on the client's geographic location.
+Package `geoacl` provides HTTP middleware for geographic access control. It enforces allow and deny rules per URL path based on the client's geographic
+location.
 
 ## Usage
 
+The registry and rule types live in module-internal packages, so direct wiring like the snippet below compiles only inside go-atlas. The server factory
+builds the registry from YAML `middlewares.geoACL` (`WithGeoAclMiddleware`) and takes the resolver from `UseGeoResolver`; because `GeoResolver.Resolve`
+returns the internal `GeoInfo` type, resolvers can currently be implemented only inside the module.
+
 ```go
-registry := geoacl.NewRegistry(geoacl.PolicyDeny)
-registry.SetDefault(&geoacl.AccessRule{
+import (
+    "github.com/altessa-s/go-atlas/transport/http/server/middlewares/geoacl"
+    "github.com/altessa-s/go-atlas/transport/internal/fallback"
+    georules "github.com/altessa-s/go-atlas/transport/internal/geoacl"
+)
+
+registry := georules.NewRegistry(georules.PolicyDeny)
+registry.SetDefault(&georules.AccessRule{
     AllowContinents: []string{"EU", "NA"},
 })
-registry.Register("/admin/*", &geoacl.AccessRule{
+registry.RegisterPattern(regexp.MustCompile(`^/admin/`), &georules.AccessRule{
     AllowCountries: []string{"US", "CA"},
 })
 
@@ -32,16 +42,20 @@ handler := mw.Handler(myHandler)
 |--------|-------------|
 | `WithFallbackBehavior` | Action when geo resolution fails (default: deny) |
 | `WithLogger` | Logger for debug output |
-| `WithMetrics` | Metrics collector for access decisions |
+| `WithIgnorePaths` | Paths to skip |
+| `WithIgnorePatterns` | Regex patterns for paths to skip (default: health, metrics, pprof) |
 
 ## Key Types
+
+`Registry`, `AccessRule`, `GeoResolver` and `NewRegistry` are defined in the module-internal `transport/internal/geoacl` package, `fallback.Behavior` in
+`transport/internal/fallback`.
 
 | Type | Description |
 |------|-------------|
 | `Registry` | Manages per-path geographic access rules |
 | `AccessRule` | Defines allow/deny lists for countries and continents |
 | `GeoResolver` | Interface for IP-to-location resolution |
-| `Middleware` | HTTP middleware implementation |
+| `New` / `Middleware` | Constructors returning the middleware or a `func(http.Handler) http.Handler` |
 
 ## Features
 

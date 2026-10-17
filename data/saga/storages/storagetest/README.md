@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/saga/storages/storagetest"
 ```
 
-Contract suite for `saga.Storage` implementations. Every bundled backend runs it, and a custom backend should too: the orchestrator's correctness
-rests on insert-if-absent creation, the version compare-and-swap of `Update` and the recovery predicate of `FetchRecoverable`.
+Contract suite for `saga.Storage` implementations. Every bundled backend runs it, and a custom backend should too: the orchestrator's correctness rests
+on insert-if-absent creation, the version compare-and-swap of `Update` and the recovery predicate of `FetchRecoverable`.
 
 ## Contracts
 
@@ -25,8 +25,8 @@ rests on insert-if-absent creation, the version compare-and-swap of `Update` and
 | `FetchRecoverableLimit`      | A positive limit caps the result; a non-positive one does not                                                            |
 | `FetchRecoverableDefinition` | A definition filter applies before the limit; an empty definition returns every definition                               |
 
-Fixtures use whole-second `CreatedAt`, `UpdatedAt`, `Deadline` and step times, which durable backends may store at one-second precision.
-Versions are opaque: a contract checks only that a successful `Update` changes the version and writes it back.
+Fixtures use whole-second `CreatedAt`, `UpdatedAt`, `Deadline` and step times, which durable backends may store at one-second precision. Versions are
+opaque: a contract checks only that a successful `Update` changes the version and writes it back.
 
 ## Usage
 
@@ -37,5 +37,5 @@ func TestStorageContract(t *testing.T) {
 }
 ```
 
-A backend whose medium cannot satisfy a contract names it in `Run`'s variadic `skip` argument — the NATS backend skips `ExactIdentity`, since KV
-keys admit only `[-/_=.A-Za-z0-9]`.
+A backend whose medium cannot satisfy a contract names it in `Run`'s variadic `skip` argument — the NATS backend skips `ExactIdentity`, since KV keys
+admit only `[-/_=.A-Za-z0-9]`.

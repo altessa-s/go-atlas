@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/filter"
 ```
 
-Package `filter` parses Common Expression Language (CEL) expressions into an intermediate AST and translates them to database-specific query formats
-via the visitor pattern. Includes security features: field allowlists, depth limits, and expression length limits.
+Package `filter` parses Common Expression Language (CEL) expressions into an intermediate AST and translates them to database-specific query formats via
+the visitor pattern. Includes security features: field allowlists, depth limits, and expression length limits.
 
 ## Supported operations
 
@@ -26,6 +26,8 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | `Parser`         | CEL expression parser with LRU caching (`Parse`, `ParseShared`) |
 | `Evaluator`      | In-memory evaluation of an AST against a `map[string]any`; safe for concurrent use |
 | `Node`           | AST node interface                                      |
+| `LiteralNode`    | Literal values                                          |
+| `IdentNode`      | Field references                                        |
 | `BinaryOpNode`   | Binary operations (comparisons, logical)                |
 | `UnaryOpNode`    | Unary operations (negation)                             |
 | `CallNode`       | Function/method calls                                   |
@@ -34,8 +36,8 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | `VisitElements`  | Accepts every element of a `ListNode` — the whole of what `VisitList` has to do |
 | `DepthGuard`     | Bounds a visitor's recursion; `Enter` / `Leave` / `Reset` |
 
-`VisitElements` and `DepthGuard` exist because every translator in this repository needed them verbatim. A filter arrives from outside the
-process, so its nesting is an input like any other: unbounded, a few kilobytes of parentheses become a stack overflow. Take the limit from
+`VisitElements` and `DepthGuard` exist because every translator in this repository needed them verbatim. A filter arrives from outside the process, so
+its nesting is an input like any other: unbounded, a few kilobytes of parentheses become a stack overflow. Take the limit from
 `TranslatorContext.MaxDepth`, hold the guard as a field, and pair each `Enter` with a deferred `Leave`:
 
 ```go
@@ -53,8 +55,8 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 }
 ```
 
-Custom visitors can call `TranslatorContext.CheckLimits(node)` before walking the AST to enforce the same operation and depth budgets.
-`AcceptLiteral` and `VisitLiteralElements` reject field references in positions where a backend accepts only constants.
+Custom visitors can call `TranslatorContext.CheckLimits(node)` before walking the AST to enforce the same operation and depth budgets. `AcceptLiteral`
+and `VisitLiteralElements` reject field references in positions where a backend accepts only constants.
 
 ## Parser options
 
@@ -68,9 +70,9 @@ Custom visitors can call `TranslatorContext.CheckLimits(node)` before walking th
 | `WithoutGlobalCustomFunctions` | --      | Skip the package-level registry (see below)        |
 | `WithParserCollector`          | --      | Prometheus metrics collector for parse latency, error counters, and regex-cache stats |
 
-`Parse` returns a caller-owned AST, including copied byte literals. Mutating it cannot change cached results or another caller's tree.
-Custom-function results are copied before caching. The evaluator's regex cache holds 256 patterns and evicts least-recently-used entries so a new
-working set can replace old patterns.
+`Parse` returns a caller-owned AST, including copied byte literals. Mutating it cannot change cached results or another caller's tree. Custom-function
+results are copied before caching. The evaluator's regex cache holds 256 patterns and evicts least-recently-used entries so a new working set can
+replace old patterns.
 
 ## Translator options
 
@@ -89,24 +91,16 @@ working set can replace old patterns.
 These options also apply to `NewEvaluator`. `WithMaxRegexLength` and `WithMaxOperations` bound evaluation and translation. Translation checks the entire
 AST before rendering; evaluation counts visited nodes and retains short-circuit behavior. Lists consume nesting depth too.
 
-Every translator constructor (`mongo.NewTranslator`,
-`clickhouse.NewTranslator`, `mariadb.NewTranslator`,
-`postgres.NewTranslator`, `meili.NewTranslator`,
-`redisearch.NewTranslator`, `lua.NewTranslator`)
-and `NewEvaluator` return `(*T, error)`. The error is
-`ErrAllowlistRequired` when `WithUntrustedInput` is set without a
-non-empty `WithAllowedFields`; misconfiguration therefore surfaces at
-process start, never on the first request.
+Every translator constructor (`mongo.NewTranslator`, `clickhouse.NewTranslator`, `mariadb.NewTranslator`, `postgres.NewTranslator`,
+`meili.NewTranslator`, `redisearch.NewTranslator`, `lua.NewTranslator`) and `NewEvaluator` return `(*T, error)`. The error is `ErrAllowlistRequired`
+when `WithUntrustedInput` is set without a non-empty `WithAllowedFields`; misconfiguration therefore surfaces at process start, never on the first
+request.
 
 ### Untrusted input
 
-When translating CEL coming from external clients, pair
-`WithUntrustedInput()` with `WithAllowedFields(...)`. Without an
-allowlist a hostile client can filter on any indexed field
-(e.g. `passwordHash > ""` to enumerate accounts), so the combination
-"untrusted + no allowlist" is treated as misconfiguration —
-`NewTranslator` returns `ErrAllowlistRequired` instead of constructing
-a deny-all translator.
+When translating CEL coming from external clients, pair `WithUntrustedInput()` with `WithAllowedFields(...)`. Without an allowlist a hostile client can
+filter on any indexed field (e.g. `passwordHash > ""` to enumerate accounts), so the combination "untrusted + no allowlist" is treated as
+misconfiguration — `NewTranslator` returns `ErrAllowlistRequired` instead of constructing a deny-all translator.
 
 ```go
 trans, err := mongo.NewTranslator(
@@ -120,18 +114,12 @@ if err != nil {
 
 ## Custom functions
 
-Register CEL functions that the parser expands into arbitrary AST nodes
-before the filter reaches an evaluator or translator. This is the way to
-expose semantic shortcuts such as `createdAfter("2024-01-01")` that map
-to `createdAt > "2024-01-01"` against the model.
+Register CEL functions that the parser expands into arbitrary AST nodes before the filter reaches an evaluator or translator. This is the way to expose
+semantic shortcuts such as `createdAfter("2024-01-01")` that map to `createdAt > "2024-01-01"` against the model.
 
-`Constant(field, op, value)` and `CompareField(field, op)` are the two
-fundamental building blocks. `Constant` exposes a parameter-less
-predicate (`name() → field op value`) — the natural shape for status
-enums and fixed thresholds. `CompareField` exposes a one-argument
-predicate (`name(arg) → field op arg`) — the natural shape for
-"after / before / above / below"-style comparisons over a user-supplied
-operand:
+`Constant(field, op, value)` and `CompareField(field, op)` are the two fundamental building blocks. `Constant` exposes a parameter-less predicate
+(`name() → field op value`) — the natural shape for status enums and fixed thresholds. `CompareField` exposes a one-argument predicate
+(`name(arg) → field op arg`) — the natural shape for "after / before / above / below"-style comparisons over a user-supplied operand:
 
 ```go
 parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.CustomFunction{
@@ -143,21 +131,16 @@ parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.Custo
 }))
 ```
 
-Handlers receive already-converted argument nodes and return trees of the built-in node types, including nested `BinaryOpNode` trees.
-Literals support scalar values, `time.Time`, and `[]byte`; custom node implementations and other mutable literal types fail explicitly.
-Functions like `between(field, lo, hi)` are also expressible.
+Handlers receive already-converted argument nodes and return trees of the built-in node types, including nested `BinaryOpNode` trees. Literals support
+scalar values, `time.Time`, and `[]byte`; custom node implementations and other mutable literal types fail explicitly. Functions like
+`between(field, lo, hi)` are also expressible.
 
-Names must not collide with built-in CEL functions (`contains`,
-`startsWith`, `endsWith`, `matches`, `size`, `has`, `timestamp`,
-`substring`).
-`WithFieldMapping` and `WithAllowedFields` operate on the **target**
-field name (e.g. `createdAt`), since the virtual call is gone after
-parsing.
+Names must not collide with built-in CEL functions (`contains`, `startsWith`, `endsWith`, `matches`, `size`, `has`, `timestamp`, `substring`).
+`WithFieldMapping` and `WithAllowedFields` operate on the **target** field name (e.g. `createdAt`), since the virtual call is gone after parsing.
 
 ### Built-in presets
 
-`TimestampFilters()` returns a ready-made set for the common
-`createdAt`/`updatedAt`/`deletedAt` predicates — opt in explicitly:
+`TimestampFilters()` returns a ready-made set for the common `createdAt`/`updatedAt`/`deletedAt` predicates — opt in explicitly:
 
 ```go
 filter.RegisterFunctions(filter.TimestampFilters())
@@ -169,8 +152,7 @@ filter.RegisterFunctions(filter.TimestampFilters())
 // deleteBefore(t) → deletedAt < t
 ```
 
-Field names are fixed (camelCase). For snake_case columns add
-`WithFieldMapping{"createdAt":"created_at",...}` on the translator.
+Field names are fixed (camelCase). For snake_case columns add `WithFieldMapping{"createdAt":"created_at",...}` on the translator.
 
 For partial registration use `SelectTimestampFilters(names ...string)`:
 
@@ -183,10 +165,8 @@ filter.RegisterFunctions(filter.SelectTimestampFilters(
 
 Unknown names are silently skipped — pass the `TimestampFunc*` constants to avoid typos.
 
-`BetweenFilter()` exposes a generic range predicate
-`between(field, lo, hi)` → `field >= lo && field <= hi`. The first
-argument must be an identifier; the bounds can be any literal or
-expression the translator accepts.
+`BetweenFilter()` exposes a generic range predicate `between(field, lo, hi)` → `field >= lo && field <= hi`. The first argument must be an identifier;
+the bounds can be any literal or expression the translator accepts.
 
 ```go
 filter.RegisterFunctions(filter.BetweenFilter())
@@ -194,8 +174,7 @@ filter.RegisterFunctions(filter.BetweenFilter())
 // CEL: between(price, 100.0, 500.0)
 ```
 
-`SoftDeleteFilters()` exposes the canonical soft-delete predicates
-keyed off `deletedAt`:
+`SoftDeleteFilters()` exposes the canonical soft-delete predicates keyed off `deletedAt`:
 
 ```go
 filter.RegisterFunctions(filter.SoftDeleteFilters())
@@ -203,14 +182,12 @@ filter.RegisterFunctions(filter.SoftDeleteFilters())
 // onlyDeleted() → deletedAt != null
 ```
 
-Equality with `null` matches both missing and explicitly null values
-under MongoDB and the in-memory evaluator. If your storage needs a
-stricter "absent" check, use `!has(deletedAt)` directly instead.
+Equality with `null` matches both missing and explicitly null values under MongoDB and the in-memory evaluator. If your storage needs a stricter
+"absent" check, use `!has(deletedAt)` directly instead.
 
 ### Application-wide registration
 
-Register once during bootstrap so every subsequently constructed
-parser sees the same set without repeating the configuration:
+Register once during bootstrap so every subsequently constructed parser sees the same set without repeating the configuration:
 
 ```go
 func init() {
@@ -225,11 +202,8 @@ func init() {
 parser, _ := filter.NewParser()
 ```
 
-`WithCustomFunctions` still works and overrides global entries by
-name. `WithoutGlobalCustomFunctions()` opts a single parser out of the
-global set entirely (useful for tests). Re-registering an existing
-name returns an error — `ResetGlobalCustomFunctions()` is provided for
-test isolation.
+`WithCustomFunctions` still works and overrides global entries by name. `WithoutGlobalCustomFunctions()` opts a single parser out of the global set
+entirely (useful for tests). Re-registering an existing name returns an error — `ResetGlobalCustomFunctions()` is provided for test isolation.
 
 ## Subpackages
 
@@ -246,19 +220,18 @@ test isolation.
 ### SQL translators
 
 `clickhouse`, `mariadb` and `postgres` share one AST walk and differ only in a `Dialect` — see
-[`translators/internal/sqlbase`](./translators/internal/sqlbase). Their `Translate` returns three values,
-`(where string, args []any, err error)`: literals leave the SQL text entirely and come back as bind arguments aligned with their placeholders,
-so a clause built from request data cannot alter the shape of the query. PostgreSQL numbers its placeholders (`$1`, `$2`, …); the other two use
-positional `?`.
+[`translators/internal/sqlbase`](./translators/internal/sqlbase). Their `Translate` returns three values, `(where string, args []any, err error)`:
+literals leave the SQL text entirely and come back as bind arguments aligned with their placeholders, so a clause built from request data cannot alter
+the shape of the query. PostgreSQL numbers its placeholders (`$1`, `$2`, …); the other two use positional `?`.
 
 ```go
 where, args, err := trans.Translate(ast)
 rows, err := conn.Query(ctx, "SELECT * FROM events WHERE "+where, args...)
 ```
 
-`TranslateInline` renders the same clause with literals in place, for the cases a placeholder cannot serve — view definitions, generated DDL,
-logs. A `nil` AST translates to `1 = 1` in both modes, so the concatenation above needs no special case.
+`TranslateInline` renders the same clause with literals in place, for the cases a placeholder cannot serve — view definitions, generated DDL, logs. A
+`nil` AST translates to `1 = 1` in both modes, so the concatenation above needs no special case.
 
-Dialect differences worth knowing before choosing a filter surface: MariaDB's default collations make every string predicate
-case-insensitive, PostgreSQL requires a real `boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as a
-single (Nested) column rather than a qualified `"table"."column"`. Each package README covers its own.
+Dialect differences worth knowing before choosing a filter surface: MariaDB's default collations make every string predicate case-insensitive,
+PostgreSQL requires a real `boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as a single (Nested) column
+rather than a qualified `"table"."column"`. Each package README covers its own.

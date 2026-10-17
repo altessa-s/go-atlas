@@ -15,6 +15,8 @@ Package `oidc` provides OIDC (OpenID Connect) token validation for the auth inte
 | `Validator`      | Interface for OIDC token validation: `ValidateToken(ctx, token) (*Claims, error)` |
 | `AuthFunc`       | Creates an `auth.AuthFunc` from a Validator for gRPC auth interceptor integration |
 | `Claims`         | Structured OIDC claims: Subject, Email, Scopes, Issuer, Audience, and timestamps  |
+| `WithAudit`      | `AuthOption` recording each token-validation decision through an `auth/audit.Recorder` |
+| `ScopesOf`       | Returns the granted scopes of a `*Claims`, for use with `auth/scope`               |
 
 ## Claims fields
 
@@ -29,6 +31,9 @@ Package `oidc` provides OIDC (OpenID Connect) token validation for the auth inte
 | `ExpiresAt`         | `exp`                | Token expiration time                              |
 | `IssuedAt`          | `iat`                | Token issuance time                                |
 | `NotBefore`         | `nbf`                | Token validity start time                          |
+| `Name`              | `name`               | Full display name                                  |
+| `GivenName`         | `given_name`         | First name                                         |
+| `FamilyName`        | `family_name`        | Last name                                          |
 | `RawClaims`         | --                   | All claims from the original token (custom access) |
 
 ## Subpackages

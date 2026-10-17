@@ -4,13 +4,13 @@
 import bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 ```
 
-Package `bufhelpers` provides helpers for working with buf protovalidate validation errors in gRPC interceptors.
-It converts validation violations into structured error responses with detailed field-level information.
+Package `bufhelpers` provides helpers for working with buf protovalidate validation errors in gRPC interceptors. It converts validation violations into
+structured error responses with detailed field-level information.
 
-Each violation's `FieldViolation.Code` is an optional **service-defined, client-facing reason code**, set only
-when a [`ReasonCoder`](#) is supplied via `WithReasonCode`. go-atlas ships **no** built-in mapping — the set of
-reason codes is part of a service's public error contract, so the service owns it. When no coder is supplied the
-`Code` is left unset and downstream consumers fall back to the generic gRPC-status reason.
+Each violation's `FieldViolation.Code` is an optional **service-defined, client-facing reason code**, set only when a `ReasonCoder` is supplied via
+`WithReasonCode` (or a `ReasonCodeResolver` via `WithResolver`). go-atlas ships **no** built-in mapping — the set of reason codes is part of a service's
+public error contract, so the service owns it. When no coder is supplied the `Code` is left unset and downstream consumers fall back to the generic
+gRPC-status reason.
 
 ## Usage
 
@@ -41,6 +41,7 @@ if err := validator(ctx, msg); err != nil {
 |----------|-------------|
 | `BuildValidator` | Creates a proto message validator with structured error details; accepts `WithReasonCode` |
 | `WithReasonCode` | Supplies a `ReasonCoder` (`func(ruleID, fieldName string) string`) for field violation codes |
+| `WithResolver` | Interface-based counterpart of `WithReasonCode` taking a `ReasonCodeResolver`; nil is ignored |
 | `BuildValidationFilter` | Returns filter controlling which messages are validated |
 | `BuildValidationError` | Formats violations into human-readable error strings |
 

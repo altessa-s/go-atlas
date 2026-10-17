@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 ```
 
-Package `tracing` provides gRPC interceptors for distributed tracing. Automatic span creation, W3C Trace Context propagation via gRPC metadata,
-and span attributes for method, service, status code, and peer address. Server and client interceptors for both unary and streaming RPCs.
+Package `tracing` provides gRPC interceptors for distributed tracing. Automatic span creation, W3C Trace Context propagation via gRPC metadata, and span
+attributes for method, service, status code, and peer address. Server and client interceptors for both unary and streaming RPCs.
 
 ## Span attributes
 

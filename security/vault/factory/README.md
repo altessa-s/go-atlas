@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/security/vault/factory"
 ```
 
-Package `factory` provides a fluent builder for creating Vault clients from configuration.
-`VaultBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating Vault clients from configuration. `VaultBuilder` uses deferred error accumulation — errors from
+any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -38,6 +38,8 @@ v, err := factory.New(cfg.Vault).
 | Method                 | Description                                                     |
 |------------------------|-----------------------------------------------------------------|
 | `UseLogger`            | Sets the logger for the builder and all created components      |
+| `UseDefaultLogger`     | Sets the logger to `slog.Default()`                             |
+| `UseCollector`         | Sets the metrics collector for the Vault client                 |
 | `UseTlsConfig`         | Sets the TLS configuration for the Vault HTTP client            |
 | `UseHealthCoordinator` | Sets the health coordinator for the Vault client                |
 

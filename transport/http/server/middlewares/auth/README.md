@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
 ```
 
-Package `auth` provides HTTP authentication middleware with support for Bearer tokens, API keys, and custom token schemes. It offers flexible
-token extraction, validation, and error handling with path-based filtering.
+Package `auth` provides HTTP authentication middleware with support for Bearer tokens, API keys, and custom token schemes. It offers flexible token
+extraction, validation, and error handling with path-based filtering.
 
 ## Key types
 
@@ -15,6 +15,9 @@ token extraction, validation, and error handling with path-based filtering.
 | `AuthFunc`          | Interface for token validation                          |
 | `TokenExtractor`    | Interface for extracting tokens from requests           |
 | `ErrorHandler`      | Interface for custom error responses                    |
+| `FromContext`       | Returns the authenticated data stored in the request context |
+| `ContextWithPrincipal` | Installs a principal established outside the token flow (e.g. mTLS) |
+| `ScopeMiddleware`   | Authorization middleware enforcing `auth/scope` rules on the principal |
 
 ## Options
 
@@ -27,10 +30,10 @@ token extraction, validation, and error handling with path-based filtering.
 | `WithIgnorePatterns`  | --                       | Regex patterns for paths to skip    |
 | `WithLogger`          | discard                  | Structured logger                   |
 
-No path is exempt by default. Exempt only what must be public, with exact paths (`WithIgnorePaths("/healthz")`) or patterns anchored at
-both ends (`^/public/[^/]+$`): an unanchored pattern such as `/metrics/?$` also exempts `/admin/metrics`. The health, metrics, and pprof
-exemptions applied by default before are available as an explicit opt-in, with that caveat:
-`auth.WithIgnorePatterns(defaults.IgnorePatterns...)` (package [`defaults`](../defaults)).
+No path is exempt by default. Exempt only what must be public, with exact paths (`WithIgnorePaths("/healthz")`) or patterns anchored at both ends
+(`^/public/[^/]+$`): an unanchored pattern such as `/metrics/?$` also exempts `/admin/metrics`. The health, metrics, and pprof exemptions applied by
+default before are available as an explicit opt-in, with that caveat: `auth.WithIgnorePatterns(defaults.IgnorePatterns...)` (package
+[`defaults`](../defaults)).
 
 ## Usage
 
@@ -99,10 +102,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 ```go
 chain := middlewares.NewChain(
-    realip.Middleware(),        // Extract client IP first
-    requestid.Middleware(),     // Add request ID
-    auth.Middleware(authOpts),  // Authenticate
-    logger.Middleware(),        // Log authenticated requests
+    realip.New(extractor, log),   // Extract client IP first
+    requestid.New(gen),           // Add request ID
+    auth.New(authOpts...),        // Authenticate
+    logger.New(logHandler),       // Log authenticated requests
 )
 
 handler := chain.Then(yourHandler)

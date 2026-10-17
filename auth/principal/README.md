@@ -4,11 +4,11 @@
 import "github.com/altessa-s/go-atlas/auth/principal"
 ```
 
-Canonical verified-identity type shared across the auth stack: a `Principal` carries the subject, tenant, granted scopes and roles, plus an
-escape hatch of raw claims. Authentication adapters stash one standard shape as a request's principal so services stop reinventing their own.
+Canonical verified-identity type shared across the auth stack: a `Principal` carries the subject, tenant, granted scopes and roles, plus an escape hatch
+of raw claims. Authentication adapters stash one standard shape as a request's principal so services stop reinventing their own.
 
-It is a plain data type with no decision logic — the generic authorization cores ([`auth/scope`](../scope)) stay parameterized over any `P`
-and read what they need through extractors. `Principal` is simply a convenient, standard `P`.
+It is a plain data type with no decision logic — the generic authorization cores ([`auth/scope`](../scope)) stay parameterized over any `P` and read
+what they need through extractors. `Principal` is simply a convenient, standard `P`.
 
 ## Type
 
@@ -49,8 +49,7 @@ p := principal.FromClaims(claims, principal.WithRolesClaim("groups"))
 if p.HasScope("files:read") { /* ... */ }
 ```
 
-Auth adapters that map claims on every request should build a `Mapper` once — the option set is materialized a single time
-instead of per call:
+Auth adapters that map claims on every request should build a `Mapper` once — the option set is materialized a single time instead of per call:
 
 ```go
 var mapper = principal.NewMapper(principal.WithRolesClaim("groups"))
@@ -66,5 +65,5 @@ The zero-value `Mapper` maps with the default claim names; a `Mapper` is immutab
 
 ```go
 enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(
-    func(p principal.Principal) []scope.Scope { return p.Scopes }, scope.Exact))
+    func(p principal.Principal) []scope.Scope { return p.Scopes }, scope.Exact()))
 ```
