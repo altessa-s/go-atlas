@@ -13,13 +13,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/altessa-s/go-atlas/data/idempotency"
+	"github.com/altessa-s/go-atlas/transport/broker/msg"
+
+	"google.golang.org/protobuf/proto"
+
 	memorystorage "github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
 	fieldbehaviortestv1 "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 	brokeridem "github.com/altessa-s/go-atlas/transport/broker/idempotency"
-	"github.com/altessa-s/go-atlas/transport/broker/msg"
 )
 
 type mockAcker struct {

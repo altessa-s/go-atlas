@@ -5,19 +5,21 @@
 package filter_test
 
 import (
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/data/filter/translators/clickhouse"
-	flua "github.com/altessa-s/go-atlas/data/filter/translators/lua"
 	"github.com/altessa-s/go-atlas/data/filter/translators/mariadb"
 	"github.com/altessa-s/go-atlas/data/filter/translators/meili"
 	"github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 	"github.com/altessa-s/go-atlas/data/filter/translators/postgres"
 	"github.com/altessa-s/go-atlas/data/filter/translators/redisearch"
-	"github.com/stretchr/testify/require"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	flua "github.com/altessa-s/go-atlas/data/filter/translators/lua"
 	lua "github.com/yuin/gopher-lua"
 )
 

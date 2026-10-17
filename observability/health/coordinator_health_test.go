@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+
 	grpchealth "github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 )
 

@@ -10,14 +10,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
+
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
-	stdGrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
+	stdGrpc "google.golang.org/grpc"
 )
 
 func TestUseErrStatusOptions(t *testing.T) {

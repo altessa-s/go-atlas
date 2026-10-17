@@ -13,8 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	atlascivil "github.com/altessa-s/go-atlas/core/time/civil"
 	"github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
+
+	atlascivil "github.com/altessa-s/go-atlas/core/time/civil"
 )
 
 type period struct {

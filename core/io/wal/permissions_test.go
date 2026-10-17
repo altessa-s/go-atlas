@@ -10,8 +10,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/core/io/wal"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/core/io/wal"
 )
 
 func requirePOSIX(t testing.TB) {

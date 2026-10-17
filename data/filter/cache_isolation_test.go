@@ -123,4 +123,3 @@ func TestParserShared_ReturnsSameNode(t *testing.T) {
 		p.MustParseShared("")
 	})
 }
-
