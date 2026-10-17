@@ -22,9 +22,10 @@ packages never import them.
 | `ValidateStructIfEnabled` | `ValidateStruct` gated on an `Enabled` flag.                                                                    |
 | `NestedField`             | Field rule for a struct held by value whose `Validate` has a pointer receiver — ozzo skips it otherwise.         |
 | `ValidateStorage`         | Checks a storage selector and that the sub-config of the selected type is set.                                 |
+| `ErrorsToFlatMap`         | Flattens nested `validation.Errors` into dotted keys (`server.port`).                                           |
 | `PrettyError`             | Renders a validation error as readable text.                                                                    |
 
-Hold nested schemas by value and validate them with `NestedField(&c.Sub)`: `validation.Field(&c.Sub)` passes ozzo a copy of the value,
-which lacks the pointer method set, so `Sub.Validate` is silently never called.
+Hold nested schemas by value and validate them with `NestedField(&c.Sub)`: `validation.Field(&c.Sub)` passes ozzo a copy of the value, which lacks the
+pointer method set, so `Sub.Validate` is silently never called.
 
 See the [config index](../README.md) for the other schema packages.

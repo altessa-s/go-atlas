@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/idempotency/factory"
 ```
 
-Package `factory` provides a fluent builder for creating an idempotency keeper from configuration.
-`KeeperBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating an idempotency keeper from configuration. `KeeperBuilder` uses deferred error accumulation —
+errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 

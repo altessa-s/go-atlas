@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/cache/factory"
 ```
 
-Package `factory` provides a fluent builder for creating cache providers from configuration.
-`StorageBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating cache providers from configuration. `StorageBuilder` uses deferred error accumulation — errors
+from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -16,7 +16,8 @@ provider, err := factory.New(cfg.Cache).
     Build()
 ```
 
-When config is `nil` or storage type is `memory`, an in-memory FreeCache provider is returned.
+When config is `nil` or storage type is `memory`, an in-memory FreeCache provider is returned. `redis` builds a Redis provider (its `redis` block is
+required). Any other type, including `nats`, fails `Build` with an unsupported storage type error.
 
 ## Supported Storage Types
 
@@ -38,6 +39,7 @@ When config is `nil` or storage type is `memory`, an in-memory FreeCache provide
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseRedisClient` | Sets the Redis client for Redis-backed providers |
 
 ### Terminal

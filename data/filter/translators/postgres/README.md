@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/filter/translators/postgres"
 ```
 
-Translates a `filter.Node` AST into a PostgreSQL `WHERE` clause. Two output modes share one AST walk: a parameterized clause with numbered
-`$n` placeholders plus a bound argument slice, and a self-contained clause with literals rendered in place.
+Translates a `filter.Node` AST into a PostgreSQL `WHERE` clause. Two output modes share one AST walk: a parameterized clause with numbered `$n`
+placeholders plus a bound argument slice, and a self-contained clause with literals rendered in place.
 
 ## Constructor
 
@@ -43,9 +43,9 @@ where, args, err := trans.Translate(ast)
 rows, err := conn.Query(ctx, "SELECT * FROM events WHERE "+where, args...)
 ```
 
-**Placeholders are numbered from `$1`,** counting up in the order the arguments are collected. A clause cannot be spliced into a query that
-already binds parameters without renumbering — build the whole `WHERE` from one `Translate` call, or append the returned args after your own
-and shift accordingly.
+**Placeholders are numbered from `$1`,** counting up in the order the arguments are collected. A clause cannot be spliced into a query that already
+binds parameters without renumbering — build the whole `WHERE` from one `Translate` call, or append the returned args after your own and shift
+accordingly.
 
 ## Operation mapping
 
@@ -66,34 +66,33 @@ and shift accordingly.
 | `field.size()` / `size(f)`   | `length("field")`                      |
 | `substring()`                | `filter.ErrUnsupportedOperation`       |
 
-`contains` and `startsWith` take the needle as a plain string — there is no LIKE pattern, so a `%` or `_` in the operand stays literal.
-`starts_with()` requires PostgreSQL 11 or newer. `size()` is rejected outside a comparison: `length()` is an integer expression, and on its own
-there is no predicate for `WHERE` to test.
+`contains` and `startsWith` take the needle as a plain string — there is no LIKE pattern, so a `%` or `_` in the operand stays literal. `starts_with()`
+requires PostgreSQL 11 or newer. `size()` is rejected outside a comparison: `length()` is an integer expression, and on its own there is no predicate
+for `WHERE` to test.
 
-**`endsWith` binds its operand twice.** PostgreSQL has no `endsWith`, so the needle both sizes the suffix and is compared to it. One CEL
-argument consumes two placeholders — `args` reflects that, and the numbering of everything after it shifts accordingly.
+**`endsWith` binds its operand twice.** PostgreSQL has no `endsWith`, so the needle both sizes the suffix and is compared to it. One CEL argument
+consumes two placeholders — `args` reflects that, and the numbering of everything after it shifts accordingly.
 
 ## Column names
 
-Field names are checked against `WithAllowedFields`, run through `WithFieldMapping`, validated as plain SQL identifiers, and emitted
-double-quoted per dot-separated segment: `address.city` becomes `"address"."city"`.
+Field names are checked against `WithAllowedFields`, run through `WithFieldMapping`, validated as plain SQL identifiers, and emitted double-quoted per
+dot-separated segment: `address.city` becomes `"address"."city"`.
 
-The validation is stricter than quoting requires: the column position is the one part of the generated SQL that no placeholder can cover, so
-anything that is not `[A-Za-z_][A-Za-z0-9_]*` (dot-separated) is rejected with `filter.ErrInvalidExpression`. To filter on a jsonb path or a
-computed value, map the CEL name onto a generated column.
+The validation is stricter than quoting requires: the column position is the one part of the generated SQL that no placeholder can cover, so anything
+that is not `[A-Za-z_][A-Za-z0-9_]*` (dot-separated) is rejected with `filter.ErrInvalidExpression`. To filter on a jsonb path or a computed value, map
+the CEL name onto a generated column.
 
-Quoting also pins the case. PostgreSQL folds unquoted identifiers to lower case, so an unquoted `createdAt` would resolve to the column
-`createdat`; quoted, it means exactly `createdAt`. Where the table uses snake_case, say so with `WithFieldMapping` rather than relying on
-folding.
+Quoting also pins the case. PostgreSQL folds unquoted identifiers to lower case, so an unquoted `createdAt` would resolve to the column `createdat`;
+quoted, it means exactly `createdAt`. Where the table uses snake_case, say so with `WithFieldMapping` rather than relying on folding.
 
 ## Types
 
 PostgreSQL is stricter than the other backends in this family:
 
-- A **bare identifier** used as a condition compiles to `"col" = TRUE` and requires an actual `boolean` column — there is no
-  integer-to-boolean coercion.
-- **`size()`** compiles to `length()`, which covers `text`. Array and `jsonb` columns need `cardinality()` and `jsonb_array_length()` instead,
-  so map those fields onto a generated column if you need to filter on their size.
+- A **bare identifier** used as a condition compiles to `"col" = TRUE` and requires an actual `boolean` column — there is no integer-to-boolean
+  coercion.
+- **`size()`** compiles to `length()`, which covers `text`. Array and `jsonb` columns need `cardinality()` and `jsonb_array_length()` instead, so map
+  those fields onto a generated column if you need to filter on their size.
 
 ## Null semantics
 
@@ -103,25 +102,24 @@ comparison yields NULL rather than true. Write `col != "x" || col == null` where
 
 ## Regular expressions
 
-`matches()` compiles to the case-sensitive POSIX operator `~`. PostgreSQL's engine backtracks, so a crafted pattern can be made expensive
-server-side. `filter.WithMaxRegexLength` bounds the blast radius but does not eliminate it — expose `matches()` to trusted callers, or tighten
-the cap. A `statement_timeout` is the reliable backstop.
+`matches()` compiles to the case-sensitive POSIX operator `~`. PostgreSQL's engine backtracks, so a crafted pattern can be made expensive server-side.
+`filter.WithMaxRegexLength` bounds the blast radius but does not eliminate it — expose `matches()` to trusted callers, or tighten the cap. A
+`statement_timeout` is the reliable backstop.
 
 ## Timestamps
 
-`timestamp(...)` literals bind as `time.Time` in the parameterized form and render as a UTC `TIMESTAMP WITH TIME ZONE` literal at microsecond
-precision inline.
+`timestamp(...)` literals bind as `time.Time` in the parameterized form and render as a UTC `TIMESTAMP WITH TIME ZONE` literal at microsecond precision
+inline.
 
 ## Inline rendering
 
-`TranslateInline` emits escape-string literals, `E'...'`. The prefix is what makes one escaping rule correct on any server: inside a plain
-`'...'` literal the backslash is an escape character only when `standard_conforming_strings` is off, so no plain-literal escaping is correct in
-both settings.
+`TranslateInline` emits escape-string literals, `E'...'`. The prefix is what makes one escaping rule correct on any server: inside a plain `'...'`
+literal the backslash is an escape character only when `standard_conforming_strings` is off, so no plain-literal escaping is correct in both settings.
 
 ## Concurrency
 
-A `Translator` accumulates per-call state (nesting depth, collected arguments) and is **not** safe for concurrent use. Construct one per
-goroutine, or guard it with a mutex.
+A `Translator` accumulates per-call state (nesting depth, collected arguments) and is **not** safe for concurrent use. Construct one per goroutine, or
+guard it with a mutex.
 
 ## Field operands
 

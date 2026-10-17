@@ -13,7 +13,7 @@ NATS-specific retry logic, implementing the `broker.Outboxer` interface.
 |-------------------|------------------------------------------------------------------------------------------|
 | `Outbox`          | Broker-specific adapter wrapping the generic `data/outbox.Outbox`                       |
 | `Publisher`       | Interface for message transmission to external brokers                                  |
-| `Store`           | Alias for `data/outbox.Storage` interface                                                 |
+| `Storage`         | Alias for `data/outbox.Storage` interface                                                |
 | `Event`           | Alias for `data/outbox.Event` type                                                      |
 | `Status`          | Alias for `data/outbox.Status` type                                                     |
 | `Stats`           | Alias for `data/outbox.Stats` snapshot                                                  |
@@ -29,15 +29,29 @@ event's own retries.
 ## Error classification
 
 A stored payload this adapter cannot decode is wrapped in `ErrUndeliverable`, and the retry predicate reports it as permanent so the event goes straight
-to `rejected` instead of consuming its whole retry budget. `nats.ErrConnectionClosed` and every other error stay transient and are retried with backoff.
+to `rejected` instead of consuming its whole retry budget. The predicate also reports `nats.ErrConnectionClosed` as permanent, so an event whose publish
+fails on a closed connection is rejected as well; every other error stays transient and is retried with backoff.
 
 ## Methods
 
 | Method        | Description                                                                                  |
 |---------------|----------------------------------------------------------------------------------------------|
-| `New`         | Create a new broker outbox adapter with a `Store`, `Publisher`, and options                   |
+| `New`         | Create a new broker outbox adapter with a `Storage`, `Publisher`, and options                 |
 | `Publish`     | Save a single message to the outbox store for later publishing                               |
 | `PublishBatch`| Save multiple messages to the outbox store in a single operation                             |
+
+The adapter also exposes these methods inherited from `data/outbox.Outbox`:
+
+| Method | Description |
+|--------|-------------|
+| `RegisterTasks(ctx)` | Register configured background schedules |
+| `RunDispatchCycle(ctx)` | Fetch and dispatch pending events once |
+| `RunUnlockCycle(ctx)` | Release stale event locks once |
+| `RunCleanupCycle(ctx)` | Delete old published events once |
+| `RunExpireCycle(ctx)` | Expire overdue events once |
+| `RunStatsCycle(ctx)` | Refresh backlog, dead-letter, and lag gauges once |
+| `RegisterDispatchSchedulerFunc`, `RegisterUnlockSchedulerFunc`, `RegisterCleanupSchedulerFunc`, `RegisterExpireSchedulerFunc`, `RegisterStatsSchedulerFunc` | Return scheduler callbacks and mark the corresponding cycles scheduler-managed |
+| `Watch(ctx)` | Dispatch on storage notifications; requires watcher support and supplements the dispatch schedule |
 
 ## Options
 
@@ -67,9 +81,9 @@ to `rejected` instead of consuming its whole retry budget. `nats.ErrConnectionCl
 | `WithStatsSchedule`           | Cron schedule for the stats cycle (refreshes the backlog gauges)         |
 | `With*TaskID`                 | Override a cycle's scheduler task ID — required when two outboxes share one scheduler |
 
-`WithMaxLockTime` must exceed `WithHandleTimeout`; a smaller value is raised at construction with a warning. Without `WithStatsSchedule` and
-`WithCollector` the backlog, dead-letter, and lag gauges stay at zero, which is indistinguishable from a healthy idle outbox — see
-[docs/metrics.md](../../../docs/metrics.md#outbox).
+`WithMaxLockTime` must exceed `WithHandleTimeout`; a smaller value is raised at construction with a warning. Without `WithCollector` and execution of
+the stats cycle (through `WithStatsSchedule`, a registered callback, or `RunStatsCycle`), the backlog, dead-letter, and lag gauges are not refreshed,
+which is indistinguishable from a healthy idle outbox — see [docs/metrics.md](../../../docs/metrics.md#outbox).
 
 ## Scheduler registration
 

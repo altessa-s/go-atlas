@@ -4,15 +4,17 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/static"
 ```
 
-Thin gRPC adapter over [`auth/static`](../../../../../auth/static). Re-exports the store types/options and provides `AuthFunc`, which
-translates `auth/static` sentinel errors into gRPC status codes for the parent [auth interceptor](..).
+Thin gRPC adapter over [`auth/static`](../../../../../auth/static). Re-exports the store types/options and provides `AuthFunc`, which translates
+`auth/static` sentinel errors into gRPC status codes for the parent [auth interceptor](..). Missing token credentials also yield
+`codes.Unauthenticated`; unknown store errors are not leaked to the client. Pass `WithAudit(recorder, subjectOf)` to record each authentication decision
+through an `auth/audit.Recorder`.
 
 ## Error mapping
 
 | `auth/static` error  | gRPC status code           |
 |----------------------|----------------------------|
-| `ErrInvalidToken`    | `codes.Unauthenticated`    |
-| `ErrEmptyToken`      | `codes.Unauthenticated`    |
+| `ErrTokenInvalid`    | `codes.Unauthenticated`    |
+| `ErrTokenEmpty`      | `codes.Unauthenticated`    |
 | `ErrRateLimited`     | `codes.ResourceExhausted`  |
 | anything else        | `codes.Internal`           |
 
@@ -66,8 +68,8 @@ interceptor := auth.ServerInterceptor(
 
 ### Rate limiting
 
-The decorator lives in `auth/static`; wire in an external limiter implementation (for example one backed by `data/limiters/tokenbucket`)
-through the consumer-side `RateLimiter` interface:
+The decorator lives in `auth/static`; wire in an external limiter implementation (for example one backed by `data/limiters/tokenbucket`) through the
+consumer-side `RateLimiter` interface:
 
 ```go
 store := static.NewRateLimitedStore(inner, myLimiter, func(ctx context.Context) string {
@@ -81,5 +83,5 @@ interceptor := auth.ServerInterceptor(
 
 ## Security notes
 
-See the [`auth/static` README](../../../../../auth/static/README.md) — the storage model, HMAC digest, and timing properties are inherited
-from that package.
+See the [`auth/static` README](../../../../../auth/static/README.md) — the storage model, HMAC digest, and timing properties are inherited from that
+package.

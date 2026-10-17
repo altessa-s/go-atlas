@@ -1,7 +1,7 @@
 # domain
 
-The `domain` directory groups packages for domain-layer data transformation, validation, protobuf utilities, and in-process
-coordination. These packages operate on plain Go structs and protobuf messages without depending on infrastructure concerns.
+The `domain` directory groups packages for domain-layer data transformation, validation, protobuf utilities, and in-process coordination. These packages
+operate on plain Go structs and protobuf messages without depending on infrastructure concerns.
 
 ## Subpackages
 

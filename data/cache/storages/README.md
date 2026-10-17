@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/cache/storages"
 ```
 
-Package `storages` defines the cache `Storage` interface and common errors. Implementations live in subpackages and are injected into the
-top-level `cache.Cache` to supply the underlying storage backend.
+Package `storages` defines the cache `Storage` interface and common errors. Implementations live in subpackages and are injected into the top-level
+`cache.Cache` to supply the underlying storage backend.
 
 ## Key types
 

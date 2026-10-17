@@ -4,8 +4,9 @@
 import "github.com/altessa-s/go-atlas/data/locks/dlock/providers/providertest"
 ```
 
-Contract suite for `providers.Provider` implementations. Every bundled lock backend runs it, and a custom one should too. A `Backend` is one
-isolated namespace from which several providers contend for the same keys, like replicas of one service.
+Contract suite for `providers.Provider` implementations. The NATS and SQL backends run it, as does the lease engine shared by the MongoDB and SQL
+providers; a custom coordinating backend should too (the no-op provider does not coordinate and does not satisfy it). A `Backend` is one isolated
+namespace from which several providers contend for the same keys, like replicas of one service.
 
 ## Contracts
 
@@ -25,8 +26,8 @@ isolated namespace from which several providers contend for the same keys, like 
 | `ExpiredLeaseIsTakenOver`  | An expired lease is taken over with a higher token; the stale holder cannot see or release it     |
 | `ExpiredLeaseStaysLost`    | Renewal does not revive an expired lease                                                          |
 
-The last two need `Backend.Expire`, which ages a lease out from under its holder, and are skipped without it. Providers should use a TTL of
-about a second: `Renewal` holds a lock for 2.5 TTLs.
+The last two need `Backend.Expire`, which ages a lease out from under its holder, and are skipped without it. Providers should use a TTL of about a
+second: `Renewal` holds a lock for 2.5 TTLs.
 
 ## Usage
 

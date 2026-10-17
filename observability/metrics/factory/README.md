@@ -4,9 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/metrics/factory"
 ```
 
-Package `factory` provides a fluent builder for creating metrics collectors from configuration.
-`CollectorBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
-Returns `metrics.Noop` when config is `nil` or metrics are disabled.
+Package `factory` provides a fluent builder for creating metrics collectors from configuration. `CollectorBuilder` uses deferred error accumulation —
+errors from any step are collected and returned at `Build()` time. Returns `metrics.Noop` when config is `nil` or metrics are disabled.
 
 ## Quick Start
 
@@ -36,6 +35,7 @@ collector, err := factory.New(cfg.Metrics).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Uses `slog.Default()` as the logger |
 
 ### Terminal
 

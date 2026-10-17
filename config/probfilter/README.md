@@ -13,6 +13,8 @@ by the component factories, which map them to generated options; runtime package
 |-------------------------------------|--------------------------------------------------------|
 | `Type`           | Defines the type of probabilistic filter to use.       |
 | `StorageType`    | Defines the storage backend for probabilistic filters. |
+| `Storage`        | Selects the storage backend for a specific filter.     |
+| `DefaultStorage` | Defines the default storage backend for filters.       |
 | `BloomDefaults`  | Defines default settings for Bloom filters.            |
 | `CuckooDefaults` | Defines default settings for Cuckoo filters.           |
 | `Defaults`       | Defines default settings for all filters.              |

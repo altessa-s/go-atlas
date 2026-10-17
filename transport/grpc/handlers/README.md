@@ -1,7 +1,7 @@
 # handlers
 
-gRPC service handlers for go-atlas. Each handler implements the `server.Handler` interface and registers its proto-generated service with
-a `grpc.Server`.
+gRPC service handlers for go-atlas. Each handler implements the `server.Handler` interface and registers its proto-generated service with a
+`grpc.Server`.
 
 ## Subpackages
 

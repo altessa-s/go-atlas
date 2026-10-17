@@ -4,9 +4,9 @@
 import sagasql "github.com/altessa-s/go-atlas/data/saga/storages/sqldb"
 ```
 
-Durable [`saga.Storage`](../../storage.go) on a SQL database through `database/sql`: PostgreSQL 12+ and MySQL 8.0+ / MariaDB 10.6+. The caller owns
-the `*sql.DB` and chooses the driver; the toolkit depends on no SQL driver. Each saga instance is one row keyed by its ID, and the row's `version`
-column is the optimistic-concurrency token, so `Update` rejects a stale writer with `errs.ErrVersionConflict`.
+Durable [`saga.Storage`](../../storage.go) on a SQL database through `database/sql`: PostgreSQL 12+ and MySQL 8.0+ / MariaDB 10.6+. The caller owns the
+`*sql.DB` and chooses the driver; this package imports no SQL driver. Each saga instance is one row keyed by its ID, and the row's `version` column is
+the optimistic-concurrency token, so `Update` rejects a stale writer with `errs.ErrVersionConflict`.
 
 ## Constructors
 
@@ -40,10 +40,10 @@ column is the optimistic-concurrency token, so `Update` rejects a stale writer w
 
 ## Schema
 
-Timestamps are `BIGINT` Unix nanoseconds (`0` for the zero time), so `LeaseUntil` round-trips at full precision. `pending_steps` and `steps` hold
-JSON, `data` the opaque payload. On MySQL/MariaDB every string column is a binary type (`VARBINARY`, `MEDIUMBLOB`, `LONGBLOB`), so IDs compare
-byte-wise whatever the server's character set; on PostgreSQL the ID is `VARCHAR(255) COLLATE "C"`. Two indexes back the recovery scan:
-`(status, lease_until)` and `(status, deadline)`. On PostgreSQL `EnsureSchema` runs in one transaction under an advisory lock on the table name.
+Timestamps are `BIGINT` Unix nanoseconds (`0` for the zero time), so `LeaseUntil` round-trips at full precision. `pending_steps` and `steps` hold JSON,
+`data` the opaque payload. On MySQL/MariaDB every string column is a binary type (`VARBINARY`, `MEDIUMBLOB`, `LONGBLOB`), so IDs compare byte-wise
+whatever the server's character set; on PostgreSQL the ID is `VARCHAR(255) COLLATE "C"`. Two indexes back the recovery scan: `(status, lease_until)` and
+`(status, deadline)`. On PostgreSQL `EnsureSchema` runs in one transaction under an advisory lock on the table name.
 
 ## Usage
 

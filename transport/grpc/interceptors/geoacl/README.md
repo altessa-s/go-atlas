@@ -4,14 +4,16 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/geoacl"
 ```
 
-Package `geoacl` provides gRPC interceptors for geographic access control.
-It enforces allow and deny rules per endpoint based on the client's geographic location.
+Package `geoacl` provides gRPC interceptors for geographic access control. It enforces allow and deny rules per endpoint based on the client's
+geographic location.
 
 ## Usage
 
 ```go
-registry := geoacl.NewRegistry(geoacl.PolicyDeny)
-registry.Register("/admin.AdminService/Delete", &geoacl.AccessRule{
+// Inside this module only; external services configure rules through the server factory.
+// import geopolicy "github.com/altessa-s/go-atlas/transport/internal/geoacl"
+registry := geopolicy.NewRegistry(geopolicy.PolicyDeny)
+registry.Register("/admin.AdminService/Delete", &geopolicy.AccessRule{
     AllowCountries: []string{"US", "CA"},
 })
 
@@ -21,8 +23,8 @@ interceptor := geoacl.ServerInterceptor(resolver, registry,
 )
 
 server := grpc.NewServer(
-    grpc.ChainUnaryInterceptor(interceptor.Unary()),
-    grpc.ChainStreamInterceptor(interceptor.Stream()),
+    grpc.ChainUnaryInterceptor(interceptor.ServerUnaryInterceptor()),
+    grpc.ChainStreamInterceptor(interceptor.ServerStreamInterceptor()),
 )
 ```
 
@@ -32,14 +34,18 @@ server := grpc.NewServer(
 |--------|-------------|
 | `WithFallbackBehavior` | Action when geo resolution fails (default: deny) |
 | `WithLogger` | Logger for debug output |
-| `WithMetrics` | Metrics collector for access decisions |
+| `WithIgnoreMethods` | Exact full method names to skip |
+| `WithIgnorePatterns` | Regex patterns for methods to skip (default: reflection and health) |
 
 ## Key Types
+
+`Registry`, `AccessRule`, `GeoResolver` and `NewRegistry` come from the module-internal [`transport/internal/geoacl`](../../../internal/geoacl) package;
+services outside the module configure them through the [server factory](../../server/factory).
 
 | Type | Description |
 |------|-------------|
 | `Registry` | Manages per-endpoint geographic access rules |
-| `AccessRule` | Defines allow/deny lists for countries |
+| `AccessRule` | Defines allow/deny lists for continents, countries, and regions |
 | `GeoResolver` | Interface for IP-to-country resolution |
 | `ServerInterceptor` | Combined unary/stream interceptor |
 
@@ -49,4 +55,3 @@ server := grpc.NewServer(
 - Support for both allow and deny lists
 - Configurable fallback behavior
 - Integration with real IP detection
-- Metrics for monitoring access patterns

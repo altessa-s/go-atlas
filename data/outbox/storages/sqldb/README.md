@@ -5,8 +5,8 @@ import outboxsql "github.com/altessa-s/go-atlas/data/outbox/storages/sqldb"
 ```
 
 Package `sqldb` implements `outbox.Storage` on a SQL database through the standard `database/sql` package. The caller owns the `*sql.DB` and picks the
-driver; go-atlas itself depends on no SQL driver. It mirrors the [MongoDB store](../mongo): database-clock time predicates, lock-token fencing, and
-the same lifecycle.
+driver; this package imports no SQL driver. It mirrors the [MongoDB store](../mongo): database-clock time predicates, lock-token fencing, and the
+same lifecycle.
 
 ## Dialects
 
@@ -23,9 +23,9 @@ Both need `FOR UPDATE SKIP LOCKED`, which sets the version floors. On MySQL any 
 |-----------------|-----------------|-----------------------------------------------------------------------|
 | `WithTableName` | `events_outbox` | Events table; may be qualified as `schema.name` (≤ 63 chars per part) |
 
-`New` performs no I/O. `EnsureSchema(ctx)` creates the table and its indexes if they do not exist; it is idempotent, bounded by `ctx`, and safe
-to run from several instances at once (on PostgreSQL the DDL runs in one transaction under an advisory lock on the table name). Call it once at
-startup, or apply the same DDL through your migration tool:
+`New` performs no I/O. `EnsureSchema(ctx)` creates the table and its indexes if they do not exist; it is idempotent, bounded by `ctx`, and safe to run
+from several instances at once (on PostgreSQL the DDL runs in one transaction under an advisory lock on the table name). Call it once at startup, or
+apply the same DDL through your migration tool:
 
 ```go
 store, err := outboxsql.New(db, outboxsql.DialectPostgres)
@@ -66,16 +66,15 @@ All time-based predicates — retry backoff, lock expiry, retention, expiration 
 `UTC_TIMESTAMP(6)` on MySQL), and the timestamps they compare against (`locked_on`, `last_attempt_on`, `next_attempt_at`, `published_at`) are written
 from it. Durations, never client instants, cross the process boundary, so instances with skewed clocks agree on what is due, stuck or expired.
 
-MySQL `DATETIME(6)` columns hold UTC. Client-supplied instants (`CreatedAt`, `ExpiresAt`) are bound as UTC strings and read back through
-`DATE_FORMAT`, never as `time.Time`: go-sql-driver/mysql converts a bound `time.Time` into its `loc` and parses `DATETIME` in it, which would shift
-every instant for a DSN with `loc` other than UTC.
+MySQL `DATETIME(6)` columns hold UTC. Client-supplied instants (`CreatedAt`, `ExpiresAt`) are bound as UTC strings and read back through `DATE_FORMAT`,
+never as `time.Time`: go-sql-driver/mysql converts a bound `time.Time` into its `loc` and parses `DATETIME` in it, which would shift every instant for a
+DSN with `loc` other than UTC.
 
 ## Locking and fencing
 
 `FetchUnprocessedEvents` selects ready events oldest first (`ORDER BY created_at, seq`) `FOR UPDATE SKIP LOCKED` and marks them `in-progress` with a
 fresh `lock_token` in one transaction, so concurrent dispatchers take disjoint batches without waiting on each other. `UpdateEvents` writes an event
-only while its stored token still matches; a dispatcher whose lease the unlock sweeper reclaimed writes nothing. Unlocking and expiring clear the
-token.
+only while its stored token still matches; a dispatcher whose lease the unlock sweeper reclaimed writes nothing. Unlocking and expiring clear the token.
 
 ## Schema
 
@@ -90,8 +89,8 @@ token.
 | `lock_token` | `VARCHAR(64)`  | `VARBINARY(64)`  | Fencing token of the current lease                                                            |
 | timestamps   | `TIMESTAMPTZ`  | `DATETIME(6)`    | `created_at`, `locked_on`, `last_attempt_on`, `next_attempt_at`, `published_at`, `expires_at` |
 
-Indexes: `(status, created_at, seq)` for fetching, `(status, locked_on)` for the unlock sweep, `(status, published_at)` for retention. MySQL string
-columns are binary types, so storage and comparison never depend on the database's default character set.
+Indexes: `(status, created_at, seq)` for fetching, `(status, locked_on)` for the unlock sweep, `(status, published_at)` for retention. On MySQL every
+string column except the fixed-vocabulary `status` is a binary type, so storage and comparison never depend on the database's default character set.
 
 ## Watch
 
@@ -101,10 +100,10 @@ dispatch runs on the poll schedule.
 ## Factories
 
 `data/outbox/factory.OutboxBuilder.BuildWithSQLDB(db, dialect, handler)` and
-`transport/broker/factory.BrokerBuilder.CreateOutboxWithSQLDB(db, dialect, publisher)` build an outbox over this store. They run `EnsureSchema`
-only when the outbox config sets `ensureSchema: true` (default `false`); otherwise the table must already exist.
+`transport/broker/factory.BrokerBuilder.CreateOutboxWithSQLDB(db, dialect, publisher)` build an outbox over this store. They run `EnsureSchema` only
+when the outbox config sets `ensureSchema: true` (default `false`); otherwise the table must already exist.
 
 ## Testing
 
-The outbox integration scenarios in [`tests/integration/outboxit`](../../../../tests/integration/outboxit) run against PostgreSQL, MariaDB and MySQL
-as well as MongoDB.
+The outbox integration scenarios in [`tests/integration/outboxit`](../../../../tests/integration/outboxit) run against PostgreSQL, MariaDB and MySQL as
+well as MongoDB.

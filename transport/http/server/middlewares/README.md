@@ -4,10 +4,11 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 ```
 
-Package `middlewares` provides HTTP middleware interfaces, utilities, and dependency-based ordering. All chainable middlewares implement
-the `Middleware` interface which provides `Name()` for identification and `Handler()` for wrapping an `http.Handler`. `BaseMiddleware`
-is an embeddable struct providing path filtering, logging helpers, and response-writer wrapping. `Chain` collects middlewares and applies
-them to a final handler with topological ordering and deduplication. `ConditionalMiddleware` enables runtime toggling.
+Package `middlewares` provides HTTP middleware interfaces, utilities, and dependency-based ordering. All chainable middlewares implement the
+`Middleware` interface which provides `Name()` for identification and `Handler()` for wrapping an `http.Handler`. `BaseMiddleware` is an embeddable
+struct providing path filtering, logging helpers, and response-writer wrapping. `Chain` collects middlewares and `Then` applies them to a final handler
+in insertion order; `Ordered` returns a dependency-sorted copy to apply instead (rejecting duplicate names) and `OrderedWithDedupe` drops duplicates
+before sorting. `ConditionalMiddleware` applies a middleware only to requests accepted by a `Matcher`.
 
 ## Key types
 
@@ -16,17 +17,18 @@ them to a final handler with topological ordering and deduplication. `Conditiona
 | `Middleware`            | Interface: `Name() string` + `Handler(http.Handler) http.Handler`              |
 | `BaseMiddleware`        | Embeddable struct with path filtering, logging, and response-writer wrapping   |
 | `Chain`                 | Middleware collection with dependency ordering, deduplication, and clone/extend |
-| `ConditionalMiddleware` | Wraps a middleware with a runtime toggle for conditional activation             |
+| `ConditionalMiddleware` | Function wrapping a middleware with a `Matcher` evaluated on every request      |
 
 ## Middleware Identity
 
-Every middleware sub-package exports three identification helpers:
+Every chainable middleware sub-package exports two package-level identification helpers, and its middleware type declares ordering through methods:
 
-| Export      | Type                | Purpose                                                              |
-|-------------|---------------------|----------------------------------------------------------------------|
-| `Name()`    | `func() string`     | Returns the middleware name as a plain string                        |
-| `ID`        | `Middleware`         | Lightweight typed reference for factory exclusion lists (`cors.ID`)  |
-| Dependencies | `[]string`         | Uses sibling `Name()` calls instead of string literals               |
+| Export                           | Type                | Purpose                                                                              |
+|----------------------------------|---------------------|--------------------------------------------------------------------------------------|
+| `Name()`                         | `func() string`     | Returns the middleware name as a plain string                                        |
+| `ID`                             | `Middleware`        | Lightweight typed reference for factory exclusion lists (`cors.ID`)                  |
+| `Dependencies()` method          | `[]string`          | Optional predecessors, built from sibling `Name()` calls instead of string literals  |
+| `RequiredDependencies()` method  | `[]string`          | Predecessors that must be present in the chain                                       |
 
 ## Subpackages
 

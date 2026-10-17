@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/data/locks/dlock/providers/sqldb"
 ```
 
-SQL provider for [dlock](../../README.md) on PostgreSQL 12+ and MySQL 8.0+ / MariaDB 10.6+ through `database/sql`. Each lock key is one lease row,
-taken by a conditional write, renewed in the background and released when the lock's context ends. Lease expiry is judged by the database clock,
-and every acquisition increments a fencing token. The caller owns the `*sql.DB` and registers the driver.
+SQL provider for [dlock](../../README.md) on PostgreSQL 12+ and MySQL 8.0+ / MariaDB 10.6+ through `database/sql`. Each lock key is one lease row, taken
+by a conditional write, renewed in the background and released when the lock's context ends. Lease expiry is judged by the database clock, and every
+acquisition increments a fencing token. The caller owns the `*sql.DB` and registers the driver.
 
 ## Constructors
 

@@ -4,9 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/responder"
 ```
 
-Package `responder` provides unified error response handling for HTTP middleware and handlers. Enables middleware to write structured
-error responses using the same writer + builder pattern as handlers, regardless of whether they call `http.Error` or the explicit
-`WriteError` helper.
+Package `responder` provides unified error response handling for HTTP middleware and handlers. Enables middleware to write structured error responses
+using the same writer + builder pattern as handlers, regardless of whether they call `http.Error` or the explicit `WriteError` helper.
 
 ## Key types
 

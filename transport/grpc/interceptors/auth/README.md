@@ -5,8 +5,8 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 ```
 
 Package `auth` provides gRPC interceptors for token-based authentication and scope-based authorization. ServerInterceptor validates tokens via a
-pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metadata. `ScopeClientAuth` enforces the method→scope policy held in
-an [`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/scope.Enforcer`.
+pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metadata. `ScopeClientAuth` enforces the method→scope policy held in an
+[`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/scope.Enforcer`.
 
 ## Key types
 
@@ -18,8 +18,12 @@ an [`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/sc
 | `TokenExtractor`  | Interface for extracting tokens from context (default: Bearer from metadata) |
 | `TokenProvider`   | Interface for providing tokens in outgoing client requests                    |
 | `ScopeClientAuth` | `ClientAuth` adapter that enforces an `auth/scope.Enforcer`                   |
+| `ScopeClientAuthPrincipal` / `WithScopeAudit` | `ScopeClientAuth` for `principal.Principal`; option recording each decision via `auth/audit.Recorder` |
+| `ErrPrincipalTypeMismatch` | Wrapped when `Credentials.Data` is not the enforcer's principal type   |
 | `Credentials`     | Authenticated credentials with headers and custom data                       |
 | `Request`         | Authentication request with method, token, and metadata                      |
+| `ExtractBearerToken` / `ExtractTokenFromHeader` | Built-in `TokenExtractor` constructors                  |
+| `StaticTokenProvider` | `TokenProvider` returning a fixed token for `ClientInterceptor`              |
 
 ## Server options
 
@@ -34,9 +38,8 @@ an [`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/sc
 
 No method is exempt by default — gRPC health and reflection included. Exempt only what must be public, with exact full method names
 (`WithIgnoreMethods("/grpc.health.v1.Health/Check")`) or patterns anchored at both ends (`(?i)^/grpc\.health\.v1\.Health/(Check|Watch)$`). The
-reflection and health exemptions applied by default before are available as an explicit opt-in:
-`auth.WithIgnorePatterns(defaults.IgnorePatterns...)` (package [`defaults`](../defaults)); note that its health pattern also matches any
-service whose name starts with `grpc.health.v1.Health`.
+reflection and health exemptions applied by default before are available as an explicit opt-in: `auth.WithIgnorePatterns(defaults.IgnorePatterns...)`
+(package [`defaults`](../defaults)); note that its health pattern also matches any service whose name starts with `grpc.health.v1.Health`.
 
 ## Client options
 
@@ -49,5 +52,6 @@ service whose name starts with `grpc.health.v1.Health`.
 
 | Package              | Description                                      |
 |----------------------|--------------------------------------------------|
+| [mtls](./mtls)       | Mutual-TLS peer certificate adapter over [`auth/mtls`](../../../../auth/mtls) |
 | [oidc](./oidc)       | OIDC token validation and claims extraction       |
 | [static](./static)   | Static token/API key adapter over [`auth/static`](../../../../auth/static) |

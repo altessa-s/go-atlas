@@ -27,7 +27,7 @@ freecache, LRU, noop). Supports per-method configuration, decision functions, ke
 | `WithDefaultTTL`        | 5m                             | Default cache TTL (1s to 24h)                     |
 | `WithKeyGenerator`      | `NewKeyGenerator(nil, nil)`    | Custom cache key generation function              |
 | `WithCacheDecision`     | success-only with default TTL  | Custom caching decision function (receives req)   |
-| `WithSerializer`        | JSON                           | Response serialization format                     |
+| `WithSerializer`        | protobuf (`DefaultSerializer`) | Response serialization format                     |
 | `WithCompression`       | none                           | Gzip compression with custom size/level settings  |
 | `WithCompressionPreset` | none                           | Predefined compression preset (Fast/Balanced/Best) |
 | `WithCacheHeaders`      | true                           | Add `x-cache` hit/miss headers to responses       |
@@ -40,10 +40,10 @@ freecache, LRU, noop). Supports per-method configuration, decision functions, ke
 
 ## Cache keys
 
-The default generator is built once per interceptor and snapshots `DefaultMetadataKeys` at construction time. Every hashed component (method,
-request bytes, metadata keys and values, processor output) is written as tag + length + payload, so distinct inputs cannot collide by
-concatenation (for example `tenant-id=["auser-idb"]` versus `tenant-id=["a"], user-id=["b"]`). This framing changed the key format: entries
-written by earlier versions are no longer hit and expire on their TTL. When key generation fails the call bypasses the cache entirely.
+The default generator is built once per interceptor and snapshots `DefaultMetadataKeys` at construction time. Every hashed component (method, request
+bytes, metadata keys and values, processor output) is written as tag + length + payload, so distinct inputs cannot collide by concatenation (for example
+`tenant-id=["auser-idb"]` versus `tenant-id=["a"], user-id=["b"]`). This framing changed the key format: entries written by earlier versions are no
+longer hit and expire on their TTL. When key generation fails the call bypasses the cache entirely.
 
 ## Subpackages
 

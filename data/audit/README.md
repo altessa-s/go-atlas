@@ -4,14 +4,12 @@
 import "github.com/altessa-s/go-atlas/data/audit"
 ```
 
-Package `audit` provides high-performance, asynchronous user action auditing
-with at-least-once delivery semantics.
+Package `audit` provides high-performance, asynchronous user action auditing. Delivery guarantees come from the dispatcher: a WAL-backed engine gives
+durable delivery, a volatile one can drop events when full — check `Emit` for admission failures.
 
-Auditor is a thin facade over a `Dispatcher` (typically `dispatch.Engine`).
-The caller creates and starts the dispatch engine, then passes it to `New`.
-Events flow through the engine's pipeline: channel buffer, worker pool, batch
-buffer, and storage write with exponential-backoff retry. Zero impact on
-request latency.
+Auditor is a thin facade over a `Dispatcher` (typically `dispatch.Engine`). The caller creates and starts the dispatch engine, then passes it to `New`.
+Events flow through the engine's pipeline: channel buffer, worker pool, batch buffer, and storage write with exponential-backoff retry. Storage writes
+run off the request path; submission itself runs in the caller and can block on a WAL append or configured back-pressure.
 
 ## Key types
 
@@ -23,13 +21,16 @@ request latency.
 | `StorageSink`    | Adapts `Storage` to `dispatch.Sink` for engine construction    |
 | `JSONCodec`      | Default `dispatch.Codec` for WAL durability (JSON)             |
 | `Event`          | Single audit event with full context                           |
-| `EventType`      | Category: api.request, business.event, data.change, auth       |
+| `EventType`      | Category: api.request, business.event, data.change, auth, system |
 | `Action`         | Operation: create, read, update, delete, execute, login, etc.  |
 | `Actor`          | Entity performing an action (user, service, api_key, etc.)     |
 | `Resource`       | Target of the action with optional change tracking             |
 | `Result`         | Outcome with status, code, message, and error details          |
+| `EventBuilder`   | Fluent builder returned by `Auditor.NewEvent`                  |
+| `NewContext`, `FromContext` | Carry an `*Auditor` in a `context.Context`          |
 | `Query`          | Filter criteria, page size and page token for querying events  |
 | `FetchPage`      | Returns one page of events and the token of the next page      |
+| `Page`           | One page of results: `Events` and the `Next` page token        |
 | `PageTokens`     | Signs and verifies page tokens (built on `data/keyset`)        |
 | `Cursor`         | Position in the (timestamp milliseconds, ID) order             |
 
@@ -43,15 +44,14 @@ request latency.
 | `WithMetricsSubsystem`  | `"audit"` | Override the metrics subsystem name               |
 | `WithShutdownHooks`     | process   | Scope `Start` registers its shutdown into         |
 
-Dispatch-level options (buffer, batch, workers, retries, WAL) are configured
-on the `dispatch.Engine` — see [service/dispatch](../../service/dispatch).
+Dispatch-level options (buffer, batch, workers, retries, WAL) are configured on the `dispatch.Engine` — see [service/dispatch](../../service/dispatch).
 
 ### Shutdown scope
 
-By default `Start` registers the auditor's shutdown in the process-wide registry (`core/runtime.OnShutdown`), which runs once for the whole program —
-an auditor registered there cannot be stopped on its own. Pass a
-[`runtime.HookGroup`](../../core/runtime) when the auditor's lifetime is shorter than the process's, e.g. when a factory owns it and the caller may
-tear the subsystem down and rebuild it:
+By default `Start` registers the auditor's shutdown in the process-wide registry (`core/runtime.OnShutdown`), which runs once for the whole program — an
+auditor registered there cannot have its hook run on its own (call `Auditor.Shutdown(ctx)` directly to stop it). Pass a
+[`runtime.HookGroup`](../../core/runtime) when the auditor's lifetime is shorter than the process's, e.g. when a factory owns it and the caller may tear
+the subsystem down and rebuild it:
 
 ```go
 var hooks runtime.HookGroup
@@ -64,8 +64,8 @@ _ = hooks.Shutdown(ctx) // stops this auditor, leaves the process running
 
 ## Paging
 
-Queries page with signed keyset tokens instead of offsets. Every storage orders events by timestamp (milliseconds) then ID, newest first
-unless `SortOrder` is ascending, so a position is unambiguous even when events share a millisecond.
+Queries page with signed keyset tokens instead of offsets. Every storage orders events by timestamp (milliseconds) then ID, newest first unless
+`SortOrder` is ascending, so a position is unambiguous even when events share a millisecond.
 
 ```go
 codec, _ := keyset.New(signingKey) // ≥ 32 bytes, the same on every replica
@@ -76,8 +76,8 @@ page, err := audit.FetchPage(ctx, storage, tokens, audit.Query{ActorID: "u1", Li
 ```
 
 - `FetchPage` resolves `Query.After` into `Query.Cursor`, which storages honor; storages never see tokens.
-- A token is bound to the filter, the sort order and `Subject` (the caller): replaying it under another filter, order or principal fails
-  with `keyset.ErrFilterChanged`, `ErrSortChanged` or `ErrSubjectMismatch`. The page size is not bound. Tokens expire after 24h by default.
+- A token is bound to the filter, the sort order and `Subject` (the caller): replaying it under another filter, order or principal fails with
+  `keyset.ErrFilterChanged`, `ErrSortChanged` or `ErrSubjectMismatch`. The page size is not bound. Tokens expire after 24h by default.
 - Continuation is keyset-based, not a snapshot: events inserted ahead of the position appear on later pages, events behind it do not.
 - `Count` counts every event matching the filter; the page position, size and order are ignored.
 - `Query.Offset` was removed: offset paging skipped or repeated events under concurrent inserts and scanned the skipped rows.

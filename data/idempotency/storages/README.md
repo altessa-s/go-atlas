@@ -32,6 +32,6 @@ an `UpdateOne` filtered on the stored bytes for MongoDB).
 ## Release contract
 
 Implementations must atomically compare the ownership token and remove the matching entry in `Release(ctx, key, lockToken)`. A read followed by
-unconditional `Delete` is insufficient. Memory uses its mutex, Redis uses compare-and-delete Lua, NATS uses `kv.Delete` with
-`jetstream.LastRevision`, and MongoDB uses a `DeleteOne` filtered on the stored bytes. Missing tokens fail with `ErrMissingLockState`; a missing or
-replaced entry fails with `ErrLockStolen`.
+unconditional `Delete` is insufficient. Memory uses its mutex, Redis uses compare-and-delete Lua, NATS uses `kv.Delete` with `jetstream.LastRevision`,
+and MongoDB uses a `DeleteOne` filtered on the stored bytes. Missing tokens fail with `ErrMissingLockState`; a missing or replaced entry fails with
+`ErrLockStolen`.

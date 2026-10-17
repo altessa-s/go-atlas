@@ -4,8 +4,7 @@
 import "github.com/altessa-s/go-atlas/config/internal/validators"
 ```
 
-Internal package `validators` provides custom [ozzo-validation](https://github.com/go-ozzo/ozzo-validation) rules
-for configuration fields.
+Internal package `validators` provides custom [ozzo-validation](https://github.com/go-ozzo/ozzo-validation) rules for configuration fields.
 
 > **Note:** This is an internal package. API may change without notice.
 

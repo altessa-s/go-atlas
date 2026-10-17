@@ -13,4 +13,4 @@ Package `sampler` provides sampling strategies for distributed tracing. Samplers
 | `AlwaysOn`               | Sample every trace                                           |
 | `AlwaysOff`              | Drop every trace                                             |
 | `NewTraceIDRatio(ratio)` | Deterministic percentage based on trace ID                   |
-| `NewParentBased(fallback)` | Defer to parent's sampling decision; use fallback for roots |
+| `NewParentBased(root, opts...)` | Defer to parent's sampling decision; use `root` for root spans; `With*Parent*` options override per parent kind |

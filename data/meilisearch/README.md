@@ -6,7 +6,7 @@ import "github.com/altessa-s/go-atlas/data/meilisearch"
 
 Thin wrapper around the [meilisearch-go](https://github.com/meilisearch/meilisearch-go) SDK that adds context propagation everywhere, structured
 logging, sentinel-error classification, and an idempotent index-setup helper. Designed for use behind the configuration-driven
-[infrastructure/meilisearch/factory](../../infrastructure/meilisearch/factory) builder, but the [Client] is usable standalone too.
+[infrastructure/meilisearch/factory](../../infrastructure/meilisearch/factory) builder, but the `Client` is usable standalone too.
 
 ## Quick Start
 
@@ -43,11 +43,13 @@ err = client.SetupIndexes(ctx, []meilisearch.IndexDefinition{
 
 ## Methods
 
+`Client` implements `MeilisearchClient`, the interface domain code should depend on instead of the concrete type.
+
 ### Client lifecycle
 
 | Method                         | Description                                                       |
 |--------------------------------|-------------------------------------------------------------------|
-| `New(ctx, host, opts...)`      | Creates a [Client] and synchronously probes `/health`             |
+| `New(ctx, host, opts...)`      | Creates a `Client` and synchronously probes `/health`             |
 | `Client.Health(ctx)`           | Pings the server                                                  |
 | `Client.Close()`               | Releases idle HTTP connections                                    |
 
@@ -60,24 +62,25 @@ err = client.SetupIndexes(ctx, []meilisearch.IndexDefinition{
 | `Client.UpdateIndexSettings(ctx, name, settings)`             | Update searchable / filterable / sortable attrs; waits for the task |
 | `Client.SetupIndexes(ctx, defs)`                              | Bulk idempotent EnsureIndex over a slice of definitions      |
 | `Client.SwapIndexes(ctx, pairs...)`                           | Atomically swap document sets of `SwapPair`s in one task; returns task UID (errors on zero pairs) |
+| `Client.DeleteIndex(ctx, name)`                               | Delete an index; returns task UID, or `0, nil` when it is already absent |
 
 ### Documents
 
 | Method                                                            | Description                                                |
 |-------------------------------------------------------------------|------------------------------------------------------------|
 | `Client.IndexDocuments(ctx, index, docs)`                         | Add or update documents; returns task UID                  |
-| `Client.DeleteDocument(ctx, index, id)`                           | Delete single document                                      |
+| `Client.DeleteDocument(ctx, index, id)`                           | Delete single document; returns task UID                   |
 | `Client.DeleteDocuments(ctx, index, ids)`                         | Delete by ID list                                          |
 | `Client.DeleteDocumentsByFilter(ctx, index, filter)`              | Delete by Meilisearch filter expression (see SECURITY)     |
 | `Client.FetchDocuments(ctx, index, filter, offset, limit)`        | Paginated fetch by filter; returns `*FetchResult` with raw hits and total (see SECURITY) |
 | `Client.GetAllDocumentIDs(ctx, index)`                            | Paginated ID list (default `"id"` primary key)             |
 | `Client.GetAllDocumentIDsWithPrimaryKey(ctx, index, key)`         | Same, but with an explicit primary-key field name          |
-| `Client.Search(ctx, req)`                                         | Full-text search; returns `[]json.RawMessage` hits         |
+| `Client.Search(ctx, req)`                                         | Full-text search; returns `*SearchResult` with raw JSON hits and estimated total |
 
 ### Tasks
 
-Write methods (`IndexDocuments`, `DeleteDocuments`, `SwapIndexes`, …) are fire-and-forget: they return a Meilisearch task UID. Await completion
-with `WaitForTask`.
+Write methods (`IndexDocuments`, `DeleteDocuments`, `SwapIndexes`, …) are fire-and-forget: they return a Meilisearch task UID. Await completion with
+`WaitForTask`.
 
 | Method                                          | Description                                                                                  |
 |-------------------------------------------------|----------------------------------------------------------------------------------------------|
@@ -91,24 +94,26 @@ with `WaitForTask`.
 | `ErrIndexAlreadyExists`  | `IsErrorIndexAlreadyExists(err)`   | `index_already_exists`     |
 | `ErrTaskFailed`          | `errors.Is(err, ErrTaskFailed)`    | task terminal status ≠ `succeeded` |
 
-Both `errors.Is(err, ErrIndexNotFound)` and `IsErrorIndexNotFound(err)` work — the latter exists for backward compatibility and they always agree.
+Use the predicates to classify API errors: they match the sentinel or the raw SDK error code. Methods return the SDK error wrapped as is (the sentinels
+only drive internal decisions such as `IndexExists` and `DeleteIndex` treating a missing index as absent), so `errors.Is(err, ErrIndexNotFound)` can
+report false where `IsErrorIndexNotFound(err)` reports true.
 
 ## Security
 
 ### Filter expressions
 
-`Client.DeleteDocumentsByFilter` and `SearchRequest.Filter` pass the filter string through to Meilisearch unchanged. Meilisearch filters are a DSL,
-not SQL, but they still support field comparisons and boolean composition — building a filter from concatenated user input lets an attacker widen
-the scope (e.g. `tenant_id = 'their_id' OR true` deletes the whole index). Construct filters via a trusted DSL builder, escape values, or restrict
-the caller's role at the API-key level.
+`Client.DeleteDocumentsByFilter` and `SearchRequest.Filter` pass the filter string through to Meilisearch unchanged. Meilisearch filters are a DSL, not
+SQL, but they still support field comparisons and boolean composition — building a filter from concatenated user input lets an attacker widen the scope
+(e.g. `tenant_id = 'their_id' OR true` deletes the whole index). Construct filters via a trusted DSL builder, escape values, or restrict the caller's
+role at the API-key level.
 
 ### PII in logs
 
-`Client.Search` and `Client.FetchDocuments` do NOT log the query / filter — they can carry email addresses, names, or other PII. Use
-Meilisearch's server-side request logging if you need them for debugging.
+`Client.Search` and `Client.FetchDocuments` do NOT log the query / filter — they can carry email addresses, names, or other PII. Use Meilisearch's
+server-side request logging if you need them for debugging.
 
-`Client.DeleteDocumentsByFilter` does log the filter at Debug level (operator-visible). Treat the Debug log as containing whatever values the
-filter encodes.
+`Client.DeleteDocumentsByFilter` does log the filter at Debug level (operator-visible). Treat the Debug log as containing whatever values the filter
+encodes.
 
 ## TLS
 

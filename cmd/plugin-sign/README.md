@@ -43,8 +43,9 @@ RSA-PSS (default 3072 bits, range 2048–4096):
 plugin-sign keygen -alg rsa -rsa-bits 3072 -priv-out private.pem -pub-out public.pem
 ```
 
-By default `keygen` refuses to overwrite existing files — pass `-force` to replace them. The private key is written with mode `0600`; the public
-key with `0644`. Output format: PKCS#8 PEM for the private half, PKIX PEM for the public half — directly consumable by `sign`/`verify`.
+By default `keygen` refuses to overwrite existing files — pass `-force` to replace them. New private key files are created with mode `0600`; new public
+key files with `0644` (subject to umask). With `-force`, existing file permissions are preserved. Output format: PKCS#8 PEM for the private half, PKIX
+PEM for the public half — directly consumable by `sign`/`verify`.
 
 #### Alternative: openssl
 
@@ -105,11 +106,10 @@ plugin-sign verify -pubkey public.pem -dir ./plugins
 1. **Keygen**: Produces a key pair. Private half is `x509.MarshalPKCS8PrivateKey` wrapped in a `PRIVATE KEY` PEM block; public half is
    `x509.MarshalPKIXPublicKey` wrapped in a `PUBLIC KEY` PEM block.
 
-2. **Signing**: Reads the plugin file, computes SHA-256 hash, signs the hash with the private key, and writes raw signature bytes to a
-   `.sig` file.
+2. **Signing**: Reads the plugin file, computes SHA-256 hash, signs the hash with the private key, and writes raw signature bytes to a `.sig` file.
 
-3. **Verification**: Reads both the plugin and its `.sig` file, computes the plugin's SHA-256 hash, and verifies the signature matches using
-   the public key.
+3. **Verification**: Reads both the plugin and its `.sig` file, computes the plugin's SHA-256 hash, and verifies the signature matches using the public
+   key.
 
 4. **File convention**: For each `plugin.so`, the signature is stored in `plugin.so.sig` in the same directory.
 
@@ -125,8 +125,8 @@ import (
 // Configure manager with public key
 mgr := plugins.NewManager(
     plugins.WithSignature(plugins.SignatureOptions{
-        Mode:      plugins.SignatureRequire,
-        PublicKey: publicKeyPEM,
+        Mode:          plugins.SignatureRequire,
+        PublicKeyPath: "public.pem", // or PublicKey: a parsed crypto.PublicKey
     }),
     plugins.WithDir("./plugins"),
 )
@@ -158,10 +158,11 @@ RUN plugin-sign sign -key /keys/private.pem -dir /app/plugins
 
 ## Security Considerations
 
-1. **Protect private keys**: Never commit private keys to version control. `keygen` writes the private file with `0600` to start, but storage
-   and transport are your responsibility — use secrets management.
+1. **Protect private keys**: Never commit private keys to version control. `keygen` writes the private file with `0600` to start, but storage and
+   transport are your responsibility — use secrets management.
 
-2. **Key rotation**: Periodically rotate signing keys. The plugin manager can be configured with multiple public keys during transition.
+2. **Key rotation**: Periodically rotate signing keys. The plugin manager accepts multiple public keys during transition
+   (`plugins.WithMultiKeySignature`).
 
 3. **Algorithm choice**: Ed25519 is recommended for its security, performance, and small key/signature sizes.
 
@@ -172,8 +173,8 @@ RUN plugin-sign sign -key /keys/private.pem -dir /app/plugins
 | Code | Meaning |
 |------|---------|
 | `0`  | Success |
-| `1`  | Runtime error (signing/verification failed, key load failed, I/O error) |
-| `2`  | Usage error (unknown command, missing required flags, etc.) |
+| `1`  | Subcommand error, including runtime failures, invalid flags, missing required flags, and subcommand help |
+| `2`  | Missing or unknown command |
 
 ## Examples
 
@@ -214,8 +215,7 @@ plugin-sign verify -pubkey public.pem -dir ./plugins || exit 1
 
 ## Migrating from the previous CLI
 
-The previous release used a flag-only interface with `-verify` as a mode toggle. The verb-style CLI is a breaking change — update scripts as
-follows:
+The previous release used a flag-only interface with `-verify` as a mode toggle. The verb-style CLI is a breaking change — update scripts as follows:
 
 | Before                                              | After                                           |
 |-----------------------------------------------------|-------------------------------------------------|

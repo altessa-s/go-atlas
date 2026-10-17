@@ -23,8 +23,8 @@ turns the asymmetric mapping into a no-boilerplate single-line registration.
 | `W` (any)      | `Optional[T]`  | delegate `W → T` to the chain, then wrap — see [Composition](#composition-with-downstream-codecs) |
 | anything else  | anything else  | delegated back to the codec chain (the codec is a no-op for that pair)                            |
 
-`Optional[A] ↔ Optional[B]` with different inner types is **not** supported and falls through to the chain — register a custom codec that handles
-the specific pair if you need that bridge.
+`Optional[A] ↔ Optional[B]` with different inner types is **not** supported and falls through to the chain — register a custom codec that handles the
+specific pair if you need that bridge.
 
 ## Usage
 
@@ -53,14 +53,14 @@ When one side is `Optional[T]` and the other is some type `W` that this codec do
 codec compose with type-specific bridges such as [`tspb`](../../codec/tspb/README.md) and [`durpb`](../../codec/durpb/README.md) without requiring a
 dedicated `Optional`-aware variant of each one.
 
-**Ordering matters:** register `optionalcodec.Codec` *before* the codec that handles the inner type. The chain runs codecs in registration order, so
-the `Optional` wrapper must be stripped first for the downstream codec to see the inner value.
+**Ordering matters:** register `optionalcodec.Codec` *before* the codec that handles the inner type. The chain runs codecs in registration order, so the
+`Optional` wrapper must be stripped first for the downstream codec to see the inner value.
 
-**Presence rule on `W → Optional[T]`:** after the chain materializes the inner `T`, the codec applies `reflect.Value.IsZero` (the struct-zero test,
-not the type's own `IsZero` method). A struct-zero inner collapses to `None`, anything else becomes `Some`. For `time.Time` this is unambiguous —
-`tspb.WithIgnoreZero` skips a `nil` / epoch `*Timestamp` so the inner `time.Time` is never written and stays the pristine zero. For `time.Duration`
-this is the observable consequence of the same rule: a non-nil `*durationpb.Duration{Seconds: 0}` collapses to `None`, matching the
-`None ↔ nil/zero` convention used by the direct shapes.
+**Presence rule on `W → Optional[T]`:** after the chain materializes the inner `T`, the codec applies `reflect.Value.IsZero` (the struct-zero test, not
+the type's own `IsZero` method). A struct-zero inner collapses to `None`, anything else becomes `Some`. For `time.Time` this is unambiguous —
+`tspb.WithIgnoreZero` skips a `nil` / epoch `*Timestamp` so the inner `time.Time` is never written and stays the pristine zero. For `time.Duration` this
+is the observable consequence of the same rule: a non-nil `*durationpb.Duration{Seconds: 0}` collapses to `None`, matching the `None ↔ nil/zero`
+convention used by the direct shapes.
 
 ### Example: proto boundary
 
@@ -105,8 +105,8 @@ The reverse direction works with the same chain (omit `WithIgnoreZeroValues()` w
 ## How it works
 
 The codec uses the narrow reflection escape hatch published by `core/types/optional` (`IsOptionalType`, `InnerType`, `GetReflect`, `SomeReflect`,
-`NoneReflect`). It never reads or writes `Optional`'s private layout directly; the trade-off is one extra indirection per Optional field but a
-strictly contained dependency on the type's internals.
+`NoneReflect`). It never reads or writes `Optional`'s private layout directly; the trade-off is one extra indirection per Optional field but a strictly
+contained dependency on the type's internals.
 
 The codec is safe for concurrent use and allocation-light: a direct shape builds at most one `reflect.Value` (only when an `Optional` has to be
 constructed or extracted); the composition path builds at most two (the materialized inner value plus the wrapping `Optional`).

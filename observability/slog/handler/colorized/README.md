@@ -10,15 +10,16 @@ Package `colorized` provides a color-coded terminal `slog.Handler` for human-rea
 
 | Option                 | Description                                     |
 |------------------------|-------------------------------------------------|
-| `WithLevel`            | Minimum log level                               |
+| `WithLevel`            | Minimum log level (default `slog.LevelError`)   |
 | `WithAddSource`        | Include source file and line                    |
 | `WithNoColor`          | Disable ANSI colors                             |
 | `WithTimeFormat`       | Custom time format string                       |
 | `WithReplaceAttr`      | Attribute transformation function               |
 | `WithAttributeColors`  | Custom color map for attribute keys             |
+| `WithPrefixAttributeKey` | Attribute displayed as a prefix before the message |
 
 ## Attribute keys
 
-Attribute keys are quoted and escaped when they contain whitespace, control characters, quotes, equals signs or invalid UTF-8.
-This applies to the complete flattened group path, including `WithGroup` and `WithAttrs`, before ANSI color is added. Ordinary keys keep
-their existing format and color selection uses the original key.
+Attribute keys are quoted and escaped when they contain whitespace, control characters, quotes, equals signs or invalid UTF-8. This applies to the
+complete flattened group path, including `WithGroup` and `WithAttrs`, before ANSI color is added. Ordinary keys keep their existing format and color
+selection uses the original key.

@@ -4,8 +4,9 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 ```
 
-Package `idempotency` provides a gRPC server interceptor for idempotent request handling. Prevents duplicate processing using an idempotency key
-from gRPC metadata (default header: `Idempotency-Key`). Uses the driven interceptor pattern. Duplicate requests receive the stored response.
+Package `idempotency` provides a gRPC server interceptor for idempotent request handling. Prevents duplicate processing using an idempotency key from
+gRPC metadata (default header: `Idempotency-Key`). Uses the driven interceptor pattern. A completed duplicate is rejected with
+`codes.FailedPrecondition` by default (responses are not replayed); the stored entity ID is echoed in metadata only with `WithExposeEntityID()`.
 
 ## Key types
 
@@ -35,35 +36,35 @@ from gRPC metadata (default header: `Idempotency-Key`). Uses the driven intercep
 
 ### Entity-ID exposure is opt-in
 
-On a duplicate request whose key already resolved to a success, the interceptor can return the stored entity ID in the
-`Idempotency-Key-Entity-Id` response metadata. That is **off by default**: the caller presenting a duplicate key is not verified to be the
-principal that created the original entity, so echoing it unconditionally would leak another principal's entity ID to anyone who reuses (or guesses)
-the key. Enable `WithExposeEntityID()` (YAML `exposeEntityID: true`) only when idempotency keys are unguessable and scoped per principal, or
-when the entity ID is not sensitive.
+On a duplicate request whose key already resolved to a success, the interceptor can return the stored entity ID in the `Idempotency-Key-Entity-Id`
+response metadata. That is **off by default**: the caller presenting a duplicate key is not verified to be the principal that created the original
+entity, so echoing it unconditionally would leak another principal's entity ID to anyone who reuses (or guesses) the key. Enable `WithExposeEntityID()`
+(YAML `exposeEntityID: true`) only when idempotency keys are unguessable and scoped per principal, or when the entity ID is not sensitive.
 
 ## Storage keys
 
 The interceptor passes the Keeper the tuple `("transport", "package.Service", key)` in the length-prefixed v2 format of
-[`data/idempotency.ComposeKey`](../../../../data/idempotency#storage-key-format) — every method of `users.UserService` with key `550e8400-…`
-shares `idk:v2:9:transport17:users.UserService36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage.
-Keys are scoped by service, and the bytes of the key cannot reach another service's record. The format replaced `idk:{service}:{key}` with a
-clean cut: follow the [rollout contract](../../../../data/idempotency#rolling-out-the-v2-key-format) when upgrading.
+[`data/idempotency.ComposeKey`](../../../../data/idempotency#storage-key-format) — every method of `users.UserService` with key `550e8400-…` shares
+`idk:v2:9:transport17:users.UserService36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage. Keys are
+scoped by service, and the bytes of the key cannot reach another service's record. The format replaced `idk:{service}:{key}` with a clean cut: follow
+the [rollout contract](../../../../data/idempotency#rolling-out-the-v2-key-format) when upgrading.
 
 ## Request fingerprints and owners
 
-Each key records a fingerprint of the method and the deterministically marshaled request. A key reused for a different request is refused
-with `InvalidArgument` and reason `IDEMPOTENCY_KEY_MISMATCH` instead of being treated as a replay; `WithRequestFingerprint(false)` (YAML
-`disableRequestFingerprint: true`) turns this off. When the Keeper records owners (`idempotency.WithOwner`), a key of another caller is refused
-with `PermissionDenied` and reason `IDEMPOTENCY_KEY_FORBIDDEN`, and nothing of its record is returned. A `ReplayAuthorizer` refusal that carries a
-gRPC status (for example `NotFound`, to hide that the record exists) is answered with that status instead. Both cases map to the
-`ErrorIDKMismatch` and `ErrorIDKForbidden` scenarios of a custom `StatusCreator`.
+Each key records a fingerprint of the method and the deterministically marshaled request. A key reused for a different request is refused with
+`InvalidArgument` and reason `IDEMPOTENCY_KEY_MISMATCH` instead of being treated as a replay; `WithRequestFingerprint(false)` (YAML
+`disableRequestFingerprint: true`) turns this off. When the Keeper records owners (`idempotency.WithOwner`), a key of another caller is refused with
+`PermissionDenied` and reason `IDEMPOTENCY_KEY_FORBIDDEN`, and nothing of its record is returned. A `ReplayAuthorizer` refusal that carries a gRPC
+status (for example `NotFound`, to hide that the record exists) is answered with that status instead. Both cases map to the `ErrorIDKMismatch` and
+`ErrorIDKForbidden` scenarios of a custom `StatusCreator`.
 
 ## Client helpers
 
-Helpers for outbound calls. `DeriveKey` mints a deterministic UUID v4 from a stable operation seed and a call name (typically `info.FullMethod`), so retries of one
-logical operation collapse to the same key on the server while sibling downstream calls stay distinct. `WithKey` / `WithDerivedKey` attach the key to the outgoing
-gRPC metadata under `DefaultIdempotencyKeyHeader` (`Idempotency-Key`), preserving any existing metadata. The derived key is compatible with `DefaultKeyValidator`;
-a server overriding `WithKeyFormatValidator` to a non-UUID format will reject it — mint the key yourself and pass it through `WithKey`.
+Helpers for outbound calls. `DeriveKey` mints a deterministic UUID v4 from a stable operation seed and a call name (typically `info.FullMethod`), so
+retries of one logical operation collapse to the same key on the server while sibling downstream calls stay distinct. `WithKey` / `WithDerivedKey`
+attach the key to the outgoing gRPC metadata under `DefaultIdempotencyKeyHeader` (`Idempotency-Key`), preserving any existing metadata. The derived key
+is compatible with `DefaultKeyValidator`; a server overriding `WithKeyFormatValidator` to a non-UUID format will reject it — mint the key yourself and
+pass it through `WithKey`.
 
 | Function                                  | Description                                                                            |
 |-------------------------------------------|----------------------------------------------------------------------------------------|
@@ -78,9 +79,9 @@ resp, err := client.Update(ctx, req)
 
 ## Client interceptor
 
-`UnaryClientInterceptor` automates the helpers above. The caller tags a context once with `WithOperation(ctx, operationID)` and every outbound unary call made
-with that context (directly or transitively) gets a deterministic `DeriveKey(operationID, fullMethod)` stamped into the `Idempotency-Key` header. Calls without
-a seed are forwarded untouched; an explicitly attached key (`WithKey` / `WithDerivedKey`) wins over the seed-based derivation.
+`UnaryClientInterceptor` automates the helpers above. The caller tags a context once with `WithOperation(ctx, operationID)` and every outbound unary
+call made with that context (directly or transitively) gets a deterministic `DeriveKey(operationID, fullMethod)` stamped into the `Idempotency-Key`
+header. Calls without a seed are forwarded untouched; an explicitly attached key (`WithKey` / `WithDerivedKey`) wins over the seed-based derivation.
 
 | Option                              | Default                       | Description                                                            |
 |-------------------------------------|-------------------------------|------------------------------------------------------------------------|

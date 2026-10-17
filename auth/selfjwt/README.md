@@ -4,11 +4,11 @@
 import "github.com/altessa-s/go-atlas/auth/selfjwt"
 ```
 
-Package `selfjwt` mints and verifies self-issued JWTs for services that are both the issuer and the verifier of their own per-subject
-tokens. A token is signed with a subject's private key, carries that key's id in the `kid` header, and is later verified by resolving the
-subject's public key for that `kid` — so rotating a subject's signing key (issuing a new `kid`) lets the verifier reject tokens still
-carrying the old one. Rejection is immediate for a `kid` that was never cached; for an already-cached `kid` it takes effect within at most
-`WithCacheTTL`, or at once when the caller drops the entry via `Verifier.InvalidateKey` / `Verifier.InvalidateSubject` on rotation.
+Package `selfjwt` mints and verifies self-issued JWTs for services that are both the issuer and the verifier of their own per-subject tokens. A token is
+signed with a subject's private key, carries that key's id in the `kid` header, and is later verified by resolving the subject's public key for that
+`kid` — so rotating a subject's signing key (issuing a new `kid`) lets the verifier reject tokens still carrying the old one. Rejection is immediate for
+a `kid` that was never cached; for an already-cached `kid` it takes effect within at most `WithCacheTTL`, or at once when the caller drops the entry via
+`Verifier.InvalidateKey` / `Verifier.InvalidateSubject` on rotation.
 
 Unlike [`auth/oidc`](../oidc), which validates tokens from an external identity provider against a remote JWKS, `selfjwt` owns both ends.
 
@@ -21,7 +21,7 @@ Unlike [`auth/oidc`](../oidc), which validates tokens from an external identity 
 | `KeyProvider`     | The single seam to a caller's key storage: resolves signing and verification keys             |
 | `SigningKey`      | A subject's current signing material: private key, algorithm, and non-empty key id            |
 | `VerificationKey` | A subject's public key for a `kid`, bound to the algorithm it verifies                         |
-| `Token`           | The verified result: subject, jti, scopes, expiry                                            |
+| `Token`           | The verified result: subject, jti, scopes, expiry; `Principal()` converts it to a `principal.Principal` |
 | `Algorithm`       | A JWA signature algorithm name (e.g. `EdDSA`, `ES256`, `RS256`)                               |
 | `Metrics`         | Optional mint/verify telemetry; a nil `*Metrics` is a valid no-op receiver                    |
 
@@ -31,12 +31,13 @@ Unlike [`auth/oidc`](../oidc), which validates tokens from an external identity 
 |--------------------------|----------------|-----------------------------------------------------------------------------|
 | `WithIssuer`             | `""`           | The `iss` claim set on mint and required on verify                          |
 | `WithMaxTokenLifetime`   | 30 days        | Ceiling a requested TTL is clamped to                                       |
-| `WithClockSkew`          | 30s            | Leeway applied to `exp` / `nbf` to tolerate clock drift                     |
+| `WithLeeway`             | 30s            | Leeway applied to `exp` / `nbf` to tolerate clock drift                     |
 | `WithCacheTTL`           | 5m             | How long a resolved verification key is cached before reload               |
 | `WithCacheMaxEntries`    | 10000          | Hard cap on cached verification keys, bounding memory under subject churn   |
 | `WithKeyLookupTimeout`   | 10s            | Deadline for a shared key-provider lookup on a cache miss (must be > 0)     |
 | `WithAllowedAlgorithms`  | EdDSA,ES256,RS256 | Replaces the verifier's asymmetric-only allow-list (HMAC excluded)      |
 | `WithMetrics`            | nil (no-op)    | Attach a `*Metrics` for mint/verify counters and latency                    |
+| `WithRevocation`         | none           | `jwt.RevocationChecker` consulted with the token's `jti` on verify          |
 | `WithClock`              | system UTC     | Injectable clock (tests)                                                    |
 | `WithRand`               | `crypto/rand`  | Injectable randomness source for the jti (tests)                           |
 
@@ -44,20 +45,19 @@ Unlike [`auth/oidc`](../oidc), which validates tokens from an external identity 
 
 Verification is fail-closed:
 
-- The algorithm is checked against the allow-list **before** the signature is verified, closing algorithm-confusion attacks. The default
-  allow-list is asymmetric only (`EdDSA`, `ES256`, `RS256`); HMAC is intentionally excluded so a symmetric secret can never be confused
-  with a public key.
-- Each `VerificationKey` must name the `Algorithm` it verifies; the verifier rejects a token whose algorithm is empty or mismatched,
-  binding every key to a single scheme.
+- The algorithm is checked against the allow-list **before** the signature is verified, closing algorithm-confusion attacks. The default allow-list is
+  asymmetric only (`EdDSA`, `ES256`, `RS256`); HMAC is intentionally excluded so a symmetric secret can never be confused with a public key.
+- Each `VerificationKey` must name the `Algorithm` it verifies; the verifier rejects a token whose algorithm is empty or mismatched, binding every key
+  to a single scheme.
 - An `exp` claim is mandatory, and temporal claims (`exp` / `nbf`) are validated with the configured clock-skew leeway.
-- Resolved verification keys are cached per `(subject, kid)` with a TTL and a hard entry cap. Concurrent misses for the same key are
-  collapsed into a single `KeyProvider` lookup (singleflight), so a burst of requests for an uncached subject cannot stampede the provider.
-  Each caller waits under its own context and returns its cancellation or deadline error; the shared lookup is detached from any one
-  caller and bounded by `WithKeyLookupTimeout` instead.
-- The cache bounds the rotation-to-rejection window: an already-cached `kid` keeps verifying for up to `WithCacheTTL` after rotation,
-  because a cache hit skips the `KeyProvider` (so its `ErrKeyRotated` is not seen). To revoke immediately, call `Verifier.InvalidateKey`
-  (or `InvalidateSubject`) on rotation, or set a short `WithCacheTTL` (`0` disables caching for strict, no-lag verification).
-  Invalidation also fences lookups in flight: they cannot re-cache a retired key, and later verifications do not share them.
+- Resolved verification keys are cached per `(subject, kid)` with a TTL and a hard entry cap. Concurrent misses for the same key are collapsed into a
+  single `KeyProvider` lookup (singleflight), so a burst of requests for an uncached subject cannot stampede the provider. Each caller waits under its
+  own context and returns its cancellation or deadline error; the shared lookup is detached from any one caller and bounded by `WithKeyLookupTimeout`
+  instead.
+- The cache bounds the rotation-to-rejection window: an already-cached `kid` keeps verifying for up to `WithCacheTTL` after rotation, because a cache
+  hit skips the `KeyProvider` (so its `ErrKeyRotated` is not seen). To revoke immediately, call `Verifier.InvalidateKey` (or `InvalidateSubject`) on
+  rotation, or set a short `WithCacheTTL` (`0` disables caching for strict, no-lag verification). Invalidation also fences lookups in flight: they
+  cannot re-cache a retired key, and later verifications do not share them.
 
 ## Usage
 
@@ -78,8 +78,8 @@ tok, err := verifier.Verify(ctx, res.Token)
 // ErrKeyRotated) and ErrTokenExpired / ErrTokenInvalid as the caller sees fit.
 ```
 
-When one process both issues and verifies its own tokens, build the pair with `New` so a single option list configures both sides and
-their shared settings (issuer, clock) cannot drift apart:
+When one process both issues and verifies its own tokens, build the pair with `New` so a single option list configures both sides and their shared
+settings (issuer, clock) cannot drift apart:
 
 ```go
 minter, verifier := selfjwt.New(provider, selfjwt.WithIssuer("billing"))
@@ -96,3 +96,4 @@ minter, verifier := selfjwt.New(provider, selfjwt.WithIssuer("billing"))
 | `ErrAlgorithmNotAllowed` | Algorithm is unregistered, unmatched, or the resolved key names no algorithm  |
 | `ErrSigningKeyInvalid`   | `KeyProvider` returned signing material that cannot be verified (e.g. empty key id) |
 | `ErrSubjectRequired`     | `MintRequest.Subject` is empty (`Minter` rejects it before signing)           |
+| `jwt.ErrTokenRevoked`    | The token's `jti` is revoked per `WithRevocation` (propagated unwrapped)      |

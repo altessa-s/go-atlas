@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/slog/factory"
 ```
 
-Package `factory` provides a fluent builder for creating structured loggers from configuration.
-`LoggerBuilder` reports configuration errors (a nil config, invalid `maskRules` entries) from `Build()`, before building anything.
+Package `factory` provides a fluent builder for creating structured loggers from configuration. `LoggerBuilder` reports configuration errors (a nil
+config, invalid `maskRules` entries) from `Build()`, before building anything.
 
 ## Quick Start
 
@@ -20,8 +20,8 @@ After `Build`, the builder retains its level variable and can be used for runtim
 ## Prefix key
 
 The default prefix key `ModuleKey` equals `slogx.ModuleKey` (`"subsystem"`), so `logger.With(slogx.Module("auth"))` gets the `[auth]` tag
-(`"subsystem":"auth"` in JSON) and the per-subsystem levels from `subsystems:`. The tag stays at the group level it was attached to, so a
-later `WithGroup` does not move it. Several module values at one level are merged (`"auth:cache"`). The default used to be `"module"`; call
+(`"subsystem":"auth"` in JSON) and the per-subsystem levels from `subsystems:`. The tag stays at the group level it was attached to, so a later
+`WithGroup` does not move it. Several module values at one level are merged (`"auth:cache"`). The default used to be `"module"`; call
 `WithPrefixKey("module")` to keep that behavior.
 
 ## Methods
@@ -43,6 +43,12 @@ later `WithGroup` does not move it. Several module values at one level are merge
 | `WithAppVersion(version)` | Overrides the application version included in log metadata |
 | `WithServiceId(id)` | Sets the service ID included in log metadata |
 | `WithLevelVar(lv)` | Sets a custom dynamic log level variable |
+
+### Handler registry
+
+| Function | Description |
+|----------|-------------|
+| `RegisterHandler(format, factory)` | Registers a custom `HandlerFactory` for a log `outputFormat` |
 
 ### Terminal
 

@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/data/outbox"
 ```
 
-Package `outbox` implements the Transactional Outbox pattern for at-least-once event delivery. Events are persisted to a `Storage` before being dispatched
-via a `Handler`, with background cycles for dispatch, retry, expiration, cleanup, stuck-event recovery, and backlog measurement. Transport-agnostic: the
-`Handler` callback determines delivery method (message broker, HTTP, gRPC, etc.).
+Package `outbox` implements the Transactional Outbox pattern for at-least-once event delivery. Events are persisted to a `Storage` before being
+dispatched via a `Handler`, with background cycles for dispatch, retry, expiration, cleanup, stuck-event recovery, and backlog measurement.
+Transport-agnostic: the `Handler` callback determines delivery method (message broker, HTTP, gRPC, etc.).
 
 ## Key types
 
@@ -55,6 +55,9 @@ via a `Handler`, with background cycles for dispatch, retry, expiration, cleanup
 | `WithShouldRetry`             | nil        | Transient/permanent error predicate                          |
 | `WithCollector`               | no-op      | Metrics collector                                            |
 | `WithLogger`                  | discard    | Structured logger                                            |
+| `WithScheduler`               | nil        | Task registrar that runs the cycles                          |
+| `With*Schedule`               | --         | Cron schedule per cycle (`Dispatch`, `Unlock`, `Expire`, `Cleanup`, `Stats`); empty leaves the cycle unscheduled |
+| `With*TaskID`                 | `outbox-<cycle>` | Scheduler task ID per cycle; must be distinct across outboxes sharing a scheduler |
 
 `maxLockTime` must exceed `handleTimeout`; a smaller value is raised at construction with a warning. A lock that expires while its dispatch cycle is
 still publishing lets the unlock cycle hand the event to a second worker, which makes duplicate delivery the steady state rather than an edge case.
@@ -88,8 +91,8 @@ after it. Do not assume ordering, even within a single `Key`.
 
 Each cycle spends exactly one attempt per event; spacing comes from an exponential backoff with jitter that the store anchors to its own clock. Errors
 are classified by `WithShouldRetry`: transient ones are rescheduled, permanent ones (a malformed payload, an unrejectable subject) go straight to
-`rejected` rather than burning the whole budget first. Context cancellation and timeouts always count as transient, so a broker outage cannot
-dead-letter healthy events.
+`rejected` rather than burning the whole budget first. Context cancellation and timeouts always count as transient, so a broker outage never rejects
+healthy events outright; an outage that outlasts the attempt budget still ends in `max-attempt-reached`.
 
 ## Observability
 
@@ -107,9 +110,10 @@ Schedule the stats cycle (`WithStatsSchedule`) and alert on the gauges it publis
 | cleanup    | `RunCleanupCycle`   | Delete processed events older than the retention window      |
 | stats      | `RunStatsCycle`     | Refresh the backlog, dead-letter, and lag gauges             |
 
-Configure cycles with `WithScheduler` and the matching `With*Schedule`, then call `RegisterTasks(ctx)`. After successful registration the manual `Run*`
-method returns `corescheduler.ErrSchedulerManaged`. Task IDs are overridable and must be distinct — collisions are rejected by `RegisterTasks` with
-`ErrTaskIDCollision`.
+Configure cycles with `WithScheduler` and the matching `With*Schedule`, then call `RegisterTasks(ctx)`. The expire cycle is registered only with a
+positive `WithDefaultEventTTL`, and the cleanup cycle only with a positive `WithPublishedEventsLifetime`. After successful registration the manual
+`Run*` method returns `corescheduler.ErrSchedulerManaged`. Task IDs are overridable and must be distinct — collisions are rejected by `RegisterTasks`
+with `ErrTaskIDCollision`.
 
 ## Change notifications
 
@@ -142,17 +146,17 @@ poll interval.
 The retry, lock-expiry, and retention windows passed to the `Storage` are **durations**, not absolute timestamps: `Event.RetryAfter`,
 `UnlockStuckEvents(lockExpiry)`, `DeleteProcessedEvents(olderThan)`, and `ExpireEvents`. The store evaluates them against its own database server clock,
 so a worker whose wall clock is skewed cannot prematurely unlock another worker's in-flight event or leak a stuck one. Writes are additionally fenced by
-`Event.LockToken`, so a dispatcher that lost its lease cannot overwrite the result of the worker that took over. See [store/mongo](./store/mongo) for
-the MongoDB `$$NOW` implementation and the one-time BSON `Date` migration, and [store/sqldb](./store/sqldb) for the SQL `now()` / `UTC_TIMESTAMP(6)`
-implementation.
+`Event.LockToken`, so a dispatcher that lost its lease cannot overwrite the result of the worker that took over. See [storages/mongo](./storages/mongo)
+for the MongoDB `$$NOW` implementation and the one-time BSON `Date` migration, and [storages/sqldb](./storages/sqldb) for the SQL `now()` /
+`UTC_TIMESTAMP(6)` implementation.
 
 ## Subpackages
 
-| Package                      | Description                                                 |
-|------------------------------|-------------------------------------------------------------|
-| [factory](./factory)         | Configuration-based creation                                |
-| [store/mongo](./store/mongo) | MongoDB-backed event storage                                |
-| [store/sqldb](./store/sqldb) | PostgreSQL / MySQL / MariaDB storage through `database/sql` |
+| Package                            | Description                                                 |
+|------------------------------------|-------------------------------------------------------------|
+| [factory](./factory)               | Configuration-based creation                                |
+| [storages/mongo](./storages/mongo) | MongoDB-backed event storage                                |
+| [storages/sqldb](./storages/sqldb) | PostgreSQL / MySQL / MariaDB storage through `database/sql` |
 
 ## Registration failures
 

@@ -4,8 +4,7 @@
 import "github.com/altessa-s/go-atlas/domain/converter/codec/unixtime"
 ```
 
-Package `unixtime` provides a codec for bidirectional conversion between `time.Time` and `int64` Unix
-timestamps with optional millisecond precision.
+Package `unixtime` provides a codec for bidirectional conversion between `time.Time` and `int64` Unix timestamps with optional millisecond precision.
 
 ## Options
 

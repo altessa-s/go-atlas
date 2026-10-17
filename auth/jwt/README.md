@@ -5,14 +5,13 @@ import "github.com/altessa-s/go-atlas/auth/jwt"
 ```
 
 Package `jwt` is a generic, low-level toolkit for signing and verifying JWTs on top of
-[`github.com/golang-jwt/jwt/v5`](https://github.com/golang-jwt/jwt). It is the shared core beneath the repository's specialized auth
-packages — [`auth/selfjwt`](../selfjwt) (self-issued per-subject tokens) and [`auth/oidc`](../oidc) (external OIDC providers) — factoring
-out the security policy they would otherwise each re-derive: an algorithm allow-list, an algorithm-confusion guard, standard
-temporal/issuer/audience claim validation, and claim extraction.
+[`github.com/golang-jwt/jwt/v5`](https://github.com/golang-jwt/jwt). It is the shared core beneath the repository's specialized auth packages —
+[`auth/selfjwt`](../selfjwt) (self-issued per-subject tokens) and [`auth/oidc`](../oidc) (external OIDC providers) — factoring out the security policy
+they would otherwise each re-derive: an algorithm allow-list, an algorithm-confusion guard, standard temporal/issuer/audience claim validation, and
+claim extraction.
 
-Use it directly to sign and verify tokens without committing to a JWKS or a particular key store: verification resolves keys through a
-caller-supplied [`KeyResolver`](#key-resolution), so resolving by `kid` against a JWKS and resolving by a claim such as `sub` plus `kid`
-both fit the same seam.
+Use it directly to sign and verify tokens without committing to a JWKS or a particular key store: verification resolves keys through a caller-supplied
+[`KeyResolver`](#key-resolution), so resolving by `kid` against a JWKS and resolving by a claim such as `sub` plus `kid` both fit the same seam.
 
 ## Key types
 
@@ -31,6 +30,7 @@ both fit the same seam.
 | `VerificationKey` | A public key, optionally bound to the one algorithm it may verify                                    |
 | `Header`          | The `alg` / `kid` / `typ` a resolver needs to locate a key                                           |
 | `Algorithm`       | A JWA signature algorithm name (e.g. `EdDSA`, `ES256`, `RS256`)                                       |
+| `RevocationChecker` | `IsRevoked(id) bool` seam consulted with the token's `jti`; `auth/denylist` satisfies it           |
 
 ## Options
 
@@ -53,13 +53,14 @@ A single `Option` type configures both `Signer` and `Verifier`.
 | `WithNotBeforeRequired` | disabled           | Require the `nbf` claim to be present on verify                             |
 | `WithClock`             | system UTC         | Injectable clock (tests)                                                    |
 | `WithRand`              | `crypto/rand`      | Injectable randomness source for the jti (tests)                           |
+| `WithRevocation`        | none               | `RevocationChecker` consulted on verify; a token whose `jti` it reports revoked is rejected |
 
 ## Key resolution
 
-`Verifier` never assumes where keys come from. It calls a `KeyResolver` with the token's `Header` and its **still-unverified** `Claims`,
-then verifies the signature against the returned `VerificationKey`. A resolver may pin an algorithm to the key via
-`VerificationKey.Algorithm`; when set, the verifier rejects a token whose `alg` does not match, so a key cannot be coerced into another
-scheme. Leave it empty to let the allow-list alone govern the algorithm (the usual case for JWKS-resolved keys).
+`Verifier` never assumes where keys come from. It calls a `KeyResolver` with the token's `Header` and its **still-unverified** `Claims`, then verifies
+the signature against the returned `VerificationKey`. A resolver may pin an algorithm to the key via `VerificationKey.Algorithm`; when set, the verifier
+rejects a token whose `alg` does not match, so a key cannot be coerced into another scheme. Leave it empty to let the allow-list alone govern the
+algorithm (the usual case for JWKS-resolved keys).
 
 ```go
 resolver := jwt.KeyResolverFunc(func(ctx context.Context, hdr jwt.Header, unverified jwt.Claims) (jwt.VerificationKey, error) {
@@ -73,8 +74,7 @@ resolver := jwt.KeyResolverFunc(func(ctx context.Context, hdr jwt.Header, unveri
 
 ## Custom claims
 
-`Claims` is a `map[string]any`, so service-specific fields need no schema — set them when signing and read them
-after verifying:
+`Claims` is a `map[string]any`, so service-specific fields need no schema — set them when signing and read them after verifying:
 
 ```go
 claims, _ := signer.NewClaims(userID, time.Hour)
@@ -90,14 +90,13 @@ var mine struct {                                        // or bind the whole se
 _ = verified.Decode(&mine)
 ```
 
-Registered claims keep their typed accessors (`Subject`, `Audience`, `Expiry`, `Scopes`, ...); `Get[T]` /
-`Decode` cover everything else.
+Registered claims keep their typed accessors (`Subject`, `Audience`, `Expiry`, `Scopes`, ...); `Get[T]` / `Decode` cover everything else.
 
 ### Typed claims
 
-A service that prefers a struct over a map embeds `ClaimsBase` (the registered claims, with `ExpiryTime` / `NotBeforeTime` /
-`IssuedAtTime` accessors) and signs/verifies it through `SignStruct` / `VerifyInto[T]`. Embedding is enforced at compile time, so a
-struct that forgets `ClaimsBase` will not satisfy the generic constraint:
+A service that prefers a struct over a map embeds `ClaimsBase` (the registered claims, with `ExpiryTime` / `NotBeforeTime` / `IssuedAtTime` accessors)
+and signs/verifies it through `SignStruct` / `VerifyInto[T]`. Embedding is enforced at compile time, so a struct that forgets `ClaimsBase` will not
+satisfy the generic constraint:
 
 ```go
 type MyClaims struct {
@@ -115,26 +114,27 @@ _ = out.Subject       // promoted from ClaimsBase
 _ = out.ExpiryTime()
 ```
 
-`VerifyInto` is sugar over `Verify` + `Decode`, so it inherits every verifier check (issuer, audience, required claims, typ, temporal);
-`SignStruct` is sugar over `Sign`. The `aud` claim is typed as `Audience`, which unmarshals from a single string or an array. The
-map API (`Claims` / `Decode` / `Get`) stays available — it is what a `KeyResolver` reads for still-unverified claims.
+`VerifyInto` is sugar over `Verify` + `Decode`, so it inherits every verifier check (issuer, audience, required claims, typ, temporal); `SignStruct` is
+sugar over `Sign`. The `aud` claim is typed as `Audience`, which unmarshals from a single string or an array. The map API (`Claims` / `Decode` / `Get`)
+stays available — it is what a `KeyResolver` reads for still-unverified claims.
 
 ## Security
 
 Verification is fail-closed:
 
-- The algorithm is checked against the allow-list **before** the signature is verified, closing algorithm-confusion attacks. The default
-  allow-list is asymmetric only (`EdDSA`, `ES256`, `RS256`); HMAC is intentionally excluded so a symmetric secret can never be confused
-  with a public key. Signing enforces the same allow-list.
-- A `VerificationKey` may bind itself to one `Algorithm`; the verifier then rejects a token whose algorithm does not match, binding the
-  key to a single scheme.
-- An `exp` claim is mandatory by default, and temporal claims (`exp` / `nbf` / `iat`) are validated with the configured clock-skew leeway.
+- The algorithm is checked against the allow-list **before** the signature is verified, closing algorithm-confusion attacks. The default allow-list is
+  asymmetric only (`EdDSA`, `ES256`, `RS256`); HMAC is intentionally excluded so a symmetric secret can never be confused with a public key. Signing
+  enforces the same allow-list.
+- A `VerificationKey` may bind itself to one `Algorithm`; the verifier then rejects a token whose algorithm does not match, binding the key to a single
+  scheme.
+- An `exp` claim is mandatory by default; `exp` and `nbf` are validated with the configured clock-skew leeway, and `iat` only with `WithIssuedAt`.
 
 ## Usage
 
 ```go
 signer := jwt.NewSigner(jwt.WithIssuer("billing"))
 claims, err := signer.NewClaims(tenantID, time.Hour, "files:read")
+claims.Set("aud", "api")
 raw, err := signer.Sign(jwt.SigningKey{KeyID: "k1", Algorithm: jwt.AlgES256, Key: priv}, claims)
 
 verifier := jwt.NewVerifier(resolver, jwt.WithIssuer("billing"), jwt.WithAudiences("api"))
@@ -152,5 +152,6 @@ subject, scopes := claims.Subject(), claims.Scopes()
 | `ErrClaimMissing`        | A claim required via `WithRequiredClaims` is absent                                |
 | `ErrSigningKeyInvalid`   | Signing material cannot produce a verifiable token (e.g. empty key id)            |
 | `ErrTokenTypeInvalid`    | typ header does not match the type required via `WithExpectedTokenType`            |
+| `ErrTokenRevoked`        | The token's `jti` is revoked per the `RevocationChecker` set via `WithRevocation`  |
 
 A `KeyResolver`'s own error is propagated unwrapped, so a caller can match it with `errors.Is`.

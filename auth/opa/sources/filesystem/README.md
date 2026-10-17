@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 ```
 
-Package `filesystem` provides a `PolicySource` implementation that reads OPA policies from the local filesystem with optional hot-reload
-support via fsnotify. Reads `.rego` files from a directory (or a single file), computes content-based revisions, and optionally loads `.json`
-data files into the OPA data store. Supports SHA-256 checksum verification for policy integrity.
+Package `filesystem` provides a `PolicySource` implementation that reads OPA policies from the local filesystem; hot reload comes from the `opa.Manager`
+polling `Fetch` and comparing revisions. Reads `.rego` files from a directory (or a single file), computes content-based revisions, and optionally loads
+`.json` data files into the OPA data store. Supports SHA-256 checksum verification for policy integrity.
 
 ## Options
 

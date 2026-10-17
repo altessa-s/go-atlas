@@ -16,5 +16,7 @@ factories, which map them to generated options; runtime packages never import th
 | `Storage`      | Defines the storage backend configuration for audit events.   |
 | `StorageMongo` | Holds MongoDB-specific configuration for audit event storage. |
 | `StorageSQL` | Holds SQL-specific configuration for audit event storage. |
+| `StorageClickHouse` | Holds ClickHouse-specific configuration for audit event storage. |
+| `Paging` | Configures signed page tokens for event queries (`paging`; nil disables page tokens). |
 
 See the [config index](../README.md) for the other schema packages.

@@ -9,7 +9,7 @@ Internal package. Holds the AST walk shared by the SQL filter translators — [`
 
 ## Why it exists
 
-The three SQL translators differ in exactly four places:
+The three SQL translators differ in exactly five places:
 
 | Difference          | ClickHouse                  | MariaDB                            | PostgreSQL                            |
 |---------------------|-----------------------------|------------------------------------|---------------------------------------|
@@ -17,9 +17,10 @@ The three SQL translators differ in exactly four places:
 | Bind marker         | `?`                         | `?`                                | `$1`, `$2`, …                         |
 | String predicates   | `position` / `startsWith`   | `LOCATE` / `RIGHT` / `REGEXP`      | `strpos` / `starts_with` / `right` / `~` |
 | Inline literals     | `\`-escaped, `unhex()`      | `''`-doubled, `X'…'`               | `E'…'`, `decode(…, 'hex')`            |
+| `size()`            | `lengthUTF8` / array `length` | `CHAR_LENGTH`                      | `length`                              |
 
-Everything else is identical: the traversal, the allow-list and field-type checks, depth accounting, argument collection, IN lists, null
-handling and the comparison operators. That part lives here; the four differences are supplied by a `Dialect`.
+Everything else is identical: the traversal, the allow-list and field-type checks, depth accounting, argument collection, IN lists, null handling and
+the comparison operators. That part lives here; the five differences are supplied by a `Dialect`.
 
 ## Key types
 
@@ -30,6 +31,7 @@ handling and the comparison operators. That part lives here; the four difference
 | `Dialect`                                                         | The five per-backend rendering hooks                                         |
 | `ValueFunc`                                                       | Renders a value in the active mode; handed to the dialect so it can bind more than once |
 | `MatchAll` / `MatchNone`                                          | `1 = 1` / `1 = 0`                                                            |
+| `StringPredicates`, `RenderStringPredicate`                      | A dialect's string-predicate templates and their renderer                    |
 
 ## Adding a dialect
 
@@ -49,8 +51,8 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 }
 ```
 
-`Translate` and `TranslateInline` are promoted from the embedded walker, so the public packages carry no translation logic of their own — only
-their dialect and its documentation.
+`Translate` and `TranslateInline` are promoted from the embedded walker, so the public packages carry no translation logic of their own — only their
+dialect and its documentation.
 
 ## Identifiers
 
@@ -60,17 +62,16 @@ their dialect and its documentation.
 | `QuoteWhole(name, quote)`       | `` `address.city` ``        | ClickHouse          |
 | `QuoteQualified(name, quote)`   | `` `address`.`city` ``      | MariaDB, PostgreSQL |
 
-`ValidateIdent` accepts only `[A-Za-z_][A-Za-z0-9_]*` segments joined by dots. That is stricter than quoting requires, on purpose: the column
-position is the one part of a generated clause that no placeholder can cover, so a name that is not a plain identifier is rejected outright
-rather than escaped. Because a dialect's quote character cannot survive the check, the quoters need no escaping at all.
+`ValidateIdent` accepts only `[A-Za-z_][A-Za-z0-9_]*` segments joined by dots. That is stricter than quoting requires, on purpose: the column position
+is the one part of a generated clause that no placeholder can cover, so a name that is not a plain identifier is rejected outright rather than escaped.
+Because a dialect's quote character cannot survive the check, the quoters need no escaping at all.
 
-The dot policy is the dialect's to choose. `QuoteQualified` produces the standard SQL `"table"."column"`; `QuoteWhole` produces the single
-quoted name ClickHouse needs, where `address.city` is one Nested column rather than two identifiers.
+The dot policy is the dialect's to choose. `QuoteQualified` produces the standard SQL `"table"."column"`; `QuoteWhole` produces the single quoted name
+ClickHouse needs, where `address.city` is one Nested column rather than two identifiers.
 
 ## The `ValueFunc` hook
 
-`Dialect.StringPredicate` receives the needle raw plus a `ValueFunc`, rather than a pre-rendered argument, because `endsWith` has no native
-form in MariaDB or PostgreSQL. It compiles to `right(col, length(x)) = x`, where the operand appears twice and must be bound twice — three times
-in MariaDB, which also guards the length so PAD SPACE collations stay exact (`StringPredicates.EndsWithBinds` declares the count). Calling
-`value` once per occurrence keeps the argument slice aligned with the emitted text — which matters most for PostgreSQL, where the placeholders
-are numbered.
+`Dialect.StringPredicate` receives the needle raw plus a `ValueFunc`, rather than a pre-rendered argument, because `endsWith` has no native form in
+MariaDB or PostgreSQL. It compiles to `right(col, length(x)) = x`, where the operand appears twice and must be bound twice — three times in MariaDB,
+which also guards the length so PAD SPACE collations stay exact (`StringPredicates.EndsWithBinds` declares the count). Calling `value` once per
+occurrence keeps the argument slice aligned with the emitted text — which matters most for PostgreSQL, where the placeholders are numbered.

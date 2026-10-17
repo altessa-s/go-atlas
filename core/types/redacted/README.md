@@ -4,13 +4,13 @@
 import "github.com/altessa-s/go-atlas/core/types/redacted"
 ```
 
-Package `redacted` provides `RedactedString`, a named `string` type for credentials and other sensitive fields that substitutes its value with the
-fixed placeholder `<redacted>` in every standard output context — `fmt`, `log/slog`, `encoding/json`, `gopkg.in/yaml.v3`, `encoding.TextMarshaler`,
-and `go.mongodb.org/mongo-driver/v2/bson`. The plain text is reachable only through the explicit `Expose` accessor.
+Package `redacted` provides `RedactedString`, a named `string` type for credentials and other sensitive fields that substitutes its value with the fixed
+placeholder `<redacted>` in every standard output context — `fmt`, `log/slog`, `encoding/json`, `gopkg.in/yaml.v3`, `encoding.TextMarshaler`, and
+`go.mongodb.org/mongo-driver/v2/bson`. The plain text is reachable only through the explicit `Expose` accessor.
 
 `RedactedString` keeps `reflect.Kind == reflect.String`. Decoders that honor the unmarshal interfaces call its methods — `yaml.v3` invokes
-`UnmarshalYAML`, the Mongo v2 driver `UnmarshalBSONValue`, `encoding/json` `UnmarshalJSON` — while code that sets fields purely through
-reflection bypasses them, which is safe because the underlying kind is `string`.
+`UnmarshalYAML`, the Mongo v2 driver `UnmarshalBSONValue`, `encoding/json` `UnmarshalJSON` — while code that sets fields purely through reflection
+bypasses them, which is safe because the underlying kind is `string`.
 
 ## Methods
 
@@ -35,13 +35,13 @@ reflection bypasses them, which is safe because the underlying kind is `string`.
 ## Serialization
 
 `RedactedString` implements `json.Marshaler` / `json.Unmarshaler`, the YAML marshaler / callback unmarshaler (`gopkg.in/yaml.v3`),
-`encoding.TextMarshaler` / `encoding.TextUnmarshaler`, and `bson.ValueMarshaler` / `bson.ValueUnmarshaler`
-(`go.mongodb.org/mongo-driver/v2`). `Marshal` always emits the placeholder `<redacted>`; `Unmarshal` stores the incoming string verbatim, so a value
-loaded from YAML/JSON/BSON is exposed by `Expose()` but re-serializing the same struct redacts it again. `IsZero` returning `true` for the empty
-string makes `bson:",omitempty"` strip empty fields entirely from the on-the-wire document.
+`encoding.TextMarshaler` / `encoding.TextUnmarshaler`, and `bson.ValueMarshaler` / `bson.ValueUnmarshaler` (`go.mongodb.org/mongo-driver/v2`). `Marshal`
+always emits the placeholder `<redacted>`; `Unmarshal` stores the incoming string verbatim, so a value loaded from YAML/JSON/BSON is exposed by
+`Expose()` but re-serializing the same struct redacts it again. `IsZero` returning `true` for the empty string makes `bson:",omitempty"` strip empty
+fields entirely from the on-the-wire document.
 
-This package has no external production imports. Its fixed BSON redaction encoding uses stdlib and works without a custom registry. YAML decoding
-uses the callback interface supported by yaml.v3.
+This package has no external production imports. Its fixed BSON redaction encoding uses stdlib and works without a custom registry. YAML decoding uses
+the callback interface supported by yaml.v3.
 
 ## Usage
 
@@ -64,11 +64,11 @@ client, _ := mongo.Connect(options.Client().ApplyURI(conn))
 
 ## Limitations
 
-Redaction is enforced only on the `fmt` / `log/slog` / `encoding/json` / `yaml.v3` / `encoding.TextMarshaler` / `bson` code paths, all of which
-dispatch through the interfaces implemented above. Reflect-based access bypasses them entirely: `reflect.Value.String()` on a `RedactedString`
-field returns the plaintext, and any library that reads named-string fields via `reflect` without routing through `fmt`, `json`, or `bson`
-(custom serializers, deep-copy or diff utilities, template engines walking structs) sees the secret. Treat `RedactedString` as protection against
-accidental output, not as an access-control boundary.
+Redaction is enforced only on the `fmt` / `log/slog` / `encoding/json` / `yaml.v3` / `encoding.TextMarshaler` / `bson` code paths, all of which dispatch
+through the interfaces implemented above. Reflect-based access bypasses them entirely: `reflect.Value.String()` on a `RedactedString` field returns the
+plaintext, and any library that reads named-string fields via `reflect` without routing through `fmt`, `json`, or `bson` (custom serializers, deep-copy
+or diff utilities, template engines walking structs) sees the secret. Treat `RedactedString` as protection against accidental output, not as an
+access-control boundary.
 
 ## When to use
 
@@ -79,6 +79,6 @@ accidental output, not as an access-control boundary.
 
 - **Credentials that must be zeroed from memory after use** — use [`core/text/strings.SecureString`](../../text/strings) directly, or call
   `RedactedString.SecureString()` for a one-shot bridge.
-- **Already-public identifiers** that just happen to look like secrets (e.g. account IDs). `RedactedString` actively prevents inspection, which is
-  the wrong default for non-secret data.
+- **Already-public identifiers** that just happen to look like secrets (e.g. account IDs). `RedactedString` actively prevents inspection, which is the
+  wrong default for non-secret data.
 - **Generic optionality.** Reach for [`core/types/optional`](../optional/README.md) when the question is "present or absent", not "redact in output".

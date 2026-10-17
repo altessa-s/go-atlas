@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/probfilter"
 ```
 
-Package `probfilter` provides probabilistic data structures for space-efficient existence checks. Supports Bloom and Cuckoo filters with
-pluggable storage backends (memory, Redis). Includes a `Manager` for registering and retrieving named filter instances.
+Package `probfilter` provides probabilistic data structures for space-efficient existence checks. Supports Bloom and Cuckoo filters with pluggable
+storage backends (memory, Redis). Includes a `Manager` for registering and retrieving named filter instances.
 
 ## Key types
 
@@ -19,6 +19,7 @@ pluggable storage backends (memory, Redis). Includes a `Manager` for registering
 | `Observer`          | Receives lookup, add, and rebuild outcomes         |
 | `StatsProvider`     | Provides filter statistics                         |
 | `Manager`           | Registry for named filter instances                |
+| `DataLoader`        | Streams values and their count for `Rebuild`; `NewDataLoader` wraps an iterator (`WithCount` sets the count) |
 
 ## Manager options
 
@@ -29,8 +30,8 @@ pluggable storage backends (memory, Redis). Includes a `Manager` for registering
 With a collector, `Register` attaches an observer to every `ObservableFilter` and records `probfilter_lookups_total{filter_name,result}` (`result`:
 `positive`, `negative`, `error`), `probfilter_lookup_duration_seconds{filter_name}`, `probfilter_adds_total{filter_name}`,
 `probfilter_rebuild_duration_seconds`, and `probfilter_rebuild_errors_total`. A rebuild refused because another process rebuilds the shared filter
-(`ErrRebuildInProgress`) is a skip and records neither; a superseded or otherwise failed rebuild counts as an error. `Unregister` and `Close` detach
-the observer. `Close` closes filters implementing `io.Closer` or `Close(context.Context) error`.
+(`ErrRebuildInProgress`) is a skip and records neither; a superseded or otherwise failed rebuild counts as an error. `Unregister` and `Close` detach the
+observer. `Close` closes filters implementing `io.Closer` or `Close(context.Context) error`.
 
 ## Errors
 
@@ -49,13 +50,14 @@ the observer. `Close` closes filters implementing `io.Closer` or `Close(context.
 - **Bloom** — lower memory per item, supports periodic rebuilds (`RebuildableFilter`), no deletion.
 - **Cuckoo** — supports individual deletion (`DeletableFilter`) and rebuilds, slightly higher memory overhead, can become full.
 
-Rebuilds are atomic: lookups see the previous contents until the replacement takes over in one step, a failed or canceled rebuild leaves them unchanged,
-and values added through the filter during the rebuild are kept.
+Rebuilds are atomic: lookups see the previous contents until the replacement takes over in one step, a failed or canceled rebuild leaves them unchanged
+(except an error wrapping `ErrCommitIndeterminate`, after which either the previous or the rebuilt contents are in place), and values added through
+the filter during the rebuild are kept.
 
-A Redis filter is shared by every process using its key. `RebuildCommitted` tells any of them whether some process committed a rebuild of it: the
-commit sets a ready marker after its rename, and every probfilter path that creates the filter key deletes the marker in the same step (live inserts
-use the non-creating `BF.INSERT`/`CF.INSERT ... NOCREATE` form; a missing key is recreated through the reserve path). Delete the filter key
-together with its `__probfilter__:` metadata keys; a key recreated by another client is not detected.
+A Redis filter is shared by every process using its key. `RebuildCommitted` tells any of them whether some process committed a rebuild of it: the commit
+sets a ready marker after its rename, and every probfilter path that creates the filter key deletes the marker in the same step (live inserts use the
+non-creating `BF.INSERT`/`CF.INSERT ... NOCREATE` form; a missing key is recreated through the reserve path). Delete the filter key together with its
+`__probfilter__:` metadata keys; a key recreated by another client is not detected.
 
 Choose Bloom when items are append-only or rebuilt in bulk. Choose Cuckoo when you need to remove individual items.
 

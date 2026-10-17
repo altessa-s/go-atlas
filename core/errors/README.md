@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/errors"
 ```
 
-Package `errors` provides error classification, wrapping, and network error inspection utilities. All functions are nil-safe and preserve
-the full error chain for `errors.Is` / `errors.As` unwrapping across any number of nested wrappers.
+Package `errors` provides error classification, wrapping, and network error inspection utilities. All functions are nil-safe and preserve the full error
+chain for `errors.Is` / `errors.As` unwrapping across any number of nested wrappers.
 
 ## Wrapping
 
@@ -16,6 +16,7 @@ the full error chain for `errors.Is` / `errors.As` unwrapping across any number 
 | `WrapOperation`            | `failed to <operation>: <err>`                          |
 | `WrapOperationWithContext` | `failed to <operation> on <context>: <err>`             |
 | `WrapField`                | `field '<name>': <err>`                                 |
+| `JoinWrap`                 | `<sentinel>: <cause>` — both stay matchable via `errors.Is` |
 
 ## Construction
 

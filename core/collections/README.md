@@ -11,8 +11,9 @@ Generic, pure-function collection utilities for Go. Each subpackage focuses on a
 
 ## Design principles
 
-- **Pure functions** — inputs are never modified; new collections are returned.
+- **Pure functions** — inputs are never modified; new collections are returned (`slices.Delete` and the `Append*` helpers are the documented
+  exceptions).
 - **Nil-in, nil-out** — empty or nil inputs return nil, following Go convention.
-- **Generics-first** — all functions use type parameters; no `reflect` or `any` casts internally.
+- **Generics-first** — functions use type parameters (the flat/nested `map[string]any` helpers aside); no `reflect` internally.
 - **Iterator support** — lazy `iter.Seq` / `iter.Seq2` iterators (Go 1.23+) alongside materialized variants.
 - **Pooling** — concurrency-safe `sync.Pool` wrappers to reduce GC pressure in hot paths.

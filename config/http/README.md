@@ -44,6 +44,6 @@ See the [config index](../README.md) for the other schema packages.
 
 ## Request body limit
 
-`maxBodySize` controls the factory's `Writer.Read` cap: positive values select a byte limit, negative values disable it, and zero uses 4 MiB
-or the positive size of an installed bodyLimit middleware. Middleware limits still apply independently; reading `r.Body` directly bypasses
-the writer cap. See [writer](../../transport/http/server/writer).
+`maxBodySize` controls the factory's `Writer.Read` cap: positive values select a byte limit, negative values disable it, and zero uses 4 MiB or the
+positive size of an installed bodyLimit middleware. Middleware limits still apply independently; reading `r.Body` directly bypasses the writer cap. See
+[writer](../../transport/http/server/writer).

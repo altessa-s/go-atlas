@@ -4,10 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/io/wal"
 ```
 
-Package `wal` implements a segmented, append-only write-ahead log for
-crash-safe durability of opaque byte payloads. Records are length-prefixed,
-CRC32-protected, and fsynced on a configurable interval. The package is
-payload-agnostic — higher-level components (dispatchers, outboxes, durable
+Package `wal` implements a segmented, append-only write-ahead log for crash-safe durability of opaque byte payloads. Records are length-prefixed,
+CRC32-protected, and fsynced on a configurable interval. The package is payload-agnostic — higher-level components (dispatchers, outboxes, durable
 queues) layer their own encoding and semantics on top.
 
 ## Lifecycle
@@ -17,14 +15,13 @@ queues) layer their own encoding and semantics on top.
 | Open or recover | `wal.Open(dir, opts...)` |
 | Replay each `Record` | `process(r.Payload) → w.Ack(r.Offset)` |
 | Hot path | `off, err := w.Append(payload)` then later `w.Ack(off)` |
+| Pending scan | `w.ReadPending(limit, skip)` — up to `limit` unacked records in append order |
 | Health check | `w.Faulted()` — returns the last background-fsync error, nil when healthy |
 | Force flush | `w.Sync()` |
 | Shutdown | `w.Close()` — aggregates final Sync/Close errors via `errors.Join` |
 
-Delivery is **at-least-once**: records remain on disk until acked, and
-unacked records from sealed segments (or the active segment at crash
-time) are returned by the next `Open` call. Consumers must be idempotent
-with respect to replayed payloads.
+Delivery is **at-least-once**: records remain on disk until acked, and unacked records from sealed segments (or the active segment at crash time) are
+returned by the next `Open` call. Consumers must be idempotent with respect to replayed payloads.
 
 ## Options
 
@@ -34,6 +31,7 @@ with respect to replayed payloads.
 | `WithMaxBytes`          | `DefaultMaxBytes` (0 = unlimited) | Soft cap on total bytes across all segments; `Append` returns `ErrFull` when exceeded |
 | `WithFsyncInterval`     | `DefaultFsyncInterval` (5 ms)     | Period between background fsync calls on the active segment          |
 | `WithLogger`            | `slog.DiscardHandler`      | `*slog.Logger` used to surface background fsync errors                      |
+| `WithInsecurePermissions` | `false`                  | Restores legacy 0755/0644 creation and skips POSIX permission checks        |
 
 ## Types
 
@@ -42,7 +40,7 @@ with respect to replayed payloads.
 | `WAL`    | Segmented append-only log; safe for concurrent `Append`/`Ack`/`Sync`/`Stats`/`Close` |
 | `Offset` | `{SegmentID, Position}` identifier; zero value means "no record"    |
 | `Record` | `{Offset, Payload}` returned from `Open` during recovery            |
-| `Stats`  | `{TotalBytes, Segments}` snapshot for metrics                       |
+| `Stats`  | `{TotalBytes, Segments, Pending}` snapshot for metrics              |
 
 ## Sentinel errors
 
@@ -52,10 +50,11 @@ with respect to replayed payloads.
 | `ErrFull`            | Returned by `Append` when the `WithMaxBytes` soft cap is exceeded |
 | `ErrEmptyPayload`    | Returned by `Append` for zero-length payloads — the on-disk format cannot represent them |
 | `ErrPayloadTooLarge` | Returned by `Append` for payloads over the 64 MiB per-record limit enforced during recovery |
+| `ErrCorruptRecord`   | Returned by `ReadPending` when a pending record fails its length or checksum check |
+| `ErrInsecurePermissions` | Returned by `Open` when an existing directory or segment has group/other permission bits |
 
-`Append` rejects empty payloads and payloads over 64 MiB up front: recovery treats a zero or
-implausibly large record length as corruption, so writing one would silently truncate every
-record appended after it in the same segment on the next `Open`.
+`Append` rejects empty payloads and payloads over 64 MiB up front: recovery treats a zero or implausibly large record length as corruption, so writing
+one would silently truncate every record appended after it in the same segment on the next `Open`.
 
 ## Durability guarantees
 
@@ -96,48 +95,37 @@ if err != nil {
 w.Ack(off)
 ```
 
-For a runnable example see `wal_test.go → TestWAL_Recovery_ReplaysUnackedRecords`
-and `BenchmarkWAL_OpenRecover` in `wal_bench_test.go`.
+For a runnable example see `wal_test.go → TestWAL_Recovery_ReplaysUnackedRecords` and `BenchmarkWAL_OpenRecover` in `wal_bench_test.go`.
 
 ## Performance notes
 
-- Concurrent `Append`s are group-committed: each encodes its record into a shared batch under the append lock, and one caller writes the
-  whole batch with a single `write` syscall outside it while the next batch fills. `Append` still returns only after its own record is
-  written, so offsets and accounting stay exact and a lone producer pays one `write` per record.
-- The written batch is published through atomic segment counters, so `ReadPending`, `Ack` and `Stats` (which take the state lock) never
-  delay an `Append`; only a segment roll takes both locks.
-- `Ack` is O(N) over sealed segments; the expected N is 1–2 in typical
-  dispatcher configurations.
-- The background fsync goroutine holds `w.mu` only long enough to
-  read `w.active.file`; it does not block Append for the duration of
-  the `Sync` syscall.
+- Concurrent `Append`s are group-committed: each encodes its record into a shared batch under the append lock, and one caller writes the whole batch
+  with a single `write` syscall outside it while the next batch fills. `Append` still returns only after its own record is written, so offsets and
+  accounting stay exact and a lone producer pays one `write` per record.
+- The written batch is published through atomic segment counters, so `ReadPending`, `Ack` and `Stats` (which take the state lock) never delay an
+  `Append`; only a segment roll takes both locks.
+- `Ack` is O(N) over sealed segments; the expected N is 1–2 in typical dispatcher configurations.
+- The background fsync goroutine holds `w.mu` only long enough to read `w.active.file`; it does not block Append for the duration of the `Sync` syscall.
 
 ## When to use — and when not to
 
-Use `wal` directly when you need a **local, per-process durable spool**
-for opaque byte payloads — e.g. an outbox, a crash-safe audit buffer, a
-replayable command log. The package does not handle encoding, batching,
-or consumer back-pressure.
+Use `wal` directly when you need a **local, per-process durable spool** for opaque byte payloads — e.g. an outbox, a crash-safe audit buffer, a
+replayable command log. The package does not handle encoding, batching, or consumer back-pressure.
 
-For the common "batching async dispatcher with optional WAL durability"
-pattern, use
-[`service/dispatch`](../../../service/dispatch) —
-it wraps this package behind a `Sink[T]` + `Codec[T]` interface and
-handles replay, retries, metrics, and graceful shutdown.
+For the common "batching async dispatcher with optional WAL durability" pattern, use [`service/dispatch`](../../../service/dispatch) — it wraps this
+package behind a `Sink[T]` + `Codec[T]` interface and handles replay, retries, metrics, and graceful shutdown.
 
-**Do not** use `wal` as a distributed log: it is a single-process append
-log on a local filesystem. Cross-node durability belongs to the broker
-layer.
+**Do not** use `wal` as a distributed log: it is a single-process append log on a local filesystem. Cross-node durability belongs to the broker layer.
 
 ## Permissions and migration
 
-New directories use 0700 and segment files use 0600 (subject to umask). On Unix, `Open` rejects an existing directory or recognized segment
-with any group/other permission bits, returning `ErrInsecurePermissions`. It validates every recognized segment before recovery reads,
-truncates or deletes files. The root must be a directory and segment targets must be regular files. Symlinks are followed.
+New directories use 0700 and segment files use 0600 (subject to umask). On Unix, `Open` rejects an existing directory or recognized segment with any
+group/other permission bits, returning `ErrInsecurePermissions`. It validates every recognized segment before recovery reads, truncates or deletes
+files. The root must be a directory and segment targets must be regular files. Symlinks are followed.
 
-Before upgrading, stop the service, set the WAL directory to 0700 and its segment files to 0600, then restart. Existing paths are never
-automatically chmodded. `WithInsecurePermissions()` restores legacy 0755/0644 creation and bypasses permission checks; dispatch factories
-expose this as `wal.insecurePermissions: true`. Use it only when other local users may access the payloads.
+Before upgrading, stop the service, set the WAL directory to 0700 and its segment files to 0600, then restart. Existing paths are never automatically
+chmodded. `WithInsecurePermissions()` restores legacy 0755/0644 creation and bypasses permission checks; dispatch factories expose this as
+`wal.insecurePermissions: true`. Use it only when other local users may access the payloads.
 
-Mode checks do not verify ownership, ancestor paths or ACLs (including extended Unix ACLs). Keep the directory and symlink targets under
-trusted ownership and use a single writer. On Windows POSIX mode checks are skipped; configure restrictive ACLs externally.
+Mode checks do not verify ownership, ancestor paths or ACLs (including extended Unix ACLs). Keep the directory and symlink targets under trusted
+ownership and use a single writer. On Windows POSIX mode checks are skipped; configure restrictive ACLs externally.

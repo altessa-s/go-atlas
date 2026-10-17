@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/tools/codegen/goconfig/commands"
 ```
 
-Package `commands` wires the cobra root command for goconfig and registers all subcommands. `New` returns the root `cobra.Command` for
-embedding in larger CLI trees. `Run` is a convenience wrapper that sets `os.Args` and executes the command in one call.
+Package `commands` wires the cobra root command for goconfig and registers all subcommands. `New` returns the root `cobra.Command` for embedding in
+larger CLI trees. `Run` is a convenience wrapper that sets the given args and executes the command in one call.
 
 ## Entry points
 

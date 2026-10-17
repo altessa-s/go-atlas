@@ -4,16 +4,16 @@
 import "github.com/altessa-s/go-atlas/core/encoding/etag"
 ```
 
-Package `etag` produces and compares entity-tags (ETags, RFC 7232) in both strong (`"value"`) and weak (`W/"value"`) forms. It is
-transport-neutral: the same tags drive HTTP conditional requests and the resource `etag` field used by gRPC APIs that follow Google
-AIP-154, which reuses the RFC 7232 syntax verbatim as the field value. A `Tag` stores the inner opaque-tag plus a weak flag; `String`
-renders that wire form and `Parse`/`ParseList` recover tags (and If-None-Match/If-Match lists) from it.
+Package `etag` produces and compares entity-tags (ETags, RFC 7232) in both strong (`"value"`) and weak (`W/"value"`) forms. It is transport-neutral: the
+same tags drive HTTP conditional requests and the resource `etag` field used by gRPC APIs that follow Google AIP-154, which reuses the RFC 7232 syntax
+verbatim as the field value. A `Tag` stores the inner opaque-tag plus a weak flag; `String` renders that wire form and `Parse`/`ParseList` recover tags
+(and If-None-Match/If-Match lists) from it.
 
-Strong content tags come from a `Generator` with a pluggable hash (default SHA-256), so callers can trade collision resistance for
-speed. `FromModTime` builds a weak validator straight from object metadata, no hashing involved.
+Strong content tags come from a `Generator` with a pluggable hash (default SHA-256), so callers can trade collision resistance for speed. `FromModTime`
+builds a weak validator straight from object metadata, no hashing involved.
 
-This is a generation primitive only. HTTP conditional-request handling (304, header wiring) and the AIP-154 mutation check (`ABORTED`
-on mismatch, `etag` field wiring) are left to the transport adapters.
+This is a generation primitive only. HTTP conditional-request handling (304, header wiring) and the AIP-154 mutation check (`ABORTED` on mismatch,
+`etag` field wiring) are left to the transport adapters.
 
 ## Options
 
@@ -42,6 +42,8 @@ on mismatch, `etag` field wiring) are left to the transport adapters.
 | `Generator.Hash([]byte)`          | Strong tag of an in-memory body.                                              |
 | `Generator.HashString(string)`    | Strong tag of a string (zero-copy).                                           |
 | `Generator.HashReader(io.Reader)` | Strong tag of a stream, without buffering it whole.                           |
+| `Tag.String()`                    | Wire form (`"v"` or `W/"v"`); empty for the zero tag.                         |
+| `Tag.Value()` / `IsWeak()` / `IsZero()` | Inner opaque-tag, weak flag, absent-tag check.                          |
 
 ## Comparison
 
@@ -66,20 +68,16 @@ w.Header().Set("ETag", tag.String())
 
 ```go
 inm, star, err := etag.ParseList(r.Header.Get("If-None-Match"))
-if err == nil {
-    for _, candidate := range inm {
-        if star || candidate.WeakMatch(tag) {
-            w.WriteHeader(http.StatusNotModified)
-            return
-        }
-    }
+if err == nil && (star || slices.ContainsFunc(inm, tag.WeakMatch)) {
+    w.WriteHeader(http.StatusNotModified)
+    return
 }
 ```
 
 ### gRPC / AIP-154 resource validation
 
-The same `Tag` drives an AIP-154 `etag` resource field: store `String()` into it, and validate a mutation against the request `etag`
-with a strong comparison, returning `ABORTED` on mismatch.
+The same `Tag` drives an AIP-154 `etag` resource field: store `String()` into it, and validate a mutation against the request `etag` with a strong
+comparison, returning `ABORTED` on mismatch.
 
 ```go
 cur := g.HashString(resource) // current resource tag

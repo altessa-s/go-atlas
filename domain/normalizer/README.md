@@ -4,20 +4,19 @@
 import "github.com/altessa-s/go-atlas/domain/normalizer"
 ```
 
-Package `normalizer` provides tag-based string normalization for struct fields. Fields annotated with
-`normalize:"..."` tags are processed by `Normalize`. Multiple modifiers can be chained with commas.
+Package `normalizer` provides tag-based string normalization for struct fields. Fields annotated with `normalize:"..."` tags are processed by
+`Normalize`. Multiple modifiers can be chained with commas.
 
 ## Special tag values
 
 | Tag       | Behavior                                              |
 |-----------|-------------------------------------------------------|
 | `"-"`     | Skip the field entirely                               |
-| `"custom"`| Skip built-in modifiers, only call `CustomNormalizer` |
+| `"custom"`| Skip modifiers and nested normalization; the parent struct's `CustomNormalizer` handles the field |
 
 ## CustomNormalizer interface
 
-Struct types can implement `CustomNormalizer` for programmatic normalization. The method is called after
-all tag-based modifiers have been applied.
+Struct types can implement `CustomNormalizer` for programmatic normalization. The method is called after all tag-based modifiers have been applied.
 
 ## Built-in modifiers
 
@@ -35,8 +34,7 @@ Custom modifiers can be registered via `modifiers.RegisterModifier`.
 
 ## Traversal
 
-Nested structs, slices, and arrays are traversed recursively. Struct field metadata is cached for
-optimal performance on repeated calls.
+Nested structs, slices, and arrays are traversed recursively. Struct field metadata is cached for optimal performance on repeated calls.
 
 ## Subpackages
 

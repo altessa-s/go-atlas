@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/auth/audit/sinks/dataaudit"
 ```
 
-Package `dataaudit` bridges the authorization-decision `audit.Sink` seam to the project's general-purpose
-[`data/audit`](../../../../data/audit) dispatcher. It is the wiring that keeps the `auth/audit` primitive free of any dependency on
-`data/audit`: the core declares the seam, this adapter satisfies it.
+Package `dataaudit` bridges the authorization-decision `audit.Sink` seam to the project's general-purpose [`data/audit`](../../../../data/audit)
+dispatcher. It is the wiring that keeps the `auth/audit` primitive free of any dependency on `data/audit`: the core declares the seam, this adapter
+satisfies it.
 
 ## Mapping
 

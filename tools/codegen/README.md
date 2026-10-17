@@ -1,7 +1,7 @@
 # codegen
 
-Code generation tools for the Atlas framework. Each tool is a standalone `main` package invoked via `go run` or `go generate` directives
-and shares the common cobra-based CLI foundation from the [shared/rootcmd](./shared/rootcmd) package.
+Code generation tools for the Atlas framework. Each tool is a standalone `main` package invoked via `go run` or `go generate` directives and shares the
+common cobra-based CLI foundation from the [shared/rootcmd](./shared/rootcmd) package.
 
 ## Tools
 

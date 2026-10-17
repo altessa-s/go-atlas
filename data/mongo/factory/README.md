@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/mongo/factory"
 ```
 
-Package `factory` provides a fluent builder for creating a MongoDB cursor storage from configuration.
-`CursorStorageBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating a MongoDB cursor storage from configuration. `CursorStorageBuilder` uses deferred error
+accumulation — errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -38,6 +38,7 @@ storage, err := factory.New(cfg.CursorStorage).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends |
 | `UseJetstream` | Sets the NATS JetStream context for NATS storage backends |
 | `UseScheduler` | Sets the scheduler for background cleanup task registration |
@@ -56,10 +57,9 @@ storage, err := factory.New(cfg.CursorStorage).
 
 ## NATS bucket
 
-The NATS backend creates its KeyValue bucket (`storage.nats.bucket`, default `cursor`) as file storage with the `WithTTL` key TTL. Without
-`WithTTL` the TTL is zero and cursors never expire. An existing bucket is checked like in every other NATS KV backend:
+The NATS backend creates its KeyValue bucket (`storage.nats.bucket`, default `cursor`) as file storage with the `WithTTL` key TTL. Without `WithTTL` the
+TTL is zero and cursors never expire. An existing bucket is checked like in every other NATS KV backend:
 
-- a different key TTL fails with `ErrBucketTTLMismatch` and leaves the bucket untouched, unless `storage.nats.migrateBucketTTL: true`. Before
-  this change the factory silently rewrote the TTL of a shared bucket.
-- a different storage type is used as is with a warning, unless `storage.nats.strictBucketStorage: true` makes it fail with
-  `ErrBucketStorageMismatch`.
+- a different key TTL fails with `ErrBucketTTLMismatch` and leaves the bucket untouched, unless `storage.nats.migrateBucketTTL: true`. Before this
+  change the factory silently rewrote the TTL of a shared bucket.
+- a different storage type is used as is with a warning, unless `storage.nats.strictBucketStorage: true` makes it fail with `ErrBucketStorageMismatch`.

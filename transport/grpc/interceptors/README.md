@@ -20,12 +20,24 @@ include Chain, BaseInterceptor, ServerInterceptor/ClientInterceptor interfaces, 
 | `Error`                   | Combines `grpc/status.Status` with a standard Go error, implements both interfaces       |
 | `Matcher` / `MatchFunc`   | Dynamic runtime condition for conditional interceptor activation                         |
 | `DrivenInterceptorFunc`   | Function adapter for the driven interceptor pattern                                      |
+| `NoOpInterceptor` / `NoOpClientInterceptor` | Pass-through interceptors that do nothing                              |
+
+## Helpers
+
+| Function                                                        | Description                                                        |
+|-----------------------------------------------------------------|--------------------------------------------------------------------|
+| `ServerDrivenInterceptor` / `ClientDrivenInterceptor`           | Adapt a `driver.DrivenInterceptor` to a server or client interceptor |
+| `ServerConditionalInterceptor` / `ClientConditionalInterceptor` | Include an interceptor only when a boolean condition holds (`...Func` variants build lazily) |
+| `ServerMatchInterceptor` / `ClientMatchInterceptor`             | Pick the interceptor or a no-op once, at construction, from `Matcher.Match()` (`...Func` variants build it only when matched) |
+| `OrderServerInterceptors` / `OrderClientInterceptors`           | Topologically sort interceptors by declared dependencies            |
+| `NewBaseInterceptor` / `NewBaseInterceptorWithFilter`           | Build a `BaseInterceptor`, optionally with ignore methods and patterns |
 
 ## Chain methods
 
 | Method             | Description                                                                   |
 |--------------------|-------------------------------------------------------------------------------|
 | `NewChain`         | Creates a new chain from any combination of server/client interceptors        |
+| `Len`              | Returns the number of interceptors in the chain                               |
 | `ServerOptions`    | Returns `[]grpc.ServerOption` with topological ordering, auto-prepends metadata |
 | `ClientOptions`    | Returns `[]grpc.DialOption` with topological ordering, auto-prepends metadata |
 | `DependencyOrder`  | Returns computed interceptor ordering for debugging                           |
@@ -44,15 +56,15 @@ Every interceptor sub-package exports three identification helpers:
 
 ## Stream hooks
 
-Driven interceptors receive per-message stream hooks through `ServerStreamWrapper` / `ClientStreamWrapper`: `PostMsgReceive` after a receive,
-the optional `PreMsgSend` (`driver.DriverStreamPreSend`) before a message reaches the transport, and `PostMsgSent` after it is sent. A
-wrapper is reused only for a context update or when it carries no driver yet; every further driver gets its own nested wrapper, so each
-driven interceptor in a chain sees every stream message. On a server, pre-send hooks run from the interceptor closest to the handler
-outwards; on a client, from the outermost interceptor inwards.
+Driven interceptors receive per-message stream hooks through `ServerStreamWrapper` / `ClientStreamWrapper`: `PostMsgReceive` after a receive, the
+optional `PreMsgSend` (`driver.DriverStreamPreSend`) before a message reaches the transport, and `PostMsgSent` after it is sent. A wrapper is reused
+only for a context update or when it carries no driver yet; every further driver gets its own nested wrapper, so each driven interceptor in a chain sees
+every stream message. On a server, pre-send hooks run from the interceptor closest to the handler outwards; on a client, from the outermost interceptor
+inwards.
 
-Earlier releases reused the first wrapper and dropped later drivers, so in the default server chain driven interceptors such as
-`fieldbehavior`, `fieldmask` and `protovalidator` (and client `errstatus`) silently received no stream message hooks. They now apply to every
-streamed message: streamed requests are validated and sanitized, and streamed responses are sanitized and masked before they are sent.
+Earlier releases reused the first wrapper and dropped later drivers, so in the default server chain driven interceptors such as `fieldbehavior`,
+`fieldmask` and `protovalidator` (and client `errstatus`) silently received no stream message hooks. They now apply to every streamed message: streamed
+requests are validated and sanitized, and streamed responses are sanitized and masked before they are sent.
 
 ## Subpackages
 

@@ -30,16 +30,17 @@ Stdlib only, except the Linux hardening subpackages (`capabilities`, `landlock`,
 `OnShutdown` registers a `ShutdownHook` (`func(ctx context.Context) error`) to run during application shutdown. `RunShutdownHooks` executes all
 registered hooks.
 
+Those two functions drive one implicit, process-wide group. A component whose lifetime is shorter than the process (owned by a factory, a test, or a
+subsystem that is torn down and rebuilt) uses its own `HookGroup` instead: the zero value is ready to use, `HookGroup.OnShutdown` registers a hook, and
+`HookGroup.Shutdown` runs that group alone with the same guarantees.
+
 ### Ordering and guarantees
 
-- **LIFO** — hooks execute in reverse registration order, so foundational resources
-  registered first are cleaned up last.
-- **At most once** — `RunShutdownHooks` is guarded by `sync.Once`; calling it from
-  multiple goroutines is safe and hooks run exactly once.
-- **Errors don't abort** — a failing hook does not prevent subsequent hooks from
-  running. All errors are collected and returned via `errors.Join`.
-- **Context deadline** — each hook receives the caller's context, so a timeout on
-  the shutdown sequence is enforced by passing a context with a deadline.
+- **LIFO** — hooks execute in reverse registration order, so foundational resources registered first are cleaned up last.
+- **At most once** — `RunShutdownHooks` is guarded by `sync.Once`; calling it from multiple goroutines is safe and hooks run exactly once.
+- **Errors don't abort** — a failing hook does not prevent subsequent hooks from running. All errors are collected and returned via `errors.Join`.
+- **Context deadline** — each hook receives the caller's context, so a deadline bounds the shutdown sequence only if the hooks honor cancellation — the
+  runner calls them synchronously and does not enforce it.
 
 ### Example
 
@@ -64,9 +65,9 @@ if err := runtime.RunShutdownHooks(ctx); err != nil {
 
 ### Integration with signals and panic recovery
 
-A typical application wires shutdown hooks into the signal handler so that `RunShutdownHooks` is called on `SIGTERM`/`SIGINT`. Combined with `defer
-panics.Handle(ctx)` in spawned goroutines, this ensures resources are released even when a goroutine panics. See [concurrency.md](concurrency.md) for
-signal and panic handling details.
+A typical application wires shutdown hooks into the signal handler so that `RunShutdownHooks` is called on `SIGTERM`/`SIGINT`. Combined with
+`defer panics.Handle(ctx)` in spawned goroutines, the hooks also run when a goroutine panics with re-panic enabled; a recovered, swallowed panic leaves
+them untouched. See [signals.md](signals.md) for signal handling and [concurrency.md](concurrency.md) for panic recovery details.
 
 ---
 
@@ -97,12 +98,8 @@ See [appinfo.md](appinfo.md) for the full reference.
 
 ## See also
 
-- [appinfo.md](appinfo.md) — application metadata, version queries, env vars,
-  directory paths
-- [concurrency.md](concurrency.md) — batch processing, concurrency limits, retry,
-  panic recovery
-- [security.md](security.md) — Linux process-hardening primitives: capabilities,
-  seccomp, landlock, rlimits, no-new-privs
-- [signals.md](signals.md) — OS signal handling, priority execution, worker pools,
-  graceful shutdown
+- [appinfo.md](appinfo.md) — application metadata, version queries, env vars, directory paths
+- [concurrency.md](concurrency.md) — batch processing, concurrency limits, retry, panic recovery
+- [security.md](security.md) — Linux process-hardening primitives: capabilities, seccomp, landlock, rlimits, no-new-privs
+- [signals.md](signals.md) — OS signal handling, priority execution, worker pools, graceful shutdown
 - [../../service/scheduler.md](../../service/scheduler.md) — periodic task scheduling

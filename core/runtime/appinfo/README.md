@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 ```
 
-Package `appinfo` provides standardized access to application metadata, build information, environment variables, and directory paths.
-Values are set via `-ldflags` at build time and accessed through package-level variables and helper functions.
+Package `appinfo` provides standardized access to application metadata, build information, environment variables, and directory paths. Values are set
+via `-ldflags` at build time and accessed through package-level variables and helper functions.
 
 ## Build configuration
 
@@ -31,6 +31,8 @@ go build -ldflags "
 | `Branch`    | VCS branch name                               | `""`                |
 | `BuildTime` | Build timestamp                               | From `vcs.time`     |
 | `EnvPrefix` | Env var prefix (uppercased, `_`-separated)    | `""`                |
+| `StandaloneLabel` / `NonStandaloneLabel` | Labels returned by `EnvLabel` | `"standalone"` / `"cloud"` |
+| `IsStandalone` | `true` when built with the `standalone` build tag | `false` |
 
 ## Version checks
 
@@ -52,8 +54,12 @@ go build -ldflags "
 | `BuildInfo`      | Compact one-liner: Go, platform, build time, tags |
 | `BuildGoVersion` | Go toolchain version                              |
 | `BuildPlatform`  | `GOOS/GOARCH`                                     |
+| `BuildGoOS` / `BuildGoArch` | `GOOS` / `GOARCH` build settings       |
 | `BuildTags`      | Active build tags                                 |
-| `Deps`           | Module dependencies                               |
+| `IsCgoEnabled`   | `CGO_ENABLED` build setting                       |
+| `IsRaceEnabled`  | Built with `-race`                                |
+| `EnvLabel`       | `StandaloneLabel` or `NonStandaloneLabel`         |
+| `Deps`           | Module dependencies (`Dependencies` with `Contains` / `Get` by module path) |
 
 ## Environment variables
 
@@ -74,8 +80,10 @@ go build -ldflags "
 | `BinDir`        | `/opt/bin`                   |
 | `VarDir`        | `/var`                       |
 | `EtcDir`        | `/etc/<project>/<name>`      |
-| `LibDir`        | `/var/lib/<project>/<name>`  |
+| `LibDir`        | `<VarDir>/lib/<project>/<name>` |
 | `CertsCacheDir` | `<LibDir>/certs`             |
 | `MakeAllDirs`   | Create `VarDir` and `LibDir` |
 
-All paths are overridable via `<EnvPrefix>_*_DIR` environment variables. Paths are resolved once at first access and cached for the process lifetime.
+All paths are overridable via `<EnvPrefix>_*_DIR` environment variables (`BIN_DIR`, `VAR_DIR`, `ETC_DIR`, `LIB_DIR`). `<project>` and `<name>` are
+lowercased, and the project component is omitted when `Project` is empty. Paths are resolved on every call, so environment changes take effect
+immediately.

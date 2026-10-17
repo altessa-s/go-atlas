@@ -4,15 +4,13 @@
 import "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 ```
 
-Package `factory` provides a fluent builder that materializes a [`proxyconfig.Config`](../../../config/proxy/proxy.go)
-into a [`proxydial.DialContextFunc`](../proxydial.go), suitable for any
-client that needs raw-TCP-through-proxy: SMTP (go-mail's
-`WithDialContextFunc`), SOAP, gRPC's `WithContextDialer`, or any
-custom protocol that does not go through `net/http`.
+Package `factory` provides a fluent builder that materializes a [`proxyconfig.Config`](../../../config/proxy/proxy.go) into a
+[`proxydial.DialContextFunc`](../proxydial.go), suitable for any client that needs raw-TCP-through-proxy: SMTP (go-mail's `WithDialContextFunc`), SOAP,
+gRPC's `WithContextDialer`, or any custom protocol that does not go through `net/http`.
 
-HTTP and gRPC clients should keep using `cfg.Proxy.HTTPClientOptions()`
-/ `cfg.Proxy.GrpcClientOptions()`; this factory targets consumers
-without an httpclient/grpcclient in the picture.
+HTTP and gRPC clients should instead use this package's `HTTPClientOptions(cfg.Proxy)` / `GRPCClientOptions(cfg.Proxy)`, which map the config to client
+options; the `DialerBuilder` targets consumers without an httpclient/grpcclient in the picture. Explicit proxy modes on the HTTP client also require
+`httpclient.WithoutSSRFProtection`.
 
 ## Quick start
 
@@ -29,9 +27,8 @@ if dial != nil {
 }
 ```
 
-A nil `cfg`, an empty `Mode`, or `proxyconfig.ModeNone` yields
-`(nil, nil)` — caller treats that as "use a direct dial" and skips
-wiring a custom dialer entirely.
+A nil `cfg`, an empty `Mode`, or `proxyconfig.ModeNone` yields `(nil, nil)` — caller treats that as "use a direct dial" and skips wiring a custom dialer
+entirely.
 
 ## Methods
 
@@ -50,6 +47,13 @@ wiring a custom dialer entirely.
 | `UseDialer`            | Overrides the underlying `*net.Dialer` used to reach the proxy                             |
 | `UseProxyTLSConfig`    | Overrides the `*tls.Config` for the TLS handshake to an `https://` proxy                   |
 
+### Client option mappers
+
+| Function                 | Description                                                                         |
+|--------------------------|-------------------------------------------------------------------------------------|
+| `HTTPClientOptions(cfg)` | Maps the config to `transport/http/client` options; nil or empty `Mode` yields none |
+| `GRPCClientOptions(cfg)` | Maps the config to `transport/grpc/client` options; nil or empty `Mode` yields none |
+
 ### Terminal
 
 | Method   | Description                                                          |
@@ -65,5 +69,4 @@ wiring a custom dialer entirely.
 | `host`               | http-proxy tunnel to `cfg.Host:cfg.Port` with optional `cfg.Auth`           |
 | anything else        | error at `Build()` time                                                     |
 
-See the [Proxy guide](../../../docs/proxy.md) for YAML modes and operator
-guidance.
+See the [Proxy guide](../../../docs/proxy.md) for YAML modes and operator guidance.

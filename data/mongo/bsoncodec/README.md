@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
 ```
 
-MongoDB registry for [`optional.Optional[T]`](../../../core/types/optional), `shopspring/decimal` and `civil.Date`, keeping database
-dependencies out of universal value types. Existing driver codecs and custom inner-type codecs continue to work.
+MongoDB registry for [`optional.Optional[T]`](../../../core/types/optional), `shopspring/decimal` and `civil.Date`, keeping database dependencies out of
+universal value types. Existing driver codecs and custom inner-type codecs continue to work.
 
 ## API
 
@@ -40,16 +40,15 @@ omitted without invoking the codec.
 The [`data/mongo`](../README.md) client constructor installs this registry unless explicitly overridden. Injected clients and custom registries remain
 the caller's responsibility. RedactedString's fixed redaction hook also works with this registry and with the driver's default registry.
 
-Pass the same registry to the [`domain/behavior/translators/mongo`](../../../domain/behavior/translators/mongo) translators with `WithRegistry`,
-so that they write decimals, calendar dates and Optionals as units instead of folding them field by field.
+Pass the same registry to the [`domain/behavior/translators/mongo`](../../../domain/behavior/translators/mongo) translators with `WithRegistry`, so that
+they write decimals, calendar dates and Optionals as units instead of folding them field by field.
 
 ## Calendar dates
 
-A calendar date without time or zone is stored as its `YYYY-MM-DD` string: nothing can shift it across a day boundary, and strings of that form
-sort in date order, so range queries and indexes work on them. `NewRegistry` registers the codec for `civil.Date` (`cloud.google.com/go/civil`)
-and for go-atlas [`core/time/civil.Date`](../../../core/time/civil) (zero stored as `""`, matching its text form);
-`RegisterDateType[T](reg, opts...)` registers it for any struct with the fields `Year int`, `Month time.Month` and `Day int` — a service's own
-date type — and fails with `ErrNotADateType` for any other.
+A calendar date without time or zone is stored as its `YYYY-MM-DD` string: nothing can shift it across a day boundary, and strings of that form sort in
+date order, so range queries and indexes work on them. `NewRegistry` registers the codec for `civil.Date` (`cloud.google.com/go/civil`) and for go-atlas
+[`core/time/civil.Date`](../../../core/time/civil) (zero stored as `""`, matching its text form); `RegisterDateType[T](reg, opts...)` registers it for
+any struct with the fields `Year int`, `Month time.Month` and `Day int` — a service's own date type — and fails with `ErrNotADateType` for any other.
 
 | Stored BSON        | Encoded from / decoded to                                                                       |
 |--------------------|-------------------------------------------------------------------------------------------------|
@@ -69,8 +68,8 @@ if err := bsoncodec.RegisterDateType[civil.Date](reg, bsoncodec.WithDateZeroAsEm
 ## Decimal
 
 `decimal.Decimal`, `*decimal.Decimal` and `decimal.NullDecimal` are stored as BSON `Decimal128`, exactly: trailing zeros fold into the exponent, and a
-value that still needs more than 34 significant digits, or an exponent outside the Decimal128 range, fails with `ErrDecimalOutOfRange` instead of
-being rounded or panicking.
+value that still needs more than 34 significant digits, or an exponent outside the Decimal128 range, fails with `ErrDecimalOutOfRange` instead of being
+rounded or panicking.
 
 | Stored BSON | Decoded as |
 |-------------|------------|

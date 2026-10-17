@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/limiters/tokenbucket/factory"
 ```
 
-Package `factory` provides a fluent builder for creating a token-bucket rate limiter from configuration.
-`TokenBucketLimiterBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating a token-bucket rate limiter from configuration. `TokenBucketLimiterBuilder` uses deferred error
+accumulation — errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -37,6 +37,7 @@ limiter, err := factory.New(cfg.TokenBucketLimiter).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends |
 | `UseJetstream` | Sets the NATS JetStream context for NATS storage backends |
 | `UseScheduler` | Sets the scheduler for background cleanup task registration |

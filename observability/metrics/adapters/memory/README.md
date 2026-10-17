@@ -4,22 +4,22 @@
 import "github.com/altessa-s/go-atlas/observability/metrics/adapters/memory"
 ```
 
-Package `memory` provides an in-memory metrics adapter implementation for testing.
-Metric values are accumulated in goroutine-safe maps and exposed via lookup methods.
+Package `memory` provides an in-memory metrics adapter implementation for testing. Metric values are accumulated in goroutine-safe maps and exposed via
+lookup methods.
 
 ## Usage
 
 ```go
-adapter := memory.NewAdapter()
-collector := metrics.NewCollector(adapter, "test")
+adapter := memory.New()
+collector := metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("test"))
 
 // Record metrics
-collector.Counter("requests", "Total requests").
-    WithLabels("method", "GET").
+collector.MustCounter(metrics.MetricOpts{Name: "requests", Help: "Total requests", LabelNames: []string{"method"}}).
+    WithLabels(metrics.Labels{"method": "GET"}).
     Add(1)
 
 // Assert in tests
-value := adapter.GetCounter("test_requests", map[string]string{"method": "GET"})
+value := adapter.CounterValue("test_requests", map[string]string{"method": "GET"})
 require.Equal(t, 1.0, value)
 ```
 
@@ -33,12 +33,13 @@ require.Equal(t, 1.0, value)
 
 | Method | Description |
 |--------|-------------|
-| `NewAdapter` | Creates a new in-memory adapter |
-| `GetCounter` | Retrieves counter value by name and labels |
-| `GetGauge` | Retrieves gauge value by name and labels |
-| `GetHistogram` | Retrieves histogram observations by name and labels |
-| `Reset` | Clears all stored metrics |
-| `ListMetrics` | Returns all registered metric descriptors |
+| `New` | Creates a new in-memory adapter |
+| `CounterValue` | Returns the counter sum by name and labels |
+| `GaugeValue` | Returns the latest gauge value by name and labels |
+| `HistogramCount` | Returns the number of histogram observations by name and labels |
+| `HistogramSum` | Returns the sum of histogram observations by name and labels |
+| `Exists` | Reports whether a metric with the given name was registered |
+| `Names` | Returns the names of all registered metrics |
 
 ## Features
 

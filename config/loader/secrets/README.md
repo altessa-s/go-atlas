@@ -4,14 +4,13 @@
 import "github.com/altessa-s/go-atlas/config/loader/secrets"
 ```
 
-Package `secrets` provides secret placeholder expansion for the configuration loader. It replaces
-`$__secret{namespace:key}` placeholders in struct fields and environment variables with actual secret values
-retrieved from a `secrets.Manager`.
+Package `secrets` provides secret placeholder expansion for the configuration loader. It replaces `$__secret{namespace:key}` placeholders in struct
+fields and environment variables with actual secret values retrieved from a `secrets.Manager`.
 
 ## Syntax
 
-Placeholders use the format `$__secret{namespace:key}` where **namespace** is a logical grouping (e.g.,
-`myapp`, `database`) and **key** is the specific secret identifier within the namespace.
+Placeholders use the format `$__secret{namespace:key}` where **namespace** is a logical grouping (e.g., `myapp`, `database`) and **key** is the specific
+secret identifier within the namespace.
 
 ## Options
 
@@ -22,8 +21,9 @@ Placeholders use the format `$__secret{namespace:key}` where **namespace** is a 
 
 ## Error handling
 
-By default the expander is **fail-closed**: if a secret cannot be resolved, `Expand` returns an error.
-Set `WithFailOnError(false)` for fail-open behavior where unresolved placeholders become empty strings.
+With a non-nil manager the expander is **fail-closed** by default: if a secret cannot be resolved, `Expand` returns an error. With a nil manager
+`Expand` replaces every placeholder with an empty string and returns no error. Set `WithFailOnError(false)` for fail-open behavior where unresolved
+placeholders become empty strings.
 
 ## Convenience functions
 
@@ -36,8 +36,7 @@ Set `WithFailOnError(false)` for fail-open behavior where unresolved placeholder
 
 ## Supported field types
 
-`ExpandStruct` handles `string`, `*string`, `[]string`, `map[K]string`, nested structs, pointers, slices,
-and maps containing structs.
+`ExpandStruct` handles `string`, `*string`, `[]string`, `map[K]string`, nested structs, pointers, slices, and maps containing structs.
 
 ## Thread safety
 

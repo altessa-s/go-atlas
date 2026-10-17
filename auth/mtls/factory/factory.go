@@ -43,8 +43,10 @@ func New(cfg *authconfig.MTLS) *Builder {
 }
 
 // Options returns the validator options described by the configuration: an
-// expiry re-check (when CheckExpiry) and a trust-domain pin (when TrustDomains is
-// non-empty). Pass them to a transport adapter's AuthFunc/Middleware alongside
+// expiry re-check (when CheckExpiry), a trust-domain pin (TrustDomains),
+// subject and issuer CN pins (AllowedSubjectCNs, AllowedIssuerCNs), an issuer
+// key-ID pin (IssuerKeyIDs, hex), a DNS SAN pin (AllowedDNSNames) and an EKU
+// requirement (RequiredEKUs) — each only when its field is set. Pass them to a transport adapter's AuthFunc/Middleware alongside
 // any identity or audit options:
 //
 //	opts, err := factory.New(&cfg.MTLS).Options()

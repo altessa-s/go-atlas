@@ -4,10 +4,9 @@
 import chfactory "github.com/altessa-s/go-atlas/infrastructure/clickhouse/factory"
 ```
 
-Builds a ClickHouse `driver.Conn` from [`clickhouseconfig.Config`](../../../config/clickhouse) using a fluent builder. The builder does
-assembly only: it turns configuration and injected dependencies into a connection and hands ownership to the caller, who must close it.
-Storage packages such as [`data/audit/storages/clickhouse`](../../../data/audit/storages/clickhouse) take that connection as a parameter
-rather than dialing one themselves.
+Builds a ClickHouse `driver.Conn` from [`clickhouseconfig.Config`](../../../config/clickhouse) using a fluent builder. The builder does assembly only:
+it turns configuration and injected dependencies into a connection and hands ownership to the caller, who must close it. Storage packages such as
+[`data/audit/storages/clickhouse`](../../../data/audit/storages/clickhouse) take that connection as a parameter rather than dialing one themselves.
 
 ## Builder methods
 
@@ -40,10 +39,10 @@ rather than dialing one themselves.
 | `connMaxLifetime` | `1h`             | How long a pooled connection may be reused.                                     |
 | `compression`     | `lz4`            | `none`, `lz4`, `zstd`, `gzip`, `deflate`, or `br`.                              |
 | `settings`        | —                | Server-side query settings applied to every statement.                          |
-| `tls`             | —                | Standard `TlsClient` section.                                                   |
+| `tls`             | —                | Standard `tlsconfig.Client` section.                                            |
 
-Setting `connectionURI` together with `username` or `password` is a validation error: the DSN already carries them. A malformed DSN fails
-with `ErrInvalidConnectionURI`, without quoting the DSN or its credentials.
+Setting `connectionURI` together with `username` or `password` is a validation error: the DSN already carries them. A malformed DSN fails with
+`ErrInvalidConnectionURI`, without quoting the DSN or its credentials.
 
 ## Usage
 
@@ -75,12 +74,12 @@ clickhouse:
 
 ## Behavior worth knowing
 
-- **The driver connects lazily.** A successful `Build` does not prove the server is reachable. Registering a health coordinator is what
-  turns an unreachable server into an observable `NOT_SERVING` status.
-- **The DSN wins for the target, the config wins for the rest.** With `connectionURI` set, the address, database, and credentials come from
-  the DSN; pool sizing, timeouts, compression, settings, and an injected TLS config are applied on top.
-- **An unknown compression value leaves the driver default in place** rather than failing — but `clickhouseconfig.Config.Validate` rejects it
-  first, so this only matters when options are built from a config that was never validated.
+- **The driver connects lazily.** A successful `Build` does not prove the server is reachable. Registering a health coordinator is what turns an
+  unreachable server into an observable `NOT_SERVING` status.
+- **The DSN wins for the target, the config wins for the rest.** With `connectionURI` set, the address, database, and credentials come from the DSN;
+  pool sizing, timeouts, compression, settings, and an injected TLS config are applied on top.
+- **An unknown compression value leaves the driver default in place** rather than failing — but `clickhouseconfig.Config.Validate` rejects it first, so
+  this only matters when options are built from a config that was never validated.
 
 ## See also
 

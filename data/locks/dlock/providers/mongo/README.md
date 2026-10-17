@@ -4,9 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/locks/dlock/providers/mongo"
 ```
 
-MongoDB provider for [dlock](../../README.md): each lock key is one lease document, taken by a single atomic upsert, renewed in the
-background and released when the lock's context ends. Lease expiry is judged by the MongoDB server clock, and every acquisition increments a
-fencing token.
+MongoDB provider for [dlock](../../README.md): each lock key is one lease document, taken by a single atomic upsert, renewed in the background and
+released when the lock's context ends. Lease expiry is judged by the MongoDB server clock, and every acquisition increments a fencing token.
 
 ## Options
 
@@ -39,6 +38,6 @@ fencing token.
 | Sessions        | Lock operations never join a session or transaction carried by the caller's context (only its cancellation and deadline apply) |
 | Indexes         | None besides `_id`                                                                                          |
 
-The collection keeps one small document per key ever locked, and that document is the key's fencing history: deleting it restarts the key's
-tokens at 1, so a stale holder could carry a higher token than the new one. Delete documents only of keys that are permanently retired and
-have no outstanding holder; keep them for every key that may be locked again.
+The collection keeps one small document per key ever locked, and that document is the key's fencing history: deleting it restarts the key's tokens at 1,
+so a stale holder could carry a higher token than the new one. Delete documents only of keys that are permanently retired and have no outstanding
+holder; keep them for every key that may be locked again.

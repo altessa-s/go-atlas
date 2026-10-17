@@ -4,15 +4,15 @@
 import sagafactory "github.com/altessa-s/go-atlas/data/saga/factory"
 ```
 
-Assembles a [`saga.Orchestrator`](../orchestrator.go) from a [`sagaconfig.Config`](../../../config/saga/saga.go) and injected backend clients. The builder is
-generic over the saga's shared data type `T`, so `Build` returns a fully typed `*saga.Orchestrator[T]`.
+Assembles a [`saga.Orchestrator`](../orchestrator.go) from a [`sagaconfig.Config`](../../../config/saga/saga.go) and injected backend clients. The
+builder is generic over the saga's shared data type `T`, so `Build` returns a fully typed `*saga.Orchestrator[T]`.
 
 ## Builder
 
 | Method          | Description                                                                |
 |-----------------|----------------------------------------------------------------------------|
 | `New(cfg, def)` | Create a builder for a config and definition (both validated at `Build`).  |
-| `Build()`       | Validate config, construct the store, return the orchestrator.             |
+| `Build()`       | Validate config, construct the store, register the recovery cycle, return the orchestrator. |
 
 ## Injected dependencies
 
@@ -25,6 +25,7 @@ The store backend is chosen by `sagaconfig.Config.Storage.Type`; the matching cl
 | `UseRedisClient`   | `redis`                     | Redis client.                        |
 | `UseSQLDB`         | `sqldb`                     | `*sql.DB`; caller registers driver.  |
 | `UseLogger`        | —                           | Logger for builder and orchestrator. |
+| `UseDefaultLogger` | —                           | Use `slog.Default()` as the logger.  |
 | `UseCollector`     | —                           | Prometheus metrics collector.        |
 | `UseScheduler`     | —                           | Registrar for the recovery cycle.    |
 | `UseLeaderElector` | —                           | Gate recovery to the elected leader. |
@@ -48,7 +49,7 @@ cfg.Storage = &sagaconfig.StorageConfig{
 	Mongo: &sagaconfig.MongoStorageConfig{Collection: "saga_instances"},
 }
 
-orch, err := factory.New(&cfg, def).
+orch, err := sagafactory.New(&cfg, def).
 	UseMongoDatabase(db).
 	UseScheduler(scheduler).
 	Build()

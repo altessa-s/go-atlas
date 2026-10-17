@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/client/factory"
 ```
 
-Maps configuration schemas to GRPC client options. Configuration stays independent of runtime clients.
+Maps configuration schemas to gRPC client options. Configuration stays independent of runtime clients.
 
 ## API
 

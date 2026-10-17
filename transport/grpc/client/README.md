@@ -17,6 +17,9 @@ logging, and rich error parsing with field-level validation details.
 | `FieldError`      | Single field validation violation extracted from `BadRequest` error details               |
 | `RetryConfig`     | Retry policy: max attempts, initial/max backoff, multiplier, retryable status codes      |
 | `ErrorConverter`  | Hook to override default `ParseStatusError` behavior in the error-status interceptor     |
+| `StaticToken`     | Per-RPC credentials with a fixed bearer token, created via `NewStaticToken`              |
+| `InsecureTokenCredentials` | Per-RPC credentials from an `oauth2.TokenSource` without requiring TLS          |
+| `ParseError` / `AsClientError` | `ParseError` converts a gRPC status error into `*Error`; `AsClientError` extracts an existing `*Error` (nil otherwise); `IsClientError` reports whether there is one |
 
 ## Options
 
@@ -45,7 +48,7 @@ logging, and rich error parsing with field-level validation details.
 ## Health
 
 Pass `WithHealthCoordinator(coord)` to register the client with `observability/health`. The aggregate checker (default service name `grpc_client`)
-reflects the [`grpc.ClientConn`](https://pkg.go.dev/google.golang.org/grpc#ClientConn) connectivity state through `DefaultStateMapper`:
+reflects the [`grpc.ClientConn`](https://pkg.go.dev/google.golang.org/grpc#ClientConn) connectivity state through `pool.DefaultStateMapper`:
 
 | `connectivity.State` | `ServingStatus` |
 |----------------------|-----------------|

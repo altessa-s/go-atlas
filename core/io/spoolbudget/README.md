@@ -4,9 +4,10 @@
 import "github.com/altessa-s/go-atlas/core/io/spoolbudget"
 ```
 
-Bounds the aggregate on-disk bytes held by concurrent [`spool`](../spool/README.md) materializations. A single process-wide `Budget`
-reserves each spool's per-call cap before writing and blocks (back-pressure) until it fits, so the sum of in-flight on-disk bytes never
-exceeds the limit — a true peak bound, not a post-hoc average.
+Bounds the aggregate on-disk bytes held by concurrent [`spool`](../spool/README.md) materializations. A single process-wide `Budget` reserves each
+spool's per-call cap before writing and blocks (back-pressure) until it fits, so the sum of reserved bytes never exceeds the limit — a peak bound on
+reservations, not a post-hoc average. Actual disk usage can briefly exceed it: `Close` releases the reservation before the file is removed, and oversize
+detection writes one extra byte before rejecting.
 
 ## Key types
 
@@ -15,6 +16,8 @@ exceeds the limit — a true peak bound, not a post-hoc average.
 | `Budget` | Shared byte ceiling charged across every call site; safe for concurrent use |
 | `BudgetedSpool` | A `spool.Spool` whose size is held against the `Budget` until `Close` |
 | `New(limitBytes int64) *Budget` | Builds a budget; a non-positive limit returns `nil` — a disabled, passthrough budget |
+| `Budget.Spool(ctx, r, maxBytes, opts ...spool.Option)` | Reserves `maxBytes`, materializes `r` via `spool.New`, and returns a `*BudgetedSpool`; `ctx` governs the wait |
+| `Budget.Limit() int64` | Configured byte ceiling, or `0` when the budget is disabled |
 
 ## Behavior
 
@@ -42,5 +45,5 @@ defer sp.Close() // releases the held bytes back to the budget
 data, err := io.ReadAll(sp)
 ```
 
-When the budget is enabled, `maxBytes` must be positive and not exceed the limit so the reservation can always be satisfied; a
-`maxBytes` larger than the limit could only unblock when `ctx` is canceled.
+When the budget is enabled, `maxBytes` must be positive and not exceed the limit so the reservation can always be satisfied; a `maxBytes` larger than
+the limit could only unblock when `ctx` is canceled.

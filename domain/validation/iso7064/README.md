@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/domain/validation/iso7064"
 ```
 
-Package `iso7064` provides check-digit validation using the ISO 7064 MOD 11-10 algorithm for 9-digit numeric identifiers. Both
-functions accept `string` or `int64` via a generic type parameter; pass strings when leading zeros must be preserved.
+Package `iso7064` provides check-digit validation using the ISO 7064 MOD 11-10 algorithm for 9-digit numeric identifiers. Both functions accept `string`
+or `int64` via a generic type parameter; pass strings when leading zeros must be preserved.
 
 ## Functions
 

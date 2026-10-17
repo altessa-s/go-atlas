@@ -29,7 +29,8 @@ outbox, err := factory.New(cfg.Outbox).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
-| `UseScheduler` | Sets the task scheduler for background dispatch, unlock, and cleanup processes |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
+| `UseScheduler` | Sets the task scheduler for background dispatch, unlock, expire, cleanup, and stats cycles |
 
 ### Terminal
 

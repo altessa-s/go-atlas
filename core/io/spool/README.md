@@ -4,7 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/io/spool"
 ```
 
-Materializes a streaming `io.Reader` into a local, rewindable backing store. Content up to `DefaultMemThreshold` (4 MiB) is held in a byte slice; larger content spills to a temp file. Callers can re-read from offset 0 without touching the origin again.
+Materializes a streaming `io.Reader` into a local, rewindable backing store. Content up to `DefaultMemThreshold` (4 MiB) is held in a byte slice; larger
+content spills to a temp file. Callers can re-read from offset 0 without touching the origin again.
 
 ## Options
 
@@ -19,7 +20,10 @@ Materializes a streaming `io.Reader` into a local, rewindable backing store. Con
 
 | Symbol | Description |
 |--------|-------------|
-| `Spool` | Rewindable, closeable backing store |
+| `New(r io.Reader, opts ...Option) (*Spool, error)` | Drains `r` once into the backing store and returns a reader positioned at offset 0; `r` is not closed |
+| `Spool` | Rewindable, closeable backing store; `Close` removes a spilled temp file and is idempotent |
+| `Spool.Size() int64` | Total number of bytes materialized |
+| `DefaultMemThreshold` | Default in-memory ceiling (4 MiB) used when `WithMemThreshold` is not supplied |
 | `Option` | Functional option for `New` |
 | `ErrTooLarge` | Sentinel returned when source exceeds `WithMaxBytes` |
 

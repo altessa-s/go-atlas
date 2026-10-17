@@ -1,4 +1,4 @@
-# store
+# storages
 
 Outbox store implementations. Each subpackage provides a persistence backend for the transactional outbox event storage.
 

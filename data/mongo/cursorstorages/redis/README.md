@@ -4,5 +4,12 @@
 import "github.com/altessa-s/go-atlas/data/mongo/cursorstorages/redis"
 ```
 
-Package `redis` implements cursor storage using Redis for MongoDB pagination state. Provides distributed cursor persistence across multiple
-service instances.
+Package `redis` implements cursor storage using Redis for MongoDB pagination state. Provides distributed cursor persistence across multiple service
+instances.
+
+## Options
+
+| Option          | Default   | Description                     |
+|-----------------|-----------|---------------------------------|
+| `WithTTL`       | 1h        | Time-to-live of stored cursors  |
+| `WithKeyPrefix` | `cursor:` | Prefix for Redis keys           |

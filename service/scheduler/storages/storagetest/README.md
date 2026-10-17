@@ -36,8 +36,8 @@ own, `FinishRun` and `ReplaceTaskIf` tolerate a store shared with other tests; t
 
 ## History contracts
 
-A backend that implements only `scheduler.HistoryStorage` — one meant for `scheduler.WithHistoryStorage`, such as
-[`storages/clickhouse`](../clickhouse) — runs these instead of `Run`.
+A backend that implements only `scheduler.HistoryStorage` — one meant for `scheduler.WithHistoryStorage`, such as [`storages/clickhouse`](../clickhouse)
+— runs these instead of `Run`.
 
 | Function            | Verifies                                                                                                       |
 |---------------------|----------------------------------------------------------------------------------------------------------------|
@@ -56,4 +56,4 @@ func TestStorageContract(t *testing.T) {
 }
 ```
 
-Live-database runs of the suite for every backend live in [`tests/integration/schedulerit`](../../../tests/integration/schedulerit).
+Live-database runs of the suite for every backend live in [`tests/integration/schedulerit`](../../../../tests/integration/schedulerit).

@@ -40,24 +40,24 @@ stores an absent field as null. No data migration is needed.
 ## Atomic run claim
 
 `ClaimRun` transitions a task `active → running` for a specific occurrence with a single conditional `UpdateOne` (matched on `_id`, `status`, a zero or
-absent `run_started_at`, and — when fenced — `next_run_at` and `run_at`). MongoDB applies the document update atomically, so among concurrent
-schedulers exactly one match succeeds and exactly one claims the run; the rest see `ModifiedCount == 0` and skip. This prevents concurrent claims of the
-same active occurrence. The rules themselves are defined once, in the godoc of `scheduler.Storage` ("Run ownership").
+absent `run_started_at`, and — when fenced — `next_run_at` and `run_at`). MongoDB applies the document update atomically, so among concurrent schedulers
+exactly one match succeeds and exactly one claims the run; the rest see `ModifiedCount == 0` and skip. This prevents concurrent claims of the same
+active occurrence. The rules themselves are defined once, in the godoc of `scheduler.Storage` ("Run ownership").
 
 `CreateTask` is an `InsertOne` whose duplicate-key error on `_id` reports an existing task, and `RenewRun` is a conditional `UpdateOne` on `_id`,
-`last_run_id` and a positive `run_started_at` that sets `run_lease_until` and increments `revision`.
+`last_run_id` and a present, non-zero `run_started_at` that sets `run_lease_until` and increments `revision`.
 
 ## Filter support
 
 CEL filter expressions are translated to BSON queries via the `mongotranslator` package and evaluated server-side by MongoDB, avoiding full-collection
 scans for filtered paginated listing.
 
-Documents omit zero-valued fields (`omitempty`: `description`, `lastRunAt`, `nextRunAt`, `skipNextRun`, `disableHistory`, `unmanaged`,
-`oneShot`; history `error`). The translator is told so through `filter.WithZeroWhenAbsent` — derived from the document structs' tags — and
-matches an absent field exactly as its zero value: `description == ""`, `oneShot == false`, `nextRunAt == 0` and `description.size() == 0`
-select tasks stored without those fields, `description != ""` does not, and documents that store the zeros explicitly behave the same. No data
-migration is needed. This assumes the collections use MongoDB's default simple collation, as the ones this storage creates do; a collection
-created with a locale collation may compare a stored `""` differently from how the translator judges an absent `description`.
+Documents omit zero-valued fields (`omitempty`: `description`, `lastRunAt`, `nextRunAt`, `skipNextRun`, `disableHistory`, `unmanaged`, `oneShot`;
+history `error`). The translator is told so through `filter.WithZeroWhenAbsent` — derived from the document structs' tags — and matches an absent field
+exactly as its zero value: `description == ""`, `oneShot == false`, `nextRunAt == 0` and `description.size() == 0` select tasks stored without those
+fields, `description != ""` does not, and documents that store the zeros explicitly behave the same. No data migration is needed. This assumes the
+collections use MongoDB's default simple collation, as the ones this storage creates do; a collection created with a locale collation may compare a
+stored `""` differently from how the translator judges an absent `description`.
 
 ## Atomic run finalization
 

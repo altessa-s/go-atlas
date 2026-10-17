@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/runtime/panics"
 ```
 
-Package `panics` provides panic recovery with pluggable handlers and runtime assertion helpers. All configuration uses atomic operations
-and is thread-safe — handlers can be registered and modified concurrently without external locks.
+Package `panics` provides panic recovery with pluggable handlers and runtime assertion helpers. All configuration uses atomic operations and is
+thread-safe — handlers can be registered and modified concurrently without external locks.
 
 ## Recovery
 
@@ -13,6 +13,10 @@ and is thread-safe — handlers can be registered and modified concurrently with
 |--------------------|----------------------------------------------------------|
 | `Handle`           | Recover and run global + per-call handlers               |
 | `HandleWithOpts`   | Same with per-call options (e.g., override re-panic)     |
+| `NewHandleOpts`    | Build `*HandleOpts`; chain `SetReallyPanic` per call     |
+
+Both must be deferred directly. Handlers are `PanicHandler` funcs (`func(ctx context.Context, r any)`); a re-thrown panic first runs
+`runtime.RunShutdownHooks`.
 
 ## Guarded channel sends
 
@@ -21,8 +25,8 @@ and is thread-safe — handlers can be registered and modified concurrently with
 | `TrySend`            | Blocking send, canceled by `ctx`; recovers the send-on-closed panic        |
 | `TrySendNonBlocking` | Select-with-default send; recovers the send-on-closed panic                |
 
-Both report `(sent, closed bool)`. Needing them is a channel-ownership smell — the sender should own the close — but they contain the
-crash when that ownership is shared or inverted.
+Both report `(sent, closed bool)`. Needing them is a channel-ownership smell — the sender should own the close — but they contain the crash when that
+ownership is shared or inverted.
 
 ## Assertions
 

@@ -14,6 +14,8 @@ Callers must return every connection obtained via `GetConnection` by calling `Re
 |------------------|---------------------------------------------------------------------------------------------|
 | `ConnectionPool` | Manages per-target connection pools with background cleanup; created via `New`               |
 | `ClientFactory`  | Optional hook for custom connection creation; defaults to TLS 1.2+ when not set       |
+| `Binding`        | Isolated connection-policy binding for one target, created via `Bind`                        |
+| `StateMapper`    | Maps `connectivity.State` to `health.ServingStatus`; `DefaultStateMapper` is the default      |
 
 ## Options
 
@@ -25,6 +27,7 @@ Callers must return every connection obtained via `GetConnection` by calling `Re
 | `WithConnectTimeout`  | 10s     | Timeout for establishing a new connection                                     |
 | `WithLogger`          | discard | Structured logger for pool lifecycle events                                   |
 | `WithClientFactory`   | nil     | Custom factory function for creating gRPC connections                         |
+| `WithCollector`       | no-op   | Metrics collector for pool metrics                                            |
 | `WithMetricsSubsystem` | `grpc_connection_pool` | Prometheus subsystem for emitted metrics; override per upstream so multiple pools can share one registry |
 | `WithHealthCoordinator`     | nil          | Opts the pool into `observability/health` aggregate registration                                |
 | `WithHealthServiceName`     | `grpc_pool`  | Service name registered with the coordinator                                                    |
@@ -38,6 +41,7 @@ Callers must return every connection obtained via `GetConnection` by calling `Re
 | `Start(ctx)`                    | Starts background cleanup; returns a stop function that drains and closes        |
 | `Bind(target, factory)` | Creates an isolated connection-policy binding sharing the target capacity |
 | `GetConnection(ctx, target)`    | Borrows or dials a conn for target                                                |
+| `Binding.GetConnection(ctx)`    | Borrows or dials a conn through the binding's own factory                         |
 | `ReturnConnection(conn)`        | Returns a conn to the pool; unhealthy conns are closed                            |
 | `SubscribeTarget(target, cb)`   | Push notifications for state changes; first call enables the state tracker      |
 | `StateForTarget(target)`        | Synchronous best-of-conns connectivity state; returns `Idle` for unknown targets |
@@ -64,7 +68,9 @@ without configuring a coordinator on the pool itself.
 
 | Error                    | Description                                                              |
 |--------------------------|--------------------------------------------------------------------------|
-| `ErrConnectionPoolClosed`| Returned by `GetConnection` and `Start` after the pool has been stopped  |
+| `ErrConnectionPoolClosed`| Returned by `GetConnection`, `Bind`, `SubscribeTarget` and `Start` after the pool has been stopped |
+| `ErrAlreadyStarted`      | Returned by a second `Start` call                                        |
+| `ErrFactoryRequired`     | Returned by `Bind` when the factory is nil                               |
 
 ## Capacity and shutdown
 

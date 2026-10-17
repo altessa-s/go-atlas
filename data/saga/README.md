@@ -5,16 +5,16 @@ import "github.com/altessa-s/go-atlas/data/saga"
 ```
 
 Package `saga` runs inter-service distributed transactions with the orchestration-based saga pattern: a sequence of local steps, each with an optional
-compensating action. When a step fails, the already-completed steps are rolled back in reverse order, so the overall operation leaves no partial
-effects. The orchestrator is generic over the saga's shared data type `T` and persists a checkpoint to a pluggable [`Storage`](./storage.go) after every
-stage, so an instance survives a crash and can be resumed or automatically rolled back.
+compensating action. When a step before the pivot fails, the already-completed steps are compensated in reverse order; a compensation that exhausts
+its retries leaves the saga `Failed` with the rollback incomplete. The orchestrator is generic over the saga's shared data type `T` and persists a
+checkpoint to a pluggable [`Storage`](./storage.go) after every stage, so an instance survives a crash and can be resumed or automatically rolled back.
 
 ## Model
 
 | Concept           | Description                                                                                                     |
 |-------------------|---------------------------------------------------------------------------------------------------------------|
 | `Definition[T]`   | An ordered list of stages, built with the fluent `Builder`. A stage is one step or a parallel group of steps.  |
-| Step              | A forward action plus an optional `Compensate`. A step with no compensation is treated as read-only.           |
+| Step              | A forward action plus an optional `Compensate`. A step with no compensation is skipped on rollback; mark one with nothing to undo `ReadOnly()` so the compensation policy does not flag it. |
 | Pivot             | The point of no return: failures at or after the pivot stage roll forward (retry) instead of compensating.     |
 | `Orchestrator[T]` | Drives a definition over a `Storage`; `Start` runs a new instance, `Resume` continues a persisted one.           |
 | `Instance`        | The persisted state of one execution: status, stage cursor, serialized data, version, deadline.                |
@@ -35,15 +35,22 @@ stage, so an instance survives a crash and can be resumed or automatically rolle
 | `WithMaxCompensationAttempts` | 5              | Total attempts for a single compensation before the saga fails.                   |
 | `WithStepConcurrency`         | core default   | Fan-out limit for parallel-group steps (0 = IO-bound default).                    |
 | `WithSagaTimeout`             | 0 (disabled)   | Per-instance deadline; enables auto-rollback by the recovery cycle.               |
+| `WithExecutionTimeout`        | 5m             | Bounds one `Start` or `Resume` ownership period.                                  |
+| `WithLeaseGrace`              | 30s            | Lets canceled operations finish before another owner takes over the lease.        |
+| `WithStorageTimeout`          | 10s            | Bounds each persistence operation.                                                |
 | `WithScheduler`               | none           | Registers the recovery cycle with a `core/scheduler.TaskRegistrar`.               |
 | `WithRecoverySchedule`        | `@every 1m`    | Cron expression for the scheduled recovery cycle.                                 |
 | `WithRecoveryBatchSize`       | 100            | Max instances processed per recovery cycle.                                       |
+| `WithRecoveryTaskID`          | `saga-recovery` | Scheduler task ID of the recovery cycle.                                         |
+| `WithRecoveryTimeout`         | 5m             | Bounds an entire recovery pass.                                                   |
 | `WithLeaderElector`           | none           | Gates the recovery cycle to the elected leader (e.g. a `*leadelect.Leader`).      |
 | `WithCollector`               | no-op          | Prometheus metrics collector.                                                     |
+| `WithLogger`                  | discard        | Structured logger.                                                                |
+| `WithContext`                 | `context.Background()` | Base context of the orchestrator.                                          |
 | `WithSerializer`              | JSON           | Codec for the saga data persisted in `Instance.Data`.                             |
 | `WithOnDeadLetter`            | none           | Hook fired when an instance reaches the terminal `Failed` state.                  |
 | `WithShouldRetry`             | retry all      | Predicate deciding whether a step/compensation error is retryable.               |
-| `WithCompensationPolicy`      | `PolicyWarn`   | Build-time check (`Warn`/`Enforce`/`Disabled`) for compensatable steps missing a compensation. |
+| `WithCompensationPolicy`      | `PolicyWarn`   | `Build` option: check (`Warn`/`Enforce`/`Disabled`) for compensatable steps missing a compensation. |
 
 ## Usage
 
@@ -63,7 +70,9 @@ orch := saga.New(memory.New(), def,
 )
 
 inst, err := orch.Start(ctx, order.ID, order)
-// err != nil ⇒ inst.Status is StatusCompensated (rolled back) or StatusFailed.
+// err != nil ⇒ inst may be nil (validation, create error); otherwise its Status is StatusCompensated (rolled back),
+// StatusFailed, or still non-terminal when execution was interrupted (context or store error). An existing terminal
+// instance (StatusCompleted included) comes back with ErrAlreadyTerminal.
 ```
 
 Step actions and compensations must be **idempotent**: on interruption a step may run again when the instance is resumed. Steps inside a parallel group

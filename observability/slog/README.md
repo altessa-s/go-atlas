@@ -4,8 +4,8 @@
 import slogx "github.com/altessa-s/go-atlas/observability/slog"
 ```
 
-Package `slog` provides nil-safe attribute helpers, context integration, and composable handlers for Go's `log/slog`. Import with alias
-`slogx` to avoid conflict with the standard library. All helpers are safe for concurrent use.
+Package `slog` provides nil-safe attribute helpers, context integration, and composable handlers for Go's `log/slog`. Import with alias `slogx` to avoid
+conflict with the standard library. All helpers are safe for concurrent use.
 
 ## Functions
 
@@ -13,6 +13,7 @@ Package `slog` provides nil-safe attribute helpers, context integration, and com
 |-----------------------|----------------------------------------------|
 | `String`, `Int`, etc. | Nil-safe attribute helpers for pointer types |
 | `Error`               | Nil-safe error attribute                     |
+| `Module`, `ModuleM`   | Subsystem attribute under `ModuleKey` (`"subsystem"`) |
 | `ContextWithLogger`   | Store a logger in context                    |
 | `FromContext`         | Retrieve a logger from context               |
 | `GlobalLevel`         | Runtime log level management                 |

@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/domain/normalizer/modifiers"
 ```
 
-Package `modifiers` provides value transformation functions for the `normalizer` package. Built-in
-modifiers are registered at init time; custom modifiers can be added at runtime.
+Package `modifiers` provides value transformation functions for the `normalizer` package. Built-in modifiers are registered at init time; custom
+modifiers can be added at runtime.
 
 ## Built-in modifiers
 

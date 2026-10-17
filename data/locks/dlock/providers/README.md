@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/locks/dlock/providers"
 ```
 
-Package `providers` defines the `Provider` and `Lock` interfaces for distributed locking backends. Implementations live in subpackages and are
-injected into the top-level `dlock.DLock` to supply the underlying locking mechanism.
+Package `providers` defines the `Provider` and `Lock` interfaces for distributed locking backends. Implementations live in subpackages and are injected
+into the top-level `dlock.DLock` to supply the underlying locking mechanism.
 
 ## Key types
 
@@ -13,7 +13,8 @@ injected into the top-level `dlock.DLock` to supply the underlying locking mecha
 |------------------|---------------------------------------------------------------------|
 | `Provider`       | Interface: Lock, GetLockInfo, Close                                 |
 | `Lock`           | Interface: GetLockInfo, Release                                     |
-| `LockInfo`       | Lock state with Key, Owner, AcquiredAt, TTL, and FencingToken       |
+| `LockInfo`       | Lock state with Key, Owner, AcquiredAt, LastRenewed, TTL, FencingToken, and IsStale |
+| `Prober`         | Optional interface: Probe, used by `dlock.DLock` health checks      |
 
 ## Subpackages
 

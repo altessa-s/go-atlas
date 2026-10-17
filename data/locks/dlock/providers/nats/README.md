@@ -4,8 +4,21 @@
 import "github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
 ```
 
-Package `nats` implements distributed lock provider using NATS JetStream key-value store with TTL-based lease management for automatic lock expiry
-on holder failure.
+Package `nats` implements distributed lock provider using NATS JetStream key-value store with TTL-based lease management for automatic lock expiry on
+holder failure.
+
+## Options
+
+| Option                    | Default                   | Description                                                                  |
+|---------------------------|---------------------------|------------------------------------------------------------------------------|
+| `WithBucket`              | `<appinfo.Name>-dlock`    | KeyValue bucket name for the locks                                           |
+| `WithTTL`                 | 10s                       | Lock lease, and with it the key TTL of the bucket                            |
+| `WithRenewRatio`          | 1/3                       | Fraction of the TTL at which the lease is renewed                            |
+| `WithAcquireTimeout`      | 5s                        | Bound of the single acquisition attempt, separate from the lock's context    |
+| `WithStorage`             | `jetstream.MemoryStorage` | Storage of a bucket `New` creates and the target of `MigrateBucketStorage`   |
+| `WithMigrateBucketTTL`    | off                       | Update an existing bucket whose key TTL differs instead of failing           |
+| `WithStrictBucketStorage` | off                       | Fail with `ErrBucketStorageMismatch` on an existing bucket of another type   |
+| `WithLogger`              | discard                   | Structured logger                                                            |
 
 ## Keys
 
@@ -40,13 +53,13 @@ cannot change a bucket's storage type. Pass `WithStrictBucketStorage()` (YAML: `
    err := nats.MigrateBucketStorage(ctx, nc, nats.MigrationOptions{}, opts...)
    ```
 
-3. If it fails, fix the cause, confirm the run has exited, and rerun with `nats.MigrationOptions{Resume: true}`. Until the migration
-   completes, `New` fails with `ErrBucketMigrationInProgress`. The migration lease that keeps a second migrator out, and the reserved bucket
-   names, are described in the [shared procedure](../../../../../docs/data/nats-kv-storage-migration.md#procedure).
+3. If it fails, fix the cause, confirm the run has exited, and rerun with `nats.MigrationOptions{Resume: true}`. Until the migration completes, `New`
+   fails with `ErrBucketMigrationInProgress`. The migration lease that keeps a second migrator out, and the reserved bucket names, are described in the
+   [shared procedure](../../../../../docs/data/nats-kv-storage-migration.md#procedure).
 4. Check that `nats kv info <bucket>` reports the new storage and that the `KVMIGRATE_<bucket>` stream is gone.
 5. Start the processes.
 
-The migration recreates the bucket with its first revision just above the old bucket's last one, so fencing tokens (`LockInfo.FencingToken`)
-keep growing. Locks are not copied: with every user stopped none is held, and copying one would revive it for a full TTL. The buckets the
-migration rejects (`ErrMigrationUnsupportedContext`, `ErrMigrationUnsupportedBucket`, `ErrBucketTTLMismatch`) and how a mirror bucket is re-synced
-are described once for all NATS KV backends in [NATS KeyValue bucket storage migration](../../../../../docs/data/nats-kv-storage-migration.md).
+The migration recreates the bucket with its first revision just above the old bucket's last one, so fencing tokens (`LockInfo.FencingToken`) keep
+growing. Locks are not copied: with every user stopped none is held, and copying one would revive it for a full TTL. The buckets the migration rejects
+(`ErrMigrationUnsupportedContext`, `ErrMigrationUnsupportedBucket`, `ErrBucketTTLMismatch`) and how a mirror bucket is re-synced are described once for
+all NATS KV backends in [NATS KeyValue bucket storage migration](../../../../../docs/data/nats-kv-storage-migration.md).

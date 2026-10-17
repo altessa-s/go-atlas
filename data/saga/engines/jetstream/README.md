@@ -35,8 +35,8 @@ it gives an all-NATS saga deployment in which any node can pick up any submitted
 | `WithLogger`          | discard         | Structured logger.                                                                             |
 | `WithCollector`       | no-op           | Metrics collector (`saga_engine_*` counters and the `in_flight` gauge).                        |
 
-Stream and consumer options apply only when `New` creates the resource. An existing stream or consumer is never modified, so one misconfigured
-process cannot change retention or ack timing for the others.
+Stream and consumer options apply only when `New` creates the resource. An existing stream or consumer is never modified, so one misconfigured process
+cannot change retention or ack timing for the others.
 
 ## Behavior
 
@@ -48,31 +48,31 @@ process cannot change retention or ack timing for the others.
 | Panic while decoding or executing                                                            | `NakWithDelay` (exponential)                                                        |
 | Undecodable command, empty or invalid-UTF-8 ID, definition mismatch, ID the KV store rejects | `Term`                                                                              |
 
-- **De-duplication.** `Nats-Msg-Id` is `<len(definition)>:<definition>:<id>`: JetStream de-duplicates per stream, so the definition is part of the
-  key and commands of different definitions never collapse into one. This does not namespace the **store**: saga stores key instances by ID
-  alone, so definitions sharing a store must use distinct saga IDs. A command whose ID already belongs to another definition is terminated
+- **De-duplication.** `Nats-Msg-Id` is `<len(definition)>:<definition>:<id>`: JetStream de-duplicates per stream, so the definition is part of the key
+  and commands of different definitions never collapse into one. This does not namespace the **store**: saga stores key instances by ID alone, so
+  definitions sharing a store must use distinct saga IDs. A command whose ID already belongs to another definition is terminated
   (`ErrDefinitionNotFound`).
-- **Envelope.** A command is `{"id":"<saga id>","data":"<base64 of T encoded with WithSerializer>"}` on `<prefix>.<definition>`; other producers
-  may publish it directly (the body must be valid UTF-8 JSON and `data` must be present).
-- **Saga IDs.** Any non-empty valid UTF-8 string; `Submit` rejects anything else with `ErrInvalidID`, because the durable stores persist
-  instances as JSON/BSON, which would rewrite such an ID. The [NATS KV store](../../storages/nats) escapes IDs into valid KV keys; a command
-  whose escaped ID exceeds its key budget (`ErrKeyTooLong`) is terminated rather than retried forever.
-- **De-duplication key encoding.** The key is base64url-encoded: header values are normalized on the wire (trailing whitespace trimmed, CR/LF
-  replaced), which would otherwise map IDs such as `order` and `order ` to one key.
-- **Fetching.** `Run` reserves free execution slots first and fetches at most that many commands, so a fetched command starts at once; nothing
-  waits unheartbeated in a client buffer.
-- **Existing consumers.** The engine adopts the consumer's actual settings: fetches respect `MaxRequestBatch` and `MaxRequestExpires`, and
-  heartbeats follow the shortest delivery deadline (`AckWait`, or the smallest `BackOff` entry when the consumer has one).
+- **Envelope.** A command is `{"id":"<saga id>","data":"<base64 of T encoded with WithSerializer>"}` on `<prefix>.<definition>`; other producers may
+  publish it directly (the body must be valid UTF-8 JSON and `data` must be present).
+- **Saga IDs.** Any non-empty valid UTF-8 string; `Submit` rejects an empty ID with `errs.ErrEmptyID` and an invalid-UTF-8 one with `ErrInvalidID`,
+  because the durable stores persist instances as JSON/BSON, which would rewrite such an ID. The [NATS KV store](../../storages/nats) escapes IDs into
+  valid KV keys; a command whose escaped ID exceeds its key budget (`ErrKeyTooLong`) is terminated rather than retried forever.
+- **De-duplication key encoding.** The key is base64url-encoded: header values are normalized on the wire (trailing whitespace trimmed, CR/LF replaced),
+  which would otherwise map IDs such as `order` and `order ` to one key.
+- **Fetching.** `Run` reserves free execution slots first and fetches at most that many commands, so a fetched command starts at once; nothing waits
+  unheartbeated in a client buffer.
+- **Existing consumers.** The engine adopts the consumer's actual settings: fetches respect `MaxRequestBatch` and `MaxRequestExpires`, and heartbeats
+  follow the shortest delivery deadline (`AckWait`, or the smallest `BackOff` entry when the consumer has one).
 - **Long sagas.** Running executions heartbeat with `InProgress` at a third of that deadline (at least 1ms).
 - **Shutdown.** Canceling `Run`'s context cancels in-flight executions, which leave their instances non-terminal; their commands are returned to the
-  queue with a delay of one fetch window. A closed connection makes `Run` cancel and join in-flight work at once — whether it was waiting for a
-  slot, fetching, or backing off — and return `ErrConsumeStopped`; the canceled executions cannot `Nak` without a connection, so the server
-  redelivers their commands after the delivery deadline.
-- **Consumer deletion.** A deleted consumer or stream is noticed by a pending fetch, or by the existence check that follows an empty fetch (a
-  consumer deleted with no request outstanding sends no notice, so while every slot is busy the deletion is noticed once a slot frees). `Run`
-  then logs a warning, stops fetching, lets in-flight executions finish and persist their outcome, and returns `ErrConsumeStopped` joined with the cause.
-  Their acknowledgements are unconfirmed publishes and have no effect, since the consumer is gone. Canceling the context or losing the
-  connection still cuts that wait short.
+  queue with a delay of one fetch window. A closed connection makes `Run` cancel and join in-flight work at once — whether it was waiting for a slot,
+  fetching, or backing off — and return `ErrConsumeStopped`; the canceled executions cannot `Nak` without a connection, so the server redelivers their
+  commands after the delivery deadline.
+- **Consumer deletion.** A deleted consumer or stream is noticed by a pending fetch, or by the existence check that follows an empty fetch (a consumer
+  deleted with no request outstanding sends no notice, so while every slot is busy the deletion is noticed once a slot frees). `Run` then logs a
+  warning, stops fetching, lets in-flight executions finish and persist their outcome, and returns `ErrConsumeStopped` joined with the cause. Their
+  acknowledgements are unconfirmed publishes and have no effect, since the consumer is gone. Canceling the context or losing the connection still cuts
+  that wait short.
 
 ## Errors
 

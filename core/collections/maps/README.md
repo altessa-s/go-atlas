@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/collections/maps"
 ```
 
-Package `maps` provides generic utilities for map transformation, filtering, conversion, pooling, and weak references. All pure functions
-return new maps without modifying inputs; nil maps are treated as empty and never cause panics.
+Package `maps` provides generic utilities for map transformation, filtering, conversion, pooling, and weak references. All pure functions return new
+maps without modifying inputs; nil maps are treated as empty and never cause panics.
 
 ## Functions
 
@@ -27,7 +27,7 @@ return new maps without modifying inputs; nil maps are treated as empty and neve
 
 ## Iterators
 
-Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slices.Collect()` to materialize results into concrete map values.
+Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use stdlib `maps.Collect()` to materialize results into concrete map values.
 
 | Iterator | Description                        |
 |----------|------------------------------------|
@@ -36,23 +36,26 @@ Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slic
 
 ## Pool
 
-`Pool[K, V]` is a generic, concurrency-safe `sync.Pool` wrapper for reusing map allocations. Maps exceeding 1024 entries are discarded on return.
+`Pool[K, V]` (`NewPool(defaultCap)`, default capacity 64) is a generic, concurrency-safe `sync.Pool` wrapper for reusing map allocations. `Get` /
+`GetWithCapacity` hand out a cleared `*map[K]V`; `Put` returns it, discarding maps exceeding 1024 entries.
 
 ## WeakMap
 
-`WeakMap[K, V]` holds weak references to values. Entries are automatically removed when the GC reclaims the value via `runtime.AddCleanup`
-— no periodic sweeps, manual eviction, or background goroutines needed. Safe for concurrent access.
+`WeakMap[K, V]` (`NewWeakMap`) holds weak references to values via `Get` / `Set` / `Delete` / `Range` / `Len`. Entries are automatically removed when
+the GC reclaims the value via `runtime.AddCleanup` — no periodic sweeps, manual eviction, or background goroutines needed; `Len` is approximate, so call
+`Cleanup` first for an exact count. Safe for concurrent access.
 
 ## WeakRef
 
-`WeakRef[T]` is a thin wrapper around `weak.Pointer` for holding a single weak reference. Use `IsAlive` to check and `Value` to retrieve.
+`WeakRef[T]` (`MakeWeakRef`) is a thin wrapper around `weak.Pointer` for holding a single weak reference. Use `IsAlive` to check and `Value` to
+retrieve.
 
 ## ImmutableMap
 
-`ImmutableMap[K, V]` is a read-only hash map that cannot be modified after construction. Build once from a `map[K]V` or parallel key/value slices,
-then read concurrently without locks or defensive copies. Uses a Swiss-table layout with flat arrays for lower memory overhead (~1.5–2× savings at
-scale) and reduced GC scan work compared to a standard Go map when `K` and `V` are pointer-free (pointer-holding keys or values such as `string`
-are still scanned).
+`ImmutableMap[K, V]` is a read-only hash map that cannot be modified after construction. Build once from a `map[K]V` or parallel key/value slices, then
+read concurrently without locks or defensive copies. Uses a Swiss-table layout with flat arrays for lower memory overhead (~1.5–2× savings at scale) and
+reduced GC scan work compared to a standard Go map when `K` and `V` are pointer-free (pointer-holding keys or values such as `string` are still
+scanned).
 
 ```go
 src := map[string]int{"a": 1, "b": 2, "c": 3}

@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/mtls"
 ```
 
-gRPC adapter for mutual-TLS authentication. `AuthFunc` returns an `auth.AuthFunc` that extracts the verified peer certificate from the
-connection and delegates identity derivation, validation, and audit to a [`auth/mtls.Authenticator`](../../../../../auth/mtls). Configure
-behavior with that core package's options; this adapter adds the `grpc` transport label and maps failures to gRPC status codes.
+gRPC adapter for mutual-TLS authentication. `AuthFunc` returns an `auth.AuthFunc` that extracts the verified peer certificate from the connection and
+delegates identity derivation, validation, and audit to a [`auth/mtls.Authenticator`](../../../../../auth/mtls). Configure behavior with that core
+package's options; this adapter adds the `grpc` transport label and maps failures to gRPC status codes.
 
 ## API
 
@@ -36,8 +36,7 @@ interceptor := grpcauth.ServerInterceptor(
 )
 ```
 
-The TLS configuration that requires and verifies client certificates is set up separately — see
-[`security/tlsutils`](../../../../../security/tlsutils).
+The TLS configuration that requires and verifies client certificates is set up separately — see [`security/tlsutils`](../../../../../security/tlsutils).
 
 ## See also
 

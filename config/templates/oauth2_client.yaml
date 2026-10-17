@@ -53,9 +53,9 @@
 #    # Default value: not set (required when clientAuth is configured)
 #    method: private_key_jwt
 #
-#    # <string> PEM signing key for private_key_jwt (supports file:/env:/vault: refs).
+#    # <string> PEM signing key for private_key_jwt (resolve it with $__secret{namespace:key}).
 #    # Default value: not set
-#    privateKey: "file:/etc/keys/oauth2-client.pem"
+#    privateKey: "$__secret{oauth2:client_key}"
 #
 #    # <string> kid header matching the public key registered with the IdP (private_key_jwt).
 #    # Default value: not set

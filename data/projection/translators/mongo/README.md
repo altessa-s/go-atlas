@@ -16,8 +16,8 @@ projection. The document is a pure field selection: no `$`, `$slice`, `$elemMatc
 | Empty request, no allow-list, denied fields        | `{denied: 0, …}`                                |
 | Empty request, no allow-list, nothing denied       | `nil` — no `$project` stage                     |
 
-In inclusion mode `_id` is suppressed (`{_id: 0}`) unless a selected path covers it — keep it with `projection.WithRequiredFields("_id")`.
-Paths covered by a selected ancestor are dropped after field mapping, so the document never triggers MongoDB's "Path collision" error.
+In inclusion mode `_id` is suppressed (`{_id: 0}`) unless a selected path covers it — keep it with `projection.WithRequiredFields("_id")`. Paths covered
+by a selected ancestor are dropped after field mapping, so the document never triggers MongoDB's "Path collision" error.
 
 ## Usage
 

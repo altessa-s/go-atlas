@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
 ```
 
-Internal manifest verification shared by the [embed](../../sources/embed) and [filesystem](../../sources/filesystem) policy sources.
-The manifest owns an immutable snapshot of its input and preserves each source's error identities.
+Internal manifest verification shared by the [embed](../../sources/embed) and [filesystem](../../sources/filesystem) policy sources. The manifest owns
+an immutable snapshot of its input and preserves each source's error identities.
 
 ## Key types
 

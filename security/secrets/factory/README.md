@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/security/secrets/factory"
 ```
 
-Package `factory` provides a fluent builder for creating secrets managers from configuration.
-`ManagerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating secrets managers from configuration. `ManagerBuilder` uses deferred error accumulation — errors
+from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -40,6 +40,7 @@ manager, err := factory.New(cfg.Secrets).
 | Method                 | Description                                                              |
 |------------------------|--------------------------------------------------------------------------|
 | `UseLogger`            | Sets the logger for the builder and all created components               |
+| `UseDefaultLogger`     | Sets the logger to `slog.Default()`                                      |
 | `UseVaultClient`       | Sets the Vault client required for the Vault secrets provider            |
 | `UseScheduler`         | Sets the task scheduler for background secret refresh                    |
 | `UseHealthCoordinator` | Registers the secrets manager with the health system                     |
@@ -49,6 +50,14 @@ manager, err := factory.New(cfg.Secrets).
 | Method       | Description                                                              |
 |--------------|--------------------------------------------------------------------------|
 | `Build(ctx)` | Assembles and returns the `*secrets.Manager[any]`                        |
+
+### Provider helpers
+
+| Function                              | Description                                                   |
+|---------------------------------------|---------------------------------------------------------------|
+| `CreateVaultProvider(client, cfg)`    | Builds the Vault KV provider from `secretsconfig.Vault`       |
+| `CreateGCPProvider(ctx, cfg)`         | Builds the GCP Secret Manager provider from `secretsconfig.GCP` |
+| `CreateLockboxProvider(ctx, cfg)`     | Builds the Yandex Lockbox provider from `secretsconfig.Lockbox` |
 
 ## Cache
 

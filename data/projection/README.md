@@ -4,10 +4,10 @@
 import "github.com/altessa-s/go-atlas/data/projection"
 ```
 
-Package `projection` parses a client-supplied field list — the AIP-157 partial-response `fields` parameter — and translates it into a
-database-specific projection, so unrequested fields are never read from storage instead of being trimmed off the response afterwards. It is the
-field-selection counterpart of [`data/orderby`](../orderby): a cached parser produces a `Spec`, and per-backend translators turn it into a MongoDB
-projection document or a SQL column list under one shared policy of allowed, denied, mapped and required fields.
+Package `projection` parses a client-supplied field list — the AIP-157 partial-response `fields` parameter — and translates it into a database-specific
+projection, so unrequested fields are never read from storage instead of being trimmed off the response afterwards. It is the field-selection
+counterpart of [`data/orderby`](../orderby): a cached parser produces a `Spec`, and per-backend translators turn it into a MongoDB projection document
+or a SQL column list under one shared policy of allowed, denied, mapped and required fields.
 
 ## Grammar
 
@@ -18,9 +18,9 @@ ident  := [A-Za-z_][A-Za-z0-9_]*
 ```
 
 A restricted subset of the [AIP-161](https://google.aip.dev/161) field mask grammar: a value from `x-goog-fieldmask`, `$fields` or
-`fieldmaskpb.FieldMask.Paths` parses as long as it stays inside the subset. Whitespace around commas is insignificant; identifiers are
-case-sensitive. Empty, whitespace-only and `*` input select **all authorized fields**. Duplicates are dropped and the paths sorted; a parent and its
-child are both kept, because collapsing them is only safe after field mapping.
+`fieldmaskpb.FieldMask.Paths` parses as long as it stays inside the subset. Whitespace around commas is insignificant; identifiers are case-sensitive.
+Empty, whitespace-only and `*` input select **all authorized fields**. Duplicates are dropped and the paths sorted; a parent and its child are both
+kept, because collapsing them is only safe after field mapping.
 
 | Input                             | Result                                     |
 |-----------------------------------|--------------------------------------------|
@@ -64,12 +64,12 @@ child are both kept, because collapsing them is only safe after field mapping.
 | `WithDefaultFields`       | derived  | API paths returned for an empty request                                                           |
 | `WithUntrustedInput`      | --       | Require a non-empty allow-list, otherwise `ErrAllowlistRequired` at construction                  |
 
-Every request path is checked against the allow-list and `WithDeniedFields` by API name, then mapped and checked against the denied storage
-names — `WithDeniedStorageFields` plus every storage path a denied API field reaches through the mapping (its own name, the targets its
-descendants are mapped to, the names an exact ancestor entry implies) — so an allowed alias cannot reach a protected column.
+Every request path is checked against the allow-list and `WithDeniedFields` by API name, then mapped and checked against the denied storage names —
+`WithDeniedStorageFields` plus every storage path a denied API field reaches through the mapping (its own name, the targets its descendants are mapped
+to, the names an exact ancestor entry implies) — so an allowed alias cannot reach a protected column.
 
-A path selects its whole subtree in storage: `address` with prefix mapping `"address." → "addr."` selects `addr`, and a descendant mapped
-elsewhere (`"address.city" → "city_col"`) is selected alongside it. The same rule turns the wildcard root `address.*` into a default selection.
+A path selects its whole subtree in storage: `address` with prefix mapping `"address." → "addr."` selects `addr`, and a descendant mapped elsewhere
+(`"address.city" → "city_col"`) is selected alongside it. The same rule turns the wildcard root `address.*` into a default selection.
 
 ### Empty requests
 
@@ -83,8 +83,8 @@ elsewhere (`"address.city" → "city_col"`) is selected alongside it. The same r
 | No allow-list, nothing denied           | every field                                                         |
 
 A policy whose default cannot be derived safely — an empty allow-list, an allow-list root that carries a denied field, or a SQL backend with denied
-fields and no default — fails with `ErrDefaultFieldsRequired`. A required field that overlaps a denied one, or a default field outside the
-allow-list or overlapping a denied one, fails with `ErrConflictingPolicy`.
+fields and no default — fails with `ErrDefaultFieldsRequired`. A required field that overlaps a denied one, or a default field outside the allow-list or
+overlapping a denied one, fails with `ErrConflictingPolicy`.
 
 ## Usage
 
@@ -110,8 +110,7 @@ res, err := datamongo.ListCursor[User](ctx, col,
 )
 ```
 
-The `fields` value can also come from the AIP-157 read mask captured by the gRPC
-[`fieldmask` interceptor](../../transport/grpc/interceptors/fieldmask):
+The `fields` value can also come from the AIP-157 read mask captured by the gRPC [`fieldmask` interceptor](../../transport/grpc/interceptors/fieldmask):
 
 ```go
 if mask, ok := grpcfieldmask.ReadMaskFromContext(ctx); ok {
@@ -127,8 +126,8 @@ The policy for a behavior-tagged model can be derived with
 
 ## Pagination
 
-Keyset pagination reads the cursor and sort values back from the last returned row. `data/mongo.ListCursor` rejects a projection that drops the
-cursor ID field or the primary sort field (`ErrProjectionDropsCursorField`); list them with `WithRequiredFields`.
+Keyset pagination reads the cursor and sort values back from the last returned row. `data/mongo.ListCursor` rejects a projection that drops the cursor
+ID field or the primary sort field (`ErrProjectionDropsCursorField`); list them with `WithRequiredFields`.
 
 ## Subpackages
 

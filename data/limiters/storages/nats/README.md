@@ -5,6 +5,8 @@ import "github.com/altessa-s/go-atlas/data/limiters/storages/nats"
 ```
 
 Package `nats` implements token bucket storage using NATS JetStream key-value store. Provides distributed rate limiting via NATS infrastructure.
+`New(js, opts...)` creates the bucket when missing: `WithBucket` (default `<appinfo.Name>-rate-limiter`), `WithMaxAge` (key TTL, `24h`) and
+`WithReplicas` (`1`).
 
 ## Keys
 
@@ -17,11 +19,12 @@ The escaped key may be at most 3072 bytes (an escaped byte takes three); a longe
 
 ## Contention
 
-`Allow` updates a key with a compare-and-swap on its revision. A write that loses the race to another caller is re-read, recomputed and retried
-after a randomized pause (full jitter, from 1 ms doubling up to `WithMaxCASBackoff`, 20 ms by default), so a hot key costs latency rather than
-errors; rejections write nothing, so retrying never admits more than the limit. After `WithMaxCASAttempts` attempts (64 by default), or when the
-context ends, the call stops: exhausting the attempts returns `ErrContention`, which is neither an admission nor an `ErrLimitExceeded` — the request
-was not counted, and the caller decides whether to fail open or closed.
+`Allow` updates a key with a compare-and-swap on its revision. A write that loses the race to another caller is re-read, recomputed and retried after a
+randomized pause (full jitter, from 1 ms doubling up to `WithMaxCASBackoff`, 20 ms by default), so a hot key costs latency rather than errors;
+rejections write nothing, so retrying never admits more than the limit. After `WithMaxCASAttempts` attempts (64 by default), or when the context ends,
+the call stops: exhausting the attempts returns `ErrContention`, which is neither an admission nor an `ErrLimitExceeded` — the request was not counted,
+and the caller decides whether to fail open or closed. Through the budget and token-bucket limiter factories both limits are set under `natsContention`
+(`maxCASAttempts`, `maxCASBackoff`).
 
 | Option                 | Default | Description                                               |
 |------------------------|---------|-----------------------------------------------------------|
@@ -51,14 +54,14 @@ type, so `New` adopts an existing bucket with a different storage type as is and
    err := nats.MigrateBucketStorage(ctx, js, nats.MigrationOptions{}, opts...)
    ```
 
-3. If it fails, fix the cause, confirm the run has exited, and rerun with `nats.MigrationOptions{Resume: true}`. Until the migration
-   completes, `New` fails with `ErrBucketMigrationInProgress`. The migration lease that keeps a second migrator out, and the reserved bucket
-   names, are described in the [shared procedure](../../../../docs/data/nats-kv-storage-migration.md#procedure).
+3. If it fails, fix the cause, confirm the run has exited, and rerun with `nats.MigrationOptions{Resume: true}`. Until the migration completes, `New`
+   fails with `ErrBucketMigrationInProgress`. The migration lease that keeps a second migrator out, and the reserved bucket names, are described in the
+   [shared procedure](../../../../docs/data/nats-kv-storage-migration.md#procedure).
 4. Check that `nats kv info <bucket>` reports file storage and that the `KVMIGRATE_<bucket>` stream is gone.
 5. Start the processes.
 
-Counters keep their consumed budget. A counter lives the bucket TTL from the migration on; it carries its own request timestamps, so requests
-older than the window are still ignored.
+Counters keep their consumed budget. A counter lives the bucket TTL from the migration on; it carries its own request timestamps, so requests older than
+the window are still ignored.
 
-What the migration does, the buckets it rejects, how a mirror bucket is re-synced, and how accurately restored lifetimes follow the clocks are
-described once for all NATS KV backends in [NATS KeyValue bucket storage migration](../../../../docs/data/nats-kv-storage-migration.md).
+What the migration does, the buckets it rejects, how a mirror bucket is re-synced, and how accurately restored lifetimes follow the clocks are described
+once for all NATS KV backends in [NATS KeyValue bucket storage migration](../../../../docs/data/nats-kv-storage-migration.md).

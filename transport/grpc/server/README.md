@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/server"
 ```
 
-Package `server` (imported as `grpc`) provides a production-ready gRPC server wrapper with graceful shutdown, TLS support, and reflection. Create
-a `Server` with `New`, register services via `RegisterHandlers`, optionally add interceptors with `RegisterInterceptors`, then call `Start`. The
+Package `server` (imported as `grpc`) provides a production-ready gRPC server wrapper with graceful shutdown, TLS support, and reflection. Create a
+`Server` with `New`, register services via `RegisterHandlers`, optionally add interceptors with `RegisterInterceptors`, then call `Start`. The
 `GRPCServer` interface defines the full contract. All exported methods are safe for concurrent use after startup.
 
 ## Features

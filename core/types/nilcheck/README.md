@@ -24,7 +24,8 @@ Package `nilcheck` provides deep nil checking that handles the Go interface-nil 
 
 ## Checker
 
-Fluent nil validation with error accumulation for constructors and factories. Chain multiple `Check` calls and inspect the result at the end.
+Fluent nil validation with error accumulation for constructors and factories. Create one with `NewChecker(contextName)`, chain multiple `Check` calls
+and inspect the result at the end; errors read `"<contextName>: <depName> is required"`. Not safe for concurrent use.
 
 | Method      | Description                    |
 |-------------|--------------------------------|
@@ -36,6 +37,6 @@ Fluent nil validation with error accumulation for constructors and factories. Ch
 
 ## Error types
 
-| Type             | Description                              |
-|------------------|------------------------------------------|
-| `*RequiredError` | `"<FieldName> is required"` error value  |
+| Type             | Description                                                    |
+|------------------|----------------------------------------------------------------|
+| `*RequiredError` | `"<FieldName> is required"` error; built by `NewRequiredError` |

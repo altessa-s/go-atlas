@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/security/hmacsign/httpsign"
 ```
 
-The `net/http` adapter for [`hmacsign`](..). It reads the raw request body once, verifies the provider's signature header against
-it, and restores the body so a downstream handler can read it again. The core `hmacsign` package stays transport-free; this thin
-package is the only one that imports `net/http`.
+The `net/http` adapter for [`hmacsign`](..). It reads the raw request body once, verifies the provider's signature header against it, and restores the
+body so a downstream handler can read it again. The core `hmacsign` package stays transport-free; this thin package is the only one that imports
+`net/http`.
 
 ## API
 
@@ -29,8 +29,8 @@ v := hmacsign.NewVerifier(hmacsign.Stripe(), webhookSecret)
 mux.Handle("/webhooks/stripe", httpsign.Middleware(v)(stripeHandler))
 ```
 
-The handler runs only for authentic bodies and reads them from `r.Body` as usual — the middleware has already consumed and restored
-them. For an explicit check inside a handler:
+The handler runs only for authentic bodies and reads them from `r.Body` as usual — the middleware has already consumed and restored them. For an
+explicit check inside a handler:
 
 ```go
 body, err := httpsign.Verify(v, r)

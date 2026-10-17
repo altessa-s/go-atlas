@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 ```
 
-Package `tokenbucket` implements rule-based rate limiting using a sliding window algorithm. Supports IP/CIDR-based rules, client-specific limits,
-and authentication token extraction with configurable storage backends and sophisticated rule matching that prioritizes more specific rules.
+Package `tokenbucket` implements rule-based rate limiting using a sliding window algorithm. Supports IP/CIDR-based rules, client-specific limits, and
+authentication token extraction with configurable storage backends and sophisticated rule matching that prioritizes more specific rules.
 
 ## Options
 
@@ -15,6 +15,7 @@ and authentication token extraction with configurable storage backends and sophi
 | `WithExtractToken`             | noop    | Function to extract auth token       |
 | `WithExtractClientIPAddress`   | noop    | Function to extract client IP        |
 | `WithClientService`            | nil     | Client-specific rate limit service   |
+| `WithCollector`                | no-op   | Metrics collector                    |
 | `WithLogger`                   | discard | Structured logger                    |
 
 ## Subpackages

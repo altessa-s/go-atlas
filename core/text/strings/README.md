@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/text/strings"
 ```
 
-Package `strings` provides string manipulation, conversion, case transformation, interning, secure storage, and pooling utilities. All
-utility functions are pure, allocation-aware, and safe for concurrent use from multiple goroutines.
+Package `strings` provides string manipulation, conversion, case transformation, interning, secure storage, and pooling utilities. All utility functions
+are pure, allocation-aware, and safe for concurrent use from multiple goroutines.
 
 ## Validation and conversion
 
@@ -29,6 +29,8 @@ utility functions are pure, allocation-aware, and safe for concurrent use from m
 | `IsLowercase` / `IsUppercase`       | Check letter case (Unicode-aware)      |
 | `IsTrimmed`                         | True if no leading/trailing whitespace |
 | `TrimPrefixFast` / `TrimSuffixFast` | Zero-allocation prefix/suffix removal  |
+| `IsLowercaseUnsafe` / `IsUppercaseUnsafe` / `IsTrimmedUnsafe` | ASCII fast-path variants (Unicode fallback) |
+| `IsASCIISpace`                      | ASCII whitespace byte check            |
 
 ## Join and Split
 
@@ -56,33 +58,40 @@ Configurable via `JoinOptions`, `SplitOptions`, and `ContainsOptions` structs. A
 | `TimingSafePrefixMatch`    | Constant-time, case-insensitive prefix check     |
 | `TimingSafeSubstringMatch` | Constant-time, case-insensitive substring search |
 | `SubstringMatch`           | Case-insensitive substring (NOT constant-time)   |
+| `ZeroBytes` / `ZeroString` | Best-effort zeroing of sensitive bytes in place  |
 
 ## SecureString
 
-Tamper-resistant storage for sensitive data (passwords, tokens, keys). Zeroes memory on `Clear()`, uses inline storage for strings up
-to 64 bytes, and returns instances to a pool to reduce allocations in high-throughput code paths.
+Tamper-resistant storage for sensitive data (passwords, tokens, keys). Zeroes memory on `Clear()`, uses inline storage for strings up to 64 bytes
+(`DefaultSmallStringOptimizationThreshold`), and returns instances to a pool to reduce allocations in high-throughput code paths.
 
 | Method                  | Description                       |
 |-------------------------|-----------------------------------|
+| `NewSecureString`       | Construct from a string (pooled)  |
 | `String`                | Safe copy of stored data          |
 | `StringUnsafe`          | Zero-copy (invalid after `Clear`) |
 | `Bytes` / `BytesUnsafe` | Byte slice accessors              |
 | `Equal`                 | Constant-time comparison          |
+| `Len` / `IsEmpty`       | Length and emptiness checks       |
 | `Clear`                 | Zero memory and return to pool    |
 
 ## Interner
 
-Lock-free string deduplication with LFU eviction (LRU tie-break). Two-tier cache: hot (atomic slots) + cold (`sync.Map`). Reduces memory for
-repeated string values.
+Lock-free string deduplication with LFU eviction (LRU tie-break). Two-tier cache: hot (atomic slots) + cold (`sync.Map`). Reduces memory for repeated
+string values.
 
 | Function / Method             | Description                 |
 |-------------------------------|-----------------------------|
 | `InternString`                | Intern via global singleton |
-| `NewInterner`                 | Create a sized interner     |
+| `Intern*` (`InternLowerString`, `InternJoinString`, …) | Global-singleton variants of the methods below |
+| `GlobalInterner` / `ResetGlobalInterner` | Access or reset the global singleton |
+| `NewInterner`                 | Create a sized interner (`DefaultMaxSize`, 8192, when non-positive) |
 | `String`                      | Deduplicate a string        |
 | `LowerString` / `UpperString` | Case-convert and intern     |
 | `TrimString`                  | Trim whitespace and intern  |
 | `StringSlice` / `StringMap`   | Bulk intern                 |
+| `PrefixString` / `SuffixString` / `WrapString` / `JoinString` / `FormatString` / `CleanPathString` / `JoinWith` | Build a string and intern the result |
+| `Size` / `MaxSize` / `IsFull` / `LoadFactor` / `Reset` | Capacity inspection and full reset |
 | `Stats`                       | Performance counters snapshot (hit/miss/eviction) |
 | `ResetStats`                  | Zero counters without clearing cache |
 
@@ -106,6 +115,7 @@ For Prometheus integration, use `observability/metrics.NewInternerMetrics` — s
 |-----------------------|--------------------------------------------------|
 | `GetStringSlice`      | Borrow a `[]string` from the pool                |
 | `PutStringSlice`      | Return a `[]string` to the pool                  |
+| `GetStringSliceWithCapacity` | Borrow a `[]string` with a capacity hint   |
 | `GetStringBuilder`    | Borrow a `strings.Builder` from the pool         |
 | `PutStringBuilder`    | Return a `strings.Builder` to the pool           |
 | `BuildString`         | Borrow, build, return in one call                |

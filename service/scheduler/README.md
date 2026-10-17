@@ -43,6 +43,8 @@ filter push-down.
 | `WithHistoryStorage`            | nil       | Separate history backend; nil keeps history in the `Storage`  |
 | `WithLogger`                    | discard   | Structured logger for scheduler lifecycle and error events    |
 | `WithEnvironment`               | --        | Preset concurrency profile for a named environment            |
+| `WithReadinessProbe`            | nil       | Dispatch gate: tasks run (and `TriggerTask` succeeds) only while it returns true |
+| `WithCollector`                 | nil       | `metrics.Collector` for scheduler metrics                     |
 
 ## Errors
 
@@ -50,7 +52,7 @@ filter push-down.
 |------------------------|----------------------------------------------------------------------|
 | `ErrTaskNotFound`      | PauseTask, ResumeTask, DisableTask, EnableTask, SkipNextRun         |
 | `ErrTaskNotRegistered` | Unregister, TriggerTask -- task exists but has no registered func    |
-| `ErrTaskUnmanaged`     | PauseTask, DisableTask -- task was not registered through this       |
+| `ErrTaskUnmanaged`     | PauseTask, DisableTask -- task has its `Unmanaged` flag set          |
 | `ErrTaskNotPaused`     | ResumeTask -- cannot resume a task that is not in Paused status      |
 | `ErrTaskNotDisabled`   | EnableTask -- cannot enable a task that is not in Disabled status    |
 | `ErrTaskDisabled`      | TriggerTask -- cannot trigger manual execution of a disabled task    |
@@ -60,16 +62,16 @@ filter push-down.
 | `ErrNotReady`          | TriggerTask -- the configured readiness probe returned false         |
 | `ErrConcurrentUpdate`  | Register and management methods -- concurrent writes won `MaxUpdateAttempts` times; retry |
 | `ErrInvalidRunClaim`   | Storage.ClaimRun -- non-positive start, empty run ID or negative lease (`RunClaim.Validate`) |
+| `ErrInvalidCursor`     | Paginated listing -- the cursor is malformed or its filter changed   |
 
 ## Single execution
 
 In a multi-node deployment a `WithLeaderElector` keeps one instance dispatching, but leadership is only a throughput optimization. Each run is claimed
-through `Storage.ClaimRun` — a single atomic compare-and-swap (`active → running`, no unfinished run, fenced on the occurrence's `next_run_at`) —
-so even if two instances believe they are leader during an election split-brain, exactly one claim wins. `Register` creates new tasks with the
-atomic insert-if-absent `Storage.CreateTask`, so concurrent registration cannot overwrite a claimed state. Stale recovery, at startup and
-periodically, resets only runs whose owner lease has expired or that this instance abandoned; a run still executing on a live instance is never
-handed to a second executor. Effects that must never repeat across a network partition longer than the lease still need idempotency or external
-fencing. See
+through `Storage.ClaimRun` — a single atomic compare-and-swap (`active → running`, no unfinished run, fenced on the occurrence's `next_run_at`) — so
+even if two instances believe they are leader during an election split-brain, exactly one claim wins. `Register` creates new tasks with the atomic
+insert-if-absent `Storage.CreateTask`, so concurrent registration cannot overwrite a claimed state. Stale recovery, at startup and periodically, resets
+only runs whose owner lease has expired or that this instance abandoned; a run still executing on a live instance is never handed to a second executor.
+Effects that must never repeat across a network partition longer than the lease still need idempotency or external fencing. See
 [docs/service/scheduler.md](../../docs/service/scheduler.md#single-execution-what-the-storage-layer-enforces).
 
 ## Run leases
@@ -93,7 +95,7 @@ shared by `ClaimRun`, `RenewRun` and `FinishRun` are defined once, in the "Run o
 | [storages/redis](./storages/redis)     | Redis (RedisJSON + RediSearch) persistent storage               |
 | [storages/sqldb](./storages/sqldb)     | PostgreSQL / MySQL / MariaDB storage through `database/sql`     |
 | [storages/clickhouse](./storages/clickhouse) | ClickHouse `HistoryStorage` only, for `WithHistoryStorage` |
-| [storagetest](./storagetest)           | Storage contract suite for backends, including custom ones      |
+| [storages/storagetest](./storages/storagetest) | Storage contract suite for backends, including custom ones      |
 
 ## Atomic finalization
 
@@ -104,8 +106,8 @@ operation atomically; a `GetTask` check followed by `UpsertTask` does not satisf
 
 A finished one-shot run always leaves the task `Completed` with `NextRunAt` zero, even if the task was paused, disabled or resumed while it ran.
 Re-registering a completed one-shot task with the same `RunAt` keeps it completed; only a different `RunAt` schedules a new run (`TaskState.RunAt`
-records the registered occurrence). `RunResult.RunAt` names the occurrence a run executed, so a one-shot task re-registered for another `RunAt`
-during the run is not completed by it and keeps the new occurrence. Custom storages must apply both rules in `FinishRun`.
+records the registered occurrence). `RunResult.RunAt` names the occurrence a run executed, so a one-shot task re-registered for another `RunAt` during
+the run is not completed by it and keeps the new occurrence. Custom storages must apply both rules in `FinishRun`.
 
 ## Fenced replacement
 

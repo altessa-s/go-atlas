@@ -1,15 +1,15 @@
 # optgen
 
 ```go
-import "github.com/altessa-s/go-atlas/cmd/optgen"
+import "github.com/altessa-s/go-atlas/tools/codegen/optgen/commands"
 ```
 
 Generate functional option functions from struct field tags.
 
 ## Overview
 
-`optgen` generates type-safe functional option functions from struct field tags. It supports defaults, validation, value transformation, and
-custom plugins.
+`optgen` generates type-safe functional option functions from struct field tags. It supports defaults, validation, value transformation, and custom
+plugins.
 
 ## Installation
 
@@ -48,6 +48,7 @@ go generate ./...
 | `optgen:"append"` | Slice append semantics | `optgen:"append"` |
 | `optgen:"notnil"` | Nil-check guard | `optgen:"notnil"` |
 | `optgen:"manual"` | Skip auto-generation | `optgen:"manual"` |
+| `optgen:"parseip"` | Accept IP strings, parse into `[]net.IP` | `optgen:"parseip"` |
 | `optval:"..."` | Value modifiers | `optval:"trimspaces,lower"` |
 | `optcheck:"..."` | Validation checks | `optcheck:"required,minlen=3"` |
 
@@ -64,9 +65,22 @@ Flags:
   -t, --type string          Struct type name (default "options")
   -o, --output string        Output file (default "options_gen.go")
   -d, --directory string     Directory to scan (default ".")
-      --all-fields           Process all fields (ignore opt tags)
+      --option-type string   Name of the Option type (default "Option")
+      --option-error         Generate Option as func(*T) error
+      --skip-option-type     Do not emit the Option type definition
+      --skip-default-func    Do not emit the defaultOptions function
+      --skip-new-func        Do not emit the newOptions function
+      --default-func-name    Override the default<TypeName> function name
+      --new-func-name        Override the new<TypeName> function name
+      --option-prefix        Prefix for generated option names (WithPrefixXxx)
+      --all-fields           Include untagged fields; still honor opt names and opt:"-"
+      --disable-plugins      Comma-separated plugin names to disable
+      --formatter string     Formatter command (default "gofmt -w")
+      --no-format            Disable formatting
       --dry-run              Preview output without writing
-      --verbose              Enable verbose output
+  -v, --verbose              Enable verbose output
+      --no-config            Ignore .optgen.yaml
+      --plugin stringArray   Load an external plugin (.so; darwin/linux only)
 ```
 
 ### list-plugins
@@ -89,7 +103,7 @@ defaults:
   formatter: "gofmt -w"      # Code formatter
 
 packages:
-  "data/*":
+  "data/cache":              # exact relative path, no globs
     all-fields: false        # Package-specific override
 ```
 
@@ -100,15 +114,18 @@ packages:
 | `trimspaces` | Trim whitespace | string |
 | `lower` | Convert to lowercase | string |
 | `upper` | Convert to uppercase | string |
-| `dedup` | Remove duplicates | []string |
+| `dedup` | Remove duplicates; enabled by default, disable with `nodup` | Slices of recognized comparable types, including primitives, pointers, time.Time, and time.Duration |
 | `positive` | Ensure positive value | numeric |
-| `nonempty` | Filter empty strings | []string |
+| `nonempty` | Skip assignment for an empty string; remove empty elements from string slices | string, []string |
+| `trimprefix=P` / `trimsuffix=S` | Trim a prefix / suffix | string |
+
+`trimspaces` is applied to every string field by default; add `notrim` to `optval` to disable it.
 
 ## Validation Checks
 
 | Check | Description | Example |
 |-------|-------------|---------|
-| `required` | Non-zero value required | `optcheck:"required"` |
+| `required` | Require a non-nil pointer or a non-empty string, slice, or map | `optcheck:"required"` |
 | `minlen=N` | Minimum length | `optcheck:"minlen=3"` |
 | `maxlen=N` | Maximum length | `optcheck:"maxlen=100"` |
 | `oneof=[...]` | Enum validation | `optcheck:"oneof=[debug,info,warn]"` |

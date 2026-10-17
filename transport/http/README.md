@@ -1,7 +1,7 @@
 # http
 
-HTTP transport subsystem for the Atlas framework. Provides a resilient HTTP client and a fully-featured HTTP server with middleware,
-content negotiation, and pluggable routing.
+HTTP transport subsystem for the Atlas framework. Provides a resilient HTTP client and a fully-featured HTTP server with middleware, content
+negotiation, and pluggable routing.
 
 ## Packages
 

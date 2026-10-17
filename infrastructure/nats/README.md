@@ -1,7 +1,7 @@
 # nats
 
-NATS infrastructure for the Atlas framework. Provides a fluent builder for creating NATS connections and JetStream consumer
-configurations with NKey, token, or username/password authentication, TLS, compression, and automatic reconnection.
+NATS infrastructure for the Atlas framework. Provides a fluent builder for creating NATS connections and JetStream consumer configurations with NKey,
+token, or username/password authentication, TLS, compression, and automatic reconnection.
 
 ## Usage
 

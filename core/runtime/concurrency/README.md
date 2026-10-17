@@ -23,25 +23,29 @@ Package `concurrency` provides adaptive concurrency limit calculation and a conc
 | `WithOnSuccess`   | Callback invoked after each successfully processed item      |
 | `WithOnError`     | Callback invoked with the item and error after each failure  |
 
+A positive `WithLimitFunc` result takes precedence; otherwise a positive `WithConcurrency` value is used, and with neither the limit falls back to
+`DefaultLimitFunc`.
+
 ## Concurrency strategies
 
-| Factory                          | Strategy                            |
-|----------------------------------|-------------------------------------|
-| `ConcurrencyForEnvironment`      | Preset limits by workload profile   |
-| `MemoryAwareConcurrency`         | Scale by remaining memory budget    |
-| `LoadAwareConcurrency`           | Scale by system load average        |
-| `AdaptiveConcurrency`            | Combine memory + load factors       |
-| `ConnectionPoolAwareConcurrency` | Limit by available pool connections |
-| `DefaultLimitFunc`               | `NumCPU * 2` (I/O-bound default)    |
+| Factory                          | Strategy                                                    |
+|----------------------------------|-------------------------------------------------------------|
+| `ConcurrencyForEnvironment`      | Preset limits by workload profile                           |
+| `MemoryAwareConcurrency`         | Scale by remaining memory budget                            |
+| `LoadAwareConcurrency`           | Scale by system load average                                |
+| `AdaptiveConcurrency`            | Combine memory + load factors (`AdaptiveConcurrencyConfig`) |
+| `ConnectionPoolAwareConcurrency` | Limit by available pool connections                         |
+| `DefaultLimitFunc`               | `NumCPU * 2` (I/O-bound default)                            |
 
 ## Memory budgets
 
-`MemoryAwareConcurrency` and `AdaptiveConcurrency` use the remaining Go runtime budget configured through `GOMEMLIMIT` or `debug.SetMemoryLimit`.
-The remaining bytes are `max(0, limit - (MemStats.Sys - MemStats.HeapReleased))`; statistics are cached for one second by default. This measures
-runtime headroom, not free machine RAM. Without a finite budget, the memory strategy uses `DefaultLimitFunc` and adaptive mode skips memory scaling.
+`MemoryAwareConcurrency` and `AdaptiveConcurrency` use the remaining Go runtime budget configured through `GOMEMLIMIT` or `debug.SetMemoryLimit`. The
+remaining bytes are `max(0, limit - (MemStats.Sys - MemStats.HeapReleased))`; statistics are cached for `DefaultMemStatsCacheTTL` (one second) — tune
+with `SetMemStatsCacheTTL`, force a refresh with `InvalidateMemStatsCache`. This measures runtime headroom, not free machine RAM. Without a finite
+budget, the memory strategy uses `DefaultLimitFunc` and adaptive mode skips memory scaling.
 
-Pass `WithAvailableMemory(source)` to either strategy to supply a thread-safe `MemorySource` for a container or host budget. It returns available
-bytes and whether the budget is known. Returning `(0, true)` means exhausted; `(0, false)` means unknown. Callbacks should cache expensive probes.
+Pass `WithAvailableMemory(source)` to either strategy to supply a thread-safe `MemorySource` for a container or host budget. It returns available bytes
+and whether the budget is known. Returning `(0, true)` means exhausted; `(0, false)` means unknown. Callbacks should cache expensive probes.
 
 ## Environment presets
 

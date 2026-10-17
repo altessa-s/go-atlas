@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/infrastructure/nats/factory"
 ```
 
-Package `factory` provides a fluent builder for creating NATS connections from configuration.
-`ConnectionBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating NATS connections from configuration. `ConnectionBuilder` uses deferred error accumulation —
+errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -30,11 +30,11 @@ fields are ignored because credentials are embedded in the URI.
 
 ## JetStream Consumer Policies
 
-| Policy type    | Supported values                                        |
-|----------------|---------------------------------------------------------|
-| Deliver policy | `All`, `Last`, `New`, `ByStartSequence`, `ByStartTime` |
-| Ack policy     | `None`, `All`, `Explicit`                               |
-| Replay policy  | `Instant`, `Original`                                   |
+| Policy type    | Supported YAML values                                         |
+|----------------|---------------------------------------------------------------|
+| Deliver policy | `all`, `last`, `new`, `by_start_sequence`, `by_start_time`    |
+| Ack policy     | `none`, `all`, `explicit`                                     |
+| Replay policy  | `instant`, `original`                                         |
 
 ## Methods
 
@@ -49,14 +49,18 @@ fields are ignored because credentials are embedded in the URI.
 | Method                 | Description                                                     |
 |------------------------|-----------------------------------------------------------------|
 | `UseLogger`            | Sets the logger for the builder and all created components      |
+| `UseDefaultLogger`     | Shorthand for `UseLogger(slog.Default())`                       |
 | `UseTlsConfig`         | Sets the TLS configuration for secure connections               |
-| `UseHealthCoordinator` | Registers a health checker under service name `"nats"`          |
+| `UseHealthCoordinator` | Registers a health checker for the created connection           |
+| `UseHealthServiceName` | Name to register the checker under (default `"nats"`)           |
 
 ### Terminal
 
 | Method    | Description                                                                                    |
 |-----------|------------------------------------------------------------------------------------------------|
 | `Build()` | Assembles and returns the `*nats.Conn`                                                         |
+| `NATSOptions()` | Renders the `[]nats.Option` without connecting                                                   |
+| `ConsumerConfig(cfg)` | Package function: maps a `natsconfig.Consumer` to `jetstream.ConsumerConfig`                     |
 
 ## Constants
 

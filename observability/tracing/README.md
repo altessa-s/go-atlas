@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/tracing"
 ```
 
-Package `tracing` provides an abstract distributed tracing system. Components depend on abstract interfaces (`Tracer`, `Recorder`,
-`Span`); export happens through pluggable adapters (OTLP, console, etc.) with configurable sampling strategies.
+Package `tracing` provides an abstract distributed tracing system. Components depend on abstract interfaces (`Tracer`, `Recorder`, `Span`); export
+happens through pluggable adapters (OTLP, console, etc.) with configurable sampling strategies.
 
 ## Key types
 
@@ -26,7 +26,7 @@ Package `tracing` provides an abstract distributed tracing system. Components de
 |--------------------------------------------|------------------------------------------------------|
 | [adapters](./adapters)                     | Adapter interface and `MultiAdapter` broadcaster     |
 | [adapters/console](./adapters/console)     | Human-readable or JSON console output                |
-| [adapters/otlp](./adapters/otlp)          | OpenTelemetry Protocol export over gRPC              |
+| [adapters/otlp](./adapters/otlp)          | OpenTelemetry Protocol export over gRPC or HTTP      |
 | [factory](./factory)                       | Configuration-based `Tracer` creation                |
-| [propagation](./propagation)              | W3C Trace Context and Baggage propagation            |
+| [propagation](./propagation)              | W3C Trace Context propagation                        |
 | [sampler](./sampler)                       | Sampling strategies: ratio, parent-based, always     |
