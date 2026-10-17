@@ -14,7 +14,7 @@ constructors are available: `New` returns a bare `*http.Client` suitable for any
 |--------------------|------------------------------------------------------------------------------------------------------------------------|
 | Connection pooling | Automatic TCP connection pooling and keep-alive configuration via pooled transport                                     |
 | Retry              | Exponential backoff with jitter, configurable min/max wait and attempt count                                           |
-| Circuit breaker    | Per-host circuit breakers with configurable thresholds and state-change callbacks                                      |
+| Circuit breaker    | A breaker per destination host (bounded by `WithMaxHostBreakers`), with per-host overrides and state-change callbacks  |
 | Rate limiting      | Pluggable client-side rate limiting via `WithLimiter` and `limiters.RequestsLimiter`                                   |
 | SSRF protection    | Blocks connections to private/local IPs after DNS resolution, with CIDR allowlist                                      |
 | Proxy              | Declarative HTTP/SOCKS5 proxy via `WithProxy`/`WithProxyURL`/`WithProxyFunc`, or `WithoutProxy` to bypass env defaults |
@@ -33,6 +33,7 @@ constructors are available: `New` returns a bare `*http.Client` suitable for any
 | `WithBreakerTimeout`         | 30s           | Duration before transitioning from open to half-open                                                                                                 |
 | `WithBreakerName`            | auto          | Circuit breaker name for identification                                                                                                              |
 | `WithCircuitBreakerSettings` | --            | Per-host circuit breaker configuration                                                                                                               |
+| `WithMaxHostBreakers`        | 1024          | Cap on breakers created lazily for hosts without explicit settings; further hosts share one breaker (0 = all such hosts share it)                   |
 | `WithMaxResponseSize`        | 0             | Maximum response body size in bytes (0 = unlimited)                                                                                                  |
 | `WithLimiter`                | nil           | Pluggable client-side rate limiter                                                                                                                   |
 | `WithSSRFProtection`         | true          | Enable blocking of connections to private/local IP addresses                                                                                         |

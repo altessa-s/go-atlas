@@ -17,7 +17,8 @@
 //
 //   - Connection Management: automatic TCP connection pooling and keep-alive configuration.
 //   - Resilience: built-in retry policies with exponential backoff and jitter ([WithRetryMax], [WithRetryWait]).
-//   - Protection: per-host circuit breakers ([WithCircuitBreakerSettings]) and bulkhead patterns to prevent cascading failures.
+//   - Protection: a circuit breaker per destination host, so one failing endpoint never rejects requests to
+//     another; tune hosts with [WithCircuitBreakerSettings] and bound lazily created breakers with [WithMaxHostBreakers].
 //   - Rate Limiting: pluggable client-side rate limiting via [WithLimiter] and [limiters.RequestsLimiter].
 //   - SSRF Protection: default blocking of connections to private/local IPs; see [WithSSRFProtection] and [WithSSRFAllowedCIDRs].
 //   - Proxy: declarative outbound proxy configuration via [WithProxy], [WithProxyURL], [WithProxyFunc],
@@ -42,7 +43,7 @@
 //
 // Pass an [observability/health.Coordinator] via [WithHealthCoordinator] to
 // register the client as a health checker. The aggregate status is derived
-// from the global and per-host circuit breakers and a sliding window of
+// from the per-host circuit breakers (plus the shared overflow breaker once used) and a sliding window of
 // retry rate (see [DefaultHealthRetryWindow], [DefaultHealthRetryDegradedThreshold],
 // [DefaultHealthRetryMinSamples]):
 //
