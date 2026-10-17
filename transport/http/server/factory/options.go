@@ -182,9 +182,9 @@ func (b *ServerBuilder) WithoutLoggerMiddleware() *ServerBuilder {
 	return b.disableMiddleware("logger")
 }
 
-// WithoutPrometheusMiddleware disables Prometheus middleware.
+// WithoutPrometheusMiddleware disables the Prometheus metrics middleware.
 func (b *ServerBuilder) WithoutPrometheusMiddleware() *ServerBuilder {
-	return b.disableMiddleware("prometheus")
+	return b.disableMiddleware("metrics")
 }
 
 // WithoutTracingMiddleware disables tracing middleware.
