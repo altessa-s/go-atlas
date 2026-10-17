@@ -180,6 +180,13 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithMaxHostBreakers sets the maxHostBreakers option.
+func WithMaxHostBreakers(v int) Option {
+	return func(o *options) {
+		o.maxHostBreakers = v
+	}
+}
+
 // WithMaxResponseSize sets the maxResponseSize option.
 func WithMaxResponseSize(v int64) Option {
 	return func(o *options) {
@@ -284,6 +291,7 @@ func defaultOptions() *options {
 		healthRetryWindow:     DefaultHealthRetryWindow,
 		healthServiceName:     DefaultHealthServiceName,
 		logger:                slog.New(slog.DiscardHandler),
+		maxHostBreakers:       DefaultMaxHostBreakers,
 		metricsSubsystem:      DefaultMetricsSubsystem,
 		retryMax:              DefaultRetryMax,
 		retryWaitMax:          DefaultRetryWaitMax,

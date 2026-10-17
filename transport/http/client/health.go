@@ -6,6 +6,8 @@ package client
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -229,17 +231,18 @@ func (h *httpClientHealth) aggregateStatus() health.ServingStatus {
 	var nClosed, nOpen, nHalfOpen int
 
 	if h.cb != nil {
-		switch h.cb.State() {
-		case gobreaker.StateClosed:
-			nClosed++
-		case gobreaker.StateOpen:
-			nOpen++
-		case gobreaker.StateHalfOpen:
-			nHalfOpen++
-		}
-
+		// Snapshot under the lock and query State() after releasing it:
+		// State() may run OnStateChange synchronously, and a user callback
+		// that issues a request to a new host needs the write lock.
 		h.cb.mu.RLock()
-		for _, b := range h.cb.hostBreakers {
+		breakers := slices.Collect(maps.Values(h.cb.hostBreakers)) //nolint:bodyclose // breaker pointers, no response
+		h.cb.mu.RUnlock()
+		// The client-wide breaker only serves hosts beyond the per-host cap;
+		// an idle one must not mask an all-open set of per-host breakers.
+		if h.cb.sharedUsed.Load() || len(breakers) == 0 {
+			breakers = append(breakers, h.cb.CircuitBreaker) //nolint:bodyclose // breaker pointer, no response
+		}
+		for _, b := range breakers {
 			switch b.State() {
 			case gobreaker.StateClosed:
 				nClosed++
@@ -249,7 +252,6 @@ func (h *httpClientHealth) aggregateStatus() health.ServingStatus {
 				nHalfOpen++
 			}
 		}
-		h.cb.mu.RUnlock()
 	}
 
 	if nOpen > 0 && nClosed == 0 && nHalfOpen == 0 {
@@ -271,10 +273,11 @@ func (h *httpClientHealth) hostStatus(host string) health.ServingStatus {
 	}
 	state := gobreaker.StateClosed
 	h.cb.mu.RLock()
-	if breaker, exists := h.cb.hostBreakers[host]; exists {
+	breaker, exists := h.cb.hostBreakers[host]
+	h.cb.mu.RUnlock()
+	if exists {
 		state = breaker.State()
 	}
-	h.cb.mu.RUnlock()
 
 	var rate float64
 	var samples uint64

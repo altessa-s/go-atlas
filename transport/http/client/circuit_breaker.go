@@ -63,6 +63,13 @@ const (
 	// When consecutive failures reach this limit, the circuit breaker will trip
 	// to open state regardless of the failure ratio.
 	DefaultBreakerConsecutiveFailuresLimit = 100
+
+	// DefaultMaxHostBreakers is the maximum number of per-host circuit breakers
+	// created lazily for hosts without explicit [CircuitBreakerSettings]. It
+	// bounds memory and the cardinality of the breaker-state metric when
+	// request URLs come from untrusted input; hosts beyond the cap share the
+	// client-wide breaker.
+	DefaultMaxHostBreakers = 1024
 )
 
 var (
@@ -80,8 +87,19 @@ type circuitBreakerClient struct {
 	hostBreakers map[string]*gobreaker.CircuitBreaker[*http.Response]
 	// hostBreakerSettings contains per-host circuit breaker settings
 	hostBreakerSettings map[string]*CircuitBreakerSettings
-	// mu protects access to hostBreakers map
+	// mu protects access to hostBreakers map and lazyBreakers
 	mu sync.RWMutex
+	// lazyBreakers counts entries of hostBreakers created without explicit settings
+	lazyBreakers int
+	// maxHostBreakers caps lazyBreakers; see [WithMaxHostBreakers]
+	maxHostBreakers int
+	// sharedUsed reports whether any request has been routed through the
+	// client-wide breaker, so health aggregation can ignore it while idle
+	sharedUsed atomic.Bool
+	// lazy breakers inherit the client-wide breaker settings
+	breakerMaxRequests uint32
+	breakerInterval    time.Duration
+	breakerTimeout     time.Duration
 	// breakerCache provides thread-safe caching for circuit breakers
 	breakerCache sync.Map // map[string]*gobreaker.CircuitBreaker[*http.Response]
 	// stringInterner provides efficient string interning for hostnames
@@ -200,6 +218,10 @@ func newCircuitBreakerClient(opts options, m *httpClientMetrics) *circuitBreaker
 		maxResponseSize:     opts.maxResponseSize,
 		hostBreakers:        make(map[string]*gobreaker.CircuitBreaker[*http.Response]),
 		hostBreakerSettings: opts.hostBreakerSettings,
+		maxHostBreakers:     opts.maxHostBreakers,
+		breakerMaxRequests:  opts.breakerMaxRequests,
+		breakerInterval:     opts.breakerInterval,
+		breakerTimeout:      opts.breakerTimeout,
 
 		// Create dedicated string interner for HTTP client with smaller size
 		// HTTP client typically has predictable string patterns (hostnames, common headers)
@@ -233,40 +255,37 @@ func (c *circuitBreakerClient) internHostname(hostname string) string {
 }
 
 // getBreakerForHost returns the circuit breaker for a given hostname.
-// Uses sync.Map for thread-safe caching and falls back to the original map-based approach with locking.
-// If no specific breaker exists for the host, it returns the default breaker.
+// Every host gets its own breaker so failures of one endpoint never reject
+// requests to another: hosts with explicit [CircuitBreakerSettings] use those
+// settings, other hosts get a lazily created breaker that inherits the
+// client-wide settings. Once [WithMaxHostBreakers] lazy breakers exist, new
+// hosts share the client-wide breaker.
 func (c *circuitBreakerClient) getBreakerForHost(hostname string) *gobreaker.CircuitBreaker[*http.Response] {
 	// Intern hostname for memory optimization
 	hostname = c.internHostname(hostname)
 
-	// Check if we have host-specific settings with single lock
-	c.mu.RLock()
-	if c.hostBreakerSettings == nil {
-		c.mu.RUnlock()
-		return c.CircuitBreaker
-	}
-	settings, hasSettings := c.hostBreakerSettings[hostname]
-	c.mu.RUnlock()
-	if !hasSettings {
-		return c.CircuitBreaker
-	}
-
-	// Check sync.Map cache for thread-safe lookup
+	// Fast path: thread-safe lookup of an already created breaker
 	if breaker, ok := c.breakerCache.Load(hostname); ok {
 		if cb, ok := breaker.(*gobreaker.CircuitBreaker[*http.Response]); ok {
 			return cb
 		}
 	}
 
-	// Slow path: Create new breaker with locking (original implementation)
+	settings, explicit := c.hostBreakerSettings[hostname]
+
 	c.mu.RLock()
 	breaker, exists := c.hostBreakers[hostname]
+	full := !explicit && c.lazyBreakers >= c.maxHostBreakers
 	c.mu.RUnlock()
 
 	if exists {
 		// Cache the existing breaker for future requests
 		c.breakerCache.Store(hostname, breaker)
 		return breaker
+	}
+	if full {
+		c.sharedUsed.Store(true)
+		return c.CircuitBreaker
 	}
 
 	// Create new breaker for this host
@@ -280,24 +299,39 @@ func (c *circuitBreakerClient) getBreakerForHost(hostname string) *gobreaker.Cir
 		c.breakerCache.Store(hostname, breaker)
 		return breaker
 	}
-
-	// Set defaults if not provided
-	maxRequests := cmp.Or(settings.MaxRequests, DefaultBreakerMaxRequests)
-	interval := cmp.Or(settings.Interval, DefaultBreakerInterval)
-	timeout := cmp.Or(settings.Timeout, DefaultBreakerTimeout)
-
-	name := settings.Name
-	if name == "" {
-		name = fmt.Sprintf("httpclient-cb-%s-%d", hostname, circuitBreakerCounter.Add(1))
+	if !explicit && c.lazyBreakers >= c.maxHostBreakers {
+		c.sharedUsed.Store(true)
+		return c.CircuitBreaker
 	}
 
-	readyToTrip := settings.ReadyToTrip
-	if readyToTrip == nil {
-		readyToTrip = defaultReadyToTrip
+	var st gobreaker.Settings
+	var userCb func(name string, from gobreaker.State, to gobreaker.State)
+	if explicit {
+		// Set defaults if not provided
+		st = gobreaker.Settings{
+			Name:        settings.Name,
+			MaxRequests: cmp.Or(settings.MaxRequests, DefaultBreakerMaxRequests),
+			Interval:    cmp.Or(settings.Interval, DefaultBreakerInterval),
+			Timeout:     cmp.Or(settings.Timeout, DefaultBreakerTimeout),
+			ReadyToTrip: settings.ReadyToTrip,
+		}
+		if st.Name == "" {
+			st.Name = fmt.Sprintf("httpclient-cb-%s-%d", hostname, circuitBreakerCounter.Add(1))
+		}
+		userCb = settings.OnStateChange
+	} else {
+		st = gobreaker.Settings{
+			Name:        c.Name() + "-" + hostname,
+			MaxRequests: c.breakerMaxRequests,
+			Interval:    c.breakerInterval,
+			Timeout:     c.breakerTimeout,
+		}
+	}
+	if st.ReadyToTrip == nil {
+		st.ReadyToTrip = defaultReadyToTrip
 	}
 
-	userCb := settings.OnStateChange
-	onStateChange := func(n string, from gobreaker.State, to gobreaker.State) {
+	st.OnStateChange = func(n string, from gobreaker.State, to gobreaker.State) {
 		if c.metrics != nil {
 			c.metrics.circuitBreakerState.WithLabels(metrics.Labels{"host": hostname}).Set(gobreakerStateToFloat(to))
 		}
@@ -311,16 +345,12 @@ func (c *circuitBreakerClient) getBreakerForHost(hostname string) *gobreaker.Cir
 	}
 
 	// nolint:bodyclose
-	breaker = gobreaker.NewCircuitBreaker[*http.Response](gobreaker.Settings{
-		Name:          name,
-		MaxRequests:   maxRequests,
-		Interval:      interval,
-		Timeout:       timeout,
-		ReadyToTrip:   readyToTrip,
-		OnStateChange: onStateChange,
-	})
+	breaker = gobreaker.NewCircuitBreaker[*http.Response](st)
 
 	c.hostBreakers[hostname] = breaker
+	if !explicit {
+		c.lazyBreakers++
+	}
 	// Cache the newly created breaker
 	c.breakerCache.Store(hostname, breaker)
 	return breaker

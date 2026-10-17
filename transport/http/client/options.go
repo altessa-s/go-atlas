@@ -121,6 +121,11 @@ type options struct {
 	breakerInterval    time.Duration `optgen:"default=DefaultBreakerInterval"`
 	breakerTimeout     time.Duration `optgen:"default=DefaultBreakerTimeout"`
 	breakerName        string
+	// maxHostBreakers caps the number of per-host breakers created lazily for
+	// hosts without explicit [CircuitBreakerSettings]. Once reached, further
+	// hosts share the client-wide breaker. Zero or negative disables lazy
+	// per-host breakers entirely.
+	maxHostBreakers    int `optgen:"default=DefaultMaxHostBreakers"`
 	maxResponseSize    int64
 	errorHandler       ErrorHandler
 	retryPolicyHandler RetryPolicyHandler
