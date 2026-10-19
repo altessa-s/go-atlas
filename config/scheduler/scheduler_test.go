@@ -217,3 +217,16 @@ func TestSchedulerHistoryStorageConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_ValidatePaging(t *testing.T) {
+	t.Parallel()
+
+	cfg := schedulerconfig.Default()
+	require.NoError(t, cfg.Validate(), "paging is optional")
+	cfg.Paging = &schedulerconfig.Paging{SigningKey: "short"}
+	require.Error(t, cfg.Validate(), "a short signing key is refused")
+	cfg.Paging.SigningKey = "0123456789abcdef0123456789abcdef"
+	require.NoError(t, cfg.Validate())
+	cfg.Paging.PreviousKeys = append(cfg.Paging.PreviousKeys, "short")
+	require.Error(t, cfg.Validate(), "a short previous key is refused")
+}

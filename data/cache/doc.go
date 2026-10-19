@@ -16,6 +16,12 @@
 //   - Optional fail-open mode ([WithFailOpen]) that degrades storage failures to misses.
 //   - Optional isolated results ([WithIsolatedResults]) so collapsed callers never share memory.
 //   - Batch reads ([Cache.GetManyRaw], [GetManyT]) through [storages.MultiGetter].
+//   - Generation-scoped keys ([WithGeneration], [WithKeyVersion]) and [Cache.InvalidateAll],
+//     shared across replicas through a [GenerationStore] such as
+//     data/cache/generation/storages/redis, with an explicit staleness bound.
+//   - A generational read-through cache ([NewGenerations], [ReadThrough], [Generations.Bump])
+//     with per-caller isolated values, and a fresh-read marker ([WithFreshReads]) that
+//     makes read-through calls skip the cache.
 //
 // # Usage
 //

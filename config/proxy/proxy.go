@@ -5,6 +5,7 @@
 package proxyconfig
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -75,10 +76,12 @@ type Config struct {
 
 	// URL is the full proxy URL (http, https, socks5, socks5h).
 	// Required when Mode is "url". Credentials may be embedded as
-	// http://user:pass@host:port, but for secrets prefer Mode=host
-	// with a separate Auth block — secrets in URL strings are awkward
-	// to mask in logs.
-	URL string `yaml:"url"`
+	// http://user:pass@host:port: wherever the config is printed,
+	// logged or marshaled the password is masked (see [redacted.URL]),
+	// and validation errors never quote the URL. Call Expose to get the
+	// URL for the transport. For secrets prefer Mode=host with a
+	// separate Auth block, whose password is fully redacted.
+	URL redacted.URL `yaml:"url"`
 
 	// Host is the proxy hostname or IP address. Required when Mode is "host".
 	Host string `yaml:"host"`
@@ -142,21 +145,27 @@ func (p *Config) Validate() error {
 // validateProxyURL is a validation.RuleFunc that accepts a syntactically
 // valid URL with a scheme net/http knows how to use as a proxy
 // (http, https, socks5, socks5h). is.URL rejects socks5 so we roll our
-// own.
+// own. Its errors never quote the URL or any part of it (scheme, host): a
+// password with an unencoded "/" or "@" can land in either, and url.Parse
+// errors quote the whole input, so a parse failure is reported without its
+// cause.
 func validateProxyURL(value any) error {
-	raw, _ := value.(string)
+	raw, _ := value.(redacted.URL)
 	if raw == "" {
 		return nil
 	}
-	u, err := url.Parse(raw)
+	u, err := url.Parse(raw.Expose())
 	if err != nil {
-		return fmt.Errorf("must be a valid URL: %w", err)
+		return errors.New("must be a valid URL")
+	}
+	if raw.HasAmbiguousUserInfo() {
+		return errors.New(`must not contain "@" outside the user info; percent-encode "@" and "/" in credentials`)
 	}
 	if u.Scheme == "" || u.Host == "" {
-		return fmt.Errorf("must be an absolute URL with scheme and host")
+		return errors.New("must be an absolute URL with scheme and host")
 	}
 	if !proxyAllowedSchemes.Contains(u.Scheme) {
-		return fmt.Errorf("unsupported proxy scheme %q (allowed: http, https, socks5, socks5h)", u.Scheme)
+		return errors.New("unsupported proxy scheme (allowed: http, https, socks5, socks5h)")
 	}
 	if u.Port() == "" {
 		// Stdlib's http.Transport defaults missing ports via portMap
@@ -164,7 +173,7 @@ func validateProxyURL(value any) error {
 		// a port-less Host through to net.Dial returns "missing port
 		// in address" at every dial. Surface the misconfiguration at
 		// load time instead.
-		return fmt.Errorf("must include an explicit port (e.g. %s:3128)", u.Host)
+		return errors.New("must include an explicit port (e.g. proxy.example:3128)")
 	}
 	return nil
 }

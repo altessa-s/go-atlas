@@ -118,9 +118,28 @@ type options struct {
 	breakerMaxRequests uint32        `optgen:"default=DefaultBreakerMaxRequests"`
 	retryWaitMin       time.Duration `optgen:"default=DefaultRetryWaitMin"`
 	retryWaitMax       time.Duration `optgen:"default=DefaultRetryWaitMax"`
-	breakerInterval    time.Duration `optgen:"default=DefaultBreakerInterval"`
-	breakerTimeout     time.Duration `optgen:"default=DefaultBreakerTimeout"`
-	breakerName        string
+	// retryAfterMax caps the Retry-After of a 429/503 reply the retry layer
+	// honors: the next retry waits at least that long (beyond retryWaitMax),
+	// up to this cap. Zero or negative ignores Retry-After.
+	retryAfterMax time.Duration `optgen:"default=DefaultRetryAfterMax" optval:"nonpositive"`
+	// retryFactor is the exponential growth of the retry backoff per attempt.
+	retryFactor float64 `optgen:"default=DefaultRetryFactor"`
+	// retryJitter is the fraction (0-1) of each backoff added as random
+	// jitter; zero makes the delays deterministic.
+	retryJitter float64 `optgen:"default=DefaultRetryJitter" optval:"nonpositive"`
+	// retryMaxElapsed bounds the wall-clock time of all attempts of one
+	// request; zero or negative leaves it to the context and retryMax.
+	retryMaxElapsed time.Duration `optval:"nonpositive"`
+	// attemptTimeout bounds each attempt of the retry layer — the limiter
+	// wait under limiterPerAttempt, the connection, the reply and reading
+	// its body — rather than the whole request: retries and their backoff
+	// (Retry-After included) are not cut short by the first attempt. Zero or
+	// negative leaves attempts bounded by the request context and
+	// http.Client.Timeout.
+	attemptTimeout  time.Duration `optval:"nonpositive"`
+	breakerInterval time.Duration `optgen:"default=DefaultBreakerInterval"`
+	breakerTimeout  time.Duration `optgen:"default=DefaultBreakerTimeout"`
+	breakerName     string
 	// maxHostBreakers caps the number of per-host breakers created lazily for
 	// hosts without explicit [CircuitBreakerSettings]. Once reached, further
 	// hosts share the client-wide breaker. Zero or negative disables lazy
@@ -129,8 +148,19 @@ type options struct {
 	maxResponseSize    int64
 	errorHandler       ErrorHandler
 	retryPolicyHandler RetryPolicyHandler
-	logger             *slog.Logger
-	limiter            limiters.RequestsLimiter `optgen:"notnil"`
+	// withoutRetry disables the retry layer: every request is sent exactly
+	// once and its outcome is returned as it is — the response for any
+	// status, body unread, or the raw transport error. It overrides retryMax
+	// and retryPolicyHandler. Set it with the generated WithoutRetry when the
+	// caller classifies replies itself or retries around the client.
+	withoutRetry bool `opt:"Retry" optval:"invert"`
+	logger       *slog.Logger
+	limiter      limiters.RequestsLimiter `optgen:"notnil"`
+	// limiterPerAttempt, set by the generated WithLimiterPerAttempt, places
+	// the limiter under the retry layer instead of around it, so every retry
+	// attempt waits on (or is refused by) the limiter too, not only the
+	// first. A refusal is never retried by the default classification.
+	limiterPerAttempt bool
 	// hostBreakerSettings maps hostnames to their circuit breaker settings
 	hostBreakerSettings map[string]*CircuitBreakerSettings `opt:"-"`
 	// ssrfProtection enables blocking connections to private/local IP addresses.
@@ -179,6 +209,16 @@ type options struct {
 	// the destination's TLSClientConfig. Has no effect for plain http://
 	// or socks5:// proxies.
 	proxyTLSConfig *tls.Config
+	// retryAfterStatuses are the reply statuses whose Retry-After the retry
+	// layer honors (see retryAfterMax). Defaults to 429 and 503.
+	retryAfterStatuses []int `optgen:"default=DefaultRetryAfterStatuses()"`
+	// cookieJar is the cookie jar the retry layer owns. Every attempt and
+	// every redirect hop sends the caller's Cookie header plus the jar's
+	// cookies for its URL, read at attempt time, and every reply's cookies
+	// are stored exactly once, when received — retried, failed and redirect
+	// replies included. When unset, the jar of a WithClient client is used
+	// the same way; the returned *http.Client has no Jar either way.
+	cookieJar http.CookieJar
 }
 
 // WithRetryWait configures the minimum and maximum wait times between retry attempts.
@@ -240,8 +280,10 @@ const DefaultSSRFProtection = true
 // SSRF protection is ON by default ([DefaultSSRFProtection]); this option is
 // only needed to re-enable it after a [WithoutSSRFProtection]. Use
 // [WithSSRFAllowedCIDRs] to exempt known internal networks. Environment proxies
-// are disabled; explicit proxies, custom TLS dialers and non-standard transports
-// cause construction to panic with an error wrapping [ErrSSRFUnsafeTransport].
+// are disabled; explicit proxy options are guarded as described on [ProxyFunc].
+// A proxy TLS configuration, custom TLS dialers, a proxy resolver set on a
+// caller transport and non-standard transports cause construction to panic
+// with an error wrapping [ErrSSRFUnsafeTransport].
 //
 // Example:
 //
@@ -315,9 +357,13 @@ func WithSSRFAllowedCIDRs(cidrs ...netip.Prefix) Option {
 // for this request"; returning a non-nil error aborts the request before
 // dialing.
 //
-// Explicit proxy resolvers require [WithoutSSRFProtection]: the proxy can
-// resolve and dial targets outside the guarded dialer. Enforce egress restrictions
-// at the proxy when using this opt-out.
+// With SSRF protection on (the default) an explicit proxy is allowed: the
+// connection to the proxy goes through the guarded dialer, so a proxy on a
+// private address needs its network in [WithSSRFAllowedCIDRs]. The proxy
+// resolves and dials the target host, so private targets named by host name
+// are not blocked by the client: enforce egress restrictions at the proxy. A
+// target given as a literal IP address in a blocked range is refused with an
+// [SSRFError] before the request reaches the proxy.
 type ProxyFunc = func(*http.Request) (*url.URL, error)
 
 // WithProxy routes all requests through an HTTP proxy at host:port with

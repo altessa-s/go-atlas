@@ -25,3 +25,8 @@ environment variable first, then falls back to file-based persistence.
 | `Env`            | Provider that reads the ID from a process environment variable                 |
 | `File`           | Provider that reads or generates a random ID persisted to a file on disk       |
 | `Static`         | Provider that always returns a caller-supplied constant string                 |
+
+## Random IDs
+
+`NewHex(n)` returns `n` bytes of `crypto/rand` entropy as `2n` lowercase hex digits — for server-assigned resource IDs and one-off tokens such
+as lease owners (`NewHex(16)` carries 128 bits). It never fails: `crypto/rand.Read` does not return an error since Go 1.24.

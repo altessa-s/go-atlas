@@ -23,23 +23,23 @@ structured logging.
 
 ## Options
 
-| Option                   | Default           | Description                                                       |
-|--------------------------|-------------------|-------------------------------------------------------------------|
-| `WithKMS`                | nil               | KMS provider for CSFLE                                            |
-| `WithVaultDatabase`      | same as main      | Database for encryption keys                                      |
-| `WithVaultCollection`    | `__keyVault`      | Collection for encryption keys                                    |
-| `WithEncryptionEnabled`  | false             | Enable Client-Side Field Encryption                               |
-| `WithEncryptionModel`    | --                | Per-struct field encryption config                                |
-| `WithBSONTagName`        | `bson`            | Tag name for BSON field mapping                                   |
-| `WithEncryptionTagName`  | `encryption`      | Tag name for encryption mapping                                   |
-| `WithClient`             | nil               | Pre-initialized `mongo.Client`                                    |
-| `WithClientOptions`      | nil               | Custom driver `*options.ClientOptions` (`mongo/options`)          |
-| `WithTransactionOptions` | snapshot/majority | Transaction read/write concerns                                   |
-| `WithLogger`             | discard           | Structured logger                                                 |
-| `WithCollector`          | no-op             | Metrics collector for MongoDB operations                          |
-| `WithConverterOptions`   | --                | Extra `converter.Option`s threaded into `GetEntity`/`GetEntities` |
-| `WithDeduplicationIdentity` | nil            | Per-context identity segment for the read singleflight key (see below) |
-| `WithRollbackMigrationsOnFailure` | off      | Roll back every applied migration when one fails (see Migrations) |
+| Option                            | Default           | Description                                                            |
+|-----------------------------------|-------------------|------------------------------------------------------------------------|
+| `WithKMS`                         | nil               | KMS provider for CSFLE                                                 |
+| `WithVaultDatabase`               | same as main      | Database for encryption keys                                           |
+| `WithVaultCollection`             | `__keyVault`      | Collection for encryption keys                                         |
+| `WithEncryptionEnabled`           | false             | Enable Client-Side Field Encryption                                    |
+| `WithEncryptionModel`             | --                | Per-struct field encryption config                                     |
+| `WithBSONTagName`                 | `bson`            | Tag name for BSON field mapping                                        |
+| `WithEncryptionTagName`           | `encryption`      | Tag name for encryption mapping                                        |
+| `WithClient`                      | nil               | Pre-initialized `mongo.Client`                                         |
+| `WithClientOptions`               | nil               | Custom driver `*options.ClientOptions` (`mongo/options`)               |
+| `WithTransactionOptions`          | snapshot/majority | Transaction read/write concerns                                        |
+| `WithLogger`                      | discard           | Structured logger                                                      |
+| `WithCollector`                   | no-op             | Metrics collector for MongoDB operations                               |
+| `WithConverterOptions`            | --                | Extra `converter.Option`s threaded into `GetEntity`/`GetEntities`      |
+| `WithDeduplicationIdentity`       | nil               | Per-context identity segment for the read singleflight key (see below) |
+| `WithRollbackMigrationsOnFailure` | off               | Roll back every applied migration when one fails (see Migrations)      |
 
 ## Parser metadata
 
@@ -118,20 +118,21 @@ non-ID key, or an ID tiebreaker in the opposite direction — would skip or repe
 an offset. It works with any `_id` type (ObjectID, string, UUID), needs no `created_at` field and streams documents, so a page is not bound by the 16 MB
 document limit that the `ListCursor` aggregation has.
 
-| Field        | Meaning                                                                                                   |
-|--------------|-----------------------------------------------------------------------------------------------------------|
-| `Filter`     | Query predicate, bound into the token                                                                     |
-| `Sort`       | `bson.D` of fields with `1` / `-1` (`ParseSortString`, data/orderby); `_id` ascending is the tie-breaker  |
+| Field        | Meaning                                                                                                                          |
+|--------------|----------------------------------------------------------------------------------------------------------------------------------|
+| `Filter`     | Query predicate, bound into the token                                                                                            |
+| `Sort`       | `bson.D` of fields with `1` / `-1` (`ParseSortString`, data/orderby); `_id` ascending is the tie-breaker                         |
 | `Projection` | Returned fields; keep the sort fields; touching one with anything but plain inclusion/exclusion fails with `ErrKeysetProjection` |
-| `Limit`      | Page size, `DefaultKeysetPageSize` (100) when not positive, at most `MaxKeysetPageSize`                   |
-| `After`      | Token of the page to read; empty for the first page                                                       |
-| `Subject`    | Principal the token is bound to                                                                           |
+| `Limit`      | Page size, `DefaultKeysetPageSize` (100) when not positive, at most `MaxKeysetPageSize`                                          |
+| `After`      | Token of the page to read; empty for the first page                                                                              |
+| `Subject`    | Principal the token is bound to                                                                                                  |
 
 A token replayed under another filter, sort or subject fails with the `keyset` errors. Every document needs a comparable scalar of one BSON type in each
 sort field. Only the last document of a page is checked, when its `Next` token is issued: a missing, null or array value there (an excluded sort field
 included) fails with `ErrKeysetMissingKey` rather than skipping documents. A sort direction other than `1`/`-1`, or an empty or repeated field, fails
-with `ErrKeysetSort`. A nil codec reads a single page with no `Next` token, and a non-empty `After` then fails with `ErrKeysetTokensRequired`. Index the
-sort fields (plus `_id`) so each page is a range scan. Paging is keyset-based, not a snapshot.
+with `ErrKeysetSort`. A nil codec reads a single page with no `Next` token, and a non-empty `After` then fails with `ErrKeysetTokensRequired`
+(it wraps `keyset.ErrCodecRequired`, so `keyset.Classify` reports a malformed token). Index the sort fields (plus `_id`) so each page is a range
+scan. Paging is keyset-based, not a snapshot.
 
 ```go
 page, err := mongo.FindPage[Order](ctx, coll, codec, mongo.KeysetQuery{
@@ -148,9 +149,61 @@ page, err := mongo.FindPage[Order](ctx, coll, codec, mongo.KeysetQuery{
 `IsErrorDuplicate`, `IsErrorCollectionNotFound`, `IsErrorCollectionExists` (code 48, e.g. a concurrent `CreateCollection` in a migration) and
 `IsErrorIndexNotFound` classify server errors through any wrapping.
 
+## Transactions and upserts
+
+| Helper                                       | Behavior                                                                                                       |
+|----------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `(*Mongo).WithTransaction(ctx, fn)`          | Runs `fn` in a transaction; joins a running transaction of the same client carried by `ctx` instead of nesting |
+| `InTransaction(ctx)`                         | `ctx` carries a session with a running transaction (a session without one does not count)                      |
+| `SetOnInsertFrom(doc, filterKeys...)`        | `$setOnInsert` document of an upsert: `doc`'s top-level fields minus the filter keys, encoded once             |
+| `UpsertRetryingDuplicate(ctx, attempts, fn)` | Repeats `fn` at once on a duplicate key (first-insert race), up to `attempts`; exactly once in a transaction   |
+| `Now()`, `StoredTime(t)`                     | Time as MongoDB stores it: UTC, floored to the millisecond, no monotonic reading                               |
+
+A joined `WithTransaction` runs its handler on the enclosing session: its writes commit or abort with the enclosing transaction, its error goes to the
+enclosing handler, and it applies no timeout, metric or log of its own. A transaction of another client is never joined.
+
+`SetOnInsertFrom` encodes `doc` with the registry `Connect` installs (decimal, dates, `Optional`) and default encoder settings, so struct tags apply as
+for `InsertOne`; the fields keep `doc`'s order and are `bson.RawValue`s that any registry writes unchanged. A filter key the document omits is ignored.
+
+`UpsertRetryingDuplicate` retries only `mongo.IsDuplicateKeyError`; another error, or the last duplicate, is returned as is. Inside a transaction a
+failed write aborts the transaction, so the upsert runs once and only a retry of the whole transaction can recover.
+
+## Write guards
+
+`TouchGuard(ctx, coll, filter, field, upsert, opts...)` increments the storage-only counter `field` of the document `filter` matches and reports whether
+a document was touched. The step is an int32 1 (the encoding of `$inc: 1`), or an int64 1 with `WithInt64Increment()` for counters kept as int64; an
+existing int64 counter stays int64 either way. Inside a transaction it serializes conflicting writers through that document: a concurrent transaction
+that writes the same document — another `TouchGuard`, a delete, any update — gets a transient write conflict, and `WithTransaction` retries it.
+
+| Use                   | Call                                                                                               | A miss means                                  |
+|-----------------------|----------------------------------------------------------------------------------------------------|-----------------------------------------------|
+| Reference check       | `TouchGuard(ctx, targets, bson.M{"_id": ref, "deleted": bson.M{"$ne": true}}, "ref_guard", false)` | unknown or deleted target (`false`, no error) |
+| Per-key lock document | `TouchGuard(ctx, guards, bson.M{"_id": key}, "n", true)`                                           | never: the guard is inserted                  |
+
+Without upsert a miss writes nothing. With upsert two first writers of one guard racing outside a transaction can fail with a duplicate key, returned
+wrapped (`IsErrorDuplicate`). Outside a transaction `TouchGuard` is a plain write and serializes nothing beyond it. The counter value has no meaning.
+
 ## Migrations
 
-`Connect` applies all pending `mongo-migrate` migrations before returning. When one fails, `Connect` returns its error and the migrations applied before
+Register migrations from an `init` function with an explicit version, without importing the third-party registry:
+
+```go
+func init() {
+    datamongo.MustRegisterMigration(5, "orders_backfill_status", backfillStatus, nil) // nil down: kept on rollback
+}
+```
+
+| Function                                     | Behavior                                                                                      |
+|----------------------------------------------|-----------------------------------------------------------------------------------------------|
+| `RegisterMigration(version, desc, up, down)` | Registers a migration; version 0, a nil `up` or a registered version is `ErrInvalidMigration` |
+| `MustRegisterMigration(...)`                 | Same, panics on an invalid migration                                                          |
+| `RegisteredMigrations()`                     | The registered migrations by version (for tests asserting the set)                            |
+
+Versions are stored in the same `migrations` collection and format (`{version, description, timestamp}`) as `mongo-migrate`, whose global registry
+(versions taken from file names) is still honored: a migration applied earlier under the same version never runs again. A version registered in both
+registries fails `Connect` with `ErrInvalidMigration`.
+
+`Connect` applies all pending migrations before returning. When one fails, `Connect` returns its error and the migrations applied before
 it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back every migration — the whole schema, idempotency indexes included. The underlying
 library reads the current schema version and writes the new one with nothing in between, so two replicas starting together would both read version N and
 both run migration N+1. Migration bodies are arbitrary code rather than idempotent DDL, so running one twice is not generally safe.
@@ -159,11 +212,11 @@ The package therefore takes a database-wide lock around the migration run. It is
 never `migrations`, because `mongo-migrate` derives the schema version from the greatest `_id` in its own collection and would decode a lock document
 there as version 0.
 
-| Constant                    | Default            | Description                                              |
-|-----------------------------|--------------------|----------------------------------------------------------|
-| `MigrationLockCollectionName` | `migrations_lock`  | Collection holding the mutex document                    |
-| `MigrationLockWaitTimeout`  | `30s`              | How long a replica waits for a peer to finish migrating  |
-| `MigrationTimeout`          | `30s`              | Budget for the migrations themselves, and the lock lease |
+| Constant                      | Default           | Description                                              |
+|-------------------------------|-------------------|----------------------------------------------------------|
+| `MigrationLockCollectionName` | `migrations_lock` | Collection holding the mutex document                    |
+| `MigrationLockWaitTimeout`    | `30s`             | How long a replica waits for a peer to finish migrating  |
+| `MigrationTimeout`            | `30s`             | Budget for the migrations themselves, and the lock lease |
 
 Waiters block rather than skip: once the holder finishes, the next waiter acquires the lock, re-reads the version, and finds nothing left to apply. The
 lease is compared against the server clock (`$$NOW`), so replicas with drifted clocks cannot steal a live lock. The lease equals `MigrationTimeout`,
@@ -174,19 +227,40 @@ This is a TTL lock, not a fencing one: it bounds the damage from a crashed holde
 For deployments that want concurrency gone as a class, run migrations from a dedicated deploy step (init container, Job) and keep the lock as the
 backstop.
 
+## Indexes
+
+`EnsureIndexes(ctx, coll, models, opts...)` creates the indexes of a collection idempotently at every start. Without options it is one
+`createIndexes` command: an equal existing index is a no-op and a conflicting one fails it with the server's error.
+
+| Option                       | Behavior                                                                                               |
+|------------------------------|--------------------------------------------------------------------------------------------------------|
+| `WithDropObsolete(names...)` | Drops the named indexes when present, before creating the models (missing index or collection is fine) |
+| `WithDropOnSpecMismatch()`   | On `IndexOptionsConflict`/`IndexKeySpecsConflict`, reconciles under a per-collection lock (below)      |
+
+Reconciliation runs while holding the mutex document `indexes:<collection>` in `migrations_lock` (lease `IndexLockLease`, wait `IndexLockWaitTimeout`),
+so replicas starting together take turns. Under the lock every model is created afresh; an index is dropped and recreated only when that fresh create
+conflicts, an index of the model's name exists, and its full current specification is not provably equal to the model — so a peer's freshly built index
+is never dropped on a stale conflict. The server decides what a mismatch is, so an equal index is never rebuilt; the same keys under another name are
+never dropped (name it in `WithDropObsolete` instead). Dropping a unique index leaves a window without the constraint until it is rebuilt, and the
+rebuild fails if the data violates the new specification. Unnamed models get the driver's generated name (`status_1_created_at_-1`); duplicate names, an
+obsolete name that is also a model's, `_id_` or an empty name are `ErrInvalidIndexModels`. The outbox, saga and audit MongoDB storages create their
+indexes with it.
+
 ## Subpackages
 
-| Package                                              | Description                   |
-|------------------------------------------------------|-------------------------------|
-| [factory](./factory)                                 | Configuration-based creation  |
-| [bsoncodec](./bsoncodec)                             | BSON registry for Optional, decimal and calendar dates |
-| [kms](./kms)                                         | KMS provider interface        |
-| [kms/local](./kms/local)                             | Local key management          |
-| [kms/aws](./kms/aws)                                 | AWS KMS provider              |
-| [kms/azure](./kms/azure)                             | Azure Key Vault provider      |
-| [kms/gcp](./kms/gcp)                                 | Google Cloud KMS provider     |
-| [kms/factory](./kms/factory)                         | KMS factory from config       |
-| [cursorstorages/memory](./cursorstorages/memory)   | In-memory cursor storage      |
-| [cursorstorages/redis](./cursorstorages/redis)     | Redis-backed cursor storage   |
-| [cursorstorages/nats](./cursorstorages/nats)       | NATS-backed cursor storage    |
-| [cursorstorages/kvstore](./cursorstorages/kvstore) | KV store-based cursor storage |
+| Package                                            | Description                                                       |
+|----------------------------------------------------|-------------------------------------------------------------------|
+| [factory](./factory)                               | Configuration-based creation                                      |
+| [bsoncodec](./bsoncodec)                           | BSON registry for Optional, decimal and calendar dates            |
+| [cas](./cas)                                       | Optimistic-concurrency filters, version bump, miss classification |
+| [kms](./kms)                                       | KMS provider interface                                            |
+| [kms/local](./kms/local)                           | Local key management                                              |
+| [kms/aws](./kms/aws)                               | AWS KMS provider                                                  |
+| [kms/azure](./kms/azure)                           | Azure Key Vault provider                                          |
+| [kms/gcp](./kms/gcp)                               | Google Cloud KMS provider                                         |
+| [kms/factory](./kms/factory)                       | KMS factory from config                                           |
+| [cursorstorages/memory](./cursorstorages/memory)   | In-memory cursor storage                                          |
+| [cursorstorages/redis](./cursorstorages/redis)     | Redis-backed cursor storage                                       |
+| [cursorstorages/nats](./cursorstorages/nats)       | NATS-backed cursor storage                                        |
+| [cursorstorages/kvstore](./cursorstorages/kvstore) | KV store-based cursor storage                                     |
+| [mongotest](./mongotest)                           | Env-gated connection for integration tests                        |

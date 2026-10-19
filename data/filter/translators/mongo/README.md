@@ -42,6 +42,15 @@ negation and `&&` / `||` nesting compose. Every `size()` comparison must compare
 collation (which may, for example, ignore whitespace or case) can match a stored `""` where the translator's decision for an absent field differs, so
 use the option with the simple collation.
 
+## Decimal fields
+
+A field declared `filter.FieldKindDecimal` (money stored as `Decimal128`) receives its literals as BSON `Decimal128` values read by
+`filter.DecimalOperand` from their source spelling, so the server compares them exactly: `price >= 0.1` becomes `{price: {$gte: NumberDecimal("0.1")}}`,
+not a comparison with the binary double nearest 0.1, and `1.00000000000000001` stays exact. Values are normalized (`"12.30"` is sent as 12.3, equal for
+MongoDB). Lists of `in` are converted element by element, `null` is left alone, and a literal that is not a Decimal128-sized decimal (more than 34
+significant digits, an exponent out of range, a non-numeric string) is `filter.ErrFieldTypeMismatch`. Declared with `WithZeroWhenAbsent`, an absent
+decimal stands for 0.
+
 ## Anchors
 
 MongoDB evaluates `$regex` with PCRE, where `$` also matches just before a final newline. `endsWith(s)` therefore anchors with `\z`, the absolute end,
@@ -49,12 +58,19 @@ so `"abc\n"` does not end with `"abc"`; `startsWith(s)` keeps `^`, which without
 as CEL defines it: every `$` RE2 reads as end of text is rewritten to `\z` before the pattern is sent (`^A.*e$` becomes `^A.*e\z`), while a `$` under
 `(?m)`, an escaped `\$` and a `$` in a character class are left alone.
 
+A BSON regex is a C string, so a raw NUL byte in a `contains()` / `startsWith()` / `endsWith()` argument or a `matches()` pattern is sent as `\x00`,
+which matches the same byte; inside `\Q…\E` the quote is closed around it (`\E\x00\Q`), so the pattern keeps its meaning.
+
 ## Security
 
 `matches()` passes the user-supplied pattern through to MongoDB's `$regex`. Host-side validation compiles it with Go's RE2 engine (which cannot
 backtrack) and enforces a length cap, but MongoDB executes the pattern with its own PCRE-family engine, where a crafted pattern can backtrack
 catastrophically — a DB-side ReDoS the length cap bounds but does not eliminate. Expose `matches()` only to trusted callers, or tighten the cap via
 `filter.WithMaxRegexLength`. `contains()`, `startsWith()`, and `endsWith()` escape their argument with `regexp.QuoteMeta` and are not affected.
+
+## Concurrency
+
+A `Translator` keeps per-call state (nesting depth) and is **not** safe for concurrent use. Construct one per goroutine, or guard it with a mutex.
 
 ## Literal operands
 

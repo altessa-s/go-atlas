@@ -59,6 +59,7 @@ func TestScheduler_WithHistoryStorage(t *testing.T) {
 		scheduler.WithCleanupInterval(20*time.Millisecond),
 		scheduler.WithHistoryRetention(time.Hour),
 		scheduler.WithHistoryStorage(history),
+		scheduler.WithEphemeralPageTokens(),
 	)
 	ctx := t.Context()
 	require.NoError(t, s.Start(ctx))

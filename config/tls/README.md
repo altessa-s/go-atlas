@@ -26,4 +26,13 @@ them.
 | `ClientAuth`          | Represents the configuration for client certificate authentication.                                                    |
 | `Server`              | Represents the configuration for Tls server settings.                                                                  |
 
+## File paths
+
+`Client.Normalize` and `ClientAuth.Normalize` keep absolute certificate, key and CA paths as written and resolve relative ones against the working
+directory, so `caCerts: [certs/ca.pem]` keeps working after the process changes directory. A path to a missing file is never cleared: it stays in the
+schema and `Validate` reports it.
+
+An empty path means "not set": `Client.Validate` accepts a client without `certificate` and `privateKey` (a CA-only or default-trust client), but
+requires the two together, every set path to name an existing file and every `caCerts` entry to be non-empty.
+
 See the [config index](../README.md) for the other schema packages.

@@ -136,6 +136,7 @@ func TestFindPage_TokenBindings(t *testing.T) {
 
 	_, err = datamongo.FindPage[keysetDoc](t.Context(), coll, nil, datamongo.KeysetQuery{After: page.Next})
 	require.ErrorIs(t, err, datamongo.ErrKeysetTokensRequired)
+	require.ErrorIs(t, err, keyset.ErrCodecRequired)
 }
 
 func TestFindPage_MissingSortValue(t *testing.T) {

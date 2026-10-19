@@ -129,7 +129,7 @@
 #        - /path/to/ca-cert.pem
 #
 #  # <object> Interceptors configuration for gRPC middleware pipeline.
-#  # Configures the complete interceptor chain: errStatus, realIP, requestID, recovery, tracing, logger, metrics, ipACL, geoACL, limiter, idempotency, cache, auth, and health.
+#  # Configures the complete interceptor chain: errStatus, realIP, requestID, recovery, tracing, logger, metrics, ipACL, geoACL, limiter, idempotency, cache, auth, fieldMask, and health.
 #  # Each interceptor provides specific functionality and can be enabled/disabled independently.
 #  #
 #  # Interceptor execution order and purposes:
@@ -146,7 +146,8 @@
 #  # 11. idempotency: Duplicate request prevention
 #  # 12. cache: Response caching for performance optimization
 #  # 13. auth: Authentication and authorization
-#  # 14. health: Health check gating
+#  # 14. fieldMask: Update masks and read masks
+#  # 15. health: Health check gating
 #  interceptors:
 #    # Error-to-gRPC-status conversion and enrichment.
 #    # See grpc_interceptors/errstatus.yaml template for full configuration options.
@@ -199,6 +200,10 @@
 #    # Authentication and authorization.
 #    # See grpc_interceptors/auth.yaml template for full configuration options.
 #    !include grpc_interceptors/auth.yaml
+#
+#    # Update masks and read masks.
+#    # See grpc_interceptors/field_mask.yaml template for full configuration options.
+#    !include grpc_interceptors/field_mask.yaml
 #
 #    # Health check gating.
 #    # See grpc_interceptors/health.yaml template for full configuration options.

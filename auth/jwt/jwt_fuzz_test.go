@@ -69,7 +69,7 @@ func FuzzSignedTokenVerifies(f *testing.F) {
 	f.Add("user-1", "read")
 	f.Add("", "")
 	f.Add(`{"sub":"admin"}`, "write")
-	f.Add("xxxxxxx", "xxxxxx")
+	f.Add("θέμα", "ανάγνωση")
 	f.Add("a\"b", "c\\d")
 	f.Add("\x00", "\n")
 	f.Add("\x84", "0") // Not UTF-8: JSON cannot carry it, see below.

@@ -57,6 +57,14 @@ func PutExponentialConfig(config *ExponentialConfig) {
 //   - The shouldRetry filter returns false — Do returns the error immediately.
 //   - The nextDelay callback is nil or returns ≤ 0 — Do returns the error
 //     immediately.
+//   - With [WithStopBeforeDeadline], the next delay would reach the context
+//     deadline — Do returns the last error from fn rather than ctx.Err().
+//   - A [WithSleep] function returns an error — Do returns that error.
+//
+// The delay before a retry comes from the [WithNextDelay] callback, which
+// receives the failed attempt's error: a policy that must wait at least as
+// long as the error asks (an HTTP Retry-After, a quota reset) raises the
+// backoff there, e.g. max(backoff(attempt, err), retryAfterOf(err)).
 //
 // A nil ctx is silently replaced with [context.Background]. Without any
 // options the call behaves as a single attempt (no retries): pass
@@ -143,8 +151,21 @@ func doWithOptions(ctx context.Context, fn func(context.Context) error, cfg *opt
 			}
 		}
 
+		if cfg.stopBeforeDeadline {
+			if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= delay {
+				return err
+			}
+		}
+
 		if cfg.onRetry != nil {
 			cfg.onRetry(attempt, err, delay)
+		}
+
+		if cfg.sleep != nil {
+			if serr := cfg.sleep(ctx, delay); serr != nil {
+				return serr
+			}
+			continue
 		}
 
 		// Sleep with a reusable timer to avoid time.After allocations in a loop.

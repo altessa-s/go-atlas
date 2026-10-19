@@ -13,13 +13,19 @@ Strong content tags come from a `Generator` with a pluggable hash (default SHA-2
 builds a weak validator straight from object metadata, no hashing involved.
 
 This is a generation primitive only. HTTP conditional-request handling (304, header wiring) and the AIP-154 mutation check (`ABORTED` on mismatch,
-`etag` field wiring) are left to the transport adapters.
+`etag` field wiring) are left to the transport adapters. `ParseVersion` and `CheckVersion` validate an etag issued by `FromVersion` and report
+transport-neutral sentinels (`ErrMissing`, `ErrMalformed`, `ErrMismatch`) that a transport maps to its own status.
 
 ## Options
 
 | Option                     | Description                                                                          |
 |----------------------------|--------------------------------------------------------------------------------------|
 | `WithNewHash(NewHashFunc)` | Hash constructor for strong content tags. Defaults to `DefaultNewHash` (SHA-256).    |
+| `WithSingleton()`          | `VersionOption`: `ParseVersion`/`CheckVersion` accept `W/"0"`, a singleton never saved. |
+
+`ParseVersion` accepts exactly what `FromVersion` renders: weak, canonical decimal (no sign, leading zeros or surrounding whitespace), and not
+`MaxInt64` (the next version would overflow). `W/"0"` needs `WithSingleton`: every other stored version is positive. A store doing compare-and-swap
+uses `ParseVersion` and reports its own conflict.
 
 ## Key types
 
@@ -36,6 +42,10 @@ This is a generation primitive only. HTTP conditional-request handling (304, hea
 | `Strong(value)`                   | Strong tag wrapping a precomputed value (`"value"`).                           |
 | `Weak(value)`                     | Weak tag wrapping a precomputed value (`W/"value"`).                           |
 | `FromModTime(size, mod)`          | Weak validator `W/"<size16>-<unixnano16>"` from object metadata (no hashing).  |
+| `FromVersion(v)`                  | Weak etag `W/"<v>"` of a stored integer version (canonical decimal); zero tag for `v < 0`. |
+| `Tag.Version()`                   | Version of a `FromVersion` tag; `ErrNotVersion` for a strong, non-canonical, signed or overflowing value. |
+| `ParseVersion(s, ...)`            | Version of an etag a client sends back: exactly a `FromVersion` rendering; `ErrMissing` when empty, else `ErrMalformed`. |
+| `CheckVersion(s, cur, ...)`       | `ParseVersion`, then `ErrMismatch` (wraps `core/errors.ErrConflict`) when the version is not `cur`. |
 | `Random()`                        | Fresh weak opaque token (`crypto/rand`) per call — cheap version/OCC tag, **not** a cache/range validator. |
 | `Parse(s)`                        | Parse one entity-tag; errors wrap `ErrInvalidTag`.                             |
 | `ParseList(s)`                    | Parse an If-None-Match/If-Match list; `*` yields `star=true`.                  |

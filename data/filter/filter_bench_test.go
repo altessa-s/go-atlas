@@ -161,3 +161,18 @@ func BenchmarkEvaluate_InList(b *testing.B) {
 		_, _ = eval.Evaluate(node, data)
 	}
 }
+
+func BenchmarkParse_TextSearch(b *testing.B) {
+	p, err := filter.NewParser(filter.WithParserNoCache(), filter.WithCustomFunctions(map[string]filter.CustomFunction{
+		"search": filter.TextSearch("code", "name", "description"),
+	}))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := p.Parse(b.Context(), `search("developer") && grade == "senior"`); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

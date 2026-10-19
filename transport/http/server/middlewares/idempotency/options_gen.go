@@ -197,6 +197,29 @@ func WithKeyLogMode(v KeyLogMode) Option {
 	}
 }
 
+// WithKeyQueryParam sets the keyQueryParam option.
+func WithKeyQueryParam[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.keyQueryParam = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.keyQueryParam = vv
+		}
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -207,10 +230,46 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithMaxReplaySize sets the maxReplaySize option.
+func WithMaxReplaySize(v int64) Option {
+	return func(o *options) {
+		o.maxReplaySize = v
+	}
+}
+
+// WithReplayHeaders sets the replayHeaders option.
+func WithReplayHeaders(v ...string) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		transformed := make([]string, len(v))
+		for i, val := range v {
+			transformed[i] = strings.TrimSpace(val)
+		}
+		transformed = slices.Deduplicate(transformed)
+		o.replayHeaders = transformed
+	}
+}
+
+// WithRequestClassifier sets the requestClassifier option.
+func WithRequestClassifier(v RequestClassifier) Option {
+	return func(o *options) {
+		o.requestClassifier = v
+	}
+}
+
 // WithRequestFingerprint sets the requestFingerprint option.
 func WithRequestFingerprint(v bool) Option {
 	return func(o *options) {
 		o.requestFingerprint = v
+	}
+}
+
+// WithResponseReplay enables the responseReplay option.
+func WithResponseReplay() Option {
+	return func(o *options) {
+		o.responseReplay = true
 	}
 }
 
@@ -228,6 +287,8 @@ func defaultOptions() *options {
 		keyFormatValidator:           DefaultKeyValidator,
 		keyLogMode:                   DefaultKeyLogMode,
 		logger:                       slog.New(slog.DiscardHandler),
+		maxReplaySize:                DefaultMaxReplaySize,
+		replayHeaders:                DefaultReplayHeaders,
 		requestFingerprint:           true,
 	}
 }

@@ -17,7 +17,7 @@ func Keys() []string {
 		"idk:v2:9:namespace4:acme9:invoice-1", // Keeper namespace
 		"idk:POST:/orders:123",                // ':'-joined composite key
 		"2001:db8::1",                         // IPv6 limiter key
-		"xxxx.ü",                              // Unicode
+		"κλειδί.ü",                            // Unicode
 		"a..b",                                // empty subject token
 		".lead",                               // leading dot
 		"trail.",                              // trailing dot

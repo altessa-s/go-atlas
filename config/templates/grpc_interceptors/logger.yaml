@@ -38,6 +38,12 @@
 #  # Default value: false
 #  logResponse: false
 #
+#  # <bool> Clear fields marked with the protobuf debug_redact option (secrets, credentials)
+#  # from logged request/response payloads, at any depth. The logged copy is redacted;
+#  # the message itself is never changed. Set to false only when no message carries a secret.
+#  # Default value: true
+#  debugRedact: true
+#
 #  # <bool> Enable context-aware logger injection.
 #  # When enabled, handlers can retrieve the logger from the request context.
 #  # Default value: false

@@ -11,6 +11,9 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
+
+	redacttestv1 "github.com/altessa-s/go-atlas/proto/gen/redacttest/v1"
 )
 
 var (
@@ -49,4 +52,28 @@ func BenchmarkServerUnaryInterceptor_LogLevelDisabled(b *testing.B) {
 func BenchmarkServerUnaryInterceptor_LogLevelEnabled(b *testing.B) {
 	l := slog.New(slog.NewTextHandler(io.Discard, nil))
 	benchServerUnary(b, l)
+}
+
+var benchPayload any
+
+// BenchmarkDebugRedact measures the cached descriptor check plus the copy of a message carrying a secret, and the no-copy path of a
+// message type without one.
+func BenchmarkDebugRedact(b *testing.B) {
+	withSecret := &redacttestv1.ListProvidersResponse{Providers: []*redacttestv1.Provider{
+		{Name: "a", ApiKey: proto.String("sk-a")}, {Name: "b", ApiKey: proto.String("sk-b")},
+	}}
+	plain := &redacttestv1.Tree{Value: "v", Left: &redacttestv1.Tree{Value: "w"}}
+
+	b.Run("secret", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			benchPayload = DebugRedact(withSecret)
+		}
+	})
+	b.Run("plain", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			benchPayload = DebugRedact(plain)
+		}
+	})
 }

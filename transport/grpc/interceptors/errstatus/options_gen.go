@@ -57,6 +57,13 @@ func WithDomain[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithFieldPathMapper sets the fieldPathMapper option.
+func WithFieldPathMapper(v PathMapper) Option {
+	return func(o *options) {
+		o.fieldPathMapper = v
+	}
+}
+
 // WithFinalizer sets the finalizer option.
 func WithFinalizer(v Finalizer) Option {
 	return func(o *options) {

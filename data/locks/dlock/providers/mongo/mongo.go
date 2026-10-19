@@ -7,6 +7,7 @@ package mongo
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -18,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/internal/leasing"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	datamongo "github.com/altessa-s/go-atlas/data/mongo"
 	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -48,7 +50,10 @@ type lockDoc struct {
 // every acquisition of a key.
 //
 // The collection needs no index besides _id. Lock documents are kept after
-// release (one per key ever locked) so fencing tokens stay monotonic. Every
+// release (one per key ever locked) so fencing tokens stay monotonic, unless
+// [WithExpiredCleanup] lets a TTL index delete them a grace period after
+// their lease ended. [WithoutRenewal] turns every lease into a hard lease of
+// one TTL that is never renewed. Every
 // lock write uses majority write concern whatever the database handle
 // carries: a lease acknowledged by a primary that then rolls it back in a
 // failover would let a second holder receive the same fencing token. Lock
@@ -60,6 +65,10 @@ type lockDoc struct {
 type Locker struct {
 	s      *store
 	engine *leasing.Engine
+	// cleanup and cleanupSeconds configure the TTL index [Locker.EnsureIndexes]
+	// maintains.
+	cleanup        bool
+	cleanupSeconds int32
 }
 
 // store implements [leasing.Store] on the locks collection.
@@ -81,8 +90,21 @@ func New(db *mongodrv.Database, opts ...Option) (*Locker, error) {
 	}
 	o := newOptions(opts...)
 	// The lease is stored in whole milliseconds, so every deadline uses the
-	// TTL truncated the same way; the renewal must come first.
-	ttl, interval, err := leasing.Timing("mongo dlock", o.ttl, o.renewRatio)
+	// TTL truncated the same way; the renewal must come first. A hard lease
+	// has no renewal, so its ratio plays no part.
+	var (
+		ttl, interval time.Duration
+		err           error
+	)
+	if o.withoutRenewal {
+		ttl, err = leasing.HardTTL("mongo dlock", o.ttl)
+	} else {
+		ttl, interval, err = leasing.Timing("mongo dlock", o.ttl, o.renewRatio)
+	}
+	if err != nil {
+		return nil, err
+	}
+	cleanupSeconds, err := cleanupExpireAfter(o)
 	if err != nil {
 		return nil, err
 	}
@@ -90,9 +112,79 @@ func New(db *mongodrv.Database, opts ...Option) (*Locker, error) {
 		SetWriteConcern(writeconcern.Majority()).
 		SetReadPreference(readpref.Primary()))
 	s := &store{coll: coll, ttl: ttl}
-	return &Locker{s: s, engine: leasing.New(s, leasing.Config{
-		Logger: o.logger, TTL: ttl, Interval: interval, OperationsTimeout: o.operationsTimeout,
-	})}, nil
+	return &Locker{
+		s: s,
+		engine: leasing.New(s, leasing.Config{
+			Logger: o.logger, TTL: ttl, Interval: interval, OperationsTimeout: o.operationsTimeout,
+			NoRenewal: o.withoutRenewal,
+		}),
+		cleanup:        o.expiredCleanup,
+		cleanupSeconds: cleanupSeconds,
+	}, nil
+}
+
+// cleanupIndexName names the TTL index of [WithExpiredCleanup].
+const cleanupIndexName = "expires_at_ttl"
+
+// cleanupExpireAfter returns the TTL index expiry of the cleanup grace: whole
+// seconds, rounded up so a document never goes before grace has passed.
+func cleanupExpireAfter(o *options) (int32, error) {
+	if !o.expiredCleanup {
+		return 0, nil
+	}
+	grace := o.expiredCleanupGrace
+	if grace < 0 {
+		return 0, errors.New("mongo dlock: expired cleanup grace must not be negative")
+	}
+	seconds := (grace + time.Second - 1) / time.Second
+	if seconds > math.MaxInt32 {
+		return 0, errors.New("mongo dlock: expired cleanup grace is too long")
+	}
+	return int32(seconds), nil
+}
+
+// EnsureIndexes makes the collection's indexes match the options. With
+// [WithExpiredCleanup] it creates the TTL index on expires_at, or updates its
+// expiry (collMod) when the grace changed; without it, it drops that index if
+// an earlier configuration created it, so documents are no longer deleted.
+// It is idempotent and safe to run on every start of every replica.
+func (l *Locker) EnsureIndexes(ctx context.Context) error {
+	ctx = isolated(ctx)
+	specs, err := l.s.coll.Indexes().ListSpecifications(ctx)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "list MongoDB lock indexes")
+	}
+	var current *mongodrv.IndexSpecification
+	for _, spec := range specs {
+		if spec.Name == cleanupIndexName {
+			current = &spec
+		}
+	}
+	switch {
+	case !l.cleanup && current == nil:
+		return nil
+	case !l.cleanup:
+		err = l.s.coll.Indexes().DropOne(ctx, cleanupIndexName)
+		if datamongo.IsErrorIndexNotFound(err) {
+			// Another replica dropped it meanwhile.
+			return nil
+		}
+		return coreerrs.WrapOperation(err, "drop MongoDB lock cleanup index")
+	case current == nil:
+		_, err = l.s.coll.Indexes().CreateOne(ctx, mongodrv.IndexModel{
+			Keys:    bson.D{{Key: "expires_at", Value: 1}},
+			Options: mongoopts.Index().SetName(cleanupIndexName).SetExpireAfterSeconds(l.cleanupSeconds),
+		})
+		return coreerrs.WrapOperation(err, "create MongoDB lock cleanup index")
+	case current.ExpireAfterSeconds != nil && *current.ExpireAfterSeconds == l.cleanupSeconds:
+		return nil
+	default:
+		err = l.s.coll.Database().RunCommand(ctx, bson.D{
+			{Key: "collMod", Value: l.s.coll.Name()},
+			{Key: "index", Value: bson.D{{Key: "name", Value: cleanupIndexName}, {Key: "expireAfterSeconds", Value: l.cleanupSeconds}}},
+		}).Err()
+		return coreerrs.WrapOperation(err, "update MongoDB lock cleanup index")
+	}
 }
 
 // Lock makes a single attempt to take the lock for key and returns

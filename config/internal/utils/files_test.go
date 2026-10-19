@@ -14,11 +14,15 @@ import (
 	"github.com/altessa-s/go-atlas/config/internal/utils"
 )
 
-func TestFindFile(t *testing.T) {
-	// Create a temporary file for testing.
+func TestResolvePath(t *testing.T) {
+	t.Parallel()
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "testfile.txt")
-	require.NoError(t, os.WriteFile(tmpFile, []byte("test"), 0o644))
+	require.NoError(t, os.WriteFile(tmpFile, []byte("test"), 0o600))
 
 	tests := []struct {
 		name     string
@@ -26,18 +30,19 @@ func TestFindFile(t *testing.T) {
 		expected string
 	}{
 		{"empty string", "", ""},
-		{"relative path", "relative/path.txt", ""},
 		{"absolute existing file", tmpFile, tmpFile},
-		{"absolute nonexistent", "/nonexistent/path/file.txt", ""},
+		{"absolute missing file is kept", "/nonexistent/path/file.txt", "/nonexistent/path/file.txt"},
 		{"absolute directory", tmpDir, tmpDir},
-		{"dot relative", "./file.txt", ""},
-		{"tilde path", "~/file.txt", ""},
+		{"relative path is resolved against the working directory", "relative/path.txt", filepath.Join(wd, "relative", "path.txt")},
+		{"dot relative", "./file.txt", filepath.Join(wd, "file.txt")},
+		{"parent relative", "../file.txt", filepath.Join(filepath.Dir(wd), "file.txt")},
+		{"existing relative file", "files.go", filepath.Join(wd, "files.go")},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := utils.FindFile(tt.path)
-			require.Equal(t, tt.expected, got)
+			t.Parallel()
+			require.Equal(t, tt.expected, utils.ResolvePath(tt.path))
 		})
 	}
 }

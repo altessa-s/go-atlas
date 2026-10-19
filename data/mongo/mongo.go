@@ -320,6 +320,15 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 //   - error: Error if transaction fails, or ErrTransactionPanicked if the
 //     handler panicked — the transaction is then aborted, never committed
 //
+// Joining: when ctx already carries a running transaction of this client
+// ([InTransaction]), for example a store method called from another
+// WithTransaction handler, the handler runs directly in that transaction
+// instead of starting a second, independent one on a new session: its
+// writes commit or abort with the enclosing transaction, its error is
+// returned as is for the enclosing handler to propagate, and a panic is
+// left to the enclosing transaction's owner. No timeout, metric or log of
+// its own is applied. A transaction of another client is never joined.
+//
 // Example:
 //
 //	err := mongo.WithTransaction(ctx, func(sessCtx context.Context) error {
@@ -328,6 +337,10 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 //		return err
 //	})
 func (m *Mongo) WithTransaction(ctx context.Context, handler func(ctx context.Context) error) error {
+	if joinableTransaction(ctx, m.client) {
+		return handler(ctx)
+	}
+
 	stop := m.metrics.transactionDuration.Start()
 	defer stop()
 

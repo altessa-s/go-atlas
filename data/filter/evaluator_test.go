@@ -12,10 +12,10 @@ import (
 	"github.com/altessa-s/go-atlas/data/filter"
 )
 
-func newTestParser(t *testing.T) *filter.Parser {
-	t.Helper()
+func newTestParser(tb testing.TB) *filter.Parser {
+	tb.Helper()
 	p, err := filter.NewParser(filter.WithParserNoCache())
-	require.NoError(t, err, "NewParser")
+	require.NoError(tb, err, "NewParser")
 	return p
 }
 
@@ -31,6 +31,8 @@ func mustEvaluator(tb testing.TB, opts ...filter.TranslatorOption) *filter.Evalu
 }
 
 func TestEvaluator_Comparison(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
@@ -58,6 +60,8 @@ func TestEvaluator_Comparison(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
+			t.Parallel()
+
 			node, err := p.Parse(t.Context(), tt.expr)
 			require.NoError(t, err, "Parse(%q)", tt.expr)
 			got, err := eval.Evaluate(node, data)
@@ -68,6 +72,8 @@ func TestEvaluator_Comparison(t *testing.T) {
 }
 
 func TestEvaluator_Logical(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
@@ -89,6 +95,8 @@ func TestEvaluator_Logical(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
+			t.Parallel()
+
 			node, err := p.Parse(t.Context(), tt.expr)
 			require.NoError(t, err, "Parse")
 			got, err := eval.Evaluate(node, data)
@@ -99,6 +107,8 @@ func TestEvaluator_Logical(t *testing.T) {
 }
 
 func TestEvaluator_StringFunctions(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
@@ -119,6 +129,8 @@ func TestEvaluator_StringFunctions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
+			t.Parallel()
+
 			node, err := p.Parse(t.Context(), tt.expr)
 			require.NoError(t, err, "Parse")
 			got, err := eval.Evaluate(node, data)
@@ -129,13 +141,15 @@ func TestEvaluator_StringFunctions(t *testing.T) {
 }
 
 func TestEvaluator_Substring(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
 	data := map[string]any{
 		"recipient": "+381607123",
 		"age":       int64(30),
-		"greeting":  "xxxxxx", // 6 runes, 12 UTF-8 bytes — used to pin rune-indexing
+		"greeting":  "Κόσμος", // 6 runes, 12 UTF-8 bytes — used to pin rune-indexing
 	}
 
 	tests := []struct {
@@ -153,8 +167,8 @@ func TestEvaluator_Substring(t *testing.T) {
 		{name: "composed with logical", expr: `recipient.substring(0, 4) == "+381" && recipient.substring(4, 7) == "607"`, want: true},
 		// Multibyte: indices count runes, not UTF-8 bytes. greeting is 6 runes
 		// (12 bytes); substring(0, 3) must yield the 3-rune prefix.
-		{name: "multibyte rune-indexed prefix", expr: `greeting.substring(0, 3) == "xxx"`, want: true},
-		{name: "multibyte rune-indexed full", expr: `greeting.substring(0, 6) == "xxxxxx"`, want: true},
+		{name: "multibyte rune-indexed prefix", expr: `greeting.substring(0, 3) == "Κόσ"`, want: true},
+		{name: "multibyte rune-indexed full", expr: `greeting.substring(0, 6) == "Κόσμος"`, want: true},
 		// Out-of-range here is 7 runes, not 13 bytes — proves the bound is
 		// against rune length and not byte length.
 		{name: "multibyte end past rune length rejected", expr: `greeting.substring(0, 7)`, wantErr: true},
@@ -168,6 +182,8 @@ func TestEvaluator_Substring(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			node, err := p.Parse(t.Context(), tt.expr)
 			require.NoError(t, err, "Parse(%q)", tt.expr)
 			got, err := eval.Evaluate(node, data)
@@ -182,6 +198,8 @@ func TestEvaluator_Substring(t *testing.T) {
 }
 
 func TestEvaluator_In(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
@@ -197,6 +215,8 @@ func TestEvaluator_In(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
+			t.Parallel()
+
 			node, err := p.Parse(t.Context(), tt.expr)
 			require.NoError(t, err, "Parse")
 			got, err := eval.Evaluate(node, data)
@@ -207,6 +227,8 @@ func TestEvaluator_In(t *testing.T) {
 }
 
 func TestEvaluator_Has(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
@@ -231,6 +253,8 @@ func TestEvaluator_Has(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
+			t.Parallel()
+
 			node, err := p.Parse(t.Context(), tt.expr)
 			require.NoError(t, err, "Parse")
 			got, err := eval.Evaluate(node, data)
@@ -241,6 +265,8 @@ func TestEvaluator_Has(t *testing.T) {
 }
 
 func TestEvaluator_NestedFields(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
@@ -258,6 +284,8 @@ func TestEvaluator_NestedFields(t *testing.T) {
 }
 
 func TestEvaluator_AllowedFields(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t,
 		filter.WithAllowedFields("name"))
@@ -271,6 +299,8 @@ func TestEvaluator_AllowedFields(t *testing.T) {
 }
 
 func TestEvaluator_FieldMapping(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t,
 		filter.WithFieldMapping(map[string]string{
@@ -287,6 +317,8 @@ func TestEvaluator_FieldMapping(t *testing.T) {
 }
 
 func TestEvaluator_Size(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
@@ -365,6 +397,8 @@ func TestEvaluator_CallWithoutTarget(t *testing.T) {
 }
 
 func TestEvaluator_NilComparison(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
 
@@ -378,10 +412,14 @@ func TestEvaluator_NilComparison(t *testing.T) {
 }
 
 func TestEvaluator_RegexLengthLimit(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	data := map[string]any{"name": "hello"}
 
 	t.Run("short regex is accepted", func(t *testing.T) {
+		t.Parallel()
+
 		eval := mustEvaluator(t)
 		node, err := p.Parse(t.Context(), `name.matches("^hello")`)
 		require.NoError(t, err, "Parse")
@@ -391,6 +429,8 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 	})
 
 	t.Run("regex exceeding default limit is rejected", func(t *testing.T) {
+		t.Parallel()
+
 		eval := mustEvaluator(t)
 		// Build expression with a regex pattern exceeding 1024 bytes
 		longPattern := make([]byte, 1025)
@@ -408,6 +448,8 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 	})
 
 	t.Run("custom regex length limit", func(t *testing.T) {
+		t.Parallel()
+
 		eval := mustEvaluator(t,
 			filter.WithMaxRegexLength(10))
 		node := &filter.CallNode{
@@ -422,10 +464,14 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 }
 
 func TestEvaluator_MaxOperations(t *testing.T) {
+	t.Parallel()
+
 	p := newTestParser(t)
 	data := map[string]any{"a": int64(1), "b": int64(2), "c": int64(3)}
 
 	t.Run("normal expression within limit", func(t *testing.T) {
+		t.Parallel()
+
 		eval := mustEvaluator(t)
 		node, err := p.Parse(t.Context(), `a == 1 && b == 2`)
 		require.NoError(t, err, "Parse")
@@ -435,6 +481,8 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 	})
 
 	t.Run("expression exceeding low limit is rejected", func(t *testing.T) {
+		t.Parallel()
+
 		eval := mustEvaluator(t,
 			filter.WithMaxOperations(3))
 		// a == 1 && b == 2 visits: BinaryOp(&&), BinaryOp(==), Ident(a), Literal(1), BinaryOp(==), ...

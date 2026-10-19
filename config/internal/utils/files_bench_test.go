@@ -10,25 +10,20 @@ import (
 	"github.com/altessa-s/go-atlas/config/internal/utils"
 )
 
-func BenchmarkFindFile_Existing(b *testing.B) {
-	// Use a file that exists on all systems.
-	path := "/dev/null"
-	b.ResetTimer()
+func BenchmarkResolvePath_Absolute(b *testing.B) {
 	for b.Loop() {
-		_ = utils.FindFile(path)
+		_ = utils.ResolvePath("/etc/ssl/certs/ca.pem")
 	}
 }
 
-func BenchmarkFindFile_Nonexistent(b *testing.B) {
-	path := "/nonexistent/path/file.txt"
-	b.ResetTimer()
+func BenchmarkResolvePath_Relative(b *testing.B) {
 	for b.Loop() {
-		_ = utils.FindFile(path)
+		_ = utils.ResolvePath("certs/ca.pem")
 	}
 }
 
-func BenchmarkFindFile_Empty(b *testing.B) {
+func BenchmarkResolvePath_Empty(b *testing.B) {
 	for b.Loop() {
-		_ = utils.FindFile("")
+		_ = utils.ResolvePath("")
 	}
 }

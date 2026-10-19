@@ -5,6 +5,8 @@
 package lockconfig
 
 import (
+	"time"
+
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	validationconfig "github.com/altessa-s/go-atlas/config/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -15,6 +17,7 @@ import (
 const (
 	defaultDistributionLockNatsBucket        = "dlock"
 	defaultDistributionLockMongodbCollection = "dlocks"
+	defaultDistributionLockMongoTTL          = 10 * time.Second
 )
 
 // DistributionLockProvider defines the distributed locking provider type.
@@ -68,11 +71,50 @@ type DistributionLockMongo struct {
 	// Collection holds one lease document per lock key.
 	// Defaults to "dlocks" if not specified.
 	Collection string `yaml:"collection" default:"dlocks"`
+
+	// TTL is the lease of a lock: a holder that stops renewing loses the lock
+	// this long after its last renewal. Defaults to 10s; zero keeps the
+	// provider default (also 10s).
+	TTL time.Duration `yaml:"ttl" default:"10s"`
+
+	// RenewRatio is the fraction of TTL after which a lease is renewed; it
+	// must lie in (0, 1). Zero keeps the provider default (1/3). Ignored with
+	// WithoutRenewal.
+	RenewRatio float64 `yaml:"renewRatio"`
+
+	// WithoutRenewal makes every lease a hard lease of one TTL that is never
+	// renewed: work guarded by the lock must finish within TTL.
+	WithoutRenewal bool `yaml:"withoutRenewal"`
+
+	// ExpiredCleanup lets MongoDB delete a lock document ExpiredCleanupGrace
+	// after its lease ended, through a TTL index on expires_at, so the
+	// collection does not keep one document per key ever locked. Fencing
+	// tokens are then monotonic only within the grace.
+	ExpiredCleanup bool `yaml:"expiredCleanup"`
+
+	// ExpiredCleanupGrace is how long a lock document outlives its lease with
+	// ExpiredCleanup (rounded up to whole seconds).
+	ExpiredCleanupGrace time.Duration `yaml:"expiredCleanupGrace"`
+
+	// EnsureIndexes makes the factory create or update the cleanup TTL index
+	// (or drop it when ExpiredCleanup is off) while building the lock,
+	// through the provider's idempotent EnsureIndexes.
+	EnsureIndexes bool `yaml:"ensureIndexes"`
 }
 
 // DefaultDistributionLockMongo returns a DistributionLockMongo configuration with default values.
 func DefaultDistributionLockMongo() DistributionLockMongo {
-	return DistributionLockMongo{Collection: defaultDistributionLockMongodbCollection}
+	return DistributionLockMongo{Collection: defaultDistributionLockMongodbCollection, TTL: defaultDistributionLockMongoTTL}
+}
+
+// Validate checks the MongoDB provider settings.
+func (c *DistributionLockMongo) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		// Zero keeps the provider default; ozzo rules skip zero values.
+		validation.Field(&c.TTL, validation.Min(time.Millisecond)),
+		validation.Field(&c.RenewRatio, validation.Min(0.0), validation.Max(1.0).Exclusive()),
+		validation.Field(&c.ExpiredCleanupGrace, validation.Min(time.Duration(0))),
+	)
 }
 
 // DistributionLockNATS defines the NATS-specific configuration for distributed locking.

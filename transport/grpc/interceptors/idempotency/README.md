@@ -26,7 +26,11 @@ gRPC metadata (default header: `Idempotency-Key`). Uses the driven interceptor p
 | `WithIdempotencyKeyEntityIDMetadata`| `Idempotency-Key-Entity-Id`| Response metadata key for entity ID        |
 | `WithFallbackBehavior`            | Deny                       | Behavior on storage failure (Allow/Deny/Error) |
 | `WithEnforceMandatory`            | false                      | When true, require idempotency key on all requests |
-| `WithKeyFormatValidator`          | UUID v4                    | Custom key format validation function        |
+| `WithKeyFormatValidator`          | UUID v4                    | Key format check; `OpaqueKeyValidator(n)` / `PatternKeyValidator(re, n)` accept non-UUID keys |
+| `WithKeyField`                    | "" (header only)           | String request field carrying the key (such as `request_id`); wins over the header |
+| `WithMethodClassifier`            | nil                        | Per-method `Policy` (skip, optional, mandatory, default); `VerbMethodClassifier(p)` |
+| `WithResponseReplay`              | off                        | Return the stored response to a repeat of a completed unary call (see below) |
+| `WithMaxReplaySize`               | `DefaultMaxReplaySize` (256 KiB) | Largest stored response (marshaled); larger ones are not stored |
 | `WithEntityIDExtractor`           | nil                        | Extract entity ID from response              |
 | `WithExposeEntityID`              | false (off)                | Echo the stored entity ID to duplicate callers (see below) |
 | `WithRequestFingerprint`          | true                       | Refuse a key reused for a different request (see below) |
@@ -40,6 +44,30 @@ On a duplicate request whose key already resolved to a success, the interceptor 
 response metadata. That is **off by default**: the caller presenting a duplicate key is not verified to be the principal that created the original
 entity, so echoing it unconditionally would leak another principal's entity ID to anyone who reuses (or guesses) the key. Enable `WithExposeEntityID()`
 (YAML `exposeEntityID: true`) only when idempotency keys are unguessable and scoped per principal, or when the entity ID is not sensitive.
+
+## Key sources and method policies
+
+The key is read from the request field named by `WithKeyField` (proto or JSON name of a singular `string` field, such as `request_id`) when it
+holds a non-empty value, otherwise from the metadata header. Keys must pass the `KeyFormatValidator`: a lowercase UUID v4 by default,
+`OpaqueKeyValidator(maxLen)` for client request IDs (visible ASCII, at most `maxLen` bytes, default 128) or `PatternKeyValidator(re, maxLen)` for
+a regular expression matching the whole key. A `MethodClassifier`, run after the ignore lists, returns a `Policy` per method: `PolicySkip` (no
+check), `PolicyOptional` (never required), `PolicyMandatory` (always required) or `PolicyDefault` (`WithEnforceMandatory` decides).
+`VerbMethodClassifier(p)` applies `p` to Create, BatchCreate and custom verbs and skips the methods whose name starts with a skip verb:
+`DefaultSkipVerbs` (Get, List, Search, Update, Delete and their Batch forms) unless `WithSkipVerbs` supplies others. In YAML:
+`idempotencyKeyField`, `keyFormat` (`uuidv4`, `opaque`, `pattern`), `keyPattern`, `maxKeyLength`, `methodClassifier: verbs`, `mandatoryMethods`
+and `mandatoryPatterns`.
+
+## Response replay
+
+With `WithResponseReplay()` (YAML `responseReplay: true`) a completed unary call stores its response — wrapped in `google.protobuf.Any`,
+deterministically marshaled, at most `WithMaxReplaySize` bytes — with the key, and a repeat of the request receives that response with an `OK`
+status (and `Idempotency-Key-Status: success`) without running the handler, instead of `FAILED_PRECONDITION`. A repeat while the
+first call runs stays `ABORTED`; a failed call stores nothing, so its repeat runs again. The fingerprint and owner checks run first, so a different
+request or another owner's key never sees the response. Storage keys are scoped by service, so the record is also bound to the full method,
+independently of fingerprinting: a repeat of another method of the service is never answered with it, and the replayed message must be the
+method's registered response type. A response larger than the cap, a record written before replay (a bare entity ID) or without a method binding,
+a response type that is not (or no longer) the method's, and streaming calls keep the `FAILED_PRECONDITION` answer. Replay is off by default because the repeat's
+caller receives the original response: enable it with keys scoped per principal (`idempotency.WithOwner`).
 
 ## Storage keys
 

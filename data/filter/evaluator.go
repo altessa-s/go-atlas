@@ -312,7 +312,7 @@ func (e *evaluation) evalComparison(op Operator, left, right Node) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	return compare(op, lv, rv)
+	return compare(op, exactLiteral(rv, left, lv), exactLiteral(lv, right, rv))
 }
 
 // evalIn checks if the left value is in the right list. The schema
@@ -363,7 +363,7 @@ func (e *evaluation) evalInList(lv any, n *ListNode) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		found = found || valuesEqual(lv, val)
+		found = found || valuesEqual(lv, exactLiteral(lv, elem, val))
 	}
 	return found, nil
 }
@@ -560,6 +560,13 @@ func compare(op Operator, left, right any) (bool, error) {
 	if left == nil || right == nil {
 		return compareNil(op, left, right)
 	}
+	// A decimal compares exactly, never through float64.
+	if c, ok, err := compareDecimal(left, right); ok {
+		if err != nil {
+			return false, coreerrs.Wrapf(ErrUnsupportedType, "cannot compare %T and %T: %v", left, right, err)
+		}
+		return compareResult(op, c)
+	}
 	if l, ok := left.(time.Time); ok {
 		if r, ok := right.(time.Time); ok {
 			return compareResult(op, l.Compare(r))
@@ -664,6 +671,9 @@ func toFloat64(v any) (float64, bool) {
 // interfaces holding the same non-comparable type panics, so bytes compare by
 // content and anything else not comparable is unequal.
 func valuesEqual(a, b any) bool {
+	if c, ok, err := compareDecimal(a, b); ok {
+		return err == nil && c == 0
+	}
 	if at, ok := a.(time.Time); ok {
 		bt, ok := b.(time.Time)
 		return ok && at.Equal(bt)

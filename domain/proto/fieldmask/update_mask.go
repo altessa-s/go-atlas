@@ -24,7 +24,7 @@ import (
 //
 // FieldViolation is an alias for [behavior.Violation] so the gRPC interceptor
 // can render fieldmask and fieldbehavior violations through the same
-// google.rpc.BadRequest FieldViolation mapping.
+// io.altessa.badrequest.v1.BadRequest FieldViolation mapping.
 type FieldViolation = behavior.Violation
 
 // UpdateMaskBehaviorError is returned by [FieldMask.ApplyUpdateMask] when one or
@@ -174,7 +174,7 @@ func (msk FieldMask) validateFieldBehaviors(
 	fields := prf.Descriptor().Fields()
 
 	// Iterate in sorted order so UpdateMaskBehaviorError.Violations is deterministic
-	// across runs — Violations is rendered into google.rpc.BadRequest by the gRPC
+	// across runs — Violations is rendered into io.altessa.badrequest.v1.BadRequest by the gRPC
 	// interceptor and stable order matters for client diagnostics and tests.
 	for _, fieldName := range slices.Sorted(maps.Keys(msk)) {
 		nested := msk[fieldName]

@@ -6,7 +6,9 @@ import sagamongo "github.com/altessa-s/go-atlas/data/saga/storages/mongo"
 
 Durable [`saga.Storage`](../../storage.go) backed by a MongoDB collection. Each saga instance is one document keyed by its ID; the document's `version`
 field is the optimistic-concurrency token, so `Update` is a version-checked write that rejects a stale writer with `errs.ErrVersionConflict` —
-concurrent recovery cycles cannot double-advance the same instance.
+concurrent recovery cycles cannot double-advance the same instance. The write uses the [`cas`](../../../mongo/cas) core: `cas.Filter` matches the
+expected version exactly, `cas.Inc` bumps it in the same update, and `cas.ClassifyMiss` turns a miss into `errs.ErrInstanceNotFound` when the
+instance is gone and `errs.ErrVersionConflict` otherwise.
 
 ## Constructors
 

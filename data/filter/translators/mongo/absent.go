@@ -62,6 +62,8 @@ func zeroValue(kind filter.FieldKind) any {
 		return []byte{}
 	case filter.FieldKindTimestamp:
 		return time.Time{}
+	case filter.FieldKindDecimal:
+		return int64(0) // numbers compare by value across BSON types
 	default:
 		return nil
 	}
@@ -151,6 +153,18 @@ func compareNumber(v any) (int, bool) {
 			return 0, false
 		}
 		return cmp.Compare(0, n), true
+	case bson.Decimal128: // a FieldKindDecimal literal as emitted
+		if n.IsNaN() {
+			return 0, false
+		}
+		if inf := n.IsInf(); inf != 0 {
+			return -inf, true
+		}
+		coefficient, _, err := n.BigInt()
+		if err != nil {
+			return 0, false
+		}
+		return -coefficient.Sign(), true
 	default:
 		return 0, false
 	}

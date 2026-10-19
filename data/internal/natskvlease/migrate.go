@@ -6,8 +6,6 @@ package natskvlease
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +18,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	serviceid "github.com/altessa-s/go-atlas/service/id"
 )
 
 // ErrBucketMigrationInProgress reports that a storage migration of the bucket
@@ -261,10 +261,7 @@ func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, targe
 		return nil, nil //nolint:nilnil // nothing to migrate
 	}
 
-	id, err := newMigrationID()
-	if err != nil {
-		return nil, err
-	}
+	id := serviceid.NewHex(migrationIDBytes)
 	templateBucket := migrationTemplatePrefix + id
 	if err = lease.renew(ctx); err != nil {
 		return nil, err
@@ -997,13 +994,9 @@ func (h *KVHelper) clock() time.Time {
 	return h.now()
 }
 
-func newMigrationID() (string, error) {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
+// migrationIDBytes is the number of random bytes in a migration or lease
+// owner ID; the hex form is twice as long.
+const migrationIDBytes = 8
 
 func kvStreamName(bucket string) string        { return "KV_" + bucket }
 func kvSubjectPrefix(bucket string) string     { return "$KV." + bucket + "." }

@@ -17,6 +17,14 @@
 // same on every replica; [WithPreviousKeys] keeps tokens signed before a key
 // rotation valid. Tokens are not stored and cannot be revoked individually.
 //
+// [Typed] carries a JSON-encoded cursor of any type and [Offset] a position
+// for small in-memory catalogs; [NewBindings] builds bindings from a list
+// name, its order and length-prefixed filter parts. [Classify] tells a
+// transport whether an error is a malformed or an expired token.
+// [SlicePager] pages a slice held in memory ([NewSlicePager] by key,
+// [NewSliceOffsetPager] by index), and [PageSize] resolves a requested page
+// size against a default and a maximum.
+//
 //	codec, err := keyset.New(signingKey)
 //	token, err := codec.Issue([]byte(position), keyset.Bindings{Sort: sortFP, Filter: filterFP, Subject: user})
 //	position, err := codec.Resolve(token, keyset.Bindings{Sort: sortFP, Filter: filterFP, Subject: user})

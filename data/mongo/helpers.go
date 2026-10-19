@@ -657,9 +657,9 @@ func nextPowerOfTwo(n int) int {
 //
 // Example:
 //
-//	doc := bson.M{"sort_fields": bson.D{{Key: "value", Value: "xxxxx"}}}
-//	BsonLookup(doc, "sort_fields.value") // returns "xxxxx"
-//	BsonLookup(doc, "sort_fields")       // returns bson.D{{Key: "value", Value: "xxxxx"}}
+//	doc := bson.M{"sort_fields": bson.D{{Key: "value", Value: "Agent"}}}
+//	BsonLookup(doc, "sort_fields.value") // returns "Agent"
+//	BsonLookup(doc, "sort_fields")       // returns bson.D{{Key: "value", Value: "Agent"}}
 //	BsonLookup(doc, "missing.key")       // returns nil
 func BsonLookup(doc any, key string) any {
 	current := doc

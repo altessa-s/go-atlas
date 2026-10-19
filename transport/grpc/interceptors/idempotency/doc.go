@@ -11,8 +11,13 @@
 // # Server side
 //
 // Use [ServerInterceptor] to create the interceptor. The idempotency key is
-// extracted from gRPC metadata (configurable via [WithIdempotencyKeyHeader])
-// and looked up in the provided [idempotencydata.Idempotency] storage.
+// extracted from gRPC metadata (configurable via [WithIdempotencyKeyHeader]),
+// or from a request field such as request_id ([WithKeyField]), checked
+// by a [KeyFormatValidator] (UUID v4 by default, [OpaqueKeyValidator] or
+// [PatternKeyValidator] for client request IDs), and looked up in the provided
+// [idempotencydata.Idempotency] storage. A [MethodClassifier] (for example
+// [VerbMethodClassifier]) decides per method whether the key is skipped,
+// optional or mandatory.
 // Duplicate requests receive the previously stored response without
 // re-executing the handler. The [ErrorScenario] constants define possible
 // error outcomes for idempotency key processing.

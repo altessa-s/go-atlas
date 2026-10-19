@@ -51,6 +51,10 @@ func New(dialect Dialect, opts ...filter.TranslatorOption) (*Translator, error) 
 	if err != nil {
 		return nil, err
 	}
+	// Decimal literals cannot be bound exactly here yet: refuse the declaration rather than compare through a float.
+	if err = ctx.RejectFieldKinds(filter.FieldKindDecimal); err != nil {
+		return nil, err
+	}
 	return &Translator{config: ctx, dialect: dialect, depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 

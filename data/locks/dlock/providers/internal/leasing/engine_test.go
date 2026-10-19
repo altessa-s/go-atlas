@@ -135,6 +135,15 @@ func TestProviderContract(t *testing.T) {
 	})
 }
 
+func TestHardTTL(t *testing.T) {
+	t.Parallel()
+	ttl, err := leasing.HardTTL("x", 1900*time.Microsecond)
+	require.NoError(t, err)
+	require.Equal(t, time.Millisecond, ttl)
+	_, err = leasing.HardTTL("x", 900*time.Microsecond)
+	require.Error(t, err)
+}
+
 func TestTiming(t *testing.T) {
 	t.Parallel()
 	ttl, interval, err := leasing.Timing("x", 2900*time.Microsecond, 0.9)

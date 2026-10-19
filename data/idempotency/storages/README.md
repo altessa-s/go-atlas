@@ -22,12 +22,13 @@ an `UpdateOne` filtered on the stored bytes for MongoDB).
 
 ## Subpackages
 
-| Package                | Description                        |
-|------------------------|------------------------------------|
-| [memory](./memory)     | In-memory backend with TTL         |
-| [mongo](./mongo)       | MongoDB storage, joins transactions|
-| [nats](./nats)         | NATS JetStream storage             |
-| [redis](./redis)       | Distributed Redis storage          |
+| Package                      | Description                         |
+|------------------------------|-------------------------------------|
+| [memory](./memory)           | In-memory backend with TTL          |
+| [mongo](./mongo)             | MongoDB storage, joins transactions |
+| [nats](./nats)               | NATS JetStream storage              |
+| [redis](./redis)             | Distributed Redis storage           |
+| [storagetest](./storagetest) | Conformance kit for the backends    |
 
 ## Release contract
 
@@ -35,3 +36,9 @@ Implementations must atomically compare the ownership token and remove the match
 unconditional `Delete` is insufficient. Memory uses its mutex, Redis uses compare-and-delete Lua, NATS uses `kv.Delete` with `jetstream.LastRevision`,
 and MongoDB uses a `DeleteOne` filtered on the stored bytes. Missing tokens fail with `ErrMissingLockState`; a missing or replaced entry fails with
 `ErrLockStolen`.
+
+## Stored state size
+
+Storages keep the Keeper's serialized state as opaque bytes. With response replay on, the transports store the response in it (gRPC: the marshaled
+message; HTTP: status, replay headers and body; at most 256 KiB by default, base64 in the JSON state), so a record can reach about 350 KiB. MongoDB
+(16 MiB documents) and Redis take that as is; a NATS KeyValue bucket must allow values that large (the server's `max_payload`, 1 MiB by default).

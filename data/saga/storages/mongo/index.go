@@ -10,7 +10,7 @@ import (
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
+	datamongo "github.com/altessa-s/go-atlas/data/mongo"
 )
 
 // instanceIndexes defines MongoDB indexes for the saga instances collection.
@@ -31,8 +31,7 @@ func (s *Store) createIndexes() error {
 	ctx, cancel := corectx.ApplyTimeout(s.ctx, s.indexTimeout)
 	defer cancel()
 
-	_, err := s.collection.Indexes().CreateMany(ctx, instanceIndexes, mongoOptions.CreateIndexes())
-	if err != nil {
+	if err := datamongo.EnsureIndexes(ctx, s.collection, instanceIndexes); err != nil {
 		return coreerrs.WrapOperationWithContext(err, "create MongoDB indexes", "collection '"+s.collectionName+"'")
 	}
 	return nil

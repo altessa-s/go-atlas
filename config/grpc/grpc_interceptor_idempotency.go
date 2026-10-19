@@ -21,7 +21,6 @@ const (
 
 	// Default values for IdempotencyInterceptor.
 	defaultIdempotencyKeyHeader           = "idempotency-key"
-	defaultIdempotencyKeyField            = "idempotencyKey"
 	defaultIdempotencyKeyStatusMetadata   = "Idempotency-Key-Status"
 	defaultIdempotencyKeyEntityIdMetadata = "Idempotency-Key-Entity-Id"
 )
@@ -37,10 +36,46 @@ type IdempotencyInterceptor struct {
 	// Must be a valid HTTP header name, defaults to "idempotency-key".
 	IdempotencyKeyHeader string `yaml:"idempotencyKeyHeader" default:"idempotency-key"`
 
-	// IdempotencyKeyField is the field name to extract idempotency key from request.
-	// Used when idempotency key is embedded in the request message itself.
-	// Must be a valid protobuf field name, defaults to "idempotencyKey".
-	IdempotencyKeyField string `yaml:"idempotencyKeyField" default:"idempotencyKey"`
+	// IdempotencyKeyField names a string field of the request message that
+	// carries the key (such as request_id), by proto or JSON name. A
+	// non-empty value in the field takes precedence over the header. Empty
+	// (the default) reads the header only.
+	IdempotencyKeyField string `yaml:"idempotencyKeyField"`
+
+	// KeyFormat selects the key validator: uuidv4 (lowercase UUID v4, the
+	// default), opaque (visible ASCII up to MaxKeyLength) or pattern
+	// (KeyPattern matching the whole key, up to MaxKeyLength).
+	KeyFormat middlewareconfig.IdempotencyKeyFormat `yaml:"keyFormat" default:"uuidv4"`
+
+	// KeyPattern is the regular expression of the pattern key format.
+	KeyPattern string `yaml:"keyPattern"`
+
+	// MaxKeyLength bounds opaque and pattern keys, in bytes; 0 is 128.
+	MaxKeyLength int `yaml:"maxKeyLength"`
+
+	// MethodClassifier selects which methods take part: "" (every method
+	// not ignored) or "verbs" (methods are classified by the verb their
+	// name starts with: Create, BatchCreate and custom verbs take part; Get,
+	// List, Search, Update, Delete and their Batch forms are skipped).
+	MethodClassifier IdempotencyMethodClassifier `yaml:"methodClassifier"`
+
+	// MandatoryMethods lists fully qualified methods that require a key,
+	// whatever EnforceMandatory says; ignored methods stay ignored.
+	MandatoryMethods []string `yaml:"mandatoryMethods"`
+
+	// MandatoryPatterns lists regular expressions of methods that require a
+	// key, like MandatoryMethods.
+	MandatoryPatterns []string `yaml:"mandatoryPatterns"`
+
+	// ResponseReplay stores the response of a completed unary call and
+	// returns it to a repeat of the request instead of
+	// FAILED_PRECONDITION. Off by default: the repeat's caller receives the
+	// original response, so scope keys per principal.
+	ResponseReplay bool `yaml:"responseReplay"`
+
+	// MaxReplaySize bounds a stored response, in bytes of the marshaled
+	// message; 0 is 256 KiB. A larger response is not stored.
+	MaxReplaySize int `yaml:"maxReplaySize"`
 
 	// FallbackBehavior defines how the idempotency checker behaves when encountering errors
 	// or when storage backends are unavailable, providing graceful degradation options.
@@ -68,6 +103,19 @@ type IdempotencyInterceptor struct {
 	ExposeEntityID bool `yaml:"exposeEntityID" default:"false"`
 }
 
+// IdempotencyMethodClassifier selects the methods the idempotency interceptor
+// checks.
+type IdempotencyMethodClassifier string
+
+const (
+	// IdempotencyMethodClassifierAll checks every method not ignored.
+	IdempotencyMethodClassifierAll IdempotencyMethodClassifier = ""
+	// IdempotencyMethodClassifierVerbs classifies methods by the verb their
+	// name starts with: Create, BatchCreate and custom verbs are checked;
+	// Get, List, Search, Update, Delete and their Batch forms are skipped.
+	IdempotencyMethodClassifierVerbs IdempotencyMethodClassifier = "verbs"
+)
+
 // IsEnabled returns true if idempotency checking is enabled.
 // This is a convenience method to check if the interceptor should be active.
 func (c *IdempotencyInterceptor) IsEnabled() bool {
@@ -79,7 +127,10 @@ func (c *IdempotencyInterceptor) IsEnabled() bool {
 //
 // Validation rules:
 //   - IdempotencyKeyHeader: must be non-empty and within length limits
-//   - IdempotencyKeyField: must be non-empty and within length limits
+//   - IdempotencyKeyField: within length limits when set
+//   - KeyFormat: a known format; KeyPattern required (and compiling) for pattern
+//   - MaxKeyLength: not negative
+//   - MethodClassifier: "" or "verbs"; MandatoryPatterns must compile
 //   - FallbackBehavior: must be a valid behavior
 //   - IgnoreMethods: each method name must be non-empty when specified
 //   - IgnorePatterns: each pattern must be non-empty when specified
@@ -87,16 +138,18 @@ func (c *IdempotencyInterceptor) IsEnabled() bool {
 // Returns an error if validation fails, nil otherwise.
 func (c *IdempotencyInterceptor) Validate() error {
 	return c.ValidateBase(func() error {
-		return validationconfig.ValidateStruct(c,
+		rules := middlewareconfig.IdempotencyKeyRules(&c.KeyFormat, &c.KeyPattern, &c.MaxKeyLength, &c.MandatoryMethods, &c.MandatoryPatterns)
+		return validationconfig.ValidateStruct(c, append(rules,
 			validation.Field(&c.IdempotencyKeyHeader, validation.Required,
 				validation.Length(1, IdempotencyMaxKeyHeaderLength)),
-			validation.Field(&c.IdempotencyKeyField, validation.Required,
-				validation.Length(1, IdempotencyMaxKeyFieldLength)),
+			validation.Field(&c.IdempotencyKeyField, validation.Length(0, IdempotencyMaxKeyFieldLength)),
+			validation.Field(&c.MethodClassifier, validation.In(IdempotencyMethodClassifierAll, IdempotencyMethodClassifierVerbs)),
+			validation.Field(&c.MaxReplaySize, validation.Min(0)),
 			validation.Field(&c.FallbackBehavior, validation.Required,
 				middlewareconfig.FallbackBehaviorRule()),
 			validation.Field(&c.IdempotencyKeyStatusMetadata, validation.Required),
 			validation.Field(&c.IdempotencyKeyEntityIdMetadata, validation.Required),
-		)
+		)...)
 	})
 }
 
@@ -108,7 +161,7 @@ func DefaultIdempotencyInterceptor() IdempotencyInterceptor {
 			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
 		},
 		IdempotencyKeyHeader:           defaultIdempotencyKeyHeader,
-		IdempotencyKeyField:            defaultIdempotencyKeyField,
+		KeyFormat:                      middlewareconfig.IdempotencyKeyFormatUUIDv4,
 		FallbackBehavior:               middlewareconfig.FallbackBehaviorDeny,
 		IdempotencyKeyStatusMetadata:   defaultIdempotencyKeyStatusMetadata,
 		IdempotencyKeyEntityIdMetadata: defaultIdempotencyKeyEntityIdMetadata,

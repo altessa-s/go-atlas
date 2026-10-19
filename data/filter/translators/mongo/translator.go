@@ -23,6 +23,9 @@ import (
 const sizeFieldMarker = "__size_field__"
 
 // Translator converts filter AST nodes to MongoDB bson.M filters.
+//
+// A Translator carries per-call state and is NOT safe for concurrent
+// use. Construct one per goroutine, or guard it with a mutex.
 type Translator struct {
 	config *filter.TranslatorContext
 	depth  filter.DepthGuard
@@ -190,10 +193,53 @@ func regexContains(s string) (string, error)   { return quoteLiteral(s), nil }
 func regexStartsWith(s string) (string, error) { return "^" + quoteLiteral(s), nil }
 func regexEndsWith(s string) (string, error)   { return quoteLiteral(s) + `\z`, nil }
 
-// quoteLiteral escapes s into a pattern matching it literally. A BSON regex is
-// a C string, so MongoDB rejects a raw NUL byte; it is spelled `\x00` instead.
+// quoteLiteral escapes s into a pattern matching it literally (see escapeNUL).
 func quoteLiteral(s string) string {
-	return strings.ReplaceAll(regexp.QuoteMeta(s), "\x00", `\x00`)
+	return escapeNUL(regexp.QuoteMeta(s))
+}
+
+// escapeNUL spells every raw NUL byte of a pattern as `\x00`: a BSON regex is a
+// C string, so MongoDB rejects a raw NUL byte. A raw NUL in a pattern that
+// passed RE2 validation is always a literal (RE2 rejects a backslash before
+// it). Outside quoting, and in a character class, it becomes `\x00`; inside
+// \Q…\E, where `\x00` would read as four literal characters, the quote is
+// closed around it (`\E\x00\Q`), and an unterminated \Q is reopened the same
+// way. The rewrite never changes what the pattern matches.
+func escapeNUL(pattern string) string {
+	if !strings.Contains(pattern, "\x00") {
+		return pattern
+	}
+	var b strings.Builder
+	b.Grow(len(pattern) + len(`\E\x00\Q`))
+	quoted := false
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch {
+		case quoted:
+			switch {
+			case c == 0:
+				b.WriteString(`\E\x00\Q`)
+			case c == '\\' && i+1 < len(pattern) && pattern[i+1] == 'E':
+				b.WriteString(`\E`)
+				i++
+				quoted = false
+			default:
+				b.WriteByte(c)
+			}
+		case c == 0:
+			b.WriteString(`\x00`)
+		case c == '\\' && i+1 < len(pattern):
+			// An escape: copy it whole so an escaped backslash is not read
+			// as the start of another one; \Q opens quoting.
+			b.WriteByte(c)
+			b.WriteByte(pattern[i+1])
+			quoted = pattern[i+1] == 'Q'
+			i++
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // regexPassthrough validates a user-provided regex pattern before passing
@@ -201,7 +247,8 @@ func quoteLiteral(s string) string {
 // translator-configured length cap from [filter.WithMaxRegexLength],
 // falling back to [filter.DefaultMaxRegexLength] when the option was not
 // set. Every `$` that RE2 reads as end of text is then rewritten to `\z`,
-// so PCRE does not also match it before a final newline.
+// so PCRE does not also match it before a final newline, and a raw NUL byte
+// is spelled `\x00` (see escapeNUL).
 //
 // Security: validation compiles the pattern with Go's RE2 engine, which
 // cannot backtrack — but MongoDB evaluates $regex with its own PCRE-family
@@ -219,7 +266,11 @@ func (t *Translator) regexPassthrough(s string) (string, error) {
 	if err := filter.ValidateRegex(s, maxLen); err != nil {
 		return "", err
 	}
-	return regexanchor.EndOfText(s)
+	pattern, err := regexanchor.EndOfText(s)
+	if err != nil {
+		return "", err
+	}
+	return escapeNUL(pattern), nil
 }
 
 // translateComparison handles comparison operators.
@@ -244,15 +295,43 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 	if err != nil {
 		return nil, err
 	}
+	emitted, err := t.decimalValue(left, right, value)
+	if err != nil {
+		return nil, err
+	}
 
-	base, err := t.buildComparisonFilter(field, op, value)
+	base, err := t.buildComparisonFilter(field, op, emitted)
 	if err != nil {
 		return nil, err
 	}
 	if kind, ok := t.zeroKind(left); ok {
-		return absentAs(field, zeroMatchesComparison(op, kind, value), base), nil
+		return absentAs(field, zeroMatchesComparison(op, kind, emitted), base), nil
 	}
 	return base, nil
+}
+
+// isDecimalField reports whether node is a field declared [filter.FieldKindDecimal].
+func (t *Translator) isDecimalField(node filter.Node) bool {
+	ident, ok := node.(*filter.IdentNode)
+	return ok && t.config.FieldKind(ident.Name) == filter.FieldKindDecimal
+}
+
+// decimalValue converts a literal (value, produced by node) compared with a [filter.FieldKindDecimal] field to a BSON Decimal128,
+// so MongoDB compares it with the stored Decimal128 exactly instead of through a binary double; a float literal is read from its
+// source spelling ([filter.DecimalOperand]). Other fields and null keep the literal.
+func (t *Translator) decimalValue(field, node filter.Node, value any) (any, error) {
+	if value == nil || !t.isDecimalField(field) {
+		return value, nil
+	}
+	d, err := filter.DecimalOperand(node, value)
+	if err != nil {
+		return nil, err
+	}
+	d128, ok := bson.ParseDecimal128FromBigInt(d.Coefficient(), int(d.Exponent()))
+	if !ok {
+		return nil, coreerrs.Wrapf(filter.ErrFieldTypeMismatch, "decimal %s does not fit Decimal128", d)
+	}
+	return d128, nil
 }
 
 // buildComparisonFilter creates a MongoDB comparison filter.
@@ -429,10 +508,27 @@ func (t *Translator) translateIn(left, right filter.Node) (bson.M, error) {
 	if !ok {
 		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "in operator requires a list, got %T", values)
 	}
+	emitted := valuesSlice
+	if t.isDecimalField(left) {
+		var elems []filter.Node
+		if list, isList := right.(*filter.ListNode); isList && len(list.Elements) == len(valuesSlice) {
+			elems = list.Elements
+		}
+		emitted = make([]any, len(valuesSlice))
+		for i, v := range valuesSlice {
+			var elem filter.Node
+			if elems != nil {
+				elem = elems[i]
+			}
+			if emitted[i], err = t.decimalValue(left, elem, v); err != nil {
+				return nil, err
+			}
+		}
+	}
 
-	base := bson.M{field: bson.M{"$in": valuesSlice}}
+	base := bson.M{field: bson.M{"$in": emitted}}
 	if kind, declared := t.zeroKind(left); declared {
-		return absentAs(field, zeroMatchesIn(kind, valuesSlice), base), nil
+		return absentAs(field, zeroMatchesIn(kind, emitted), base), nil
 	}
 	return base, nil
 }

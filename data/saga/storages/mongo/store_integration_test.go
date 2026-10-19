@@ -13,11 +13,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/data/saga"
 	"github.com/altessa-s/go-atlas/data/saga/storages/storagetest"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
 	mongostore "github.com/altessa-s/go-atlas/data/saga/storages/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -36,6 +38,14 @@ var integrationSequence atomic.Uint64
 // newIntegrationStore connects to a live MongoDB, skipping the test when none is
 // reachable. Each call gets its own throwaway database, dropped on cleanup.
 func newIntegrationStore(tb testing.TB) *mongostore.Store {
+	tb.Helper()
+	store, _ := newIntegrationStoreDB(tb)
+	return store
+}
+
+// newIntegrationStoreDB is newIntegrationStore that also returns the store's
+// database, for tests that inspect the stored documents.
+func newIntegrationStoreDB(tb testing.TB) (*mongostore.Store, *mongo.Database) {
 	tb.Helper()
 
 	client, err := mongo.Connect(mongoOptions.Client().ApplyURI(mongoURI()))
@@ -62,7 +72,7 @@ func newIntegrationStore(tb testing.TB) *mongostore.Store {
 	if err != nil {
 		tb.Skipf("mongodb store setup failed (server not usable for tests): %v", err)
 	}
-	return store
+	return store, db
 }
 
 // itInstance builds a saga instance for the integration tests.
@@ -104,6 +114,7 @@ func TestIntegrationCRUD(t *testing.T) {
 	require.NoError(t, s.Delete(ctx, "a"))
 	_, err = s.Get(ctx, "a")
 	require.ErrorIs(t, err, sagaerrs.ErrInstanceNotFound)
+	require.ErrorIs(t, err, coreerrs.ErrNotFound)
 
 	// Deleting a missing instance is not an error.
 	require.NoError(t, s.Delete(ctx, "a"))
@@ -117,6 +128,7 @@ func TestIntegrationCreateDuplicate(t *testing.T) {
 	require.NoError(t, s.Create(ctx, itInstance("dup", saga.StatusRunning, time.Time{})))
 	err := s.Create(ctx, itInstance("dup", saga.StatusRunning, time.Time{}))
 	require.ErrorIs(t, err, sagaerrs.ErrInstanceExists)
+	require.ErrorIs(t, err, coreerrs.ErrAlreadyExists)
 }
 
 func TestIntegrationVersionConflict(t *testing.T) {
@@ -133,6 +145,30 @@ func TestIntegrationVersionConflict(t *testing.T) {
 	require.NoError(t, s.Update(ctx, a)) // a wins, version bumped
 	err = s.Update(ctx, b)               // b carries the stale version
 	require.ErrorIs(t, err, sagaerrs.ErrVersionConflict)
+	require.ErrorIs(t, err, coreerrs.ErrConflict)
+}
+
+// TestIntegrationUpdateBumpsStoredVersion: every Update raises the stored version
+// by one (kept as int64) and a write with a stale version is a conflict.
+func TestIntegrationUpdateBumpsStoredVersion(t *testing.T) {
+	t.Parallel()
+	s, db := newIntegrationStoreDB(t)
+	ctx := t.Context()
+
+	inst := itInstance("bump", saga.StatusRunning, time.Time{})
+	require.NoError(t, s.Create(ctx, inst))
+	stale := inst.Clone()
+	for want := int64(1); want <= 3; want++ {
+		require.NoError(t, s.Update(ctx, inst))
+		require.Equal(t, want, inst.Version)
+
+		var raw bson.Raw
+		require.NoError(t, db.Collection(mongostore.DefaultCollectionName).FindOne(ctx, bson.M{"_id": "bump"}).Decode(&raw))
+		got, ok := raw.Lookup("version").Int64OK()
+		require.True(t, ok, "version stored as int64")
+		require.Equal(t, want, got)
+	}
+	require.ErrorIs(t, s.Update(ctx, stale), sagaerrs.ErrVersionConflict)
 }
 
 func TestIntegrationUpdateNotFound(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -85,9 +86,18 @@ func New(opts ...Option) (*Server, error) {
 	// Create config with defaults
 	cfg := newOptions(opts...)
 
+	// The listener and startup check come first, so explicit base options
+	// passed through WithBaseOptions take precedence.
+	t := timeouts.Default()
+	t.StartupVerification = max(cfg.startupVerification, 0)
+	baseOpts := make([]baseserver.Option, 0, len(cfg.baseOpts)+2)
+	baseOpts = append(baseOpts, baseserver.WithTimeouts(t))
+	baseOpts = coreslices.AppendIf(baseOpts, cfg.listener != nil, baseserver.WithListener(cfg.listener))
+	baseOpts = append(baseOpts, cfg.baseOpts...)
+
 	// Create server
 	srv := &Server{
-		BaseServer:  baseserver.NewBaseServer(cfg.baseOpts...),
+		BaseServer:  baseserver.NewBaseServer(baseOpts...),
 		stopCh:      make(chan struct{}),
 		lifecycle:   make(chan struct{}, 1),
 		grpcOptions: cfg.grpcOpts,
@@ -140,9 +150,10 @@ func (s *Server) IsStopped() bool {
 // It performs the following operations in sequence:
 //  1. Validates server is not already started
 //  2. Registers reflection service if enabled
-//  3. Creates TCP listener if none provided
+//  3. Creates TCP listener if none provided ([WithListener])
 //  4. Starts serving in a background goroutine
-//  5. Waits for startup verification (2 seconds)
+//  5. Waits for startup verification ([WithStartupVerification], default
+//     [DefaultStartupVerification]; zero skips the wait)
 //
 // Returns ErrServerAlreadyStarted if called multiple times and
 // ErrServerClosed once the server has been shut down; the running server is

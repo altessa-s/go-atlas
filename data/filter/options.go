@@ -10,6 +10,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -52,6 +54,11 @@ const (
 	FieldKindBytes
 	// FieldKindTimestamp accepts time.Time values produced by timestamp().
 	FieldKindTimestamp
+	// FieldKindDecimal accepts numeric literals (read from their source spelling) and decimal strings ("0.1") as exact decimals
+	// (shopspring decimal.Decimal) for money and other values that must compare exactly; see [DecimalOperand] and [DecimalLiteral]. The in-memory evaluator
+	// compares it exactly against decimal.Decimal data values and the MongoDB translator emits Decimal128; the other translators
+	// reject the declaration ([TranslatorContext.RejectFieldKinds]).
+	FieldKindDecimal
 )
 
 // String returns the kind's name for use in error messages.
@@ -71,6 +78,8 @@ func (k FieldKind) String() string {
 		return "bytes"
 	case FieldKindTimestamp:
 		return "timestamp"
+	case FieldKindDecimal:
+		return "decimal"
 	default:
 		return "FieldKind(?)"
 	}
@@ -225,10 +234,10 @@ func WithEnumValues(values map[string][]int64) TranslatorOption {
 // encodes the field's zero value — the shape a struct encoded with
 // `omitempty` produces. Keys are CEL-side field names, the same as
 // [WithAllowedFields]; the declared kind fixes the zero value: 0 for
-// [FieldKindInt] and [FieldKindFloat], "" for [FieldKindString], false
-// for [FieldKindBool], an empty value for [FieldKindBytes] and the zero
-// time for [FieldKindTimestamp]. An entry of [FieldKindUnspecified]
-// declares nothing.
+// [FieldKindInt], [FieldKindFloat] and [FieldKindDecimal], "" for
+// [FieldKindString], false for [FieldKindBool], an empty value for
+// [FieldKindBytes] and the zero time for [FieldKindTimestamp]. An entry of
+// [FieldKindUnspecified] declares nothing.
 //
 // The MongoDB translator honors it: every predicate over a declared field
 // matches a document lacking the field exactly when it matches one storing
@@ -288,6 +297,23 @@ func (o *translatorOptions) FieldKind(field string) FieldKind {
 	return kind
 }
 
+// RejectFieldKinds fails with [ErrUnsupportedType] when a field is declared with one of kinds by [WithFieldTypes] or
+// [WithZeroWhenAbsent]. A translator calls it at construction for the kinds it cannot translate faithfully, so the misconfiguration
+// surfaces at process start instead of as silently inexact queries.
+func (o *translatorOptions) RejectFieldKinds(kinds ...FieldKind) error {
+	for _, declared := range []*coremaps.ImmutableMap[string, FieldKind]{o.fieldTypes, o.zeroWhenAbsent} {
+		if declared == nil {
+			continue
+		}
+		for field, kind := range declared.All() {
+			if slices.Contains(kinds, kind) {
+				return coreerrs.Wrapf(ErrUnsupportedType, "field %q: kind %s is not supported by this translator", field, kind)
+			}
+		}
+	}
+	return nil
+}
+
 // ZeroWhenAbsent returns the kind declared for a CEL-side field name by
 // [WithZeroWhenAbsent], or (FieldKindUnspecified, false) when an absent
 // value of the field carries no meaning.
@@ -336,7 +362,7 @@ func (o *translatorOptions) checkLiteralFieldKind(field string, right Node) erro
 	}
 	switch n := right.(type) {
 	case *LiteralNode:
-		return checkSingleLiteral(field, kind, n.Value)
+		return checkSingleLiteral(field, kind, kindOperand(kind, n))
 	case *ListNode:
 		for i, elem := range n.Elements {
 			lit, ok := elem.(*LiteralNode)
@@ -346,7 +372,7 @@ func (o *translatorOptions) checkLiteralFieldKind(field string, right Node) erro
 			if lit.Value == nil {
 				continue
 			}
-			if !kindAccepts(kind, lit.Value) {
+			if !kindAccepts(kind, kindOperand(kind, lit)) {
 				return coreerrs.Wrapf(ErrFieldTypeMismatch,
 					"field %q (%s): list element [%d] is %s (want %s)",
 					field, kind, i, valueKindName(lit.Value), kind)
@@ -435,9 +461,24 @@ func (o *translatorOptions) requireAllowlist() error {
 	return nil
 }
 
+// kindOperand is the value of lit checked against kind: a [FieldKindDecimal] float literal is checked by its source spelling
+// ([LiteralNode.Text]) when it has one.
+func kindOperand(kind FieldKind, lit *LiteralNode) any {
+	if kind == FieldKindDecimal && lit.Text != "" {
+		return lit.Text
+	}
+	return lit.Value
+}
+
 // checkSingleLiteral validates one literal value; nil (CEL null) matches anything.
 func checkSingleLiteral(field string, kind FieldKind, value any) error {
 	if value == nil {
+		return nil
+	}
+	if kind == FieldKindDecimal {
+		if _, err := DecimalLiteral(value); err != nil {
+			return coreerrs.Wrapf(ErrFieldTypeMismatch, "field %q (%s): %v", field, kind, err)
+		}
 		return nil
 	}
 	if !kindAccepts(kind, value) {
@@ -516,6 +557,9 @@ func kindAccepts(kind FieldKind, value any) bool {
 	case FieldKindTimestamp:
 		_, ok := value.(time.Time)
 		return ok
+	case FieldKindDecimal:
+		_, err := DecimalLiteral(value)
+		return err == nil
 	}
 	return false
 }
@@ -539,6 +583,8 @@ func valueKindName(value any) string {
 		return FieldKindBytes.String()
 	case time.Time:
 		return FieldKindTimestamp.String()
+	case decimal.Decimal:
+		return FieldKindDecimal.String()
 	default:
 		return fmt.Sprintf("%T", value)
 	}

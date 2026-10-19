@@ -81,7 +81,7 @@ func TestToCamelCase(t *testing.T) {
 		{"Ärger_über_öl", "ärgerÜberÖl"},
 		{"über_größe", "überGröße"},
 		{"日本_語", "日本語"},
-		{"xxxxxx_xxx", "xxxxxxxxx"},
+		{"καλη_μερα", "καληΜερα"},
 		{"ÉCOLE_ÉTÉ", "éCOLEÉTÉ"},
 		{"a\u00a0b", "aB"},
 		{"x_\xffy", "x\xffy"},
@@ -111,7 +111,7 @@ func TestScreamingSnakeToCamelCase(t *testing.T) {
 		{"HTTP2_PORT", "http2Port"},
 		{"_LEADING__DOUBLE_", "leadingDouble"},
 		{"ÉCOLE_ÉTÉ", "écoleÉté"},
-		{"xxxxxx_xxx", "xxxxxxxxx"},
+		{"ΚΑΛΗ_ΜΕΡΑ", "καληΜερα"},
 		{"ÜBER_GRÖSSE", "überGrösse"},
 	}
 	for _, tt := range tests {

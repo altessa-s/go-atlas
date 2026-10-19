@@ -6,7 +6,10 @@ package retry
 
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // ShouldRetryFunc decides whether [Do] should retry after err. Returning
 // false causes [Do] to return err immediately without further attempts.
@@ -22,6 +25,11 @@ type NextDelayFunc func(attempt int, err error) time.Duration
 // before the delay sleep. It receives the attempt number, the error, and
 // the computed delay that will be applied.
 type OnRetryFunc func(attempt int, err error, nextDelay time.Duration)
+
+// SleepFunc waits d before the next attempt, returning early with an error
+// when ctx ends. [Do] returns that error as is. Supply one with [WithSleep] to
+// drive the backoff from a fake clock in tests.
+type SleepFunc func(ctx context.Context, d time.Duration) error
 
 // options holds the retry policy used by [Do]. Configure it through the
 // generated [Option] values (see the With* constructors below).
@@ -50,6 +58,16 @@ type options struct {
 
 	// onRetry is an optional callback invoked after each failed attempt.
 	onRetry OnRetryFunc //
+
+	// sleep waits between attempts. A nil value uses a timer that returns
+	// ctx.Err() when ctx ends first.
+	sleep SleepFunc
+
+	// stopBeforeDeadline, set by the generated WithStopBeforeDeadline, skips
+	// a retry whose backoff would reach the context deadline: Do returns the
+	// last attempt's error instead of sleeping into the deadline and
+	// returning ctx.Err().
+	stopBeforeDeadline bool
 }
 
 // WithMaxAttempts sets the maximum attempt index (inclusive). A value of

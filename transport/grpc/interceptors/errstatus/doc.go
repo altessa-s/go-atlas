@@ -11,6 +11,18 @@
 // provided. The server interceptor caches error-to-status lookups with an
 // internal LRU for high-throughput paths.
 //
+// [WithErrorRules] maps sentinels to codes with fixed messages and stable
+// ErrorInfo reasons; [WithFieldErrorType] turns a domain field error into an
+// InvalidArgument status with one io.altessa.badrequest.v1.BadRequest field
+// violation ([BadRequest]), so handlers return domain errors unconverted; a
+// [PathMapper] such as [CamelPath] or [Prefixed] spells the violation's path.
+// [WithCanonicalRules] maps the canonical core/errors sentinels (ErrNotFound,
+// ErrConflict, FieldError, ...) to codes with fixed messages and stable
+// reasons; service-specific rules are registered after it. A request-field
+// failure (page token, page size, update mask, etag) is returned as a
+// core/errors.FieldError wrapping the underlying error and reaches the
+// client as the same violation [FieldViolation] builds.
+//
 // Client-side: Use [ClientInterceptor] with a [StatusConverter] to translate
 // gRPC status errors back into application-level errors.
 //

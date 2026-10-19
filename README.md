@@ -79,14 +79,15 @@ behind their own subpackages, so an unused subsystem costs you `go.sum` entries 
 | [`data/projection`](data/projection/) | AIP-157 `fields` parser that pushes field selection down to storage: MongoDB projections and ClickHouse, MariaDB, PostgreSQL column lists |
 | [`data/outbox`](data/outbox/) | Transactional outbox (MongoDB, PostgreSQL, MySQL, MariaDB) |
 | [`data/probfilter`](data/probfilter/) | Bloom and Cuckoo probabilistic filters |
+| [`data/retryqueue`](data/retryqueue/) | Durable retry queue: one record per key, due list, backoff, expiry, generation fencing (memory, MongoDB) |
 | [`data/saga`](data/saga/) | Orchestration-based saga engine: sequential steps, compensating rollbacks, crash recovery |
 | [`domain/behavior`](domain/behavior/) | Struct-tag `field_behavior` strip for Create / Update / Response payloads |
 | [`domain/converter`](domain/converter/) | Generic struct-to-struct conversion with codecs and lazy iterators |
 | [`domain/eventbus`](domain/eventbus/) | Synchronous, lock-free, transaction-safe in-process event bus for decoupling domains |
 | [`domain/fieldtracker`](domain/fieldtracker/) | Struct field change tracking |
-| [`domain/money`](domain/money/) | Currency amounts with exact decimal arithmetic, minor-unit rounding, and allocation without losing a minor unit |
+| [`domain/money`](domain/money/) | Currency amounts with exact decimal arithmetic, minor-unit rounding, allocation without losing a minor unit, and exchange rates (normalize, invert, cross, convert) |
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |
-| [`domain/proto`](domain/proto/) | Protobuf field mask and `field_behavior`-driven payload sanitization |
+| [`domain/proto`](domain/proto/) | Protobuf field mask, `field_behavior`-driven payload sanitization, enum codec (`enumcodec`) and `google.type` converters (`googletype`) |
 | [`domain/validation`](domain/validation/) | ISO 7064 MOD 11-10 check-digit computation and validation |
 | [`infrastructure/clickhouse/factory`](infrastructure/clickhouse/factory/) | ClickHouse connection setup and lifecycle |
 | [`infrastructure/meilisearch`](infrastructure/meilisearch/) | Meilisearch client setup and lifecycle |
@@ -100,6 +101,7 @@ behind their own subpackages, so an unused subsystem costs you `go.sum` entries 
 | [`observability/tracing`](observability/tracing/) | Distributed tracing (OpenTelemetry, OTLP, console) with samplers |
 | [`plugins`](plugins/) | Dynamic `.so` plugin manager with signature verification and sandboxing |
 | [`security/hmacsign`](security/hmacsign/) | Webhook-style HMAC body signing and verification (Stripe/GitHub scheme) with key rotation |
+| [`security/sealbox`](security/sealbox/) | AES-256-GCM sealing of secrets at rest with a rotating keyring and associated data |
 | [`security/secrets`](security/secrets/) | Generic secret manager with LRU cache, watch, and scheduler refresh |
 | [`security/tlsutils`](security/tlsutils/) | TLS helpers, OCSP stapling, Let's Encrypt (Certify), Vault-backed certs |
 | [`security/vault`](security/vault/) | HashiCorp Vault client (AppRole, token, userpass auth) |

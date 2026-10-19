@@ -12,5 +12,10 @@
 // to generated options.
 //
 // Key types: [GeoACLRule], [IPACLRule], [EnableMixin],
-// [FallbackBehavior].
+// [FallbackBehavior], [IdempotencyKeyFormat].
+//
+// Idempotency helpers: [IdempotencyKeyFormatRule] accepts the
+// [IdempotencyKeyFormat] values; [IdempotencyKeyRules] returns the key
+// format, pattern, maximum key length and mandatory-list field rules the
+// gRPC and HTTP idempotency configs share.
 package middlewareconfig

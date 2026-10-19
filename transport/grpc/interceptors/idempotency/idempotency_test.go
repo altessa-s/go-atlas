@@ -47,7 +47,7 @@ func TestDefaultStatusCreator(t *testing.T) {
 			name:       "invalid_format",
 			scenario:   ErrorIDKInvalidFormat,
 			wantCode:   codes.InvalidArgument,
-			wantMsg:    "Idempotency key must be a valid lowercase UUID v4",
+			wantMsg:    "Idempotency key has an invalid format",
 			wantReason: ReasonIDKInvalidFormat,
 		},
 		{

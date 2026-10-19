@@ -342,7 +342,7 @@ func Identity(t *testing.T, store saga.Storage) {
 // round-trip.
 func ExactIdentity(t *testing.T, store saga.Storage) {
 	t.Helper()
-	requireDistinct(t, store, []string{"order", "order ", "xxxxx-ü", "id'with\"quotes"})
+	requireDistinct(t, store, []string{"order", "order ", "παραγγελία-ü", "id'with\"quotes"})
 
 	require.NoError(t, store.Delete(t.Context(), "order "))
 	_, err := store.Get(t.Context(), "order")

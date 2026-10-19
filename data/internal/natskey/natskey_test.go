@@ -48,7 +48,7 @@ func TestEncode(t *testing.T) {
 		{name: "Wildcards", key: "a*b>c", want: "a=2Ab=3Ec"},
 		{name: "Whitespace", key: "a b\tc", want: "a=20b=09c"},
 		{name: "NUL", key: "a\x00b", want: "a=00b"},
-		{name: "Unicode", key: "xxxx", want: "=D0=BA=D0=BB=D1=8E=D1=87"},
+		{name: "Unicode", key: "κλειδί", want: "=CE=BA=CE=BB=CE=B5=CE=B9=CE=B4=CE=AF"},
 		{name: "MalformedUTF8", key: "\xff\xfe", want: "=FF=FE"},
 		{name: "Slashes", key: "//a//", want: "//a//"},
 	}

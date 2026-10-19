@@ -38,6 +38,20 @@ func WithShouldRetry(v ShouldRetryFunc) Option {
 	}
 }
 
+// WithSleep sets the sleep option.
+func WithSleep(v SleepFunc) Option {
+	return func(o *options) {
+		o.sleep = v
+	}
+}
+
+// WithStopBeforeDeadline enables the stopBeforeDeadline option.
+func WithStopBeforeDeadline() Option {
+	return func(o *options) {
+		o.stopBeforeDeadline = true
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{}

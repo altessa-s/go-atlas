@@ -83,4 +83,9 @@
 // callers, or tighten the cap with [filter.WithMaxRegexLength]. The
 // contains(), startsWith(), and endsWith() operators escape their argument
 // with regexp.QuoteMeta and are not affected.
+//
+// # Concurrency
+//
+// A Translator keeps per-call state (nesting depth) and is not safe for
+// concurrent use. Construct one per goroutine, or guard it with a mutex.
 package mongo

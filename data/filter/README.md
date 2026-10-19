@@ -96,6 +96,28 @@ Every translator constructor (`mongo.NewTranslator`, `clickhouse.NewTranslator`,
 when `WithUntrustedInput` is set without a non-empty `WithAllowedFields`; misconfiguration therefore surfaces at process start, never on the first
 request.
 
+### Exact decimals
+
+`FieldKindDecimal` declares a field holding money or another value that must compare exactly. A numeric literal of the expression is read from its
+source spelling — the parser keeps the text of a float literal (`LiteralNode.Text`) whenever its float64 would not reproduce it, so
+`1.00000000000000001` stays 1.00000000000000001 and never matches 1. Decimal strings (`price >= "12345678901234567.89"`) are accepted too. A float64
+that comes from elsewhere (a custom function, a float data value) is read as its shortest round-trip decimal and only with at most 15 significant digits
+(`MaxExactFloatDigits`). Every operand, a `decimal.Decimal` data value included, must fit a Decimal128 (34 significant digits, exponent -6176..6111) and
+is normalized before any comparison (zero as 0, trailing zeros folded), so an extreme exponent such as `"0e-999999999"` cannot cost unbounded work;
+anything else is `ErrFieldTypeMismatch` (`DecimalLiteral`, `DecimalOperand`).
+
+| Consumer             | Behavior                                                                                                         |
+|----------------------|------------------------------------------------------------------------------------------------------------------|
+| `NewEvaluator`       | A `decimal.Decimal` data value compares exactly with the literal (`0.1+0.2 == 0.3` holds), declared or not      |
+| `mongo` translator   | Literals are emitted as BSON `Decimal128`, so MongoDB compares them with stored Decimal128 values exactly         |
+| Other translators    | The constructor fails with `ErrUnsupportedType` (`TranslatorContext.RejectFieldKinds`), never compares via float |
+
+```go
+eval, err := filter.NewEvaluator(filter.WithAllowedFields("price"),
+    filter.WithFieldTypes(map[string]filter.FieldKind{"price": filter.FieldKindDecimal}))
+ok, err := eval.Evaluate(node, map[string]any{"price": tender.Price.Amount()}) // decimal.Decimal
+```
+
 ### Untrusted input
 
 When translating CEL coming from external clients, pair `WithUntrustedInput()` with `WithAllowedFields(...)`. Without an allowlist a hostile client can
@@ -134,6 +156,18 @@ parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.Custo
 Handlers receive already-converted argument nodes and return trees of the built-in node types, including nested `BinaryOpNode` trees. Literals support
 scalar values, `time.Time`, and `[]byte`; custom node implementations and other mutable literal types fail explicitly. Functions like
 `between(field, lo, hi)` are also expressible.
+
+`TextSearch(fields...)` is a free-text search: `search("text")` expands into `f1.matches(re) || f2.matches(re) || …` with `re = "(?i)" +
+regexp.QuoteMeta(trimmed text)`, so it is case-insensitive and literal (no wildcards or anchors), combines with the rest of the filter like any
+predicate and goes through the allowlist, the field mapping and the regex checks of the translator. The argument must be one non-blank string literal.
+On MongoDB every field is an unanchored `$regex`, which scans (no text index); a NUL byte is spelled `\x00` by the translator.
+
+```go
+parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.CustomFunction{
+    "search": filter.TextSearch("code", "name", "description"),
+}))
+// search("network") && lawCode == "44fz"
+```
 
 Names must not collide with built-in CEL functions (`contains`, `startsWith`, `endsWith`, `matches`, `size`, `has`, `timestamp`, `substring`).
 `WithFieldMapping` and `WithAllowedFields` operate on the **target** field name (e.g. `createdAt`), since the virtual call is gone after parsing.

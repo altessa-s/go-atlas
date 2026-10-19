@@ -18,6 +18,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas/core/encoding/keys"
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 
@@ -77,11 +78,11 @@ func requireReplicaSet(tb testing.TB, db *mongo.Database) {
 	}
 }
 
-func newStorage(t *testing.T, opts ...mongostorage.Option) (*mongostorage.Storage, *mongo.Collection) {
-	t.Helper()
-	db := testDB(t)
+func newStorage(tb testing.TB, opts ...mongostorage.Option) (*mongostorage.Storage, *mongo.Collection) {
+	tb.Helper()
+	db := testDB(tb)
 	s, err := mongostorage.New(db, opts...)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 	return s, db.Collection(mongostorage.DefaultCollectionName)
 }
 
@@ -192,7 +193,7 @@ func TestKeeperOnMongo(t *testing.T) {
 	ctx := t.Context()
 	s, _ := newStorage(t)
 	k := idempotency.New(s, idempotency.WithMaxLockDuration(time.Minute))
-	fp := idempotency.Fingerprint([]byte("create"), []byte("a"))
+	fp := keys.Digest([]byte("create"), []byte("a"))
 
 	ok, held, err := k.AttemptLockWithOpts(ctx, "k", idempotency.AttemptLockOpts{Fingerprint: fp})
 	require.NoError(t, err)

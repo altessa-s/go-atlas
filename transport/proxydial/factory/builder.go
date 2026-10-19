@@ -6,6 +6,7 @@ package factory
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -50,9 +51,18 @@ func New(cfg *proxyconfig.Config) *DialerBuilder {
 // Returns (nil, nil) when proxying is disabled (nil receiver, nil
 // cfg, empty Mode, or [proxyconfig.ModeNone]). Caller treats
 // that as "use a direct dial" and skips wiring a custom dialer.
+//
+// The configuration is validated first ([proxyconfig.Config.Validate]),
+// so a malformed URL or one whose credentials spill into the host or path
+// is rejected with an error that quotes no part of it, before any dial or
+// DNS lookup. A validated URL's host cannot carry credentials, which is
+// why proxydial dial errors may name the proxy host:port.
 func (b *DialerBuilder) Build() (proxydial.DialContextFunc, error) {
 	if b == nil || b.cfg == nil {
 		return nil, nil //nolint:nilnil
+	}
+	if err := b.cfg.Validate(); err != nil {
+		return nil, err
 	}
 
 	u, err := b.proxyURL()
@@ -71,9 +81,10 @@ func (b *DialerBuilder) proxyURL() (*url.URL, error) {
 		return nil, nil //nolint:nilnil
 
 	case proxyconfig.ModeURL:
-		u, err := url.Parse(b.cfg.URL)
+		u, err := url.Parse(b.cfg.URL.Expose())
 		if err != nil {
-			return nil, fmt.Errorf("config.Proxy: parse url: %w", err)
+			// url.Parse errors quote the URL, credentials included.
+			return nil, errors.New("config.Proxy: url is not a valid URL")
 		}
 		return u, nil
 

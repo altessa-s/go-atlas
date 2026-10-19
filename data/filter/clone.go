@@ -33,7 +33,7 @@ func cloneNode(node Node, copies map[Node]Node) (Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &LiteralNode{Value: value}, nil
+		return &LiteralNode{Value: value, Text: n.Text}, nil
 	case *IdentNode:
 		if n == nil {
 			return nil, coreerrs.Wrapf(ErrInvalidExpression, "nil node %T", node)
