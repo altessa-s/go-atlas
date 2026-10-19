@@ -26,7 +26,10 @@ import (
 // REQUIRED, IMMUTABLE, IDENTIFIER, or OUTPUT_ONLY behavior are excluded from the
 // expansion — a full replacement must not clear a protected field, and naming a
 // REQUIRED field without a value would fail ApplyUpdateMask validation. Paths
-// that do not resolve against the schema are copied unchanged.
+// that do not resolve against the schema are copied unchanged. A message path
+// that stays a leaf (an absent sub-message) is rejected by ApplyUpdateMask when
+// the message holds an IDENTIFIER, IMMUTABLE or OUTPUT_ONLY field, as clearing it would
+// clear that field too.
 //
 // The receiver is not modified.
 func (msk FieldMask) ExpandMessagePaths(msg proto.Message) FieldMask {

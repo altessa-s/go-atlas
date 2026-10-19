@@ -137,12 +137,51 @@ func TestServerInterceptor_StripUpdateRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	got := seenReq.(*pb.Resource)
-	require.Empty(t, got.GetId(), "IDENTIFIER cleared on Update")
+	require.Equal(t, "id-1", got.GetId(), "IDENTIFIER preserved on Update: it addresses the resource (AIP-203)")
 	require.Empty(t, got.GetCreateTime(), "OUTPUT_ONLY cleared on Update")
 	require.Empty(t, got.GetTenantId(), "IMMUTABLE cleared on Update")
 	require.Empty(t, got.GetSlug(), "IMMUTABLE-tagged slug cleared on Update")
 	require.Equal(t, "my-resource", got.GetName(), "REQUIRED preserved on Update")
 	require.Equal(t, "secret", got.GetPassword(), "INPUT_ONLY preserved on Update")
+}
+
+// TestServerInterceptor_UpdateRequestWrapper pins AIP-203 on the AIP-134
+// request shape: the resource nested in an Update*Request keeps its
+// IDENTIFIER (and the nested resources keep theirs), while OUTPUT_ONLY and
+// IMMUTABLE fields are still cleared. The Create counterpart clears it.
+func TestServerInterceptor_UpdateRequestWrapper(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		wantID string
+	}{
+		{name: "update keeps identifier", method: "/x.v1.X/UpdateResource", wantID: "id-1"},
+		{name: "patch keeps identifier", method: "/x.v1.X/PatchResource", wantID: "id-1"},
+		{name: "create clears identifier", method: "/x.v1.X/CreateResource", wantID: ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			uni := newUnary(t)
+			res := fullResource()
+			res.Profile = &pb.Profile{Id: "profile-1", UpdatedAt: "2026-01-01T00:00:00Z"}
+			req := &pb.UpdateResourceRequest{Resource: res}
+
+			seenReq, _, err := runUnary(t, uni, tc.method, req, &pb.Resource{}, nil)
+			require.NoError(t, err)
+
+			got := seenReq.(*pb.UpdateResourceRequest).GetResource()
+			require.Equal(t, tc.wantID, got.GetId(), "resource IDENTIFIER")
+			require.Equal(t, tc.wantID != "", got.GetProfile().GetId() != "", "nested IDENTIFIER follows the resource")
+			require.Empty(t, got.GetCreateTime(), "OUTPUT_ONLY cleared")
+			require.Empty(t, got.GetProfile().GetUpdatedAt(), "nested OUTPUT_ONLY cleared")
+			require.Equal(t, "my-resource", got.GetName(), "REQUIRED preserved")
+		})
+	}
 }
 
 func TestServerInterceptor_StripResponse(t *testing.T) {

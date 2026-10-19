@@ -9,15 +9,16 @@ automatically.
 
 ## Key helpers
 
-| Helper | Purpose |
-|--------|---------|
-| `MockIdempotencyStorage` | In-memory lock storage with ownership checks for completion and release |
-| `MockTaskRegistrar` | Captures scheduler registrations and injected registration errors |
-| `RedisClient` | In-process Redis fixture |
-| `StartNATSServer`, `ConnectJetStream` | Embedded NATS and JetStream fixtures |
-| `NewCA`, `SelfSignedCert` | TLS fixtures |
-| `NewTestCollector`, `GatherMetric` | Metrics assertions |
-| `NewFakeSQL` | Scripted `database/sql` driver recording statements for SQL storage tests |
-| `WaitFor` | Bounded asynchronous assertions |
+| Helper                                | Purpose                                                                                          |
+|---------------------------------------|--------------------------------------------------------------------------------------------------|
+| `MockIdempotencyStorage`              | In-memory lock storage with ownership checks for completion and release                          |
+| `MockTaskRegistrar`                   | Captures scheduler registrations and injected registration errors                                |
+| `RedisClient`                         | In-process Redis fixture                                                                         |
+| `StartNATSServer`, `ConnectJetStream` | Embedded NATS and JetStream fixtures                                                             |
+| `NewCA`, `SelfSignedCert`             | TLS fixtures                                                                                     |
+| `NewTestCollector`, `GatherMetric`    | Metrics assertions                                                                               |
+| `NewFakeSQL`                          | Scripted `database/sql` driver recording statements for SQL storage tests                        |
+| `ApplyLeafPaths`                      | Copies update-mask leaf paths between protobuf messages, as a storage update by leaf paths would |
+| `WaitFor`                             | Bounded asynchronous assertions                                                                  |
 
 See [doc.go](doc.go) for the full helper inventory. Keep fixtures used only within one package tree in that tree's internal test helpers.

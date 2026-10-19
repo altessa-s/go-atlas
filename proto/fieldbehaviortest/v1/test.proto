@@ -16,7 +16,8 @@ import "google/protobuf/field_mask.proto";
 // without annotations. It is consumed by the fieldbehavior and
 // internal/behavior test suites under domain/proto.
 message Resource {
-  // IDENTIFIER: server-minted ID. Stripped from Create and Update payloads.
+  // IDENTIFIER: server-minted ID. Stripped from Create payloads, kept on Update
+  // where it addresses the resource (AIP-203).
   string id = 1 [(google.api.field_behavior) = IDENTIFIER];
 
   // REQUIRED: caller must supply on writes. Never stripped.

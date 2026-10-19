@@ -47,10 +47,13 @@ const DefaultTagName = "behavior"
 // client.
 var DefaultCreateKinds = []Kind{OutputOnly, Identifier}
 
-// DefaultUpdateKinds lists the kinds stripped by [StripUpdate]:
-// OutputOnly, Identifier, and Immutable (the latter prevents callers from
-// changing fields fixed at creation).
-var DefaultUpdateKinds = []Kind{OutputOnly, Identifier, Immutable}
+// DefaultUpdateKinds lists the kinds stripped by [StripUpdate] from an Update
+// payload: OutputOnly and Immutable (the latter prevents callers from changing
+// fields fixed at creation). Identifier is kept: on update it addresses the
+// resource (AIP-203). A storage update translator excludes the identifier
+// itself (it selects the stored record and is never written), so the same set
+// drives it.
+var DefaultUpdateKinds = []Kind{OutputOnly, Immutable}
 
 // DefaultResponseKinds lists the kinds stripped by [StripResponse]:
 // InputOnly fields are accepted on input but must not appear in responses.

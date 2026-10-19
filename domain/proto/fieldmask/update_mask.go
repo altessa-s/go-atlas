@@ -6,6 +6,7 @@ package fieldmask
 
 import (
 	"errors"
+	"iter"
 	"maps"
 	"slices"
 	"strings"
@@ -59,7 +60,8 @@ func (e *UpdateMaskBehaviorError) Error() string {
 //  1. With [WithPathValidation] set to [PathValidationEnforce], rejects paths absent
 //     from the schema (fail-fast); [PathValidationWarn] reports them and continues
 //  2. Validates field behaviors: REQUIRED, IMMUTABLE, OUTPUT_ONLY, IDENTIFIER (fail-fast)
-//  3. Removes OUTPUT_ONLY fields from the mask
+//  3. Removes OUTPUT_ONLY fields from the mask, then adds the set IDENTIFIER
+//     fields of the remaining branches so they survive the filter
 //  4. Clears fields NOT in the mask
 //  5. Sets default values for fields IN the mask but not populated
 //
@@ -72,6 +74,23 @@ func (e *UpdateMaskBehaviorError) Error() string {
 // IDENTIFIER fields (AIP-203) are treated like IMMUTABLE: the identifier names
 // the resource and must not be modified by an update. Including such a field
 // in the mask produces a violation.
+//
+// Naming a singular message field whole (no sub-path) selects it for
+// replacement or, when absent, clearing. When the message holds a
+// server-managed field — OUTPUT_ONLY, IDENTIFIER or IMMUTABLE, directly or in
+// a singular sub-message at any depth — the replacement would delete that
+// field's stored value, so each such descendant is reported as a violation;
+// list the message's other fields ("profile.display_name") instead.
+//
+// A repeated or map field named whole, or one of its elements named whole
+// ("labels.k", "aliases.*"), is replaced as a whole and is not descended. A
+// sub-path into the elements — through a map key ("labels.k.display_name"),
+// the "*" wildcard ("aliases.*.display_name") or the implicit per-element
+// form ("aliases.display_name") — is checked against the element message by
+// its schema, not by the values present: an IDENTIFIER or IMMUTABLE leaf is a
+// violation ("labels.k.id"), an OUTPUT_ONLY leaf is removed from the mask,
+// and a singular message named whole inside an element follows the rule
+// above. List indexes ("aliases.0.id") are rejected with *ValidationError.
 //
 // Returns *ValidationError when [WithPathValidation] is [PathValidationEnforce] and
 // a path does not exist in the schema, or *UpdateMaskBehaviorError if any field
@@ -124,8 +143,10 @@ func (msk FieldMask) ApplyUpdateMask(msg proto.Message, opts ...ApplyOption) err
 		return &UpdateMaskBehaviorError{Violations: violations}
 	}
 
-	msk.preserveIdentifierFields(msg)
+	// OUTPUT_ONLY entries go first, so a branch that named only such fields
+	// is deleted before a set identifier could keep it alive.
 	msk.removeOutputOnlyFields(msg)
+	msk.preserveIdentifierFields(msg)
 	msk.iterateFilter(msg)
 	msk.setDefaultsForUnsetFields(msg)
 
@@ -139,12 +160,19 @@ func (msk FieldMask) ApplyUpdateMask(msg proto.Message, opts ...ApplyOption) err
 // silently break the update path. Only set fields are added: if the caller did
 // not provide the identifier, this step is a no-op and downstream logic is
 // untouched.
+// An IDENTIFIER that is also OUTPUT_ONLY is not preserved: the update never
+// writes an OUTPUT_ONLY field.
 func (msk FieldMask) preserveIdentifierFields(msg proto.Message) {
 	prf := msg.ProtoReflect()
 	fields := prf.Descriptor().Fields()
 	for i := range fields.Len() {
 		fd := fields.Get(i)
 		name := string(fd.Name())
+		if behavior.Has(fd, annotations.FieldBehavior_OUTPUT_ONLY) {
+			// OUTPUT_ONLY dominates: never preserved, even when it is
+			// also IDENTIFIER, so its client value is cleared.
+			continue
+		}
 		if behavior.Has(fd, annotations.FieldBehavior_IDENTIFIER) {
 			if _, exists := msk[name]; !exists && prf.Has(fd) {
 				msk[name] = nil
@@ -186,26 +214,16 @@ func (msk FieldMask) validateFieldBehaviors(
 		fullPath := behavior.JoinPath(prefix, fieldName)
 		isSet := prf.Has(fd)
 
-		switch firstUpdateMaskBehavior(fd) { //nolint:exhaustive // other behaviors have no update-mask semantics and are intentionally treated as optional.
-		case annotations.FieldBehavior_REQUIRED:
-			if !isSet {
-				*violations = append(*violations, FieldViolation{
-					Path:     fullPath,
-					Behavior: annotations.FieldBehavior_REQUIRED,
-					Reason:   "required field cannot be cleared",
-				})
-				continue
-			}
-
-		case annotations.FieldBehavior_IMMUTABLE:
-			*violations = append(*violations, FieldViolation{
-				Path:     fullPath,
-				Behavior: annotations.FieldBehavior_IMMUTABLE,
-				Reason:   "immutable field cannot be modified",
-			})
+		// Behaviors are checked by presence with a fixed precedence, not by
+		// the first annotation: a field that is REQUIRED and IMMUTABLE (or
+		// IDENTIFIER) is protected whatever the declaration order, and the
+		// violation names the protecting behavior.
+		switch {
+		case behavior.Has(fd, annotations.FieldBehavior_OUTPUT_ONLY):
+			// Dropped from the mask by removeOutputOnlyFields.
 			continue
 
-		case annotations.FieldBehavior_IDENTIFIER:
+		case behavior.Has(fd, annotations.FieldBehavior_IDENTIFIER):
 			// IDENTIFIER fields (AIP-203) name the resource and must not be
 			// changed by an update — same constraint as IMMUTABLE in this path.
 			*violations = append(*violations, FieldViolation{
@@ -215,15 +233,244 @@ func (msk FieldMask) validateFieldBehaviors(
 			})
 			continue
 
-		case annotations.FieldBehavior_OUTPUT_ONLY:
+		case behavior.Has(fd, annotations.FieldBehavior_IMMUTABLE):
+			*violations = append(*violations, FieldViolation{
+				Path:     fullPath,
+				Behavior: annotations.FieldBehavior_IMMUTABLE,
+				Reason:   "immutable field cannot be modified",
+			})
+			continue
+
+		case behavior.Has(fd, annotations.FieldBehavior_REQUIRED) && !isSet:
+			*violations = append(*violations, FieldViolation{
+				Path:     fullPath,
+				Behavior: annotations.FieldBehavior_REQUIRED,
+				Reason:   "required field cannot be cleared",
+			})
 			continue
 		}
 
-		if nested != nil && fd.Kind() == protoreflect.MessageKind &&
-			!fd.IsList() && !fd.IsMap() && !isDynamicWellKnownType(fd) {
+		if nested != nil && (fd.IsList() || fd.IsMap()) {
+			// A sub-path into the elements: checked by the element schema.
+			validateElementBehaviors(fd, nested, fullPath, violations)
+			continue
+		}
+		if !isExpandableMessage(fd) {
+			continue
+		}
+		if nested != nil {
 			nested.validateFieldBehaviors(
 				prf.Get(fd).Message().Interface(), fullPath, violations,
 			)
+			continue
+		}
+		// The whole message is selected: the update may replace or clear it,
+		// and with it every field below. A protected descendant would go with
+		// it, so the whole-field selection is rejected; the caller lists the
+		// parent's other fields instead.
+		protectedDescendants(fd.Message(), fullPath, map[protoreflect.FullName]bool{}, violations)
+	}
+}
+
+// protectedDescendants reports every server-managed field — OUTPUT_ONLY,
+// IDENTIFIER or IMMUTABLE — of md, and of its singular sub-messages at any
+// depth, as a violation under prefix. It backs the rule that a message holding
+// such a field cannot be named whole in an update mask: replacing or clearing
+// the message would delete the field's stored value. Repeated and map fields
+// are replaced as a whole by design and are not descended; an OUTPUT_ONLY
+// sub-message is reported itself, not descended.
+// visited breaks recursion on self-referential schemas: the fields of a
+// message type already on the path are reported there.
+func protectedDescendants(
+	md protoreflect.MessageDescriptor,
+	prefix string,
+	visited map[protoreflect.FullName]bool,
+	violations *[]FieldViolation,
+) {
+	visited[md.FullName()] = true
+	defer delete(visited, md.FullName())
+
+	fields := md.Fields()
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		path := behavior.JoinPath(prefix, string(fd.Name()))
+
+		// Every server-managed field counts, also one that is REQUIRED:
+		// replacing the parent would delete its stored value.
+		switch serverManagedBehavior(fd) {
+		case annotations.FieldBehavior_OUTPUT_ONLY:
+			*violations = append(*violations, FieldViolation{
+				Path:     path,
+				Behavior: annotations.FieldBehavior_OUTPUT_ONLY,
+				Reason:   "output-only field would be replaced with its parent; list the parent's other fields in the update mask",
+			})
+			continue
+		case annotations.FieldBehavior_IDENTIFIER:
+			*violations = append(*violations, FieldViolation{
+				Path:     path,
+				Behavior: annotations.FieldBehavior_IDENTIFIER,
+				Reason:   "identifier field cannot be modified by replacing its parent; list the parent's other fields in the update mask",
+			})
+			continue
+		case annotations.FieldBehavior_IMMUTABLE:
+			*violations = append(*violations, FieldViolation{
+				Path:     path,
+				Behavior: annotations.FieldBehavior_IMMUTABLE,
+				Reason:   "immutable field cannot be modified by replacing its parent; list the parent's other fields in the update mask",
+			})
+			continue
+		default:
+		}
+
+		if isExpandableMessage(fd) && !visited[fd.Message().FullName()] {
+			protectedDescendants(fd.Message(), path, visited, violations)
+		}
+	}
+}
+
+// hasProtectedDescendants reports whether [protectedDescendants] would report
+// a violation for md: whether md holds a server-managed field directly or in a
+// singular sub-message at any depth. visited breaks recursion on
+// self-referential schemas.
+func hasProtectedDescendants(md protoreflect.MessageDescriptor, visited map[protoreflect.FullName]bool) bool {
+	visited[md.FullName()] = true
+	fields := md.Fields()
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		if serverManagedBehavior(fd) != annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED {
+			return true
+		}
+		if isExpandableMessage(fd) && !visited[fd.Message().FullName()] && hasProtectedDescendants(fd.Message(), visited) {
+			return true
+		}
+	}
+	return false
+}
+
+// serverManagedBehavior returns the server-managed behavior of fd that
+// governs an update: OUTPUT_ONLY, then IDENTIFIER, then IMMUTABLE, whatever
+// the declaration order, so OUTPUT_ONLY names a field that is also IDENTIFIER
+// or IMMUTABLE. It returns FIELD_BEHAVIOR_UNSPECIFIED for any other field.
+func serverManagedBehavior(fd protoreflect.FieldDescriptor) annotations.FieldBehavior {
+	switch {
+	case behavior.Has(fd, annotations.FieldBehavior_OUTPUT_ONLY):
+		return annotations.FieldBehavior_OUTPUT_ONLY
+	case behavior.Has(fd, annotations.FieldBehavior_IDENTIFIER):
+		return annotations.FieldBehavior_IDENTIFIER
+	case behavior.Has(fd, annotations.FieldBehavior_IMMUTABLE):
+		return annotations.FieldBehavior_IMMUTABLE
+	default:
+		return annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED
+	}
+}
+
+// validateElementBehaviors checks nested, the sub-mask of the repeated or map
+// field fd, against the element message schema (see [elementMasks]).
+// Collections of scalars and of dynamic well-known types have no element
+// schema to check.
+func validateElementBehaviors(
+	fd protoreflect.FieldDescriptor,
+	nested FieldMask,
+	prefix string,
+	violations *[]FieldViolation,
+) {
+	elem := wildcardElementDescriptor(fd)
+	if elem == nil {
+		return
+	}
+	for key, sub := range elementMasks(fd, nested) {
+		sub.validateSchemaBehaviors(elem, elementPath(prefix, key), violations)
+	}
+}
+
+// elementPath returns the path of the element sub-mask that [elementMasks]
+// yields under key: prefix itself for the implicit list form (empty key).
+func elementPath(prefix, key string) string {
+	if key == "" {
+		return prefix
+	}
+	return behavior.JoinPath(prefix, quotePathSegment(key))
+}
+
+// validateSchemaBehaviors is the descriptor-only counterpart of
+// validateFieldBehaviors used inside collection elements, where the mask
+// addresses every element (or those under a key) rather than one present
+// value: IDENTIFIER and IMMUTABLE leaves are violations, OUTPUT_ONLY leaves
+// are skipped (removeOutputOnlyFields drops them), a singular message named
+// whole is checked with [protectedDescendants], and branches into singular
+// messages and collections are descended. REQUIRED is not checked: it
+// depends on the values present. Keys md does not declare ("*", indexes) are
+// ignored.
+func (msk FieldMask) validateSchemaBehaviors(
+	md protoreflect.MessageDescriptor,
+	prefix string,
+	violations *[]FieldViolation,
+) {
+	fields := md.Fields()
+	for _, name := range slices.Sorted(maps.Keys(msk)) {
+		fd := fields.ByName(protoreflect.Name(name))
+		if fd == nil {
+			continue
+		}
+		nested := msk[name]
+		path := behavior.JoinPath(prefix, name)
+
+		switch serverManagedBehavior(fd) {
+		case annotations.FieldBehavior_OUTPUT_ONLY:
+			continue
+		case annotations.FieldBehavior_IDENTIFIER:
+			*violations = append(*violations, FieldViolation{
+				Path:     path,
+				Behavior: annotations.FieldBehavior_IDENTIFIER,
+				Reason:   "identifier field cannot be modified",
+			})
+			continue
+		case annotations.FieldBehavior_IMMUTABLE:
+			*violations = append(*violations, FieldViolation{
+				Path:     path,
+				Behavior: annotations.FieldBehavior_IMMUTABLE,
+				Reason:   "immutable field cannot be modified",
+			})
+			continue
+		default:
+		}
+
+		switch {
+		case nested != nil && (fd.IsList() || fd.IsMap()):
+			validateElementBehaviors(fd, nested, path, violations)
+		case !isExpandableMessage(fd):
+		case nested != nil:
+			nested.validateSchemaBehaviors(fd.Message(), path, violations)
+		default:
+			protectedDescendants(fd.Message(), path, map[protoreflect.FullName]bool{}, violations)
+		}
+	}
+}
+
+// elementMasks yields the parts of nested, the sub-mask of the repeated or
+// map field fd, that address fields of its element messages, each with the
+// mask key leading to it. For a list: first nested itself under the empty
+// key — the implicit per-element form, whose keys other than "*" name element
+// fields ("aliases.display_name") — then the "*" sub-mask. For a map: the
+// sub-mask of every key, "*" included, in sorted order. A nil sub-mask names
+// whole elements, which are replaced as a whole like the collection itself,
+// and is not yielded. List indexes are not yielded: ApplyUpdateMask rejects
+// them first.
+func elementMasks(fd protoreflect.FieldDescriptor, nested FieldMask) iter.Seq2[string, FieldMask] {
+	return func(yield func(string, FieldMask) bool) {
+		if fd.IsList() {
+			if !yield("", nested) {
+				return
+			}
+			if sub := nested[WildcardSegment]; sub != nil {
+				yield(WildcardSegment, sub)
+			}
+			return
+		}
+		for _, key := range slices.Sorted(maps.Keys(nested)) {
+			if sub := nested[key]; sub != nil && !yield(key, sub) {
+				return
+			}
 		}
 	}
 }
@@ -235,16 +482,16 @@ func (msk FieldMask) removeOutputOnlyFields(msg proto.Message) {
 	msk.stripOutputOnlyForDescriptor(msg.ProtoReflect().Descriptor())
 }
 
-// stripOutputOnlyForDescriptor removes OUTPUT_ONLY fields at the level
-// of desc and recurses into wildcard sub-masks ("*") so OUTPUT_ONLY
-// fields under AIP-161 wildcarded subtrees are also stripped from the
-// writeback mask. The wildcard key itself is not a real field on desc
-// and is skipped at this level; recursion uses the element descriptor
-// of the parent repeated / map field.
-//
-// Per the plan's scope, only "*" sub-masks trigger recursion. The
-// historical implicit form (e.g. "aliases.updated_at") is preserved
-// as-is so existing callers see the same behavior.
+// stripOutputOnlyForDescriptor removes OUTPUT_ONLY fields at the level of
+// desc and recurses into the sub-masks of singular message fields
+// ("sub.updated_at") and into the element sub-masks of repeated and map
+// fields (see [elementMasks]: "aliases.*.updated_at", "aliases.updated_at",
+// "labels.k.updated_at"), using the element message descriptor. A branch
+// emptied by the removal is deleted, never left as a whole-message or
+// whole-element selection. validateFieldBehaviors and
+// validateSchemaBehaviors rely on this to skip OUTPUT_ONLY entries at any
+// depth. Keys desc does not declare ("*", map keys) are skipped at this
+// level.
 func (msk FieldMask) stripOutputOnlyForDescriptor(desc protoreflect.MessageDescriptor) {
 	if desc == nil {
 		return
@@ -265,17 +512,28 @@ func (msk FieldMask) stripOutputOnlyForDescriptor(desc protoreflect.MessageDescr
 		if nested == nil {
 			continue
 		}
-		wildcardMask, hasWildcard := nested[WildcardSegment]
-		if !hasWildcard || wildcardMask == nil {
+		if isExpandableMessage(fd) {
+			// A branch into a singular sub-message: its OUTPUT_ONLY entries
+			// go too, so validation can skip them. A branch left empty is
+			// removed rather than turned into a whole-message selection.
+			nested.stripOutputOnlyForDescriptor(fd.Message())
+			if len(nested) == 0 {
+				delete(msk, fieldName)
+			}
+			continue
+		}
+		if !fd.IsList() && !fd.IsMap() {
 			continue
 		}
 		elemDesc := wildcardElementDescriptor(fd)
 		if elemDesc == nil {
 			continue
 		}
-		wildcardMask.stripOutputOnlyForDescriptor(elemDesc)
-		if len(wildcardMask) == 0 {
-			delete(nested, WildcardSegment)
+		for key, sub := range elementMasks(fd, nested) {
+			sub.stripOutputOnlyForDescriptor(elemDesc)
+			if key != "" && len(sub) == 0 {
+				delete(nested, key)
+			}
 		}
 		if len(nested) == 0 {
 			delete(msk, fieldName)

@@ -14,8 +14,9 @@
 //
 //   - [StripCreate] on a Create-request resource — clears OUTPUT_ONLY and
 //     IDENTIFIER fields the client should not be supplying.
-//   - [StripUpdate] on an Update-request resource — additionally clears
-//     IMMUTABLE fields.
+//   - [StripUpdate] on an Update-request resource — clears OUTPUT_ONLY and
+//     IMMUTABLE fields but keeps IDENTIFIER, which addresses the resource
+//     being updated.
 //   - [StripResponse] on a server response — clears INPUT_ONLY fields
 //     (typically secrets) that must never leave the server.
 //

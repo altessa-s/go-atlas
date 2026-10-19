@@ -28,7 +28,18 @@
 //     {"$set": …, "$unset": …}. Nil pointers and empty collections of a
 //     non-stripped field go to $unset, nested values are full-replaced in $set,
 //     "_id" is removed from $set, and any field the engine marked Strip is
-//     excluded from both operators. Drive it with
+//     excluded from both operators. A nested struct holding such a protected
+//     field (stripped, identifier or omitonupdate) is written by descendant
+//     paths ("profile.name") so the stored value survives; a replaced
+//     collection whose elements carry a stripped field, or a protected
+//     omitonupdate one, fails with [ErrProtectedInCollection]. A nil pointer,
+//     a nil or empty collection or a nil element whose declared type holds a
+//     protected field — under the engine's tag key and strip kinds, bound by
+//     behavior.New — fails with [ErrProtectedUnset] or
+//     [ErrProtectedInCollection] rather than delete the stored value (see
+//     [NewUpdateTranslator]). Identifier fields are excluded by the
+//     translator itself, whatever kinds the engine strips: the identifier
+//     selects the record and is never written. Drive it with
 //     behavior.WithKinds(behavior.DefaultUpdateKinds...).
 //   - [NewProjectionTranslator] builds an exclusion projection ({path: 0}) for
 //     every stripped field, using dot-notation paths for nested fields. It is

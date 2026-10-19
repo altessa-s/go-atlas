@@ -42,6 +42,29 @@ type encCtx struct {
 	noAddr bool
 	// reg is the configured registry, nil for the driver's default.
 	reg *bson.Registry
+	// inColl marks values folded as the elements of a collection (slice,
+	// array or map values): their identifiers are the elements' own and are
+	// written with them, and a stripped field among them is an error, see
+	// [excludeOnUpdate].
+	inColl bool
+	// addressed marks an object whose keys become update operator paths (the
+	// root, and a nested object written by descendant paths): each key must be
+	// addressable (see checkPathName).
+	addressed bool
+	// root marks the fields of the root document, inline contributions
+	// included: its "_id" is immutable in MongoDB and never written.
+	root bool
+}
+
+// elementDoc resets the document-position flags for the values of a
+// collection — slice and array elements, map values, the values of a root
+// inline map — which are documents of their own: not the root (their _id is
+// theirs and is written) and not addressed (their keys are stored literally,
+// not read as operator paths). The inline map's own keys keep the parent's
+// flags; foldInlineMap checks them.
+func (ec *encCtx) elementDoc() {
+	ec.root = false
+	ec.addressed = false
 }
 
 // foldObject builds the set/unset maps for a single resolved object, laid out
@@ -49,10 +72,10 @@ type encCtx struct {
 // [layoutOf]): inline struct fields sit at the parent level, an embedded
 // struct without inline is a subdocument, and an inline map's entries join
 // the parent. On update, fields the engine marked Strip (via
-// behavior.WithKinds on the engine) are excluded from both operators. It
-// applies at every nesting level: nested objects (struct pointers, slice
-// elements, map values) all come from the engine's walk and carry their own
-// Strip marks.
+// behavior.WithKinds on the engine) and identifiers are excluded from both
+// operators (see [excludeOnUpdate]). It applies at every nesting level: nested
+// objects (struct pointers, slice elements, map values) all come from the
+// engine's walk and carry their own Strip marks.
 func foldObject(obj behavior.Object, o *options, m mode, ec encCtx) (bson.M, bson.M, error) {
 	layout, err := o.objectLayout(obj)
 	if err != nil {
@@ -67,16 +90,32 @@ func foldObject(obj behavior.Object, o *options, m mode, ec encCtx) (bson.M, bso
 	}
 
 	for _, df := range layout.fields {
-		if m == modeUpdate && df.omitOnUpdate {
+		// An omitonupdate field is never written. Outside a collection its
+		// stored value survives; inside a replaced collection element it goes
+		// with the element, so a protected one fails below instead of being
+		// dropped.
+		omit := m == modeUpdate && df.omitOnUpdate
+		if omit && !ec.inColl {
+			continue
+		}
+		if m == modeUpdate && ec.root && df.name == "_id" {
+			// MongoDB rejects any change to the _id subtree: neither the
+			// field nor a descendant path of a composite _id is written.
 			continue
 		}
 		f, exact, ok := resolveField(obj, df)
 		switch {
 		case ok && !exact:
-			// A stripped inline ancestor governs the field. Update drops it;
-			// insert is unfiltered and writes the stored value as is.
+			// A stripped inline ancestor governs the field. Update drops it —
+			// or fails inside a replaced collection, which cannot preserve it:
+			// even a stripped identifier ancestor left its children unresolved,
+			// so their behaviors cannot be checked. Insert is unfiltered and
+			// writes the stored value as is.
 			if m == modeUpdate {
-				continue
+				if !ec.inColl {
+					continue
+				}
+				return nil, nil, fmt.Errorf("%w: %s", ErrProtectedInCollection, f.Name)
 			}
 			fv, ferr := obj.Value.FieldByIndexErr(df.index)
 			if ferr != nil {
@@ -84,10 +123,35 @@ func foldObject(obj behavior.Object, o *options, m mode, ec encCtx) (bson.M, bso
 			}
 			f = &behavior.Field{Index: df.index, Name: df.goName, Tag: df.tag, Value: fv}
 		case !ok:
-			// Behind a nil pointer: the codec writes no key.
+			// Behind a nil pointer: the codec writes no key. A replaced
+			// collection element then loses the stored key, so a protected
+			// one fails (see [options.protectedType]).
+			if m == modeUpdate && ec.inColl && o.protectedField(obj.Value.Type(), df, true, ec.noAddr, o.policy, nil) {
+				return nil, nil, fmt.Errorf("%w: %s", ErrProtectedInCollection, df.goName)
+			}
 			continue
 		}
-		if m == modeUpdate && f.Strip {
+		if m == modeUpdate && !ec.inColl && len(df.index) > 1 && identifierAncestor(obj, df.index) {
+			// Contributed by an inline struct tagged identifier: the
+			// identifier covers every key it adds to the parent.
+			continue
+		}
+		if m == modeUpdate {
+			exclude, err := excludeOnUpdate(f, ec)
+			if err != nil {
+				return nil, nil, err
+			}
+			if exclude {
+				continue
+			}
+		}
+		if omit {
+			// Inside a replaced collection element; the field's own strip
+			// mark failed above, a protected field below it fails here.
+			noAddr := (ec.noAddr && !crossesPointer(obj.Value.Type(), df.index)) || !f.Value.CanAddr()
+			if o.protectedType(f.Value.Type(), true, noAddr, o.policy) {
+				return nil, nil, fmt.Errorf("%w: %s", ErrProtectedInCollection, f.Name)
+			}
 			continue
 		}
 		fieldCtx := ec
@@ -108,6 +172,169 @@ func foldObject(obj behavior.Object, o *options, m mode, ec encCtx) (bson.M, bso
 	return set, unset, nil
 }
 
+// excludeOnUpdate reports whether the update document leaves f out: the
+// engine stripped it, or it is an identifier of the record or of a subdocument
+// (AIP-203). An identifier selects the stored record and is never written,
+// whatever kinds the engine was configured to strip — the translator excludes
+// it itself, so behavior.DefaultUpdateKinds, which keeps the identifier in the
+// payload, builds a safe update document.
+//
+// Inside a collection element, which the update replaces with the whole
+// collection, nothing can be preserved by leaving it out: an identifier
+// belongs to the element and is written with it. A field the engine stripped
+// is [ErrProtectedInCollection], except an identifier stripped for that reason
+// alone (no other kind) whose value is written as a unit: a stripped compound
+// identifier left its children unresolved, so they cannot be checked.
+func excludeOnUpdate(f *behavior.Field, ec encCtx) (bool, error) {
+	ident := isIdentifier(f)
+	if !ec.inColl {
+		return f.Strip || ident, nil
+	}
+	if !f.Strip {
+		return false, nil
+	}
+	// The element-identifier exemption: stripped only for being an
+	// identifier, and nothing below it the engine left unresolved.
+	if ident && onlyIdentifier(f.Kinds) && !isCompound(f.Value, ec) {
+		return false, nil
+	}
+	return false, fmt.Errorf("%w: %s", ErrProtectedInCollection, f.Name)
+}
+
+// onlyIdentifier reports whether kinds holds Identifier and no other kind, so
+// a strip mark on the field can only stem from the identifier.
+func onlyIdentifier(kinds []behavior.Kind) bool {
+	for _, k := range kinds {
+		if k != behavior.Identifier {
+			return false
+		}
+	}
+	return len(kinds) > 0
+}
+
+// isCompound reports whether fv, through non-nil pointers, is folded rather
+// than written as a unit: a struct, slice, array or map with parts the
+// engine would resolve. A stripped field is a leaf to the engine, so such a
+// value carries children whose behaviors were never checked.
+func isCompound(fv reflect.Value, ec encCtx) bool {
+	for fv.IsValid() && !isCodecLeaf(fv, ec) {
+		switch fv.Kind() {
+		case reflect.Pointer:
+			if fv.IsNil() {
+				return false
+			}
+			fv = fv.Elem()
+			ec.noAddr = false
+		case reflect.Struct:
+			return recurseIntoStruct(fv.Type()) || (pointerOnlyMarshaler(fv.Type()) && hasExportedField(fv.Type()))
+		case reflect.Slice, reflect.Array, reflect.Map:
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// identifierAncestor reports whether a resolved field on the Go index path
+// index above its last element — an inline struct the field is imported
+// through — is tagged identifier. The engine does not strip identifiers under
+// behavior.DefaultUpdateKinds, so it descends into such a struct and resolves
+// its untagged fields; the tag on the inline ancestor still governs them.
+func identifierAncestor(obj behavior.Object, index []int) bool {
+	for i := range obj.Fields {
+		fi := &obj.Fields[i]
+		if len(fi.Index) >= len(index) || !slices.Equal(fi.Index, index[:len(fi.Index)]) {
+			continue
+		}
+		if isIdentifier(fi) {
+			return true
+		}
+		if fi.Nested != nil {
+			return identifierAncestor(*fi.Nested, index[len(fi.Index):])
+		}
+		return false
+	}
+	return false
+}
+
+// isIdentifier reports whether f is tagged identifier.
+func isIdentifier(f *behavior.Field) bool {
+	return slices.Contains(f.Kinds, behavior.Identifier)
+}
+
+// holdsProtected reports whether replacing the subdocument folded from obj
+// could delete a stored value the update must keep. It follows the BSON
+// layout of obj's struct (see [layoutOf]), as the fold does: a key tagged — or
+// imported through an inline struct tagged — omitonupdate; a key behind an
+// unset inline pointer, which the replacement would remove although the
+// update says nothing about it; a key governed by a stripped inline ancestor
+// or by an inline struct tagged identifier; a stripped or identifier field; a
+// stripped, identifier or omitonupdate inline map; and the same, recursively,
+// in a nested struct written as a folded subdocument. Fields BSON ignores
+// (bson:"-") are not in the layout and protect nothing. Collections are not
+// descended: their elements are checked when folded.
+func (o *options) holdsProtected(obj behavior.Object, ec encCtx) bool {
+	layout, err := o.objectLayout(obj)
+	if err != nil {
+		// The fold reports the error.
+		return false
+	}
+	for _, df := range layout.fields {
+		if df.omitOnUpdate {
+			return true
+		}
+		f, exact, ok := resolveField(obj, df)
+		if !ok || !exact {
+			// Behind a nil inline pointer, or under a stripped inline
+			// ancestor.
+			return true
+		}
+		if f.Strip || isIdentifier(f) || identifierAncestor(obj, df.index) {
+			return true
+		}
+		fieldCtx := ec
+		if crossesPointer(obj.Value.Type(), df.index) {
+			fieldCtx.noAddr = false
+		}
+		if sub, subCtx := pathObject(f.Value, f.Nested, fieldCtx); sub != nil && o.holdsProtected(*sub, subCtx) {
+			return true
+		}
+	}
+	if layout.inlineMap >= 0 {
+		loc := locate(obj, []int{layout.inlineMap})
+		if f := loc.field; f != nil && (f.Strip || isIdentifier(f) || hasOmitOnUpdate(o.fieldTag(f.Tag))) {
+			return true
+		}
+	}
+	return false
+}
+
+// pathObject returns the resolved object foldValue would fold fv into a
+// subdocument — through any non-nil pointers — and the context it folds it
+// under, or nil when fv is not written as a folded subdocument (a codec leaf,
+// a collection, a scalar).
+func pathObject(fv reflect.Value, nested *behavior.Object, ec encCtx) (*behavior.Object, encCtx) {
+	for nested != nil && fv.IsValid() && !isCodecLeaf(fv, ec) {
+		switch fv.Kind() {
+		case reflect.Pointer:
+			if fv.IsNil() {
+				return nil, ec
+			}
+			fv = fv.Elem()
+			ec.noAddr = false
+		case reflect.Struct:
+			if recurseIntoStruct(fv.Type()) || (pointerOnlyMarshaler(fv.Type()) && hasExportedField(fv.Type())) {
+				return nested, ec
+			}
+			return nil, ec
+		default:
+			return nil, ec
+		}
+	}
+	return nil, ec
+}
+
 // foldInlineMap merges the entries of the object's inline map into its parent
 // document. A key that names any field of the layout is an error, as in the
 // codec, whether or not that field holds a value. A nil or empty map, or one
@@ -116,10 +343,27 @@ func foldObject(obj behavior.Object, o *options, m mode, ec encCtx) (bson.M, bso
 func foldInlineMap(obj behavior.Object, layout *docLayout, o *options, m mode, ec encCtx, set bson.M) error {
 	loc := locate(obj, []int{layout.inlineMap})
 	f, exact, ok := loc.field, loc.exact, loc.field != nil
-	if !ok || !exact || (m == modeUpdate && f.Strip) || f.Value.Len() == 0 {
+	// An inline map tagged identifier follows excludeOnUpdate: left out of
+	// the record, written with a collection element unless stripped — a
+	// stripped map is a leaf to the engine, its values never inspected.
+	if ok && m == modeUpdate {
+		switch {
+		case !ec.inColl && isIdentifier(f):
+			return nil
+		case ec.inColl && (!exact || f.Strip):
+			return fmt.Errorf("%w: %s", ErrProtectedInCollection, f.Name)
+		}
+	}
+	if !ok || !exact || (m == modeUpdate && f.Strip) {
 		return nil
 	}
-	if m == modeUpdate && hasOmitOnUpdate(o.fieldTag(f.Tag)) {
+	omit := m == modeUpdate && hasOmitOnUpdate(o.fieldTag(f.Tag))
+	// A replaced collection element loses the stored entries of an empty or
+	// omitted inline map with it.
+	if m == modeUpdate && ec.inColl && (omit || f.Value.Len() == 0) && o.protectedType(f.Value.Type(), true, ec.noAddr, o.policy) {
+		return fmt.Errorf("%w: %s", ErrProtectedInCollection, f.Name)
+	}
+	if omit || f.Value.Len() == 0 {
 		return nil
 	}
 	// The codec encodes an inline map under the enclosing context: the map
@@ -131,6 +375,11 @@ func foldInlineMap(obj behavior.Object, layout *docLayout, o *options, m mode, e
 	for k, v := range sub {
 		if _, clash := layout.names[k]; clash {
 			return fmt.Errorf("behavior/mongo: %s: inline map key %q conflicts with a struct field name", f.Name, k)
+		}
+		if m == modeUpdate && ec.addressed {
+			if err := checkPathName(k); err != nil {
+				return err
+			}
 		}
 		set[k] = v
 	}
@@ -155,20 +404,61 @@ func foldField(f *behavior.Field, df docField, o *options, m mode, parent encCtx
 	// Insert follows the codec: omitempty drops what the codec deems empty
 	// (see isCodecEmpty), and an empty or nil collection without omitempty is
 	// written — [] / {} or null. Update ignores omitempty, unsets a nil
-	// pointer and an empty collection.
+	// pointer and an empty collection, and fails instead when its declared
+	// type holds a protected field the unset would delete (see
+	// [options.protectedType]).
 	if m == modeInsert && omitEmpty && isCodecEmpty(fv) {
 		return nil
 	}
-	if m == modeUpdate && ((fv.Kind() == reflect.Pointer && fv.IsNil()) || isEmptyCollection(fv)) {
+	if m == modeUpdate && ec.addressed {
+		// The key is an operator path: a dot or a "$" prefix in the stored
+		// name would address another field.
+		if err := checkPathName(name); err != nil {
+			return err
+		}
+	}
+	if m == modeUpdate && isRemoval(fv) {
+		if o.protectedType(fv.Type(), ec.inColl, ec.noAddr || !fv.CanAddr(), o.policy) {
+			return fmt.Errorf("%w: %s", removalError(fv.Type(), ec), name)
+		}
 		unset[name] = nil
 		return nil
 	}
+	if m == modeUpdate && ec.addressed && !ec.inColl {
+		if obj, objCtx := pathObject(fv, f.Nested, ec); obj != nil && o.holdsProtected(*obj, objCtx) {
+			return foldPaths(*obj, name, o, objCtx, set, unset)
+		}
+	}
 
+	ec.addressed = false
+	ec.root = false
 	v, err := foldValue(fv, f.Nested, f.Collection, o, m, ec)
 	if err != nil {
 		return fmt.Errorf("behavior/mongo: %s: %w", name, err)
 	}
 	set[name] = v
+	return nil
+}
+
+// foldPaths writes the nested object obj of the field stored as name by
+// descendant paths ("name.child") instead of replacing the subdocument:
+// obj holds a field the update leaves out, and a replacement would delete its
+// stored value. Every other field below is set or unset by its own path, so
+// the result equals a replacement that keeps the protected fields; an object
+// holding nothing else contributes no key at all.
+func foldPaths(obj behavior.Object, name string, o *options, ec encCtx, set, unset bson.M) error {
+	ec.addressed = true
+	ec.root = false
+	subSet, subUnset, err := foldObject(obj, o, modeUpdate, ec)
+	if err != nil {
+		return fmt.Errorf("behavior/mongo: %s: %w", name, err)
+	}
+	for k, v := range subSet {
+		set[name+"."+k] = v
+	}
+	for k := range subUnset {
+		unset[name+"."+k] = nil
+	}
 	return nil
 }
 
@@ -463,6 +753,12 @@ func foldValue(fv reflect.Value, nested *behavior.Object, coll *behavior.Collect
 	if !fv.IsValid() {
 		return nil, nil //nolint:nilnil // a nil interface element is stored as null
 	}
+	if m == modeUpdate && isRemoval(fv) && o.protectedType(fv.Type(), ec.inColl, ec.noAddr || !fv.CanAddr(), o.policy) {
+		// A null or an empty collection in place of a stored value that may
+		// hold protected fields: a nil element, a nil or empty nested
+		// collection.
+		return nil, fmt.Errorf("%w: %s", removalError(fv.Type(), ec), fv.Type())
+	}
 	if isCodecLeaf(fv, ec) {
 		return encodeLeaf(fv, ec)
 	}
@@ -500,6 +796,8 @@ func foldValue(fv reflect.Value, nested *behavior.Object, coll *behavior.Collect
 // engine resolved none (scalar elements).
 func foldList(fv reflect.Value, coll *behavior.Collection, o *options, m mode, parent encCtx) (bson.A, error) {
 	ec := parent
+	ec.inColl = true
+	ec.elementDoc()
 	if fv.Kind() == reflect.Slice {
 		// A slice's elements live in its backing array: addressable to the
 		// codec even when the slice itself was reached through a map value.
@@ -554,6 +852,8 @@ func foldMap(f *behavior.Field, name string, o *options, m mode, ec encCtx) (bso
 func foldMapValue(fv reflect.Value, coll *behavior.Collection, o *options, m mode, parent encCtx) (bson.M, error) {
 	ec := parent
 	ec.noAddr = true
+	ec.inColl = true
+	ec.elementDoc()
 
 	// Collection.Keys/Items are parallel; index the engine's resolved entries
 	// by key so the random map iteration order below can correlate them.
@@ -589,14 +889,226 @@ func foldMapValue(fv reflect.Value, coll *behavior.Collection, o *options, m mod
 	return out, nil
 }
 
-// isEmptyCollection reports whether fv is an empty slice, map, or array.
-func isEmptyCollection(fv reflect.Value) bool {
+// isRemoval reports whether fv, written on update, removes whatever is stored
+// in its place: a nil pointer, or a nil or empty slice, map or array.
+func isRemoval(fv reflect.Value) bool {
 	switch fv.Kind() {
+	case reflect.Pointer:
+		return fv.IsNil()
 	case reflect.Slice, reflect.Map, reflect.Array:
 		return fv.Len() == 0
 	default:
 		return false
 	}
+}
+
+// removalError returns the sentinel for removing a value of type t that may
+// hold a protected field: [ErrProtectedInCollection] for a collection, or for
+// anything inside a replaced collection element, [ErrProtectedUnset] for a
+// subdocument.
+func removalError(t reflect.Type, ec encCtx) error {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch {
+	case ec.inColl:
+		return ErrProtectedInCollection
+	case t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map:
+		return ErrProtectedInCollection
+	default:
+		return ErrProtectedUnset
+	}
+}
+
+// protectedKey identifies a memoized [options.protectedType] result.
+type protectedKey struct {
+	t      reflect.Type
+	inColl bool
+	noAddr bool
+	pol    behavior.Policy
+	tag    string
+	reg    *bson.Registry
+}
+
+// protectedCache memoizes protectedType. Declared types and policies are
+// finite, so an unbounded sync.Map suffices.
+var protectedCache sync.Map // map[protectedKey]bool
+
+// protectedVisit is a struct type on the current protectedWalk path.
+type protectedVisit struct {
+	t      reflect.Type
+	inColl bool
+	noAddr bool
+}
+
+// protectedType reports whether a value of declared type t can hold a field
+// the update must keep, judged from the type alone: an update that removes such
+// a value — a nil pointer, a nil or empty collection, a nil element — has no
+// resolved fields whose strip marks could be checked, yet deletes whatever is
+// stored below it. The judgment follows the engine's policy pol (see
+// [behavior.PolicyBinder]), the one behind the strip marks of resolved values,
+// and the BSON layout of every struct reached through pointers and collections
+// (see [layoutOf]). A field is protected when it, or an inline struct it is
+// imported through, carries a kind pol strips (read under pol's tag key);
+// outside a collection, an identifier or an omitonupdate field is protected
+// too, whatever pol strips, as the update never writes either. Inside a
+// collection (inColl, and below any collection layer of t) an identifier and
+// an omitonupdate field belong to the element and are replaced with it, and a
+// field stripped only for being an identifier is exempt when its value is a
+// unit, as in [excludeOnUpdate]. A type the codec encodes as a unit holds
+// nothing to protect; as in isCodecLeaf this depends on addressability for a
+// pointer-receiver marshaler, which the codec uses only for a value it can
+// address: noAddr marks a value reached without addressability (a map value,
+// or anything below one until a pointer or slice is crossed), which the codec
+// encodes field by field.
+func (o *options) protectedType(t reflect.Type, inColl, noAddr bool, pol behavior.Policy) bool {
+	key := protectedKey{t: t, inColl: inColl, noAddr: noAddr, pol: pol, tag: o.bsonTagName, reg: o.registry}
+	if v, ok := protectedCache.Load(key); ok {
+		b, _ := v.(bool)
+		return b
+	}
+	b := o.protectedWalk(t, inColl, noAddr, pol, nil)
+	protectedCache.Store(key, b)
+	return b
+}
+
+// protectedWalk is protectedType without the cache. seen holds the struct
+// types on the current path; a recursive type is not descended twice.
+func (o *options) protectedWalk(t reflect.Type, inColl, noAddr bool, pol behavior.Policy, seen []protectedVisit) bool {
+	for range maxCollectionLayers {
+		if o.leafType(t, noAddr) {
+			return false
+		}
+		// Addressability follows the codec (see foldValue): a pointer's
+		// target and a slice's elements are addressable, a map's values are
+		// not, an array's elements are when the array is.
+		switch t.Kind() {
+		case reflect.Pointer:
+			t = t.Elem()
+			noAddr = false
+		case reflect.Slice:
+			t = t.Elem()
+			inColl, noAddr = true, false
+		case reflect.Array:
+			t = t.Elem()
+			inColl = true
+		case reflect.Map:
+			t = t.Elem()
+			inColl, noAddr = true, true
+		case reflect.Struct:
+			return o.protectedStruct(t, inColl, noAddr, pol, seen)
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// protectedStruct is protectedWalk for struct type t.
+func (o *options) protectedStruct(t reflect.Type, inColl, noAddr bool, pol behavior.Policy, seen []protectedVisit) bool {
+	visit := protectedVisit{t: t, inColl: inColl, noAddr: noAddr}
+	if slices.Contains(seen, visit) {
+		return false
+	}
+	seen = append(seen, visit)
+	layout, err := layoutOf(t, o.bsonTagName)
+	if err != nil {
+		// The fold reports the error.
+		return false
+	}
+	for _, df := range layout.fields {
+		if o.protectedField(t, df, inColl, noAddr, pol, seen) {
+			return true
+		}
+	}
+	if layout.inlineMap < 0 {
+		return false
+	}
+	sf := t.Field(layout.inlineMap)
+	// A map is compound: no element-identifier exemption.
+	if o.protectedKinds(sf, inColl, true, pol) || (!inColl && hasOmitOnUpdate(o.fieldTag(sf.Tag))) {
+		return true
+	}
+	return o.protectedWalk(sf.Type, inColl, noAddr, pol, seen)
+}
+
+// protectedField reports whether the layout field df of struct type t is
+// protected, or can hold a protected field, under protectedType's rules.
+func (o *options) protectedField(t reflect.Type, df docField, inColl, noAddr bool, pol behavior.Policy, seen []protectedVisit) bool {
+	if !inColl && df.omitOnUpdate {
+		return true
+	}
+	// Reached through an inline pointer: addressable to the codec.
+	fieldNoAddr := noAddr && !crossesPointer(t, df.index)
+	// Every inline struct the field is imported through (compound), then
+	// the field itself.
+	for i := range df.index {
+		sf := t.FieldByIndex(df.index[:i+1])
+		compound := i < len(df.index)-1 || o.compoundType(sf.Type, fieldNoAddr)
+		if o.protectedKinds(sf, inColl, compound, pol) {
+			return true
+		}
+	}
+	return o.protectedWalk(t.FieldByIndex(df.index).Type, inColl, fieldNoAddr, pol, seen)
+}
+
+// protectedKinds reports whether the behavior kinds of field sf, read under
+// pol's tag key, make it protected: outside a collection a kind pol strips or
+// identifier; inside one a kind pol strips, unless identifier is its only kind
+// and its value is not compound (the element-identifier exemption of
+// [excludeOnUpdate]). Unknown tokens are ignored; the engine rejects them.
+func (o *options) protectedKinds(sf reflect.StructField, inColl, compound bool, pol behavior.Policy) bool {
+	stripped, ident, onlyIdent := false, false, true
+	for tok := range strings.SplitSeq(sf.Tag.Get(pol.TagName()), ",") {
+		k, ok := behavior.ParseKind(strings.TrimSpace(tok))
+		if !ok {
+			continue
+		}
+		stripped = stripped || pol.Strips(k)
+		ident = ident || k == behavior.Identifier
+		onlyIdent = onlyIdent && k == behavior.Identifier
+	}
+	if !inColl {
+		return stripped || ident
+	}
+	exempt := ident && onlyIdent && !compound
+	return stripped && !exempt
+}
+
+// compoundType is isCompound for a declared type, reached without
+// addressability when noAddr is set: through pointers, a struct folded field
+// by field, or a slice, array or map that is not a codec leaf.
+func (o *options) compoundType(t reflect.Type, noAddr bool) bool {
+	for range maxCollectionLayers {
+		if o.leafType(t, noAddr) {
+			return false
+		}
+		switch t.Kind() {
+		case reflect.Pointer:
+			t = t.Elem()
+			noAddr = false
+		case reflect.Struct:
+			return recurseIntoStruct(t) || (pointerOnlyMarshaler(t) && hasExportedField(t))
+		case reflect.Slice, reflect.Array, reflect.Map:
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// leafType is isCodecLeaf for a declared type: a registry leaf, a type with a
+// BSON marshaler — a pointer-receiver one only when the value is addressable
+// (not noAddr) — or a type with a built-in encoding of its own.
+func (o *options) leafType(t reflect.Type, noAddr bool) bool {
+	if registryLeaf(o.registry, t) {
+		return true
+	}
+	if pointerOnlyMarshaler(t) {
+		return !noAddr || isBuiltinLeafType(t)
+	}
+	return isCodecLeafType(t)
 }
 
 // BSON marshaling interface types, resolved once for the recurseIntoStruct guard.
@@ -727,6 +1239,15 @@ type docTranslator struct {
 	mode mode
 }
 
+// BindPolicy implements [behavior.PolicyBinder]: [behavior.New] calls it with
+// the engine's policy, which the update translator applies to the values it
+// judges from their declared type. t itself is left unchanged.
+func (t *docTranslator) BindPolicy(p behavior.Policy) behavior.Translator[bson.M] {
+	o := *t.o
+	o.policy = p
+	return &docTranslator{o: &o, mode: t.mode}
+}
+
 // NewInsertTranslator returns a [behavior.Translator] producing insert documents
 // under opts. It emits every exported field (bson name, omitempty, []byte binary,
 // nested/opaque-leaf as today) and applies no behavior-kind filtering — drive it
@@ -739,12 +1260,30 @@ func NewInsertTranslator(opts ...Option) behavior.Translator[bson.M] {
 // NewUpdateTranslator returns a [behavior.Translator] producing update documents
 // ({"$set": …, "$unset": …}) under opts. "_id" is removed from both; nil
 // pointers and empty collections of a non-stripped field go to "$unset"; nested
-// values are full-replaced in "$set". Fields the engine marked Strip are excluded
-// from both operators — recursively, so nested subdocuments built from struct
-// pointers, slice elements, and map values all drop them — drive it through
+// values are full-replaced in "$set", except a nested object holding a field
+// the update leaves out, which is written by descendant paths ("profile.name")
+// so the stored value of that field survives. Fields the engine marked Strip
+// are excluded from both operators — recursively through nested objects; a
+// replaced collection whose elements carry one fails with
+// [ErrProtectedInCollection], as the replacement cannot preserve it. A value
+// that would remove stored data without resolved fields to check — a nil
+// pointer, a nil or empty collection, a nil element — is judged from its
+// declared type under the engine's own policy, which [behavior.New] binds to
+// the translator (see [behavior.PolicyBinder]): when the type holds a field of
+// a kind the engine strips, read under the engine's tag key (or, outside a
+// collection, an identifier or omitonupdate field), the update fails with
+// [ErrProtectedUnset] for a subdocument and [ErrProtectedInCollection] for a
+// collection or inside one, instead of deleting the stored value. Populated
+// and removed values thus follow the same policy.
+// Drive it through
 // [github.com/altessa-s/go-atlas/domain/behavior.New] with
 // behavior.WithKinds(behavior.DefaultUpdateKinds...) to exclude server-owned and
-// immutable fields.
+// immutable fields. Identifier fields are excluded by the translator itself,
+// whatever kinds the engine strips: the identifier selects the record and is
+// never written, under "_id" or any other name, set or nil. An identifier
+// inside a collection element is the element's own and is written with it;
+// stripped by the engine, only when it carries no other kind and its value is
+// written as a unit (see excludeOnUpdate).
 func NewUpdateTranslator(opts ...Option) behavior.Translator[bson.M] {
 	return &docTranslator{o: newOptions(opts...), mode: modeUpdate}
 }
@@ -752,24 +1291,19 @@ func NewUpdateTranslator(opts ...Option) behavior.Translator[bson.M] {
 // Translate folds root into a BSON document for the translator's mode.
 func (t *docTranslator) Translate(_ context.Context, root behavior.Object) (bson.M, error) {
 	if t.mode == modeUpdate {
-		set, unset, err := foldObject(root, t.o, modeUpdate, encCtx{reg: t.o.registry})
+		// The root's keys are operator paths: a field whose stored name holds
+		// a dot (bson:"a.b", a literal key to the codec) would address another
+		// field, and a "$" prefix is not a field at all, so folding checks
+		// each one (see encCtx.addressed).
+		set, unset, err := foldObject(root, t.o, modeUpdate, encCtx{reg: t.o.registry, addressed: true, root: true})
 		if err != nil {
 			return nil, err
 		}
-		// _id is immutable in MongoDB: neither operator may touch it, whether
-		// it is an own field or one an inline struct contributes.
+		// _id is immutable in MongoDB: neither operator may touch it. Folding
+		// skips the root _id field (own or inline-contributed, with every
+		// descendant path); an inline map entry named _id is dropped here.
 		delete(set, "_id")
 		delete(unset, "_id")
-		// Top-level operator keys are paths: a field whose stored name holds a
-		// dot (bson:"a.b", a literal key to the codec) would address another
-		// field, and a "$" prefix is not a field at all.
-		for _, op := range []bson.M{set, unset} {
-			for k := range op {
-				if err := checkPathName(k); err != nil {
-					return nil, err
-				}
-			}
-		}
 		result := bson.M{"$set": set}
 		if len(unset) > 0 {
 			result["$unset"] = unset
@@ -792,6 +1326,25 @@ func (t *docTranslator) Translate(_ context.Context, root behavior.Object) (bson
 // path separator although the codec stores the name literally, or it starts
 // with "$". Rename the field's bson key.
 var ErrUnaddressableName = errors.New("field name cannot be addressed by a document path")
+
+// ErrProtectedInCollection reports an update that replaces a collection (a
+// slice, array or map, at any depth) whose elements carry a field the engine
+// marked Strip. The replacement would drop the stored values of that field and
+// no document path can address it element by element, so the update is
+// rejected instead. Tag the collection omitonupdate and update its elements
+// with positional operators, or drop the kind from the engine's strip set.
+var ErrProtectedInCollection = errors.New("stripped field inside a replaced collection cannot be preserved")
+
+// ErrProtectedUnset reports an update that removes a subdocument — a nil
+// pointer in place of a stored struct — whose declared type holds a protected
+// field (see [NewUpdateTranslator]): unsetting it would delete the stored
+// value. Send the subdocument instead, which is then written by descendant
+// paths that keep the protected fields; leave the field out of the update
+// (tag it omitonupdate); or, for a field protected only because the engine
+// strips its kind, drop that kind from the engine's strip set. An empty or nil
+// collection and a nil collection element fail with
+// [ErrProtectedInCollection] instead.
+var ErrProtectedUnset = errors.New("protected field inside a removed subdocument cannot be preserved")
 
 // checkPathName returns [ErrUnaddressableName] for a name that cannot be one
 // segment of a document path.

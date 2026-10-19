@@ -57,3 +57,36 @@ func BenchmarkApplyUpdateMask_WithPathValidation(b *testing.B) {
 		}, fieldmask.WithPathValidation(fieldmask.PathValidationEnforce))
 	}
 }
+
+// BenchmarkApplyUpdateMask_CollectionSubPaths measures a mask whose paths
+// reach into collection elements, which ApplyUpdateMask checks against the
+// element schema and strips of OUTPUT_ONLY leaves.
+func BenchmarkApplyUpdateMask_CollectionSubPaths(b *testing.B) {
+	paths := []string{"labels.k.display_name", "labels.k.updated_at", "aliases.*.display_name", "aliases.updated_at"}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		mask := fieldmask.FromPaths(paths...)
+		_ = mask.ApplyUpdateMask(&pb.Resource{
+			Aliases: []*pb.Profile{{Id: "a", DisplayName: "x"}},
+			Labels:  map[string]*pb.Profile{"k": {Id: "l", DisplayName: "y"}},
+		})
+	}
+}
+
+// BenchmarkFromSetFieldsForUpdate measures the mask synthesized for an empty
+// update_mask on a resource with a populated sub-message and collections.
+func BenchmarkFromSetFieldsForUpdate(b *testing.B) {
+	res := &pb.Resource{
+		Id:          "id-1",
+		Description: "d",
+		Profile:     &pb.Profile{Id: "p-1", DisplayName: "Ann", UpdatedAt: "t"},
+		Aliases:     []*pb.Profile{{Id: "a-1"}},
+		Labels:      map[string]*pb.Profile{"k": {Id: "l-1"}},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = fieldmask.FromSetFieldsForUpdate(res)
+	}
+}

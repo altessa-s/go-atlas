@@ -30,11 +30,11 @@ var DefaultCreateBehaviors = []annotations.FieldBehavior{
 }
 
 // DefaultUpdateBehaviors lists the behaviors stripped by [StripUpdate]:
-// OUTPUT_ONLY, IDENTIFIER, and IMMUTABLE (the latter prevents callers from
-// changing fields fixed at Create time).
+// OUTPUT_ONLY and IMMUTABLE (the latter prevents callers from changing fields
+// fixed at Create time). IDENTIFIER is deliberately absent: per AIP-203 the
+// identifier addresses the resource on Update, so it must reach the handler.
 var DefaultUpdateBehaviors = []annotations.FieldBehavior{
 	annotations.FieldBehavior_OUTPUT_ONLY,
-	annotations.FieldBehavior_IDENTIFIER,
 	annotations.FieldBehavior_IMMUTABLE,
 }
 

@@ -10,10 +10,24 @@
 // [fieldmask.FieldMask.ApplyUpdateMask] over the pair, and writes the
 // OUTPUT_ONLY-cleaned mask back onto the request before the handler runs.
 // Behavior violations (REQUIRED cleared, IMMUTABLE modified, IDENTIFIER
-// touched) are converted to InvalidArgument with an
+// named in the mask) are converted to InvalidArgument with an
 // io.altessa.badrequest.v1.BadRequest detail attached — one FieldViolation per
 // entry, the same detail type the protovalidate interceptor emits, so
 // [github.com/altessa-s/go-atlas/transport/grpc/client.ParseError] reads both.
+//
+// An IDENTIFIER set in the resource body addresses the resource (AIP-203): it
+// is kept, is not an error, and is left out of the writeback mask and of the
+// mask synthesized by [WithApplyEmptyUpdateMask], so the handler sees only the
+// fields the client asked to change. The same holds for an IDENTIFIER inside a
+// populated singular sub-message (profile.id). A mask naming such a
+// sub-message whole ("profile") is rejected, populated or absent: it would
+// authorize replacing or clearing the identifier with its parent. The same
+// applies to an IMMUTABLE descendant; the synthesized mask names the set
+// fields of such a sub-message instead of the whole sub-message. A path into
+// collection elements naming an element IDENTIFIER or IMMUTABLE field
+// ("labels.k.id", "aliases.*.id") is rejected too. The synthesis and the
+// identifier cleanup are [fieldmask.FromSetFieldsForUpdate] and
+// [fieldmask.FieldMask.DropIdentifiers].
 //
 // On classified read methods (Get*, List*, Search*, BatchGet*) the
 // interceptor extracts the read_mask from the request before the handler runs

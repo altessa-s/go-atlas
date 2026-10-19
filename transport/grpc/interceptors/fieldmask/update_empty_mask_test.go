@@ -70,6 +70,82 @@ func TestServerInterceptor_EmptyUpdateMask_SynthesisesFromSetFields(t *testing.T
 		"synthesised mask must cover the populated editable fields")
 }
 
+// TestServerInterceptor_EmptyUpdateMask_KeepsIdentifier pins that the
+// synthesised mask leaves the IDENTIFIER out: it addresses the resource
+// (AIP-203) and is kept in the body, rather than being read as an attempt to
+// change it.
+func TestServerInterceptor_EmptyUpdateMask_KeepsIdentifier(t *testing.T) {
+	t.Parallel()
+
+	uni := newUnary(t, fieldmask.WithApplyEmptyUpdateMask())
+	req := &pb.UpdateResourceRequest{
+		Resource:   &pb.Resource{Id: "id-1", Name: "renamed"},
+		UpdateMask: &fieldmaskpb.FieldMask{},
+	}
+
+	seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+	require.NoError(t, err)
+
+	got, ok := seenReq.(*pb.UpdateResourceRequest)
+	require.True(t, ok)
+	require.Equal(t, "id-1", got.GetResource().GetId(), "IDENTIFIER kept in the body")
+	require.Equal(t, []string{"name"}, got.GetUpdateMask().GetPaths(), "IDENTIFIER left out of the synthesised mask")
+}
+
+// TestServerInterceptor_EmptyUpdateMask_KeepsNestedIdentifier pins that an
+// IDENTIFIER inside a populated singular sub-message stays out of the
+// synthesised mask too: the update succeeds, the nested id is kept in the
+// body, and only the editable nested field is masked.
+func TestServerInterceptor_EmptyUpdateMask_KeepsNestedIdentifier(t *testing.T) {
+	t.Parallel()
+
+	uni := newUnary(t, fieldmask.WithApplyEmptyUpdateMask())
+	req := &pb.UpdateResourceRequest{
+		Resource: &pb.Resource{
+			Id:      "id-1",
+			Name:    "renamed",
+			Profile: &pb.Profile{Id: "p-1", DisplayName: "Ann"},
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{},
+	}
+
+	seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+	require.NoError(t, err, "a nested IDENTIFIER must not be read as an attempt to change it")
+
+	got, ok := seenReq.(*pb.UpdateResourceRequest)
+	require.True(t, ok)
+	require.Equal(t, "p-1", got.GetResource().GetProfile().GetId(), "nested IDENTIFIER kept in the body")
+	require.Equal(t, "Ann", got.GetResource().GetProfile().GetDisplayName())
+
+	paths := got.GetUpdateMask().GetPaths()
+	slices.Sort(paths)
+	require.Equal(t, []string{"name", "profile.display_name"}, paths)
+}
+
+// TestServerInterceptor_EmptyUpdateMask_NestedIdentifierOnly pins that a
+// sub-message whose only populated field is its IDENTIFIER is left out of
+// the synthesised mask instead of becoming a whole-field replacement.
+func TestServerInterceptor_EmptyUpdateMask_NestedIdentifierOnly(t *testing.T) {
+	t.Parallel()
+
+	uni := newUnary(t, fieldmask.WithApplyEmptyUpdateMask())
+	req := &pb.UpdateResourceRequest{
+		Resource: &pb.Resource{
+			Name:    "renamed",
+			Profile: &pb.Profile{Id: "p-1"},
+		},
+		UpdateMask: &fieldmaskpb.FieldMask{},
+	}
+
+	seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+	require.NoError(t, err)
+
+	got, ok := seenReq.(*pb.UpdateResourceRequest)
+	require.True(t, ok)
+	require.Equal(t, []string{"name"}, got.GetUpdateMask().GetPaths(),
+		"profile must not be masked (and so replaced) when it carries only its identifier")
+}
+
 // TestServerInterceptor_EmptyUpdateMask_StripsOutputOnly verifies that
 // OUTPUT_ONLY fields populated on the resource (e.g. create_time echoed
 // by a misbehaving client) are dropped from the synthesised mask before

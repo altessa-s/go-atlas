@@ -16,6 +16,11 @@
 //	BatchUpdate*            -> StripUpdate on the request payload
 //	everything else         -> request is not stripped
 //
+// Following AIP-203, an IDENTIFIER field is cleared on Create (the server
+// assigns it) but preserved on Update, where it addresses the resource being
+// updated — also when the resource is nested in an Update*Request wrapper.
+// OUTPUT_ONLY fields are cleared on both; IMMUTABLE fields on Update only.
+//
 // The response of every method whose handler returns successfully is passed
 // through StripResponse, so INPUT_ONLY fields (passwords, one-shot tokens)
 // never leak through the read path. Disable that with [WithSkipResponse].

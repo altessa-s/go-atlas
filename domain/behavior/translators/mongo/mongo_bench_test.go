@@ -64,3 +64,54 @@ func BenchmarkProjectionTranslator(b *testing.B) {
 		}
 	}
 }
+
+// benchNested is an update payload whose nested objects hold protected fields
+// at several depths, so the update is written by descendant paths; its nil
+// pointer and empty slice hold nothing protected and are unset.
+type benchNested struct {
+	ID      string         `bson:"_id" behavior:"identifier"`
+	Profile *nestedProfile `bson:"profile"`
+	Wrap    *nestedWrap    `bson:"wrap"`
+	Home    *address       `bson:"home"`
+	Tags    []string       `bson:"tags"`
+}
+
+func BenchmarkUpdateTranslatorNestedProtected(b *testing.B) {
+	v := &benchNested{
+		ID:      "r1",
+		Profile: &nestedProfile{UID: "p1", Name: "Ann", Nick: new("a"), Tags: []string{"x"}, Created: time.Now()},
+		Wrap:    &nestedWrap{Note: "n", Inner: nestedProfile{UID: "p2", Name: "Bob", Created: time.Now()}},
+	}
+	eng := behavior.New[bson.M](mongo.NewUpdateTranslator(), behavior.WithKinds(behavior.DefaultUpdateKinds...))
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := eng.Translate(b.Context(), v); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// benchCollections is an update payload replacing collections whose elements
+// carry identifiers (written with each element) and nested values.
+type benchCollections struct {
+	ID    string                  `bson:"_id" behavior:"identifier"`
+	Items []taggedIDItem          `bson:"items"`
+	ByKey map[string]taggedIDItem `bson:"by_key"`
+	Ptrs  []*idItem               `bson:"ptrs"`
+}
+
+func BenchmarkUpdateTranslatorCollectionReplacement(b *testing.B) {
+	v := &benchCollections{
+		ID:    "r1",
+		Items: []taggedIDItem{{ID: "i1", Name: "a"}, {ID: "i2", Name: "b"}, {ID: "i3", Name: "c"}},
+		ByKey: map[string]taggedIDItem{"k1": {ID: "m1", Name: "x"}, "k2": {ID: "m2", Name: "y"}},
+		Ptrs:  []*idItem{{ID: "p1", Name: "p"}, nil},
+	}
+	eng := behavior.New[bson.M](mongo.NewUpdateTranslator(), behavior.WithKinds(behavior.DefaultUpdateKinds...))
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := eng.Translate(b.Context(), v); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

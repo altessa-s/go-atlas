@@ -24,7 +24,8 @@
 //
 //   - [StripCreate] on a Create payload — clears OutputOnly and Identifier
 //     fields the client should not be supplying.
-//   - [StripUpdate] on an Update payload — additionally clears Immutable fields.
+//   - [StripUpdate] on an Update payload — clears OutputOnly and Immutable
+//     fields and keeps Identifier, which addresses the resource on update.
 //   - [StripResponse] on a server response — clears InputOnly fields (secrets)
 //     that must never leave the server.
 //
@@ -46,7 +47,37 @@
 // [New] injects the translator; [Engine.Translate] resolves the struct into an
 // [Object]/[Field] tree and folds it with the translator. behavior itself stays
 // dependency-free; a database adapter (for example a mongo translator producing a
-// bson update document) lives in its own package and is just one consumer.
+// bson update document) lives in its own package and is just one consumer. An
+// update document is built with [DefaultUpdateKinds] too: the update translator
+// excludes the identifier itself, since it selects the stored record and is
+// never written.
+//
+// A translator that judges values the walk did not resolve (a nil pointer, an
+// empty collection) from their declared type implements [PolicyBinder]: [New]
+// binds it to the engine's effective [Policy] — tag key and strip kinds — so
+// that judgment follows the same policy as the resolved Strip marks.
+//
+// # Migrating: the identifier on update
+//
+// [DefaultUpdateKinds], and with it [StripUpdate], used to strip Identifier
+// too; it now keeps the identifier. A payload passed through StripUpdate, and
+// the tree a custom [Translator] receives from an engine built with
+// WithKinds(DefaultUpdateKinds...), carry the identifier the client sent, with
+// [Field.Strip] false. Use it to address the record and leave it out of what
+// you persist: the mongo update translator does so itself, while any other
+// translator, and code that serializes a StripUpdate'd payload into a storage
+// write, must exclude it explicitly:
+//
+//	for _, f := range root.Fields {
+//	    if f.Strip || slices.Contains(f.Kinds, behavior.Identifier) {
+//	        continue // stripped, or the identifier that selects the record
+//	    }
+//	    // write f
+//	}
+//
+// To keep the former behavior, pass the former strip set:
+// StripUpdate(&v, WithKinds(OutputOnly, Identifier, Immutable)), or the same
+// [WithKinds] on the engine.
 //
 // # Schema walk
 //

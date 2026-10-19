@@ -8,16 +8,30 @@ Package `fieldmask` provides hierarchical field mask utilities for Protocol Buff
 paths with support for filtering, pruning, set operations, and update-style validation of field annotations. Well-known types (`structpb.Struct`,
 `structpb.ListValue`, `structpb.Value`) are handled transparently — their dynamic keys are navigable by all mask operations. Update masks validate
 `google.api.field_behavior` annotations (`REQUIRED`, `IMMUTABLE`, `OUTPUT_ONLY`, `IDENTIFIER`) before applying changes. `IDENTIFIER` fields (AIP-203)
-are treated like `IMMUTABLE` in the update path — the identifier names the resource and must not be modified by an update.
+are treated like `IMMUTABLE` in the update path — the identifier names the resource and must not be modified by an update. A singular message named
+whole (`profile`) would be replaced or cleared together with its fields, so when it holds an `IDENTIFIER`, `IMMUTABLE` or `OUTPUT_ONLY` field — directly
+or in a singular sub-message at any depth, populated or absent — each such field is reported as a violation; name the message's other fields
+(`profile.display_name`) instead. Repeated and map fields, and their elements named whole (`labels.k`, `aliases.*`), are replaced as a whole and are not
+descended. A sub-path into collection elements — a map key (`labels.k.id`), the `*` wildcard (`aliases.*.id`) or the implicit per-element form
+(`aliases.id`) — is checked against the element schema: `IDENTIFIER` and `IMMUTABLE` leaves are violations and `OUTPUT_ONLY` leaves are removed from the
+mask, as for a singular sub-message.
+
+A field carrying several behaviors is judged by presence with a fixed precedence — `OUTPUT_ONLY` (dropped), then `IDENTIFIER`, then `IMMUTABLE`, then
+`REQUIRED` (cleared) — so `[REQUIRED, IMMUTABLE]` is protected whatever the declaration order, and the violation names the protecting behavior. A
+whole-message selection is rejected when its singular subtree holds any server-managed field — `OUTPUT_ONLY`, `IDENTIFIER` or `IMMUTABLE`: the
+replacement (for example `FieldMask.Merge`, which copies whole top-level fields) would delete the stored value. The violation names `OUTPUT_ONLY` for a
+field that is also `IDENTIFIER` or `IMMUTABLE`. Nested `OUTPUT_ONLY` entries are removed from the mask before set identifiers are preserved (an
+`IDENTIFIER` that is also `OUTPUT_ONLY` is never preserved), so a branch that named only such fields disappears.
 
 ## Constructors
 
-| Function             | Description                                                                                           |
-|----------------------|-------------------------------------------------------------------------------------------------------|
-| `FromPaths`          | Create a mask from variadic dot-separated path strings                                                |
-| `FromProtoFieldMask` | Create a mask from a `fieldmaskpb.FieldMask` proto message                                            |
-| `FromMessage`        | Create a mask covering every field in the message schema                                              |
-| `FromSetFields`      | Create a mask covering only the populated (non-default) fields of a message; options shape the result |
+| Function                 | Description                                                                                                     |
+|--------------------------|-----------------------------------------------------------------------------------------------------------------|
+| `FromPaths`              | Create a mask from variadic dot-separated path strings                                                          |
+| `FromProtoFieldMask`     | Create a mask from a `fieldmaskpb.FieldMask` proto message                                                      |
+| `FromMessage`            | Create a mask covering every field in the message schema                                                        |
+| `FromSetFields`          | Create a mask covering only the populated (non-default) fields of a message; options shape the result           |
+| `FromSetFieldsForUpdate` | The update mask an empty `update_mask` implies: `FromSetFields` minus identifiers and server-managed sub-fields |
 
 ## Operations
 
@@ -32,6 +46,7 @@ are treated like `IMMUTABLE` in the update path — the identifier names the res
 | `Difference`         | Return a mask containing paths in the receiver but not in the argument                             |
 | `ToPaths`            | Return a sorted slice of dot-separated path strings                                                |
 | `ApplyUpdateMask`    | Validate field behaviors, then clear fields outside the mask in place (mutates the receiver mask)  |
+| `DropIdentifiers`    | Remove the `IDENTIFIER` entries `ApplyUpdateMask` added, before handing the mask on (mutates)      |
 | `ExpandMessagePaths` | Expand message-typed leaves into their sub-fields for a full replacement update                    |
 | `Contains`           | Report whether a dot-separated path is present in the mask                                         |
 | `Validate`           | Check that every path exists in the message schema (`ValidationError` otherwise)                   |
@@ -96,9 +111,9 @@ mask := fieldmask.FromPaths(
 )
 ```
 
-`ApplyUpdateMask` strips OUTPUT_ONLY fields transitively through wildcard sub-masks: `aliases.*.updated_at` (where `updated_at` is OUTPUT_ONLY on
-`Profile`) is removed from the writeback mask before the handler sees it. When a wildcard sub-mask becomes empty after the strip, the parent collection
-is dropped from the mask as well.
+`ApplyUpdateMask` strips OUTPUT_ONLY fields transitively through element sub-masks: `aliases.*.updated_at`, `aliases.updated_at` and
+`labels.k.updated_at` (where `updated_at` is OUTPUT_ONLY on `Profile`) are removed from the writeback mask before the handler sees it. When an element
+sub-mask becomes empty after the strip, it is dropped, and so is a parent collection left without entries.
 
 ## Read-modify-write updates
 

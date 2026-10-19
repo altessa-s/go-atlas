@@ -87,8 +87,10 @@ func StripCreate[S any](v *S, opts ...Option) error {
 	return strip(v, stripOptions(DefaultCreateKinds, opts))
 }
 
-// StripUpdate clears fields marked OutputOnly, Identifier, or Immutable. Use it
-// on an Update payload before applying the update.
+// StripUpdate clears fields marked OutputOnly or Immutable. Use it on an Update
+// payload before applying the update. Identifier fields are kept: on update the
+// identifier addresses the resource (AIP-203), so it is neither cleared nor
+// reported under [WithStrict].
 func StripUpdate[S any](v *S, opts ...Option) error {
 	return strip(v, stripOptions(DefaultUpdateKinds, opts))
 }

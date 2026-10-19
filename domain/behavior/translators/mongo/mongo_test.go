@@ -192,6 +192,78 @@ func TestUpdateTranslator(t *testing.T) {
 	require.Nil(t, unset["nick"])
 }
 
+func TestUpdateTranslatorExcludesIdentifier(t *testing.T) {
+	t.Parallel()
+
+	// An identifier stored under a name other than "_id" stays out of the update
+	// document whatever kinds the engine strips: it selects the record, it is
+	// never written. DefaultUpdateKinds (the documented invocation) keeps the
+	// identifier in the payload, so the translator has to exclude it itself.
+	type doc struct {
+		UID      string  `bson:"uid" behavior:"identifier"`
+		Ref      *string `bson:"ref" behavior:"identifier"`
+		TenantID string  `bson:"tenant_id" behavior:"immutable"`
+		Name     string  `bson:"name"`
+	}
+	tests := []struct {
+		name  string
+		kinds []behavior.Kind
+	}{
+		{name: "default update kinds", kinds: behavior.DefaultUpdateKinds},
+		{name: "no kinds", kinds: nil},
+		{name: "identifier stripped by the engine", kinds: []behavior.Kind{behavior.Identifier, behavior.Immutable}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := []behavior.Option{behavior.WithKinds(tt.kinds...)}
+			// A set identifier never enters $set, a nil identifier pointer
+			// never enters $unset.
+			got := update(t, &doc{UID: "u1", Name: "n"}, opts)
+			set := got["$set"].(bson.M)
+			unset, _ := got["$unset"].(bson.M)
+			require.NotContains(t, set, "uid")
+			require.NotContains(t, unset, "ref")
+			require.Equal(t, "n", set["name"])
+
+			got = update(t, &doc{UID: "u1", Ref: new("r1"), Name: "n"}, opts)
+			set = got["$set"].(bson.M)
+			require.NotContains(t, set, "uid")
+			require.NotContains(t, set, "ref")
+		})
+	}
+
+	got := update(t, &doc{UID: "u1", TenantID: "t1", Name: "n"},
+		[]behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)})
+	require.Equal(t, bson.M{"$set": bson.M{"name": "n"}}, got)
+
+	got = update(t, &user{ID: "u1", Name: "Ann"},
+		[]behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)})
+	set := got["$set"].(bson.M)
+	require.NotContains(t, set, "_id")
+	if unset, ok := got["$unset"].(bson.M); ok {
+		require.NotContains(t, unset, "_id")
+	}
+
+	// An identifier inside a collection element is the element's own: the
+	// replaced collection keeps it.
+	type item struct {
+		ID   string `bson:"id" behavior:"identifier"`
+		Name string `bson:"name"`
+	}
+	type list struct {
+		Items  []item          `bson:"items"`
+		ByCode map[string]item `bson:"by_code"`
+	}
+	got = update(t, &list{Items: []item{{ID: "i1", Name: "a"}}, ByCode: map[string]item{"c": {ID: "i2", Name: "b"}}},
+		[]behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)})
+	require.Equal(t, bson.M{"$set": bson.M{
+		"items":   bson.A{bson.M{"id": "i1", "name": "a"}},
+		"by_code": bson.M{"c": bson.M{"id": "i2", "name": "b"}},
+	}}, got)
+}
+
 func TestUpdateTranslatorNoUnset(t *testing.T) {
 	t.Parallel()
 
@@ -206,9 +278,24 @@ func TestUpdateTranslatorNoUnset(t *testing.T) {
 func TestUpdateTranslatorKindsOverride(t *testing.T) {
 	t.Parallel()
 
-	// Strip only InputOnly, so identifier/immutable/output_only are kept.
-	u := user{ID: "u1", TenantID: "t1", Password: "p", Name: "n"}
-	got := update(t, &u, []behavior.Option{behavior.WithKinds(behavior.InputOnly)})
+	// Strip only InputOnly, so immutable/output_only are kept; the identifier
+	// is excluded by the translator whatever the kinds. Home and Aliases hold
+	// an input_only field now stripped: a nil Home would delete its stored
+	// value, so it is sent and written by path, and the aliases (a replaced
+	// collection carrying it) are left out.
+	type account struct {
+		ID       string   `bson:"_id" behavior:"identifier"`
+		Name     string   `bson:"name"`
+		TenantID string   `bson:"tenant_id" behavior:"immutable"`
+		Password string   `bson:"password" behavior:"input_only"`
+		Home     *address `bson:"home"`
+	}
+	kinds := []behavior.Option{behavior.WithKinds(behavior.InputOnly)}
+	_, err := behavior.New[bson.M](mongo.NewUpdateTranslator(), kinds...).Translate(t.Context(), &account{ID: "u1"})
+	require.ErrorIs(t, err, mongo.ErrProtectedUnset, "a nil home would delete the stored secret")
+
+	u := account{ID: "u1", TenantID: "t1", Password: "p", Name: "n", Home: &address{City: "c"}}
+	got := update(t, &u, kinds)
 
 	set := got["$set"].(bson.M)
 	require.NotContains(t, set, "_id") // _id always removed
@@ -322,7 +409,7 @@ func TestInsertTranslatorMapOfStructs(t *testing.T) {
 	}}}}, got)
 }
 
-func TestUpdateTranslatorStripsInsideNestedValues(t *testing.T) {
+func TestUpdateTranslatorRejectsStripInsideCollections(t *testing.T) {
 	t.Parallel()
 
 	type item struct {
@@ -330,24 +417,23 @@ func TestUpdateTranslatorStripsInsideNestedValues(t *testing.T) {
 		Created string `bson:"created" behavior:"output_only"`
 	}
 	type doc struct {
-		ByKey map[string]item  `bson:"by_key"`
-		ByPtr map[string]*item `bson:"by_ptr"`
-		Items []item           `bson:"items"`
+		ByKey map[string]item  `bson:"by_key,omitempty"`
+		ByPtr map[string]*item `bson:"by_ptr,omitempty"`
+		Items []item           `bson:"items,omitempty"`
 	}
 
-	d := doc{
-		ByKey: map[string]item{"a": {Name: "n", Created: "c"}},
-		ByPtr: map[string]*item{"b": {Name: "n", Created: "c"}},
-		Items: []item{{Name: "n", Created: "c"}},
+	// Map values (plain and pointer) and slice elements are replaced with
+	// their collection, which cannot keep the stored output_only field: the
+	// update is rejected rather than silently dropping it.
+	eng := behavior.New[bson.M](mongo.NewUpdateTranslator(), behavior.WithKinds(behavior.DefaultUpdateKinds...))
+	for name, d := range map[string]*doc{
+		"map value":         {ByKey: map[string]item{"a": {Name: "n", Created: "c"}}},
+		"pointer map value": {ByPtr: map[string]*item{"b": {Name: "n", Created: "c"}}},
+		"slice element":     {Items: []item{{Name: "n", Created: "c"}}},
+	} {
+		_, err := eng.Translate(t.Context(), d)
+		require.ErrorIs(t, err, mongo.ErrProtectedInCollection, name)
 	}
-	got := update(t, &d, []behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)})
-	set := got["$set"].(bson.M)
-
-	// Map values (plain and pointer) and slice elements all drop the
-	// output_only field — strip semantics are uniform at every nesting level.
-	require.Equal(t, bson.M{"a": bson.M{"name": "n"}}, set["by_key"])
-	require.Equal(t, bson.M{"b": bson.M{"name": "n"}}, set["by_ptr"])
-	require.Equal(t, bson.A{bson.M{"name": "n"}}, set["items"])
 }
 
 func TestMapDollarKeyRejected(t *testing.T) {

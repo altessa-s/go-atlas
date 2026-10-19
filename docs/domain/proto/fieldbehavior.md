@@ -8,23 +8,23 @@ import "github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 > and is most useful next to [`filter`](../../data/filter.md), [`orderby`](../../data/orderby.md), and the rest of the data toolkit.
 
 A `proto.Message`-stripper driven by Google's `google.api.field_behavior` annotations (AIP-203). The library walks the message payload itself and clears
-fields that should not be present in the current direction of the wire — `OUTPUT_ONLY` / `IDENTIFIER` on Create, those plus `IMMUTABLE` on Update, and
-`INPUT_ONLY` on responses. The companion package [`fieldmask`](../../../domain/proto/fieldmask/README.md) deals with the `FieldMask` *value*; `fieldbehavior`
-deals with the resource *payload*.
+fields that should not be present in the current direction of the wire — `OUTPUT_ONLY` / `IDENTIFIER` on Create, `OUTPUT_ONLY` / `IMMUTABLE` on Update
+(the `IDENTIFIER` is kept there because it addresses the resource), and `INPUT_ONLY` on responses. The companion package
+[`fieldmask`](../../../domain/proto/fieldmask/README.md) deals with the `FieldMask` *value*; `fieldbehavior` deals with the resource *payload*.
 
 ---
 
 ## When to reach for `fieldbehavior`
 
-| Scenario                                                                                 | Use                                                |
-|------------------------------------------------------------------------------------------|----------------------------------------------------|
-| Strip server-managed identifiers/timestamps from a Create-request resource              | `StripCreate(req.GetResource())`                   |
-| Same for Update, plus reject changes to `IMMUTABLE` fields                              | `StripUpdate(req.GetResource())`                   |
-| Strip secrets (`INPUT_ONLY` — passwords, tokens) from a response before returning it    | `StripResponse(resp)`                              |
-| Surface client misuse instead of silently clearing populated fields                     | Add `WithStrict()` → `*BehaviorViolationError`     |
-| Cap traversal depth on adversarial/fuzzed input                                         | `WithMaxDepth(n)`                                  |
-| Strip a custom set of behaviors (e.g. `REQUIRED` for a dry-run validator)               | `Strip(msg, WithBehaviors(...))`                   |
-| Wire up the same logic across every gRPC handler                                        | Server interceptor that dispatches by method name  |
+| Scenario                                                                             | Use                                               |
+|--------------------------------------------------------------------------------------|---------------------------------------------------|
+| Strip server-managed identifiers/timestamps from a Create-request resource           | `StripCreate(req.GetResource())`                  |
+| Same for Update, plus drop changes to `IMMUTABLE` fields; the `IDENTIFIER` is kept   | `StripUpdate(req.GetResource())`                  |
+| Strip secrets (`INPUT_ONLY` — passwords, tokens) from a response before returning it | `StripResponse(resp)`                             |
+| Surface client misuse instead of silently clearing populated fields                  | Add `WithStrict()` → `*BehaviorViolationError`    |
+| Cap traversal depth on adversarial/fuzzed input                                      | `WithMaxDepth(n)`                                 |
+| Strip a custom set of behaviors (e.g. `REQUIRED` for a dry-run validator)            | `Strip(msg, WithBehaviors(...))`                  |
+| Wire up the same logic across every gRPC handler                                     | Server interceptor that dispatches by method name |
 
 ---
 
@@ -46,7 +46,7 @@ func (s *server) CreateBucket(ctx context.Context, req *pb.CreateBucketRequest) 
 `DefaultCreateBehaviors = [OUTPUT_ONLY, IDENTIFIER]`. `REQUIRED`, `IMMUTABLE` and `INPUT_ONLY` survive — the client is allowed (and often expected) to
 supply them at create time.
 
-### Update — additionally lock immutable fields
+### Update — lock immutable fields, keep the identifier
 
 ```go
 func (s *server) UpdateBucket(ctx context.Context, req *pb.UpdateBucketRequest) (*pb.Bucket, error) {
@@ -57,8 +57,32 @@ func (s *server) UpdateBucket(ctx context.Context, req *pb.UpdateBucketRequest) 
 }
 ```
 
-`DefaultUpdateBehaviors = [OUTPUT_ONLY, IDENTIFIER, IMMUTABLE]`. Combine with [`fieldmask.ApplyUpdateMask`](../../../domain/proto/fieldmask/README.md) for
+`DefaultUpdateBehaviors = [OUTPUT_ONLY, IMMUTABLE]`. `IDENTIFIER` is not stripped on Update: per AIP-203 it addresses the resource being updated, so
+the handler receives it (validate it as required on Update). Combine with [`fieldmask.ApplyUpdateMask`](../../../domain/proto/fieldmask/README.md) for
 full AIP-134 update semantics — `fieldbehavior` clears the payload, `fieldmask` validates the mask.
+
+#### Migrating from the earlier Update defaults
+
+`StripUpdate` and `DefaultUpdateBehaviors` used to clear `IDENTIFIER` fields too; they now keep them, at every depth, so the payload a handler gets
+after `StripUpdate` carries the client's identifier values. That is what routing needs, but code that persists the stripped payload as it is —
+serializes it into a document, or builds a storage update from every populated field — would now write those identifiers. Audit such callers:
+
+- Use the identifier to address the resource (look it up, compare it with the request name), then leave it out of what you write: exclude it from
+  the document or update the writer builds, including the identifiers of sub-messages and collection elements.
+- Drive the write by the update mask rather than by populated fields: [`fieldmask.ApplyUpdateMask`](../../../domain/proto/fieldmask/README.md)
+  rejects masks that name an `IDENTIFIER`, also inside sub-messages and collection elements (`profile.id`, `labels.k.id`, `aliases.*.id`).
+- Where a caller depends on the former strip set, pass it explicitly: `WithBehaviors` replaces the defaults.
+
+```go
+// The pre-AIP-203 Update behavior: the identifier is cleared with the rest.
+err := fieldbehavior.StripUpdate(req.GetBucket(), fieldbehavior.WithBehaviors(
+    annotations.FieldBehavior_OUTPUT_ONLY,
+    annotations.FieldBehavior_IDENTIFIER,
+    annotations.FieldBehavior_IMMUTABLE,
+))
+```
+
+Clear the identifier only after it has been read for routing: once stripped, the handler can no longer tell which resource the request addresses.
 
 ### Response — strip INPUT_ONLY secrets
 
@@ -97,41 +121,41 @@ if errors.As(err, &vErr) {
 
 ## API surface
 
-| Entry point                                  | Default behavior set                                | Description                                                    |
-|----------------------------------------------|-----------------------------------------------------|----------------------------------------------------------------|
-| `Strip(msg, opts...)`                        | none (no-op without `WithBehaviors`)                | Generic walk; configure with `WithBehaviors`.                  |
-| `StripCreate(msg, opts...)`                  | `DefaultCreateBehaviors`                            | OUTPUT_ONLY + IDENTIFIER.                                      |
-| `StripUpdate(msg, opts...)`                  | `DefaultUpdateBehaviors`                            | OUTPUT_ONLY + IDENTIFIER + IMMUTABLE.                          |
-| `StripResponse(msg, opts...)`                | `DefaultResponseBehaviors`                          | INPUT_ONLY.                                                    |
+| Entry point                   | Default behavior set                 | Description                                   |
+|-------------------------------|--------------------------------------|-----------------------------------------------|
+| `Strip(msg, opts...)`         | none (no-op without `WithBehaviors`) | Generic walk; configure with `WithBehaviors`. |
+| `StripCreate(msg, opts...)`   | `DefaultCreateBehaviors`             | OUTPUT_ONLY + IDENTIFIER.                     |
+| `StripUpdate(msg, opts...)`   | `DefaultUpdateBehaviors`             | OUTPUT_ONLY + IMMUTABLE (IDENTIFIER kept).    |
+| `StripResponse(msg, opts...)` | `DefaultResponseBehaviors`           | INPUT_ONLY.                                   |
 
 All four return `error`. The error is `nil` in mutation mode unless `MaxDepth` is exceeded; in strict mode it is `*BehaviorViolationError` (see
 [Strict mode](#strict-mode)) when at least one populated field matched the configured set.
 
 ### Options
 
-| Option                                       | Default          | Description                                                                                                                       |
-|----------------------------------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| `WithBehaviors(set ...annotations.FieldBehavior)` | —              | Replace the configured behavior set entirely. Passing it to `StripCreate`/`Update`/`Response` overrides their defaults.            |
-| `WithStrict()`                               | off              | Do not mutate the message; instead collect every populated stripped field into `*BehaviorViolationError` and return it.            |
-| `WithMaxDepth(n int)`                        | 32               | Cap on traversal depth. Protocol Buffers schemas cannot contain cycles, so hitting the limit indicates adversarial / fuzzed input. |
+| Option                                            | Default | Description                                                                                                                        |
+|---------------------------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------|
+| `WithBehaviors(set ...annotations.FieldBehavior)` | —       | Replace the configured behavior set entirely. Passing it to `StripCreate`/`Update`/`Response` overrides their defaults.            |
+| `WithStrict()`                                    | off     | Do not mutate the message; instead collect every populated stripped field into `*BehaviorViolationError` and return it.            |
+| `WithMaxDepth(n int)`                             | 32      | Cap on traversal depth. Protocol Buffers schemas cannot contain cycles, so hitting the limit indicates adversarial / fuzzed input. |
 
 ### Defaults
 
-| Constant / variable                          | Value                                                                                                                                                |
-|----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `DefaultStrict`                              | `false`                                                                                                                                              |
-| `DefaultMaxDepth`                            | `32`                                                                                                                                                 |
-| `DefaultCreateBehaviors`                     | `[OUTPUT_ONLY, IDENTIFIER]`                                                                                                                          |
-| `DefaultUpdateBehaviors`                     | `[OUTPUT_ONLY, IDENTIFIER, IMMUTABLE]`                                                                                                               |
-| `DefaultResponseBehaviors`                   | `[INPUT_ONLY]`                                                                                                                                       |
+| Constant / variable        | Value                       |
+|----------------------------|-----------------------------|
+| `DefaultStrict`            | `false`                     |
+| `DefaultMaxDepth`          | `32`                        |
+| `DefaultCreateBehaviors`   | `[OUTPUT_ONLY, IDENTIFIER]` |
+| `DefaultUpdateBehaviors`   | `[OUTPUT_ONLY, IMMUTABLE]`  |
+| `DefaultResponseBehaviors` | `[INPUT_ONLY]`              |
 
 ### Errors
 
-| Symbol                                       | Description                                                                                                              |
-|----------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
-| `*BehaviorViolationError`                    | Aggregate of every populated stripped field under `WithStrict`. Carries a `Violations []BehaviorViolation` slice.        |
-| `BehaviorViolation{ Path, Behavior }`        | One entry per field. `Path` is a dot/index path (`aliases[2].id`, `labels["k"].id`); `Behavior` is the first match.      |
-| `ErrMaxDepthExceeded`                        | `sentinel error` returned when traversal exceeds `WithMaxDepth`. Use `errors.Is` to detect.                              |
+| Symbol                                | Description                                                                                                         |
+|---------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `*BehaviorViolationError`             | Aggregate of every populated stripped field under `WithStrict`. Carries a `Violations []BehaviorViolation` slice.   |
+| `BehaviorViolation{ Path, Behavior }` | One entry per field. `Path` is a dot/index path (`aliases[2].id`, `labels["k"].id`); `Behavior` is the first match. |
+| `ErrMaxDepthExceeded`                 | `sentinel error` returned when traversal exceeds `WithMaxDepth`. Use `errors.Is` to detect.                         |
 
 ---
 
@@ -140,16 +164,16 @@ All four return `error`. The error is `nil` in mutation mode unless `MaxDepth` i
 The walker visits every populated field of the root message in descriptor order, applies the match rule, and either clears the field (mutation mode) or
 records a violation (strict mode) — see [Strict mode](#strict-mode).
 
-| Field shape                                          | If the field itself is annotated     | If the field has no annotation                          |
-|------------------------------------------------------|--------------------------------------|---------------------------------------------------------|
-| Scalar (`string`, `int32`, `bool`, …)               | `FieldDescriptor.Clear`              | No-op.                                                  |
-| Singular nested message (`Profile profile = 7`)     | Subtree cleared, **no recursion**.   | Recursive descent into the populated message.           |
-| Repeated of messages (`repeated Profile aliases`)   | Whole list cleared.                  | Recurse into each element; path `field[i]`.             |
-| Repeated of scalars (`repeated string tags`)        | List cleared.                        | No-op.                                                  |
-| Map<K, Message> (`map<string, Profile> labels`)     | Whole map cleared.                   | Recurse into each value; path `field["key"]`.           |
-| Map<K, V> with scalar V                              | Map cleared.                         | No-op.                                                  |
-| Oneof case (`oneof source { … }`)                    | Active case cleared if it matches.   | If the active case is a message, recurse into it.       |
-| Well-known type (`Timestamp`, `Duration`, …)         | Treated as a leaf; whole field clear | No-op (we do **not** descend into well-known internals).|
+| Field shape                                       | If the field itself is annotated     | If the field has no annotation                           |
+|---------------------------------------------------|--------------------------------------|----------------------------------------------------------|
+| Scalar (`string`, `int32`, `bool`, …)             | `FieldDescriptor.Clear`              | No-op.                                                   |
+| Singular nested message (`Profile profile = 7`)   | Subtree cleared, **no recursion**.   | Recursive descent into the populated message.            |
+| Repeated of messages (`repeated Profile aliases`) | Whole list cleared.                  | Recurse into each element; path `field[i]`.              |
+| Repeated of scalars (`repeated string tags`)      | List cleared.                        | No-op.                                                   |
+| Map<K, Message> (`map<string, Profile> labels`)   | Whole map cleared.                   | Recurse into each value; path `field["key"]`.            |
+| Map<K, V> with scalar V                           | Map cleared.                         | No-op.                                                   |
+| Oneof case (`oneof source { … }`)                 | Active case cleared if it matches.   | If the active case is a message, recurse into it.        |
+| Well-known type (`Timestamp`, `Duration`, …)      | Treated as a leaf; whole field clear | No-op (we do **not** descend into well-known internals). |
 
 Path construction:
 
@@ -306,13 +330,13 @@ field-list (Go ≥ 1.21 protobuf-go already caches it internally), or limit trav
 
 ## `fieldbehavior` vs `fieldmask`
 
-| Concern                                              | `fieldmask`                                                                 | `fieldbehavior`                                                |
-|------------------------------------------------------|-----------------------------------------------------------------------------|----------------------------------------------------------------|
-| What is the input?                                   | A `FieldMask` value (paths)                                                 | A `proto.Message` payload                                      |
-| What does it produce?                                | A filtered/pruned `proto.Message`, or an error on mask validation           | A mutated `proto.Message` (or `*BehaviorViolationError`)       |
-| When does it run on the wire path?                   | Update (validates the `update_mask`)                                        | Create / Update (clears payload) and Response (clears secrets) |
-| How does it use `google.api.field_behavior`?         | Validates that the **mask** does not reference IMMUTABLE/OUTPUT_ONLY paths  | Walks the **payload** and clears every matching field          |
-| Shared helper                                        | `domain/proto/internal/behavior.Get`                                        | same                                                            |
+| Concern                                      | `fieldmask`                                                                | `fieldbehavior`                                                |
+|----------------------------------------------|----------------------------------------------------------------------------|----------------------------------------------------------------|
+| What is the input?                           | A `FieldMask` value (paths)                                                | A `proto.Message` payload                                      |
+| What does it produce?                        | A filtered/pruned `proto.Message`, or an error on mask validation          | A mutated `proto.Message` (or `*BehaviorViolationError`)       |
+| When does it run on the wire path?           | Update (validates the `update_mask`)                                       | Create / Update (clears payload) and Response (clears secrets) |
+| How does it use `google.api.field_behavior`? | Validates that the **mask** does not reference IMMUTABLE/OUTPUT_ONLY paths | Walks the **payload** and clears every matching field          |
+| Shared helper                                | `domain/proto/internal/behavior.Get`                                       | same                                                           |
 
 You almost always want both: `fieldbehavior.StripCreate`/`Update` on the request payload **before** validation, and `fieldmask.ApplyUpdateMask` on the
 `update_mask` **after** validation but before writing.

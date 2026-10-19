@@ -345,11 +345,15 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 	// from the resource's set fields, applying AIP-134 "update every populated
 	// field".
 	if len(msk) == 0 && ri.opts.applyEmptyUpdateMask {
-		msk = pbfieldmask.FromSetFields[pbfieldmask.FieldMask](resource)
-		if len(msk) == 0 {
-			ri.LogDebug(ctx, "fieldmask update_mask empty, no populated fields", method)
-			return nil
-		}
+		// Server-managed fields stay out of the synthesized mask: an
+		// IDENTIFIER addresses its resource (AIP-203), and a populated
+		// sub-message is masked by its set fields rather than whole, which
+		// ApplyUpdateMask rejects (see FromSetFieldsForUpdate).
+		msk = pbfieldmask.FromSetFieldsForUpdate(resource)
+		// An empty result (nothing populated, or only skipped fields) still
+		// goes through ApplyUpdateMask: the empty mask authorizes nothing
+		// and the filter clears the skipped client values, keeping set
+		// top-level identifiers.
 		ri.LogDebug(ctx, "fieldmask update_mask synthesized from set fields", method,
 			slog.Int("synthesized_paths", len(msk)),
 		)
@@ -358,6 +362,11 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 	if applyErr := msk.ApplyUpdateMask(resource); applyErr != nil {
 		return ri.convertUpdateError(ctx, method, applyErr)
 	}
+
+	// ApplyUpdateMask adds the set IDENTIFIER fields to msk so they survive
+	// the filter. They address the resource rather than name fields to
+	// change, so the handler gets the mask without them.
+	msk.DropIdentifiers(resource)
 
 	cleaned := msk.ToProtoFieldMask()
 	if writeback != nil {

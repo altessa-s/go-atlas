@@ -14,12 +14,17 @@ here. The translators own only the bson tag.
 
 ## Translators
 
-| Constructor                | Output                                  | Engine kinds to pass                                  |
-|----------------------------|-----------------------------------------|-------------------------------------------------------|
-| `NewInsertTranslator`      | `bson.M` insert document                | none — the codec's own encoding of the value          |
-| `NewUpdateTranslator`      | `bson.M` `{"$set", "$unset"}` document  | `behavior.WithKinds(behavior.DefaultUpdateKinds...)`  |
-| `NewProjectionTranslator`  | `bson.M` exclusion projection `{p: 0}`  | `behavior.WithKinds(behavior.DefaultResponseKinds...)` + `behavior.WithSchemaWalk()` |
-| `NewFieldPathsTranslator`  | `FieldPaths{Selectable, Denied}`        | `behavior.WithKinds(behavior.DefaultResponseKinds...)` + `behavior.WithSchemaWalk()` |
+| Constructor               | Output                                 | Engine kinds to pass                                                                 |
+|---------------------------|----------------------------------------|--------------------------------------------------------------------------------------|
+| `NewInsertTranslator`     | `bson.M` insert document               | none — the codec's own encoding of the value                                         |
+| `NewUpdateTranslator`     | `bson.M` `{"$set", "$unset"}` document | `behavior.WithKinds(behavior.DefaultUpdateKinds...)`                                 |
+| `NewProjectionTranslator` | `bson.M` exclusion projection `{p: 0}` | `behavior.WithKinds(behavior.DefaultResponseKinds...)` + `behavior.WithSchemaWalk()` |
+| `NewFieldPathsTranslator` | `FieldPaths{Selectable, Denied}`       | `behavior.WithKinds(behavior.DefaultResponseKinds...)` + `behavior.WithSchemaWalk()` |
+
+The update translator excludes `identifier` fields itself, whatever kinds the engine strips: the identifier selects the record and never lands in `$set`
+or `$unset`, under `_id` or any other name, set or nil — including every key an inline struct or inline map tagged `identifier` contributes to the
+parent. `DefaultUpdateKinds` keeps the identifier in the `StripUpdate` payload (AIP-203), and the same set drives the update translator. An identifier
+inside a collection element belongs to the element and is written with it.
 
 The first three return `behavior.Translator[bson.M]`. `NewProjectionTranslator` and `NewFieldPathsTranslator` are type-driven: the engine **must** be
 built with `behavior.WithSchemaWalk()` so nested paths appear even for a zero-value carrier or a nil pointer / empty collection.
@@ -50,24 +55,51 @@ cannot read the custom tag, so the document is folded field by field under the r
 
 The rules below describe the update document, and the insert document under a custom tag.
 
-| Field shape                          | Insert                                  | Update                                                      |
-|--------------------------------------|-----------------------------------------|------------------------------------------------------------|
-| Scalar / opaque struct (`time.Time`) | value via `Interface()`                 | `$set` value                                               |
-| `bool`                               | `bool` value                            | `$set` value                                               |
-| `[]byte` / `[]uint8`                 | Binary value                            | `$set` Binary value                                        |
-| nil pointer                          | nil value (unless `omitempty`)          | `$unset`                                                   |
-| `*struct` (non-nil, recursable)      | nested subdocument                      | nested subdocument (full replace, no nested `$unset`)      |
-| `[]struct` / `[N]struct` (non-empty) | array of subdocuments                   | array of subdocuments (full replace)                       |
-| `map[string]struct` (non-empty)      | subdocument; `$`-prefixed keys rejected | subdocument (full replace)                                 |
-| empty slice / map / array            | `[]` / `{}`; nil → null (absent with `omitempty`) | `$unset`                                         |
-| `omitonupdate` tag                   | written                                 | skipped                                                    |
-| stripped field (engine `WithKinds`)  | written (insert is unfiltered)          | excluded from `$set` and `$unset`                          |
-| `inline` struct / non-nil `*struct`  | fields at the parent level              | fields at the parent level in `$set` / `$unset`            |
-| `inline` nil `*struct`               | nothing                                 | nothing (the codec stores no key to `$unset`)              |
-| `inline` `map[string]T`              | entries at the parent level             | entries at the parent level in `$set`; empty map: nothing  |
+| Field shape                          | Insert                                            | Update                                                        |
+|--------------------------------------|---------------------------------------------------|---------------------------------------------------------------|
+| Scalar / opaque struct (`time.Time`) | value via `Interface()`                           | `$set` value                                                  |
+| `bool`                               | `bool` value                                      | `$set` value                                                  |
+| `[]byte` / `[]uint8`                 | Binary value                                      | `$set` Binary value                                           |
+| nil pointer                          | nil value (unless `omitempty`)                    | `$unset`; protected field in its type: `ErrProtectedUnset`    |
+| `*struct` (non-nil, recursable)      | nested subdocument                                | nested subdocument (full replace, no nested `$unset`)         |
+| `*struct` holding a protected field  | nested subdocument                                | descendant paths `home.city` in `$set` / `$unset`             |
+| `[]struct` / `[N]struct` (non-empty) | array of subdocuments                             | array of subdocuments (full replace)                          |
+| `map[string]struct` (non-empty)      | subdocument; `$`-prefixed keys rejected           | subdocument (full replace)                                    |
+| collection of a stripped field       | written (insert is unfiltered)                    | `ErrProtectedInCollection`                                    |
+| empty slice / map / array            | `[]` / `{}`; nil → null (absent with `omitempty`) | `$unset`; protected element field: `ErrProtectedInCollection` |
+| `omitonupdate` tag                   | written                                           | skipped; protected, in an element: `ErrProtectedInCollection` |
+| stripped field (engine `WithKinds`)  | written (insert is unfiltered)                    | excluded from `$set` and `$unset`                             |
+| `identifier` field                   | written (insert is unfiltered)                    | excluded from `$set` and `$unset`, whatever the kinds         |
+| `inline` struct / non-nil `*struct`  | fields at the parent level                        | fields at the parent level in `$set` / `$unset`               |
+| `inline` nil `*struct`               | nothing                                           | nothing (the codec stores no key to `$unset`)                 |
+| `inline` `map[string]T`              | entries at the parent level                       | entries at the parent level in `$set`; empty map: nothing     |
 
-Strip exclusion applies recursively: nested subdocuments — struct pointers, slice elements, and map values alike — are folded from the engine's resolved
-objects, so stripped fields are dropped at every nesting level.
+An update never deletes the stored value of a field it leaves out. A nested struct (value or non-nil pointer) that holds a *protected* field — one the
+engine stripped, an `identifier`, or one tagged `omitonupdate`, directly or in a nested struct below it — is therefore not replaced whole: its other
+fields are written by descendant paths (`$set: {"profile.name": …}`, `$unset: {"profile.nick": …}`), so the stored `profile.uid` survives, and a struct
+holding nothing else contributes no key at all. The check follows the BSON layout: `omitonupdate` propagated from an inline struct counts, so does a key
+behind an unset inline pointer (the replacement would remove it), and a `bson:"-"` field counts for nothing. A nested struct without protected fields
+keeps the full replacement.
+
+A value that removes what is stored in its place — a nil pointer, a nil or empty collection, a nil collection element, at any depth — has no resolved
+fields whose strip marks could be checked, so the update translator judges it from its declared type, under the same policy the engine applies to
+resolved values: `behavior.New` binds its tag key and strip kinds to the translator (`behavior.PolicyBinder`). When the type holds a protected field —
+one with a kind the engine strips, or, outside a collection, an `identifier` or `omitonupdate` one; directly, through an inline struct, or in a struct,
+pointer or collection below it — the update fails instead of deleting the stored value: `ErrProtectedUnset` for a subdocument,
+`ErrProtectedInCollection` for a collection or for anything inside a replaced element. Send the subdocument instead (it is then written by path, so
+`Profile: &Profile{}` clears its other fields and keeps the protected ones), leave the field out of the update (`omitonupdate`), or drop the kind from
+the engine's strip set. A nil pointer or empty collection whose type holds nothing protected is unset as before, so replacing a collection and clearing
+it follow one policy: under `WithKinds()` both are allowed for elements with `output_only` fields, under `DefaultUpdateKinds` both fail.
+
+A slice, array or map is replaced whole, and no document path addresses a field in each of its elements (map keys are dynamic, and an element path would
+merge instead of replace). An `identifier` inside an element is the element's own and is written with it. When the engine strips it (a strip set holding
+`Identifier`), it is written only if `identifier` is its sole kind and its value is a unit (a scalar or codec leaf): a stripped field is a leaf to the
+engine, so a stripped compound identifier — nested struct, inline struct or inline map — has unchecked children. Any other field the engine stripped
+inside the elements — at any depth, in nested collections and in structs inside elements, including an `identifier` also tagged `output_only` or
+`immutable` — cannot be preserved, so the update fails with `ErrProtectedInCollection` instead of silently dropping it. So does an `omitonupdate` field
+inside an element, which the replacement drops with its stored value, when the engine stripped it or it holds a protected field below it —
+`omitonupdate` propagated from an inline struct and an `omitonupdate` inline map included; one holding nothing protected is left out as before. Tag such
+a collection `omitonupdate` and update its elements with positional operators, or leave the kind out of the engine's strip set.
 
 Documents follow the layout of the v2 BSON struct codec, computed per struct type: an `inline` struct's fields sit at the parent level and the
 shallowest field of a name dominates (an own field, even an omitted or stripped one, shadows an inlined one); two fields of one name at the same depth,
@@ -91,8 +123,10 @@ by that marshaler, and so is a `minsize` field, both through the codec itself.
 The `$`-prefix key guard applies to map keys the translator folds itself. Values written opaquely — interface fields, `[]any` elements, self-marshaling
 types — go to the driver as-is; MongoDB treats keys inside such nested values as literal data, not as update operators.
 
-On update, `_id` is removed from `$set` and `$unset` is omitted when empty. Field names come from the bson tag, falling back to the lowercased Go field
-name when the tag name is empty; only the complete tag `bson:"-"` skips the field.
+On update, `_id` and every `identifier` field are removed from `$set` and `$unset`, and `$unset` is omitted when empty. No path rooted at the root `_id`
+is ever written: a composite `_id` subdocument is not expanded into `_id.<field>` paths, whether the field is an own one or an inline struct contributes
+it. Field names come from the bson tag, falling back to the lowercased Go field name when the tag name is empty; only the complete tag `bson:"-"` skips
+the field.
 
 ## Projection paths
 
