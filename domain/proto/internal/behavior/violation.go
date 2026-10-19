@@ -10,8 +10,8 @@ import "google.golang.org/genproto/googleapis/api/annotations"
 // during update-mask application or payload sanitization. It is the shared
 // shape used by both [github.com/altessa-s/go-atlas/domain/proto/fieldmask]
 // and [github.com/altessa-s/go-atlas/domain/proto/fieldbehavior] so the gRPC
-// interceptor can render either source through the same google.rpc.BadRequest
-// FieldViolation mapping.
+// interceptor can render either source through the same
+// io.altessa.badrequest.v1.BadRequest FieldViolation mapping.
 //
 // Reason is populated by callers that classify the violation with a
 // human-readable explanation (fieldmask's required/immutable/identifier

@@ -231,7 +231,7 @@ func TestFilter_StructReadMask_WorkPeriod(t *testing.T) {
 				"till": "2026-02-19",
 			},
 			"amount":      352500.0,
-			"displayName": "xxxxxx xxx xxxxxxxxxxxxxxxxxx xxxxxx",
+			"displayName": "Forklift driver for a food warehouse",
 		}),
 	}
 

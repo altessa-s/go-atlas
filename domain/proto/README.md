@@ -9,6 +9,8 @@ protobuf messages, with well-known types handled transparently.
 |----------------------------------|--------------------------------------------------------------------------------------------------------------------------|
 | [fieldmask](./fieldmask)         | Hierarchical field mask: filter, prune, union, intersection, update-mask validation. Reads `update_mask` from the request (AIP-134) and the read mask from either gRPC metadata (`x-goog-fieldmask`, AIP-157) or the deprecated `read_mask` request field (AIP-161). AIP-161 path grammar: backtick-quoted map keys (`reviews.` + "`John Smith`"), wildcard segments (`aliases.*.display_name`), and `InvalidArgument` on indexed access to repeated fields (`authors.0`) on the write path. |
 | [fieldbehavior](./fieldbehavior) | Strip `OUTPUT_ONLY`, `IDENTIFIER`, `IMMUTABLE`, `INPUT_ONLY` fields from Create/Update requests and responses per AIP-203. |
+| [enumcodec](./enumcodec)         | Bidirectional proto enum ↔ domain enum codec; `UNSPECIFIED` ↔ zero value, an undefined proto value is a `core/errors.FieldError`. |
+| [googletype](./googletype)       | `google.type.Money`/`Date`/`DayOfWeek` and `google.protobuf.Duration`/`Timestamp` ↔ Go values; bad input is a sentinel error without a field path. |
 
 ## AIP coverage
 

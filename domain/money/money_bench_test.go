@@ -50,3 +50,28 @@ func BenchmarkAllocateHalfUpLastRemainder(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkConvert(b *testing.B) {
+	m, err := money.Parse("1234.56", "USD")
+	if err != nil {
+		b.Fatal(err)
+	}
+	rate := money.ExchangeRate{Base: m.Currency(), Quote: eur, Value: decimal.RequireFromString("0.921234567891")}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := m.Convert(rate, money.HalfUp); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkCrossRate(b *testing.B) {
+	base := money.ExchangeRate{Base: eur, Quote: rub, Value: decimal.RequireFromString("100.1234")}
+	target := money.ExchangeRate{Base: usd, Quote: rub, Value: decimal.RequireFromString("81.2345")}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := money.CrossRate(base, target); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

@@ -20,7 +20,7 @@ var ErrMaxDepthExceeded = errors.New("fieldbehavior: max traversal depth exceede
 // BehaviorViolation describes a single populated field that would have been
 // stripped in non-strict mode. It aliases [behavior.Violation] so the gRPC
 // interceptor can render fieldbehavior and fieldmask violations through a
-// single google.rpc.BadRequest FieldViolation mapping. The Reason field of
+// single io.altessa.badrequest.v1.BadRequest FieldViolation mapping. The Reason field of
 // [behavior.Violation] is left empty by fieldbehavior — strict-mode strip
 // conveys intent through Behavior alone.
 type BehaviorViolation = behavior.Violation
