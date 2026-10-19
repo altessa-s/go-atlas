@@ -20,7 +20,7 @@ independently without pulling in the rest of the module.
 | [runtime](./runtime)           | Shutdown hooks, concurrency, signals, panics, sandboxing   |
 | [scheduler](./scheduler)       | Task scheduling interface and priority model               |
 | [text](./text)                 | String manipulation, interning, secure storage             |
-| [time](./time)                 | Time formatting and calendar dates (`time/civil`)          |
+| [time](./time)                 | Time formatting, calendar dates (`time/civil`), clocks (`time/clock`) |
 | [types](./types)               | Bits, constraints, nil checks, optional, pointers, redacted strings, result |
 
 ## Design principles

@@ -20,6 +20,20 @@
 //		return nil
 //	}
 //
+// # Canonical Sentinels
+//
+// [ErrNotFound], [ErrAlreadyExists], [ErrConflict], [ErrInvalidArgument],
+// [ErrFailedPrecondition], [ErrUnavailable] and [ErrBusy] classify domain
+// failures independently of the transport; a [FieldError] is an
+// ErrInvalidArgument that names the offending field, and [MapFieldPath]
+// re-roots it under the API path of a request. The gRPC errstatus
+// interceptor maps them with WithCanonicalRules.
+//
+//	if errors.Is(err, mongo.ErrNoDocuments) {
+//		return fmt.Errorf("bot %s: %w", id, errors.ErrNotFound)
+//	}
+//	return errors.NewFieldError("base_url", "must be https")
+//
 // # Error Wrapping
 //
 // Consistent wrapping helpers reduce code duplication and ensure uniform error messages

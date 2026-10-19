@@ -60,3 +60,18 @@ func BenchmarkParse(b *testing.B) {
 		_, _ = etag.Parse(`W/"686d6f3e2c"`)
 	}
 }
+
+func BenchmarkVersion(b *testing.B) {
+	tag := etag.FromVersion(1234567)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = tag.Version()
+	}
+}
+
+func BenchmarkParseVersion(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = etag.ParseVersion(`W/"1234567"`)
+	}
+}

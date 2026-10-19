@@ -9,6 +9,13 @@
 // go.mongodb.org/mongo-driver/v2/bson). The underlying plain text is
 // only reachable through the explicit Expose accessor.
 //
+// # URL
+//
+// URL is the companion type for URLs that may embed credentials: its
+// output paths keep the URL readable but replace the user-info password
+// with "xxxxx" (an unparsable URL renders as "<redacted>"), and Expose
+// returns the plain text.
+//
 // # Why a named string
 //
 // RedactedString keeps reflect.Kind == reflect.String. Decoders that
