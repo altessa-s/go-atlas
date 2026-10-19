@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas/data/keyset"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
@@ -71,5 +72,15 @@ func (b *SchedulerBuilder) UseCollector(v metrics.Collector) *SchedulerBuilder {
 // subsystems signal readiness. See [scheduler.WithReadinessProbe].
 func (b *SchedulerBuilder) UseReadinessProbe(fn func() bool) *SchedulerBuilder {
 	b.readinessProbe = fn
+	return b
+}
+
+// UsePageTokens sets the codec signing the cursors of the paginated task and
+// history lists; it takes precedence over the `paging` config section. Share
+// one codec key across the instances serving those lists; without either the
+// paginated lists fail with [scheduler.ErrPageTokensNotConfigured]. See
+// [scheduler.WithPageTokens].
+func (b *SchedulerBuilder) UsePageTokens(codec *keyset.Codec) *SchedulerBuilder {
+	b.pageTokens = codec
 	return b
 }

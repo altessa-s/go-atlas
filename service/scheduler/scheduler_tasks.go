@@ -239,23 +239,34 @@ func completedFor(existing *TaskState, runAt int64) bool {
 // backend too when it is a [HistoryDeleter]. Any currently running instance of
 // the task will complete normally; only future dispatches are prevented.
 //
+// A task persisted by an earlier process but not registered in this one is
+// removed from storage too, so a service can drop tasks it no longer
+// schedules without registering a stub first. As with a registered task,
+// another live replica that still registers the ID is not notified.
+//
 // Deleting history kept apart is best effort: it is bounded by
 // [WithStorageTimeout], and a failure is logged without failing Unregister,
 // leaving the entries to the history backend's retention — indefinitely when
 // that backend has none.
 //
-// Returns [ErrTaskNotRegistered] if the task ID is not present in the
-// in-memory map.
+// Returns [ErrTaskNotRegistered] if the task ID is neither registered in this
+// process nor present in storage.
 func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.tasks[id]; !ok {
-		return ErrTaskNotRegistered
+	if _, ok := s.tasks[id]; ok {
+		delete(s.tasks, id)
+		s.metrics.tasksRegistered.Dec()
+	} else {
+		state, err := s.storage.GetTask(ctx, id)
+		if err != nil {
+			return coreerrs.WrapOperation(err, "get task from storage")
+		}
+		if state == nil {
+			return ErrTaskNotRegistered
+		}
 	}
-
-	delete(s.tasks, id)
-	s.metrics.tasksRegistered.Dec()
 
 	if err := s.storage.DeleteTask(ctx, id); err != nil {
 		return coreerrs.WrapOperation(err, "delete task from storage")
@@ -485,14 +496,18 @@ func (s *Scheduler) History(ctx context.Context, id string) iter.Seq2[*TaskHisto
 
 // TasksPaginated returns a paginated slice of [TaskSummary] values. Both
 // cursor-seek and filter are pushed to the [Storage] layer via
-// [Storage.TasksPaginated].
+// [Storage.TasksPaginated]. Without a page-token codec ([WithPageTokens] or
+// [WithEphemeralPageTokens]) it fails with [ErrPageTokensNotConfigured].
 func (s *Scheduler) TasksPaginated(ctx context.Context, page PageRequest, filterExpr string) (*PageResult[*TaskSummary], error) {
+	if s.opts.pageTokens == nil {
+		return nil, ErrPageTokensNotConfigured
+	}
 	limit := page.ClampLimit()
 
 	// Decode cursor if provided
 	var afterID string
 	if page.Cursor != "" {
-		cur, err := decodeTaskCursor(page.Cursor, filterExpr)
+		cur, err := s.decodeTaskCursor(page.Cursor, filterExpr)
 		if err != nil {
 			return nil, err
 		}
@@ -514,13 +529,17 @@ func (s *Scheduler) TasksPaginated(ctx context.Context, page PageRequest, filter
 	if err != nil {
 		return nil, err
 	}
-	return buildTaskPageResult(states, limit, filterExpr), nil
+	return s.buildTaskPageResult(states, limit, filterExpr)
 }
 
 // HistoryPaginated returns a paginated slice of [TaskHistory] values. Both
 // cursor-seek and filter are pushed to the [Storage] layer via
-// [Storage.HistoryPaginated].
+// [Storage.HistoryPaginated]. Without a page-token codec ([WithPageTokens] or
+// [WithEphemeralPageTokens]) it fails with [ErrPageTokensNotConfigured].
 func (s *Scheduler) HistoryPaginated(ctx context.Context, taskID string, page PageRequest, filterExpr string) (*PageResult[*TaskHistory], error) {
+	if s.opts.pageTokens == nil {
+		return nil, ErrPageTokensNotConfigured
+	}
 	limit := page.ClampLimit()
 
 	// Decode cursor if provided
@@ -529,7 +548,7 @@ func (s *Scheduler) HistoryPaginated(ctx context.Context, taskID string, page Pa
 		afterID        string
 	)
 	if page.Cursor != "" {
-		cur, err := decodeHistoryCursor(page.Cursor, filterExpr)
+		cur, err := s.decodeHistoryCursor(page.Cursor, taskID, filterExpr)
 		if err != nil {
 			return nil, err
 		}
@@ -555,13 +574,13 @@ func (s *Scheduler) HistoryPaginated(ctx context.Context, taskID string, page Pa
 	if err != nil {
 		return nil, err
 	}
-	return buildHistoryPageResult(entries, limit, filterExpr), nil
+	return s.buildHistoryPageResult(taskID, entries, limit, filterExpr)
 }
 
 // buildTaskPageResult constructs a [PageResult] from a slice of [TaskState]
 // returned by [Storage.TasksPaginated]. The slice may contain up to limit+1 items;
 // if the extra item is present, it is trimmed and a NextCursor is emitted.
-func buildTaskPageResult(states []*TaskState, limit int64, filterExpr string) *PageResult[*TaskSummary] {
+func (s *Scheduler) buildTaskPageResult(states []*TaskState, limit int64, filterExpr string) (*PageResult[*TaskSummary], error) {
 	hasMore := int64(len(states)) > limit
 	if hasMore {
 		states = states[:limit]
@@ -569,20 +588,23 @@ func buildTaskPageResult(states []*TaskState, limit int64, filterExpr string) *P
 
 	summaries := make([]*TaskSummary, len(states))
 	for i, st := range states {
-		s := st.TaskSummary
-		summaries[i] = &s
+		summary := st.TaskSummary
+		summaries[i] = &summary
 	}
 
 	result := &PageResult[*TaskSummary]{Items: summaries}
 	if hasMore && len(summaries) > 0 {
-		c := encodeTaskCursor(summaries[len(summaries)-1].ID, filterExpr)
+		c, err := s.encodeTaskCursor(summaries[len(summaries)-1].ID, filterExpr)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "encode task cursor")
+		}
 		result.NextCursor = &c
 	}
-	return result
+	return result, nil
 }
 
 // buildHistoryPageResult constructs a [PageResult] from a slice of [TaskHistory].
-func buildHistoryPageResult(entries []*TaskHistory, limit int64, filterExpr string) *PageResult[*TaskHistory] {
+func (s *Scheduler) buildHistoryPageResult(taskID string, entries []*TaskHistory, limit int64, filterExpr string) (*PageResult[*TaskHistory], error) {
 	hasMore := int64(len(entries)) > limit
 	if hasMore {
 		entries = entries[:limit]
@@ -591,10 +613,13 @@ func buildHistoryPageResult(entries []*TaskHistory, limit int64, filterExpr stri
 	result := &PageResult[*TaskHistory]{Items: entries}
 	if hasMore && len(entries) > 0 {
 		last := entries[len(entries)-1]
-		c := encodeHistoryCursor(last.StartedAt, last.ID, filterExpr)
+		c, err := s.encodeHistoryCursor(taskID, last.StartedAt, last.ID, filterExpr)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "encode history cursor")
+		}
 		result.NextCursor = &c
 	}
-	return result
+	return result, nil
 }
 
 // TriggerTask manually triggers immediate execution of a task in a background

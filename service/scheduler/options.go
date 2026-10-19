@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
+	"github.com/altessa-s/go-atlas/data/keyset"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -95,6 +96,17 @@ type options struct {
 	// backend suited to an append-only log. Nil (the default) keeps history in
 	// the [Storage] passed to [New].
 	historyStorage HistoryStorage `optgen:"notnil" optval:"nil"`
+
+	// pageTokens signs the cursors of [Scheduler.TasksPaginated] and
+	// [Scheduler.HistoryPaginated]. Use one codec with the same key on every
+	// instance serving those lists. Without it (and without
+	// ephemeralPageTokens) the paginated methods fail with
+	// [ErrPageTokensNotConfigured]; nothing else needs it.
+	pageTokens *keyset.Codec `optgen:"notnil" optval:"nil"`
+	// ephemeralPageTokens makes [New] sign cursors with a random key when no
+	// pageTokens codec is set: cursors then verify only on this instance and
+	// until it stops — for single-instance use and tests.
+	ephemeralPageTokens bool
 }
 
 // WithConcurrencyLimitFunc sets a dynamic concurrency limit function that is

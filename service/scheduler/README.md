@@ -45,13 +45,15 @@ filter push-down.
 | `WithEnvironment`               | --        | Preset concurrency profile for a named environment            |
 | `WithReadinessProbe`            | nil       | Dispatch gate: tasks run (and `TriggerTask` succeeds) only while it returns true |
 | `WithCollector`                 | nil       | `metrics.Collector` for scheduler metrics                     |
+| `WithPageTokens`                | nil       | `keyset.Codec` signing the paginated-list cursors; share one key across instances serving the lists |
+| `WithEphemeralPageTokens`       | off       | Sign cursors with a random per-instance key (single instance, tests) when no codec is set |
 
 ## Errors
 
 | Error                  | Returned by                                                          |
 |------------------------|----------------------------------------------------------------------|
 | `ErrTaskNotFound`      | PauseTask, ResumeTask, DisableTask, EnableTask, SkipNextRun         |
-| `ErrTaskNotRegistered` | Unregister, TriggerTask -- task exists but has no registered func    |
+| `ErrTaskNotRegistered` | TriggerTask -- no registered func; Unregister -- neither registered nor stored |
 | `ErrTaskUnmanaged`     | PauseTask, DisableTask -- task has its `Unmanaged` flag set          |
 | `ErrTaskNotPaused`     | ResumeTask -- cannot resume a task that is not in Paused status      |
 | `ErrTaskNotDisabled`   | EnableTask -- cannot enable a task that is not in Disabled status    |
@@ -62,7 +64,23 @@ filter push-down.
 | `ErrNotReady`          | TriggerTask -- the configured readiness probe returned false         |
 | `ErrConcurrentUpdate`  | Register and management methods -- concurrent writes won `MaxUpdateAttempts` times; retry |
 | `ErrInvalidRunClaim`   | Storage.ClaimRun -- non-positive start, empty run ID or negative lease (`RunClaim.Validate`) |
-| `ErrInvalidCursor`     | Paginated listing -- the cursor is malformed or its filter changed   |
+| `ErrInvalidCursor`     | Paginated listing -- the cursor fails verification (wraps the `keyset` error) |
+| `ErrPageTokensNotConfigured` | Paginated listing -- no codec (`WithPageTokens`, `paging` config) and no `WithEphemeralPageTokens` |
+
+## Paginated listing
+
+`TasksPaginated` and `HistoryPaginated` return signed [`keyset`](../../data/keyset/README.md) cursors bound to the list, the filter expression and,
+for history, the task ID; they expire after the codec TTL (24 h by default). A malformed, tampered, foreign, expired or rebound cursor fails with
+`ErrInvalidCursor`, which also wraps the `keyset` error (`keyset.Classify` reports `malformed` or `expired`). The lists need a codec: pass one with
+the same key to every instance (`WithPageTokens`; factory `UsePageTokens` or the `paging` config section), so cursors survive restarts and work
+behind a load balancer. Without one they fail with `ErrPageTokensNotConfigured` — scheduling itself never needs it. `WithEphemeralPageTokens()`
+opts in to a random per-instance key for a single instance or tests: its cursors verify only on that instance until it stops.
+
+## Removing tasks
+
+`Unregister(ctx, id)` deletes the task from the in-memory dispatch map and from storage, with its history. It also removes a task that only exists in
+storage — persisted by an earlier process and not registered in this one — so a service can drop tasks it no longer schedules without registering a
+stub first; `ErrTaskNotRegistered` means the ID is neither registered nor stored. Another live replica that still registers the ID is not notified.
 
 ## Single execution
 

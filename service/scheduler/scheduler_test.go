@@ -1593,7 +1593,7 @@ func generatePaddedID(n int) string {
 
 func TestScheduler_TasksPaginated_NoFilter(t *testing.T) {
 	storage := mustNewMemory(t, 100)
-	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	s := scheduler.New(storage, scheduler.WithEphemeralPageTokens(), scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
 	defer func() { _ = s.Stop(ctx) }()
@@ -1622,7 +1622,7 @@ func TestScheduler_TasksPaginated_NoFilter(t *testing.T) {
 
 func TestScheduler_TasksPaginated_DefaultLimit(t *testing.T) {
 	storage := mustNewMemory(t, 100)
-	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	s := scheduler.New(storage, scheduler.WithEphemeralPageTokens(), scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
 	defer func() { _ = s.Stop(ctx) }()
@@ -1638,18 +1638,18 @@ func TestScheduler_TasksPaginated_DefaultLimit(t *testing.T) {
 
 func TestScheduler_TasksPaginated_InvalidCursor(t *testing.T) {
 	storage := mustNewMemory(t, 100)
-	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	s := scheduler.New(storage, scheduler.WithEphemeralPageTokens(), scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
 	defer func() { _ = s.Stop(ctx) }()
 
 	_, err := s.TasksPaginated(ctx, scheduler.PageRequest{Cursor: "garbage"}, "")
-	require.Error(t, err)
+	require.ErrorIs(t, err, scheduler.ErrInvalidCursor)
 }
 
 func TestScheduler_HistoryPaginated_NoFilter(t *testing.T) {
 	storage := mustNewMemory(t, 1000)
-	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	s := scheduler.New(storage, scheduler.WithEphemeralPageTokens(), scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
 	defer func() { _ = s.Stop(ctx) }()
@@ -1694,7 +1694,7 @@ func TestScheduler_HistoryPaginated_NoFilter(t *testing.T) {
 
 func TestScheduler_HistoryPaginated_InvalidCursor(t *testing.T) {
 	storage := mustNewMemory(t, 100)
-	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	s := scheduler.New(storage, scheduler.WithEphemeralPageTokens(), scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
 	defer func() { _ = s.Stop(ctx) }()
@@ -1705,7 +1705,7 @@ func TestScheduler_HistoryPaginated_InvalidCursor(t *testing.T) {
 
 func TestScheduler_TasksPaginated_WithFilter(t *testing.T) {
 	storage := mustNewMemory(t, 100)
-	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	s := scheduler.New(storage, scheduler.WithEphemeralPageTokens(), scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
 	defer func() { _ = s.Stop(ctx) }()
@@ -1735,7 +1735,7 @@ func TestScheduler_TasksPaginated_WithFilter(t *testing.T) {
 
 func TestScheduler_HistoryPaginated_WithFilter(t *testing.T) {
 	storage := mustNewMemory(t, 1000)
-	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	s := scheduler.New(storage, scheduler.WithEphemeralPageTokens(), scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
 	defer func() { _ = s.Stop(ctx) }()

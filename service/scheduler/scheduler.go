@@ -162,6 +162,9 @@ func New(storage Storage, opts ...Option) *Scheduler {
 	if o.instanceID == "" {
 		o.instanceID = generateID()
 	}
+	if o.pageTokens == nil && o.ephemeralPageTokens {
+		o.pageTokens = newEphemeralPageTokens()
+	}
 
 	fp, _ := filter.NewParser() //nolint:errcheck // parser init never fails with no options
 
