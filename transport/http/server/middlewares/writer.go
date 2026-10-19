@@ -30,6 +30,8 @@ type ResponseWriter struct {
 	headerWritten bool
 	captureBody   bool
 	body          *bytes.Buffer
+	// written counts the body bytes the handler wrote, captured or not.
+	written int64
 }
 
 var responseWriterPool = sync.Pool{
@@ -51,6 +53,7 @@ func NewResponseWriter(w http.ResponseWriter, captureBody bool) *ResponseWriter 
 	rw.headerWritten = false
 	rw.captureBody = captureBody
 	rw.body.Reset()
+	rw.written = 0
 	return rw
 }
 
@@ -77,6 +80,7 @@ func (rw *ResponseWriter) Write(b []byte) (int, error) {
 	if !rw.headerWritten {
 		rw.WriteHeader(http.StatusOK)
 	}
+	rw.written += int64(len(b))
 
 	if rw.captureBody && rw.body != nil && rw.body.Len() < MaxCaptureBodySize {
 		remaining := MaxCaptureBodySize - rw.body.Len()
@@ -99,6 +103,13 @@ func (rw *ResponseWriter) Write(b []byte) (int, error) {
 // StatusCode returns the captured status code.
 func (rw *ResponseWriter) StatusCode() int {
 	return rw.statusCode
+}
+
+// BytesWritten returns the number of body bytes written through rw, including
+// any beyond the capture cap, so a caller can tell a complete capture
+// (BytesWritten equals len(Body())) from a truncated one.
+func (rw *ResponseWriter) BytesWritten() int64 {
+	return rw.written
 }
 
 // Body returns the captured response body.

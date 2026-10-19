@@ -60,6 +60,11 @@ configured `trustedPeers` or `trustedProxies`; `trustPrivatePeers: true` explici
 | `UseGeoResolver` | Sets the geo resolver used by the geoacl interceptor |
 | `UseReasonCode` / `UseReasonCodeResolver` | Supplies service-defined reason codes for buf validation field violations |
 | `UseErrStatusOptions` | Adds code-supplied errstatus options (error rules, converters) to the configured interceptor, after the config-built ones |
+| `UseLoggerOptions` | Adds code-supplied logger options (payload redactor, log codes) to the configured interceptor, after the config-built ones |
+| `UseFieldBehaviorOptions` | Adds field-behavior options (`WithMethodKind` for unconventional method names, `WithSkipResponse`) to the stock interceptor |
+| `UseIdempotencyOptions` | Adds code-supplied idempotency options (`WithEntityIDExtractor`, `WithStatusCreator`) after the config-built ones |
+| `UseServerOptions` | Adds server options (`grpcserver.WithListener` for bufconn tests, `WithStartupVerification`) after the config-built ones |
+| `UseFieldMaskOptions` | Adds field mask options (`WithMethodKind`, update/read extractors) to the configured interceptor, after the config-built ones |
 
 ### Configuration
 
@@ -81,6 +86,7 @@ configured `trustedPeers` or `trustedProxies`; `trustPrivatePeers: true` explici
 | `WithGeoAclInterceptor()` | Adds a geographic access control interceptor |
 | `WithErrStatusInterceptor()` | Adds an error-to-status conversion interceptor |
 | `WithFieldBehaviorInterceptor()` | Adds the AIP-203 `field_behavior` strip interceptor; no config toggle — `WithInterceptors` adds it unless `fieldbehavior.ID` is excluded |
+| `WithFieldMaskInterceptor()` | Adds the update/read field mask interceptor from `interceptors.fieldMask` (disabled by default) |
 | `WithBufValidatorInterceptor()` | Adds a buf protovalidate interceptor; no config toggle — `WithInterceptors` adds it unless `protovalidator.ID` is excluded |
 | `WithInterceptor(i ...)` | Adds pre-built interceptor instances |
 
@@ -89,3 +95,24 @@ configured `trustedPeers` or `trustedProxies`; `trustPrivatePeers: true` explici
 | Method | Description |
 |--------|-------------|
 | `Build` | Assembles and returns the gRPC server with all registered interceptors |
+
+`Build` resolves the interceptor dependency order the way the server does when it starts, so a chain that cannot start — an interceptor whose
+required dependency is absent (the limiter needs `realIP`), a duplicate, a cycle — fails `Build` instead of `Start`.
+
+### Code-supplied interceptor options
+
+The configured interceptors stay in the stock chain; code adds what YAML cannot express through the `Use*Options` hooks instead of excluding an
+interceptor and re-adding a copy:
+
+```go
+srv, err := factory.New(cfg.Grpc).
+    UseLogger(logger).
+    UseLoggerOptions(logger.WithPayloadRedactor(redact)).
+    UseFieldBehaviorOptions(fieldbehavior.WithMethodKind("/x.v1.X/RecordRate", fieldbehavior.KindCreate)).
+    UseErrStatusOptions(errstatus.WithErrorRules(rules...)).
+    WithInterceptors().
+    Build()
+```
+
+Fields marked with the protobuf `debug_redact` option need no code: `interceptors.logger.debugRedact` (default `true`) clears them from logged
+payloads before a code-supplied payload redactor runs.

@@ -14,12 +14,17 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
 	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
+	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
 )
 
 // --- Dependency methods ---
@@ -143,6 +148,55 @@ func (b *ServerBuilder) UseGeoResolver(v geoacl.GeoResolver) *ServerBuilder {
 // a code-supplied finalizer replaces the configured one.
 func (b *ServerBuilder) UseErrStatusOptions(opts ...errstatus.Option) *ServerBuilder {
 	b.errStatusOptions = append(b.errStatusOptions, opts...)
+	return b
+}
+
+// UseLoggerOptions adds code-supplied logger interceptor options — a payload
+// redactor, a custom log func, extra ignore rules — to the interceptor the
+// configuration enables. They are applied after the options built from
+// configuration, so a code-supplied value replaces the configured one.
+func (b *ServerBuilder) UseLoggerOptions(opts ...logger.Option) *ServerBuilder {
+	b.loggerOptions = append(b.loggerOptions, opts...)
+	return b
+}
+
+// UseFieldBehaviorOptions adds code-supplied field-behavior interceptor
+// options — per-method kinds ([fieldbehavior.WithMethodKind]) for RPCs whose
+// names do not follow the Create/Update naming convention,
+// [fieldbehavior.WithSkipResponse] — to the interceptor
+// [ServerBuilder.WithFieldBehaviorInterceptor] adds. They are applied after the
+// builder's own options.
+func (b *ServerBuilder) UseFieldBehaviorOptions(opts ...fieldbehavior.Option) *ServerBuilder {
+	b.fieldBehaviorOptions = append(b.fieldBehaviorOptions, opts...)
+	return b
+}
+
+// UseIdempotencyOptions adds code-supplied idempotency interceptor options —
+// [idempotency.WithEntityIDExtractor], [idempotency.WithStatusCreator], a key
+// format validator — to the interceptor the configuration enables. They are
+// applied after the options built from configuration, so a code-supplied value
+// replaces the configured one.
+func (b *ServerBuilder) UseIdempotencyOptions(opts ...idempotency.Option) *ServerBuilder {
+	b.idempotencyOptions = append(b.idempotencyOptions, opts...)
+	return b
+}
+
+// UseFieldMaskOptions adds code-supplied field mask interceptor options —
+// per-method kinds ([fieldmask.WithMethodKind]), update and read extractors for
+// non-canonical request shapes — to the interceptor the configuration enables.
+// They are applied after the options built from configuration.
+func (b *ServerBuilder) UseFieldMaskOptions(opts ...fieldmask.Option) *ServerBuilder {
+	b.fieldMaskOptions = append(b.fieldMaskOptions, opts...)
+	return b
+}
+
+// UseServerOptions adds code-supplied server options — an injected listener
+// ([grpcserver.WithListener], e.g. bufconn in tests), the startup check
+// ([grpcserver.WithStartupVerification]) — applied after the options built
+// from configuration. gRPC server options from configuration are kept;
+// [grpcserver.WithGrpcOptions] here replaces them.
+func (b *ServerBuilder) UseServerOptions(opts ...grpcserver.Option) *ServerBuilder {
+	b.serverOptions = append(b.serverOptions, opts...)
 	return b
 }
 

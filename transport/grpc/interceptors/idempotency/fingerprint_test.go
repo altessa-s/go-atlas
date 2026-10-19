@@ -50,14 +50,14 @@ func newTestInterceptor(k idempotency.Idempotency, opt ...Option) *interceptor {
 	}
 }
 
-func requireScenario(t *testing.T, err error, code codes.Code, reason string) {
+func requireScenario(t *testing.T, err error, code codes.Code, reason string, msgAndArgs ...any) {
 	t.Helper()
 	st, ok := status.FromError(err)
 	require.True(t, ok, "%v", err)
-	require.Equal(t, code, st.Code())
+	require.Equal(t, code, st.Code(), msgAndArgs...)
 	for _, d := range st.Details() {
 		if ei, ok := d.(*errdetails.ErrorInfo); ok {
-			require.Equal(t, reason, ei.GetReason())
+			require.Equal(t, reason, ei.GetReason(), msgAndArgs...)
 			return
 		}
 	}

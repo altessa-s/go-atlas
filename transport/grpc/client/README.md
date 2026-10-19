@@ -14,7 +14,7 @@ logging, and rich error parsing with field-level validation details.
 |-------------------|------------------------------------------------------------------------------------------|
 | `Client`          | Core gRPC client: single connection or pool mode, retry, timeouts, health checking       |
 | `Error`           | Structured gRPC error with code, request ID, reason, metadata, and field validations     |
-| `FieldError`      | Single field validation violation extracted from `BadRequest` error details               |
+| `FieldError`      | Single field violation from an `io.altessa.badrequest.v1.BadRequest` (go-atlas servers, with `Code`) or `google.rpc.BadRequest` detail |
 | `RetryConfig`     | Retry policy: max attempts, initial/max backoff, multiplier, retryable status codes      |
 | `ErrorConverter`  | Hook to override default `ParseStatusError` behavior in the error-status interceptor     |
 | `StaticToken`     | Per-RPC credentials with a fixed bearer token, created via `NewStaticToken`              |
@@ -31,6 +31,7 @@ logging, and rich error parsing with field-level validation details.
 | `WithAppName`         | --        | Application name sent in the gRPC User-Agent header                          |
 | `WithRetry`           | disabled  | Enables retry with default config (5 attempts, 1s-10s exponential backoff)   |
 | `WithRetryConfig`     | --        | Enables retry with a custom `RetryConfig`                                    |
+| `WithoutHealthCheck`  | enabled   | Drops the client-side `healthCheckConfig` (`health.v1.HealthService`) from the service config |
 | `WithPool`  | nil       | Enables pool mode backed by a `pool.ConnectionPool`                          |
 | `WithDialOptions`     | --        | Appends custom `grpc.DialOption` values (auth credentials, call options)     |
 | `WithProxy`           | env       | Route via `http://host:port` with optional `*url.Userinfo`                    |
@@ -44,6 +45,13 @@ logging, and rich error parsing with field-level validation details.
 | `WithHealthCoordinator`  | nil           | Opts the client into `observability/health` (single-mode watcher / pool subscription) |
 | `WithHealthServiceName`  | `grpc_client` | Service name registered with the coordinator                                          |
 | `WithHealthStateMapper`  | default       | Override the `connectivity.State` → `health.ServingStatus` mapping                    |
+
+## Client-side health checking
+
+The default service config the client installs carries a `healthCheckConfig` for the `health.v1.HealthService` service, and `WithRetry` /
+`WithRetryConfig` add round-robin load balancing, under which gRPC health-checks every subchannel. For a server that does not implement that health
+service, pass `WithoutHealthCheck()` to leave the entry out; this is independent of `WithHealthCoordinator` below, which only reports the
+connection state.
 
 ## Health
 

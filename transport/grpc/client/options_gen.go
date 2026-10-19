@@ -59,6 +59,13 @@ func WithErrorConverter(v ErrorConverter) Option {
 	}
 }
 
+// WithoutHealthCheck disables the withoutHealthCheck option.
+func WithoutHealthCheck() Option {
+	return func(o *options) {
+		o.withoutHealthCheck = true
+	}
+}
+
 // WithHealthCoordinator sets the healthCoordinator option.
 func WithHealthCoordinator(v *health.Coordinator) Option {
 	return func(o *options) {

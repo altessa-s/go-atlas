@@ -12,6 +12,8 @@ IP/CIDR prefixes, fallback behavior strings, IP and geographic ACL rules — int
 | Helper                    | Purpose                                                                                  |
 |---------------------------|------------------------------------------------------------------------------------------|
 | `CompilePatterns`         | Compile string patterns to `[]*regexp.Regexp`; invalid patterns are silently skipped     |
+| `StringMatcher`           | Match a string against an exact list (frozen in a `coremaps.ImmutableMap`) and compiled regex patterns; nil when both are empty |
+| `IdempotencyKeyValidator` | Return the key validator of an `IdempotencyKeyFormat`: uuidv4 (or empty), opaque, or pattern; bounded by `maxLen` |
 | `ParsePrefixes`           | Parse IP/CIDR strings to `[]netip.Prefix` (alias of `clientip.ParsePrefixes`)            |
 | `ConvertFallbackBehavior` | Map `middlewareconfig.FallbackBehavior` to `fallback.Behavior`; unknown values fail closed to deny |
 | `BuildIpAclRegistry`      | Build an `ipacl.Registry` from default policy, rule list, and optional default rule      |

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -62,23 +61,6 @@ func TestCircuitBreakerError(t *testing.T) {
 	require.True(t, errors.Is(err, ErrCircuitBreakerOpen), "should match ErrCircuitBreakerOpen")
 }
 
-func TestRateLimitError(t *testing.T) {
-	t.Run("with_retry_after", func(t *testing.T) {
-		err := &RateLimitError{Host: "api.test", RetryAfter: 5 * time.Second}
-		got := err.Error()
-		require.Equal(t, `rate limit exceeded for host "api.test", retry after 5s`, got)
-	})
-	t.Run("without_retry_after", func(t *testing.T) {
-		err := &RateLimitError{Host: "api.test"}
-		got := err.Error()
-		require.Equal(t, `rate limit exceeded for host "api.test"`, got)
-	})
-	t.Run("is", func(t *testing.T) {
-		err := &RateLimitError{Host: "test"}
-		require.True(t, errors.Is(err, ErrRateLimited), "should match ErrRateLimited")
-	})
-}
-
 func TestRetryExhaustedError(t *testing.T) {
 	inner := errors.New("connection refused")
 	err := &RetryExhaustedError{LastError: inner, Attempts: 3, Method: "GET", URL: "http://test"}
@@ -105,12 +87,6 @@ func TestIsCircuitBreakerError(t *testing.T) {
 	cbErr := &CircuitBreakerError{Name: "test"}
 	require.NotNil(t, IsCircuitBreakerError(cbErr))
 	require.Nil(t, IsCircuitBreakerError(errors.New("other")))
-}
-
-func TestIsRateLimitError(t *testing.T) {
-	rlErr := &RateLimitError{Host: "test"}
-	require.NotNil(t, IsRateLimitError(rlErr))
-	require.Nil(t, IsRateLimitError(errors.New("other")))
 }
 
 func TestIsRetryExhaustedError(t *testing.T) {

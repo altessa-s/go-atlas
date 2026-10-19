@@ -126,10 +126,10 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 
 	var doc document
 	err := s.collection.FindOneAndUpdate(ctx, bson.D{{Key: fieldID, Value: key}}, update, opts).Decode(&doc)
-	if dup, _ := datamongo.IsErrorDuplicate(err); dup && mongo.SessionFromContext(ctx) == nil {
+	if dup, _ := datamongo.IsErrorDuplicate(err); dup && !datamongo.InTransaction(ctx) {
 		// A concurrent upsert inserted the key first; read it once more.
-		// Not inside a session: a failed write aborts a transaction, which
-		// only a retry of the whole transaction can recover.
+		// Not inside a transaction: a failed write aborts it, which only a
+		// retry of the whole transaction can recover.
 		err = s.collection.FindOneAndUpdate(ctx, bson.D{{Key: fieldID, Value: key}}, update, opts).Decode(&doc)
 	}
 	if err != nil {

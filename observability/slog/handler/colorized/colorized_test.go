@@ -358,7 +358,7 @@ func TestBuffer_NeedsQuoting(t *testing.T) {
 		{name: "double quote", input: `say "hi"`, isAttr: false, want: true},
 		{name: "newline", input: "line1\nline2", isAttr: false, want: true},
 		{name: "invalid utf8", input: "\xff", isAttr: false, want: true},
-		{name: "unicode letters", input: "xxxxxx", isAttr: true, want: false},
+		{name: "unicode letters", input: "γεια", isAttr: true, want: false},
 	}
 
 	b := &buffer{}

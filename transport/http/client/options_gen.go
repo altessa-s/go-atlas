@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -18,6 +19,13 @@ import (
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithAttemptTimeout sets the attemptTimeout option.
+func WithAttemptTimeout(v time.Duration) Option {
+	return func(o *options) {
+		o.attemptTimeout = v
+	}
+}
 
 // WithBreakerInterval sets the breakerInterval option.
 func WithBreakerInterval(v time.Duration) Option {
@@ -86,6 +94,13 @@ func WithCollector(v metrics.Collector) Option {
 			return
 		}
 		o.collector = v
+	}
+}
+
+// WithCookieJar sets the cookieJar option.
+func WithCookieJar(v http.CookieJar) Option {
+	return func(o *options) {
+		o.cookieJar = v
 	}
 }
 
@@ -170,6 +185,13 @@ func WithLimiter(v limiters.RequestsLimiter) Option {
 	}
 }
 
+// WithLimiterPerAttempt enables the limiterPerAttempt option.
+func WithLimiterPerAttempt() Option {
+	return func(o *options) {
+		o.limiterPerAttempt = true
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -234,10 +256,56 @@ func WithProxyTLSConfig(v *tls.Config) Option {
 	}
 }
 
+// WithoutRetry disables the withoutRetry option.
+func WithoutRetry() Option {
+	return func(o *options) {
+		o.withoutRetry = true
+	}
+}
+
+// WithRetryAfterMax sets the retryAfterMax option.
+func WithRetryAfterMax(v time.Duration) Option {
+	return func(o *options) {
+		o.retryAfterMax = v
+	}
+}
+
+// WithRetryAfterStatuses sets the retryAfterStatuses option.
+func WithRetryAfterStatuses(v ...int) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		v = slices.Deduplicate(v)
+		o.retryAfterStatuses = v
+	}
+}
+
+// WithRetryFactor sets the retryFactor option.
+func WithRetryFactor(v float64) Option {
+	return func(o *options) {
+		o.retryFactor = v
+	}
+}
+
+// WithRetryJitter sets the retryJitter option.
+func WithRetryJitter(v float64) Option {
+	return func(o *options) {
+		o.retryJitter = v
+	}
+}
+
 // WithRetryMax sets the retryMax option.
 func WithRetryMax(v int) Option {
 	return func(o *options) {
 		o.retryMax = v
+	}
+}
+
+// WithRetryMaxElapsed sets the retryMaxElapsed option.
+func WithRetryMaxElapsed(v time.Duration) Option {
+	return func(o *options) {
+		o.retryMaxElapsed = v
 	}
 }
 
@@ -293,6 +361,10 @@ func defaultOptions() *options {
 		logger:                slog.New(slog.DiscardHandler),
 		maxHostBreakers:       DefaultMaxHostBreakers,
 		metricsSubsystem:      DefaultMetricsSubsystem,
+		retryAfterMax:         DefaultRetryAfterMax,
+		retryAfterStatuses:    DefaultRetryAfterStatuses(),
+		retryFactor:           DefaultRetryFactor,
+		retryJitter:           DefaultRetryJitter,
 		retryMax:              DefaultRetryMax,
 		retryWaitMax:          DefaultRetryWaitMax,
 		retryWaitMin:          DefaultRetryWaitMin,

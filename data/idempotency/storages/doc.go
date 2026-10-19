@@ -3,10 +3,13 @@
 // the LICENSE file.
 
 // Package storages defines the Storage interface for idempotency key persistence.
-// Implementations are in subpackages: memory, redis, nats.
+// Implementations are in subpackages: memory, mongo, nats, redis; the
+// storagetest subpackage is their conformance kit.
 //
 // Example:
 //
 //	var store storages.Storage = redis.New(client)
-//	store.Add(ctx, "request-123")
+//	acquired, existing, token, err := store.AttemptLock(ctx, "request-123", inProgress)
+//	// ... process the request when acquired, then:
+//	err = store.Complete(ctx, "request-123", result, token)
 package storages

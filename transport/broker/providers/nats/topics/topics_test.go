@@ -252,7 +252,7 @@ func TestTopic_WithValidation_Errors(t *testing.T) {
 		{
 			name:       "unicode characters rejected",
 			topic:      topicSingle,
-			args:       []string{keyTenant.String(), "xxxx"},
+			args:       []string{keyTenant.String(), "δοκιμή"},
 			wantErr:    topics.ErrInvalidCharacters,
 			wantSubstr: "invalid value for macro 'TENANT'",
 		},

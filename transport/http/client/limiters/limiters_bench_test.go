@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
@@ -25,5 +26,12 @@ func BenchmarkRoundTripper_RoundTrip(b *testing.B) {
 
 	for b.Loop() {
 		_, _ = rt.RoundTrip(req)
+	}
+}
+
+func BenchmarkRateLimitError_Error(b *testing.B) {
+	err := &RateLimitError{Host: "api.test", RetryAfter: 5 * time.Second}
+	for b.Loop() {
+		_ = err.Error()
 	}
 }

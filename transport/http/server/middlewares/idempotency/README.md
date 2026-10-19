@@ -18,7 +18,12 @@ fallback behavior when storage is unavailable.
 | `WithIdempotencyKeyEntityIDHeader`| `Idempotency-Key-Entity-Id` | Response header with the entity ID                            |
 | `WithFallbackBehavior`            | `fallback.Deny`             | Behavior on storage failure                                   |
 | `WithEnforceMandatory`            | `false`                     | Require a key on every non-safe request                       |
-| `WithKeyFormatValidator`          | `DefaultKeyValidator`       | Key format check (lowercase UUID v4)                          |
+| `WithKeyFormatValidator`          | `DefaultKeyValidator`       | Key format check (lowercase UUID v4); `OpaqueKeyValidator(n)` / `PatternKeyValidator(re, n)` accept non-UUID keys |
+| `WithKeyQueryParam`               | "" (header only)            | Query parameter carrying the key (such as `request_id`); wins over the header |
+| `WithRequestClassifier`           | nil                         | Per-request `Policy` (skip, optional, mandatory, default)     |
+| `WithResponseReplay`              | off                         | Write the stored response to a repeat of a completed request (see below) |
+| `WithMaxReplaySize`               | `DefaultMaxReplaySize` (256 KiB) | Largest stored body (at most `MaxCaptureBodySize`, 1 MiB) |
+| `WithReplayHeaders`               | `DefaultReplayHeaders`      | Response headers stored and replayed                          |
 | `WithKeyLogMode`                  | `KeyLogHashed`              | How the key reaches debug logs (see Security)                 |
 | `WithEntityIDExtractor`           | nil                         | Extracts the entity ID from the response                      |
 | `WithExposeEntityID`              | off                         | Echo the stored entity ID to a duplicate request              |
@@ -43,6 +48,25 @@ fallback behavior when storage is unavailable.
 | `ErrorIDKForbidden`      | 403            |
 | `ErrorIDKBodyTooLarge`   | 413            |
 | `ErrorIDKBodyUnreadable` | 400            |
+
+## Key sources and request policies
+
+The key is read from the query parameter named by `WithKeyQueryParam` when it holds a non-empty value (such as `request_id`),
+otherwise from the key header; it must pass the `KeyFormatValidator` (lowercase UUID v4 by default, `OpaqueKeyValidator` or `PatternKeyValidator`
+for client request IDs). A `RequestClassifier`, run after the ignore lists and the safe-method skip, returns a `Policy` per request: `PolicySkip`,
+`PolicyOptional`, `PolicyMandatory` or `PolicyDefault` (`WithEnforceMandatory` decides). In YAML: `keyQueryParam`, `keyFormat`, `keyPattern`,
+`maxKeyLength`, `mandatoryPaths` and `mandatoryPatterns`.
+
+## Response replay
+
+With `WithResponseReplay()` (YAML `responseReplay: true`) a completed 2xx response stores its status, the `WithReplayHeaders` headers
+(`DefaultReplayHeaders`: Content-Type, Content-Encoding, Content-Language, Content-Disposition, Location, ETag, Last-Modified) and its body, when the
+whole body was captured and fits `WithMaxReplaySize`. A repeat of the request receives exactly that response (plus `Idempotency-Key-Status:
+success`) without running the handler, instead of `422`; cookies, request IDs and other per-request headers are never replayed. In-flight repeats
+stay `409`, failed responses store nothing, and the fingerprint and owner checks run first; the record is bound to the request method and path,
+and only a request with the same binding receives it. A larger body, a record written before replay or without a binding, and a truncated
+capture keep the `422` answer. Replay is off by default because the repeat's caller receives the original response: enable it with keys
+scoped per principal (`idempotency.WithOwner`).
 
 ## Storage keys
 

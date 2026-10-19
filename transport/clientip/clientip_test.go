@@ -32,9 +32,20 @@ func TestIsPrivate(t *testing.T) {
 		{"127.0.0.1", true},
 		{"8.8.8.8", false},
 		{"1.1.1.1", false},
+		{"198.18.0.1", true},      // RFC 2544 benchmarking, first /16
+		{"198.19.255.254", true},  // RFC 2544 benchmarking, second /16
+		{"198.20.0.1", false},     // just past the benchmarking block
+		{"192.18.0.1", false},     // public, not the benchmarking block
+		{"192.19.255.254", false}, // public, not the benchmarking block
 		{"::1", true},
 		{"2001:db8::1", true},
 		{"2607:f8b0:4004:800::200e", false},
+		{"::ffff:10.0.0.1", true},             // IPv4-mapped RFC 1918
+		{"::ffff:127.0.0.1", true},            // IPv4-mapped loopback
+		{"::ffff:8.8.8.8", false},             // IPv4-mapped public
+		{"fe80::1%en0", true},                 // zoned link-local
+		{"fd00::1%eth0", true},                // zoned unique-local
+		{"2607:f8b0:4004:800::200e%1", false}, // zoned public
 	}
 
 	for _, tt := range tests {

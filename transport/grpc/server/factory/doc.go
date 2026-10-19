@@ -34,6 +34,16 @@
 //	    WithInterceptors().
 //	    Build()
 //
+// Options that configuration cannot express — a logger payload redactor,
+// field-behavior and field-mask method kinds, idempotency extractors, errstatus
+// rules — are added to the stock interceptors with [ServerBuilder.UseLoggerOptions],
+// [ServerBuilder.UseFieldBehaviorOptions], [ServerBuilder.UseFieldMaskOptions],
+// [ServerBuilder.UseIdempotencyOptions] and [ServerBuilder.UseErrStatusOptions].
+//
+// [ServerBuilder.Build] resolves the interceptor dependency order up front, so
+// a chain that cannot start (a missing required interceptor, a duplicate, a
+// cycle) fails Build rather than Server.Start.
+//
 // To skip specific interceptors, pass their typed IDs:
 //
 //	srv, err := factory.New(cfg.Grpc).

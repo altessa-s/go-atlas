@@ -56,7 +56,7 @@ func FuzzMintedTokenVerifies(f *testing.F) {
 	f.Add("read", "write")
 	f.Add("", "")
 	f.Add(`{"sub":"admin"}`, "*")
-	f.Add("xxxxxx", "xxxxxx")
+	f.Add("ανάγνωση", "εγγραφή")
 	f.Add("a\"b", "c\\d")
 
 	provider := newProvider(f, selfjwt.AlgEdDSA)

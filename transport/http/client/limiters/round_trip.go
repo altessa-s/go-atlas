@@ -7,8 +7,6 @@ package limiters
 import (
 	"cmp"
 	"net/http"
-
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // RoundTripper implements [net/http.RoundTripper] by checking a
@@ -38,12 +36,17 @@ func NewRoundTripper(next http.RoundTripper, limiter RequestsLimiter) *RoundTrip
 
 // RoundTrip checks [RequestsLimiter.Allow] using the request hostname as key.
 // If the limiter returns a non-nil error the request is rejected without
-// reaching the network; otherwise the request is forwarded to the next
+// reaching the network with a [*RateLimitError] wrapping that error (a
+// limiter that already returns a *RateLimitError, for example with RetryAfter
+// set, is passed through); otherwise the request is forwarded to the next
 // [net/http.RoundTripper].
 func (rt *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	err := rt.limiter.Allow(req.Context(), req.URL.Hostname())
-	if err != nil {
-		return nil, coreerrs.Wrapf(err, "rate limit check failed for %s %s", req.Method, req.URL.String())
+	host := req.URL.Hostname()
+	if err := rt.limiter.Allow(req.Context(), host); err != nil {
+		if IsRateLimitError(err) != nil {
+			return nil, err
+		}
+		return nil, &RateLimitError{Host: host, Err: err}
 	}
 
 	return rt.next.RoundTrip(req)

@@ -229,19 +229,17 @@ func (c *Client) ApplyQueryTimeout(ctx context.Context) (context.Context, contex
 	return corecontext.ApplyTimeout(ctx, c.options.queryTimeout)
 }
 
-// healthCheckConfig is the default gRPC service configuration with health checking enabled.
-var healthCheckConfig = `{
+// healthCheckServiceConfig is the client-side health checking entry of the
+// default gRPC service configuration. [WithoutHealthCheck] leaves it out.
+const healthCheckServiceConfig = `
   "healthCheckConfig": {
     "serviceName": "health.v1.HealthService"
-  }
-}`
+  }`
 
-// retryConfigTemplate is the gRPC service configuration template with health checking,
-// round-robin load balancing, and retry policy.
-var retryConfigTemplate = `{
-  "healthCheckConfig": {
-    "serviceName": "health.v1.HealthService"
-  },
+// retryConfigTemplate is the gRPC service configuration template with
+// round-robin load balancing and a retry policy. The leading verb takes the
+// health checking entry (with its trailing comma) or nothing.
+var retryConfigTemplate = `{%s
   "loadBalancingConfig": [ { "round_robin": {} } ],
   "methodConfig": [{
     "waitForReady": false,
@@ -257,14 +255,25 @@ var retryConfigTemplate = `{
   }]
 }`
 
-// buildServiceConfig builds gRPC service configuration with health checking and optional retry.
+// buildServiceConfig builds the gRPC service configuration: client-side
+// health checking unless [WithoutHealthCheck] is set, plus round-robin load
+// balancing and the retry policy when retry is enabled.
 func (c *Client) buildServiceConfig() string {
-	if !c.options.enableRetry || c.options.retryConfig == nil {
-		return healthCheckConfig
+	healthCheck := ""
+	if !c.options.withoutHealthCheck {
+		healthCheck = healthCheckServiceConfig
 	}
 
+	if !c.options.enableRetry || c.options.retryConfig == nil {
+		return "{" + healthCheck + "\n}"
+	}
+
+	if healthCheck != "" {
+		healthCheck += ","
+	}
 	cfg := c.options.retryConfig
 	return fmt.Sprintf(retryConfigTemplate,
+		healthCheck,
 		(time.Duration(cfg.MaxAttempts) * cfg.MaxBackoff).String(),
 		cfg.MaxAttempts,
 		cfg.InitialBackoff.String(),
