@@ -77,7 +77,7 @@ func FuzzEncodeDecodeRoundTrip(f *testing.F) {
 	f.Add("svc", "hunter2", 0)
 	f.Add("", "", -1)
 	f.Add(`{"nested":"json"}`, "p\"a\\s's", 42)
-	f.Add("xxxxxxxxxxxx", "xxxxxx", 7)
+	f.Add("χρήστης", "κωδικός", 7)
 
 	decoder := jsoncodec.NewValueDecoder[credentials]()
 

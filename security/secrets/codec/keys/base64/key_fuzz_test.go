@@ -24,7 +24,7 @@ func FuzzEncodeDecodeRoundTrip(f *testing.F) {
 	f.Add("database/password")
 	f.Add("")
 	f.Add("with spaces and / slashes")
-	f.Add("xxxx")
+	f.Add("κλειδί")
 	f.Add("\x00\xff")
 
 	decoder := base64.NewKeyDecoder()
