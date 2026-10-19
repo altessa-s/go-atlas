@@ -15,6 +15,8 @@ released when the lock's context ends. Lease expiry is judged by the MongoDB ser
 | `WithTTL`               | 10s      | Lease length, truncated to whole milliseconds                               |
 | `WithRenewRatio`        | 1/3      | Fraction of the TTL after which the lease is renewed; TTL × ratio ≥ 1ms, < TTL |
 | `WithOperationsTimeout` | 5s       | Bound of one acquisition attempt, renewal or release                        |
+| `WithoutRenewal`        | off      | Hard leases: never renewed, a lease ends one TTL after its acquisition request; the ratio is ignored |
+| `WithExpiredCleanup`    | off      | TTL index on `expires_at`: documents are deleted `grace` after their lease ended (`EnsureIndexes`) |
 | `WithLogger`            | discard  | Logger for renewal and release failures                                     |
 
 ## Semantics
@@ -25,6 +27,7 @@ released when the lock's context ends. Lease expiry is judged by the MongoDB ser
 | Clock           | `$$NOW` of the server decides expiry, so client clock skew does not matter                                  |
 | Fencing token   | +1 per acquisition of the key; documents are kept after release, so tokens never restart                   |
 | Renewal         | Every TTL × renew ratio while the lock's context lives; a failed round trip is retried on the next tick     |
+| Hard lease      | `WithoutRenewal`: no renewal; the lock counts as ended one TTL after the request was sent (the server's lease starts later, so it never outlives it), and releasing it then is a no-op |
 | Lost lease      | A lease that expired (taken over or not) is never renewed again; a new acquisition gets a new token        |
 | Late acquire    | A reply arriving after the TTL counted from the request is released and reported as `ErrLockNotHeld`     |
 | Ambiguous error | An acquisition that errored may still have applied: it is released by its unique owner id (Close retries) |
@@ -36,8 +39,17 @@ released when the lock's context ends. Lease expiry is judged by the MongoDB ser
 | Unconfirmed     | No renewal confirmed within the lease: renewing stops and the lease is released conditionally              |
 | Reads           | `GetLockInfo` reads the primary regardless of the client's read preference, so it sees this client's own writes |
 | Sessions        | Lock operations never join a session or transaction carried by the caller's context (only its cancellation and deadline apply) |
-| Indexes         | None besides `_id`                                                                                          |
+| Indexes         | None besides `_id`; `WithExpiredCleanup` adds the TTL index `expires_at_ttl`, maintained by `EnsureIndexes` |
 
 The collection keeps one small document per key ever locked, and that document is the key's fencing history: deleting it restarts the key's tokens at 1,
 so a stale holder could carry a higher token than the new one. Delete documents only of keys that are permanently retired and have no outstanding
 holder; keep them for every key that may be locked again.
+
+## Expired cleanup and hard leases
+
+For many short-lived keys (one per work item), `WithExpiredCleanup(grace)` bounds the collection: `EnsureIndexes` creates the TTL index on
+`expires_at` with `expireAfterSeconds` = grace rounded up to whole seconds, updates it (`collMod`) when the grace changes and drops it when cleanup is
+turned off; it is idempotent and safe on every replica start. A released lease is expired at once, so its document goes `grace` later (MongoDB's TTL
+monitor runs about once a minute). Fencing tokens are then monotonic only while a key is locked again within `grace` of its last lease: pick a grace
+longer than any holder may act on a token, or leave cleanup off when tokens fence external writes. `WithoutRenewal` suits work that must not outlive its
+lease: bound the work with a deadline of one TTL taken before `Lock`, which ends no later than the server's lease.

@@ -17,7 +17,7 @@ func BenchmarkEncode(b *testing.B) {
 	}{
 		{name: "Unchanged", key: "tenant-1/orders.v2/0123456789abcdef"},
 		{name: "Colons", key: "idk:POST:/orders:0123456789abcdef"},
-		{name: "Unicode", key: "xxxx-xxxxxxxxxxxxxxx"},
+		{name: "Unicode", key: "κλειδί-ταυτότητας"},
 	} {
 		b.Run(bc.name, func(b *testing.B) {
 			b.ReportAllocs()

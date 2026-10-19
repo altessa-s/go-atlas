@@ -80,3 +80,40 @@ func TestAllIdempotencyKeyLogModes(t *testing.T) {
 		},
 		AllIdempotencyKeyLogModes())
 }
+
+func TestIdempotencyMiddleware_Validate_KeySource(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		mutate  func(*IdempotencyMiddleware)
+		wantErr bool
+	}{
+		"default uuidv4":           {mutate: func(*IdempotencyMiddleware) {}},
+		"empty format is uuidv4":   {mutate: func(c *IdempotencyMiddleware) { c.KeyFormat = "" }},
+		"opaque":                   {mutate: func(c *IdempotencyMiddleware) { c.KeyFormat = "opaque"; c.MaxKeyLength = 64 }},
+		"pattern":                  {mutate: func(c *IdempotencyMiddleware) { c.KeyFormat = "pattern"; c.KeyPattern = `^req-\d+$` }},
+		"pattern without regexp":   {mutate: func(c *IdempotencyMiddleware) { c.KeyFormat = "pattern" }, wantErr: true},
+		"pattern does not compile": {mutate: func(c *IdempotencyMiddleware) { c.KeyFormat = "pattern"; c.KeyPattern = "(" }, wantErr: true},
+		"unknown format":           {mutate: func(c *IdempotencyMiddleware) { c.KeyFormat = "base64" }, wantErr: true},
+		"negative length":          {mutate: func(c *IdempotencyMiddleware) { c.MaxKeyLength = -1 }, wantErr: true},
+		"query param":              {mutate: func(c *IdempotencyMiddleware) { c.KeyQueryParam = "requestId" }},
+		"mandatory lists": {mutate: func(c *IdempotencyMiddleware) {
+			c.MandatoryPaths = []string{"/o"}
+			c.MandatoryPatterns = []string{"^/p"}
+		}},
+		"empty mandatory path":  {mutate: func(c *IdempotencyMiddleware) { c.MandatoryPaths = []string{""} }, wantErr: true},
+		"bad mandatory pattern": {mutate: func(c *IdempotencyMiddleware) { c.MandatoryPatterns = []string{"["} }, wantErr: true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg := enabledIdempotencyConfig()
+			tc.mutate(&cfg)
+			if tc.wantErr {
+				require.Error(t, cfg.Validate())
+				return
+			}
+			require.NoError(t, cfg.Validate())
+		})
+	}
+}

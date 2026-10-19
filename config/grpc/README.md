@@ -21,6 +21,7 @@ consumed by the component factories, which map them to generated options; runtim
 | `CacheCompressionPreset`  | Defines the compression levels available for cached responses.           |
 | `CacheInterceptor`             | Defines the configuration for gRPC response caching.                     |
 | `ErrStatusInterceptor`         | Defines the configuration for the error status interceptor.              |
+| `FieldMaskInterceptor`         | Defines the configuration for the update/read field mask interceptor.    |
 | `GeoACLInterceptor`            | Defines the configuration for the geographic access control interceptor. |
 | `HealthInterceptor`            | Defines the configuration for health check interceptor.                  |
 | `IdempotencyInterceptor`       | Defines the configuration for idempotency interceptor.                   |

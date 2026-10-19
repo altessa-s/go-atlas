@@ -31,6 +31,11 @@ import (
 // [github.com/altessa-s/go-atlas/transport/proxydial/factory] builder,
 // which folds Mode/Host/Port/Auth into the right URL before delegating
 // here.
+//
+// Dial and handshake errors name the proxy host:port (proxyURL.Host), never
+// its user info. Pass only a URL whose credentials sit in a well-formed user
+// info (the factory validates this): an unencoded "/" or "@" in a password
+// moves part of it into the host, where it would reach DNS and error text.
 func FromURL(proxyURL *url.URL, opts ...Option) (DialContextFunc, error) {
 	if proxyURL == nil {
 		return nil, nil //nolint:nilnil

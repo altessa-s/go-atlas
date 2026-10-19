@@ -62,6 +62,13 @@ func WithRenewRatio(v float64) Option {
 	}
 }
 
+// WithoutRenewal disables the withoutRenewal option.
+func WithoutRenewal() Option {
+	return func(o *options) {
+		o.withoutRenewal = true
+	}
+}
+
 // WithTTL sets the ttl option.
 func WithTTL(v time.Duration) Option {
 	return func(o *options) {

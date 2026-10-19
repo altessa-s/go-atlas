@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/limiter"
@@ -81,6 +82,7 @@ func (b *ServerBuilder) WithInterceptors(exclude ...interceptors.Interceptor) *S
 		{cache.Name(), b.WithCacheInterceptor},
 		{auth.Name(), b.WithAuthInterceptor},
 		{fieldbehavior.Name(), b.WithFieldBehaviorInterceptor},
+		{fieldmask.Name(), b.WithFieldMaskInterceptor},
 		{protovalidator.Name(), b.WithBufValidatorInterceptor},
 		{health.Name(), b.WithHealthInterceptor},
 	}
@@ -108,6 +110,7 @@ func (b *ServerBuilder) WithLoggerInterceptor() *ServerBuilder {
 
 	configOpts = slices.AppendIf(configOpts, c.LogRequest, logger.WithLogRequest())
 	configOpts = slices.AppendIf(configOpts, c.LogResponse, logger.WithLogResponse())
+	configOpts = slices.AppendIf(configOpts, c.DebugRedact, logger.WithDebugRedact())
 	configOpts = append(configOpts, logger.WithIgnoreMethods(c.IgnoreMethods...))
 	configOpts = append(configOpts, logger.WithLogGrpcResponseCodes(c.LogGrpcResponseCodes...))
 	configOpts = append(configOpts, logger.WithIgnoreGrpcResponseCodes(c.IgnoreGrpcResponseCodes...))
@@ -115,6 +118,7 @@ func (b *ServerBuilder) WithLoggerInterceptor() *ServerBuilder {
 		logger.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	configOpts = slices.AppendIf(configOpts, c.EnableContextLogger, logger.WithContextLogger(b.Logger()))
+	configOpts = append(configOpts, b.loggerOptions...)
 
 	b.interceptors = append(b.interceptors, logger.ServerInterceptor(logger.Slog(b.Logger()), configOpts...))
 	return b
@@ -344,6 +348,32 @@ func (b *ServerBuilder) WithLimiterInterceptor() *ServerBuilder {
 	return b
 }
 
+// idempotencyClassifier builds the method classifier of the idempotency
+// config: methods listed in mandatoryMethods or matching mandatoryPatterns
+// require a key; with the "verbs" classifier the other methods follow the
+// verb rule of idempotency.VerbMethodClassifier (Create, BatchCreate and
+// custom verbs checked, read and idempotent verbs skipped). It returns nil when the config sets none of
+// them, so every method not ignored gets enforceMandatory.
+func idempotencyClassifier(c *grpcconfig.IdempotencyInterceptor) idempotency.MethodClassifier {
+	mandatory := factoryconv.StringMatcher(c.MandatoryMethods, c.MandatoryPatterns)
+	var base idempotency.MethodClassifier
+	if c.MethodClassifier == grpcconfig.IdempotencyMethodClassifierVerbs {
+		base = idempotency.VerbMethodClassifier(idempotency.PolicyDefault)
+	}
+	if mandatory == nil && base == nil {
+		return nil
+	}
+	return func(method string) idempotency.Policy {
+		if mandatory != nil && mandatory(method) {
+			return idempotency.PolicyMandatory
+		}
+		if base != nil {
+			return base(method)
+		}
+		return idempotency.PolicyDefault
+	}
+}
+
 // WithIdempotencyInterceptor creates an idempotency interceptor from the builder's configuration.
 func (b *ServerBuilder) WithIdempotencyInterceptor() *ServerBuilder {
 	cfg := b.interceptorsCfg()
@@ -371,6 +401,21 @@ func (b *ServerBuilder) WithIdempotencyInterceptor() *ServerBuilder {
 
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		idempotency.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
+
+	validator, err := factoryconv.IdempotencyKeyValidator(c.KeyFormat, c.KeyPattern, c.MaxKeyLength)
+	if err != nil {
+		b.errs = append(b.errs, b.WrapError(err, "build idempotency key validator"))
+		return b
+	}
+	configOpts = append(configOpts, idempotency.WithKeyFormatValidator(validator))
+	configOpts = slices.AppendIf(configOpts, c.IdempotencyKeyField != "", idempotency.WithKeyField(c.IdempotencyKeyField))
+	classifier := idempotencyClassifier(c)
+	configOpts = slices.AppendIfFunc(configOpts, classifier != nil, func() []idempotency.Option {
+		return []idempotency.Option{idempotency.WithMethodClassifier(classifier)}
+	})
+	configOpts = slices.AppendIf(configOpts, c.ResponseReplay, idempotency.WithResponseReplay())
+	configOpts = slices.AppendIf(configOpts, c.MaxReplaySize > 0, idempotency.WithMaxReplaySize(c.MaxReplaySize))
+	configOpts = append(configOpts, b.idempotencyOptions...)
 
 	b.interceptors = append(b.interceptors, idempotency.ServerInterceptor(b.idempotency, configOpts...))
 	return b
@@ -500,11 +545,43 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 // annotations it is a no-op, and for annotated ones it keeps INPUT_ONLY fields out
 // of responses and OUTPUT_ONLY/IDENTIFIER fields out of accepted requests. Ordering
 // is handled by its Dependencies() (it runs after auth), so response sanitization is
-// enforced by default rather than being opt-in.
+// enforced by default rather than being opt-in. Options supplied with
+// [ServerBuilder.UseFieldBehaviorOptions] are applied after the builder's own.
 func (b *ServerBuilder) WithFieldBehaviorInterceptor() *ServerBuilder {
-	b.interceptors = append(b.interceptors, fieldbehavior.ServerInterceptor(
-		fieldbehavior.WithLogger(b.Logger()),
-	))
+	opts := make([]fieldbehavior.Option, 0, len(b.fieldBehaviorOptions)+1)
+	opts = append(opts, fieldbehavior.WithLogger(b.Logger()))
+	opts = append(opts, b.fieldBehaviorOptions...)
+	b.interceptors = append(b.interceptors, fieldbehavior.ServerInterceptor(opts...))
+	return b
+}
+
+// WithFieldMaskInterceptor creates the update/read field mask interceptor
+// from the builder's configuration: update masks are applied to the resource
+// of Update requests and read masks filter the responses of read methods.
+// Options supplied with [ServerBuilder.UseFieldMaskOptions] (method kinds,
+// request extractors) are applied after the config-built ones.
+func (b *ServerBuilder) WithFieldMaskInterceptor() *ServerBuilder {
+	cfg := b.interceptorsCfg()
+	if cfg == nil || !cfg.FieldMask.IsEnabled() {
+		return b
+	}
+
+	c := cfg.FieldMask
+	opts := []fieldmask.Option{
+		fieldmask.WithLogger(b.Logger()),
+		fieldmask.WithIgnoreMethods(c.IgnoreMethods...),
+		fieldmask.WithMaskFieldName(c.MaskFieldName),
+		fieldmask.WithResourceFieldName(c.ResourceFieldName),
+		fieldmask.WithMetadataReadMaskHeader(c.MetadataReadMaskHeader),
+	}
+
+	opts = slices.AppendIf(opts, c.SkipReadMask, fieldmask.WithSkipReadMask())
+	opts = slices.AppendIf(opts, c.ApplyEmptyUpdateMask, fieldmask.WithApplyEmptyUpdateMask())
+	opts = slices.AppendIf(opts, len(c.IgnorePatterns) > 0,
+		fieldmask.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
+	opts = append(opts, b.fieldMaskOptions...)
+
+	b.interceptors = append(b.interceptors, fieldmask.ServerInterceptor(opts...))
 	return b
 }
 

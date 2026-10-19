@@ -126,7 +126,7 @@ func FuzzUnmaskedFieldsAreUntouched(f *testing.F) {
 	f.Add("")
 	f.Add("password") // The word, as a value rather than a key.
 	f.Add("a=b c=d")
-	f.Add("xxxxxxxx")
+	f.Add("τιμή")
 
 	f.Fuzz(func(t *testing.T, value string) {
 		if value == "" {

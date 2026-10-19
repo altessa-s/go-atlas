@@ -11,9 +11,10 @@ import "errors"
 // and [Scheduler.TriggerTask] when no task with the given ID exists in storage.
 var ErrTaskNotFound = errors.New("task not found")
 
-// ErrTaskNotRegistered is returned by [Scheduler.Unregister] and [Scheduler.TriggerTask]
-// when the task ID is not present in the in-memory registration map. This differs from
-// [ErrTaskNotFound], which checks storage.
+// ErrTaskNotRegistered is returned by [Scheduler.TriggerTask] when the task ID is not
+// present in the in-memory registration map, and by [Scheduler.Unregister] when it is
+// neither registered in this process nor persisted in storage. This differs from
+// [ErrTaskNotFound], which checks storage only.
 var ErrTaskNotRegistered = errors.New("task not registered")
 
 // ErrTaskUnmanaged is returned by [Scheduler.PauseTask] and [Scheduler.DisableTask]

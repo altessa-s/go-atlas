@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
+
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -36,7 +38,8 @@ func (e *FieldError) Error() string {
 
 // Error is a structured representation of a gRPC error, enriched with request ID,
 // error reason, metadata, and per-field validation violations extracted from
-// standard google.rpc error details (RequestInfo, ErrorInfo, BadRequest).
+// standard google.rpc error details (RequestInfo, ErrorInfo, BadRequest) and the
+// go-atlas io.altessa.badrequest.v1.BadRequest emitted by go-atlas servers.
 //
 // Use [ParseError] or [ParseStatusError] to create an Error from a gRPC response,
 // and the Is* helpers (e.g. [Error.IsNotFound], [Error.IsValidationError]) to
@@ -216,11 +219,16 @@ func ParseError(err error, converters ...DetailConverter) *Error {
 }
 
 // ParseStatusError converts a gRPC [status.Status] to an [Error], extracting
-// standard google.rpc detail messages:
+// these detail messages:
 //
-//   - errdetails.RequestInfo  --> [Error.RequestID]
-//   - errdetails.ErrorInfo    --> [Error.Reason], [Error.ReasonData]
-//   - errdetails.BadRequest   --> [Error.Fields]
+//   - errdetails.RequestInfo    --> [Error.RequestID]
+//   - errdetails.ErrorInfo      --> [Error.Reason], [Error.ReasonData]
+//   - errdetails.BadRequest     --> [Error.Fields] (Field, Message)
+//   - badrequestv1.BadRequest   --> [Error.Fields] (Field, Message, Code)
+//
+// go-atlas servers (protovalidate, fieldmask, errstatus) emit
+// io.altessa.badrequest.v1.BadRequest; google.rpc.BadRequest is accepted for
+// third-party servers.
 //
 // Custom detail types can be handled by passing one or more [DetailConverter]
 // functions. Converters are tried in order for each detail; the first non-nil
@@ -253,6 +261,16 @@ func ParseStatusError(st *status.Status, converters ...DetailConverter) *Error {
 				ce.Fields = append(ce.Fields, FieldError{
 					Field:   field.GetField(),
 					Message: field.GetDescription(),
+				})
+			}
+		case *badrequestv1.BadRequest:
+			fields := d.GetFieldViolations()
+			ce.Fields = make([]FieldError, 0, len(fields))
+			for _, field := range fields {
+				ce.Fields = append(ce.Fields, FieldError{
+					Field:   field.GetFieldPath(),
+					Message: field.GetMessage(),
+					Code:    field.GetCode(),
 				})
 			}
 		}

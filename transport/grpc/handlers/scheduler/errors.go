@@ -30,6 +30,8 @@ func mapError(err error) error {
 		errors.Is(err, sched.ErrTaskDisabled),
 		errors.Is(err, sched.ErrTaskCompleted):
 		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, sched.ErrPageTokensNotConfigured):
+		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, sched.ErrScheduleConflict):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:

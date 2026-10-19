@@ -17,6 +17,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/data/keyset"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
@@ -41,6 +42,7 @@ type SchedulerBuilder struct {
 	leaderElector  scheduler.LeaderElector
 	collector      metrics.Collector
 	readinessProbe func() bool
+	pageTokens     *keyset.Codec
 	mongoDb        *mongo.Database
 	redisClient    redis.UniversalClient
 	sqlDB          *sql.DB
@@ -96,8 +98,36 @@ func (b *SchedulerBuilder) Build() (*scheduler.Scheduler, error) {
 	configOpts = slices.AppendIf(configOpts, history != nil, scheduler.WithHistoryStorage(history))
 	configOpts = append(configOpts, concurrencyOpts...)
 
+	pageTokens, err := b.pageTokenCodec()
+	if err != nil {
+		return nil, err
+	}
+	configOpts = slices.AppendIf(configOpts, pageTokens != nil, scheduler.WithPageTokens(pageTokens))
+
 	opts := b.applyDefaults(configOpts)
 	return scheduler.New(storage, opts...), nil
+}
+
+// pageTokenCodec returns the codec signing the paginated-list cursors: the
+// one injected with UsePageTokens, otherwise one built from the `paging`
+// section, or nil when neither is set (the paginated lists then fail with
+// scheduler.ErrPageTokensNotConfigured).
+func (b *SchedulerBuilder) pageTokenCodec() (*keyset.Codec, error) {
+	if b.pageTokens != nil || b.cfg.Paging == nil {
+		return b.pageTokens, nil
+	}
+	paging := b.cfg.Paging
+	previous := make([][]byte, len(paging.PreviousKeys))
+	for i, k := range paging.PreviousKeys {
+		previous[i] = []byte(k.Expose())
+	}
+	opts := []keyset.Option{keyset.WithPreviousKeys(previous...)}
+	opts = slices.AppendIf(opts, paging.TokenTTL > 0, keyset.WithTTL(paging.TokenTTL))
+	codec, err := keyset.New([]byte(paging.SigningKey.Expose()), opts...)
+	if err != nil {
+		return nil, b.WrapError(err, "create scheduler page tokens")
+	}
+	return codec, nil
 }
 
 // applyDefaults prepends factory defaults to scheduler options.

@@ -58,7 +58,7 @@ func TestBuild_URL(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: scheme + "://proxy.example.com:8443"}
+			cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: redacted.URL(scheme + "://proxy.example.com:8443")}
 			dial, err := factory.New(cfg).Build()
 			require.NoError(t, err)
 			require.NotNil(t, dial, "%s scheme must produce a dialer", scheme)

@@ -5,7 +5,9 @@ import sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
 ```
 
 Sentinel errors returned by the saga orchestrator and its [`Storage`](../storage.go) backends. Match them with `errors.Is`; they are also returned
-wrapped (via `core/errors`), so always use `errors.Is` rather than `==`.
+wrapped (via `core/errors`), so always use `errors.Is` rather than `==`. `ErrInstanceNotFound`, `ErrInstanceExists`, `ErrVersionConflict` and
+`ErrInstanceBusy` wrap the canonical `core/errors` sentinels `ErrNotFound`, `ErrAlreadyExists`, `ErrConflict` and `ErrBusy`, so a transport
+error mapper classifies them without knowing the saga package.
 
 ## Sentinels
 

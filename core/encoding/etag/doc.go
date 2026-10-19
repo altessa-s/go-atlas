@@ -23,7 +23,12 @@
 //   - [Generator.HashReader] streams a reader without buffering it whole.
 //
 // [FromModTime] builds a weak validator from object metadata in the
-// nginx/Apache `size-mtime` style, without hashing at all.
+// nginx/Apache `size-mtime` style, without hashing at all. [FromVersion]
+// renders the weak etag of an integer resource version and [Tag.Version]
+// reads it back, accepting only the canonical form. [ParseVersion] and
+// [CheckVersion] validate the etag a client sends back with a mutation and
+// fail with [ErrMissing], [ErrMalformed] or [ErrMismatch] (a
+// core/errors.ErrConflict).
 //
 // # Transports
 //

@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 
@@ -108,17 +110,18 @@ func TestServerInterceptor_UpdateMask_ImmutableRejected(t *testing.T) {
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 
-	var found *errdetails.BadRequest
+	var found *badrequestv1.BadRequest
 	for _, d := range st.Details() {
-		if br, isBR := d.(*errdetails.BadRequest); isBR {
+		_, isGoogle := d.(*errdetails.BadRequest)
+		require.False(t, isGoogle, "google.rpc.BadRequest must not be emitted")
+		if br, isBR := d.(*badrequestv1.BadRequest); isBR {
 			found = br
-			break
 		}
 	}
 	require.NotNil(t, found, "BadRequest detail must be attached")
 	require.Len(t, found.GetFieldViolations(), 1)
-	require.Equal(t, "tenant_id", found.GetFieldViolations()[0].GetField())
-	require.Contains(t, found.GetFieldViolations()[0].GetDescription(), "immutable")
+	require.Equal(t, "tenant_id", found.GetFieldViolations()[0].GetFieldPath())
+	require.Contains(t, found.GetFieldViolations()[0].GetMessage(), "immutable")
 }
 
 func TestServerInterceptor_UpdateMask_OutputOnlyStripped(t *testing.T) {

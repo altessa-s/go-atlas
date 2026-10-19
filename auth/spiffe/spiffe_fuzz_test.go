@@ -38,7 +38,7 @@ func FuzzParseID(f *testing.F) {
 	f.Add("spiffe:///path")
 	f.Add("spiffe://example.org/%2e%2e/other")
 	f.Add("spiffe://ex%41mple.org/path")
-	f.Add("spiffe://example.org/xxxx")
+	f.Add("spiffe://example.org/διαδρομή")
 	f.Add("spiffe://:")            // Regression: a bare colon reached the trust domain.
 	f.Add("spiffe://example.org:") // Regression: an empty port reached the trust domain.
 	f.Add("spiffe://0/%00")        // Regression: an accepted ID that String could not re-render.

@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -18,7 +19,9 @@ import (
 //
 // A nil receiver or empty Mode returns (nil, nil) so the client keeps
 // its default policy: SSRF protection disables environment proxies. Explicit
-// proxy modes require httpclient.WithoutSSRFProtection when constructing the client.
+// proxy modes work with SSRF protection on: the dial to the proxy is guarded
+// (allow a private proxy network with httpclient.WithSSRFAllowedCIDRs) and the
+// proxy resolves the target hosts.
 //
 // An invalid URL in Mode url surfaces as an error here rather than at
 // request time.
@@ -61,9 +64,10 @@ func proxyClientOptions[O any](
 	case proxyconfig.ModeNone:
 		return []O{withoutProxy()}, nil
 	case proxyconfig.ModeURL:
-		u, err := url.Parse(p.URL)
+		u, err := url.Parse(p.URL.Expose())
 		if err != nil {
-			return nil, fmt.Errorf("proxy: parse url: %w", err)
+			// url.Parse errors quote the URL, credentials included.
+			return nil, errors.New("proxy: url is not a valid URL")
 		}
 		return []O{withProxyURL(u)}, nil
 	case proxyconfig.ModeHost:

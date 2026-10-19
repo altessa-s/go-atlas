@@ -5,6 +5,8 @@
 package factory
 
 import (
+	"net/http"
+
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
@@ -169,8 +171,40 @@ func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
 	configOpts = append(configOpts,
 		idempotencymw.WithKeyLogMode(idempotencymw.ParseKeyLogMode(string(c.KeyLogMode))))
 
+	validator, err := factoryconv.IdempotencyKeyValidator(c.KeyFormat, c.KeyPattern, c.MaxKeyLength)
+	if err != nil {
+		b.errs = append(b.errs, b.WrapError(err, "build idempotency key validator"))
+		return b
+	}
+	configOpts = append(configOpts, idempotencymw.WithKeyFormatValidator(validator))
+	configOpts = slices.AppendIf(configOpts, c.KeyQueryParam != "", idempotencymw.WithKeyQueryParam(c.KeyQueryParam))
+	classifier := idempotencyClassifier(c)
+	configOpts = slices.AppendIfFunc(configOpts, classifier != nil, func() []idempotencymw.Option {
+		return []idempotencymw.Option{idempotencymw.WithRequestClassifier(classifier)}
+	})
+	configOpts = slices.AppendIf(configOpts, c.ResponseReplay, idempotencymw.WithResponseReplay())
+	configOpts = slices.AppendIf(configOpts, c.MaxReplaySize > 0, idempotencymw.WithMaxReplaySize(c.MaxReplaySize))
+	configOpts = slices.AppendIf(configOpts, len(c.ReplayHeaders) > 0, idempotencymw.WithReplayHeaders(c.ReplayHeaders...))
+
 	b.configMW = append(b.configMW, idempotencymw.New(b.idempotency, configOpts...))
 	return b
+}
+
+// idempotencyClassifier builds the request classifier of the idempotency
+// config: requests to a path listed in mandatoryPaths or matching
+// mandatoryPatterns require a key. It returns nil when neither is set, so
+// every request not ignored gets enforceMandatory.
+func idempotencyClassifier(c *httpconfig.IdempotencyMiddleware) idempotencymw.RequestClassifier {
+	mandatory := factoryconv.StringMatcher(c.MandatoryPaths, c.MandatoryPatterns)
+	if mandatory == nil {
+		return nil
+	}
+	return func(r *http.Request) idempotencymw.Policy {
+		if mandatory(r.URL.Path) {
+			return idempotencymw.PolicyMandatory
+		}
+		return idempotencymw.PolicyDefault
+	}
 }
 
 // WithIpAclMiddleware creates an IP access control middleware from the builder's configuration.

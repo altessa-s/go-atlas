@@ -5,6 +5,12 @@
 // Package logger provides gRPC interceptors for request and response logging.
 // It captures method calls, timing, errors, and custom fields with structured logging support.
 //
+// # Payload redaction
+//
+// Request and response payloads are logged only with [WithLogRequest] / [WithLogResponse].
+// [WithDebugRedact] clears the fields marked with the protobuf debug_redact option from the
+// logged copy ([DebugRedact]); [WithPayloadRedactor] applies a custom [PayloadRedactor] after it.
+//
 // Example:
 //
 //	myLogger := logger.LoggerFunc(func(ctx context.Context, msg string, code codes.Code, fields logfields.Fields) {

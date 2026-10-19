@@ -11,13 +11,15 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
+
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas/core/types/ptr"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -425,7 +427,7 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 }
 
 // convertUpdateError maps ApplyUpdateMask errors to gRPC status responses.
-// UpdateMaskBehaviorError becomes InvalidArgument + google.rpc.BadRequest;
+// UpdateMaskBehaviorError becomes InvalidArgument + io.altessa.badrequest.v1.BadRequest;
 // ValidationError becomes InvalidArgument; everything else becomes Internal.
 func (ri *requestInterceptor) convertUpdateError(ctx context.Context, method string, applyErr error) error {
 	if behaviorErr, ok := errors.AsType[*pbfieldmask.UpdateMaskBehaviorError](applyErr); ok {
@@ -450,19 +452,22 @@ func (ri *requestInterceptor) convertUpdateError(ctx context.Context, method str
 	)
 }
 
-// buildBehaviorStatus produces an InvalidArgument status carrying a
-// google.rpc.BadRequest detail with one FieldViolation per offending field.
+// buildBehaviorStatus produces an InvalidArgument status carrying an
+// io.altessa.badrequest.v1.BadRequest detail with one FieldViolation per
+// offending field — the same detail type the protovalidate interceptor and
+// errstatus emit, so a go-atlas client parses every server-side violation the
+// same way.
 func buildBehaviorStatus(err *pbfieldmask.UpdateMaskBehaviorError) *status.Status {
-	violations := make([]*errdetails.BadRequest_FieldViolation, 0, len(err.Violations))
+	violations := make([]*badrequestv1.FieldViolation, 0, len(err.Violations))
 	for _, v := range err.Violations {
-		violations = append(violations, &errdetails.BadRequest_FieldViolation{
-			Field:       v.Path,
-			Description: v.Reason,
+		violations = append(violations, &badrequestv1.FieldViolation{
+			FieldPath: ptr.WrapNonZero(v.Path),
+			Message:   ptr.WrapNonZero(v.Reason),
 		})
 	}
 
 	st := status.New(codes.InvalidArgument, "field behavior violation")
-	if detailed, derr := st.WithDetails(&errdetails.BadRequest{
+	if detailed, derr := st.WithDetails(&badrequestv1.BadRequest{
 		FieldViolations: violations,
 	}); derr == nil {
 		return detailed

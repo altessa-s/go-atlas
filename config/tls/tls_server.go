@@ -24,12 +24,13 @@ type ClientAuth struct {
 	AllowCertAuth bool `yaml:"allowCertAuth"`
 }
 
-// Normalize processes the Tls client auth configuration by resolving CA certificate file paths.
-// It attempts to locate CA certificate files using the findFile helper.
+// Normalize processes the Tls client auth configuration by resolving CA certificate file paths:
+// a relative path is resolved against the working directory, an absolute one is kept, and a
+// missing file keeps its path so [ClientAuth.Validate] reports it.
 // This method should be called after loading configuration.
 func (c *ClientAuth) Normalize() {
 	for i, ca := range c.CACerts {
-		c.CACerts[i] = utils.FindFile(ca)
+		c.CACerts[i] = utils.ResolvePath(ca)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/data/keyset"
 )
 
 // Option is a functional option for configuring options.
@@ -21,6 +22,13 @@ func WithCleanupInterval(v time.Duration) Option {
 			return
 		}
 		o.cleanupInterval = v
+	}
+}
+
+// WithEphemeralPageTokens enables the ephemeralPageTokens option.
+func WithEphemeralPageTokens() Option {
+	return func(o *options) {
+		o.ephemeralPageTokens = true
 	}
 }
 
@@ -91,6 +99,16 @@ func WithLogger(v *slog.Logger) Option {
 func WithMaxConcurrentTasks(v int) Option {
 	return func(o *options) {
 		o.maxConcurrentTasks = v
+	}
+}
+
+// WithPageTokens sets the pageTokens option.
+func WithPageTokens(v *keyset.Codec) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.pageTokens = v
 	}
 }
 

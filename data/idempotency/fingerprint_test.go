@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/core/encoding/keys"
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
 )
@@ -33,23 +34,13 @@ func newKeeper(opts ...idempotency.Option) *idempotency.Keeper {
 	}, opts...)...)
 }
 
-func TestFingerprint(t *testing.T) {
-	t.Parallel()
-
-	require.Len(t, idempotency.Fingerprint([]byte("a")), 32)
-	require.Equal(t, idempotency.Fingerprint([]byte("a"), []byte("b")), idempotency.Fingerprint([]byte("a"), []byte("b")))
-	require.NotEqual(t, idempotency.Fingerprint([]byte("ab"), []byte("c")), idempotency.Fingerprint([]byte("a"), []byte("bc")),
-		"parts are length-prefixed")
-	require.NotEqual(t, idempotency.Fingerprint(), idempotency.Fingerprint(nil), "an empty part counts")
-}
-
 func TestFingerprintMismatch(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 	k := newKeeper()
-	fpA := idempotency.Fingerprint([]byte("create"), []byte(`{"amount":1}`))
-	fpB := idempotency.Fingerprint([]byte("create"), []byte(`{"amount":2}`))
+	fpA := keys.Digest([]byte("create"), []byte(`{"amount":1}`))
+	fpB := keys.Digest([]byte("create"), []byte(`{"amount":2}`))
 
 	ok, held, err := k.AttemptLockWithOpts(ctx, "key", idempotency.AttemptLockOpts{Fingerprint: fpA})
 	require.NoError(t, err)

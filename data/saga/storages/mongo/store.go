@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas/data/mongo/cas"
 	"github.com/altessa-s/go-atlas/data/saga"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
@@ -117,11 +118,9 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 	newVersion := inst.Version + 1
 	doc := toDocument(inst)
 
-	filter := bson.D{
-		{Key: collectionFieldId, Value: inst.ID},
-		{Key: collectionFieldVersion, Value: inst.Version},
-	}
-	update := bson.D{{Key: "$set", Value: bson.D{
+	filter := cas.Filter(collectionFieldId, inst.ID, collectionFieldVersion, inst.Version)
+	update := cas.Inc(collectionFieldVersion)
+	update["$set"] = bson.D{
 		{Key: "definition", Value: doc.Definition},
 		{Key: collectionFieldStatus, Value: doc.Status},
 		{Key: "stage", Value: doc.Stage},
@@ -134,8 +133,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		{Key: "updated_at", Value: doc.UpdatedAt},
 		{Key: collectionFieldDeadline, Value: doc.Deadline},
 		{Key: "last_error", Value: doc.LastError},
-		{Key: collectionFieldVersion, Value: newVersion},
-	}}}
+	}
 
 	res, err := s.collection.UpdateOne(ctx, filter, update)
 	if err != nil {
@@ -145,14 +143,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		// No document matched the {id, version} filter: either the instance is
 		// gone, or its version moved on. Disambiguate so the caller sees
 		// ErrInstanceNotFound vs ErrVersionConflict.
-		n, cErr := s.collection.CountDocuments(ctx, bson.D{{Key: collectionFieldId, Value: inst.ID}})
-		if cErr != nil {
-			return coreerrs.WrapOperation(cErr, "disambiguate saga update in MongoDB")
-		}
-		if n == 0 {
-			return sagaerrs.ErrInstanceNotFound
-		}
-		return sagaerrs.ErrVersionConflict
+		return cas.ClassifyMiss(ctx, s.collection, collectionFieldId, inst.ID, sagaerrs.ErrInstanceNotFound, sagaerrs.ErrVersionConflict)
 	}
 
 	inst.Version = newVersion

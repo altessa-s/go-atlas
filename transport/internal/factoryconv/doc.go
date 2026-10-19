@@ -12,6 +12,11 @@
 //
 //   - [CompilePatterns] compiles string patterns to regexps, skipping
 //     invalid ones.
+//   - [StringMatcher] matches a string against an exact list and regex
+//     patterns (nil when both are empty); it backs the mandatory-key
+//     classifiers of the idempotency factories.
+//   - [IdempotencyKeyValidator] returns the idempotency key validator of a
+//     configured [middlewareconfig.IdempotencyKeyFormat].
 //   - [ParsePrefixes] parses IP/CIDR strings to netip.Prefix values.
 //   - [ConvertFallbackBehavior] maps [middlewareconfig.FallbackBehavior] to
 //     [fallback.Behavior], failing closed on unknown values.

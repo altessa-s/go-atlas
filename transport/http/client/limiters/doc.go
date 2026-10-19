@@ -12,6 +12,13 @@
 // parent [github.com/altessa-s/go-atlas/transport/http/client] package via
 // [client.WithLimiter].
 //
+// A denial is returned as a [*RateLimitError] wrapping the limiter's error;
+// it matches [ErrRateLimited] through errors.Is.
+//
+// [Func] adapts a plain function and [Chain] combines limiters (consulted in
+// order, stopping at the first refusal). The hostpacer subpackage provides a
+// waiting per-host limiter.
+//
 // Example:
 //
 //	rt := limiters.NewRoundTripper(http.DefaultTransport, myLimiter)

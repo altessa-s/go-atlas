@@ -60,6 +60,9 @@ type Cache struct {
 	failOpen        bool
 	ioTimeout       time.Duration // bounds each storage call when positive
 	isolated        bool          // collapsed callers share serialized bytes
+
+	keyVersion KeyVersionFunc              // nil = unversioned keys
+	invalidate func(context.Context) error // nil = InvalidateAll unsupported
 }
 
 // New creates a new Cache instance with the given provider and options.
@@ -88,6 +91,9 @@ func New(p Storage, opts ...Option) *Cache {
 		failOpen:        options.failOpen,
 		ioTimeout:       options.ioTimeout,
 		isolated:        options.isolatedResults,
+
+		keyVersion: options.keyVersion,
+		invalidate: options.invalidate,
 	}
 	return c
 }
@@ -102,33 +108,51 @@ func NewNoop(opts ...Option) *Cache {
 	return New(noop.New(), opts...)
 }
 
-// effectiveKey encodes a namespace and key without ambiguous delimiters.
-func (c *Cache) effectiveKey(ctx context.Context, key string) string {
-	if c.keyNamespace == nil {
-		return key
+// effectiveKey encodes the key version, namespace and key without ambiguous
+// delimiters: "<version>:" when versioned, then "<len>:<namespace>:" when
+// namespaced, then the key. An error means the key version is unknown.
+func (c *Cache) effectiveKey(ctx context.Context, key string) (string, error) {
+	prefix, err := c.keyPrefix(ctx)
+	if err != nil {
+		return "", err
 	}
-	return namespacePrefix(c.keyNamespace(ctx)) + key
+	return prefix + key, nil
+}
+
+// keyPrefix returns the version and namespace prefix shared by every key of
+// one operation.
+func (c *Cache) keyPrefix(ctx context.Context) (string, error) {
+	version, err := c.versionPrefix(ctx)
+	if err != nil {
+		return "", err
+	}
+	if c.keyNamespace == nil {
+		return version, nil
+	}
+	return version + namespacePrefix(c.keyNamespace(ctx)), nil
 }
 
 func namespacePrefix(ns string) string {
 	return strconv.Itoa(len(ns)) + ":" + ns + ":"
 }
 
-func (c *Cache) effectiveKeys(ctx context.Context, keys []string) []string {
-	if c.keyNamespace == nil {
-		return keys
+func (c *Cache) effectiveKeys(ctx context.Context, keys []string) ([]string, error) {
+	prefix, err := c.keyPrefix(ctx)
+	if err != nil || prefix == "" {
+		return keys, err
 	}
-	prefix := namespacePrefix(c.keyNamespace(ctx))
 	out := make([]string, len(keys))
 	for i, key := range keys {
 		out[i] = prefix + key
 	}
-	return out
+	return out, nil
 }
 
 // GetWithFallback retrieves a cached value or calls fallback if not found.
 // The value parameter must be a pointer. Panics if key is empty or fallback is nil.
 // Uses singleflight to prevent duplicate fallback calls for the same key.
+// A context marked by [WithFreshReads] skips the cache: the fallback runs
+// directly in the caller and nothing is stored.
 //
 // Example:
 //
@@ -145,9 +169,29 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
+	dst := reflect.Indirect(reflect.ValueOf(value))
+
+	if FreshReads(ctx) {
+		fv, err := c.directFallback(ctx, fallback)
+		if err != nil {
+			return err
+		}
+		dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
+		return nil
+	}
+
 	// Namespace the key for both the backend and singleflight so concurrent
 	// callers from different tenants never collapse onto one another's result.
-	ek := c.effectiveKey(ctx, key)
+	ek, err := c.effectiveKey(ctx, key)
+	if err != nil {
+		// Unknown key version: read the source of truth, store nothing.
+		fv, fErr := c.bypassFallback(ctx, fallback)
+		if fErr != nil {
+			return fErr
+		}
+		dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
+		return nil
+	}
 
 	data, found, err := c.lookupRaw(ctx, ek)
 	if err != nil {
@@ -161,24 +205,18 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		c.dropCorrupt(ctx, ek)
 	}
 
-	fv, err := c.runFallback(ctx, ek, fallback)
+	ld, err := c.runFallback(ctx, ek, fallback)
 	if err != nil {
 		return err
 	}
 
-	dst := reflect.Indirect(reflect.ValueOf(value))
 	if c.isolated {
-		// fv is this caller's view of the shared serialized bytes; decode a
-		// private copy over a zeroed destination, mirroring the full overwrite
-		// of the shared-value path.
-		data, err := isolatedBytes(fv)
-		if err != nil {
-			return err
-		}
+		// Decode a private copy of the shared serialized bytes over a zeroed
+		// destination, mirroring the full overwrite of the shared-value path.
 		dst.SetZero()
-		return c.serializer.Deserialize(data, value)
+		return c.serializer.Deserialize(ld.data, value)
 	}
-	dst.Set(reflect.Indirect(reflect.ValueOf(fv)))
+	dst.Set(reflect.Indirect(reflect.ValueOf(ld.value)))
 
 	return nil
 }
@@ -195,6 +233,14 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 //		return user, cache.TTLUseDefault, err
 //	})
 func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback func(context.Context) (T, time.Duration, error)) (T, error) {
+	return getWithFallbackT(ctx, c, key, c.isolated, fallback)
+}
+
+// getWithFallbackT implements [GetWithFallbackT]; isolated forces every
+// caller to decode its own copy whatever the cache's [WithIsolatedResults].
+func getWithFallbackT[T any](
+	ctx context.Context, c *Cache, key string, isolated bool, fallback func(context.Context) (T, time.Duration, error),
+) (T, error) {
 	var out T
 	panics.Must(!strings.IsEmpty(key), "key must be provided")
 	panics.MustNonNil(fallback, "fallback must be provided")
@@ -202,7 +248,29 @@ func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	ek := c.effectiveKey(ctx, key)
+	if FreshReads(ctx) {
+		fv, err := c.directFallback(ctx, func(work context.Context) (any, time.Duration, error) {
+			return fallback(work)
+		})
+		if err != nil {
+			return out, err
+		}
+		v, _ := fv.(T) // fv is the fallback's own T
+		return v, nil
+	}
+
+	ek, err := c.effectiveKey(ctx, key)
+	if err != nil {
+		// Unknown key version: read the source of truth, store nothing.
+		fv, fErr := c.bypassFallback(ctx, func(work context.Context) (any, time.Duration, error) {
+			return fallback(work)
+		})
+		if fErr != nil {
+			return out, fErr
+		}
+		v, _ := fv.(T) // fv is the fallback's own T
+		return v, nil
+	}
 
 	data, found, err := c.lookupRaw(ctx, ek)
 	if err != nil {
@@ -223,19 +291,15 @@ func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback
 
 	// The boxing wrapper is built only on the miss path; hits stay free of
 	// per-call closures.
-	fv, err := c.runFallback(ctx, ek, func(work context.Context) (any, time.Duration, error) {
+	ld, err := c.runFallback(ctx, ek, func(work context.Context) (any, time.Duration, error) {
 		return fallback(work)
 	})
 	if err != nil {
 		return out, err
 	}
 
-	if c.isolated {
-		raw, err := isolatedBytes(fv)
-		if err != nil {
-			return out, err
-		}
-		if err = c.serializer.Deserialize(raw, &out); err != nil {
+	if isolated {
+		if err = c.serializer.Deserialize(ld.data, &out); err != nil {
 			var zero T
 			return zero, err
 		}
@@ -245,13 +309,13 @@ func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback
 	// A concurrent untyped caller may have won the singleflight with a *T:
 	// accept both shapes, mirroring the reflect.Indirect copy-out of the
 	// untyped method.
-	if v, ok := fv.(T); ok {
+	if v, ok := ld.value.(T); ok {
 		return v, nil
 	}
-	if p, ok := fv.(*T); ok && p != nil {
+	if p, ok := ld.value.(*T); ok && p != nil {
 		return *p, nil
 	}
-	return out, fmt.Errorf("cache: singleflight value type %T does not match requested type %T", fv, out)
+	return out, fmt.Errorf("cache: singleflight value type %T does not match requested type %T", ld.value, out)
 }
 
 // lookupRaw performs the provider read with negative-sentinel handling and
@@ -323,18 +387,29 @@ func (c *Cache) failOpenSaveError(ctx context.Context) bool {
 	return true
 }
 
+// loaded is the result a fallback run shares with every collapsed caller:
+// the loaded value and its serialized bytes. A caller that must not share
+// memory with the others decodes data; the others use value.
+type loaded struct {
+	value any
+	data  []byte
+}
+
 // runFallback executes fallback under bounded admission and the
 // singleflight group, persisting the produced value (or the negative
-// sentinel) exactly as the lookup flow expects. With isolated results the
-// shared value is the serialized []byte, not the loaded value. In fail-open
-// mode a call rejected with [ErrOverloaded] runs the fallback directly in the
-// caller, without sharing it.
-func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (any, error) {
+// sentinel) exactly as the lookup flow expects. In fail-open mode a call
+// rejected with [ErrOverloaded] runs the fallback directly in the caller,
+// without sharing it.
+func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (*loaded, error) {
 	v, err := c.group.Do(ctx, ek, func(sharedCtx context.Context) (any, error) {
 		return c.loadAndStore(sharedCtx, ek, fallback)
 	})
 	if !c.failOpen || !errors.Is(err, ErrOverloaded) {
-		return v, err
+		if err != nil {
+			return nil, err
+		}
+		ld, _ := v.(*loaded) // the group only ever shares *loaded
+		return ld, nil
 	}
 
 	c.metrics.failOpenOverload.Inc()
@@ -347,9 +422,8 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 }
 
 // loadAndStore runs fallback and writes its result (or the negative sentinel)
-// under ek. It returns the loaded value, or its serialized bytes when results
-// are isolated.
-func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) (any, error) {
+// under ek. It returns the loaded value with its serialized bytes.
+func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) (*loaded, error) {
 	stop := c.metrics.fallbackDuration.Start()
 	val, ttl, fErr := fallback(ctx)
 	stop()
@@ -368,7 +442,7 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 		return nil, fErr
 	}
 
-	if vv := reflect.ValueOf(val); val == nil || (vv.Kind() == reflect.Pointer && vv.IsNil()) {
+	if isNilValue(val) {
 		if c.negativeTtl > 0 {
 			if sErr := c.storageSave(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
 				c.metrics.errors.Inc()
@@ -397,20 +471,14 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 		c.metrics.failOpenSave.Inc()
 	}
 
-	if c.isolated {
-		return cacheData, nil
-	}
-	return val, nil
+	return &loaded{value: val, data: cacheData}, nil
 }
 
-// isolatedBytes unwraps a fallback result in isolated mode, where
-// [Cache.runFallback] hands every collapsed caller the serialized bytes.
-func isolatedBytes(fv any) ([]byte, error) {
-	data, ok := fv.([]byte)
-	if !ok {
-		return nil, fmt.Errorf("cache: isolated fallback result is %T, want []byte", fv)
-	}
-	return data, nil
+// isNilValue reports whether a fallback returned no value: nil or a nil
+// pointer.
+func isNilValue(val any) bool {
+	vv := reflect.ValueOf(val)
+	return val == nil || (vv.Kind() == reflect.Pointer && vv.IsNil())
 }
 
 // Save stores a value in the cache with the given key.
@@ -435,8 +503,16 @@ func (c *Cache) Save(ctx context.Context, key string, value any, ttl ...time.Dur
 		return err
 	}
 
+	ek, err := c.effectiveKey(ctx, key)
+	if err != nil {
+		if c.versionUnavailable(ctx) {
+			return nil
+		}
+		return err
+	}
+
 	stop := c.metrics.writeDuration.Start()
-	err = c.storageSave(ctx, c.effectiveKey(ctx, key), cacheData, cacheTtl)
+	err = c.storageSave(ctx, ek, cacheData, cacheTtl)
 	stop()
 	if err != nil && c.failOpenSaveError(ctx) {
 		c.metrics.errors.Inc()
@@ -457,7 +533,15 @@ func (c *Cache) Exists(ctx context.Context, key string) (bool, error) {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	data, err := c.provider.Get(ctx, c.effectiveKey(ctx, key))
+	ek, err := c.effectiveKey(ctx, key)
+	if err != nil {
+		if c.versionUnavailable(ctx) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	data, err := c.provider.Get(ctx, ek)
 	if err != nil {
 		if errors.Is(err, ErrMissing) {
 			return false, nil
@@ -487,7 +571,13 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	ek := c.effectiveKey(ctx, key)
+	ek, err := c.effectiveKey(ctx, key)
+	if err != nil {
+		if c.versionUnavailable(ctx) {
+			return ErrMissing
+		}
+		return err
+	}
 	data, err := c.storageGet(ctx, ek)
 	if err != nil {
 		if errors.Is(err, ErrMissing) {
@@ -534,7 +624,11 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	return c.provider.Delete(ctx, c.effectiveKey(ctx, key))
+	ek, err := c.effectiveKey(ctx, key)
+	if err != nil {
+		return err
+	}
+	return c.provider.Delete(ctx, ek)
 }
 
 // DeleteMany removes multiple keys from the cache in a single operation.
@@ -549,5 +643,9 @@ func (c *Cache) DeleteMany(ctx context.Context, key ...string) error {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	return c.provider.DeleteMany(ctx, c.effectiveKeys(ctx, key)...)
+	eks, err := c.effectiveKeys(ctx, key)
+	if err != nil {
+		return err
+	}
+	return c.provider.DeleteMany(ctx, eks...)
 }

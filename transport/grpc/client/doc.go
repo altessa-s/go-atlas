@@ -53,6 +53,11 @@
 //		client.WithQueryTimeout(10*time.Second),
 //	)
 //
+// The default service config carries a client-side healthCheckConfig for the
+// health.v1.HealthService service; with the round-robin balancing that
+// [WithRetry] selects, gRPC health-checks every subchannel. Pass
+// [WithoutHealthCheck] when the server does not implement that service.
+//
 // # Connection Pooling
 //
 // For high-throughput scenarios, use connection pooling:

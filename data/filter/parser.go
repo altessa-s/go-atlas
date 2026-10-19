@@ -6,13 +6,18 @@ package filter
 
 import (
 	"context"
+	"errors"
 	"maps"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/common/types"
+	"github.com/shopspring/decimal"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/cache/lru"
@@ -184,18 +189,27 @@ func (p *Parser) parseInternal(expression string) (Node, error) {
 	if err != nil {
 		return nil, coreerrs.Wrapf(ErrParseFailed, "%v", err)
 	}
-	return p.convertExpr(parsedExpr.GetExpr())
+	c := &conversion{Parser: p, source: []rune(expression), positions: parsedExpr.GetSourceInfo().GetPositions()}
+	return c.convertExpr(parsedExpr.GetExpr())
+}
+
+// conversion is the state of converting one parsed expression: the shared [Parser] plus the source text and the code-point
+// offset of every expression, from which float literals recover their spelling.
+type conversion struct {
+	*Parser
+	source    []rune
+	positions map[int64]int32
 }
 
 // convertExpr converts a CEL expression to our AST node.
-func (p *Parser) convertExpr(expr *exprpb.Expr) (Node, error) {
+func (p *conversion) convertExpr(expr *exprpb.Expr) (Node, error) {
 	if expr == nil {
 		return nil, coreerrs.Wrap(ErrInvalidExpression, "nil expression")
 	}
 
 	switch e := expr.ExprKind.(type) {
 	case *exprpb.Expr_ConstExpr:
-		return p.convertConst(e.ConstExpr)
+		return p.convertConst(e.ConstExpr, expr.GetId())
 	case *exprpb.Expr_IdentExpr:
 		return &IdentNode{Name: e.IdentExpr.Name}, nil
 	case *exprpb.Expr_SelectExpr:
@@ -210,7 +224,7 @@ func (p *Parser) convertExpr(expr *exprpb.Expr) (Node, error) {
 }
 
 // convertConst converts a CEL constant to a LiteralNode.
-func (p *Parser) convertConst(c *exprpb.Constant) (Node, error) {
+func (p *conversion) convertConst(c *exprpb.Constant, id int64) (Node, error) {
 	switch k := c.ConstantKind.(type) {
 	case *exprpb.Constant_BoolValue:
 		return &LiteralNode{Value: k.BoolValue}, nil
@@ -219,7 +233,7 @@ func (p *Parser) convertConst(c *exprpb.Constant) (Node, error) {
 	case *exprpb.Constant_Uint64Value:
 		return &LiteralNode{Value: k.Uint64Value}, nil
 	case *exprpb.Constant_DoubleValue:
-		return &LiteralNode{Value: k.DoubleValue}, nil
+		return &LiteralNode{Value: k.DoubleValue, Text: p.floatSpelling(id, k.DoubleValue)}, nil
 	case *exprpb.Constant_StringValue:
 		return &LiteralNode{Value: k.StringValue}, nil
 	case *exprpb.Constant_BytesValue:
@@ -231,9 +245,68 @@ func (p *Parser) convertConst(c *exprpb.Constant) (Node, error) {
 	}
 }
 
+// unverifiedSpelling marks a float literal whose source spelling could not be recovered. It is not a decimal, so a
+// [FieldKindDecimal] operand rejects the literal instead of falling back to its float64 value.
+const unverifiedSpelling = "<unrecovered float literal>"
+
+// floatSpelling returns "" only when the shortest round-trip decimal of v is certified to be exactly the literal's source spelling
+// (within the Decimal128 range and at most [MaxExactFloatDigits] digits). Otherwise it returns the spelling — which downstream
+// decimal validation reads exactly or rejects — or [unverifiedSpelling] when the spelling cannot be recovered at all; it never lets
+// a decimal operand fall back to the float. The literal starts at its recorded offset, with an optional minus sign the parser
+// folds into the constant.
+func (p *conversion) floatSpelling(id int64, v float64) string {
+	pos, ok := p.positions[id]
+	if !ok || pos < 0 || int(pos) >= len(p.source) {
+		return unverifiedSpelling
+	}
+	src := p.source[pos:]
+	var b strings.Builder
+	if len(src) > 0 && src[0] == '-' {
+		b.WriteRune('-')
+		src = src[1:]
+		for len(src) > 0 && unicode.IsSpace(src[0]) {
+			src = src[1:]
+		}
+	}
+	prev := rune(0)
+	for _, r := range src {
+		isDigit := r >= '0' && r <= '9'
+		if !isDigit && r != '.' && r != 'e' && r != 'E' && ((r != '+' && r != '-') || (prev != 'e' && prev != 'E')) {
+			break
+		}
+		b.WriteRune(r)
+		prev = r
+	}
+	text := b.String()
+	f, err := strconv.ParseFloat(text, 64)
+	switch {
+	case err != nil:
+		if errors.Is(err, strconv.ErrRange) {
+			return text // overflow or underflow: the float is not the value written
+		}
+		return unverifiedSpelling
+	case f != v:
+		return unverifiedSpelling // the scanned text is not this literal
+	}
+	parsed, err := decimal.NewFromString(text)
+	if err != nil {
+		return text // e.g. an exponent beyond int32 (1e-2147483649), which the float silently rounded to 0
+	}
+	// Bound and normalize before any decimal arithmetic: Equal on an unbounded value (0e-999999999) would rescale by its exponent.
+	// A spelling outside the Decimal128 range is kept as is, so a decimal field rejects it.
+	exact, err := boundedDecimal(parsed)
+	if err != nil {
+		return text
+	}
+	if short, err := floatDecimal(v); err == nil && short.Equal(exact) {
+		return ""
+	}
+	return text
+}
+
 // convertSelect converts a CEL select expression (field access) to an IdentNode.
 // If TestOnly is true, this represents a has() macro call.
-func (p *Parser) convertSelect(s *exprpb.Expr_Select) (Node, error) {
+func (p *conversion) convertSelect(s *exprpb.Expr_Select) (Node, error) {
 	path, err := p.buildFieldPath(s)
 	if err != nil {
 		return nil, err
@@ -272,7 +345,7 @@ func (p *Parser) buildFieldPath(s *exprpb.Expr_Select) (string, error) {
 }
 
 // convertCall converts a CEL call expression to the appropriate node type.
-func (p *Parser) convertCall(c *exprpb.Expr_Call) (Node, error) {
+func (p *conversion) convertCall(c *exprpb.Expr_Call) (Node, error) {
 	if isUserFunction(c.Function) && p.allowedFunctions.Len() > 0 &&
 		!p.allowedFunctions.Contains(c.Function) {
 		return nil, coreerrs.Wrapf(ErrFunctionNotAllowed, "%s", c.Function)
@@ -348,7 +421,7 @@ func (p *Parser) convertCall(c *exprpb.Expr_Call) (Node, error) {
 // wrapped with [ErrInvalidExpression] so callers can use [errors.Is].
 // The caller must check [coremaps.ImmutableMap.Contains] first; this
 // method panics if c.Function is not registered.
-func (p *Parser) convertCustomFunction(c *exprpb.Expr_Call) (Node, error) {
+func (p *conversion) convertCustomFunction(c *exprpb.Expr_Call) (Node, error) {
 	h, _ := p.customFunctions.Get(c.Function)
 	args := make([]Node, 0, len(c.Args))
 	for _, a := range c.Args {
@@ -372,7 +445,7 @@ func (p *Parser) convertCustomFunction(c *exprpb.Expr_Call) (Node, error) {
 }
 
 // convertTimestamp converts a timestamp() call to a LiteralNode with time.Time.
-func (p *Parser) convertTimestamp(args []*exprpb.Expr) (Node, error) {
+func (p *conversion) convertTimestamp(args []*exprpb.Expr) (Node, error) {
 	if len(args) != 1 {
 		return nil, coreerrs.Wrap(ErrInvalidExpression, "timestamp() requires exactly one argument")
 	}
@@ -401,7 +474,7 @@ func (p *Parser) convertTimestamp(args []*exprpb.Expr) (Node, error) {
 }
 
 // convertBinaryOp creates a BinaryOpNode from arguments.
-func (p *Parser) convertBinaryOp(op Operator, args []*exprpb.Expr) (Node, error) {
+func (p *conversion) convertBinaryOp(op Operator, args []*exprpb.Expr) (Node, error) {
 	const binaryArgCount = 2
 	if len(args) != binaryArgCount {
 		return nil, coreerrs.Wrapf(ErrInvalidExpression, "binary operator requires 2 arguments, got %d", len(args))
@@ -421,7 +494,7 @@ func (p *Parser) convertBinaryOp(op Operator, args []*exprpb.Expr) (Node, error)
 }
 
 // convertUnaryOp creates a UnaryOpNode from arguments.
-func (p *Parser) convertUnaryOp(op Operator, args []*exprpb.Expr) (Node, error) {
+func (p *conversion) convertUnaryOp(op Operator, args []*exprpb.Expr) (Node, error) {
 	if len(args) != 1 {
 		return nil, coreerrs.Wrapf(ErrInvalidExpression, "unary operator requires 1 argument, got %d", len(args))
 	}
@@ -438,7 +511,7 @@ func (p *Parser) convertUnaryOp(op Operator, args []*exprpb.Expr) (Node, error) 
 // global `size(field)` — into the same node, with the measured operand as
 // Target and no arguments. Translators and the Evaluator therefore see one
 // shape regardless of how the expression was written.
-func (p *Parser) convertSize(c *exprpb.Expr_Call) (Node, error) {
+func (p *conversion) convertSize(c *exprpb.Expr_Call) (Node, error) {
 	switch {
 	case c.Target != nil && len(c.Args) == 0:
 		return p.convertMethodCall(OpSize, c.Target, nil)
@@ -450,7 +523,7 @@ func (p *Parser) convertSize(c *exprpb.Expr_Call) (Node, error) {
 }
 
 // convertMethodCall creates a CallNode for method-style calls.
-func (p *Parser) convertMethodCall(op Operator, target *exprpb.Expr, args []*exprpb.Expr) (Node, error) {
+func (p *conversion) convertMethodCall(op Operator, target *exprpb.Expr, args []*exprpb.Expr) (Node, error) {
 	var targetNode Node
 	if target != nil {
 		var err error
@@ -473,7 +546,7 @@ func (p *Parser) convertMethodCall(op Operator, target *exprpb.Expr, args []*exp
 }
 
 // convertList converts a CEL list expression to a ListNode.
-func (p *Parser) convertList(l *exprpb.Expr_CreateList) (Node, error) {
+func (p *conversion) convertList(l *exprpb.Expr_CreateList) (Node, error) {
 	elements := make([]Node, 0, len(l.Elements))
 	for _, elem := range l.Elements {
 		node, err := p.convertExpr(elem)

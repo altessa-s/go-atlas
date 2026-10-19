@@ -4,29 +4,30 @@
 
 package utils
 
-import (
-	"os"
-	"path/filepath"
-)
+import "path/filepath"
 
-// FindFile attempts to locate a file by checking if the provided path exists.
-// It only validates absolute paths and returns the path if the file exists,
-// otherwise returns an empty string.
+// ResolvePath normalizes a configured file path. An absolute path is returned
+// unchanged and a relative path is resolved against the current working
+// directory, so the result keeps pointing at the same file if the process
+// changes directory later. An empty path stays empty.
+//
+// ResolvePath never checks that the file exists and never drops a path: a
+// missing file keeps its (resolved) path so the schema's Validate reports it
+// instead of the path silently becoming "". When the working directory cannot
+// be determined, a relative path is returned as written.
 //
 // Example:
 //
-//	path := utils.FindFile("/etc/ssl/certs/ca.pem")
-func FindFile(filePath string) string {
-	if filePath == "" {
-		return ""
+//	path := utils.ResolvePath("certs/ca.pem") // "/srv/app/certs/ca.pem" when run from /srv/app
+func ResolvePath(filePath string) string {
+	if filePath == "" || filepath.IsAbs(filePath) {
+		return filePath
 	}
 
-	if filepath.IsAbs(filePath) {
-		_, err := os.Stat(filePath)
-		if err == nil {
-			return filePath
-		}
+	abs, err := filepath.Abs(filePath)
+	if err != nil {
+		return filePath
 	}
 
-	return ""
+	return abs
 }

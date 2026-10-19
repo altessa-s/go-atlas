@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
+	datamongo "github.com/altessa-s/go-atlas/data/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -64,6 +65,5 @@ func (s *Storage) createIndexes(ctx context.Context) error {
 	indexCtx, cancel := corecontext.WithDefault(ctx, s.opts.indexTimeout)
 	defer cancel()
 
-	_, err := s.collection.Indexes().CreateMany(indexCtx, indexes)
-	return err
+	return datamongo.EnsureIndexes(indexCtx, s.collection, indexes)
 }

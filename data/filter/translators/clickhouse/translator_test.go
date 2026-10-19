@@ -593,3 +593,11 @@ func TestFormatLiteral(t *testing.T) {
 		require.ErrorIs(t, err, filter.ErrUnsupportedType)
 	})
 }
+
+// TestNewTranslator_RejectsDecimal: a FieldKindDecimal declaration fails construction instead of comparing through a float.
+func TestNewTranslator_RejectsDecimal(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewTranslator(filter.WithFieldTypes(map[string]filter.FieldKind{"price": filter.FieldKindDecimal}))
+	require.ErrorIs(t, err, filter.ErrUnsupportedType)
+}

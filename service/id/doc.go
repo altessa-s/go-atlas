@@ -16,6 +16,9 @@
 // attempts to read the ID from an environment variable, and falls back to
 // file-based persistence when the variable is unset or empty.
 //
+// [NewHex] is a separate helper for random identifiers: n bytes of
+// crypto/rand entropy as 2n lowercase hex digits.
+//
 // Every constructor has a Must variant (e.g. [MustNew], [MustNewWithFileProvider])
 // that panics instead of returning an error, which is convenient for
 // program-level initialization where failure is unrecoverable.

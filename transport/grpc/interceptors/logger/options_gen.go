@@ -26,6 +26,13 @@ func WithContextLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithDebugRedact enables the debugRedact option.
+func WithDebugRedact() Option {
+	return func(o *options) {
+		o.debugRedact = true
+	}
+}
+
 // WithIgnoreGrpcResponseCodes sets the ignoreGrpcResponseCodes option.
 func WithIgnoreGrpcResponseCodes(v ...uint32) Option {
 	return func(o *options) {

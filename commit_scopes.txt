@@ -111,6 +111,7 @@ data/projection             # AIP-157 fields parser -> DB projections
 data/projection/translators # Projection DB translators (Mongo, SQL)
 data/probfilter             # Probabilistic filters
 data/probfilter/factory     # Probfilter factory
+data/retryqueue             # Durable retry queue
 data/uniq                   # Uniqueness constraints
 data/uniq/factory           # Uniqueness factory
 data/saga                   # Saga orchestration

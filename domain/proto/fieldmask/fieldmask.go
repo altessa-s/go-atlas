@@ -5,6 +5,8 @@
 package fieldmask
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -44,6 +46,11 @@ const (
 	// early rehashing.
 	MinMapCapacity = 8
 )
+
+// ErrWildcardNotAlone is returned by [FieldMask.SelectsAll] (and the methods
+// built on it) for a mask that combines the full-replacement path "*" with
+// other paths: it neither replaces the whole message nor names fields.
+var ErrWildcardNotAlone = errors.New(`fieldmask: "*" must be the only path`)
 
 // FieldMask represents a hierarchical field mask as a nested map structure.
 // Keys are field names; nil values indicate leaf fields (keep/prune the entire subtree).
@@ -113,16 +120,42 @@ func FromProtoFieldMask(protoMask *fieldmaskpb.FieldMask) FieldMask {
 // FromMessage creates a FieldMask or []string for all fields defined in the message schema.
 // Returns all paths regardless of whether fields are set.
 func FromMessage[T interface{ []string | FieldMask }](msg proto.Message) T {
-	return fromMessage[T](msg, false)
+	return fromMessage[T](msg, false, defaultSetFieldsOptions())
 }
 
 // FromSetFields creates a FieldMask or []string for only set (non-nil/non-zero) fields.
-// Recursively traverses nested structures.
-func FromSetFields[T interface{ []string | FieldMask }](msg proto.Message) T {
-	return fromMessage[T](msg, true)
+// Recursively traverses nested structures. Field presence follows protoreflect: zero
+// scalars, false, empty lists and maps and unset messages are not set, and a set oneof
+// contributes its set field.
+//
+// The options shape the result: [WithTopLevelOnly] keeps the top-level fields only (the
+// fields an update replaces as a whole), [WithSkipFields] drops fields such as the
+// identity or the etag, and [WithDeclarationOrder] orders a []string result by field
+// declaration. Together they give the mask an update implies when the request leaves it
+// empty:
+//
+//	paths := fieldmask.FromSetFields[[]string](resource,
+//	    fieldmask.WithTopLevelOnly(), fieldmask.WithDeclarationOrder(), fieldmask.WithSkipFields("id", "etag"))
+//
+// A FieldMask result keeps a parent and drops its sub-paths, so without a nested skip it
+// holds the top-level fields even without [WithTopLevelOnly].
+//
+// A nested skip ("profile.secret") never lets the skipped field in through a parent that
+// covers it: the parent's own path is dropped and its other set sub-paths are kept, so the
+// mask selects "profile.display_name" instead of all of "profile". Where that cannot be
+// expressed — with [WithTopLevelOnly], or when the path runs through a repeated, map or
+// google.protobuf.Struct/ListValue/Value field — the whole top-level field holding the
+// skipped one is left out instead. A skip naming no field of the schema drops nothing.
+//
+// A mask computed with skips can be empty (every populated field was skipped). Apply it
+// with [FieldMask.Select] or [FieldMask.Merge], which treat an empty mask as selecting
+// nothing; [FieldMask.Filter] treats an empty mask as keeping everything and would keep
+// the skipped fields.
+func FromSetFields[T interface{ []string | FieldMask }](msg proto.Message, opts ...SetFieldsOption) T {
+	return fromMessage[T](msg, true, newSetFieldsOptions(opts...))
 }
 
-func fromMessage[T interface{ []string | FieldMask }](msg proto.Message, onlySet bool) T {
+func fromMessage[T interface{ []string | FieldMask }](msg proto.Message, onlySet bool, o *setFieldsOptions) T {
 	var zero T
 	if msg == nil {
 		return zero
@@ -130,17 +163,118 @@ func fromMessage[T interface{ []string | FieldMask }](msg proto.Message, onlySet
 
 	paths := make([]string, 0, DefaultEstimatedPathCapacity)
 	buildPathsRecursive(msg.ProtoReflect(), "", &paths, onlySet)
+	paths = o.keep(msg.ProtoReflect().Descriptor(), paths)
 
 	// The constraint admits only []string or FieldMask; pick the branch by
 	// inspecting the zero value's dynamic type.
 	switch any(zero).(type) {
 	case []string:
 		slices.Sort(paths)
+		if o.declarationOrder {
+			sortByDeclaration(msg.ProtoReflect().Descriptor(), paths)
+		}
 		return any(paths).(T) //nolint:errcheck // covered by the type constraint.
 	case FieldMask:
 		return any(FromPaths(paths...)).(T) //nolint:errcheck // covered by the type constraint.
 	}
 	return zero
+}
+
+// keep drops the paths the options exclude: below the top level with
+// topLevelOnly, the skipped fields with everything below them, and the
+// parents that would cover a nested skipped field (see [FromSetFields]).
+func (o *setFieldsOptions) keep(md protoreflect.MessageDescriptor, paths []string) []string {
+	if !o.topLevelOnly && len(o.skipFields) == 0 {
+		return paths
+	}
+	subtrees := slices.Clone(o.skipFields) // dropped with everything below them
+	var parents []string                   // dropped as exact paths only
+	for _, skip := range o.skipFields {
+		if !strings.Contains(skip, PathSeparator) {
+			continue
+		}
+		parts := strings.Split(skip, PathSeparator)
+		switch nestedSkip(md, parts) {
+		case skipExpandable:
+			if o.topLevelOnly {
+				subtrees = append(subtrees, parts[0])
+				continue
+			}
+			for i := 1; i < len(parts); i++ {
+				parents = append(parents, strings.Join(parts[:i], PathSeparator))
+			}
+		case skipInexpressible:
+			subtrees = append(subtrees, parts[0])
+		case skipUnknown:
+		}
+	}
+	return slices.DeleteFunc(paths, func(p string) bool {
+		if o.topLevelOnly && len(splitPath(p)) > 1 {
+			return true
+		}
+		if slices.Contains(parents, p) {
+			return true
+		}
+		return slices.ContainsFunc(subtrees, func(skip string) bool {
+			return p == skip || strings.HasPrefix(p, skip+PathSeparator)
+		})
+	})
+}
+
+// nestedSkipKind classifies a nested skip path against the schema.
+type nestedSkipKind int
+
+const (
+	// skipUnknown: the path names no field; nothing to exclude.
+	skipUnknown nestedSkipKind = iota
+	// skipExpandable: every parent is a singular message, so the parents
+	// can be replaced by their other set sub-paths.
+	skipExpandable
+	// skipInexpressible: a parent is a repeated, map or dynamic well-known
+	// type field; a mask cannot select its siblings without it.
+	skipInexpressible
+)
+
+// nestedSkip walks the declared field names of parts from md.
+func nestedSkip(md protoreflect.MessageDescriptor, parts []string) nestedSkipKind {
+	for i, part := range parts {
+		if md == nil {
+			return skipUnknown
+		}
+		fd := md.Fields().ByName(protoreflect.Name(part))
+		if fd == nil {
+			return skipUnknown
+		}
+		if i == len(parts)-1 {
+			return skipExpandable
+		}
+		switch {
+		case fd.IsList() || fd.IsMap() || isDynamicWellKnownType(fd):
+			return skipInexpressible
+		case fd.Kind() != protoreflect.MessageKind:
+			return skipUnknown
+		}
+		md = fd.Message()
+	}
+	return skipUnknown
+}
+
+// sortByDeclaration stably orders paths by the declaration index of the
+// top-level field each starts with; a first segment md does not declare (a
+// Struct key) sorts after the declared fields.
+func sortByDeclaration(md protoreflect.MessageDescriptor, paths []string) {
+	fields := md.Fields()
+	index := func(p string) int {
+		parts := splitPath(p)
+		if len(parts) == 0 {
+			return fields.Len()
+		}
+		if fd := fields.ByName(protoreflect.Name(parts[0])); fd != nil {
+			return fd.Index()
+		}
+		return fields.Len()
+	}
+	slices.SortStableFunc(paths, func(a, b string) int { return cmp.Compare(index(a), index(b)) })
 }
 
 // PrunePaths removes fields from the message matching the given paths.
@@ -375,6 +509,60 @@ func (msk FieldMask) Contains(path string) bool {
 	return false
 }
 
+// SelectsAll reports whether msk is the full-replacement mask, the single
+// path "*" ([WildcardSegment]), which selects every field of the message.
+// "*" combined with any other top-level path is [ErrWildcardNotAlone]. A mask
+// without a top-level "*" selects only what it names; a nested "*" (such as
+// "aliases.*") is an ordinary wildcard segment.
+func (msk FieldMask) SelectsAll() (bool, error) {
+	nested, ok := msk[WildcardSegment]
+	if !ok || nested != nil {
+		return false, nil
+	}
+	if len(msk) != 1 {
+		return false, ErrWildcardNotAlone
+	}
+	return true, nil
+}
+
+// Resolve validates msk against md and returns it with every field segment
+// spelled by its declared name, so a client may send a path in any of the
+// spellings of its fields: the declared name ("tenant_id"), the JSON name
+// ("tenantId") or the snake_case form protojson decodes a JSON mask path to
+// (JSON "noisePercent7d" arrives as "noise_percent7d"). Map keys, list
+// indexes and wildcards are kept as written, and the subtree of a
+// google.protobuf.Struct, ListValue or Value field is not checked.
+//
+// The full-replacement mask "*" ([FieldMask.SelectsAll]) comes back as is,
+// and "*" combined with other paths is [ErrWildcardNotAlone]. A path the
+// schema does not have is a *[ValidationError], as from [FieldMask.Validate].
+// md must not be nil.
+func (msk FieldMask) Resolve(md protoreflect.MessageDescriptor) (FieldMask, error) {
+	all, err := msk.SelectsAll()
+	if err != nil {
+		return nil, err
+	}
+	if all {
+		return msk.Clone(), nil
+	}
+	paths := msk.ToPaths()
+	resolved := make([]string, 0, len(paths))
+	for _, path := range paths {
+		parts := splitPath(path)
+		w := validatingWalker(path)
+		w.aliases = true
+		w.onField = func(i int, fd protoreflect.FieldDescriptor) { parts[i] = string(fd.Name()) }
+		if err := w.Walk(md, path); err != nil {
+			return nil, err
+		}
+		for i, part := range parts {
+			parts[i] = quotePathSegment(part)
+		}
+		resolved = append(resolved, strings.Join(parts, PathSeparator))
+	}
+	return FromPaths(resolved...), nil
+}
+
 // Validate checks if all paths exist in the message schema.
 // Returns ValidationError if any path is invalid. Validates schema only, not values.
 func (msk FieldMask) Validate(msg proto.Message) error {
@@ -408,6 +596,36 @@ func (msk FieldMask) Filter(msg proto.Message) {
 		return
 	}
 	msk.iterateFilter(msg)
+}
+
+// Select keeps only the fields the mask selects, like [FieldMask.Filter],
+// except for an empty mask: Filter treats it as "keep everything", Select as
+// "keep nothing" and clears every field (and the unknown fields) of msg.
+// Apply a mask computed with exclusions ([FromSetFields] with
+// [WithSkipFields]) with Select or [FieldMask.Merge], never with Filter: when
+// every populated field is excluded the computed mask is empty, and Filter
+// would keep the excluded fields.
+func (msk FieldMask) Select(msg proto.Message) {
+	if msg == nil {
+		return
+	}
+	if len(msk) > 0 {
+		msk.iterateFilter(msg)
+		return
+	}
+	m := msg.ProtoReflect()
+	if !m.IsValid() {
+		return
+	}
+	var set []protoreflect.FieldDescriptor
+	m.Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		set = append(set, fd)
+		return true
+	})
+	for _, fd := range set {
+		m.Clear(fd)
+	}
+	m.SetUnknown(nil)
 }
 
 // iterateFilter recursively applies the filter mask: unmatched fields are
@@ -877,6 +1095,12 @@ func rejectIndexedRepeatedAccess(descriptor protoreflect.MessageDescriptor, path
 // [rejectIndexedRepeatedAccess]. Both walkers share the same state machine —
 // see [pathWalker].
 func validatePath(descriptor protoreflect.MessageDescriptor, path string) error {
+	return validatingWalker(path).Walk(descriptor, path)
+}
+
+// validatingWalker returns the [pathWalker] of [validatePath] for path: every
+// malformed segment is a *ValidationError naming path.
+func validatingWalker(path string) pathWalker {
 	return pathWalker{
 		onListWildcardOnScalar: func(list protoreflect.FieldDescriptor) error {
 			return &ValidationError{
@@ -920,7 +1144,7 @@ func validatePath(descriptor protoreflect.MessageDescriptor, path string) error 
 				Reason: fmt.Sprintf("cannot access field '%s' in scalar field: %s", next, scalar.Name()),
 			}
 		},
-	}.Walk(descriptor, path)
+	}
 }
 
 // ValidationError is returned by [FieldMask.Validate] when a field path does not

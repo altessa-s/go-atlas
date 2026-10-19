@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/transport/internal/idempotency"
+
+	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 )
 
 func BenchmarkDefaultKeyValidator(b *testing.B) {
@@ -25,4 +27,24 @@ func BenchmarkBuildStorageKey(b *testing.B) {
 	for b.Loop() {
 		storageKeySink = idempotency.BuildStorageKey("users.UserService", "550e8400-e29b-41d4-a716-446655440000")
 	}
+}
+
+// outcomeSink keeps ClassifyLock results live.
+var outcomeSink idempotency.LockOutcome
+
+func BenchmarkClassifyLock(b *testing.B) {
+	b.Run("acquired", func(b *testing.B) {
+		b.ReportAllocs()
+		state := &idempotencydata.State{Status: idempotencydata.StatusInProgress}
+		for b.Loop() {
+			outcomeSink, _ = idempotency.ClassifyLock(true, state, nil)
+		}
+	})
+	b.Run("completed", func(b *testing.B) {
+		b.ReportAllocs()
+		state := &idempotencydata.State{Status: idempotencydata.StatusSuccess, Data: "entity-1"}
+		for b.Loop() {
+			outcomeSink, _ = idempotency.ClassifyLock(false, state, nil)
+		}
+	})
 }

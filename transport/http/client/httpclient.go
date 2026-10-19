@@ -24,17 +24,17 @@ const (
 	DefaultRetryWaitMax = 10 * time.Second
 	// DefaultRetryMax defines the default maximum number of retry attempts
 	DefaultRetryMax = 5
-
-	// defaultBackoffFactor is the exponential backoff multiplier for retry delays.
-	defaultBackoffFactor = 1.5
-	// defaultBackoffJitter is the fraction of jitter added to retry delays.
-	defaultBackoffJitter = 0.25
+	// DefaultRetryFactor is the exponential backoff multiplier for retry delays.
+	DefaultRetryFactor = 1.5
+	// DefaultRetryJitter is the fraction of jitter added to retry delays.
+	DefaultRetryJitter = 0.25
 )
 
 // ErrorHandler defines the callback for intercepting and handling errors during the retry process.
 // Set it via [WithErrorHandler]. The handler receives the HTTP response (may be nil), the error
 // that occurred, and the number of retry attempts made. It can modify or wrap the error before
-// returning, allowing for custom error handling logic.
+// returning, allowing for custom error handling logic. When the retries are exhausted the error
+// is a [RetryExhaustedError].
 //
 // Body ownership: when the handler returns a response other than the one it received, the
 // received response's body is closed. When it returns a non-nil error, any returned response
@@ -62,8 +62,10 @@ type Client struct {
 // If no options are provided, sensible defaults are used ([DefaultRetryMax],
 // [DefaultRetryWaitMin], [DefaultRetryWaitMax]).
 // New panics with an error wrapping [ErrSSRFUnsafeTransport] when default SSRF
-// protection is combined with an explicit proxy, custom TLS dialer or non-standard
-// transport. Use [WithoutSSRFProtection] for trusted configurations that need them.
+// protection is combined with a proxy TLS configuration, a custom TLS dialer, a
+// proxy resolver set on a caller transport or a non-standard transport. Use
+// [WithoutSSRFProtection] for trusted configurations that need them. Explicit
+// proxy options are allowed with SSRF protection (see [ProxyFunc]).
 //
 // Example:
 //
@@ -94,35 +96,71 @@ func (c *Client) retractableClient() *http.Client {
 
 	stdClient := cbClient.standardClient()
 
+	// The retry layer owns cookie handling: the jar of WithCookieJar, or else
+	// the one of the WithClient client, is used per attempt and per redirect
+	// hop, and the returned client gets none, so nothing is sent or stored
+	// twice.
+	jar := c.options.cookieJar
+	if jar == nil {
+		jar = stdClient.Jar
+	}
+	stdClient.Jar = nil
+	if jar != nil {
+		stdClient.CheckRedirect = redirectPolicy(stdClient.CheckRedirect)
+	}
+
+	retryMax, retryPolicy := c.options.retryMax, c.options.retryPolicyHandler
+	if c.options.withoutRetry {
+		retryMax, retryPolicy = 0, passThroughPolicy
+	}
+
 	retryOpts := []coreretry.Option{
-		coreretry.WithMaxAttempts(c.options.retryMax),
-		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
+		coreretry.WithMaxAttempts(retryMax),
+		coreretry.WithMaxElapsedTime(c.options.retryMaxElapsed),
+		coreretry.WithNextDelay(retryAfterDelay(coreretry.Exponential(coreretry.ExponentialConfig{
 			BaseDelay: c.options.retryWaitMin,
 			MaxDelay:  c.options.retryWaitMax,
-			Factor:    defaultBackoffFactor,
-			Jitter:    defaultBackoffJitter,
-		})),
+			Factor:    c.options.retryFactor,
+			Jitter:    c.options.retryJitter,
+		}))),
+	}
+
+	// With WithLimiterPerAttempt the limiter sits under the retry layer, so
+	// every attempt passes it; otherwise it wraps the whole retry loop.
+	next := stdClient.Transport
+	perAttempt := c.options.limiter != nil && c.options.limiterPerAttempt
+	if perAttempt {
+		next = limiters.NewRoundTripper(next, c.options.limiter)
 	}
 
 	rt := &retryRoundTripper{
-		next:               stdClient.Transport,
+		next:               next,
 		retryOpts:          retryOpts,
-		maxAttempts:        c.options.retryMax,
+		maxAttempts:        retryMax,
 		logger:             c.options.logger,
 		errorHandler:       c.options.errorHandler,
-		retryPolicyHandler: c.options.retryPolicyHandler,
+		retryPolicyHandler: retryPolicy,
 		metrics:            m,
 		health:             hc,
+		retryAfterMax:      c.options.retryAfterMax,
+		attemptTimeout:     c.options.attemptTimeout,
+		jar:                jar,
+		retryAfterStatuses: c.options.retryAfterStatuses,
 	}
 
 	stdClient.Transport = rt
 
-	if c.options.limiter != nil {
+	if c.options.limiter != nil && !perAttempt {
 		stdClient.Transport = limiters.NewRoundTripper(stdClient.Transport, c.options.limiter)
 	}
 
 	return stdClient
 }
+
+// passThroughPolicy is the retry policy of [WithoutRetry]: never retry and
+// never turn a reply into an error, so the response (any status) or the
+// transport error reaches the caller unchanged.
+func passThroughPolicy(context.Context, *http.Response, error) (bool, error) { return false, nil }
 
 // IsUnexpectedStatusError checks if the given error is an UnexpectedStatusError and returns it if found.
 // This function unwraps nested errors to find UnexpectedStatusError in the error chain.

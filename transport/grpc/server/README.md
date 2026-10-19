@@ -32,6 +32,8 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 | `WithBaseOptions`   | --       | Base server options: address, TLS config, logger, timeouts                    |
 | `WithGrpcOptions`   | --       | Additional `grpc.ServerOption` values passed to the underlying gRPC server    |
 | `WithReflection`    | false    | Enables the gRPC server reflection service for tooling and debugging          |
+| `WithListener`      | --       | Serve this `net.Listener` (e.g. bufconn in tests) instead of listening on the address |
+| `WithStartupVerification` | 2s | How long `Start` waits for an early serve error; 0 skips the wait (tests)       |
 
 ## Subpackages
 

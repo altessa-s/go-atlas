@@ -10,7 +10,7 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 A server interceptor that wires [`domain/proto/fieldmask`](../../../domain/proto/fieldmask/README.md) into the gRPC chain: it runs
 `FieldMask.ApplyUpdateMask` on AIP-134 `Update*` requests and `FieldMask.Filter` on AIP-157 `Get*`/`List*`/`Search*`/`BatchGet*` responses based on the
 gRPC method name. Behavior violations (REQUIRED cleared, IMMUTABLE modified, IDENTIFIER touched) leave the storage layer as `InvalidArgument` with a
-`google.rpc.BadRequest` detail rather than as a 500 deep inside a repository call.
+`io.altessa.badrequest.v1.BadRequest` detail rather than as a 500 deep inside a repository call.
 
 The companion package [`fieldbehavior`](./fieldbehavior.md) handles the resource *payload*; this package handles the `FieldMask` *value*. You almost
 always want both — `fieldbehavior` before `fieldmask` so the mask sees the already-stripped resource.
@@ -77,8 +77,8 @@ For a `KindUpdate` method, on every unary call (and every streamed frame):
    * REQUIRED in the mask but cleared on the resource → violation.
    * IMMUTABLE or IDENTIFIER in the mask → violation (AIP-203).
    * OUTPUT_ONLY in the mask → silently dropped from the mask map.
-4. On violation: the interceptor builds an `InvalidArgument` status with a `google.rpc.BadRequest` detail — one `FieldViolation` per entry, each
-   carrying the dot-separated field path and a human description.
+4. On violation: the interceptor builds an `InvalidArgument` status with an `io.altessa.badrequest.v1.BadRequest` detail — one `FieldViolation`
+   per entry, each carrying the dot-separated field path and a human description.
 5. On success: the cleaned mask (OUTPUT_ONLY entries removed) is written back to `req.update_mask` via `SetUpdateMask`, so the handler sees a
    coherent `(mask, resource)` pair.
 
@@ -130,13 +130,14 @@ saves a CPU pass and the response is already minimal).
 
 | Source                                            | gRPC status        | Detail attached                          |
 |---------------------------------------------------|--------------------|------------------------------------------|
-| `*fieldmask.UpdateMaskBehaviorError`              | `InvalidArgument`  | `google.rpc.BadRequest.FieldViolation`s  |
+| `*fieldmask.UpdateMaskBehaviorError`              | `InvalidArgument`  | `io.altessa.badrequest.v1.BadRequest`    |
 | `*fieldmask.ValidationError` (bad mask path)      | `InvalidArgument`  | --                                       |
 | Reflection miss (no `update_mask` / `read_mask`)  | --                 | silent passthrough, logged at Debug      |
 | Panic inside `ApplyUpdateMask` / `Filter`         | `Internal`         | logged at Error, request rejected        |
 
-Behavior violations carry the AIP-canonical shape; client libraries that already know how to surface `google.rpc.BadRequest` (Google Cloud SDKs,
-grpc-gateway with `errdetails` support, the official Java/Python/Go SDKs) get a structured per-field error list without any handler glue.
+Behavior violations use the same detail type as the protovalidate interceptor and errstatus, so every go-atlas server emits one field-violation
+shape and the go-atlas gRPC client (`client.ParseError`) turns it into `Error.Fields` without any handler glue. The client also accepts
+`google.rpc.BadRequest` from third-party servers.
 
 ---
 

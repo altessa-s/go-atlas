@@ -140,7 +140,7 @@ func FuzzUnmarshalIsTransparent(f *testing.F) {
 	f.Add("\n") // yaml.v3 does not round-trip this, for plain strings either.
 	f.Add(`"quoted"`)
 	f.Add("  leading and trailing  ")
-	f.Add("xxxxx")
+	f.Add("μυστικό")
 	f.Add("\xa5") // Not UTF-8: the text path must still carry it.
 
 	f.Fuzz(func(t *testing.T, secret string) {

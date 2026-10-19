@@ -158,7 +158,7 @@ func TestClickHouseHistoryWithScheduler(t *testing.T) {
 	history, _, _ := newClickHouseHistory(t)
 	tasks, err := memory.New(10)
 	require.NoError(t, err)
-	s := startScheduler(t, tasks, scheduler.WithHistoryStorage(history))
+	s := startScheduler(t, tasks, scheduler.WithHistoryStorage(history), scheduler.WithEphemeralPageTokens())
 	ctx := t.Context()
 
 	var runs atomic.Int32

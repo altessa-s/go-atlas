@@ -65,13 +65,13 @@ reads, locks, completes, steals, releases and deletes only v2 records. Nothing f
 
 ## Request fingerprints
 
-A key identifies one command. Pass a fingerprint of the request with `AttemptLockOpts.Fingerprint` — `Fingerprint(parts...)` hashes the operation and a
-canonical encoding of the request, e.g. a deterministic protobuf marshal — and it is stored with the key. A later attempt with the same key and another
-fingerprint fails with `ErrFingerprintMismatch` instead of receiving the stored result; transports answer it with 422 (HTTP) or `InvalidArgument`
-(gRPC). Records or callers without a fingerprint are not checked.
+A key identifies one command. Pass a fingerprint of the request with `AttemptLockOpts.Fingerprint` — [`keys.Digest(parts...)`](../../core/encoding/keys)
+hashes the operation and a canonical encoding of the request, e.g. a deterministic protobuf marshal — and it is stored with the key. A later attempt
+with the same key and another fingerprint fails with `ErrFingerprintMismatch` instead of receiving the stored result; transports answer it with 422
+(HTTP) or `InvalidArgument` (gRPC). Records or callers without a fingerprint are not checked.
 
 ```go
-fp := idempotency.Fingerprint([]byte(method), canonicalBody)
+fp := keys.Digest([]byte(method), canonicalBody)
 ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOpts{Fingerprint: fp})
 if errors.Is(err, idempotency.ErrFingerprintMismatch) { /* the key was reused for another command */ }
 ```

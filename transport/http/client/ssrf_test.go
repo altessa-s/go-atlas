@@ -18,7 +18,7 @@ import (
 
 func TestSSRFControl_BlocksLoopback(t *testing.T) {
 	t.Parallel()
-	ctrl := ssrfControl(nil)
+	ctrl := SSRFDialControl()
 
 	for _, addr := range []string{"127.0.0.1:80", "127.1.2.3:80", "[::1]:80", "[::ffff:127.0.0.1]:80", "[::ffff:10.0.0.1]:80"} {
 		err := ctrl("tcp", addr, nil)
@@ -28,10 +28,8 @@ func TestSSRFControl_BlocksLoopback(t *testing.T) {
 
 func TestSSRFControl_AllowedCIDRsExemptLoopback(t *testing.T) {
 	t.Parallel()
-	ctrl := ssrfControl([]netip.Prefix{
-		netip.MustParsePrefix("127.0.0.0/8"),
-		netip.MustParsePrefix("::1/128"),
-	})
+	ctrl := SSRFDialControl(netip.MustParsePrefix("127.0.0.0/8"),
+		netip.MustParsePrefix("::1/128"))
 
 	require.NoError(t, ctrl("tcp", "127.0.0.1:80", nil))
 	require.NoError(t, ctrl("tcp", "[::1]:80", nil))
@@ -39,7 +37,7 @@ func TestSSRFControl_AllowedCIDRsExemptLoopback(t *testing.T) {
 }
 
 func TestSSRFControl_BlocksPrivateRFC1918(t *testing.T) {
-	ctrl := ssrfControl(nil)
+	ctrl := SSRFDialControl()
 
 	tests := []struct {
 		name    string
@@ -62,7 +60,7 @@ func TestSSRFControl_BlocksPrivateRFC1918(t *testing.T) {
 }
 
 func TestSSRFControl_BlocksMetadata(t *testing.T) {
-	ctrl := ssrfControl(nil)
+	ctrl := SSRFDialControl()
 
 	err := ctrl("tcp", "169.254.169.254:80", nil)
 	require.Error(t, err)
@@ -73,7 +71,7 @@ func TestSSRFControl_BlocksMetadata(t *testing.T) {
 }
 
 func TestSSRFControl_AllowsPublicIP(t *testing.T) {
-	ctrl := ssrfControl(nil)
+	ctrl := SSRFDialControl()
 
 	tests := []struct {
 		name    string
@@ -96,7 +94,7 @@ func TestSSRFControl_AllowedCIDRs(t *testing.T) {
 	allowed := []netip.Prefix{
 		netip.MustParsePrefix("10.0.1.0/24"),
 	}
-	ctrl := ssrfControl(allowed)
+	ctrl := SSRFDialControl(allowed...)
 
 	// Allowed range should pass
 	err := ctrl("tcp", "10.0.1.5:443", nil)
@@ -111,7 +109,7 @@ func TestSSRFControl_AllowedCIDRs(t *testing.T) {
 }
 
 func TestSSRFControl_BlocksIPv6Private(t *testing.T) {
-	ctrl := ssrfControl(nil)
+	ctrl := SSRFDialControl()
 
 	tests := []struct {
 		name    string
@@ -169,7 +167,7 @@ func TestIsSSRFError(t *testing.T) {
 }
 
 func TestSSRFControl_InvalidAddress(t *testing.T) {
-	ctrl := ssrfControl(nil)
+	ctrl := SSRFDialControl()
 
 	// Address without port should fail in SplitHostPort
 	err := ctrl("tcp", "127.0.0.1", nil)
@@ -182,7 +180,7 @@ func TestSSRFControl_InvalidAddress(t *testing.T) {
 func TestNewSSRFSafeTransport(t *testing.T) {
 	// Verify the transport is cloned and has a DialContext set
 	base := &defaultTransport
-	transport := newSSRFSafeTransport(base, nil)
+	transport := newSSRFSafeTransport(base, nil, nil)
 
 	require.NotNil(t, transport)
 	assert.NotNil(t, transport.DialContext)
@@ -200,7 +198,7 @@ func defaultHTTPTransport() *http.Transport {
 // TestSSRFControlSignature verifies the control function matches the
 // net.Dialer.Control signature.
 func TestSSRFControlSignature(t *testing.T) {
-	ctrl := ssrfControl(nil)
+	ctrl := SSRFDialControl()
 
 	// Verify it satisfies the expected function signature
 	var fn func(network, address string, c syscall.RawConn) error = ctrl
@@ -210,7 +208,7 @@ func TestSSRFControlSignature(t *testing.T) {
 func TestSSRFControlBlocksZonedAddresses(t *testing.T) {
 	t.Parallel()
 	for _, addr := range []string{"[fe80::1%en0]:80", "[::1%lo0]:80", "[fd00::1%en0]:80"} {
-		require.ErrorIs(t, ssrfControl(nil)("tcp6", addr, nil), ErrSSRFBlocked, addr)
+		require.ErrorIs(t, SSRFDialControl()("tcp6", addr, nil), ErrSSRFBlocked, addr)
 	}
-	require.NoError(t, ssrfControl([]netip.Prefix{netip.MustParsePrefix("fe80::/10")})("tcp6", "[fe80::1%en0]:80", nil))
+	require.NoError(t, SSRFDialControl(netip.MustParsePrefix("fe80::/10"))("tcp6", "[fe80::1%en0]:80", nil))
 }

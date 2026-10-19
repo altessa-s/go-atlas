@@ -46,6 +46,18 @@
 // [fieldmaskpb.FieldMask] ([FromProtoFieldMask]), or by introspecting a message
 // schema ([FromMessage], [FromSetFields]).
 //
+// # Read-modify-write updates
+//
+// A handler that applies an update mask itself uses [FieldMask.SelectsAll]
+// to recognize the full-replacement mask "*" (and reject "*" combined with
+// other paths, [ErrWildcardNotAlone]), [FieldMask.Resolve] to accept a path
+// in its declared, JSON or snake_case spelling, and [FieldMask.Merge] to
+// copy the selected top-level fields from the request onto the stored
+// resource, clearing the ones the request leaves unset. An empty mask
+// changes nothing; [FromSetFields] with [WithTopLevelOnly],
+// [WithDeclarationOrder] and [WithSkipFields] builds the mask an update
+// implies when the request leaves it empty.
+//
 // # Request extraction
 //
 // [ExtractUpdateMask], [ExtractReadMask], and [SetUpdateMask] locate the

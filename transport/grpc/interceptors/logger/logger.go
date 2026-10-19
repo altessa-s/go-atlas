@@ -289,11 +289,16 @@ func (ri *requestInterceptor) PreCall(ctx context.Context, req any) (any, error)
 	return nil, nil //nolint:nilnil
 }
 
-// redactPayload returns the value to log for a request or response proto,
-// applying the configured payload redactor when set. Without a redactor the raw
-// proto is logged, so callers enabling payload logging in production should set
-// WithPayloadRedactor to keep sensitive fields out of the logs.
+// redactPayload returns the value to log for a request or response proto: with
+// WithDebugRedact the debug_redact fields are cleared first (in a copy), then the
+// configured payload redactor, when set, transforms the result. Without either
+// the raw proto is logged, so callers enabling payload logging in production
+// should set WithDebugRedact or WithPayloadRedactor to keep sensitive fields out
+// of the logs.
 func (ri *requestInterceptor) redactPayload(p proto.Message) any {
+	if ri.opts.debugRedact {
+		p = redactDebugFields(p)
+	}
 	if ri.opts.payloadRedactor != nil {
 		return ri.opts.payloadRedactor(p)
 	}

@@ -8,8 +8,9 @@ backends and automatic lifecycle management.
 | Package                | Description                                                    |
 |------------------------|----------------------------------------------------------------|
 | [hmacsign](./hmacsign) | Shared-secret HMAC signing and verification of webhook bodies  |
+| [sealbox](./sealbox)   | AES-256-GCM sealing of secrets at rest with key rotation       |
 | [secrets](./secrets)   | Centralized secret management with caching and watch API       |
-| [tlsutils](./tlsutils) | TLS certificate loading, OCSP stapling, and secure defaults   |
+| [tlsutils](./tlsutils) | TLS certificate loading, OCSP stapling, and secure defaults    |
 | [vault](./vault)       | High-level Vault client with pluggable auth and token renewal  |
 
 ## Design principles

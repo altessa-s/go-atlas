@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // Sentinel errors for use with [errors.Is]. Each structured error type
@@ -30,16 +29,13 @@ var (
 	// Use [IsResponseSizeError] to extract details.
 	ErrResponseSizeExceeded = errors.New("response size exceeded limit")
 
-	// ErrRateLimited indicates a request was blocked by the client-side rate limiter
-	// configured via [WithLimiter]. Returned (as a [RateLimitError]) by the
-	// rate-limiting [net/http.RoundTripper] before the request reaches the network.
-	// Use [IsRateLimitError] to extract details.
-	ErrRateLimited = errors.New("request rate limited")
-
 	// ErrMaxRetriesExceeded indicates all retry attempts have been exhausted.
 	// Returned (as a [RetryExhaustedError]) by [HTTPClient.Do] and all convenience
-	// methods when the configured [WithRetryMax] limit is reached. The underlying
-	// cause is available via [errors.Unwrap] or [IsRetryExhaustedError].
+	// methods when a retryable failure persists after the configured [WithRetryMax]
+	// limit (or the [WithRetryMaxElapsed] budget) is reached. The underlying
+	// cause — the last transport error, or the last reply's
+	// [UnexpectedStatusError] — is available via [errors.Unwrap] or
+	// [IsRetryExhaustedError].
 	ErrMaxRetriesExceeded = errors.New("maximum retries exceeded")
 
 	// ErrNonRetryable indicates an error that must not be retried (e.g., context
@@ -157,28 +153,6 @@ func (e *CircuitBreakerError) Is(target error) bool {
 	return target == ErrCircuitBreakerOpen
 }
 
-// RateLimitError reports that a request was denied by the client-side rate
-// limiter. It matches [ErrRateLimited] through [errors.Is].
-type RateLimitError struct {
-	// Host is the hostname that hit the rate limit.
-	Host string
-	// RetryAfter, when non-zero, suggests how long to wait before retrying.
-	RetryAfter time.Duration
-}
-
-// Error implements the error interface
-func (e *RateLimitError) Error() string {
-	if e.RetryAfter > 0 {
-		return fmt.Sprintf("rate limit exceeded for host %q, retry after %v", e.Host, e.RetryAfter)
-	}
-	return fmt.Sprintf("rate limit exceeded for host %q", e.Host)
-}
-
-// Is allows errors.Is to work with RateLimitError
-func (e *RateLimitError) Is(target error) bool {
-	return target == ErrRateLimited
-}
-
 // RetryExhaustedError reports that all retry attempts have been exhausted.
 // It matches [ErrMaxRetriesExceeded] through [errors.Is] and wraps the
 // last error encountered via [errors.Unwrap].
@@ -244,13 +218,6 @@ func IsResponseSizeError(err error) *ResponseSizeError {
 // Returns nil when no match is found.
 func IsCircuitBreakerError(err error) *CircuitBreakerError {
 	target, _ := errors.AsType[*CircuitBreakerError](err)
-	return target
-}
-
-// IsRateLimitError unwraps err looking for a [RateLimitError].
-// Returns nil when no match is found.
-func IsRateLimitError(err error) *RateLimitError {
-	target, _ := errors.AsType[*RateLimitError](err)
 	return target
 }
 

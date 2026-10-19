@@ -35,6 +35,9 @@ returns the peer address. It is transport-agnostic: the HTTP [`realip`](../http/
 | `DefaultHeaders`               | Default ordered proxy header list (`X-Forwarded-For`, `X-Real-IP`, …)    |
 | `IsPrivate` / `IsTrusted` / `InList` | Address classification and prefix membership helpers              |
 
+`IsPrivate` checks an IPv4-mapped IPv6 address (`::ffff:10.0.0.1`) as its IPv4 address and ignores an IPv6 zone (`fe80::1%en0`), so neither form
+slips past the private, loopback, link-local and reserved ranges. `IsTrusted` and `InList` match the address exactly as given.
+
 ## Usage
 
 Forwarding headers are ignored unless the connection peer belongs to `WithTrustedPeers` or `WithTrustedProxies`. Private, loopback and reserved

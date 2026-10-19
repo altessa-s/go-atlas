@@ -5,15 +5,18 @@
 package factoryconv
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 
 	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
+	"github.com/altessa-s/go-atlas/transport/internal/idempotency"
 	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
 
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 // CompilePatterns compiles string patterns to regexp.
@@ -28,8 +31,58 @@ func CompilePatterns(patterns []string) []*regexp.Regexp {
 	return result
 }
 
+// StringMatcher returns a function reporting whether a string is one of
+// exact or matches one of patterns (compiled by [CompilePatterns], so an
+// invalid pattern is skipped). It returns nil when exact is empty and no
+// pattern compiles, so callers can skip the match altogether.
+func StringMatcher(exact, patterns []string) func(string) bool {
+	listed := make(map[string]struct{}, len(exact))
+	for _, s := range exact {
+		listed[s] = struct{}{}
+	}
+	compiled := CompilePatterns(patterns)
+	if len(listed) == 0 && len(compiled) == 0 {
+		return nil
+	}
+	set := coremaps.NewImmutableMap(listed)
+	return func(s string) bool {
+		if set.Contains(s) {
+			return true
+		}
+		for _, re := range compiled {
+			if re.MatchString(s) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // ParsePrefixes parses string IP/CIDR prefixes to netip.Prefix.
 var ParsePrefixes = clientip.ParsePrefixes
+
+// IdempotencyKeyValidator returns the idempotency key validator of a
+// configured format: the lowercase UUID v4 check for uuidv4 or an empty
+// format, the opaque check for opaque, and a full match of pattern for
+// pattern; maxLen bounds opaque and pattern keys (0 is the default). It fails
+// for an unknown format or a pattern that does not compile, without quoting
+// the pattern.
+func IdempotencyKeyValidator(format middlewareconfig.IdempotencyKeyFormat, pattern string, maxLen int) (func(string) error, error) {
+	switch format {
+	case "", middlewareconfig.IdempotencyKeyFormatUUIDv4:
+		return idempotency.DefaultKeyValidator, nil
+	case middlewareconfig.IdempotencyKeyFormatOpaque:
+		return idempotency.OpaqueKeyValidator(maxLen), nil
+	case middlewareconfig.IdempotencyKeyFormatPattern:
+		re, err := regexp.Compile(pattern)
+		if err != nil || pattern == "" {
+			return nil, errors.New("idempotency key pattern must be a valid, non-empty regular expression")
+		}
+		return idempotency.PatternKeyValidator(re, maxLen), nil
+	default:
+		return nil, fmt.Errorf("unknown idempotency key format %q", format)
+	}
+}
 
 // ConvertFallbackBehavior converts config FallbackBehavior to internal fallback.Behavior.
 func ConvertFallbackBehavior(fb middlewareconfig.FallbackBehavior) fallback.Behavior {

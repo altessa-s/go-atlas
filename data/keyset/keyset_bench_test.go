@@ -5,6 +5,7 @@
 package keyset_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/keyset"
@@ -40,4 +41,54 @@ func BenchmarkCodec_ResolveParallel(b *testing.B) {
 			_, _ = c.Resolve(token, bindings)
 		}
 	})
+}
+
+func BenchmarkTyped_Resolve(b *testing.B) {
+	c, _ := keyset.New(key)
+	typed := keyset.NewTyped[position](c)
+	token, _ := typed.Issue(position{Time: 1700000000000, ID: "01JABCDEFGHJKMNPQRSTVWXYZ00"}, bindings)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _, _ = typed.Resolve(token, bindings)
+	}
+}
+
+func BenchmarkNewBindings(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = keyset.NewBindings("ListItems", "name:1", "tenant-42", "status=active", "")
+	}
+}
+
+func BenchmarkClassify(b *testing.B) {
+	err := fmt.Errorf("list: %w", keyset.ErrExpiredToken)
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = keyset.Classify(err)
+	}
+}
+
+func BenchmarkSlicePager_Page(b *testing.B) {
+	items := make([]item, 200)
+	for i := range items {
+		items[i] = item{name: fmt.Sprintf("item-%04d", i)}
+	}
+	codec, _ := keyset.New(key)
+	pager := keysetPager(codec)
+	first, _ := pager.Page(items, 50, "", sliceBindings)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = pager.Page(items, 50, first.Next, sliceBindings)
+	}
+}
+
+func BenchmarkSliceOffsetPager_Page(b *testing.B) {
+	items := make([]item, 200)
+	codec, _ := keyset.New(key)
+	pager := keyset.NewSliceOffsetPager[item](keyset.NewOffset(codec))
+	first, _ := pager.Page(items, 50, "", sliceBindings)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = pager.Page(items, 50, first.Next, sliceBindings)
+	}
 }

@@ -5,19 +5,24 @@
 package idempotency
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
+	"slices"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/core/encoding/keys"
 	"github.com/altessa-s/go-atlas/core/io/spool"
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
@@ -55,6 +60,8 @@ type middleware struct {
 	middlewares.BaseMiddleware
 	i    Idempotency
 	opts *options
+	// replayHeaders is the canonical set of opts.replayHeaders.
+	replayHeaders *coremaps.ImmutableMap[string, struct{}]
 }
 
 // Dependencies returns middlewares that idempotency requires to run before it.
@@ -82,6 +89,15 @@ func New(storage Idempotency, opt ...Option) *middleware {
 	if opts.fingerprintMemThreshold <= 0 {
 		opts.fingerprintMemThreshold = DefaultFingerprintMemThreshold
 	}
+	// The stored body comes from the capture, which stops at its cap.
+	if opts.maxReplaySize <= 0 {
+		opts.maxReplaySize = DefaultMaxReplaySize
+	}
+	opts.maxReplaySize = min(opts.maxReplaySize, middlewares.MaxCaptureBodySize)
+	headers := make(map[string]struct{}, len(opts.replayHeaders))
+	for _, h := range opts.replayHeaders {
+		headers[http.CanonicalHeaderKey(h)] = struct{}{}
+	}
 
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
@@ -90,8 +106,9 @@ func New(storage Idempotency, opt ...Option) *middleware {
 			opts.ignorePatterns,
 			opts.logger,
 		),
-		i:    storage,
-		opts: opts,
+		i:             storage,
+		opts:          opts,
+		replayHeaders: coremaps.NewImmutableMap(headers),
 	}
 }
 
@@ -108,7 +125,7 @@ func defaultErrorHandler(w http.ResponseWriter, _ *http.Request, scenario ErrorS
 	case ErrorIDKMissing:
 		http.Error(w, "Idempotency key is required for this operation", http.StatusBadRequest)
 	case ErrorIDKInvalidFormat:
-		http.Error(w, "Idempotency key must be a valid lowercase UUID v4", http.StatusBadRequest)
+		http.Error(w, "Idempotency key has an invalid format", http.StatusBadRequest)
 	case ErrorIDKInProgress:
 		http.Error(w, "A request with this idempotency key is currently being processed", http.StatusConflict)
 	case ErrorIDKAlreadyUsed:
@@ -140,7 +157,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		// 2. Wrap writer to capture status and body if needed
-		sw := m.WrapResponseWriter(w, m.opts.entityIdExtractor != nil)
+		sw := m.WrapResponseWriter(w, m.opts.entityIdExtractor != nil || m.opts.responseReplay)
 		defer sw.Release()
 
 		// 3. Execute
@@ -149,13 +166,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		// 4. Lifecycle (Success/Error)
 		if storageKey != "" {
 			if sw.StatusCode() >= http.StatusOK && sw.StatusCode() < http.StatusMultipleChoices {
-				var data any
-				if m.opts.entityIdExtractor != nil {
-					contentType := sw.Header().Get("Content-Type")
-					if entityID := m.opts.entityIdExtractor(r, contentType, sw.Body()); entityID != "" {
-						data = entityID
-					}
-				}
+				data := m.completionData(r, sw)
 				// Best-effort completion. ErrLockStolen here means the
 				// lock TTL expired during processing and another node
 				// took over — silently drop our result rather than
@@ -183,12 +194,20 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 		return "", nil, nil
 	}
 
-	idempotencyKey := strings.TrimSpace(r.Header.Get(m.opts.idempotencyKeyHeader))
+	policy := PolicyDefault
+	if m.opts.requestClassifier != nil {
+		policy = m.opts.requestClassifier(r)
+	}
+	if policy == PolicySkip {
+		return "", nil, nil
+	}
+
+	idempotencyKey := m.requestKey(r)
 	if idempotencyKey == "" {
 		m.LogDebug(ctx, "no idempotency key found", path,
 			slog.String("method", r.Method))
 
-		if m.opts.enforceMandatory {
+		if policy.Mandatory(m.opts.enforceMandatory) {
 			m.opts.errorHandler(w, r, ErrorIDKMissing, nil)
 			return "", nil, errIdempotencyKeyMissing
 		}
@@ -222,12 +241,13 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 	locked, state, err := m.i.AttemptLockWithOpts(ctx, storageKey, idempotency.AttemptLockOpts{
 		Fingerprint: fingerprint,
 	})
-	switch {
-	case errors.Is(err, idempotency.ErrFingerprintMismatch):
+	outcome, record := internalidem.ClassifyLock(locked, state, err)
+	switch outcome {
+	case internalidem.LockFingerprintMismatch:
 		m.LogDebug(ctx, "idempotency key used for a different request", path, m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 		m.opts.errorHandler(w, r, ErrorIDKMismatch, nil)
 		return "", nil, errKeyNotUnique
-	case errors.Is(err, idempotency.ErrOwnerMismatch):
+	case internalidem.LockOwnerMismatch:
 		m.LogDebug(ctx, "idempotency key belongs to another caller", path, m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 		// A ReplayAuthorizer refusal carrying an HTTP status (404 to hide
 		// the record) is answered with that status and its standard text.
@@ -239,37 +259,31 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 		}
 		m.opts.errorHandler(w, r, ErrorIDKForbidden, nil)
 		return "", nil, errKeyNotUnique
-	case err != nil:
+	case internalidem.LockStorageError:
 		return "", nil, m.handleStorageError(w, r, err)
-	}
+	case internalidem.LockNilState:
+		return "", nil, m.handleStorageError(w, r, errors.New("lock failed but state is nil"))
+	case internalidem.LockInProgress:
+		m.LogDebug(ctx, "idempotency key in progress", path,
+			m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 
-	if !locked {
-		if state == nil {
-			return "", nil, m.handleStorageError(w, r, errors.New("lock failed but state is nil"))
+		w.Header().Set(m.opts.idempotencyKeyStatusHeader, "in_progress")
+		m.opts.errorHandler(w, r, ErrorIDKInProgress, state)
+		return "", nil, errKeyNotUnique
+	case internalidem.LockCompleted:
+		m.LogDebug(ctx, "idempotency key already used", path,
+			m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
+
+		w.Header().Set(m.opts.idempotencyKeyStatusHeader, "success")
+		if m.opts.exposeEntityID && record.EntityID != "" {
+			w.Header().Set(m.opts.idempotencyKeyEntityIdHeader, record.EntityID)
 		}
-
-		if state.Status == idempotency.StatusInProgress {
-			m.LogDebug(ctx, "idempotency key in progress", path,
-				m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
-
-			w.Header().Set(m.opts.idempotencyKeyStatusHeader, "in_progress")
-			m.opts.errorHandler(w, r, ErrorIDKInProgress, state)
+		if m.opts.responseReplay && m.replay(w, record, replayBinding(r)) {
 			return "", nil, errKeyNotUnique
 		}
-
-		if state.Status == idempotency.StatusSuccess {
-			m.LogDebug(ctx, "idempotency key already used", path,
-				m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
-
-			w.Header().Set(m.opts.idempotencyKeyStatusHeader, "success")
-			if m.opts.exposeEntityID {
-				if strVal, ok := state.Data.(string); ok && strVal != "" {
-					w.Header().Set(m.opts.idempotencyKeyEntityIdHeader, strVal)
-				}
-			}
-			m.opts.errorHandler(w, r, ErrorIDKAlreadyUsed, state)
-			return "", nil, errKeyNotUnique
-		}
+		m.opts.errorHandler(w, r, ErrorIDKAlreadyUsed, state)
+		return "", nil, errKeyNotUnique
+	case internalidem.LockAcquired:
 	}
 
 	m.LogDebug(ctx, "idempotency key registered", path,
@@ -277,6 +291,74 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 
 	// Return the *State so Handler can pass its CAS token to Complete.
 	return storageKey, state, nil
+}
+
+// completionData returns the data stored with a completed key: without
+// [WithResponseReplay] the entity ID string (or nil), as before replay
+// existed; with it an internalidem.Record holding the entity ID and, when the
+// whole body was captured and is no larger than maxReplaySize, the status,
+// the replay headers and the body (otherwise no response, so a repeat is
+// refused as already used).
+func (m *middleware) completionData(r *http.Request, sw *middlewares.ResponseWriter) any {
+	var entityID string
+	if m.opts.entityIdExtractor != nil {
+		entityID = m.opts.entityIdExtractor(r, sw.Header().Get("Content-Type"), sw.Body())
+	}
+	if !m.opts.responseReplay {
+		return internalidem.EntityIDData(entityID)
+	}
+	record := internalidem.NewRecord(entityID, replayBinding(r))
+	body := sw.Body()
+	if sw.BytesWritten() == int64(len(body)) && int64(len(body)) <= m.opts.maxReplaySize {
+		record.Status = sw.StatusCode()
+		record.Header = m.filterReplayHeaders(sw.Header())
+		record.Body = bytes.Clone(body)
+	}
+	return record
+}
+
+// filterReplayHeaders returns the replay headers of h, nil when none.
+func (m *middleware) filterReplayHeaders(h http.Header) map[string][]string {
+	var out map[string][]string
+	for name, values := range h {
+		if !m.replayHeaders.Contains(http.CanonicalHeaderKey(name)) || len(values) == 0 {
+			continue
+		}
+		if out == nil {
+			out = make(map[string][]string)
+		}
+		out[http.CanonicalHeaderKey(name)] = slices.Clone(values)
+	}
+	return out
+}
+
+// replayBinding names the operation of r a stored response belongs to: its
+// method and path.
+func replayBinding(r *http.Request) string { return r.Method + " " + r.URL.Path }
+
+// replay writes the response stored in record — its replay headers, status
+// and body — and reports whether it did. A record without a stored 2xx
+// response for binding (another method or path, or written before records
+// carried a binding) writes nothing.
+func (m *middleware) replay(w http.ResponseWriter, record internalidem.Record, binding string) bool {
+	if !record.HasHTTPResponse(binding) || record.Status < http.StatusOK || record.Status >= http.StatusMultipleChoices {
+		return false
+	}
+	maps.Copy(w.Header(), m.filterReplayHeaders(record.Header))
+	w.WriteHeader(record.Status)
+	_, _ = w.Write(record.Body) //nolint:errcheck // the client may be gone; nothing to do
+	return true
+}
+
+// requestKey returns the idempotency key of r: the keyQueryParam query
+// parameter when it holds a non-empty value, otherwise the key header.
+func (m *middleware) requestKey(r *http.Request) string {
+	if m.opts.keyQueryParam != "" {
+		if key := strings.TrimSpace(r.URL.Query().Get(m.opts.keyQueryParam)); key != "" {
+			return key
+		}
+	}
+	return strings.TrimSpace(r.Header.Get(m.opts.idempotencyKeyHeader))
 }
 
 // httpStatusError is an error carrying an HTTP status, as
@@ -319,7 +401,7 @@ func (m *middleware) requestFingerprint(r *http.Request) ([]byte, error) {
 		}
 		r.Body = sp
 	}
-	return idempotency.Fingerprint([]byte(r.Method), []byte(r.URL.Path), []byte(r.URL.RawQuery), bodyHash.Sum(nil)), nil
+	return keys.Digest([]byte(r.Method), []byte(r.URL.Path), []byte(r.URL.RawQuery), bodyHash.Sum(nil)), nil
 }
 
 // keyLogHashLength is the number of hex characters of the SHA-256 digest kept

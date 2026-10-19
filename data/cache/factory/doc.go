@@ -12,4 +12,11 @@
 //	    UseLogger(logger).
 //	    UseRedisClient(redisClient).
 //	    Build()
+//
+// [GenerationStoreBuilder] builds the matching cache generation store
+// (in-process for memory, shared for redis) from the same configuration:
+//
+//	store, err := factory.NewGenerationStore(cfg.Cache).
+//	    UseRedisClient(redisClient).
+//	    Build()
 package factory

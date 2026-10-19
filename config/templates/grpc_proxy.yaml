@@ -24,8 +24,10 @@
 #  # Note: socks5 and socks5h are treated as synonyms (the underlying
 #  # golang.org/x/net/proxy.SOCKS5 always sends ATYP=DomainName, i.e.
 #  # DNS resolves on the proxy side regardless of scheme).
-#  # Credentials may be embedded as http://user:pass@proxy:port,
-#  # but for secrets prefer mode=host with the auth block below.
+#  # Credentials may be embedded as http://user:pass@proxy:port;
+#  # the password is masked wherever the config is printed or logged
+#  # and validation errors never quote the URL, but for secrets prefer
+#  # mode=host with the auth block below.
 #  # Default value: not set
 #  url: http://proxy.corp.example:3128
 #

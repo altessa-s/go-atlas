@@ -5,11 +5,11 @@
 package scheduler
 
 import (
-	"encoding/base64"
-	"encoding/json"
+	"crypto/rand"
 	"errors"
+	"fmt"
 
-	"github.com/altessa-s/go-atlas/core/encoding/hash"
+	"github.com/altessa-s/go-atlas/data/keyset"
 )
 
 const (
@@ -20,9 +20,18 @@ const (
 	MaxPageSize int64 = 1000
 )
 
-// ErrInvalidCursor is returned when a cursor token cannot be decoded or its
-// filter hash does not match the current request's filter expression.
+// ErrInvalidCursor is returned when a cursor token fails verification: it is
+// malformed, tampered with, expired, signed with another key, or was issued
+// for another list, task or filter expression. The [keyset] error is wrapped
+// as well, so [keyset.Classify] reports the failure.
 var ErrInvalidCursor = errors.New("invalid or expired pagination cursor")
+
+// ErrPageTokensNotConfigured is returned by [Scheduler.TasksPaginated] and
+// [Scheduler.HistoryPaginated] when the scheduler has no page-token codec:
+// configure one shared by every instance with [WithPageTokens] (factory
+// UsePageTokens or the `paging` config section), or opt in to a per-instance
+// random key with [WithEphemeralPageTokens].
+var ErrPageTokensNotConfigured = errors.New("scheduler: page tokens are not configured")
 
 // Pagination carries decoded cursor state and limit for storage backends.
 // The filter AST is passed separately so backends clearly see what is
@@ -47,13 +56,7 @@ type PageRequest struct {
 // ClampLimit normalizes the limit to the range [1, MaxPageSize].
 // A zero or negative value is replaced with [DefaultPageSize].
 func (p PageRequest) ClampLimit() int64 {
-	if p.Limit <= 0 {
-		return DefaultPageSize
-	}
-	if p.Limit > MaxPageSize {
-		return MaxPageSize
-	}
-	return p.Limit
+	return int64(keyset.PageSize(p.Limit, int(DefaultPageSize), int(MaxPageSize)))
 }
 
 // PageResult holds a single page of results along with an optional cursor to
@@ -63,79 +66,79 @@ type PageResult[T any] struct {
 	NextCursor *string
 }
 
-// taskCursor is the JSON-encoded payload inside a task-list pagination token.
+// Subjects and sorts the page tokens of the paginated lists are bound to.
+const (
+	tasksSubject   = "scheduler.TasksPaginated"
+	tasksSort      = "id:1"
+	historySubject = "scheduler.HistoryPaginated"
+	historySort    = "startedAt:-1,id:-1"
+)
+
+// taskCursor is the position inside a task-list page token.
 type taskCursor struct {
-	LastID     string `json:"id"`
-	FilterHash string `json:"fh"`
+	LastID string `json:"id"`
 }
 
-// historyCursor is the JSON-encoded payload inside a history-list pagination token.
+// historyCursor is the position inside a history-list page token.
 type historyCursor struct {
 	LastStartedAt int64  `json:"sa"`
 	LastID        string `json:"id"`
-	FilterHash    string `json:"fh"`
 }
 
-// filterHash computes a deterministic hash of a filter expression for cursor
-// validation. An empty filter produces a fixed hash so that cursors remain
-// valid across "no filter" requests.
-func filterHash(filterExpr string) string {
-	return hash.SHA256HexString(filterExpr)
+// newEphemeralPageTokens returns a codec signing with a random key, for
+// [WithEphemeralPageTokens]: its tokens verify only in this process.
+func newEphemeralPageTokens() *keyset.Codec {
+	key := make([]byte, keyset.MinKeyLength)
+	_, _ = rand.Read(key)       //nolint:errcheck // crypto/rand.Read never fails
+	codec, _ := keyset.New(key) //nolint:errcheck // the key has the minimum length
+	return codec
 }
 
-// encodeTaskCursor produces a base64url-encoded cursor token from the last
-// task ID and the current filter expression.
-func encodeTaskCursor(lastID, filterExpr string) string {
-	c := taskCursor{
-		LastID:     lastID,
-		FilterHash: filterHash(filterExpr),
-	}
-	b, _ := json.Marshal(c) //nolint:errcheck // struct of strings cannot fail
-	return base64.RawURLEncoding.EncodeToString(b)
+// tasksBindings binds a task-list token to the filter expression.
+func tasksBindings(filterExpr string) keyset.Bindings {
+	return keyset.NewBindings(tasksSubject, tasksSort, filterExpr)
 }
 
-// decodeTaskCursor decodes a cursor token and validates its filter hash.
-// Returns ErrInvalidCursor if the token is malformed or the filter has changed.
-func decodeTaskCursor(token, filterExpr string) (*taskCursor, error) {
-	b, err := base64.RawURLEncoding.DecodeString(token)
+// historyBindings binds a history-list token to the task and the filter
+// expression.
+func historyBindings(taskID, filterExpr string) keyset.Bindings {
+	return keyset.NewBindings(historySubject, historySort, taskID, filterExpr)
+}
+
+// invalidCursor wraps a page-token failure with [ErrInvalidCursor].
+func invalidCursor(err error) error {
+	return fmt.Errorf("%w: %w", ErrInvalidCursor, err)
+}
+
+// encodeTaskCursor returns the token of the task page after lastID.
+func (s *Scheduler) encodeTaskCursor(lastID, filterExpr string) (string, error) {
+	return keyset.NewTyped[taskCursor](s.opts.pageTokens).Issue(taskCursor{LastID: lastID}, tasksBindings(filterExpr))
+}
+
+// decodeTaskCursor verifies token against the filter expression. It returns
+// [ErrInvalidCursor] for a token that fails verification.
+func (s *Scheduler) decodeTaskCursor(token, filterExpr string) (taskCursor, error) {
+	cur, _, err := keyset.NewTyped[taskCursor](s.opts.pageTokens).Resolve(token, tasksBindings(filterExpr))
 	if err != nil {
-		return nil, ErrInvalidCursor
+		return taskCursor{}, invalidCursor(err)
 	}
-	var c taskCursor
-	if err := json.Unmarshal(b, &c); err != nil {
-		return nil, ErrInvalidCursor
-	}
-	if c.FilterHash != filterHash(filterExpr) {
-		return nil, ErrInvalidCursor
-	}
-	return &c, nil
+	return cur, nil
 }
 
-// encodeHistoryCursor produces a base64url-encoded cursor token from the last
-// history entry's StartedAt, ID, and the current filter expression.
-func encodeHistoryCursor(lastStartedAt int64, lastID, filterExpr string) string {
-	c := historyCursor{
-		LastStartedAt: lastStartedAt,
-		LastID:        lastID,
-		FilterHash:    filterHash(filterExpr),
-	}
-	b, _ := json.Marshal(c) //nolint:errcheck // simple struct cannot fail
-	return base64.RawURLEncoding.EncodeToString(b)
+// encodeHistoryCursor returns the token of the history page after the entry
+// that started at lastStartedAt with lastID.
+func (s *Scheduler) encodeHistoryCursor(taskID string, lastStartedAt int64, lastID, filterExpr string) (string, error) {
+	return keyset.NewTyped[historyCursor](s.opts.pageTokens).Issue(
+		historyCursor{LastStartedAt: lastStartedAt, LastID: lastID}, historyBindings(taskID, filterExpr))
 }
 
-// decodeHistoryCursor decodes a cursor token and validates its filter hash.
-// Returns ErrInvalidCursor if the token is malformed or the filter has changed.
-func decodeHistoryCursor(token, filterExpr string) (*historyCursor, error) {
-	b, err := base64.RawURLEncoding.DecodeString(token)
+// decodeHistoryCursor verifies token against the task and the filter
+// expression. It returns [ErrInvalidCursor] for a token that fails
+// verification.
+func (s *Scheduler) decodeHistoryCursor(token, taskID, filterExpr string) (historyCursor, error) {
+	cur, _, err := keyset.NewTyped[historyCursor](s.opts.pageTokens).Resolve(token, historyBindings(taskID, filterExpr))
 	if err != nil {
-		return nil, ErrInvalidCursor
+		return historyCursor{}, invalidCursor(err)
 	}
-	var c historyCursor
-	if err := json.Unmarshal(b, &c); err != nil {
-		return nil, ErrInvalidCursor
-	}
-	if c.FilterHash != filterHash(filterExpr) {
-		return nil, ErrInvalidCursor
-	}
-	return &c, nil
+	return cur, nil
 }

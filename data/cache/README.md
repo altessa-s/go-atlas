@@ -49,6 +49,10 @@ remains occupied until the callback exits, even after every waiter cancels. Ther
 | `WithName` | `""` | Cache name used in metric labels |
 | `WithFailOpen(ioTimeout)` | off | Storage and decode failures become misses; positive `ioTimeout` bounds each storage call (see below) |
 | `WithIsolatedResults()` | off | Collapsed callers share serialized bytes and each decodes its own copy (see below) |
+| `WithKeyVersion(fn)` | none | Embed a version in every key; an unknown version skips the cache (see below) |
+| `WithGeneration(store, namespace)` | none | Version keys with a generation store namespace; enables `InvalidateAll` (see below) |
+
+`NewGenerations` takes its own options: `WithGenerationStore` (default in-process) and `WithBypass`.
 
 ## Fail-open mode
 
@@ -72,6 +76,82 @@ The caller's own context cancellation is still returned. Every degraded event in
 By default the callers collapsed onto one `GetWithFallback` / `GetWithFallbackT` fallback receive the value the fallback returned, so a slice, map or
 pointer inside it is shared and one caller's mutation is visible to the others. `WithIsolatedResults()` shares the serialized bytes instead: every
 caller, including the one that ran the fallback, decodes its own copy. It costs one decode per caller on the miss path.
+
+## Generations: cross-replica invalidation
+
+`WithGeneration(store, namespace)` embeds the namespace's generation from a `GenerationStore` (`data/cache/generation`) in every key, ahead of the
+`WithKeyNamespace` namespace: keys become `<generation>:[<len>:<namespace>:]<key>`. `InvalidateAll(ctx)` bumps the generation, which orphans every entry
+at once; they expire under their TTL or are evicted. The singleflight key carries the generation too, so a reader after the bump never joins a fill
+that started before it, and such a fill stores its value under the old generation, where it is never read again.
+
+```go
+store := redisgen.New(redisClient) // data/cache/generation/storages/redis
+c := cache.New(storage, cache.WithGeneration(store, "catalog"), cache.WithFailOpen(0))
+
+// after a committed write, on any replica:
+if err := c.InvalidateAll(ctx); err != nil { /* not published; see below */ }
+```
+
+| Store | Shared | Staleness bound after `InvalidateAll` returns |
+|-------|--------|-----------------------------------------------|
+| `generation/storages/memory` | no | none (same process) |
+| `generation/storages/redis` | yes | `WithMaxStaleness` (1s) on other replicas, none on the bumping one |
+
+`WithKeyVersion(fn)` is the lower-level form for a version computed elsewhere; `InvalidateAll` then returns `ErrNoGeneration`.
+
+**When the version is unknown** (the store returned an error), no entry is read or written, so nothing stale is served and nothing is stored under a
+wrong generation:
+
+| Operation | Behavior |
+|-----------|----------|
+| `GetWithFallback`, `GetWithFallbackT` | the fallback runs in the caller (unshared, within `WithFallbackTimeout`), with or without fail-open |
+| `Get`, `Exists`, `Save`, `GetManyRaw`, `GetManyT` | the error; with `WithFailOpen` a miss (`Save`: `nil`, nothing stored) |
+| `Delete`, `DeleteMany`, `InvalidateAll` | the error |
+
+Each event increments `cache_errors_total`, and `cache_fail_open_total{op="version"}` when degraded. A failed `InvalidateAll` on the Redis store keeps
+the namespace pending on that replica (it skips the cache until the bump is published); other replicas fall back to the entry TTL as the bound, so
+keep a TTL as the safety net.
+
+The storage factory builds a matching store from the same `storage` config: `factory.NewGenerationStore(cfg).UseRedisClient(client).Build()`.
+
+## Generational read-through cache
+
+`Generations` scopes keys by several namespaces over one cache, for decorators that invalidate parts of a dataset (one namespace per kind, plus
+a cross-kind one):
+
+```go
+storage, _ := lru.New(4096)
+gens := cache.NewGenerations(
+    cache.New(storage, cache.WithTTL(5*time.Minute), cache.WithFailOpen(0)),
+    cache.WithGenerationStore(redisgen.New(redisClient)), // default: in-process
+    cache.WithBypass(func(ctx context.Context) bool { return mongo.SessionFromContext(ctx) != nil }),
+)
+
+item, err := cache.ReadThrough(ctx, gens, kind, "get:"+code, func(ctx context.Context) (Item, error) {
+    return store.Get(ctx, kind, code)
+})
+
+// after the write committed (or failed with a conflict that proves the cached view stale):
+err = gens.Bump(ctx, kind, "all")
+```
+
+| API | Behavior |
+|-----|----------|
+| `ReadThrough[T](ctx, g, namespace, key, fill)` | Cached under `Key(namespace, key)`, default TTL; misses share one fill; each caller gets its own copy |
+| `Generations.Key(ctx, namespace, parts...)` | `keys.Compose(namespace, generation, parts...)`: distinct tuples never share a key |
+| `Generations.Bump(ctx, namespaces...)` | Bumps every namespace, also when one fails; returns the joined errors |
+| `WithBypass(fn)` | Reads for which `fn(ctx)` holds skip the cache (for example inside a transaction) |
+| `NewGenerations(nil)` | Caching disabled: `ReadThrough` always fills |
+
+A read skips the cache, filling directly and storing nothing, when ctx is marked by `WithFreshReads`, when `WithBypass` holds, when the generation
+is unknown, or when caching is disabled. Fill errors are not cached; `ErrMissing` is negatively cached under `WithNegativeTTL`. Entries are
+orphaned, not deleted: the cache TTL and a bounded storage reclaim them, and the TTL also bounds staleness for writes that never call `Bump`.
+
+## Fresh reads
+
+`WithFreshReads(ctx)` marks a context so `GetWithFallback`, `GetWithFallbackT` and `ReadThrough` skip the cache: the fill runs in the caller and
+nothing is stored. Use it for the load of a read-modify-write that checks an expected version or etag, and for reads that must observe a write
+just made. `FreshReads(ctx)` reports the mark; derived contexts inherit it. `Get`, `GetManyRaw` and the other plain reads ignore it.
 
 ## Batch reads
 
@@ -116,6 +196,9 @@ does not read them. Deploy all callers of a shared namespace together or use sep
 | Package                                    | Description                          |
 |--------------------------------------------|--------------------------------------|
 | [factory](./factory)                       | Configuration-based cache creation   |
+| [generation](./generation)                 | `GenerationStore` interface and seeding |
+| [generation/storages/memory](./generation/storages/memory) | In-process generation store |
+| [generation/storages/redis](./generation/storages/redis) | Shared generation store with bounded staleness |
 | [lru](./lru)                               | Generic thread-safe LRU cache        |
 | [storages](./storages)                     | `Storage` interface and `ErrMissing` |
 | [storages/freecache](./storages/freecache) | Zero-GC in-memory provider         |

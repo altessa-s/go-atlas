@@ -14,6 +14,30 @@
 // checksums are not signatures: use storage with subject binding or signed
 // keyset tokens when callers must not choose their own continuation position.
 //
+// # Transactions and upserts
+//
+// WithTransaction joins a transaction of the same client that ctx already
+// carries instead of starting an independent one; InTransaction reports
+// whether ctx carries a running transaction. SetOnInsertFrom builds the
+// $setOnInsert document of an upsert from a typed document, and
+// UpsertRetryingDuplicate repeats an upsert that lost a first-insert race
+// (never inside a transaction). Now and StoredTime give times at MongoDB
+// precision (UTC, milliseconds).
+//
+// # Migrations and indexes
+//
+// RegisterMigration registers a versioned migration that Connect applies
+// under the database-wide migration lock, in the mongo-migrate format.
+// EnsureIndexes creates a collection's indexes idempotently, optionally
+// dropping obsolete ones and recreating those whose specification changed.
+//
+// # Write guards
+//
+// TouchGuard increments a storage-only counter on the document a filter
+// matches (optionally upserting it). Inside a transaction this serializes
+// conflicting writers through that document: a concurrent transaction that
+// writes it — another guard, a delete — gets a write conflict.
+//
 // # Usage
 //
 //	client, err := mongo.New("myapp",

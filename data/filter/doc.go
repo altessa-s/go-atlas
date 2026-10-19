@@ -172,6 +172,10 @@
 //	    "createdBefore": filter.CompareField("createdAt", filter.OpLT),
 //	}))
 //
+// TextSearch builds a free-text search over several fields:
+// search("text") becomes a case-insensitive, literal matches() on each
+// field, ORed.
+//
 // For application-wide registration, call RegisterFunctions once during
 // bootstrap (main or init). Every subsequent NewParser picks the global
 // set up by default; WithCustomFunctions overrides matching names, and

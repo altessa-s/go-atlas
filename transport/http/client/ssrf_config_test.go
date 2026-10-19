@@ -25,8 +25,6 @@ func TestSSRFRejectsUnsafeTransport(t *testing.T) {
 		name string
 		opts []Option
 	}{
-		{"proxy option", []Option{WithProxy("proxy.example", 8080, nil)}},
-		{"dynamic proxy", []Option{WithProxyFunc(func(*http.Request) (*url.URL, error) { panic("must not call proxy resolver") })}},
 		{"transport proxy", []Option{WithTransport(&http.Transport{Proxy: http.ProxyURL(&url.URL{Scheme: "http", Host: "proxy.example"})})}},
 		{"TLS dialer", []Option{WithTransport(&http.Transport{DialTLS: func(string, string) (net.Conn, error) { panic("must not dial") }})}},
 		{"context TLS dialer", []Option{WithTransport(&http.Transport{DialTLSContext: func(context.Context, string, string) (net.Conn, error) { panic("must not dial") }})}},

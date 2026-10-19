@@ -65,3 +65,18 @@ func TestResponseWriter_Unwrap(t *testing.T) {
 
 	require.Equal(t, rec, rw.Unwrap())
 }
+
+func TestResponseWriter_BytesWritten(t *testing.T) {
+	t.Parallel()
+
+	rw := NewResponseWriter(httptest.NewRecorder(), true)
+	defer rw.Release()
+	rw.Write([]byte("hello"))                  //nolint:errcheck
+	rw.Write(make([]byte, MaxCaptureBodySize)) //nolint:errcheck
+	require.EqualValues(t, MaxCaptureBodySize+5, rw.BytesWritten(), "every written byte counts")
+	require.Len(t, rw.Body(), MaxCaptureBodySize, "the capture is truncated")
+
+	again := NewResponseWriter(httptest.NewRecorder(), false)
+	defer again.Release()
+	require.Zero(t, again.BytesWritten(), "a pooled writer starts at zero")
+}

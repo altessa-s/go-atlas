@@ -22,7 +22,7 @@ func FuzzComposeKey(f *testing.F) {
 		{"", "a", "a", ""},
 		{"namespace", "", "namespace", ":"},
 		{"1:a", "", "a", ""},
-		{"xxxx", "\x00\xff", "idk:v2:", "0:"},
+		{"κλειδί", "\x00\xff", "idk:v2:", "0:"},
 	}
 	for _, s := range seeds {
 		f.Add(s[0], s[1], s[2], s[3])

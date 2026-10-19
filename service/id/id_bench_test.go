@@ -50,3 +50,10 @@ func BenchmarkNewWithProvider(b *testing.B) {
 		_, _ = NewWithProvider(p)
 	}
 }
+
+func BenchmarkNewHex(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = NewHex(16)
+	}
+}

@@ -31,7 +31,7 @@ func TestComposeKeyABIPinned(t *testing.T) {
 		{name: "colon in the second component", parts: []string{"a", "b:c"}, want: "idk:v2:1:a3:b:c"},
 		{name: "empty namespace", parts: []string{"namespace", "", "op-1"}, want: "idk:v2:9:namespace0:4:op-1"},
 		{name: "multi-digit length", parts: []string{"0123456789"}, want: "idk:v2:10:0123456789"},
-		{name: "unicode counts bytes", parts: []string{"xxxx"}, want: "idk:v2:8:xxxx"},
+		{name: "unicode counts bytes", parts: []string{"κλειδί"}, want: "idk:v2:12:κλειδί"},
 		{name: "binary bytes unchanged", parts: []string{"\x00\xff:"}, want: "idk:v2:3:\x00\xff:"},
 		{
 			name:  "transport key",
@@ -107,7 +107,7 @@ func decomposeKey(key string) ([]string, bool) {
 func TestDecomposeKeyRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	parts := []string{"namespace", "", "idk:v2:1:a3:b:c", "\x00xxxx"}
+	parts := []string{"namespace", "", "idk:v2:1:a3:b:c", "\x00κλειδί"}
 	got, ok := decomposeKey(idempotency.ComposeKey(parts...))
 	require.True(t, ok)
 	require.Equal(t, parts, got)
