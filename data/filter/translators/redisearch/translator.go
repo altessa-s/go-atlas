@@ -72,6 +72,10 @@ func NewTranslator(schema map[string]FieldType, opts ...filter.TranslatorOption)
 	if err != nil {
 		return nil, err
 	}
+	// Decimal literals cannot be bound exactly here yet: refuse the declaration rather than compare through a float.
+	if err = ctx.RejectFieldKinds(filter.FieldKindDecimal); err != nil {
+		return nil, err
+	}
 	return &Translator{config: ctx, schema: coremaps.NewImmutableMap(schema), depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 

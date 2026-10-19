@@ -45,7 +45,7 @@ var identSeeds = []string{
 	"name[0]",
 	"COUNT(*)",
 	"name\x00",
-	"xxx",
+	"όνομα",
 }
 
 // FuzzValidateIdent checks the validator against an independent statement of

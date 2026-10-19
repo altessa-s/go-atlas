@@ -108,6 +108,10 @@ type Node interface {
 // LiteralNode represents a literal value (string, number, bool, nil).
 type LiteralNode struct {
 	Value any
+	// Text is the source spelling of a float literal ("1.00000000000000001") unless its float64 Value is certified to reproduce it
+	// exactly as the shortest round-trip decimal (then empty); a spelling that cannot be recovered is a non-decimal marker.
+	// [DecimalOperand] reads a [FieldKindDecimal] operand from it, so such an operand never falls back to the float.
+	Text string
 }
 
 func (n *LiteralNode) Kind() NodeKind                { return NodeKindLiteral }

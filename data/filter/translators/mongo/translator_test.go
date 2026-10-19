@@ -6,6 +6,7 @@ package mongo
 
 import (
 	"encoding/json"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -237,6 +238,23 @@ func TestTranslator_StringFunctions(t *testing.T) {
 			name:     "contains NUL",
 			expr:     `name.contains("a\x00b")`,
 			wantJSON: `{"name":{"$regex":"a\\x00b"}}`,
+		},
+		{
+			// matches() patterns are spelled the same way.
+			name:     "matches NUL",
+			expr:     `name.matches("^a\x00b$")`,
+			wantJSON: `{"name":{"$regex":"^a\\x00b\\z"}}`,
+		},
+		{
+			// Inside \Q…\E the quote is closed around the escape.
+			name:     "matches quoted NUL",
+			expr:     `name.matches("\\Qa\x00b\\E")`,
+			wantJSON: `{"name":{"$regex":"\\Qa\\E\\x00\\Qb\\E"}}`,
+		},
+		{
+			name:     "matches NUL in class",
+			expr:     `name.matches("[\x00-a]")`,
+			wantJSON: `{"name":{"$regex":"[\\x00-a]"}}`,
 		},
 	}
 
@@ -875,4 +893,94 @@ func TestTranslator_SizeOutsideComparison(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, bsonToJSON(doc), sizeFieldMarker,
 		"the internal marker must never survive into a query")
+}
+
+// TestTranslator_CustomFunction_TextSearch pins the MongoDB filter of filter.TextSearch: one case-insensitive literal $regex per
+// field, ORed, after the allowlist and the field mapping; regex metacharacters are quoted and a NUL byte is spelled \x00.
+func TestTranslator_CustomFunction_TextSearch(t *testing.T) {
+	parser, err := filter.NewParser(
+		filter.WithParserNoCache(),
+		filter.WithCustomFunctions(map[string]filter.CustomFunction{
+			"search": filter.TextSearch("code", "name"),
+		}),
+	)
+	require.NoError(t, err)
+	trans := mustTranslator(t,
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields("code", "name", "grade"),
+		filter.WithFieldMapping(map[string]string{"grade": "attrs.grade"}),
+	)
+
+	tests := []struct {
+		name     string
+		expr     string
+		wantJSON string
+	}{
+		{"plain", `search("  Δίκτυο ")`, `{"$or":[{"code":{"$regex":"(?i)Δίκτυο"}},{"name":{"$regex":"(?i)Δίκτυο"}}]}`},
+		{"literal", `search("^dev.*$")`, `{"$or":[{"code":{"$regex":"(?i)\\^dev\\.\\*\\$"}},{"name":{"$regex":"(?i)\\^dev\\.\\*\\$"}}]}`},
+		{"NUL byte", `search("a\x00b")`, `{"$or":[{"code":{"$regex":"(?i)a\\x00b"}},{"name":{"$regex":"(?i)a\\x00b"}}]}`},
+		{
+			"combined", `grade == "senior" && search("qa")`,
+			`{"$and":[{"attrs.grade":"senior"},{"$or":[{"code":{"$regex":"(?i)qa"}},{"name":{"$regex":"(?i)qa"}}]}]}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node, err := parser.Parse(t.Context(), tt.expr)
+			require.NoError(t, err)
+			got, err := trans.Translate(node)
+			require.NoError(t, err)
+			require.JSONEq(t, tt.wantJSON, bsonToJSON(got))
+		})
+	}
+
+	t.Run("fields outside the allowlist are rejected", func(t *testing.T) {
+		p, err := filter.NewParser(filter.WithParserNoCache(), filter.WithCustomFunctions(map[string]filter.CustomFunction{
+			"search": filter.TextSearch("secret"),
+		}))
+		require.NoError(t, err)
+		node, err := p.Parse(t.Context(), `search("x")`)
+		require.NoError(t, err)
+		_, err = trans.Translate(node)
+		require.Error(t, err)
+	})
+}
+
+// TestEscapeNULPreservesMatches checks that spelling NUL bytes out keeps every pattern's meaning, inside \Q…\E quoting as well:
+// RE2 compiles both forms and they agree on every probe, and no raw NUL is left.
+func TestEscapeNULPreservesMatches(t *testing.T) {
+	t.Parallel()
+
+	patterns := map[string]string{
+		"outside quotes":         "a\x00b",
+		"in a class":             "^[\x00-a]+$",
+		"quoted":                 `\Qa` + "\x00" + `b\E`,
+		"quoted twice":           `^\Q` + "\x00\x00" + `\E$`,
+		"unterminated quote":     `\Qa` + "\x00" + `b`,
+		"quote then outside":     `\Qx` + "\x00" + `y\Ez` + "\x00",
+		"escaped backslash":      `\\Q` + "\x00",
+		"quote at end":           "\x00" + `\Q`,
+		"quoted metacharacters":  `\Q.*` + "\x00" + `[\E`,
+		"no NUL keeps unchanged": `\Qa.b\E`,
+	}
+	probes := []string{
+		"", "a\x00b", `a\x00b`, "ab", "\x00", "\x00\x00", "x\x00yz\x00", `\Q` + "\x00", `\` + "Q\x00", "Q\x00",
+		".*\x00[", "a.b", "\x00\x01a", "za\x00bz",
+	}
+	for name, pattern := range patterns {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			escaped := escapeNUL(pattern)
+			require.NotContains(t, escaped, "\x00")
+			want := regexp.MustCompile(pattern)
+			got := regexp.MustCompile(escaped)
+			for _, p := range probes {
+				require.Equal(t, want.MatchString(p), got.MatchString(p), "pattern %q -> %q, probe %q", pattern, escaped, p)
+				require.Equal(t, want.FindAllStringIndex(p, -1), got.FindAllStringIndex(p, -1), "pattern %q -> %q, probe %q", pattern, escaped, p)
+			}
+		})
+	}
+	require.Equal(t, `\Qa\E\x00\Qb\E`, escapeNUL(`\Qa`+"\x00"+`b\E`))
+	require.Equal(t, `\Qa\E\x00\Qb`, escapeNUL(`\Qa`+"\x00"+`b`))
+	require.Equal(t, `\\Q\x00`, escapeNUL(`\\Q`+"\x00"))
 }
