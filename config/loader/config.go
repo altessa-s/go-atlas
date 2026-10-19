@@ -29,6 +29,10 @@ const DefaultEnvSectionDelimiter = "__"
 
 const (
 	minEnvKeyParts = 2 // Minimum parts for nested structures
+
+	// appEnvTagPrefix is the placeholder prefix an 'env' tag may carry; with
+	// a prefix configured it is replaced by that prefix.
+	appEnvTagPrefix = "APP_"
 )
 
 var (
@@ -37,6 +41,11 @@ var (
 
 	// ErrBindEnv is the error that returns when an environment value cannot be bind.
 	ErrBindEnv = errors.New("bind env")
+
+	// ErrEnvIndexOutOfRange is wrapped by the [ErrBindEnv] error returned when
+	// an environment variable names a negative slice index, or one that would
+	// grow the slice past the limit set by [WithMaxEnvSliceLen].
+	ErrEnvIndexOutOfRange = errors.New("env slice index out of range")
 
 	// ErrDecode is the error that returns when decode failed.
 	ErrDecode = errors.New("decode error")
@@ -94,6 +103,13 @@ type Config struct {
 	// present records the values the configuration files and the environment
 	// set during the current load; defaults are not applied to them.
 	present *presence
+	// levels caches levelNames by field name and tag; it is used under smx.
+	levels map[levelKey][]string
+	// defaulting holds the pointers whose structs applyDefaults is walking.
+	defaulting map[ptrKey]struct{}
+	// envTagged lists the value fields of fields with an `env` tag while the
+	// environment is loaded.
+	envTagged fields
 }
 
 // New creates a new Config instance with the specified backend and options.
@@ -102,7 +118,7 @@ type Config struct {
 //
 // Example:
 //
-//	cfg := parser.New(nil, parser.WithPath("config.yaml"), parser.WithEnvPrefix("APP_"))
+//	cfg := parser.New(nil, parser.WithPath("config.yaml"), parser.WithEnvPrefix("APP"))
 func New(backend backend.Backend, option ...Option) *Config {
 	conf := &Config{
 		options:   newOptions(option...),
@@ -358,58 +374,6 @@ func (cf *Config) loadFile(filePath string, fileInfo os.FileInfo) (err error) {
 	})
 
 	return
-}
-
-// envFieldName constructs the full environment variable name for a struct field.
-// It first checks for an explicit 'env' tag when no prefix is configured, otherwise
-// combines the configured prefix with the field's full name using the specified delimiter.
-//
-// The function uses __ (double underscore) as a section delimiter to separate nested
-// struct levels, and converts camelCase field names to SCREAMING_SNAKE_CASE.
-//
-// Examples:
-//   - GRPC.Interceptors.Cache.Enabled -> GRPC__INTERCEPTORS__CACHE__ENABLED
-//   - GRPC.Interceptors.RealIp.Enabled -> GRPC__INTERCEPTORS__REAL_IP__ENABLED
-//   - GRPC.Interceptors.RequestId.GenerateIfMissing -> GRPC__INTERCEPTORS__REQUEST_ID__GENERATE_IF_MISSING
-func (cf *Config) envFieldName(fld *field) string {
-	if fld.isStructPtr() {
-		return ""
-	}
-
-	// Check if field has an explicit env tag first
-	if envTag := fld.tags[envTagName]; envTag != "" {
-		// If there's a prefix, replace any existing prefix in the tag or prepend it
-		if cf.options.envPrefix != "" {
-			// If tag starts with "APP_", replace it with the configured prefix
-			if strings.HasPrefix(envTag, "APP_") {
-				return cf.options.envPrefix + envTag[4:] // Remove "APP_" and prepend new prefix
-			}
-			// If tag doesn't already start with the configured prefix, prepend it
-			if !strings.HasPrefix(envTag, cf.options.envPrefix) {
-				return cf.options.envPrefix + envTag
-			}
-		}
-		return envTag
-	}
-
-	// Split the field full name by dots (struct hierarchy)
-	parts := strings.Split(fld.fullName, ".")
-
-	// Convert each part from camelCase to SCREAMING_SNAKE_CASE
-	convertedParts := make([]string, len(parts))
-	for i, part := range parts {
-		convertedParts[i] = corestrings.ToScreamingSnakeCase(part)
-	}
-
-	// Join parts with configured section delimiter
-	envName := strings.Join(convertedParts, cf.options.envSectionDelimiter)
-
-	// Prepend prefix if configured
-	if cf.options.envPrefix != "" {
-		envName = cf.options.envPrefix + envName
-	}
-
-	return envName
 }
 
 // isValidConfigFile checks if the given filename has a valid configuration file extension.

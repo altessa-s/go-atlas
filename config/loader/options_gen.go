@@ -72,6 +72,13 @@ func WithMaxConfigBytes(v int64) Option {
 	}
 }
 
+// WithMaxEnvSliceLen sets the maxEnvSliceLen option.
+func WithMaxEnvSliceLen(v int) Option {
+	return func(o *options) {
+		o.maxEnvSliceLen = v
+	}
+}
+
 // WithPath sets the path option.
 func WithPath[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -144,6 +151,7 @@ func defaultOptions() *options {
 	return &options{
 		envSectionDelimiter: DefaultEnvSectionDelimiter,
 		maxConfigBytes:      DefaultMaxConfigBytes,
+		maxEnvSliceLen:      DefaultMaxEnvSliceLen,
 		structTag:           DefaultStructTagName,
 	}
 }

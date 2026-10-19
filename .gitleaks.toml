@@ -51,4 +51,7 @@ regexes = [
     # ULID page-token samples (the canonical ULID spec example and variants)
     # in data/keyset store tests.
     '''(?i)01ARZ3NDEKTSV4RRFFQ69G5FA[IUV]''',
+    # Secret-shaped env value in config/loader tests; the tests assert it never
+    # appears in returned error messages.
+    '''s3cr3t-Pa55w0rd''',
 ]

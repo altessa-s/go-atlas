@@ -329,3 +329,29 @@ func TestExpand_ClearsReturnedValues(t *testing.T) {
 		require.Empty(t, v.Key)
 	}
 }
+
+type cycleNode struct {
+	Password string
+	Next     *cycleNode
+	Any      any
+}
+
+// TestExpandStruct_PointerCycle checks that self and mutual pointer cycles are
+// walked once per node.
+func TestExpandStruct_PointerCycle(t *testing.T) {
+	t.Parallel()
+
+	mgr := newMockManager(map[string]string{"app:pw": "secret"})
+	self := &cycleNode{Password: "$__secret{app:pw}"}
+	self.Next = self
+	a := &cycleNode{Password: "$__secret{app:pw}"}
+	b := &cycleNode{Password: "$__secret{app:pw}", Next: a}
+	a.Next = b
+	a.Any = b
+
+	require.NoError(t, secrets.ExpandStruct(t.Context(), self, mgr))
+	require.Equal(t, "secret", self.Password)
+	require.NoError(t, secrets.ExpandStruct(t.Context(), a, mgr))
+	require.Equal(t, "secret", a.Password)
+	require.Equal(t, "secret", b.Password)
+}

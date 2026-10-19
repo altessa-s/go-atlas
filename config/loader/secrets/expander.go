@@ -312,11 +312,32 @@ func (e *Expander) ExpandStruct(ctx context.Context, v any) error {
 		return nil
 	}
 
-	return e.walkValue(ctx, rv.Elem(), "")
+	return e.walkPointer(ctx, rv, "", make(map[ptrKey]struct{}))
+}
+
+// ptrKey identifies the value a pointer points to: by address and type, as a
+// struct and its first field share an address.
+type ptrKey struct {
+	t reflect.Type
+	p uintptr
+}
+
+// walkPointer walks the value the non-nil pointer v points to, unless it is
+// already being walked further up: a pointer cycle (n.Next = n) is followed
+// once, not forever. active holds the pointers being walked.
+func (e *Expander) walkPointer(ctx context.Context, v reflect.Value, path string, active map[ptrKey]struct{}) error {
+	key := ptrKey{t: v.Type(), p: v.Pointer()}
+	if _, ok := active[key]; ok {
+		return nil
+	}
+	active[key] = struct{}{}
+	defer delete(active, key)
+	return e.walkValue(ctx, v.Elem(), path, active)
 }
 
 // walkValue recursively walks through a reflect.Value and expands secrets.
-func (e *Expander) walkValue(ctx context.Context, v reflect.Value, path string) error {
+// active holds the pointers being walked (see walkPointer).
+func (e *Expander) walkValue(ctx context.Context, v reflect.Value, path string, active map[ptrKey]struct{}) error {
 	if !v.IsValid() {
 		return nil
 	}
@@ -329,16 +350,16 @@ func (e *Expander) walkValue(ctx context.Context, v reflect.Value, path string) 
 		if v.IsNil() {
 			return nil
 		}
-		return e.walkValue(ctx, v.Elem(), path)
+		return e.walkPointer(ctx, v, path, active)
 
 	case reflect.Struct:
-		return e.walkStruct(ctx, v, path)
+		return e.walkStruct(ctx, v, path, active)
 
 	case reflect.Slice:
-		return e.walkSlice(ctx, v, path)
+		return e.walkSlice(ctx, v, path, active)
 
 	case reflect.Map:
-		return e.walkMap(ctx, v, path)
+		return e.walkMap(ctx, v, path, active)
 
 	case reflect.Interface:
 		if v.IsNil() {
@@ -347,9 +368,9 @@ func (e *Expander) walkValue(ctx context.Context, v reflect.Value, path string) 
 		// For interface values, we need to get the underlying element
 		elem := v.Elem()
 		if elem.Kind() == reflect.Pointer && !elem.IsNil() {
-			return e.walkValue(ctx, elem.Elem(), path)
+			return e.walkPointer(ctx, elem, path, active)
 		}
-		return e.walkValue(ctx, elem, path)
+		return e.walkValue(ctx, elem, path, active)
 
 	default:
 		// Skip other types (numbers, bools, channels, funcs, etc.)
@@ -358,7 +379,7 @@ func (e *Expander) walkValue(ctx context.Context, v reflect.Value, path string) 
 }
 
 // walkStruct walks through all fields of a struct.
-func (e *Expander) walkStruct(ctx context.Context, v reflect.Value, path string) error {
+func (e *Expander) walkStruct(ctx context.Context, v reflect.Value, path string, active map[ptrKey]struct{}) error {
 	t := v.Type()
 
 	for i := range v.NumField() {
@@ -375,7 +396,7 @@ func (e *Expander) walkStruct(ctx context.Context, v reflect.Value, path string)
 			fieldPath = path + "." + fieldType.Name
 		}
 
-		if err := e.walkValue(ctx, field, fieldPath); err != nil {
+		if err := e.walkValue(ctx, field, fieldPath, active); err != nil {
 			return err
 		}
 	}
@@ -384,12 +405,12 @@ func (e *Expander) walkStruct(ctx context.Context, v reflect.Value, path string)
 }
 
 // walkSlice walks through all elements of a slice.
-func (e *Expander) walkSlice(ctx context.Context, v reflect.Value, path string) error {
+func (e *Expander) walkSlice(ctx context.Context, v reflect.Value, path string, active map[ptrKey]struct{}) error {
 	for i := range v.Len() {
 		elem := v.Index(i)
 		elemPath := fmt.Sprintf("%s[%d]", path, i)
 
-		if err := e.walkValue(ctx, elem, elemPath); err != nil {
+		if err := e.walkValue(ctx, elem, elemPath, active); err != nil {
 			return err
 		}
 	}
@@ -398,7 +419,7 @@ func (e *Expander) walkSlice(ctx context.Context, v reflect.Value, path string) 
 }
 
 // walkMap walks through all values of a map.
-func (e *Expander) walkMap(ctx context.Context, v reflect.Value, path string) error {
+func (e *Expander) walkMap(ctx context.Context, v reflect.Value, path string, active map[ptrKey]struct{}) error {
 	if v.IsNil() {
 		return nil
 	}
@@ -428,7 +449,7 @@ func (e *Expander) walkMap(ctx context.Context, v reflect.Value, path string) er
 		} else if val.Kind() == reflect.Pointer || val.Kind() == reflect.Struct ||
 			val.Kind() == reflect.Slice || val.Kind() == reflect.Map {
 			// For complex types in maps, we need to make a copy, modify it, and set it back
-			if err := e.walkMapValue(ctx, v, key, val, elemPath); err != nil {
+			if err := e.walkMapValue(ctx, v, key, val, elemPath, active); err != nil {
 				return err
 			}
 		}
@@ -438,10 +459,10 @@ func (e *Expander) walkMap(ctx context.Context, v reflect.Value, path string) er
 }
 
 // walkMapValue handles complex values in maps by creating addressable copies.
-func (e *Expander) walkMapValue(ctx context.Context, mapVal reflect.Value, key, val reflect.Value, path string) error {
+func (e *Expander) walkMapValue(ctx context.Context, mapVal reflect.Value, key, val reflect.Value, path string, active map[ptrKey]struct{}) error {
 	// For pointer types, we can walk directly if not nil
 	if val.Kind() == reflect.Pointer && !val.IsNil() {
-		return e.walkValue(ctx, val.Elem(), path)
+		return e.walkPointer(ctx, val, path, active)
 	}
 
 	// For struct types in maps, we need to copy, modify, and set back
@@ -450,7 +471,7 @@ func (e *Expander) walkMapValue(ctx context.Context, mapVal reflect.Value, key, 
 		newVal := reflect.New(val.Type())
 		newVal.Elem().Set(val)
 
-		if err := e.walkValue(ctx, newVal.Elem(), path); err != nil {
+		if err := e.walkValue(ctx, newVal.Elem(), path, active); err != nil {
 			return err
 		}
 
@@ -464,7 +485,7 @@ func (e *Expander) walkMapValue(ctx context.Context, mapVal reflect.Value, key, 
 		newVal := reflect.New(val.Type())
 		newVal.Elem().Set(val)
 
-		if err := e.walkValue(ctx, newVal.Elem(), path); err != nil {
+		if err := e.walkValue(ctx, newVal.Elem(), path, active); err != nil {
 			return err
 		}
 
