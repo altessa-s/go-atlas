@@ -56,6 +56,30 @@ func TestStripPromotesEmbeddedPointerStruct(t *testing.T) {
 	require.Equal(t, "photos", b.Name, "outer field kept")
 }
 
+func TestStripUpdateKeepsPromotedIdentifier(t *testing.T) {
+	t.Parallel()
+
+	type byValue struct {
+		baseEntity
+		Name string
+	}
+	type byPointer struct {
+		*baseEntity
+		Name string
+	}
+
+	ct := time.Unix(1, 0).UTC()
+	v := byValue{baseEntity: baseEntity{ID: "id-1", CreateTime: ct}, Name: "photos"}
+	require.NoError(t, behavior.StripUpdate(&v))
+	require.Equal(t, "id-1", v.ID, "promoted identifier kept on update")
+	require.True(t, v.CreateTime.IsZero(), "promoted output_only cleared on update")
+
+	p := byPointer{baseEntity: &baseEntity{ID: "id-2", CreateTime: ct}, Name: "photos"}
+	require.NoError(t, behavior.StripUpdate(&p))
+	require.Equal(t, "id-2", p.ID, "promoted-via-pointer identifier kept on update")
+	require.True(t, p.CreateTime.IsZero())
+}
+
 func TestStripNilEmbeddedPointerIsNoOp(t *testing.T) {
 	t.Parallel()
 

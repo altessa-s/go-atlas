@@ -107,12 +107,17 @@ type Engine[Out any] struct {
 
 // New builds an [Engine] that resolves structs under the given options and folds
 // them with tr. The translator is injected here so the same core walk can feed
-// different output models (a cleaned struct, a bson document, …).
+// different output models (a cleaned struct, a bson document, …). A translator
+// implementing [PolicyBinder] is bound to the engine's effective [Policy]
+// here.
 func New[Out any](tr Translator[Out], opts ...Option) *Engine[Out] {
 	o := newOptions(opts...)
 	// A non-positive depth budget would reject even a flat struct; clamp it so
 	// the root and its direct fields are always processed.
 	o.maxDepth = max(1, o.maxDepth)
+	if b, ok := tr.(PolicyBinder[Out]); ok {
+		tr = b.BindPolicy(o.policy())
+	}
 	return &Engine[Out]{tr: tr, opts: o}
 }
 

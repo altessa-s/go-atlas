@@ -4,7 +4,11 @@
 
 package mongo
 
-import "go.mongodb.org/mongo-driver/v2/bson"
+import (
+	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/altessa-s/go-atlas/domain/behavior"
+)
 
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
@@ -29,4 +33,9 @@ type options struct {
 	// folded field by field, and the insert document is encoded with it.
 	// Nil means the driver's default registry.
 	registry *bson.Registry
+	// policy is the engine's field-behavior policy, bound by behavior.New
+	// through [docTranslator.BindPolicy] — never an option: the zero Policy
+	// (default tag key, nothing stripped) until then. The update translator
+	// judges the values it cannot resolve by it (see [options.protectedType]).
+	policy behavior.Policy `opt:"-"`
 }

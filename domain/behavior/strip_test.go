@@ -65,7 +65,7 @@ func TestStripUpdate(t *testing.T) {
 	r := newResource()
 	require.NoError(t, behavior.StripUpdate(r))
 
-	require.Empty(t, r.ID)
+	require.Equal(t, "id-1", r.ID, "identifier kept on update: it addresses the resource (AIP-203)")
 	require.Empty(t, r.TenantID, "immutable cleared on update")
 	require.True(t, r.CreateTime.IsZero())
 	require.Nil(t, r.Quota)
@@ -73,6 +73,76 @@ func TestStripUpdate(t *testing.T) {
 
 	require.Equal(t, "bucket", r.Name, "required kept")
 	require.NotNil(t, r.Password, "input_only kept on update")
+}
+
+func TestStripUpdateStrictIgnoresIdentifier(t *testing.T) {
+	t.Parallel()
+
+	type m struct {
+		ID   string `behavior:"identifier"`
+		Name string
+	}
+
+	v := &m{ID: "id-1", Name: "n"}
+	require.NoError(t, behavior.StripUpdate(v, behavior.WithStrict()),
+		"an identifier on an update payload is not a violation")
+	require.Equal(t, "id-1", v.ID)
+}
+
+func TestStripUpdateKeepsNestedIdentifier(t *testing.T) {
+	t.Parallel()
+
+	type child struct {
+		ID         string    `behavior:"identifier"`
+		CreateTime time.Time `behavior:"output_only"`
+	}
+	type parent struct {
+		ID    string `behavior:"identifier"`
+		One   child
+		Ptr   *child
+		List  []child
+		ByKey map[string]child
+	}
+
+	ct := time.Unix(1, 0).UTC()
+	v := &parent{
+		ID:    "p",
+		One:   child{ID: "one", CreateTime: ct},
+		Ptr:   &child{ID: "ptr", CreateTime: ct},
+		List:  []child{{ID: "list", CreateTime: ct}},
+		ByKey: map[string]child{"k": {ID: "map", CreateTime: ct}},
+	}
+	require.NoError(t, behavior.StripUpdate(v))
+
+	require.Equal(t, "p", v.ID)
+	require.Equal(t, child{ID: "one"}, v.One, "nested identifier kept, output_only cleared")
+	require.Equal(t, &child{ID: "ptr"}, v.Ptr)
+	require.Equal(t, []child{{ID: "list"}}, v.List)
+	require.Equal(t, map[string]child{"k": {ID: "map"}}, v.ByKey)
+
+	// The same payload on create loses every identifier.
+	v = &parent{
+		ID:   "p",
+		One:  child{ID: "one"},
+		Ptr:  &child{ID: "ptr"},
+		List: []child{{ID: "list"}},
+	}
+	require.NoError(t, behavior.StripCreate(v))
+	require.Empty(t, v.ID)
+	require.Empty(t, v.One.ID)
+	require.Empty(t, v.Ptr.ID)
+	require.Empty(t, v.List[0].ID)
+}
+
+func TestCleanWithUpdateKindsKeepsIdentifier(t *testing.T) {
+	t.Parallel()
+
+	r := newResource()
+	got, err := behavior.Clean(*r, behavior.WithKinds(behavior.DefaultUpdateKinds...))
+	require.NoError(t, err)
+	require.Equal(t, "id-1", got.ID, "Clean with the update set agrees with StripUpdate")
+	require.Empty(t, got.TenantID)
+	require.Equal(t, newResource(), r, "original untouched")
 }
 
 func TestStripResponse(t *testing.T) {

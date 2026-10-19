@@ -15,15 +15,46 @@ updates with either `*T` or `Optional`; the outcome is identical.
 
 ## Functions
 
-| Function          | Default behaviors                       | Typical use                                |
-|-------------------|-----------------------------------------|--------------------------------------------|
-| `StripCreate`     | `OutputOnly`, `Identifier`              | Create payloads                            |
-| `StripUpdate`     | `OutputOnly`, `Identifier`, `Immutable` | Update payloads                            |
-| `StripResponse`   | `InputOnly`                             | Server responses (passwords, auth tokens)  |
-| `Strip`           | none (no-op unless `WithKinds`)         | Custom combinations, in place              |
-| `Clean`           | none (no-op unless `WithKinds`)         | Custom combinations, returns a copy        |
+| Function        | Default behaviors               | Typical use                               |
+|-----------------|---------------------------------|-------------------------------------------|
+| `StripCreate`   | `OutputOnly`, `Identifier`      | Create payloads                           |
+| `StripUpdate`   | `OutputOnly`, `Immutable`       | Update payloads (keeps `Identifier`)      |
+| `StripResponse` | `InputOnly`                     | Server responses (passwords, auth tokens) |
+| `Strip`         | none (no-op unless `WithKinds`) | Custom combinations, in place             |
+| `Clean`         | none (no-op unless `WithKinds`) | Custom combinations, returns a copy       |
 
 `Strip*` take `*S` and clear in place; `Clean` takes `S` and returns a deep-cleaned copy, leaving the original untouched.
+
+On update the identifier addresses the resource (AIP-203), so `StripUpdate` (`DefaultUpdateKinds`) keeps it and never reports it under `WithStrict`.
+A storage update document is built with the same `DefaultUpdateKinds`: the identifier selects the record and must never be written, and the update
+translator excludes it itself — see [`translators/mongo`](translators/mongo).
+
+## Migrating: the identifier on update
+
+`DefaultUpdateKinds` — and with it `StripUpdate` — used to strip `Identifier` too; it now keeps the identifier. A payload passed through `StripUpdate`,
+and the tree a custom `Translator` receives from an engine built with `WithKinds(DefaultUpdateKinds...)`, now carry the identifier the client sent, with
+`Field.Strip` false. Use it to address the record, and leave it out of what you persist: the MongoDB update translator
+([`translators/mongo`](translators/mongo)) does so itself, while any other translator, and code that serializes a `StripUpdate`d payload into a storage
+write, must exclude it explicitly, as in the sketch below. To keep the former behavior instead, pass the former strip set: `StripUpdate(&v,
+WithKinds(OutputOnly, Identifier, Immutable))`, or the same `WithKinds` on the engine.
+
+```go
+// columns folds an update into column values; the identifier selects the row and is never written.
+type columns struct{}
+
+func (columns) Translate(_ context.Context, root behavior.Object) (map[string]any, error) {
+    out := make(map[string]any, len(root.Fields))
+    for _, f := range root.Fields {
+        if f.Strip || slices.Contains(f.Kinds, behavior.Identifier) {
+            continue
+        }
+        out[f.Name] = f.Value.Interface()
+    }
+    return out, nil
+}
+
+eng := behavior.New[map[string]any](columns{}, behavior.WithKinds(behavior.DefaultUpdateKinds...))
+```
 
 ## Architecture: core + translator
 
@@ -51,36 +82,41 @@ A translator must not retain `root` — or any `Object`, `Field`, or `Collection
 must not alias that memory. Under `WithPooling` the engine recycles the tree's storage for later walks, so a retained reference would silently be
 overwritten with another value's data.
 
+A translator that judges unresolved values (a nil pointer, an empty collection) from their declared type implements `PolicyBinder[Out]`: `New` calls
+`BindPolicy(Policy)` once with the engine's effective `Policy` — tag key (`TagName()`) and stripped kinds (`Kinds()`, `Strips(k)`) — and drives the
+returned translator, leaving the original unchanged, so its type-based judgment matches the strip marks. The zero `Policy` reads the default tag key and
+strips nothing.
+
 ## Translators
 
-| Translator                                       | Output  | Purpose                                                          |
-|--------------------------------------------------|---------|-----------------------------------------------------------------|
-| `Strip` / `Clean` (this package)                 | struct  | Cleaned struct, in place or as a copy — the default output      |
-| [`translators/mongo`](translators/mongo)         | `bson.M`, `FieldPaths` | MongoDB `$set`/`$unset` documents, exclusion projections, projection field paths |
+| Translator                               | Output                 | Purpose                                                                          |
+|------------------------------------------|------------------------|----------------------------------------------------------------------------------|
+| `Strip` / `Clean` (this package)         | struct                 | Cleaned struct, in place or as a copy — the default output                       |
+| [`translators/mongo`](translators/mongo) | `bson.M`, `FieldPaths` | MongoDB `$set`/`$unset` documents, exclusion projections, projection field paths |
 
 ## Tag vocabulary
 
-| Tag token       | Kind          | Stripped by                       |
-|-----------------|---------------|-----------------------------------|
-| `required`      | `Required`    | (validation intent; no default set) |
-| `output_only`   | `OutputOnly`  | `StripCreate`, `StripUpdate`      |
-| `input_only`    | `InputOnly`   | `StripResponse`                   |
-| `immutable`     | `Immutable`   | `StripUpdate`                     |
-| `identifier`    | `Identifier`  | `StripCreate`, `StripUpdate`      |
+| Tag token     | Kind         | Stripped by                         |
+|---------------|--------------|-------------------------------------|
+| `required`    | `Required`   | (validation intent; no default set) |
+| `output_only` | `OutputOnly` | `StripCreate`, `StripUpdate`        |
+| `input_only`  | `InputOnly`  | `StripResponse`                     |
+| `immutable`   | `Immutable`  | `StripUpdate`                       |
+| `identifier`  | `Identifier` | `StripCreate`                       |
 
 Combine with commas (`behavior:"required,immutable"`); a field matches when any of its behaviors intersect the strip set. An unrecognized token is a
 build-time-style error returned by `Strip`.
 
 ## Options
 
-| Option           | Default     | Description                                                                                 |
-|------------------|-------------|---------------------------------------------------------------------------------------------|
-| `WithKinds`      | n/a         | Override the strip set. Passing it to a convenience function replaces (not extends) the default. |
-| `WithStrict`     | off         | Return `*ViolationError` listing populated stripped fields instead of clearing them.        |
-| `WithSchemaWalk` | off         | Resolve nested struct types even when the value is absent (type-complete `Object`).         |
-| `WithMaxDepth`   | `32`        | Cap on nested-struct traversal depth; guards against self-referential graphs.               |
-| `WithTagName`    | `"behavior"`| Read a different struct tag key.                                                            |
-| `WithPooling`    | off         | Recycle the engine's resolved tree through an internal pool; the translator must not retain it (see `Translator`). |
+| Option           | Default      | Description                                                                                                        |
+|------------------|--------------|--------------------------------------------------------------------------------------------------------------------|
+| `WithKinds`      | n/a          | Override the strip set. Passing it to a convenience function replaces (not extends) the default.                   |
+| `WithStrict`     | off          | Return `*ViolationError` listing populated stripped fields instead of clearing them.                               |
+| `WithSchemaWalk` | off          | Resolve nested struct types even when the value is absent (type-complete `Object`).                                |
+| `WithMaxDepth`   | `32`         | Cap on nested-struct traversal depth; guards against self-referential graphs.                                      |
+| `WithTagName`    | `"behavior"` | Read a different struct tag key.                                                                                   |
+| `WithPooling`    | off          | Recycle the engine's resolved tree through an internal pool; the translator must not retain it (see `Translator`). |
 
 ### Schema walk
 
@@ -106,13 +142,13 @@ once the translator honors the retention rule above. `Resolve` always returns a 
 
 ## Traversal semantics
 
-| Field shape                                  | Behavior on field      | Behavior absent                          |
-|----------------------------------------------|------------------------|------------------------------------------|
-| Scalar; opaque struct (`time.Time`, `Optional`) | Field cleared       | No-op (leaf)                             |
-| Nested struct / `*struct`                    | Whole field cleared    | Recursive descent                        |
-| Slice/array of structs                       | Field cleared          | Recursive descent into each element      |
-| Map with struct values                       | Field cleared          | Recursive descent into each value        |
-| Nested collections (`[][]T`, `map[K][]T`, …) | Field cleared          | Recursive descent down to struct elements |
+| Field shape                                     | Behavior on field   | Behavior absent                           |
+|-------------------------------------------------|---------------------|-------------------------------------------|
+| Scalar; opaque struct (`time.Time`, `Optional`) | Field cleared       | No-op (leaf)                              |
+| Nested struct / `*struct`                       | Whole field cleared | Recursive descent                         |
+| Slice/array of structs                          | Field cleared       | Recursive descent into each element       |
+| Map with struct values                          | Field cleared       | Recursive descent into each value         |
+| Nested collections (`[][]T`, `map[K][]T`, …)    | Field cleared       | Recursive descent down to struct elements |
 
 A `behavior` tag placed on a field *inside* an `Optional` is never applied — `Optional` is an opaque leaf and is only cleared when the field holding it
 is itself tagged.

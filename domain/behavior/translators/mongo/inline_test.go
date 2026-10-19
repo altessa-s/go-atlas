@@ -342,8 +342,8 @@ func TestUpdateStructValueHonorsStrip(t *testing.T) {
 	}
 	got := update(t, &doc{Name: "n", Guarded: guarded{Owner: "o", Version: 2, Note: "x"}},
 		[]behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)})
-	require.Equal(t, bson.M{"$set": bson.M{"name": "n", "guarded": bson.M{"version": 2}}}, got,
-		"a struct value is folded: its immutable and omitonupdate fields stay out of $set")
+	require.Equal(t, bson.M{"$set": bson.M{"name": "n", "guarded.version": 2}}, got,
+		"a struct value holding immutable and omitonupdate fields is written by path, so their stored values survive")
 }
 
 func TestUnexportedEmbeddedTypeSkipped(t *testing.T) {
@@ -373,7 +373,7 @@ func TestUpdateEmbeddedSubdocumentHonorsStrip(t *testing.T) {
 	}
 	got := update(t, &doc{Guarded: Guarded{Owner: "o", Version: 2}, Name: "n"},
 		[]behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)})
-	require.Equal(t, bson.M{"$set": bson.M{"name": "n", "guarded": bson.M{"version": 2}}}, got)
+	require.Equal(t, bson.M{"$set": bson.M{"name": "n", "guarded.version": 2}}, got)
 }
 
 // Node embeds itself; promoting its fields would never terminate.
@@ -806,9 +806,8 @@ func TestUpdateStripsInsideCollectionShapes(t *testing.T) {
 	t.Parallel()
 
 	type item struct {
-		Owner string `bson:"owner" behavior:"immutable"`
-		Note  string `bson:"note,omitonupdate"`
-		V     int    `bson:"v"`
+		Note string `bson:"note,omitonupdate"`
+		V    int    `bson:"v"`
 	}
 	type doc struct {
 		Arr    [1]item           `bson:"arr"`
@@ -818,7 +817,7 @@ func TestUpdateStripsInsideCollectionShapes(t *testing.T) {
 		PtrEl  []*item           `bson:"ptrel"`
 		Bytes  [2]byte           `bson:"bytes"`
 	}
-	it := item{Owner: "o", Note: "n", V: 1}
+	it := item{Note: "n", V: 1}
 	got := update(t, &doc{
 		Arr:    [1]item{it},
 		PtrS:   &[]item{it},
@@ -836,6 +835,32 @@ func TestUpdateStripsInsideCollectionShapes(t *testing.T) {
 	require.Equal(t, bson.M{"k": bson.A{clean}}, set["by_key"])
 	require.Equal(t, bson.A{clean}, set["ptrel"])
 	require.Equal(t, [2]byte{1, 2}, set["bytes"])
+
+	// A stripped field in the elements of any of these shapes cannot survive
+	// the replacement: the update is rejected.
+	type owned struct {
+		Owner string `bson:"owner" behavior:"immutable"`
+		V     int    `bson:"v"`
+	}
+	type shapes struct {
+		Arr    [1]owned           `bson:"arr"`
+		PtrS   *[]owned           `bson:"ptrs,omitempty"`
+		Nested [][]owned          `bson:"nested,omitempty"`
+		ByKey  map[string][]owned `bson:"by_key,omitempty"`
+		PtrEl  []*owned           `bson:"ptrel,omitempty"`
+	}
+	ow := owned{Owner: "o", V: 1}
+	eng := behavior.New[bson.M](mongo.NewUpdateTranslator(), behavior.WithKinds(behavior.DefaultUpdateKinds...))
+	for name, v := range map[string]*shapes{
+		"array":         {Arr: [1]owned{ow}},
+		"slice pointer": {PtrS: &[]owned{ow}},
+		"nested slice":  {Nested: [][]owned{{ow}}},
+		"map of slices": {ByKey: map[string][]owned{"k": {ow}}},
+		"pointer elems": {PtrEl: []*owned{&ow}},
+	} {
+		_, err := eng.Translate(t.Context(), v)
+		require.ErrorIs(t, err, mongo.ErrProtectedInCollection, name)
+	}
 }
 
 func TestUpdateCodecTypesStayLeaves(t *testing.T) {
@@ -977,12 +1002,42 @@ func TestPointerOnlyMarshalerFallback(t *testing.T) {
 	}
 	v := &doc{Direct: ptrMarshaled{Owner: "o", V: 1}, ByKey: map[string]ptrMarshaled{"k": {Owner: "o", V: 2}}}
 
-	got := update(t, v, []behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)})
+	type directDoc struct {
+		Direct ptrMarshaled `bson:"direct"`
+	}
+	got := update(t, &directDoc{Direct: v.Direct}, []behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)})
 	set := got["$set"].(bson.M)
 	direct := set["direct"].(bson.RawValue)
 	require.Equal(t, "marshaled", direct.StringValue(), "addressable: the codec uses the marshaler")
-	require.Equal(t, bson.M{"k": bson.M{"v": 2}}, set["by_key"],
-		"a map value is not addressable: the codec encodes its fields, so the immutable owner is stripped")
+
+	// A map value is not addressable: the codec encodes its fields, so the
+	// replaced map would drop the stored immutable owner.
+	eng := behavior.New[bson.M](mongo.NewUpdateTranslator(), behavior.WithKinds(behavior.DefaultUpdateKinds...))
+	_, err := eng.Translate(t.Context(), v)
+	require.ErrorIs(t, err, mongo.ErrProtectedInCollection)
+	// Clearing the map drops the same stored fields: a nil or empty map, or
+	// a nil element of a pointer map's value type, is rejected alike.
+	for name, cleared := range map[string]*doc{
+		"nil map":   {Direct: v.Direct},
+		"empty map": {Direct: v.Direct, ByKey: map[string]ptrMarshaled{}},
+	} {
+		_, err = eng.Translate(t.Context(), cleared)
+		require.ErrorIs(t, err, mongo.ErrProtectedInCollection, name)
+	}
+	type nested struct {
+		ByKey map[string][]map[string]ptrMarshaled `bson:"by_key"`
+	}
+	_, err = eng.Translate(t.Context(), &nested{ByKey: map[string][]map[string]ptrMarshaled{"k": {{}}}})
+	require.ErrorIs(t, err, mongo.ErrProtectedInCollection, "empty map below a slice")
+
+	// Addressable values use the marshaler and store no protected field:
+	// removing them is an ordinary $unset.
+	type addressable struct {
+		Ptr   *ptrMarshaled  `bson:"ptr"`
+		Items []ptrMarshaled `bson:"items"`
+	}
+	require.Equal(t, bson.M{"$set": bson.M{}, "$unset": bson.M{"ptr": nil, "items": nil}},
+		update(t, &addressable{}, []behavior.Option{behavior.WithKinds(behavior.DefaultUpdateKinds...)}))
 
 	paths := fieldPaths(t, doc{}, []behavior.Kind{behavior.Immutable})
 	require.Contains(t, paths.Denied, "by_key", "either encoding may store the stripped field: deny the whole field")
