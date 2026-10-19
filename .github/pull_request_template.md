@@ -18,7 +18,6 @@
 - [ ] All new and existing tests pass (`make test-all`)
 - [ ] I have run `make fmt` to format my code
 - [ ] I have updated the copyright headers (`make copyright`)
-- [ ] I have updated the CHANGELOG.md (if applicable)
 - [ ] My commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
 
 ## Related Issues
