@@ -279,7 +279,7 @@ func TestCodec_ConcurrentKeys(t *testing.T) {
 	for g := range 8 {
 		wg.Go(func() {
 			for i := range 200 {
-				payload := []byte(fmt.Sprintf("g%d-i%d", g, i))
+				payload := fmt.Appendf(nil, "g%d-i%d", g, i)
 				for _, issuer := range []*keyset.Codec{rotated, old} {
 					token, err := issuer.Issue(payload, bindings)
 					assert.NoError(t, err)

@@ -484,10 +484,8 @@ func TestWrap_ConcurrentDeliveries(t *testing.T) {
 		concurrency = 20
 	)
 
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			acker := &mockAcker{}
 			m := msg.NewMessageWithMeta("topic", []byte("body"), msg.Meta{
 				{Key: msg.MetaKeyDeduplicateId, Value: "same-key"},
@@ -500,7 +498,7 @@ func TestWrap_ConcurrentDeliveries(t *testing.T) {
 				processed.Add(1)
 			}
 			acker.mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()

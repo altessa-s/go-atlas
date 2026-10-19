@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/proto"
 
 	redacttestv1 "github.com/altessa-s/go-atlas/proto/gen/redacttest/v1"
 )
@@ -60,7 +59,7 @@ var benchPayload any
 // message type without one.
 func BenchmarkDebugRedact(b *testing.B) {
 	withSecret := &redacttestv1.ListProvidersResponse{Providers: []*redacttestv1.Provider{
-		{Name: "a", ApiKey: proto.String("sk-a")}, {Name: "b", ApiKey: proto.String("sk-b")},
+		{Name: "a", ApiKey: new("sk-a")}, {Name: "b", ApiKey: new("sk-b")},
 	}}
 	plain := &redacttestv1.Tree{Value: "v", Left: &redacttestv1.Tree{Value: "w"}}
 
