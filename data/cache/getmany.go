@@ -30,20 +30,36 @@ import (
 //
 //	raw, err := c.GetManyRaw(ctx, []string{"user:1", "user:2"})
 func (c *Cache) GetManyRaw(ctx context.Context, keys []string) (map[string][]byte, error) {
+	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
+	defer cancel()
+
+	out, _, err := c.getManyRaw(ctx, keys)
+	return out, err
+}
+
+// getManyRaw implements [Cache.GetManyRaw]. It also returns the effective
+// storage key of every found caller key, resolved once for the whole call,
+// so a later cleanup targets exactly the entry that was read even when the
+// key version changed in between.
+func (c *Cache) getManyRaw(ctx context.Context, keys []string) (map[string][]byte, map[string]string, error) {
 	for _, key := range keys {
 		panics.Must(!strings.IsEmpty(key), "key must be provided")
 	}
 
 	out := make(map[string][]byte, len(keys))
+	effective := make(map[string]string, len(keys))
 	if len(keys) == 0 {
-		return out, nil
+		return out, effective, nil
 	}
 
-	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
-	defer cancel()
-
 	// Map effective keys back to the caller's keys, reading each once.
-	eks := c.effectiveKeys(ctx, keys)
+	eks, err := c.effectiveKeys(ctx, keys)
+	if err != nil {
+		if c.versionUnavailable(ctx) {
+			return out, effective, nil
+		}
+		return nil, nil, err
+	}
 	byEffective := make(map[string]string, len(keys))
 	unique := make([]string, 0, len(keys))
 	for i, ek := range eks {
@@ -56,7 +72,7 @@ func (c *Cache) GetManyRaw(ctx context.Context, keys []string) (map[string][]byt
 
 	found, err := c.storageGetMany(ctx, unique)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for _, ek := range unique {
@@ -69,9 +85,10 @@ func (c *Cache) GetManyRaw(ctx context.Context, keys []string) (map[string][]byt
 		default:
 			c.metrics.hits.Inc()
 			out[byEffective[ek]] = val
+			effective[byEffective[ek]] = ek
 		}
 	}
-	return out, nil
+	return out, effective, nil
 }
 
 // storageGetMany reads eks, keyed by effective key, through
@@ -124,7 +141,7 @@ func GetManyT[T any](ctx context.Context, c *Cache, keys []string) (map[string]T
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	raw, err := c.GetManyRaw(ctx, keys)
+	raw, effective, err := c.getManyRaw(ctx, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +153,7 @@ func GetManyT[T any](ctx context.Context, c *Cache, keys []string) (map[string]T
 			if !c.failOpen {
 				return nil, err
 			}
-			c.dropCorrupt(ctx, c.effectiveKey(ctx, key))
+			c.dropCorrupt(ctx, effective[key])
 			continue
 		}
 		out[key] = v
