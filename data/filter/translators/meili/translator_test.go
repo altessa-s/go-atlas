@@ -568,3 +568,11 @@ func TestTranslator_NilNodeMatchesAll(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
+
+// TestNewTranslator_RejectsDecimal: a FieldKindDecimal declaration fails construction instead of comparing through a float.
+func TestNewTranslator_RejectsDecimal(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewTranslator(filter.WithFieldTypes(map[string]filter.FieldKind{"price": filter.FieldKindDecimal}))
+	require.ErrorIs(t, err, filter.ErrUnsupportedType)
+}

@@ -169,6 +169,24 @@ func TestNew_UntrustedInputRequiresAllowlist(t *testing.T) {
 	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 }
 
+// TestNew_RejectsDecimal: a FieldKindDecimal declaration fails construction instead of comparing through a float.
+func TestNew_RejectsDecimal(t *testing.T) {
+	t.Parallel()
+
+	for name, opt := range map[string]filter.TranslatorOption{
+		"field types":      filter.WithFieldTypes(map[string]filter.FieldKind{"price": filter.FieldKindDecimal}),
+		"zero when absent": filter.WithZeroWhenAbsent(map[string]filter.FieldKind{"price": filter.FieldKindDecimal}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := sqlbase.New(failing{}, opt)
+			require.ErrorIs(t, err, filter.ErrUnsupportedType)
+		})
+	}
+	_, err := sqlbase.New(failing{}, filter.WithFieldTypes(map[string]filter.FieldKind{"price": filter.FieldKindFloat}))
+	require.NoError(t, err, "other kinds are accepted")
+}
+
 // TestVisitList is the direct exercise of the one Visitor method the
 // walker does not reach through Translate on its own. It is public
 // surface — the dialect translators embed the walker and therefore

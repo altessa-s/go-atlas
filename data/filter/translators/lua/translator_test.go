@@ -472,3 +472,11 @@ func TestTranslator_InEmptyList(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "(not "+luaFalse+")", got)
 }
+
+// TestNewTranslator_RejectsDecimal: a FieldKindDecimal declaration fails construction instead of comparing through a float.
+func TestNewTranslator_RejectsDecimal(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewTranslator("row", filter.WithFieldTypes(map[string]filter.FieldKind{"price": filter.FieldKindDecimal}))
+	require.ErrorIs(t, err, filter.ErrUnsupportedType)
+}
