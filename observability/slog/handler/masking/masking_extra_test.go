@@ -145,8 +145,8 @@ func TestHandler_KeyResolution(t *testing.T) {
 	}{
 		{
 			name: "unicode key folds like strings.ToLower",
-			opts: []masking.Option{masking.WithField("xxxx", masking.FixedMask("MASKED"))},
-			attr: slog.String("xxxx", "v1"),
+			opts: []masking.Option{masking.WithField("Κλειδί", masking.FixedMask("MASKED"))},
+			attr: slog.String("ΚΛΕΙΔΊ", "v1"),
 			want: []string{"MASKED"},
 			deny: []string{"v1"},
 		},

@@ -138,6 +138,29 @@ func WithIgnorePatterns(v ...*regexp.Regexp) Option {
 	}
 }
 
+// WithKeyField sets the keyField option.
+func WithKeyField[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.keyField = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.keyField = vv
+		}
+	}
+}
+
 // WithKeyFormatValidator sets the keyFormatValidator option.
 func WithKeyFormatValidator(v KeyFormatValidator) Option {
 	return func(o *options) {
@@ -145,10 +168,31 @@ func WithKeyFormatValidator(v KeyFormatValidator) Option {
 	}
 }
 
+// WithMaxReplaySize sets the maxReplaySize option.
+func WithMaxReplaySize(v int) Option {
+	return func(o *options) {
+		o.maxReplaySize = v
+	}
+}
+
+// WithMethodClassifier sets the methodClassifier option.
+func WithMethodClassifier(v MethodClassifier) Option {
+	return func(o *options) {
+		o.methodClassifier = v
+	}
+}
+
 // WithRequestFingerprint sets the requestFingerprint option.
 func WithRequestFingerprint(v bool) Option {
 	return func(o *options) {
 		o.requestFingerprint = v
+	}
+}
+
+// WithResponseReplay enables the responseReplay option.
+func WithResponseReplay() Option {
+	return func(o *options) {
+		o.responseReplay = true
 	}
 }
 
@@ -170,6 +214,7 @@ func defaultOptions() *options {
 		idempotencyKeyStatusMetadata:   DefaultIdempotencyKeyStatusMetadata,
 		ignorePatterns:                 defaults.IgnorePatterns,
 		keyFormatValidator:             DefaultKeyValidator,
+		maxReplaySize:                  DefaultMaxReplaySize,
 		requestFingerprint:             true,
 	}
 }

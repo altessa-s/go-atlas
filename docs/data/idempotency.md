@@ -201,7 +201,7 @@ and removed because no in-tree caller exercised it.
 
 ## Request fingerprints and owners
 
-A key identifies one command. `Fingerprint(parts...)` hashes the operation and a canonical encoding of the request; pass it as
+A key identifies one command. `core/encoding/keys.Digest(parts...)` hashes the operation and a canonical encoding of the request; pass it as
 `AttemptLockOpts.Fingerprint` and it is stored with the key. A later attempt with the same key and another fingerprint fails with
 `ErrFingerprintMismatch` instead of receiving the stored result. Records or callers without a fingerprint are not checked.
 

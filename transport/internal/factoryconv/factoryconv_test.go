@@ -273,3 +273,65 @@ func TestBuildGeoAclRegistry(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestIdempotencyKeyValidator(t *testing.T) {
+	t.Parallel()
+
+	const uuid = "0b8a4f7e-6c1d-4e2a-9b3c-5d6e7f8a9b0c"
+	for _, format := range []middlewareconfig.IdempotencyKeyFormat{"", middlewareconfig.IdempotencyKeyFormatUUIDv4} {
+		v, err := factoryconv.IdempotencyKeyValidator(format, "", 0)
+		require.NoError(t, err)
+		require.NoError(t, v(uuid))
+		require.Error(t, v("client-1"))
+	}
+
+	opaque, err := factoryconv.IdempotencyKeyValidator(middlewareconfig.IdempotencyKeyFormatOpaque, "", 8)
+	require.NoError(t, err)
+	require.NoError(t, opaque("client-1"))
+	require.Error(t, opaque("client-12"))
+
+	pattern, err := factoryconv.IdempotencyKeyValidator(middlewareconfig.IdempotencyKeyFormatPattern, `req-\d+`, 0)
+	require.NoError(t, err)
+	require.NoError(t, pattern("req-1"))
+	require.Error(t, pattern("req-1x"))
+
+	_, err = factoryconv.IdempotencyKeyValidator(middlewareconfig.IdempotencyKeyFormatPattern, "(secret", 0)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "secret", "the pattern is not quoted")
+	_, err = factoryconv.IdempotencyKeyValidator(middlewareconfig.IdempotencyKeyFormatPattern, "", 0)
+	require.Error(t, err)
+	_, err = factoryconv.IdempotencyKeyValidator("ulid", "", 0)
+	require.Error(t, err)
+}
+
+func TestStringMatcher(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, factoryconv.StringMatcher(nil, nil), "nothing to match")
+	require.Nil(t, factoryconv.StringMatcher(nil, []string{`([`}), "only invalid patterns")
+
+	tests := []struct {
+		name     string
+		exact    []string
+		patterns []string
+		in       string
+		want     bool
+	}{
+		{name: "exact hit", exact: []string{"/orders"}, in: "/orders", want: true},
+		{name: "exact is not a prefix", exact: []string{"/orders"}, in: "/orders/1", want: false},
+		{name: "pattern hit", patterns: []string{`^/orders/\d+$`}, in: "/orders/1", want: true},
+		{name: "pattern miss", patterns: []string{`^/orders/\d+$`}, in: "/orders/x", want: false},
+		{name: "invalid pattern skipped", patterns: []string{`([`, `^/pay`}, in: "/pay/1", want: true},
+		{name: "exact or pattern", exact: []string{"/a"}, patterns: []string{`^/b`}, in: "/b", want: true},
+		{name: "neither", exact: []string{"/a"}, patterns: []string{`^/b`}, in: "/c", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			match := factoryconv.StringMatcher(tc.exact, tc.patterns)
+			require.NotNil(t, match)
+			require.Equal(t, tc.want, match(tc.in))
+		})
+	}
+}

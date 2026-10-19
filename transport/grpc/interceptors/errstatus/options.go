@@ -118,6 +118,10 @@ type options struct {
 	cacheOnlySentinel bool
 	// domain is the service domain name populated in errdetails.ErrorInfo.Domain by the Finalizer
 	domain string
+	// fieldPathMapper maps the Field of a core/errors.FieldError to the API
+	// path its violation names under [WithCanonicalRules] (e.g.
+	// [CamelPath]); nil keeps the field as written.
+	fieldPathMapper PathMapper
 }
 
 // WithErrorConverters adds multiple custom error errorConverters in a single call.
@@ -189,18 +193,23 @@ func (r ErrorRule) status(err error) *status.Status {
 	return st
 }
 
+// converter returns the [ErrorConverter] of the rule.
+func (r ErrorRule) converter() ErrorConverter {
+	return ErrorConverter{
+		Matcher: func(_ context.Context, err error) bool { return errors.Is(err, r.Target) },
+		Convert: func(_ context.Context, err error) *status.Status { return r.status(err) },
+		// An exposed error text differs per error; a cached status would
+		// hand one request's text to another.
+		NoCache: r.Expose && r.Message == "",
+	}
+}
+
 // WithErrorRules adds [ErrorRule] converters, evaluated in order after any
 // converters registered before them; the first match wins.
 func WithErrorRules(rules ...ErrorRule) Option {
 	converters := make([]ErrorConverter, 0, len(rules))
 	for _, r := range rules {
-		converters = append(converters, ErrorConverter{
-			Matcher: func(_ context.Context, err error) bool { return errors.Is(err, r.Target) },
-			Convert: func(_ context.Context, err error) *status.Status { return r.status(err) },
-			// An exposed error text differs per error; a cached status
-			// would hand one request's text to another.
-			NoCache: r.Expose && r.Message == "",
-		})
+		converters = append(converters, r.converter())
 	}
 	return WithErrorConverters(converters...)
 }
@@ -227,6 +236,39 @@ func WithErrorTypeMapping[T error](code codes.Code, getMessage func(T) string) O
 			return status.New(codes.Internal, "Internal Server Error")
 		},
 	})
+}
+
+// WithFieldErrorType adds a converter for domain field errors of type T: an
+// error that wraps a T (matched with errors.As, at any depth) becomes the
+// codes.InvalidArgument status of [BadRequest], message
+// "<path>: <reason>" and one io.altessa.badrequest.v1.BadRequest violation,
+// where field reports the API field path and the reason of the matched T.
+// The default finalizer then derives the INVALID_ARGUMENT ErrorInfo reason
+// (the violation carries no machine code).
+//
+// Like every converter it is evaluated in registration order, so a rule
+// registered before it (say, NotFound) wins for an error that wraps both. The
+// status depends on the field error's content, which the conversion cache
+// does not key on (under [WithCacheOnlySentinel] every error wrapping a
+// sentinel shares one entry), so it is never cached ([ErrorConverter.NoCache]).
+func WithFieldErrorType[T error](field func(T) (path, reason string)) Option {
+	return WithErrorConverters(fieldErrorConverter(field))
+}
+
+// fieldErrorConverter is the converter of [WithFieldErrorType].
+func fieldErrorConverter[T error](field func(T) (path, reason string)) ErrorConverter {
+	return ErrorConverter{
+		Matcher: func(_ context.Context, err error) bool {
+			_, ok := errors.AsType[T](err)
+			return ok
+		},
+		Convert: func(_ context.Context, err error) *status.Status {
+			target, _ := errors.AsType[T](err)
+			path, reason := field(target)
+			return BadRequest(path, reason)
+		},
+		NoCache: true,
+	}
 }
 
 // WithStatusConverters adds client-side [StatusConverter] entries that map

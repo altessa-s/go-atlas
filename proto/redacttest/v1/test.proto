@@ -1,0 +1,63 @@
+// Copyright 2021-2026 Altessa Solutions Inc. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package redacttest.v1;
+
+// Specifies the package name for generated Java code.
+option java_package = "io.altessa.grpc.redacttest.v1";
+option java_multiple_files = true;
+
+option go_package = "github.com/altessa-s/go-atlas/proto/gen/redacttest/v1;redacttestv1";
+
+import "google/protobuf/any.proto";
+
+// Provider carries a write-only secret, the shape the debug_redact payload redactor of the gRPC logger interceptor is tested with.
+message Provider {
+  string name = 1;
+
+  // A secret that must never reach a log.
+  optional string api_key = 2 [debug_redact = true];
+
+  optional Status status = 3;
+}
+
+// Status is a nested message without secrets.
+message Status {
+  string state = 1;
+}
+
+// ListProvidersResponse carries secrets in a list, in map values and in a recursive message.
+message ListProvidersResponse {
+  repeated Provider providers = 1;
+
+  map<string, Provider> by_name = 2;
+
+  optional Node root = 3;
+}
+
+// Node is a recursive message with a secret at every level.
+message Node {
+  string label = 1;
+
+  optional Node child = 2;
+
+  string token = 3 [debug_redact = true];
+}
+
+// Tree is a recursive message without secrets.
+message Tree {
+  string value = 1;
+
+  optional Tree left = 2;
+}
+
+// Envelope carries messages packed in google.protobuf.Any, alone, in a list and in map values.
+message Envelope {
+  optional google.protobuf.Any payload = 1;
+
+  repeated google.protobuf.Any items = 2;
+
+  map<string, google.protobuf.Any> by_name = 3;
+}

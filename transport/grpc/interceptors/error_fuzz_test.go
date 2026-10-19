@@ -16,7 +16,7 @@ import (
 func FuzzNewError(f *testing.F) {
 	f.Add("error message", int32(0))
 	f.Add("", int32(2))
-	f.Add("unicode: xxxxxx", int32(13))
+	f.Add("unicode: γεια", int32(13))
 
 	f.Fuzz(func(t *testing.T, msg string, code int32) {
 		if code < 0 || code > 16 {

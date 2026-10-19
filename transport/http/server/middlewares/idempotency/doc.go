@@ -5,7 +5,11 @@
 // Package idempotency provides middleware that prevents duplicate processing
 // of non-safe HTTP requests (POST, PUT, PATCH, DELETE).
 //
-// Clients send an Idempotency-Key header (lowercase UUID v4 by default).
+// Clients send an Idempotency-Key header, or a query parameter such as
+// request_id ([WithKeyQueryParam]); the key is a lowercase UUID v4 by
+// default ([OpaqueKeyValidator] and [PatternKeyValidator] accept client
+// request IDs). A [RequestClassifier] decides per request whether the key is
+// skipped, optional or mandatory.
 // The middleware acquires a lock in the configured [idempotency.Idempotency]
 // storage before the handler runs. On success the key is marked complete;
 // on failure it is deleted so the client can retry.

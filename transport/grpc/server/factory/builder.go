@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/security/tlsutils"
@@ -18,7 +19,11 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	"google.golang.org/grpc"
@@ -76,6 +81,11 @@ type ServerBuilder struct {
 	geoResolver            geoacl.GeoResolver
 	reasonCode             bufhelpers.ReasonCoder
 	errStatusOptions       []errstatus.Option
+	loggerOptions          []logger.Option
+	fieldBehaviorOptions   []fieldbehavior.Option
+	idempotencyOptions     []idempotency.Option
+	fieldMaskOptions       []fieldmask.Option
+	serverOptions          []grpcserver.Option
 
 	// Interceptors
 	interceptors []interceptors.ServerInterceptor
@@ -101,6 +111,13 @@ func (b *ServerBuilder) Build() (*grpcserver.Server, error) {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
+	// Resolve the interceptor chain now, so a missing required interceptor
+	// (the limiter without realIP, for example), a duplicate or a cycle is
+	// reported by Build instead of by Server.Start.
+	if err := validateChain(b.interceptors); err != nil {
+		return nil, b.WrapError(err, "invalid interceptor chain")
+	}
+
 	opts := make([]grpcserver.Option, 0, 4)
 	opts = slices.AppendIf(opts, b.cfg.Reflection, grpcserver.WithReflection())
 
@@ -123,6 +140,7 @@ func (b *ServerBuilder) Build() (*grpcserver.Server, error) {
 	// Add gRPC server options from config.
 	grpcOpts := b.buildGrpcOptions()
 	opts = slices.AppendIf(opts, len(grpcOpts) > 0, grpcserver.WithGrpcOptions(grpcOpts...))
+	opts = append(opts, b.serverOptions...)
 
 	srv, err := grpcserver.New(opts...)
 	if err != nil {
@@ -137,6 +155,20 @@ func (b *ServerBuilder) Build() (*grpcserver.Server, error) {
 	}
 
 	return srv, nil
+}
+
+// validateChain resolves the dependency order of list the way the server does
+// when it starts and returns the resolution error, if any.
+func validateChain(list []interceptors.ServerInterceptor) error {
+	present := make([]any, 0, len(list))
+	for _, i := range list {
+		present = slices.AppendIf(present, nilcheck.IsNotNil(i), any(i))
+	}
+	if len(present) == 0 {
+		return nil
+	}
+	_, err := interceptors.NewChain(present...).DependencyOrder()
+	return err
 }
 
 // buildServerTlsConfig builds a TLS config from the builder's gRPC TLS configuration.

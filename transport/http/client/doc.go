@@ -16,11 +16,14 @@
 // # Features
 //
 //   - Connection Management: automatic TCP connection pooling and keep-alive configuration.
-//   - Resilience: built-in retry policies with exponential backoff and jitter ([WithRetryMax], [WithRetryWait]).
+//   - Resilience: built-in retry policies with exponential backoff and jitter ([WithRetryMax], [WithRetryWait]);
+//     [WithoutRetry] sends each request once and returns every reply unclassified. Retries after a 429/503
+//     reply wait at least its Retry-After ([WithRetryAfterMax], [ParseRetryAfter]).
 //   - Protection: a circuit breaker per destination host, so one failing endpoint never rejects requests to
 //     another; tune hosts with [WithCircuitBreakerSettings] and bound lazily created breakers with [WithMaxHostBreakers].
 //   - Rate Limiting: pluggable client-side rate limiting via [WithLimiter] and [limiters.RequestsLimiter].
 //   - SSRF Protection: default blocking of connections to private/local IPs; see [WithSSRFProtection] and [WithSSRFAllowedCIDRs].
+//     [SSRFDialControl] exports the dial guard for services that build their own transport.
 //   - Proxy: declarative outbound proxy configuration via [WithProxy], [WithProxyURL], [WithProxyFunc],
 //     or [WithoutProxy]; environment proxies apply only with [WithoutSSRFProtection].
 //   - Observability: request logging through [WithLogger], structured error types for inspection,
@@ -34,7 +37,8 @@
 //   - [IsUnexpectedStatusError] extracts [UnexpectedStatusError] (matches [ErrUnexpectedStatus]).
 //   - [IsCircuitBreakerError] / [IsCircuitBreakerOpen] inspect [CircuitBreakerError] (matches [ErrCircuitBreakerOpen]).
 //   - [IsResponseSizeError] extracts [ResponseSizeError] (matches [ErrResponseSizeExceeded]).
-//   - [IsRateLimitError] extracts [RateLimitError] (matches [ErrRateLimited]).
+//   - limiters.IsRateLimitError extracts limiters.RateLimitError (matches
+//     limiters.ErrRateLimited), returned for a [WithLimiter] denial.
 //   - [IsRetryExhaustedError] extracts [RetryExhaustedError] (matches [ErrMaxRetriesExceeded]).
 //   - [IsSSRFError] extracts [SSRFError] (matches [ErrSSRFBlocked]).
 //   - [IsTemporaryError] checks for transient conditions that may succeed on retry.
@@ -66,7 +70,11 @@
 //	resp, _ := c.Get("https://api.example.com/v1/data")
 //	defer resp.Body.Close()
 //
-// SSRF protection also blocks loopback and disables environment proxies. Explicit
-// proxies, custom TLS dialers and non-standard transports require
-// [WithoutSSRFProtection]; otherwise construction panics with [ErrSSRFUnsafeTransport].
+// SSRF protection also blocks loopback and disables environment proxies. An
+// explicit proxy option is allowed: the dial to the proxy is guarded (allow its
+// network with [WithSSRFAllowedCIDRs]), the proxy resolves the target host, and
+// a target given as a literal private IP is refused before reaching the proxy.
+// A proxy TLS configuration, custom TLS dialers, a proxy resolver set on a
+// caller transport and non-standard transports require [WithoutSSRFProtection];
+// otherwise construction panics with [ErrSSRFUnsafeTransport].
 package client

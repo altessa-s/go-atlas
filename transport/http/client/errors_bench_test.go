@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"testing"
-	"time"
 )
 
 func BenchmarkUnexpectedStatusError_Error(b *testing.B) {
@@ -31,15 +30,6 @@ func BenchmarkResponseSizeError_Error(b *testing.B) {
 
 func BenchmarkCircuitBreakerError_Error(b *testing.B) {
 	err := &CircuitBreakerError{Name: "test-cb", State: "open"}
-	var s string
-	for b.Loop() {
-		s = err.Error()
-	}
-	_ = s
-}
-
-func BenchmarkRateLimitError_Error(b *testing.B) {
-	err := &RateLimitError{Host: "api.test", RetryAfter: 5 * time.Second}
 	var s string
 	for b.Loop() {
 		s = err.Error()

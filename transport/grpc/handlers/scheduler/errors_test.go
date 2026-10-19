@@ -23,6 +23,7 @@ func TestMapError(t *testing.T) {
 		code codes.Code
 	}{
 		{"not_found", sched.ErrTaskNotFound, codes.NotFound},
+		{"page_tokens_not_configured", sched.ErrPageTokensNotConfigured, codes.FailedPrecondition},
 		{"not_registered", sched.ErrTaskNotRegistered, codes.NotFound},
 		{"unmanaged", sched.ErrTaskUnmanaged, codes.FailedPrecondition},
 		{"not_paused", sched.ErrTaskNotPaused, codes.FailedPrecondition},

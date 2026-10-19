@@ -7,7 +7,8 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 Server-side gRPC interceptor that wires [`domain/proto/fieldmask`](../../../../domain/proto/fieldmask/README.md) into the chain: it runs
 `FieldMask.ApplyUpdateMask` on AIP-134 `Update*` requests and `FieldMask.Filter` on AIP-157 `Get*` / `List*` / `Search*` / `BatchGet*` responses, all
 driven by the gRPC method name. Behavior violations (REQUIRED cleared, IMMUTABLE modified, IDENTIFIER touched) are surfaced as the canonical
-`InvalidArgument` + `google.rpc.BadRequest` shape rather than leaking to the storage layer.
+`InvalidArgument` + `io.altessa.badrequest.v1.BadRequest` shape (the detail type the protovalidate interceptor also emits) rather than leaking to
+the storage layer.
 
 ## Method classification
 
@@ -145,17 +146,31 @@ server := grpc.NewServer(srvOpts...)
 before `fieldmask` so the mask sees the already-stripped request, and place `protovalidator` after `fieldmask` so the validator runs against the final
 mask-cleaned payload.
 
+### From configuration
+
+The gRPC server factory wires the interceptor from the `interceptors.fieldMask` section of [`config/grpc`](../../../../config/grpc/README.md)
+(`enabled`, `ignoreMethods`, `ignorePatterns`, `skipReadMask`, `applyEmptyUpdateMask`, `maskFieldName`, `resourceFieldName`,
+`metadataReadMaskHeader`; disabled by default) between `fieldbehavior` and `protovalidator`. Method kinds and extractors are code-level and are added
+with `UseFieldMaskOptions`:
+
+```go
+srv, err := factory.New(cfg.Grpc).
+    UseFieldMaskOptions(fieldmask.WithMethodKind("/x.v1.X/Archive", fieldmask.KindUpdate)).
+    WithInterceptors().
+    Build()
+```
+
 ## Errors
 
 | Source                                            | gRPC status        | Detail attached                          |
 |---------------------------------------------------|--------------------|------------------------------------------|
-| `*fieldmask.UpdateMaskBehaviorError`              | `InvalidArgument`  | `google.rpc.BadRequest.FieldViolation`s  |
+| `*fieldmask.UpdateMaskBehaviorError`              | `InvalidArgument`  | `io.altessa.badrequest.v1.BadRequest`    |
 | `*fieldmask.ValidationError` (bad mask path)      | `InvalidArgument`  | --                                       |
 | Reflection miss (no `update_mask` / `read_mask`)  | --                 | silent passthrough, logged at Debug      |
 | Panic inside `ApplyUpdateMask` / `Filter`         | `Internal`         | logged at Error, request rejected        |
 
-Each behavior violation carries the dot-separated field path and a human description (`"immutable field cannot be modified"`,
-`"identifier field cannot be modified"`, `"required field cannot be cleared"`).
+Each behavior violation carries the dot-separated field path (`field_path`) and a human description (`message`: `"immutable field cannot be
+modified"`, `"identifier field cannot be modified"`, `"required field cannot be cleared"`). The go-atlas gRPC client maps it into `client.Error.Fields`.
 
 ## Streaming
 

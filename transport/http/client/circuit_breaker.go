@@ -189,7 +189,7 @@ func newCircuitBreakerClient(opts options, m *httpClientMetrics) *circuitBreaker
 			transport = http.DefaultTransport
 		}
 		if t, ok := transport.(*http.Transport); ok {
-			wrapped := newSSRFSafeTransport(t, opts.ssrfAllowedCIDRs)
+			wrapped := newSSRFSafeTransport(t, opts.ssrfAllowedCIDRs, opts.proxy)
 			if httpClient == opts.client {
 				httpClient = &http.Client{
 					Transport:     wrapped,

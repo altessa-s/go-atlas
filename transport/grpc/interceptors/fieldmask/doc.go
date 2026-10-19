@@ -10,9 +10,10 @@
 // [fieldmask.FieldMask.ApplyUpdateMask] over the pair, and writes the
 // OUTPUT_ONLY-cleaned mask back onto the request before the handler runs.
 // Behavior violations (REQUIRED cleared, IMMUTABLE modified, IDENTIFIER
-// touched) are converted to InvalidArgument with a google.rpc.BadRequest
-// detail attached — one FieldViolation per entry, the canonical AIP error
-// shape.
+// touched) are converted to InvalidArgument with an
+// io.altessa.badrequest.v1.BadRequest detail attached — one FieldViolation per
+// entry, the same detail type the protovalidate interceptor emits, so
+// [github.com/altessa-s/go-atlas/transport/grpc/client.ParseError] reads both.
 //
 // On classified read methods (Get*, List*, Search*, BatchGet*) the
 // interceptor extracts the read_mask from the request before the handler runs

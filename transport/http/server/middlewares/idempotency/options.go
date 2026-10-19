@@ -137,6 +137,59 @@ func DefaultKeyValidator(key string) error {
 	return internalidem.DefaultKeyValidator(key)
 }
 
+// DefaultMaxReplaySize bounds a response body stored for [WithResponseReplay]
+// (256 KiB). Values above middlewares.MaxCaptureBodySize are capped to it.
+const DefaultMaxReplaySize int64 = internalidem.DefaultMaxReplaySize
+
+// DefaultReplayHeaders are the response headers stored and replayed with a
+// response under [WithResponseReplay]: the representation and location
+// headers. Headers outside the list — cookies, request IDs, CORS and other
+// per-request headers — are never replayed to a repeat.
+var DefaultReplayHeaders = []string{
+	"Content-Type", "Content-Encoding", "Content-Language", "Content-Disposition", "Location", "ETag", "Last-Modified",
+}
+
+// DefaultMaxKeyLength bounds the keys [OpaqueKeyValidator] and
+// [PatternKeyValidator] accept, in bytes.
+const DefaultMaxKeyLength = internalidem.DefaultMaxKeyLength
+
+// OpaqueKeyValidator returns a [KeyFormatValidator] accepting any key of 1
+// to maxLen bytes of visible ASCII (no space, control or non-ASCII byte), for
+// clients that send their own request IDs rather than UUIDs. A maxLen below 1
+// is [DefaultMaxKeyLength].
+func OpaqueKeyValidator(maxLen int) KeyFormatValidator {
+	return internalidem.OpaqueKeyValidator(maxLen)
+}
+
+// PatternKeyValidator returns a [KeyFormatValidator] accepting a key of 1 to
+// maxLen bytes that pattern matches in full. A maxLen below 1 is
+// [DefaultMaxKeyLength].
+func PatternKeyValidator(pattern *regexp.Regexp, maxLen int) KeyFormatValidator {
+	return internalidem.PatternKeyValidator(pattern, maxLen)
+}
+
+// Policy tells the middleware how one request treats idempotency keys; see
+// [WithRequestClassifier].
+type Policy = internalidem.Policy
+
+const (
+	// PolicyDefault applies [WithEnforceMandatory]: the key is checked when
+	// present and required when enforcement is on.
+	PolicyDefault = internalidem.PolicyDefault
+	// PolicySkip ignores idempotency for the request, as [WithIgnorePaths]
+	// does.
+	PolicySkip = internalidem.PolicySkip
+	// PolicyOptional checks a key when present and never requires one.
+	PolicyOptional = internalidem.PolicyOptional
+	// PolicyMandatory requires a key.
+	PolicyMandatory = internalidem.PolicyMandatory
+)
+
+// RequestClassifier returns the [Policy] of a request. It runs after the
+// ignore lists and the safe-method skip (GET, HEAD and OPTIONS never carry a
+// key check).
+type RequestClassifier func(r *http.Request) Policy
+
 // options holds configuration for the idempotency middleware.
 type options struct {
 	logger                       *slog.Logger
@@ -167,6 +220,25 @@ type options struct {
 	// fingerprintTempDir is where a body beyond the memory threshold is
 	// buffered while it is fingerprinted; "" is the system temp dir.
 	fingerprintTempDir string
+	// keyQueryParam names a URL query parameter that carries the key
+	// (such as request_id). A non-empty value takes
+	// precedence over the header; "" (the default) reads the header only.
+	keyQueryParam string
+	// requestClassifier decides per request whether the key is skipped,
+	// optional or mandatory; nil applies enforceMandatory to every request
+	// that is not ignored.
+	requestClassifier RequestClassifier
+	// responseReplay stores the status, the replayHeaders and the body of a
+	// completed 2xx response and writes them to a repeat of the request
+	// instead of the already-used error. Off by default: the
+	// repeat's caller receives the original response, so scope keys per
+	// principal (idempotency.WithOwner).
+	responseReplay bool
+	// maxReplaySize bounds a stored body; a larger one is not stored and its
+	// repeat is refused as already used.
+	maxReplaySize int64 `optgen:"default=DefaultMaxReplaySize"`
+	// replayHeaders lists the response headers stored and replayed.
+	replayHeaders []string `optgen:"default=DefaultReplayHeaders"`
 }
 
 // EntityIdExtractor extracts an entity identifier from a successful response.

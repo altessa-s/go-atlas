@@ -64,7 +64,7 @@ func MustValidateBuckets(buckets []float64, name string) {
 
 // CopyBuckets creates a copy of the buckets slice.
 // Used to prevent mutation of shared bucket configurations.
-// xxxxxxxxxx slices.Clone xx xxxxxxxxxxx xxxxxxxxxx Go 1.21+.
+// Uses slices.Clone from the Go 1.21+ standard library.
 func CopyBuckets(buckets []float64) []float64 {
 	return slices.Clone(buckets)
 }
@@ -100,7 +100,7 @@ func ExponentialBuckets(start, factor float64, count int) []float64 {
 
 // MergeBuckets merges multiple bucket slices into a single sorted slice
 // with duplicates removed.
-// xxxxxxxxxx slices.Sort x slices.Compact xx xxxxxxxxxxx xxxxxxxxxx Go 1.21+.
+// Uses slices.Sort and slices.Compact from the Go 1.21+ standard library.
 func MergeBuckets(bucketSets ...[]float64) []float64 {
 	total := 0
 	for _, buckets := range bucketSets {

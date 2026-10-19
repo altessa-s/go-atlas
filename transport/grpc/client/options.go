@@ -156,6 +156,15 @@ type options struct {
 	// is rejected by the option; the helper falls back to
 	// [pool.DefaultStateMapper] when the field is unset.
 	healthStateMapper StateMapper `optgen:"notnil,default=pool.DefaultStateMapper"`
+	// withoutHealthCheck drops the client-side healthCheckConfig
+	// ("health.v1.HealthService") from the default service config. Set it
+	// with the generated WithoutHealthCheck when the server does not
+	// implement that health service: with round-robin load balancing
+	// (selected by WithRetry and WithRetryConfig) gRPC health-checks every
+	// subchannel, and a server without the service never becomes ready for
+	// calls. Independent of WithHealthCoordinator, which only reports the
+	// connection state.
+	withoutHealthCheck bool `opt:"HealthCheck" optval:"invert"`
 }
 
 // WithInsecure disables TLS and uses an insecure plaintext connection.

@@ -50,4 +50,7 @@ type options struct {
 	// the raw proto is logged. It only applies when logRequest/logResponse is on,
 	// and is the only way to keep INPUT_ONLY/credential fields out of payload logs.
 	payloadRedactor PayloadRedactor `optgen:"default=nil"`
+	// debugRedact clears the values of fields marked with the debug_redact option from logged payloads ([DebugRedact]), before
+	// payloadRedactor runs. It only applies when logRequest/logResponse is on.
+	debugRedact bool
 }

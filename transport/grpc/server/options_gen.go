@@ -4,6 +4,11 @@
 package grpc
 
 import (
+	"net"
+	"time"
+
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	"google.golang.org/grpc"
 
 	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
@@ -32,6 +37,16 @@ func WithGrpcOptions(v ...grpc.ServerOption) Option {
 	}
 }
 
+// WithListener sets the listener option.
+func WithListener(v net.Listener) Option {
+	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
+		o.listener = v
+	}
+}
+
 // WithReflection enables the reflection option.
 func WithReflection() Option {
 	return func(o *options) {
@@ -39,10 +54,18 @@ func WithReflection() Option {
 	}
 }
 
+// WithStartupVerification sets the startupVerification option.
+func WithStartupVerification(v time.Duration) Option {
+	return func(o *options) {
+		o.startupVerification = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		reflection: false,
+		reflection:          false,
+		startupVerification: DefaultStartupVerification,
 	}
 }
 

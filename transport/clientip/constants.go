@@ -83,7 +83,7 @@ var privateAndLocalRanges = []netip.Prefix{
 	netip.MustParsePrefix("198.51.100.0/24"),    // Assigned as TEST-NET-2
 	netip.MustParsePrefix("203.0.113.0/24"),     // Assigned as TEST-NET-3
 	netip.MustParsePrefix("192.88.99.0/24"),     // RFC 3068
-	netip.MustParsePrefix("192.18.0.0/15"),      // RFC 2544
+	netip.MustParsePrefix("198.18.0.0/15"),      // RFC 2544: Benchmarking
 	netip.MustParsePrefix("224.0.0.0/4"),        // RFC 3171
 	netip.MustParsePrefix("240.0.0.0/4"),        // RFC 1112
 	netip.MustParsePrefix("255.255.255.255/32"), // RFC 919 Section 7
@@ -104,8 +104,13 @@ var privateAndLocalRanges = []netip.Prefix{
 // IsPrivate reports whether ip falls within any RFC-defined private, loopback,
 // link-local, or reserved address range. The full list covers IPv4 and IPv6
 // ranges from RFC 1918, RFC 4193, RFC 5735, and others.
+//
+// An IPv4-mapped IPv6 address (::ffff:a.b.c.d) is checked as the IPv4 address
+// it reaches, and an IPv6 zone (fe80::1%en0) is ignored: a zone selects an
+// interface, not a different network, and a zoned address never matches a
+// prefix on its own.
 func IsPrivate(ip netip.Addr) bool {
-	return InList(ip, privateAndLocalRanges)
+	return InList(ip.Unmap().WithZone(""), privateAndLocalRanges)
 }
 
 // IsTrusted reports whether ip belongs to any of the given trusted network
