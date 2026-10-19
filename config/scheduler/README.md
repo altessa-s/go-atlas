@@ -25,6 +25,7 @@ factories, which map them to generated options; runtime packages never import th
 | `HistoryStorageType`      | Defines the backend of a history storage kept apart from the task state.                 |
 | `HistoryClickHouseConfig` | Contains ClickHouse settings for the history storage (service/scheduler/storages/clickhouse). |
 | `HistoryStorageConfig`    | Moves execution history out of the task storage (`historyStorage`; nil keeps it there).   |
+| `Paging`                  | Signing key, previous keys and TTL of the paginated-list cursors (`paging`; nil = no codec). |
 | `Config`                    | Configures the task scheduler service.                                                       |
 
 See the [config index](../README.md) for the other schema packages.

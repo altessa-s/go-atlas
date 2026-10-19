@@ -7,5 +7,5 @@
 //
 // Example:
 //
-//	path := utils.FindFile("/etc/ssl/certs/ca.pem")
+//	path := utils.ResolvePath("certs/ca.pem")
 package utils

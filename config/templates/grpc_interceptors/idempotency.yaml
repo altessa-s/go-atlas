@@ -26,10 +26,11 @@
 #  # Default value: idempotency-key
 #  idempotencyKeyHeader: idempotency-key
 #
-#  # <string> Field name to extract idempotency key from request.
-#  # Field in the request message containing idempotency key.
-#  # Default value: idempotencyKey
-#  idempotencyKeyField: idempotencyKey
+#  # <string> String field of the request message carrying the key (such as request_id),
+#  # by proto or JSON name. A non-empty value in the field takes precedence over the header.
+#  # Empty reads the header only.
+#  # Default value: not set
+#  idempotencyKeyField: request_id
 #
 #  # <string> Fallback behavior when error occurs during idempotency processing.
 #  # Determines how to handle requests when storage backends are unavailable.
@@ -58,3 +59,48 @@
 #  # The caller presenting a duplicate key is not verified to be the entity's creator unless the Keeper checks owners.
 #  # Default value: false
 #  exposeEntityID: false
+#
+#  # <string> Validator the key must pass.
+#  #   uuidv4  - a lowercase UUID v4
+#  #   opaque  - any visible ASCII characters (client request IDs), up to maxKeyLength
+#  #   pattern - keyPattern must match the whole key, up to maxKeyLength
+#  # Supported values: uuidv4, opaque, pattern
+#  # Default value: uuidv4
+#  keyFormat: uuidv4
+#
+#  # <string> Regular expression of the pattern key format (required with keyFormat: pattern).
+#  # Default value: not set
+#  keyPattern: "^req-[0-9a-f]{16}$"
+#
+#  # <int> Longest opaque or pattern key, in bytes; 0 means 128.
+#  # Default value: 0
+#  maxKeyLength: 0
+#
+#  # <string> Which methods take part.
+#  #   ""  - every method not ignored
+#  #   verbs - by the verb a method name starts with: Create, BatchCreate and custom verbs
+#  #           take part; Get, List, Search, Update, Delete and their Batch forms are skipped
+#  # Supported values: "", verbs
+#  # Default value: ""
+#  methodClassifier: verbs
+#
+#  # <list[string]> Fully qualified methods that require a key, whatever enforceMandatory says.
+#  # Default value: not set
+#  mandatoryMethods:
+#    - "/api.OrderService/CreateOrder"
+#
+#  # <list[string]> Regular expressions of methods that require a key.
+#  # Default value: not set
+#  mandatoryPatterns:
+#    - "^/api\\.PaymentService/"
+#
+#  # <bool> Return the stored response of a completed unary call to a repeat of the request
+#  # instead of FAILED_PRECONDITION. The repeat's caller receives the original response:
+#  # scope keys per principal (Keeper owners) before enabling it.
+#  # Default value: false
+#  responseReplay: false
+#
+#  # <int> Largest stored response, in bytes of the marshaled message; 0 means 256 KiB.
+#  # A larger response is not stored and its repeat is refused as already used.
+#  # Default value: 0
+#  maxReplaySize: 0

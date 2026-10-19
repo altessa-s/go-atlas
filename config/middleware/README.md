@@ -16,5 +16,9 @@ packages never import them.
 | `IPACLRule`  | Defines an IP access control rule for one or more endpoints.                                       |
 | `EnableMixin`      | Provides a common Enabled field for configurations that can be toggled.                            |
 | `FallbackBehavior` | Defines how interceptors behave when encountering errors or when storage backends are unavailable. |
+| `IdempotencyKeyFormat` | Validator idempotency keys must pass: `uuidv4` (default), `opaque` or `pattern`; `IdempotencyKeyFormatRule` validates it. |
+
+`IdempotencyKeyRules` returns the field rules the gRPC and HTTP idempotency configs share: key format, key pattern, maximum key length, and the
+mandatory list and patterns.
 
 See the [config index](../README.md) for the other schema packages.

@@ -5,12 +5,13 @@
 package utils_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/config/internal/utils"
 )
 
-func FuzzFindFile(f *testing.F) {
+func FuzzResolvePath(f *testing.F) {
 	f.Add("")
 	f.Add("/dev/null")
 	f.Add("/nonexistent")
@@ -18,6 +19,12 @@ func FuzzFindFile(f *testing.F) {
 	f.Add("./file.txt")
 
 	f.Fuzz(func(t *testing.T, path string) {
-		_ = utils.FindFile(path)
+		got := utils.ResolvePath(path)
+		if path != "" && got == "" {
+			t.Fatalf("ResolvePath(%q) dropped a non-empty path", path)
+		}
+		if filepath.IsAbs(path) && got != path {
+			t.Fatalf("ResolvePath(%q) = %q, want the absolute path unchanged", path, got)
+		}
 	})
 }

@@ -5,10 +5,14 @@
 package proxyconfig
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/altessa-s/go-atlas/core/types/redacted"
 )
@@ -93,6 +97,105 @@ func TestProxy_PasswordRedaction(t *testing.T) {
 	rendered := fmt.Sprintf("%+v", *auth) + " | " + fmt.Sprintf("%v", auth.Password)
 	require.NotContains(t, rendered, password)
 	require.Contains(t, rendered, "<redacted>")
+}
+
+// TestProxy_URLCredentialsNeverLeak asserts that a credential-bearing URL,
+// valid or malformed, never shows in Validate errors nor in the fmt, slog,
+// JSON and YAML renderings used to print the config, while Expose keeps the
+// URL usable for the transport.
+func TestProxy_URLCredentialsNeverLeak(t *testing.T) {
+	t.Parallel()
+
+	const secret = "pr0xy-s3cr3t"
+	cases := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"valid", "http://svc:" + secret + "@proxy:3128", false},
+		{"valid_socks5", "socks5://svc:" + secret + "@127.0.0.1:1080", false},
+		{"malformed", "http://svc:" + secret + "@proxy example:3128/%zz", true},
+		{"malformed_escape", "http://" + secret + "%zz", true},
+		{"no_port", "http://svc:" + secret + "@proxy", true},
+		{"no_scheme", "svc:" + secret + "@proxy:3128", true},
+		{"bad_scheme", "ftp://svc:" + secret + "@proxy:21", true},
+		{"slash_in_password", "http://svc:prefix@" + secret + "/remaining@proxy:3128", true},
+		{"slash_in_password_with_port", "http://svc:prefix@" + secret + ":1/remaining@proxy:3128", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := Config{Mode: ModeURL, URL: redacted.URL(tc.url)}
+			require.Equal(t, tc.url, cfg.URL.Expose())
+
+			err := cfg.Validate()
+			if tc.wantErr {
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), secret, "Validate error leaks the URL")
+			} else {
+				require.NoError(t, err)
+			}
+
+			jsonOut, jerr := json.Marshal(cfg)
+			require.NoError(t, jerr)
+			yamlOut, yerr := yaml.Marshal(cfg)
+			require.NoError(t, yerr)
+			var logged bytes.Buffer
+			slog.New(slog.NewJSONHandler(&logged, nil)).Info("config", slog.Any("proxy", cfg))
+			var text bytes.Buffer
+			slog.New(slog.NewTextHandler(&text, nil)).Info("config", slog.Any("proxy", &cfg))
+
+			for name, out := range map[string]string{
+				"fmt %v":    fmt.Sprintf("%v", cfg),
+				"fmt %+v":   fmt.Sprintf("%+v", cfg),
+				"fmt %#v":   fmt.Sprintf("%#v", cfg),
+				"fmt ptr":   fmt.Sprintf("%+v", &cfg),
+				"fmt %s":    fmt.Sprintf("%s", cfg.URL),
+				"json":      string(jsonOut),
+				"yaml":      string(yamlOut),
+				"slog json": logged.String(),
+				"slog text": text.String(),
+			} {
+				require.NotContains(t, out, secret, "%s output leaks the URL password", name)
+			}
+		})
+	}
+}
+
+// TestProxy_ValidateErrorsOmitURLParts asserts that Validate errors quote no
+// part of the URL: neither the scheme nor the host, where a mistyped password
+// can end up.
+func TestProxy_ValidateErrorsOmitURLParts(t *testing.T) {
+	t.Parallel()
+
+	const secret = "pr0xy-s3cr3t"
+	for _, raw := range []string{
+		secret + "://proxy:3128",
+		"http://" + secret,
+		"http://svc:prefix@" + secret + "/remaining@proxy:3128",
+		"http://svc:prefix@" + secret + ":1/remaining@proxy:3128",
+		"socks5://svc:prefix@" + secret + ":1/remaining@proxy:1080",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			t.Parallel()
+
+			err := (&Config{Mode: ModeURL, URL: redacted.URL(raw)}).Validate()
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), secret)
+		})
+	}
+}
+
+func TestProxy_URLUnmarshalFromYAML(t *testing.T) {
+	t.Parallel()
+
+	raw := "http://svc:secret@proxy:3128"
+	var cfg Config
+	require.NoError(t, yaml.Unmarshal([]byte("mode: url\nurl: "+raw+"\n"), &cfg))
+	require.Equal(t, raw, cfg.URL.Expose())
+	require.NoError(t, cfg.Validate())
 }
 
 func TestDefaultProxy(t *testing.T) {
