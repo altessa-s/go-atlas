@@ -41,4 +41,14 @@ regexes = [
     # header {"alg":"none"}, payload {"sub":"admin"}, no signature. The tests
     # assert the verifier rejects it.
     '''eyJhbGciOiJub25lIn0\.eyJzdWIiOiJhZG1pbiJ9''',
+    # Idempotency-key UUID fixture in the gRPC/HTTP replay and fingerprint tests.
+    '''0b8a4f7e-6c1d-4e2a-9b3c-5d6e7f8a9b0c''',
+    # Sequential hex signing key in config/scheduler paging tests.
+    '''0123456789abcdef0123456789abcdef''',
+    # Credential-shaped URL fragment in transport/proxydial ambiguous-URL tests;
+    # the tests assert it is never dialed or looked up.
+    '''s3cr3t-fragment''',
+    # ULID page-token samples (the canonical ULID spec example and variants)
+    # in data/keyset store tests.
+    '''(?i)01ARZ3NDEKTSV4RRFFQ69G5FA[IUV]''',
 ]
