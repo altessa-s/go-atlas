@@ -15,7 +15,6 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/proto"
 
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
 	redacttestv1 "github.com/altessa-s/go-atlas/proto/gen/redacttest/v1"
@@ -46,7 +45,7 @@ func callProvider(t *testing.T, b *ServerBuilder, apiKey string) {
 		Methods:     []stdGrpc.MethodDesc{{MethodName: "Echo", Handler: handleProvider}},
 	})
 	var out redacttestv1.Provider
-	require.NoError(t, conn.Invoke(t.Context(), providerMethod, &redacttestv1.Provider{Name: "p", ApiKey: proto.String(apiKey)}, &out))
+	require.NoError(t, conn.Invoke(t.Context(), providerMethod, &redacttestv1.Provider{Name: "p", ApiKey: new(apiKey)}, &out))
 	require.Equal(t, apiKey, out.GetApiKey(), "the redactor must not change the message the handler returns")
 }
 

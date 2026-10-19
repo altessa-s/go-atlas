@@ -79,18 +79,18 @@ func TestResolveSpellings(t *testing.T) {
 func camelSchema(t testing.TB) protoreflect.MessageDescriptor {
 	t.Helper()
 	fdp := &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("camel_test.proto"),
-		Package: proto.String("fieldmasktest.camel"),
-		Syntax:  proto.String("proto3"),
+		Name:    new("camel_test.proto"),
+		Package: new("fieldmasktest.camel"),
+		Syntax:  new("proto3"),
 		MessageType: []*descriptorpb.DescriptorProto{{
-			Name: proto.String("Settings"),
+			Name: new("Settings"),
 			Field: []*descriptorpb.FieldDescriptorProto{
-				{Name: proto.String("noisePercent7d"), Number: proto.Int32(1), Type: descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
-					Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), JsonName: proto.String("noisePercent7d")},
-				{Name: proto.String("monthlyBudgetLimit"), Number: proto.Int32(2), Type: descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
-					Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), JsonName: proto.String("monthlyBudgetLimit")},
-				{Name: proto.String("baseURI"), Number: proto.Int32(3), Type: descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
-					Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), JsonName: proto.String("baseURI")},
+				{Name: new("noisePercent7d"), Number: proto.Int32(1), Type: descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+					Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), JsonName: new("noisePercent7d")},
+				{Name: new("monthlyBudgetLimit"), Number: proto.Int32(2), Type: descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+					Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), JsonName: new("monthlyBudgetLimit")},
+				{Name: new("baseURI"), Number: proto.Int32(3), Type: descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+					Label: descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(), JsonName: new("baseURI")},
 			},
 		}},
 	}

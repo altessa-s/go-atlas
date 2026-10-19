@@ -44,7 +44,7 @@ func logged(t *testing.T, in, out any) string {
 func TestDebugRedactClearsKey(t *testing.T) {
 	t.Parallel()
 
-	in := &pb.Provider{Name: "p", ApiKey: proto.String(secret), Status: &pb.Status{State: "ok"}}
+	in := &pb.Provider{Name: "p", ApiKey: new(secret), Status: &pb.Status{State: "ok"}}
 	out := logger.DebugRedact(in)
 
 	text := logged(t, in, out)
@@ -58,8 +58,8 @@ func TestDebugRedactClearsNestedKeys(t *testing.T) {
 	t.Parallel()
 
 	in := &pb.ListProvidersResponse{
-		Providers: []*pb.Provider{{Name: "a", ApiKey: proto.String(secret)}, {Name: "b", ApiKey: proto.String(secret)}},
-		ByName:    map[string]*pb.Provider{"c": {Name: "c", ApiKey: proto.String(secret)}},
+		Providers: []*pb.Provider{{Name: "a", ApiKey: new(secret)}, {Name: "b", ApiKey: new(secret)}},
+		ByName:    map[string]*pb.Provider{"c": {Name: "c", ApiKey: new(secret)}},
 		Root:      &pb.Node{Label: "l0", Token: secret, Child: &pb.Node{Label: "l1", Token: secret, Child: &pb.Node{Label: "l2", Token: secret}}},
 	}
 	out := logger.DebugRedact(in)
@@ -105,7 +105,7 @@ func TestDebugRedactConcurrent(t *testing.T) {
 	for range 16 {
 		wg.Go(func() {
 			for range 50 {
-				out, _ := logger.DebugRedact(&pb.Provider{Name: "p", ApiKey: proto.String(secret)}).(proto.Message)
+				out, _ := logger.DebugRedact(&pb.Provider{Name: "p", ApiKey: new(secret)}).(proto.Message)
 				if strings.Contains(fmt.Sprint(out), secret) {
 					t.Error("secret logged")
 					return
@@ -137,7 +137,7 @@ func TestDebugRedactAny(t *testing.T) {
 
 	t.Run("direct", func(t *testing.T) {
 		t.Parallel()
-		in := mustAny(t, &pb.Provider{Name: "p", ApiKey: proto.String(secret)})
+		in := mustAny(t, &pb.Provider{Name: "p", ApiKey: new(secret)})
 		out, ok := logger.DebugRedact(in).(*anypb.Any)
 		require.True(t, ok)
 		got := unpackProvider(t, out)
@@ -150,9 +150,9 @@ func TestDebugRedactAny(t *testing.T) {
 	t.Run("nested in a field, a list and a map", func(t *testing.T) {
 		t.Parallel()
 		in := &pb.Envelope{
-			Payload: mustAny(t, &pb.Provider{Name: "a", ApiKey: proto.String(secret)}),
-			Items:   []*anypb.Any{mustAny(t, &pb.Node{Label: "n", Token: secret}), mustAny(t, &pb.Provider{Name: "b", ApiKey: proto.String(secret)})},
-			ByName:  map[string]*anypb.Any{"c": mustAny(t, &pb.Envelope{Payload: mustAny(t, &pb.Provider{Name: "c", ApiKey: proto.String(secret)})})},
+			Payload: mustAny(t, &pb.Provider{Name: "a", ApiKey: new(secret)}),
+			Items:   []*anypb.Any{mustAny(t, &pb.Node{Label: "n", Token: secret}), mustAny(t, &pb.Provider{Name: "b", ApiKey: new(secret)})},
+			ByName:  map[string]*anypb.Any{"c": mustAny(t, &pb.Envelope{Payload: mustAny(t, &pb.Provider{Name: "c", ApiKey: new(secret)})})},
 		}
 		out, ok := logger.DebugRedact(in).(*pb.Envelope)
 		require.True(t, ok)
@@ -176,7 +176,7 @@ func TestDebugRedactAny(t *testing.T) {
 
 	t.Run("unresolvable payload fails closed", func(t *testing.T) {
 		t.Parallel()
-		raw, err := proto.Marshal(&pb.Provider{ApiKey: proto.String(secret)})
+		raw, err := proto.Marshal(&pb.Provider{ApiKey: new(secret)})
 		require.NoError(t, err)
 		in := &pb.Envelope{Payload: &anypb.Any{TypeUrl: "type.googleapis.com/unknown.v1.Secret", Value: raw}}
 		out, ok := logger.DebugRedact(in).(*pb.Envelope)

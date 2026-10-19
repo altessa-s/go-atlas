@@ -42,7 +42,7 @@ func TestRedactPayload(t *testing.T) {
 
 	t.Run("debug redact clears marked fields", func(t *testing.T) {
 		t.Parallel()
-		in := &redacttestv1.Provider{Name: "p", ApiKey: proto.String("secret")}
+		in := &redacttestv1.Provider{Name: "p", ApiKey: new("secret")}
 		ri := &requestInterceptor{interceptor: &interceptor{opts: newOptions(WithDebugRedact())}}
 		got, ok := ri.redactPayload(in).(*redacttestv1.Provider)
 		require.True(t, ok)
@@ -58,7 +58,7 @@ func TestRedactPayload(t *testing.T) {
 			WithDebugRedact(),
 			WithPayloadRedactor(func(m proto.Message) any { seen = m; return "custom" }),
 		)}}
-		require.Equal(t, "custom", ri.redactPayload(&redacttestv1.Provider{Name: "p", ApiKey: proto.String("secret")}))
+		require.Equal(t, "custom", ri.redactPayload(&redacttestv1.Provider{Name: "p", ApiKey: new("secret")}))
 		got, ok := seen.(*redacttestv1.Provider)
 		require.True(t, ok)
 		require.Nil(t, got.ApiKey, "the payload redactor receives the debug-redacted copy")
@@ -66,7 +66,7 @@ func TestRedactPayload(t *testing.T) {
 
 	t.Run("debug redact off by default", func(t *testing.T) {
 		t.Parallel()
-		in := &redacttestv1.Provider{ApiKey: proto.String("secret")}
+		in := &redacttestv1.Provider{ApiKey: new("secret")}
 		ri := &requestInterceptor{interceptor: &interceptor{opts: newOptions()}}
 		got, ok := ri.redactPayload(in).(*redacttestv1.Provider)
 		require.True(t, ok)
@@ -79,7 +79,7 @@ func TestRedactPayload(t *testing.T) {
 func TestRedactAnyBoundedWork(t *testing.T) {
 	t.Parallel()
 
-	var packed proto.Message = &redacttestv1.Provider{Name: "p", ApiKey: proto.String("secret")}
+	var packed proto.Message = &redacttestv1.Provider{Name: "p", ApiKey: new("secret")}
 	for range 2000 {
 		a, err := anypb.New(packed)
 		require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestRedactAnyBoundedWork(t *testing.T) {
 // refuses to run in a parallel test.
 func TestRedactAnyAllocsDoNotGrowWithNesting(t *testing.T) { //nolint:paralleltest // AllocsPerRun forbids t.Parallel
 	allocs := func(depth int) float64 {
-		var m proto.Message = &redacttestv1.Provider{ApiKey: proto.String("s")}
+		var m proto.Message = &redacttestv1.Provider{ApiKey: new("s")}
 		for range depth {
 			a, err := anypb.New(m)
 			require.NoError(t, err)

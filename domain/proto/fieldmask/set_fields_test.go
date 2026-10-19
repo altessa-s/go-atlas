@@ -194,22 +194,22 @@ func threeLevels(t *testing.T) *dynamicpb.Message {
 	msgT := descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum()
 	opt := descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum()
 	field := func(name string, n int32, typ *descriptorpb.FieldDescriptorProto_Type, typeName string) *descriptorpb.FieldDescriptorProto {
-		f := &descriptorpb.FieldDescriptorProto{Name: proto.String(name), Number: proto.Int32(n), Type: typ, Label: opt}
+		f := &descriptorpb.FieldDescriptorProto{Name: new(name), Number: new(n), Type: typ, Label: opt}
 		if typeName != "" {
-			f.TypeName = proto.String(typeName)
+			f.TypeName = new(typeName)
 		}
 		return f
 	}
 	fdp := &descriptorpb.FileDescriptorProto{
-		Name:    proto.String("levels_test.proto"),
-		Package: proto.String("fieldmasktest.levels"),
-		Syntax:  proto.String("proto3"),
+		Name:    new("levels_test.proto"),
+		Package: new("fieldmasktest.levels"),
+		Syntax:  new("proto3"),
 		MessageType: []*descriptorpb.DescriptorProto{
-			{Name: proto.String("Inner"), Field: []*descriptorpb.FieldDescriptorProto{field("a", 1, str, ""), field("b", 2, str, "")}},
-			{Name: proto.String("Middle"), Field: []*descriptorpb.FieldDescriptorProto{
+			{Name: new("Inner"), Field: []*descriptorpb.FieldDescriptorProto{field("a", 1, str, ""), field("b", 2, str, "")}},
+			{Name: new("Middle"), Field: []*descriptorpb.FieldDescriptorProto{
 				field("in", 1, msgT, ".fieldmasktest.levels.Inner"), field("c", 2, str, ""),
 			}},
-			{Name: proto.String("Outer"), Field: []*descriptorpb.FieldDescriptorProto{
+			{Name: new("Outer"), Field: []*descriptorpb.FieldDescriptorProto{
 				field("mid", 1, msgT, ".fieldmasktest.levels.Middle"), field("d", 2, str, ""),
 			}},
 		},
