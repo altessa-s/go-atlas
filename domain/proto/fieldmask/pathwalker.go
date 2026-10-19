@@ -6,6 +6,7 @@ package fieldmask
 
 import (
 	"strconv"
+	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -61,6 +62,16 @@ type pathWalker struct {
 	// onScalarDeref fires when a non-terminal segment tries to descend
 	// through a scalar field.
 	onScalarDeref func(scalar protoreflect.FieldDescriptor, next string) error
+
+	// aliases also resolves a field segment by its JSON name or by the
+	// snake_case form protojson decodes a JSON mask path to, not only by
+	// its declared name.
+	aliases bool
+
+	// onField fires for every segment resolved to a field, with the index of
+	// the segment in the split path. [FieldMask.Resolve] uses it to respell
+	// the segment by the field's declared name.
+	onField func(segment int, field protoreflect.FieldDescriptor)
 }
 
 // Walk traverses path against root, invoking the configured callbacks at
@@ -119,7 +130,7 @@ func (w pathWalker) Walk(root protoreflect.MessageDescriptor, path string) error
 			return nil
 		}
 
-		field := currentDescriptor.Fields().ByName(protoreflect.Name(part))
+		field := w.lookup(currentDescriptor, part)
 		if field == nil {
 			if w.onMissingField != nil {
 				if err := w.onMissingField(currentDescriptor, part); err != nil {
@@ -127,6 +138,10 @@ func (w pathWalker) Walk(root protoreflect.MessageDescriptor, path string) error
 				}
 			}
 			return nil
+		}
+
+		if w.onField != nil {
+			w.onField(i, field)
 		}
 
 		if isLast {
@@ -155,6 +170,53 @@ func (w pathWalker) Walk(root protoreflect.MessageDescriptor, path string) error
 
 	return nil
 }
+
+// lookup returns the field of md that segment names: by declared name, and
+// with aliases also by JSON name or by [snakeCase] of the declared name.
+func (w pathWalker) lookup(md protoreflect.MessageDescriptor, segment string) protoreflect.FieldDescriptor {
+	fields := md.Fields()
+	if fd := fields.ByName(protoreflect.Name(segment)); fd != nil || !w.aliases {
+		return fd
+	}
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		if segment == fd.JSONName() || segment == snakeCase(string(fd.Name())) {
+			return fd
+		}
+	}
+	return nil
+}
+
+// snakeCase spells a lowerCamelCase name the way protojson decodes a JSON
+// FieldMask path: every ASCII upper-case letter becomes an underscore
+// followed by its lower-case form ("monthlyBudgetLimit" becomes
+// "monthly_budget_limit", "noisePercent7d" becomes "noise_percent7d"). Every
+// other character is kept, so a snake_case name comes back unchanged.
+func snakeCase(name string) string {
+	n := 0
+	for i := range len(name) {
+		if isASCIIUpper(name[i]) {
+			n++
+		}
+	}
+	if n == 0 {
+		return name
+	}
+	var b strings.Builder
+	b.Grow(len(name) + n)
+	for i := range len(name) {
+		c := name[i]
+		if isASCIIUpper(c) {
+			b.WriteByte('_')
+			c += 'a' - 'A'
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
+// isASCIIUpper reports whether c is an ASCII upper-case letter.
+func isASCIIUpper(c byte) bool { return c >= 'A' && c <= 'Z' }
 
 // afterList handles a segment that immediately follows a list field. Returns
 // (next, consumed, stop, err):
