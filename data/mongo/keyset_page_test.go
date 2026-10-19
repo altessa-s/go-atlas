@@ -132,6 +132,8 @@ func TestFindPageRejectsTokenWithoutCodec(t *testing.T) {
 	require.NoError(t, err)
 	_, err = FindPage[bson.M](t.Context(), nil, nil, KeysetQuery{After: token})
 	require.ErrorIs(t, err, ErrKeysetTokensRequired)
+	require.ErrorIs(t, err, keyset.ErrCodecRequired)
+	require.Equal(t, keyset.FailureMalformed, keyset.Classify(err))
 }
 
 func TestKeysetBindingsKeepTypes(t *testing.T) {

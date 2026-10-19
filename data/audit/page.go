@@ -133,11 +133,7 @@ func (p *PageTokens) Decode(token string, query *Query) (*Cursor, error) {
 // while Next is still issued; the cursor resumes strictly after the key, so
 // a copy beyond the page boundary is skipped as well.
 func FetchPage(ctx context.Context, storage Storage, tokens *PageTokens, query Query) (Page, error) {
-	limit := query.Limit
-	if limit <= 0 {
-		limit = DefaultPageSize
-	}
-	limit = min(limit, MaxPageSize)
+	limit := keyset.PageSize(query.Limit, DefaultPageSize, MaxPageSize)
 
 	query.Cursor = nil
 	if query.After != "" {

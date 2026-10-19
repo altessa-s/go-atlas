@@ -39,4 +39,29 @@ type options struct {
 	renewRatio float64 `optgen:"default=DefaultRenewRatio"`
 	// operationsTimeout bounds one acquisition attempt, renewal or release.
 	operationsTimeout time.Duration `optgen:"default=DefaultOperationsTimeout" optval:"positive"`
+	// withoutRenewal makes every lease a hard lease that is never renewed:
+	// it ends one ttl after the acquisition request (or earlier, on release
+	// or when the lock's context ends); renewRatio is then ignored.
+	withoutRenewal bool `opt:"Renewal" optval:"invert"`
+	// expiredCleanup enables the TTL index on expires_at (see
+	// [WithExpiredCleanup]); expiredCleanupGrace is how long a document
+	// outlives its lease.
+	expiredCleanup      bool          `opt:"-"`
+	expiredCleanupGrace time.Duration `opt:"-"`
+}
+
+// WithExpiredCleanup lets MongoDB delete a lock document grace after its
+// lease expired or was released, through a TTL index on expires_at that
+// [Locker.EnsureIndexes] creates. Without it the collection keeps one
+// document per key ever locked. A deleted key starts again at fencing token 1,
+// so fencing tokens are monotonic only while a key is locked again within
+// grace of its last lease; choose grace longer than any holder may act on a
+// token. MongoDB's TTL monitor runs about once a minute, so a document may
+// outlive grace by that much; grace is rounded up to whole seconds. A
+// negative grace makes [New] fail.
+func WithExpiredCleanup(grace time.Duration) Option {
+	return func(o *options) {
+		o.expiredCleanup = true
+		o.expiredCleanupGrace = grace
+	}
 }

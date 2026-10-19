@@ -104,12 +104,19 @@ func (m *Mongo) withMigrationLock(ctx context.Context, fn func(context.Context) 
 // acquireMigrationLock blocks until the lock is taken, ctx runs out, or a
 // non-retryable driver error occurs.
 func acquireMigrationLock(ctx context.Context, collection *mongo.Collection, owner bson.ObjectID) error {
-	if err := seedMigrationLock(ctx, collection); err != nil {
-		return coreerrs.Wrap(err, "seed migration lock")
+	return acquireDatabaseLock(ctx, collection, MigrationLockID, owner, MigrationTimeout)
+}
+
+// acquireDatabaseLock takes the mutex document id of collection for owner with the given lease, blocking until it is taken, ctx
+// runs out, or a non-retryable driver error occurs. The migration lock and the index reconciliation lock of [EnsureIndexes] are
+// such documents.
+func acquireDatabaseLock(ctx context.Context, collection *mongo.Collection, id string, owner bson.ObjectID, lease time.Duration) error {
+	if err := seedDatabaseLock(ctx, collection, id); err != nil {
+		return coreerrs.Wrap(err, "seed lock "+id)
 	}
 
 	err := coreretry.Do(ctx, func(ctx context.Context) error {
-		result, err := collection.UpdateOne(ctx, migrationLockFilter(), migrationLockUpdate(owner))
+		result, err := collection.UpdateOne(ctx, databaseLockFilter(id), databaseLockUpdate(owner, lease))
 		switch {
 		case err != nil:
 			return err
@@ -128,19 +135,19 @@ func acquireMigrationLock(ctx context.Context, collection *mongo.Collection, own
 		})),
 	)
 	if err != nil {
-		return coreerrs.Wrap(err, "acquire migration lock")
+		return coreerrs.Wrap(err, "acquire lock "+id)
 	}
 
 	return nil
 }
 
-// seedMigrationLock inserts the mutex document in an already-expired state.
+// seedDatabaseLock inserts the mutex document id in an already-expired state.
 // Seeding separately keeps the acquisition update free of an upsert, so a
 // contended acquire is a plain "matched nothing" rather than a duplicate-key
 // error that has to be told apart from a real one.
-func seedMigrationLock(ctx context.Context, collection *mongo.Collection) error {
+func seedDatabaseLock(ctx context.Context, collection *mongo.Collection, id string) error {
 	_, err := collection.InsertOne(ctx, migrationLockDocument{
-		ID:        MigrationLockID,
+		ID:        id,
 		ExpiresAt: time.Unix(0, 0).UTC(),
 	})
 	if duplicate, _ := IsErrorDuplicate(err); duplicate {
@@ -150,49 +157,58 @@ func seedMigrationLock(ctx context.Context, collection *mongo.Collection) error 
 	return err
 }
 
-// migrationLockFilter matches the mutex document only while it is free or its
-// lease has lapsed.
+// migrationLockFilter matches the migration mutex document only while it is free or its lease has lapsed.
+func migrationLockFilter() bson.M { return databaseLockFilter(MigrationLockID) }
+
+// databaseLockFilter matches the mutex document id only while it is free or
+// its lease has lapsed.
 //
 // The lease is compared against $$NOW — the server's clock — rather than the
 // caller's, so replicas whose clocks have drifted apart cannot steal a live
 // lock from each other.
-func migrationLockFilter() bson.M {
+func databaseLockFilter(id string) bson.M {
 	return bson.M{
-		"_id":   MigrationLockID,
+		"_id":   id,
 		"$expr": bson.M{"$lte": bson.A{"$expiresAt", "$$NOW"}},
 	}
 }
 
-// migrationLockUpdate stamps ownership and a fresh lease onto the mutex
+// migrationLockUpdate stamps ownership and a MigrationTimeout lease onto the migration mutex document.
+func migrationLockUpdate(owner bson.ObjectID) mongo.Pipeline {
+	return databaseLockUpdate(owner, MigrationTimeout)
+}
+
+// databaseLockUpdate stamps ownership and a fresh lease onto a mutex
 // document. It is an aggregation pipeline because only a pipeline can read
 // $$NOW; a plain $set would have to embed the caller's clock.
-func migrationLockUpdate(owner bson.ObjectID) mongo.Pipeline {
+func databaseLockUpdate(owner bson.ObjectID, lease time.Duration) mongo.Pipeline {
 	return mongo.Pipeline{
 		bson.D{{Key: "$set", Value: bson.M{
 			"owner":      owner,
 			"acquiredAt": "$$NOW",
-			"expiresAt":  bson.M{"$add": bson.A{"$$NOW", MigrationTimeout.Milliseconds()}},
+			"expiresAt":  bson.M{"$add": bson.A{"$$NOW", lease.Milliseconds()}},
 		}}},
 	}
 }
 
-// releaseMigrationLock expires the lease so the next waiter proceeds without
-// sitting out the full TTL.
-//
-// The owner is part of the filter: if this process overran its lease and
-// another already took the lock, this must not clear the new holder's claim.
-// Release is best-effort — a failure only means waiters fall back to the TTL —
-// so it logs rather than propagating.
-func (m *Mongo) releaseMigrationLock(ctx context.Context, collection *mongo.Collection, owner bson.ObjectID) {
-	// Detached from ctx: release must still run when the migration failed
-	// because the caller's context expired.
+// releaseDatabaseLock expires the lease of the mutex document id held by owner, on a context detached from ctx (release must
+// still run when the work failed because ctx expired). The owner is part of the filter: a holder that overran its lease must not
+// clear the next holder's claim.
+func releaseDatabaseLock(ctx context.Context, collection *mongo.Collection, id string, owner bson.ObjectID) error {
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), migrationLockReleaseTimeout)
 	defer cancel()
 
-	filter := bson.M{"_id": MigrationLockID, "owner": owner}
+	filter := bson.M{"_id": id, "owner": owner}
 	update := bson.M{"$set": bson.M{"expiresAt": time.Unix(0, 0).UTC()}, "$unset": bson.M{"owner": ""}}
+	_, err := collection.UpdateOne(releaseCtx, filter, update)
+	return err
+}
 
-	if _, err := collection.UpdateOne(releaseCtx, filter, update); err != nil && m.config.Logger != nil {
+// releaseMigrationLock expires the lease so the next waiter proceeds without
+// sitting out the full TTL. Release is best-effort — a failure only means
+// waiters fall back to the TTL — so it logs rather than propagating.
+func (m *Mongo) releaseMigrationLock(ctx context.Context, collection *mongo.Collection, owner bson.ObjectID) {
+	if err := releaseDatabaseLock(ctx, collection, MigrationLockID, owner); err != nil && m.config.Logger != nil {
 		m.config.Logger.Warn("failed to release migration lock",
 			"error", err, "collection", MigrationLockCollectionName)
 	}

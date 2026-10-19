@@ -58,6 +58,10 @@ type Config struct {
 	TTL, Interval time.Duration
 	// OperationsTimeout bounds one acquisition attempt, renewal or release.
 	OperationsTimeout time.Duration
+	// NoRenewal makes every lease a hard lease: it is never renewed and is
+	// treated as ended one TTL after the acquisition request was sent;
+	// Interval is then unused.
+	NoRenewal bool
 }
 
 // Timing validates a TTL and renew ratio for the provider named name and
@@ -75,6 +79,17 @@ func Timing(name string, ttl time.Duration, renewRatio float64) (time.Duration, 
 		return 0, 0, fmt.Errorf("%s: TTL x renew ratio must be at least 1ms and shorter than the TTL", name)
 	}
 	return ttl, interval, nil
+}
+
+// HardTTL validates the TTL of a hard lease ([Config.NoRenewal]) for the
+// provider named name and returns it truncated to whole milliseconds; no
+// renewal interval applies.
+func HardTTL(name string, ttl time.Duration) (time.Duration, error) {
+	ttl = ttl.Truncate(time.Millisecond)
+	if ttl < time.Millisecond {
+		return 0, fmt.Errorf("%s: TTL must be at least 1ms", name)
+	}
+	return ttl, nil
 }
 
 // Engine runs the lease lifecycle over a [Store]; it implements the
@@ -116,7 +131,9 @@ func (e *Engine) Interval() time.Duration { return e.cfg.Interval }
 // ctx scopes the lock: while it lives the lease is renewed every renewal
 // interval; when it ends the lease is released. A lease that cannot be
 // renewed because it expired or another holder took the key over is reported
-// lost; one that fails transiently is retried on the next renewal.
+// lost; one that fails transiently is retried on the next renewal. With
+// [Config.NoRenewal] the lease is never renewed: it ends one TTL after the
+// acquisition request was sent (earlier when ctx ends or it is released).
 func (e *Engine) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	e.mu.Lock()
 	if e.closed.Load() {
@@ -345,14 +362,19 @@ func (lk *lock) Release(ctx context.Context) error {
 
 // renewLoop renews the lease until renewCtx ends — Release stops it, or the
 // lock's context ended, in which case the loop releases the lease itself —
-// or the lease is lost. Each renewal is scheduled one renewal interval after
+// or the lease is lost. With [Config.NoRenewal] it only waits: the lease
+// ends one TTL after leaseStart, or when renewCtx ends first. Each renewal is scheduled one renewal interval after
 // the previous lease start (the acquisition or the last successful renewal
 // request), so it always precedes that lease's deadline however late a reply
 // arrived.
 func (lk *lock) renewLoop(lockCtx, renewCtx context.Context, leaseStart time.Time) {
 	e := lk.engine
 	defer close(lk.done)
-	timer := time.NewTimer(max(0, leaseStart.Add(e.cfg.Interval).Sub(e.Now())))
+	wait := e.cfg.Interval
+	if e.cfg.NoRenewal {
+		wait = e.cfg.TTL
+	}
+	timer := time.NewTimer(max(0, leaseStart.Add(wait).Sub(e.Now())))
 	defer timer.Stop()
 	for {
 		select {
@@ -368,6 +390,10 @@ func (lk *lock) renewLoop(lockCtx, renewCtx context.Context, leaseStart time.Tim
 			}
 			return
 		case <-timer.C:
+			if e.cfg.NoRenewal {
+				lk.expire()
+				return
+			}
 			attempt := e.Now()
 			if attempt.Sub(leaseStart) >= e.cfg.TTL {
 				// No renewal is confirmed within the lease: ownership can no
@@ -420,6 +446,18 @@ func (lk *lock) renew(ctx context.Context) (renewed, keep bool) {
 		return false, false
 	}
 	return true, true
+}
+
+// expire records that a hard lease ([Config.NoRenewal]) reached its end and
+// unregisters the lock. The store's lease started no earlier than the local
+// lease start, so it ends by itself at most a round trip later; it is not
+// released.
+func (lk *lock) expire() {
+	lk.engine.cfg.Logger.Debug("hard lock lease ended", slog.String("key", lk.key))
+	lk.guard <- struct{}{}
+	lk.ended = true
+	<-lk.guard
+	lk.engine.untrack(lk)
 }
 
 // lose records that the lease ended without a release and unregisters the

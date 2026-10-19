@@ -21,7 +21,7 @@ lock, err := factory.New(cfg.DistributionLock).
 | Provider | Requires |
 |----------|----------|
 | `nats` | `UseNATSConn` |
-| `mongo` | `UseMongoDB` |
+| `mongo` | `UseMongoDB` (`mongo.ensureIndexes: true` reconciles the cleanup TTL index during `Build`; `ttl`, `renewRatio`, `withoutRenewal`, `expiredCleanup`, `expiredCleanupGrace` map onto the provider options) |
 | `sqldb` | `UseSQLDB` |
 
 ## Methods
