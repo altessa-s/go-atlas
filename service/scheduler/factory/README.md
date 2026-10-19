@@ -52,6 +52,7 @@ per-process random ID).
 | `UseCollector` | Sets the metrics collector for the scheduler |
 | `UseReadinessProbe` | Sets the readiness probe that gates dispatch (`scheduler.WithReadinessProbe`) |
 | `UseLeaderElector` | Sets the leader elector for distributed scheduling |
+| `UsePageTokens` | Sets the `keyset.Codec` signing paginated-list cursors (`scheduler.WithPageTokens`); takes precedence over the `paging` config section (signingKey, previousKeys, tokenTTL); without either the paginated lists fail with `ErrPageTokensNotConfigured` |
 | `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends (set `storage.mongo.ensureIndexes: true` to create the indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends (set `storage.redis.ensureIndexes: true` to create the RediSearch indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
 | `UseSQLDB` | Sets the `*sql.DB` handle for SQL storage backends (set `storage.sqldb.ensureSchema: true` to create the schema during `Build`; otherwise create it first: `EnsureSchema` on a `sqldb.New` storage with the same handle, dialect and tables, or migrations) |

@@ -5,10 +5,15 @@
 package scheduler
 
 import (
+	"bytes"
+	"encoding/base64"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/data/keyset"
 )
 
 func TestPageRequest_ClampLimit(t *testing.T) {
@@ -33,73 +38,117 @@ func TestPageRequest_ClampLimit(t *testing.T) {
 	}
 }
 
-func TestEncodeDecodeTaskCursor(t *testing.T) {
-	filterExpr := `status == 1`
-	token := encodeTaskCursor("task-42", filterExpr)
-	assert.NotEmpty(t, token)
+func newPagingScheduler(t *testing.T, opts ...Option) *Scheduler {
+	t.Helper()
+	return New(nil, append([]Option{WithEphemeralPageTokens()}, opts...)...)
+}
 
-	cur, err := decodeTaskCursor(token, filterExpr)
+func TestTaskCursor_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	s := newPagingScheduler(t)
+	token, err := s.encodeTaskCursor("task-42", `status == 1`)
+	require.NoError(t, err)
+	require.NotEmpty(t, token)
+
+	cur, err := s.decodeTaskCursor(token, `status == 1`)
 	require.NoError(t, err)
 	assert.Equal(t, "task-42", cur.LastID)
 }
 
-func TestDecodeTaskCursor_InvalidBase64(t *testing.T) {
-	_, err := decodeTaskCursor("not-valid-base64!!!", "")
-	assert.ErrorIs(t, err, ErrInvalidCursor)
-}
+func TestTaskCursor_Rejected(t *testing.T) {
+	t.Parallel()
 
-func TestDecodeTaskCursor_FilterMismatch(t *testing.T) {
-	token := encodeTaskCursor("task-1", "status == 1")
-	_, err := decodeTaskCursor(token, "status == 2")
-	assert.ErrorIs(t, err, ErrInvalidCursor)
-}
-
-func TestDecodeTaskCursor_EmptyFilter(t *testing.T) {
-	token := encodeTaskCursor("task-1", "")
-	cur, err := decodeTaskCursor(token, "")
+	s := newPagingScheduler(t)
+	token, err := s.encodeTaskCursor("task-1", "status == 1")
 	require.NoError(t, err)
-	assert.Equal(t, "task-1", cur.LastID)
+	history, err := s.encodeHistoryCursor("task-1", 100, "h1", "status == 1")
+	require.NoError(t, err)
+	// The pre-keyset format: unsigned base64 JSON.
+	legacy := base64.RawURLEncoding.EncodeToString([]byte(`{"id":"task-1","fh":""}`))
+
+	tests := map[string]struct {
+		token, filter string
+		failure       keyset.Failure
+	}{
+		"not base64":      {token: "not-valid-base64!!!", failure: keyset.FailureMalformed},
+		"legacy unsigned": {token: legacy, failure: keyset.FailureMalformed},
+		"filter changed":  {token: token, filter: "status == 2", failure: keyset.FailureMalformed},
+		"history token":   {token: history, filter: "status == 1", failure: keyset.FailureMalformed},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := s.decodeTaskCursor(tc.token, tc.filter)
+			require.ErrorIs(t, err, ErrInvalidCursor)
+			assert.Equal(t, tc.failure, keyset.Classify(err))
+		})
+	}
 }
 
-func TestEncodeDecodeHistoryCursor(t *testing.T) {
-	filterExpr := `success == true`
-	token := encodeHistoryCursor(1700000000, "hist-99", filterExpr)
-	assert.NotEmpty(t, token)
+func TestHistoryCursor_RoundTrip(t *testing.T) {
+	t.Parallel()
 
-	cur, err := decodeHistoryCursor(token, filterExpr)
+	s := newPagingScheduler(t)
+	token, err := s.encodeHistoryCursor("task-a", 1700000000, "hist-99", `success == true`)
+	require.NoError(t, err)
+
+	cur, err := s.decodeHistoryCursor(token, "task-a", `success == true`)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1700000000), cur.LastStartedAt)
 	assert.Equal(t, "hist-99", cur.LastID)
 }
 
-func TestDecodeHistoryCursor_InvalidBase64(t *testing.T) {
-	_, err := decodeHistoryCursor("%%%invalid%%%", "")
-	assert.ErrorIs(t, err, ErrInvalidCursor)
+func TestHistoryCursor_BoundToTaskAndFilter(t *testing.T) {
+	t.Parallel()
+
+	s := newPagingScheduler(t)
+	token, err := s.encodeHistoryCursor("task-a", 100, "h1", "filter-a")
+	require.NoError(t, err)
+
+	_, err = s.decodeHistoryCursor(token, "task-a", "filter-b")
+	require.ErrorIs(t, err, ErrInvalidCursor)
+	_, err = s.decodeHistoryCursor(token, "task-b", "filter-a")
+	require.ErrorIs(t, err, ErrInvalidCursor)
+	_, err = s.decodeHistoryCursor("%%%invalid%%%", "task-a", "")
+	require.ErrorIs(t, err, ErrInvalidCursor)
 }
 
-func TestDecodeHistoryCursor_FilterMismatch(t *testing.T) {
-	token := encodeHistoryCursor(100, "h1", "filter-a")
-	_, err := decodeHistoryCursor(token, "filter-b")
-	assert.ErrorIs(t, err, ErrInvalidCursor)
+// TestCursor_SharedCodec checks that schedulers sharing a codec accept each
+// other's cursors, and that schedulers with their own random keys do not.
+func TestCursor_SharedCodec(t *testing.T) {
+	t.Parallel()
+
+	codec, err := keyset.New(bytes.Repeat([]byte{7}, keyset.MinKeyLength))
+	require.NoError(t, err)
+	a := newPagingScheduler(t, WithPageTokens(codec))
+	b := newPagingScheduler(t, WithPageTokens(codec))
+	token, err := a.encodeTaskCursor("task-1", "")
+	require.NoError(t, err)
+	cur, err := b.decodeTaskCursor(token, "")
+	require.NoError(t, err)
+	assert.Equal(t, "task-1", cur.LastID)
+
+	_, err = newPagingScheduler(t).decodeTaskCursor(token, "")
+	require.ErrorIs(t, err, ErrInvalidCursor, "an ephemeral scheduler signs with its own key")
 }
 
-func TestDecodeHistoryCursor_InvalidJSON(t *testing.T) {
-	// Base64-encode something that isn't valid JSON
-	_, err := decodeHistoryCursor("bm90LWpzb24", "")
-	assert.ErrorIs(t, err, ErrInvalidCursor)
-}
+func TestCursor_Expired(t *testing.T) {
+	t.Parallel()
 
-func TestFilterHash_Deterministic(t *testing.T) {
-	h1 := filterHash("status == 1")
-	h2 := filterHash("status == 1")
-	assert.Equal(t, h1, h2)
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	codec, err := keyset.New(bytes.Repeat([]byte{7}, keyset.MinKeyLength), keyset.WithClock(clock), keyset.WithTTL(time.Hour))
+	require.NoError(t, err)
+	issuer := newPagingScheduler(t, WithPageTokens(codec))
+	token, err := issuer.encodeTaskCursor("task-1", "")
+	require.NoError(t, err)
 
-	h3 := filterHash("status == 2")
-	assert.NotEqual(t, h1, h3)
-}
-
-func TestFilterHash_EmptyString(t *testing.T) {
-	h := filterHash("")
-	assert.NotEmpty(t, h)
-	assert.Len(t, h, 64) // SHA-256 hex is 64 chars
+	later, err := keyset.New(bytes.Repeat([]byte{7}, keyset.MinKeyLength),
+		keyset.WithClock(func() time.Time { return now.Add(2 * time.Hour) }), keyset.WithTTL(time.Hour))
+	require.NoError(t, err)
+	_, err = newPagingScheduler(t, WithPageTokens(later)).decodeTaskCursor(token, "")
+	require.ErrorIs(t, err, ErrInvalidCursor)
+	require.ErrorIs(t, err, keyset.ErrExpiredToken)
+	assert.Equal(t, keyset.FailureExpired, keyset.Classify(err))
 }
