@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 )
 
 func BenchmarkCache_Get(b *testing.B) {
@@ -71,5 +72,41 @@ func BenchmarkCache_GetOrCompute_IntKey(b *testing.B) {
 			return "value", nil
 		})
 		c.Remove(12345)
+	}
+}
+
+func BenchmarkExpirableCache_PutIfAbsent(b *testing.B) {
+	c := NewExpirableCache[string, int](1000, time.Minute)
+	c.Put("hit", 1)
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = c.PutIfAbsent("hit", 2)
+	}
+}
+
+func BenchmarkExpirableCache_CompareAndSwap(b *testing.B) {
+	c := NewExpirableCache[string, int](1000, time.Minute)
+	c.Put("k", 0)
+	b.ReportAllocs()
+	v := 0
+	for b.Loop() {
+		if c.CompareAndSwap("k", v, v+1) {
+			v++
+		}
+	}
+}
+
+// BenchmarkExpirableCache_PutFull inserts new keys into a full cache of live entries: the earliest-expiry bound skips the sweep, so
+// an insert does not scan the entries.
+func BenchmarkExpirableCache_PutFull(b *testing.B) {
+	c := NewExpirableCache[int, int](10000, time.Hour)
+	for i := range 10000 {
+		c.Put(i, i)
+	}
+	b.ReportAllocs()
+	i := 10000
+	for b.Loop() {
+		c.Put(i, i)
+		i++
 	}
 }

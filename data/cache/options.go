@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -51,6 +52,12 @@ type options struct {
 	// isolatedResults, set by [WithIsolatedResults], makes collapsed callers
 	// share serialized bytes and decode their own copy.
 	isolatedResults bool `opt:"-"`
+	// keyVersion, set by [WithKeyVersion] or [WithGeneration], is embedded in
+	// every key. Nil = unversioned keys.
+	keyVersion KeyVersionFunc `opt:"-"`
+	// invalidate, set by [WithGeneration], bumps the key version for
+	// [Cache.InvalidateAll].
+	invalidate func(context.Context) error `opt:"-"`
 }
 
 // WithFailOpen makes the cache an optimization that never fails a request on
@@ -78,5 +85,54 @@ func WithFailOpen(ioTimeout time.Duration) Option {
 func WithIsolatedResults() Option {
 	return func(o *options) {
 		o.isolatedResults = true
+	}
+}
+
+// WithKeyVersion embeds the version returned by version in every key, ahead of
+// the [WithKeyNamespace] namespace, for every operation including the
+// singleflight key of [Cache.GetWithFallback]. Changing the version orphans
+// every entry stored under an older one, and callers of a new version never
+// join a fallback started under an old one.
+//
+// When version returns an error the version is unknown and no cache entry is
+// read or written:
+//
+//   - [Cache.GetWithFallback] and [GetWithFallbackT] run the fallback directly
+//     in the caller (unshared, within [WithFallbackTimeout]) and store nothing,
+//     whatever the fail-open setting: the source of truth is always safe to
+//     read.
+//   - Get, Exists, Save, GetManyRaw and [GetManyT] return the error; with
+//     [WithFailOpen] they report a miss (Save: nil) instead.
+//   - Delete and DeleteMany return the error.
+//
+// Each such event increments cache_errors_total and
+// cache_fail_open_total{op="version"} (the latter only when degraded).
+// [WithKeyVersion] replaces an earlier [WithGeneration]; [Cache.InvalidateAll]
+// then returns [ErrNoGeneration]. A nil version disables key versioning.
+func WithKeyVersion(version KeyVersionFunc) Option {
+	return func(o *options) {
+		o.keyVersion = version
+		o.invalidate = nil
+	}
+}
+
+// WithGeneration versions every key with the generation of namespace in
+// store (see [WithKeyVersion] for the failure behavior) and makes
+// [Cache.InvalidateAll] bump it. With a store shared by several replicas
+// (data/cache/generation/storages/redis), an invalidation on one replica
+// reaches the caches of all of them within the store's staleness bound.
+// Panics if store is nil.
+//
+// Example:
+//
+//	c := cache.New(storage, cache.WithGeneration(redisgen.New(client), "catalog"))
+//	// after a write:
+//	_ = c.InvalidateAll(ctx)
+func WithGeneration(store GenerationStore, namespace string) Option {
+	panics.MustNonNil(store, "generation store must be provided")
+	version, invalidate := generationOptions(store, namespace)
+	return func(o *options) {
+		o.keyVersion = version
+		o.invalidate = invalidate
 	}
 }

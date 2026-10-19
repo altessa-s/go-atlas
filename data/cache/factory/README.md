@@ -26,6 +26,24 @@ required). Any other type, including `nats`, fails `Build` with an unsupported s
 | `memory` | FreeCache (in-process) | — |
 | `redis` | Redis | `UseRedisClient` |
 
+## Generation stores
+
+`NewGenerationStore(cfg)` builds the `generation.Store` that `cache.WithGeneration` consumes, from the same `CacheStorageConfig`:
+
+```go
+store, err := factory.NewGenerationStore(cfg.Cache).
+    UseRedisClient(redisClient).
+    UseRedisOptions(redisgen.WithMaxStaleness(500 * time.Millisecond)).
+    Build()
+```
+
+| Type | Store | Requires |
+|------|-------|----------|
+| `nil` / `memory` | in-process (`generation/storages/memory`), not shared | — |
+| `redis` | shared (`generation/storages/redis`), keys under `<keysPrefix>:generation:` | `UseRedisClient` |
+
+Any other type fails `Build`. Options passed to `UseRedisOptions` are applied after the derived key prefix, so an explicit `WithKeyPrefix` wins.
+
 ## Methods
 
 ### Constructor

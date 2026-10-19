@@ -25,11 +25,13 @@ type cacheMetrics struct {
 	fallbackDuration metrics.Timer
 
 	// fail_open_total, one pre-bound series per op; recorded only by a cache
-	// built with WithFailOpen.
+	// built with WithFailOpen, except op "version", which a read-through call
+	// also records when it skips the cache because the key version is unknown.
 	failOpenGet      metrics.Counter
 	failOpenDecode   metrics.Counter
 	failOpenSave     metrics.Counter
 	failOpenOverload metrics.Counter
+	failOpenVersion  metrics.Counter
 }
 
 // Values of the op label of the fail_open_total counter.
@@ -38,6 +40,7 @@ const (
 	failOpenOpDecode   = "decode"
 	failOpenOpSave     = "save"
 	failOpenOpOverload = "overload"
+	failOpenOpVersion  = "version"
 )
 
 func newCacheMetrics(c metrics.Collector, cacheName string) *cacheMetrics {
@@ -62,6 +65,7 @@ func newCacheMetrics(c metrics.Collector, cacheName string) *cacheMetrics {
 		failOpenDecode:   failOpenFor(failOpenOpDecode),
 		failOpenSave:     failOpenFor(failOpenOpSave),
 		failOpenOverload: failOpenFor(failOpenOpOverload),
+		failOpenVersion:  failOpenFor(failOpenOpVersion),
 		hits: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "hits_total",
 			Help:       "Total number of cache hits.",

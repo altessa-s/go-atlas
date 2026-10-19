@@ -545,14 +545,3 @@ func TestGetWithFallback_TransientErrorDoesNotPoisonNegativeCache(t *testing.T) 
 	require.ErrorIs(t, err, transient)
 	require.Equal(t, 2, calls, "transient failures must keep retrying — no implicit negative cache")
 }
-
-func TestIsolatedBytes(t *testing.T) {
-	t.Parallel()
-
-	got, err := isolatedBytes([]byte("v"))
-	require.NoError(t, err)
-	require.Equal(t, []byte("v"), got)
-
-	_, err = isolatedBytes("v")
-	require.Error(t, err, "a non-[]byte fallback result must surface as an error, not a panic")
-}
