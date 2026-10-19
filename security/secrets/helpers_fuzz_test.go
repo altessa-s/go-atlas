@@ -30,7 +30,7 @@ func FuzzValidateSecretKeyMatchesTheDocumentedShape(f *testing.F) {
 	f.Add("..")
 	f.Add("..0")
 	f.Add("UPPER_case-123")
-	f.Add("xxxx")
+	f.Add("κλειδί")
 	f.Add("a\x00b")
 	f.Add(strings.Repeat("a", 4096))
 
