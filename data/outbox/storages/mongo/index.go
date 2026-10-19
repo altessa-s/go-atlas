@@ -10,7 +10,7 @@ import (
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
+	datamongo "github.com/altessa-s/go-atlas/data/mongo"
 )
 
 // eventsIndexes defines MongoDB indexes for outbox events collection performance.
@@ -50,10 +50,8 @@ func (s *Store) createIndexes() error {
 	ctx, cancel := corectx.ApplyTimeout(s.ctx, s.indexTimeout)
 	defer cancel()
 
-	// Index creation is generally idempotent in MongoDB.
-	// If indexes already exist with the same specification, this operation will be a no-op.
-	_, err := s.collection.Indexes().CreateMany(ctx, eventsIndexes, mongoOptions.CreateIndexes()) //nolint:mnd
-	if err != nil {
+	// Idempotent: indexes that already exist with the same specification are a no-op.
+	if err := datamongo.EnsureIndexes(ctx, s.collection, eventsIndexes); err != nil {
 		return coreerrs.WrapOperationWithContext(err, "create MongoDB indexes", "collection '"+s.collectionName+"'")
 	}
 	return nil

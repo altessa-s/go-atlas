@@ -41,8 +41,9 @@ var (
 	// inclusion (1, true) and exclusion (0, false) are allowed.
 	ErrKeysetProjection = errors.New("mongo: projection rewrites a keyset sort field")
 	// ErrKeysetTokensRequired is returned by [FindPage] for a query with a
-	// page token but no codec.
-	ErrKeysetTokensRequired = errors.New("mongo: page token given without a keyset codec")
+	// page token but no codec. It wraps [keyset.ErrCodecRequired], so
+	// [keyset.Classify] reports it as a malformed token.
+	ErrKeysetTokensRequired = fmt.Errorf("mongo: %w", keyset.ErrCodecRequired)
 )
 
 // KeysetQuery describes one page of a [FindPage] read.
@@ -88,12 +89,13 @@ type keysetKey struct {
 // The token carries the sort values of the last document of a page and is
 // bound with codec to the filter, the sort and the subject: replaying it
 // under another filter, sort or principal fails with the [keyset] errors. A
-// nil codec reads a single page and issues no Next token. Every document
-// must hold a comparable scalar of one BSON type in each sort field (see
-// [ErrKeysetMissingKey]); an index on the sort fields keeps each page a
-// range scan. Continuation is keyset-based, not a snapshot: documents
-// inserted ahead of the position appear on later pages. Documents are
-// decoded with the collection's registry.
+// nil codec reads a single page and issues no Next token; a page token then
+// fails with [ErrKeysetTokensRequired]. Every document must hold a comparable
+// scalar of one BSON type in each sort field (see [ErrKeysetMissingKey]); an
+// index on the sort fields keeps each page a range scan. Continuation is
+// keyset-based, not a snapshot: documents inserted ahead of the position
+// appear on later pages. Documents are decoded with the collection's
+// registry.
 func FindPage[T any](ctx context.Context, coll *mongo.Collection, codec *keyset.Codec, q KeysetQuery) (KeysetPage[T], error) {
 	keys, err := keysetKeys(q.Sort)
 	if err != nil {
@@ -126,11 +128,7 @@ func FindPage[T any](ctx context.Context, coll *mongo.Collection, codec *keyset.
 		filter = bson.D{}
 	}
 
-	limit := q.Limit
-	if limit <= 0 {
-		limit = DefaultKeysetPageSize
-	}
-	limit = min(limit, MaxKeysetPageSize)
+	limit := int64(keyset.PageSize(q.Limit, DefaultKeysetPageSize, MaxKeysetPageSize))
 
 	sort := make(bson.D, 0, len(keys))
 	for _, k := range keys {

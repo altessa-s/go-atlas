@@ -6,24 +6,30 @@ package errs
 
 import (
 	"errors"
+	"fmt"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 var (
-	// ErrInstanceBusy means another invocation holds the execution lease.
-	ErrInstanceBusy = errors.New("saga: instance is executing")
+	// ErrInstanceBusy means another invocation holds the execution lease. It
+	// wraps [coreerrs.ErrBusy].
+	ErrInstanceBusy = fmt.Errorf("saga: instance is executing: %w", coreerrs.ErrBusy)
 	// ErrInstanceNotFound is returned by Store.Get and Store.Update when no
-	// saga instance exists for the requested ID.
-	ErrInstanceNotFound = errors.New("saga: instance not found")
+	// saga instance exists for the requested ID. It wraps [coreerrs.ErrNotFound].
+	ErrInstanceNotFound = fmt.Errorf("saga: instance %w", coreerrs.ErrNotFound)
 
 	// ErrInstanceExists is returned by Store.Create when an instance with the
-	// same ID already exists. Callers use it to make Start idempotent.
-	ErrInstanceExists = errors.New("saga: instance already exists")
+	// same ID already exists. Callers use it to make Start idempotent. It wraps
+	// [coreerrs.ErrAlreadyExists].
+	ErrInstanceExists = fmt.Errorf("saga: instance %w", coreerrs.ErrAlreadyExists)
 
 	// ErrVersionConflict is returned by Store.Update when the persisted
 	// version no longer matches the version carried by the supplied instance,
 	// i.e. another coordinator advanced it concurrently. It is a benign signal:
 	// the losing caller should drop the instance and let the winner proceed.
-	ErrVersionConflict = errors.New("saga: optimistic concurrency conflict")
+	// It wraps [coreerrs.ErrConflict].
+	ErrVersionConflict = fmt.Errorf("saga: optimistic concurrency: %w", coreerrs.ErrConflict)
 
 	// ErrDefinitionNotFound is returned when an orchestrator is asked to resume
 	// an instance whose persisted definition name does not match the

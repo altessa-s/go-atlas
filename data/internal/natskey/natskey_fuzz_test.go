@@ -19,7 +19,7 @@ import (
 func FuzzEncode(f *testing.F) {
 	for _, seed := range []string{
 		"", "=", "==", "=3A", "a=3Ab", "a:b", ".", "..", "a..b", ".a.", "a/b//c",
-		"a*b>c", "a b", "\x00", "xxxx.ü", "\xff\xfe", "idk:POST:/orders:123", "2001:db8::1",
+		"a*b>c", "a b", "\x00", "κλειδί.ü", "\xff\xfe", "idk:POST:/orders:123", "2001:db8::1",
 	} {
 		f.Add(seed)
 	}

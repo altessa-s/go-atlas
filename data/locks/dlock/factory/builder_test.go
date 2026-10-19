@@ -147,6 +147,44 @@ func TestBuild_Mongodb(t *testing.T) {
 	})
 }
 
+// TestBuild_MongoOptionsFromConfig checks that the provider settings reach
+// the provider (an invalid one fails Build) and that EnsureIndexes is the only
+// setting that makes Build talk to MongoDB.
+func TestBuild_MongoOptionsFromConfig(t *testing.T) {
+	t.Parallel()
+	client, err := mongodrv.Connect(mongoopts.Client().ApplyURI("mongodb://127.0.0.1:1").
+		SetServerSelectionTimeout(100 * time.Millisecond))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
+	build := func(cfg lockconfig.DistributionLockMongo) error {
+		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongo, Mongo: &cfg}).
+			UseMongoDB(client.Database("x")).Build(t.Context())
+		return err
+	}
+
+	hard := lockconfig.DefaultDistributionLockMongo()
+	hard.WithoutRenewal, hard.ExpiredCleanup, hard.ExpiredCleanupGrace = true, true, time.Minute
+	require.NoError(t, build(hard), "a hard lease with cleanup builds without I/O")
+
+	tooShort := lockconfig.DefaultDistributionLockMongo()
+	tooShort.TTL = 500 * time.Microsecond
+	require.Error(t, build(tooShort), "the TTL reaches the provider")
+
+	badRatio := lockconfig.DefaultDistributionLockMongo()
+	badRatio.TTL, badRatio.RenewRatio = 2*time.Millisecond, 0.1
+	require.Error(t, build(badRatio), "the renew ratio reaches the provider")
+	badRatio.WithoutRenewal = true
+	require.NoError(t, build(badRatio), "a hard lease ignores the renew ratio")
+
+	negative := lockconfig.DefaultDistributionLockMongo()
+	negative.ExpiredCleanup, negative.ExpiredCleanupGrace = true, -time.Second
+	require.Error(t, build(negative), "the cleanup grace reaches the provider")
+
+	ensure := lockconfig.DefaultDistributionLockMongo()
+	ensure.EnsureIndexes = true
+	require.Error(t, build(ensure), "EnsureIndexes reconciles the index during Build")
+}
+
 func TestBuild_SQL(t *testing.T) {
 	t.Parallel()
 	sqlCfg := func(ensure bool) *lockconfig.DistributionLock {

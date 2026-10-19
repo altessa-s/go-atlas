@@ -22,6 +22,11 @@
 // neither renew nor release the new holder's lease. Ending the context
 // releases the lease.
 //
+// [WithoutRenewal] makes every lease a hard lease of one TTL, never renewed.
+// [WithExpiredCleanup] lets a TTL index on expires_at, created by
+// [Locker.EnsureIndexes], delete documents a grace period after their lease
+// ended; fencing tokens are then monotonic only within that grace.
+//
 // # Usage
 //
 //	locker, err := mongo.New(db, mongo.WithTTL(15*time.Second))

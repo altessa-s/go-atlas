@@ -68,7 +68,7 @@ func (b *DLockBuilder) Build(ctx context.Context) (*dlock.DLock, error) {
 	case lockconfig.DistributionLockProviderNATS:
 		return b.createNatsDLock(ctx)
 	case lockconfig.DistributionLockProviderMongo:
-		return b.createMongoDLock()
+		return b.createMongoDLock(ctx)
 	case lockconfig.DistributionLockProviderSQL:
 		return b.createSQLDLock(ctx)
 	default:
@@ -102,19 +102,34 @@ func (b *DLockBuilder) createNatsDLock(ctx context.Context) (*dlock.DLock, error
 	return dlock.New(prov, b.applyDefaults()...), nil
 }
 
-// createMongoDLock creates a DLock with the MongoDB provider.
-func (b *DLockBuilder) createMongoDLock() (*dlock.DLock, error) {
-	if b.cfg.Mongo == nil {
+// createMongoDLock creates a DLock with the MongoDB provider. With
+// EnsureIndexes set it reconciles the cleanup TTL index through the
+// provider's idempotent EnsureIndexes, bounded by ensureSchemaTimeout;
+// otherwise it performs no I/O.
+func (b *DLockBuilder) createMongoDLock(ctx context.Context) (*dlock.DLock, error) {
+	cfg := b.cfg.Mongo
+	if cfg == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
 	if err := b.RequireDependency(b.mongoDB, "mongo database"); err != nil {
 		return nil, err
 	}
 	provOpts := []mongoprovider.Option{mongoprovider.WithLogger(b.Logger())}
-	provOpts = coreslices.AppendIf(provOpts, b.cfg.Mongo.Collection != "", mongoprovider.WithCollection(b.cfg.Mongo.Collection))
+	provOpts = coreslices.AppendIf(provOpts, cfg.Collection != "", mongoprovider.WithCollection(cfg.Collection))
+	provOpts = coreslices.AppendIf(provOpts, cfg.TTL > 0, mongoprovider.WithTTL(cfg.TTL))
+	provOpts = coreslices.AppendIf(provOpts, cfg.RenewRatio > 0, mongoprovider.WithRenewRatio(cfg.RenewRatio))
+	provOpts = coreslices.AppendIf(provOpts, cfg.WithoutRenewal, mongoprovider.WithoutRenewal())
+	provOpts = coreslices.AppendIf(provOpts, cfg.ExpiredCleanup, mongoprovider.WithExpiredCleanup(cfg.ExpiredCleanupGrace))
 	prov, err := mongoprovider.New(b.mongoDB, provOpts...)
 	if err != nil {
 		return nil, coreerrs.Provider("mongodb distributed lock", err)
+	}
+	if cfg.EnsureIndexes {
+		indexCtx, cancel := context.WithTimeout(ctx, ensureSchemaTimeout)
+		defer cancel()
+		if err := prov.EnsureIndexes(indexCtx); err != nil {
+			return nil, coreerrs.Provider("mongodb distributed lock", err)
+		}
 	}
 	return dlock.New(prov, b.applyDefaults()...), nil
 }
@@ -144,8 +159,9 @@ func (b *DLockBuilder) createSQLDLock(ctx context.Context) (*dlock.DLock, error)
 	return dlock.New(prov, b.applyDefaults()...), nil
 }
 
-// ensureSchemaTimeout bounds the schema creation createSQLDLock runs when the
-// config asks for it, so a lock wait cannot stall startup indefinitely.
+// ensureSchemaTimeout bounds the schema or index setup createSQLDLock and
+// createMongoDLock run when the config asks for it, so a lock wait cannot
+// stall startup indefinitely.
 const ensureSchemaTimeout = 30 * time.Second
 
 // applyDefaults returns builder default options.

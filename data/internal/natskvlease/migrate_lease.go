@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+
+	serviceid "github.com/altessa-s/go-atlas/service/id"
 )
 
 // ErrBucketMigrationLocked reports that another storage migration of the
@@ -78,10 +80,7 @@ func (h *KVHelper) acquireLease(ctx context.Context, bucket string) (*migrationL
 		return nil, err
 	}
 
-	id, err := newMigrationID()
-	if err != nil {
-		return nil, err
-	}
+	id := serviceid.NewHex(migrationIDBytes)
 	host, _ := os.Hostname()
 	value, err := json.Marshal(leaseOwner{ID: id, Host: host, PID: os.Getpid(), Started: time.Now().UTC()})
 	if err != nil {

@@ -13,6 +13,8 @@ import (
 )
 
 func TestSortDirectionAfterBsonRoundtrip(t *testing.T) {
+	t.Parallel()
+
 	// Sort from ParseSortString has int values
 	original := bson.D{{Key: "sort_fields.value", Value: 1}}
 	t.Logf("Original sort[0].Value type: %T, value: %v", original[0].Value, original[0].Value)
@@ -35,6 +37,8 @@ func TestSortDirectionAfterBsonRoundtrip(t *testing.T) {
 }
 
 func TestGetSortDirection_Int32(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		sort     bson.D
@@ -51,6 +55,7 @@ func TestGetSortDirection_Int32(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := getSortDirection(tt.sort)
 			require.Equal(t, tt.expected, got)
 		})
@@ -58,6 +63,8 @@ func TestGetSortDirection_Int32(t *testing.T) {
 }
 
 func TestBsonLookup(t *testing.T) {
+	t.Parallel()
+
 	// Simulate dictionaryItem with SortFields
 	type testItem struct {
 		Id         string            `bson:"_id"`
@@ -69,8 +76,8 @@ func TestBsonLookup(t *testing.T) {
 		Id:       "test-id",
 		CursorId: bson.NewObjectID(),
 		SortFields: map[string]string{
-			"value":    "xxxxx",
-			"category": "xxxxxxxxxxx",
+			"value":    "Agent",
+			"category": "Specialists",
 		},
 	}
 
@@ -86,7 +93,7 @@ func TestBsonLookup(t *testing.T) {
 
 	// Test dot notation lookup (bson.D nested doc)
 	val := BsonLookup(itemMap, "sort_fields.value")
-	require.Equal(t, "xxxxx", fmt.Sprint(val), "BsonLookup(sort_fields.value)")
+	require.Equal(t, "Agent", fmt.Sprint(val), "BsonLookup(sort_fields.value)")
 
 	// Test simple key (no dot)
 	val2 := BsonLookup(itemMap, "_id")
@@ -100,5 +107,5 @@ func TestBsonLookup(t *testing.T) {
 	cursorId, sortValue, err := extractCursorDataFromItem(item, "cursor_id", sort)
 	require.NoError(t, err, "extractCursorDataFromItem failed")
 	require.NotEmpty(t, cursorId, "cursorId is empty")
-	require.NotNil(t, sortValue, "sortValue is nil, expected 'xxxxx'")
+	require.NotNil(t, sortValue, "sortValue is nil, expected 'Agent'")
 }
