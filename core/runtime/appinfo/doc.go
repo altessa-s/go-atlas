@@ -37,4 +37,7 @@
 //	// Environment variables with prefix
 //	// If EnvPrefix is MYAPP, this reads MYAPP_CONFIG
 //	configFile := appinfo.GetEnvVar("CONFIG")
+//
+//	// The same prefix for the configuration loader: "MYAPP_"
+//	cfg := loader.New(nil, loader.WithEnvPrefix(appinfo.EnvKeyPrefix()))
 package appinfo

@@ -77,3 +77,48 @@ func TestHomeDir(t *testing.T) {
 	}
 	require.Equal(t, byte('/'), home[0], "expected absolute path, got %q", home)
 }
+
+// TestEnvKeyPrefix mutates the package-level EnvPrefix, so it is not
+// parallel.
+func TestEnvKeyPrefix(t *testing.T) {
+	saved := EnvPrefix
+	t.Cleanup(func() { EnvPrefix = saved })
+
+	tests := []struct {
+		prefix string
+		want   string
+	}{
+		{"", ""},
+		{"_", ""},
+		{"MYAPP", "MYAPP_"},
+		{"MYAPP_", "MYAPP_"},
+		{"MYAPP__", "MYAPP_"},
+		{"myapp", "MYAPP_"},
+		{"my-app", "MY_APP_"},
+		{"my.app", "MY_APP_"},
+		{" MYAPP ", "MYAPP_"},
+		{" MYAPP_ ", "MYAPP_"},
+		{"   ", ""},
+		{" _ ", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.prefix, func(t *testing.T) {
+			EnvPrefix = tt.prefix
+			require.Equal(t, tt.want, EnvKeyPrefix())
+		})
+	}
+}
+
+// TestGetEnvVarUsesKeyPrefix checks GetEnvVar reads the variable named by
+// EnvKeyPrefix followed by the key. It mutates EnvPrefix, so it is not
+// parallel.
+func TestGetEnvVarUsesKeyPrefix(t *testing.T) {
+	saved := EnvPrefix
+	t.Cleanup(func() { EnvPrefix = saved })
+
+	t.Setenv("APPINFO_KEYPFX_CONFIG", "value")
+	for _, prefix := range []string{"APPINFO_KEYPFX", "APPINFO_KEYPFX_", "appinfo-keypfx"} {
+		EnvPrefix = prefix
+		require.Equal(t, "value", GetEnvVar("config"), "prefix %q", prefix)
+	}
+}

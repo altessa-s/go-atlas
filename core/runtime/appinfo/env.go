@@ -39,6 +39,9 @@ const (
 	EnvVaultToken = "VAULT_TOKEN"
 )
 
+// envPrefixReplacer sanitizes [EnvPrefix] the same way init does.
+var envPrefixReplacer = strings.NewReplacer("-", "_", ".", "_")
+
 // envCache provides thread-safe caching of environment variable values.
 // This is useful for frequently accessed environment variables.
 var (
@@ -126,17 +129,39 @@ func ExpandPath(path string) string {
 	return path
 }
 
+// EnvKeyPrefix returns [EnvPrefix] normalized by [NormalizeEnvKeyPrefix]:
+// the form environment variable names start with. For example, both "MYAPP"
+// and "MYAPP_" yield "MYAPP_", and an empty EnvPrefix yields "".
+//
+// Pass it to the configuration loader so the loader and [GetEnvVar] read the
+// same names:
+//
+//	loader.New(nil, loader.WithEnvPrefix(appinfo.EnvKeyPrefix()))
+func EnvKeyPrefix() string {
+	return NormalizeEnvKeyPrefix(EnvPrefix)
+}
+
+// NormalizeEnvKeyPrefix returns prefix in the form environment variable names
+// start with: surrounding whitespace removed, "-" and "." replaced by "_",
+// uppercased, and ending with exactly one "_" separator. A prefix made only
+// of whitespace and separators yields "". The configuration loader
+// normalizes its prefix with this function too.
+func NormalizeEnvKeyPrefix(prefix string) string {
+	p := strings.TrimRight(envPrefixReplacer.Replace(strings.TrimSpace(prefix)), "_")
+	if p == "" {
+		return ""
+	}
+	return strings.ToUpper(p) + "_"
+}
+
 // GetEnvVar returns the value of the environment variable formed by prepending
-// [EnvPrefix] (uppercased, with a "_" separator) to key. For example, if
-// EnvPrefix is "MYAPP" and key is "config", the lookup is for "MYAPP_CONFIG".
-// A leading '~' in the value is expanded to [HomeDir].
+// [EnvKeyPrefix] to key, uppercased. For example, if EnvPrefix is "MYAPP" and
+// key is "config", the lookup is for "MYAPP_CONFIG". A leading '~' in the
+// value is expanded to [HomeDir].
 //
 // For lookups that do not require the prefix, use [Env] or [EnvOr] instead.
 func GetEnvVar(key string) string {
-	if EnvPrefix != "" {
-		key = strings.TrimRight(EnvPrefix, "_") + "_" + key
-	}
-	p := os.Getenv(strings.ToUpper(key))
+	p := os.Getenv(strings.ToUpper(EnvKeyPrefix() + key))
 	if len(p) > 0 && p[0] == '~' {
 		p = filepath.Join(HomeDir(), p[1:])
 	}
