@@ -32,6 +32,11 @@ type LoggerInterceptor struct {
 	// Set to true to include response content in logs for debugging purposes.
 	LogResponse bool `yaml:"logResponse" default:"false"`
 
+	// DebugRedact clears the values of fields marked with the protobuf debug_redact option
+	// (secrets, credentials) from the logged request/response payloads, at any depth.
+	// On by default; set it to false only when no message carries a secret.
+	DebugRedact bool `yaml:"debugRedact" default:"true"`
+
 	// IgnoreGrpcResponseCodes is a list of gRPC response codes to never log.
 	// Takes precedence over LogGrpcResponseCodes.
 	// Example: [0, 1] to ignore OK and CANCELED codes.
@@ -82,6 +87,7 @@ func DefaultLoggerInterceptor() LoggerInterceptor {
 		TimeFormat:          timeformat.RFC3339,
 		LogRequest:          false,
 		LogResponse:         true,
+		DebugRedact:         true,
 		EnableContextLogger: false,
 	}
 }

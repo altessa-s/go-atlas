@@ -61,3 +61,53 @@
 #  # The caller presenting a duplicate key is not verified to be the entity's creator unless the Keeper checks owners.
 #  # Default value: false
 #  exposeEntityID: false
+#
+#  # <string> URL query parameter carrying the key (such as request_id).
+#  # A non-empty value takes precedence over the header. Empty reads the header only.
+#  # Default value: not set
+#  keyQueryParam: requestId
+#
+#  # <string> Validator the key must pass.
+#  #   uuidv4  - a lowercase UUID v4
+#  #   opaque  - any visible ASCII characters (client request IDs), up to maxKeyLength
+#  #   pattern - keyPattern must match the whole key, up to maxKeyLength
+#  # Supported values: uuidv4, opaque, pattern
+#  # Default value: uuidv4
+#  keyFormat: uuidv4
+#
+#  # <string> Regular expression of the pattern key format (required with keyFormat: pattern).
+#  # Default value: not set
+#  keyPattern: "^req-[0-9a-f]{16}$"
+#
+#  # <int> Longest opaque or pattern key, in bytes; 0 means 128.
+#  # Default value: 0
+#  maxKeyLength: 0
+#
+#  # <list[string]> Request paths that require a key, whatever enforceMandatory says.
+#  # Default value: not set
+#  mandatoryPaths:
+#    - "/api/v1/orders"
+#
+#  # <list[string]> Regular expressions of request paths that require a key.
+#  # Default value: not set
+#  mandatoryPatterns:
+#    - "^/api/v1/payments"
+#
+#  # <bool> Write the stored status, replay headers and body of a completed 2xx response to a repeat
+#  # of the request instead of 422. The repeat's caller receives the original response:
+#  # scope keys per principal (Keeper owners) before enabling it.
+#  # Default value: false
+#  responseReplay: false
+#
+#  # <int64> Largest stored body, in bytes; 0 means 256 KiB, at most 1 MiB (the capture limit).
+#  # A larger body is not stored and its repeat is refused as already used.
+#  # Default value: 0
+#  maxReplaySize: 0
+#
+#  # <list[string]> Response headers stored and replayed; empty keeps the default list
+#  # (Content-Type, Content-Encoding, Content-Language, Content-Disposition, Location, ETag, Last-Modified).
+#  # Cookies and per-request headers should never be listed.
+#  # Default value: not set
+#  replayHeaders:
+#    - Content-Type
+#    - Location

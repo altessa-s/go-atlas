@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/transport/proxydial/factory"
 
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
@@ -110,7 +111,7 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 	t.Run("mode_url", func(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, _ := newProxyServer(t)
-		cfg := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: proxy.URL}
+		cfg := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: redacted.URL(proxy.URL)}
 		runProxiedGet(t, cfg)
 		require.Equal(t, "example.invalid", lastHost.Load())
 	})

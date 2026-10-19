@@ -1,0 +1,44 @@
+# Field mask configuration for partial updates and partial responses.
+# Applies the update_mask of Update requests to the resource before the handler runs
+# and filters the responses of read methods by their read_mask.
+# Per-method kinds and request extractors are set in code (gRPC server factory UseFieldMaskOptions).
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#fieldMask:
+#  # <bool> Enable the field mask interceptor.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip field mask handling for.
+#  # Methods should be specified in the format "/service.Service/Method".
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip field mask handling.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <bool> Skip the response-side read_mask filtering of read methods.
+#  # Set it when the handlers already apply the read mask.
+#  # Default value: false
+#  skipReadMask: false
+#
+#  # <bool> Treat an update_mask that is present but has no paths as "update every populated field".
+#  # When false, an explicit empty update_mask updates nothing.
+#  # Default value: false
+#  applyEmptyUpdateMask: false
+#
+#  # <string> Request field name of the update_mask / read_mask.
+#  # Default value: not set (update_mask, read_mask)
+#  maskFieldName: ""
+#
+#  # <string> Resource field of Update requests.
+#  # Default value: not set (the first non-mask message field of the request)
+#  resourceFieldName: ""
+#
+#  # <string> gRPC metadata key the read mask is taken from.
+#  # Default value: not set (x-goog-fieldmask)
+#  metadataReadMaskHeader: ""

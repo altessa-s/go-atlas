@@ -133,6 +133,7 @@ var templateCases = map[string][]templateRoot{
 	"grpc_interceptors/auth.yaml":            {root[grpcconfig.AuthInterceptor]("auth")},
 	"grpc_interceptors/cache.yaml":           {root[grpcconfig.CacheInterceptor]("cache")},
 	"grpc_interceptors/errstatus.yaml":       {root[grpcconfig.ErrStatusInterceptor]("errStatus")},
+	"grpc_interceptors/field_mask.yaml":      {root[grpcconfig.FieldMaskInterceptor]("fieldMask")},
 	"grpc_interceptors/geo_acl.yaml":         {root[grpcconfig.GeoACLInterceptor]("geoACL")},
 	"grpc_interceptors/health.yaml":          {root[grpcconfig.HealthInterceptor]("health")},
 	"grpc_interceptors/idempotency.yaml":     {root[grpcconfig.IdempotencyInterceptor]("idempotency")},

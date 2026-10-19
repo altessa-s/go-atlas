@@ -44,6 +44,38 @@
 #    # Default value: dlocks
 #    collection: dlocks
 #
+#    # <duration> Lease of a lock: a holder that stops renewing loses the lock this long
+#    # after its last renewal (with withoutRenewal: the whole lease). At least 1ms.
+#    # Default value: 10s
+#    ttl: "10s"
+#
+#    # <float64> Fraction of the TTL after which a lease is renewed, in (0, 1).
+#    # 0 keeps the provider default (1/3). Ignored with withoutRenewal.
+#    # Default value: 0
+#    renewRatio: 0
+#
+#    # <bool> Hard leases: a lease is never renewed and ends one TTL after it was taken,
+#    # so the work it guards must finish within the TTL.
+#    # Default value: false
+#    withoutRenewal: false
+#
+#    # <bool> Delete a lock document expiredCleanupGrace after its lease ended (TTL index
+#    # on expires_at), so the collection does not keep one document per key ever locked.
+#    # Fencing tokens are then monotonic only while a key is locked again within the grace.
+#    # Default value: false
+#    expiredCleanup: false
+#
+#    # <duration> How long a lock document outlives its lease with expiredCleanup,
+#    # rounded up to whole seconds (MongoDB's TTL monitor adds up to about a minute).
+#    # Default value: 0s
+#    expiredCleanupGrace: "0s"
+#
+#    # <bool> Create or update the cleanup TTL index (or drop it when expiredCleanup is
+#    # off) while building the lock. Leave false when indexes are managed elsewhere;
+#    # then call EnsureIndexes on the provider.
+#    # Default value: false
+#    ensureIndexes: false
+#
 #  # <object> SQL provider configuration, applicable only if the provider is 'sqldb'.
 #  # The *sql.DB is injected into the factory (UseSQLDB); the application chooses
 #  # and registers the driver.

@@ -77,12 +77,52 @@ type IdempotencyMiddleware struct {
 	// to be the principal that created the entity, unless the Keeper checks
 	// owners.
 	ExposeEntityID bool `yaml:"exposeEntityID" default:"false"`
+
+	// KeyQueryParam names a URL query parameter that carries the key
+	// (such as request_id). A non-empty value takes
+	// precedence over the header. Empty (the default) reads the header only.
+	KeyQueryParam string `yaml:"keyQueryParam"`
+
+	// KeyFormat selects the key validator: uuidv4 (lowercase UUID v4, the
+	// default), opaque (visible ASCII up to MaxKeyLength) or pattern
+	// (KeyPattern matching the whole key, up to MaxKeyLength).
+	KeyFormat middlewareconfig.IdempotencyKeyFormat `yaml:"keyFormat" default:"uuidv4"`
+
+	// KeyPattern is the regular expression of the pattern key format.
+	KeyPattern string `yaml:"keyPattern"`
+
+	// MaxKeyLength bounds opaque and pattern keys, in bytes; 0 is 128.
+	MaxKeyLength int `yaml:"maxKeyLength"`
+
+	// MandatoryPaths lists request paths that require a key, whatever
+	// EnforceMandatory says; ignored paths and safe methods stay unchecked.
+	MandatoryPaths []string `yaml:"mandatoryPaths"`
+
+	// MandatoryPatterns lists regular expressions of request paths that
+	// require a key, like MandatoryPaths.
+	MandatoryPatterns []string `yaml:"mandatoryPatterns"`
+
+	// ResponseReplay stores the status, ReplayHeaders and body of a completed
+	// 2xx response and writes them to a repeat of the request instead of
+	// 422. Off by default: the repeat's caller receives the
+	// original response, so scope keys per principal.
+	ResponseReplay bool `yaml:"responseReplay"`
+
+	// MaxReplaySize bounds a stored body, in bytes; 0 is 256 KiB, the cap is
+	// 1 MiB (the response capture limit). A larger body is not stored.
+	MaxReplaySize int64 `yaml:"maxReplaySize"`
+
+	// ReplayHeaders lists the response headers stored and replayed; empty
+	// keeps the default (Content-Type, Content-Encoding, Content-Language,
+	// Content-Disposition, Location, ETag, Last-Modified).
+	ReplayHeaders []string `yaml:"replayHeaders"`
 }
 
 // Validate performs validation of the IdempotencyMiddleware.
 func (c *IdempotencyMiddleware) Validate() error {
 	return c.ValidateBase(func() error {
-		return validationconfig.ValidateStruct(c,
+		rules := middlewareconfig.IdempotencyKeyRules(&c.KeyFormat, &c.KeyPattern, &c.MaxKeyLength, &c.MandatoryPaths, &c.MandatoryPatterns)
+		return validationconfig.ValidateStruct(c, append(rules,
 			validation.Field(&c.IdempotencyKeyHeader, validation.Required),
 			validation.Field(&c.IdempotencyKeyStatusHeader, validation.Required),
 			validation.Field(&c.IdempotencyKeyEntityIdHeader, validation.Required),
@@ -90,7 +130,9 @@ func (c *IdempotencyMiddleware) Validate() error {
 				middlewareconfig.FallbackBehaviorRule()),
 			validation.Field(&c.KeyLogMode, validation.Required,
 				ozzo_rules.OneOf(AllIdempotencyKeyLogModes()...)),
-		)
+			validation.Field(&c.MaxReplaySize, validation.Min(int64(0))),
+			validation.Field(&c.ReplayHeaders, validation.Each(validation.Required)),
+		)...)
 	})
 }
 
@@ -106,6 +148,7 @@ func DefaultIdempotencyMiddleware() IdempotencyMiddleware {
 		FallbackBehavior:             middlewareconfig.FallbackBehaviorDeny,
 		EnforceMandatory:             false,
 		KeyLogMode:                   IdempotencyKeyLogModeHashed,
+		KeyFormat:                    middlewareconfig.IdempotencyKeyFormatUUIDv4,
 	}
 }
 

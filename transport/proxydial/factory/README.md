@@ -9,8 +9,9 @@ Package `factory` provides a fluent builder that materializes a [`proxyconfig.Co
 gRPC's `WithContextDialer`, or any custom protocol that does not go through `net/http`.
 
 HTTP and gRPC clients should instead use this package's `HTTPClientOptions(cfg.Proxy)` / `GRPCClientOptions(cfg.Proxy)`, which map the config to client
-options; the `DialerBuilder` targets consumers without an httpclient/grpcclient in the picture. Explicit proxy modes on the HTTP client also require
-`httpclient.WithoutSSRFProtection`.
+options; the `DialerBuilder` targets consumers without an httpclient/grpcclient in the picture. Explicit proxy modes on the HTTP client work with its
+SSRF protection on: the dial to the proxy is guarded (allow a private proxy network with `httpclient.WithSSRFAllowedCIDRs`) and the proxy resolves
+targets.
 
 ## Quick start
 
@@ -29,6 +30,11 @@ if dial != nil {
 
 A nil `cfg`, an empty `Mode`, or `proxyconfig.ModeNone` yields `(nil, nil)` — caller treats that as "use a direct dial" and skips wiring a custom dialer
 entirely.
+
+`Build`, `HTTPClientOptions` and `GRPCClientOptions` validate the config first (`proxyconfig.Config.Validate`). A malformed URL, or one whose
+credentials spill into the host or path (an unencoded `/` or `@` in the password, see `redacted.URL.HasAmbiguousUserInfo`), is rejected with an error
+that quotes no part of the URL, before any DNS lookup or dial. A validated URL's host cannot carry credentials, so proxydial dial errors may name the
+proxy `host:port`.
 
 ## Methods
 

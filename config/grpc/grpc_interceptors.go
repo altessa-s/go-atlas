@@ -40,6 +40,8 @@ type Interceptors struct {
 	Tracing *TracingInterceptor `yaml:"tracing" default:"-"`
 	// ErrStatus contains configuration for error status interceptor.
 	ErrStatus *ErrStatusInterceptor `yaml:"errStatus" default:"-"`
+	// FieldMask contains configuration for the update/read field mask interceptor.
+	FieldMask *FieldMaskInterceptor `yaml:"fieldMask" default:"-"`
 }
 
 // Validate performs validation of the Interceptors.
@@ -60,6 +62,7 @@ func (c *Interceptors) Validate() error {
 		validation.Field(&c.Metrics, validation.NilOrNotEmpty),
 		validation.Field(&c.Tracing, validation.NilOrNotEmpty),
 		validation.Field(&c.ErrStatus, validation.NilOrNotEmpty),
+		validation.Field(&c.FieldMask, validation.NilOrNotEmpty),
 	)
 }
 
@@ -80,6 +83,7 @@ func DefaultInterceptors() Interceptors {
 	metricsCfg := DefaultMetricsInterceptor()
 	tracing := DefaultTracingInterceptor()
 	errStatus := DefaultErrStatusInterceptor()
+	fieldMask := DefaultFieldMaskInterceptor()
 
 	return Interceptors{
 		Cache:       &cache,
@@ -96,5 +100,6 @@ func DefaultInterceptors() Interceptors {
 		Metrics:     &metricsCfg,
 		Tracing:     &tracing,
 		ErrStatus:   &errStatus,
+		FieldMask:   &fieldMask,
 	}
 }

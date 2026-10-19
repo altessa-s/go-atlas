@@ -7,6 +7,8 @@ package schedulerconfig
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/redacted"
+
 	validationconfig "github.com/altessa-s/go-atlas/config/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -390,6 +392,37 @@ type Config struct {
 	// HistoryStorage keeps execution history in a backend of its own instead
 	// of Storage. If nil, history stays in Storage.
 	HistoryStorage *HistoryStorageConfig `yaml:"historyStorage" default:"-"`
+
+	// Paging configures the signed cursors of the paginated task and history
+	// lists. Without it those lists fail unless a codec is injected
+	// (UsePageTokens); scheduling itself does not need it.
+	Paging *Paging `yaml:"paging" default:"-"`
+}
+
+// Paging configures the signed page tokens of the paginated scheduler lists.
+type Paging struct {
+	// SigningKey signs page tokens: at least 32 bytes, the same on every
+	// instance serving the lists.
+	SigningKey redacted.RedactedString `yaml:"signingKey"`
+
+	// PreviousKeys still verify tokens signed before a key rotation.
+	PreviousKeys []redacted.RedactedString `yaml:"previousKeys"`
+
+	// TokenTTL is how long a page token stays valid; 0 keeps the default (24h).
+	TokenTTL time.Duration `yaml:"tokenTTL" default:"24h"`
+}
+
+// minPagingKeyLength mirrors keyset.MinKeyLength; schemas do not import
+// runtime packages.
+const minPagingKeyLength = 32
+
+// Validate performs validation of the paging configuration.
+func (p *Paging) Validate() error {
+	return validationconfig.ValidateStruct(p,
+		validation.Field(&p.SigningKey, validation.Required, validation.Length(minPagingKeyLength, 0)),
+		validation.Field(&p.PreviousKeys, validation.Each(validation.Length(minPagingKeyLength, 0))),
+		validation.Field(&p.TokenTTL, validation.Min(time.Duration(0))),
+	)
 }
 
 // Default returns a Scheduler configuration with default values.
@@ -414,5 +447,6 @@ func (c *Config) Validate() error {
 		validation.Field(&c.InstanceID, validation.Length(0, MaxSchedulerInstanceIDLength)),
 		validation.Field(&c.Storage),
 		validation.Field(&c.HistoryStorage),
+		validation.Field(&c.Paging),
 	)
 }

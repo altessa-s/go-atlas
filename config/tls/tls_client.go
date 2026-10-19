@@ -89,8 +89,10 @@ type Client struct {
 	SkipVerifyMode SkipVerifyMode `yaml:"skipVerifyMode" default:"enforce"`
 }
 
-// Normalize processes the Tls client configuration by resolving file paths.
-// It attempts to locate certificate and key files using the findFile helper.
+// Normalize processes the Tls client configuration by resolving file paths:
+// relative Certificate, PrivateKey and CACerts paths are resolved against the
+// working directory, absolute ones are kept, and a missing file keeps its path
+// so [Client.Validate] reports it (it is never silently cleared).
 // If SkipVerify is true but the ATLAS_ALLOW_INSECURE_TLS environment variable
 // is not set to "true", SkipVerify is reset to false.
 // An empty SkipVerifyMode is defaulted to the production-safe
@@ -99,11 +101,11 @@ type Client struct {
 // of failing the factory with a confusing empty-mode error.
 // This method should be called after loading configuration.
 func (c *Client) Normalize() {
-	c.Certificate = utils.FindFile(c.Certificate)
-	c.PrivateKey = utils.FindFile(c.PrivateKey)
+	c.Certificate = utils.ResolvePath(c.Certificate)
+	c.PrivateKey = utils.ResolvePath(c.PrivateKey)
 
 	for i, ca := range c.CACerts {
-		c.CACerts[i] = utils.FindFile(ca)
+		c.CACerts[i] = utils.ResolvePath(ca)
 	}
 
 	if c.SkipVerifyMode == "" {
@@ -115,14 +117,21 @@ func (c *Client) Normalize() {
 	}
 }
 
-// Validate performs validation on the Tls client configuration.
-// It verifies that certificate, private key, and CA certificate files exist.
+// Validate performs validation on the Tls client configuration. Every path
+// that is set must name an existing file; an empty Certificate and PrivateKey
+// mean "no client certificate" and are valid, so a CA-only configuration
+// passes. Certificate and PrivateKey must be set together, and every CACerts
+// entry must be set.
 //
 // Returns an error if any validation rules fail.
 func (c *Client) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Certificate, ozzo_rules.File()),
-		validation.Field(&c.PrivateKey, ozzo_rules.File()),
+		validation.Field(&c.Certificate,
+			validation.When(c.PrivateKey != "", validation.Required.Error("is required when privateKey is set")),
+			validation.When(c.Certificate != "", ozzo_rules.File())),
+		validation.Field(&c.PrivateKey,
+			validation.When(c.Certificate != "", validation.Required.Error("is required when certificate is set")),
+			validation.When(c.PrivateKey != "", ozzo_rules.File())),
 		validation.Field(&c.CACerts, validation.Each(ozzo_rules.File())),
 	)
 }
