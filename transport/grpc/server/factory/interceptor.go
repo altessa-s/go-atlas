@@ -543,9 +543,10 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 // WithFieldBehaviorInterceptor adds the field_behavior sanitizer to the chain.
 // It is always on (not config-gated): for protos without google.api.field_behavior
 // annotations it is a no-op, and for annotated ones it keeps INPUT_ONLY fields out
-// of responses and OUTPUT_ONLY/IDENTIFIER fields out of accepted requests. Ordering
-// is handled by its Dependencies() (it runs after auth), so response sanitization is
-// enforced by default rather than being opt-in. Options supplied with
+// of responses, OUTPUT_ONLY fields out of accepted requests, and IDENTIFIER fields
+// out of Create requests (an Update keeps its IDENTIFIER, which addresses the
+// resource per AIP-203). Ordering is handled by its Dependencies() (it runs after
+// auth), so response sanitization is enforced by default rather than being opt-in. Options supplied with
 // [ServerBuilder.UseFieldBehaviorOptions] are applied after the builder's own.
 func (b *ServerBuilder) WithFieldBehaviorInterceptor() *ServerBuilder {
 	opts := make([]fieldbehavior.Option, 0, len(b.fieldBehaviorOptions)+1)

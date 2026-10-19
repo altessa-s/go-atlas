@@ -18,6 +18,9 @@ The short method name (the part after the final `/`) is matched case-sensitively
 | `Update*`, `Patch*`, `BatchUpdate*` | `KindUpdate` | `StripUpdate(req)` runs in `PreCall`     |
 | anything else                | `KindNone`    | request untouched, response still stripped     |
 
+Following AIP-203, `IDENTIFIER` fields are cleared on Create (the server assigns them) and preserved on Update, where they address the resource being
+updated — also when the resource is nested in an `Update*Request` wrapper. `OUTPUT_ONLY` is cleared on both; `IMMUTABLE` on Update only.
+
 Successful responses always pass through `StripResponse` (INPUT_ONLY → cleared) unless [`WithSkipResponse`](#options) is set or the method is classified
 `KindSkip`. The handler-error path skips response stripping because gRPC drops the body anyway.
 

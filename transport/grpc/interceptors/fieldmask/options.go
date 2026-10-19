@@ -216,8 +216,11 @@ func WithMetadataReadMaskHeader(name string) Option {
 // resource sub-message is present, the interceptor synthesizes a mask via
 // [pbfieldmask.FromSetFields] over the resource and applies it normally.
 // The synthesized mask is then validated like an explicit one — IMMUTABLE
-// and IDENTIFIER fields raise UpdateMaskBehaviorError, OUTPUT_ONLY fields
-// are stripped before the cleaned mask is written back.
+// fields raise UpdateMaskBehaviorError, OUTPUT_ONLY fields are stripped
+// before the cleaned mask is written back. IDENTIFIER fields are left out of
+// the synthesized mask: they address the resource (AIP-203). This includes
+// identifiers inside populated singular sub-messages; a sub-message carrying
+// only its identifier is left out rather than replaced as a whole.
 //
 // By default an explicit empty update_mask updates nothing: ApplyUpdateMask
 // clears the resource. The fallback does not fire when the update_mask field

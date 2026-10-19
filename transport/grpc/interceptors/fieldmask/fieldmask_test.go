@@ -6,6 +6,7 @@ package fieldmask_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -141,6 +142,47 @@ func TestServerInterceptor_UpdateMask_OutputOnlyStripped(t *testing.T) {
 
 	require.Equal(t, []string{"name"}, got.GetUpdateMask().GetPaths(),
 		"OUTPUT_ONLY entry must be removed from the writeback mask")
+}
+
+// TestServerInterceptor_UpdateMask_Identifier pins AIP-203 on the update
+// path: the IDENTIFIER in the resource body addresses the resource, so it is
+// kept and is not an error, and it does not leak into the writeback mask (the
+// handler sees only the fields the client asked to update). Naming the
+// IDENTIFIER in the mask is still a violation: it cannot be changed.
+func TestServerInterceptor_UpdateMask_Identifier(t *testing.T) {
+	t.Parallel()
+
+	t.Run("body identifier kept, not in writeback", func(t *testing.T) {
+		t.Parallel()
+
+		uni := newUnary(t)
+		req := &pb.UpdateResourceRequest{
+			Resource:   &pb.Resource{Id: "id-1", Name: "n", Description: "d"},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
+		}
+
+		seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+		require.NoError(t, err)
+
+		got := seenReq.(*pb.UpdateResourceRequest)
+		require.Equal(t, "id-1", got.GetResource().GetId(), "IDENTIFIER addresses the resource")
+		require.Empty(t, got.GetResource().GetDescription(), "unmasked field cleared")
+		require.Equal(t, []string{"name"}, got.GetUpdateMask().GetPaths(), "IDENTIFIER not added to the writeback mask")
+	})
+
+	t.Run("identifier in mask rejected", func(t *testing.T) {
+		t.Parallel()
+
+		uni := newUnary(t)
+		req := &pb.UpdateResourceRequest{
+			Resource:   &pb.Resource{Id: "id-2", Name: "n"},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"id"}},
+		}
+
+		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+		require.Contains(t, status.Convert(err).Message()+fmt.Sprint(status.Convert(err).Details()), "identifier")
+	})
 }
 
 func TestServerInterceptor_UpdateMask_NoMaskPassthrough(t *testing.T) {
