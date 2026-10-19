@@ -12,35 +12,39 @@ secrets never cross the wire in the wrong direction.
 
 ## Functions
 
-| Function          | Default behaviors                              | Typical use                                 |
-|-------------------|------------------------------------------------|---------------------------------------------|
-| `StripCreate`     | `OUTPUT_ONLY`, `IDENTIFIER`                    | Create request payloads                     |
-| `StripUpdate`     | `OUTPUT_ONLY`, `IDENTIFIER`, `IMMUTABLE`       | Update request payloads                     |
-| `StripResponse`   | `INPUT_ONLY`                                   | Server responses (passwords, auth tokens)   |
-| `Strip`           | none (no-op unless `WithBehaviors` is passed)  | Custom combinations                         |
+| Function        | Default behaviors                             | Typical use                                  |
+|-----------------|-----------------------------------------------|----------------------------------------------|
+| `StripCreate`   | `OUTPUT_ONLY`, `IDENTIFIER`                   | Create request payloads                      |
+| `StripUpdate`   | `OUTPUT_ONLY`, `IMMUTABLE`                    | Update request payloads (keeps `IDENTIFIER`) |
+| `StripResponse` | `INPUT_ONLY`                                  | Server responses (passwords, auth tokens)    |
+| `Strip`         | none (no-op unless `WithBehaviors` is passed) | Custom combinations                          |
 
 ## Options
 
-| Option           | Default | Description                                                                                                  |
-|------------------|---------|--------------------------------------------------------------------------------------------------------------|
-| `WithBehaviors`  | n/a     | Override the behavior set. Passing it to a convenience function replaces (not extends) the default set.      |
-| `WithStrict`     | off     | Return `*BehaviorViolationError` listing populated stripped fields instead of clearing them.                 |
-| `WithMaxDepth`   | 32      | Cap on traversal depth. Bounds stack growth on fuzzed input; proto schemas may not contain cycles.           |
+| Option          | Default | Description                                                                                             |
+|-----------------|---------|---------------------------------------------------------------------------------------------------------|
+| `WithBehaviors` | n/a     | Override the behavior set. Passing it to a convenience function replaces (not extends) the default set. |
+| `WithStrict`    | off     | Return `*BehaviorViolationError` listing populated stripped fields instead of clearing them.            |
+| `WithMaxDepth`  | 32      | Cap on traversal depth. Bounds stack growth on fuzzed input; proto schemas may not contain cycles.      |
 
 ## Traversal semantics
 
-| Field shape                                      | Behavior on field      | Behavior absent                                |
-|--------------------------------------------------|------------------------|------------------------------------------------|
-| Scalar, well-known type                          | Field cleared          | No-op                                          |
-| Singular nested message                          | Whole subtree cleared  | Recursive descent into populated subtree       |
-| Repeated of messages                             | Whole list cleared     | Recursive descent into each element            |
-| Map with message values                          | Whole map cleared      | Recursive descent into each value              |
-| Repeated/map of scalars                          | Field cleared          | No-op                                          |
-| Oneof case                                       | Case cleared if set    | Recursive descent if the case is a message     |
+| Field shape             | Behavior on field     | Behavior absent                            |
+|-------------------------|-----------------------|--------------------------------------------|
+| Scalar, well-known type | Field cleared         | No-op                                      |
+| Singular nested message | Whole subtree cleared | Recursive descent into populated subtree   |
+| Repeated of messages    | Whole list cleared    | Recursive descent into each element        |
+| Map with message values | Whole map cleared     | Recursive descent into each value          |
+| Repeated/map of scalars | Field cleared         | No-op                                      |
+| Oneof case              | Case cleared if set   | Recursive descent if the case is a message |
 
 Fields carrying multiple behaviors (for example `REQUIRED` + `IMMUTABLE`) match when at least one of their behaviors intersects the configured set.
 `REQUIRED` and `UNORDERED_LIST` carry validation/semantic meaning rather than write-side restrictions and are not part of any default set; pass them
 through `WithBehaviors` explicitly when needed.
+
+`StripUpdate` used to clear `IDENTIFIER` fields as well. It now keeps them (AIP-203: the identifier addresses the resource), so a caller that persists
+the stripped payload as it is must exclude the identifiers from what it writes. For the former behavior pass `WithBehaviors` with `OUTPUT_ONLY`,
+`IDENTIFIER` and `IMMUTABLE`; see the [migration notes](../../../docs/domain/proto/fieldbehavior.md#migrating-from-the-earlier-update-defaults).
 
 ## Example
 

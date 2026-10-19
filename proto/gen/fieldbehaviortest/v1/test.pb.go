@@ -33,7 +33,8 @@ const (
 // internal/behavior test suites under domain/proto.
 type Resource struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// IDENTIFIER: server-minted ID. Stripped from Create and Update payloads.
+	// IDENTIFIER: server-minted ID. Stripped from Create payloads, kept on Update
+	// where it addresses the resource (AIP-203).
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// REQUIRED: caller must supply on writes. Never stripped.
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`

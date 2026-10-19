@@ -79,9 +79,10 @@ func StripCreate(msg proto.Message, opts ...Option) error {
 	return Strip(msg, slices.Concat([]Option{WithBehaviors(DefaultCreateBehaviors...)}, opts)...)
 }
 
-// StripUpdate clears fields marked OUTPUT_ONLY, IDENTIFIER, or IMMUTABLE.
-// Use it on the resource embedded in an Update request before applying the
-// update mask.
+// StripUpdate clears fields marked OUTPUT_ONLY or IMMUTABLE. Use it on the
+// resource embedded in an Update request before applying the update mask.
+// IDENTIFIER fields are preserved: per AIP-203 they address the resource
+// being updated.
 func StripUpdate(msg proto.Message, opts ...Option) error {
 	return Strip(msg, slices.Concat([]Option{WithBehaviors(DefaultUpdateBehaviors...)}, opts)...)
 }

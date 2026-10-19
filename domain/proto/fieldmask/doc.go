@@ -12,7 +12,20 @@
 // validates google.api.field_behavior annotations (REQUIRED, IMMUTABLE,
 // OUTPUT_ONLY, IDENTIFIER) before applying the mask. IDENTIFIER fields are
 // treated like IMMUTABLE in the update path: per AIP-203 the identifier names
-// the resource and must not be modified by an update.
+// the resource and must not be modified by an update. A singular message named
+// whole ("profile") would be replaced or cleared together with its fields, so
+// when it holds an IDENTIFIER, IMMUTABLE or OUTPUT_ONLY field — directly or in
+// a singular sub-message at any depth — each such field is reported as a
+// violation; name the message's other fields ("profile.display_name") instead.
+// A sub-path into collection elements ("labels.k.id", "aliases.*.id",
+// "aliases.id") is checked against the element schema the same way, while a
+// collection or element named whole is replaced as a whole.
+//
+// For an update request with an empty update_mask, [FromSetFieldsForUpdate]
+// builds the mask AIP-134 implies, leaving out identifiers and the
+// server-managed fields of populated sub-messages. [FieldMask.DropIdentifiers]
+// removes the identifiers ApplyUpdateMask adds to the mask to keep them in the
+// payload, before the mask is handed on.
 //
 // [FieldMask.ApplyUpdateMask] also rejects indexed access to repeated fields
 // (`authors.0`, `authors.0.given_name`) as [ValidationError] per AIP-161:

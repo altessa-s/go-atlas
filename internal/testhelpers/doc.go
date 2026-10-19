@@ -31,6 +31,9 @@
 //   - A scripted database/sql driver ([NewFakeSQL], [FakeSQL]) that records
 //     every statement, its arguments and whether it ran in a transaction, so
 //     SQL-building code is testable without a server or a third-party driver.
+//   - A protobuf update helper ([ApplyLeafPaths]) that copies the fields an
+//     update mask names leaf by leaf, as a storage update by leaf paths
+//     would, to check which stored values an update leaves intact.
 //   - Polling helpers ([WaitFor]) and an audit helper ([NewTestAuditor]).
 //   - The run length of the `stress`-tagged soak tests ([StressDuration],
 //     set through [StressDurationEnv]).

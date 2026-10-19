@@ -105,7 +105,8 @@ func TestStripUpdate_ClearsImmutableToo(t *testing.T) {
 	r := fullResource()
 	require.NoError(t, fieldbehavior.StripUpdate(r))
 
-	assert.Empty(t, r.GetId())
+	assert.Equal(t, "ID-001", r.GetId(), "IDENTIFIER kept on update: it addresses the resource (AIP-203)")
+	assert.Equal(t, "P-1", r.GetProfile().GetId(), "nested IDENTIFIER kept on update")
 	assert.Empty(t, r.GetCreateTime())
 	assert.Empty(t, r.GetTenantId(), "IMMUTABLE must be cleared on update")
 	assert.Empty(t, r.GetSlug(), "REQUIRED+IMMUTABLE must be cleared on update")
