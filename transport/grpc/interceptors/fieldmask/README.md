@@ -22,8 +22,10 @@ runs through `ApplyUpdateMask`: the handler gets an empty mask that authorizes n
 top-level identifier is kept). A mask path into collection elements that names an element `IDENTIFIER` or `IMMUTABLE` field — `labels.k.id`,
 `labels.*.id`, `aliases.*.id`, `aliases.id` — is rejected the same way, and element `OUTPUT_ONLY` leaves are removed from the writeback mask; a
 collection or element named whole (`labels`, `labels.k`, `aliases.*`) is a replacement and is accepted, which is also how the synthesized mask names
-populated collections. The synthesis and the identifier cleanup come from `fieldmask.FromSetFieldsForUpdate` and `FieldMask.DropIdentifiers`, so the
-policy lives in `domain/proto/fieldmask` alone.
+populated collections. The elements a mask path addresses keep their set `IDENTIFIER` like a singular sub-message: for `labels.k.display_name`,
+`labels.*.display_name`, `aliases.*.display_name` or `aliases.display_name` the element `id` stays in the body and is left out of the writeback mask.
+The synthesis and the identifier cleanup come from `fieldmask.FromSetFieldsForUpdate` and `FieldMask.DropIdentifiers`, so the policy lives in
+`domain/proto/fieldmask` alone.
 
 ## Method classification
 

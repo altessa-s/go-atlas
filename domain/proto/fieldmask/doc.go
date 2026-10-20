@@ -19,7 +19,9 @@
 // violation; name the message's other fields ("profile.display_name") instead.
 // A sub-path into collection elements ("labels.k.id", "aliases.*.id",
 // "aliases.id") is checked against the element schema the same way, while a
-// collection or element named whole is replaced as a whole.
+// collection or element named whole is replaced as a whole. The set
+// identifiers of the elements a sub-path addresses ("labels.k.display_name")
+// are kept in the payload, as those of a singular sub-message are.
 //
 // For an update request with an empty update_mask, [FromSetFieldsForUpdate]
 // builds the mask AIP-134 implies, leaving out identifiers and the

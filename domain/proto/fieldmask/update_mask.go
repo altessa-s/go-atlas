@@ -9,6 +9,7 @@ import (
 	"iter"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/altessa-s/go-atlas/domain/proto/internal/behavior"
@@ -61,7 +62,8 @@ func (e *UpdateMaskBehaviorError) Error() string {
 //     from the schema (fail-fast); [PathValidationWarn] reports them and continues
 //  2. Validates field behaviors: REQUIRED, IMMUTABLE, OUTPUT_ONLY, IDENTIFIER (fail-fast)
 //  3. Removes OUTPUT_ONLY fields from the mask, then adds the set IDENTIFIER
-//     fields of the remaining branches so they survive the filter
+//     fields of the remaining branches, collection elements included, so
+//     they survive the filter
 //  4. Clears fields NOT in the mask
 //  5. Sets default values for fields IN the mask but not populated
 //
@@ -90,7 +92,10 @@ func (e *UpdateMaskBehaviorError) Error() string {
 // its schema, not by the values present: an IDENTIFIER or IMMUTABLE leaf is a
 // violation ("labels.k.id"), an OUTPUT_ONLY leaf is removed from the mask,
 // and a singular message named whole inside an element follows the rule
-// above. List indexes ("aliases.0.id") are rejected with *ValidationError.
+// above. Each element such a sub-path addresses keeps its set IDENTIFIER
+// fields, as a singular sub-message does: "labels.k.id" or "aliases.*.id"
+// enters the mask so the filter does not clear it. List indexes
+// ("aliases.0.id") are rejected with *ValidationError.
 //
 // Returns *ValidationError when [WithPathValidation] is [PathValidationEnforce] and
 // a path does not exist in the schema, or *UpdateMaskBehaviorError if any field
@@ -162,35 +167,228 @@ func (msk FieldMask) ApplyUpdateMask(msg proto.Message, opts ...ApplyOption) err
 // untouched.
 // An IDENTIFIER that is also OUTPUT_ONLY is not preserved: the update never
 // writes an OUTPUT_ONLY field.
+//
+// The step descends every branch of the mask: singular sub-messages and the
+// elements of repeated and map fields a sub-path addresses (see
+// [preserveElementIdentifiers]), so an element keeps its identifier as a
+// sub-message does. Leaves — whole messages, elements and collections — keep
+// their whole value anyway and are not descended.
 func (msk FieldMask) preserveIdentifierFields(msg proto.Message) {
 	prf := msg.ProtoReflect()
-	fields := prf.Descriptor().Fields()
-	for i := range fields.Len() {
-		fd := fields.Get(i)
-		name := string(fd.Name())
-		if behavior.Has(fd, annotations.FieldBehavior_OUTPUT_ONLY) {
-			// OUTPUT_ONLY dominates: never preserved, even when it is
-			// also IDENTIFIER, so its client value is cleared.
-			continue
-		}
-		if behavior.Has(fd, annotations.FieldBehavior_IDENTIFIER) {
-			if _, exists := msk[name]; !exists && prf.Has(fd) {
+	msk.preserveIdentifiers(prf, identifierFields(prf.Descriptor()))
+}
+
+// preserveIdentifiers is [FieldMask.preserveIdentifierFields] on prf, with
+// ids the [identifierFields] of its type, resolved once by the caller for all
+// the elements of a collection.
+func (msk FieldMask) preserveIdentifiers(prf protoreflect.Message, ids []protoreflect.FieldDescriptor) {
+	for _, fd := range ids {
+		if name := string(fd.Name()); prf.Has(fd) {
+			if _, exists := msk[name]; !exists {
 				msk[name] = nil
 			}
-			continue
 		}
-		// Recurse into nested messages that are already in the mask so
-		// nested identifiers within explicitly-updated subtrees are also
-		// preserved.
-		if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() || isDynamicWellKnownType(fd) {
-			continue
-		}
-		nested, ok := msk[name]
-		if !ok || nested == nil || !prf.Has(fd) {
-			continue
-		}
-		nested.preserveIdentifierFields(prf.Get(fd).Message().Interface())
 	}
+	// Recurse into the branches already in the mask so identifiers within
+	// explicitly-updated subtrees are also preserved. Branches into
+	// server-managed fields are gone by now: OUTPUT_ONLY ones were removed,
+	// the others rejected.
+	fields := prf.Descriptor().Fields()
+	for name, nested := range msk {
+		if nested == nil {
+			continue
+		}
+		fd := fields.ByName(protoreflect.Name(name))
+		if fd == nil || !prf.Has(fd) {
+			continue
+		}
+		switch {
+		case fd.IsList() || fd.IsMap():
+			preserveElementIdentifiers(fd, prf.Get(fd), nested)
+		case fd.Kind() == protoreflect.MessageKind && !isDynamicWellKnownType(fd):
+			nested.preserveIdentifierFields(prf.Get(fd).Message().Interface())
+		}
+	}
+}
+
+// identifierFields returns the IDENTIFIER fields of md that
+// [FieldMask.preserveIdentifierFields] keeps: those not also OUTPUT_ONLY.
+func identifierFields(md protoreflect.MessageDescriptor) []protoreflect.FieldDescriptor {
+	var ids []protoreflect.FieldDescriptor
+	fields := md.Fields()
+	for i := range fields.Len() {
+		// OUTPUT_ONLY dominates: never preserved, even when it is also
+		// IDENTIFIER, so its client value is cleared.
+		if fd := fields.Get(i); serverManagedBehavior(fd) == annotations.FieldBehavior_IDENTIFIER {
+			ids = append(ids, fd)
+		}
+	}
+	return ids
+}
+
+// preserveElementIdentifiers runs [FieldMask.preserveIdentifierFields] on
+// every element of the repeated or map field fd (value v) that its sub-mask
+// nested addresses with a sub-path, using the element mask the filter applies
+// to it: for a list the "*" sub-mask when present, else nested itself (the
+// implicit per-element form); for a map the sub-mask of the entry's key, else
+// the "*" one. Elements selected whole, or not at all, are skipped. The
+// element mask is shared by the elements it addresses, so an identifier set
+// on any of them is kept on all that carry one. Collections of scalars and of
+// dynamic well-known types are skipped.
+//
+// The elements are not visited when no element mask can find an identifier
+// (see [FieldMask.mayPreserve]), and a map without a "*" sub-mask is read by
+// the keys the mask names instead of being scanned.
+func preserveElementIdentifiers(fd protoreflect.FieldDescriptor, v protoreflect.Value, nested FieldMask) {
+	elem := wildcardElementDescriptor(fd)
+	if elem == nil {
+		return
+	}
+	ids := identifierFields(elem)
+	wildcard, hasWildcard := nested[WildcardSegment]
+	if fd.IsList() {
+		perElement := nested
+		if hasWildcard {
+			perElement = wildcard
+		}
+		if perElement == nil || !perElement.mayPreserve(elem, ids) {
+			return
+		}
+		list := v.List()
+		for i := range list.Len() {
+			perElement.preserveIdentifiers(list.Get(i).Message(), ids)
+		}
+		return
+	}
+	mm := v.Map()
+	if !hasWildcard {
+		keyKind := fd.MapKey().Kind()
+		for key, sub := range nested {
+			if sub == nil || !sub.mayPreserve(elem, ids) {
+				continue
+			}
+			// A key that does not parse back to itself matches no entry,
+			// as in the filter, which compares the entry's key string.
+			k, ok := parseMapKey(keyKind, key)
+			if !ok {
+				continue
+			}
+			if val := mm.Get(k); val.IsValid() {
+				sub.preserveIdentifiers(val.Message(), ids)
+			}
+		}
+		return
+	}
+	if !elementMasksMayPreserve(nested, elem, ids) {
+		return
+	}
+	mm.Range(func(k protoreflect.MapKey, val protoreflect.Value) bool {
+		sub, ok := nested[k.String()]
+		if !ok {
+			sub = wildcard
+		}
+		if sub != nil {
+			sub.preserveIdentifiers(val.Message(), ids)
+		}
+		return true
+	})
+}
+
+// mayPreserve reports whether [FieldMask.preserveIdentifiers] can add an
+// entry anywhere in msk for a message of type md whose [identifierFields] are
+// ids: md declares one, or a branch of msk reaches a singular message or
+// collection whose element mask may. It follows the mask, not the schema, so
+// it terminates on recursive types. For collections it over-approximates —
+// every sub-mask is taken as an element mask — which only costs a visit that
+// finds nothing.
+func (msk FieldMask) mayPreserve(md protoreflect.MessageDescriptor, ids []protoreflect.FieldDescriptor) bool {
+	if len(ids) > 0 {
+		return true
+	}
+	fields := md.Fields()
+	for name, nested := range msk {
+		if nested == nil {
+			continue
+		}
+		fd := fields.ByName(protoreflect.Name(name))
+		switch {
+		case fd == nil:
+		case fd.IsList() || fd.IsMap():
+			elem := wildcardElementDescriptor(fd)
+			if elem == nil {
+				continue
+			}
+			elemIDs := identifierFields(elem)
+			if fd.IsList() && nested.mayPreserve(elem, elemIDs) {
+				return true
+			}
+			if elementMasksMayPreserve(nested, elem, elemIDs) {
+				return true
+			}
+		case fd.Kind() == protoreflect.MessageKind && !isDynamicWellKnownType(fd):
+			if nested.mayPreserve(fd.Message(), identifierFields(fd.Message())) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// elementMasksMayPreserve reports whether any non-nil sub-mask of nested — the
+// sub-mask of a collection whose element type is elem with [identifierFields]
+// ids — may preserve an identifier (see [FieldMask.mayPreserve]).
+func elementMasksMayPreserve(nested FieldMask, elem protoreflect.MessageDescriptor, ids []protoreflect.FieldDescriptor) bool {
+	for _, sub := range nested {
+		if sub != nil && sub.mayPreserve(elem, ids) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseMapKey returns the map key of kind that a mask key names, and whether
+// it names one: key must parse as kind and format back to itself, since the
+// filter matches an entry by its key string ([protoreflect.MapKey.String]).
+func parseMapKey(kind protoreflect.Kind, key string) (protoreflect.MapKey, bool) {
+	var v protoreflect.Value
+	switch kind { //nolint:exhaustive // the remaining kinds cannot be map keys.
+	case protoreflect.StringKind:
+		return protoreflect.ValueOfString(key).MapKey(), true
+	case protoreflect.BoolKind:
+		b, err := strconv.ParseBool(key)
+		if err != nil {
+			return protoreflect.MapKey{}, false
+		}
+		v = protoreflect.ValueOfBool(b)
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		n, err := strconv.ParseInt(key, 10, 32)
+		if err != nil {
+			return protoreflect.MapKey{}, false
+		}
+		v = protoreflect.ValueOfInt32(int32(n))
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		n, err := strconv.ParseInt(key, 10, 64)
+		if err != nil {
+			return protoreflect.MapKey{}, false
+		}
+		v = protoreflect.ValueOfInt64(n)
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		n, err := strconv.ParseUint(key, 10, 32)
+		if err != nil {
+			return protoreflect.MapKey{}, false
+		}
+		v = protoreflect.ValueOfUint32(uint32(n))
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		n, err := strconv.ParseUint(key, 10, 64)
+		if err != nil {
+			return protoreflect.MapKey{}, false
+		}
+		v = protoreflect.ValueOfUint64(n)
+	default:
+		return protoreflect.MapKey{}, false
+	}
+	k := v.MapKey()
+	return k, k.String() == key
 }
 
 func (msk FieldMask) validateFieldBehaviors(

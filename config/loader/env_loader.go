@@ -39,10 +39,7 @@ func (cf *Config) loadEnvs() error {
 	}
 
 	// The fields an env tag names, scanned for every variable name below.
-	cf.fields.each(func(fld *field) bool {
-		cf.envTagged = coreslices.AppendIf(cf.envTagged, hasValueEnvTag(fld.field), fld)
-		return true
-	})
+	cf.envTagged = cf.collectEnvTagged()
 	defer func() { cf.envTagged = nil }()
 
 	// First, handle regular field mappings. A field under a nil pointer
@@ -77,37 +74,57 @@ func (cf *Config) loadEnvs() error {
 		return err
 	}
 
-	// Of the variables left that set the same value in different spellings,
-	// only the winner is applied.
-	consumed = cf.dropShadowedEnvs(envs, consumed)
+	// The other passes read only the variables left whose names contain the
+	// section delimiter, in name order. Of those that set the same value in
+	// different spellings, only the winner is applied.
+	keys := cf.dropShadowedEnvs(cf.nestedEnvKeys(envs, consumed))
 
 	// Then, handle array element mappings using configured delimiter
-	if err = cf.loadArrayEnvs(envs, consumed); err != nil {
+	if err = cf.loadArrayEnvs(envs, keys); err != nil {
 		return err
 	}
 
 	// Finally, handle nested structs using configured delimiter
-	if err = cf.loadNestedEnvs(envs, consumed); err != nil {
+	if err = cf.loadNestedEnvs(envs, keys); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// dropShadowedEnvs adds to consumed, which it allocates when needed, the
-// variables that set the same value as another one (see envTarget) and lose
-// to it: the winner has the fewest Go field name levels, then comes first in
-// name order. Variables in consumed are not considered.
-func (cf *Config) dropShadowedEnvs(envs map[string]string, consumed map[string]struct{}) map[string]struct{} {
+// nestedEnvKeys returns, sorted, the names in envs that contain the section
+// delimiter, except the ones in consumed.
+func (cf *Config) nestedEnvKeys(envs map[string]string, consumed map[string]struct{}) []string {
+	var keys []string
+	for envKey := range envs {
+		if _, done := consumed[envKey]; !done && strings.Contains(envKey, cf.options.envSectionDelimiter) {
+			keys = append(keys, envKey)
+		}
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// minShadowingKeys is the number of variables one can shadow another from.
+const minShadowingKeys = 2
+
+// dropShadowedEnvs removes from the sorted keys the variables that set the
+// same value as another one (see envTarget) and lose to it: the winner has the
+// fewest Go field name levels, then comes first in name order. A single
+// variable shadows none, so its target is not resolved.
+func (cf *Config) dropShadowedEnvs(keys []string) []string {
+	if len(keys) < minShadowingKeys {
+		return keys
+	}
 	type candidate struct {
 		key  string
 		rank int
 	}
-	var winners map[string]candidate
-	for envKey := range envs {
-		if _, done := consumed[envKey]; done || !strings.Contains(envKey, cf.options.envSectionDelimiter) {
-			continue
-		}
+	var (
+		winners map[string]candidate
+		losers  map[string]struct{}
+	)
+	for _, envKey := range keys {
 		target, rank, ok := cf.envTarget(envKey)
 		if !ok {
 			continue
@@ -125,12 +142,18 @@ func (cf *Config) dropShadowedEnvs(envs map[string]string, consumed map[string]s
 			loser = current.key
 			winners[target] = candidate{key: envKey, rank: rank}
 		}
-		if consumed == nil {
-			consumed = make(map[string]struct{})
+		if losers == nil {
+			losers = make(map[string]struct{})
 		}
-		consumed[loser] = struct{}{}
+		losers[loser] = struct{}{}
 	}
-	return consumed
+	if losers == nil {
+		return keys
+	}
+	return slices.DeleteFunc(keys, func(key string) bool {
+		_, lost := losers[key]
+		return lost
+	})
 }
 
 // preferredEnvName returns the name of names set in envs that wins, as on
@@ -220,10 +243,10 @@ func (cf *Config) markEnv(steps []pathStep) {
 }
 
 // loadArrayEnvs handles array element environment variables using configured
-// delimiter, except the variables in consumed.
-func (cf *Config) loadArrayEnvs(envs map[string]string, consumed map[string]struct{}) error {
+// delimiter, among the variables keys names.
+func (cf *Config) loadArrayEnvs(envs map[string]string, keys []string) error {
 	// Group environment variables by array pattern
-	arrayEnvs := cf.parseArrayEnvs(envs, consumed)
+	arrayEnvs := cf.parseArrayEnvs(envs, keys)
 
 	// Sort array paths by depth (number of delimiters) to process parent arrays first
 	arrayPaths := make([]string, 0, len(arrayEnvs))
@@ -250,14 +273,13 @@ func (cf *Config) loadArrayEnvs(envs map[string]string, consumed map[string]stru
 
 // parseArrayEnvs parses environment variables to find array patterns.
 // Returns a map where key is the field path and value is a map
-// of element paths to their values using configured section delimiter.
-func (cf *Config) parseArrayEnvs(envs map[string]string, consumed map[string]struct{}) map[string]map[string]string {
+// of element paths to their values using configured section delimiter. It
+// reads the variables keys names.
+func (cf *Config) parseArrayEnvs(envs map[string]string, keys []string) map[string]map[string]string {
 	arrayEnvs := make(map[string]map[string]string)
 
-	for envKey, envValue := range envs {
-		if _, done := consumed[envKey]; !done {
-			cf.processArrayEnvKey(envKey, envValue, arrayEnvs)
-		}
+	for _, envKey := range keys {
+		cf.processArrayEnvKey(envKey, envs[envKey], arrayEnvs)
 	}
 
 	return arrayEnvs
@@ -272,6 +294,12 @@ func (cf *Config) processArrayEnvKey(envKey, envValue string, result map[string]
 
 	arrayPositions := cf.findArrayIndices(parts)
 	if len(arrayPositions) == 0 {
+		return
+	}
+
+	// A name that addresses nothing settable is left out, so its candidate
+	// slices allocate nothing along its path.
+	if !cf.indexedKeyResolves(envKey, parts) {
 		return
 	}
 
@@ -714,18 +742,8 @@ func (cf *Config) setFieldValue(fieldValue reflect.Value, value string, steps []
 }
 
 // loadNestedEnvs handles nested structures using the section delimiter. It
-// skips the variables in consumed, and applies the others in name order.
-func (cf *Config) loadNestedEnvs(envs map[string]string, consumed map[string]struct{}) error {
-	// Only process environment variables that contain the section delimiter
-	// which indicates nested struct levels
-	var keys []string
-	for envKey := range envs {
-		if _, done := consumed[envKey]; !done && strings.Contains(envKey, cf.options.envSectionDelimiter) {
-			keys = append(keys, envKey)
-		}
-	}
-	slices.Sort(keys)
-
+// applies the variables the sorted keys name, in that order.
+func (cf *Config) loadNestedEnvs(envs map[string]string, keys []string) error {
 	for _, envKey := range keys {
 		if err := cf.setNestedFieldFromEnv(envKey, envs[envKey]); err != nil {
 			return cf.envVarError(envKey, err)
@@ -752,6 +770,10 @@ func (cf *Config) setNestedFieldFromEnv(envKey, envValue string) error {
 			// The tag names the whole variable: the plain-field pass set it.
 			return nil
 		}
+		if _, ok := cf.settablePath(tagged.field.Type, entryPath, false); !ok {
+			// A slice entry path, which the indexed pass sets.
+			return nil
+		}
 		if !tagged.value.IsValid() {
 			allocated := *tagged
 			allocated.value = fieldByIndexAlloc(reflect.ValueOf(cf.conf).Elem(), tagged.index)
@@ -767,7 +789,7 @@ func (cf *Config) setNestedFieldFromEnv(envKey, envValue string) error {
 	cf.fields.each(func(fld *field) bool {
 		// Check if this field matches the root field name
 		// Only match root-level fields (no parent)
-		if fld.parent == nil && cf.levelMatches(fld.field, rootFieldName, true) {
+		if fld.parent == nil && cf.fieldNames(fld).matches(rootFieldName, true) {
 			rootField = fld
 			return false // Stop searching
 		}
@@ -787,12 +809,23 @@ func (cf *Config) setNestedFieldFromEnv(envKey, envValue string) error {
 		return nil
 	}
 
+	// Resolve the rest of the path on the type first, so a variable that sets
+	// nothing allocates no nil section or map along it.
+	if missing, ok := cf.settablePath(rootField.field.Type, parts[1:], true); !ok {
+		if missing != "" && cf.options.strict {
+			return fmt.Errorf("%w: %s", ErrFieldNotFound, missing)
+		}
+		return nil
+	}
+
 	// Navigate to the nested field and set its value
 	return cf.setNestedFieldValue(rootField, parts[1:], envValue, rootField.pathSteps(), true)
 }
 
 // findRootFieldByName finds a root-level field in the config struct by name.
-// This is used to find fields with default:"-" that haven't been initialized yet.
+// This is used to find fields with default:"-" that haven't been initialized
+// yet. A nil pointer field is left nil: the navigation allocates it only for a
+// path that resolves (see settablePath).
 func (cf *Config) findRootFieldByName(fieldName string) *field {
 	if cf.conf == nil {
 		return nil
@@ -810,16 +843,11 @@ func (cf *Config) findRootFieldByName(fieldName string) *field {
 	configType := configValue.Type()
 
 	// Search for the field in the root struct
-	for i := range configType.NumField() {
-		structField := configType.Field(i)
-
-		if cf.levelMatches(structField, fieldName, true) {
+	names := cf.structEnvNames(configType)
+	for i := range names {
+		if names[i].matches(fieldName, true) {
+			structField := configType.Field(i)
 			fieldValue := configValue.Field(i)
-
-			// If it's a pointer and nil, initialize it
-			if fieldValue.Kind() == reflect.Pointer && fieldValue.IsNil() {
-				fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
-			}
 
 			// Create a field descriptor
 			tags := make(map[string]string)

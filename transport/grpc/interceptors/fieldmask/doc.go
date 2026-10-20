@@ -25,7 +25,9 @@
 // applies to an IMMUTABLE descendant; the synthesized mask names the set
 // fields of such a sub-message instead of the whole sub-message. A path into
 // collection elements naming an element IDENTIFIER or IMMUTABLE field
-// ("labels.k.id", "aliases.*.id") is rejected too. The synthesis and the
+// ("labels.k.id", "aliases.*.id") is rejected too, while the elements a path
+// addresses ("labels.k.display_name") keep their set IDENTIFIER in the body
+// and out of the writeback mask, like a sub-message. The synthesis and the
 // identifier cleanup are [fieldmask.FromSetFieldsForUpdate] and
 // [fieldmask.FieldMask.DropIdentifiers].
 //

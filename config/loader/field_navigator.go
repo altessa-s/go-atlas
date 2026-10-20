@@ -41,16 +41,19 @@ func (cf *Config) findFieldByPath(fieldPath string) *field {
 		steps   []pathStep
 		entries []mapEntry
 		// fixed reports whether the path so far went through struct fields
-		// only (see levelMatches).
+		// only (see fieldEnvNames.matches).
 		fixed = true
 	)
 
 	// A slice or map field with an env tag is addressed through the tag:
 	// start from that field, then traverse its elements or entries.
-	if tagged, rest := cf.findTaggedCollection(fieldPath, true); tagged != nil {
-		if rest == nil && tagged.field.Type.Kind() != reflect.Slice {
-			return nil
-		}
+	tagged, rest := cf.findTaggedCollection(fieldPath, true)
+	// Resolve the path to a slice on the type first, so a path to anything
+	// else allocates nothing along it.
+	if !cf.slicePathResolves(tagged, rest, parts) {
+		return nil
+	}
+	if tagged != nil {
 		taggedValue := fieldByIndexAlloc(currentValue, tagged.index)
 		if rest == nil {
 			fld := *tagged
@@ -98,6 +101,12 @@ func (cf *Config) findFieldByPath(fieldPath string) *field {
 
 		// Check if current value is a map
 		if currentValue.Kind() == reflect.Map {
+			// The key for this part, converted to the key type
+			mapKey, ok := envMapKey(currentValue.Type(), part)
+			if !ok {
+				return nil
+			}
+
 			// Initialize map if nil
 			if currentValue.IsNil() && currentValue.CanSet() {
 				cf.noteEnvGrowth(currentValue, 0, steps)
@@ -105,7 +114,6 @@ func (cf *Config) findFieldByPath(fieldPath string) *field {
 			}
 
 			// Get the map value for this key
-			mapKey := reflect.ValueOf(part)
 			mapValue := currentValue.MapIndex(mapKey)
 
 			if !mapValue.IsValid() {
@@ -122,7 +130,7 @@ func (cf *Config) findFieldByPath(fieldPath string) *field {
 				mapValue = currentValue.MapIndex(mapKey)
 			}
 			fixed = false
-			steps = withStep(steps, pathStep{kind: keyStep, key: part})
+			steps = withStep(steps, pathStep{kind: keyStep, key: mapKey.Interface()})
 
 			// Navigate into the map value. A nil pointer entry is not
 			// settable through MapIndex: allocate it and store it back.
@@ -212,6 +220,21 @@ func (cf *Config) findFieldByPath(fieldPath string) *field {
 	}
 
 	return nil
+}
+
+// slicePathResolves reports whether findFieldByPath resolves to a slice for
+// the path parts, or for the entry path rest of the tagged field when it is
+// not nil, on the types alone (see indexedPathType).
+func (cf *Config) slicePathResolves(tagged *field, rest, parts []string) bool {
+	t, fixed := reflect.TypeOf(cf.conf), true
+	if tagged != nil {
+		if rest == nil {
+			return tagged.field.Type.Kind() == reflect.Slice
+		}
+		t, fixed, parts = tagged.field.Type, false, rest
+	}
+	t, _, ok := cf.indexedPathType(t, parts, fixed, true)
+	return ok && derefType(t).Kind() == reflect.Slice
 }
 
 // fieldNavigator encapsulates the logic for navigating nested struct fields.
@@ -364,19 +387,34 @@ func (fn *fieldNavigator) handleIndexedSlice(
 
 // handleMapField handles map field navigation. steps locates the map.
 func (fn *fieldNavigator) handleMapField(fieldValue reflect.Value, partIndex int, steps []pathStep) error {
+	mapKey := fn.pathParts[partIndex+1]
+	mapKeyValue, ok := envMapKey(fieldValue.Type(), mapKey)
+	if !ok {
+		return nil
+	}
+	mapValueType := fieldValue.Type().Elem()
+
+	// Entries of a map of maps are set as on the nested-section path, once
+	// the rest of the path resolves on the type.
+	if mapValueType.Kind() == reflect.Map {
+		if missing, ok := fn.cf.settablePath(fieldValue.Type(), fn.pathParts[partIndex+1:], false); !ok {
+			if missing != "" && fn.cf.options.strict {
+				return fmt.Errorf("%w: %s in path %s", ErrFieldNotFound, missing, strings.Join(fn.pathParts, fn.cf.options.envSectionDelimiter))
+			}
+			return nil
+		}
+		return fn.cf.setNestedFieldValue(&field{value: fieldValue}, fn.pathParts[partIndex+1:], fn.value, steps, false)
+	}
+
 	if fieldValue.IsNil() {
 		fn.cf.noteEnvGrowth(fieldValue, 0, steps)
 		fieldValue.Set(reflect.MakeMap(fieldValue.Type()))
 	}
-
-	mapKey := fn.pathParts[partIndex+1]
-	mapValueType := fieldValue.Type().Elem()
-	entrySteps := withStep(steps, pathStep{kind: keyStep, key: mapKey})
-
+	entrySteps := withStep(steps, pathStep{kind: keyStep, key: mapKeyValue.Interface()})
 	if fn.isMapValuePrimitive(mapValueType) {
-		return fn.handleMapWithPrimitiveValue(fieldValue, mapKey, mapValueType, partIndex, entrySteps)
+		return fn.handleMapWithPrimitiveValue(fieldValue, mapKeyValue, mapValueType, partIndex, entrySteps)
 	}
-	return fn.handleMapWithStructValue(fieldValue, mapKey, mapValueType, partIndex, entrySteps)
+	return fn.handleMapWithStructValue(fieldValue, mapKeyValue, mapValueType, partIndex, entrySteps)
 }
 
 // isMapValuePrimitive checks if map value type is primitive.
@@ -389,7 +427,7 @@ func (fn *fieldNavigator) isMapValuePrimitive(valueType reflect.Type) bool {
 // locates the entry.
 func (fn *fieldNavigator) handleMapWithPrimitiveValue(
 	fieldValue reflect.Value,
-	mapKey string,
+	mapKeyValue reflect.Value,
 	mapValueType reflect.Type,
 	partIndex int,
 	steps []pathStep,
@@ -398,7 +436,6 @@ func (fn *fieldNavigator) handleMapWithPrimitiveValue(
 		return nil
 	}
 
-	mapKeyValue := reflect.ValueOf(mapKey)
 	newValue := reflect.New(mapValueType).Elem()
 	if _, err := set(newValue, fn.value, false, true, fn.cf.options.strict); err != nil {
 		return err
@@ -413,12 +450,11 @@ func (fn *fieldNavigator) handleMapWithPrimitiveValue(
 // locates the entry.
 func (fn *fieldNavigator) handleMapWithStructValue(
 	fieldValue reflect.Value,
-	mapKey string,
+	mapKeyValue reflect.Value,
 	mapValueType reflect.Type,
 	partIndex int,
 	steps []pathStep,
 ) error {
-	mapKeyValue := reflect.ValueOf(mapKey)
 	structValue := reflect.New(mapValueType).Elem()
 	if existingValue := fieldValue.MapIndex(mapKeyValue); existingValue.IsValid() {
 		structValue.Set(existingValue)
@@ -488,7 +524,7 @@ func (fn *fieldNavigator) handleStructSlice(fieldValue reflect.Value, index, par
 
 // setNestedFieldValue navigates through nested fields and sets the final
 // value. steps locates fld from the configuration root; fixed reports whether
-// fld is reached through struct fields only (see levelMatches).
+// fld is reached through struct fields only (see fieldEnvNames.matches).
 func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value string, steps []pathStep, fixed bool) error {
 	if len(pathParts) == 0 {
 		return nil
@@ -502,17 +538,22 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 
 		// Check if current value is a map
 		if currentValue.Kind() == reflect.Map {
+			// Get map key, converted to the key type; a map whose keys a
+			// variable name cannot spell is left alone.
+			mapKey := part
+			mapKeyValue, ok := envMapKey(currentValue.Type(), mapKey)
+			if !ok {
+				return nil
+			}
+
 			// Initialize map if nil
 			if currentValue.IsNil() {
 				cf.noteEnvGrowth(currentValue, 0, steps)
 				currentValue.Set(reflect.MakeMap(currentValue.Type()))
 			}
 
-			// Get map key
-			mapKey := part
-			mapKeyValue := reflect.ValueOf(mapKey)
 			mapValueType := currentValue.Type().Elem()
-			entrySteps := withStep(steps, pathStep{kind: keyStep, key: mapKey})
+			entrySteps := withStep(steps, pathStep{kind: keyStep, key: mapKeyValue.Interface()})
 
 			// Check if this is the last part or if we need to navigate deeper
 			if i == len(pathParts)-1 {
@@ -527,9 +568,8 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 			}
 
 			// Not the last part - need to navigate into map value
-			// Check if map value type is struct
-			if mapValueType.Kind() == reflect.Struct ||
-				(mapValueType.Kind() == reflect.Pointer && mapValueType.Elem().Kind() == reflect.Struct) {
+			// Check if map value type is a struct or a map
+			if isNestedEntryType(mapValueType) {
 				// Map values are not addressable: update a copy of the
 				// existing entry, or a new one, and store it back.
 				structValue := reflect.New(mapValueType).Elem()
@@ -537,7 +577,8 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 					structValue.Set(existingValue)
 				}
 
-				// Recursively set nested field in the struct
+				// Recursively set nested field in the struct, or the entry
+				// of the inner map
 				remainingParts := pathParts[i+1:]
 				// Create a temporary field descriptor for recursion
 				tempField := &field{
@@ -552,7 +593,7 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 				return nil
 			}
 
-			// Map value is not a struct, cannot navigate further
+			// Map value is not a struct or a map, cannot navigate further
 			return nil
 		}
 
@@ -636,12 +677,12 @@ func parseIndexOrKey(indexOrKey string) (int, bool) {
 
 // findFieldIndex searches for a field by name in a struct, including
 // inline/anonymous fields, and returns it with its struct index path. fixed
-// is passed to levelMatches.
+// is passed to fieldEnvNames.matches.
 func (cf *Config) findFieldIndex(structValue reflect.Value, fieldName string, fixed bool) (reflect.Value, []int, bool) {
 	// Resolve the index path on the type first, so a lookup that fails
 	// allocates nothing and recursive embeddings, even mutual ones, are
 	// searched once; then allocate the embedded pointers along that path only.
-	sf, ok := cf.findStructFieldIn(structValue.Type(), fieldName, fixed, nil)
+	sf, _, ok := cf.findStructFieldIn(structValue.Type(), fieldName, fixed, nil)
 	if !ok {
 		return reflect.Value{}, nil, false
 	}
@@ -658,23 +699,32 @@ func (cf *Config) findFieldIndex(structValue reflect.Value, fieldName string, fi
 // it as field metadata even when the field is declared inside an embedded
 // struct; its Index is the index path from structType.
 func (cf *Config) findStructFieldRecursive(structType reflect.Type, fieldName string, fixed bool) (reflect.StructField, bool) {
-	return cf.findStructFieldIn(structType, fieldName, fixed, nil)
+	sf, _, ok := cf.findStructFieldIn(structType, fieldName, fixed, nil)
+	return sf, ok
 }
 
 // findStructFieldIn is findStructFieldRecursive below the embedding path of
 // struct types path: an embedded type already on it is not searched again,
-// so a recursive embedding, even a mutual one, ends the search.
-func (cf *Config) findStructFieldIn(structType reflect.Type, fieldName string, fixed bool, path []reflect.Type) (reflect.StructField, bool) {
-	for f := range structType.Fields() {
-		if !f.Anonymous && cf.levelMatches(f, fieldName, fixed) {
-			return f, true
+// so a recursive embedding, even a mutual one, ends the search. It also
+// returns the environment naming of the field found.
+func (cf *Config) findStructFieldIn(
+	structType reflect.Type,
+	fieldName string,
+	fixed bool,
+	path []reflect.Type,
+) (reflect.StructField, *fieldEnvNames, bool) {
+	names := cf.structEnvNames(structType)
+	for i := range names {
+		if !names[i].anonymous && names[i].matches(fieldName, fixed) {
+			return structType.Field(i), &names[i], true
 		}
 	}
 	extended := false
-	for f := range structType.Fields() {
-		if !f.Anonymous {
+	for i := range names {
+		if !names[i].anonymous {
 			continue
 		}
+		f := structType.Field(i)
 		ft := derefType(f.Type)
 		if ft.Kind() != reflect.Struct || ft == structType || slices.Contains(path, ft) {
 			continue
@@ -682,12 +732,12 @@ func (cf *Config) findStructFieldIn(structType reflect.Type, fieldName string, f
 		if !extended {
 			path, extended = append(slices.Clip(path), structType), true
 		}
-		if sf, ok := cf.findStructFieldIn(ft, fieldName, fixed, path); ok {
+		if sf, sfNames, ok := cf.findStructFieldIn(ft, fieldName, fixed, path); ok {
 			sf.Index = append(slices.Clip(f.Index), sf.Index...)
-			return sf, true
+			return sf, sfNames, true
 		}
 	}
-	return reflect.StructField{}, false
+	return reflect.StructField{}, nil, false
 }
 
 // dereferencePointer dereferences a pointer value, initializing it if nil.

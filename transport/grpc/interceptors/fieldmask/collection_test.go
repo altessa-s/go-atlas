@@ -120,9 +120,58 @@ func TestServerInterceptor_UpdateMask_CollectionElementPaths(t *testing.T) {
 	require.True(t, ok)
 	label := got.GetResource().GetLabels()["k"]
 	require.Equal(t, "l", label.GetDisplayName())
-	require.Empty(t, label.GetId(), "the element identifier the mask does not name keeps no client value")
+	require.Equal(t, "client", label.GetId(), "the identifier of an addressed element is kept")
 	require.Empty(t, label.GetUpdatedAt())
 	require.Equal(t, "id-1", got.GetResource().GetId(), "the resource identifier is kept")
+}
+
+// TestServerInterceptor_UpdateMask_CollectionElementIdentifierPreserved pins,
+// through the interceptor chain, that a sub-path into collection elements —
+// keyed map, map wildcard, repeated wildcard or implicit repeated form — keeps
+// the identifier of every addressed element in the body, while the mask the
+// handler gets names only the client's paths: the identifiers ApplyUpdateMask
+// added to keep them are removed again.
+func TestServerInterceptor_UpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path        string
+		labels      bool
+		wantAliases bool
+	}{
+		{path: "labels.k.display_name", labels: true},
+		{path: "labels.*.display_name", labels: true},
+		{path: "aliases.*.display_name", wantAliases: true},
+		{path: "aliases.display_name", wantAliases: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+
+			req := &pb.UpdateResourceRequest{
+				Resource:   collectionResource(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{tt.path}},
+			}
+			seenReq, _, err := runUnary(t, newUnary(t), "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+			require.NoError(t, err)
+			got, ok := seenReq.(*pb.UpdateResourceRequest)
+			require.True(t, ok)
+			require.Equal(t, []string{tt.path}, got.GetUpdateMask().GetPaths(), "the handler's mask names no identifier")
+
+			res := got.GetResource()
+			require.Equal(t, "id-1", res.GetId())
+			if tt.labels {
+				require.Equal(t, "client", res.GetLabels()["k"].GetId())
+				require.Empty(t, res.GetLabels()["k"].GetUpdatedAt())
+				require.Empty(t, res.GetAliases(), "a collection the mask does not name is cleared")
+			}
+			if tt.wantAliases {
+				require.Equal(t, "client", res.GetAliases()[0].GetId())
+				require.Empty(t, res.GetAliases()[0].GetUpdatedAt())
+				require.Empty(t, res.GetLabels(), "a collection the mask does not name is cleared")
+			}
+		})
+	}
 }
 
 // TestServerInterceptor_EmptyUpdateMask_CollectionsNamedWhole pins that the

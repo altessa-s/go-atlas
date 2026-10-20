@@ -103,13 +103,14 @@ type Config struct {
 	// present records the values the configuration files and the environment
 	// set during the current load; defaults are not applied to them.
 	present *presence
-	// levels caches levelNames by field name and tag; it is used under smx.
-	levels map[levelKey][]string
+	// envNames caches the environment naming of the fields of each struct
+	// type across loads (see structEnvNames); it is used under smx.
+	envNames map[reflect.Type][]fieldEnvNames
 	// defaulting holds the pointers whose structs applyDefaults is walking.
 	defaulting map[ptrKey]struct{}
-	// envTagged lists the value fields of fields with an `env` tag while the
-	// environment is loaded.
-	envTagged fields
+	// envTagged lists the value fields of fields with an `env` tag, with the
+	// variable names their tags give, while the environment is loaded.
+	envTagged []taggedField
 }
 
 // New creates a new Config instance with the specified backend and options.
