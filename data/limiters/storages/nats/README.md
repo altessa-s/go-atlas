@@ -8,6 +8,12 @@ Package `nats` implements token bucket storage using NATS JetStream key-value st
 `New(js, opts...)` creates the bucket when missing: `WithBucket` (default `<appinfo.Name>-rate-limiter`), `WithMaxAge` (key TTL, `24h`) and
 `WithReplicas` (`1`).
 
+## Multi-key admission
+
+NATS KeyValue updates one key per compare-and-swap and cannot update several keys atomically, so `Provider` does not implement
+`storages.MultiStorage`: `storages.AllowAll` returns `storages.ErrMultiKeyUnsupported` for it rather than taking slots key by key. Use the memory or
+redis storage where one request must pass several limits at once.
+
 ## Keys
 
 NATS KeyValue accepts only `[-/_=.a-zA-Z0-9]` in a key, with no leading or trailing dot and no empty token, so limiter keys are escaped before they

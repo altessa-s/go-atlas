@@ -375,3 +375,22 @@ func TestProvider_Allow_SubMillisecondPeriod(t *testing.T) {
 	require.NoError(t, json.Unmarshal(entry.Value(), &stored))
 	require.Equal(t, int64(1), stored.Window)
 }
+
+// TestProvider_AllowAllUnsupported pins that the provider offers no
+// multi-key admission, so storages.AllowAll refuses it instead of taking
+// slots key by key.
+func TestProvider_AllowAllUnsupported(t *testing.T) {
+	t.Parallel()
+	var p storages.Storage = setupProvider(t)
+	_, ok := p.(storages.MultiStorage)
+	require.False(t, ok)
+
+	_, err := storages.AllowAll(t.Context(), p,
+		storages.Limit{Key: "host", Limit: 1, Period: time.Minute},
+		storages.Limit{Key: "global", Limit: 1, Period: time.Minute},
+	)
+	require.ErrorIs(t, err, storages.ErrMultiKeyUnsupported)
+	info, err := p.Allow(t.Context(), "host", 1, time.Minute)
+	require.NoError(t, err, "the refused call must not take a slot")
+	require.Equal(t, int64(0), info.Remaining)
+}

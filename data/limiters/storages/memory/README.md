@@ -9,13 +9,37 @@ tests, and local development. Idle buckets are removed by `RunCleanup`, called m
 
 ## Options
 
-| Option                | Default               | Description                                                                         |
-|-----------------------|-----------------------|-------------------------------------------------------------------------------------|
-| `WithMaxBuckets`      | `DefaultMaxBuckets`   | Global cap on tracked keys; a new key at the cap evicts the least recently used one |
-| `WithMaxIdleTime`     | `DefaultMaxIdleTime`  | Idle time after which cleanup removes a bucket                                      |
-| `WithShards`          | `DefaultShards` (1)   | Independently locked key shards; see below                                          |
-| `WithCleanupSchedule` | —                     | Cron schedule for cleanup when a scheduler is set                                   |
-| `WithScheduler`       | —                     | Task registrar that runs cleanup                                                    |
+| Option                | Default                           | Description                                               |
+|-----------------------|-----------------------------------|-----------------------------------------------------------|
+| `WithMaxBuckets`      | `DefaultMaxBuckets`               | Global cap on tracked keys; see [Capacity](#capacity)     |
+| `WithEviction`        | `DefaultEviction` (`EvictionLRU`) | What a new key gets at the cap once no window has expired |
+| `WithMaxIdleTime`     | `DefaultMaxIdleTime`              | Idle time after which cleanup removes a bucket            |
+| `WithShards`          | `DefaultShards` (1)               | Independently locked key shards; see below                |
+| `WithCleanupSchedule` | —                                 | Cron schedule for cleanup when a scheduler is set         |
+| `WithScheduler`       | —                                 | Task registrar that runs cleanup                          |
+
+## Capacity
+
+A new key at `MaxBuckets` first reclaims every window that has expired: its requests have all left the window, so dropping it loses nothing. The
+provider tracks a lower bound of the earliest expiry and sweeps only once it has passed, so a full provider with only live windows pays no sweep.
+When nothing has expired, `WithEviction` decides:
+
+| Policy           | New key at the cap                              | Trade-off                                                                        |
+|------------------|-------------------------------------------------|----------------------------------------------------------------------------------|
+| `EvictionLRU`    | Evicts the least recently used live window      | Never refuses; a stream of new keys can push out a busy key and reset its limit  |
+| `EvictionReject` | Fails with `ErrCapacityExceeded`, nil LimitInfo | No key loses its limit to churn; new keys wait until a window expires or cleanup |
+
+Tracked keys keep working under both policies. `ErrCapacityExceeded` is not `ErrLimitExceeded`, so the token-bucket and budget limiters count it as a
+storage error rather than a rate-limit rejection. In reject mode a refused new key costs one shard lock, not the all-shard lock.
+
+## Multi-key admission
+
+`Provider` implements `storages.MultiStorage`. `AllowAll` locks the shards of its keys in ascending index order, so overlapping calls cannot deadlock,
+checks every window and takes a slot on each only when all admit. New keys that find too few free slots lock every shard and reclaim expired windows;
+then `EvictionReject` fails the whole call with a `*storages.KeyError` wrapping `ErrCapacityExceeded`, and `EvictionLRU` evicts least recently used
+buckets outside the call. A call with more keys than `MaxBuckets` fails the same way. The `KeyError` names the first new key left without room. New
+keys reserve their slots in one step, so two calls racing for the last slots never both fail when either fits. A refused or failed call takes no slot
+and inserts no bucket.
 
 ## Choosing `WithShards`
 

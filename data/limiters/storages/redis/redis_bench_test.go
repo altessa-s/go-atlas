@@ -10,6 +10,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
+	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/data/limiters/storages/redis"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -41,5 +42,21 @@ func BenchmarkProvider_Reset(b *testing.B) {
 
 	for b.Loop() {
 		_ = p.Reset(ctx, "bench-key")
+	}
+}
+
+// BenchmarkProvider_AllowAll measures a per-host plus global admission in
+// one script round trip.
+func BenchmarkProvider_AllowAll(b *testing.B) {
+	p := benchSetup(b)
+	ctx := b.Context()
+	limits := []storages.Limit{
+		{Key: "{bench}:host", Limit: 1_000_000, Period: time.Minute},
+		{Key: "{bench}:global", Limit: 1_000_000, Period: time.Minute},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = p.AllowAll(ctx, limits)
 	}
 }

@@ -39,6 +39,13 @@ func WithCleanupSchedule[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithEviction sets the eviction option.
+func WithEviction(v Eviction) Option {
+	return func(o *options) {
+		o.eviction = v
+	}
+}
+
 // WithMaxBuckets sets the maxBuckets option.
 func WithMaxBuckets(v int) Option {
 	return func(o *options) {
@@ -79,6 +86,7 @@ func WithShards(v int) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		eviction:    DefaultEviction,
 		maxBuckets:  DefaultMaxBuckets,
 		maxIdleTime: DefaultMaxIdleTime,
 		shards:      DefaultShards,

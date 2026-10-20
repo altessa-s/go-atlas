@@ -32,8 +32,11 @@ func (c chain) Allow(ctx context.Context, key string) error {
 
 // Chain combines limiters into one that consults them in order and stops at
 // the first refusal, so a request refused by an earlier limiter (a request
-// budget) takes nothing from a later one (a per-host pacer). Nil limiters are
-// skipped. Chain returns nil when no limiter is left, and the limiter itself
+// budget) takes nothing from a later one (a per-host pacer). The converse
+// does not hold: a refusal by a later limiter does not return what earlier
+// ones took. Where the limits live in one storage, admit them together with
+// [github.com/altessa-s/go-atlas/data/limiters/storages.AllowAll], which takes
+// a slot on every key or on none. Nil limiters are skipped. Chain returns nil when no limiter is left, and the limiter itself
 // when only one is, so the result can be passed to client.WithLimiter, which
 // ignores nil.
 func Chain(limiters ...RequestsLimiter) RequestsLimiter {
