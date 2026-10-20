@@ -5,6 +5,7 @@
 package proxydial
 
 import (
+	"io"
 	"net"
 	"net/url"
 	"testing"
@@ -85,4 +86,25 @@ func TestFromURL_OptionsApply(t *testing.T) {
 	dial, err := FromURL(u, WithDialer(customDialer))
 	require.NoError(t, err)
 	require.NotNil(t, dial)
+}
+
+// TestFromURL_HTTPProxyServerFirst dials through an http:// proxy built by
+// FromURL and reads a greeting that shares a write with the 200 response.
+func TestFromURL_HTTPProxyServerFirst(t *testing.T) {
+	t.Parallel()
+
+	const greeting = "+OK POP3 ready\r\n"
+	proxyURL := startConnectProxy(t, serverFirstHandler("HTTP/1.1 200 Connection established\r\n\r\n", greeting, false))
+
+	dial, err := FromURL(proxyURL)
+	require.NoError(t, err)
+
+	conn, err := dial(t.Context(), "tcp", "pop3.example:110")
+	require.NoError(t, err)
+	trackTunnel(t, conn)
+
+	requireRead(t, conn, greeting)
+	_, err = io.WriteString(conn, "QUIT\r\n")
+	require.NoError(t, err)
+	requireRead(t, conn, "221 bye\r\n")
 }
