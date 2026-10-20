@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/data/limiters/storages/memory"
 )
 
@@ -174,4 +175,57 @@ func benchAllowParallelMixedAtCapacity(b *testing.B, shards int) {
 			_, _ = p.Allow(ctx, key, 1_000_000, 10*time.Millisecond)
 		}
 	})
+}
+
+// BenchmarkProvider_AllowAll measures a per-host plus global admission, on
+// one shard and on a sharded provider where the two keys may lock two
+// shards.
+func BenchmarkProvider_AllowAll(b *testing.B) {
+	for _, shards := range benchShardCounts {
+		b.Run("shards="+strconv.Itoa(shards), func(b *testing.B) {
+			p := memory.New(memory.WithShards(shards))
+			ctx := b.Context()
+			limits := []storages.Limit{
+				{Key: "host", Limit: 1_000_000, Period: 10 * time.Millisecond},
+				{Key: "global", Limit: 1_000_000, Period: 10 * time.Millisecond},
+			}
+
+			b.ReportAllocs()
+			for b.Loop() {
+				_, _ = p.AllowAll(ctx, limits)
+			}
+		})
+	}
+}
+
+// BenchmarkProvider_AllowAll_ParallelSpread is the per-request shape of a
+// per-host plus global limit under concurrent callers: every call shares the
+// global key, so it measures the contention that key adds.
+func BenchmarkProvider_AllowAll_ParallelSpread(b *testing.B) {
+	for _, shards := range benchShardCounts {
+		b.Run("shards="+strconv.Itoa(shards), func(b *testing.B) {
+			const hosts = 4096
+			p := memory.New(memory.WithShards(shards))
+			ctx := b.Context()
+			names := make([]string, hosts)
+			for i := range names {
+				names[i] = "host-" + strconv.Itoa(i)
+			}
+			var worker atomic.Int64
+
+			b.ReportAllocs()
+			b.RunParallel(func(pb *testing.PB) {
+				i := int(worker.Add(1)) * 7919
+				limits := []storages.Limit{
+					{Limit: 1_000_000, Period: 10 * time.Millisecond},
+					{Key: "global", Limit: 1_000_000, Period: 10 * time.Millisecond},
+				}
+				for pb.Next() {
+					limits[0].Key = names[i%hosts]
+					_, _ = p.AllowAll(ctx, limits)
+					i++
+				}
+			})
+		})
+	}
 }

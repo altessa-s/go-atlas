@@ -7,10 +7,21 @@
 //
 // # Capacity and cleanup
 //
-// [WithMaxBuckets] caps the number of tracked keys; a new key at the cap
-// evicts the least recently used one. Idle buckets are removed by
-// [Provider.RunCleanup], either called manually or registered with a
-// scheduler via [WithScheduler] and [WithCleanupSchedule].
+// [WithMaxBuckets] caps the number of tracked keys. A new key at the cap
+// first reclaims every window that has expired, which loses no state; when
+// none has, [WithEviction] decides. [EvictionLRU] (the default) evicts the
+// least recently used live window, so a stream of new keys can push out a
+// busy key and reset its limit. [EvictionReject] refuses the new key with
+// [ErrCapacityExceeded] instead and keeps every live window; tracked keys
+// keep working. Idle buckets are removed by [Provider.RunCleanup], either
+// called manually or registered with a scheduler via [WithScheduler] and
+// [WithCleanupSchedule].
+//
+// # Multi-key admission
+//
+// [Provider.AllowAll] implements [storages.MultiStorage]: it admits a
+// request against several keys or against none, locking their shards in
+// ascending index order so overlapping calls cannot deadlock.
 //
 // # Sharding
 //
