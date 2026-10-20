@@ -39,13 +39,19 @@ var ErrInvalidConfig = errors.New("config must be a struct pointer")
 // It parses os.Environ(), unwraps any environment variable references, and expands
 // $__secret{namespace:key} placeholders if a secrets manager is provided.
 //
+// When prefix is not empty, only the variables whose names start with it are
+// returned, keyed by the rest of the name; every other variable is skipped
+// before its value is unwrapped or expanded.
+//
 // Parameters:
 //   - ctx: The context for secrets operations (can be nil, defaults to context.Background())
 //   - manager: The secrets manager for expanding secret placeholders (can be nil)
+//   - prefix: The prefix selecting the variables, already normalized (can be empty)
+//   - delimiter: The section delimiter that replaces '[' of the bracket syntax
 //   - strict: When true, returns an error if any referenced environment variable is undefined
 //
 //nolint:contextcheck // context is properly handled within function
-func envsWithSecrets(ctx context.Context, manager loadersecrets.Manager, strict bool) (map[string]string, error) {
+func envsWithSecrets(ctx context.Context, manager loadersecrets.Manager, prefix, delimiter string, strict bool) (map[string]string, error) {
 	ctx = corecontext.OrBackground(ctx)
 
 	envs := make(map[string]string)
@@ -54,7 +60,11 @@ func envsWithSecrets(ctx context.Context, manager loadersecrets.Manager, strict 
 		for j := range len(s) {
 			if s[j] == '=' {
 				key, value := s[:j], s[j+1:]
-				normalizedKey := normalizeEnvKey(key)
+				name, ok := strings.CutPrefix(key, prefix)
+				if !ok || name == "" {
+					break
+				}
+				normalizedKey := normalizeEnvKey(name, delimiter)
 
 				var unwrappedValue string
 				if strict {
@@ -86,19 +96,19 @@ func envsWithSecrets(ctx context.Context, manager loadersecrets.Manager, strict 
 	return envs, nil
 }
 
-// normalizeEnvKey converts square bracket syntax to double underscore syntax.
-// Examples:
+// normalizeEnvKey converts square bracket syntax to the section delimiter.
+// Examples with the default delimiter "__":
 //   - "NATS__CONSUMERS[keycloak_sync]__DESCRIPTION" → "NATS__CONSUMERS__keycloak_sync__DESCRIPTION"
 //   - "BACK_OFF[0]" → "BACK_OFF__0"
 //   - "NORMAL_KEY" → "NORMAL_KEY" (unchanged)
-func normalizeEnvKey(key string) string {
+func normalizeEnvKey(key, delimiter string) string {
 	// Quick check if normalization is needed
 	if !strings.Contains(key, "[") {
 		return key
 	}
 
-	// Replace [ with __ and remove ]
-	normalized := strings.ReplaceAll(key, "[", "__")
+	// Replace [ with the delimiter and remove ]
+	normalized := strings.ReplaceAll(key, "[", delimiter)
 	normalized = strings.ReplaceAll(normalized, "]", "")
 	return normalized
 }

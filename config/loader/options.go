@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
+
 	loadersecrets "github.com/altessa-s/go-atlas/config/loader/secrets"
 )
 
@@ -33,13 +35,26 @@ const DefaultStructTagName = "yaml"
 // process can safely handle even on small instances.
 const DefaultMaxConfigBytes int64 = 16 * 1024 * 1024
 
+// DefaultMaxEnvSliceLen caps the length an environment variable can grow a
+// slice to by its index: APP_HOSTS__1023 is accepted, APP_HOSTS__1024 fails
+// the load with [ErrEnvIndexOutOfRange] unless the slice already holds that
+// element. Without a cap, APP_HOSTS__1000000000 would allocate a billion
+// elements before any value is assigned.
+const DefaultMaxEnvSliceLen = 1024
+
 const (
 	defaultValueTagName = "default"
 	envTagName          = "env"
 )
 
 type options struct {
-	path                string
+	path string
+	// envPrefix selects the environment variables the loader reads: when it
+	// is set, a variable without it is ignored, and it is stripped before
+	// the rest of the name is matched. It is normalized by
+	// appinfo.NormalizeEnvKeyPrefix (uppercased, "-" and "." replaced by
+	// "_", exactly one trailing "_"), so "app", "APP" and "APP_" all select
+	// APP_*.
 	envPrefix           string
 	envSectionDelimiter string `optgen:"default=DefaultEnvSectionDelimiter"`
 	structTag           string `optgen:"default=DefaultStructTagName"`
@@ -51,6 +66,10 @@ type options struct {
 	// allowUnknownFields disables the default rejection of file keys that
 	// bind to no field of the configuration struct.
 	allowUnknownFields bool
+	// maxEnvSliceLen caps the length an indexed environment variable can grow
+	// a slice to; an index inside the slice's current length is always
+	// accepted.
+	maxEnvSliceLen int `optgen:"default=DefaultMaxEnvSliceLen"`
 }
 
 // WithStrict enables strict mode for configuration loading.
@@ -84,6 +103,7 @@ func (o *options) normalization() {
 	if o.path != "" {
 		o.path = filepath.Clean(o.path)
 	}
+	o.envPrefix = appinfo.NormalizeEnvKeyPrefix(o.envPrefix)
 }
 
 // getSecretsContext returns a context with timeout for secrets operations.

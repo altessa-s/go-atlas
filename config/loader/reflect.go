@@ -5,6 +5,7 @@
 package loader
 
 import (
+	"errors"
 	"fmt"
 	"iter"
 	"math"
@@ -43,34 +44,59 @@ var (
 	ErrUintParse        = fmt.Errorf("uint parse failure")
 )
 
-// wrapError creates a wrapped error with a base error, message template, and optional cause.
-// This generic function replaces multiple specialized error wrappers to reduce code duplication.
-func wrapError(baseErr error, msgTemplate string, value string, cause error) error {
+// wrapError creates a wrapped error with a base error, a message, and an
+// optional cause. Neither may quote the value being parsed, which can be an
+// expanded secret: callers name the variable or field instead.
+func wrapError(baseErr error, msg string, cause error) error {
 	if cause != nil {
-		return coreerrs.Wrapf(baseErr, msgTemplate+": %v", value, cause)
+		return coreerrs.Wrapf(baseErr, msg+": %v", withoutInput(cause))
 	}
-	return coreerrs.Wrapf(baseErr, msgTemplate, value)
+	return coreerrs.Wrap(baseErr, msg)
+}
+
+// withoutInput returns err without the parsed input a strconv error quotes:
+// its function and reason only.
+func withoutInput(err error) error {
+	if numErr, ok := errors.AsType[*strconv.NumError](err); ok {
+		return fmt.Errorf("strconv.%s: %w", numErr.Func, numErr.Err)
+	}
+	return err
 }
 
 // field represents a struct field with its metadata, tags, and reflection information.
 // It maintains parent-child relationships for nested structs.
 type field struct {
-	tags        map[string]string
-	parent      *field
-	child       []*field
-	fullName    string
-	name        string
-	value       reflect.Value
-	field       reflect.StructField
-	parentMap   *reflect.Value // Parent map if this field is from a map
-	mapKey      *reflect.Value // Key in parent map if this field is from a map
-	parentValue *reflect.Value // Parent struct value (for updating map entries)
+	tags     map[string]string
+	parent   *field
+	child    []*field
+	fullName string
+	name     string
+	value    reflect.Value
+	field    reflect.StructField
+	// entries lists, outermost first, the map entries held by value on the
+	// path to a field found dynamically: they are navigated as addressable
+	// copies that must be stored back once the field is updated.
+	entries []mapEntry
 	// index is the struct index path of the field from the configuration
 	// root, through anonymous fields, which the field list flattens.
 	index []int
 	// steps locates a field found dynamically, possibly inside map entries or
 	// slice elements; nil for the field list, where index locates it.
 	steps []pathStep
+}
+
+// mapEntry is a map entry held by value and navigated as the addressable
+// copy value, which is stored back under key in m.
+type mapEntry struct {
+	m, key, value reflect.Value
+}
+
+// storeEntries stores the copies of the map entries on the path to the field
+// back into their maps, innermost first.
+func (f *field) storeEntries() {
+	for _, e := range slices.Backward(f.entries) {
+		e.m.SetMapIndex(e.key, e.value)
+	}
 }
 
 // pathSteps returns the steps from the configuration root to the field.
@@ -211,7 +237,7 @@ func setBool(fieldValue reflect.Value, defaultValue string, isDefaultValue, repl
 
 	boolValue, err := strconv.ParseBool(defaultValue)
 	if err != nil {
-		return false, wrapError(ErrBoolParseFailure, "a boolean value expected, got %q", defaultValue, err)
+		return false, wrapError(ErrBoolParseFailure, "a boolean value expected", err)
 	}
 
 	if isDefaultValue && (fieldValue.Bool() || !replaceDefaultValue) {
@@ -259,7 +285,7 @@ func setSlice(fieldValue reflect.Value, defaultValue string, isDefaultValue, rep
 			trimmedVal = trimmedVal[1 : len(trimmedVal)-1]
 		}
 		if _, err := set(slice.Index(i), trimmedVal, isDefaultValue, replaceDefaultValue, strict); err != nil {
-			return false, wrapError(ErrSliceItemInvalid, "incorrect slice item %q", val, err)
+			return false, wrapError(ErrSliceItemInvalid, fmt.Sprintf("incorrect slice item %d", i), err)
 		}
 	}
 
@@ -283,24 +309,24 @@ func setMap(fieldValue reflect.Value, defaultValue string, isDefaultValue, repla
 	vals := strings.Split(defaultValue, commaSeparator)
 	reflectMap := reflect.MakeMapWithSize(fieldValue.Type(), len(vals))
 
-	for _, val := range vals {
+	for i, val := range vals {
 		entry := strings.SplitN(val, mapSeparator, mapKeyValuePair)
 		if len(entry) != mapKeyValuePair {
-			return false, wrapError(ErrMapItemInvalid, "incorrect map item: %s", val, nil)
+			return false, wrapError(ErrMapItemInvalid, fmt.Sprintf("incorrect map item %d", i), nil)
 		}
 
 		mKey := strings.TrimSpace(entry[0])
 		mKeyValue := reflect.New(fieldValue.Type().Key()).Elem()
 
 		if _, err := set(mKeyValue, mKey, isDefaultValue, replaceDefaultValue, strict); err != nil {
-			return false, wrapError(ErrMapKeyInvalid, "incorrect map key %q", mKey, err)
+			return false, wrapError(ErrMapKeyInvalid, fmt.Sprintf("incorrect key of map item %d", i), err)
 		}
 
 		mVal := strings.TrimSpace(entry[1])
 		mValValue := reflect.New(fieldValue.Type().Elem()).Elem()
 
 		if _, err := set(mValValue, mVal, isDefaultValue, replaceDefaultValue, strict); err != nil {
-			return false, wrapError(ErrMapValueInvalid, "incorrect map value %q", mVal, err)
+			return false, wrapError(ErrMapValueInvalid, fmt.Sprintf("incorrect value of map item %d", i), err)
 		}
 
 		reflectMap.SetMapIndex(mKeyValue, mValValue)
@@ -323,7 +349,7 @@ func parseDuration(rvalue reflect.Value, value string) (val int64, err error) {
 			// Fallback: parse as raw integer (nanoseconds), consistent with how
 			// time.Duration is defined (type Duration int64).
 			if val, err = strconv.ParseInt(value, decimalBase, 64); err != nil {
-				return 0, fmt.Errorf("failed to parse duration %q: not a valid duration string or integer", value)
+				return 0, errors.New("not a valid duration string or integer")
 			}
 
 			return val, nil
@@ -359,7 +385,7 @@ func setIntValue(fieldValue reflect.Value, defaultValue string, isDefaultValue, 
 
 	defaultIntValue, err := parseDuration(reflect.Indirect(fieldValue), defaultValue)
 	if err != nil {
-		return false, wrapError(ErrNumericParse, "failed to parse %q", defaultValue, err)
+		return false, wrapError(ErrNumericParse, "failed to parse an integer", err)
 	}
 
 	if isDefaultValue && (parseStringInt(reflect.Indirect(fieldValue)) != 0 || !replaceDefaultValue) {
@@ -378,7 +404,7 @@ func setUintValue(fieldValue reflect.Value, defaultValue string, isDefaultValue,
 
 	uintNumber, err := strconv.ParseUint(defaultValue, decimalBase, fieldValue.Type().Bits())
 	if err != nil {
-		return false, wrapError(ErrUintParse, "failed to parse %q", defaultValue, err)
+		return false, wrapError(ErrUintParse, "failed to parse an unsigned integer", err)
 	}
 
 	if isDefaultValue && (fieldValue.Uint() != 0 || !replaceDefaultValue) {
@@ -397,7 +423,7 @@ func setFloatValue(fieldValue reflect.Value, defaultValue string, isDefaultValue
 
 	floatNumber, err := strconv.ParseFloat(defaultValue, fieldValue.Type().Bits())
 	if err != nil {
-		return false, wrapError(ErrFloatParse, "failed to parse %q", defaultValue, err)
+		return false, wrapError(ErrFloatParse, "failed to parse a float", err)
 	}
 
 	if isDefaultValue && (math.Float64bits(fieldValue.Float()) != 0 || !replaceDefaultValue) {
@@ -436,16 +462,26 @@ func (fs fields) All() iter.Seq[*field] {
 func structFields(s any) fields {
 	structValue := reflect.ValueOf(s)
 	structType := reflect.TypeOf(s)
-	return fieldsList(structValue, structType, nil, nil)
+	return fieldsList(structValue, structType, nil, nil, make([]reflect.Type, 0, fieldsListDepth))
 }
+
+// fieldsListDepth is the struct nesting depth fieldsList preallocates its
+// type path for.
+const fieldsListDepth = 8
 
 // fieldsList recursively builds a list of fields from a struct type.
 // It handles nested structs and anonymous fields, maintaining parent-child relationships.
 // index is the struct index path of structType from the configuration root;
-// anonymous fields are part of it even though they are not parents.
-func fieldsList(structValue reflect.Value, structType reflect.Type, parent *field, index []int) fields {
+// anonymous fields are part of it even though they are not parents. path
+// lists the struct types being listed: a field of a recursive type, such as
+// Next *Node in Node, is listed without its fields, which the environment
+// loader reaches by navigating the configuration instead.
+func fieldsList(structValue reflect.Value, structType reflect.Type, parent *field, index []int, path []reflect.Type) fields {
 	structValue = indirectValue(structValue)
 	structType = indirectType(structType)
+	// The calls for nested structs append to path in place: each one reads
+	// only its own prefix, so siblings may reuse the backing array.
+	path = append(path, structType)
 
 	list := make(fields, 0, structType.NumField())
 
@@ -485,7 +521,7 @@ func fieldsList(structValue reflect.Value, structType reflect.Type, parent *fiel
 		// For non-inline fields, add to list
 		list = coreslices.AppendIf(list, !structField.Anonymous, fld)
 
-		if indirectType(structField.Type).Kind() == reflect.Struct {
+		if fieldType := indirectType(structField.Type); fieldType.Kind() == reflect.Struct && !slices.Contains(path, fieldType) {
 			pf := fld
 			if structField.Anonymous {
 				pf = parent
@@ -500,7 +536,7 @@ func fieldsList(structValue reflect.Value, structType reflect.Type, parent *fiel
 				}
 			}
 
-			fld.child = fieldsList(structFieldValue, structField.Type, pf, fld.index)
+			fld.child = fieldsList(structFieldValue, structField.Type, pf, fld.index, path)
 			list = append(list, fld.child...)
 
 			continue

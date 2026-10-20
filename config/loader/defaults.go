@@ -23,7 +23,20 @@ func (cf *Config) applyDefaults() error {
 	if cf.options.skipDefaults {
 		return nil
 	}
+	defer func() { cf.defaulting = nil }()
 	return cf.defaultStruct(reflect.ValueOf(cf.conf).Elem(), cf.present, true, nil)
+}
+
+// ptrKey identifies the value a pointer points to: by address and type, as a
+// struct and its first field share an address.
+type ptrKey struct {
+	t reflect.Type
+	p uintptr
+}
+
+// keyOf returns the ptrKey of the non-nil pointer v.
+func keyOf(v reflect.Value) ptrKey {
+	return ptrKey{t: v.Type(), p: v.Pointer()}
 }
 
 // defaultStruct applies defaults to struct v, whose presence is p. Default
@@ -32,6 +45,20 @@ func (cf *Config) applyDefaults() error {
 // the struct types being defaulted, so a recursive pointer type is not
 // allocated forever.
 func (cf *Config) defaultStruct(v reflect.Value, p *presence, withDefaulter bool, path []reflect.Type) error {
+	// A struct already being defaulted further up the walk, reached again
+	// through a pointer cycle (n.Next = n, or back to the root), is skipped:
+	// Default runs once per struct.
+	if v.CanAddr() {
+		key := ptrKey{t: reflect.PointerTo(v.Type()), p: v.Addr().Pointer()}
+		if _, active := cf.defaulting[key]; active {
+			return nil
+		}
+		if cf.defaulting == nil {
+			cf.defaulting = make(map[ptrKey]struct{})
+		}
+		cf.defaulting[key] = struct{}{}
+		defer delete(cf.defaulting, key)
+	}
 	if withDefaulter {
 		cf.callDefaulter(v, p)
 	}
@@ -221,6 +248,9 @@ func (cf *Config) defaultElement(v reflect.Value, p *presence, path []reflect.Ty
 	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return nil
+		}
+		if v.Elem().Kind() == reflect.Struct {
+			return cf.defaultStruct(v.Elem(), p, true, path)
 		}
 		v = v.Elem()
 	}
@@ -454,27 +484,40 @@ func (s *snapshot) restore(v reflect.Value) {
 }
 
 // deepCopy returns an independent copy of v: pointers, maps, slices and
-// interfaces reachable through exported fields are copied, not shared.
+// interfaces reachable through exported fields are copied, not shared. A
+// pointer cycle is copied as a cycle.
 func deepCopy(v reflect.Value) reflect.Value {
+	return deepCopySeen(v, make(map[ptrKey]reflect.Value))
+}
+
+// deepCopySeen is deepCopy with the copies made so far of each pointer.
+func deepCopySeen(v reflect.Value, seen map[ptrKey]reflect.Value) reflect.Value {
 	out := reflect.New(v.Type()).Elem()
-	copyInto(out, v)
+	copyInto(out, v, seen)
 	return out
 }
 
-// copyInto deep-copies src into the settable dst of the same type.
-func copyInto(dst, src reflect.Value) {
+// copyInto deep-copies src into the settable dst of the same type. seen maps
+// each pointer copied so far to its copy.
+func copyInto(dst, src reflect.Value, seen map[ptrKey]reflect.Value) {
 	switch src.Kind() {
 	case reflect.Pointer:
 		if !src.IsNil() {
+			key := keyOf(src)
+			if p, ok := seen[key]; ok {
+				dst.Set(p)
+				return
+			}
 			p := reflect.New(src.Type().Elem())
-			copyInto(p.Elem(), src.Elem())
+			seen[key] = p
+			copyInto(p.Elem(), src.Elem(), seen)
 			dst.Set(p)
 		}
 	case reflect.Map:
 		if !src.IsNil() {
 			m := reflect.MakeMapWithSize(src.Type(), src.Len())
 			for it := src.MapRange(); it.Next(); {
-				m.SetMapIndex(it.Key(), deepCopy(it.Value()))
+				m.SetMapIndex(it.Key(), deepCopySeen(it.Value(), seen))
 			}
 			dst.Set(m)
 		}
@@ -482,23 +525,23 @@ func copyInto(dst, src reflect.Value) {
 		if !src.IsNil() {
 			s := reflect.MakeSlice(src.Type(), src.Len(), src.Len())
 			for i := range src.Len() {
-				copyInto(s.Index(i), src.Index(i))
+				copyInto(s.Index(i), src.Index(i), seen)
 			}
 			dst.Set(s)
 		}
 	case reflect.Array:
 		for i := range src.Len() {
-			copyInto(dst.Index(i), src.Index(i))
+			copyInto(dst.Index(i), src.Index(i), seen)
 		}
 	case reflect.Interface:
 		if !src.IsNil() {
-			dst.Set(deepCopy(src.Elem()))
+			dst.Set(deepCopySeen(src.Elem(), seen))
 		}
 	case reflect.Struct:
 		dst.Set(src)
 		for i := range src.NumField() {
 			if dst.Field(i).CanSet() {
-				copyInto(dst.Field(i), src.Field(i))
+				copyInto(dst.Field(i), src.Field(i), seen)
 			}
 		}
 	default:

@@ -59,7 +59,7 @@ The `Load()` method executes the following steps in order:
 p := loader.New(backend,
     loader.WithPath("config.yaml"),
     loader.WithPathOnEnvKey("CONFIG_PATH", "config.yaml"),
-    loader.WithEnvPrefix("APP_"),
+    loader.WithEnvPrefix("APP"), // or appinfo.EnvKeyPrefix()
     loader.WithEnvSectionDelimiter("__"),
     loader.WithStructTag("yaml"),
     loader.WithSkipEnv(),
@@ -67,6 +67,7 @@ p := loader.New(backend,
     loader.WithSecretsManager(manager),
     loader.WithStrict(),
     loader.WithMaxConfigBytes(16 * 1024 * 1024),
+    loader.WithMaxEnvSliceLen(1024),
 )
 ```
 
@@ -74,7 +75,7 @@ p := loader.New(backend,
 |---------------------------|----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
 | `WithPath`                | --                   | Config file path. Supports `~` home directory expansion                                                                                           |
 | `WithPathOnEnvKey`        | --                   | Load path from env var with a fallback default path                                                                                               |
-| `WithEnvPrefix`           | `""`                 | Prefix for all environment variables (e.g. `APP_`)                                                                                                |
+| `WithEnvPrefix`           | `""`                 | Read only variables with this prefix; normalized to one trailing `_` (`app`, `APP`, `APP_` all mean `APP_`)                                       |
 | `WithEnvSectionDelimiter` | `"__"`               | Delimiter for nested struct mapping in env vars                                                                                                   |
 | `WithStructTag`           | `"yaml"`             | Struct tag name for field mapping                                                                                                                 |
 | `WithSkipEnv`             | `false`              | Skip environment variable loading                                                                                                                 |
@@ -82,6 +83,7 @@ p := loader.New(backend,
 | `WithSecretsManager`      | `nil`                | Secrets manager for `$__secret{}` expansion                                                                                                       |
 | `WithStrict`              | `false`              | Error on undefined env vars and unsupported field types                                                                                           |
 | `WithMaxConfigBytes`      | `16 MiB`             | Cap per-file read size. Guards against `/dev/zero`, multi-GB tmpfs files, or malicious include targets that would OOM the loader before parsing   |
+| `WithMaxEnvSliceLen`      | `1024`               | Max length an indexed env variable can grow a slice to; a larger or negative index fails with `ErrEnvIndexOutOfRange`                             |
 
 ---
 
@@ -130,23 +132,67 @@ loader would happily decode whatever the link points at. In-root symlinks (the K
 
 ## Environment variables
 
-Environment variables are mapped to struct fields using the `env` tag:
+Every field has an environment variable name; all paths of the loader (plain fields, indexed slices, nested sections, map entries) use one rule:
+
+1. With `WithEnvPrefix("APP")` (or `"app"` or `"APP_"`, the same: the prefix is normalized by `appinfo.NormalizeEnvKeyPrefix`), only `APP_*`
+   variables are read; anything else is ignored, and `APP_` is stripped before matching. Services built with `appinfo.EnvPrefix` pass
+   `appinfo.EnvKeyPrefix()`.
+2. A value field (not a struct section) with an `env` tag is named by the tag alone; its path name does not apply. A tag starting with `APP_` or with
+   the prefix maps to the prefix plus the rest of the tag. Entries of such a slice or map are `<TAG>__<index|key>`, also when the tag contains the
+   delimiter (`env:"DB__LABELS"` reads `APP_DB__LABELS__team`). A tag claims a variable only when the rest of its name addresses an entry of the
+   field's type; when several tags do, the longest wins, and a variable no tag claims is matched by path names. A scalar's tag has no entries.
+3. Any other field is named by its path: one name per level joined by the section delimiter (default `__`). A level answers to its struct tag name
+   and to its Go field name, both in SCREAMING_SNAKE_CASE and matched exactly. Embedded structs add no level; slice indices and map keys are levels
+   taken verbatim, and `NAME[key]` is read as `NAME`, the delimiter and `key`.
+4. Inside slice elements and map values `env` tags are ignored and the path name applies.
 
 ```go
 type Config struct {
-    Host string `yaml:"host" env:"APP_HOST"`
-    Port int    `yaml:"port" env:"APP_PORT"`
+    Host     string            `yaml:"host" env:"SERVICE_HOST"` // APP_SERVICE_HOST only
+    Database Database          `yaml:"database"`                // APP_DATABASE__PORT
+    MongoDB  Mongo             `yaml:"mongodb"`                 // APP_MONGODB__URI or APP_MONGO_DB__URI
+    Replicas []string          `yaml:"replicas"`                // APP_REPLICAS__0
+    Labels   map[string]string `yaml:"labels"`                  // APP_LABELS__team
 }
 ```
 
-Nested structures use the section delimiter (default `__`):
+When a level's struct tag and Go field name differ (`mongodb` and `MongoDB`), both spellings work. When both are set, the struct tag spelling wins on
+every path. Of the variables that set one value, only one is applied: the one with the fewest levels spelled by Go field name over its whole name,
+then the first in name order; `HOSTS__0` and `HOSTS__00` set one element. A variable an `env` tag names whole belongs to that field only.
 
-```bash
-export DATABASE__HOST=localhost
-export DATABASE__PORT=5432
-```
+`APP_` at the start of an `env` tag stands for the configured prefix: with `WithEnvPrefix("RADAR")`, `env:"APP_NAME"` reads `RADAR_NAME`; tag the
+field `env:"RADAR_APP_NAME"` to read `RADAR_APP_NAME`. `env:"-"` keeps a value field out of the environment. Errors name the variable and never quote
+its value, which may be an expanded secret.
+
+A slice index must not be negative, and an index past the end of the slice may grow it to at most 1024 elements (`WithMaxEnvSliceLen`); an index
+inside a longer slice from a file is always accepted. Any other index fails the load with `ErrEnvIndexOutOfRange`, wrapped by `ErrBindEnv`.
+Recursive types (`Next *Node` in `Node`) load, and the environment reaches nested nodes by their path (`APP_HEAD__NEXT__NEXT__NAME`), allocating
+them on the way. Pointer cycles in the value passed to `Load` are followed once by defaults and secret expansion, and a recursive embedding
+(`type Node struct{ *Node }`) allocates embedded pointers only for a variable name that matches.
 
 Environment variable values support recursive `$VAR` unwrapping (max depth 10) with circular reference detection.
+
+### Migrating environment variable names
+
+The rule above replaced per-path naming. Breaking changes:
+
+| Before                                                                      | Now                                                                                     |
+|-----------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| `WithEnvPrefix("APP")` and `WithEnvPrefix("APP_")` selected different names | Both, and `"app"`, read `APP_*`; pass `appinfo.EnvKeyPrefix()` with `appinfo.EnvPrefix` |
+| With a prefix, unprefixed `SECTION__FIELD` still overrode the configuration | Only `APP_*` variables are read; rename them to `APP_SECTION__FIELD`                    |
+| Plain fields answered to Go field names only                                | Every level answers to its struct tag name and its Go field name                        |
+| A section's `env` tag worked as its level name on nested paths              | An `env` tag names its field only; use the path, or the tag of each field               |
+| A tagged field was also read from its path name                             | A tagged field is read from its tag only                                                |
+| Nested paths matched level names case-insensitively                         | Level names match only in SCREAMING_SNAKE_CASE                                          |
+| A negative or huge slice index panicked or allocated the whole slice        | It fails the load with `ErrEnvIndexOutOfRange`                                          |
+| `NAME[key]` always became `NAME__key`                                       | `NAME[key]` uses the configured section delimiter                                       |
+| With both spellings set, which one won was unspecified                      | The struct tag spelling wins                                                            |
+| `env:"-"` named a variable `-`                                              | `env:"-"` keeps the field out of the environment                                        |
+| Parse errors quoted the value                                               | Parse errors name the variable only                                                     |
+
+A variable that names no field is ignored silently, even with `WithStrict`, so a renamed override simply stops applying. Before upgrading, audit
+deployment manifests for unprefixed overrides, path names of `env`-tagged fields (`APP_SECTION__FIELD` for a field tagged `env:"DB_HOST"`), section
+`env` tags used as level names and lower-case names.
 
 ---
 
@@ -233,7 +279,9 @@ type Normalizer interface {
 }
 ```
 
-Called on the root struct and on every non-nil nested pointer-to-struct field that implements the interface (struct values are not visited).
+Called on the root struct and on every non-nil nested pointer-to-struct field that implements the interface (struct values are not visited). In a
+recursive type the walk stops at the first field whose type repeats on its path: for `Next *Node` in `Node`, `head.next` is normalized but
+`head.next.next` is not.
 
 ---
 

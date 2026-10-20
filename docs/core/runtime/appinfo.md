@@ -145,6 +145,14 @@ to `HomeDir()`.
 path := appinfo.GetEnvVar("config")
 ```
 
+`EnvKeyPrefix()` returns the same prefix in the form variable names start with: `MYAPP_` for `EnvPrefix` `MYAPP` or `MYAPP_`, `""` when
+`EnvPrefix` is empty. `NormalizeEnvKeyPrefix(prefix)` applies the same normalization (trim, uppercase, `-`/`.` to `_`, one trailing `_`)
+to any prefix; `config/loader` uses it for `WithEnvPrefix`. Pass it to the configuration loader so the loader reads the same names as `GetEnvVar`:
+
+```go
+cfg := loader.New(nil, loader.WithEnvPrefix(appinfo.EnvKeyPrefix())) // reads MYAPP_*
+```
+
 ### General-purpose helpers
 
 | Function | Description |
