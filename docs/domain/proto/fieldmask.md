@@ -82,10 +82,13 @@ For a `KindUpdate` method, on every unary call (and every streamed frame):
      is checked against the element schema: IMMUTABLE or IDENTIFIER leaf → violation, OUTPUT_ONLY leaf → dropped. A collection or element named
      whole (`labels`, `labels.k`, `aliases.*`) is a replacement and is accepted.
    * OUTPUT_ONLY in the mask → silently dropped from the mask map.
+   * A set IDENTIFIER the mask does not name — top-level, in a singular sub-message branch (`profile.display_name`), or in the collection
+     elements a sub-path addresses (`labels.k.display_name`, `aliases.*.display_name`, `aliases.display_name`) — is added to the mask so the
+     filter keeps it in the body. An IDENTIFIER that is also OUTPUT_ONLY is never kept.
 4. On violation: the interceptor builds an `InvalidArgument` status with an `io.altessa.badrequest.v1.BadRequest` detail — one `FieldViolation`
    per entry, each carrying the dot-separated field path and a human description.
-5. On success: the cleaned mask (OUTPUT_ONLY entries removed) is written back to `req.update_mask` via `SetUpdateMask`, so the handler sees a
-   coherent `(mask, resource)` pair.
+5. On success: the cleaned mask (OUTPUT_ONLY entries removed, the IDENTIFIER entries added in step 3 dropped again by `DropIdentifiers`) is
+   written back to `req.update_mask` via `SetUpdateMask`, so the handler sees a coherent `(mask, resource)` pair.
 
 The handler can then treat `req.GetUpdateMask().GetPaths()` as a clean instruction list — no IMMUTABLE/IDENTIFIER booby traps, no OUTPUT_ONLY
 writes to discard at the storage layer.

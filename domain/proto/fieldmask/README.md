@@ -14,7 +14,8 @@ or in a singular sub-message at any depth, populated or absent — each such fie
 (`profile.display_name`) instead. Repeated and map fields, and their elements named whole (`labels.k`, `aliases.*`), are replaced as a whole and are not
 descended. A sub-path into collection elements — a map key (`labels.k.id`), the `*` wildcard (`aliases.*.id`) or the implicit per-element form
 (`aliases.id`) — is checked against the element schema: `IDENTIFIER` and `IMMUTABLE` leaves are violations and `OUTPUT_ONLY` leaves are removed from the
-mask, as for a singular sub-message.
+mask, as for a singular sub-message. Each element such a sub-path addresses keeps its set `IDENTIFIER` fields, as a singular sub-message does:
+`labels.k.display_name` adds `labels.k.id` to the mask so the filter keeps it, and `DropIdentifiers` removes it again.
 
 A field carrying several behaviors is judged by presence with a fixed precedence — `OUTPUT_ONLY` (dropped), then `IDENTIFIER`, then `IMMUTABLE`, then
 `REQUIRED` (cleared) — so `[REQUIRED, IMMUTABLE]` is protected whatever the declaration order, and the violation names the protecting behavior. A

@@ -80,8 +80,9 @@ func TestApplyUpdateMask_CollectionElementIdentifierRejected(t *testing.T) {
 
 // TestApplyUpdateMask_CollectionElementOutputOnlyRemoved pins that an
 // OUTPUT_ONLY leaf under a collection element is removed from the mask, as for
-// a singular sub-message, and a branch left empty disappears; editable element
-// fields stay and whole elements are accepted.
+// a singular sub-message, and a branch left empty disappears without keeping
+// the element identifier; editable element fields stay, with the set element
+// identifier added, and whole elements are accepted.
 func TestApplyUpdateMask_CollectionElementOutputOnlyRemoved(t *testing.T) {
 	t.Parallel()
 
@@ -90,9 +91,9 @@ func TestApplyUpdateMask_CollectionElementOutputOnlyRemoved(t *testing.T) {
 		paths []string
 		want  []string
 	}{
-		{name: "keyed map", paths: []string{"labels.k.updated_at", "labels.k.display_name"}, want: []string{"labels.k.display_name"}},
+		{name: "keyed map", paths: []string{"labels.k.updated_at", "labels.k.display_name"}, want: []string{"labels.k.display_name", "labels.k.id"}},
 		{name: "keyed map only output-only", paths: []string{"labels.k.updated_at"}, want: []string{}},
-		{name: "implicit repeated", paths: []string{"aliases.updated_at", "aliases.display_name"}, want: []string{"aliases.display_name"}},
+		{name: "implicit repeated", paths: []string{"aliases.updated_at", "aliases.display_name"}, want: []string{"aliases.display_name", "aliases.id"}},
 		{name: "implicit repeated only output-only", paths: []string{"aliases.updated_at"}, want: []string{}},
 		{name: "whole elements", paths: []string{"labels.k", "aliases.*"}, want: []string{"aliases.*", "labels.k"}},
 	}
@@ -115,14 +116,17 @@ func TestApplyUpdateMask_CollectionElementOutputOnlyRemoved(t *testing.T) {
 // messages and collections of their own:
 //
 //	message Inner { string id = 1 [IDENTIFIER]; string code = 2 [IMMUTABLE]; string note = 3; string stamp = 4 [OUTPUT_ONLY]; }
-//	message Elem  { string name = 1; Inner inner = 2; map<string, Inner> subs = 3; repeated Inner items = 4; }
-//	message Res   { map<string, Elem> elems = 1; repeated Elem list = 2; string title = 3; }
+//	message Elem  { string name = 1; Inner inner = 2; map<string, Inner> subs = 3; repeated Inner items = 4;
+//	                string eid = 5 [IDENTIFIER]; string ref = 6 [IDENTIFIER, OUTPUT_ONLY]; }
+//	message Wrap  { string label = 1; Inner inner = 2; repeated Inner items = 3; }
+//	message Res   { map<string, Elem> elems = 1; repeated Elem list = 2; string title = 3; map<int32, Elem> nums = 4;
+//	                repeated Wrap wraps = 5; }
 func elementDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 	tb.Helper()
 
-	behaviorOpts := func(b annotations.FieldBehavior) *descriptorpb.FieldOptions {
+	behaviorOpts := func(b ...annotations.FieldBehavior) *descriptorpb.FieldOptions {
 		o := &descriptorpb.FieldOptions{}
-		proto.SetExtension(o, annotations.E_FieldBehavior, []annotations.FieldBehavior{b})
+		proto.SetExtension(o, annotations.E_FieldBehavior, b)
 		return o
 	}
 	msg := descriptorpb.FieldDescriptorProto_TYPE_MESSAGE
@@ -138,12 +142,12 @@ func elementDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 		}
 		return f
 	}
-	mapEntry := func(name, valueType string) *descriptorpb.DescriptorProto {
+	mapEntry := func(name string, keyType descriptorpb.FieldDescriptorProto_Type, valueType string) *descriptorpb.DescriptorProto {
 		return &descriptorpb.DescriptorProto{
 			Name:    new(name),
 			Options: &descriptorpb.MessageOptions{MapEntry: new(true)},
 			Field: []*descriptorpb.FieldDescriptorProto{
-				field("key", 1, str, opt, "", nil),
+				field("key", 1, keyType, opt, "", nil),
 				field("value", 2, msg, opt, valueType, nil),
 			},
 		}
@@ -160,6 +164,11 @@ func elementDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 				field("note", 3, str, opt, "", nil),
 				field("stamp", 4, str, opt, "", behaviorOpts(annotations.FieldBehavior_OUTPUT_ONLY)),
 			}},
+			{Name: new("Wrap"), Field: []*descriptorpb.FieldDescriptorProto{
+				field("label", 1, str, opt, "", nil),
+				field("inner", 2, msg, opt, ".fieldmaskelemtest.Inner", nil),
+				field("items", 3, msg, rep, ".fieldmaskelemtest.Inner", nil),
+			}},
 			{
 				Name: new("Elem"),
 				Field: []*descriptorpb.FieldDescriptorProto{
@@ -167,8 +176,10 @@ func elementDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 					field("inner", 2, msg, opt, ".fieldmaskelemtest.Inner", nil),
 					field("subs", 3, msg, rep, ".fieldmaskelemtest.Elem.SubsEntry", nil),
 					field("items", 4, msg, rep, ".fieldmaskelemtest.Inner", nil),
+					field("eid", 5, str, opt, "", behaviorOpts(annotations.FieldBehavior_IDENTIFIER)),
+					field("ref", 6, str, opt, "", behaviorOpts(annotations.FieldBehavior_IDENTIFIER, annotations.FieldBehavior_OUTPUT_ONLY)),
 				},
-				NestedType: []*descriptorpb.DescriptorProto{mapEntry("SubsEntry", ".fieldmaskelemtest.Inner")},
+				NestedType: []*descriptorpb.DescriptorProto{mapEntry("SubsEntry", str, ".fieldmaskelemtest.Inner")},
 			},
 			{
 				Name: new("Res"),
@@ -176,8 +187,13 @@ func elementDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 					field("elems", 1, msg, rep, ".fieldmaskelemtest.Res.ElemsEntry", nil),
 					field("list", 2, msg, rep, ".fieldmaskelemtest.Elem", nil),
 					field("title", 3, str, opt, "", nil),
+					field("nums", 4, msg, rep, ".fieldmaskelemtest.Res.NumsEntry", nil),
+					field("wraps", 5, msg, rep, ".fieldmaskelemtest.Wrap", nil),
 				},
-				NestedType: []*descriptorpb.DescriptorProto{mapEntry("ElemsEntry", ".fieldmaskelemtest.Elem")},
+				NestedType: []*descriptorpb.DescriptorProto{
+					mapEntry("ElemsEntry", str, ".fieldmaskelemtest.Elem"),
+					mapEntry("NumsEntry", descriptorpb.FieldDescriptorProto_TYPE_INT32, ".fieldmaskelemtest.Elem"),
+				},
 			},
 		},
 	}
