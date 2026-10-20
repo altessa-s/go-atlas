@@ -59,6 +59,11 @@ reaches nested nodes by their path (`APP_HEAD__NEXT__NEXT__NAME`), allocating th
 cycles in the value passed to `Load` (`n.Next = n`) are followed once by defaults and secret expansion, and a recursive embedding
 (`type Node struct{ *Node }`) is searched once per variable name, allocating embedded pointers only for a name that matches.
 
+A map of maps takes one level per key, at any depth: ``Labels map[string]map[string]string `yaml:"labels"` `` reads `APP_LABELS__team__owner`, also
+through an `env` tag and inside slice elements, adding the entry to the maps already there. A variable whose path leads to nothing settable — a level
+no field answers to, a level below a value, more keys than the maps hold, a map whose keys are not strings — sets nothing and allocates no nil section,
+map or element on the way. In strict mode, a level no field answers to below a recognized root field fails the load with `ErrFieldNotFound` instead.
+
 ## Loading order
 
 1. Read configuration file(s) from the specified path (file or directory), recording which values each file sets
@@ -86,8 +91,9 @@ zero, or keys missing from a map it created; existing entries from the value pas
 
 Compared with earlier releases (breaking changes first):
 
-A variable that names no field is ignored silently, even with `WithStrict`, so a renamed override simply stops applying: audit deployment manifests
-for the names the items below no longer read.
+A variable whose first level names no field is ignored silently, even with `WithStrict`, so a renamed override simply stops applying: audit deployment
+manifests for the names the items below no longer read. Below a recognized root field, `WithStrict` fails the load with `ErrFieldNotFound` for a level
+no field answers to.
 
 - The env prefix is normalized by `appinfo.NormalizeEnvKeyPrefix`, the same rule `appinfo` uses: trimmed, uppercased, `-` and `.` replaced by `_`,
   exactly one trailing `_`. `WithEnvPrefix("app")`, `("APP")` and `("APP_")` all read `APP_*`; before, `APP` and `APP_` selected different names. A
@@ -103,6 +109,8 @@ for the names the items below no longer read.
 - An indexed variable whose index is negative or would grow a slice past `WithMaxEnvSliceLen` (default 1024) fails the load with
   `ErrEnvIndexOutOfRange`; before, it panicked or allocated the whole slice.
 - `NAME[key]` follows `WithEnvSectionDelimiter`; before, it always became `NAME__key`.
+- Entries of a map of maps are set (`APP_LABELS__team__owner`); before, such a variable was ignored after creating the outer map. A variable that sets
+  nothing no longer allocates the nil sections and maps on its path.
 - Configurations with recursive pointer types load; before, building the field list recursed until the process ran out of memory.
 - When a value is set in both the struct tag and the Go field name spelling, the struct tag spelling wins; before, which one won was unspecified. Of
   several variables setting one value, only one is applied, and a variable an `env` tag names whole is not read as an entry of another tag.

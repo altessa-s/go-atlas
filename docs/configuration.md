@@ -170,6 +170,10 @@ Recursive types (`Next *Node` in `Node`) load, and the environment reaches neste
 them on the way. Pointer cycles in the value passed to `Load` are followed once by defaults and secret expansion, and a recursive embedding
 (`type Node struct{ *Node }`) allocates embedded pointers only for a variable name that matches.
 
+A map of maps takes one level per key at any depth (`APP_LABELS__team__owner` for `map[string]map[string]string`), also through an `env` tag and
+inside slice elements. A variable whose path leads to nothing settable sets nothing and allocates no nil section, map or element on the way; in strict
+mode, a level no field answers to below a recognized root field fails the load with `ErrFieldNotFound` instead.
+
 Environment variable values support recursive `$VAR` unwrapping (max depth 10) with circular reference detection.
 
 ### Migrating environment variable names
@@ -186,13 +190,15 @@ The rule above replaced per-path naming. Breaking changes:
 | Nested paths matched level names case-insensitively                         | Level names match only in SCREAMING_SNAKE_CASE                                          |
 | A negative or huge slice index panicked or allocated the whole slice        | It fails the load with `ErrEnvIndexOutOfRange`                                          |
 | `NAME[key]` always became `NAME__key`                                       | `NAME[key]` uses the configured section delimiter                                       |
+| Map of maps entries were ignored after the outer map was created            | They are set, at any depth                                                              |
 | With both spellings set, which one won was unspecified                      | The struct tag spelling wins                                                            |
 | `env:"-"` named a variable `-`                                              | `env:"-"` keeps the field out of the environment                                        |
 | Parse errors quoted the value                                               | Parse errors name the variable only                                                     |
 
-A variable that names no field is ignored silently, even with `WithStrict`, so a renamed override simply stops applying. Before upgrading, audit
-deployment manifests for unprefixed overrides, path names of `env`-tagged fields (`APP_SECTION__FIELD` for a field tagged `env:"DB_HOST"`), section
-`env` tags used as level names and lower-case names.
+A variable whose first level names no field is ignored silently, even with `WithStrict`, so a renamed override simply stops applying; below a recognized
+root field, `WithStrict` fails the load with `ErrFieldNotFound` for a level no field answers to. Before upgrading, audit deployment manifests for
+unprefixed overrides, path names of `env`-tagged fields (`APP_SECTION__FIELD` for a field tagged `env:"DB_HOST"`), section `env` tags used as level
+names and lower-case names.
 
 ---
 

@@ -83,6 +83,9 @@ type field struct {
 	// steps locates a field found dynamically, possibly inside map entries or
 	// slice elements; nil for the field list, where index locates it.
 	steps []pathStep
+	// owner is the struct type declaring the field, for the fields of the
+	// field list and root fields; nil for a field found dynamically.
+	owner reflect.Type
 }
 
 // mapEntry is a map entry held by value and navigated as the addressable
@@ -506,6 +509,7 @@ func fieldsList(structValue reflect.Value, structType reflect.Type, parent *fiel
 			value:    structFieldValue,
 			parent:   parent,
 			index:    append(slices.Clip(index), indx),
+			owner:    structType,
 			tags: map[string]string{
 				defaultValueTagName:  structField.Tag.Get(defaultValueTagName),
 				envTagName:           structField.Tag.Get(envTagName),
