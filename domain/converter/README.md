@@ -12,13 +12,45 @@ buffers. It caches type metadata and pools allocations for optimal throughput.
 | Option                       | Description                                       |
 |------------------------------|---------------------------------------------------|
 | `WithCodecs`                 | Register custom codec pipeline                    |
-| `WithIgnoreFields`           | Skip specific fields by name (case-insensitive)   |
+| `WithIgnoreFields`           | Skip fields by leaf name where the walk descends   |
+| `WithIgnorePaths`            | Skip an exact source path (`smtp.password`)        |
+| `WithCopySlices`             | Copy assignable slices instead of aliasing         |
 | `WithFieldMappings`          | Map source field names to destination names        |
 | `WithIgnoreZeroValues`       | Skip zero-valued source fields                    |
 | `WithIgnoreNilValues`        | Skip nil source fields (pointers, slices, maps)   |
 | `WithSparseMerge`            | Sparse merge (partial update): skip nil sources, overwrite with non-nil pointers, clear on present-but-empty nested struct pointers |
 | `WithHandleEmbeddedStructs`  | Recursively expand embedded (anonymous) structs   |
 | `WithOverflowCheck`          | Panic on narrowing numeric overflow               |
+
+### Path-aware ignore and copied slices
+
+`WithIgnoreFields("password")` matches a leaf name at every depth the converter
+walks; an assignable same-type nested value is copied wholesale and is not
+rewritten. Use `WithIgnorePaths("smtp.password")` to ignore exactly one
+location; a parent path such as `WithIgnorePaths("smtp")` skips the whole
+subtree. Slice, array and map fields contribute one path segment, so
+`items.secret` matches every element of `Items`; map indices and map keys are
+never part of the path. A promoted source field flattened into the destination
+uses its promoted path. A destination-only embedded field adds no segment; the
+embedded field name is a path segment only when both sides declare that
+embedded field.
+Interfaces are not traversed. Path ignoring a nested value walks exported
+fields and keeps destination values that are not written (merge semantics), so
+unexported state of a same-type nested struct is not preserved.
+
+`WithCopySlices` gives the destination its own backing array for assignable
+slices, recursively through exported struct fields, arrays and map values. A
+nil source stays nil and an empty non-nil source stays empty non-nil. Pointers and
+interfaces stay aliased because cloning them would change identity, except a
+`*[]T` field, whose slice is cloned; conversion paths that build a new slice
+already copy.
+
+### Error-returning conversion
+
+`Convert` panics for invalid type combinations, overflow, and malformed input.
+`ConvertE` has the same signature but returns those panics as errors, which is
+safer for untrusted input and for slices that may contain nil message
+pointers. The destination may be partially populated when an error is returned.
 
 ## Value-handling semantics
 

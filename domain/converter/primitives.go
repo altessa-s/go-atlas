@@ -117,16 +117,20 @@ func (r *PrimitiveRegistry) TryConvert(srcValue, dstValue reflect.Value) bool {
 		}
 	}
 
-	// If dst is a pointer to a primitive, dereference it or initialize if nil
+	// If dst is a pointer to a primitive, dereference it or initialize if nil.
+	// Initialize only after confirming that a primitive converter exists for
+	// the source kind: otherwise a struct field mapped to *string would leave
+	// a non-nil pointer to the zero value.
 	if dstVal.Kind() == reflect.Pointer {
+		dstElemType := dstVal.Type().Elem()
 		if dstVal.IsNil() {
-			// Only initialize nil pointer if we have a non-zero source value to convert
-			if IsPrimitive(dstVal.Type().Elem().Kind()) && !srcVal.IsZero() {
-				dstVal.Set(reflect.New(dstVal.Type().Elem()))
-			} else if srcVal.IsZero() {
-				// Don't initialize nil pointer for zero source values
+			if srcVal.IsZero() || !IsPrimitive(srcVal.Kind()) || !IsPrimitive(dstElemType.Kind()) {
 				return false
 			}
+			if _, exists := r.Get(srcVal.Kind(), dstElemType.Kind()); !exists {
+				return false
+			}
+			dstVal.Set(reflect.New(dstElemType))
 		}
 		if !dstVal.IsNil() {
 			dstElem := dstVal.Elem()

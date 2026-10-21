@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
@@ -17,6 +18,10 @@ import (
 )
 
 const (
+	// noIgnorePath is a sentinel path for values that must never be matched by
+	// WithIgnorePaths (map keys).
+	noIgnorePath = "\x00key"
+
 	// EmptySliceLength is the initial length for destination slices created during
 	// slice conversion.
 	EmptySliceLength = 0
@@ -39,12 +44,9 @@ type Converter[T ConversionSource, U ConversionDestination] struct {
 	// Clean abstractions for performance optimization
 	typeCache         TypeCache
 	primitiveRegistry *PrimitiveRegistry
-	// convertByKindHandler caches the bound method value passed as the
-	// codec chain's terminal handler. Taking a method value (conv.convertByKind)
-	// allocates a small closure each time, so caching it once at construction
-	// time eliminates an allocation per field for codec-using converters that
-	// walk many fields. Initialized by every constructor below; never nil
-	// after construction.
+	// convertByKindHandler is the cached codec terminal for converters with
+	// no ignore paths. With paths configured, a per-call closure carries the
+	// path instead. It is initialized by every constructor.
 	convertByKindHandler convcodec.CodecHandler
 }
 
@@ -78,9 +80,32 @@ func Convert[T ConversionSource, U ConversionDestination](src T, dst U, opt ...O
 	if o.overflowCheck {
 		conv.primitiveRegistry = NewPrimitiveRegistry(true)
 	}
-	conv.convertByKindHandler = conv.convertByKind
+	conv.convertByKindHandler = conv.convertByKindNoPath
 	conv.Convert(src, dst)
 	return dst
+}
+
+// ConvertE is the error-returning variant of [Convert]. It recovers the
+// panics that [Convert] uses for invalid type combinations, overflow and
+// malformed input and returns them as an error instead. The destination may
+// be partially populated when an error is returned.
+//
+// Prefer ConvertE for data that does not come from a compile-time-known
+// schema, especially slices that may contain nil message pointers.
+func ConvertE[T ConversionSource, U ConversionDestination](src T, dst U, opt ...Option) (out U, err error) {
+	out = dst
+	defer func() {
+		if r := recover(); r != nil {
+			if e, ok := r.(error); ok {
+				err = e
+				return
+			}
+			err = fmt.Errorf("converter: %v", r)
+		}
+	}()
+
+	Convert(src, dst, opt...)
+	return out, nil
 }
 
 // New creates a new Converter with the specified options.
@@ -102,7 +127,7 @@ func New[T ConversionSource, U ConversionDestination](opt ...Option) *Converter[
 		typeCache:         NewTypeCache(),
 		primitiveRegistry: NewPrimitiveRegistry(o.overflowCheck),
 	}
-	conv.convertByKindHandler = conv.convertByKind
+	conv.convertByKindHandler = conv.convertByKindNoPath
 
 	return conv
 }
@@ -122,7 +147,7 @@ func NewShared[T ConversionSource, U ConversionDestination](opt ...Option) *Conv
 		typeCache:         sharedTypeCache,
 		primitiveRegistry: sharedPrimitiveRegistry,
 	}
-	conv.convertByKindHandler = conv.convertByKind
+	conv.convertByKindHandler = conv.convertByKindNoPath
 
 	if o.overflowCheck {
 		// If overflow check is needed, we might need a specific registry or just use the shared one
@@ -153,8 +178,8 @@ func ConvertMapSeq[K1 comparable, V1 any, K2 comparable, V2 any](src map[K1]V1, 
 		for k, v := range src {
 			var dk K2
 			var dv V2
-			conv.convertValue("", reflect.ValueOf(k), reflect.ValueOf(&dk).Elem())
-			conv.convertValue("", reflect.ValueOf(v), reflect.ValueOf(&dv).Elem())
+			conv.convertValueAt(noIgnorePath, "", reflect.ValueOf(k), reflect.ValueOf(&dk).Elem())
+			conv.convertValueAt("", "", reflect.ValueOf(v), reflect.ValueOf(&dv).Elem())
 			if !yield(dk, dv) {
 				return
 			}
@@ -223,7 +248,7 @@ func (conv *Converter[T, U]) Convert(src T, dst U) {
 	}
 
 	if srcKind == reflect.Struct {
-		conv.convertStruct(srcValue, dstValue)
+		conv.convertStruct("", srcValue, dstValue)
 		return
 	}
 
@@ -240,7 +265,7 @@ func (conv *Converter[T, U]) Convert(src T, dst U) {
 		panic("dst slice must be a pointer to slice of structs")
 	}
 
-	conv.convertValue("", srcValue, reflect.Indirect(dstValue))
+	conv.convertValueAt("", "", srcValue, reflect.Indirect(dstValue))
 }
 
 // ConvertSeq returns a lazy iterator that converts each element of src to type U.
@@ -250,7 +275,7 @@ func (conv *Converter[T, U]) ConvertSeq(src []T) iter.Seq[U] {
 		for _, item := range src {
 			var dst U
 			dstValue := reflect.ValueOf(&dst)
-			conv.convertValue("", reflect.ValueOf(item), dstValue.Elem())
+			conv.convertValueAt("", "", reflect.ValueOf(item), dstValue.Elem())
 			if !yield(dst) {
 				return
 			}
@@ -280,8 +305,8 @@ func (conv *Converter[T, U]) ConvertMapSeq(src any, dstKeyType reflect.Type, dst
 				dv = srcMapValue.Type()
 			}
 
-			dstKey := conv.convertMapKey("", key, dk)
-			dstVal := conv.convertMapValue("", key, srcMapValue, dv)
+			dstKey := conv.convertMapKey(noIgnorePath, "", key, dk)
+			dstVal := conv.convertMapValue("", "", key, srcMapValue, dv)
 
 			if !yield(dstKey.Interface(), dstVal.Interface()) {
 				return
@@ -292,7 +317,7 @@ func (conv *Converter[T, U]) ConvertMapSeq(src any, dstKeyType reflect.Type, dst
 
 // convertSmallStruct converts small structs using stack allocation to reduce heap allocations.
 // Uses direct dstValue.Field() via ByName map instead of pooled FieldAccess slices.
-func (conv *Converter[T, U]) convertSmallStruct(src reflect.Value, dst reflect.Value) bool {
+func (conv *Converter[T, U]) convertSmallStruct(path string, src reflect.Value, dst reflect.Value) bool {
 	dstValue := reflect.Indirect(dst)
 
 	// Only optimize for small structs
@@ -345,14 +370,14 @@ func (conv *Converter[T, U]) convertSmallStruct(src reflect.Value, dst reflect.V
 			continue
 		}
 
-		conv.convertValue(srcFieldName, srcFieldValue, dstFieldValue)
+		conv.convertValueAt(conv.childPath(path, srcFieldName), srcFieldName, srcFieldValue, dstFieldValue)
 	}
 
 	return true
 }
 
 // convertStruct converts one struct to another.
-func (conv *Converter[T, U]) convertStruct(src reflect.Value, dst reflect.Value) {
+func (conv *Converter[T, U]) convertStruct(path string, src reflect.Value, dst reflect.Value) {
 	dstValue := reflect.Indirect(dst)
 
 	// if dst has embedded structs, iterate through them
@@ -366,7 +391,7 @@ func (conv *Converter[T, U]) convertStruct(src reflect.Value, dst reflect.Value)
 				} else {
 					// create a new pointer if dst is nil
 					tmpVal := reflect.New(dstEmbeddedFieldValue.Type().Elem())
-					conv.convertValue("", src, tmpVal)
+					conv.convertValueAt(path, fieldName, src, tmpVal)
 
 					// if the embedded struct has non-zero values, set it
 					if !isStructZero(tmpVal.Elem()) {
@@ -375,13 +400,13 @@ func (conv *Converter[T, U]) convertStruct(src reflect.Value, dst reflect.Value)
 				}
 				continue
 			}
-			conv.convertValue(fieldName, src, dstEmbeddedFieldValue)
+			conv.convertValueAt(path, fieldName, src, dstEmbeddedFieldValue)
 		}
 	}
 
 	// Try stack allocation optimization for small structs
 	if src.NumField() <= MaxStackAllocFields && !conv.opts.handleEmbeddedStructs {
-		if conv.convertSmallStruct(src, dst) {
+		if conv.convertSmallStruct(path, src, dst) {
 			return // Successfully processed with stack allocation
 		}
 	}
@@ -430,16 +455,26 @@ func (conv *Converter[T, U]) convertStruct(src reflect.Value, dst reflect.Value)
 
 		// embedded struct using cached data
 		if srcInfo.Fields[i].Embedded {
+			fieldPath := conv.childPath(path, srcFieldName)
+			if conv.isIgnoredPath(fieldPath) {
+				continue
+			}
+			target := dst
 			// if dst does not have the field, try to unwrap the embedded struct
 			if dstFieldExists {
 				if dstFieldValue.Kind() == reflect.Pointer && dstFieldValue.IsNil() {
 					// create a new pointer if dst is nil
 					dstFieldValue.Set(reflect.New(dstFieldValue.Type().Elem()))
 				}
-				dst = dstFieldValue
+				target = dstFieldValue
 			}
-
-			conv.convertStruct(reflect.Indirect(srcFieldValue), dst)
+			// A source embedded struct flattened into the destination
+			// contributes promoted fields at the parent path; a destination
+			// embedded field keeps the embedded segment.
+			if !dstFieldExists {
+				fieldPath = path
+			}
+			conv.convertStruct(fieldPath, reflect.Indirect(srcFieldValue), target)
 			continue
 		}
 
@@ -447,12 +482,18 @@ func (conv *Converter[T, U]) convertStruct(src reflect.Value, dst reflect.Value)
 			continue
 		}
 
-		conv.convertValue(srcFieldName, srcFieldValue, dstFieldValue)
+		conv.convertValueAt(conv.childPath(path, srcFieldName), srcFieldName, srcFieldValue, dstFieldValue)
 	}
 }
 
 // convertSlices converts source slice to destination slice with element type conversion.
-func (conv *Converter[T, U]) convertSlices(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+func (conv *Converter[T, U]) convertSlices(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+	if srcValue.Kind() == reflect.Pointer {
+		if srcValue.IsNil() {
+			return
+		}
+		srcValue = srcValue.Elem()
+	}
 	if dstValue.Kind() == reflect.Pointer {
 		if dstValue.IsNil() {
 			dstValue.Set(reflect.New(dstValue.Type().Elem()))
@@ -469,19 +510,52 @@ func (conv *Converter[T, U]) convertSlices(fieldName string, srcValue reflect.Va
 
 	for i := range n {
 		name := makeFieldName(fieldName, strconv.Itoa(i))
+		srcElem := srcValue.Index(i)
 		if elemIsPointer {
-			dstVal := reflect.New(IndirectType(dstValue.Type().Elem()))
-			conv.convertValue(name, srcValue.Index(i), dstVal.Elem())
-			slots.Index(i).Set(dstVal)
+			if srcElem.Kind() == reflect.Pointer && srcElem.IsNil() {
+				slots.Index(i).Set(reflect.Zero(dstValue.Type().Elem()))
+			} else {
+				// Convert into the pointer slot itself so a codec or the
+				// built-in convertible path decides whether to allocate.
+				conv.convertValueAt(path, name, srcElem, slots.Index(i))
+			}
 		} else {
-			conv.convertValue(name, srcValue.Index(i), slots.Index(i))
+			conv.convertValueAt(path, name, srcElem, slots.Index(i))
 		}
 		dstValue.SetLen(i + 1)
 	}
 }
 
+// convertArrays converts source arrays to destination arrays element by element.
+// The destination length bounds the loop so a malformed descriptor cannot
+// write past it; for same-type arrays the lengths are equal.
+func (conv *Converter[T, U]) convertArrays(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+	if srcValue.Kind() == reflect.Pointer {
+		if srcValue.IsNil() {
+			return
+		}
+		srcValue = srcValue.Elem()
+	}
+	if dstValue.Kind() == reflect.Pointer {
+		if dstValue.IsNil() {
+			dstValue.Set(reflect.New(dstValue.Type().Elem()))
+		}
+		dstValue = dstValue.Elem()
+	}
+	n := min(srcValue.Len(), dstValue.Len())
+	for i := range n {
+		conv.convertValueAt(path, makeFieldName(fieldName, strconv.Itoa(i)), srcValue.Index(i), dstValue.Index(i))
+	}
+}
+
 // convertMaps converts source map to destination map with key/value type conversion.
-func (conv *Converter[T, U]) convertMaps(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+func (conv *Converter[T, U]) convertMaps(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+	if srcValue.Kind() == reflect.Pointer {
+		if srcValue.IsNil() {
+			return
+		}
+		srcValue = srcValue.Elem()
+	}
 	if dstValue.Kind() == reflect.Pointer {
 		if dstValue.IsNil() {
 			dstValue.Set(reflect.New(dstValue.Type().Elem()))
@@ -503,10 +577,10 @@ func (conv *Converter[T, U]) convertMaps(fieldName string, srcValue reflect.Valu
 		srcMapValue := srcValue.MapIndex(key)
 
 		// Convert key using helper function
-		dstKey := conv.convertMapKey(fieldName, key, dstKeyType)
+		dstKey := conv.convertMapKey(path, fieldName, key, dstKeyType)
 
 		// Convert value using helper function
-		dstMapValue := conv.convertMapValue(fieldName, key, srcMapValue, dstValueType)
+		dstMapValue := conv.convertMapValue(path, fieldName, key, srcMapValue, dstValueType)
 
 		// Set the converted key-value pair in destination map
 		dstValue.SetMapIndex(dstKey, dstMapValue)
@@ -514,7 +588,7 @@ func (conv *Converter[T, U]) convertMaps(fieldName string, srcValue reflect.Valu
 }
 
 // convertMapKey converts map key with fallback chain.
-func (conv *Converter[T, U]) convertMapKey(fieldName string, key reflect.Value, dstKeyType reflect.Type) reflect.Value {
+func (conv *Converter[T, U]) convertMapKey(path, fieldName string, key reflect.Value, dstKeyType reflect.Type) reflect.Value {
 	switch {
 	case key.Type().AssignableTo(dstKeyType):
 		return key
@@ -522,34 +596,59 @@ func (conv *Converter[T, U]) convertMapKey(fieldName string, key reflect.Value, 
 		return key.Convert(dstKeyType)
 	default:
 		dstKey := reflect.New(dstKeyType).Elem()
-		conv.convertValue(makeFieldName(fieldName, "key"), key, dstKey)
+		// Map keys are part of the map's identity, not of the value
+		// namespace: ignore paths never apply to them.
+		conv.convertValueAt(noIgnorePath, makeFieldName(fieldName, "key"), key, dstKey)
 		return dstKey
 	}
 }
 
 // convertMapValue converts map value handling both struct and primitive types.
-func (conv *Converter[T, U]) convertMapValue(fieldName string, key reflect.Value, srcMapValue reflect.Value, dstValueType reflect.Type) reflect.Value {
+func (conv *Converter[T, U]) convertMapValue(
+	path, fieldName string, key reflect.Value, srcMapValue reflect.Value, dstValueType reflect.Type,
+) reflect.Value {
 	valueFieldName := makeFieldName(fieldName, fmt.Sprintf("[%v]", key.Interface()))
 
-	if IndirectType(dstValueType).Kind() == reflect.Struct {
-		return conv.convertStructMapValue(valueFieldName, srcMapValue, dstValueType)
+	// Preserve the original zero-cost alias for default map conversion.
+	if len(conv.opts.ignorePaths) == 0 && !conv.opts.copySlices {
+		switch {
+		case srcMapValue.Type().AssignableTo(dstValueType):
+			return srcMapValue
+		case srcMapValue.Type().ConvertibleTo(dstValueType):
+			return srcMapValue.Convert(dstValueType)
+		}
 	}
-	return conv.convertPrimitiveMapValue(valueFieldName, srcMapValue, dstValueType)
+
+	// Composite values are walked so ignore paths and copy options apply
+	// inside nested slices, arrays and maps; scalars keep the primitive path.
+	switch IndirectType(dstValueType).Kind() {
+	case reflect.Struct, reflect.Slice, reflect.Array, reflect.Map:
+		return conv.convertStructMapValue(path, valueFieldName, srcMapValue, dstValueType)
+	default:
+		return conv.convertPrimitiveMapValue(path, valueFieldName, srcMapValue, dstValueType)
+	}
 }
 
 // convertStructMapValue handles conversion of struct values in maps.
-func (conv *Converter[T, U]) convertStructMapValue(fieldName string, srcMapValue reflect.Value, dstValueType reflect.Type) reflect.Value {
-	dstMapValue := reflect.New(IndirectType(dstValueType))
-	conv.convertValue(fieldName, srcMapValue, dstMapValue.Elem())
-
-	if dstValueType.Kind() == reflect.Pointer {
-		return dstMapValue
+func (conv *Converter[T, U]) convertStructMapValue(path, fieldName string, srcMapValue reflect.Value, dstValueType reflect.Type) reflect.Value {
+	if dstValueType.Kind() == reflect.Pointer && srcMapValue.Kind() == reflect.Pointer && srcMapValue.IsNil() {
+		return reflect.Zero(dstValueType)
 	}
-	return dstMapValue.Elem()
+	if !conv.canConvertType(srcMapValue.Type(), dstValueType) {
+		return reflect.Zero(dstValueType)
+	}
+	if dstValueType.Kind() == reflect.Pointer {
+		slot := reflect.New(dstValueType).Elem()
+		conv.convertValueAt(path, fieldName, srcMapValue, slot)
+		return slot
+	}
+	dstMapValue := reflect.New(dstValueType).Elem()
+	conv.convertValueAt(path, fieldName, srcMapValue, dstMapValue)
+	return dstMapValue
 }
 
 // convertPrimitiveMapValue handles conversion of primitive values in maps.
-func (conv *Converter[T, U]) convertPrimitiveMapValue(fieldName string, srcMapValue reflect.Value, dstValueType reflect.Type) reflect.Value {
+func (conv *Converter[T, U]) convertPrimitiveMapValue(path, fieldName string, srcMapValue reflect.Value, dstValueType reflect.Type) reflect.Value {
 	// Allocate the exact destination type: a pointer-valued map needs a
 	// pointer here, which convertValue allocates for non-assignable sources.
 	dstMapValue := reflect.New(dstValueType).Elem()
@@ -560,13 +659,13 @@ func (conv *Converter[T, U]) convertPrimitiveMapValue(fieldName string, srcMapVa
 	case srcMapValue.Type().ConvertibleTo(dstValueType):
 		dstMapValue.Set(srcMapValue.Convert(dstValueType))
 	default:
-		conv.convertValue(fieldName, srcMapValue, dstMapValue)
+		conv.convertValueAt(path, fieldName, srcMapValue, dstMapValue)
 	}
 
 	return dstMapValue
 }
 
-func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+func (conv *Converter[T, U]) convertValueAt(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
 	// Optimize nil/zero checks - combine conditions to reduce branches
 	if conv.opts.ignoreNilValues || conv.opts.ignoreZeroValues {
 		srcValueKind := srcValue.Kind()
@@ -582,6 +681,11 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 			return
 		}
 	}
+	if len(conv.opts.ignorePaths) > 0 && path != "" {
+		if _, ok := conv.opts.ignorePaths[path]; ok {
+			return
+		}
+	}
 
 	// Branch prediction optimization: reorder checks based on likelihood
 	// Most likely path: direct type assignability (90%+ of cases).
@@ -591,8 +695,22 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 	// so they fall through to convertByKind. Structs without exported fields
 	// (time.Time and similar opaque types) cannot be merged field-by-field
 	// and keep the direct assignment.
+	nilContainer := (srcValue.Kind() == reflect.Slice || srcValue.Kind() == reflect.Map) && srcValue.IsNil()
 	if conv.isTypeCachedAssignable(srcValue.Type(), dstValue.Type()) &&
+		(!conv.mustDescend(path, srcValue.Type()) || nilContainer) &&
 		(!conv.opts.sparseMerge || !conv.isMergeableStruct(srcValue.Type())) {
+		if conv.opts.copySlices {
+			dstValue.Set(srcValue)
+			if srcValue.Kind() == reflect.Pointer && !srcValue.IsNil() && srcValue.Elem().Kind() == reflect.Slice {
+				cp := reflect.New(srcValue.Type().Elem())
+				cp.Elem().Set(srcValue.Elem())
+				cloneSlicesInPlace(cp.Elem())
+				dstValue.Set(cp)
+				return
+			}
+			cloneSlicesInPlace(dstValue)
+			return
+		}
 		dstValue.Set(srcValue)
 		return
 	}
@@ -605,7 +723,14 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 	// branch because codecs may also intercept primitives (e.g. an enum-int
 	// codec); convertByKind reaches the same primitive path as terminal.
 	if conv.opts.codecsSet.HasCodecs() {
-		conv.opts.codecsSet.Run(fieldName, srcValue, dstValue, conv.convertByKindHandler)
+		if len(conv.opts.ignorePaths) == 0 {
+			conv.opts.codecsSet.Run(fieldName, srcValue, dstValue, conv.convertByKindHandler)
+		} else {
+			conv.opts.codecsSet.Run(fieldName, srcValue, dstValue,
+				func(name string, src, dst reflect.Value) {
+					conv.convertByKind(path, name, src, dst)
+				})
+		}
 		return
 	}
 
@@ -615,14 +740,29 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 		return
 	}
 
-	conv.convertByKind(fieldName, srcValue, dstValue)
+	conv.convertByKind(path, fieldName, srcValue, dstValue)
+}
+
+// convertByKindNoPath is the cached codec terminal for converters without
+// ignore paths; it avoids a per-field closure allocation.
+func (conv *Converter[T, U]) convertByKindNoPath(fieldName string, srcValue, dstValue reflect.Value) {
+	conv.convertByKind("", fieldName, srcValue, dstValue)
 }
 
 // convertByKind performs the built-in conversion dispatched on the source and
 // destination reflect kinds (struct, slice, map), falling back to a convertible
 // scalar conversion. It is used directly on the codec-free path and as the
 // terminal handler of the codec chain, so it must not invoke codecs itself.
-func (conv *Converter[T, U]) convertByKind(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+func (conv *Converter[T, U]) convertByKind(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+	// A nil pointer has no value to walk. Codecs get the first chance in
+	// convertValueAt; this guard runs only when they decline.
+	if srcValue.Kind() == reflect.Pointer && srcValue.IsNil() {
+		if dstValue.CanSet() {
+			dstValue.Set(reflect.Zero(dstValue.Type()))
+		}
+		return
+	}
+
 	// Pre-compute type information once
 	srcType := srcValue.Type()
 	dstType := dstValue.Type()
@@ -650,25 +790,31 @@ func (conv *Converter[T, U]) convertByKind(fieldName string, srcValue reflect.Va
 			if dstValue.Kind() == reflect.Pointer && dstValue.IsNil() && !srcIsNil {
 				dstValue.Set(reflect.New(dstValueType))
 			}
-			conv.convertStruct(reflect.Indirect(srcValue), dstValue)
+			conv.convertStruct(path, reflect.Indirect(srcValue), dstValue)
 			return
 		}
 		// Less common: struct to slice conversion
 		if dstKind == reflect.Slice && isSameTypeFast(IndirectType(dstValueType.Elem()), srcValueType) {
-			conv.convertStructToSlice(fieldName, srcValue, dstValue)
+			conv.convertStructToSlice(path, fieldName, srcValue, dstValue)
 			return
 		}
 	}
 
+	// Array-to-array conversion (rare; ignored values may force it).
+	if srcKind == reflect.Array && dstKind == reflect.Array && srcValue.Len() == dstValue.Len() {
+		conv.convertArrays(path, fieldName, srcValue, dstValue)
+		return
+	}
+
 	// Slice-to-slice conversion (second most common ~20%)
 	if srcKind == reflect.Slice && dstKind == reflect.Slice {
-		conv.convertSlices(fieldName, srcValue, dstValue)
+		conv.convertSlices(path, fieldName, srcValue, dstValue)
 		return
 	}
 
 	// Map-to-map conversion (less common ~10%)
 	if srcKind == reflect.Map && dstKind == reflect.Map {
-		conv.convertMaps(fieldName, srcValue, dstValue)
+		conv.convertMaps(path, fieldName, srcValue, dstValue)
 		return
 	}
 
@@ -677,11 +823,11 @@ func (conv *Converter[T, U]) convertByKind(fieldName string, srcValue reflect.Va
 }
 
 // convertStructToSlice converts a struct to a slice containing that struct.
-func (conv *Converter[T, U]) convertStructToSlice(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+func (conv *Converter[T, U]) convertStructToSlice(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
 	dstValue.Set(reflect.MakeSlice(reflect.SliceOf(IndirectType(dstValue.Type()).Elem()), EmptySliceLength, SingleElementSliceCapacity))
 
 	dstVal := reflect.New(IndirectType(dstValue.Type().Elem()))
-	conv.convertValue(fieldName, srcValue, dstVal.Elem())
+	conv.convertValueAt(path, fieldName, srcValue, dstVal.Elem())
 
 	if dstValue.Type().Elem().Kind() != reflect.Pointer {
 		dstValue.Set(reflect.Append(dstValue, dstVal.Elem()))
@@ -696,6 +842,15 @@ func (conv *Converter[T, U]) convertStructToSlice(fieldName string, srcValue ref
 // conversions. This is the terminal step of the built-in dispatch and never
 // invokes codecs.
 func (conv *Converter[T, U]) convertConvertible(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+	// Check convertibility before allocating a destination pointer. Allocating
+	// first would leave a non-nil pointer to the zero value when the types are
+	// not convertible (for example a struct field mapped to *string), which
+	// callers cannot distinguish from an intentionally empty value.
+	dstType := IndirectType(dstValue.Type())
+	if !conv.isTypeCachedConvertible(IndirectType(srcValue.Type()), dstType) {
+		return
+	}
+
 	dst := dstValue
 	if dst.Kind() == reflect.Pointer && dst.IsNil() {
 		dst.Set(reflect.New(dst.Type().Elem()))
@@ -703,12 +858,6 @@ func (conv *Converter[T, U]) convertConvertible(fieldName string, srcValue refle
 	}
 
 	dst = reflect.Indirect(dst)
-
-	dstType := IndirectType(dst.Type())
-
-	if !conv.isTypeCachedConvertible(IndirectType(srcValue.Type()), dstType) {
-		return
-	}
 
 	srcIndirect := reflect.Indirect(srcValue)
 	srcKind := srcIndirect.Kind()
@@ -746,6 +895,123 @@ func (conv *Converter[T, U]) isMergeableStruct(t reflect.Type) bool {
 	return len(conv.typeCache.GetTypeInfo(t).ByName) > 0
 }
 
+// canConvertType reports whether a value of src type can produce a
+// meaningful value of dst type. It is used before allocating pointer elements
+// so an incompatible struct -> *string pair stays nil instead of pointing at
+// the zero value. When codecs are registered they get the benefit of the
+// doubt; the codec chain sees the actual values.
+func (conv *Converter[T, U]) canConvertType(src, dst reflect.Type) bool {
+	if conv.canConvertTypeStructural(src, dst) {
+		return true
+	}
+	return conv.opts.codecsSet.HasCodecs()
+}
+
+// canConvertTypeStructural ignores codecs and reports only the built-in
+// structural conversions.
+func (conv *Converter[T, U]) canConvertTypeStructural(src, dst reflect.Type) bool {
+	src = IndirectType(src)
+	dst = IndirectType(dst)
+	if src.AssignableTo(dst) || src.ConvertibleTo(dst) {
+		return true
+	}
+	switch {
+	case src.Kind() == reflect.Struct && dst.Kind() == reflect.Struct:
+		return true
+	case src.Kind() == reflect.Struct && dst.Kind() == reflect.Slice && IndirectType(dst.Elem()) == src:
+		return true
+	case src.Kind() == reflect.Slice && dst.Kind() == reflect.Slice:
+		return true
+	case src.Kind() == reflect.Array && dst.Kind() == reflect.Array:
+		return true
+	case src.Kind() == reflect.Map && dst.Kind() == reflect.Map:
+		return true
+	default:
+		return false
+	}
+}
+
+// isIgnoredPath reports whether path is listed in WithIgnorePaths.
+func (conv *Converter[T, U]) isIgnoredPath(path string) bool {
+	if path == "" || len(conv.opts.ignorePaths) == 0 {
+		return false
+	}
+	_, ok := conv.opts.ignorePaths[path]
+	return ok
+}
+
+// childPath builds the dotted path only when ignore paths are configured;
+// otherwise it avoids a concatenation on every nested field.
+func (conv *Converter[T, U]) childPath(path, field string) string {
+	if len(conv.opts.ignorePaths) == 0 {
+		return ""
+	}
+	return joinPath(path, field)
+}
+
+// mustDescend reports whether an otherwise assignable value has to be walked
+// because an ignore path can match below it. Opaque structs (time.Time) are
+// never walked field by field.
+func (conv *Converter[T, U]) mustDescend(path string, t reflect.Type) bool {
+	if len(conv.opts.ignorePaths) == 0 {
+		return false
+	}
+	prefix := path
+	if prefix != "" {
+		prefix += "."
+	}
+	matched := false
+	for p := range conv.opts.ignorePaths {
+		if strings.HasPrefix(p, prefix) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return false
+	}
+	return typeHasMergeableStruct(t)
+}
+
+// typeHasMergeableStruct reports whether t contains a struct with exported
+// fields below any combination of pointers, slices, arrays and maps.
+var typeMergeableCache sync.Map // reflect.Type -> bool
+
+func typeHasMergeableStruct(t reflect.Type) bool {
+	t = IndirectType(t)
+	if v, ok := typeMergeableCache.Load(t); ok {
+		return v.(bool)
+	}
+	result := typeHasMergeableStructSeen(t, make(map[reflect.Type]bool))
+	typeMergeableCache.Store(t, result)
+	return result
+}
+
+func typeHasMergeableStructSeen(t reflect.Type, seen map[reflect.Type]bool) bool {
+	t = IndirectType(t)
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch t.Kind() {
+	case reflect.Struct:
+		return typeHasExportedFields(t)
+	case reflect.Slice, reflect.Array, reflect.Map:
+		return typeHasMergeableStructSeen(t.Elem(), seen)
+	default:
+		return false
+	}
+}
+
+func typeHasExportedFields(t reflect.Type) bool {
+	for i := range t.NumField() {
+		if t.Field(i).IsExported() {
+			return true
+		}
+	}
+	return false
+}
+
 // isStructZero returns true if all fields of the struct are zero values.
 func isStructZero(v reflect.Value) bool {
 	for i := range v.NumField() { //nolint:modernize // Value.Fields would also build the unused StructField per field
@@ -776,6 +1042,109 @@ func isSparseStructEmpty(v reflect.Value) bool {
 		}
 	}
 	return true
+}
+
+func joinPath(parent, field string) string {
+	switch {
+	case parent == "":
+		return field
+	case field == "":
+		return parent
+	default:
+		return parent + "." + field
+	}
+}
+
+// typeCanContainSlice reports whether values of t can contain a slice below
+// pointers, exported struct fields, arrays, slices or map values.
+var typeSliceCache sync.Map // reflect.Type -> bool
+
+func typeCanContainSlice(t reflect.Type) bool {
+	t = IndirectType(t)
+	if v, ok := typeSliceCache.Load(t); ok {
+		return v.(bool)
+	}
+	result := typeCanContainSliceSeen(t, make(map[reflect.Type]bool))
+	typeSliceCache.Store(t, result)
+	return result
+}
+
+func typeCanContainSliceSeen(t reflect.Type, seen map[reflect.Type]bool) bool {
+	t = IndirectType(t)
+	if seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch t.Kind() {
+	case reflect.Slice:
+		return true
+	case reflect.Array, reflect.Map:
+		return typeCanContainSliceSeen(t.Elem(), seen)
+	case reflect.Struct:
+		for i := range t.NumField() {
+			if t.Field(i).IsExported() && typeCanContainSliceSeen(t.Field(i).Type, seen) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// cloneSlicesInPlace replaces every reachable slice in v with a new backing
+// array. It walks exported struct fields, arrays and map values; pointers and
+// interfaces are left aliased because cloning them would change identity.
+// The caller has already copied the top-level value, so unexported struct
+// fields keep the source's state.
+func cloneSlicesInPlace(v reflect.Value) {
+	if !v.IsValid() || !v.CanSet() {
+		return
+	}
+	switch v.Kind() {
+	case reflect.Slice:
+		v.Set(cloneSlice(v))
+		if typeCanContainSlice(v.Type().Elem()) {
+			for i := range v.Len() {
+				cloneSlicesInPlace(v.Index(i))
+			}
+		}
+	case reflect.Array:
+		if typeCanContainSlice(v.Type().Elem()) {
+			for i := range v.Len() {
+				cloneSlicesInPlace(v.Index(i))
+			}
+		}
+	case reflect.Struct:
+		for i := range v.NumField() {
+			field := v.Field(i)
+			if field.CanSet() && v.Type().Field(i).IsExported() {
+				cloneSlicesInPlace(field)
+			}
+		}
+	case reflect.Map:
+		if v.IsNil() || !typeCanContainSlice(v.Type().Elem()) {
+			return
+		}
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		iter := v.MapRange()
+		for iter.Next() {
+			value := reflect.New(iter.Value().Type()).Elem()
+			value.Set(iter.Value())
+			cloneSlicesInPlace(value)
+			out.SetMapIndex(iter.Key(), value)
+		}
+		v.Set(out)
+	}
+}
+
+// cloneSlice returns a shallow copy of src with its own backing array. A nil
+// slice stays nil so the caller's nil/empty distinction is preserved.
+func cloneSlice(src reflect.Value) reflect.Value {
+	if src.IsNil() {
+		return reflect.Zero(src.Type())
+	}
+	dst := reflect.MakeSlice(src.Type(), src.Len(), src.Len())
+	reflect.Copy(dst, src)
+	return dst
 }
 
 func makeFieldName(n ...string) string {

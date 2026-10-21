@@ -5,9 +5,10 @@
 // Package converter provides high-performance struct-to-struct conversion with
 // field mapping, filtering, embedded structs, slices, maps, and protocol buffers.
 //
-// For one-shot conversions use the package-level [Convert] function. For repeated
-// conversions with the same options, create a reusable [Converter] via [New] or
-// [NewAny] to benefit from cached type metadata and pooled allocations.
+// For one-shot conversions use the package-level [Convert] function; [ConvertE]
+// is its error-returning variant for untrusted input and malformed slices. For
+// repeated conversions with the same options, create a reusable [Converter] via
+// [New] or [NewAny] to benefit from cached type metadata and pooled allocations.
 //
 // Custom type conversions are handled by pluggable codecs registered via
 // [WithCodecs]; see the codec sub-packages ([convcodec], [pbwrap], [tspb],
@@ -19,6 +20,13 @@
 // with JSON Merge Patch-like semantics). [WithSparseMerge] is mutually
 // exclusive with [WithIgnoreZeroValues] and subsumes [WithIgnoreNilValues] —
 // nil sources are skipped the same way.
+//
+// [WithIgnoreFields] matches a leaf name at each descended level; [WithIgnorePaths]
+// matches an exact dotted source path (promoted fields use their promoted path,
+// map keys are never matched, interfaces are not traversed) and is the safer
+// choice when the same leaf name appears in several nested objects.
+// [WithCopySlices] gives assignable slices their own backing array through
+// exported struct fields, arrays and map values.
 //
 // Lazy iteration over slices and maps is available via [ConvertSeq] and
 // [ConvertMapSeq], which convert elements on demand without pre-allocating a

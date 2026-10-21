@@ -5,6 +5,8 @@
 package converter
 
 import (
+	"strings"
+
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 )
@@ -36,6 +38,10 @@ const (
 	// semantics are applied: nil sources skipped, present-but-empty nested
 	// structs clear the destination field.
 	DefaultSparseMerge = false
+
+	// DefaultCopySlices controls whether assignable source slices are copied
+	// instead of aliased by the destination.
+	DefaultCopySlices = false
 )
 
 type options struct {
@@ -43,7 +49,9 @@ type options struct {
 	ignoreZeroValues               bool
 	ignoreNilValues                bool
 	sparseMerge                    bool
+	copySlices                     bool
 	ignoreFields                   map[string]struct{}
+	ignorePaths                    map[string]struct{}
 	fieldMappings                  map[string]string
 	handleEmbeddedStructs          bool
 	alwaysInitializeEmbeddedStruct bool
@@ -54,10 +62,12 @@ func defaultOptions() *options {
 	return &options{
 		codecsSet:                      convcodec.NewCodecsSet(),
 		ignoreFields:                   make(map[string]struct{}, DefaultIgnoreFieldsCapacity),
+		ignorePaths:                    make(map[string]struct{}, DefaultIgnoreFieldsCapacity),
 		fieldMappings:                  make(map[string]string, DefaultFieldMappingsCapacity),
 		ignoreZeroValues:               DefaultIgnoreZeroValues,
 		ignoreNilValues:                DefaultIgnoreNilValues,
 		sparseMerge:                    DefaultSparseMerge,
+		copySlices:                     DefaultCopySlices,
 		handleEmbeddedStructs:          DefaultHandleEmbeddedStructs,
 		alwaysInitializeEmbeddedStruct: DefaultEmbeddedStructInitialization,
 	}
@@ -124,6 +134,45 @@ func WithIgnoreFields(field ...string) Option {
 		for i := range len(field) {
 			o.ignoreFields[corestrings.InternLowerString(field[i])] = struct{}{}
 		}
+	}
+}
+
+// WithIgnorePaths ignores fields by their full source path, for example
+// "smtp.password" or "filters.minPrice". Paths are case-insensitive and
+// relative to the conversion root; a slice or map field contributes one path
+// segment, not an index ("items.name", not "items.0.name"). Ignoring a parent
+// path skips the whole subtree.
+//
+// Unlike [WithIgnoreFields], which matches a leaf name at every depth, a path
+// matches only the exact location. Both options can be combined.
+func WithIgnorePaths(paths ...string) Option {
+	return func(o *options) {
+		if len(paths) == 0 {
+			o.ignorePaths = make(map[string]struct{})
+			return
+		}
+
+		o.ignorePaths = make(map[string]struct{}, max(len(paths), DefaultIgnoreFieldsCapacity))
+		for _, p := range paths {
+			p = strings.Trim(p, ".")
+			if p == "" {
+				continue
+			}
+			o.ignorePaths[corestrings.InternLowerString(p)] = struct{}{}
+		}
+	}
+}
+
+// WithCopySlices copies assignable source slices into a new backing array
+// instead of aliasing the source. Conversion paths that build a new slice
+// (element type conversion) already allocate; this option protects the
+// fast path where source and destination slice types are identical.
+//
+// A nil source slice stays nil; an empty non-nil slice stays an empty
+// non-nil slice.
+func WithCopySlices() Option {
+	return func(o *options) {
+		o.copySlices = true
 	}
 }
 
