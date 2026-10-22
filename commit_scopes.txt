@@ -115,6 +115,7 @@ data/retryqueue             # Durable retry queue
 data/uniq                   # Uniqueness constraints
 data/uniq/factory           # Uniqueness factory
 data/saga                   # Saga orchestration
+domain/money                #
 
 # Domain Layer
 domain                      # General domain utilities

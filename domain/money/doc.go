@@ -9,7 +9,8 @@
 //
 // [Money] pairs a shopspring/decimal amount with a [Currency], whose minor
 // units come from ISO 4217 ([ParseCurrency]) or are chosen for a custom unit
-// ([NewCurrency]). Amounts of different currencies are never combined:
+// ([NewCurrency]). [Currencies] lists every active ISO 4217 code
+// [ParseCurrency] accepts. Amounts of different currencies are never combined:
 // [Money.Add], [Money.Sub] and [Money.Cmp] fail with [ErrCurrencyMismatch].
 //
 // # Rounding

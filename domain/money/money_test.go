@@ -60,6 +60,43 @@ func TestCurrency(t *testing.T) {
 	require.True(t, money.Currency{}.IsZero())
 }
 
+func TestCurrencies(t *testing.T) {
+	t.Parallel()
+
+	seen := map[string]int32{}
+	n := 0
+	for c := range money.Currencies() {
+		n++
+		_, dup := seen[c.Code()]
+		require.False(t, dup, c.Code())
+		seen[c.Code()] = c.MinorUnits()
+		parsed, err := money.ParseCurrency(c.Code())
+		require.NoError(t, err, c.Code())
+		require.Equal(t, c.Code(), parsed.Code())
+		require.Equal(t, c.MinorUnits(), parsed.MinorUnits())
+	}
+	require.Greater(t, n, 150, "the walk must cover the active table, not a handful of codes")
+	require.Equal(t, int32(2), seen["USD"])
+	require.Equal(t, int32(0), seen["JPY"])
+	require.Equal(t, int32(3), seen["KWD"])
+	require.Equal(t, int32(4), seen["CLF"])
+	_, err := money.ParseCurrency("XXX")
+	require.ErrorIs(t, err, money.ErrUnknownCurrency)
+	_, ok := seen["XXX"]
+	require.False(t, ok)
+	for _, withdrawn := range []string{"ANG", "BGN", "HRK"} {
+		_, present := seen[withdrawn]
+		require.False(t, present, withdrawn)
+	}
+
+	stopped := 0
+	for range money.Currencies() {
+		stopped++
+		break
+	}
+	require.Equal(t, 1, stopped)
+}
+
 func TestConstructors(t *testing.T) {
 	t.Parallel()
 

@@ -6,6 +6,7 @@ package money
 
 import (
 	"fmt"
+	"iter"
 	"strings"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
@@ -64,6 +65,18 @@ func NewCurrency(code string, minorUnits int32) (Currency, error) {
 		return Currency{}, fmt.Errorf("%w: %q with %d minor units", ErrInvalidCurrency, code, minorUnits)
 	}
 	return Currency{code: code, minorUnits: minorUnits}, nil
+}
+
+// Currencies returns every active ISO 4217 currency ParseCurrency accepts.
+// The order is not significant.
+func Currencies() iter.Seq[Currency] {
+	return func(yield func(Currency) bool) {
+		for code, units := range iso4217.All() {
+			if !yield(Currency{code: code, minorUnits: units}) {
+				return
+			}
+		}
+	}
 }
 
 // iso4217 maps the active ISO 4217 alphabetic codes to their minor units.

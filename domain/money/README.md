@@ -12,7 +12,7 @@ as exact `Decimal128`.
 
 | Symbol             | Description                                                                                                        |
 |--------------------|--------------------------------------------------------------------------------------------------------------------|
-| `Currency`         | Code plus minor units; `ParseCurrency` / `MustParseCurrency` (active ISO 4217 codes), `NewCurrency` (custom units) |
+| `Currency`         | Code plus minor units; `ParseCurrency`, `MustParseCurrency`, `Currencies` (active ISO 4217), `NewCurrency` (custom) |
 | `Money`            | Immutable amount of a currency: `New`, `Parse`, `FromMinor`, `Zero`                                                |
 | `RoundingMode`     | `HalfEven` (banker's), `HalfUp`, `Down`, `Up`, `Floor`, `Ceiling`                                                  |
 | `AllocationMethod` | `LargestRemainder` (default of `Allocate` and `Split`), `HalfUpLastRemainder`                                      |
