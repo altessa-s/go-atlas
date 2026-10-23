@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
@@ -69,6 +70,7 @@ var _ RouteRegistrar = (*Server)(nil)
 type Server struct {
 	*baseserver.BaseServer
 
+	routerOnce        sync.Once
 	stopCh            chan struct{}
 	http              *http.Server
 	router            Router
@@ -185,53 +187,61 @@ func (s *Server) errorInterceptorMiddleware() Middleware {
 // configured, the server uses ServeTLS. Returns an error if the writer is
 // nil or the underlying listener fails to bind.
 func (s *Server) Start() (err error) {
+	if err := s.CanStart(); err != nil {
+		return err
+	}
 	// Validate required components
 	if s.writer == nil {
 		return errors.New("writer is required, use WithWriter option")
 	}
 
-	// Apply error interceptor middleware first (must run before other middleware)
-	// This wraps ResponseWriter to intercept http.Error calls and convert them
-	// to structured responses using writer + builder pattern
-	s.router.Use(s.errorInterceptorMiddleware())
+	s.routerOnce.Do(func() {
+		// Apply error interceptor middleware first (must run before other middleware)
+		// This wraps ResponseWriter to intercept http.Error calls and convert them
+		// to structured responses using writer + builder pattern
+		s.router.Use(s.errorInterceptorMiddleware())
 
-	// Apply middleware to router
-	if len(s.middleware) > 0 {
-		s.router.Use(s.middleware...)
-	}
+		// Apply middleware to router
+		if len(s.middleware) > 0 {
+			s.router.Use(s.middleware...)
+		}
 
-	// Register handlers
-	for _, h := range s.handlers {
-		h.Register(s, s.stopCh)
-	}
+		// Register handlers
+		for _, h := range s.handlers {
+			h.Register(s, s.stopCh)
+		}
 
-	// Initialize router if it supports eager initialization
-	// This builds middleware chain and registers routes before first request
-	if initRouter, ok := s.router.(InitializableRouter); ok {
-		initRouter.Initialize()
-	}
+		// Initialize router if it supports eager initialization
+		// This builds middleware chain and registers routes before first request
+		if initRouter, ok := s.router.(InitializableRouter); ok {
+			initRouter.Initialize()
+		}
+	})
 
-	// Configure HTTP server.
-	//
-	// ReadHeaderTimeout caps the header-read phase independently of the
-	// full ReadTimeout. Without it, the per-request budget is the full
-	// ReadTimeout (15s by default; up to 300s under config-level
-	// overrides), which a Slowloris-style client can use to pin a
-	// goroutine per connection by trickling header bytes. ReadHeaderTimeout
-	// (default DefaultReadHeaderTimeout) bounds the header phase to
-	// seconds while keeping the body-read budget unchanged.
-	s.http = &http.Server{
-		Handler:           s.router,
-		TLSConfig:         s.TLSConfig(),
-		ReadTimeout:       s.readTimeout,
-		ReadHeaderTimeout: s.readHeaderTimeout,
-		WriteTimeout:      s.writeTimeout,
-		IdleTimeout:       s.idleTimeout,
-		MaxHeaderBytes:    s.maxHeaderBytes,
-	}
+	var srv *http.Server
+	startErr := s.BaseServer.Start("http", func(ln net.Listener, errCh chan<- error) {
+		// Configure HTTP server.
+		//
+		// ReadHeaderTimeout caps the header-read phase independently of the
+		// full ReadTimeout. Without it, the per-request budget is the full
+		// ReadTimeout (15s by default; up to 300s under config-level
+		// overrides), which a Slowloris-style client can use to pin a
+		// goroutine per connection by trickling header bytes. ReadHeaderTimeout
+		// (default DefaultReadHeaderTimeout) bounds the header phase to
+		// seconds while keeping the body-read budget unchanged.
+		local := &http.Server{
+			Handler:           s.router,
+			TLSConfig:         s.TLSConfig(),
+			ReadTimeout:       s.readTimeout,
+			ReadHeaderTimeout: s.readHeaderTimeout,
+			WriteTimeout:      s.writeTimeout,
+			IdleTimeout:       s.idleTimeout,
+			MaxHeaderBytes:    s.maxHeaderBytes,
+		}
+		srv = local
+		// Publish under the lifecycle lock before shutdown can claim cleanup.
+		s.http = local
 
-	// Use BaseServer.Start with HTTP-specific callback
-	return s.BaseServer.Start("http", func(ln net.Listener, errCh chan<- error) {
 		go func() {
 			defer panics.Handle(context.Background())
 
@@ -239,9 +249,9 @@ func (s *Server) Start() (err error) {
 			if s.TLSConfig() != nil {
 				// TLS config is set in http.Server, so we just need to call ServeTLS
 				// with empty cert and key files since TLSConfig is already configured
-				serveErr = s.http.ServeTLS(ln, "", "")
+				serveErr = local.ServeTLS(ln, "", "")
 			} else {
-				serveErr = s.http.Serve(ln)
+				serveErr = local.Serve(ln)
 			}
 
 			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
@@ -253,6 +263,10 @@ func (s *Server) Start() (err error) {
 			}
 		}()
 	})
+	if startErr != nil && srv != nil {
+		_ = srv.Close()
+	}
+	return startErr
 }
 
 // Handlers returns an iterator over registered handlers.
@@ -269,9 +283,12 @@ func (s *Server) Middleware() iter.Seq[Middleware] {
 // (signaling handlers), then delegates to [http.Server.Shutdown] which
 // closes the listener, rejects new connections, and drains in-flight
 // requests. The provided context controls the shutdown deadline; if it
-// expires, the server returns the context's error.
+// is canceled or expires, active connections are force-closed and the context
+// error is returned. Force-close may finish after Shutdown returns.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.GracefulShutdown(ctx, func(ctx context.Context) error {
+		// The lifecycle claim synchronizes this read with Start and prevents replacement.
+		srv := s.http
 		close(s.stopCh)
 
 		// http.Server.Shutdown sets the shutdown flag, closes tracked
@@ -281,6 +298,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		// http.Serve wraps the listener in a onceCloseListener that
 		// records the "use of closed network connection" error and
 		// propagates it through Shutdown's return value.
-		return s.http.Shutdown(ctx)
+		err := srv.Shutdown(ctx)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			_ = srv.Close()
+		}
+		return err
 	})
 }

@@ -10,9 +10,9 @@
 // embed it and supply [StartFunc] / [ShutdownFunc] callbacks for their
 // own Serve/GracefulStop logic.
 //
-// Lifecycle methods use atomic flags to prevent double-start and
-// double-shutdown. Shutdown progress is logged at warning level on a
-// configurable interval (see [timeouts.Config]).
+// Lifecycle methods serialize startup, shutdown, and failure recording.
+// Shutdown progress is logged at warning level on a configurable interval
+// (see [timeouts.Config]).
 //
 // Example:
 //
@@ -21,6 +21,25 @@
 //	    server.WithLogger(slog.Default()),
 //	)
 //	base.Start("http", func(ln net.Listener, errCh chan<- error) {
-//	    go httpServer.Serve(ln)
+//	    go func() {
+//	        if err := httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+//	            errCh <- err
+//	        }
+//	    }()
 //	})
+//
+// After Start succeeds, wait on Done to observe a post-start Serve failure or
+// completion of lifecycle shutdown, including cancellation after the lifecycle
+// claim. Protocol cleanup may finish after Done closes on cancellation.
+// Err returns the first post-start Serve error; it remains nil on normal shutdown.
+// Early Start errors are returned synchronously and leave Done open. Retrying is
+// meaningful for listen/bind or pre-Serve errors. Auto-created listeners are
+// cleared after early startup errors; a WithListener listener may be consumed by
+// a failed Serve and is never replaced.
+//
+//	if err := base.Start("http", startHTTP); err != nil {
+//	    return err // Do not wait on Done for an early startup failure.
+//	}
+//	<-base.Done()
+//	return base.Err()
 package server

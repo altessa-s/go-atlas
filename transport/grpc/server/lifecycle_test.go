@@ -190,8 +190,8 @@ func TestServer_Shutdown_DuringStart(t *testing.T) {
 }
 
 // TestServer_Start_FailureIsRetryable checks that a start whose Serve fails
-// leaves the server unclaimed: Shutdown stays a no-op and a later Start is
-// attempted again rather than being rejected.
+// leaves the server unclaimed: a later Start is attempted again, until
+// Shutdown closes the lifecycle.
 func TestServer_Start_FailureIsRetryable(t *testing.T) {
 	t.Parallel()
 
@@ -205,12 +205,12 @@ func TestServer_Start_FailureIsRetryable(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, baseserver.ErrServerAlreadyStarted)
 
-	require.NoError(t, srv.Shutdown(t.Context()))
-	require.False(t, srv.IsStopped())
-
 	err = srv.Start()
 	require.Error(t, err)
 	require.NotErrorIs(t, err, baseserver.ErrServerAlreadyStarted)
 	require.NotErrorIs(t, err, baseserver.ErrServerClosed)
 	require.Equal(t, int32(2), counter.calls.Load())
+	require.NoError(t, srv.Shutdown(t.Context()))
+	require.True(t, srv.IsStopped())
+	require.ErrorIs(t, srv.Start(), baseserver.ErrServerClosed)
 }

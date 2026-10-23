@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,11 +27,10 @@ import (
 // Sentinel errors returned by [BaseServer] lifecycle methods.
 var (
 	// ErrServerAlreadyStarted is returned by [BaseServer.Start] when the
-	// server has already been started. The atomic flag prevents double-start.
+	// server has already been started.
 	ErrServerAlreadyStarted = errors.New("server already started")
 
-	// ErrServerClosed signals that the server has been shut down. Returned
-	// by [BaseServer.GracefulShutdown] when shutdown completes.
+	// ErrServerClosed is returned by [BaseServer.Start] after Done has closed.
 	ErrServerClosed = errors.New("server closed")
 
 	// ErrInvalidConfiguration indicates that a required option (e.g.
@@ -41,12 +41,25 @@ var (
 // BaseServer provides listener management, TLS wrapping, startup
 // verification, and graceful-shutdown orchestration shared by the HTTP
 // and gRPC server implementations. Lifecycle state is tracked with
-// atomic flags so that Start and GracefulShutdown are safe to call from
+// a lifecycle mutex and atomic flags so Start and GracefulShutdown are safe from
 // any goroutine.
 type BaseServer struct {
-	started  atomic.Bool
-	shutdown atomic.Bool
-	options  *options
+	cleanupPending  atomic.Bool
+	shutdownWaiting atomic.Bool // test-only instrumentation: reports shutdown contention on lifecycle
+	started         atomic.Bool
+	shutdown        atomic.Bool
+	options         *options
+	listenerOwned   bool // listener was created by Listen, rather than supplied by WithListener
+
+	// lifecycle serializes startup, shutdown, and Serve failure recording.
+	lifecycle     sync.Mutex
+	done          chan struct{}
+	doneOnce      sync.Once
+	watchStop     chan struct{}
+	watchStopOnce sync.Once
+	watchers      sync.WaitGroup
+	errMu         sync.RWMutex
+	serveErr      error
 }
 
 // Server is the common interface implemented by HTTP and gRPC server
@@ -56,12 +69,21 @@ type Server interface {
 	Start() error
 	Shutdown(ctx context.Context) error
 	GetBase() *BaseServer
+	// Done closes exactly once when a post-start Serve error is recorded or
+	// GracefulShutdown completes, including cancellation and not-started paths.
+	// Early Start errors leave Done open; see Start for retry limitations. A wrapper
+	// may abort Shutdown before claiming its lifecycle; Done then remains open.
+	Done() <-chan struct{}
+	// Err returns the first recorded post-start Serve error, or nil before a
+	// failure and after normal graceful shutdown. Early Start errors are not stored.
+	Err() error
 }
 
 // StartFunc performs protocol-specific startup logic. The implementation
 // must launch its serving loop (typically in a new goroutine) and send
-// any early startup error to errCh. If no error is sent within the
-// startup-verification timeout, the server is considered healthy.
+// any non-normal Serve error to errCh, including errors after startup. If no
+// error is sent within the startup-verification timeout, the server is
+// considered healthy. The channel must not be closed.
 type StartFunc func(ln net.Listener, errCh chan<- error)
 
 // ShutdownFunc performs protocol-specific graceful shutdown. The context
@@ -78,13 +100,53 @@ func (s *BaseServer) GetBase() *BaseServer {
 // Panics if no address is configured (use [WithAddress]).
 func NewBaseServer(opt ...Option) *BaseServer {
 	s := &BaseServer{
-		options: newOptions(opt...),
+		options:   newOptions(opt...),
+		done:      make(chan struct{}),
+		watchStop: make(chan struct{}),
 	}
 
 	// Validate that address was provided
 	panics.Must(s.options.address != "", "server: address is required, use WithAddress option")
 
 	return s
+}
+
+// Done closes exactly once when a post-start Serve error is recorded or
+// GracefulShutdown completes, including cancellation and not-started paths.
+// Early Start errors leave Done open; see Start for retry limitations.
+func (s *BaseServer) Done() <-chan struct{} { return s.done }
+
+// Err returns the first recorded post-start Serve error, or nil before a
+// failure and after normal graceful shutdown. Early Start errors are not stored.
+func (s *BaseServer) Err() error {
+	s.errMu.RLock()
+	defer s.errMu.RUnlock()
+	return s.serveErr
+}
+
+func (s *BaseServer) closeDone()   { s.doneOnce.Do(func() { close(s.done) }) }
+func (s *BaseServer) stopWatcher() { s.watchStopOnce.Do(func() { close(s.watchStop) }) }
+
+func (s *BaseServer) watch(errCh <-chan error) {
+	select {
+	case err := <-errCh:
+		s.lifecycle.Lock()
+		defer s.lifecycle.Unlock()
+		if err == nil || s.shutdown.Load() {
+			return
+		}
+		s.errMu.Lock()
+		if s.serveErr != nil {
+			s.errMu.Unlock()
+			return
+		}
+		s.serveErr = err
+		s.errMu.Unlock()
+		s.started.Store(false)
+		s.Logger().Error("server serve error", "error", err)
+		s.closeDone()
+	case <-s.watchStop:
+	}
 }
 
 // Listen returns the pre-configured listener if one was provided via
@@ -109,11 +171,31 @@ func (s *BaseServer) Listen() (net.Listener, error) {
 	}
 
 	s.options.listener = ln
+	s.listenerOwned = true
 	return ln, nil
+}
+
+// CanStart checks lifecycle state without reserving startup. Start performs
+// the authoritative validation under the lifecycle lock.
+func (s *BaseServer) CanStart() error {
+	select {
+	case <-s.done:
+		return ErrServerClosed
+	default:
+	}
+	if s.started.Load() {
+		return ErrServerAlreadyStarted
+	}
+	return nil
 }
 
 // validateStart checks if the server can be started.
 func (s *BaseServer) validateStart() error {
+	select {
+	case <-s.done:
+		return ErrServerClosed
+	default:
+	}
 	if !s.started.CompareAndSwap(false, true) {
 		return ErrServerAlreadyStarted
 	}
@@ -122,12 +204,17 @@ func (s *BaseServer) validateStart() error {
 
 // Start starts the server using the provided protocol-specific startup function.
 // It validates state, creates a listener, and waits for startup verification.
+// Early errors are returned synchronously and leave Done open. Retrying is
+// meaningful for listen/bind or pre-Serve errors. Auto-created listeners are
+// closed and cleared after an early startup error so retries open a fresh socket.
+// A WithListener listener may be consumed by a failed Serve and is never replaced.
+// Once Done has closed, Start returns ErrServerClosed; create a new server to restart.
 //
 // Example:
 //
 //	s.BaseServer.Start("http", func(ln net.Listener, errCh chan<- error) {
 //	    go func() {
-//	        if err := s.httpServer.Serve(ln); err != nil {
+//	        if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 //	            select {
 //	            case errCh <- err:
 //	            default:
@@ -136,6 +223,8 @@ func (s *BaseServer) validateStart() error {
 //	    }()
 //	})
 func (s *BaseServer) Start(protocol string, startFn StartFunc) error {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
 	// Validate server can be started
 	if err := s.validateStart(); err != nil {
 		return err
@@ -170,12 +259,19 @@ func (s *BaseServer) Start(protocol string, startFn StartFunc) error {
 
 	select {
 	case err := <-chErr:
+		if s.listenerOwned {
+			_ = ln.Close()
+			s.options.listener = nil
+			s.listenerOwned = false
+		}
 		s.started.Store(false) // Reset flag on error
 		return err
 	case <-timer.C:
 		s.Logger().Info("server started successfully", "address", ln.Addr().String())
 	}
 
+	s.cleanupPending.Store(true)
+	s.watchers.Go(func() { s.watch(chErr) })
 	return nil
 }
 
@@ -196,14 +292,30 @@ func (s *BaseServer) WaitForShutdown(ctx context.Context) error {
 // GracefulShutdown invokes shutdownFunc in a separate goroutine and
 // periodically logs a warning while it is still running (interval
 // controlled by [timeouts.Config.ShutdownWarning]). If ctx is canceled
-// before shutdownFunc returns, the server is force-stopped and ctx.Err()
-// is returned. A no-op if the server is not currently started.
+// before shutdownFunc returns, ctx.Err() is returned; shutdownFunc is
+// responsible for protocol-specific force-stop behavior, which may finish after
+// GracefulShutdown returns. Pending protocol cleanup runs once, even after a
+// Serve failure.
+// Without pending cleanup, it only stops observation and closes Done.
+// It may first wait for an in-flight Start (including startup verification)
+// holding the lifecycle mutex. Context cancellation cannot interrupt that wait.
 func (s *BaseServer) GracefulShutdown(ctx context.Context, shutdownFunc ShutdownFunc) error {
-	if !s.started.CompareAndSwap(true, false) {
+	if !s.lifecycle.TryLock() {
+		s.shutdownWaiting.Store(true)
+		s.lifecycle.Lock()
+		s.shutdownWaiting.Store(false)
+	}
+	defer func() {
+		s.stopWatcher()
+		s.closeDone()
+		s.lifecycle.Unlock()
+		s.watchers.Wait()
+	}()
+	s.shutdown.Store(true)
+	s.started.Store(false)
+	if !s.cleanupPending.CompareAndSwap(true, false) {
 		return nil
 	}
-
-	s.shutdown.Store(true)
 
 	ch := make(chan error, 1)
 	// We don't close ch here because we can't guarantee the goroutine won't write to it

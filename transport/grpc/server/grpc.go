@@ -6,6 +6,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"net"
 	"slices"
 
@@ -157,13 +158,17 @@ func (s *Server) IsStopped() bool {
 //
 // Returns ErrServerAlreadyStarted if called multiple times and
 // ErrServerClosed once the server has been shut down; the running server is
-// left untouched in both cases. A failed start may be retried.
+// left untouched in both cases. Retry is meaningful for listen/bind or pre-Serve
+// errors; a WithListener listener may be consumed by a failed Serve.
 // Returns network errors if listener creation or binding fails.
 // This method is non-blocking after successful startup verification.
 func (s *Server) Start() (err error) {
 	s.lifecycle <- struct{}{}
 	defer func() { <-s.lifecycle }()
 
+	if err := s.CanStart(); err != nil {
+		return err
+	}
 	if s.stopped {
 		return baseserver.ErrServerClosed
 	}
@@ -212,7 +217,7 @@ func (s *Server) Start() (err error) {
 			// panic in the spawn goroutine cannot bring down the process.
 			defer panics.Handle(context.Background())
 
-			if err := srv.Serve(ln); err != nil {
+			if err := srv.Serve(ln); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 				// Non-blocking send to avoid panic if channel is no longer being read
 				select {
 				case errCh <- err:
@@ -222,6 +227,7 @@ func (s *Server) Start() (err error) {
 		}()
 	})
 	if startErr != nil {
+		srv.Stop()
 		return startErr
 	}
 
@@ -238,21 +244,22 @@ func (s *Server) Start() (err error) {
 // Returns nil on successful graceful shutdown.
 // Returns context.DeadlineExceeded or context.Canceled if context expires,
 // including while waiting for an in-flight [Server.Start] to finish.
-// This method is safe to call multiple times (idempotent); it is a no-op on
-// a server that is not running.
+// If the context expires before claiming the lifecycle semaphore, Done may
+// remain open and the server is untouched; call Shutdown again to finish cleanup.
+// After claiming the semaphore, even a never-started server closes Done.
+// This method is safe to call multiple times (idempotent).
 func (s *Server) Shutdown(ctx context.Context) error {
 	select {
 	case s.lifecycle <- struct{}{}:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	defer func() { <-s.lifecycle }()
 	srv := s.grpc
 	if srv == nil || s.stopped {
-		<-s.lifecycle
-		return nil
+		return s.GracefulShutdown(ctx, func(context.Context) error { return nil })
 	}
 	s.stopped = true
-	<-s.lifecycle
 
 	return s.GracefulShutdown(ctx, func(ctx context.Context) error {
 		close(s.stopCh)

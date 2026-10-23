@@ -36,4 +36,21 @@
 //	    log.Fatal(err)
 //	}
 //	defer srv.Shutdown(ctx)
+//
+// After Start succeeds, wait on Done to observe a post-start Serve failure or
+// completion of lifecycle shutdown, including cancellation after the lifecycle
+// claim. Protocol cleanup may finish after Done closes on cancellation.
+// If Shutdown is canceled before claiming the lifecycle semaphore, Done may
+// remain open; retry Shutdown to clean up.
+// Err returns the first post-start Serve error; it remains nil on normal shutdown.
+// Early Start errors are returned synchronously and leave Done open. Retrying is
+// meaningful for listen/bind or pre-Serve errors. Auto-created listeners are
+// cleared after early startup errors; a WithListener listener may be consumed by
+// a failed Serve and is never replaced.
+//
+//	if err := srv.Start(); err != nil {
+//	    return err // Do not wait on Done for an early startup failure.
+//	}
+//	<-srv.Done()
+//	return srv.Err()
 package grpc

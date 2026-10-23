@@ -40,3 +40,19 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 | Package                    | Description                                                              |
 |----------------------------|--------------------------------------------------------------------------|
 | [factory](./factory)       | Configuration-based server and interceptor creation from config structs  |
+
+## Lifecycle observation
+
+`Done() <-chan struct{}` closes when shutdown is observed or a post-start Serve
+failure occurs. After it closes, `Err() error` reports the first unexpected Serve
+error, or nil for normal shutdown. Call `Shutdown` to finish protocol cleanup even
+after a Serve failure.
+
+Once `Done` closes, `Start` returns `ErrServerClosed`, including after a post-start
+Serve failure. Create a new server to restart. Early startup errors are returned
+by `Start` and leave `Done` open; a supplied listener may be consumed by a failed
+Serve, so retrying with that listener may not succeed.
+
+`GRPCServer` gained `Done() <-chan struct{}` and `Err() error` through its embedded
+base interface. This is an interface addition: custom implementations and mocks
+must implement both methods.

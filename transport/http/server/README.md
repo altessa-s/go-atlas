@@ -19,3 +19,15 @@ decouples the server from any specific routing library, so implementations can b
 | [responder](./responder)           | Structured error response interception                                   |
 | [router](./router)                 | Router interfaces and implementations (gorilla, std)                    |
 | [writer](./writer)                 | Content-negotiated response writing with builder pattern                |
+
+## Lifecycle observation
+
+`Done() <-chan struct{}` closes when shutdown is observed or a post-start Serve
+failure occurs. After it closes, `Err() error` reports the first unexpected Serve
+error, or nil for normal shutdown. Call `Shutdown` to finish protocol cleanup even
+after a Serve failure.
+
+Once `Done` closes, `Start` returns `ErrServerClosed`, including after a post-start
+Serve failure. Create a new server to restart. Early startup errors are returned
+by `Start` and leave `Done` open; a supplied listener may be consumed by a failed
+Serve, so retrying with that listener may not succeed.
