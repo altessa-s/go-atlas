@@ -35,6 +35,7 @@ type CodecHandler func(fieldName string, src, dst reflect.Value)
 // modification after construction; concurrent [Set.Run] calls are safe.
 type Set struct {
 	customCodecs []Codec
+	errorCodecs  []CodecE
 }
 
 // NewCodecsSet creates and returns a new codec Set initialized with the provided codecs.
@@ -126,4 +127,38 @@ func (ctx *codecContext) next(fieldName string, src, dst reflect.Value) {
 	}
 	ctx.index = i + 1
 	ctx.codecs[i](fieldName, src, dst, ctx.nextFn)
+}
+
+// CodecE is an error-returning codec receiving the full source field path.
+// It handles the conversion or delegates to next, propagating its error.
+type CodecE func(fieldPath string, src, dst reflect.Value, next CodecHandlerE) error
+
+// CodecHandlerE is the error-returning continuation of a CodecE chain.
+type CodecHandlerE func(fieldPath string, src, dst reflect.Value) error
+
+// AddError appends error codecs in execution order and returns the Set.
+func (c *Set) AddError(codecs ...CodecE) *Set {
+	c.errorCodecs = append(c.errorCodecs, codecs...)
+	return c
+}
+
+// HasErrorCodecs reports whether any error codecs are registered.
+func (c *Set) HasErrorCodecs() bool { return len(c.errorCodecs) > 0 }
+
+// RunError runs error codecs, then the legacy Codec chain, then finishHandler.
+// Error codecs and finishHandler receive the full path; legacy codecs receive
+// the leaf field name. An error stops the chain and is returned unchanged.
+func (c *Set) RunError(fieldPath, fieldName string, src, dst reflect.Value, finishHandler CodecHandlerE) error {
+	var run func(int, string, reflect.Value, reflect.Value) error
+	run = func(i int, path string, src, dst reflect.Value) error {
+		if i < len(c.errorCodecs) {
+			return c.errorCodecs[i](path, src, dst, func(p string, s, d reflect.Value) error {
+				return run(i+1, p, s, d)
+			})
+		}
+		var err error
+		c.Run(fieldName, src, dst, func(_ string, s, d reflect.Value) { err = finishHandler(path, s, d) })
+		return err
+	}
+	return run(0, fieldPath, src, dst)
 }

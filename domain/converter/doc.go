@@ -11,7 +11,7 @@
 // [New] or [NewAny] to benefit from cached type metadata and pooled allocations.
 //
 // Custom type conversions are handled by pluggable codecs registered via
-// [WithCodecs]; see the codec sub-packages ([convcodec], [pbwrap], [tspb],
+// [WithCodecs] or error-returning [WithErrorCodecs]; see the codec sub-packages ([convcodec], [pbwrap], [tspb],
 // [durpb], [unixtime], [jsonpb], [oneof], [mapslice]) for built-in converters.
 //
 // Source value handling is controlled by [WithIgnoreZeroValues] (skip every
@@ -23,8 +23,27 @@
 //
 // [WithIgnoreFields] matches a leaf name at each descended level; [WithIgnorePaths]
 // matches an exact dotted source path (promoted fields use their promoted path,
-// map keys are never matched, interfaces are not traversed) and is the safer
+// statically typed map keys are never matched) and is the safer
 // choice when the same leaf name appears in several nested objects.
+// Interfaces are traversed when an ignore path lies below them; dynamic string
+// map keys then become path segments. Nil interfaces and typed nils are preserved.
+// A nil interface leaves a concrete destination unchanged; incompatible values
+// leave non-empty destination interfaces unchanged. Zero checks apply at field
+// boundaries, not again to dereferenced pointer pointees. Sparse merge clears
+// present-but-empty dynamic struct pointers to typed nils inside interfaces.
+// Traversed containers are detached. Cycle back edges with ignored descendants
+// leave destination values unchanged; other back edges retain source references.
+// Dynamic slices use fresh zero elements; dynamic arrays merge existing elements.
+// Plain overwrite preserves unexported source state in same-type nested structs,
+// while ignored exported fields retain destination values. The top-level Convert
+// struct retains destination unexported state; root slice elements use nested
+// semantics. Sparse merge,
+// ignore-zero and ignore-nil modes retain their existing field-wise semantics.
+// Error codecs receive full source paths, never statically typed map keys or
+// their internal sentinel. A dynamic root map key colliding with that sentinel
+// is treated as map-key context and is not exposed to error codecs; legacy
+// codecs and built-in conversion still run.
+// ConvertE returns all CodecE errors unchanged, including FieldErrors.
 // [WithCopySlices] gives assignable slices their own backing array through
 // exported struct fields, arrays and map values.
 //

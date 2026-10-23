@@ -6,11 +6,13 @@ package enumcodec_test
 
 import (
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/domain/proto/enumcodec"
 
 	"google.golang.org/genproto/googleapis/type/dayofweek"
@@ -139,4 +141,174 @@ func TestConcurrentUse(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestErrorCodec(t *testing.T) {
+	t.Parallel()
+	type protoItem struct {
+		Grade protoGrade
+		Label string
+	}
+	type domainItem struct {
+		Grade grade
+		Label string
+	}
+	type protoRoot struct{ Attrs protoItem }
+	type domainRoot struct{ Attrs domainItem }
+	for _, tc := range []struct {
+		name string
+		p    protoGrade
+		d    grade
+		bad  bool
+	}{
+		{"known", protoSenior, gradeSenior, false},
+		{"zero", 0, "", false},
+		{"unknown", 99, "unknown", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dst := domainRoot{Attrs: domainItem{Grade: gradeJunior}}
+			_, err := converter.ConvertE(protoRoot{Attrs: protoItem{tc.p, "label"}}, &dst, converter.WithErrorCodecs(grades.ErrorCodec()))
+			if tc.bad {
+				fe, ok := err.(*coreerrs.FieldError)
+				require.True(t, ok, "%T: %v", err, err)
+				require.Equal(t, "attrs.grade", fe.Field)
+				require.Equal(t, gradeJunior, dst.Attrs.Grade)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.d, dst.Attrs.Grade)
+				require.Equal(t, "label", dst.Attrs.Label)
+			}
+			out := protoRoot{Attrs: protoItem{Grade: protoJunior}}
+			_, err = converter.ConvertE(domainRoot{Attrs: domainItem{tc.d, "label"}}, &out, converter.WithErrorCodecs(grades.ErrorCodec()))
+			if tc.bad {
+				fe, ok := err.(*coreerrs.FieldError)
+				require.True(t, ok)
+				require.Equal(t, "attrs.grade", fe.Field)
+				require.Equal(t, protoJunior, out.Attrs.Grade)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.p, out.Attrs.Grade)
+			}
+			p, err := grades.ProtoE(tc.d)
+			if tc.bad {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.p, p)
+			}
+		})
+	}
+}
+
+func TestErrorCodecZeroAndDelegation(t *testing.T) {
+	t.Parallel()
+	var c enumcodec.Codec[protoGrade, grade]
+	var dst grade
+	err := c.ErrorCodec()("grade", reflect.ValueOf(protoJunior), reflect.ValueOf(&dst).Elem(), nil)
+	require.Error(t, err)
+	called := false
+	var out string
+	err = c.ErrorCodec()("label", reflect.ValueOf("x"), reflect.ValueOf(&out).Elem(), func(path string, src, dst reflect.Value) error {
+		called = true
+		require.Equal(t, "label", path)
+		dst.Set(src)
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, called)
+	require.Equal(t, "x", out)
+}
+
+func TestErrorCodecFromNew(t *testing.T) {
+	t.Parallel()
+	adapter := enumcodec.New(map[protoGrade]grade{protoJunior: gradeJunior}).ErrorCodec()
+	var dst grade
+	require.NoError(t, adapter("grade", reflect.ValueOf(protoJunior), reflect.ValueOf(&dst).Elem(), nil))
+	require.Equal(t, gradeJunior, dst)
+}
+
+func TestZeroErrorCodecEncode(t *testing.T) {
+	t.Parallel()
+	var c enumcodec.Codec[protoGrade, grade]
+	var dst protoGrade
+	require.Error(t, c.ErrorCodec()("grade", reflect.ValueOf(gradeJunior), reflect.ValueOf(&dst).Elem(), nil))
+	require.NoError(t, c.ErrorCodec()("grade", reflect.ValueOf(grade("")), reflect.ValueOf(&dst).Elem(), nil))
+	require.Equal(t, gradeUnspecified, dst)
+}
+
+func TestErrorCodecOptionalPointers(t *testing.T) {
+	type protoItem struct{ Grade *protoGrade }
+	type domainItem struct{ Grade *grade }
+	for _, tc := range []struct {
+		name string
+		p    protoGrade
+		d    grade
+		bad  bool
+	}{
+		{"known", protoSenior, gradeSenior, false},
+		{"zero", 0, "", false},
+		{"unknown", 99, "unknown", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, d := tc.p, tc.d
+			var dst struct{ Attrs domainItem }
+			_, err := converter.ConvertE(struct{ Attrs protoItem }{protoItem{&p}}, &dst, converter.WithErrorCodecs(grades.ErrorCodec()))
+			if tc.bad {
+				var fe *coreerrs.FieldError
+				if !errors.As(err, &fe) || fe.Field != "attrs.grade" {
+					t.Fatalf("decode error = %v", err)
+				}
+			} else if err != nil || dst.Attrs.Grade == nil || *dst.Attrs.Grade != tc.d {
+				t.Fatalf("decode = %+v, %v", dst, err)
+			}
+			var out struct{ Attrs protoItem }
+			_, err = converter.ConvertE(struct{ Attrs domainItem }{domainItem{&d}}, &out, converter.WithErrorCodecs(grades.ErrorCodec()))
+			if tc.bad {
+				var fe *coreerrs.FieldError
+				if !errors.As(err, &fe) || fe.Field != "attrs.grade" {
+					t.Fatalf("encode error = %v", err)
+				}
+			} else if err != nil || out.Attrs.Grade == nil || *out.Attrs.Grade != tc.p {
+				t.Fatalf("encode = %+v, %v", out, err)
+			}
+		})
+	}
+	t.Run("nil", func(t *testing.T) {
+		p, d := protoJunior, gradeJunior
+		pp, dp := &p, &d
+		declined := func(string, reflect.Value, reflect.Value) error { t.Error("pointer enum delegated"); return nil }
+		if err := grades.ErrorCodec()("attrs.grade", reflect.ValueOf((*protoGrade)(nil)), reflect.ValueOf(&dp).Elem(), declined); err != nil || dp != nil {
+			t.Fatalf("nil decode = %v, %v", dp, err)
+		}
+		if err := grades.ErrorCodec()("attrs.grade", reflect.ValueOf((*grade)(nil)), reflect.ValueOf(&pp).Elem(), declined); err != nil || pp != nil {
+			t.Fatalf("nil encode = %v, %v", pp, err)
+		}
+	})
+}
+
+func TestProtoErrorPathAndReason(t *testing.T) {
+	unknown := grade("unknown")
+	_, err := grades.ProtoE(unknown)
+	var original *coreerrs.FieldError
+	if !errors.As(err, &original) || original.Field != "" || original.Reason != "unknown value unknown" {
+		t.Fatalf("ProtoE error = %#v", err)
+	}
+	var scalar protoGrade
+	var pointer *protoGrade
+	for _, tc := range []struct {
+		name     string
+		src, dst reflect.Value
+	}{
+		{"scalar", reflect.ValueOf(unknown), reflect.ValueOf(&scalar).Elem()},
+		{"pointer", reflect.ValueOf(&unknown), reflect.ValueOf(&pointer).Elem()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := grades.ErrorCodec()("attrs.grade", tc.src, tc.dst, nil)
+			var got *coreerrs.FieldError
+			if !errors.As(err, &got) || got.Field != "attrs.grade" || got.Reason != original.Reason || got.Err != original.Err {
+				t.Fatalf("adapter error = %#v, original = %#v", err, original)
+			}
+		})
+	}
 }

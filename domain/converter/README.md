@@ -11,6 +11,7 @@ buffers. It caches type metadata and pools allocations for optimal throughput.
 
 | Option                       | Description                                       |
 |------------------------------|---------------------------------------------------|
+| `WithErrorCodecs`            | Register error-returning codecs with full paths    |
 | `WithCodecs`                 | Register custom codec pipeline                    |
 | `WithIgnoreFields`           | Skip fields by leaf name where the walk descends   |
 | `WithIgnorePaths`            | Skip an exact source path (`smtp.password`)        |
@@ -18,7 +19,7 @@ buffers. It caches type metadata and pools allocations for optimal throughput.
 | `WithFieldMappings`          | Map source field names to destination names        |
 | `WithIgnoreZeroValues`       | Skip zero-valued source fields                    |
 | `WithIgnoreNilValues`        | Skip nil source fields (pointers, slices, maps)   |
-| `WithSparseMerge`            | Sparse merge (partial update): skip nil sources, overwrite with non-nil pointers, clear on present-but-empty nested struct pointers |
+| `WithSparseMerge`            | Apply a sparse partial update; present-but-empty struct pointers clear the field |
 | `WithHandleEmbeddedStructs`  | Recursively expand embedded (anonymous) structs   |
 | `WithOverflowCheck`          | Panic on narrowing numeric overflow               |
 
@@ -29,14 +30,30 @@ walks; an assignable same-type nested value is copied wholesale and is not
 rewritten. Use `WithIgnorePaths("smtp.password")` to ignore exactly one
 location; a parent path such as `WithIgnorePaths("smtp")` skips the whole
 subtree. Slice, array and map fields contribute one path segment, so
-`items.secret` matches every element of `Items`; map indices and map keys are
+`items.secret` matches every element of `Items`; indices and statically typed map keys are
 never part of the path. A promoted source field flattened into the destination
 uses its promoted path. A destination-only embedded field adds no segment; the
 embedded field name is a path segment only when both sides declare that
 embedded field.
-Interfaces are not traversed. Path ignoring a nested value walks exported
-fields and keeps destination values that are not written (merge semantics), so
-unexported state of a same-type nested struct is not preserved.
+Interfaces are traversed only when an ignore path lies below them. Dynamic
+structs, pointers, slices, arrays, maps, and scalars are supported; nil interfaces
+and typed nils retain their distinction. A nil interface clears an interface
+destination but leaves a concrete destination unchanged. A dynamic value that
+is not assignable to a non-empty destination interface leaves it unchanged.
+Containers are detached before writes,
+and a per-traversal cycle guard leaves destination values unchanged at back
+edges with ignored descendants. Back edges without ignored descendants retain
+the source reference. Dynamic slices use fresh zero elements, like static slice
+conversion; dynamic arrays merge into existing destination elements.
+String keys of maps reached through interfaces act as path segments: an ignored
+key is omitted unless the destination already has it, in which case it is kept.
+
+In plain overwrite mode, nested same-type structs walked for an ignore path
+preserve the source's unexported state. The top-level struct passed to `Convert`
+keeps destination unexported state; root slice elements still use nested semantics. Ignored exported fields and nil source
+pointers keep their destination values. Sparse merge, ignore-zero, and ignore-nil
+modes retain field-wise behavior: unexported state is not copied in those modes.
+Reference-valued unexported state remains shallow-copied.
 
 `WithCopySlices` gives the destination its own backing array for assignable
 slices, recursively through exported struct fields, arrays and map values. A
@@ -51,6 +68,17 @@ already copy.
 `ConvertE` has the same signature but returns those panics as errors, which is
 safer for untrusted input and for slices that may contain nil message
 pointers. The destination may be partially populated when an error is returned.
+
+`WithErrorCodecs` accepts `convcodec.CodecE` middleware with full source paths.
+Error codecs execute before assignable and primitive shortcuts, followed by
+legacy codecs and built-in conversion. Error codecs never run for statically
+typed map keys and never receive the internal map-key sentinel. A dynamic root
+map key that collides with the sentinel is treated as map-key context and is
+not exposed to error codecs; legacy codecs and built-in conversion still run. Every error
+returned by a `CodecE` is returned unchanged by `ConvertE`, preserving identity,
+including `*core/errors.FieldError` and its path. The existing `Codec` and
+`Run` APIs retain their behavior. `enumcodec.Codec.ErrorCodec()` supplies a
+bidirectional enum adapter that rejects unknown non-zero values.
 
 ## Value-handling semantics
 
@@ -96,7 +124,8 @@ converter.Convert(&src, &dst)
 
 Skips every zero source value: zero scalars, nil pointers, nil slices and maps, zero structs. Useful for "copy only what is set", but a zero scalar can
 never be written — there is no way to zero a destination field with it. Non-nil empty slices and maps and non-nil pointers to zero values are not zero,
-so they still overwrite the destination.
+so they still overwrite the destination. During dynamic traversal, zero checks
+apply at field boundaries and do not reapply to dereferenced pointer pointees.
 
 ```go
 converter.Convert(&src, &dst, converter.WithIgnoreZeroValues())
@@ -146,6 +175,10 @@ converter.Convert(&User{Name: ptr("")}, &dst, converter.WithSparseMerge())
 converter.Convert(&User{Address: &Address{}}, &dst, converter.WithSparseMerge())
 // dst.Address == nil
 ```
+
+During dynamic traversal, an interface holding a present-but-empty `*Struct`
+also clears its destination pointer. The interface retains the concrete pointer
+type: it holds `(*Struct)(nil)` and is itself non-nil.
 
 The source must express optionality through pointers: a non-pointer scalar is always "present" and overwrites the destination, including with its zero
 value. A non-pointer nested struct carries no presence signal — it is always merged field-by-field and never triggers the clear-on-empty rule. Structs

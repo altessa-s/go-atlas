@@ -4,7 +4,11 @@
 
 package enumcodec_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/altessa-s/go-atlas/domain/converter"
+)
 
 func BenchmarkDomain(b *testing.B) {
 	b.ReportAllocs()
@@ -19,5 +23,17 @@ func BenchmarkProto(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = grades.Proto(gradeSenior)
+	}
+}
+
+func BenchmarkErrorCodec(b *testing.B) {
+	type source struct{ Grade protoGrade }
+	type destination struct{ Grade grade }
+	conv := converter.New[source, *destination](converter.WithErrorCodecs(grades.ErrorCodec()))
+	src := source{protoSenior}
+	var dst destination
+	b.ReportAllocs()
+	for b.Loop() {
+		conv.Convert(src, &dst)
 	}
 }

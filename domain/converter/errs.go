@@ -61,3 +61,11 @@ func (e CompileTimeTypeError) Unwrap() error {
 	}
 	return nil
 }
+
+// codecError distinguishes returned codec errors from conversion panics.
+type codecError struct {
+	error
+}
+
+// Unwrap preserves codec error identity for lazy iterator callers.
+func (e codecError) Unwrap() error { return e.error }

@@ -4,6 +4,12 @@
 
 // Package convcodec provides core types for custom conversion codecs and a chain execution engine.
 //
+// [CodecE] and [CodecHandlerE] add error-returning middleware with full field
+// paths. [Set.AddError] registers this chain; [Set.RunError] runs it before the
+// legacy Codec chain and terminal handler. [Set.Run] remains unchanged.
+// When registered with converter.WithErrorCodecs, CodecE errors propagate
+// unchanged through converter.ConvertE, preserving error identity.
+//
 // Individual codec implementations live in subpackages:
 //
 //   - [github.com/altessa-s/go-atlas/domain/converter/codec/pbwrap] — protobuf wrapper ↔ primitive conversion

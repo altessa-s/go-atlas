@@ -5,10 +5,13 @@
 package enumcodec
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 )
 
 // Codec maps a proto enum P to a domain enum D and back. The proto zero value
@@ -75,4 +78,78 @@ func (c Codec[P, D]) Proto(d D) P {
 	}
 	p, _ := c.toProto.Get(d)
 	return p
+}
+
+// ProtoE encodes d, returning a FieldError with an empty path for an unknown
+// non-zero value. The zero D encodes as UNSPECIFIED without error.
+func (c Codec[P, D]) ProtoE(d D) (P, error) {
+	var zero D
+	if d == zero {
+		return 0, nil
+	}
+	if c.toProto != nil {
+		if p, ok := c.toProto.Get(d); ok {
+			return p, nil
+		}
+	}
+	return 0, coreerrs.NewFieldError("", fmt.Sprintf("unknown value %v", d))
+}
+
+// ErrorCodec adapts the mapping to converter.WithErrorCodecs. Unknown values
+// produce FieldErrors on the full source path. Exact P/D and *P/*D pairs
+// are supported; nil pointers clear the destination, and non-nil pointers
+// produce newly allocated destination pointers.
+func (c Codec[P, D]) ErrorCodec() convcodec.CodecE {
+	return func(path string, src, dst reflect.Value, next convcodec.CodecHandlerE) error {
+		switch {
+		case src.Type() == reflect.TypeFor[*P]() && dst.Type() == reflect.TypeFor[*D]():
+			if src.IsNil() {
+				dst.SetZero()
+				return nil
+			}
+			d, err := c.Domain(path, *src.Interface().(*P))
+			if err != nil {
+				return err
+			}
+			dst.Set(reflect.ValueOf(&d))
+			return nil
+		case src.Type() == reflect.TypeFor[*D]() && dst.Type() == reflect.TypeFor[*P]():
+			if src.IsNil() {
+				dst.SetZero()
+				return nil
+			}
+			d := *src.Interface().(*D)
+			p, err := c.ProtoE(d)
+			if err != nil {
+				return rootProtoError(path, err)
+			}
+			dst.Set(reflect.ValueOf(&p))
+			return nil
+		case src.Type() == reflect.TypeFor[P]() && dst.Type() == reflect.TypeFor[D]():
+			d, err := c.Domain(path, src.Interface().(P))
+			if err != nil {
+				return err
+			}
+			dst.Set(reflect.ValueOf(&d).Elem())
+			return nil
+		case src.Type() == reflect.TypeFor[D]() && dst.Type() == reflect.TypeFor[P]():
+			p, err := c.ProtoE(src.Interface().(D))
+			if err != nil {
+				return rootProtoError(path, err)
+			}
+			dst.Set(reflect.ValueOf(p))
+			return nil
+		default:
+			return next(path, src, dst)
+		}
+	}
+}
+
+// rootProtoError preserves ProtoE's reason and cause at the adapter's source path.
+func rootProtoError(path string, err error) error {
+	var fieldErr *coreerrs.FieldError
+	if errors.As(err, &fieldErr) {
+		return &coreerrs.FieldError{Field: path, Reason: fieldErr.Reason, Err: fieldErr.Err}
+	}
+	return err
 }

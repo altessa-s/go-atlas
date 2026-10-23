@@ -256,3 +256,9 @@ func WithSparseMerge() Option {
 		o.ignoreZeroValues = DefaultIgnoreZeroValues
 	}
 }
+
+// WithErrorCodecs registers error-returning codecs before the legacy codec chain.
+// Codecs receive full source field paths, including when no ignore paths are set.
+func WithErrorCodecs(codecs ...convcodec.CodecE) Option {
+	return func(o *options) { o.codecsSet.AddError(codecs...) }
+}

@@ -218,6 +218,9 @@ func (conv *Converter[T, U]) Convert(src T, dst U) {
 
 	defer func() {
 		if r := recover(); r != nil {
+			if err, ok := r.(codecError); ok {
+				panic(err.error)
+			}
 			if _, ok := r.(OverflowError); ok {
 				panic(r)
 			}
@@ -248,7 +251,7 @@ func (conv *Converter[T, U]) Convert(src T, dst U) {
 	}
 
 	if srcKind == reflect.Struct {
-		conv.convertStruct("", srcValue, dstValue)
+		conv.convertStruct("", srcValue, dstValue, false)
 		return
 	}
 
@@ -377,8 +380,27 @@ func (conv *Converter[T, U]) convertSmallStruct(path string, src reflect.Value, 
 }
 
 // convertStruct converts one struct to another.
-func (conv *Converter[T, U]) convertStruct(path string, src reflect.Value, dst reflect.Value) {
+func (conv *Converter[T, U]) convertStruct(path string, src reflect.Value, dst reflect.Value, nested bool) {
 	dstValue := reflect.Indirect(dst)
+	preserveState := nested && src.Type() == dstValue.Type() && conv.hasIgnorePathBelow(path) &&
+		!conv.opts.sparseMerge && !conv.opts.ignoreZeroValues && !conv.opts.ignoreNilValues
+	if preserveState {
+		snapshot := reflect.New(dstValue.Type()).Elem()
+		snapshot.Set(dstValue)
+		source := reflect.New(src.Type()).Elem()
+		source.Set(src)
+		src = source
+		dstValue.Set(src)
+		if conv.opts.copySlices {
+			cloneSlicesInPlace(dstValue)
+		}
+		// Only the mapping-aware loop below may write exported fields.
+		for i := range dstValue.NumField() {
+			if dstValue.Type().Field(i).IsExported() {
+				dstValue.Field(i).Set(snapshot.Field(i))
+			}
+		}
+	}
 
 	// if dst has embedded structs, iterate through them
 	if conv.opts.handleEmbeddedStructs {
@@ -405,7 +427,7 @@ func (conv *Converter[T, U]) convertStruct(path string, src reflect.Value, dst r
 	}
 
 	// Try stack allocation optimization for small structs
-	if src.NumField() <= MaxStackAllocFields && !conv.opts.handleEmbeddedStructs {
+	if src.NumField() <= MaxStackAllocFields && !conv.opts.handleEmbeddedStructs && !preserveState {
 		if conv.convertSmallStruct(path, src, dst) {
 			return // Successfully processed with stack allocation
 		}
@@ -474,7 +496,7 @@ func (conv *Converter[T, U]) convertStruct(path string, src reflect.Value, dst r
 			if !dstFieldExists {
 				fieldPath = path
 			}
-			conv.convertStruct(fieldPath, reflect.Indirect(srcFieldValue), target)
+			conv.convertStruct(fieldPath, reflect.Indirect(srcFieldValue), target, true)
 			continue
 		}
 
@@ -610,7 +632,7 @@ func (conv *Converter[T, U]) convertMapValue(
 	valueFieldName := makeFieldName(fieldName, fmt.Sprintf("[%v]", key.Interface()))
 
 	// Preserve the original zero-cost alias for default map conversion.
-	if len(conv.opts.ignorePaths) == 0 && !conv.opts.copySlices {
+	if len(conv.opts.ignorePaths) == 0 && !conv.opts.copySlices && !conv.opts.codecsSet.HasErrorCodecs() {
 		switch {
 		case srcMapValue.Type().AssignableTo(dstValueType):
 			return srcMapValue
@@ -652,6 +674,10 @@ func (conv *Converter[T, U]) convertPrimitiveMapValue(path, fieldName string, sr
 	// Allocate the exact destination type: a pointer-valued map needs a
 	// pointer here, which convertValue allocates for non-assignable sources.
 	dstMapValue := reflect.New(dstValueType).Elem()
+	if conv.opts.codecsSet.HasErrorCodecs() || conv.hasIgnorePathBelow(path) {
+		conv.convertValueAt(path, fieldName, srcMapValue, dstMapValue)
+		return dstMapValue
+	}
 
 	switch {
 	case srcMapValue.Type().AssignableTo(dstValueType):
@@ -665,53 +691,49 @@ func (conv *Converter[T, U]) convertPrimitiveMapValue(path, fieldName string, sr
 	return dstMapValue
 }
 
-func (conv *Converter[T, U]) convertValueAt(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+// skipValue applies the field exclusion and nil/zero options before codecs.
+func (conv *Converter[T, U]) skipValue(path, fieldName string, srcValue reflect.Value) bool {
 	// Optimize nil/zero checks - combine conditions to reduce branches
 	if conv.opts.ignoreNilValues || conv.opts.ignoreZeroValues {
 		srcValueKind := srcValue.Kind()
 		isNilValue := (srcValueKind == reflect.Pointer || srcValueKind == reflect.Slice || srcValueKind == reflect.Map) && srcValue.IsNil()
 		if (conv.opts.ignoreNilValues && isNilValue) || (conv.opts.ignoreZeroValues && srcValue.IsZero()) {
-			return
+			return true
 		}
 	}
 
 	// Honor ignore fields early, including fast paths (assignable/primitive).
 	if len(conv.opts.ignoreFields) > 0 {
 		if _, ok := conv.opts.ignoreFields[fieldName]; ok {
-			return
+			return true
 		}
 	}
 	if len(conv.opts.ignorePaths) > 0 && path != "" {
 		if _, ok := conv.opts.ignorePaths[path]; ok {
-			return
+			return true
 		}
 	}
 
-	// Branch prediction optimization: reorder checks based on likelihood
-	// Most likely path: direct type assignability (90%+ of cases).
-	// Under WithSparseMerge identically-typed nested structs must skip this
-	// shortcut: assigning the value wholesale would replace the destination
-	// object (aliasing the source pointer) instead of merging field-by-field,
-	// so they fall through to convertByKind. Structs without exported fields
-	// (time.Time and similar opaque types) cannot be merged field-by-field
-	// and keep the direct assignment.
-	nilContainer := (srcValue.Kind() == reflect.Slice || srcValue.Kind() == reflect.Map) && srcValue.IsNil()
-	if conv.isTypeCachedAssignable(srcValue.Type(), dstValue.Type()) &&
-		(!conv.mustDescend(path, srcValue.Type()) || nilContainer) &&
-		(!conv.opts.sparseMerge || !conv.isMergeableStruct(srcValue.Type())) {
-		if conv.opts.copySlices {
-			dstValue.Set(srcValue)
-			if srcValue.Kind() == reflect.Pointer && !srcValue.IsNil() && srcValue.Elem().Kind() == reflect.Slice {
-				cp := reflect.New(srcValue.Type().Elem())
-				cp.Elem().Set(srcValue.Elem())
-				cloneSlicesInPlace(cp.Elem())
-				dstValue.Set(cp)
-				return
-			}
-			cloneSlicesInPlace(dstValue)
-			return
+	return false
+}
+
+func (conv *Converter[T, U]) convertValueAt(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+	if conv.skipValue(path, fieldName, srcValue) {
+		return
+	}
+
+	if path != noIgnorePath && conv.opts.codecsSet.HasErrorCodecs() {
+		err := conv.opts.codecsSet.RunError(path, fieldName, srcValue, dstValue, func(p string, src, dst reflect.Value) error {
+			conv.convertAfterCodecs(p, fieldName, src, dst)
+			return nil
+		})
+		if err != nil {
+			panic(codecError{err})
 		}
-		dstValue.Set(srcValue)
+		return
+	}
+
+	if conv.tryAssignValue(path, srcValue, dstValue) {
 		return
 	}
 
@@ -723,7 +745,7 @@ func (conv *Converter[T, U]) convertValueAt(path, fieldName string, srcValue ref
 	// branch because codecs may also intercept primitives (e.g. an enum-int
 	// codec); convertByKind reaches the same primitive path as terminal.
 	if conv.opts.codecsSet.HasCodecs() {
-		if len(conv.opts.ignorePaths) == 0 {
+		if len(conv.opts.ignorePaths) == 0 && path != noIgnorePath {
 			conv.opts.codecsSet.Run(fieldName, srcValue, dstValue, conv.convertByKindHandler)
 		} else {
 			conv.opts.codecsSet.Run(fieldName, srcValue, dstValue,
@@ -754,6 +776,11 @@ func (conv *Converter[T, U]) convertByKindNoPath(fieldName string, srcValue, dst
 // scalar conversion. It is used directly on the codec-free path and as the
 // terminal handler of the codec chain, so it must not invoke codecs itself.
 func (conv *Converter[T, U]) convertByKind(path, fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+	if conv.hasIgnorePathBelow(path) && (srcValue.Kind() == reflect.Interface || dstValue.Kind() == reflect.Interface) {
+		conv.convertDynamic(path, fieldName, srcValue, dstValue, make(map[dynamicIdentity]bool))
+		return
+	}
+
 	// A nil pointer has no value to walk. Codecs get the first chance in
 	// convertValueAt; this guard runs only when they decline.
 	if srcValue.Kind() == reflect.Pointer && srcValue.IsNil() {
@@ -761,6 +788,11 @@ func (conv *Converter[T, U]) convertByKind(path, fieldName string, srcValue refl
 			dstValue.Set(reflect.Zero(dstValue.Type()))
 		}
 		return
+	}
+
+	// Detach before writes even when the original destination aliases the source.
+	if conv.hasIgnorePathBelow(path) && !conv.opts.sparseMerge && !conv.opts.ignoreZeroValues && !conv.opts.ignoreNilValues {
+		detachPointer(dstValue)
 	}
 
 	// Pre-compute type information once
@@ -790,7 +822,7 @@ func (conv *Converter[T, U]) convertByKind(path, fieldName string, srcValue refl
 			if dstValue.Kind() == reflect.Pointer && dstValue.IsNil() && !srcIsNil {
 				dstValue.Set(reflect.New(dstValueType))
 			}
-			conv.convertStruct(path, reflect.Indirect(srcValue), dstValue)
+			conv.convertStruct(path, reflect.Indirect(srcValue), dstValue, true)
 			return
 		}
 		// Less common: struct to slice conversion
@@ -904,7 +936,7 @@ func (conv *Converter[T, U]) canConvertType(src, dst reflect.Type) bool {
 	if conv.canConvertTypeStructural(src, dst) {
 		return true
 	}
-	return conv.opts.codecsSet.HasCodecs()
+	return conv.opts.codecsSet.HasCodecs() || conv.opts.codecsSet.HasErrorCodecs()
 }
 
 // canConvertTypeStructural ignores codecs and reports only the built-in
@@ -943,7 +975,10 @@ func (conv *Converter[T, U]) isIgnoredPath(path string) bool {
 // childPath builds the dotted path only when ignore paths are configured;
 // otherwise it avoids a concatenation on every nested field.
 func (conv *Converter[T, U]) childPath(path, field string) string {
-	if len(conv.opts.ignorePaths) == 0 {
+	if path == noIgnorePath {
+		return noIgnorePath
+	}
+	if len(conv.opts.ignorePaths) == 0 && !conv.opts.codecsSet.HasErrorCodecs() {
 		return ""
 	}
 	return joinPath(path, field)
@@ -953,21 +988,7 @@ func (conv *Converter[T, U]) childPath(path, field string) string {
 // because an ignore path can match below it. Opaque structs (time.Time) are
 // never walked field by field.
 func (conv *Converter[T, U]) mustDescend(path string, t reflect.Type) bool {
-	if len(conv.opts.ignorePaths) == 0 {
-		return false
-	}
-	prefix := path
-	if prefix != "" {
-		prefix += "."
-	}
-	matched := false
-	for p := range conv.opts.ignorePaths {
-		if strings.HasPrefix(p, prefix) {
-			matched = true
-			break
-		}
-	}
-	if !matched {
+	if !conv.hasIgnorePathBelow(path) {
 		return false
 	}
 	return typeHasMergeableStruct(t)
@@ -994,6 +1015,8 @@ func typeHasMergeableStructSeen(t reflect.Type, seen map[reflect.Type]bool) bool
 	}
 	seen[t] = true
 	switch t.Kind() {
+	case reflect.Interface:
+		return true
 	case reflect.Struct:
 		return typeHasExportedFields(t)
 	case reflect.Slice, reflect.Array, reflect.Map:
@@ -1170,4 +1193,62 @@ func makeFieldName(n ...string) string {
 //	t := IndirectType(reflect.TypeOf(&User{})) // returns reflect.Type of User
 func IndirectType(t reflect.Type) reflect.Type {
 	return reflectutils.IndirectType(t)
+}
+
+// convertAfterCodecs supplies built-in dispatch after the error and legacy chains.
+func (conv *Converter[T, U]) convertAfterCodecs(path, name string, src, dst reflect.Value) {
+	if !conv.tryAssignValue(path, src, dst) {
+		conv.convertByKind(path, name, src, dst)
+	}
+}
+
+// tryAssignValue owns direct assignment and optional slice copying. Sparse
+// structs and ignored descendants require traversal; opaque structs and nil
+// containers retain direct assignment because they have no fields to walk.
+func (conv *Converter[T, U]) tryAssignValue(path string, src, dst reflect.Value) bool {
+	nilContainer := (src.Kind() == reflect.Slice || src.Kind() == reflect.Map) && src.IsNil()
+	if !conv.isTypeCachedAssignable(src.Type(), dst.Type()) ||
+		(dst.Kind() == reflect.Interface && conv.hasIgnorePathBelow(path)) ||
+		(conv.mustDescend(path, src.Type()) && !nilContainer) ||
+		(conv.opts.sparseMerge && conv.isMergeableStruct(src.Type())) {
+		return false
+	}
+	dst.Set(src)
+	if conv.opts.copySlices {
+		if src.Kind() == reflect.Pointer && !src.IsNil() && src.Elem().Kind() == reflect.Slice {
+			cp := reflect.New(src.Type().Elem())
+			cp.Elem().Set(src.Elem())
+			cloneSlicesInPlace(cp.Elem())
+			dst.Set(cp)
+		} else {
+			cloneSlicesInPlace(dst)
+		}
+	}
+	return true
+}
+
+func (conv *Converter[T, U]) hasIgnorePathBelow(path string) bool {
+	if len(conv.opts.ignorePaths) == 0 || path == noIgnorePath {
+		return false
+	}
+	prefix := path
+	if prefix != "" {
+		prefix += "."
+	}
+	for p := range conv.opts.ignorePaths {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// detachPointer copies one destination pointer level before a path-aware write.
+func detachPointer(v reflect.Value) {
+	if v.Kind() != reflect.Pointer || v.IsNil() {
+		return
+	}
+	cp := reflect.New(v.Type().Elem())
+	cp.Elem().Set(v.Elem())
+	v.Set(cp)
 }
