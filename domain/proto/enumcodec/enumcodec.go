@@ -107,7 +107,11 @@ func (c Codec[P, D]) ErrorCodec() convcodec.CodecE {
 				dst.SetZero()
 				return nil
 			}
-			d, err := c.Domain(path, *src.Interface().(*P))
+			p, err := sourceValue[*P](path, src)
+			if err != nil {
+				return err
+			}
+			d, err := c.Domain(path, *p)
 			if err != nil {
 				return err
 			}
@@ -118,22 +122,33 @@ func (c Codec[P, D]) ErrorCodec() convcodec.CodecE {
 				dst.SetZero()
 				return nil
 			}
-			d := *src.Interface().(*D)
-			p, err := c.ProtoE(d)
+			d, err := sourceValue[*D](path, src)
+			if err != nil {
+				return err
+			}
+			p, err := c.ProtoE(*d)
 			if err != nil {
 				return rootProtoError(path, err)
 			}
 			dst.Set(reflect.ValueOf(&p))
 			return nil
 		case src.Type() == reflect.TypeFor[P]() && dst.Type() == reflect.TypeFor[D]():
-			d, err := c.Domain(path, src.Interface().(P))
+			p, err := sourceValue[P](path, src)
+			if err != nil {
+				return err
+			}
+			d, err := c.Domain(path, p)
 			if err != nil {
 				return err
 			}
 			dst.Set(reflect.ValueOf(&d).Elem())
 			return nil
 		case src.Type() == reflect.TypeFor[D]() && dst.Type() == reflect.TypeFor[P]():
-			p, err := c.ProtoE(src.Interface().(D))
+			d, err := sourceValue[D](path, src)
+			if err != nil {
+				return err
+			}
+			p, err := c.ProtoE(d)
 			if err != nil {
 				return rootProtoError(path, err)
 			}
@@ -143,6 +158,15 @@ func (c Codec[P, D]) ErrorCodec() convcodec.CodecE {
 			return next(path, src, dst)
 		}
 	}
+}
+
+// sourceValue checks the exact-type invariant established by ErrorCodec.
+func sourceValue[T any](path string, src reflect.Value) (T, error) {
+	value, ok := src.Interface().(T)
+	if !ok {
+		return value, coreerrs.NewFieldError(path, fmt.Sprintf("unexpected source type %v, want %v", src.Type(), reflect.TypeFor[T]()))
+	}
+	return value, nil
 }
 
 // rootProtoError preserves ProtoE's reason and cause at the adapter's source path.

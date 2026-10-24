@@ -308,7 +308,7 @@ func (conv *Converter[T, U]) ConvertMapSeq(src any, dstKeyType reflect.Type, dst
 				dv = srcMapValue.Type()
 			}
 
-			dstKey := conv.convertMapKey(noIgnorePath, "", key, dk)
+			dstKey := conv.convertMapKey("", key, dk)
 			dstVal := conv.convertMapValue("", "", key, srcMapValue, dv)
 
 			if !yield(dstKey.Interface(), dstVal.Interface()) {
@@ -599,7 +599,7 @@ func (conv *Converter[T, U]) convertMaps(path, fieldName string, srcValue reflec
 		srcMapValue := srcValue.MapIndex(key)
 
 		// Convert key using helper function
-		dstKey := conv.convertMapKey(path, fieldName, key, dstKeyType)
+		dstKey := conv.convertMapKey(fieldName, key, dstKeyType)
 
 		// Convert value using helper function
 		dstMapValue := conv.convertMapValue(path, fieldName, key, srcMapValue, dstValueType)
@@ -610,7 +610,7 @@ func (conv *Converter[T, U]) convertMaps(path, fieldName string, srcValue reflec
 }
 
 // convertMapKey converts map key with fallback chain.
-func (conv *Converter[T, U]) convertMapKey(path, fieldName string, key reflect.Value, dstKeyType reflect.Type) reflect.Value {
+func (conv *Converter[T, U]) convertMapKey(fieldName string, key reflect.Value, dstKeyType reflect.Type) reflect.Value {
 	switch {
 	case key.Type().AssignableTo(dstKeyType):
 		return key
@@ -1001,7 +1001,9 @@ var typeMergeableCache sync.Map // reflect.Type -> bool
 func typeHasMergeableStruct(t reflect.Type) bool {
 	t = IndirectType(t)
 	if v, ok := typeMergeableCache.Load(t); ok {
-		return v.(bool)
+		if result, ok := v.(bool); ok {
+			return result
+		}
 	}
 	result := typeHasMergeableStructSeen(t, make(map[reflect.Type]bool))
 	typeMergeableCache.Store(t, result)
@@ -1027,8 +1029,8 @@ func typeHasMergeableStructSeen(t reflect.Type, seen map[reflect.Type]bool) bool
 }
 
 func typeHasExportedFields(t reflect.Type) bool {
-	for i := range t.NumField() {
-		if t.Field(i).IsExported() {
+	for field := range t.Fields() {
+		if field.IsExported() {
 			return true
 		}
 	}
@@ -1085,7 +1087,9 @@ var typeSliceCache sync.Map // reflect.Type -> bool
 func typeCanContainSlice(t reflect.Type) bool {
 	t = IndirectType(t)
 	if v, ok := typeSliceCache.Load(t); ok {
-		return v.(bool)
+		if result, ok := v.(bool); ok {
+			return result
+		}
 	}
 	result := typeCanContainSliceSeen(t, make(map[reflect.Type]bool))
 	typeSliceCache.Store(t, result)
@@ -1104,11 +1108,13 @@ func typeCanContainSliceSeen(t reflect.Type, seen map[reflect.Type]bool) bool {
 	case reflect.Array, reflect.Map:
 		return typeCanContainSliceSeen(t.Elem(), seen)
 	case reflect.Struct:
-		for i := range t.NumField() {
-			if t.Field(i).IsExported() && typeCanContainSliceSeen(t.Field(i).Type, seen) {
+		for field := range t.Fields() {
+			if field.IsExported() && typeCanContainSliceSeen(field.Type, seen) {
 				return true
 			}
 		}
+	default:
+		return false
 	}
 	return false
 }
@@ -1156,6 +1162,8 @@ func cloneSlicesInPlace(v reflect.Value) {
 			out.SetMapIndex(iter.Key(), value)
 		}
 		v.Set(out)
+	default:
+		// Other kinds retain their copied value and identity.
 	}
 }
 

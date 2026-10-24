@@ -96,6 +96,8 @@ func (conv *Converter[T, U]) convertDynamic(path, name string, src, dst reflect.
 		}
 		active[key] = true
 		defer delete(active, key)
+	default:
+		// Only reference kinds need identity tracking to break cycles.
 	}
 	switch src.Kind() {
 	case reflect.Pointer:
