@@ -16,11 +16,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/data/outbox"
+	"github.com/altessa-s/go-atlas/reliability/outbox"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 	"github.com/altessa-s/go-atlas/tests/integration/outboxit"
 
-	outboxmongo "github.com/altessa-s/go-atlas/data/outbox/storages/mongo"
+	outboxmongo "github.com/altessa-s/go-atlas/reliability/outbox/storages/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 

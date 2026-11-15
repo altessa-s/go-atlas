@@ -10,10 +10,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency/storages"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
-	idemredis "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
+	idemredis "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 

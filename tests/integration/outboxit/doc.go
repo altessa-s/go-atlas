@@ -2,11 +2,11 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package outboxit exercises data/outbox against a live MongoDB replica set and,
+// Package outboxit exercises reliability/outbox against a live MongoDB replica set and,
 // for every scenario that does not depend on change streams, against the SQL
 // store on live PostgreSQL, MariaDB and MySQL servers.
 //
-// The unit tests for data/outbox run against in-memory stores and assert on the
+// The unit tests for reliability/outbox run against in-memory stores and assert on the
 // state the outbox decided to write. What they cannot assert is whether that
 // state survives a real store: the batch fetch takes a lock inside a
 // transaction, every deadline is evaluated against the server clock rather than

@@ -14,11 +14,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
-	"github.com/altessa-s/go-atlas/data/idempotency/storages"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
-	idemnats "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
-	brokeridem "github.com/altessa-s/go-atlas/transport/broker/idempotency"
+	brokeridem "github.com/altessa-s/go-atlas/messaging/broker/idempotency"
+	idemnats "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
 )
 
 // TestStorage_AttemptLock pins the lock itself: the first caller acquires
@@ -48,7 +48,7 @@ func TestStorage_AttemptLock(t *testing.T) {
 // TestStorage_AcceptsTheKeysTheKeeperBuilds pins that a storage takes every
 // key shape the layers above it produce, and keeps them apart: the HTTP
 // middleware and the gRPC interceptor compose ("transport", service, key),
-// the broker middleware ("ibk", consumer, key), and the Keeper wraps each in
+// the broker middleware ("ibk", consumer, topic, key), and the Keeper wraps each in
 // ("namespace", namespace, key). Tuples whose ':'-joined forms are equal must
 // land on distinct entries, also after the NATS backend escapes them. A
 // storage that refuses the keys fails every request routed through those
@@ -61,7 +61,7 @@ func TestStorage_AcceptsTheKeysTheKeeperBuilds(t *testing.T) {
 		keeperKey("", idempotency.ComposeKey("transport", "POST:/api/v1/orders", requestKey)),
 		keeperKey("", idempotency.ComposeKey("transport", "users.UserService", requestKey)),
 		keeperKey("acme", idempotency.ComposeKey("transport", "users.UserService", requestKey)),
-		keeperKey("", brokeridem.BuildStorageKey("billing", "invoice-1")),
+		keeperKey("", brokeridem.BuildStorageKey("billing", "orders.created", "invoice-1")),
 		keeperKey("acme", "invoice-1"),
 		// Pairs whose ':'-joined forms are equal.
 		keeperKey("a:b", "c"),

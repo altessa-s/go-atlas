@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/outbox"
+	"github.com/altessa-s/go-atlas/reliability/outbox"
 )
 
 // Delivery is one invocation of the outbox Handler — one attempt to hand an

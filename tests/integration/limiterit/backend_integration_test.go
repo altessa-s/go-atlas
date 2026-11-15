@@ -12,10 +12,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/limiters/storages"
-
-	natslimiter "github.com/altessa-s/go-atlas/data/limiters/storages/nats"
-	redislimiter "github.com/altessa-s/go-atlas/data/limiters/storages/redis"
+	limiters "github.com/altessa-s/go-atlas/coord/limiters"
+	natslimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
+	redislimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 )
 
 // TestRedis_KeyLivesForOneWindow asserts the script's PEXPIRE on a real
@@ -40,7 +39,7 @@ func TestRedis_KeyLivesForOneWindow(t *testing.T) {
 	require.LessOrEqual(t, ttl, period)
 
 	_, err = store.Allow(ctx, "idle-client", 1, period)
-	require.ErrorIs(t, err, storages.ErrLimitExceeded)
+	require.ErrorIs(t, err, limiters.ErrLimitExceeded)
 	members, err := client.ZCard(ctx, key).Result()
 	require.NoError(t, err)
 	require.Equal(t, int64(1), members, "a rejected request must not be recorded")
@@ -71,7 +70,7 @@ func TestRedis_SubSecondWindow(t *testing.T) {
 	}
 	_, err := store.Allow(ctx, "burst", 2, period)
 	if time.Since(start) < period {
-		require.ErrorIs(t, err, storages.ErrLimitExceeded, "a sub-second window must still limit")
+		require.ErrorIs(t, err, limiters.ErrLimitExceeded, "a sub-second window must still limit")
 	}
 
 	require.Eventually(t, func() bool {
@@ -113,9 +112,9 @@ func TestNATS_BucketTTLMismatchIsRefused(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = admin.DeleteKeyValue(context.Background(), bucket) })
 
-	_, err = natslimiter.New(admin, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Hour))
+	_, err = natslimiter.New(t.Context(), admin, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Hour))
 	require.NoError(t, err)
 
-	_, err = natslimiter.New(admin, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Minute))
+	_, err = natslimiter.New(t.Context(), admin, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Minute))
 	require.ErrorIs(t, err, natslimiter.ErrBucketTTLMismatch)
 }

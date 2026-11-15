@@ -11,9 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/cache/storages"
+	"github.com/altessa-s/go-atlas/cache/storages"
 
-	cacheredis "github.com/altessa-s/go-atlas/data/cache/storages/redis"
+	cacheredis "github.com/altessa-s/go-atlas/cache/storages/redis"
 )
 
 // TestStorage_RoundTrip pins Save, Get, Exists and Delete, and what each

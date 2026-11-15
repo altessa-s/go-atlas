@@ -7,9 +7,10 @@ package mongoit_test
 import (
 	"context"
 
-	migrate "github.com/xakep666/mongo-migrate"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	migrate "github.com/xakep666/mongo-migrate"
 )
 
 // markerCollection holds the document migration 1 writes and its rollback

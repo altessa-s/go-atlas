@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,11 +19,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/locks/dlock"
-	"github.com/altessa-s/go-atlas/data/locks/dlock/errs"
+	"github.com/altessa-s/go-atlas/coord/dlock"
+	"github.com/altessa-s/go-atlas/coord/dlock/providers"
 	"github.com/altessa-s/go-atlas/tests/integration/dlockit"
 
-	locknats "github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
+	locknats "github.com/altessa-s/go-atlas/coord/dlock/providers/nats"
 )
 
 const (
@@ -46,8 +47,11 @@ func natsURL() string {
 
 // uniqueSuffix names a throwaway bucket so two runs against the same server —
 // or two tests in one run — never collide.
+// suffixSeq separates names created within one clock tick (macOS ticks in microseconds).
+var suffixSeq atomic.Uint64
+
 func uniqueSuffix() string {
-	return strconv.FormatInt(time.Now().UnixNano(), 36)
+	return strconv.FormatInt(time.Now().UnixNano(), 36) + "_" + strconv.FormatUint(suffixSeq.Add(1), 36)
 }
 
 // connect dials the broker, skipping the test when it is unreachable so a
@@ -132,7 +136,7 @@ func TestLock_ContendersNeverOverlap(t *testing.T) {
 // synchronizeUntilDone retries Synchronize until it gets a turn.
 //
 // Acquisition fails fast: the NATS provider makes one attempt and returns
-// [errs.ErrLockNotHeld] when the key is taken — it does not wait for the holder
+// [providers.ErrLockNotHeld] when the key is taken — it does not wait for the holder
 // to finish. Callers that need to be serialized rather than rejected have to
 // loop, so the suite loops too.
 func synchronizeUntilDone(tb testing.TB, dl *dlock.DLock, key string, fn func(context.Context) error) {
@@ -144,7 +148,7 @@ func synchronizeUntilDone(tb testing.TB, dl *dlock.DLock, key string, fn func(co
 		if err == nil {
 			return
 		}
-		if !errors.Is(err, errs.ErrLockNotHeld) {
+		if !errors.Is(err, providers.ErrLockNotHeld) {
 			require.NoError(tb, err, "unexpected failure acquiring %q", key)
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -171,7 +175,7 @@ func TestLock_HeldLockRefusesOthers(t *testing.T) {
 
 	start := time.Now()
 	_, err = second.Lock(t.Context(), "resource")
-	require.ErrorIs(t, err, errs.ErrLockNotHeld, "a second holder must not acquire a held lock")
+	require.ErrorIs(t, err, providers.ErrLockNotHeld, "a second holder must not acquire a held lock")
 	require.Less(t, time.Since(start), lockTTL,
 		"acquisition fails fast; it does not wait for the holder to finish")
 }
@@ -225,7 +229,7 @@ func TestLock_AbandonedLockExpires(t *testing.T) {
 
 	// The contender must not get in while the lock is alive and renewing.
 	_, err = survivor.Lock(t.Context(), "resource")
-	require.ErrorIs(t, err, errs.ErrLockNotHeld, "precondition: the lock is held")
+	require.ErrorIs(t, err, providers.ErrLockNotHeld, "precondition: the lock is held")
 
 	// No Release, no Close: the connection simply goes away, as it would on a
 	// SIGKILL. The lease is left for the server to reap.
@@ -288,7 +292,7 @@ func TestLock_ReleaseLeavesNoKey(t *testing.T) {
 	require.NoError(t, lk.Release(t.Context()))
 
 	_, err = prov.GetLockInfo(t.Context(), "resource")
-	require.ErrorIs(t, err, errs.ErrLockNotHeld, "a released lock must not leave its key behind")
+	require.ErrorIs(t, err, providers.ErrLockNotHeld, "a released lock must not leave its key behind")
 
 	// And the key is immediately available again, without waiting out the TTL.
 	start := time.Now()

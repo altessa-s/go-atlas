@@ -16,7 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/cache"
+	"github.com/altessa-s/go-atlas/cache"
 )
 
 // user is the value the facade tests cache.

@@ -8,16 +8,17 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/leadelect"
+	"github.com/altessa-s/go-atlas/coord/leadelect"
 	"github.com/altessa-s/go-atlas/tests/integration/leadelectit"
 
-	lenats "github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
+	lenats "github.com/altessa-s/go-atlas/coord/leadelect/providers/nats"
 )
 
 const (
@@ -47,8 +48,11 @@ func natsURL() string {
 
 // uniqueSuffix names a throwaway bucket so two runs against the same server —
 // or two tests in one run — never collide.
+// suffixSeq separates names created within one clock tick (macOS ticks in microseconds).
+var suffixSeq atomic.Uint64
+
 func uniqueSuffix() string {
-	return strconv.FormatInt(time.Now().UnixNano(), 36)
+	return strconv.FormatInt(time.Now().UnixNano(), 36) + "_" + strconv.FormatUint(suffixSeq.Add(1), 36)
 }
 
 // connect dials the broker, skipping the test when it is unreachable so a

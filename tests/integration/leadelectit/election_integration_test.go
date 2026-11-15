@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/leadelect"
+	"github.com/altessa-s/go-atlas/coord/leadelect"
 	"github.com/altessa-s/go-atlas/tests/integration/leadelectit"
 )
 

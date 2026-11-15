@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package leadelectit holds the invariant checker the data/leadelect integration suite runs its
+// Package leadelectit holds the invariant checker the coord/leadelect integration suite runs its
 // scenarios through.
 //
 // The package itself is machinery: an Observer that polls a set of electors on a fixed cadence and

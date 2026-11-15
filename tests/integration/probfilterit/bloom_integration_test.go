@@ -13,9 +13,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
 
-	bloomredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
+	bloomredis "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages/redis"
 )
 
 // TestBloom_InstancesShareOneFilter asserts that two processes opening the

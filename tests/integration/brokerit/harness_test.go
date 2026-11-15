@@ -18,10 +18,10 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/broker"
-	"github.com/altessa-s/go-atlas/transport/broker/msg"
+	"github.com/altessa-s/go-atlas/messaging/broker"
+	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 
-	natsprovider "github.com/altessa-s/go-atlas/transport/broker/providers/nats"
+	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
 )
 
 const (
@@ -87,10 +87,10 @@ func connect(tb testing.TB) *nats.Conn {
 }
 
 // newProvider builds a NATS provider over a fresh connection.
-func newProvider(tb testing.TB) *natsprovider.NATS {
+func newProvider(tb testing.TB, opts ...natsprovider.Option) *natsprovider.NATS {
 	tb.Helper()
 
-	p, err := natsprovider.New(connect(tb))
+	p, err := natsprovider.New(connect(tb), opts...)
 	require.NoError(tb, err)
 
 	return p

@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
 
-	cuckooredis "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/redis"
+	cuckooredis "github.com/altessa-s/go-atlas/cache/probfilter/cuckoo/storages/redis"
 )
 
 // TestCuckoo_InstancesShareAddsAndDeletes asserts that inserts and deletes by

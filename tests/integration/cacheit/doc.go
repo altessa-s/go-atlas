@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package cacheit runs data/cache against a live Redis: the Redis storage on
+// Package cacheit runs cache against a live Redis: the Redis storage on
 // its own, then the Cache facade over it.
 //
 // The unit tests of the Redis storage run against miniredis, whose expiry is

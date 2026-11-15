@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/limiters"
-	"github.com/altessa-s/go-atlas/data/limiters/storages"
+	"github.com/altessa-s/go-atlas/coord/limiters"
+	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 )
 
 // TestStorage_Contract runs the sliding-window contract on every backend, the
@@ -82,8 +82,7 @@ func exactlyLimitPerWindow(t *testing.T, replica replicaFunc) {
 
 	for range 3 {
 		info, err := store.Allow(ctx, "client-1", limit, period)
-		require.ErrorIs(t, err, storages.ErrLimitExceeded)
-		require.ErrorIs(t, err, limiters.ErrLimitExceeded, "the storage sentinel is the public one")
+		require.ErrorIs(t, err, limiters.ErrLimitExceeded)
 		require.NotNil(t, info, "a rejection still reports the window state")
 		require.Zero(t, info.Remaining)
 		require.GreaterOrEqual(t, info.Reset, lo)
@@ -113,19 +112,19 @@ func windowSlidesPerRequest(t *testing.T, replica replicaFunc) {
 	t1 := time.Now()
 	require.NoError(t, allow(), "b")
 	require.NoError(t, allow(), "c")
-	require.ErrorIs(t, allow(), storages.ErrLimitExceeded, "window full")
+	require.ErrorIs(t, allow(), limiters.ErrLimitExceeded, "window full")
 
 	// a has left the window, b and c have not: exactly one slot is free.
 	sleepUntil(t0.Add(period + margin))
 	require.Less(t, time.Since(t1), period-margin/2, "the test host stalled; b and c may have expired too")
 	require.NoError(t, allow(), "the slot of a")
-	require.ErrorIs(t, allow(), storages.ErrLimitExceeded, "b and c are still inside the window")
+	require.ErrorIs(t, allow(), limiters.ErrLimitExceeded, "b and c are still inside the window")
 
 	// b and c have left as well; the request admitted at t0+period is still in.
 	sleepUntil(t1.Add(period + margin))
 	require.NoError(t, allow(), "the slot of b")
 	require.NoError(t, allow(), "the slot of c")
-	require.ErrorIs(t, allow(), storages.ErrLimitExceeded, "full again")
+	require.ErrorIs(t, allow(), limiters.ErrLimitExceeded, "full again")
 }
 
 // resetClearsTheWindow asserts Reset gives the key its whole limit back at
@@ -140,7 +139,7 @@ func resetClearsTheWindow(t *testing.T, replica replicaFunc) {
 		require.NoError(t, err)
 	}
 	_, err := store.Allow(ctx, "resettable", limit, time.Minute)
-	require.ErrorIs(t, err, storages.ErrLimitExceeded)
+	require.ErrorIs(t, err, limiters.ErrLimitExceeded)
 
 	require.NoError(t, store.Reset(ctx, "resettable"))
 	for i := range limit {
@@ -149,7 +148,7 @@ func resetClearsTheWindow(t *testing.T, replica replicaFunc) {
 		require.Equal(t, int64(limit-i-1), info.Remaining)
 	}
 	_, err = store.Allow(ctx, "resettable", limit, time.Minute)
-	require.ErrorIs(t, err, storages.ErrLimitExceeded, "the reset window fills up again")
+	require.ErrorIs(t, err, limiters.ErrLimitExceeded, "the reset window fills up again")
 
 	require.NoError(t, store.Reset(ctx, "never-used"), "resetting an unknown key")
 }
@@ -166,7 +165,7 @@ func keysAreIsolated(t *testing.T, replica replicaFunc) {
 		require.NoError(t, err)
 	}
 	_, err := store.Allow(ctx, "tenant-a", limit, time.Minute)
-	require.ErrorIs(t, err, storages.ErrLimitExceeded)
+	require.ErrorIs(t, err, limiters.ErrLimitExceeded)
 
 	info, err := store.Allow(ctx, "tenant-b", limit, time.Minute)
 	require.NoError(t, err, "an exhausted key must not limit another")
@@ -174,7 +173,7 @@ func keysAreIsolated(t *testing.T, replica replicaFunc) {
 
 	require.NoError(t, store.Reset(ctx, "tenant-b"))
 	_, err = store.Allow(ctx, "tenant-a", limit, time.Minute)
-	require.ErrorIs(t, err, storages.ErrLimitExceeded, "resetting tenant-b must not reset tenant-a")
+	require.ErrorIs(t, err, limiters.ErrLimitExceeded, "resetting tenant-b must not reset tenant-a")
 }
 
 // concurrentCallersNeverExceedLimit is the property the limiter exists for:
@@ -236,7 +235,7 @@ func assertNeverExceeded(t *testing.T, res *tally, limit int64, allow func() err
 
 	for {
 		err := allow()
-		if errors.Is(err, storages.ErrLimitExceeded) {
+		if errors.Is(err, limiters.ErrLimitExceeded) {
 			break
 		}
 		require.NoError(t, err)

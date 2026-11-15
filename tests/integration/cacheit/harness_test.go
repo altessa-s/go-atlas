@@ -13,10 +13,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/cache/storages"
+	"github.com/altessa-s/go-atlas/cache/storages"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
-	cacheredis "github.com/altessa-s/go-atlas/data/cache/storages/redis"
+	cacheredis "github.com/altessa-s/go-atlas/cache/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 

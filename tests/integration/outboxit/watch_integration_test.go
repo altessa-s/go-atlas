@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/outbox"
+	"github.com/altessa-s/go-atlas/reliability/outbox"
 )
 
 const (

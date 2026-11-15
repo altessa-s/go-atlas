@@ -13,7 +13,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	lenats "github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
+	lenats "github.com/altessa-s/go-atlas/coord/leadelect/providers/nats"
 )
 
 // TestBucket_TTLReconciledOnAdoption asserts that adopting a bucket which

@@ -11,18 +11,85 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	datamongo "github.com/altessa-s/go-atlas/data/mongo"
-	cursormemory "github.com/altessa-s/go-atlas/data/mongo/cursorstorages/memory"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
+
+	datamongo "github.com/altessa-s/go-atlas/store/mongo"
+	cursormemory "github.com/altessa-s/go-atlas/store/mongo/storages/memory"
+	cursorredis "github.com/altessa-s/go-atlas/store/mongo/storages/redis"
 )
+
+// A stored cursor is bound to the collection and the sort it was issued for.
+// The record goes through Redis, so the binding survives the storage encoding.
+func TestListCursor_StatefulBinding(t *testing.T) {
+	t.Parallel()
+
+	rdb := livebackend.ConnectRedis(t)
+	storage := cursorredis.New(rdb, cursorredis.WithKeyPrefix(livebackend.RedisPrefix(t, rdb, "mongoit_cursor")))
+
+	coll := keysetColl(t)
+	docs := make([]any, 0, 6)
+	for i := range 6 {
+		docs = append(docs, bson.M{"_id": bson.NewObjectID(), "created_at": bson.DateTime(i), "tenant": "A"})
+	}
+	_, err := coll.InsertMany(t.Context(), docs)
+	require.NoError(t, err)
+
+	sort := bson.D{{Key: "created_at", Value: 1}}
+	base := []datamongo.ListCursorOption{
+		datamongo.WithListCursorIdField("_id"),
+		datamongo.WithListCursorFilter(bson.M{"tenant": "A"}),
+		datamongo.WithListCursorLimit(2),
+		datamongo.WithListCursorSubject("tenant-A"),
+		datamongo.WithListCursorStorage(storage),
+	}
+	withSort := func(opts ...datamongo.ListCursorOption) []datamongo.ListCursorOption {
+		return append(append(base[:len(base):len(base)], datamongo.WithListCursorSort(sort)), opts...)
+	}
+
+	first, err := datamongo.ListCursor[bson.M](t.Context(), coll, withSort()...)
+	require.NoError(t, err)
+	require.NotNil(t, first.NextCursor)
+	token := datamongo.WithListCursorCursor(first.NextCursor)
+
+	second, err := datamongo.ListCursor[bson.M](t.Context(), coll, withSort(token)...)
+	require.NoError(t, err, "a continuation repeating the first page's parameters")
+	require.Len(t, second.Items, 2)
+	require.NotEqual(t, first.Items[0]["_id"], second.Items[0]["_id"])
+
+	_, err = datamongo.ListCursor[bson.M](t.Context(), coll.Database().Collection("other"), withSort(token)...)
+	require.ErrorIs(t, err, datamongo.ErrCursorCollectionMismatch)
+
+	_, err = datamongo.ListCursor[bson.M](t.Context(), coll, append(base[:len(base):len(base)], token)...)
+	require.ErrorIs(t, err, datamongo.ErrCursorChecksumMismatch, "an omitted sort is the default sort")
+
+	_, err = datamongo.ListCursor[bson.M](t.Context(), coll,
+		append(base[:len(base):len(base)], datamongo.WithListCursorSort("-created_at"), token)...)
+	require.ErrorIs(t, err, datamongo.ErrCursorChecksumMismatch)
+}
 
 func TestListCursor_ScalarContinuation(t *testing.T) {
 	t.Parallel()
-	for _, stateful := range []bool{false, true} {
-		name := "stateless"
-		if stateful {
-			name = "stateful"
-		}
-		t.Run(name, func(t *testing.T) {
+	// The subject needs a mode that enforces it: unsigned stateless tokens page without one.
+	modes := []struct {
+		name string
+		opts func(t *testing.T) []datamongo.ListCursorOption
+	}{
+		{name: "stateless", opts: func(*testing.T) []datamongo.ListCursorOption { return nil }},
+		{name: "signed", opts: func(t *testing.T) []datamongo.ListCursorOption {
+			return []datamongo.ListCursorOption{
+				datamongo.WithListCursorSigner(cursorSigner(t)),
+				datamongo.WithListCursorSubject("tenant-A"),
+			}
+		}},
+		{name: "stateful", opts: func(*testing.T) []datamongo.ListCursorOption {
+			return []datamongo.ListCursorOption{
+				datamongo.WithListCursorStorage(cursormemory.New(time.Minute)),
+				datamongo.WithListCursorSubject("tenant-A"),
+			}
+		}},
+	}
+	for _, mode := range modes {
+		t.Run(mode.name, func(t *testing.T) {
 			t.Parallel()
 			for _, direction := range []int{1, -1} {
 				name := "ascending"
@@ -43,11 +110,8 @@ func TestListCursor_ScalarContinuation(t *testing.T) {
 						datamongo.WithListCursorSort(bson.D{{Key: "created_at", Value: direction}}),
 						datamongo.WithListCursorFilter(bson.M{"tenant": "A"}),
 						datamongo.WithListCursorLimit(2),
-						datamongo.WithListCursorSubject("tenant-A"),
 					}
-					if stateful {
-						opts = append(opts, datamongo.WithListCursorStorage(cursormemory.New(time.Minute)))
-					}
+					opts = append(opts, mode.opts(t)...)
 					seen := make(map[bson.ObjectID]bool)
 					var token *string
 					var previous bson.DateTime

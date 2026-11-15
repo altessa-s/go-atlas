@@ -9,8 +9,9 @@ import (
 	"errors"
 	"strings"
 
-	migrate "github.com/xakep666/mongo-migrate"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	migrate "github.com/xakep666/mongo-migrate"
 )
 
 // failingPrefix marks the databases on which migration 2 fails.

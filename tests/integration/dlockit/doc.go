@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package dlockit holds the mutual-exclusion checker the data/locks/dlock integration suite runs
+// Package dlockit holds the mutual-exclusion checker the coord/dlock integration suite runs
 // its scenarios through.
 //
 // The package itself is machinery: a Critical section recorder that timestamps every entry and

@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package limiterit runs the data/limiters storage contract against live
+// Package limiterit runs the coord/limiters storage contract against live
 // backends — the Redis provider on a real server and the NATS provider on a
 // real JetStream KeyValue bucket — with the in-memory provider as the
 // reference every shared backend is compared against. The tokenbucket and

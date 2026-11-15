@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package brokerit holds the delivery recorder the transport/broker integration suite runs its
+// Package brokerit holds the delivery recorder the messaging/broker integration suite runs its
 // scenarios through.
 //
 // The package itself is machinery: a Recorder that stands in for a subscriber handler, records
@@ -12,7 +12,7 @@
 //
 // # Why a live broker
 //
-// The unit tests for transport/broker drive the NATS provider through fakes: an acker that records
+// The unit tests for messaging/broker drive the NATS provider through fakes: an acker that records
 // calls, a consume context that emulates a drain. What they cannot reach is what JetStream does
 // with those calls — and that is the whole contract of a message broker:
 //

@@ -15,12 +15,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/messaging/broker"
+	"github.com/altessa-s/go-atlas/messaging/broker/inprogress"
+	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 	"github.com/altessa-s/go-atlas/tests/integration/brokerit"
-	"github.com/altessa-s/go-atlas/transport/broker"
-	"github.com/altessa-s/go-atlas/transport/broker/inprogress"
-	"github.com/altessa-s/go-atlas/transport/broker/msg"
 
-	natsprovider "github.com/altessa-s/go-atlas/transport/broker/providers/nats"
+	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
 )
 
 // The baseline: a message published through the broker reaches an ephemeral

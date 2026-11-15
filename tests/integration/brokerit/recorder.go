@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/altessa-s/go-atlas/transport/broker"
-	"github.com/altessa-s/go-atlas/transport/broker/msg"
+	"github.com/altessa-s/go-atlas/messaging/broker"
+	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 )
 
 // Reaction is what a Recorder does with a delivery once it has recorded it.

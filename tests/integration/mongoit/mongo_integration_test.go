@@ -6,19 +6,17 @@ package mongoit_test
 
 import (
 	"context"
-	"strconv"
-	"sync"
+	"crypto/rand"
 	"testing"
-	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
-	datamongo "github.com/altessa-s/go-atlas/data/mongo"
+	coreconcurrency "github.com/altessa-s/go-atlas-core/runtime/concurrency"
+	datamongo "github.com/altessa-s/go-atlas/store/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -32,19 +30,21 @@ func client(t *testing.T) *mongo.Client {
 		t.Skipf("mongodb not available: %v", err)
 	}
 	if err = c.Ping(t.Context(), nil); err != nil {
-		_ = c.Disconnect(context.Background())
+		_ = c.Disconnect(context.WithoutCancel(t.Context()))
 		t.Skipf("mongodb not reachable: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Disconnect(context.Background()) })
+	t.Cleanup(func() { _ = c.Disconnect(context.WithoutCancel(t.Context())) })
 	return c
 }
 
-// connect builds and connects a data/mongo client on a throwaway database,
+// connect builds and connects a store/mongo client on a throwaway database,
 // running the registered migrations, and drops the database on cleanup.
 func connect(t *testing.T, c *mongo.Client, prefix string, opts ...datamongo.Option) (*datamongo.Mongo, error) {
 	t.Helper()
-	name := prefix + strconv.FormatInt(time.Now().UnixNano(), 36)
-	t.Cleanup(func() { _ = c.Database(name).Drop(context.Background()) })
+	// Keep the database name short; a wall-clock timestamp is not unique
+	// across concurrent fixtures and can make one cleanup drop another database.
+	name := prefix + rand.Text()
+	t.Cleanup(func() { _ = c.Database(name).Drop(context.WithoutCancel(t.Context())) })
 	m, err := datamongo.New(name, append([]datamongo.Option{datamongo.WithClient(c)}, opts...)...)
 	if err != nil {
 		return nil, err
@@ -105,21 +105,20 @@ func TestConcurrentConnectsMigrateTheirOwnDatabase(t *testing.T) {
 	c := client(t)
 
 	const clients = 6
-	names := make(chan string, clients)
-	var wg sync.WaitGroup
-	for range clients {
-		wg.Go(func() {
-			m, err := connect(t, c, "mongoit_many_")
-			assert.NoError(t, err)
-			if m != nil {
-				names <- m.DatabaseName()
-			}
-		})
-	}
-	wg.Wait()
-	close(names)
+	names, err := coreconcurrency.ProcessCollect(t.Context(), make([]int, clients), func(context.Context, int) (string, error) {
+		m, err := connect(t, c, "mongoit_many_")
+		if err != nil {
+			return "", err
+		}
+		return m.DatabaseName(), nil
+	}, coreconcurrency.WithConcurrency[int](clients))
+	require.NoError(t, err)
+	require.Len(t, names, clients)
+	seen := make(map[string]struct{}, clients)
 
-	for name := range names {
+	for _, name := range names {
+		require.NotContains(t, seen, name, "each concurrent connection needs its own database")
+		seen[name] = struct{}{}
 		n, err := c.Database(name).Collection(markerCollection).CountDocuments(t.Context(), bson.M{})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), n, "%s ran its own migrations", name)

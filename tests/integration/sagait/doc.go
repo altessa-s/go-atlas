@@ -2,12 +2,12 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package sagait runs the data/saga storage contract suite against live
+// Package sagait runs the reliability/saga storage contract suite against live
 // backends: the SQL store on PostgreSQL, MariaDB and MySQL, and the MongoDB and
 // Redis stores, each contract over its own throwaway table, database or key
 // prefix. It also drives an orchestrator end to end over each SQL server.
 //
-// The unit tests of data/saga/storages/sqldb check statement shape and error
+// The unit tests of reliability/saga/storages/sqldb check statement shape and error
 // mapping against a fake driver; whether insert-if-absent, the version
 // compare-and-swap and the recovery predicate hold on a real server — under
 // concurrent writers, with binary columns on a latin1 MySQL — only shows here.

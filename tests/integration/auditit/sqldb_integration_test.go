@@ -16,9 +16,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/audit"
-	"github.com/altessa-s/go-atlas/data/audit/storages/sqldb"
-	"github.com/altessa-s/go-atlas/data/audit/storages/storagetest"
+	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/audit/storages/sqldb"
+	"github.com/altessa-s/go-atlas/audit/storages/storagetest"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"

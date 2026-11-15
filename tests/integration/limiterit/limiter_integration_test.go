@@ -13,12 +13,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/limiters"
-	"github.com/altessa-s/go-atlas/data/limiters/budget"
-	"github.com/altessa-s/go-atlas/data/limiters/storages"
-	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
+	"github.com/altessa-s/go-atlas/coord/limiters"
+	"github.com/altessa-s/go-atlas/coord/limiters/budget"
+	"github.com/altessa-s/go-atlas/coord/limiters/storages"
+	"github.com/altessa-s/go-atlas/coord/limiters/tokenbucket"
 
-	redislimiter "github.com/altessa-s/go-atlas/data/limiters/storages/redis"
+	redislimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 )
 
 // ruleLimiter builds a tokenbucket limiter reading the client IP and token
@@ -28,11 +28,8 @@ import (
 func ruleLimiter(t *testing.T, store storages.Storage) *tokenbucket.RuleLimiter {
 	t.Helper()
 
-	cfg := &tokenbucket.RateLimitConfig{
-		Default: tokenbucket.RateLimitSettings{Limit: 3, Period: time.Minute},
-		Rules: []*tokenbucket.RateLimitRule{
-			{Target: "10.0.0.0/8", RateLimitSettings: &tokenbucket.RateLimitSettings{Limit: 5, Period: time.Minute}},
-		},
+	rule := &tokenbucket.RateLimitRule{
+		Target: "10.0.0.0/8", RateLimitSettings: &tokenbucket.RateLimitSettings{Limit: 5, Period: time.Minute},
 	}
 	clients := tokenbucket.ClientServiceFunc(func(_ context.Context, token string) (*tokenbucket.RateLimitSettings, error) {
 		switch token {
@@ -44,9 +41,10 @@ func ruleLimiter(t *testing.T, store storages.Storage) *tokenbucket.RuleLimiter 
 			return tokenbucket.RateLimitSkip, nil
 		}
 	})
-	l, err := tokenbucket.New(cfg, store,
-		tokenbucket.WithExtractClientIPAddress(tokenbucket.ExtractClientIp),
-		tokenbucket.WithExtractToken(tokenbucket.ExtractAuthToken),
+	l, err := tokenbucket.New(tokenbucket.RateLimitSettings{Limit: 3, Period: time.Minute}, store,
+		tokenbucket.WithRules(rule),
+		tokenbucket.WithExtractClientIPAddress(limiters.ClientIPFromContext),
+		tokenbucket.WithExtractToken(limiters.AuthTokenFromContext),
 		tokenbucket.WithClientService(clients),
 	)
 	require.NoError(t, err)
@@ -70,7 +68,7 @@ func TestTokenBucket_RulesOverSharedStorage(t *testing.T) {
 			ctx := t.Context()
 
 			// Default rule: three requests, spread over both replicas.
-			public := tokenbucket.ContextWithClientIP(ctx, "192.168.7.7")
+			public := limiters.ContextWithClientIP(ctx, "192.168.7.7")
 			for i := range 3 {
 				info, err := replicas[i%2].Limit(public)
 				require.NoError(t, err, "request %d", i+1)
@@ -84,7 +82,7 @@ func TestTokenBucket_RulesOverSharedStorage(t *testing.T) {
 			require.Greater(t, info.Reset, time.Now().Unix(), "a rejection reports when the window reopens")
 
 			// CIDR rule: five requests for any address in 10/8.
-			private := tokenbucket.ContextWithClientIP(ctx, "10.1.2.3")
+			private := limiters.ContextWithClientIP(ctx, "10.1.2.3")
 			for i := range 5 {
 				info, err := replicas[i%2].Limit(private)
 				require.NoError(t, err, "request %d", i+1)
@@ -94,7 +92,7 @@ func TestTokenBucket_RulesOverSharedStorage(t *testing.T) {
 			require.ErrorIs(t, err, limiters.ErrLimitExceeded)
 
 			// Token with its own settings: counted per token, not per IP.
-			gold := tokenbucket.ContextWithAuthToken(tokenbucket.ContextWithClientIP(ctx, "192.168.7.7"), "gold")
+			gold := limiters.ContextWithAuthToken(limiters.ContextWithClientIP(ctx, "192.168.7.7"), "gold")
 			for range 2 {
 				_, err := a.Limit(gold)
 				require.NoError(t, err, "the token is not limited by its exhausted IP")
@@ -103,7 +101,7 @@ func TestTokenBucket_RulesOverSharedStorage(t *testing.T) {
 			require.ErrorIs(t, err, limiters.ErrLimitExceeded)
 
 			// Unlimited token: never reaches the storage.
-			admin := tokenbucket.ContextWithAuthToken(tokenbucket.ContextWithClientIP(ctx, "192.168.7.7"), "admin")
+			admin := limiters.ContextWithAuthToken(limiters.ContextWithClientIP(ctx, "192.168.7.7"), "admin")
 			for range 10 {
 				info, err := c.Limit(admin)
 				require.NoError(t, err)
@@ -111,7 +109,7 @@ func TestTokenBucket_RulesOverSharedStorage(t *testing.T) {
 			}
 
 			// Unknown token: falls back to its IP, which is exhausted.
-			_, err = a.Limit(tokenbucket.ContextWithAuthToken(public, "bronze"))
+			_, err = a.Limit(limiters.ContextWithAuthToken(public, "bronze"))
 			require.ErrorIs(t, err, limiters.ErrLimitExceeded)
 
 			// No address at all.
@@ -148,7 +146,7 @@ func TestBudget_SharedAcrossReplicas(t *testing.T) {
 			res := hammer(16, 4, func(worker int) error {
 				err := replicas[worker%2].Allow(ctx, "nightly-export")
 				if errors.Is(err, budget.ErrBudgetExhausted) {
-					return storages.ErrLimitExceeded // let the tally count it as a rejection
+					return limiters.ErrLimitExceeded // let the tally count it as a rejection
 				}
 				return err
 			})

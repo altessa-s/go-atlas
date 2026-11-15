@@ -11,11 +11,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
-	"github.com/altessa-s/go-atlas/data/probfilter/factory"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
+	"github.com/altessa-s/go-atlas/factory/cache/probfilter"
 
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	bloomredisfactory "github.com/altessa-s/go-atlas/factory/cache/probfilter/bloom/storages/redis"
+	cuckooredisfactory "github.com/altessa-s/go-atlas/factory/cache/probfilter/cuckoo/storages/redis"
 )
 
 // TestFactory_BuildsRedisFilters builds a Bloom and a Cuckoo filter on Redis
@@ -51,9 +53,9 @@ func TestFactory_BuildsRedisFilters(t *testing.T) {
 			RebuildOnStart: &onStart,
 		},
 	}, &defaults).
-		UseRedisClient(redisClient(t)).
+		UseBloomStorage(probfilterconfig.StorageTypeRedis, bloomredisfactory.Builder(redisClient(t))).
 		UseDataLoader(openLoader(snapshot, true)).
-		Build()
+		Build(t.Context())
 	require.NoError(t, err)
 	bf, ok := built.(probfilter.RebuildableFilter)
 	require.True(t, ok)
@@ -72,8 +74,8 @@ func TestFactory_BuildsRedisFilters(t *testing.T) {
 		Type:   probfilterconfig.TypeCuckoo,
 		Cuckoo: &probfilterconfig.CuckooConfig{Storage: onRedis, Capacity: 1000},
 	}, &defaults).
-		UseRedisClient(redisClient(t)).
-		Build()
+		UseCuckooStorage(probfilterconfig.StorageTypeRedis, cuckooredisfactory.Builder(redisClient(t))).
+		Build(t.Context())
 	require.NoError(t, err)
 	t.Cleanup(func() { closeIfCloser(built) })
 	cf, ok := built.(probfilter.DeletableFilter)

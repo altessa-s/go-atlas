@@ -16,12 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/data/idempotency/storages"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
-	idemmongo "github.com/altessa-s/go-atlas/data/idempotency/storages/mongo"
-	idemnats "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
-	idemredis "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
+	idemmongo "github.com/altessa-s/go-atlas/reliability/idempotency/storages/mongo"
+	idemnats "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
+	idemredis "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 

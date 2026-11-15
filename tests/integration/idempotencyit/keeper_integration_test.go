@@ -13,12 +13,13 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 
+	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	idemhttp "github.com/altessa-s/go-atlas/transport/http/server/middlewares/idempotency"
 )
 
@@ -45,18 +46,18 @@ func TestKeeper_ReplaysTheCompletedResult(t *testing.T) {
 		acquired, state, err := k.AttemptLock(ctx, "payment-1")
 		require.NoError(t, err)
 		require.False(t, acquired)
-		require.Equal(t, idempotency.StatusInProgress, state.Status)
+		require.Equal(t, storages.StatusInProgress, state.Status)
 
 		require.NoError(t, k.Complete(ctx, "payment-1", "entity-42", held))
 
 		acquired, state, err = k.AttemptLock(ctx, "payment-1")
 		require.NoError(t, err)
 		require.False(t, acquired)
-		require.Equal(t, idempotency.StatusSuccess, state.Status)
+		require.Equal(t, storages.StatusSuccess, state.Status)
 		require.Equal(t, "entity-42", state.Data)
 
 		// The denied state carries no token, so it cannot complete the key.
-		require.ErrorIs(t, k.Complete(ctx, "payment-1", "forged", state), idempotency.ErrMissingLockState)
+		require.ErrorIs(t, k.Complete(ctx, "payment-1", "forged", state), storages.ErrMissingLockState)
 	})
 }
 
@@ -75,7 +76,7 @@ func TestKeeper_ReleasedKeyCanBeRetried(t *testing.T) {
 		acquired, retry, err := k.AttemptLock(ctx, "payment-1")
 		require.NoError(t, err)
 		require.True(t, acquired)
-		require.ErrorIs(t, k.Release(ctx, "payment-1", failed), idempotency.ErrLockStolen)
+		require.ErrorIs(t, k.Release(ctx, "payment-1", failed), storages.ErrLockStolen)
 		require.NoError(t, k.Complete(ctx, "payment-1", "ok", retry))
 	})
 }
@@ -107,7 +108,7 @@ func TestKeeper_ReclaimsAnOrphanedLock(t *testing.T) {
 
 		var (
 			wins   atomic.Int32
-			winner atomic.Pointer[idempotency.State]
+			winner atomic.Pointer[storages.State]
 			wg     sync.WaitGroup
 		)
 		errs := make([]error, contenders)
@@ -130,7 +131,7 @@ func TestKeeper_ReclaimsAnOrphanedLock(t *testing.T) {
 			require.NoError(t, err, "reclaimer %d", i)
 		}
 		require.EqualValues(t, 1, wins.Load(), "exactly one caller must reclaim the orphan")
-		require.ErrorIs(t, k.Complete(ctx, "job-1", "late", orphan), idempotency.ErrLockStolen)
+		require.ErrorIs(t, k.Complete(ctx, "job-1", "late", orphan), storages.ErrLockStolen)
 		require.NoError(t, k.Complete(ctx, "job-1", "reclaimed", winner.Load()))
 
 		_, state, err := k.AttemptLock(ctx, "job-1")
@@ -233,7 +234,7 @@ func TestMiddleware_ReplayIsRefused(t *testing.T) {
 			calls.Add(1)
 			w.WriteHeader(http.StatusCreated)
 		})
-		key := uuid.NewString()
+		key := uuid.New().String()
 
 		require.Equal(t, http.StatusCreated, post(t, srv, key, `{"qty":1}`).StatusCode)
 
@@ -268,7 +269,7 @@ func TestMiddleware_ConcurrentDuplicateIsRefused(t *testing.T) {
 		// which would otherwise wait on the parked handler forever.
 		unpark := sync.OnceFunc(func() { close(release) })
 		t.Cleanup(unpark)
-		key := uuid.NewString()
+		key := uuid.New().String()
 
 		var (
 			wg       sync.WaitGroup
@@ -320,7 +321,7 @@ func TestMiddleware_FailedRequestCanBeRetried(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusCreated)
 		})
-		key := uuid.NewString()
+		key := uuid.New().String()
 
 		require.Equal(t, http.StatusBadGateway, post(t, srv, key, `{}`).StatusCode)
 		require.Equal(t, http.StatusCreated, post(t, srv, key, `{}`).StatusCode)

@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package mongoit runs data/mongo against a live MongoDB replica set: a
+// Package mongoit runs store/mongo against a live MongoDB replica set: a
 // transaction whose handler panics is aborted rather than committed, and a
 // failing migration keeps the migrations already applied unless a full
 // rollback is requested, and concurrent clients migrate their own databases.

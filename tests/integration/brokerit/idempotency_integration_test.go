@@ -15,16 +15,16 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
-	"github.com/altessa-s/go-atlas/data/idempotency/storages"
+	"github.com/altessa-s/go-atlas/messaging/broker"
+	"github.com/altessa-s/go-atlas/messaging/broker/msg"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	"github.com/altessa-s/go-atlas/tests/integration/brokerit"
-	"github.com/altessa-s/go-atlas/transport/broker"
-	"github.com/altessa-s/go-atlas/transport/broker/msg"
 
-	idemnats "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
-	idemredis "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
-	brokeridem "github.com/altessa-s/go-atlas/transport/broker/idempotency"
-	natsprovider "github.com/altessa-s/go-atlas/transport/broker/providers/nats"
+	brokeridem "github.com/altessa-s/go-atlas/messaging/broker/idempotency"
+	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
+	idemnats "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
+	idemredis "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -85,15 +85,15 @@ func (w *world) publishKeyed(tb testing.TB, key string, payloads ...string) {
 	}
 }
 
-// requireKeyCompleted asserts the middleware recorded key as successfully
-// processed, by asking a fresh Keeper for the lock.
-func requireKeyCompleted(tb testing.TB, keeper *idempotency.Keeper, key string) {
+// requireKeyCompleted asserts the middleware recorded key on subject as
+// successfully processed, by asking a fresh Keeper for the lock.
+func requireKeyCompleted(tb testing.TB, keeper *idempotency.Keeper, subject, key string) {
 	tb.Helper()
 
-	acquired, state, err := keeper.AttemptLock(tb.Context(), brokeridem.BuildStorageKey(consumerScope, key))
+	acquired, state, err := keeper.AttemptLock(tb.Context(), brokeridem.BuildStorageKey(consumerScope, subject, key))
 	require.NoError(tb, err)
 	require.False(tb, acquired, "key %s must still be held after processing", key)
-	require.Equal(tb, idempotency.StatusSuccess, state.Status, "key %s must be recorded as processed", key)
+	require.Equal(tb, storages.StatusSuccess, state.Status, "key %s must be recorded as processed", key)
 }
 
 // Three copies of one message — same message ID, different bodies, as a
@@ -120,8 +120,8 @@ func TestIdempotency_DuplicatesAreProcessedOnce(t *testing.T) {
 	require.Equal(t, 1, inner.Attempts("copy-1"), "the first copy is the one processed")
 	require.Equal(t, 1, inner.Attempts("other"))
 
-	requireKeyCompleted(t, keeper, "invoice-1")
-	requireKeyCompleted(t, keeper, "invoice-2")
+	requireKeyCompleted(t, keeper, w.subject, "invoice-1")
+	requireKeyCompleted(t, keeper, w.subject, "invoice-2")
 }
 
 // A handler that panics must not leave its key IN_PROGRESS: the middleware
@@ -149,7 +149,7 @@ func TestIdempotency_PanicReleasesTheKeyForTheRedelivery(t *testing.T) {
 	info := w.awaitSettled(t, consumer)
 	require.Equal(t, 2, inner.Attempts("charge"), "the redelivery must reach the handler")
 	require.Equal(t, uint64(2), info.Delivered.Consumer, "the released key must admit the first redelivery")
-	requireKeyCompleted(t, keeper, "invoice-7")
+	requireKeyCompleted(t, keeper, w.subject, "invoice-7")
 }
 
 // Two instances of one service share a durable consumer and an idempotency
@@ -245,8 +245,8 @@ func TestIdempotency_DeduplicateIDReachesTheSubscriber(t *testing.T) {
 
 // The idempotency storage backed by NATS KV is the natural pairing for a
 // NATS-backed broker. The middleware composes its storage keys as
-// ("ibk", consumer, key) in the v2 format, which the Keeper wraps in its
-// namespace — "idk:v2:9:namespace0:32:idk:v2:3:ibk7:billing9:invoice-1" — and
+// ("ibk", consumer, topic, key) in the v2 format, which the Keeper wraps in its
+// namespace — "idk:v2:9:namespace0:…:idk:v2:3:ibk7:billing…9:invoice-1" — and
 // NATS KV accepts only [-/_=.a-zA-Z0-9] in a key, so the storage must escape
 // the ':' rather than fail every lock attempt and redeliver every message
 // forever as a storage error.
@@ -260,12 +260,12 @@ func TestIdempotency_NATSKVStorageAcceptsTheMiddlewareKeys(t *testing.T) {
 	t.Cleanup(func() { _ = w.provider.JetStream().DeleteKeyValue(context.Background(), bucket) })
 
 	keeper := newKeeper(storage)
-	key := brokeridem.BuildStorageKey(consumerScope, "invoice-1")
+	key := brokeridem.BuildStorageKey(consumerScope, w.subject, "invoice-1")
 	acquired, state, err := keeper.AttemptLock(t.Context(), key)
 	require.NoError(t, err, "the NATS KV storage rejects the key the broker middleware builds")
 	require.True(t, acquired)
 	require.NoError(t, keeper.Complete(t.Context(), key, nil, state))
-	requireKeyCompleted(t, keeper, "invoice-1")
+	requireKeyCompleted(t, keeper, w.subject, "invoice-1")
 }
 
 // Two consumers of one subject share an idempotency store, scoped "a:b" and

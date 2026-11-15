@@ -16,19 +16,19 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/data/saga"
-	"github.com/altessa-s/go-atlas/data/saga/storages/sqldb"
-	"github.com/altessa-s/go-atlas/data/saga/storages/storagetest"
-
-	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
-	sagafactory "github.com/altessa-s/go-atlas/data/saga/factory"
-	mongostore "github.com/altessa-s/go-atlas/data/saga/storages/mongo"
-	redisstore "github.com/altessa-s/go-atlas/data/saga/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
-	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
+	"github.com/altessa-s/go-atlas/reliability/saga"
+	"github.com/altessa-s/go-atlas/reliability/saga/storages/sqldb"
+	"github.com/altessa-s/go-atlas/reliability/saga/storages/storagetest"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	sagafactory "github.com/altessa-s/go-atlas/factory/reliability/saga"
+	mongostore "github.com/altessa-s/go-atlas/reliability/saga/storages/mongo"
+	redisstore "github.com/altessa-s/go-atlas/reliability/saga/storages/redis"
+	goredis "github.com/redis/go-redis/v9"
+	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // envOr returns the environment override for a connection setting, or the
@@ -199,7 +199,7 @@ func TestOrchestratorOverSQL(t *testing.T) {
 				Step("charge", func(context.Context, *order) error { return context.DeadlineExceeded }).
 				MustBuild()
 
-			orch, err := sagafactory.New(&cfg, def).UseSQLDB(db).Build()
+			orch, err := sagafactory.New(&cfg, def).UseSQLDB(db).Build(t.Context())
 			require.NoError(t, err)
 
 			inst, err := orch.Start(t.Context(), "order-ü-1", order{})

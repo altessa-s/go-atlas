@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package idempotencyit runs data/idempotency against live backends: one
+// Package idempotencyit runs reliability/idempotency against live backends: one
 // storage contract suite over the Redis, MongoDB and NATS JetStream storages,
 // then the Keeper and the HTTP idempotency middleware on top of each.
 //

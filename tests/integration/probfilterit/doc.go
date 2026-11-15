@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package probfilterit runs the Redis storages of data/probfilter — the Bloom
+// Package probfilterit runs the Redis storages of cache/probfilter — the Bloom
 // (BF.*) and Cuckoo (CF.*) filters behind their facades — against a live
 // Redis Stack server with the RedisBloom module.
 //

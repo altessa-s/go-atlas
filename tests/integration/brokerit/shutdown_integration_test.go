@@ -14,17 +14,22 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/messaging/broker"
+	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 	"github.com/altessa-s/go-atlas/tests/integration/brokerit"
-	"github.com/altessa-s/go-atlas/transport/broker"
-	"github.com/altessa-s/go-atlas/transport/broker/msg"
 
-	natsprovider "github.com/altessa-s/go-atlas/transport/broker/providers/nats"
+	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
 )
 
-// Unsubscribe is the graceful-shutdown path: it must cancel the handler
-// context so an in-flight handler can wind down, but it must not return until
-// that handler has finished — and an Ack the handler issues on its way out
-// must still reach the server.
+// drainGrace is the drain timeout of the shutdown scenarios: Unsubscribe
+// cancels the handler context only once it has elapsed, and the default of
+// 30 seconds is longer than these scenarios wait.
+const drainGrace = 100 * time.Millisecond
+
+// Unsubscribe is the graceful-shutdown path: once the drain timeout has
+// elapsed it must cancel the handler context so an in-flight handler can wind
+// down, but it must not return until that handler has finished — and an Ack
+// the handler issues on its way out must still reach the server.
 func TestShutdown_UnsubscribeWaitsForTheInFlightHandler(t *testing.T) {
 	t.Parallel()
 
@@ -40,7 +45,8 @@ func TestShutdown_UnsubscribeWaitsForTheInFlightHandler(t *testing.T) {
 		ctxErr <- ctx.Err()
 		_ = m.Ack()
 	})
-	sub := w.provider.Subscriber(natsprovider.SubscriberWithConsumer(w.durable(consumer, 10*time.Second)))
+	p := newProvider(t, natsprovider.WithDrainTimeout(drainGrace))
+	sub := p.Subscriber(natsprovider.SubscriberWithConsumer(w.durable(consumer, 10*time.Second)))
 	require.NoError(t, sub.Subscribe(t.Context(), rec))
 
 	w.publish(t, "in-flight")
@@ -91,7 +97,8 @@ func TestShutdown_AbandonedInFlightMessageGoesToTheNextInstance(t *testing.T) {
 		close(started)
 		<-ctx.Done() // abandons the message without acknowledging it
 	})
-	sub := w.provider.Subscriber(natsprovider.SubscriberWithConsumer(cfg))
+	p := newProvider(t, natsprovider.WithDrainTimeout(drainGrace))
+	sub := p.Subscriber(natsprovider.SubscriberWithConsumer(cfg))
 	require.NoError(t, sub.Subscribe(t.Context(), first))
 
 	w.publish(t, "abandoned")

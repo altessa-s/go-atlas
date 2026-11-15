@@ -15,10 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/altessa-s/go-atlas/transport/broker/msg"
+	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 
-	brokeroutbox "github.com/altessa-s/go-atlas/transport/broker/outbox"
-	natsprovider "github.com/altessa-s/go-atlas/transport/broker/providers/nats"
+	brokeroutbox "github.com/altessa-s/go-atlas/messaging/broker/outbox"
+	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
+	dataoutbox "github.com/altessa-s/go-atlas/reliability/outbox"
 )
 
 const (
@@ -102,8 +103,8 @@ func TestDedup_RepublishedEventIsCollapsedByJetStream(t *testing.T) {
 	provider, stream, subject := newStream(t)
 
 	ob := brokeroutbox.New(f.store, provider,
-		brokeroutbox.WithHandleTimeout(handleTimeout),
-		brokeroutbox.WithMaxLockTime(lockTime),
+		dataoutbox.WithHandleTimeout(handleTimeout),
+		dataoutbox.WithMaxLockTime(lockTime),
 	)
 
 	require.NoError(t, ob.Publish(t.Context(), *msg.NewMessage(subject, []byte(`{"invoice":1}`))))
@@ -142,8 +143,8 @@ func TestDedup_DistinctEventsAreNotCollapsed(t *testing.T) {
 	provider, stream, subject := newStream(t)
 
 	ob := brokeroutbox.New(f.store, provider,
-		brokeroutbox.WithHandleTimeout(handleTimeout),
-		brokeroutbox.WithMaxLockTime(lockTime),
+		dataoutbox.WithHandleTimeout(handleTimeout),
+		dataoutbox.WithMaxLockTime(lockTime),
 	)
 
 	require.NoError(t, ob.PublishBatch(t.Context(),
@@ -166,8 +167,8 @@ func TestDedup_CallerSuppliedIdCollapsesSeparateEvents(t *testing.T) {
 	provider, stream, subject := newStream(t)
 
 	ob := brokeroutbox.New(f.store, provider,
-		brokeroutbox.WithHandleTimeout(handleTimeout),
-		brokeroutbox.WithMaxLockTime(lockTime),
+		dataoutbox.WithHandleTimeout(handleTimeout),
+		dataoutbox.WithMaxLockTime(lockTime),
 	)
 
 	withBusinessKey := func() msg.Message {

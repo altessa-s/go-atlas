@@ -17,10 +17,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/locks/dlock"
-	"github.com/altessa-s/go-atlas/data/locks/dlock/providers"
-	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/providertest"
-	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/sqldb"
+	"github.com/altessa-s/go-atlas/coord/dlock"
+	"github.com/altessa-s/go-atlas/coord/dlock/providers"
+	"github.com/altessa-s/go-atlas/coord/dlock/providers/providertest"
+	"github.com/altessa-s/go-atlas/coord/dlock/providers/sqldb"
 	"github.com/altessa-s/go-atlas/tests/integration/dlockit"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -60,7 +60,7 @@ func (s sqlTarget) namespace(tb testing.TB) (*sql.DB, string) {
 	}
 	table := "dlock_" + strings.ToLower(rand.Text()[:12])
 	tb.Cleanup(func() {
-		_, _ = db.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+table)
+		_, _ = db.ExecContext(context.WithoutCancel(tb.Context()), "DROP TABLE IF EXISTS "+table)
 		_ = db.Close()
 	})
 	l, err := sqldb.New(db, s.dialect, sqldb.WithTableName(table))
@@ -70,13 +70,14 @@ func (s sqlTarget) namespace(tb testing.TB) (*sql.DB, string) {
 	return db, table
 }
 
-// provider returns a locker over table with a one-second TTL, closed on
+// provider returns a locker over table with a fifteen-second TTL, closed on
 // cleanup.
-func (s sqlTarget) provider(tb testing.TB, db *sql.DB, table string) *sqldb.Locker {
+func (s sqlTarget) provider(tb testing.TB, db *sql.DB, table string, opts ...sqldb.Option) *sqldb.Locker {
 	tb.Helper()
-	l, err := sqldb.New(db, s.dialect, sqldb.WithTableName(table), sqldb.WithTTL(time.Second))
+	const ttl = 15 * time.Second
+	l, err := sqldb.New(db, s.dialect, append([]sqldb.Option{sqldb.WithTableName(table), sqldb.WithTTL(ttl)}, opts...)...)
 	require.NoError(tb, err)
-	tb.Cleanup(func() { _ = l.Close(context.Background()) })
+	tb.Cleanup(func() { _ = l.Close(context.WithoutCancel(tb.Context())) })
 	return l
 }
 
@@ -91,8 +92,12 @@ func TestSQLProviderContract(t *testing.T) {
 			t.Parallel()
 			providertest.Run(t, func(tb testing.TB) providertest.Backend {
 				db, table := target.namespace(tb)
+				var opts []sqldb.Option
+				if strings.HasSuffix(tb.Name(), "/Renewal") || strings.HasSuffix(tb.Name(), "/ExpiredLeaseStaysLost") {
+					opts = append(opts, sqldb.WithTTL(time.Second))
+				}
 				return providertest.Backend{
-					NewProvider: func(tb testing.TB) providers.Provider { return target.provider(tb, db, table) },
+					NewProvider: func(tb testing.TB) providers.Provider { return target.provider(tb, db, table, opts...) },
 					Expire: func(tb testing.TB, key string) {
 						query := "UPDATE " + table + " SET expires_at = 0 WHERE lock_key = ?"
 						if target.dialect == sqldb.DialectPostgres {
@@ -152,7 +157,7 @@ func TestSQLRenewalAfterLockWaitDoesNotRevive(t *testing.T) {
 		t.Run(target.name, func(t *testing.T) {
 			t.Parallel()
 			db, table := target.namespace(t)
-			l := target.provider(t, db, table)
+			l := target.provider(t, db, table, sqldb.WithTTL(time.Second))
 			_, err := l.Lock(t.Context(), "k")
 			require.NoError(t, err)
 

@@ -106,19 +106,6 @@ services:
       timeout: 5s
       retries: 30
 
-  meilisearch:
-    image: getmeili/meilisearch:v1.11
-    ports:
-      - "17700:7700"
-    environment:
-      MEILI_MASTER_KEY: atlas-master-key
-      MEILI_NO_ANALYTICS: "true"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:7700/health"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-
   # Leader election needs JetStream, which is off by default. The store is
   # kept in the container's own filesystem: the suite drops and recreates
   # its buckets per run, so nothing needs to survive `down -v`.
@@ -133,7 +120,7 @@ services:
       timeout: 5s
       retries: 30
 
-  # RediSearch lives in Redis Stack, not in the plain redis image.
+  # The Bloom and Cuckoo filters live in Redis Stack, not in the plain redis image.
   redis:
     image: redis/redis-stack-server:7.4.0-v1
     ports:

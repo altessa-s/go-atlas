@@ -20,11 +20,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/limiters/storages"
-	"github.com/altessa-s/go-atlas/data/limiters/storages/memory"
+	"github.com/altessa-s/go-atlas/coord/limiters/storages"
+	"github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
 
-	natslimiter "github.com/altessa-s/go-atlas/data/limiters/storages/nats"
-	redislimiter "github.com/altessa-s/go-atlas/data/limiters/storages/redis"
+	limiters "github.com/altessa-s/go-atlas/coord/limiters"
+	natslimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
+	redislimiter "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -155,7 +156,7 @@ func openNATS(tb testing.TB) replicaFunc {
 	return func() storages.Storage {
 		js, err := jetstream.New(natsConn(tb))
 		require.NoError(tb, err)
-		p, err := natslimiter.New(js, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Hour))
+		p, err := natslimiter.New(tb.Context(), js, natslimiter.WithBucket(bucket), natslimiter.WithMaxAge(time.Hour))
 		require.NoError(tb, err)
 		return p
 	}
@@ -174,7 +175,7 @@ func (c *tally) record(err error) {
 	switch {
 	case err == nil:
 		c.admitted.Add(1)
-	case errors.Is(err, storages.ErrLimitExceeded):
+	case errors.Is(err, limiters.ErrLimitExceeded):
 		c.rejected.Add(1)
 	default:
 		c.mu.Lock()

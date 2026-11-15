@@ -21,7 +21,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	outboxsql "github.com/altessa-s/go-atlas/data/outbox/storages/sqldb"
+	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 )
 
 // mysqlTimeLayout matches the DATE_FORMAT used to read DATETIME(6) columns.

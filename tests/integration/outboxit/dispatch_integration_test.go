@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/outbox"
+	"github.com/altessa-s/go-atlas/reliability/outbox"
 )
 
 // The baseline: an event saved through a committed transaction is handed to the

@@ -19,12 +19,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
-	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
-	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter/bloom"
+	"github.com/altessa-s/go-atlas/cache/probfilter/cuckoo"
 
-	bloomredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
-	cuckooredis "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/redis"
+	bloomredis "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages/redis"
+	cuckooredis "github.com/altessa-s/go-atlas/cache/probfilter/cuckoo/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -106,7 +106,7 @@ func (f *fixture) liveKey() string {
 }
 
 // metaKey mirrors the layout of the "__probfilter__:" metadata keys
-// (data/probfilter/internal/redisfilter/keys.go) for a live key without a
+// (cache/probfilter/internal/redisfilter/keys.go) for a live key without a
 // hash tag: the live key itself is the tag. Scenarios use it to stand in for
 // the server — expiring a rebuild lease — and to check what a rebuild leaves
 // behind.
