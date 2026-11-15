@@ -70,6 +70,13 @@
 #  # Default value: 3
 #  maxPingsOut: 3
 #
+#  # <duration> Grace period a broker subscriber's Unsubscribe gives the handlers
+#  # of already buffered messages before it cancels their context.
+#  # Read by the NATS broker provider only; it is not the connection drain timeout.
+#  # Set to 0 to keep the provider default.
+#  # Default value: 30s
+#  subscriberDrainTimeout: "30s"
+#
 #  # <object> TLS configuration options for NATS communication.
 #  # Enables encrypted communication with NATS server.
 #  !include tls-client.yaml
@@ -87,7 +94,7 @@
 #
 #      # <string> Durable name for the consumer.
 #      # Durable consumers maintain their state across restarts and reconnections.
-#      # Note: infrastructure/nats/factory.ConsumerConfig passes this value through
+#      # Note: factory/infrastructure/nats.ConsumerConfig passes this value through
 #      # as-is; it does not substitute the map key when it is empty.
 #      # Default value: not set
 #      durableName:

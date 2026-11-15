@@ -4,8 +4,6 @@
 
 package httpconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // Security headers configuration defaults.
 const (
 	// DefaultHstsMaxAge is the default max-age for HSTS (1 year in seconds).
@@ -67,9 +65,7 @@ func (c *SecurityHeadersMiddleware) Validate() error {
 // DefaultSecurityHeadersMiddleware returns a configuration for securityheaders middleware with default values.
 func DefaultSecurityHeadersMiddleware() SecurityHeadersMiddleware {
 	return SecurityHeadersMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:               false,
 		FrameOptions:          "DENY",
 		ReferrerPolicy:        "strict-origin-when-cross-origin",
 		HstsMaxAge:            DefaultHstsMaxAge,

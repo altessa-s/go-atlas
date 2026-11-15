@@ -50,22 +50,18 @@ func TestTracingOTLP_Validate_InvalidProxyPropagates(t *testing.T) {
 	assert.Error(t, cfg.Validate())
 }
 
-func TestTracingOTLP_Validate_RejectsProxyWithHTTPProtocol(t *testing.T) {
+func TestTracingOTLP_Validate_AcceptsProxyWithHTTPProtocol(t *testing.T) {
 	t.Parallel()
 
-	// Combining a Proxy block with Protocol=http silently no-ops at
-	// runtime (factory routes Proxy via WithGRPCClientOptions, ignored
-	// by the otlptracehttp path). Reject at config-load instead — this
-	// is especially important for Mode=none, where the silent drop
-	// would let env-based proxy take over despite the operator's
-	// explicit "no proxy" intent.
+	// The factory applies the proxy block to the HTTP exporter as well,
+	// so both protocols share one egress policy.
 	cases := []struct {
-		name string
-		mode proxyconfig.Mode
+		name  string
+		proxy proxyconfig.Config
 	}{
-		{"mode_none", proxyconfig.ModeNone},
-		{"mode_url", proxyconfig.ModeURL},
-		{"mode_host", proxyconfig.ModeHost},
+		{"mode_none", proxyconfig.Config{Mode: proxyconfig.ModeNone}},
+		{"mode_url", proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy.corp:3128"}},
+		{"mode_host", proxyconfig.Config{Mode: proxyconfig.ModeHost, Host: "proxy.corp", Port: 3128}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -73,9 +69,9 @@ func TestTracingOTLP_Validate_RejectsProxyWithHTTPProtocol(t *testing.T) {
 			cfg := TracingOTLP{
 				Endpoint: "localhost:4318",
 				Protocol: OTLPProtocolHTTP,
-				Proxy:    &proxyconfig.Config{Mode: tc.mode},
+				Proxy:    &tc.proxy,
 			}
-			assert.Error(t, cfg.Validate())
+			assert.NoError(t, cfg.Validate())
 		})
 	}
 }

@@ -7,8 +7,7 @@ package grpcconfig
 import (
 	"time"
 
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -95,8 +94,8 @@ func (c *CacheInterceptor) IsEnabled() bool {
 func (c *CacheInterceptor) Validate() error {
 	return c.ValidateBase(func() error {
 		return validationconfig.ValidateStruct(c,
-			validation.Field(&c.SuccessTTL, validation.Required, ozzo_rules.Duration(), validation.Min(time.Minute)),
-			validation.Field(&c.ErrorTTL, validation.Required, ozzo_rules.Duration(), validation.Min(time.Minute)),
+			validation.Field(&c.SuccessTTL, validation.Required, validationconfig.PositiveDuration(), validation.Min(time.Minute)),
+			validation.Field(&c.ErrorTTL, validation.Required, validationconfig.PositiveDuration(), validation.Min(time.Minute)),
 			validation.Field(&c.CompressionPreset, validation.Required,
 				ozzo_rules.OneOf(CacheCompressionPresetNone, CacheCompressionPresetFast,
 					CacheCompressionPresetBalanced, CacheCompressionPresetBest)),
@@ -108,9 +107,7 @@ func (c *CacheInterceptor) Validate() error {
 // Caching is disabled by default.
 func DefaultCacheInterceptor() CacheInterceptor {
 	return CacheInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:            false,
 		SuccessTTL:         defaultCacheSuccessTTL,
 		ErrorTTL:           defaultCacheErrorTTL,
 		EnableCacheHeaders: true,

@@ -6,7 +6,7 @@ package probfilterconfig
 
 import (
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -48,25 +48,15 @@ const (
 	minCapacityMultiplier = 1.1
 	// maxCapacityMultiplier is the maximum allowed capacity multiplier.
 	maxCapacityMultiplier = 10.0
-	// minMaxCapacity is the minimum allowed max capacity.
-	minMaxCapacity = 1000
-	// fingerprintSize8 is a valid fingerprint size (8 bits).
-	fingerprintSize8 = 8
-	// fingerprintSize12 is a valid fingerprint size (12 bits).
-	fingerprintSize12 = 12
-	// fingerprintSize16 is a valid fingerprint size (16 bits).
-	fingerprintSize16 = 16
 )
 
 // Default values for Config configuration.
 const (
-	defaultProbFilterStorage               = StorageTypeMemory
-	defaultProbFilterBloomFPRate           = 0.01
-	defaultProbFilterBloomRebuildCron      = "0 0 * * * *"
-	defaultProbFilterBloomRebuildOnStart   = true
-	defaultProbFilterCuckooFingerprintSize = 12
-	defaultProbFilterCuckooCapacityMult    = 2.0
-	defaultProbFilterCuckooMaxCapacity     = int64(100000000)
+	defaultProbFilterStorage             = StorageTypeMemory
+	defaultProbFilterBloomFPRate         = 0.01
+	defaultProbFilterBloomRebuildCron    = "0 0 * * * *"
+	defaultProbFilterBloomRebuildOnStart = true
+	defaultProbFilterCuckooCapacityMult  = 2.0
 )
 
 // Storage selects where a filter keeps its data.
@@ -146,32 +136,17 @@ type CuckooDefaults struct {
 	// Storage defines the storage backend filters use unless they set their own.
 	Storage DefaultStorage `yaml:"storage"`
 
-	// FingerprintSize is the fingerprint size in bits (8, 12, or 16).
-	//
-	// Deprecated: ignored. Both storage backends use fixed 8-bit fingerprints
-	// (the in-memory filter and RedisBloom CF.* in Redis). The field is
-	// still validated so existing configurations keep loading.
-	FingerprintSize int `yaml:"fingerprintSize" default:"12"`
-
 	// CapacityMultiplier is the growth factor applied when the filter fills
 	// up. Only the Redis storage honors it, as the RedisBloom EXPANSION
 	// argument (rounded up to an integer); the memory storage cannot grow.
 	CapacityMultiplier float64 `yaml:"capacityMultiplier" default:"2.0"`
-
-	// MaxCapacity is the maximum capacity limit.
-	//
-	// Deprecated: ignored. Neither storage backend can bound filter growth.
-	// The field is still validated so existing configurations keep loading.
-	MaxCapacity int64 `yaml:"maxCapacity" default:"100000000"`
 }
 
 // NewCuckooDefaults returns a CuckooDefaults with default values.
 func NewCuckooDefaults() CuckooDefaults {
 	return CuckooDefaults{
 		Storage:            DefaultStorage{Type: defaultProbFilterStorage},
-		FingerprintSize:    defaultProbFilterCuckooFingerprintSize,
 		CapacityMultiplier: defaultProbFilterCuckooCapacityMult,
-		MaxCapacity:        defaultProbFilterCuckooMaxCapacity,
 	}
 }
 
@@ -179,11 +154,9 @@ func NewCuckooDefaults() CuckooDefaults {
 func (c *CuckooDefaults) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validationconfig.NestedField(&c.Storage),
-		validation.Field(&c.FingerprintSize, validation.In(fingerprintSize8, fingerprintSize12, fingerprintSize16)),
 		// Required is paired with Min because ozzo-validation skips every
 		// rule but Required for a zero value — Min alone accepts 0.
 		validation.Field(&c.CapacityMultiplier, validation.Required, validation.Min(minCapacityMultiplier), validation.Max(maxCapacityMultiplier)),
-		validation.Field(&c.MaxCapacity, validation.Required, validation.Min(minMaxCapacity)),
 	)
 }
 
@@ -254,19 +227,9 @@ type CuckooConfig struct {
 	// Capacity is the initial capacity of the filter.
 	Capacity int64 `yaml:"capacity"`
 
-	// FingerprintSize is the fingerprint size in bits.
-	//
-	// Deprecated: ignored; see [CuckooDefaults.FingerprintSize].
-	FingerprintSize *int `yaml:"fingerprintSize"`
-
 	// CapacityMultiplier is the growth factor applied when the filter fills
 	// up; Redis storage only, see [CuckooDefaults.CapacityMultiplier].
 	CapacityMultiplier *float64 `yaml:"capacityMultiplier"`
-
-	// MaxCapacity is the maximum capacity limit.
-	//
-	// Deprecated: ignored; see [CuckooDefaults.MaxCapacity].
-	MaxCapacity *int64 `yaml:"maxCapacity"`
 }
 
 // Validate performs validation of the Cuckoo filter configuration.
@@ -274,16 +237,12 @@ func (c *CuckooConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Storage),
 		validation.Field(&c.Capacity, validation.Required, validation.Min(1)),
-		validation.Field(&c.FingerprintSize,
-			validation.When(c.FingerprintSize != nil, validation.In(fingerprintSize8, fingerprintSize12, fingerprintSize16))),
 		// Required is paired with Min because ozzo-validation skips every rule
 		// but Required for a zero value — an explicit `capacityMultiplier: 0`
 		// is a non-nil pointer to zero, which Min alone accepts.
 		validation.Field(&c.CapacityMultiplier,
 			validation.When(c.CapacityMultiplier != nil,
 				validation.Required, validation.Min(minCapacityMultiplier), validation.Max(maxCapacityMultiplier))),
-		validation.Field(&c.MaxCapacity,
-			validation.When(c.MaxCapacity != nil, validation.Required, validation.Min(minMaxCapacity))),
 	)
 }
 
@@ -348,7 +307,7 @@ func Default() Config {
 func (p *Config) Validate() error {
 	return validationconfig.ValidateStruct(p,
 		validation.Field(&p.Defaults),
-		validation.Field(&p.Filters, validation.By(validateProbabilisticFilters)),
+		validation.Field(&p.Filters, validationconfig.NotNilEntries(), validation.By(validateProbabilisticFilters)),
 	)
 }
 
@@ -359,9 +318,6 @@ func validateProbabilisticFilters(value any) error {
 	}
 
 	for name, cfg := range filters {
-		if cfg == nil {
-			continue
-		}
 		if err := cfg.Validate(); err != nil {
 			return validation.NewError("validation_filter_invalid",
 				"filter '"+name+"': "+err.Error())

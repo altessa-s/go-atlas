@@ -4,8 +4,9 @@
 import natsconfig "github.com/altessa-s/go-atlas/config/nats"
 ```
 
-Package `natsconfig` defines the NATS connection, JetStream consumer and recovery schemas. Schemas are populated by [`config/loader`](../loader) and
-consumed by the component factories, which map them to generated options; runtime packages never import them.
+Package `natsconfig` defines the NATS connection, JetStream consumer and recovery schemas. Schemas are populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 

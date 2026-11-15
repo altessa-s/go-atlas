@@ -27,6 +27,16 @@ func TestWebhookSignatureValidate(t *testing.T) {
 		{"unknown_scheme", webhookconfig.Signature{Scheme: "nope", Secret: "s"}, true},
 		{"missing_secret", webhookconfig.Signature{Scheme: webhookconfig.SchemeGitHub}, true},
 		{"negative_tolerance", webhookconfig.Signature{Scheme: webhookconfig.SchemeGitHub, Secret: "s", Tolerance: -time.Second}, true},
+		{"reject_replays_stripe", webhookconfig.Signature{
+			Scheme: webhookconfig.SchemeStripe, Secret: "s", Tolerance: time.Minute, RejectReplays: true,
+		}, false},
+		// GitHub signs no timestamp and a zero tolerance disables the window: the cache would never be consulted.
+		{"reject_replays_github", webhookconfig.Signature{
+			Scheme: webhookconfig.SchemeGitHub, Secret: "s", Tolerance: time.Minute, RejectReplays: true,
+		}, true},
+		{"reject_replays_zero_tolerance", webhookconfig.Signature{
+			Scheme: webhookconfig.SchemeStripe, Secret: "s", RejectReplays: true,
+		}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

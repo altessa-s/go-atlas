@@ -5,7 +5,8 @@ import mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
 ```
 
 Package `mongoconfig` defines the MongoDB connection, credential and client-side field level encryption schemas. Schemas are populated by
-[`config/loader`](../loader) and consumed by the component factories, which map them to generated options; runtime packages never import them.
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 
@@ -21,9 +22,9 @@ Package `mongoconfig` defines the MongoDB connection, credential and client-side
 | `KMSProvider`       | Represents the type of Key Management Service provider for MongoDB client-side field level encryption (CSFLE). |
 | `KMS`               | Represents the Key Management Service configuration for MongoDB encryption.                                    |
 | `KMSLocal`          | Represents the local Key Management Service provider.                                                          |
-| `KMSAmazon`         | Represents the AWS Key Management Service provider configuration.                                              |
+| `KMSAWS`            | Represents the AWS Key Management Service provider configuration.                                              |
 | `KMSAzure`          | Represents the Azure Key Vault provider configuration.                                                         |
-| `KMSGoogle`         | Represents the Google Cloud KMS provider configuration.                                                        |
+| `KMSGCP`            | Represents the Google Cloud KMS provider configuration.                                                        |
 | `EncryptionType`    | Represents the type of client-side field level encryption.                                                     |
 | `Encryption`        | Represents the client-side field level encryption configuration for MongoDB.                                   |
 

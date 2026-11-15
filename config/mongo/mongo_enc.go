@@ -5,10 +5,10 @@
 package mongoconfig
 
 import (
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -25,11 +25,11 @@ const (
 	// KMSProviderAzure is the Azure Key Vault provider.
 	KMSProviderAzure KMSProvider = "azure"
 
-	// KMSProviderAmazon is the AWS Key Management Service provider.
-	KMSProviderAmazon KMSProvider = "amazon"
+	// KMSProviderAWS is the AWS Key Management Service provider.
+	KMSProviderAWS KMSProvider = "aws"
 
-	// KMSProviderGoogle is the Google Cloud KMS provider.
-	KMSProviderGoogle KMSProvider = "google"
+	// KMSProviderGCP is the Google Cloud KMS provider.
+	KMSProviderGCP KMSProvider = "gcp"
 )
 
 // MasterKeyLength is the required length in bytes for local master keys.
@@ -42,9 +42,9 @@ const MasterKeyLength = 96
 type KMS struct {
 	Provider KMSProvider `yaml:"provider"`
 	Local    *KMSLocal   `yaml:"local" default:"-"`
-	Amazon   *KMSAmazon  `yaml:"amazon" default:"-"`
+	AWS      *KMSAWS     `yaml:"aws" default:"-"`
 	Azure    *KMSAzure   `yaml:"azure" default:"-"`
-	Google   *KMSGoogle  `yaml:"google" default:"-"`
+	GCP      *KMSGCP     `yaml:"gcp" default:"-"`
 }
 
 // Validate validates the KMS configuration.
@@ -55,11 +55,11 @@ type KMS struct {
 func (m *KMS) Validate() error {
 	return validationconfig.ValidateStruct(m,
 		validation.Field(&m.Provider, validation.Required,
-			ozzo_rules.OneOf(KMSProviderLocal, KMSProviderAzure, KMSProviderAmazon, KMSProviderGoogle)),
+			ozzo_rules.OneOf(KMSProviderLocal, KMSProviderAzure, KMSProviderAWS, KMSProviderGCP)),
 		validation.Field(&m.Local, validation.Required.When(m.Provider == KMSProviderLocal)),
-		validation.Field(&m.Amazon, validation.Required.When(m.Provider == KMSProviderAmazon)),
+		validation.Field(&m.AWS, validation.Required.When(m.Provider == KMSProviderAWS)),
 		validation.Field(&m.Azure, validation.Required.When(m.Provider == KMSProviderAzure)),
-		validation.Field(&m.Google, validation.Required.When(m.Provider == KMSProviderGoogle)),
+		validation.Field(&m.GCP, validation.Required.When(m.Provider == KMSProviderGCP)),
 	)
 }
 
@@ -89,10 +89,10 @@ func (m *KMSLocal) Validate() error {
 	)
 }
 
-// KMSAmazon represents the AWS Key Management Service provider configuration.
+// KMSAWS represents the AWS Key Management Service provider configuration.
 // It contains all necessary credentials and settings for using AWS KMS
 // for MongoDB client-side field level encryption.
-type KMSAmazon struct {
+type KMSAWS struct {
 	AccessKeyId     string                  `yaml:"accessKeyID"`
 	SecretAccessKey redacted.RedactedString `yaml:"secretAccessKey"`
 	SessionToken    *string                 `yaml:"sessionToken"`
@@ -117,7 +117,7 @@ func validateRequiredAndOptional(structPtr any, requiredFields []any, optionalFi
 // It ensures all required AWS credentials and key information are provided.
 //
 // Returns an error if any validation rules fail.
-func (m *KMSAmazon) Validate() error {
+func (m *KMSAWS) Validate() error {
 	return validateRequiredAndOptional(m,
 		[]any{&m.AccessKeyId, &m.SecretAccessKey, &m.Key},
 		[]any{&m.SessionToken, &m.Region, &m.Endpoint, &m.TLS},
@@ -148,10 +148,10 @@ func (m *KMSAzure) Validate() error {
 	)
 }
 
-// KMSGoogle represents the Google Cloud KMS provider configuration.
+// KMSGCP represents the Google Cloud KMS provider configuration.
 // It contains all necessary credentials and settings for using Google Cloud KMS
 // for MongoDB client-side field level encryption.
-type KMSGoogle struct {
+type KMSGCP struct {
 	Endpoint               *string                 `yaml:"endpoint"`
 	ProjectId              string                  `yaml:"projectID"`
 	Email                  string                  `yaml:"email"`
@@ -168,7 +168,7 @@ type KMSGoogle struct {
 // It ensures all required Google Cloud credentials and key information are provided.
 //
 // Returns an error if any validation rules fail.
-func (m *KMSGoogle) Validate() error {
+func (m *KMSGCP) Validate() error {
 	return validationconfig.ValidateStruct(m,
 		validation.Field(&m.Endpoint, validation.NilOrNotEmpty),
 		validation.Field(&m.ProjectId, validation.Required),

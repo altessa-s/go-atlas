@@ -9,7 +9,7 @@ import (
 	"time"
 
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -26,7 +26,7 @@ const DefaultDenylistKeyPrefix = "denylist:revoked:"
 // Denylist is the configuration for the token-revocation denylist with a
 // negative-cache in front of a distributed authoritative store. It carries only
 // the values the caller feeds to the runtime factories:
-// auth/denylist/negcache/factory.NewBuilder for the negative filter and
+// factory/auth/denylist/negcache.NewBuilder for the negative filter and
 // auth/denylist/storages/redis.New for the authoritative store. The Redis client
 // and any callbacks are wired in code.
 //
@@ -63,7 +63,7 @@ type Denylist struct {
 	MetricsSubsystem string `yaml:"metricsSubsystem" default:""`
 
 	// Filter is the negative-filter configuration passed to
-	// auth/denylist/negcache/factory.NewBuilder.
+	// factory/auth/denylist/negcache.NewBuilder.
 	Filter probfilterconfig.Filter `yaml:"filter"`
 }
 

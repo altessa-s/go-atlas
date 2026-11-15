@@ -7,8 +7,7 @@ package limiterconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -57,7 +56,7 @@ func DefaultRequestRate() RequestRate {
 func (l *RequestRate) Validate() error {
 	return validationconfig.ValidateStruct(l,
 		validation.Field(&l.Rate, validation.Required),
-		validation.Field(&l.Period, ozzo_rules.Duration()),
+		validation.Field(&l.Period, validationconfig.PositiveDuration()),
 		validation.Field(&l.Burst, validation.Required),
 	)
 }

@@ -7,7 +7,7 @@ package tlsconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -15,8 +15,8 @@ import (
 // Default values for the YAML-facing OCSP stapling configuration.
 //
 // The constants intentionally mirror the runtime defaults in
-// security/tlsutils/ocsp so an operator who copies the template
-// gets the same behavior as the Go API caller who passes no options.
+// [github.com/altessa-s/go-tlsutils/ocsp] so an operator who copies the
+// template gets the same behavior as the Go API caller who passes no options.
 const (
 	// DefaultProviderOCSPFailureMode is the YAML-facing default for
 	// [ProviderOCSP.FailureMode]: production-safe Soft (availability
@@ -46,7 +46,7 @@ const (
 )
 
 // ProviderOCSP configures the OCSP stapler used by the TLS providers
-// registered through [security/tlsutils/factory.ProvidersBuilder]. When
+// registered through [factory/ext/tlsutils.ProvidersBuilder]. When
 // Enabled is true and no stapler was injected programmatically via
 // UseOcspStapler, the builder constructs a stapler from these fields and
 // attaches it to every file / Vault / S3 provider it builds.
@@ -133,6 +133,6 @@ func (c *ProviderOCSP) Validate() error {
 			ozzo_rules.OneOf("soft", "hard"),
 		),
 		validation.Field(&c.MaxCacheEntries, validation.Min(0)),
-		validation.Field(&c.HTTPTimeout, ozzo_rules.DurationOrZero()),
+		validation.Field(&c.HTTPTimeout, validationconfig.NonNegativeDuration()),
 	)
 }

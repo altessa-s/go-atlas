@@ -11,9 +11,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
+	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
+	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
 )
 
 func key(n int) redacted.RedactedString {
@@ -35,7 +37,7 @@ func validConfig() auditconfig.Config {
 				SchemaMigrationMode: "off",
 			},
 		},
-		Paging: &auditconfig.Paging{SigningKey: key(32), TokenTTL: 24 * time.Hour},
+		Paging: &pagingconfig.Config{SigningKey: key(32), TokenTTL: 24 * time.Hour},
 	}
 }
 
@@ -72,6 +74,12 @@ func TestConfig_Validate(t *testing.T) {
 		{"clickhouse empty modes use defaults", func(c *auditconfig.Config) {
 			ch := c.Storage.ClickHouse
 			ch.TimeRangeMode, ch.SchemaCheckMode, ch.SchemaMigrationMode = "", "", ""
+		}, false},
+		{"enabled wal without dir", func(c *auditconfig.Config) {
+			c.Dispatch.WAL = &dispatchconfig.WAL{Enabled: true}
+		}, true},
+		{"enabled wal with dir", func(c *auditconfig.Config) {
+			c.Dispatch.WAL = &dispatchconfig.WAL{Enabled: true, Dir: "/var/lib/audit/wal", MaxSegmentBytes: 1, MaxBytes: 1}
 		}, false},
 		{"no paging", func(c *auditconfig.Config) { c.Paging = nil }, false},
 		{"paging without signing key", func(c *auditconfig.Config) { c.Paging.SigningKey = "" }, true},

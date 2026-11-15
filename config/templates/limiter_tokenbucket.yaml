@@ -11,7 +11,7 @@
 #
 #  # <object> Storage configuration for rate limit counters.
 #  # Supports multiple storage backends with provider-specific settings.
-#  !include cache_storage.yaml
+#  !include storage_backend.yaml
 #
 #  # <object> Rate limiting rules configuration.
 #  # Defines default and target-specific rate limits.

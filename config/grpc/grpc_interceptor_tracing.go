@@ -4,8 +4,6 @@
 
 package grpcconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // TracingInterceptor defines the configuration for the tracing interceptor.
 // Controls distributed tracing for gRPC requests.
 type TracingInterceptor struct {
@@ -45,9 +43,7 @@ func (c *TracingInterceptor) Validate() error {
 // Tracing interceptor is disabled by default.
 func DefaultTracingInterceptor() TracingInterceptor {
 	return TracingInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:          false,
 		RecordPayload:    false,
 		RecordMetadata:   true,
 		RecordEvents:     true,

@@ -218,15 +218,5 @@
 #  # <object> Signed cursors of the paginated task and history lists.
 #  # Without it (and without a codec injected with UsePageTokens) those lists fail
 #  # with ErrPageTokensNotConfigured; scheduling does not need it.
-#  paging:
-#    # <string> Key signing the page tokens: at least 32 bytes, the same on every instance.
-#    # Default value: not set (required)
-#    signingKey: "change-me-to-a-32-byte-or-longer-secret"
-#
-#    # <list[string]> Keys that still verify tokens signed before a key rotation.
-#    # Default value: not set
-#    previousKeys: []
-#
-#    # <duration> How long a page token stays valid.
-#    # Default value: 24h
-#    tokenTTL: "24h"
+#  # See paging.yaml for full configuration options.
+#  !include paging.yaml

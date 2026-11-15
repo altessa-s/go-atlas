@@ -45,11 +45,12 @@
 #  # Default value: false
 #  trustPrivatePeers: false
 #
-#  # <list[string]> List of headers to check for real IP (in order of preference).
-#  # Default value: not set (falls back to X-Forwarded-For, X-Real-IP, X-Client-IP, CF-Connecting-IP, Fastly-Client-Ip, True-Client-Ip)
+#  # <list[string]> Headers to check for real IP. The first header present decides;
+#  # a private or invalid value is not replaced by a later header. List a single-address
+#  # header (X-Real-IP, CF-Connecting-IP, ...) only if the trusted proxy always sets it.
+#  # Default value: not set (falls back to X-Forwarded-For)
 #  headers:
 #    - X-Forwarded-For
-#    - X-Real-IP
 #
 #  # <int> Size of the IP validation cache.
 #  # Caches IP validation results to improve performance. 0 disables the cache.

@@ -4,8 +4,9 @@
 import clickhouseconfig "github.com/altessa-s/go-atlas/config/clickhouse"
 ```
 
-Package `clickhouseconfig` defines the ClickHouse connection schema. It is populated by [`config/loader`](../loader) and consumed by
-[`infrastructure/clickhouse/factory`](../../infrastructure/clickhouse/factory), which opens the connection; runtime packages never import it.
+Package `clickhouseconfig` defines the ClickHouse connection schema. It is populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by
+[`factory/infrastructure/clickhouse`](../../factory/infrastructure/clickhouse), which opens the connection; runtime packages never import it.
 
 ## Key types
 

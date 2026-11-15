@@ -4,8 +4,9 @@
 import secretsconfig "github.com/altessa-s/go-atlas/config/secrets"
 ```
 
-Package `secretsconfig` defines the secret manager schema. Schemas are populated by [`config/loader`](../loader) and consumed by the component
-factories, which map them to generated options; runtime packages never import them.
+Package `secretsconfig` defines the secret manager schema. Schemas are populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 
@@ -16,6 +17,7 @@ factories, which map them to generated options; runtime packages never import th
 | `Vault`    | Contains Vault-specific secrets provider configuration. |
 | `GCP`      | Contains GCP Secret Manager-specific configuration.     |
 | `Lockbox`  | Contains Yandex Cloud Lockbox-specific configuration.   |
+| `Memory`   | Values served by the in-memory provider (tests, dev).   |
 | `Config`         | Defines the configuration for secrets management.       |
 
 See the [config index](../README.md) for the other schema packages.

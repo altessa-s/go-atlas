@@ -7,8 +7,7 @@ package brokerconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -25,8 +24,18 @@ const (
 	defaultOutboxRetryBaseDelay          = time.Second
 	defaultOutboxRetryMaxDelay           = 5 * time.Minute
 	// Must stay above defaultOutboxHandleTimeout — see Outbox.MaxLockTime.
-	defaultOutboxMaxLockTime     = 2 * defaultOutboxHandleTimeout
-	defaultOutboxMaxPayloadBytes = 1 << 20
+	defaultOutboxMaxLockTime      = 2 * defaultOutboxHandleTimeout
+	defaultOutboxMaxPayloadBytes  = 1 << 20
+	defaultOutboxDispatchSchedule = "@every 2s"
+	defaultOutboxCleanupSchedule  = "@every 10m"
+	defaultOutboxUnlockSchedule   = "@every 11s"
+	defaultOutboxStatsSchedule    = "@every 30s"
+	defaultOutboxExpireSchedule   = "@every 11s"
+	defaultOutboxDispatchTaskID   = "outbox-dispatch"
+	defaultOutboxUnlockTaskID     = "outbox-unlock"
+	defaultOutboxExpireTaskID     = "outbox-expire"
+	defaultOutboxCleanupTaskID    = "outbox-cleanup"
+	defaultOutboxStatsTaskID      = "outbox-stats"
 
 	// maxOutboxMessagesBatchSize is the maximum allowed batch size.
 	maxOutboxMessagesBatchSize = 10000
@@ -35,8 +44,8 @@ const (
 )
 
 // Outbox defines the configuration for reliable event delivery via the outbox pattern.
-// This configuration is shared by both the generic outbox (data/outbox) and
-// the broker-specific adapter (transport/broker/outbox).
+// This configuration is shared by both the generic outbox (reliability/outbox) and
+// the broker-specific adapter (messaging/broker/outbox).
 type Outbox struct {
 	// Enabled determines whether the outbox is enabled.
 	// Defaults to true.
@@ -139,17 +148,17 @@ type Outbox struct {
 // Validate performs validation of the Outbox configuration.
 func (c Outbox) Validate() error {
 	return validationconfig.ValidateStructIfEnabled(c.Enabled, &c,
-		// Required (for the durations: ozzo_rules.Duration) is paired with Min
+		// Required (for the durations: PositiveDuration) is paired with Min
 		// because ozzo-validation skips every rule but Required for a zero
 		// value — Min alone accepts 0.
-		validation.Field(&c.FetchTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
-		validation.Field(&c.HandleTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
-		validation.Field(&c.UpdateTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.FetchTimeout, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.HandleTimeout, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.UpdateTimeout, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.MessagesBatchSize, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxMessagesBatchSize))),
 		validation.Field(&c.RetryMaxAttempts, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxRetryMaxAttempts))),
-		validation.Field(&c.RetryBaseDelay, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
-		validation.Field(&c.RetryMaxDelay, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
-		validation.Field(&c.MaxLockTime, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.RetryBaseDelay, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.RetryMaxDelay, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.MaxLockTime, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.MaxPayloadBytes, validation.Min(0)),
 		validation.Field(&c.DispatchTaskID, validation.Required),
 		validation.Field(&c.UnlockTaskID, validation.Required),

@@ -57,6 +57,7 @@
 #
 #  # <bool> Echo the stored entity id to a duplicate request.
 #  # The caller presenting a duplicate key is not verified to be the entity's creator unless the Keeper checks owners.
+#  # Only a record bound to an owner has its entity id echoed.
 #  # Default value: false
 #  exposeEntityID: false
 #
@@ -96,7 +97,7 @@
 #
 #  # <bool> Return the stored response of a completed unary call to a repeat of the request
 #  # instead of FAILED_PRECONDITION. The repeat's caller receives the original response:
-#  # scope keys per principal (Keeper owners) before enabling it.
+#  # only a record bound to an owner (Keeper owners, the verified principal by default) is replayed.
 #  # Default value: false
 #  responseReplay: false
 #

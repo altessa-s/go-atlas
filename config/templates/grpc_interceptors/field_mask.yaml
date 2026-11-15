@@ -1,6 +1,7 @@
 # Field mask configuration for partial updates and partial responses.
 # Applies the update_mask of Update requests to the resource before the handler runs
 # and filters the responses of read methods by their read_mask.
+# Handlers must complete the deferred plan with Patch.Run or Spec.Plan + WithPlanContext(ctx).
 # Per-method kinds and request extractors are set in code (gRPC server factory UseFieldMaskOptions).
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
@@ -26,13 +27,10 @@
 #  # Default value: false
 #  skipReadMask: false
 #
-#  # <bool> Treat an update_mask that is present but has no paths as "update every populated field".
-#  # When false, an explicit empty update_mask updates nothing.
-#  # Default value: false
-#  applyEmptyUpdateMask: false
-#
-#  # <string> Request field name of the update_mask / read_mask.
-#  # Default value: not set (update_mask, read_mask)
+#  # <string> Exact declared mask field name; a non-empty override has no fallback.
+#  # Empty uses a singular google.protobuf.FieldMask declared as update_mask / read_mask,
+#  # falling back to updateMask / readMask only when the corresponding snake_case name is not declared.
+#  # Default value: not set
 #  maskFieldName: ""
 #
 #  # <string> Resource field of Update requests.

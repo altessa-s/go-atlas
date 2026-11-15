@@ -4,8 +4,6 @@
 
 package grpcconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // RecoveryInterceptor defines the configuration for panic recovery interceptor.
 // It controls which methods benefit from panic recovery and provides
 // options to disable recovery for specific critical methods.
@@ -36,8 +34,6 @@ func (c *RecoveryInterceptor) Validate() error {
 // Panic recovery is disabled by default.
 func DefaultRecoveryInterceptor() RecoveryInterceptor {
 	return RecoveryInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled: false,
 	}
 }

@@ -22,6 +22,10 @@
 #  ignorePatterns:
 #    - "^(?i)/grpc.health.*"
 #
+#  # <string> Metadata key for the request ID (gRPC lower-cases metadata keys).
+#  # Default value: x-request-id
+#  headerName: x-request-id
+#
 #  # <bool> Generate a request ID if none is provided.
 #  # Creates new ID when client doesn't provide one.
 #  # Default value: true

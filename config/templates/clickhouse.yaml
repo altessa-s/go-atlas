@@ -6,7 +6,7 @@
 # Note for write-heavy consumers (e.g. the audit trail): ClickHouse creates
 # a part per INSERT and merges parts in the background, so it wants
 # thousands of rows per write. If the producer batches through
-# service/dispatch, raise its batchSize into the low thousands and
+# go-atlas-core runtime/dispatch, raise its batchSize into the low thousands and
 # flushInterval to a few seconds — the defaults are tuned for a row store.
 
 #clickhouse:

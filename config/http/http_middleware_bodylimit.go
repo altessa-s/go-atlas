@@ -5,8 +5,7 @@
 package httpconfig
 
 import (
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -34,8 +33,7 @@ type BodyLimitMiddleware struct {
 	// chunked uploads, and leaving the bypass open is worse than
 	// rejecting a few legitimate streaming clients. The matching Go
 	// API option [bodylimit.WithRequireContentLength] is opt-in and
-	// stays off by default for backward compatibility with existing
-	// programmatic callers.
+	// stays off by default for programmatic callers.
 	RequireContentLength bool `yaml:"requireContentLength" default:"true"`
 }
 
@@ -51,9 +49,7 @@ func (c *BodyLimitMiddleware) Validate() error {
 // DefaultBodyLimitMiddleware returns a configuration for bodylimit middleware with default values.
 func DefaultBodyLimitMiddleware() BodyLimitMiddleware {
 	return BodyLimitMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:              false,
 		MaxSize:              DefaultBodyLimitMaxSize,
 		RequireContentLength: true,
 	}

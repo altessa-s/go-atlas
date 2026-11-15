@@ -320,6 +320,35 @@
 #    # Default value: 0 0 * * * *
 #    syncSchedule: "0 0 * * * *"
 #
+#    # <duration> How long a "not revoked" answer is trusted after the last
+#    # successful sync. Past it tokens are rejected (accepted with failOpen: true)
+#    # until a sync succeeds again, so an unreachable source cannot leave an old
+#    # list in force forever. Applies only while syncEnabled schedules the sync.
+#    # Keep it at several sync intervals: the default is three default periods.
+#    # 0 disables the bound.
+#    # Default value: 3h
+#    maxStaleness: "3h"
+#
+#    # <duration> Time limit of one scheduled sync. A sync that runs longer fails
+#    # and keeps the current revocation set. 0 disables the timeout.
+#    # Default value: 5m
+#    syncTimeout: "5m"
+#
+#    # <int64> Cap, in bytes, on the response body read from source.url. A larger
+#    # list fails the sync instead of being applied cut off. Must be positive.
+#    # Does not apply to source.file.
+#    # Default value: 268435456 (256 MiB)
+#    maxResponseBytes: 268435456
+#
+#    # <bool> Treats an empty revocation list as authoritative: the filter is
+#    # rebuilt empty and the sync succeeds. With the default false, a source that
+#    # turns up empty while the revocation set holds entries is a failed sync and
+#    # the set stays, so a source that stays empty ends in maxStaleness rejections.
+#    # Enable only when the list can legitimately become empty: a source that
+#    # answers with an empty body during an outage then un-revokes everything.
+#    # Default value: false
+#    allowEmpty: false
+#
 #    # <string> Specifies what items are being revoked: "token", "jti", or "kid".
 #    # Supported values: token, jti, kid
 #    # Default value: token
@@ -392,18 +421,11 @@
 #        # Default value: not set
 #        capacity: 500000
 #
-#        # <int> Fingerprint size in bits.
-#        # Supported values: 8, 12, 16
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#        fingerprintSize: 12
 #
 #        # <float64> Capacity multiplier for auto-rebuild on overflow (1.1–10.0).
 #        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
 #        capacityMultiplier: 2.0
 #
-#        # <int64> Maximum capacity limit.
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#        maxCapacity: 100000000
 #
 #
 #    # <object> Configuration for fetching the revocation list from external sources.

@@ -5,7 +5,8 @@ import "github.com/altessa-s/go-atlas/config/<capability>"
 ```
 
 The `config` tree holds the configuration schemas of go-atlas, one package per capability. Each struct carries YAML tags and default-value tags;
-[`config/loader`](loader) populates them from files, environment variables and secret references. The root package declares no types.
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) populates them from files, environment variables and secret references.
+The root package declares no types.
 
 ## Rules
 
@@ -15,19 +16,19 @@ The `config` tree holds the configuration schemas of go-atlas, one package per c
 - Package names carry a `config` suffix (`grpcconfig`, `redisconfig`) so they do not clash with the driver packages factories import.
 - Every top-level schema exposes `Default*` constructors where defaults exist, `Normalize` where a type selector allocates a sub-config, and `Validate`.
   Call `Normalize()` before `Validate()`.
-- Secret fields use [`redacted.RedactedString`](../core/types/redacted), which redacts the value in `fmt`, JSON, YAML and `slog` output; `Expose()`
+- Secret fields use [`redacted.RedactedString`](https://github.com/altessa-s/go-atlas-core/tree/develop/types/redacted), which redacts the value in `fmt`, JSON, YAML and `slog` output; `Expose()`
   returns it.
 
 ## Schema packages
 
 | Package                                 | Name                  | Schemas                                                                                                                         |
 |-----------------------------------------|-----------------------|---------------------------------------------------------------------------------------------------------------------------------|
-| [`config/validation`](validation)       | `validationconfig`    | Shared validation helpers for configuration schemas: struct validation with readable errors and storage-selector checks         |
-| [`config/storage`](storage)             | `storageconfig`       | Shared storage-backend schemas: cache storage selection (memory, NATS, Redis) and NATS JetStream KeyValue settings              |
+| [`config/storage`](storage)             | `storageconfig`       | Shared storage-backend schemas: backend and cache storage selection, and NATS JetStream KeyValue settings                       |
 | [`config/middleware`](middleware)       | `middlewareconfig`    | Schema pieces shared by gRPC interceptors and HTTP middlewares: enable toggles, fallback behavior and IP/geo ACL rules          |
 | [`config/s3`](s3)                       | `s3config`            | The S3 connection schema shared by TLS certificate providers and OPA bundle sources                                             |
 | [`config/proxy`](proxy)                 | `proxyconfig`         | The outbound HTTP proxy schema used by OIDC, OPA and tracing exporters                                                          |
 | [`config/retry`](retry)                 | `retryconfig`         | The retry policy schema used by outbound clients                                                                                |
+| [`config/paging`](paging)               | `pagingconfig`        | The page-token schema (signing key, rotation keys, key encoding, TTL, encryption) shared by every paginated component          |
 | [`config/tls`](tls)                     | `tlsconfig`           | TLS client and server schemas and the certificate provider schemas (file, Let's Encrypt, OCSP, S3, Vault)                       |
 | [`config/clienthealth`](clienthealth)   | `clienthealthconfig`  | The client health-check schema for outbound gRPC and HTTP clients                                                               |
 | [`config/redis`](redis)                 | `redisconfig`         | The Redis connection schema                                                                                                     |
@@ -56,20 +57,16 @@ The `config` tree holds the configuration schemas of go-atlas, one package per c
 
 ## Shared patterns
 
-Features that need distributed storage share `storageconfig.CacheStorageConfig`: a `Type` selector with optional `Memory`, `Nats` and `Redis`
-sub-configs. gRPC interceptor schemas embed `grpcconfig.BaseInterceptor` and HTTP middleware schemas embed `httpconfig.BaseMiddleware`; both build on
-`middlewareconfig.EnableMixin`, `middlewareconfig.FallbackBehavior` and the shared ACL rule types. `validationconfig` provides `ValidateStruct`,
-`PrettyError` and `ErrorsToFlatMap`.
+Features that keep state in memory, Redis or NATS KeyValue (rate limiters, MongoDB cursor storage) share `storageconfig.BackendConfig`: a `Type`
+selector with optional `Memory`, `Nats` and `Redis` sub-configs. The cache uses `storageconfig.CacheStorageConfig`, which accepts only `memory` and
+`redis`. gRPC interceptor schemas embed `grpcconfig.BaseInterceptor` and HTTP middleware schemas embed `httpconfig.BaseMiddleware`; both build on
+`middlewareconfig.EnableMixin`, `middlewareconfig.FallbackBehavior` and the shared ACL rule types. `validationconfig`
+([go-nomos/validation](https://github.com/altessa-s/go-nomos/tree/develop/validation)) provides `ValidateStruct`, `PrettyError` and `ErrorsToFlatMap`.
 
 ## Other subpackages
 
 | Package                       | Description                                         |
 |-------------------------------|-----------------------------------------------------|
-| `config/loader`               | Multi-source configuration loading                  |
-| `config/loader/backend`       | Backend interface for file format parsers           |
-| `config/loader/backend/toml`  | TOML backend (`github.com/BurntSushi/toml`)         |
-| `config/loader/backend/yaml3` | YAML backend (`gopkg.in/yaml.v3`) with `!include`   |
-| `config/loader/secrets`       | `$__secret{ns:key}` placeholder expansion          |
 | `config/templates`            | Commented YAML templates for every schema           |
 | `config/internal/utils`       | Internal file-lookup helpers                        |
 | `config/internal/validators`  | Internal custom validators (MongoDB)                |

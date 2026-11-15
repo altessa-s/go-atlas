@@ -7,7 +7,7 @@ package httpconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -102,10 +102,10 @@ func Default() Config {
 func (h *Config) Validate() error {
 	return validationconfig.ValidateStruct(h,
 		validation.Field(&h.ListenAddress, ozzo_rules.ListenAddress()),
-		validation.Field(&h.ReadTimeout, ozzo_rules.DurationOrZero()),
-		validation.Field(&h.ReadHeaderTimeout, ozzo_rules.DurationOrZero()),
-		validation.Field(&h.WriteTimeout, ozzo_rules.DurationOrZero()),
-		validation.Field(&h.IdleTimeout, ozzo_rules.DurationOrZero()),
+		validation.Field(&h.ReadTimeout, validationconfig.NonNegativeDuration()),
+		validation.Field(&h.ReadHeaderTimeout, validationconfig.NonNegativeDuration()),
+		validation.Field(&h.WriteTimeout, validationconfig.NonNegativeDuration()),
+		validation.Field(&h.IdleTimeout, validationconfig.NonNegativeDuration()),
 		validation.Field(&h.TLS, validation.NilOrNotEmpty),
 		validation.Field(&h.Middlewares, validation.NilOrNotEmpty),
 		validation.Field(&h.Pprof, validation.NilOrNotEmpty),

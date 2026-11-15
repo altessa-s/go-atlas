@@ -7,8 +7,7 @@ package grpcconfig
 import (
 	"errors"
 
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -25,10 +24,14 @@ const (
 	MetricsPerStreamSampling MetricsSamplingStrategy = "per_stream"
 )
 
+// defaultMetricsMaxMethods mirrors
+// transport/grpc/interceptors/metrics.DefaultMaxMethods.
+const defaultMetricsMaxMethods = 1024
+
 // MetricsInterceptor defines the configuration for the metrics interceptor.
 // Controls which metrics are collected and how they are configured. The
-// underlying [metrics.Collector] is wired separately on the ServerBuilder via
-// `UseCollector`; this struct only describes per-server tunables.
+// underlying [github.com/altessa-s/go-atlas/observability/metrics.Meter] is wired separately on the ServerBuilder via
+// `UseMeter`; this struct only describes per-server tunables.
 type MetricsInterceptor struct {
 	// BaseInterceptor provides common interceptor configuration.
 	BaseInterceptor `yaml:",inline"`
@@ -69,6 +72,12 @@ type MetricsInterceptor struct {
 	// Only effective when EnableStreamMetrics is true and StreamSamplingRate < 1.0.
 	// "per_message" = sample individual messages, "per_stream" = sample entire streams.
 	StreamSamplingStrategy MetricsSamplingStrategy `yaml:"streamSamplingStrategy" default:"per_message"`
+
+	// MaxMethods caps the distinct method label values. Method names are
+	// client-controlled when the server installs an unknown-service handler,
+	// so methods seen after the cap is reached are recorded as "other"
+	// instead of minting new series. 0 keeps the interceptor default.
+	MaxMethods int `yaml:"maxMethods" default:"1024"`
 }
 
 // IsEnabled returns true if metrics collection is enabled.
@@ -85,6 +94,7 @@ func (c *MetricsInterceptor) IsEnabled() bool {
 //   - SizeBuckets: must be in strictly increasing order if specified
 //   - StreamSamplingRate: must be between 0.0 and 1.0
 //   - StreamSamplingStrategy: must be a valid strategy
+//   - MaxMethods: must not be negative
 //   - IgnoreMethods: each method name must be non-empty when specified
 //   - IgnorePatterns: each pattern must be non-empty when specified
 //
@@ -97,6 +107,7 @@ func (c *MetricsInterceptor) Validate() error {
 			validation.Field(&c.StreamSamplingRate, validation.Min(0.0), validation.Max(1.0)),
 			validation.Field(&c.StreamSamplingStrategy, validation.In(MetricsPerMessageSampling,
 				MetricsPerStreamSampling)),
+			validation.Field(&c.MaxMethods, validation.Min(0)),
 		)
 	})
 }
@@ -105,14 +116,13 @@ func (c *MetricsInterceptor) Validate() error {
 // Metrics collection is disabled by default.
 func DefaultMetricsInterceptor() MetricsInterceptor {
 	return MetricsInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:                false,
 		Subsystem:              "grpc",
 		EnableSizeMetrics:      false,
 		EnableStreamMetrics:    false,
 		StreamSamplingRate:     1.0,
 		StreamSamplingStrategy: MetricsPerMessageSampling,
+		MaxMethods:             defaultMetricsMaxMethods,
 	}
 }
 

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

@@ -4,8 +4,9 @@
 import nodeconfig "github.com/altessa-s/go-atlas/config/node"
 ```
 
-Package `nodeconfig` defines the service node identity schema. Schemas are populated by [`config/loader`](../loader) and consumed by the component
-factories, which map them to generated options; runtime packages never import them.
+Package `nodeconfig` defines the service node identity schema. Schemas are populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 

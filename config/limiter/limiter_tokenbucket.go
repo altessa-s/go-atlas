@@ -8,8 +8,7 @@ import (
 	"time"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -45,7 +44,7 @@ func DefaultTokenBucketDefaultRule() TokenBucketDefaultRule {
 func (d *TokenBucketDefaultRule) Validate() error {
 	return validationconfig.ValidateStruct(d,
 		validation.Field(&d.Limit, validation.Required, validation.Min(1)),
-		validation.Field(&d.Period, validation.Required, ozzo_rules.Duration(), validation.Min(time.Second)),
+		validation.Field(&d.Period, validation.Required, validationconfig.PositiveDuration(), validation.Min(time.Second)),
 	)
 }
 
@@ -71,7 +70,7 @@ func (t *TokenBucketTargetRule) Validate() error {
 	return validationconfig.ValidateStruct(t,
 		validation.Field(&t.Target, validation.Required),
 		validation.Field(&t.Limit, validation.Required, validation.Min(1)),
-		validation.Field(&t.Period, validation.Required, ozzo_rules.Duration(), validation.Min(time.Second)),
+		validation.Field(&t.Period, validation.Required, validationconfig.PositiveDuration(), validation.Min(time.Second)),
 	)
 }
 
@@ -108,7 +107,7 @@ func (r *TokenBucketRules) Validate() error {
 // Example:
 //
 //	limiter := &limiterconfig.TokenBucket{
-//		Storage: &storageconfig.CacheStorageConfig{Type: storageconfig.CacheStorageTypeMemory},
+//		Storage: &storageconfig.BackendConfig{Type: storageconfig.BackendTypeMemory},
 //		Rules:   &limiterconfig.TokenBucketRules{Default: &limiterconfig.TokenBucketDefaultRule{Limit: 1000, Period: time.Hour}},
 //	}
 type TokenBucket struct {
@@ -118,7 +117,7 @@ type TokenBucket struct {
 
 	// Storage defines the storage configuration for rate limit counters.
 	// Required, specifies backend and settings.
-	Storage *storageconfig.CacheStorageConfig `yaml:"storage"`
+	Storage *storageconfig.BackendConfig `yaml:"storage"`
 
 	// Rules contains the rate limiting rules configuration.
 	// Includes default settings and specific rules for targeted clients.

@@ -5,8 +5,7 @@
 package httpconfig
 
 import (
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -34,9 +33,7 @@ func (c *RequestIDMiddleware) Validate() error {
 // DefaultRequestIDMiddleware returns a configuration for requestid middleware with default values.
 func DefaultRequestIDMiddleware() RequestIDMiddleware {
 	return RequestIDMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:           false,
 		HeaderName:        "X-Request-ID",
 		GenerateIfMissing: true,
 	}

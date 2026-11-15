@@ -8,14 +8,15 @@ import (
 	"time"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 // Default values for LeaderElector configuration.
 const (
-	defaultLeaderElectorTTL = 10 * time.Second
+	defaultLeaderElectorProvider = LeaderElectorProviderNATS
+	defaultLeaderElectorTTL      = 10 * time.Second
 )
 
 // LeaderElectorProvider defines the type of leader election provider.
@@ -57,11 +58,11 @@ type LeaderElector struct {
 }
 
 // DefaultLeaderElector returns a LeaderElector configuration with default values.
-// Note: Provider is left as zero value since it is a required field.
 func DefaultLeaderElector() LeaderElector {
 	return LeaderElector{
-		Ttl:     defaultLeaderElectorTTL,
-		Storage: storageconfig.KVStorageMemory,
+		Provider: defaultLeaderElectorProvider,
+		Ttl:      defaultLeaderElectorTTL,
+		Storage:  storageconfig.KVStorageMemory,
 	}
 }
 
@@ -70,7 +71,7 @@ func DefaultLeaderElector() LeaderElector {
 func (le *LeaderElector) Validate() error {
 	return validationconfig.ValidateStruct(le,
 		validation.Field(&le.Provider, validation.Required, ozzo_rules.OneOf(LeaderElectorProviderNATS)),
-		validation.Field(&le.Ttl, ozzo_rules.Duration(), validation.Min(time.Second)),
+		validation.Field(&le.Ttl, validationconfig.PositiveDuration(), validation.Min(time.Second)),
 		validation.Field(&le.Storage, validation.In(storageconfig.KVStorageMemory, storageconfig.KVStorageFile)),
 	)
 }

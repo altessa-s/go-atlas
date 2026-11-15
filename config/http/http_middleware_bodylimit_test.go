@@ -9,15 +9,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config/loader"
+	"github.com/altessa-s/go-nomos/loader"
 
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
 )
 
 // TestDefaultBodyLimitMiddleware_RequireContentLength pins the
 // production-safe YAML default. The Go API option
-// bodylimit.WithRequireContentLength stays opt-in (off by default for
-// backward compatibility with existing programmatic callers), but the
+// bodylimit.WithRequireContentLength stays opt-in (off by default), but the
 // YAML-facing default is the strict choice — production deployments
 // rarely need chunked uploads and leaving the bypass open is worse
 // than rejecting a few legitimate streaming clients. A silent flip

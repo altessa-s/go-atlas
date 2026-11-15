@@ -5,16 +5,18 @@
 package pluginsconfig_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	pluginsconfig "github.com/altessa-s/go-atlas/config/plugins"
 )
 
 // These tests cover the Validate methods on the operator-config types
-// in this package. They previously lived in plugins/sandbox_test.go
-// but the coverage was being recorded against the wrong package — the
+// in this package. They previously lived in the plugin host
+// (plugins/sandbox_test.go, now github.com/altessa-s/go-proteus) but the coverage was being recorded against the wrong package — the
 // methods under test are defined here, so the tests belong here too.
 
 func TestPluginsSandbox_Validate_RejectsNegative(t *testing.T) {
@@ -124,4 +126,34 @@ func TestPluginsLandlock_Validate_EmptyAllowlistsAreAllowed(t *testing.T) {
 	// well-formed. Operational sanity is the operator's responsibility.
 	cfg := pluginsconfig.Landlock{Enabled: true}
 	assert.NoError(t, cfg.Validate())
+}
+
+func TestPluginsConfig_Validate_RevokedHashes(t *testing.T) {
+	t.Parallel()
+	const digest = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+	for _, tc := range []struct {
+		name    string
+		hashes  []string
+		wantErr bool
+	}{
+		{name: "none", hashes: nil},
+		{name: "lower hex", hashes: []string{digest}},
+		{name: "upper hex", hashes: []string{strings.ToUpper(digest)}},
+		{name: "empty entry", hashes: []string{""}, wantErr: true},
+		{name: "too short", hashes: []string{digest[:63]}, wantErr: true},
+		{name: "not hex", hashes: []string{"z" + digest[1:]}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := pluginsconfig.Default()
+			cfg.Enabled = true
+			cfg.RevokedHashes = tc.hashes
+			err := cfg.Validate()
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
 }

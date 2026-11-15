@@ -6,7 +6,7 @@
 // provider schemas (file, Let's Encrypt, OCSP, S3, Vault).
 //
 // Schemas carry yaml and default tags read by
-// github.com/altessa-s/go-atlas/config/loader, expose Default* constructors
+// github.com/altessa-s/go-nomos/loader, expose Default* constructors
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //

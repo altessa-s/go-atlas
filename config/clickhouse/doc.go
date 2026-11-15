@@ -5,9 +5,9 @@
 // Package clickhouseconfig defines the ClickHouse connection schema.
 //
 // Schemas carry yaml and default tags read by
-// github.com/altessa-s/go-atlas/config/loader, expose Default* constructors
+// github.com/altessa-s/go-nomos/loader, expose Default* constructors
 // where defaults exist, and implement Validate; component factories map them
-// to generated options. The infrastructure/clickhouse/factory package opens a
+// to generated options. The factory/infrastructure/clickhouse package opens a
 // connection from [Config].
 //
 // Key types: [Config], [Compression].

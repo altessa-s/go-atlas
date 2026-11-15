@@ -4,8 +4,6 @@
 
 package grpcconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // HealthInterceptor defines the configuration for health check interceptor.
 // When enabled, every incoming RPC is preceded by a health check; if the service
 // is unhealthy the call is rejected with Unavailable status.
@@ -32,8 +30,6 @@ func (c *HealthInterceptor) Validate() error {
 // Health interceptor is disabled by default.
 func DefaultHealthInterceptor() HealthInterceptor {
 	return HealthInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled: false,
 	}
 }

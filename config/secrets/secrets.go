@@ -7,8 +7,10 @@ package secretsconfig
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/types/redacted"
+
 	retryconfig "github.com/altessa-s/go-atlas/config/retry"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -90,6 +92,15 @@ type Lockbox struct {
 	IgnoreInvalidKeys bool `yaml:"ignoreInvalidKeys" default:"false"`
 }
 
+// Memory contains in-memory provider configuration.
+type Memory struct {
+	// Values are the secrets the provider serves, by key. The values live in
+	// the configuration itself, so the provider suits tests and development.
+	// Keys follow the provider key rules ([a-zA-Z0-9_.:-], 2-255 characters);
+	// a $__secret{namespace:key} placeholder looks up "namespace:key".
+	Values map[string]redacted.RedactedString `yaml:"values"`
+}
+
 // Config defines the configuration for secrets management.
 // Supports multiple storage providers with provider-specific settings.
 //
@@ -132,11 +143,15 @@ type Config struct {
 
 	// GCP contains GCP Secret Manager-specific configuration.
 	// Required when Provider is "gcp".
-	GCP *GCP `yaml:"gcp"`
+	GCP *GCP `yaml:"gcp" default:"-"`
 
 	// Lockbox contains Yandex Cloud Lockbox-specific configuration.
 	// Required when Provider is "lockbox".
-	Lockbox *Lockbox `yaml:"lockbox"`
+	Lockbox *Lockbox `yaml:"lockbox" default:"-"`
+
+	// Memory contains the values of the in-memory provider. Used when
+	// Provider is "memory"; without it the provider starts empty.
+	Memory *Memory `yaml:"memory" default:"-"`
 }
 
 // Default returns a Secrets configuration with default values.

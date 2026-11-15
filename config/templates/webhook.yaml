@@ -23,3 +23,10 @@
 #  # Zero disables the timestamp check.
 #  # Default value: 5m
 #  tolerance: "5m"
+#
+#  # <bool> Reject a second delivery of an accepted signature (hmacsign.ErrReplayed).
+#  # Accepted signatures are kept in an in-process memory cache for twice the tolerance.
+#  # Requires scheme stripe and a positive tolerance; receivers behind a load balancer
+#  # need a shared hmacsign.ReplayCache wired in code instead.
+#  # Default value: false
+#  rejectReplays: false

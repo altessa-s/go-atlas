@@ -4,8 +4,9 @@
 import auditconfig "github.com/altessa-s/go-atlas/config/audit"
 ```
 
-Package `auditconfig` defines the audit event dispatcher schema. Schemas are populated by [`config/loader`](../loader) and consumed by the component
-factories, which map them to generated options; runtime packages never import them.
+Package `auditconfig` defines the audit event dispatcher schema. Schemas are populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 
@@ -17,6 +18,7 @@ factories, which map them to generated options; runtime packages never import th
 | `StorageMongo` | Holds MongoDB-specific configuration for audit event storage. |
 | `StorageSQL` | Holds SQL-specific configuration for audit event storage. |
 | `StorageClickHouse` | Holds ClickHouse-specific configuration for audit event storage. |
-| `Paging` | Configures signed page tokens for event queries (`paging`; nil disables page tokens). |
+
+The `paging` section of event queries is the shared [`config/paging`](../paging) schema (nil disables page tokens).
 
 See the [config index](../README.md) for the other schema packages.

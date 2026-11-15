@@ -1,5 +1,5 @@
 # Scope authorization registry configuration.
-# A declarative action-key to required-scope table consumed by auth/scope/factory.New(&cfg).Build(); the matcher and
+# A declarative action-key to required-scope table consumed by factory/auth/scope.New(&cfg).Build(); the matcher and
 # authorizer stay in code, since they depend on the caller's principal type.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

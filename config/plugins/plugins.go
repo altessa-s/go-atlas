@@ -6,12 +6,12 @@ package pluginsconfig
 
 import (
 	"path/filepath"
+	"regexp"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/runtime/capabilities"
+	"github.com/altessa-s/go-atlas-core/runtime/capabilities"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -72,7 +72,18 @@ type Config struct {
 	// containing a detached cryptographic signature verified against
 	// the configured public key before any plugin code is executed.
 	Signature Signature `yaml:"signature"`
+
+	// RevokedHashes lists the SHA-256 hex digests (64 hex characters,
+	// case-insensitive) of plugin builds that must not load even though they
+	// carry a valid signature: a signature covers the bytes, so an older
+	// signed build stays verifiable forever. A listed build is rejected with
+	// plugins.ErrPluginRevoked before signature verification and before any
+	// of its code runs.
+	RevokedHashes []string `yaml:"revokedHashes"`
 }
+
+// sha256HexPattern matches a SHA-256 digest in hex, either case.
+var sha256HexPattern = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 
 // Signature configures plugin signature verification.
 type Signature struct {
@@ -124,7 +135,8 @@ func (c *Signature) Validate() error {
 //     domain. A malicious goroutine scheduled onto a peer thread can
 //     still call dropped-cap syscalls or read paths outside the
 //     allowlist. For real process-wide isolation, drop these privileges
-//     externally — see docs/plugins.md "Recommended deployment".
+//     externally — see "Recommended deployment" in the go-proteus plugin
+//     host (https://github.com/altessa-s/go-proteus).
 //   - This is defense-in-depth, not a security boundary. A malicious plugin
 //     still has full access to host memory and can corrupt or exfiltrate
 //     anything in the address space.
@@ -175,8 +187,7 @@ type Sandbox struct {
 
 	// Capabilities configures Linux capability dropping applied between
 	// the rlimits and Landlock passes. See [Capabilities] for the
-	// operator contract and caveats. Disabled by default — the plugin
-	// sandbox stays backwards-compatible with existing deployments.
+	// operator contract and caveats. Disabled by default.
 	Capabilities Capabilities `yaml:"capabilities"`
 
 	// Landlock configures kernel-enforced filesystem allowlisting via the
@@ -207,8 +218,9 @@ type Sandbox struct {
 //     threads keep their original (unrestricted) view, and goroutines the
 //     scheduler later places on them can still touch paths outside the
 //     allowlist. For real process-wide restriction, apply Landlock
-//     externally before the Go binary starts — see docs/plugins.md
-//     "Recommended deployment".
+//     externally before the Go binary starts — see "Recommended
+//     deployment" in the go-proteus plugin host
+//     (https://github.com/altessa-s/go-proteus).
 //   - Irreversible per thread. The Landlock domain installed on the
 //     calling thread cannot be relaxed for the process's lifetime.
 //   - Symlinks: the kernel checks the resolved target, not the link
@@ -262,7 +274,7 @@ type Landlock struct {
 }
 
 // Capabilities configures Linux capability dropping applied via the
-// standalone [github.com/altessa-s/go-atlas/core/runtime/capabilities]
+// standalone [github.com/altessa-s/go-atlas-core/runtime/capabilities]
 // package. It is a defense-in-depth primitive: if the host process is
 // launched with effective capabilities (file capabilities, systemd
 // AmbientCapabilities=, docker --cap-add, or plain root), a plugin
@@ -282,7 +294,8 @@ type Landlock struct {
 //     capability set. A goroutine the scheduler later places on a peer
 //     thread can still call privileged syscalls. For real process-wide
 //     dropping, drop capabilities externally before the Go binary starts —
-//     see docs/plugins.md "Recommended deployment".
+//     see "Recommended deployment" in the go-proteus plugin host
+//     (https://github.com/altessa-s/go-proteus).
 //   - Irreversible per thread. Once dropped from the calling thread,
 //     capability ceilings cannot be raised on that thread for the rest
 //     of the process's lifetime; bits dropped from the bounding set
@@ -332,11 +345,12 @@ func (c *Config) IsEnabled() bool {
 func (c *Config) Validate() error {
 	return validationconfig.ValidateStructIfEnabled(c.Enabled, c,
 		validation.Field(&c.Dir, validation.Required),
-		validation.Field(&c.InitTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.InitTimeout, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.WatchDebounce,
-			validation.When(c.Watch, ozzo_rules.Duration(), validation.Min(time.Millisecond))),
+			validation.When(c.Watch, validationconfig.PositiveDuration(), validation.Min(time.Millisecond))),
 		validationconfig.NestedField(&c.Sandbox),
 		validationconfig.NestedField(&c.Signature),
+		validation.Field(&c.RevokedHashes, validation.Each(validation.Required, validation.Match(sha256HexPattern))),
 	)
 }
 

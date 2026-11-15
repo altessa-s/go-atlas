@@ -106,11 +106,6 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 			c.CapacityMultiplier = 0
 			return c.Validate()
 		}},
-		{"ProbabilisticFilterCuckooDefaults.MaxCapacity", func() error {
-			c := probfilterconfig.NewCuckooDefaults()
-			c.MaxCapacity = 0
-			return c.Validate()
-		}},
 		{"ProbabilisticFilterBloomConfig.FalsePositiveRate", func() error {
 			rate := 0.0
 			c := probfilterconfig.BloomConfig{ExpectedItems: 1000, FalsePositiveRate: &rate}
@@ -119,11 +114,6 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 		{"ProbabilisticFilterCuckooConfig.CapacityMultiplier", func() error {
 			mult := 0.0
 			c := probfilterconfig.CuckooConfig{Capacity: 1000, CapacityMultiplier: &mult}
-			return c.Validate()
-		}},
-		{"ProbabilisticFilterCuckooConfig.MaxCapacity", func() error {
-			maxCap := int64(0)
-			c := probfilterconfig.CuckooConfig{Capacity: 1000, MaxCapacity: &maxCap}
 			return c.Validate()
 		}},
 	}

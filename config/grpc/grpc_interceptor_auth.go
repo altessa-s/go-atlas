@@ -4,8 +4,6 @@
 
 package grpcconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // AuthInterceptor defines the configuration for authentication interceptor.
 // It controls authentication behavior, method exclusions, and caching settings.
 type AuthInterceptor struct {
@@ -32,8 +30,6 @@ func (c *AuthInterceptor) Validate() error {
 // Authentication is disabled by default.
 func DefaultAuthInterceptor() AuthInterceptor {
 	return AuthInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled: false,
 	}
 }

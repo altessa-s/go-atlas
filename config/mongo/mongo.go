@@ -8,12 +8,13 @@ import (
 	"errors"
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
 	"github.com/altessa-s/go-atlas/config/internal/validators"
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/types/redacted"
 
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -187,14 +188,15 @@ func (m *Config) Validate() error {
 				validation.Required.Error("minimum one server must be specified"))),
 		validation.Field(&m.DirectConnection,
 			validation.When(!m.UseConnectionURI(), validators.MongoDirectionConnect(m.Hosts))),
-		validation.Field(&m.ConnectTimeout, ozzo_rules.DurationOrZero()),
-		validation.Field(&m.MaxIdleTimeout, ozzo_rules.DurationOrZero()),
+		validation.Field(&m.ConnectTimeout, validationconfig.NonNegativeDuration()),
+		validation.Field(&m.MaxIdleTimeout, validationconfig.NonNegativeDuration()),
 		validation.Field(&m.Compressors, validation.Each(
 			ozzo_rules.OneOf(
 				CompressionTypeSnappy,
 				CompressionTypeZlib,
 				CompressionTypeZstd))),
 		validation.Field(&m.Database, validation.Required),
+		validation.Field(&m.Credentials),
 
 		// TLS is required if credentials are specified and auth mechanism is X509
 		validation.Field(&m.TLS, validation.Required.When(m.Credentials != nil &&
@@ -213,7 +215,7 @@ func (m *Config) validateConnectionURIConflicts() error {
 
 	var errs []error
 	errs = slices.AppendIf(errs, m.Credentials != nil,
-		errors.New("credentials must not be set when connectionUri is used"))
+		cfgerrors.Invalidf("credentials must not be set when connectionUri is used"))
 
 	return errors.Join(errs...)
 }

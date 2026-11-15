@@ -15,6 +15,12 @@
 #  # Default value: not set
 #  discoveryURL: "https://idp.example.com/.well-known/openid-configuration"
 #
+#  # <bool> Permit a plain http:// tokenURL / discoveryURL on any host. By default
+#  # only https:// and http:// on a loopback host are accepted, because the client
+#  # credentials are sent to the token endpoint. Enable for a test IdP only.
+#  # Default value: false
+#  allowInsecureHTTP: false
+#
 #  # <string> OAuth2 client identifier authenticating this service. Required.
 #  # Default value: not set
 #  clientID: "my-service"

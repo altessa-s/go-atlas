@@ -5,11 +5,12 @@
 package grpcconfig
 
 import (
-	"fmt"
 	"time"
 
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
+
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -49,6 +50,7 @@ type TLS struct {
 // Returns an error if any validation rules fail.
 func (c *TLS) Validate() error {
 	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Server, validation.Required),
 		validation.Field(&c.Client, validation.Required.When(c.Client != nil)),
 	)
 }
@@ -121,11 +123,11 @@ type KeepAlive struct {
 // Returns an error if any validation rules fail.
 func (k *KeepAlive) Validate() error {
 	return validationconfig.ValidateStruct(k,
-		validation.Field(&k.MaxConnectionIdle, ozzo_rules.DurationOrZero()),
-		validation.Field(&k.MaxConnectionAge, ozzo_rules.DurationOrZero()),
-		validation.Field(&k.MaxConnectionAgeGrace, ozzo_rules.DurationOrZero()),
-		validation.Field(&k.Time, ozzo_rules.DurationOrZero()),
-		validation.Field(&k.Timeout, ozzo_rules.DurationOrZero()),
+		validation.Field(&k.MaxConnectionIdle, validationconfig.NonNegativeDuration()),
+		validation.Field(&k.MaxConnectionAge, validationconfig.NonNegativeDuration()),
+		validation.Field(&k.MaxConnectionAgeGrace, validationconfig.NonNegativeDuration()),
+		validation.Field(&k.Time, validationconfig.NonNegativeDuration()),
+		validation.Field(&k.Timeout, validationconfig.NonNegativeDuration()),
 		validation.Field(&k.EnforcementPolicy, validation.NilOrNotEmpty),
 	)
 }
@@ -215,7 +217,7 @@ func (g *Config) Validate() error {
 	return validationconfig.ValidateStruct(g,
 		validation.Field(&g.ListenAddress, ozzo_rules.ListenAddress()),
 		validation.Field(&g.ConnectionTimeout, validation.NilOrNotEmpty,
-			ozzo_rules.Duration().When(g.ConnectionTimeout != nil)),
+			validation.When(g.ConnectionTimeout != nil, validationconfig.PositiveDuration())),
 		validation.Field(&g.TLS, validation.Required.When(g.TLS != nil)),
 		validation.Field(&g.KeepAlive, validation.Required.When(g.KeepAlive != nil)),
 		validation.Field(&g.Interceptors, validation.Required.When(g.Interceptors != nil)),
@@ -240,10 +242,10 @@ func (g *Config) validateMessageSizes() error {
 		}
 		v := *f.value
 		if v <= 0 {
-			return fmt.Errorf("grpc.%s: must be positive (got %d) — zero/negative disables the size limit", f.name, v)
+			return cfgerrors.Invalidf("grpc.%s: must be positive (got %d) — zero/negative disables the size limit", f.name, v)
 		}
 		if v > MaxMessageSize {
-			return fmt.Errorf("grpc.%s: must be <= %d bytes (got %d) — a single message that large invites OOM on a malicious request",
+			return cfgerrors.Invalidf("grpc.%s: must be <= %d bytes (got %d) — a single message that large invites OOM on a malicious request",
 				f.name, MaxMessageSize, v)
 		}
 	}

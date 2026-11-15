@@ -7,10 +7,10 @@ package tlsconfig
 import (
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	s3config "github.com/altessa-s/go-atlas/config/s3"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -77,11 +77,11 @@ type ProviderS3SSE struct {
 // Validate checks that the S3 provider configuration is valid.
 func (c *ProviderS3) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Config),
+		validationconfig.NestedField(&c.Config),
 		validation.Field(&c.Bucket, validation.Required),
 		validation.Field(&c.CertificateKey, validation.Required),
 		validation.Field(&c.PrivateKeyKey, validation.Required),
-		validation.Field(&c.PollInterval, ozzo_rules.DurationOrZero()),
+		validation.Field(&c.PollInterval, validationconfig.NonNegativeDuration()),
 		validation.Field(&c.SSE, validation.Required.When(c.SSE != nil)),
 	)
 }

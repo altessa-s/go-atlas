@@ -4,11 +4,9 @@
 
 package httpconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // MetricsMiddleware defines the configuration for HTTP metrics
-// collection middleware. The underlying [metrics.Collector] is wired
-// separately on the ServerBuilder via `UseCollector`; this struct only
+// collection middleware. The underlying [github.com/altessa-s/go-atlas/observability/metrics.Meter] is wired
+// separately on the ServerBuilder via `UseMeter`; this struct only
 // describes per-server tunables.
 type MetricsMiddleware struct {
 	// BaseMiddleware provides standard enable and filtering fields.
@@ -36,9 +34,7 @@ func (c *MetricsMiddleware) Validate() error {
 // middleware with default values.
 func DefaultMetricsMiddleware() MetricsMiddleware {
 	return MetricsMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled: false,
 	}
 }
 

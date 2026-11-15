@@ -29,8 +29,8 @@
 #  # Default value: not set
 #  domain: myservice.example.com
 #
-#  # <int> Maximum number of entries in the error conversion cache.
-#  # Caches error-to-status mappings for high-throughput paths.
+#  # <int> Number of error converters, in registration order, whose status is cached.
+#  # Only a status that does not depend on the error is cached, one per converter.
 #  # Set to 0 to disable caching.
 #  # Default value: not set (the errstatus interceptor falls back to 1000)
 #  cacheSize: 1000
@@ -38,8 +38,3 @@
 #  # <bool> Completely disable error conversion caching.
 #  # Default value: false
 #  cacheDisabled: false
-#
-#  # <bool> Restrict caching to sentinel errors only.
-#  # Prevents unbounded memory growth from caching dynamic errors.
-#  # Default value: false
-#  cacheOnlySentinel: false

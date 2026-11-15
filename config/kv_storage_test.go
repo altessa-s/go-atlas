@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config/loader"
+	"github.com/altessa-s/go-nomos/loader"
 
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"

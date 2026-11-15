@@ -5,7 +5,7 @@
 package storageconfig
 
 import (
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -103,46 +103,118 @@ func (c *MemoryConfig) Validate() error {
 	return validationconfig.ValidateStruct(c)
 }
 
-// CacheStorageType defines storage backend types for caching.
-// Used by idempotency, rate limiting, and other features that need distributed storage.
+// BackendType selects the storage backend of a feature that can keep its
+// state in memory, Redis or a NATS KeyValue bucket, such as the rate
+// limiters and the MongoDB cursor storage.
+type BackendType string
+
+const (
+	// BackendTypeMemory represents in-memory storage.
+	// Provides fast access but is not shared across instances.
+	// Useful for testing or single-instance deployments.
+	BackendTypeMemory BackendType = "memory"
+
+	// BackendTypeRedis represents Redis storage.
+	// Provides shared storage across instances with persistence options.
+	BackendTypeRedis BackendType = "redis"
+
+	// BackendTypeNATS represents NATS KeyValue storage.
+	// Offers distributed storage with built-in replication and stream features.
+	BackendTypeNATS BackendType = "nats"
+)
+
+var backendAllowedTypes = []BackendType{
+	BackendTypeMemory,
+	BackendTypeRedis,
+	BackendTypeNATS,
+}
+
+// BackendConfig defines storage backend configuration with type selector
+// for features that support memory, Redis and NATS KeyValue storage (rate
+// limiters, MongoDB cursor storage). The cache uses [CacheStorageConfig]
+// instead, which has no NATS backend.
+type BackendConfig struct {
+	// Type defines the storage backend type.
+	// Must be one of the supported storage types (memory, redis, nats).
+	Type BackendType `yaml:"type"`
+
+	// Memory defines the in-memory configuration.
+	// Required when Type is BackendTypeMemory, ignored otherwise.
+	Memory *MemoryConfig `yaml:"memory" default:"-"`
+
+	// Nats defines the NATS configuration.
+	// Required when Type is BackendTypeNATS, ignored otherwise.
+	NATS *NATSConfig `yaml:"nats" default:"-"`
+
+	// Redis defines the Redis configuration.
+	// Required when Type is BackendTypeRedis, ignored otherwise.
+	Redis *RedisConfig `yaml:"redis" default:"-"`
+}
+
+// Normalize allocates the provider-specific sub-config implied by [BackendConfig.Type].
+// Call Normalize before Validate so the correct sub-struct is present for validation.
+func (c *BackendConfig) Normalize() {
+	switch c.Type {
+	case BackendTypeMemory:
+		if c.Memory == nil {
+			c.Memory = &MemoryConfig{}
+		}
+	case BackendTypeNATS:
+		if c.NATS == nil {
+			c.NATS = &NATSConfig{}
+		}
+	case BackendTypeRedis:
+		if c.Redis == nil {
+			c.Redis = &RedisConfig{}
+		}
+	}
+}
+
+func (c *BackendConfig) storageCases() []validationconfig.StorageCase[BackendType] {
+	return []validationconfig.StorageCase[BackendType]{
+		{When: BackendTypeMemory, Field: &c.Memory},
+		{When: BackendTypeNATS, Field: &c.NATS},
+		{When: BackendTypeRedis, Field: &c.Redis},
+	}
+}
+
+// Validate performs validation of the storage backend configuration.
+// Ensures storage type is valid and corresponding configuration is provided.
+func (c *BackendConfig) Validate() error {
+	return validationconfig.ValidateStorage(c, &c.Type, backendAllowedTypes, c.storageCases())
+}
+
+// CacheStorageType selects the storage backend of the cache
+// (github.com/altessa-s/go-atlas/cache) and its generation store.
 type CacheStorageType string
 
 const (
-	// CacheStorageTypeMemory represents in-memory storage.
+	// CacheStorageTypeMemory represents in-process storage (FreeCache).
 	// Provides fast access but is not shared across instances.
-	// Useful for testing or single-instance deployments.
 	CacheStorageTypeMemory CacheStorageType = "memory"
 
 	// CacheStorageTypeRedis represents Redis storage.
-	// Provides shared storage across instances with persistence options.
+	// Provides shared storage across instances.
 	CacheStorageTypeRedis CacheStorageType = "redis"
-
-	// CacheStorageTypeNATS represents NATS KeyValue storage.
-	// Offers distributed storage with built-in replication and stream features.
-	CacheStorageTypeNATS CacheStorageType = "nats"
 )
 
 var cacheStorageAllowedTypes = []CacheStorageType{
 	CacheStorageTypeMemory,
 	CacheStorageTypeRedis,
-	CacheStorageTypeNATS,
 }
 
-// CacheStorageConfig defines storage backend configuration with type selector.
-// Provides a unified storage configuration for idempotency, rate limiting,
-// and other features that require distributed storage.
+// CacheStorageConfig defines the cache storage configuration with type
+// selector. It accepts only the backends the cache factories can build
+// (memory, redis), so an unsupported type fails at Validate rather than at
+// build time.
 type CacheStorageConfig struct {
 	// Type defines the storage backend type.
-	// Must be one of the supported storage types (memory, redis, nats).
+	// Must be one of the supported storage types (memory, redis).
 	Type CacheStorageType `yaml:"type"`
 
 	// Memory defines the in-memory configuration.
 	// Required when Type is CacheStorageTypeMemory, ignored otherwise.
 	Memory *MemoryConfig `yaml:"memory" default:"-"`
-
-	// Nats defines the NATS configuration.
-	// Required when Type is CacheStorageTypeNATS, ignored otherwise.
-	NATS *NATSConfig `yaml:"nats" default:"-"`
 
 	// Redis defines the Redis configuration.
 	// Required when Type is CacheStorageTypeRedis, ignored otherwise.
@@ -157,10 +229,6 @@ func (c *CacheStorageConfig) Normalize() {
 		if c.Memory == nil {
 			c.Memory = &MemoryConfig{}
 		}
-	case CacheStorageTypeNATS:
-		if c.NATS == nil {
-			c.NATS = &NATSConfig{}
-		}
 	case CacheStorageTypeRedis:
 		if c.Redis == nil {
 			c.Redis = &RedisConfig{}
@@ -171,7 +239,6 @@ func (c *CacheStorageConfig) Normalize() {
 func (c *CacheStorageConfig) storageCases() []validationconfig.StorageCase[CacheStorageType] {
 	return []validationconfig.StorageCase[CacheStorageType]{
 		{When: CacheStorageTypeMemory, Field: &c.Memory},
-		{When: CacheStorageTypeNATS, Field: &c.NATS},
 		{When: CacheStorageTypeRedis, Field: &c.Redis},
 	}
 }

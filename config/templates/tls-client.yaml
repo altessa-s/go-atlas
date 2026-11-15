@@ -39,8 +39,7 @@
 #
 #  # <string> Gates the residual case where ATLAS_ALLOW_INSECURE_TLS is
 #  # set AND skipVerifyServerName: true survived Normalize(). Mirrors the
-#  # project-wide safety-mode pattern (plugins.SignatureMode,
-#  # oidc.JWKSFailureMode).
+#  # project-wide safety-mode pattern (oidc.JWKSFailureMode).
 #  # Supported values:
 #  #   - enforce  -- TLS factory rejects SkipVerify=true at build time
 #  #     with factory.ErrInsecureSkipVerifyRejected. Production-safe

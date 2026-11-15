@@ -4,8 +4,9 @@
 import redisconfig "github.com/altessa-s/go-atlas/config/redis"
 ```
 
-Package `redisconfig` defines the Redis connection schema. Schemas are populated by [`config/loader`](../loader) and consumed by the component
-factories, which map them to generated options; runtime packages never import them.
+Package `redisconfig` defines the Redis connection schema. Schemas are populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 

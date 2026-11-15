@@ -20,8 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"github.com/altessa-s/go-atlas/config/loader"
-	"github.com/altessa-s/go-atlas/config/loader/backend/yaml3"
+	"github.com/altessa-s/go-nomos/loader"
+	"github.com/altessa-s/go-nomos/loader/backend/yaml3"
 
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
@@ -39,6 +39,7 @@ import (
 	natsconfig "github.com/altessa-s/go-atlas/config/nats"
 	nodeconfig "github.com/altessa-s/go-atlas/config/node"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
+	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
 	pluginsconfig "github.com/altessa-s/go-atlas/config/plugins"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
@@ -90,6 +91,7 @@ var templateCases = map[string][]templateRoot{
 	"auth_scope.yaml":                        {root[authconfig.ScopeRegistry]("scope")},
 	"broker.yaml":                            {root[brokerconfig.Config]("broker")},
 	"cache_storage.yaml":                     {root[storageconfig.CacheStorageConfig]("storage")},
+	"storage_backend.yaml":                   {root[storageconfig.BackendConfig]("storage")},
 	"idempotency_storage.yaml":               {root[idempotencyconfig.StorageConfig]("storage")},
 	"dispatch.yaml":                          {root[dispatchconfig.Config]("dispatch")},
 	"dlock.yaml":                             {root[lockconfig.DistributionLock]("distributionLock")},
@@ -115,6 +117,7 @@ var templateCases = map[string][]templateRoot{
 	"oauth2_client.yaml":                     {root[authconfig.OAuth2Client]("oauth2Client")},
 	"observability.yaml":                     {root[observabilityconfig.Config]("observability")},
 	"opa.yaml":                               {root[authconfig.OPA]("opa")},
+	"paging.yaml":                            {root[pagingconfig.Config]("paging")},
 	"plugins.yaml":                           {root[pluginsconfig.Config]("plugins")},
 	"probabilistic_filter.yaml":              {root[probfilterconfig.Config]("probabilisticFilter")},
 	"redis.yaml":                             {root[redisconfig.Config]("redis")},

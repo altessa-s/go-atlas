@@ -4,8 +4,6 @@
 
 package grpcconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // FieldMaskInterceptor defines the configuration for the update/read field
 // mask interceptor. It applies the update_mask of Update requests to the
 // resource before the handler runs and filters the responses of read methods
@@ -19,13 +17,11 @@ type FieldMaskInterceptor struct {
 	// methods. Set it when the handlers already apply the read mask.
 	SkipReadMask bool `yaml:"skipReadMask" default:"false"`
 
-	// ApplyEmptyUpdateMask enables the empty-mask fallback: an update_mask that
-	// is present but has no paths updates every populated field of the
-	// resource instead of none.
-	ApplyEmptyUpdateMask bool `yaml:"applyEmptyUpdateMask" default:"false"`
-
-	// MaskFieldName overrides the conventional update_mask / read_mask request
-	// field name. Empty uses update_mask / read_mask.
+	// MaskFieldName, when non-empty, selects an exact declared mask field name
+	// without fallback.
+	// Empty uses a singular google.protobuf.FieldMask declared as update_mask /
+	// read_mask, falling back to updateMask / readMask only when the corresponding
+	// snake_case name is not declared.
 	MaskFieldName string `yaml:"maskFieldName"`
 
 	// ResourceFieldName overrides the resource field of Update requests.
@@ -54,8 +50,6 @@ func (c *FieldMaskInterceptor) Validate() error {
 // values. The interceptor is disabled by default.
 func DefaultFieldMaskInterceptor() FieldMaskInterceptor {
 	return FieldMaskInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled: false,
 	}
 }

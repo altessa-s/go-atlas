@@ -5,7 +5,7 @@
 package observabilityconfig
 
 import (
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -131,7 +131,7 @@ type Logger struct {
 	OutputFormat LogFormat `yaml:"outputFormat" default:"text"`
 	// SensitiveTags lists tag keys that should be redacted in log output.
 	// A non-empty list also auto-enables the advanced masking handler in
-	// observability/slog/factory, which applies a curated default
+	// factory/ext/slogx, which applies a curated default
 	// sensitive-field set (password, token, secret, *_key, ...) and
 	// nested-group masking on top of these explicit tags.
 	SensitiveTags []string `yaml:"sensitiveTags"`
@@ -174,6 +174,6 @@ func (l *Logger) Validate() error {
 		validationconfig.NestedField(&l.Buffer),
 		validation.Field(&l.Subsystems, validation.Each(ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning,
 			LoggerLevelInfo, LoggerLevelDebug, LoggerLevelNone))),
-		validation.Field(&l.MaskRules),
+		validationconfig.NestedEach(&l.MaskRules),
 	)
 }

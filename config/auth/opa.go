@@ -5,12 +5,16 @@
 package authconfig
 
 import (
+	"errors"
+	"fmt"
+	"net/url"
+	"regexp"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -89,7 +93,7 @@ func DefaultOPACache() OPACache {
 func (c *OPACache) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.TTL,
-			validation.When(c.Enabled, ozzo_rules.Duration())),
+			validation.When(c.Enabled, validationconfig.PositiveDuration())),
 		// No Required: zero is a meaningful value here ("use the default"),
 		// unlike the Min-guarded fields where it is a silent misconfiguration.
 		// Min(0) still rejects a negative cap.
@@ -125,6 +129,16 @@ type OPAGitLab struct {
 	// gitlab.WithHTTPClient — there is no YAML knob for retry (the factory
 	// uses httpclient.New defaults).
 	Proxy *proxyconfig.Config `yaml:"proxy" default:"-"`
+
+	// AllowInsecureHTTP permits a plain http:// endpoint. Off by default: the
+	// access token and the policies would cross the network unprotected.
+	AllowInsecureHTTP bool `yaml:"allowInsecureHTTP"`
+
+	// Checksums pins the policy and data files: file names relative to Dir
+	// mapped to their lower-case SHA-256 hex digests. When set, every fetched
+	// file must match its entry and every entry must be fetched. Empty
+	// disables verification.
+	Checksums map[string]string `yaml:"checksums"`
 }
 
 // Validate validates the OPAGitLab configuration.
@@ -134,7 +148,28 @@ func (c *OPAGitLab) Validate() error {
 		validation.Field(&c.Token, validation.Required),
 		validation.Field(&c.ProjectID, validation.Required),
 		validation.Field(&c.Proxy),
+		validation.Field(&c.Checksums, validation.By(validateChecksums)),
 	)
+}
+
+// sha256HexPattern matches a lower-case SHA-256 hex digest, the form the
+// policy sources compute and compare verbatim.
+var sha256HexPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// validateChecksums rejects a checksum manifest entry with an empty file
+// name or a digest that is not a lower-case SHA-256 hex string, which
+// could never match.
+func validateChecksums(value any) error {
+	checksums, _ := value.(map[string]string) // a nil map validates
+	for name, digest := range checksums {
+		if name == "" {
+			return errors.New("file name must not be empty")
+		}
+		if !sha256HexPattern.MatchString(digest) {
+			return fmt.Errorf("%s: digest must be a lower-case SHA-256 hex string", name)
+		}
+	}
+	return nil
 }
 
 // DefaultOPAGitLab returns an OPAGitLab configuration with default values.
@@ -157,8 +192,14 @@ type OPAS3 struct {
 	Region string `yaml:"region"`
 
 	// Endpoint is the S3-compatible endpoint URL (e.g., for MinIO).
-	// Optional; defaults to the standard AWS S3 endpoint.
+	// Optional; defaults to the standard AWS S3 endpoint. Must be https://
+	// unless AllowInsecureHTTP is set.
 	Endpoint string `yaml:"endpoint"`
+
+	// AllowInsecureHTTP permits a plain http:// endpoint. Off by default:
+	// SigV4 protects the credentials but not the policy content, which a
+	// MITM could swap.
+	AllowInsecureHTTP bool `yaml:"allowInsecureHTTP"`
 
 	// AccessKey is the AWS access key ID.
 	// Optional; defaults to environment/instance credentials.
@@ -177,14 +218,41 @@ type OPAS3 struct {
 	// environment variables. Mode none uses the protected Atlas client
 	// without a proxy; url/host modes return ErrSSRFUnsafeTransport.
 	Proxy *proxyconfig.Config `yaml:"proxy" default:"-"`
+
+	// Checksums pins the policy and data objects: object keys relative to
+	// Prefix mapped to their lower-case SHA-256 hex digests. When set, every
+	// fetched object must match its entry and every entry must be fetched.
+	// Empty disables verification.
+	Checksums map[string]string `yaml:"checksums"`
 }
 
 // Validate validates the OPAS3 configuration.
 func (c *OPAS3) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Bucket, validation.Required),
+		validation.Field(&c.Endpoint, validation.By(func(any) error {
+			return validateS3Endpoint(c.Endpoint, c.AllowInsecureHTTP)
+		})),
 		validation.Field(&c.Proxy),
+		validation.Field(&c.Checksums, validation.By(validateChecksums)),
 	)
+}
+
+// validateS3Endpoint accepts an empty endpoint (the AWS default), an
+// https:// URL with a host, and an http:// one only when allowHTTP is set.
+func validateS3Endpoint(endpoint string, allowHTTP bool) error {
+	if endpoint == "" {
+		return nil
+	}
+	u, err := url.Parse(endpoint)
+	switch {
+	case err != nil || u.Host == "":
+		return errors.New("must be an absolute https:// URL")
+	case u.Scheme == "https", u.Scheme == "http" && allowHTTP:
+		return nil
+	default:
+		return errors.New("must use https:// (set allowInsecureHTTP to permit http://)")
+	}
 }
 
 // OPA represents Open Policy Agent configuration for authorization.
@@ -290,7 +358,7 @@ func (c *OPA) Validate() error {
 		validation.Field(&c.Query, validation.Required),
 		validation.Field(&c.Cache, validation.When(c.Cache != nil, validation.Required)),
 		validation.Field(&c.PollInterval,
-			validation.When(c.PollInterval > 0, ozzo_rules.Duration())),
+			validation.When(c.PollInterval > 0, validationconfig.PositiveDuration())),
 	)
 }
 

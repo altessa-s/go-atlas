@@ -4,8 +4,6 @@
 
 package httpconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // RecoveryMiddleware defines the configuration for HTTP panic recovery middleware.
 type RecoveryMiddleware struct {
 	// BaseMiddleware provides standard enable and filtering fields.
@@ -24,9 +22,7 @@ func (c *RecoveryMiddleware) Validate() error {
 // DefaultRecoveryMiddleware returns a configuration for recovery middleware with default values.
 func DefaultRecoveryMiddleware() RecoveryMiddleware {
 	return RecoveryMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:  false,
 		LogStack: true,
 	}
 }

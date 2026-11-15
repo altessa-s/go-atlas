@@ -9,8 +9,7 @@ import (
 
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -40,7 +39,7 @@ func (l *ProviderVault) Validate() error {
 	return validationconfig.ValidateStruct(l,
 		validation.Field(&l.CommonName, validation.Required),
 		validation.Field(&l.Role, validation.Required),
-		validation.Field(&l.RenewBefore, ozzo_rules.DurationOrZero()),
+		validation.Field(&l.RenewBefore, validationconfig.NonNegativeDuration()),
 		validation.Field(&l.SubjectAlternativeNames, validation.When(len(l.SubjectAlternativeNames) > 0,
 			validation.Each(validation.Required))),
 		validation.Field(&l.IPSubjectAlternativeNames, validation.When(len(l.IPSubjectAlternativeNames) > 0,

@@ -1,6 +1,6 @@
 # Token-revocation denylist configuration.
 # A negative cache in front of a distributed authoritative store. The negative filter is built by
-# auth/denylist/negcache/factory.NewBuilder and the authoritative store by auth/denylist/storages/redis.New;
+# factory/auth/denylist/negcache.NewBuilder and the authoritative store by auth/denylist/storages/redis.New;
 # the Redis client and callbacks are wired in code.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
@@ -26,7 +26,7 @@
 #  # Default value: not set (negcache falls back to auth_denylist_negcache)
 #  metricsSubsystem: ""
 #
-#  # <object> Negative-filter configuration passed to auth/denylist/negcache/factory.NewBuilder.
+#  # <object> Negative-filter configuration passed to factory/auth/denylist/negcache.NewBuilder.
 #  # Optional values left unset fall back to the probabilistic-filter defaults the caller passes to the builder.
 #  filter:
 #    # <string> Type of probabilistic filter to use.
@@ -59,6 +59,11 @@
 #
 #      # <string> Cron schedule for periodic filter rebuild from the authoritative store, scheduled by the negcache factory.
 #      # Must be "" when rebuild_interval is set.
+#      # Revocation propagation lag: with an in-memory filter (storage.type: memory) a token revoked on another
+#      # node keeps passing on this node until the next rebuild, so this schedule is the propagation window.
+#      # The fallback is the generic probabilistic-filter default, "0 0 * * * *" (hourly). Set it to the
+#      # revocation propagation SLA (for example "0 */5 * * * *" for five minutes), or use a Redis-backed
+#      # filter (storage.type: redis), which every node shares.
 #      # Default value: not set (falls back to the builder defaults' bloom.rebuildCron)
 #      rebuildCron: ""
 #
@@ -86,16 +91,9 @@
 #      # Default value: not set
 #      capacity: 500000
 #
-#      # <int> Fingerprint size in bits.
-#      # Supported values: 8, 12, 16
-#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#      fingerprintSize: 12
 #
 #      # <float64> Capacity multiplier for auto-rebuild on overflow (1.1–10.0).
 #      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
 #      capacityMultiplier: 2.0
 #
-#      # <int64> Maximum capacity limit.
-#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#      maxCapacity: 100000000
 #

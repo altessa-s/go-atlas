@@ -32,26 +32,19 @@
 #    # Default value: */1 * * * * *
 #    tickSchedule: "*/1 * * * * *"
 #
-#    # <duration> Default interval for InProgress calls when not specified in Register().
-#    # Should be less than broker's AckWait to prevent redelivery.
-#    # Recommended: AckWait / 3 (e.g., 10s for AckWait=30s).
-#    # Default value: 10s
-#    defaultHeartbeatInterval: "10s"
-#
-#    # <int> Maximum number of registered heartbeaters.
-#    # Must be between 1 and 100000.
-#    # Default value: 10000
-#    maxEntries: 10000
+#    # <duration> Upper bound of a single InProgress call. One slow heartbeater
+#    # is abandoned after this long instead of holding a tick past the AckWait
+#    # of the others.
+#    # Set to 0 to keep the manager default.
+#    # Default value: 5s
+#    heartbeatTimeout: "5s"
 #
 #    # <object> Metrics configuration.
 #    metrics:
 #      # <bool> Enable metrics collection.
+#      # When false, the manager is built without the meter given to the factory.
 #      # Default value: true
 #      enabled: true
-#
-#      # <string> Metric name prefix.
-#      # Default value: inprogress
-#      prefix: "inprogress"
 #
 #  # <object> Outbox configuration for reliable message delivery.
 #  # Manages persistent storage and background publishing of messages.

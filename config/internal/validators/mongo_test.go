@@ -5,6 +5,7 @@
 package validators_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -109,8 +110,9 @@ func TestMongoDirectionConnectRule_Validate(t *testing.T) {
 			}
 			err := rule.Validate(tt.value)
 			if tt.wantErr {
-				require.Error(t, err)
-				require.Equal(t, validators.ErrDirectionConnectInvalid.Error(), err.Error())
+				verr, ok := errors.AsType[validation.Error](err)
+				require.True(t, ok, "want validation.Error, got %v", err)
+				require.Equal(t, validators.ErrDirectionConnectInvalid.Code(), verr.Code())
 			} else {
 				require.NoError(t, err)
 			}

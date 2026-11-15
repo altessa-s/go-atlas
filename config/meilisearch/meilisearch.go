@@ -9,11 +9,10 @@ import (
 
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -80,7 +79,7 @@ func Default() Config {
 func (m *Config) Validate() error {
 	return validationconfig.ValidateStruct(m,
 		validation.Field(&m.Host, validation.Required, is.URL),
-		validation.Field(&m.Timeout, ozzo_rules.DurationOrZero()),
+		validation.Field(&m.Timeout, validationconfig.NonNegativeDuration()),
 		validation.Field(&m.TLS, validation.NilOrNotEmpty),
 	)
 }

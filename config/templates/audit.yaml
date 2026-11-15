@@ -33,7 +33,7 @@
 #
 #    # <object> ClickHouse-specific storage configuration.
 #    # Required when type is "clickhouse". The connection comes from
-#    # infrastructure/clickhouse/factory (UseClickHouseConn).
+#    # factory/infrastructure/clickhouse (UseClickHouseConn).
 #    clickhouse:
 #      # <string> Table holding audit events.
 #      # Default value: audit_events
@@ -82,7 +82,7 @@
 #      # Default value: off
 #      schemaMigrationMode: "off"
 #
-#    # <object> SQL-specific storage configuration (data/audit/storages/sqldb).
+#    # <object> SQL-specific storage configuration (audit/storages/sqldb).
 #    # Required when type is "sqldb". The *sql.DB is injected into the factory
 #    # (UseSQLDB); the application chooses and registers the driver.
 #    sqldb:
@@ -106,19 +106,8 @@
 #      ensureSchema: false
 #
 #  # <object> Signed page tokens for querying events. Omit to return single pages.
-#  paging:
-#    # <string> Token signing key, at least 32 bytes, identical on every replica.
-#    # Default value: not set
-#    signingKey: "change-me-to-a-32-byte-or-longer-secret"
-#
-#    # <list[string]> Previous signing keys that still verify tokens after a rotation.
-#    # Default value: not set
-#    previousKeys:
-#      - "previous-32-byte-or-longer-signing-secret"
-#
-#    # <duration> How long a page token stays valid.
-#    # Default value: 24h
-#    tokenTTL: "24h"
+#  # See paging.yaml for full configuration options.
+#  !include paging.yaml
 #
 #  # <duration> Maximum time to wait during graceful shutdown.
 #  # Default value: 30s

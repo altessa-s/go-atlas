@@ -9,16 +9,16 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 // Mode selects the proxy-resolution strategy for the
-// transport/http/client and transport/grpc/client packages. The zero
+// go-atlas-net/http/client and transport/grpc/client packages. The zero
 // value (empty string) means "no override" — the underlying transport
 // keeps its default behavior. SSRF-protected Atlas HTTP clients disable
 // environment proxies. Every non-empty mode does
@@ -66,7 +66,7 @@ var proxyAllowedSchemes = coremaps.NewImmutableMap(map[string]struct{}{
 })
 
 // Config is the shared outbound proxy configuration. It contains schema and
-// validation only; transport/proxydial/factory converts it into client options.
+// validation only; factory/ext/net/proxydial converts it into client options.
 // Empty Mode retains the client's defaults; protected HTTP clients connect directly.
 type Config struct {
 	// Mode selects which fields below are consulted; see Mode

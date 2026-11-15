@@ -8,11 +8,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
 
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -143,15 +144,15 @@ func (c *Config) Validate() error {
 		validation.Field(&c.Database,
 			validation.When(!c.UseConnectionURI(), validation.Required)),
 		validation.Field(&c.TLS, validation.When(c.TLS != nil, validation.Required)),
-		validation.Field(&c.DialTimeout, ozzo_rules.Duration()),
-		validation.Field(&c.ReadTimeout, ozzo_rules.DurationOrZero()),
+		validation.Field(&c.DialTimeout, validationconfig.PositiveDuration()),
+		validation.Field(&c.ReadTimeout, validationconfig.NonNegativeDuration()),
 		// Required rejects zero: ozzo skips every other rule for an empty
 		// value, so Min(1) alone would let 0 through.
 		validation.Field(&c.MaxOpenConns,
 			validation.Required.Error("must be greater than 0"),
 			validation.Min(1).Error("must be greater than 0")),
 		validation.Field(&c.MaxIdleConns, validation.Min(0).Error("must be greater or equal 0")),
-		validation.Field(&c.ConnMaxLifetime, ozzo_rules.DurationOrZero()),
+		validation.Field(&c.ConnMaxLifetime, validationconfig.NonNegativeDuration()),
 		validation.Field(&c.Compression, ozzo_rules.OneOf(AllCompressions()...)),
 	)
 }
@@ -164,9 +165,9 @@ func (c *Config) validateConnectionURIConflicts() error {
 
 	var errs []error
 	errs = slices.AppendIf(errs, c.Username != "",
-		errors.New("username must not be set when connectionURI is used"))
+		cfgerrors.Invalidf("username must not be set when connectionURI is used"))
 	errs = slices.AppendIf(errs, !c.Password.IsEmpty(),
-		errors.New("password must not be set when connectionURI is used"))
+		cfgerrors.Invalidf("password must not be set when connectionURI is used"))
 
 	return errors.Join(errs...)
 }

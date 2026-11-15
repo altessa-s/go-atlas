@@ -20,10 +20,10 @@
 #    - "^/health\\..*"
 #
 #  # <list[string]> List of origins allowed to make cross-origin requests.
-#  # Use ["*"] to allow all origins.
+#  # List exact origins: a wildcard ("*") origin disables the protections of credentialed CORS.
 #  # Default value: not set
 #  allowedOrigins:
-#    - "*"
+#    - "https://app.example.com"
 #
 #  # <list[string]> List of HTTP methods allowed for cross-origin requests.
 #  # Default value: not set

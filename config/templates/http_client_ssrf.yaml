@@ -1,4 +1,4 @@
-# SSRF (Server-Side Request Forgery) egress policy for transport/http/client.
+# SSRF (Server-Side Request Forgery) egress policy for go-atlas-net/http/client.
 # Safe-by-default: SSRF protection is ENABLED unless you explicitly disable it.
 # When enabled, the client blocks connections to private and local IP addresses
 # (RFC1918, loopback, link-local), after DNS resolution and before the TCP
@@ -22,3 +22,45 @@
 #  allowedCIDRs:
 #    - 10.0.1.0/24
 #    - 192.168.10.0/24
+#
+#  # <list[object]> Allow rules of the egress policy
+#  # (go-atlas-net/http/client.EgressPolicy). A destination a deny rule matches is
+#  # refused (deny wins), else one an allow rule matches is allowed, else a
+#  # private or reserved address is refused. Every matcher set in a rule must
+#  # match. An allow rule needs a cidr; host and port only narrow it.
+#  # allowedCIDRs above are allow rules of this policy, after this list.
+#  # Ignored when disabled is true.
+#  # Default value: not set (only the private-address check)
+#  allow:
+#    # <string> Optional label of decisions and refusals: 1 to 64 characters
+#    # of A-Z, a-z, 0-9, '_', '.', '-', '[' and ']' (default "allow[i]").
+#    # Default value: not set
+#    - name: internalAPI
+#      # <string> Resolved-address prefix (an IPv4-mapped one needs /96 or more).
+#      # Default value: not set (any address)
+#      cidr: 10.0.1.0/24
+#      # <string> Case-insensitive path.Match glob of the requested host; "*"
+#      # crosses dots; no scheme, port, path or trailing dot.
+#      # Default value: not set (any host)
+#      host: "*.internal.example"
+#      # <int> Destination port, 1..65535.
+#      # Default value: 0 (any port)
+#      port: 443
+#
+#  # <list[object]> Deny rules of the egress policy; each one needs at least
+#  # one matcher. A rule without a cidr also refuses a matching host before
+#  # it is resolved. Ignored when disabled is true.
+#  # Default value: not set
+#  deny:
+#    # <string> Optional label of decisions and refusals (default "deny[i]").
+#    # Default value: not set
+#    - name: blockInternalSSH
+#      # <string> Resolved-address prefix.
+#      # Default value: not set (any address)
+#      cidr: 10.0.0.0/8
+#      # <string> Case-insensitive path.Match glob of the requested host.
+#      # Default value: not set (any host)
+#      host: "*.internal.example"
+#      # <int> Destination port, 1..65535.
+#      # Default value: 0 (any port)
+#      port: 22

@@ -7,15 +7,12 @@
 // config/, named with a config suffix (grpcconfig, redisconfig, authconfig)
 // so it does not clash with driver packages.
 //
-// Schemas carry yaml and default tags read by config/loader, expose Default*
+// Schemas carry yaml and default tags read by go-nomos/loader, expose Default*
 // constructors and Validate methods, and are mapped to generated options by
 // the component factories. Runtime packages never import schemas.
 //
 // # Schema packages
 //
-//   - config/validation (validationconfig): shared validation helpers for
-//     configuration schemas: struct validation with readable errors and
-//     storage-selector checks.
 //   - config/storage (storageconfig): shared storage-backend schemas: cache
 //     storage selection (memory, NATS, Redis) and NATS JetStream KeyValue
 //     settings.
@@ -28,6 +25,9 @@
 //     OPA and tracing exporters.
 //   - config/retry (retryconfig): the retry policy schema used by outbound
 //     clients.
+//   - config/paging (pagingconfig): the signed page-token schema (signing
+//     key, rotation keys, key encoding, TTL) shared by every paginated
+//     component.
 //   - config/tls (tlsconfig): TLS client and server schemas and the
 //     certificate provider schemas (file, Let's Encrypt, OCSP, S3, Vault).
 //   - config/clienthealth (clienthealthconfig): the client health-check schema
@@ -73,6 +73,5 @@
 //
 // # Other subpackages
 //
-//   - config/loader: multi-source configuration loading.
 //   - config/templates: commented YAML templates for every schema.
 package config

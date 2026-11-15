@@ -9,8 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config/loader"
-	"github.com/altessa-s/go-atlas/data/outbox"
+	"github.com/altessa-s/go-nomos/loader"
+
+	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 )
@@ -19,7 +20,7 @@ import (
 // `default:` tags on the new DispatchTaskID / UnlockTaskID /
 // ExpireTaskID / CleanupTaskID fields. The string literals in the
 // tags have to match the outbox.Default*TaskID constants — the
-// config package can't import data/outbox without closing an import
+// config package can't import reliability/outbox without closing an import
 // cycle, so the values are duplicated as struct-tag literals and
 // kept in sync by this test instead.
 //

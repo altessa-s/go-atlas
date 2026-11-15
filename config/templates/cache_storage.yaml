@@ -1,13 +1,13 @@
 # Cache storage configuration template.
-# Common storage settings for features using CacheStorageConfig (limiter, budget limiter, etc.).
-# This file is included via !include directive in other configuration templates.
+# Storage settings for the cache (cache) and its generation store, using CacheStorageConfig.
+# Include it via !include directive where a cache storage block is needed.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 
 #storage:
 #  # <string> Type of storage backend.
 #  # Determines which storage system to use for persistence.
-#  # Supported values: memory, redis, nats
+#  # Supported values: memory, redis
 #  # Default value: not set (required)
 #  type: redis
 #
@@ -21,35 +21,6 @@
 #    # Example: "0 */5 * * * *" (every 5 minutes)
 #    # Default value: @every 5m
 #    cleanupSchedule: "@every 5m"
-#
-#  # <object> NATS-specific configuration for storage.
-#  # Contains settings for NATS KeyValue bucket and replication.
-#  # Required when type is set to 'nats'.
-#  nats:
-#    # <string> Name of the NATS KeyValue bucket.
-#    # Bucket name in NATS KeyValue store.
-#    # Default value: not set (empty string)
-#    bucket: ""
-#
-#    # <int> Number of replicas for NATS KeyValue storage.
-#    # Higher values provide better availability but increase storage overhead.
-#    # Must be between 1 and 3.
-#    # Default value: 3
-#    replicas: 3
-#
-#    # <bool> Update an existing bucket whose key TTL differs from the feature's TTL.
-#    # When false, such a bucket is left untouched and the feature fails to build with
-#    # ErrBucketTTLMismatch: the bucket's key TTL expires every key in it, including
-#    # keys of other processes sharing the bucket.
-#    # Default value: false
-#    migrateBucketTTL: false
-#
-#    # <bool> Fail when the bucket already exists with another storage type.
-#    # When false, such a bucket is used as is and a warning is logged on every start;
-#    # the server cannot convert a bucket's storage type (see the backend's README for
-#    # the storage migration).
-#    # Default value: false
-#    strictBucketStorage: false
 #
 #  # <object> Redis-specific configuration for storage.
 #  # Redis-specific settings for key storage.

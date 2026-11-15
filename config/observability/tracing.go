@@ -5,12 +5,10 @@
 package observabilityconfig
 
 import (
-	"fmt"
-
-	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
+	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
 
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -247,14 +245,10 @@ type TracingOTLP struct {
 	// Defaults to true.
 	Compression bool `yaml:"compression" default:"true"`
 
-	// Proxy configures the outbound proxy for the OTLP exporter.
-	// Only valid when Protocol is "grpc" — combining Proxy with
-	// Protocol "http" is rejected at config-load to prevent silently
-	// dropping the proxy configuration. The upstream otlptracehttp
-	// transport handles its own proxy resolution via env vars; for
-	// HTTP protocol use HTTPS_PROXY/HTTP_PROXY/NO_PROXY instead.
-	// When omitted entirely (with Protocol "grpc"), grpc-go honors
-	// the same env variables.
+	// Proxy configures the outbound proxy for the OTLP exporter. It
+	// applies to both protocols: the factory builds the gRPC and HTTP
+	// exporter clients with the same proxy policy. When omitted, both
+	// honor the HTTPS_PROXY/HTTP_PROXY/NO_PROXY env variables.
 	Proxy *proxyconfig.Config `yaml:"proxy" default:"-"`
 }
 
@@ -270,19 +264,6 @@ func DefaultTracingOTLP() TracingOTLP {
 
 // Validate performs validation on the TracingOTLP configuration.
 func (o *TracingOTLP) Validate() error {
-	if o.Protocol == OTLPProtocolHTTP && o.Proxy != nil {
-		// Reject the combination at load time. Otherwise the factory
-		// would route Proxy via otlp.WithGRPCClientOptions, which the
-		// HTTP code path silently ignores — particularly dangerous
-		// for Mode=none (an operator's "no proxy" intent would
-		// silently fall back to env-based proxy through otlptracehttp).
-		return fmt.Errorf(
-			"TracingOTLP: proxy is not supported when protocol is %q; "+
-				"otlptracehttp manages its own proxy resolution via "+
-				"HTTPS_PROXY/HTTP_PROXY/NO_PROXY env vars",
-			OTLPProtocolHTTP,
-		)
-	}
 	return validationconfig.ValidateStruct(o,
 		validation.Field(&o.Endpoint, validation.Required),
 		validation.Field(&o.Protocol,

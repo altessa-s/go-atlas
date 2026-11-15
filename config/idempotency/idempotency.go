@@ -8,8 +8,7 @@ import (
 	"time"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -67,7 +66,7 @@ const (
 var storageAllowedTypes = []StorageType{StorageTypeMemory, StorageTypeRedis, StorageTypeNATS, StorageTypeMongo}
 
 // MongoStorageConfig configures the MongoDB key store
-// (data/idempotency/storages/mongo).
+// (reliability/idempotency/storages/mongo).
 type MongoStorageConfig struct {
 	// Collection is the MongoDB collection that stores the keys.
 	Collection string `yaml:"collection" default:"idempotency_keys"`
@@ -155,9 +154,9 @@ func Default() Config {
 // Returns an error if validation fails, nil otherwise.
 func (i *Config) Validate() error {
 	return validationconfig.ValidateStruct(i,
-		validation.Field(&i.TTL, validation.Required, ozzo_rules.Duration(), validation.Min(time.Minute)),
+		validation.Field(&i.TTL, validation.Required, validationconfig.PositiveDuration(), validation.Min(time.Minute)),
 		validation.Field(&i.MaxLockDuration, validation.When(i.MaxLockDuration != 0,
-			ozzo_rules.Duration(), validation.Min(time.Second))),
+			validationconfig.PositiveDuration(), validation.Min(time.Second))),
 		validation.Field(&i.Storage, validation.Required),
 	)
 }

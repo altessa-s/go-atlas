@@ -6,7 +6,7 @@ package httpconfig
 
 import (
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -32,9 +32,7 @@ func (c *LimiterMiddleware) Validate() error {
 // DefaultLimiterMiddleware returns a configuration for limiter middleware with default values.
 func DefaultLimiterMiddleware() LimiterMiddleware {
 	return LimiterMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:          false,
 		FallbackBehavior: middlewareconfig.FallbackBehaviorError,
 	}
 }

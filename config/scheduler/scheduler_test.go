@@ -13,8 +13,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/config/loader"
+	"github.com/altessa-s/go-nomos/loader"
 
+	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
 )
 
@@ -223,7 +224,7 @@ func TestConfig_ValidatePaging(t *testing.T) {
 
 	cfg := schedulerconfig.Default()
 	require.NoError(t, cfg.Validate(), "paging is optional")
-	cfg.Paging = &schedulerconfig.Paging{SigningKey: "short"}
+	cfg.Paging = &pagingconfig.Config{SigningKey: "short"}
 	require.Error(t, cfg.Validate(), "a short signing key is refused")
 	cfg.Paging.SigningKey = "0123456789abcdef0123456789abcdef"
 	require.NoError(t, cfg.Validate())

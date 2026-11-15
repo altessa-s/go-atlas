@@ -4,8 +4,6 @@
 
 package grpcconfig
 
-import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-
 // ErrStatusInterceptor defines the configuration for the error status interceptor.
 // The interceptor converts application errors to gRPC status errors and enriches
 // error responses with metadata such as domain and request information.
@@ -18,18 +16,14 @@ type ErrStatusInterceptor struct {
 	// Example: "myservice.example.com"
 	Domain *string `yaml:"domain"`
 
-	// CacheSize is the maximum number of entries in the error conversion cache.
+	// CacheSize is the number of error converters, in registration order,
+	// whose status is cached when it does not depend on the error.
 	// Set to 0 to disable caching. Default: 1000
 	CacheSize *int `yaml:"cacheSize"`
 
 	// CacheDisabled completely disables error conversion caching.
 	// Default: false
 	CacheDisabled bool `yaml:"cacheDisabled"`
-
-	// CacheOnlySentinel restricts caching to sentinel errors only.
-	// Prevents unbounded memory growth from caching dynamic errors.
-	// Default: false
-	CacheOnlySentinel bool `yaml:"cacheOnlySentinel"`
 }
 
 // IsEnabled returns true if error status conversion is enabled.
@@ -43,8 +37,6 @@ func (c *ErrStatusInterceptor) Validate() error {
 // DefaultErrStatusInterceptor returns a ErrStatusInterceptor with default values.
 func DefaultErrStatusInterceptor() ErrStatusInterceptor {
 	return ErrStatusInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled: false,
 	}
 }

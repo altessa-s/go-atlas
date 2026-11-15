@@ -1,7 +1,7 @@
 # Configuration for the gRPC metrics collection interceptor.
 # Collects request counts, durations, and optionally message sizes and
-# streaming metrics. Wires into the metrics.Collector configured at
-# service init time via ServerBuilder.UseCollector.
+# streaming metrics. Wires into the metrics.Meter configured at
+# service init time via ServerBuilder.UseMeter.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 
@@ -86,3 +86,11 @@
 #  # Supported values: per_message, per_stream
 #  # Default value: per_message
 #  streamSamplingStrategy: per_message
+#
+#  # <int> Cap on distinct method label values.
+#  # Method names are client-controlled when the server installs an unknown-service
+#  # handler, so methods seen after the cap is reached are recorded as "other"
+#  # instead of minting new series.
+#  # Set to 0 to keep the interceptor default.
+#  # Default value: 1024
+#  maxMethods: 1024

@@ -6,7 +6,7 @@ package grpcconfig //nolint:dupl // IP and geo ACL schemas are parallel by desig
 
 import (
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -23,6 +23,11 @@ type GeoACLInterceptor struct {
 	// FallbackBehavior defines how the interceptor behaves when no valid client IP is available
 	// or the geo resolver returns an error.
 	FallbackBehavior middlewareconfig.FallbackBehavior `yaml:"fallbackBehavior" default:"deny"`
+
+	// AllowPrivateAddresses lets clients with a loopback, private, link-local or otherwise reserved
+	// address through without a geographic check, deny lists included: such an address has no location.
+	// Only safe when the client IP source is trustworthy (realIP with trusted proxies).
+	AllowPrivateAddresses bool `yaml:"allowPrivateAddresses" default:"false"`
 
 	// Rules defines per-endpoint or per-pattern geographic access control rules.
 	Rules []middlewareconfig.GeoACLRule `yaml:"rules"`
@@ -54,9 +59,7 @@ func (c *GeoACLInterceptor) Validate() error {
 // Geographic access control is disabled by default.
 func DefaultGeoACLInterceptor() GeoACLInterceptor {
 	return GeoACLInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:          false,
 		DefaultPolicy:    "deny",
 		FallbackBehavior: middlewareconfig.FallbackBehaviorDeny,
 	}

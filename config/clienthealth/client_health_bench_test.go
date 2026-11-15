@@ -21,9 +21,7 @@ func BenchmarkHealthClientValidate(b *testing.B) {
 
 func BenchmarkHTTPHealthClientValidate(b *testing.B) {
 	h := HTTP{
-		Config: Config{
-			ServiceName: "benchmark-service",
-		},
+		ServiceName:     "benchmark-service",
 		RetryWindow:     60 * time.Second,
 		RetryThreshold:  0.2,
 		RetryMinSamples: 10,
@@ -38,9 +36,7 @@ func BenchmarkHTTPHealthClientValidate(b *testing.B) {
 
 func BenchmarkGRPCHealthClientValidate(b *testing.B) {
 	h := GRPC{
-		Config: Config{
-			ServiceName: "benchmark-service",
-		},
+		ServiceName: "benchmark-service",
 		StateMapper: StateMapperDefault,
 		PerTarget:   false,
 	}

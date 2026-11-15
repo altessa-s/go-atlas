@@ -7,9 +7,8 @@ package schedulerconfig
 import (
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
-
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -165,7 +164,7 @@ func DefaultStorageMemoryConfig() StorageMemoryConfig {
 }
 
 // StorageSQLConfig contains SQL-specific settings for the scheduler
-// storage (service/scheduler/storages/sqldb). The *sql.DB itself is injected
+// storage (go-horai/storage/sqldb). The *sql.DB itself is injected
 // into the factory; the caller chooses and registers the driver.
 type StorageSQLConfig struct {
 	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0+ and
@@ -274,7 +273,7 @@ func (c *StorageConfig) Validate() error {
 type HistoryStorageType string
 
 // HistoryStorageTypeClickHouse keeps execution history in a ClickHouse table
-// (service/scheduler/storages/clickhouse).
+// (go-horai/storage/clickhouse).
 const HistoryStorageTypeClickHouse HistoryStorageType = "clickhouse"
 
 // HistoryClickHouseConfig contains ClickHouse-specific settings for the
@@ -396,33 +395,7 @@ type Config struct {
 	// Paging configures the signed cursors of the paginated task and history
 	// lists. Without it those lists fail unless a codec is injected
 	// (UsePageTokens); scheduling itself does not need it.
-	Paging *Paging `yaml:"paging" default:"-"`
-}
-
-// Paging configures the signed page tokens of the paginated scheduler lists.
-type Paging struct {
-	// SigningKey signs page tokens: at least 32 bytes, the same on every
-	// instance serving the lists.
-	SigningKey redacted.RedactedString `yaml:"signingKey"`
-
-	// PreviousKeys still verify tokens signed before a key rotation.
-	PreviousKeys []redacted.RedactedString `yaml:"previousKeys"`
-
-	// TokenTTL is how long a page token stays valid; 0 keeps the default (24h).
-	TokenTTL time.Duration `yaml:"tokenTTL" default:"24h"`
-}
-
-// minPagingKeyLength mirrors keyset.MinKeyLength; schemas do not import
-// runtime packages.
-const minPagingKeyLength = 32
-
-// Validate performs validation of the paging configuration.
-func (p *Paging) Validate() error {
-	return validationconfig.ValidateStruct(p,
-		validation.Field(&p.SigningKey, validation.Required, validation.Length(minPagingKeyLength, 0)),
-		validation.Field(&p.PreviousKeys, validation.Each(validation.Length(minPagingKeyLength, 0))),
-		validation.Field(&p.TokenTTL, validation.Min(time.Duration(0))),
-	)
+	Paging *pagingconfig.Config `yaml:"paging" default:"-"`
 }
 
 // Default returns a Scheduler configuration with default values.
@@ -440,10 +413,10 @@ func Default() Config {
 // Returns an error if validation fails, nil otherwise.
 func (c *Config) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.TickInterval, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
-		validation.Field(&c.HistoryRetention, ozzo_rules.Duration(), validation.Min(time.Second)),
+		validation.Field(&c.TickInterval, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.HistoryRetention, validationconfig.PositiveDuration(), validation.Min(time.Second)),
 		validationconfig.NestedField(&c.Concurrency),
-		validation.Field(&c.StaleTaskTimeout, ozzo_rules.Duration(), validation.Min(0)),
+		validation.Field(&c.StaleTaskTimeout, validationconfig.PositiveDuration(), validation.Min(0)),
 		validation.Field(&c.InstanceID, validation.Length(0, MaxSchedulerInstanceIDLength)),
 		validation.Field(&c.Storage),
 		validation.Field(&c.HistoryStorage),

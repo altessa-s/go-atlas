@@ -9,6 +9,11 @@ import middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
 // GeoACLMiddleware defines the configuration for the HTTP geographic access control middleware.
 type GeoACLMiddleware struct {
 	ACLMiddleware[middlewareconfig.GeoACLRule] `yaml:",inline"`
+
+	// AllowPrivateAddresses lets clients with a loopback, private, link-local or otherwise reserved
+	// address through without a geographic check, deny lists included: such an address has no location.
+	// Only safe when the client IP source is trustworthy (realIP with trusted proxies).
+	AllowPrivateAddresses bool `yaml:"allowPrivateAddresses" default:"false"`
 }
 
 // Validate performs validation of the HTTP geographic access control middleware configuration.

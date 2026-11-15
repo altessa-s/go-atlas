@@ -7,7 +7,7 @@ package retryconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -64,5 +64,6 @@ func (r *Config) Validate() error {
 		validation.Field(&r.MaxDelay, validation.Required, validation.Min(time.Millisecond)),
 		validation.Field(&r.Multiplier, validation.Required, validation.Min(1.0)),
 		validation.Field(&r.Jitter, validation.Min(0.0), validation.Max(1.0)),
+		validation.Field(&r.MaxElapsedTime, validation.Min(time.Duration(0))),
 	)
 }

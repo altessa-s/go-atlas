@@ -5,8 +5,7 @@
 package httpconfig
 
 import (
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -16,8 +15,10 @@ type RealIPMiddleware struct {
 	BaseMiddleware `yaml:",inline"`
 
 	// Headers is a list of HTTP headers to check for the real client IP.
-	// Headers are checked in the order specified.
-	// Common values: ["X-Forwarded-For", "X-Real-IP", "True-Client-IP"].
+	// The first header present decides; a private or invalid value is not
+	// replaced by a later header. Default: ["X-Forwarded-For"]. Add a
+	// single-address header (X-Real-IP, CF-Connecting-IP, ...) only when the
+	// trusted proxy always sets or overwrites it.
 	Headers []string `yaml:"headers"`
 
 	// TrustedProxies is a list of IP addresses or CIDR ranges of trusted proxies.
@@ -42,10 +43,8 @@ func (c *RealIPMiddleware) Validate() error {
 // DefaultRealIPMiddleware returns a configuration for realip middleware with default values.
 func DefaultRealIPMiddleware() RealIPMiddleware {
 	return RealIPMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
-		Headers: []string{"X-Forwarded-For", "X-Real-IP"},
+		Enabled: false,
+		Headers: []string{"X-Forwarded-For"},
 	}
 }
 

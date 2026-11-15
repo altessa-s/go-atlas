@@ -5,7 +5,8 @@ import clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 ```
 
 Package `clienthealthconfig` defines the client health-check schema for outbound gRPC and HTTP clients. Schemas are populated by
-[`config/loader`](../loader) and consumed by the component factories, which map them to generated options; runtime packages never import them.
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 

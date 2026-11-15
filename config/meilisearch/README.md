@@ -4,8 +4,9 @@
 import meilisearchconfig "github.com/altessa-s/go-atlas/config/meilisearch"
 ```
 
-Package `meilisearchconfig` defines the Meilisearch connection schema. Schemas are populated by [`config/loader`](../loader) and consumed by the
-component factories, which map them to generated options; runtime packages never import them.
+Package `meilisearchconfig` defines the Meilisearch connection schema. Schemas are populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 

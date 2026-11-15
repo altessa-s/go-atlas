@@ -46,6 +46,18 @@
 #    # Default value: not set (repository root)
 #    dir: policies/opa
 #
+#    # <bool> Permit a plain http:// endpoint. The access token and the policies then
+#    # cross the network unprotected; use only on a trusted network.
+#    # Default value: false
+#    allowInsecureHTTP: false
+#
+#    # <map[string]string> Pins policy and data files: file names relative to dir mapped to
+#    # their lower-case SHA-256 hex digests. When set, every fetched file must match its entry
+#    # and every entry must be fetched.
+#    # Default value: not set (no verification)
+#    checksums:
+#      authz.rego: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+#
 #    # <object> Outbound HTTP proxy for GitLab API requests.
 #    # When unset the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env variables apply.
 #    # See http_proxy.yaml for the full field list.
@@ -72,6 +84,11 @@
 #    # Default value: not set
 #    endpoint: https://s3.example.com
 #
+#    # <bool> Permit a plain http:// endpoint. SigV4 protects the credentials but not the
+#    # policy content, which then crosses the network unprotected; use only on a trusted network.
+#    # Default value: false
+#    allowInsecureHTTP: false
+#
 #    # <string> AWS access key ID.
 #    # Optional; defaults to environment/instance credentials.
 #    # Default value: not set
@@ -85,6 +102,13 @@
 #    # <bool> Enable path-style addressing (required for MinIO and some S3-compatible stores).
 #    # Default value: false
 #    pathStyle: false
+#
+#    # <map[string]string> Pins policy and data objects: object keys relative to prefix mapped
+#    # to their lower-case SHA-256 hex digests. When set, every fetched object must match its
+#    # entry and every entry must be fetched.
+#    # Default value: not set (no verification)
+#    checksums:
+#      authz.rego: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 #
 #    # <object> Outbound HTTP proxy for S3 API requests.
 #    # When unset the AWS SDK's default transport applies (which already

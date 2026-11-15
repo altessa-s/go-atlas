@@ -33,6 +33,12 @@
 #  # Default value: deny
 #  fallbackBehavior: deny
 #
+#  # <bool> Let clients with a loopback, private, link-local or otherwise reserved address through without a geographic check.
+#  # Such an address has no location, so an allow list or the deny policy would turn away health probes and in-cluster callers.
+#  # Risk: it skips deny lists too for these clients; only safe when the client IP source is trustworthy (realIP with trustedProxies set).
+#  # Default value: false
+#  allowPrivateAddresses: false
+#
 #  # <object> Default rule applied when no path-specific rule matches.
 #  # Useful for setting baseline geographic access across all paths. Its endpoints and patterns are ignored.
 #  defaultRule:

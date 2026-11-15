@@ -7,8 +7,7 @@ package observabilityconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -103,13 +102,13 @@ func DefaultHealth() Health {
 // Returns an error if any validation rules fail.
 func (h *Health) Validate() error {
 	return validationconfig.ValidateStruct(h,
-		validation.Field(&h.HealthCheckInterval, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&h.HealthCheckInterval, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		validation.Field(&h.WatcherChannelBuffer, validation.Min(0)),
 		validation.Field(&h.MaxWatchersPerService, validation.Min(0)),
 		validation.Field(&h.NumShards, validation.Required, validation.Min(1)),
 		validation.Field(&h.MaxConcurrentHealthChecks, validation.Required, validation.Min(1)),
-		validation.Field(&h.StatusCacheTTL, ozzo_rules.DurationOrZero()),
-		validation.Field(&h.CheckTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&h.StatusCacheTTL, validationconfig.NonNegativeDuration()),
+		validation.Field(&h.CheckTimeout, validationconfig.PositiveDuration(), validation.Min(time.Millisecond)),
 		// Required is paired with Min because ozzo-validation skips every
 		// rule but Required for a zero value — Min(1) alone accepts 0.
 		validation.Field(&h.AdaptiveBufferThreshold, validation.Required, validation.Min(1)),

@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/core/time/timeformat"
+	"github.com/altessa-s/go-atlas-core/time/timeformat"
 
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -100,9 +99,7 @@ func (c *LoggerMiddleware) Validate() error {
 // DefaultLoggerMiddleware returns a configuration for logger middleware with default values.
 func DefaultLoggerMiddleware() LoggerMiddleware {
 	return LoggerMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:     false,
 		TimeFormat:  timeformat.RFC3339,
 		LogResponse: true,
 	}

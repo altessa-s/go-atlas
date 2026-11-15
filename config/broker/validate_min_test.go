@@ -19,11 +19,6 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 		name     string
 		validate func() error
 	}{
-		{"InProgress.MaxEntries", func() error {
-			c := validInProgress()
-			c.MaxEntries = 0
-			return c.Validate()
-		}},
 		{"Outbox.FetchTimeout", func() error {
 			c := validOutbox()
 			c.FetchTimeout = 0
@@ -63,21 +58,7 @@ func TestValidate_ZeroRejectedByMinGuardedFields(t *testing.T) {
 func TestValidate_ZeroRejectedByMinGuardedFields_BaselinesAreValid(t *testing.T) {
 	t.Parallel()
 
-	require.NoError(t, func() error { c := validInProgress(); return c.Validate() }())
 	require.NoError(t, func() error { c := validOutbox(); return c.Validate() }())
-}
-
-func validInProgress() InProgress {
-	return InProgress{
-		Enabled:                  true,
-		TickSchedule:             defaultInProgressTickSchedule,
-		DefaultHeartbeatInterval: defaultInProgressHeartbeatInterval,
-		MaxEntries:               defaultInProgressMaxEntries,
-		Metrics: InProgressMetrics{
-			Enabled: defaultInProgressMetricsEnabled,
-			Prefix:  defaultInProgressMetricsPrefix,
-		},
-	}
 }
 
 func validOutbox() Outbox {

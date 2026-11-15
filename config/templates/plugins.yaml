@@ -96,6 +96,14 @@
 #    # Default value: not set
 #    publicKeyPath: /etc/myservice/plugins.pub
 #
+#  # <list[string]> SHA-256 hex digests (64 hex characters, case-insensitive) of plugin builds
+#  # that must not load even though they are validly signed (a signature covers the bytes, so an
+#  # older signed build stays verifiable forever). Checked before signature verification and
+#  # before any plugin code runs; a listed build fails with plugins.ErrPluginRevoked.
+#  # Default value: not set
+#  revokedHashes:
+#    - 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+#
 #  # <object> Linux process-hardening primitives applied lazily on the first
 #  # Manager.Load call. Read every line below before enabling.
 #  #
@@ -204,8 +212,9 @@
 #    #   - Requires the parent sandbox.enabled = true. Landlock is a sub-
 #    #     feature of the umbrella sandbox.
 #    #
-#    # See docs/plugins.md for the minimum-viable allowlist on common
-#    # Linux distros (glibc x86_64, glibc arm64, musl-Alpine).
+#    # See the go-proteus plugin host (https://github.com/altessa-s/go-proteus)
+#    # for the minimum-viable allowlist on common Linux distros (glibc
+#    # x86_64, glibc arm64, musl-Alpine).
 #    landlock:
 #      # <bool> Turn Landlock on.
 #      # Default value: false

@@ -5,10 +5,9 @@
 package grpcconfig
 
 import (
-	"github.com/altessa-s/go-atlas/core/time/timeformat"
+	"github.com/altessa-s/go-atlas-core/time/timeformat"
 
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -81,9 +80,7 @@ func (c *LoggerInterceptor) Validate() error {
 // Logging is disabled by default.
 func DefaultLoggerInterceptor() LoggerInterceptor {
 	return LoggerInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:             false,
 		TimeFormat:          timeformat.RFC3339,
 		LogRequest:          false,
 		LogResponse:         true,

@@ -5,7 +5,7 @@
 package authconfig
 
 import (
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -32,7 +32,7 @@ func (r ScopeRule) Validate() error {
 
 // ScopeRegistry is the configuration for a scope authorization registry: the
 // declarative action-key→required-scope table consumed by
-// [auth/scope/factory.New]. It carries no principal, matcher, or authorizer
+// [factory/auth/scope.New]. It carries no principal, matcher, or authorizer
 // concern — those stay in code, since they depend on the caller's principal type.
 //
 // Example:

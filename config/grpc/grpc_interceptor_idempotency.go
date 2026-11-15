@@ -6,7 +6,7 @@ package grpcconfig
 
 import (
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -70,7 +70,8 @@ type IdempotencyInterceptor struct {
 	// ResponseReplay stores the response of a completed unary call and
 	// returns it to a repeat of the request instead of
 	// FAILED_PRECONDITION. Off by default: the repeat's caller receives the
-	// original response, so scope keys per principal.
+	// original response. Only a record bound to an owner (Keeper owners,
+	// the verified principal by default) is replayed; others keep the refusal.
 	ResponseReplay bool `yaml:"responseReplay"`
 
 	// MaxReplaySize bounds a stored response, in bytes of the marshaled
@@ -99,7 +100,7 @@ type IdempotencyInterceptor struct {
 	// ExposeEntityID echoes the stored entity id to a duplicate request.
 	// Off by default: the caller presenting a duplicate key is not verified
 	// to be the principal that created the entity, unless the Keeper checks
-	// owners.
+	// owners. Only a record bound to an owner has its entity id echoed.
 	ExposeEntityID bool `yaml:"exposeEntityID" default:"false"`
 }
 
@@ -157,9 +158,7 @@ func (c *IdempotencyInterceptor) Validate() error {
 // Idempotency checking is disabled by default.
 func DefaultIdempotencyInterceptor() IdempotencyInterceptor {
 	return IdempotencyInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:                        false,
 		IdempotencyKeyHeader:           defaultIdempotencyKeyHeader,
 		KeyFormat:                      middlewareconfig.IdempotencyKeyFormatUUIDv4,
 		FallbackBehavior:               middlewareconfig.FallbackBehaviorDeny,

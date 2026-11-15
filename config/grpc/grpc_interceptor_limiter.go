@@ -6,7 +6,7 @@ package grpcconfig
 
 import (
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -52,9 +52,7 @@ func (c *LimiterInterceptor) Validate() error {
 // Rate limiting is disabled by default.
 func DefaultLimiterInterceptor() LimiterInterceptor {
 	return LimiterInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:          false,
 		FallbackBehavior: middlewareconfig.FallbackBehaviorDeny,
 	}
 }

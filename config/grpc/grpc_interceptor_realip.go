@@ -6,7 +6,7 @@ package grpcconfig
 
 import (
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -42,9 +42,10 @@ type RealIPInterceptor struct {
 	TrustPrivatePeers bool `yaml:"trustPrivatePeers" default:"false"`
 
 	// Headers is a list of headers to check for real IP (in order of preference).
-	// The interceptor will check these headers in order until a valid IP is found.
-	// Default headers: X-Forwarded-For, X-Real-IP, X-Client-IP, CF-Connecting-IP,
-	// Fastly-Client-Ip, True-Client-Ip.
+	// The first header present decides; a private or invalid value is not
+	// replaced by a later header. Default: X-Forwarded-For only. Add a
+	// single-address header (X-Real-IP, CF-Connecting-IP, ...) only when the
+	// trusted proxy always sets or overwrites it.
 	Headers []string `yaml:"headers"`
 
 	// CacheSize specifies the size of the IP validation cache (0 to disable).
@@ -86,9 +87,7 @@ func (c *RealIPInterceptor) Validate() error {
 // Real IP extraction is disabled by default.
 func DefaultRealIPInterceptor() RealIPInterceptor {
 	return RealIPInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:             false,
 		TrustedProxiesCount: 0,
 		CacheSize:           defaultRealIPCacheSize,
 	}

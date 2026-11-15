@@ -8,10 +8,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/config/internal/utils"
-	"github.com/altessa-s/go-atlas/core/types/redacted"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -24,8 +24,8 @@ const EnvAllowInsecureTLS = "ATLAS_ALLOW_INSECURE_TLS"
 
 // SkipVerifyMode controls how the TLS factory reacts when a
 // [Client] config has SkipVerify=true. Follows the project's
-// safety-mode pattern (mirror of plugins.SignatureMode and
-// oidc.JWKSFailureMode) so operators have a uniform escape hatch shape.
+// safety-mode pattern (mirror of oidc.JWKSFailureMode) so operators have
+// a uniform escape hatch shape.
 type SkipVerifyMode string
 
 const (

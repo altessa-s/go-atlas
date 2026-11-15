@@ -139,12 +139,12 @@
 #    kms:
 #      # <string> KMS provider type.
 #      # Determines which key management service to use.
-#      # Supported values: local, amazon, azure, google
+#      # Supported values: local, aws, azure, gcp
 #      # Required when encryption is configured.
 #      # Default value: not set
 #      provider: local
 #
-#      # The provider sections below (local, amazon, azure, google) are alternatives;
+#      # The provider sections below (local, aws, azure, gcp) are alternatives;
 #      # configure the one matching provider.
 #      #
 #      # <object> Local KMS provider configuration.
@@ -160,9 +160,9 @@
 #        # Default value: not set
 #        masterKeyFile:
 #
-#      # <object> Amazon KMS provider configuration.
+#      # <object> AWS KMS provider configuration.
 #      # Uses AWS KMS for encryption key management.
-#      amazon:
+#      aws:
 #        # <string> AWS access key ID for authentication.
 #        # Default value: not set
 #        accessKeyID:
@@ -221,9 +221,9 @@
 #        # <object> TLS configuration for Azure KMS communication.
 #        !include tls-client.yaml
 #
-#      # <object> Google KMS provider configuration.
+#      # <object> GCP KMS provider configuration.
 #      # Uses Google Cloud KMS for encryption key management.
-#      google:
+#      gcp:
 #        # <string> Google Cloud KMS endpoint.
 #        # Default value: not set
 #        endpoint:

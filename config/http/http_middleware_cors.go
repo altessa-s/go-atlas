@@ -5,8 +5,7 @@
 package httpconfig
 
 import (
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -69,9 +68,7 @@ func (c *CORSMiddleware) Validate() error {
 // DefaultCORSMiddleware returns a configuration for cors middleware with default values.
 func DefaultCORSMiddleware() CORSMiddleware {
 	return CORSMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:              false,
 		MaxAge:               DefaultCorsMaxAge,
 		OptionsSuccessStatus: DefaultCorsOptionsSuccessStatus,
 	}

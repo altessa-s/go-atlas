@@ -5,7 +5,8 @@ import s3config "github.com/altessa-s/go-atlas/config/s3"
 ```
 
 Package `s3config` defines the S3 connection schema shared by TLS certificate providers and OPA bundle sources. Schemas are populated by
-[`config/loader`](../loader) and consumed by the component factories, which map them to generated options; runtime packages never import them.
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 

@@ -7,13 +7,13 @@ package sagaconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 // Default values for Saga configuration. They mirror the orchestrator option
-// defaults in data/saga so YAML and code stay in sync.
+// defaults in reliability/saga so YAML and code stay in sync.
 const (
 	defaultSagaExecutionTimeout        = 5 * time.Minute
 	defaultSagaLeaseGrace              = 30 * time.Second
@@ -65,7 +65,7 @@ var sagaStorageAllowedTypes = []StorageType{
 }
 
 // MemoryStorageConfig configures the in-process saga store
-// (data/saga/storages/memory). The backend has no tunables; the type exists so
+// (reliability/saga/storages/memory). The backend has no tunables; the type exists so
 // every storage backend has a dedicated, discoverable config section.
 type MemoryStorageConfig struct{}
 
@@ -75,7 +75,7 @@ func (c *MemoryStorageConfig) Validate() error {
 }
 
 // NATSStorageConfig configures the durable saga store backed by a NATS
-// JetStream KeyValue bucket (data/saga/storages/nats).
+// JetStream KeyValue bucket (reliability/saga/storages/nats).
 type NATSStorageConfig struct {
 	// Bucket is the NATS KeyValue bucket name.
 	Bucket string `yaml:"bucket" default:"saga"`
@@ -97,12 +97,12 @@ type NATSStorageConfig struct {
 func (c *NATSStorageConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Bucket, validation.Required),
-		validation.Field(&c.MaxAge, validation.When(c.MaxAge != 0, ozzo_rules.Duration())),
+		validation.Field(&c.MaxAge, validation.When(c.MaxAge != 0, validationconfig.PositiveDuration())),
 	)
 }
 
 // MongoStorageConfig configures the durable saga store backed by a MongoDB
-// collection (data/saga/storages/mongo).
+// collection (reliability/saga/storages/mongo).
 type MongoStorageConfig struct {
 	// Collection is the MongoDB collection that stores saga instances.
 	Collection string `yaml:"collection" default:"saga_instances"`
@@ -116,7 +116,7 @@ func (c *MongoStorageConfig) Validate() error {
 }
 
 // RedisStorageConfig configures the durable saga store backed by Redis
-// (data/saga/storages/redis).
+// (reliability/saga/storages/redis).
 type RedisStorageConfig struct {
 	// KeysPrefix is prepended to every Redis key the store writes.
 	KeysPrefix string `yaml:"keysPrefix" default:"saga:"`
@@ -128,12 +128,12 @@ type RedisStorageConfig struct {
 func (c *RedisStorageConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.KeysPrefix, validation.Required),
-		validation.Field(&c.TTL, validation.When(c.TTL != 0, ozzo_rules.Duration())),
+		validation.Field(&c.TTL, validation.When(c.TTL != 0, validationconfig.PositiveDuration())),
 	)
 }
 
 // SQLStorageConfig configures the durable saga store backed by a SQL table
-// (data/saga/storages/sqldb). The *sql.DB itself is injected into the factory;
+// (reliability/saga/storages/sqldb). The *sql.DB itself is injected into the factory;
 // the caller chooses and registers the driver.
 type SQLStorageConfig struct {
 	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0+ and
@@ -237,7 +237,7 @@ func (c *StorageConfig) Validate() error {
 }
 
 // Config configures the saga orchestrator and its state store. It mirrors the
-// data/saga orchestrator options plus the storage-backend selection.
+// reliability/saga orchestrator options plus the storage-backend selection.
 //
 // Example:
 //
@@ -319,17 +319,17 @@ func (s *Config) Normalize() {
 func (s *Config) Validate() error {
 	return validationconfig.ValidateStruct(s,
 		validation.Field(&s.Storage, validation.Required),
-		validation.Field(&s.ExecutionTimeout, validation.When(s.ExecutionTimeout != 0, ozzo_rules.Duration())),
-		validation.Field(&s.LeaseGrace, validation.When(s.LeaseGrace != 0, ozzo_rules.Duration())),
-		validation.Field(&s.StorageTimeout, validation.When(s.StorageTimeout != 0, ozzo_rules.Duration())),
-		validation.Field(&s.RecoveryTimeout, validation.When(s.RecoveryTimeout != 0, ozzo_rules.Duration())),
-		validation.Field(&s.StepTimeout, validation.When(s.StepTimeout != 0, ozzo_rules.Duration())),
-		validation.Field(&s.SagaTimeout, validation.When(s.SagaTimeout != 0, ozzo_rules.Duration())),
+		validation.Field(&s.ExecutionTimeout, validation.When(s.ExecutionTimeout != 0, validationconfig.PositiveDuration())),
+		validation.Field(&s.LeaseGrace, validation.When(s.LeaseGrace != 0, validationconfig.PositiveDuration())),
+		validation.Field(&s.StorageTimeout, validation.When(s.StorageTimeout != 0, validationconfig.PositiveDuration())),
+		validation.Field(&s.RecoveryTimeout, validation.When(s.RecoveryTimeout != 0, validationconfig.PositiveDuration())),
+		validation.Field(&s.StepTimeout, validation.When(s.StepTimeout != 0, validationconfig.PositiveDuration())),
+		validation.Field(&s.SagaTimeout, validation.When(s.SagaTimeout != 0, validationconfig.PositiveDuration())),
 		// Required is paired with Min because ozzo-validation skips every
 		// rule but Required for a zero value — Min(1) alone accepts 0.
 		validation.Field(&s.MaxStepAttempts, validation.Required, validation.Min(1)),
-		validation.Field(&s.StepRetryBaseDelay, validation.When(s.StepRetryBaseDelay != 0, ozzo_rules.Duration())),
-		validation.Field(&s.StepRetryMaxDelay, validation.When(s.StepRetryMaxDelay != 0, ozzo_rules.Duration())),
+		validation.Field(&s.StepRetryBaseDelay, validation.When(s.StepRetryBaseDelay != 0, validationconfig.PositiveDuration())),
+		validation.Field(&s.StepRetryMaxDelay, validation.When(s.StepRetryMaxDelay != 0, validationconfig.PositiveDuration())),
 		validation.Field(&s.MaxCompensationAttempts, validation.Required, validation.Min(1)),
 		validation.Field(&s.StepConcurrency, validation.Min(0)),
 		validation.Field(&s.RecoverySchedule, validation.Required),

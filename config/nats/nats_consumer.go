@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -160,7 +160,7 @@ func (nc *Consumer) Validate() error {
 			validation.When(nc.DeliverPolicy == DeliverPolicyByStartTime,
 				validation.Required.Error("optStartTime is required when deliverPolicy is by_start_time"))),
 		validation.Field(&nc.AckPolicy, ozzo_rules.OneOf(AckPolicyNone, AckPolicyAll, AckPolicyExplicit)),
-		validation.Field(&nc.AckWait, validation.When(nc.AckPolicy != AckPolicyNone, ozzo_rules.Duration())),
+		validation.Field(&nc.AckWait, validation.When(nc.AckPolicy != AckPolicyNone, validationconfig.PositiveDuration())),
 		validation.Field(&nc.MaxDeliver, validation.Min(-1).Error("must be -1 (unlimited) or greater")),
 		validation.Field(&nc.BackOff, validation.By(validateBackOff)),
 		validation.Field(&nc.ReplayPolicy, ozzo_rules.OneOf(ReplayPolicyInstant, ReplayPolicyOriginal)),
@@ -172,7 +172,7 @@ func (nc *Consumer) Validate() error {
 		validation.Field(&nc.MaxWaiting,
 			validation.Required.Error("must be greater than 0"),
 			validation.Min(1).Error("must be greater than 0")),
-		validation.Field(&nc.InactiveThreshold, ozzo_rules.DurationOrZero()),
+		validation.Field(&nc.InactiveThreshold, validationconfig.NonNegativeDuration()),
 	)
 }
 

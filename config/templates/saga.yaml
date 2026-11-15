@@ -1,5 +1,5 @@
 # Saga orchestrator configuration.
-# Defines settings for the saga engine (data/saga): state-store backend plus
+# Defines settings for the saga engine (reliability/saga): state-store backend plus
 # step/compensation timeouts, retries, and the background recovery cycle.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
@@ -13,13 +13,13 @@
 #    # Default value: memory
 #    type: memory
 #
-#    # <object> In-process storage configuration (data/saga/storages/memory).
+#    # <object> In-process storage configuration (reliability/saga/storages/memory).
 #    # The backend has no tunables; the section exists for symmetry.
 #    # Used when type is set to 'memory'.
 #    memory: {}
 #
 #    # <object> NATS JetStream KeyValue storage configuration
-#    # (data/saga/storages/nats). Used when type is set to 'nats'.
+#    # (reliability/saga/storages/nats). Used when type is set to 'nats'.
 #    nats:
 #      # <string> Name of the NATS KeyValue bucket.
 #      # Default value: saga
@@ -45,14 +45,14 @@
 #      # Default value: false
 #      strictBucketStorage: false
 #
-#    # <object> MongoDB storage configuration (data/saga/storages/mongo).
+#    # <object> MongoDB storage configuration (reliability/saga/storages/mongo).
 #    # Used when type is set to 'mongo'.
 #    mongo:
 #      # <string> Collection that stores saga instances.
 #      # Default value: saga_instances
 #      collection: saga_instances
 #
-#    # <object> Redis storage configuration (data/saga/storages/redis).
+#    # <object> Redis storage configuration (reliability/saga/storages/redis).
 #    # Used when type is set to 'redis'.
 #    redis:
 #      # <string> Prefix prepended to every Redis key.
@@ -63,7 +63,7 @@
 #      # Default value: 0s (persist)
 #      ttl: "0s"
 #
-#    # <object> SQL storage configuration (data/saga/storages/sqldb).
+#    # <object> SQL storage configuration (reliability/saga/storages/sqldb).
 #    # The *sql.DB is injected into the factory (UseSQLDB); the application
 #    # chooses and registers the driver.
 #    # Used when type is set to 'sqldb'.

@@ -157,8 +157,7 @@
 #
 #    # <string> Behavior when the stapler cannot fetch a valid OCSP
 #    # response for a certificate. Mirrors the project-wide safety-mode
-#    # pattern (plugins.SignatureMode, oidc.JWKSFailureMode,
-#    # config.TLSSkipVerifyMode).
+#    # pattern (oidc.JWKSFailureMode, config.TLSSkipVerifyMode).
 #    # Supported values:
 #    #   - soft -- return the cert without an OCSP staple when the
 #    #     responder is unreachable or returns an invalid response.

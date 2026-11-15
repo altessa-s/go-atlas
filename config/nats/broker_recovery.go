@@ -7,8 +7,7 @@ package natsconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -79,8 +78,8 @@ func (c Recovery) Validate() error {
 			validation.Required.Error("must be at least 1"),
 			validation.Min(1).Error("must be at least 1"),
 			validation.Max(maxRecoveryAttempts).Error("must be at most 100")),
-		validation.Field(&c.RecoveryBackoff, ozzo_rules.Duration()),
-		validation.Field(&c.StaleRecoveryTimeout, ozzo_rules.Duration()),
+		validation.Field(&c.RecoveryBackoff, validationconfig.PositiveDuration()),
+		validation.Field(&c.StaleRecoveryTimeout, validationconfig.PositiveDuration()),
 		validation.Field(&c.StaleRecoveryCleanupSchedule, validation.Required),
 	)
 }

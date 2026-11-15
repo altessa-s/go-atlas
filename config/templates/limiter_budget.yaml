@@ -17,7 +17,7 @@
 #
 #  # <object> Storage configuration for budget counters.
 #  # Supports multiple storage backends with provider-specific settings.
-#  !include cache_storage.yaml
+#  !include storage_backend.yaml
 #
 #  # <object> Compare-and-swap retry tuning for the NATS storage; ignored by other storages.
 #  # Default value: not set (storage defaults apply)

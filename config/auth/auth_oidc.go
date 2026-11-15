@@ -10,11 +10,11 @@ import (
 
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -30,7 +30,15 @@ const (
 	defaultOIDCRevocationSyncEnabled  = true
 	defaultOIDCRevocationSyncSchedule = "0 0 * * * *"
 	defaultOIDCRevocationItemType     = "token"
-	defaultOIDCCacheEnabled           = false
+	// defaultOIDCRevocationMaxStaleness mirrors oidc.DefaultRevocationMaxStaleness:
+	// three periods of defaultOIDCRevocationSyncSchedule.
+	defaultOIDCRevocationMaxStaleness = 3 * time.Hour
+	// defaultOIDCRevocationSyncTimeout mirrors oidc.DefaultRevocationSyncTimeout.
+	defaultOIDCRevocationSyncTimeout = 5 * time.Minute
+	// defaultOIDCRevocationMaxResponseBytes mirrors
+	// oidc.DefaultRevocationMaxResponseBytes (256 MiB).
+	defaultOIDCRevocationMaxResponseBytes int64 = 256 << 20
+	defaultOIDCCacheEnabled                     = false
 )
 
 var (
@@ -228,6 +236,7 @@ func (v *OIDCValidation) Validate() error {
 		validation.Field(&v.Issuer, validation.NilOrNotEmpty, validation.When(v.Issuer != nil, is.URL)),
 		validation.Field(&v.Claims, validation.NilOrNotEmpty),
 		validation.Field(&v.MaxTokenLifetime, validation.Min(time.Duration(0))),
+		validation.Field(&v.Expression),
 	)
 }
 
@@ -384,8 +393,8 @@ func (p *OIDCPresets) Validate() error {
 	}
 
 	return validationconfig.ValidateStruct(p,
-		validation.Field(&p.List, validation.Each(validation.Required)),
-		validation.Field(&p.Selectors, validation.Each(validation.Required)),
+		validationconfig.NestedEach(&p.List),
+		validationconfig.NestedEach(&p.Selectors),
 	)
 }
 
@@ -418,6 +427,7 @@ func (p *OIDCPreset) Validate() error {
 		validation.Field(&p.Issuer, validation.NilOrNotEmpty, validation.When(p.Issuer != nil, is.URL)),
 		validation.Field(&p.MaxTokenLifetime, validation.Min(time.Duration(0))),
 		validation.Field(&p.Claims, validation.NilOrNotEmpty),
+		validation.Field(&p.Expression),
 	)
 }
 
@@ -463,6 +473,30 @@ type OIDCRevocation struct {
 	// SyncSchedule is the cron expression for periodic revocation synchronization.
 	SyncSchedule string `yaml:"syncSchedule" default:"0 0 * * * *"`
 
+	// MaxStaleness bounds how long a "not revoked" answer is trusted after the
+	// last successful sync: past it tokens are rejected (accepted with
+	// FailOpen) until a sync succeeds again. It applies only while SyncEnabled
+	// schedules the sync; keep it at several sync intervals. Zero disables the
+	// bound.
+	MaxStaleness time.Duration `yaml:"maxStaleness" default:"3h"`
+
+	// SyncTimeout bounds one scheduled sync: a sync that runs longer fails and
+	// keeps the current revocation set. Zero disables the timeout.
+	SyncTimeout time.Duration `yaml:"syncTimeout" default:"5m"`
+
+	// MaxResponseBytes caps the body read from Source.URL; a larger list fails
+	// the sync instead of being applied cut off. It does not apply to
+	// Source.File.
+	MaxResponseBytes int64 `yaml:"maxResponseBytes" default:"268435456"` // 256 MiB
+
+	// AllowEmpty makes an empty revocation list authoritative: the filter is
+	// rebuilt empty and the sync succeeds. The default (false) treats a source
+	// that turns up empty while the revocation set holds entries as a failed
+	// sync and keeps the set. Enable it only when the list can legitimately
+	// become empty: a source that answers with an empty body during an outage
+	// then un-revokes everything.
+	AllowEmpty bool `yaml:"allowEmpty" default:"false"`
+
 	// ItemType specifies what items are being revoked: "token", "jti", or "kid"
 	ItemType string `yaml:"itemType" default:"token"`
 
@@ -482,20 +516,27 @@ type OIDCRevocation struct {
 // DefaultOIDCRevocation returns an OIDCRevocation configuration with default values.
 func DefaultOIDCRevocation() OIDCRevocation {
 	return OIDCRevocation{
-		Enabled:      defaultOIDCRevocationEnabled,
-		SyncEnabled:  defaultOIDCRevocationSyncEnabled,
-		SyncSchedule: defaultOIDCRevocationSyncSchedule,
-		ItemType:     defaultOIDCRevocationItemType,
+		Enabled:          defaultOIDCRevocationEnabled,
+		SyncEnabled:      defaultOIDCRevocationSyncEnabled,
+		SyncSchedule:     defaultOIDCRevocationSyncSchedule,
+		MaxStaleness:     defaultOIDCRevocationMaxStaleness,
+		SyncTimeout:      defaultOIDCRevocationSyncTimeout,
+		MaxResponseBytes: defaultOIDCRevocationMaxResponseBytes,
+		ItemType:         defaultOIDCRevocationItemType,
 	}
 }
 
 // Validate performs validation on the OIDCRevocation configuration.
+// Filter and Source are required only when revocation is enabled.
 func (r *OIDCRevocation) Validate() error {
 	return validationconfig.ValidateStruct(r,
 		validation.Field(&r.SyncSchedule, validation.When(r.SyncEnabled && r.Enabled, validation.Required)),
+		validation.Field(&r.MaxStaleness, validation.Min(time.Duration(0))),
+		validation.Field(&r.SyncTimeout, validation.Min(time.Duration(0))),
+		validation.Field(&r.MaxResponseBytes, validation.Required, validation.Min(int64(1))),
 		validation.Field(&r.ItemType, validation.In("token", "jti", "kid")),
-		validation.Field(&r.Filter, validation.Required),
-		validation.Field(&r.Source, validation.Required),
+		validation.Field(&r.Filter, validation.When(r.Enabled, validation.Required)),
+		validation.Field(&r.Source, validation.When(r.Enabled, validation.Required)),
 	)
 }
 

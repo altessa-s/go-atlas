@@ -5,13 +5,17 @@
 package authconfig
 
 import (
+	"errors"
+	"net"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -70,6 +74,11 @@ type OAuth2Client struct {
 	// ClientAuth configures JWT-assertion client authentication (RFC 7523),
 	// superseding the plain clientSecret. Omitted uses the secret / authStyle.
 	ClientAuth *OAuth2ClientAuth `yaml:"clientAuth" default:"-"`
+
+	// AllowInsecureHTTP permits a plain http:// TokenUrl or DiscoveryUrl on any
+	// host. Off by default: only https:// and http:// on a loopback host are
+	// accepted, because the client credentials are sent to the token endpoint.
+	AllowInsecureHTTP bool `yaml:"allowInsecureHTTP"`
 }
 
 // DefaultOAuth2Client returns an OAuth2Client configuration with default values.
@@ -83,16 +92,21 @@ func DefaultOAuth2Client() OAuth2Client {
 
 // Validate performs validation on the OAuth2Client configuration. Exactly one of
 // TokenUrl or DiscoveryUrl must be a valid URL, ClientId is required, and
-// AuthStyle must be one of the supported styles.
+// AuthStyle must be one of the supported styles. The URL must use https://;
+// http:// is accepted on a loopback host, or on any host with AllowInsecureHTTP.
 func (c *OAuth2Client) Validate() error {
+	secureURL := validation.By(func(value any) error {
+		raw, _ := value.(string)
+		return validateOAuth2ClientURL(raw, c.AllowInsecureHTTP)
+	})
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.TokenUrl,
 			validation.When(c.DiscoveryUrl == "", validation.Required),
-			validation.When(c.TokenUrl != "", is.URL),
+			validation.When(c.TokenUrl != "", is.URL, secureURL),
 		),
 		validation.Field(&c.DiscoveryUrl,
 			validation.When(c.TokenUrl == "", validation.Required),
-			validation.When(c.DiscoveryUrl != "", is.URL),
+			validation.When(c.DiscoveryUrl != "", is.URL, secureURL),
 		),
 		validation.Field(&c.ClientId, validation.Required),
 		validation.Field(&c.AuthStyle, validation.In("auto", "header", "params")),
@@ -101,6 +115,23 @@ func (c *OAuth2Client) Validate() error {
 		validation.Field(&c.Retry, validation.NilOrNotEmpty),
 		validation.Field(&c.ClientAuth, validation.NilOrNotEmpty),
 	)
+}
+
+// validateOAuth2ClientURL accepts an https:// URL, an http:// URL on a loopback
+// host ("localhost" or a loopback IP literal), and any http:// URL when
+// allowHTTP is set.
+func validateOAuth2ClientURL(raw string, allowHTTP bool) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return errors.New("must be an absolute https:// URL")
+	}
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	loopback := strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
+	if u.Scheme == "https" || (u.Scheme == "http" && (allowHTTP || loopback)) {
+		return nil
+	}
+	return errors.New("must use https:// (set allowInsecureHTTP to permit http://)")
 }
 
 // IsClientAuthConfigured reports whether JWT-assertion client auth is present.

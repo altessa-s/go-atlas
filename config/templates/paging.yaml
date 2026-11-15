@@ -1,0 +1,36 @@
+# Signed page tokens (keyset codec) of a paginated component.
+# This file is included via !include directive in other configuration templates.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#paging:
+#  # <string> Key signing the page tokens: at least 32 bytes after decoding, the same on every replica.
+#  # Default value: not set (required)
+#  signingKey: "change-me-to-a-32-byte-or-longer-secret"
+#
+#  # <list[string]> Keys that still verify tokens signed before a key rotation.
+#  # Keep a retired key for one tokenTTL after the rotation.
+#  # Default value: not set
+#  previousKeys:
+#    - "previous-32-byte-or-longer-signing-secret"
+#
+#  # <string> How signingKey and previousKeys are encoded.
+#  # raw uses the string bytes; base64 decodes standard padded base64 (arbitrary key bytes).
+#  # Supported values: raw, base64
+#  # Default value: raw
+#  keyEncoding: raw
+#
+#  # <duration> How long a page token stays valid. 0 keeps the default.
+#  # Default value: 24h
+#  tokenTTL: "24h"
+#
+#  # <object> Encrypted page tokens: the client cannot read their payload or bindings.
+#  # The encryption keys are derived from the signing keys and rotate with them.
+#  encryption:
+#    # <bool> Issue encrypted tokens; signed tokens are still accepted, so enable it replica by replica.
+#    # Default value: false
+#    enabled: false
+#
+#    # <bool> Also reject signed tokens; set it once every signed token has expired. Requires enabled.
+#    # Default value: false
+#    strict: false

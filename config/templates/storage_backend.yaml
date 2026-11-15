@@ -1,0 +1,64 @@
+# Storage backend configuration template.
+# Storage settings for features using BackendConfig (token-bucket and budget limiters,
+# MongoDB cursor storage). The cache uses cache_storage.yaml, which has no NATS backend.
+# This file is included via !include directive in other configuration templates.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#storage:
+#  # <string> Type of storage backend.
+#  # Determines which storage system to use for persistence.
+#  # Supported values: memory, redis, nats
+#  # Default value: not set (required)
+#  type: redis
+#
+#  # <object> In-memory storage configuration.
+#  # Contains settings for memory-based storage.
+#  # Required when type is set to 'memory'.
+#  memory:
+#    # <string> Cron schedule for the cleanup task.
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # (e.g., "0 */5 * * * *") or descriptor format (e.g., "@every 5m").
+#    # Example: "0 */5 * * * *" (every 5 minutes)
+#    # Default value: @every 5m
+#    cleanupSchedule: "@every 5m"
+#
+#  # <object> NATS-specific configuration for storage.
+#  # Contains settings for NATS KeyValue bucket and replication.
+#  # Required when type is set to 'nats'.
+#  nats:
+#    # <string> Name of the NATS KeyValue bucket.
+#    # Bucket name in NATS KeyValue store.
+#    # Default value: not set (empty string)
+#    bucket: ""
+#
+#    # <int> Number of replicas for NATS KeyValue storage.
+#    # Higher values provide better availability but increase storage overhead.
+#    # Must be between 1 and 3.
+#    # Default value: 3
+#    replicas: 3
+#
+#    # <bool> Update an existing bucket whose key TTL differs from the feature's TTL.
+#    # When false, such a bucket is left untouched and the feature fails to build with
+#    # ErrBucketTTLMismatch: the bucket's key TTL expires every key in it, including
+#    # keys of other processes sharing the bucket.
+#    # The MongoDB cursor storage requires a positive TTL, so a bucket created without
+#    # one is rejected the same way; set this to true to give it the TTL in place.
+#    # Default value: false
+#    migrateBucketTTL: false
+#
+#    # <bool> Fail when the bucket already exists with another storage type.
+#    # When false, such a bucket is used as is and a warning is logged on every start;
+#    # the server cannot convert a bucket's storage type (see the backend's README for
+#    # the storage migration).
+#    # Default value: false
+#    strictBucketStorage: false
+#
+#  # <object> Redis-specific configuration for storage.
+#  # Redis-specific settings for key storage.
+#  # Required when type is set to 'redis'.
+#  redis:
+#    # <string> Prefix for all keys in storage.
+#    # Namespace prefix to avoid key conflicts.
+#    # Default value: not set (empty string)
+#    keysPrefix: ""

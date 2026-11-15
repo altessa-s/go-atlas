@@ -1,7 +1,7 @@
 # Configuration for the HTTP metrics collection middleware.
 # Collects request counts, durations, and sizes for monitoring dashboards.
-# Wires into the metrics.Collector configured at service init time via
-# ServerBuilder.UseCollector.
+# Wires into the metrics.Meter configured at service init time via
+# ServerBuilder.UseMeter.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 

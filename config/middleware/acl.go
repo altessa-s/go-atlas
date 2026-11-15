@@ -5,13 +5,14 @@
 package middlewareconfig
 
 import (
-	"errors"
 	"fmt"
 	"net/netip"
 	"regexp"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
+
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -141,10 +142,10 @@ func ValidateIP(value any) error {
 	str, ok := value.(string)
 	if !ok {
 		// Should not happen with struct validation
-		return errors.New("invalid type for IP validation")
+		return cfgerrors.Invalidf("invalid type for IP validation")
 	}
 	if _, err := netip.ParsePrefix(str); err != nil {
-		return fmt.Errorf("invalid IP: '%s'", str)
+		return cfgerrors.Invalidf("invalid IP: '%s'", str)
 	}
 	return nil
 }

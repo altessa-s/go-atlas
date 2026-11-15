@@ -8,8 +8,7 @@ import (
 	"time"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -32,7 +31,7 @@ type Budget struct {
 
 	// Storage defines the storage configuration for budget counters.
 	// Required, specifies backend and settings (memory, nats, or redis).
-	Storage *storageconfig.CacheStorageConfig `yaml:"storage"`
+	Storage *storageconfig.BackendConfig `yaml:"storage"`
 
 	// NATSContention tunes compare-and-swap retries of the NATS storage.
 	// Optional; ignored by other storages.
@@ -44,7 +43,7 @@ type Budget struct {
 func (b *Budget) Validate() error {
 	return validationconfig.ValidateStruct(b,
 		validation.Field(&b.Limit, validation.Required, validation.Min(int64(1))),
-		validation.Field(&b.Period, validation.Required, ozzo_rules.Duration(), validation.Min(time.Second)),
+		validation.Field(&b.Period, validation.Required, validationconfig.PositiveDuration(), validation.Min(time.Second)),
 		validation.Field(&b.Storage, validation.Required),
 		validation.Field(&b.NATSContention),
 	)

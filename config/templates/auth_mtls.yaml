@@ -1,16 +1,26 @@
 # Mutual-TLS authentication validators configuration.
-# The certificate-validation policy consumed by auth/mtls/factory.New(&cfg).Options(). The identity function and
+# The certificate-validation policy consumed by factory/auth/mtls.New(&cfg).Options(). The identity function and
 # audit recorder are wired in code; the TLS credentials that require and verify the client certificate are configured
-# on the server via security/tlsutils.
+# on the server through github.com/altessa-s/go-tlsutils.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 
 #mtls:
 #  # <list[string]> Pin the accepted SPIFFE trust domains.
-#  # Empty accepts any trust domain.
+#  # Required unless allowAnyTrustDomain is true: the factory refuses a configuration that sets neither.
+#  # No other setting below replaces this decision.
+#  # Each entry is a trust domain name (lower-case letters, digits, '.', '-', '_'); an empty entry is rejected.
 #  # Default value: not set
 #  trustDomains:
 #    - "example.org"
+#
+#  # <bool> Accept a certificate from any SPIFFE trust domain when trustDomains is empty.
+#  # The TLS trust pool is then the whole trust decision: a shared or federated CA can issue an
+#  # accepted certificate for a foreign trust domain. Ignored when trustDomains is set.
+#  # Needed for certificates without a SPIFFE ID (identity in the DN); pin those with
+#  # allowedSubjectCNs, allowedIssuerCNs or issuerKeyIDs.
+#  # Default value: false
+#  allowAnyTrustDomain: false
 #
 #  # <bool> Re-validate the certificate validity window on every call
 #  # (long-lived connections that outlive their certificate).

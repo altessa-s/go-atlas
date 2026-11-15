@@ -8,12 +8,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
 
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -25,6 +25,10 @@ const (
 	defaultNatsPingInterval   = 10 * time.Second
 	defaultNatsMaxReconnect   = 0
 	defaultNatsMaxPingsOut    = 3
+
+	// defaultNatsSubscriberDrainTimeout mirrors
+	// messaging/broker/providers/nats.DefaultDrainTimeout.
+	defaultNatsSubscriberDrainTimeout = 30 * time.Second
 )
 
 // Config represents the configuration for NATS messaging system connections.
@@ -99,6 +103,13 @@ type Config struct {
 	// Defaults to 3.
 	MaxPingsOut int `yaml:"maxPingsOut" default:"3"`
 
+	// SubscriberDrainTimeout is the grace period a broker subscriber's
+	// Unsubscribe gives the handlers of already buffered messages before it
+	// cancels their context. Read by the NATS broker provider only; it is not
+	// the connection drain timeout. 0 keeps the provider default.
+	// Defaults to 30 seconds.
+	SubscriberDrainTimeout time.Duration `yaml:"subscriberDrainTimeout" default:"30s"`
+
 	// Consumers is a collection of consumer configurations keyed by consumer name.
 	// Each consumer defines how messages are consumed from NATS JetStream.
 	// The key serves as the durable consumer name in NATS.
@@ -143,6 +154,8 @@ func Default() Config {
 		PingInterval:   defaultNatsPingInterval,
 		MaxReconnect:   defaultNatsMaxReconnect,
 		MaxPingsOut:    defaultNatsMaxPingsOut,
+
+		SubscriberDrainTimeout: defaultNatsSubscriberDrainTimeout,
 	}
 }
 
@@ -164,16 +177,17 @@ func (n *Config) Validate() error {
 			validation.When(!n.UseConnectionURI(),
 				validation.Required.Error("minimum one server must be specified"))),
 		validation.Field(&n.TLS, validation.When(n.TLS != nil, validation.Required)),
-		validation.Field(&n.ConnectTimeout, ozzo_rules.DurationOrZero()),
-		validation.Field(&n.ReconnectWait, ozzo_rules.Duration()),
-		validation.Field(&n.PingInterval, ozzo_rules.Duration()),
+		validation.Field(&n.ConnectTimeout, validationconfig.NonNegativeDuration()),
+		validation.Field(&n.ReconnectWait, validationconfig.PositiveDuration()),
+		validation.Field(&n.PingInterval, validationconfig.PositiveDuration()),
 		validation.Field(&n.MaxReconnect, validation.Min(0).Error("must be greater or equal 0")),
 		// Required is paired with Min because ozzo-validation skips every
 		// rule but Required for a zero value — Min(1) alone accepts 0.
 		validation.Field(&n.MaxPingsOut,
 			validation.Required.Error("must be greater than 1"),
 			validation.Min(1).Error("must be greater than 1")),
-		validation.Field(&n.Consumers, validation.NilOrNotEmpty),
+		validation.Field(&n.SubscriberDrainTimeout, validationconfig.NonNegativeDuration()),
+		validation.Field(&n.Consumers, validation.NilOrNotEmpty, validationconfig.NotNilEntries()),
 		validation.Field(&n.Recovery, validation.NilOrNotEmpty),
 	)
 }
@@ -187,13 +201,13 @@ func (n *Config) validateConnectionURIConflicts() error {
 
 	var errs []error
 	errs = slices.AppendIf(errs, n.Username != "",
-		errors.New("username must not be set when connectionUri is used"))
+		cfgerrors.Invalidf("username must not be set when connectionUri is used"))
 	errs = slices.AppendIf(errs, !n.Password.IsEmpty(),
-		errors.New("password must not be set when connectionUri is used"))
+		cfgerrors.Invalidf("password must not be set when connectionUri is used"))
 	errs = slices.AppendIf(errs, !n.Token.IsEmpty(),
-		errors.New("token must not be set when connectionUri is used"))
+		cfgerrors.Invalidf("token must not be set when connectionUri is used"))
 	errs = slices.AppendIf(errs, !n.NkeySeed.IsEmpty(),
-		errors.New("nkeySeed must not be set when connectionUri is used"))
+		cfgerrors.Invalidf("nkeySeed must not be set when connectionUri is used"))
 
 	return errors.Join(errs...)
 }

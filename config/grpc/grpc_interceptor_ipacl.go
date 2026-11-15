@@ -6,7 +6,7 @@ package grpcconfig //nolint:dupl // IP and geo ACL schemas are parallel by desig
 
 import (
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -53,9 +53,7 @@ func (c *IPACLInterceptor) Validate() error {
 // IP access control is disabled by default.
 func DefaultIPACLInterceptor() IPACLInterceptor {
 	return IPACLInterceptor{
-		BaseInterceptor: BaseInterceptor{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:          false,
 		DefaultPolicy:    "deny",
 		FallbackBehavior: middlewareconfig.FallbackBehaviorDeny,
 	}

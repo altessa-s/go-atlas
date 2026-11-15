@@ -8,11 +8,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
-	ozzo_rules "github.com/altessa-s/ozzo-rules"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -159,10 +159,10 @@ func (r *Config) Validate() error {
 		validation.Field(&r.Hosts,
 			validation.When(!r.UseConnectionURI(),
 				validation.Required.Error("connection address must be specified"))),
-		validation.Field(&r.ConnectTimeout, ozzo_rules.DurationOrZero()),
-		validation.Field(&r.SocketTimeout, ozzo_rules.Duration()),
-		validation.Field(&r.IdleTimeout, ozzo_rules.DurationOrZero()),
-		validation.Field(&r.MaxConnectionAge, ozzo_rules.DurationOrZero()),
+		validation.Field(&r.ConnectTimeout, validationconfig.NonNegativeDuration()),
+		validation.Field(&r.SocketTimeout, validationconfig.PositiveDuration()),
+		validation.Field(&r.IdleTimeout, validationconfig.NonNegativeDuration()),
+		validation.Field(&r.MaxConnectionAge, validationconfig.NonNegativeDuration()),
 		validation.Field(&r.KeysPrefix, validation.NilOrNotEmpty),
 	)
 }
@@ -176,9 +176,9 @@ func (r *Config) validateConnectionURIConflicts() error {
 
 	var errs []error
 	errs = slices.AppendIf(errs, r.Username != "",
-		errors.New("username must not be set when connectionUri is used"))
+		cfgerrors.Invalidf("username must not be set when connectionUri is used"))
 	errs = slices.AppendIf(errs, !r.Password.IsEmpty(),
-		errors.New("password must not be set when connectionUri is used"))
+		cfgerrors.Invalidf("password must not be set when connectionUri is used"))
 
 	return errors.Join(errs...)
 }

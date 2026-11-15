@@ -5,11 +5,10 @@
 package schedulerconfig
 
 import (
-	"fmt"
+	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
 
-	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
-
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -166,7 +165,7 @@ func (c *Concurrency) BuildLimitFunc() (concurrency.ConcurrencyLimitFunc, error)
 
 	case ConcurrencyMemoryAware:
 		if c.MemoryAware == nil {
-			return nil, fmt.Errorf("memoryAware configuration is required for strategy %q", c.Strategy)
+			return nil, cfgerrors.Invalidf("memoryAware configuration is required for strategy %q", c.Strategy)
 		}
 		return concurrency.MemoryAwareConcurrency(
 			c.MemoryAware.LowMemoryMB,
@@ -176,15 +175,13 @@ func (c *Concurrency) BuildLimitFunc() (concurrency.ConcurrencyLimitFunc, error)
 
 	case ConcurrencyAdaptive:
 		if c.Adaptive == nil {
-			return nil, fmt.Errorf("adaptive configuration is required for strategy %q", c.Strategy)
+			return nil, cfgerrors.Invalidf("adaptive configuration is required for strategy %q", c.Strategy)
 		}
-		return concurrency.AdaptiveConcurrency(concurrency.AdaptiveConcurrencyConfig{
-			MemoryLowThresholdMB:    c.Adaptive.MemoryLowThresholdMB,
-			MemoryMediumThresholdMB: c.Adaptive.MemoryMediumThresholdMB,
-			HighLoadThreshold:       c.Adaptive.HighLoadThreshold,
-		}), nil
+		return concurrency.AdaptiveConcurrency(
+			c.Adaptive.MemoryLowThresholdMB, c.Adaptive.MemoryMediumThresholdMB, nil, c.Adaptive.HighLoadThreshold,
+		), nil
 
 	default:
-		return nil, fmt.Errorf("unsupported concurrency strategy: %s", c.Strategy)
+		return nil, cfgerrors.Invalidf("unsupported concurrency strategy: %s", c.Strategy)
 	}
 }

@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -40,7 +40,7 @@ func (l *ProviderLetsEncrypt) Validate() error {
 	return validationconfig.ValidateStruct(l,
 		validation.Field(&l.Domain, validation.Required, validation.Each(is.Domain)),
 		validation.Field(&l.Email, validation.Required, is.Email),
-		validation.Field(&l.RenewBefore, ozzo_rules.DurationOrZero()),
+		validation.Field(&l.RenewBefore, validationconfig.NonNegativeDuration()),
 		validation.Field(&l.ListenAddress, validation.When(l.StartInternalServer, ozzo_rules.ListenAddress())),
 	)
 }

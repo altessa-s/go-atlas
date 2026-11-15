@@ -5,8 +5,8 @@ import tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 ```
 
 Package `tlsconfig` defines TLS client and server schemas and the certificate provider schemas (file, Let's Encrypt, OCSP, S3, Vault). Schemas are
-populated by [`config/loader`](../loader) and consumed by the component factories, which map them to generated options; runtime packages never import
-them.
+populated by [`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to
+generated options; runtime packages never import them.
 
 ## Key types
 
@@ -18,7 +18,7 @@ them.
 | `Provider`            | Represents the configuration for Tls certificate providers.                                                            |
 | `ProviderFile`        | Configures file-based Tls certificate provider.                                                                        |
 | `ProviderLetsEncrypt` | Configures Let's Encrypt ACME certificate provider.                                                                    |
-| `ProviderOCSP`        | Configures the OCSP stapler used by the TLS providers registered through [security/tlsutils/factory.ProvidersBuilder]. |
+| `ProviderOCSP`        | Configures the OCSP stapler used by the TLS providers registered through [factory/ext/tlsutils.ProvidersBuilder]. |
 | `SSETypeConfig`          | Identifies the server-side encryption type for S3 objects in configuration.                                            |
 | `ProviderS3`          | Configures S3-based TLS certificate provider.                                                                          |
 | `ProviderS3SSE`       | Configures server-side encryption for S3 certificate objects.                                                          |

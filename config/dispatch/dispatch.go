@@ -4,7 +4,12 @@
 
 package dispatchconfig
 
-import "time"
+import (
+	"time"
+
+	validationconfig "github.com/altessa-s/go-nomos/validation"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+)
 
 // Config defines the configuration for an async dispatch engine.
 // Controls how items are buffered, batched, retried, and optionally
@@ -48,10 +53,19 @@ type Config struct {
 	// the buffer is full instead of dropping items.
 	BackPressure bool `yaml:"backPressure"`
 
-	// MetricsSubsystem is the Prometheus subsystem name for engine metrics.
+	// MetricsSubsystem is the Prometheus subsystem name for engine metrics,
+	// applied when the factory is given a meter.
 	MetricsSubsystem string `yaml:"metricsSubsystem" default:"async"`
 
 	// WAL configures the optional crash-safe write-ahead log.
 	// Nil means WAL is disabled (pure in-memory dispatch).
 	WAL *WAL `yaml:"wal"`
+}
+
+// Validate checks that the dispatch configuration is valid. It validates the
+// WAL block when one is set.
+func (c *Config) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.WAL),
+	)
 }

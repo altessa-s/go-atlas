@@ -6,7 +6,7 @@ package httpconfig
 
 import (
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -75,7 +75,7 @@ type IdempotencyMiddleware struct {
 	// ExposeEntityID echoes the stored entity id to a duplicate request.
 	// Off by default: the caller presenting a duplicate key is not verified
 	// to be the principal that created the entity, unless the Keeper checks
-	// owners.
+	// owners. Only a record bound to an owner has its entity id echoed.
 	ExposeEntityID bool `yaml:"exposeEntityID" default:"false"`
 
 	// KeyQueryParam names a URL query parameter that carries the key
@@ -105,7 +105,8 @@ type IdempotencyMiddleware struct {
 	// ResponseReplay stores the status, ReplayHeaders and body of a completed
 	// 2xx response and writes them to a repeat of the request instead of
 	// 422. Off by default: the repeat's caller receives the
-	// original response, so scope keys per principal.
+	// original response. Only a record bound to an owner (Keeper owners,
+	// the verified principal by default) is replayed; others keep the refusal.
 	ResponseReplay bool `yaml:"responseReplay"`
 
 	// MaxReplaySize bounds a stored body, in bytes; 0 is 256 KiB, the cap is
@@ -139,9 +140,7 @@ func (c *IdempotencyMiddleware) Validate() error {
 // DefaultIdempotencyMiddleware returns a configuration for idempotency middleware with default values.
 func DefaultIdempotencyMiddleware() IdempotencyMiddleware {
 	return IdempotencyMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:                      false,
 		IdempotencyKeyHeader:         "Idempotency-Key",
 		IdempotencyKeyStatusHeader:   "Idempotency-Key-Status",
 		IdempotencyKeyEntityIdHeader: "Idempotency-Key-Entity-Id",

@@ -7,10 +7,9 @@ package auditconfig
 import (
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
-
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -77,7 +76,7 @@ type Config struct {
 
 	// Paging configures signed page tokens for querying events. Nil disables
 	// page tokens: queries return a single page.
-	Paging *Paging `yaml:"paging" default:"-"`
+	Paging *pagingconfig.Config `yaml:"paging" default:"-"`
 }
 
 // Storage defines the storage backend configuration for audit events.
@@ -99,7 +98,7 @@ type Storage struct {
 }
 
 // StorageSQL holds SQL-specific configuration for audit event storage
-// (data/audit/storages/sqldb). The *sql.DB itself is injected into the
+// (audit/storages/sqldb). The *sql.DB itself is injected into the
 // factory; the caller chooses and registers the driver.
 type StorageSQL struct {
 	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0+ and
@@ -192,33 +191,6 @@ func (c *StorageClickHouse) Validate() error {
 	)
 }
 
-// Paging configures the signed page tokens of audit queries. Paging through
-// results with page tokens requires it; writing events does not.
-type Paging struct {
-	// SigningKey signs page tokens: at least 32 bytes, the same on every
-	// replica.
-	SigningKey redacted.RedactedString `yaml:"signingKey"`
-
-	// PreviousKeys still verify tokens signed before a key rotation.
-	PreviousKeys []redacted.RedactedString `yaml:"previousKeys"`
-
-	// TokenTTL is how long a page token stays valid.
-	TokenTTL time.Duration `yaml:"tokenTTL" default:"24h"`
-}
-
-// minSigningKeyLength mirrors keyset.MinKeyLength; schemas do not import
-// runtime packages.
-const minSigningKeyLength = 32
-
-// Validate performs validation of the paging configuration.
-func (p *Paging) Validate() error {
-	return validationconfig.ValidateStruct(p,
-		validation.Field(&p.SigningKey, validation.Required, validation.Length(minSigningKeyLength, 0)),
-		validation.Field(&p.PreviousKeys, validation.Each(validation.Length(minSigningKeyLength, 0))),
-		validation.Field(&p.TokenTTL, validation.Min(time.Duration(0))),
-	)
-}
-
 // StorageMongo holds MongoDB-specific configuration for audit event storage.
 type StorageMongo struct {
 	// CollectionName is the MongoDB collection name for audit events.
@@ -235,6 +207,7 @@ type StorageMongo struct {
 func (a *Config) Validate() error {
 	return validationconfig.ValidateStruct(a,
 		validationconfig.NestedField(&a.Storage),
+		validationconfig.NestedField(&a.Dispatch),
 		validation.Field(&a.Paging),
 	)
 }

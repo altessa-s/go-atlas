@@ -47,12 +47,6 @@
 #        # Default value: memory
 #        type: memory
 #
-#      # <int> Fingerprint size in bits.
-#      # Affects false positive rate: 8 bits ~ 3%, 12 bits ~ 0.2%, 16 bits ~ 0.01%.
-#      # Supported values: 8, 12, 16
-#      # The built-in probfilter factory does not currently read this value.
-#      # Default value: 12
-#      fingerprintSize: 12
 #
 #      # <float64> Capacity multiplier for auto-rebuild on overflow.
 #      # New capacity = current capacity * multiplier.
@@ -61,11 +55,6 @@
 #      # Default value: 2.0
 #      capacityMultiplier: 2.0
 #
-#      # <int64> Maximum capacity limit.
-#      # Prevents unbounded growth on repeated overflows.
-#      # The built-in probfilter factory does not currently read this value.
-#      # Default value: 100000000
-#      maxCapacity: 100000000
 #
 #  # <bool> Skip the startup check that the Redis server of a Redis-backed filter
 #  # has no allkeys-* maxmemory-policy (such a policy may evict the filter's keys).
@@ -139,16 +128,9 @@
 #        # Default value: not set
 #        capacity: 500000
 #
-#        # <int> Fingerprint size in bits.
-#        # Supported values: 8, 12, 16
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#        fingerprintSize: 12
 #
 #        # <float64> Capacity multiplier for auto-rebuild on overflow (1.1–10.0).
 #        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
 #        capacityMultiplier: 2.0
 #
-#        # <int64> Maximum capacity limit.
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#        maxCapacity: 100000000
 #

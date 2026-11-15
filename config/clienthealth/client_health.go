@@ -7,7 +7,7 @@ package clienthealthconfig
 import (
 	"time"
 
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -66,10 +66,9 @@ type Config struct {
 //	    RetryMinSamples: 5,
 //	}
 //
-//	httpClient := httpclient.New(append(
-//	    []httpclient.Option{httpclient.WithHealthCoordinator(coord)},
-//	    factory.HealthOptions(health)...,
-//	)...)
+//	httpClient := httpclient.New(
+//	    httpclient.WithObserver(observe.New(meter, coord, factory.HealthOptions(health)...)),
+//	)
 type HTTP struct {
 	Config `yaml:",inline"`
 

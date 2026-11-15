@@ -6,9 +6,11 @@ package config_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
+	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 )
 
@@ -124,6 +126,15 @@ func TestCacheStorageConfig_Validate(t *testing.T) {
 			},
 			wantValid: false,
 		},
+		{
+			// The cache factories have no NATS storage, so validation must
+			// reject the type instead of the build failing at runtime.
+			name: "NATS_Rejected",
+			cfg: storageconfig.CacheStorageConfig{
+				Type: "nats",
+			},
+			wantValid: false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -136,4 +147,64 @@ func TestCacheStorageConfig_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBackendConfig_Validate(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		cfg       storageconfig.BackendConfig
+		wantValid bool
+	}{
+		{name: "Memory", cfg: storageconfig.BackendConfig{Type: storageconfig.BackendTypeMemory}, wantValid: true},
+		{
+			name:      "Redis",
+			cfg:       storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis, Redis: &storageconfig.RedisConfig{}},
+			wantValid: true,
+		},
+		{
+			name:      "NATS",
+			cfg:       storageconfig.BackendConfig{Type: storageconfig.BackendTypeNATS, NATS: &storageconfig.NATSConfig{Replicas: 1}},
+			wantValid: true,
+		},
+		{name: "InvalidType", cfg: storageconfig.BackendConfig{Type: "invalid"}, wantValid: false},
+		{name: "MissingType", cfg: storageconfig.BackendConfig{}, wantValid: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tc.cfg.Validate()
+			if tc.wantValid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+// TestLimiters_AcceptNATSStorage pins that the rate limiters keep the NATS
+// storage backend the cache storage config rejects.
+func TestLimiters_AcceptNATSStorage(t *testing.T) {
+	t.Parallel()
+
+	storage := &storageconfig.BackendConfig{
+		Type: storageconfig.BackendTypeNATS,
+		NATS: &storageconfig.NATSConfig{Bucket: "limits", Replicas: 1},
+	}
+
+	budget := limiterconfig.DefaultBudget()
+	budget.Limit = 10
+	budget.Storage = storage
+	require.NoError(t, budget.Validate())
+
+	bucket := limiterconfig.DefaultTokenBucket()
+	bucket.Storage = storage
+	bucket.Rules = &limiterconfig.TokenBucketRules{
+		Default: &limiterconfig.TokenBucketDefaultRule{Limit: 10, Period: time.Minute},
+	}
+	require.NoError(t, bucket.Validate())
 }

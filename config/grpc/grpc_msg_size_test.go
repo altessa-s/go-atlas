@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // TestGrpc_Validate_RejectsZeroOrNegativeMsgSize is the regression
@@ -32,7 +34,7 @@ func TestGrpc_Validate_RejectsZeroOrNegativeMsgSize(t *testing.T) {
 				MaxRecvMsgSize: new(tc.value),
 			}
 			err := cfg.Validate()
-			require.Error(t, err)
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 			require.Contains(t, err.Error(), "maxRecvMsgSize")
 		})
 		t.Run(tc.name+"_send", func(t *testing.T) {
@@ -41,7 +43,7 @@ func TestGrpc_Validate_RejectsZeroOrNegativeMsgSize(t *testing.T) {
 				MaxSendMsgSize: new(tc.value),
 			}
 			err := cfg.Validate()
-			require.Error(t, err)
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 			require.Contains(t, err.Error(), "maxSendMsgSize")
 		})
 	}
@@ -59,7 +61,7 @@ func TestGrpc_Validate_RejectsHugeMsgSize(t *testing.T) {
 	}
 
 	err := cfg.Validate()
-	require.Error(t, err)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 	require.Contains(t, err.Error(), "maxRecvMsgSize")
 }
 

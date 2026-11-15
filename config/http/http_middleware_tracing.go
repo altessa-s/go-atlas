@@ -5,8 +5,7 @@
 package httpconfig
 
 import (
-	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -59,9 +58,7 @@ func (c *TracingMiddleware) Validate() error {
 // Tracing middleware is disabled by default.
 func DefaultTracingMiddleware() TracingMiddleware {
 	return TracingMiddleware{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:       false,
 		RecordBody:    false,
 		RecordHeaders: true,
 		RedactedHeaders: []string{

@@ -5,12 +5,12 @@
 package authconfig
 
 import (
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 // SPIFFE configures the SPIFFE Workload API source built by
-// [security/tlsutils/spiffe/factory.New]: the Workload API endpoint plus the
+// [factory/ext/tlsutils/spiffe.New]: the Workload API endpoint plus the
 // accepted peer identities that the derived authorizer enforces. Identity and
 // rotation are handled by the source; this only drives where credentials come
 // from and which peers are trusted.

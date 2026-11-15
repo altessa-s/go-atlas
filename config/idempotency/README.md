@@ -4,8 +4,9 @@
 import idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 ```
 
-Package `idempotencyconfig` defines the idempotency key storage schema. Schemas are populated by [`config/loader`](../loader) and consumed by the
-component factories, which map them to generated options; runtime packages never import them.
+Package `idempotencyconfig` defines the idempotency key storage schema. Schemas are populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
+options; runtime packages never import them.
 
 ## Key types
 

@@ -6,7 +6,7 @@ package httpconfig
 
 import (
 	middlewareconfig "github.com/altessa-s/go-atlas/config/middleware"
-	validationconfig "github.com/altessa-s/go-atlas/config/validation"
+	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -54,9 +54,7 @@ func (c *ACLMiddleware[R]) ValidateWith(ruleValidator func(any) error) error {
 // DefaultACLMiddleware returns a default ACL middleware configuration.
 func DefaultACLMiddleware[R any]() ACLMiddleware[R] {
 	return ACLMiddleware[R]{
-		BaseMiddleware: BaseMiddleware{
-			EnableMixin: middlewareconfig.EnableMixin{Enabled: false},
-		},
+		Enabled:          false,
 		DefaultPolicy:    "deny",
 		FallbackBehavior: middlewareconfig.FallbackBehaviorDeny,
 	}
