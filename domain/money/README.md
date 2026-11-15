@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/domain/money"
 ```
 
 Package `money` provides an amount of a currency with exact decimal arithmetic (`shopspring/decimal`), explicit rounding to the currency's minor units
-and allocation without losing a minor unit. Store amounts with the [`data/mongo/bsoncodec`](../../data/mongo/bsoncodec) decimal codec, which keeps them
+and allocation without losing a minor unit. Store amounts with the [`store/mongo/bsoncodec`](../../store/mongo/bsoncodec) decimal codec, which keeps them
 as exact `Decimal128`.
 
 ## Key types

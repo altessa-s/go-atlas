@@ -311,7 +311,7 @@ const HalfUpLastRemainderPrecision = 28
 // rational arithmetic and splits a negative m as its absolute value, every
 // part negated; [HalfUpLastRemainder] is defined on decimals (see there).
 func (m Money) AllocateBy(method AllocationMethod, ratios ...decimal.Decimal) ([]Money, error) {
-	if _, err := m.minorBig(); err != nil {
+	if _, err := m.MinorUnits(); err != nil {
 		return nil, err
 	}
 	if err := checkRatios(ratios); err != nil {

@@ -9,7 +9,7 @@ import (
 	"iter"
 	"strings"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
 // MaxMinorUnits bounds the minor units of a [Currency] created with
