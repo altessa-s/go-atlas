@@ -21,10 +21,7 @@
 go.work
 go.work.sum
 
-tools/codegen/goconfig/goconfig
-tools/codegen/optgen/optgen
 /bin/
-/plugin-sign
 build/
 dist/
 

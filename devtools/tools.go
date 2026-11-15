@@ -8,7 +8,6 @@ package devtools
 
 import (
 	_ "github.com/altessa-s/go-copyright-checker"
-	_ "github.com/daixiang0/gci"
 	_ "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
 	_ "github.com/mibk/dupl"
 	_ "github.com/securego/gosec/v2/cmd/gosec"

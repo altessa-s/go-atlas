@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [develop, main]
   pull_request:
@@ -22,16 +23,16 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.10.1
+          version: v2.15.0
           # Build the linter with the runner's Go instead of downloading the
-          # prebuilt binary: the module's `toolchain go1.26.6` puts go1.26-gated
-          # files into the build graph, and a linter compiled with an older Go
-          # fails typecheck on them ("file requires newer Go version").
+          # prebuilt binary: the module requires go 1.27, and a linter compiled
+          # with an older Go fails typecheck on its files ("file requires newer
+          # Go version").
           install-mode: goinstall
 
       - name: Check go fix modernizers
@@ -56,7 +57,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       - name: Check architecture boundaries
         run: make check-architecture
@@ -92,7 +93,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       - name: Start backends
         run: make integration-up
@@ -116,7 +117,7 @@ jobs:
     strategy:
       matrix:
         # linux is covered by the main build; guard the platform-gated
-        # code (plugins, core/runtime sandboxing, *_other.go fallbacks)
+        # code (*_other.go fallbacks)
         # against build-tag rot on the other supported targets.
         goos: [darwin, windows]
     steps:
@@ -126,7 +127,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       - name: Build
         env:
@@ -145,7 +146,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       - name: Run govulncheck
         run: |
@@ -170,7 +171,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       - name: Install gitleaks
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1

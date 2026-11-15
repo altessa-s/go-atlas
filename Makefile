@@ -1,18 +1,28 @@
 GOPATH         			:= ${HOME}/go
 PATH           			:= ${GOPATH}/bin:$(PATH)
-SHELL          			:= /bin/bash
+SHELL          			:= /bin/bash -o pipefail
 .DELETE_ON_ERROR:
 MAKEFLAGS      			+= --warn-undefined-variables
 MAKEFLAGS      			+= --no-builtin-rules
 CHANGELOG_NEXT_VERSION 	?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
 
+# MODULES lists the Go modules the targets iterate over: every directory with
+# a go.mod, except devtools (tool pins) and tests/integration (run by
+# test-integration against live backends).
+MODULES ?= $(sort $(patsubst ./%,%,$(patsubst %/go.mod,%,$(shell find . -name go.mod -not -path './devtools/*' -not -path './tests/integration/*' -not -path '*/.*'))))
+# FOR_MODULES runs the command that follows it in every module, stopping at the
+# first failure; $$m is the module directory.
+FOR_MODULES = set -e; for m in $(MODULES); do
+
 # dupl configuration
 # - DUPL_THRESHOLD: token threshold (higher -> fewer matches)
 # - DUPL_PATH: scan root
 # - DUPL_IGNORE_REGEX: paths to exclude from dupl output; we treat these as generated/noise.
+# dlock/idempotency metric registrations are declarative noise: their instruments,
+# help text and operation semantics differ; a shared bundle would couple unrelated APIs.
 DUPL_THRESHOLD ?= 130
 DUPL_PATH ?= .
-DUPL_IGNORE_REGEX ?= (_gen\.go|_string\.go|\.pb(\.[^/]*)?\.go|_grpc\.pb\.go|\.pb\.gw\.go|_test\.go|tests/|/factory/options\.go|config/.*acl\.go)
+DUPL_IGNORE_REGEX ?= (_gen\.go|_string\.go|\.pb(\.[^/]*)?\.go|_grpc\.pb\.go|\.pb\.gw\.go|_test\.go|tests/|factory/[^:]*/options\.go|config/.*acl\.go|coord/dlock/metrics\.go|reliability/idempotency/metrics\.go)
 
 # gosec rule classes excluded globally because they are by-design or redundant
 # for a transport/auth/secrets toolkit. Verified false positives in KEPT rules
@@ -22,7 +32,7 @@ DUPL_IGNORE_REGEX ?= (_gen\.go|_string\.go|\.pb(\.[^/]*)?\.go|_grpc\.pb\.go|\.pb
 #   G104 - redundant with golangci-lint's errcheck (the project's error gate)
 #   G115 - integer overflow on reviewed-safe numeric conversions (hash/proto/sizing)
 #   G117 - exported config fields named like secrets (PrivateKey/SessionToken/JWT)
-#   G304 - file reads from operator-provided paths (config/secrets/TLS/plugins/codegen)
+#   G304 - file reads from operator-provided paths (config/secrets/TLS)
 #   G702/G703/G704/G705 - experimental taint analysis (cmd-inject/path/SSRF/XSS):
 #          flags the toolkit's core function (outbound HTTP to configured endpoints,
 #          HTTP response writing, config path reads); provenance is the caller's job
@@ -32,7 +42,7 @@ GOSEC_EXCLUDED_RULES ?= G104,G115,G117,G304,G702,G703,G704,G705
 # - FUZZTIME: per-target budget. `go test -fuzz` accepts exactly one target per
 #   package per invocation, so `make fuzz` walks them and this is the cost of a
 #   single target, not of the whole sweep.
-# - FUZZPKG: restricts the sweep, e.g. FUZZPKG=./core/io/wal
+# - FUZZPKG: restricts the sweep, e.g. FUZZPKG=./store/mongo
 FUZZTIME ?= 30s
 FUZZPKG ?= ./...
 
@@ -48,26 +58,26 @@ STRESS_PKG ?= $(sort $(dir $(shell find . -name '*_stress_test.go' -not -path '.
 all: help
 
 .PHONY: fmt
-fmt: tidy  ## Run go fmt on all go files
-	@cd devtools && go install github.com/daixiang0/gci
-	@gci write \
-	    -s standard \
-	    -s default \
-	    -s "prefix(google.golang.org)" \
-	    -s "prefix(golang.org)" \
-	    -s "prefix(github.com/altessa-s/go-atlas)" \
-		-s "prefix(github.com/altessa-s)" \
-	    -s blank -s alias \
-	 $$(go list -f {{.Dir}} ./...)
+fmt: tidy  ## Format and sort imports with the formatters of .golangci.yml
+	@cd devtools && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+	@$(FOR_MODULES) (cd $$m && golangci-lint fmt ./...); done
 
 .PHONY: lint
 lint: tidy fmt ## Run linter
 	@cd devtools && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-	golangci-lint run ./...
+	@$(FOR_MODULES) (cd $$m && golangci-lint run ./...); done
 
 .PHONY: tidy
-tidy: ## Run go mod tidy
-	@go mod tidy
+tidy: ## Run go mod tidy in every module
+	@$(FOR_MODULES) (cd $$m && go mod tidy); done
+
+.PHONY: tidy-check
+tidy-check: ## Fail if go mod tidy would change any module
+	@$(FOR_MODULES) (cd $$m && go mod tidy -diff); done
+
+.PHONY: modules
+modules: ## List the modules the targets iterate over
+	@printf '%s\n' $(MODULES)
 
 .PHONY: proto
 proto: ## Generate Go code from proto files using buf
@@ -75,11 +85,11 @@ proto: ## Generate Go code from proto files using buf
 
 .PHONY: generate
 generate: ## Run go generate on all packages
-	@go generate ./...
+	@$(FOR_MODULES) go generate -C $$m ./...; done
 
 .PHONY: test
 test: ## Run all tests
-	@go test ./... 2>&1 | awk -F'\t' '\
+	@$(FOR_MODULES) go test -C $$m ./...; done 2>&1 | awk -F'\t' '\
 	  function pad(s,w, _l,_p) { gsub(/^[ \t]+|[ \t]+$$/, "", s); _l=length(s); _p=""; while(_l++<w) _p=_p" "; return s _p } \
 	  function color(s,c) { return "\033[" c "m" s "\033[0m" } \
 	  { \
@@ -91,23 +101,23 @@ test: ## Run all tests
 
 .PHONY: test-verbose
 test-verbose: ## Run all tests with verbose output
-	@go test -v ./...
+	@$(FOR_MODULES) go test -C $$m -v ./...; done
 
 .PHONY: test-race
 test-race: ## Run all tests with the race detector (slower)
-	@go test -race ./...
+	@$(FOR_MODULES) go test -C $$m -race ./...; done
 
 .PHONY: test-shuffle
 test-shuffle: ## Run all tests with randomized order (helps catch order-dependence)
-	@go test -shuffle=on ./...
+	@$(FOR_MODULES) go test -C $$m -shuffle=on ./...; done
 
 .PHONY: test-coverage
 test-coverage: ## Run tests with coverage report
-	@go test -cover ./...
+	@$(FOR_MODULES) go test -C $$m -cover ./...; done
 
 .PHONY: bench
 bench: ## Run all benchmarks
-	@go test -bench=. -benchmem -run=^$$ ./... 2>&1 | awk -F'\t' '\
+	@$(FOR_MODULES) go test -C $$m -bench=. -benchmem -run=^$$ ./...; done 2>&1 | awk -F'\t' '\
 	  function pad(s,w, _l,_p) { gsub(/^[ \t]+|[ \t]+$$/, "", s); _l=length(s); _p=""; while(_l++<w) _p=_p" "; return s _p } \
 	  function color(s,c) { return "\033[" c "m" s "\033[0m" } \
 	  /^(ok|FAIL|\?)/ { \
@@ -181,7 +191,7 @@ fuzz: ## Fuzz every target for FUZZTIME each (FUZZTIME=30s FUZZPKG=./...)
 
 .PHONY: test-integration
 test-integration: ## Run the integration suite against live backends (see tests/integration/README.md)
-	@go test -C tests/integration -race -count=1 ./...
+	@go test -C tests/integration -race -count=1 -p 1 ./...
 
 .PHONY: test-stress
 test-stress: ## Run the stress tests under -race, STRESS_DURATION each (needs NATS from integration-up for dlock)
@@ -236,35 +246,6 @@ release: ## Semantic versioning - create and push a new release tag
 	@git push origin $(VERSION)
 	@echo "Release $(VERSION) created and pushed"
 
-.PHONY: build-tools
-build-tools: ## Build command-line tools
-	@echo "Building CLI tools..."
-	@mkdir -p bin
-	@go build -o bin/plugin-sign ./cmd/plugin-sign
-	@go build -o bin/optgen ./cmd/optgen
-	@go build -o bin/goconfig ./cmd/goconfig
-	@echo "Built: plugin-sign, optgen, goconfig"
-
-.PHONY: install-tools
-install-tools: ## Install command-line tools to GOPATH/bin
-	@echo "Installing CLI tools..."
-	@go install ./cmd/plugin-sign
-	@go install ./cmd/optgen
-	@go install ./cmd/goconfig
-	@echo "Installed: plugin-sign, optgen, goconfig"
-
-.PHONY: build-plugin-sign
-build-plugin-sign: ## Build plugin signing tool
-	@go build -o bin/plugin-sign ./cmd/plugin-sign
-
-.PHONY: build-optgen
-build-optgen: ## Build functional options generator
-	@go build -o bin/optgen ./cmd/optgen
-
-.PHONY: build-goconfig
-build-goconfig: ## Build configuration converter
-	@go build -o bin/goconfig ./cmd/goconfig
-
 .PHONY: gosec
 gosec: ## Run gosec static security scanner (see GOSEC_EXCLUDED_RULES)
 	@cd devtools && go install github.com/securego/gosec/v2/cmd/gosec
@@ -272,15 +253,19 @@ gosec: ## Run gosec static security scanner (see GOSEC_EXCLUDED_RULES)
 
 .PHONY: security-scan
 security-scan: ## Security checks - run vulnerability and security scanners
-	@echo "Running Go vulnerability check..."
 	@cd devtools && go install golang.org/x/vuln/cmd/govulncheck
-	@govulncheck ./...
-	@echo ""
-	@echo "Running gosec security scanner..."
 	@cd devtools && go install github.com/securego/gosec/v2/cmd/gosec
-	@gosec -quiet -exclude-generated -exclude=$(GOSEC_EXCLUDED_RULES) ./...
-	@echo ""
-	@echo "Security scan completed"
+	@# Run every scanner even when an earlier one reports findings, then fail
+	@# if any did, so one report never hides the other.
+	@status=0; \
+	echo "Running Go vulnerability check ($$(go env GOVERSION))..."; \
+	govulncheck ./... || status=1; \
+	echo ""; \
+	echo "Running gosec security scanner..."; \
+	gosec -quiet -exclude-generated -exclude=$(GOSEC_EXCLUDED_RULES) ./... || status=1; \
+	echo ""; \
+	if [ $$status -ne 0 ]; then echo "Security scan found issues"; exit 1; fi; \
+	echo "Security scan completed"
 
 # Absolutely awesome: http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 help: ## Show this help
@@ -288,4 +273,4 @@ help: ## Show this help
 
 .PHONY: check-architecture
 check-architecture: ## Check production package boundaries on every platform
-	go test ./internal/architecture
+	go test ./tests/architecture

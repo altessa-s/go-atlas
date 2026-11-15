@@ -33,7 +33,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       # The dlock stress test locks through a live JetStream broker. It is
       # started here rather than as a service container because services

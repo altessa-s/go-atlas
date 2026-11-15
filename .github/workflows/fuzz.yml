@@ -33,7 +33,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
           # This job manages its own cache: the interesting artifact is the
           # generated corpus under GOCACHE/fuzz, and two actions writing
           # overlapping paths would race to save it.

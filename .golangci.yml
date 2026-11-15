@@ -35,9 +35,15 @@ linters:
     - unparam
     - ineffassign
     - dupl
+    - gocyclo
+    - gocognit
   settings:
     lll:
       line-length: 156
+    gocyclo:
+      min-complexity: 30
+    gocognit:
+      min-complexity: 30
     dogsled:
       max-blank-identifiers: 2
     errcheck:

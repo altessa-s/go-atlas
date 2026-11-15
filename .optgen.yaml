@@ -1,5 +1,5 @@
 # optgen configuration file
-# See: tools/codegen/optgen
+# See: https://github.com/altessa-s/go-optgen
 defaults:
   # Process all struct fields, not just those with opt tags
   all-fields: true

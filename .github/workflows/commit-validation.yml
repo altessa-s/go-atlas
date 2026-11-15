@@ -112,7 +112,7 @@ jobs:
               echo -e "${RED}✗ PR title doesn't follow Conventional Commits format${NC}"
               echo "Expected: type(scope): description"
               echo "Examples:"
-              echo "  feat(data/mongo): add cursor pagination"
+              echo "  feat(store/mongo): add cursor pagination"
               echo "  fix(transport/http): resolve retry bug"
               echo "  docs(README): update examples"
               exit 1

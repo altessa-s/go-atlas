@@ -1,6 +1,6 @@
 # Commit Scopes for go-atlas
 # Use these scopes in conventional commits: type(scope): description
-# Example: feat(data/mongo): add cursor pagination support
+# Example: feat(store/mongo): add cursor pagination support
 
 # Root-level scopes
 deps                        # Dependency management
@@ -13,157 +13,107 @@ auth/static                 # Static auth provider
 auth/selfjwt                # Self-signed JWT auth provider
 auth/jwt                    # JWT auth utilities
 auth/scope                  # Scope management
-auth/audit                  # Audit logging for auth events
+audit/decision              # Audit logging for auth events
 auth/mtls                   # Mutual TLS support
 auth/spiffe
 auth/oauth2client
-
-# Commands
-cmd                         # CLI tools and commands
-cmd/plugin-sign             # Plugin signing utility
+auth/denylist               # Token-revocation denylist
 
 # Configuration
 config                      # General config management
-config/loader               # Multi-source config loading
 config/templates            # Pre-built config structs
 
-# Core Utilities (zero-dependency)
-core                        # General core utilities
-core/collections            # Generic collections helpers
-core/collections/maps       # Map utilities and ImmutableMap
-core/collections/slices     # Slice utilities
-core/context                # Context utilities
-core/encoding               # Hash and serializer abstractions
-core/encoding/hash          # Hash implementations
-core/encoding/serializer    # Serializer implementations
-core/encoding/etag          # ETag generation
-core/errors                 # Structured error handling
-core/factory                # Generic factory pattern
-core/io                     # File I/O helpers
-core/io/files               # File operations
-core/io/wal                 # Write-ahead log
-core/io/spool               # Spool file management
-core/io/spoolbudget         # Spool budget management
-core/net                    # Network utilities
-core/net/http               # HTTP client middleware
-core/retry                  # Retry logic with backoff
-core/runtime                # Runtime utilities
-core/runtime/capabilities   # Linux capabilities management
-core/runtime/concurrency    # Concurrency primitives
-core/runtime/concurrency/dispatch  # Async batching dispatcher
-core/runtime/panics         # Panic recovery
-core/runtime/signals        # OS signal handling
-core/runtime/shutdown       # Shutdown hooks
-core/runtime/seccomp        # Seccomp utilities
-core/runtime/landlock       # Landlock utilities
-core/runtime/nonewprivs     # No New Privileges utilities
-core/runtime/appinfo        # Application info (version, build time, etc.)
-core/scheduler              # Task scheduling abstractions
-core/text                   # Text utilities
-core/text/strings           # String helpers and interning
-core/time                   # Time utilities
-core/types                  # Type helpers
-core/types/bits             # Bit manipulation
-core/types/constraints      # Generic constraints
-core/types/nilcheck         # Nil checking
-core/types/optional         # Optional type
-core/types/ptr              # Pointer utilities
-core/types/result           # Result type
-core/types/redacted         # Redacted types for sensitive data
-core/time/timeformat       # Common time formatters (RFC3339, etc.)
+# Core (packages moved to github.com/altessa-s/go-atlas-core)
+core                        # The go-atlas-core dependency
+
+# AIP (request contracts in github.com/altessa-s/go-aip)
+aip                         # The go-aip dependency and its framework wiring
+
+# Factories (composition layer: factory/<path> builds <path>)
+factory                     # General factory changes
+factory/core                # Generic factory base
+factory/auth                # Auth factories (oidc, opa, mtls, scope, oauth2client, denylist)
+factory/audit               # Audit factory
+factory/cache               # Cache factory
+factory/reliability/idempotency# Idempotency factory
+factory/coord/leadelect     # Leader election factory
+factory/coord/limiters      # Limiter factories (budget, tokenbucket, storages)
+factory/coord/dlock         # Lock factory
+factory/store/mongo         # MongoDB factory
+factory/store/mongo/kms     # KMS factory
+factory/reliability/outbox  # Outbox factory
+factory/cache/probfilter    # Probfilter factory
+factory/reliability/saga    # Saga factory
+factory/ext                 # Factories of external modules
+factory/ext/net/httpclient  # Outbound HTTP client factory (go-atlas-net)
+factory/ext/horai           # Scheduler factory (go-horai)
+factory/infrastructure      # MongoDB, Redis, NATS, ClickHouse, Meilisearch client factories
+factory/ext/kryptos         # Secrets factory (go-kryptos)
+factory/observability       # Health, metrics and tracing factories
+factory/ext/net/proxydial   # Forward-proxy dialer factory (go-atlas-net)
+factory/security            # HMAC signing and Vault factories
+factory/ext/aip/pagination/pagetoken # Page-token codec factory
+factory/ext/core/dispatch   # Dispatch factory and metrics observer
+factory/ext/slogx           # Logger factory (go-slogx)
+factory/ext/tlsutils        # TLS provider factory (go-tlsutils)
+factory/transport           # Broker, gRPC and HTTP server and client factories
 
 # Data Layer
-data                        # General data layer changes
-data/audit                  # Audit event system
-data/audit/factory          # Audit factory
-data/audit/storages         # Audit storage implementations
-data/cache                  # Caching abstractions
-data/cache/factory          # Cache factory
-data/cache/lru              # LRU cache implementation
-data/filter                 # CEL expression parser
-data/filter/translators     # DB query translators
-data/idempotency            # Idempotency key management
-data/idempotency/factory    # Idempotency factory
-data/idempotency/storages   # Idempotency storage implementations
-data/internal               # Internal data utilities
-data/internal/natskvlease   # NATS KV lease implementation
-data/leadelect              # Leader election
-data/leadelect/factory      # Leader election factory
-data/leadelect/providers    # Leader election providers
-data/limiters               # Rate limiting
-data/limiters/tokenbucket   # Token bucket implementation
-data/limiters/tokenbucket/factory  # Token bucket factory
-data/locks                  # Distributed locking
-data/locks/dlock            # Distributed lock implementation
-data/locks/dlock/factory    # Lock factory
-data/locks/dlock/providers  # Lock providers
-data/meilisearch            # Meilisearch client wrapper
-data/mongo                  # MongoDB repository layer
-data/mongo/factory          # MongoDB factory
-data/mongo/kms              # MongoDB CSFLE/KMS
-data/mongo/kms/factory      # KMS factory
-data/mongo/cursorstorages   # Cursor storage implementations
-data/orderby                # AIP-132 order_by DSL parser
-data/orderby/translators    # Order_by DB translators (Mongo, Meili, RediSearch)
-data/outbox                 # Transactional outbox
-data/outbox/factory         # Outbox factory
-data/projection             # AIP-157 fields parser -> DB projections
-data/projection/translators # Projection DB translators (Mongo, SQL)
-data/probfilter             # Probabilistic filters
-data/probfilter/factory     # Probfilter factory
-data/retryqueue             # Durable retry queue
-data/uniq                   # Uniqueness constraints
-data/uniq/factory           # Uniqueness factory
-data/saga                   # Saga orchestration
+audit                       # Audit event system
+audit/storages              # Audit storage implementations
+cache                       # Caching abstractions
+reliability                 # Delivery and execution guarantees
+reliability/idempotency     # Idempotency key management
+reliability/idempotency/storages# Idempotency storage implementations
+coord                       # Distributed coordination
+coord/leadelect             # Leader election
+coord/leadelect/providers   # Leader election providers
+coord/limiters              # Rate limiting
+coord/limiters/tokenbucket  # Token bucket implementation
+coord/dlock                 # Distributed lock implementation
+coord/dlock/providers       # Lock providers
+store                       # Storage clients
+store/meilisearch           # Meilisearch client wrapper
+store/mongo                 # MongoDB repository layer
+store/mongo/kms             # MongoDB CSFLE/KMS
+store/mongo/storages        # Cursor storage implementations
+reliability/outbox          # Transactional outbox
+cache/probfilter            # Probabilistic filters
+reliability/retryqueue      # Durable retry queue
+reliability/saga            # Saga orchestration
+
 domain/money                #
 
 # Domain Layer
 domain                      # General domain utilities
-domain/converter            # Struct conversion
-domain/fieldtracker         # Field change tracking
-domain/normalizer           # Data normalization
-domain/normalizer/modifiers # Normalization modifiers
-domain/proto                # Protobuf utilities
-domain/proto/fieldmask      # Field mask operations
-domain/validation           # Domain validation
-domain/behavior             # Domain behaviors
-domain/eventbus             # Event bus abstractions
-domain/proto/fieldbehavior  # Field behavior annotations
+mapping                     # Structural mapping
+domain/money/moneypb        # money.Money <-> google.type.Money
+mapping/fieldtracker        # Field change tracking
+mapping/behavior            # Domain behaviors
+messaging                   # Message passing
+messaging/eventbus          # Event bus abstractions
 
-# Infrastructure
-infrastructure              # General infrastructure
-infrastructure/meilisearch  # Meilisearch client setup
-infrastructure/meilisearch/factory # Meilisearch client factory
-infrastructure/mongo        # MongoDB client setup
-infrastructure/mongo/factory # MongoDB client factory
-infrastructure/nats         # NATS connection management
-infrastructure/nats/factory # NATS factory
-infrastructure/redis        # Redis client setup
-infrastructure/redis/factory # Redis factory
-
-# Internal (test helpers)
+# Internal (module-wide internals and test helpers)
 internal                    # Internal utilities
 internal/testhelpers        # Shared test helpers
+internal/nats               # Shared NATS bases
+internal/redis              # Shared Redis bases
+internal/nats/natskvlease # NATS KV lease implementation
+internal/transport          # Shared transport internals
+internal/transport/server   # Shared server code
+internal/transport/validation # Request validation
+internal/transport/depgraph # Dependency ordering of interceptors and middlewares
 
 # Observability
 observability               # General observability
 observability/appstats      # Application statistics
 observability/health        # Health checks
-observability/health/factory # Health check factory
 observability/internal      # Internal observability utilities
 observability/metrics       # Prometheus metrics
-observability/metrics/factory # Metrics factory
-observability/slog          # Structured logging
-observability/slog/factory  # Slog factory
-observability/slog/handler  # Slog handlers
+observability/metrics/aipmeter # go-aip metrics adapter
 observability/tracing       # Distributed tracing
-observability/tracing/factory # Tracing factory
 observability/tracing/adapters # Tracing adapters
 observability/tracing/propagation # Context propagation
-
-# Plugins
-plugins                     # Plugin system
-plugins/factory             # Plugin factory
 
 # Protocol Buffers
 proto                       # Protobuf definitions
@@ -172,81 +122,43 @@ proto/scheduler             # Scheduler proto definitions
 
 # Security
 security                    # General security
-security/secrets            # Secret management
-security/secrets/factory    # Secrets factory
-security/tlsutils           # TLS utilities
-security/tlsutils/factory   # TLS factory
-security/tlsutils/ocsp      # OCSP stapling
-security/tlsutils/providers # TLS providers
-security/tlsutils/spiffe    # SPIFFE integration
 security/vault              # HashiCorp Vault
 security/vault/auth         # Vault authentication
-security/vault/factory      # Vault factory
 
 # Service Components
 service                     # General service components
-service/dispatch            # Dispatch service
-service/id                  # Service identity (ULID/UUID)
-service/scheduler           # Distributed cron scheduler
-service/scheduler/factory   # Scheduler factory
-service/scheduler/storages  # Scheduler storage implementations
-
-# Code Generation Tools
-tools                       # Development tools
-tools/codegen               # Code generation
-tools/codegen/goconfig      # Config struct generator
-tools/codegen/optgen        # Functional options generator
-tools/codegen/optgen/internal # Optgen internals
-tools/codegen/optgen/plugin # Optgen plugin
-tools/codegen/shared        # Shared codegen utilities
 
 # Transport Layer
 transport                   # General transport layer
-transport/broker            # Message broker abstractions
-transport/broker/factory    # Broker factory
-transport/broker/inprogress # In-progress message tracking
-transport/broker/outbox     # Broker outbox integration
-transport/broker/providers  # Broker provider implementations
+messaging/broker            # Message broker abstractions
+messaging/broker/inprogress # In-progress message tracking
+messaging/broker/outbox     # Broker outbox integration
+messaging/broker/providers  # Broker provider implementations
+transport/policy            # Transport-neutral access policies (ipacl, geoacl, endpointrule, fallback)
 transport/grpc              # gRPC transport
 transport/grpc/client       # gRPC client
 transport/grpc/client/pool  # gRPC connection pooling
 transport/grpc/handlers     # gRPC handlers
+transport/grpc/handlers/scheduler # gRPC SchedulerService handler
 transport/grpc/interceptors # gRPC interceptors
 transport/grpc/interceptors/audit # Audit interceptor
 transport/grpc/interceptors/auth # Auth interceptor
 transport/grpc/interceptors/cache # Cache interceptor
 transport/grpc/interceptors/errstatus # Error status interceptor
 transport/grpc/server       # gRPC server
-transport/grpc/server/factory # gRPC server factory
 transport/http              # HTTP transport
-transport/http/client       # HTTP client with retries
 transport/http/server       # HTTP server
 transport/http/server/codec # HTTP codecs
-transport/http/server/factory # HTTP server factory
 transport/http/server/middlewares # HTTP middlewares
 transport/http/server/middlewares/audit # Audit middleware
 transport/http/server/middlewares/auth # Auth middleware
-transport/http/server/middlewares/cache # Cache middleware
 transport/http/server/middlewares/cors # CORS middleware
 transport/http/server/middlewares/defaults # Default middlewares
-transport/http/server/middlewares/gzip # Gzip middleware
 transport/http/server/middlewares/idempotency # Idempotency middleware
 transport/http/server/middlewares/logger # Logger middleware
-transport/http/server/middlewares/mkclient # Client maker middleware
-transport/http/server/middlewares/otel # OpenTelemetry middleware
-transport/http/server/middlewares/prometheus # Prometheus middleware
 transport/http/server/middlewares/recovery # Panic recovery middleware
-transport/http/server/middlewares/requestlimiter # Request limiter middleware
-transport/http/server/middlewares/request_id # Request ID middleware
-transport/http/server/middlewares/retry # Retry middleware
-transport/http/server/middlewares/timeout # Timeout middleware
 transport/http/server/router # HTTP routers
 transport/http/server/writer # HTTP response writers
-transport/internal          # Shared transport internals
-transport/internal/server   # Shared server code
-transport/internal/validation # Request validation
-transport/internal/depgraph
-transport/proxydial         # Proxy dialing support
 
 # Testing
 tests                       # Integration suite (separate module)

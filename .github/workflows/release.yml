@@ -6,11 +6,16 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  checks:
+    name: Release checks
+    uses: ./.github/workflows/ci.yml
+
   release:
     name: Release
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -23,7 +28,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
