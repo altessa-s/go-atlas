@@ -1,0 +1,41 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package factory_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/factory/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
+	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
+)
+
+func TestCollectorBuilder_Build_Disabled(t *testing.T) {
+	// Nil config
+	collector, err := factory.New(nil).Build()
+	require.NoError(t, err)
+	require.True(t, metrics.IsNoop(collector), "expected Noop collector for nil config")
+
+	// Disabled config
+	cfg := &observabilityconfig.Metrics{Enabled: false}
+	collector, err = factory.New(cfg).Build()
+	require.NoError(t, err)
+	require.True(t, metrics.IsNoop(collector), "expected Noop collector for disabled config")
+}
+
+func TestCollectorBuilder_Build_Noop(t *testing.T) {
+	cfg := &observabilityconfig.Metrics{
+		Enabled: true,
+		Type:    observabilityconfig.MetricsTypeNoop,
+	}
+
+	collector, err := factory.New(cfg).Build()
+	require.NoError(t, err)
+	// Note: MetricsTypeNoop creates a real collector without adapters, not Noop()
+	require.NotNil(t, collector)
+}

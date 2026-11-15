@@ -1,0 +1,250 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package factory
+
+import (
+	"cmp"
+	"context"
+	"crypto/tls"
+	"log/slog"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+
+	"github.com/altessa-s/go-atlas/observability/health"
+
+	corectx "github.com/altessa-s/go-atlas-core/context"
+	redisconfig "github.com/altessa-s/go-atlas/config/redis"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
+)
+
+const (
+	// DefaultPoolTimeout is the default timeout for acquiring a connection from the
+	// pool. Applied to all clients created by [ClientBuilder.Build].
+	DefaultPoolTimeout = 10 * time.Second
+
+	// DefaultMaxRetries is the default maximum number of retries for failed
+	// commands. Applied to all clients created by [ClientBuilder.Build].
+	DefaultMaxRetries = 5
+
+	// DefaultPingTimeout is the timeout used for the initial health-check ping
+	// in [ClientBuilder.Build]. If the ping does not respond within
+	// this duration the client is closed and an error is returned.
+	DefaultPingTimeout = 5 * time.Second
+)
+
+// ClientBuilder assembles a Redis [redis.UniversalClient] step by step using a fluent API.
+// Create instances with [New]. Errors are accumulated and reported at [ClientBuilder.Build] time.
+// The builder is not safe for concurrent use.
+type ClientBuilder struct {
+	corefactory.Base
+	cfg  *redisconfig.Config
+	errs []error
+
+	// Dependencies
+	healthCoordinator *health.Coordinator
+	healthServiceName string
+	// tlsConfig is applied to the field-based universal options when
+	// non-nil. The URI-based path (rediss://) picks up TLS through the
+	// scheme; field-based configs (Hosts/Password/Database) had no
+	// path to TLS at all before this hook — operators got plaintext
+	// connections silently regardless of deployment posture.
+	tlsConfig *tls.Config
+	// skipPing and noHealth make construction independent of Redis being
+	// reachable (see SkipStartupPing and WithoutHealth).
+	skipPing bool
+	noHealth bool
+}
+
+// WithTLSConfig installs a *tls.Config to apply to the Redis client.
+// Used by the field-based config path; the URI-based path ignores
+// this and reads TLS from the rediss:// scheme instead. Without this
+// hook, field-based configs silently fall back to plaintext.
+func (b *ClientBuilder) WithTLSConfig(cfg *tls.Config) *ClientBuilder {
+	b.tlsConfig = cfg
+	return b
+}
+
+// SkipStartupPing builds the client without the startup ping, so
+// [ClientBuilder.Build] succeeds while Redis is down. go-redis dials lazily and
+// reconnects on its own; commands fail until Redis becomes reachable. Use it
+// when Redis is optional for the service (for example a fail-open cache).
+func (b *ClientBuilder) SkipStartupPing() *ClientBuilder {
+	b.skipPing = true
+	return b
+}
+
+// WithoutHealth builds the client without registering a health checker, even
+// when a coordinator was set with [ClientBuilder.UseHealthCoordinator], so an
+// unreachable Redis does not mark the service as not serving.
+func (b *ClientBuilder) WithoutHealth() *ClientBuilder {
+	b.noHealth = true
+	return b
+}
+
+// New creates a [ClientBuilder] for the given Redis config.
+// Config can be nil — the error surfaces at [ClientBuilder.Build] time.
+func New(cfg *redisconfig.Config) *ClientBuilder {
+	return &ClientBuilder{
+		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
+		cfg:  cfg,
+	}
+}
+
+// Build creates a [redis.UniversalClient] from configuration.
+// After creating the client it performs a health-check ping within
+// [DefaultPingTimeout]; if the ping fails the client is closed and an error
+// is returned; [ClientBuilder.SkipStartupPing] disables the ping. If a
+// [health.Coordinator] was provided via [ClientBuilder.UseHealthCoordinator],
+// a health checker is registered under the service name "redis" unless
+// [ClientBuilder.WithoutHealth] was called.
+func (b *ClientBuilder) Build(ctx context.Context) (redis.UniversalClient, error) {
+	if err := corefactory.JoinErrors(b.errs); err != nil {
+		return nil, err
+	}
+
+	if b.cfg == nil {
+		return nil, corefactory.ErrConfigRequired
+	}
+
+	opts, err := b.UniversalOptions()
+	if err != nil {
+		return nil, err
+	}
+	client := redis.NewUniversalClient(opts)
+
+	if !b.skipPing {
+		if err := b.ping(ctx, client); err != nil {
+			return nil, err
+		}
+	}
+
+	mode := b.detectMode()
+	b.Logger().Debug("Redis client created",
+		slog.String("mode", mode),
+		slog.Any("hosts", b.cfg.Hosts))
+
+	if b.healthCoordinator != nil && !b.noHealth {
+		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "redis"), &redisHealthChecker{
+			client: client,
+			logger: b.Logger(),
+		})
+	}
+
+	return client, nil
+}
+
+// ping checks client within [DefaultPingTimeout] and closes it on failure.
+func (b *ClientBuilder) ping(ctx context.Context, client redis.UniversalClient) error {
+	pingCtx, cancel := corectx.ApplyTimeout(ctx, DefaultPingTimeout)
+	defer cancel()
+
+	if err := client.Ping(pingCtx).Err(); err != nil {
+		if closeErr := client.Close(); closeErr != nil {
+			b.Logger().Warn("failed to close Redis client after ping failure",
+				slog.Any("error", closeErr))
+		}
+		return b.WrapError(err, "health check failed")
+	}
+	return nil
+}
+
+// UniversalOptions builds [redis.UniversalOptions] from configuration.
+// When [redisconfig.Config.ConnectionURI] is set, it is parsed via [redis.ParseURL] to
+// extract address, auth, TLS, and database number; pool/timeout/sentinel fields
+// from config are applied on top. Otherwise, options are built from individual
+// config fields. Returns an error if cfg is nil or the URI cannot be parsed.
+func (b *ClientBuilder) UniversalOptions() (*redis.UniversalOptions, error) {
+	if b.cfg == nil {
+		return nil, corefactory.ErrConfigRequired
+	}
+
+	if b.cfg.UseConnectionURI() {
+		return b.universalOptionsFromURI()
+	}
+
+	return b.universalOptionsFromFields(), nil
+}
+
+// universalOptionsFromFields builds UniversalOptions from individual config fields.
+func (b *ClientBuilder) universalOptionsFromFields() *redis.UniversalOptions {
+	opts := &redis.UniversalOptions{
+		Addrs:    b.cfg.Hosts,
+		Password: b.cfg.Password.Expose(),
+		Username: b.cfg.Username,
+		DB:       b.cfg.Database,
+	}
+	b.applyCommonOptions(opts)
+
+	// Apply TLS material if the operator wired it in via WithTLSConfig.
+	// Without this hook a field-based config (Hosts/Password/Database)
+	// silently produced a plaintext connection regardless of the
+	// deployment's TLS posture — security regression vs the URI-based
+	// path which honors the rediss:// scheme automatically.
+	if b.tlsConfig != nil {
+		opts.TLSConfig = b.tlsConfig
+	}
+
+	return opts
+}
+
+// universalOptionsFromURI parses the ConnectionURI to get addr/auth/db, then
+// applies pool, timeout, sentinel, and routing fields from config on top.
+func (b *ClientBuilder) universalOptionsFromURI() (*redis.UniversalOptions, error) {
+	parsed, err := redis.ParseURL(b.cfg.ConnectionURI.Expose())
+	if err != nil {
+		return nil, b.WrapError(err, "failed to parse connection URI")
+	}
+
+	opts := &redis.UniversalOptions{
+		Addrs:    []string{parsed.Addr},
+		Username: parsed.Username,
+		Password: parsed.Password,
+		DB:       parsed.DB,
+	}
+	b.applyCommonOptions(opts)
+
+	if parsed.TLSConfig != nil {
+		opts.TLSConfig = parsed.TLSConfig
+	}
+
+	return opts, nil
+}
+
+// applyCommonOptions sets the pool, timeout, routing, retry, and Sentinel
+// fields shared by the field-based and URI-based paths. Address, auth,
+// database, and TLS selection stay with each path.
+func (b *ClientBuilder) applyCommonOptions(opts *redis.UniversalOptions) {
+	opts.PoolSize = b.cfg.PoolSize
+	opts.MinIdleConns = b.cfg.MinIdleConnections
+	opts.DialTimeout = b.cfg.ConnectTimeout
+	opts.ReadTimeout = b.cfg.SocketTimeout
+	opts.WriteTimeout = b.cfg.SocketTimeout
+	opts.ConnMaxIdleTime = b.cfg.IdleTimeout
+	opts.ConnMaxLifetime = b.cfg.MaxConnectionAge
+	opts.MaxRedirects = b.cfg.MaxRedirects
+	opts.ReadOnly = b.cfg.ReadOnly
+	opts.RouteByLatency = b.cfg.RouteByLatency
+	opts.RouteRandomly = b.cfg.RouteRandomly
+	opts.PoolTimeout = DefaultPoolTimeout
+	opts.MaxRetries = DefaultMaxRetries
+
+	// Sentinel mode: when MasterName is specified
+	if b.cfg.MasterName != "" {
+		opts.MasterName = b.cfg.MasterName
+		opts.SentinelPassword = b.cfg.SentinelPassword.Expose()
+	}
+}
+
+// detectMode returns a string describing the Redis mode based on configuration.
+func (b *ClientBuilder) detectMode() string {
+	if b.cfg.MasterName != "" {
+		return "sentinel"
+	}
+	if len(b.cfg.Hosts) > 1 {
+		return "cluster"
+	}
+	return "standalone"
+}

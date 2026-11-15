@@ -1,0 +1,36 @@
+# factory
+
+```go
+import "github.com/altessa-s/go-atlas/factory/ext/net/hmacsign"
+```
+
+Builds [`hmacsign`](https://github.com/altessa-s/go-atlas-net/tree/develop/hmacsign) signers and verifiers from a [`webhookconfig.Signature`](../../../../config/webhook) template.
+
+| Function            | Description                                                                                    |
+|---------------------|------------------------------------------------------------------------------------------------|
+| `Verifier(cfg)`     | Build a `*hmacsign.Verifier` — scheme, primary + rotation secrets, replay tolerance and cache.  |
+| `Signer(cfg)`       | Build a `*hmacsign.Signer` — scheme and the primary secret (rotation/tolerance do not apply).    |
+
+The `scheme` config string (`github` / `stripe`) selects the wire format; the secret is read through `redacted.RedactedString`, so
+`file:`/`env:`/`vault:` references resolve before the object is built. Both functions call `cfg.Validate()` first, so an unset secret, an unknown
+scheme, or a negative tolerance is rejected; a secret shorter than `hmacsign.MinSecretLength` fails with `hmacsign.ErrSecretTooShort`.
+
+`rejectReplays: true` installs an in-process `hmacsign.NewMemoryReplayCache` on the verifier: a second delivery of an accepted Stripe signature
+within twice the tolerance fails with `hmacsign.ErrReplayed`. It requires the `stripe` scheme and a positive tolerance; receivers behind a load
+balancer need a shared `hmacsign.ReplayCache`, passed with `hmacsign.WithReplayCache` in code.
+
+## Usage
+
+```go
+v, err := factory.Verifier(cfg.WebhookSignature)
+if err != nil {
+    return err
+}
+mux.Handle("/webhooks/stripe", httpsign.Middleware(v)(handler))
+```
+
+## See also
+
+- [`hmacsign`](https://github.com/altessa-s/go-atlas-net/tree/develop/hmacsign) — the underlying signer/verifier and schemes.
+- [`hmacsign/httpsign`](https://github.com/altessa-s/go-atlas-net/tree/develop/hmacsign/httpsign) — the `net/http` middleware that consumes the built verifier.
+- [`webhookconfig.Signature`](../../../../config/webhook) — the configuration template.

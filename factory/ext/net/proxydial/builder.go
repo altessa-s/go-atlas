@@ -1,0 +1,125 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package factory
+
+import (
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/url"
+	"strconv"
+
+	"github.com/altessa-s/go-atlas-net/proxydial"
+
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
+)
+
+// DialerBuilder assembles a [proxydial.DialContextFunc] from a
+// [proxyconfig.Config] using a fluent API. Create instances with [New].
+// The builder is not safe for concurrent use.
+type DialerBuilder struct {
+	corefactory.Base
+	cfg *proxyconfig.Config
+
+	// Dependencies
+	dialer         *net.Dialer
+	proxyTLSConfig *tls.Config
+}
+
+// New creates a [DialerBuilder] for the given proxy configuration.
+//
+// A nil cfg is allowed and yields (nil, nil) at [DialerBuilder.Build]
+// time — this matches the "proxy is opt-in" contract used elsewhere
+// in the SDK and lets callers wire the builder unconditionally
+// without first checking whether the YAML block was present.
+func New(cfg *proxyconfig.Config) *DialerBuilder {
+	return &DialerBuilder{
+		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
+		cfg:  cfg,
+	}
+}
+
+// Build materializes the proxy configuration into a
+// [proxydial.DialContextFunc].
+//
+// Returns (nil, nil) when proxying is disabled (nil receiver, nil
+// cfg, empty Mode, or [proxyconfig.ModeNone]). Caller treats
+// that as "use a direct dial" and skips wiring a custom dialer.
+//
+// The configuration is validated first ([proxyconfig.Config.Validate]),
+// so a malformed URL or one whose credentials spill into the host or path
+// is rejected with an error that quotes no part of it, before any dial or
+// DNS lookup. A validated URL's host cannot carry credentials, which is
+// why proxydial dial errors may name the proxy host:port.
+func (b *DialerBuilder) Build() (proxydial.DialContextFunc, error) {
+	if b == nil || b.cfg == nil {
+		return nil, nil //nolint:nilnil
+	}
+	if err := b.cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	u, err := b.proxyURL()
+	if err != nil || u == nil {
+		return nil, err
+	}
+
+	return proxydial.FromURL(u, b.dialOptions()...)
+}
+
+// proxyURL folds Mode/URL/Host/Port/Auth into a canonical *url.URL.
+// Returns (nil, nil) for the passthrough modes.
+func (b *DialerBuilder) proxyURL() (*url.URL, error) {
+	switch b.cfg.Mode {
+	case "", proxyconfig.ModeNone:
+		return nil, nil //nolint:nilnil
+
+	case proxyconfig.ModeURL:
+		u, err := url.Parse(b.cfg.URL.Expose())
+		if err != nil {
+			// url.Parse errors quote the URL, credentials included.
+			return nil, errors.New("config.Proxy: url is not a valid URL")
+		}
+		return u, nil
+
+	case proxyconfig.ModeHost:
+		return &url.URL{
+			Scheme: "http",
+			Host:   net.JoinHostPort(b.cfg.Host, strconv.Itoa(b.cfg.Port)),
+			User:   userinfo(b.cfg.Auth),
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("config.Proxy: unknown mode %q", b.cfg.Mode)
+	}
+}
+
+// dialOptions assembles the [proxydial.Option] slice from the
+// dependencies stored on the builder. Only non-nil fields produce
+// options, so default proxydial behavior is preserved when callers
+// skip the corresponding Use* method.
+func (b *DialerBuilder) dialOptions() []proxydial.Option {
+	var opts []proxydial.Option
+	opts = coreslices.AppendIf(opts, b.dialer != nil, proxydial.WithDialer(b.dialer))
+	opts = coreslices.AppendIf(opts, b.proxyTLSConfig != nil, proxydial.WithProxyTLSConfig(b.proxyTLSConfig))
+	return opts
+}
+
+// userinfo builds a *url.Userinfo from an Auth block, returning nil
+// for anonymous proxies. The plain-text password has to be exposed
+// here — the underlying URL needs it on the wire.
+func userinfo(a *proxyconfig.Auth) *url.Userinfo {
+	if a == nil || a.Username == "" {
+		return nil
+	}
+	if a.Password.IsEmpty() {
+		return url.User(a.Username)
+	}
+	return url.UserPassword(a.Username, a.Password.Expose())
+}

@@ -1,0 +1,51 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package factory
+
+import (
+	"testing"
+
+	"github.com/altessa-s/go-atlas-core/types/redacted"
+
+	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
+)
+
+func BenchmarkDialerBuilder_New(b *testing.B) {
+	cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "https://proxy.example.com:8443"}
+	for b.Loop() {
+		New(cfg)
+	}
+}
+
+func BenchmarkDialerBuilder_Build_URL(b *testing.B) {
+	cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "https://proxy.example.com:8443"}
+	builder := New(cfg)
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = builder.Build()
+	}
+}
+
+func BenchmarkDialerBuilder_Build_Host(b *testing.B) {
+	cfg := &proxyconfig.Config{
+		Mode: proxyconfig.ModeHost,
+		Host: "proxy.example.com",
+		Port: 8443,
+		Auth: &proxyconfig.Auth{Username: "svc", Password: redacted.RedactedString("hunter2")},
+	}
+	builder := New(cfg)
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = builder.Build()
+	}
+}
+
+func BenchmarkDialerBuilder_Build_Disabled(b *testing.B) {
+	builder := New(nil)
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = builder.Build()
+	}
+}
