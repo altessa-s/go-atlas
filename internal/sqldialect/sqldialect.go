@@ -106,14 +106,24 @@ func isIdent(p string) bool {
 // storages over different tables never collide on index names. A name that
 // would exceed [MaxIdentLen] keeps a readable prefix and ends in an FNV-32a
 // hash of the full table name, so truncation cannot make two tables' indexes
-// collide.
+// collide. If the suffix itself exceeds the available space, the hash covers
+// the full derived name and the readable prefix includes the table and suffix.
 func (s Style) IndexName(table, suffix string) string {
 	name := table + "_" + suffix + "_idx"
 	if len(name) > MaxIdentLen {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(table))
 		tail := fmt.Sprintf("_%08x_%s_idx", h.Sum32(), suffix)
-		name = table[:MaxIdentLen-len(tail)] + tail
+		if len(tail) > MaxIdentLen {
+			// Preserve existing index names for ordinary suffixes. When the
+			// suffix itself is too long, hash the full name before truncating.
+			h.Reset()
+			_, _ = h.Write([]byte(name))
+			tail = fmt.Sprintf("_%08x_idx", h.Sum32())
+			name = name[:MaxIdentLen-len(tail)] + tail
+		} else {
+			name = table[:MaxIdentLen-len(tail)] + tail
+		}
 	}
 	return s.Ident(name)
 }
@@ -143,8 +153,8 @@ func (s Style) Bind(query string, start int) string {
 
 // Unqualified returns the table part of a possibly schema-qualified name.
 func Unqualified(name string) string {
-	if i := strings.LastIndexByte(name, '.'); i >= 0 {
-		return name[i+1:]
+	if _, table, ok := strings.CutLast(name, "."); ok {
+		return table
 	}
 	return name
 }
@@ -152,8 +162,8 @@ func Unqualified(name string) string {
 // Qualifier returns the schema part of a schema-qualified name, or "" for an
 // unqualified one.
 func Qualifier(name string) string {
-	if i := strings.LastIndexByte(name, '.'); i >= 0 {
-		return name[:i]
+	if schema, _, ok := strings.CutLast(name, "."); ok {
+		return schema
 	}
 	return ""
 }

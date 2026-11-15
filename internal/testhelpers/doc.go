@@ -6,20 +6,8 @@
 // shared across the go-atlas project.
 //
 // The package includes:
-//   - Mock providers for idempotency ([MockIdempotencyStorage]) and
-//     network errors ([MockNetError]).
-//   - In-memory metrics test helpers ([NewTestCollector], [GetCounterValue],
-//     [GetGaugeValue], [GetHistogramCount], [GatherMetric]). The collector
-//     stores observations in memory, so tests do not depend on Prometheus.
-//   - Filter expression parsing ([MustParseFilter]) and order_by parsing
-//     ([MustParseOrderBy]).
+//   - A network error double ([MockNetError]).
 //   - HTTP and I/O test doubles ([RoundTripFunc], [MockReadCloser]).
-//   - NATS/JetStream helpers for spinning up embedded servers ([StartNATSServer],
-//     [ConnectNATS], [ConnectJetStream], [CreateNATSKV]), reading a bucket's
-//     key TTL and storage ([KVBucketTTL], [KVBucketStorage]) and capturing
-//     bucket configuration ([JetStreamKVCapture]).
-//   - Redis bootstrap ([RedisClient]) that starts an in-process miniredis
-//     server and returns a connected go-redis client plus the server handle.
 //   - TLS and cryptographic utilities: an in-memory ECDSA test CA ([NewCA],
 //     [CA.SignLeaf] with [CertOption] values for SANs, EKUs, serials, and
 //     OCSP URLs), self-signed certificates ([SelfSignedCert]), key generation
@@ -34,7 +22,13 @@
 //   - A protobuf update helper ([ApplyLeafPaths]) that copies the fields an
 //     update mask names leaf by leaf, as a storage update by leaf paths
 //     would, to check which stored values an update leaves intact.
-//   - Polling helpers ([WaitFor]) and an audit helper ([NewTestAuditor]).
+//   - Polling helpers ([WaitFor]).
+//
+// The package depends only on core and the standard library. Fixtures tied to
+// a capability live with it: audit/audittest,
+// reliability/idempotency/idempotencytest and
+// observability/metrics/metricstest; in-process NATS and Redis servers live in
+// internal/testhelpers/servers/{natstest,redistest}.
 //   - The run length of the `stress`-tagged soak tests ([StressDuration],
 //     set through [StressDurationEnv]).
 //

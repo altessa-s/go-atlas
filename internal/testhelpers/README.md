@@ -11,14 +11,12 @@ automatically.
 
 | Helper                                | Purpose                                                                                          |
 |---------------------------------------|--------------------------------------------------------------------------------------------------|
-| `MockIdempotencyStorage`              | In-memory lock storage with ownership checks for completion and release                          |
 | `MockTaskRegistrar`                   | Captures scheduler registrations and injected registration errors                                |
-| `RedisClient`                         | In-process Redis fixture                                                                         |
-| `StartNATSServer`, `ConnectJetStream` | Embedded NATS and JetStream fixtures                                                             |
 | `NewCA`, `SelfSignedCert`             | TLS fixtures                                                                                     |
-| `NewTestCollector`, `GatherMetric`    | Metrics assertions                                                                               |
 | `NewFakeSQL`                          | Scripted `database/sql` driver recording statements for SQL storage tests                        |
 | `ApplyLeafPaths`                      | Copies update-mask leaf paths between protobuf messages, as a storage update by leaf paths would |
 | `WaitFor`                             | Bounded asynchronous assertions                                                                  |
 
-See [doc.go](doc.go) for the full helper inventory. Keep fixtures used only within one package tree in that tree's internal test helpers.
+Capability fixtures live with their capability: [`audittest`](../../audit/audittest), [`idempotencytest`](../../reliability/idempotency/idempotencytest),
+[`metricstest`](../../observability/metrics/metricstest); in-process servers in [`servers/natstest`](servers/natstest) and
+[`servers/redistest`](servers/redistest). See [doc.go](doc.go) for the full helper inventory. Keep fixtures used only within one package tree in that tree's internal test helpers.

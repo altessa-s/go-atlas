@@ -8,10 +8,10 @@ import (
 	"context"
 	"sync"
 
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	schedtask "github.com/altessa-s/go-horai/task"
 )
 
-// MockTaskRegistrar is a concurrency-safe [corescheduler.TaskRegistrar] that
+// MockTaskRegistrar is a concurrency-safe [schedtask.Registrar] that
 // records the tasks registered with it instead of running them.
 //
 // It lets a test assert what a component asked the scheduler to do — the task
@@ -25,11 +25,11 @@ type MockTaskRegistrar struct {
 	Err error
 
 	mu    sync.Mutex
-	tasks []corescheduler.TaskConfig
+	tasks []schedtask.Config
 }
 
 // Register records cfg and returns [MockTaskRegistrar.Err].
-func (m *MockTaskRegistrar) Register(_ context.Context, cfg corescheduler.TaskConfig) error {
+func (m *MockTaskRegistrar) Register(_ context.Context, cfg schedtask.Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -40,11 +40,11 @@ func (m *MockTaskRegistrar) Register(_ context.Context, cfg corescheduler.TaskCo
 
 // Tasks returns a copy of the registered task configurations, in registration
 // order.
-func (m *MockTaskRegistrar) Tasks() []corescheduler.TaskConfig {
+func (m *MockTaskRegistrar) Tasks() []schedtask.Config {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return append([]corescheduler.TaskConfig(nil), m.tasks...)
+	return append([]schedtask.Config(nil), m.tasks...)
 }
 
 // Count returns the number of Register calls.
@@ -56,7 +56,7 @@ func (m *MockTaskRegistrar) Count() int {
 }
 
 // Task returns the registered task with the given ID and whether it was found.
-func (m *MockTaskRegistrar) Task(id string) (corescheduler.TaskConfig, bool) {
+func (m *MockTaskRegistrar) Task(id string) (schedtask.Config, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -66,5 +66,5 @@ func (m *MockTaskRegistrar) Task(id string) (corescheduler.TaskConfig, bool) {
 		}
 	}
 
-	return corescheduler.TaskConfig{}, false
+	return schedtask.Config{}, false
 }

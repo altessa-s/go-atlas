@@ -75,3 +75,13 @@ func TestQualifiedParts(t *testing.T) {
 		require.Equal(t, tc.schema, sqldialect.Qualifier(tc.name))
 	}
 }
+
+func TestIndexNameLongSuffix(t *testing.T) {
+	t.Parallel()
+	suffix := strings.Repeat("s", sqldialect.MaxIdentLen)
+	a := sqldialect.Postgres.IndexName("tasks", suffix+"a")
+	b := sqldialect.Postgres.IndexName("tasks", suffix+"b")
+	require.Len(t, a, sqldialect.MaxIdentLen+2)
+	require.NotEqual(t, a, b)
+	require.Equal(t, a, sqldialect.Postgres.IndexName("tasks", suffix+"a"))
+}
