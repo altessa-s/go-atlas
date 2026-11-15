@@ -1,0 +1,233 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package meilisearch
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	msdk "github.com/meilisearch/meilisearch-go"
+)
+
+// IndexSettings holds the attribute lists Meilisearch exposes for per-index
+// full-text, filter, and sort behavior.
+type IndexSettings struct {
+	// SearchableAttributes are fields used for full-text matching.
+	SearchableAttributes []string
+
+	// FilterableAttributes are fields usable in filter expressions.
+	FilterableAttributes []string
+
+	// SortableAttributes are fields usable in [SearchRequest.Sort].
+	SortableAttributes []string
+}
+
+// IndexDefinition describes one index the caller wants to ensure exists.
+type IndexDefinition struct {
+	// Name is the index UID in Meilisearch.
+	Name string
+
+	// PrimaryKey is the document field used as primary key.
+	PrimaryKey string
+
+	// Settings, when non-nil, are applied via [Client.UpdateIndexSettings]
+	// after the index exists. nil leaves settings untouched.
+	Settings *IndexSettings
+}
+
+// IndexExists reports whether indexName is present on the server.
+// Returns false (no error) if the server responds with "index_not_found".
+// ctx bounds the underlying GetIndex round-trip — passing a canceled
+// context aborts the call immediately instead of waiting for the SDK's
+// per-request timeout.
+func (c *Client) IndexExists(ctx context.Context, indexName string) (bool, error) {
+	_, err := c.sdk.GetIndex(ctx, indexName)
+	if err != nil {
+		if classified := classifySDKError(err); classified != nil && errors.Is(classified, ErrIndexNotFound) {
+			return false, nil
+		}
+		return false, coreerrs.Wrapf(err, "get index %s", indexName)
+	}
+
+	return true, nil
+}
+
+// EnsureIndex creates name if missing and applies settings, returning once
+// both the creation and the settings tasks have completed. Idempotent:
+// re-running with the same definition is safe — an existing index is
+// reported as "index_already_exists" (by the creation task, or by the create
+// call itself), which we treat as a successful "create or update" outcome and
+// fall through to the settings update. Any other task failure is returned
+// wrapping [ErrTaskFailed].
+func (c *Client) EnsureIndex(ctx context.Context, name, primaryKey string, settings *IndexSettings) error {
+	info, err := c.sdk.CreateIndex(ctx, &msdk.IndexConfig{
+		Uid:        name,
+		PrimaryKey: primaryKey,
+	})
+	if err != nil {
+		classified := classifySDKError(err)
+		if classified == nil || !errors.Is(classified, ErrIndexAlreadyExists) {
+			return coreerrs.Wrapf(err, "create index %s", name)
+		}
+		c.logger.DebugContext(ctx, "index already exists", slog.String("index", name))
+	} else if err := c.awaitIndexCreation(ctx, name, info.TaskUID); err != nil {
+		return err
+	}
+
+	if settings != nil {
+		if err := c.UpdateIndexSettings(ctx, name, settings); err != nil {
+			return err
+		}
+	}
+
+	c.logger.InfoContext(ctx, "index ensured",
+		slog.String("index", name),
+		slog.String("primary_key", primaryKey))
+
+	return nil
+}
+
+// awaitIndexCreation waits for the index-creation task taskUID. A task that
+// failed because the index already exists is the idempotent outcome and
+// returns nil; any other failure wraps [ErrTaskFailed].
+func (c *Client) awaitIndexCreation(ctx context.Context, name string, taskUID int64) error {
+	task, err := c.sdk.WaitForTask(ctx, taskUID, 0)
+	if err != nil {
+		return coreerrs.Wrapf(err, "wait for create index %s task %d", name, taskUID)
+	}
+	switch {
+	case task.Status == msdk.TaskStatusSucceeded:
+		return nil
+	case task.Status == msdk.TaskStatusFailed && task.Error.Code == errCodeIndexAlreadyExists:
+		c.logger.DebugContext(ctx, "index already exists", slog.String("index", name))
+		return nil
+	default:
+		return coreerrs.Wrapf(taskFailure(taskUID, task), "create index %s", name)
+	}
+}
+
+// UpdateIndexSettings applies the searchable, filterable, and sortable
+// attribute lists to an existing index and waits for the settings task to
+// complete. A task that does not succeed yields an error wrapping
+// [ErrTaskFailed].
+func (c *Client) UpdateIndexSettings(ctx context.Context, indexName string, settings *IndexSettings) error {
+	info, err := c.sdk.Index(indexName).UpdateSettings(ctx, &msdk.Settings{
+		SearchableAttributes: settings.SearchableAttributes,
+		FilterableAttributes: settings.FilterableAttributes,
+		SortableAttributes:   settings.SortableAttributes,
+	})
+	if err != nil {
+		return coreerrs.Wrapf(err, "update settings for %s", indexName)
+	}
+
+	if err := c.WaitForTask(ctx, info.TaskUID, 0); err != nil {
+		return coreerrs.Wrapf(err, "update settings for %s", indexName)
+	}
+
+	return nil
+}
+
+// DeleteIndex removes the index named name and returns the task UID; pair
+// it with [Client.WaitForTask] to block until the deletion is applied. The
+// typical use is post-swap cleanup of the stale rebuild index in a
+// zero-downtime reindex.
+//
+// Deleting an index that is already absent is treated as a successful
+// no-op: it returns a zero task UID and a nil error so repeated cleanup is
+// idempotent. Skip [Client.WaitForTask] when the returned UID is zero.
+func (c *Client) DeleteIndex(ctx context.Context, name string) (int64, error) {
+	task, err := c.sdk.DeleteIndex(ctx, name)
+	if err != nil {
+		if classified := classifySDKError(err); classified != nil && errors.Is(classified, ErrIndexNotFound) {
+			c.logger.DebugContext(ctx, "index already absent", slog.String("index", name))
+			return 0, nil
+		}
+		return 0, coreerrs.Wrapf(err, "delete index %s", name)
+	}
+
+	c.logger.DebugContext(ctx, "index deletion enqueued",
+		slog.String("index", name),
+		slog.Int64("task_uid", task.TaskUID))
+
+	return task.TaskUID, nil
+}
+
+// SwapPair names two existing indexes whose documents Meilisearch swaps
+// atomically within a single task. Order is irrelevant — the swap is
+// symmetric.
+type SwapPair struct {
+	// Lhs and Rhs are the UIDs of the two indexes to swap. Both must
+	// already exist on the server.
+	Lhs string
+	Rhs string
+}
+
+// errNoSwapPairs guards [Client.SwapIndexes] against a no-op call: with
+// zero pairs the SDK would still issue a request and hand back a task UID
+// that swaps nothing, which a caller could then [Client.WaitForTask] on by
+// mistake. Returned (wrapped) instead of contacting the server.
+var errNoSwapPairs = errors.New("meilisearch: no swap pairs provided")
+
+// SwapIndexes atomically swaps the documents of every pair in a single
+// Meilisearch task. Both indexes in each pair must already exist (this
+// wrapper does not request the SDK's "rename" behavior). Returns the task
+// UID; pair it with [Client.WaitForTask] to block until the swap is
+// applied.
+//
+// Calling with no pairs is a caller error and returns an error wrapping
+// [errNoSwapPairs] without contacting the server.
+//
+// Typical use is a zero-downtime rebuild: populate a fresh index, then
+// swap it with the live one so readers flip atomically.
+func (c *Client) SwapIndexes(ctx context.Context, pairs ...SwapPair) (int64, error) {
+	if len(pairs) == 0 {
+		return 0, coreerrs.Wrap(errNoSwapPairs, "swap indexes")
+	}
+
+	params := make([]*msdk.SwapIndexesParams, 0, len(pairs))
+	for _, p := range pairs {
+		params = append(params, &msdk.SwapIndexesParams{Indexes: []string{p.Lhs, p.Rhs}})
+	}
+
+	task, err := c.sdk.SwapIndexes(ctx, params)
+	if err != nil {
+		return 0, coreerrs.Wrapf(err, "swap indexes")
+	}
+
+	c.logger.DebugContext(ctx, "indexes swapped",
+		slog.Int("pairs", len(pairs)),
+		slog.Int64("task_uid", task.TaskUID))
+
+	return task.TaskUID, nil
+}
+
+// SetupIndexes ensures every index in defs exists with the configured
+// settings. Call this once at startup; order is not significant and
+// each definition is processed independently.
+//
+// Relies on [Client.EnsureIndex]'s built-in idempotency: an existing
+// index surfaces ErrIndexAlreadyExists from the create call, which
+// EnsureIndex silently absorbs and falls through to the settings
+// update. The previous explicit IndexExists probe introduced a
+// TOCTOU window where a concurrent process could create the index
+// between the check and the create — relying on the existing-index
+// error path eliminates that window.
+//
+// Uses the Client's own logger; SetupIndexes intentionally does not
+// accept a logger parameter to avoid the "two loggers, which wins?"
+// trap on per-call observability.
+func (c *Client) SetupIndexes(ctx context.Context, defs []IndexDefinition) error {
+	for _, def := range defs {
+		if err := c.EnsureIndex(ctx, def.Name, def.PrimaryKey, def.Settings); err != nil {
+			return coreerrs.Wrapf(err, "ensure index %s", def.Name)
+		}
+	}
+
+	c.logger.InfoContext(ctx, "all indexes configured", slog.Int("count", len(defs)))
+
+	return nil
+}
