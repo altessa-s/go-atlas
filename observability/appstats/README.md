@@ -18,7 +18,6 @@ sub-microsecond latency using background caching and atomic reads. Integrates wi
 | `CPULoad`                          | CPU usage for service and system                         |
 | `MemoryLoad`                       | Memory usage for service, system, and total              |
 | `NetworkIO`                        | Bytes received and sent                                  |
-| `NumGoroutines`                    | Current goroutine count                                  |
 | `Uptime`                           | Duration since process start                             |
 | `NewStatsLogger`                   | Create a periodic stats logger for scheduler integration |
 | `StatsLogger.RunLogCycle`          | Log one stats snapshot; register as a scheduler task     |

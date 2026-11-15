@@ -5,8 +5,8 @@
 package metrics
 
 // RegexCacheStatsSnapshot holds a point-in-time snapshot of regex pattern cache
-// performance counters, mirroring [filter.RegexCacheStats] without importing
-// the filter package (which would create an import cycle).
+// performance counters, mirroring the go-aip filter.Policy.RegexCacheStats
+// result without importing go-aip.
 type RegexCacheStatsSnapshot struct {
 	Hits   uint64
 	Misses uint64
@@ -27,12 +27,14 @@ func (s RegexCacheStatsSnapshot) HitRate() float64 {
 // counters as Prometheus-compatible metrics. The regex cache compiles and
 // stores regular expressions used in filter `matches()` calls.
 //
-// Because data/filter imports observability/metrics, the bridge uses
-// callback functions to avoid an import cycle:
+// The bridge reads the stats through a callback, so this package does not
+// import go-aip:
 //
 //	rcm := metrics.NewRegexCacheMetrics(collector,
-//	    filter.RegexCacheStatsSnapshot, // stats provider (cumulative)
-//	    nil,                            // resetFunc (legacy, optional)
+//	    func() metrics.RegexCacheStatsSnapshot { // stats provider (cumulative)
+//	        hits, misses, size := policy.RegexCacheStats() // a go-aip *filter.Policy
+//	        return metrics.RegexCacheStatsSnapshot{Hits: hits, Misses: misses, Size: int64(size)}
+//	    },
 //	)
 //	sched.Register(ctx, scheduler.TaskConfig{
 //	    ID:       "regex-cache-metrics",
@@ -45,14 +47,10 @@ func (s RegexCacheStatsSnapshot) HitRate() float64 {
 // is no longer required to reset between reports.
 type RegexCacheMetrics struct {
 	statsFunc func() RegexCacheStatsSnapshot
-	resetFunc func()
 
 	// Previous-snapshot bookkeeping for delta computation. Holds the
 	// last cumulative values observed by Report; the next Report adds
-	// only the difference. Removes the previous reliance on resetFunc
-	// being called between reports — the old contract conflated "stats
-	// provider" with "consumer reset hook" and any caller that forgot
-	// to wire resetFunc would have inflated the counters monotonically.
+	// only the difference.
 	prevHits   uint64
 	prevMisses uint64
 
@@ -64,13 +62,10 @@ type RegexCacheMetrics struct {
 
 // NewRegexCacheMetrics creates a [RegexCacheMetrics] that reports stats from
 // the regex pattern cache. statsFunc must return cumulative counters; the
-// returned metrics tracks deltas internally. resetFunc is kept for
-// backwards compatibility — pass nil for new code; if non-nil it is
-// invoked after each Report to give legacy callers a hook for their own
-// bookkeeping, but the metric output no longer depends on it.
+// returned metrics track deltas internally.
 //
 // If c is nil, [Noop] is used and all operations become zero-cost no-ops.
-func NewRegexCacheMetrics(c Collector, statsFunc func() RegexCacheStatsSnapshot, resetFunc func()) *RegexCacheMetrics {
+func NewRegexCacheMetrics(c Meter, statsFunc func() RegexCacheStatsSnapshot) *RegexCacheMetrics {
 	if c == nil {
 		c = Noop()
 	}
@@ -79,7 +74,6 @@ func NewRegexCacheMetrics(c Collector, statsFunc func() RegexCacheStatsSnapshot,
 
 	return &RegexCacheMetrics{
 		statsFunc: statsFunc,
-		resetFunc: resetFunc,
 		hitsTotal: scoped.MustCounter(MetricOpts{
 			Name: "hits_total",
 			Help: "Total number of regex pattern cache hits.",
@@ -121,10 +115,6 @@ func (m *RegexCacheMetrics) Report() {
 	}
 	m.currentSize.Set(float64(stats.Size))
 	m.hitRate.Set(stats.HitRate())
-
-	if m.resetFunc != nil {
-		m.resetFunc()
-	}
 }
 
 // deltaCounter computes the additive delta between two snapshots of a

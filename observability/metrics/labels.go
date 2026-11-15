@@ -9,7 +9,7 @@ import (
 	"maps"
 	"slices"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
 // Labels represents a set of label key-value pairs for metrics.
@@ -35,26 +35,10 @@ func PutLabels(l *Labels) {
 	labelsPool.Put(l)
 }
 
-// CloneLabels creates a copy of labels.
-// Uses maps.Clone from the standard library (Go 1.21+).
-func CloneLabels(l Labels) Labels {
-	return maps.Clone(l)
-}
-
 // MergeLabels merges labels, with values from other overriding values in base.
 // Uses coremaps.Merge from the core package.
 func MergeLabels(base, other Labels) Labels {
 	return coremaps.Merge(other, base)
-}
-
-// LabelsKeys returns an iterator over label keys.
-func LabelsKeys(l Labels) iter.Seq[string] {
-	return maps.Keys(l)
-}
-
-// LabelsValues returns an iterator over label values.
-func LabelsValues(l Labels) iter.Seq[string] {
-	return maps.Values(l)
 }
 
 // SortedKeys returns a sorted slice of keys.
@@ -112,17 +96,6 @@ func ValidateLabels(labels Labels, expectedNames []string) error {
 	}
 
 	return nil
-}
-
-// LabelsEqual checks equality of two Labels.
-// Uses maps.Equal from the standard library.
-func LabelsEqual(a, b Labels) bool {
-	return maps.Equal(a, b)
-}
-
-// FilterLabels returns an iterator over filtered labels.
-func FilterLabels(l Labels, predicate func(key, value string) bool) iter.Seq2[string, string] {
-	return coremaps.Filter(l, predicate)
 }
 
 // NormalizeLabelNames returns a sorted copy of label names.
@@ -203,7 +176,7 @@ func (b *LabelBuilder) Build() Labels {
 // BuildClone returns a clone of the built Labels map.
 // The builder can continue to be used after calling BuildClone.
 func (b *LabelBuilder) BuildClone() Labels {
-	return CloneLabels(b.labels)
+	return maps.Clone(b.labels)
 }
 
 // Reset clears the builder for reuse.

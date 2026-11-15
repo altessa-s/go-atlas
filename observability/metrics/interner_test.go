@@ -9,13 +9,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/observability/metrics"
-
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
 func TestNewInternerMetrics_NilCollector(t *testing.T) {
-	interner := corestrings.NewInterner(100)
+	interner := intern.New(100)
 	im := metrics.NewInternerMetrics(nil, interner)
 	require.NotNil(t, im)
 
@@ -24,7 +23,7 @@ func TestNewInternerMetrics_NilCollector(t *testing.T) {
 }
 
 func TestInternerMetrics_Report(t *testing.T) {
-	interner := corestrings.NewInterner(100)
+	interner := intern.New(100)
 	im := metrics.NewInternerMetrics(metrics.Noop(), interner)
 
 	// Generate some cache activity.

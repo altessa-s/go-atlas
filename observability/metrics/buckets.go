@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"slices"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 // Default bucket configurations for histogram metrics.
@@ -60,13 +60,6 @@ func MustValidateBuckets(buckets []float64, name string) {
 	if err := ValidateBuckets(buckets, name); err != nil {
 		panic(err)
 	}
-}
-
-// CopyBuckets creates a copy of the buckets slice.
-// Used to prevent mutation of shared bucket configurations.
-// Uses slices.Clone from the Go 1.21+ standard library.
-func CopyBuckets(buckets []float64) []float64 {
-	return slices.Clone(buckets)
 }
 
 // LinearBuckets creates count buckets of width width, starting at start.

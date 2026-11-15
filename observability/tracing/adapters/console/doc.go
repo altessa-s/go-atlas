@@ -10,7 +10,12 @@
 //
 //	adapter := console.New(
 //	    console.WithWriter(os.Stdout),
-//	    console.WithPrettyPrint(),
+//	    console.WithPrettyPrint(false), // JSON lines instead of the human-readable form
+//	    console.WithTimestamps(true),
 //	)
 //	provider := tracing.New(tracing.WithAdapter(adapter))
+//
+// Pretty printing and timestamps both default to true ([DefaultPrettyPrint],
+// [DefaultTimestamps]); pass false to [WithPrettyPrint] or [WithTimestamps]
+// to turn them off.
 package console

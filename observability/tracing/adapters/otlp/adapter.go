@@ -12,10 +12,10 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -43,7 +43,7 @@ func New(ctx context.Context, opts ...Option) (*Adapter, error) {
 	case ProtocolHTTP:
 		client = createHTTPClient(cfg)
 	default:
-		client = createGRPCClient(cfg)
+		client = newGRPCClient(cfg)
 	}
 
 	// Start the client
@@ -60,21 +60,8 @@ func New(ctx context.Context, opts ...Option) (*Adapter, error) {
 	}, nil
 }
 
-// createGRPCClient creates an OTLP gRPC client using the custom transport/grpc/client.
-func createGRPCClient(cfg *options) otlptrace.Client {
-	return newGRPCClient(&grpcClientConfig{
-		endpoint:           cfg.endpoint,
-		insecure:           cfg.insecure,
-		headers:            cfg.headers,
-		compression:        cfg.compression,
-		exportTimeout:      cfg.exportTimeout,
-		retry:              cfg.retry,
-		retryConfig:        cfg.retryConfig,
-		extraClientOptions: cfg.grpcClientOptions,
-	})
-}
-
-// createHTTPClient creates an OTLP HTTP client.
+// createHTTPClient creates an OTLP HTTP client, sending with the injected
+// *http.Client when one is set.
 func createHTTPClient(cfg *options) otlptrace.Client {
 	opts := []otlptracehttp.Option{
 		otlptracehttp.WithEndpoint(cfg.endpoint),
@@ -83,6 +70,7 @@ func createHTTPClient(cfg *options) otlptrace.Client {
 	opts = slices.AppendIf(opts, cfg.insecure, otlptracehttp.WithInsecure())
 	opts = slices.AppendIf(opts, len(cfg.headers) > 0, otlptracehttp.WithHeaders(cfg.headers))
 	opts = slices.AppendIf(opts, cfg.compression, otlptracehttp.WithCompression(otlptracehttp.GzipCompression))
+	opts = slices.AppendIf(opts, cfg.httpClient != nil, otlptracehttp.WithHTTPClient(cfg.httpClient))
 
 	return otlptracehttp.NewClient(opts...)
 }

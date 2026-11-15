@@ -19,10 +19,10 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
 
-	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
+	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
 
-	corecontext "github.com/altessa-s/go-atlas/core/context"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // CPULoadData represents CPU load statistics for both the service and the system.
@@ -134,6 +134,9 @@ type ApplicationStats struct {
 	} `json:"errors"`
 }
 
+// zeroPercent is the formatted load reported before the first collection.
+const zeroPercent = "0.00%"
+
 const (
 	// DefaultCacheInterval is the default interval for background metrics collection.
 	// The background goroutine collects metrics every 2 seconds to balance freshness and performance.
@@ -217,8 +220,8 @@ func StartMetricsCollection() {
 // StartMetricsCollectionWithContext initializes the background metrics collection system
 // using ctx as the base context for gopsutil calls (timeouts are still applied per tick).
 //
-// Note: ctx cancellation may cause subsequent collection cycles to fail fast; prefer
-// passing a long-lived application context.
+// Note: canceling ctx stops the collection, as [StopMetricsCollection] does; a later
+// start begins a new one. Prefer passing a long-lived application context.
 //
 //nolint:contextcheck // Background collector is not request-scoped; ctx here is a best-effort base for gopsutil calls.
 func StartMetricsCollectionWithContext(ctx context.Context) {
@@ -237,11 +240,11 @@ func StartMetricsCollectionWithContext(ctx context.Context) {
 	cachedMetrics.running.Store(true)
 
 	// Initialize with zero values
-	cachedMetrics.ServiceCPU.Store("0.00%")
-	cachedMetrics.SystemCPU.Store("0.00%")
+	cachedMetrics.ServiceCPU.Store(zeroPercent)
+	cachedMetrics.SystemCPU.Store(zeroPercent)
 	cachedMetrics.MemoryData.Store(&MemoryLoadData{
-		Service: "0.00%",
-		System:  "0.00%",
+		Service: zeroPercent,
+		System:  zeroPercent,
 		Total:   "0",
 	})
 
@@ -285,6 +288,17 @@ func backgroundMetricsCollection(baseCtx context.Context, stop <-chan struct{}) 
 			collectMetrics(ctx)
 			cancel()
 		case <-stop:
+			return
+		case <-baseCtx.Done():
+			// The collection cannot outlive its base context. Mark it stopped,
+			// unless a newer collection has replaced this one, so a later
+			// start is not a no-op.
+			metricsMu.Lock()
+			if cachedMetrics.stopChan == stop {
+				cachedMetrics.running.Store(false)
+				cachedMetrics.stopChan = nil
+			}
+			metricsMu.Unlock()
 			return
 		}
 	}
@@ -479,14 +493,14 @@ func IsCacheStale() bool {
 // It provides sub-microsecond response times by using pre-collected cached data.
 // The function automatically starts background metrics collection if not already running.
 //
-// The context parameter is accepted for API compatibility but is not currently used
-// since this function returns cached data immediately.
+// The context starts background collection when it is not already running.
 //
 // Returns CPULoadData with Service and System CPU usage as formatted percentages,
 // or an error if metrics collection fails (though errors are rare with caching).
 func CPULoad(ctx context.Context) (*CPULoadData, error) {
 	if !cachedMetrics.running.Load() {
-		StartMetricsCollectionWithContext(ctx)
+		// The collector outlives the request that happened to start it.
+		StartMetricsCollectionWithContext(context.WithoutCancel(ctx))
 	}
 
 	serviceCP := cachedMetrics.ServiceCPU.Load().(string) //nolint:errcheck
@@ -529,21 +543,21 @@ func ProcessId() int32 {
 // It provides sub-microsecond response times by using pre-collected cached data.
 // The function automatically starts background metrics collection if not already running.
 //
-// The context parameter is accepted for API compatibility but is not currently used
-// since this function returns cached data immediately.
+// The context starts background collection when it is not already running.
 //
 // Returns MemoryLoadData with Service and System memory usage as formatted percentages
 // and Total memory in bytes, or an error if metrics collection fails.
 func MemoryLoad(ctx context.Context) (*MemoryLoadData, error) {
 	if !cachedMetrics.running.Load() {
-		StartMetricsCollectionWithContext(ctx)
+		// The collector outlives the request that happened to start it.
+		StartMetricsCollectionWithContext(context.WithoutCancel(ctx))
 	}
 
 	memData := cachedMetrics.MemoryData.Load()
 	if memData == nil {
 		return &MemoryLoadData{
-			Service: "0.00%",
-			System:  "0.00%",
+			Service: zeroPercent,
+			System:  zeroPercent,
 			Total:   "0",
 		}, nil
 	}
@@ -556,30 +570,18 @@ func MemoryLoad(ctx context.Context) (*MemoryLoadData, error) {
 	}, nil
 }
 
-// VirtualMemory returns the current virtual memory statistics for the system.
-// This function makes a direct system call and is not cached, unlike MemoryLoad.
-// Use this function when you need detailed memory statistics beyond the basic metrics.
-//
-// The context can be used to cancel the operation if it takes too long.
-//
-// Returns virtual memory statistics including total, available, used memory and percentages,
-// or an error if the system call fails.
-func VirtualMemory(ctx context.Context) (*mem.VirtualMemoryStat, error) {
-	return mem.VirtualMemoryWithContext(ctx)
-}
-
 // NetworkIO returns cached network I/O statistics for the service.
 // It provides sub-microsecond response times by using pre-collected cached data.
 // The function automatically starts background metrics collection if not already running.
 //
-// The context parameter is accepted for API compatibility but is not currently used
-// since this function returns cached data immediately.
+// The context starts background collection when it is not already running.
 //
 // Returns total bytes received and sent since process start as float64 values,
 // or an error if metrics collection fails (though errors are rare with caching).
 func NetworkIO(ctx context.Context) (float64, float64, error) {
 	if !cachedMetrics.running.Load() {
-		StartMetricsCollectionWithContext(ctx)
+		// The collector outlives the request that happened to start it.
+		StartMetricsCollectionWithContext(context.WithoutCancel(ctx))
 	}
 
 	received := float64(cachedMetrics.NetworkReceived.Load())
@@ -624,14 +626,6 @@ func MemStats() *runtime.MemStats {
 	return result
 }
 
-// NumGoroutines returns the current number of goroutines in the application.
-// This is a wrapper around runtime.NumGoroutine() for consistency with other stats functions.
-//
-// Returns the number of goroutines that currently exist in the application.
-func NumGoroutines() int {
-	return runtime.NumGoroutine()
-}
-
 // GetApplicationStats returns comprehensive application statistics including CPU, memory,
 // network I/O, and Go runtime metrics. It provides sub-millisecond response times by using
 // cached data collected by a background goroutine.
@@ -639,8 +633,7 @@ func NumGoroutines() int {
 // The function automatically starts background metrics collection if not already running.
 // All metrics are collected concurrently and cached using atomic operations for lock-free access.
 //
-// The context parameter is accepted for API compatibility but is not currently used
-// for most operations since cached data is returned immediately.
+// The context starts background collection when it is not already running.
 //
 // Returns ApplicationStats containing all available system and runtime metrics,
 // with error information populated in the Errors field if any collection fails.
@@ -699,7 +692,7 @@ func GetApplicationStats(ctx context.Context) *ApplicationStats {
 
 	// Go runtime statistics (optimized)
 	memStats := MemStats()
-	stats.Runtime.Goroutines = NumGoroutines()
+	stats.Runtime.Goroutines = runtime.NumGoroutine()
 	stats.Runtime.HeapAllocBytes = memStats.HeapAlloc
 	stats.Runtime.HeapSysBytes = memStats.HeapSys
 	stats.Runtime.HeapIdleBytes = memStats.HeapIdle

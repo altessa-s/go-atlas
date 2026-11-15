@@ -9,9 +9,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
 
-	corectx "github.com/altessa-s/go-atlas/core/context"
+	corectx "github.com/altessa-s/go-atlas-core/context"
 )
 
 const (

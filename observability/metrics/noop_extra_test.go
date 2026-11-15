@@ -5,6 +5,7 @@
 package metrics_test
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -33,14 +34,14 @@ func TestNoopCollector_Gauge(t *testing.T) {
 }
 
 func TestNoopCollector_Histogram(t *testing.T) {
-	h := metrics.Noop().Histogram(metrics.HistogramOpts{MetricOpts: metrics.MetricOpts{Name: "test"}})
+	h := metrics.Noop().Histogram(metrics.HistogramOpts{Name: "test"})
 	h.Observe(1.5)
 	h2 := h.WithLabels(metrics.Labels{"k": "v"})
 	h2.Observe(2.5)
 }
 
 func TestNoopCollector_Timer(t *testing.T) {
-	tm := metrics.Noop().Timer(metrics.HistogramOpts{MetricOpts: metrics.MetricOpts{Name: "test"}})
+	tm := metrics.Noop().Timer(metrics.HistogramOpts{Name: "test"})
 	stop := tm.Start()
 	stop()
 	tm.ObserveDuration(100 * time.Millisecond)
@@ -52,8 +53,8 @@ func TestNoopCollector_MustVariants(t *testing.T) {
 	n := metrics.Noop()
 	_ = n.MustCounter(metrics.MetricOpts{Name: "c"})
 	_ = n.MustGauge(metrics.MetricOpts{Name: "g"})
-	_ = n.MustHistogram(metrics.HistogramOpts{MetricOpts: metrics.MetricOpts{Name: "h"}})
-	_ = n.MustTimer(metrics.HistogramOpts{MetricOpts: metrics.MetricOpts{Name: "t"}})
+	_ = n.MustHistogram(metrics.HistogramOpts{Name: "h"})
+	_ = n.MustTimer(metrics.HistogramOpts{Name: "t"})
 }
 
 func TestNoopCollector_WithSubsystem(t *testing.T) {
@@ -86,7 +87,7 @@ func TestGetLabelsWithCapacity(t *testing.T) {
 func TestLabelsKeys(t *testing.T) {
 	l := metrics.Labels{"a": "1", "b": "2"}
 	count := 0
-	for range metrics.LabelsKeys(l) {
+	for range maps.Keys(l) {
 		count++
 	}
 	require.Equal(t, 2, count)
@@ -95,7 +96,7 @@ func TestLabelsKeys(t *testing.T) {
 func TestLabelsValues(t *testing.T) {
 	l := metrics.Labels{"a": "1", "b": "2"}
 	count := 0
-	for range metrics.LabelsValues(l) {
+	for range maps.Values(l) {
 		count++
 	}
 	require.Equal(t, 2, count)

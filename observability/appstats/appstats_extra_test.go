@@ -7,9 +7,11 @@ package appstats
 import (
 	"log/slog"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,8 +21,8 @@ func TestProcessId(t *testing.T) {
 }
 
 func TestNumGoroutines(t *testing.T) {
-	n := NumGoroutines()
-	require.GreaterOrEqual(t, n, 1, "NumGoroutines() should be >= 1")
+	n := runtime.NumGoroutine()
+	require.GreaterOrEqual(t, n, 1, "runtime.NumGoroutine() should be >= 1")
 }
 
 func TestMemStats(t *testing.T) {
@@ -38,8 +40,6 @@ func TestCPULoad(t *testing.T) {
 	StartMetricsCollection()
 	defer StopMetricsCollection()
 
-	time.Sleep(100 * time.Millisecond)
-
 	data, err := CPULoad(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, data)
@@ -48,8 +48,6 @@ func TestCPULoad(t *testing.T) {
 func TestMemoryLoad(t *testing.T) {
 	StartMetricsCollection()
 	defer StopMetricsCollection()
-
-	time.Sleep(100 * time.Millisecond)
 
 	data, err := MemoryLoad(t.Context())
 	require.NoError(t, err)
@@ -60,8 +58,6 @@ func TestNetworkIO(t *testing.T) {
 	StartMetricsCollection()
 	defer StopMetricsCollection()
 
-	time.Sleep(100 * time.Millisecond)
-
 	_, _, err := NetworkIO(t.Context())
 	require.NoError(t, err)
 }
@@ -69,8 +65,6 @@ func TestNetworkIO(t *testing.T) {
 func TestGetApplicationStats(t *testing.T) {
 	StartMetricsCollection()
 	defer StopMetricsCollection()
-
-	time.Sleep(100 * time.Millisecond)
 
 	stats := GetApplicationStats(t.Context())
 	require.NotNil(t, stats)
@@ -91,10 +85,10 @@ func TestProcessDetails(t *testing.T) {
 }
 
 func TestVirtualMemory(t *testing.T) {
-	vm, err := VirtualMemory(t.Context())
+	vm, err := mem.VirtualMemoryWithContext(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, vm)
-	require.NotZero(t, vm.Total, "VirtualMemory().Total should be > 0")
+	require.NotZero(t, vm.Total, "mem.VirtualMemoryWithContext().Total should be > 0")
 }
 
 func TestNewStatsLogger(t *testing.T) {
@@ -111,8 +105,6 @@ func TestNewStatsLogger_WithLogger(t *testing.T) {
 func TestRunLogCycle(t *testing.T) {
 	StartMetricsCollection()
 	defer StopMetricsCollection()
-
-	time.Sleep(100 * time.Millisecond)
 
 	logger := NewStatsLogger()
 	err := logger.RunLogCycle(t.Context())

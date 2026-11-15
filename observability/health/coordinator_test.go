@@ -77,9 +77,6 @@ func TestCoordinator_Close(t *testing.T) {
 
 	c.Close()
 
-	// Wait a bit to ensure watcher goroutine exits
-	time.Sleep(50 * time.Millisecond)
-
 	// After close, subscription should ideally receive StatusNotServing or be closed.
 	// In our implementation, Close() calls BroadcastStatus(StatusNotServing).
 	select {

@@ -9,16 +9,24 @@ export happens through pluggable adapters (Prometheus and in-memory ship in [ada
 
 ## Key types
 
-| Type / Function | Description                                                 |
-|-----------------|-------------------------------------------------------------|
-| `New`           | Create a `Collector` (`WithServiceName` namespace, default `appinfo.Name`; `WithAdapter`) |
-| `Collector`     | Create and manage metrics; supports `WithSubsystem` scoping |
-| `Counter`       | Monotonically increasing value                              |
-| `Gauge`         | Value that can increase and decrease                        |
-| `Histogram`     | Distribution of observed values                             |
-| `Timer`         | Duration measurement with `Start()` / `ObserveDuration()`   |
-| `Labels`        | `map[string]string` for metric dimensions                   |
-| `Noop()`        | Zero-cost no-op implementation                              |
+| Type / Function | Description                                                                                           |
+|-----------------|-------------------------------------------------------------------------------------------------------|
+| `New`           | Create a `Collector` (`WithServiceName` namespace, default `appinfo.Name`; `WithAdapter`)             |
+| `Meter`         | Create metrics (`Counter`, `Gauge`, `Histogram`, `Timer`, `Must*`); `WithSubsystem` returns a `Meter` |
+| `Collector`     | `Meter` plus lifecycle (`Shutdown`, `ForceFlush`); held by the composition root                       |
+| `Counter`       | Monotonically increasing value                                                                        |
+| `Gauge`         | Value that can increase and decrease                                                                  |
+| `Histogram`     | Distribution of observed values                                                                       |
+| `Timer`         | Duration measurement with `Start()` / `ObserveDuration()`                                             |
+| `Labels`        | `map[string]string` for metric dimensions                                                             |
+| `Noop()`        | Zero-cost no-op implementation                                                                        |
+| `IsNoop`        | Report whether a `Meter` is the `Noop()` singleton                                                    |
+
+## Meter vs Collector
+
+Libraries accept a `Meter` (through `WithMeter` / `WithMetrics` options) and never see the lifecycle, so no component can shut down or flush
+the shared collector. The application builds the `Collector`, passes it (or a `WithSubsystem` scope) to components, and calls `Shutdown` on exit.
+A scoped `Meter` does not implement `Collector`.
 
 ## Naming convention
 
@@ -28,7 +36,7 @@ is optional and defaults to empty.
 ## Interner metrics
 
 `InternerMetrics` bridges the core string interner's performance counters to the metrics system. Call `Report()` periodically (e.g., via
-`service/scheduler`) to push hit rate, miss, and eviction data.
+the [go-horai](https://github.com/altessa-s/go-horai) scheduler) to push hit rate, miss, and eviction data.
 
 ```go
 im := metrics.NewInternerMetrics(collector, strings.GlobalInterner())
@@ -51,17 +59,22 @@ Exported metrics (subsystem `interner`):
 | `interner_hit_rate`        | Gauge   | Overall hit rate (hot + cold) / total    |
 | `interner_hot_hit_rate`    | Gauge   | Hot cache hit rate                       |
 
+## go-aip parsers and translators
+
+The go-aip filter, order and projection parsers and translators record through go-aip's own narrow `Meter`;
+[`aipmeter.New`](aipmeter/README.md) adapts a go-atlas `Meter` to it.
+
 ## Regex cache metrics
 
-`RegexCacheMetrics` bridges the CEL filter regex pattern cache to the metrics system. Uses callback functions to avoid import cycles (`data/filter` →
-`observability/metrics`).
+`RegexCacheMetrics` bridges the regex pattern cache of a go-aip `filter.Policy` (`Policy.RegexCacheStats`) to the metrics system through a
+callback, so this package does not import go-aip.
 
 ```go
 rcm := metrics.NewRegexCacheMetrics(collector,
     func() metrics.RegexCacheStatsSnapshot { // stats provider (cumulative)
-        return metrics.RegexCacheStatsSnapshot(filter.RegexCacheStatsSnapshot())
+        hits, misses, size := policy.RegexCacheStats() // policy is a go-aip *filter.Policy
+        return metrics.RegexCacheStatsSnapshot{Hits: hits, Misses: misses, Size: int64(size)}
     },
-    nil, // resetFunc (legacy, optional)
 )
 sched.Register(ctx, scheduler.TaskConfig{
     ID:       "regex-cache-metrics",
@@ -86,4 +99,4 @@ Exported metrics (subsystem `regex_cache`):
 | [adapters](./adapters)                       | Adapter interface and `MultiAdapter` broadcaster |
 | [adapters/memory](./adapters/memory)         | In-memory adapter for tests and assertions       |
 | [adapters/prometheus](./adapters/prometheus)  | Prometheus backend with HTTP `/metrics` handler  |
-| [factory](./factory)                         | Configuration-based `Collector` creation         |
+| [factory](../../factory/observability/metrics)                         | Configuration-based `Collector` creation         |

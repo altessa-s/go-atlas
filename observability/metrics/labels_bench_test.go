@@ -4,7 +4,10 @@
 
 package metrics
 
-import "testing"
+import (
+	"maps"
+	"testing"
+)
 
 func BenchmarkSortedKeys(b *testing.B) {
 	labels := Labels{"method": "GET", "path": "/api", "status": "200", "host": "localhost"}
@@ -37,7 +40,7 @@ func BenchmarkCloneLabels(b *testing.B) {
 	labels := Labels{"method": "GET", "path": "/api", "status": "200"}
 	b.ResetTimer()
 	for b.Loop() {
-		CloneLabels(labels)
+		_ = maps.Clone(labels)
 	}
 }
 

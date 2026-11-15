@@ -5,6 +5,7 @@
 package metrics
 
 import (
+	"maps"
 	"slices"
 	"testing"
 
@@ -110,16 +111,16 @@ func TestLabelsEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, LabelsEqual(tt.a, tt.b))
+			require.Equal(t, tt.want, maps.Equal(tt.a, tt.b))
 		})
 	}
 }
 
 func TestCloneLabels(t *testing.T) {
 	orig := Labels{"a": "1", "b": "2"}
-	clone := CloneLabels(orig)
+	clone := maps.Clone(orig)
 	clone["c"] = "3"
-	require.NotContains(t, orig, "c", "CloneLabels should create independent copy")
+	require.NotContains(t, orig, "c", "maps.Clone should create independent copy")
 }
 
 func TestMergeLabels(t *testing.T) {

@@ -5,14 +5,15 @@ import "github.com/altessa-s/go-atlas/observability/tracing/adapters"
 ```
 
 Package `adapters` defines the `Adapter` interface for tracing backends. Implement this interface to translate `SpanData` into a specific backend
-format. Use `MultiAdapter` to export spans to multiple destinations sequentially, stopping at the first error.
+format. Use `MultiAdapter` to export spans to multiple destinations sequentially: every adapter receives each call even when an earlier one
+fails, and the failures are returned joined with `errors.Join`.
 
 ## Key types
 
 | Type            | Description                                                  |
 |-----------------|--------------------------------------------------------------|
 | `Adapter`       | Interface: `Name`, `ExportSpans`, `Shutdown`, `ForceFlush`   |
-| `MultiAdapter`  | Exports spans sequentially; stops at the first error         |
+| `MultiAdapter`  | Calls every adapter in order; joins their errors             |
 | `SpanData`      | Exported span information passed to adapters                 |
 
 ## Subpackages

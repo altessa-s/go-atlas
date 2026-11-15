@@ -9,7 +9,7 @@ import (
 )
 
 // healthMetrics holds all Prometheus metrics for the health Coordinator.
-// When no [metrics.Collector] is provided, [metrics.Noop] is used and
+// When no [metrics.Meter] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type healthMetrics struct {
 	checkCycleDuration metrics.Timer
@@ -17,7 +17,7 @@ type healthMetrics struct {
 	checksPerformed    metrics.Counter
 }
 
-func newHealthMetrics(c metrics.Collector) *healthMetrics {
+func newHealthMetrics(c metrics.Meter) *healthMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
@@ -26,10 +26,8 @@ func newHealthMetrics(c metrics.Collector) *healthMetrics {
 
 	return &healthMetrics{
 		checkCycleDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name: "check_cycle_duration_seconds",
-				Help: "Duration of a single health check cycle in seconds.",
-			},
+			Name: "check_cycle_duration_seconds",
+			Help: "Duration of a single health check cycle in seconds.",
 		}),
 		statusChanges: scoped.MustCounter(metrics.MetricOpts{
 			Name: "status_changes_total",

@@ -20,6 +20,21 @@ happens through pluggable adapters (OTLP, console, etc.) with configurable sampl
 | `TraceIDFromContext`   | Extract the trace ID for log correlation                  |
 | `Noop()`               | Zero-cost no-op implementation                            |
 
+## Options
+
+`New` takes the generated `Option` values (`WithServiceName`, `WithAdapter`, `WithSampler`, ...). Recorders, spans and events have their own generated
+option types; a custom `Tracer`, `Recorder` or `Span` resolves them with `ApplyRecorderOptions`, `ApplySpanStartOptions`, `ApplySpanEndOptions` and
+`ApplyEventOptions`, which return read-only `RecorderConfig`, `SpanStartConfig`, `SpanEndConfig` and `EventConfig` snapshots.
+
+| Option type       | Options                                                              | Used by           |
+|-------------------|----------------------------------------------------------------------|-------------------|
+| `RecorderOption`  | `WithInstrumentationVersion`, `WithSchemaURL`                        | `Tracer.Recorder` |
+| `SpanStartOption` | `WithSpanKind`, `WithAttributes`, `WithStartTimestamp`, `WithLinks`  | `Recorder.Start`  |
+| `SpanEndOption`   | `WithEndTimestamp`                                                   | `Span.End`        |
+| `EventOption`     | `WithEventTimestamp`, `WithEventAttributes`, `WithStackTrace`        | `Span.AddEvent`   |
+
+`WithAttributes`, `WithLinks` and `WithEventAttributes` accumulate across repeated options; the others are last-wins.
+
 ## Subpackages
 
 | Package                                    | Description                                          |
@@ -27,6 +42,6 @@ happens through pluggable adapters (OTLP, console, etc.) with configurable sampl
 | [adapters](./adapters)                     | Adapter interface and `MultiAdapter` broadcaster     |
 | [adapters/console](./adapters/console)     | Human-readable or JSON console output                |
 | [adapters/otlp](./adapters/otlp)          | OpenTelemetry Protocol export over gRPC or HTTP      |
-| [factory](./factory)                       | Configuration-based `Tracer` creation                |
+| [factory](../../factory/observability/tracing)                       | Configuration-based `Tracer` creation                |
 | [propagation](./propagation)              | W3C Trace Context propagation                        |
 | [sampler](./sampler)                       | Sampling strategies: ratio, parent-based, always     |

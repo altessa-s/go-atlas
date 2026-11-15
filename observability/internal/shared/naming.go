@@ -7,7 +7,7 @@ package shared
 import (
 	"strings"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 )
 
 // Common separators for metric and tracer names.

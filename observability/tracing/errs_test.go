@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 func TestWrapAdapterError(t *testing.T) {
@@ -17,7 +19,7 @@ func TestWrapAdapterError(t *testing.T) {
 }
 
 func TestWrapSpanError(t *testing.T) {
-	err := WrapSpanError(errors.New("fail"), "start span")
+	err := coreerrs.WrapOperation(errors.New("fail"), "start span")
 	require.Error(t, err)
 }
 

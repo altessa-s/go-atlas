@@ -152,12 +152,8 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 
 	cfg := ApplySpanStartOptions(opts...)
 
-	// Get parent span context if exists
-	parentSpan := SpanFromContext(ctx)
-	var parentSpanContext SpanContext
-	if parentSpan != nil {
-		parentSpanContext = parentSpan.SpanContext()
-	}
+	// Get parent span context; SpanFromContext falls back to a no-op span.
+	parentSpanContext := SpanFromContext(ctx).SpanContext()
 
 	// Create span context
 	spanCtx := newSpanContextImpl(parentSpanContext)
@@ -190,7 +186,7 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 		spanContext: spanCtx,
 		kind:        cfg.Kind(),
 		startTime:   cfg.Timestamp(),
-		attributes:  CloneAttributes(cfg.Attributes()),
+		attributes:  slices.Clone(cfg.Attributes()),
 		links:       slices.Clone(cfg.Links()),
 	}
 

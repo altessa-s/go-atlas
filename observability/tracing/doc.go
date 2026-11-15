@@ -54,7 +54,7 @@
 //
 // # Scoped Providers
 //
-// Use WithScope for organizing tracers by subsystem (similar to metrics.Collector.WithSubsystem):
+// Use WithScope for organizing tracers by subsystem (similar to metrics.Meter.WithSubsystem):
 //
 //	ordersTracing := provider.WithScope("orders")
 //	tracer := ordersTracing.Tracer("handler") // creates "orders/handler" tracer

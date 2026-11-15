@@ -26,7 +26,7 @@ type Tracer interface {
 	// WithScope returns a Tracer scoped to the given name.
 	// The scope is added as a prefix to recorder names:
 	// {namespace}/{scope}/{recorderName}
-	// Similar to metrics.Collector.WithSubsystem.
+	// Similar to metrics.Meter.WithSubsystem.
 	WithScope(scope string) Tracer
 }
 

@@ -45,7 +45,7 @@ func BenchmarkExportSpans_JSON(b *testing.B) {
 }
 
 func BenchmarkExportSpans_Pretty(b *testing.B) {
-	a := console.New(console.WithWriter(io.Discard), console.WithPrettyPrint())
+	a := console.New(console.WithWriter(io.Discard), console.WithPrettyPrint(true))
 	spans := []adapters.SpanData{benchSpan()}
 	ctx := b.Context()
 

@@ -4,7 +4,10 @@
 
 package tracing
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func BenchmarkString(b *testing.B) {
 	for b.Loop() {
@@ -27,7 +30,7 @@ func BenchmarkCloneAttributes(b *testing.B) {
 	}
 	b.ResetTimer()
 	for b.Loop() {
-		CloneAttributes(attrs)
+		_ = slices.Clone(attrs)
 	}
 }
 

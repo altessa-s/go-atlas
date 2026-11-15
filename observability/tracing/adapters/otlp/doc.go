@@ -3,7 +3,18 @@
 // the LICENSE file.
 
 // Package otlp provides an OTLP [adapters.Adapter] for tracing.
-// It exports [adapters.SpanData] using the OpenTelemetry Protocol (OTLP) over gRPC.
+// It exports [adapters.SpanData] using the OpenTelemetry Protocol (OTLP) over gRPC
+// or HTTP.
+//
+// # Outbound clients
+//
+// The exporter sends on an injected client: [WithGRPCConn] for gRPC (owned by
+// the caller, left open by Shutdown) or [WithHTTPClient] for HTTP. Without
+// one, the gRPC exporter dials the endpoint with grpc-go defaults and closes
+// that connection on Shutdown, and the HTTP exporter uses the otlptracehttp
+// default client; both honor HTTPS_PROXY, HTTP_PROXY and NO_PROXY. The
+// tracing factory injects transport/grpc/client and net/http/client
+// clients carrying the configured proxy policy.
 //
 // # Example
 //

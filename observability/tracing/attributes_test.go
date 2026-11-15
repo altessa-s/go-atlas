@@ -76,9 +76,9 @@ func TestStringSlice_DoesNotMutateOriginal(t *testing.T) {
 
 func TestCloneAttributes(t *testing.T) {
 	orig := []Attribute{String("a", "1"), Int("b", 2)}
-	clone := CloneAttributes(orig)
+	clone := slices.Clone(orig)
 	clone[0] = String("modified", "val")
-	require.Equal(t, "a", orig[0].Key, "CloneAttributes should create independent copy")
+	require.Equal(t, "a", orig[0].Key, "slices.Clone should create independent copy")
 }
 
 func TestAttributesPool(t *testing.T) {

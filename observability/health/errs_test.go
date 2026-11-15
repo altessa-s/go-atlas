@@ -12,9 +12,9 @@ import (
 )
 
 func TestWrapCheckError(t *testing.T) {
-	err := WrapCheckError(errors.New("ping failed"), "redis")
-	require.Error(t, err)
-	require.NotEmpty(t, err.Error())
+	cause := errors.New("ping failed")
+	err := WrapCheckError(cause, "redis")
+	require.ErrorIs(t, err, cause)
 }
 
 func TestWrapWatchError(t *testing.T) {

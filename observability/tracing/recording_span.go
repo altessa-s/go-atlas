@@ -6,10 +6,11 @@ package tracing
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 )
 
@@ -114,7 +115,7 @@ func (s *recordingSpan) RecordError(err error, opts ...EventOption) {
 
 	// Build error attributes
 	errorAttrs := []adapters.Attribute{
-		{Key: "exception.type", Value: errorType(err)},
+		{Key: "exception.type", Value: fmt.Sprintf("%T", err)},
 		{Key: "exception.message", Value: err.Error()},
 	}
 	for _, attr := range cfg.Attributes() {
@@ -204,15 +205,6 @@ func (s *recordingSpan) export() {
 
 	// Export to tracer
 	s.recorder.tracer.export(context.Background(), spanData)
-}
-
-// errorType extracts the type name from an error.
-func errorType(err error) string {
-	if err == nil {
-		return ""
-	}
-	// Use the full type path
-	return "*errors.errorString"
 }
 
 // Ensure recordingSpan implements Span.

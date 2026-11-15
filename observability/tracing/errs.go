@@ -7,7 +7,7 @@ package tracing
 import (
 	"errors"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // Sentinel errors for tracing operations.
@@ -35,12 +35,6 @@ var (
 // Uses core/errors for consistent error wrapping.
 func WrapAdapterError(err error, adapterName string) error {
 	return coreerrs.WrapOperationWithContext(err, "export spans", adapterName)
-}
-
-// WrapSpanError wraps a span error with operation context.
-// Uses core/errors for consistent error wrapping.
-func WrapSpanError(err error, operation string) error {
-	return coreerrs.WrapOperation(err, operation)
 }
 
 // WrapFlushError wraps a flush error with adapter context.

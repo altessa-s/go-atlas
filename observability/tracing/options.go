@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 package tracing
 
@@ -10,7 +10,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 
-	_ "github.com/altessa-s/go-atlas/core/runtime/appinfo"
+	_ "github.com/altessa-s/go-atlas-core/runtime/appinfo"
 )
 
 // options contains configuration for Tracer.

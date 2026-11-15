@@ -39,10 +39,10 @@ func TestHistogramOpts_Validate(t *testing.T) {
 		opts    HistogramOpts
 		wantErr bool
 	}{
-		{"valid no buckets", HistogramOpts{MetricOpts: MetricOpts{Name: "dur"}}, false},
-		{"valid with buckets", HistogramOpts{MetricOpts: MetricOpts{Name: "dur"}, Buckets: []float64{0.1, 0.5, 1.0}}, false},
+		{"valid no buckets", HistogramOpts{Name: "dur"}, false},
+		{"valid with buckets", HistogramOpts{Name: "dur", Buckets: []float64{0.1, 0.5, 1.0}}, false},
 		{"empty name", HistogramOpts{}, true},
-		{"invalid buckets", HistogramOpts{MetricOpts: MetricOpts{Name: "dur"}, Buckets: []float64{1.0, 0.5}}, true},
+		{"invalid buckets", HistogramOpts{Name: "dur", Buckets: []float64{1.0, 0.5}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

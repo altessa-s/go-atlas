@@ -17,17 +17,21 @@ Package `otlp` provides an OpenTelemetry Protocol adapter for the Atlas tracing 
 | `WithCompression(bool)` | true             | Gzip compression; `false` disables it                                       |
 | `WithHeaders`           | --               | Static headers attached to every export request                             |
 | `WithExportTimeout`     | 30s              | Per-export timeout (gRPC only)                                              |
+| `WithGRPCConn`          | --               | Caller-owned `grpc.ClientConnInterface` to export on (gRPC only); not closed by `Shutdown` |
+| `WithHTTPClient`        | --               | `*http.Client` to export with (HTTP only)                                   |
 | `WithServiceName`       | `unknown-service` | OpenTelemetry service.name resource attribute                               |
 | `WithServiceVersion`    | --               | OpenTelemetry service.version resource attribute                            |
 | `WithEnvironment`       | --               | OpenTelemetry deployment.environment resource attribute                     |
 | `WithResourceAttrs`     | --               | Additional resource attributes                                              |
-| `WithRetry`             | disabled         | Enable retry with default config (gRPC only)                                |
-| `WithRetryConfig`       | --               | Enable retry with custom `*grpcclient.RetryConfig` (gRPC only)              |
-| `WithGRPCClientOptions` | --               | Forward `grpcclient.Option` values (proxy, TLS-to-proxy, dial options) to the underlying gRPC client (gRPC only) |
 
-## Outbound proxy
+## Outbound clients
 
-For `Protocol: grpc`, route the OTLP collector connection through a forward proxy by passing proxy options through `WithGRPCClientOptions`:
+The adapter sends on the client it is given. Without one it falls back to defaults so standalone use works: for gRPC it dials `WithEndpoint` with
+grpc-go (TLS 1.2+ unless `WithInsecure`) and closes that connection on `Shutdown`; for HTTP it uses the `otlptracehttp` default client. Both
+defaults honor `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`.
+
+To apply a proxy, retry or egress policy, build the client with `transport/grpc/client` or
+[`go-atlas-net/http/client`](https://github.com/altessa-s/go-atlas-net/tree/develop/http/client) and inject it:
 
 ```go
 import (
@@ -38,18 +42,17 @@ import (
 )
 
 proxyURL, _ := url.Parse("http://proxy.corp:3128")
-adapter, err := otlp.New(ctx,
-    otlp.WithEndpoint("collector.internal:4317"),
-    otlp.WithGRPCClientOptions(
-        grpcclient.WithProxyURL(proxyURL),
-        // Optional: corp HTTPS proxy with self-signed CA
-        // grpcclient.WithProxyTLSConfig(&tls.Config{RootCAs: pool}),
-    ),
-)
+client, err := grpcclient.New(ctx, "collector.internal:4317", grpcclient.WithProxyURL(proxyURL))
+if err != nil {
+    return err
+}
+defer client.Close(ctx)
+conn, err := client.GetConnection(ctx)
+if err != nil {
+    return err
+}
+adapter, err := otlp.New(ctx, otlp.WithEndpoint("collector.internal:4317"), otlp.WithGRPCConn(conn))
 ```
 
-For YAML-driven configuration via `tracing.adapters.otlp.proxy`, see the [Proxy guide](../../../../docs/proxy.md) and the
-[tracing factory README](../../factory/).
-
-`Protocol: http` does **not** support `WithGRPCClientOptions` proxy wiring. The config validator rejects the combination `Protocol: http + Proxy: {...}`
-at config-load — operators must use `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` env vars in that mode.
+The [tracing factory](../../../../factory/observability/tracing/) does this for YAML-driven configuration (`tracing.adapters.otlp.proxy`) on both
+protocols; see the [Proxy guide](../../../../docs/proxy.md).

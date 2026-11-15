@@ -13,6 +13,9 @@ named services, caches status results, and delivers changes to subscribers via s
 |-----------------------|------------------------------------------------------------------|
 | `Coordinator`         | Central health check manager with caching and subscriptions      |
 | `Checker`             | Interface for health check implementations                       |
+| `Registrar`           | Consumer port: `RegisterService` only, implemented by `Coordinator` |
+| `Reporter`            | Consumer port: `Registrar` plus `NotifyStatusChange`             |
+| `DynamicReporter`     | Consumer port: `Reporter` plus `UnregisterService`               |
 | `Func`                | Adapter to use a plain function as `Checker`                     |
 | `Subscriber`          | Subscription for reactive status change notifications            |
 | `ServingStatus`       | Status enum: `StatusServing`, `StatusNotServing`, `StatusDegraded`, `StatusUnknown`, `StatusServiceUnknown` |
@@ -26,11 +29,15 @@ named services, caches status results, and delivers changes to subscribers via s
 - Concurrent health check limiting
 - Scheduler integration via `WithScheduler` / `WithCheckSchedule`
 
+Each registration has its own identity. Removing a service during a check excludes it from overall health; replacing it makes that check report
+not serving until the replacement is checked on a later call. `ListStatuses` still reports the statuses actually checked. Registry changes invalidate
+the service and overall caches, and checks spanning a registry change do not populate the cache.
+
 ## Subpackages
 
-| Package              | Description                                            |
-|----------------------|--------------------------------------------------------|
-| [factory](./factory) | Configuration-based `Coordinator` creation             |
+| Package                                       | Description                                |
+|-----------------------------------------------|--------------------------------------------|
+| [factory](../../factory/observability/health) | Configuration-based `Coordinator` creation |
 
 ## Scheduler registration
 

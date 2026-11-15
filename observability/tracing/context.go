@@ -7,7 +7,7 @@ package tracing
 import (
 	"context"
 
-	corecontext "github.com/altessa-s/go-atlas/core/context"
+	corecontext "github.com/altessa-s/go-atlas-core/context"
 )
 
 // contextKey is a private type for context keys to avoid collisions.

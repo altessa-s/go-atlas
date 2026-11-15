@@ -7,7 +7,7 @@ package metrics
 import (
 	"errors"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // Sentinel errors for metrics operations.
@@ -39,12 +39,6 @@ var (
 // Uses core/errors for consistent error wrapping.
 func WrapAdapterError(err error, adapterName string) error {
 	return coreerrs.WrapOperationWithContext(err, "record metric", adapterName)
-}
-
-// WrapMetricError wraps a metric error with operation context.
-// Uses core/errors for consistent error wrapping.
-func WrapMetricError(err error, operation string) error {
-	return coreerrs.WrapOperation(err, operation)
 }
 
 // WrapFlushError wraps a flush error with adapter context.

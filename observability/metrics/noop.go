@@ -31,9 +31,10 @@ func Noop() Collector {
 	return noopInstance
 }
 
-// IsNoop reports whether r is the singleton no-op [Collector] returned by [Noop].
-func IsNoop(r Collector) bool {
-	return r == noopInstance
+// IsNoop reports whether m is the singleton no-op returned by [Noop]
+// (or by its [Meter.WithSubsystem]).
+func IsNoop(m Meter) bool {
+	return m == noopInstance
 }
 
 // Counter implements Collector.
@@ -61,7 +62,7 @@ func (n *noopCollector) MustHistogram(_ HistogramOpts) Histogram { return noopHi
 func (n *noopCollector) MustTimer(_ HistogramOpts) Timer { return noopTimer{} }
 
 // WithSubsystem implements Collector.
-func (n *noopCollector) WithSubsystem(_ string) Collector { return n }
+func (n *noopCollector) WithSubsystem(_ string) Meter { return n }
 
 // Shutdown implements Collector.
 func (n *noopCollector) Shutdown(_ context.Context) error { return nil }

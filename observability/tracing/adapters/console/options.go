@@ -4,7 +4,7 @@
 
 package console
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import "io"
 
@@ -25,8 +25,8 @@ type options struct {
 	// prettyPrint enables or disables pretty printing.
 	// When enabled, spans are printed in a human-readable format.
 	// When disabled, spans are printed as JSON.
-	prettyPrint bool `optgen:"default=DefaultPrettyPrint"`
+	prettyPrint bool `optgen:"default=DefaultPrettyPrint" optval:"param"`
 	// timestamps enables or disables timestamps in output.
 	// Only applies when pretty printing is enabled.
-	timestamps bool `optgen:"default=DefaultTimestamps"`
+	timestamps bool `optgen:"default=DefaultTimestamps" optval:"param"`
 }

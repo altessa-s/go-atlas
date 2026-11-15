@@ -4,14 +4,15 @@
 
 package otlp
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 
-	grpcclient "github.com/altessa-s/go-atlas/transport/grpc/client"
+	"google.golang.org/grpc"
 )
 
 // Protocol specifies the OTLP transport protocol.
@@ -70,32 +71,15 @@ type options struct {
 	resourceAttrs []adapters.Attribute
 	// exportTimeout sets the maximum duration for an export RPC.
 	exportTimeout time.Duration `optval:"positive" optgen:"default=DefaultExportTimeout"`
-	// retry enables gRPC retry with default configuration.
-	retry bool `opt:"-"`
-	// retryConfig enables gRPC retry with custom configuration.
-	retryConfig *grpcclient.RetryConfig `opt:"-"`
-	// grpcClientOptions are extra options forwarded to the underlying
-	// transport/grpc/client when Protocol is gRPC. The factory layer uses
-	// this to inject a proxy resolver materialized from
-	// proxyconfig.Config.GrpcClientOptions. Has no effect when Protocol is HTTP.
-	grpcClientOptions []grpcclient.Option `opt:"GRPCClientOptions" optgen:"append"`
-}
-
-// WithRetry enables gRPC retry with default configuration.
-func WithRetry() Option {
-	return func(o *options) {
-		o.retry = true
-		o.retryConfig = nil
-	}
-}
-
-// WithRetryConfig enables gRPC retry with custom configuration.
-func WithRetryConfig(cfg *grpcclient.RetryConfig) Option {
-	return func(o *options) {
-		if cfg == nil {
-			return
-		}
-		o.retry = true
-		o.retryConfig = cfg
-	}
+	// grpcConn is the connection the gRPC exporter sends on. The caller owns
+	// it: Shutdown leaves it open. When nil, the adapter dials endpoint with
+	// grpc-go defaults and closes that connection on Shutdown. The tracing
+	// factory injects a transport/grpc/client connection carrying the
+	// configured proxy policy. Has no effect when Protocol is HTTP.
+	grpcConn grpc.ClientConnInterface `opt:"GRPCConn"`
+	// httpClient is the client the HTTP exporter sends with. When nil, the
+	// otlptracehttp default client is used (environment proxies honored).
+	// The tracing factory injects a net/http/client client carrying
+	// the configured proxy policy. Has no effect when Protocol is gRPC.
+	httpClient *http.Client `opt:"HTTPClient"`
 }

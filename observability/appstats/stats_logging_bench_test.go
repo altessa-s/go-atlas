@@ -5,7 +5,6 @@
 package appstats_test
 
 import (
-	"context"
 	"log/slog"
 	"testing"
 
@@ -20,7 +19,7 @@ func BenchmarkStatsLogger_RunLogCycle(b *testing.B) {
 	logger := slog.New(slog.DiscardHandler)
 	s := appstats.NewStatsLogger(appstats.WithLogger(logger))
 
-	ctx := context.Background()
+	ctx := b.Context()
 
 	for b.Loop() {
 		_ = s.RunLogCycle(ctx)

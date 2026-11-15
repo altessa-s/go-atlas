@@ -6,35 +6,9 @@ package tracing
 
 import (
 	"iter"
-	"slices"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
-
-// Attributes returns an iterator over the slice of attributes.
-// Use slices.Collect() to materialize the result into a slice.
-//
-// Example:
-//
-//	attrs := []Attribute{String("k1", "v1"), Int("k2", 42)}
-//	for attr := range tracing.Attributes(attrs) {
-//	    fmt.Println(attr.Key, attr.Value)
-//	}
-func Attributes(attrs []Attribute) iter.Seq[Attribute] {
-	return slices.Values(attrs)
-}
-
-// Links returns an iterator over the slice of links.
-// Use slices.Collect() to materialize the result into a slice.
-//
-// Example:
-//
-//	for link := range tracing.Links(links) {
-//	    fmt.Println(link.SpanContext.TraceID())
-//	}
-func Links(links []Link) iter.Seq[Link] {
-	return slices.Values(links)
-}
 
 // FilterAttributesByKey returns an iterator that yields attributes with matching keys.
 //
@@ -47,17 +21,6 @@ func FilterAttributesByKey(attrs []Attribute, prefix string) iter.Seq[Attribute]
 	return coreslices.Filter(attrs, func(a Attribute) bool {
 		return len(a.Key) >= len(prefix) && a.Key[:len(prefix)] == prefix
 	})
-}
-
-// MapAttributes returns an iterator that applies a transformation function to each attribute.
-//
-// Example:
-//
-//	keys := slices.Collect(tracing.MapAttributes(attrs, func(a Attribute) string {
-//	    return a.Key
-//	}))
-func MapAttributes[O any](attrs []Attribute, fn func(Attribute) O) iter.Seq[O] {
-	return coreslices.Map(attrs, fn)
 }
 
 // AttributeKeys returns an iterator that yields only the keys of attributes.

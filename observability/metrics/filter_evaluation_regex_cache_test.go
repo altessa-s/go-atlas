@@ -15,25 +15,11 @@ import (
 func TestNewRegexCacheMetrics_NilCollector(t *testing.T) {
 	rcm := metrics.NewRegexCacheMetrics(nil,
 		func() metrics.RegexCacheStatsSnapshot { return metrics.RegexCacheStatsSnapshot{} },
-		func() {},
 	)
 	require.NotNil(t, rcm)
 
 	// Should not panic with noop collector.
 	rcm.Report()
-}
-
-func TestRegexCacheMetrics_Report(t *testing.T) {
-	var resetCalled bool
-	statsFunc := func() metrics.RegexCacheStatsSnapshot {
-		return metrics.RegexCacheStatsSnapshot{Hits: 10, Misses: 2, Size: 5}
-	}
-	resetFunc := func() { resetCalled = true }
-
-	rcm := metrics.NewRegexCacheMetrics(metrics.Noop(), statsFunc, resetFunc)
-	rcm.Report()
-
-	require.True(t, resetCalled, "Report() did not call resetFunc")
 }
 
 func TestRegexCacheStatsSnapshot_HitRate(t *testing.T) {

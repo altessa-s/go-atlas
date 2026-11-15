@@ -7,7 +7,7 @@ package health
 import (
 	"errors"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // Sentinel errors for health operations.

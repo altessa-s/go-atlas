@@ -10,7 +10,9 @@
 //
 // The package follows an adapter pattern where:
 //   - Components depend on abstract interfaces (Counter, Gauge, Histogram, Timer)
-//   - Collector manages metric creation and lifecycle
+//   - Meter creates metrics; it is the narrow handle libraries accept
+//   - Collector is a Meter that also owns the lifecycle (Shutdown, ForceFlush)
+//     and stays with the application's composition root
 //   - Adapters translate abstract metrics to specific backends (Prometheus, StatsD, etc.)
 //
 // # Basic Usage
@@ -31,25 +33,27 @@
 //	// Use metrics
 //	requestsTotal.WithLabels(metrics.Labels{"method": "GET", "status": "200"}).Inc()
 //
-// # Scoped Collector
+// # Scoped Meter
 //
-// Components can use WithSubsystem to create a scoped collector with a subsystem prefix:
+// Components can use WithSubsystem to create a scoped [Meter] with a subsystem prefix.
+// The scoped Meter shares the parent's instruments but does not expose its lifecycle:
 //
 //	// Collector has namespace "myapp"
-//	scopedCollector := collector.WithSubsystem("inprogress")
+//	scoped := collector.WithSubsystem("inprogress")
 //
 //	// Creates metric: myapp_inprogress_active_heartbeaters
-//	gauge := scopedCollector.MustGauge(metrics.MetricOpts{
+//	gauge := scoped.MustGauge(metrics.MetricOpts{
 //	    Name: "active_heartbeaters",
 //	    Help: "Current number of active heartbeaters",
 //	})
 //
 // # Optional Metrics
 //
-// Components should accept metrics.Collector through options and default to Noop():
+// Components should accept metrics.Meter through options and default to Noop().
+// Only the composition root holds the [Collector] and calls Shutdown on exit:
 //
 //	type options struct {
-//	    metrics metrics.Collector
+//	    metrics metrics.Meter
 //	}
 //
 //	func newOptions(opts ...Option) *options {

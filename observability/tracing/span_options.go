@@ -4,62 +4,87 @@
 
 package tracing
 
+//go:generate go tool optgen generate --type=recorderOptions --option-type=RecorderOption --string-setter=plain --keep-empty-strings --skip-default-func --skip-new-func --output=recorder_options_gen.go
+//go:generate go tool optgen generate --type=spanStartOptions --option-type=SpanStartOption --skip-default-func --skip-new-func --output=span_start_options_gen.go
+//go:generate go tool optgen generate --type=spanEndOptions --option-type=SpanEndOption --skip-default-func --skip-new-func --output=span_end_options_gen.go
+//go:generate go tool optgen generate --type=eventOptions --option-type=EventOption --skip-default-func --skip-new-func --output=event_options_gen.go
+
 import (
 	"iter"
 	"slices"
 	"time"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
-// RecorderOption configures a Recorder.
-type RecorderOption interface {
-	applyRecorder(*RecorderConfig)
+// recorderOptions holds the settings of a [Recorder] obtained from
+// [Tracer.Recorder]; [RecorderConfig] is their resolved, read-only form.
+type recorderOptions struct {
+	// WithInstrumentationVersion sets the instrumentation version for the recorder.
+	instrumentationVersion string `optval:"notrim"`
+	// WithSchemaURL sets the schema URL for the recorder.
+	schemaURL string `optval:"notrim"`
 }
 
-// RecorderConfig holds configuration for a Recorder.
-// Exported for use by adapters.
+// RecorderConfig is the resolved set of [RecorderOption] values, returned by
+// [ApplyRecorderOptions]. It is read-only: a [Tracer] implementation reads it
+// through its accessors.
 type RecorderConfig struct {
-	instrumentationVersion string
-	schemaURL              string
+	recorderOptions
 }
 
-// SpanStartOption configures span creation.
-type SpanStartOption interface {
-	applySpanStart(*SpanStartConfig)
+// spanStartOptions holds the settings of a span being started;
+// [SpanStartConfig] is their resolved, read-only form.
+type spanStartOptions struct {
+	// WithSpanKind sets the span kind.
+	kind SpanKind `opt:"SpanKind" optval:"nonpositive"`
+	// WithAttributes sets initial attributes on the span. Repeated options
+	// accumulate.
+	attributes []Attribute `optgen:"append" optval:"nodup"`
+	// WithStartTimestamp sets the start time of the span.
+	timestamp time.Time `opt:"StartTimestamp"`
+	// WithLinks adds links to other spans. Repeated options accumulate.
+	links []Link `optgen:"append" optval:"nodup"`
 }
 
-// SpanStartConfig holds configuration for starting a span.
-// Exported for use by adapters.
+// SpanStartConfig is the resolved set of [SpanStartOption] values, returned by
+// [ApplySpanStartOptions]. It is read-only: a [Recorder] implementation reads
+// it through its accessors.
 type SpanStartConfig struct {
-	kind       SpanKind
-	attributes []Attribute
-	timestamp  time.Time
-	links      []Link
+	spanStartOptions
 }
 
-// SpanEndOption configures span completion.
-type SpanEndOption interface {
-	applySpanEnd(*SpanEndConfig)
+// spanEndOptions holds the settings of a span being ended; [SpanEndConfig] is
+// their resolved, read-only form.
+type spanEndOptions struct {
+	// WithEndTimestamp sets the end time of the span.
+	timestamp time.Time `opt:"EndTimestamp"`
 }
 
-// SpanEndConfig holds configuration for ending a span.
-// Exported for use by adapters.
+// SpanEndConfig is the resolved set of [SpanEndOption] values, returned by
+// [ApplySpanEndOptions]. It is read-only: a [Span] implementation reads it
+// through its accessors.
 type SpanEndConfig struct {
-	timestamp time.Time
+	spanEndOptions
 }
 
-// EventOption configures span events.
-type EventOption interface {
-	applyEvent(*EventConfig)
+// eventOptions holds the settings of a span event; [EventConfig] is their
+// resolved, read-only form.
+type eventOptions struct {
+	// WithEventTimestamp sets the timestamp for an event.
+	timestamp time.Time `opt:"EventTimestamp"`
+	// WithEventAttributes sets attributes for an event. Repeated options
+	// accumulate.
+	attributes []Attribute `opt:"EventAttributes" optgen:"append" optval:"nodup"`
+	// WithStackTrace enables or disables stack trace recording for an event.
+	stackTrace bool `optval:"param"`
 }
 
-// EventConfig holds configuration for a span event.
-// Exported for use by adapters.
+// EventConfig is the resolved set of [EventOption] values, returned by
+// [ApplyEventOptions]. It is read-only: a [Span] implementation reads it
+// through its accessors.
 type EventConfig struct {
-	timestamp  time.Time
-	attributes []Attribute
-	stackTrace bool
+	eventOptions
 }
 
 // Link represents a link to another span.
@@ -71,107 +96,13 @@ type Link struct {
 // linksPool provides pooling for Link slices.
 var linksPool = coreslices.NewPool[Link](4) //nolint:mnd // Pool capacity hint
 
-// --- RecorderOption implementations ---
-
-type recorderOptionFunc func(*RecorderConfig)
-
-func (f recorderOptionFunc) applyRecorder(c *RecorderConfig) { f(c) }
-
-// WithInstrumentationVersion sets the instrumentation version for the recorder.
-func WithInstrumentationVersion(version string) RecorderOption {
-	return recorderOptionFunc(func(c *RecorderConfig) {
-		c.instrumentationVersion = version
-	})
-}
-
-// WithSchemaURL sets the schema URL for the recorder.
-func WithSchemaURL(schemaURL string) RecorderOption {
-	return recorderOptionFunc(func(c *RecorderConfig) {
-		c.schemaURL = schemaURL
-	})
-}
-
-// --- SpanStartOption implementations ---
-
-type spanStartOptionFunc func(*SpanStartConfig)
-
-func (f spanStartOptionFunc) applySpanStart(c *SpanStartConfig) { f(c) }
-
-// WithSpanKind sets the span kind.
-func WithSpanKind(kind SpanKind) SpanStartOption {
-	return spanStartOptionFunc(func(c *SpanStartConfig) {
-		c.kind = kind
-	})
-}
-
-// WithAttributes sets initial attributes on the span.
-func WithAttributes(attrs ...Attribute) SpanStartOption {
-	return spanStartOptionFunc(func(c *SpanStartConfig) {
-		c.attributes = append(c.attributes, attrs...)
-	})
-}
-
-// WithStartTimestamp sets the start time of the span.
-func WithStartTimestamp(t time.Time) SpanStartOption {
-	return spanStartOptionFunc(func(c *SpanStartConfig) {
-		c.timestamp = t
-	})
-}
-
-// WithLinks adds links to other spans.
-func WithLinks(links ...Link) SpanStartOption {
-	return spanStartOptionFunc(func(c *SpanStartConfig) {
-		c.links = append(c.links, links...)
-	})
-}
-
-// --- SpanEndOption implementations ---
-
-type spanEndOptionFunc func(*SpanEndConfig)
-
-func (f spanEndOptionFunc) applySpanEnd(c *SpanEndConfig) { f(c) }
-
-// WithEndTimestamp sets the end time of the span.
-func WithEndTimestamp(t time.Time) SpanEndOption {
-	return spanEndOptionFunc(func(c *SpanEndConfig) {
-		c.timestamp = t
-	})
-}
-
-// --- EventOption implementations ---
-
-type eventOptionFunc func(*EventConfig)
-
-func (f eventOptionFunc) applyEvent(c *EventConfig) { f(c) }
-
-// WithEventTimestamp sets the timestamp for an event.
-func WithEventTimestamp(t time.Time) EventOption {
-	return eventOptionFunc(func(c *EventConfig) {
-		c.timestamp = t
-	})
-}
-
-// WithEventAttributes sets attributes for an event.
-func WithEventAttributes(attrs ...Attribute) EventOption {
-	return eventOptionFunc(func(c *EventConfig) {
-		c.attributes = append(c.attributes, attrs...)
-	})
-}
-
-// WithStackTrace enables or disables stack trace recording for an event.
-func WithStackTrace(record bool) EventOption {
-	return eventOptionFunc(func(c *EventConfig) {
-		c.stackTrace = record
-	})
-}
-
 // --- Config accessors for adapters ---
 
 // ApplyRecorderOptions applies options and returns the config.
 func ApplyRecorderOptions(opts ...RecorderOption) *RecorderConfig {
 	c := &RecorderConfig{}
 	for _, opt := range opts {
-		opt.applyRecorder(c)
+		opt(&c.recorderOptions)
 	}
 	return c
 }
@@ -180,7 +111,7 @@ func ApplyRecorderOptions(opts ...RecorderOption) *RecorderConfig {
 func ApplySpanStartOptions(opts ...SpanStartOption) *SpanStartConfig {
 	c := &SpanStartConfig{}
 	for _, opt := range opts {
-		opt.applySpanStart(c)
+		opt(&c.spanStartOptions)
 	}
 	return c
 }
@@ -189,7 +120,7 @@ func ApplySpanStartOptions(opts ...SpanStartOption) *SpanStartConfig {
 func ApplySpanEndOptions(opts ...SpanEndOption) *SpanEndConfig {
 	c := &SpanEndConfig{}
 	for _, opt := range opts {
-		opt.applySpanEnd(c)
+		opt(&c.spanEndOptions)
 	}
 	return c
 }
@@ -198,7 +129,7 @@ func ApplySpanEndOptions(opts ...SpanEndOption) *SpanEndConfig {
 func ApplyEventOptions(opts ...EventOption) *EventConfig {
 	c := &EventConfig{}
 	for _, opt := range opts {
-		opt.applyEvent(c)
+		opt(&c.eventOptions)
 	}
 	return c
 }

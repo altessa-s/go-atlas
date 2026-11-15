@@ -49,11 +49,11 @@ func TestNoopCollector_MethodsDoNotPanic(t *testing.T) {
 	gauge.Sub(1)
 	gauge.WithLabels(Labels{"k": "v"}).Set(0)
 
-	hist := c.Histogram(HistogramOpts{MetricOpts: MetricOpts{Name: "test"}})
+	hist := c.Histogram(HistogramOpts{Name: "test"})
 	hist.Observe(1.0)
 	hist.WithLabels(Labels{"k": "v"}).Observe(2.0)
 
-	timer := c.Timer(HistogramOpts{MetricOpts: MetricOpts{Name: "test"}})
+	timer := c.Timer(HistogramOpts{Name: "test"})
 	stop := timer.Start()
 	stop()
 	timer.ObserveDuration(time.Millisecond)
@@ -62,8 +62,8 @@ func TestNoopCollector_MethodsDoNotPanic(t *testing.T) {
 	// Must* variants
 	c.MustCounter(MetricOpts{Name: "test"}).Inc()
 	c.MustGauge(MetricOpts{Name: "test"}).Set(0)
-	c.MustHistogram(HistogramOpts{MetricOpts: MetricOpts{Name: "test"}}).Observe(1)
-	c.MustTimer(HistogramOpts{MetricOpts: MetricOpts{Name: "test"}}).ObserveDuration(time.Second)
+	c.MustHistogram(HistogramOpts{Name: "test"}).Observe(1)
+	c.MustTimer(HistogramOpts{Name: "test"}).ObserveDuration(time.Second)
 
 	// WithSubsystem returns same noop
 	sub := c.WithSubsystem("sub")

@@ -7,7 +7,7 @@ package tracing
 import (
 	"slices"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 // Attribute represents a key-value pair attached to a span.
@@ -89,9 +89,4 @@ func BoolSlice(key string, value []bool) Attribute {
 // Valid returns true if the attribute has a non-empty key.
 func (a Attribute) Valid() bool {
 	return a.Key != ""
-}
-
-// CloneAttributes creates a copy of the attributes slice.
-func CloneAttributes(attrs []Attribute) []Attribute {
-	return slices.Clone(attrs)
 }

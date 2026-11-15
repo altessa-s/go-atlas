@@ -5,10 +5,34 @@
 package appstats
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
+
+// Serial: the collector is package-level state shared by every test.
+func TestMetricsCollection_RestartsAfterContextCancellation(t *testing.T) {
+	StopMetricsCollection()
+	t.Cleanup(StopMetricsCollection)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	StartMetricsCollectionWithContext(ctx)
+	require.True(t, cachedMetrics.running.Load())
+
+	cancel()
+	testhelpers.WaitFor(t, 5*time.Second, func() bool { return !cachedMetrics.running.Load() },
+		"collection still marked running after its context was canceled")
+
+	StartMetricsCollectionWithContext(t.Context())
+	metricsMu.Lock()
+	restarted := cachedMetrics.running.Load() && cachedMetrics.stopChan != nil
+	metricsMu.Unlock()
+	require.True(t, restarted, "collection did not start again after its context was canceled")
+}
 
 func TestMetricsCollection_StartStopRestart(t *testing.T) {
 	StopMetricsCollection() // idempotent

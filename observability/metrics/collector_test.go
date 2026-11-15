@@ -64,3 +64,20 @@ func TestCollector_HandleNotVisibleBeforeRegistration(t *testing.T) {
 
 	require.InDelta(t, 1.0, adapter.CounterValue("svc_jobs_total", nil), 0)
 }
+
+func TestCollector_WithSubsystemHidesLifecycle(t *testing.T) {
+	t.Parallel()
+
+	c := metrics.New(metrics.WithAdapter(memory.New()), metrics.WithServiceName("svc"))
+	t.Cleanup(func() { require.NoError(t, c.Shutdown(t.Context())) })
+
+	scoped := c.WithSubsystem("db")
+	nested := scoped.WithSubsystem("pool")
+	for _, m := range []any{scoped, nested} {
+		_, isCollector := m.(metrics.Collector)
+		require.False(t, isCollector, "scoped meter must not expose Shutdown/ForceFlush of the shared parent")
+	}
+
+	// Instruments created through the scoped meter keep working.
+	nested.MustCounter(metrics.MetricOpts{Name: "acquired_total", Help: "test"}).Inc()
+}

@@ -9,12 +9,14 @@ import (
 	"time"
 )
 
-// Collector is the interface for creating and managing metrics.
-// Use [New] to create a concrete implementation or [Noop] for a no-op.
+// Meter creates metric instruments. It is the narrow handle that
+// instrumented libraries accept: it carries no lifecycle, so a component
+// holding a Meter cannot shut down or flush the shared [Collector].
 //
-// All methods are safe for concurrent use. After [Collector.Shutdown],
-// metric operations become no-ops.
-type Collector interface {
+// Every [Collector] is a Meter; [Meter.WithSubsystem] returns another
+// Meter that shares the parent's instruments and lifecycle without
+// exposing it. All methods are safe for concurrent use.
+type Meter interface {
 	// Counter creates or retrieves a counter metric.
 	Counter(opts MetricOpts) Counter
 
@@ -39,10 +41,21 @@ type Collector interface {
 	// MustTimer creates a timer, panicking on error.
 	MustTimer(opts HistogramOpts) Timer
 
-	// WithSubsystem returns a Collector with the given subsystem.
+	// WithSubsystem returns a Meter with the given subsystem.
 	// The subsystem is added between namespace and metric name:
 	// {namespace}_{subsystem}_{name}
-	WithSubsystem(subsystem string) Collector
+	WithSubsystem(subsystem string) Meter
+}
+
+// Collector is a [Meter] that also owns the metrics lifecycle. It is held
+// by the application's composition root, which calls [Collector.Shutdown]
+// on exit; libraries accept a [Meter] instead.
+// Use [New] to create a concrete implementation or [Noop] for a no-op.
+//
+// All methods are safe for concurrent use. After [Collector.Shutdown],
+// metric operations become no-ops.
+type Collector interface {
+	Meter
 
 	// Shutdown shuts down the collector and all adapters.
 	// After Shutdown is called, metric operations become no-ops.
@@ -57,7 +70,7 @@ type Collector interface {
 }
 
 // Counter is a metric that can only increase or be reset to zero.
-// Obtain via [Collector.Counter] or [Collector.MustCounter].
+// Obtain via [Meter.Counter] or [Meter.MustCounter].
 // All methods are safe for concurrent use.
 type Counter interface {
 	// Inc increments the counter by 1.
@@ -75,7 +88,7 @@ type Counter interface {
 }
 
 // Gauge is a metric that can increase and decrease.
-// Obtain via [Collector.Gauge] or [Collector.MustGauge].
+// Obtain via [Meter.Gauge] or [Meter.MustGauge].
 // All methods are safe for concurrent use.
 type Gauge interface {
 	// Set sets the gauge to the given value.
@@ -101,7 +114,7 @@ type Gauge interface {
 }
 
 // Histogram tracks the distribution of values across configured bucket boundaries.
-// Obtain via [Collector.Histogram] or [Collector.MustHistogram].
+// Obtain via [Meter.Histogram] or [Meter.MustHistogram].
 // All methods are safe for concurrent use.
 type Histogram interface {
 	// Observe records a value in the histogram.
@@ -115,7 +128,7 @@ type Histogram interface {
 
 // Timer is a specialized metric for measuring durations.
 // Internally it uses a [Histogram] to track the distribution of durations.
-// Obtain via [Collector.Timer] or [Collector.MustTimer].
+// Obtain via [Meter.Timer] or [Meter.MustTimer].
 // All methods are safe for concurrent use.
 type Timer interface {
 	// Start begins timing and returns a stop function.

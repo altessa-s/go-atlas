@@ -2,14 +2,14 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 package metrics
 
 import (
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
 
-	_ "github.com/altessa-s/go-atlas/core/runtime/appinfo"
+	_ "github.com/altessa-s/go-atlas-core/runtime/appinfo"
 )
 
 // options contains configuration for the Collector.

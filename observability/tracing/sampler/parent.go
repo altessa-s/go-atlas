@@ -9,16 +9,10 @@ import "fmt"
 // parentBasedSampler defers to the parent span's sampling decision.
 // If there is no parent, it uses a root sampler.
 type parentBasedSampler struct {
-	root                   Sampler
-	remoteParentSampled    Sampler
-	remoteParentNotSampled Sampler
-	localParentSampled     Sampler
-	localParentNotSampled  Sampler
-	description            string
+	*parentBasedOptions
+	root        Sampler
+	description string
 }
-
-// ParentBasedOption configures the parent-based sampler.
-type ParentBasedOption func(*parentBasedSampler)
 
 // NewParentBased returns a sampler that defers to the parent span's decision.
 // If there is no parent span (root span), it uses the provided root sampler.
@@ -44,47 +38,12 @@ type ParentBasedOption func(*parentBasedSampler)
 //	)
 func NewParentBased(root Sampler, opts ...ParentBasedOption) Sampler {
 	s := &parentBasedSampler{
-		root:                   root,
-		remoteParentSampled:    AlwaysOn(),
-		remoteParentNotSampled: AlwaysOff(),
-		localParentSampled:     AlwaysOn(),
-		localParentNotSampled:  AlwaysOff(),
-	}
-
-	for _, opt := range opts {
-		opt(s)
+		parentBasedOptions: newParentBasedOptions(opts...),
+		root:               root,
 	}
 
 	s.description = fmt.Sprintf("ParentBased{root:%s}", root.Description())
 	return s
-}
-
-// WithRemoteParentSampled sets the sampler for remote sampled parents.
-func WithRemoteParentSampled(s Sampler) ParentBasedOption {
-	return func(p *parentBasedSampler) {
-		p.remoteParentSampled = s
-	}
-}
-
-// WithRemoteParentNotSampled sets the sampler for remote not-sampled parents.
-func WithRemoteParentNotSampled(s Sampler) ParentBasedOption {
-	return func(p *parentBasedSampler) {
-		p.remoteParentNotSampled = s
-	}
-}
-
-// WithLocalParentSampled sets the sampler for local sampled parents.
-func WithLocalParentSampled(s Sampler) ParentBasedOption {
-	return func(p *parentBasedSampler) {
-		p.localParentSampled = s
-	}
-}
-
-// WithLocalParentNotSampled sets the sampler for local not-sampled parents.
-func WithLocalParentNotSampled(s Sampler) ParentBasedOption {
-	return func(p *parentBasedSampler) {
-		p.localParentNotSampled = s
-	}
 }
 
 // ShouldSample implements Sampler.

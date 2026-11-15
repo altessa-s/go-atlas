@@ -4,7 +4,7 @@
 
 package health
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 import (
 	"log/slog"
@@ -12,7 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	schedtask "github.com/altessa-s/go-horai/task"
 )
 
 const (
@@ -57,8 +57,8 @@ type options struct {
 	logger                    *slog.Logger
 
 	// Scheduler configuration
-	scheduler     corescheduler.TaskRegistrar `optgen:"notnil"`
+	scheduler     schedtask.Registrar `optgen:"notnil"`
 	checkSchedule string
 
-	collector metrics.Collector `optgen:"notnil"`
+	meter metrics.Meter `optgen:"notnil"`
 }

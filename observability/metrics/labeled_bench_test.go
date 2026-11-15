@@ -68,11 +68,9 @@ func BenchmarkLabeledCounterInc(b *testing.B) {
 func BenchmarkLabeledHistogramObserve(b *testing.B) {
 	c := newPromCollector(b)
 	h := c.MustHistogram(metrics.HistogramOpts{
-		MetricOpts: metrics.MetricOpts{
-			Name:       "request_size_bytes",
-			Help:       "bench",
-			LabelNames: []string{"method"},
-		},
+		Name:       "request_size_bytes",
+		Help:       "bench",
+		LabelNames: []string{"method"},
 	})
 	labels := metrics.Labels{"method": "GET"}
 
@@ -94,11 +92,9 @@ func BenchmarkLabeledHistogramObserve(b *testing.B) {
 func BenchmarkLabeledTimerObserveDuration(b *testing.B) {
 	c := newPromCollector(b)
 	t := c.MustTimer(metrics.HistogramOpts{
-		MetricOpts: metrics.MetricOpts{
-			Name:       "request_duration_seconds",
-			Help:       "bench",
-			LabelNames: []string{"method"},
-		},
+		Name:       "request_duration_seconds",
+		Help:       "bench",
+		LabelNames: []string{"method"},
 	})
 	bound := t.WithLabels(metrics.Labels{"method": "GET"})
 

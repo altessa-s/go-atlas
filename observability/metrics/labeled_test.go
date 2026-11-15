@@ -11,8 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 
 	prometheusadapter "github.com/altessa-s/go-atlas/observability/metrics/adapters/prometheus"
 )
@@ -120,7 +120,7 @@ func TestWithLabels_PrometheusBound_GaugeAndTimer(t *testing.T) {
 	require.Equal(t, float64(1), v)
 
 	tm := c.MustTimer(metrics.HistogramOpts{
-		MetricOpts: metrics.MetricOpts{Name: "latency_seconds", Help: "test", LabelNames: []string{"method"}},
+		Name: "latency_seconds", Help: "test", LabelNames: []string{"method"},
 	})
 	tm.WithLabels(metrics.Labels{"method": "GET"}).ObserveDuration(250 * time.Millisecond)
 	sum, count := promValue(t, reg, "svc_latency_seconds", map[string]string{"method": "GET"})
@@ -133,7 +133,7 @@ func TestWithLabels_PrometheusBound_GaugeAndTimer(t *testing.T) {
 // through RecordCounter with the stored label map.
 func TestWithLabels_FallbackWithoutBinder(t *testing.T) {
 	t.Parallel()
-	tc := testhelpers.NewTestCollector()
+	tc := metricstest.NewTestCollector()
 	ctr := tc.MustCounter(metrics.MetricOpts{
 		Name:       "fallback_total",
 		Help:       "test",
@@ -143,7 +143,7 @@ func TestWithLabels_FallbackWithoutBinder(t *testing.T) {
 	ctr.WithLabels(metrics.Labels{"method": "GET"}).Inc()
 
 	require.Equal(t, float64(1),
-		testhelpers.GetCounterValue(t, tc, "test_fallback_total", "method", "GET"))
+		metricstest.GetCounterValue(t, tc, "test_fallback_total", "method", "GET"))
 }
 
 func TestWithLabels_BoundCounterInc_NoAllocs(t *testing.T) {

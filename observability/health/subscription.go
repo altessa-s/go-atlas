@@ -7,11 +7,7 @@ package health
 import (
 	"sync"
 	"sync/atomic"
-
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
 )
-
-// Note: watcher uses atomic.Int32 for thread-safe closed flag management.
 
 // Subscription is the concrete [Subscriber] returned by [Coordinator.Subscribe].
 // Always call [Subscription.Close] when done to release resources.
@@ -57,7 +53,11 @@ type cachedStatus struct {
 type watcher struct {
 	ch         chan ServingStatus
 	lastStatus atomic.Int32 // ServingStatus; atomic so the notify loop and readers don't race
-	closed     atomic.Int32
+
+	// mu makes sends and the close mutually exclusive: notify holds it for
+	// reading around its non-blocking send, close holds it for writing.
+	mu     sync.RWMutex
+	closed bool
 }
 
 func newWatcher(buffer int, initialStatus ServingStatus) *watcher {
@@ -71,17 +71,27 @@ func newWatcher(buffer int, initialStatus ServingStatus) *watcher {
 // notify delivers status without blocking and reports whether it was sent.
 // It returns false when the watcher is closed or its buffer is full.
 func (w *watcher) notify(status ServingStatus) bool {
-	if w.closed.Load() != 0 {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	if w.closed {
 		return false
 	}
 
-	// Non-blocking send; a close racing with the send is silently absorbed.
-	sent, _ := panics.TrySendNonBlocking(w.ch, status)
-	return sent
+	select {
+	case w.ch <- status:
+		return true
+	default:
+		return false
+	}
 }
 
 func (w *watcher) close() {
-	if w.closed.CompareAndSwap(0, 1) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.closed {
+		w.closed = true
 		close(w.ch)
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"slices"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 // TextMapCarrier is the interface for injecting and extracting trace context.

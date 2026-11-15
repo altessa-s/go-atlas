@@ -212,6 +212,14 @@ func (a *Adapter) Handler() http.Handler {
 	return promhttp.HandlerFor(a.gatherer, promhttp.HandlerOpts{DisableCompression: true})
 }
 
+// DefaultHandler returns an http.Handler that serves the process-wide
+// default Prometheus gatherer without compression, the exposition Prometheus
+// scrapers expect. Pass it to the HTTP server factory's UseMetricsHandler when
+// the adapter registers in the default registry.
+func DefaultHandler() http.Handler {
+	return promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true})
+}
+
 // Registerer returns the underlying Prometheus registerer.
 func (a *Adapter) Registerer() prometheus.Registerer {
 	return a.registerer

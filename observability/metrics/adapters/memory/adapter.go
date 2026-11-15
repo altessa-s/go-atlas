@@ -11,9 +11,9 @@ package memory
 import (
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
 )
 
@@ -49,7 +49,7 @@ func New() *Adapter {
 func (a *Adapter) Name() string { return "memory" }
 
 // Register implements [adapters.Adapter]. Re-registration of an
-// already-known name is a no-op so repeated [metrics.Collector.MustCounter]
+// already-known name is a no-op so repeated [metrics.Meter.MustCounter]
 // calls with the same name behave like the Prometheus adapter.
 func (a *Adapter) Register(desc *adapters.Desc) error {
 	if desc == nil {
@@ -216,21 +216,16 @@ func labelKey(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""
 	}
-	keys := make([]string, 0, len(labels))
+	names := make([]string, 0, len(labels))
 	for k := range labels {
-		keys = append(keys, k)
+		names = append(names, k)
 	}
-	slices.Sort(keys)
-	var b strings.Builder
-	for i, k := range keys {
-		if i > 0 {
-			b.WriteByte('|')
-		}
-		b.WriteString(k)
-		b.WriteByte('=')
-		b.WriteString(labels[k])
+	slices.Sort(names)
+	parts := make([]string, 0, len(labels)*2)
+	for _, name := range names {
+		parts = append(parts, name, labels[name])
 	}
-	return b.String()
+	return keys.Compose(parts...)
 }
 
 // Ensure Adapter implements [adapters.Adapter].

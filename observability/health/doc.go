@@ -17,6 +17,15 @@
 // contention under high fan-out. Buffer sizes adapt automatically when the
 // active watcher count exceeds [WithAdaptiveBufferThreshold].
 //
+// # Consumer ports
+//
+// Components that only feed the health system accept a narrow port instead
+// of the concrete [Coordinator], which implements all of them:
+//
+//   - [Registrar]: register a [Checker] once at construction.
+//   - [Reporter]: [Registrar] plus pushing status changes.
+//   - [DynamicReporter]: [Reporter] plus unregistering services at runtime.
+//
 // # Features
 //
 //   - Unified Monitoring: single registry for all system health checks.

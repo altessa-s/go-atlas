@@ -79,8 +79,8 @@ func (r *collector) MustTimer(opts HistogramOpts) Timer {
 }
 
 // WithSubsystem implements Collector.
-func (r *collector) WithSubsystem(subsystem string) Collector {
-	return &scopedCollector{
+func (r *collector) WithSubsystem(subsystem string) Meter {
+	return &scopedMeter{
 		parent:    r,
 		subsystem: subsystem,
 	}

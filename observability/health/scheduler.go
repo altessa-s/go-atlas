@@ -8,12 +8,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
-	corectx "github.com/altessa-s/go-atlas/core/context"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	corectx "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	schedtask "github.com/altessa-s/go-horai/task"
 )
 
 // RegisterHealthChecks installs the configured periodic check. Failures leave
@@ -30,12 +30,12 @@ func (c *Coordinator) RegisterHealthChecks(ctx context.Context) error {
 
 	ctx, cancel := corectx.WithMaxTimeout(ctx, DefaultCheckTimeout)
 	defer cancel()
-	taskCfg := corescheduler.TaskConfig{
+	taskCfg := schedtask.Config{
 		ID:             "health-check",
 		Description:    "Periodic health check cycle for all watched services",
 		Func:           c.runHealthCheckCycleInternal,
 		Schedule:       c.checkSchedule,
-		Priority:       corescheduler.TaskPriorityNormal,
+		Priority:       schedtask.PriorityNormal,
 		RunOnStart:     true,
 		Unmanaged:      true,
 		DisableHistory: true,

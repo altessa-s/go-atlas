@@ -6,6 +6,7 @@ package adapters
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"slices"
 	"time"
@@ -225,36 +226,36 @@ func (m *MultiAdapter) Name() string {
 }
 
 // ExportSpans implements Adapter.
-// Broadcasts span export to all adapters.
+// Broadcasts span export to every adapter, even after one fails, and returns
+// the failures joined with [errors.Join].
 func (m *MultiAdapter) ExportSpans(ctx context.Context, spans []SpanData) error {
+	errs := make([]error, 0, len(m.adapters))
 	for _, a := range m.adapters {
-		if err := a.ExportSpans(ctx, spans); err != nil {
-			return err
-		}
+		errs = append(errs, a.ExportSpans(ctx, spans))
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Shutdown implements Adapter.
-// Shuts down all adapters, returning the first error encountered.
+// Shuts down every adapter, even after one fails, and returns the failures
+// joined with [errors.Join].
 func (m *MultiAdapter) Shutdown(ctx context.Context) error {
+	errs := make([]error, 0, len(m.adapters))
 	for _, a := range m.adapters {
-		if err := a.Shutdown(ctx); err != nil {
-			return err
-		}
+		errs = append(errs, a.Shutdown(ctx))
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // ForceFlush implements Adapter.
-// Flushes all adapters, returning the first error encountered.
+// Flushes every adapter, even after one fails, and returns the failures
+// joined with [errors.Join].
 func (m *MultiAdapter) ForceFlush(ctx context.Context) error {
+	errs := make([]error, 0, len(m.adapters))
 	for _, a := range m.adapters {
-		if err := a.ForceFlush(ctx); err != nil {
-			return err
-		}
+		errs = append(errs, a.ForceFlush(ctx))
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Ensure MultiAdapter implements Adapter.

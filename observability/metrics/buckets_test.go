@@ -113,9 +113,9 @@ func TestMergeBuckets(t *testing.T) {
 
 func TestCopyBuckets(t *testing.T) {
 	orig := []float64{1, 2, 3}
-	cp := CopyBuckets(orig)
+	cp := slices.Clone(orig)
 	cp[0] = 99
-	require.NotEqual(t, float64(99), orig[0], "CopyBuckets should create independent copy")
+	require.NotEqual(t, float64(99), orig[0], "slices.Clone should create independent copy")
 }
 
 func TestDefaultBuckets_StrictlyIncreasing(t *testing.T) {
