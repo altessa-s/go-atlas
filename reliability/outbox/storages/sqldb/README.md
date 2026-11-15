@@ -1,0 +1,150 @@
+# sqldb
+
+```go
+import outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
+```
+
+Package `sqldb` implements `outbox.Storage` on a SQL database through the standard `database/sql` package. The caller owns the `*sql.DB` and picks the
+driver; this package imports no SQL driver. It mirrors the [MongoDB store](../mongo): database-clock time predicates, lock-token fencing, and the
+same lifecycle.
+
+## Dialects
+
+| Dialect           | Servers                   | Typical driver                                                  |
+|-------------------|---------------------------|-----------------------------------------------------------------|
+| `DialectPostgres` | PostgreSQL 12+            | `github.com/jackc/pgx/v5/stdlib` (`"pgx"`), `github.com/lib/pq` |
+| `DialectMySQL`    | MySQL 8.0+, MariaDB 10.6+ | `github.com/go-sql-driver/mysql` (`"mysql"`)                    |
+
+Both need `FOR UPDATE SKIP LOCKED`, which sets the version floors. On MySQL any `parseTime`/`loc` DSN setting works — see [Server clock](#server-clock).
+
+## Options
+
+| Option          | Default         | Description                                                           |
+|-----------------|-----------------|-----------------------------------------------------------------------|
+| `WithTableName` | `events_outbox` | Events table; may be qualified as `schema.name` (≤ 63 chars per part) |
+
+`New` performs no I/O. `EnsureSchema(ctx)` creates the table and its indexes if they do not exist, and adds to an existing table the indexes a newer
+version introduced; it is idempotent, bounded by `ctx`, and safe to run from several instances at once (on PostgreSQL the DDL runs in one transaction
+under an advisory lock on the table name; on MySQL the missing indexes are read from `information_schema` and added with `ALTER TABLE`). Call it once at
+startup, or apply the same DDL through your migration tool — see [Upgrading](#upgrading) for a table you manage yourself:
+
+```go
+store, err := outboxsql.New(db, outboxsql.DialectPostgres)
+if err != nil {
+	return err
+}
+if err := store.EnsureSchema(ctx); err != nil {
+	return err
+}
+```
+
+## Transactions
+
+`Save` must run inside the business transaction — that atomicity is the point of the outbox. Pass the transaction through the context:
+
+```go
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+	return err
+}
+if err := orders.Insert(ctx, tx, order); err != nil {
+	_ = tx.Rollback()
+	return err
+}
+if err := ob.Save(outboxsql.WithTx(ctx, tx), outbox.Event{Key: "orders.created", Payload: payload}); err != nil {
+	_ = tx.Rollback()
+	return err
+}
+return tx.Commit()
+```
+
+Only `SaveEvents` uses the context transaction. Without one, a batch is still all-or-nothing: a single `INSERT`, or its own transaction when the batch
+spans several statements.
+
+## Server clock
+
+All time-based predicates — retry backoff, lock expiry, retention, expiration — compare against the **database clock** (`now()` on PostgreSQL,
+`UTC_TIMESTAMP(6)` on MySQL), and the timestamps they compare against (`locked_on`, `last_attempt_on`, `next_attempt_at`, `published_at`) are written
+from it. Durations, never client instants, cross the process boundary, so instances with skewed clocks agree on what is due, stuck or expired.
+
+`created_at` and `expires_at` come from the same clock when the caller leaves them unset. The store implements `outbox.BackendClockSaver`, so
+`Outbox.Save` hands it the default TTL as a duration: an event without a `CreatedAt` is inserted with the database's `now()`, and one without an
+`ExpiresAt` with that clock plus the TTL. On PostgreSQL `now()` is the start of the transaction, so an event saved inside a business transaction is
+dated when that transaction began. An explicit `CreatedAt` or `ExpiresAt` is part of the `Event` contract and is stored as given — a default expiry
+then counts from the explicit `CreatedAt`. After `Save`, an event whose instants the database stamped still has them zero in the caller's copy.
+
+MySQL `DATETIME(6)` columns hold UTC. Client-supplied instants (`CreatedAt`, `ExpiresAt`) are bound as UTC strings and read back through `DATE_FORMAT`,
+never as `time.Time`: go-sql-driver/mysql converts a bound `time.Time` into its `loc` and parses `DATETIME` in it, which would shift every instant for a
+DSN with `loc` other than UTC.
+
+## Locking and fencing
+
+`FetchUnprocessedEvents` selects ready events oldest first (`ORDER BY created_at, seq`) `FOR UPDATE SKIP LOCKED` and marks them `in-progress` with a
+fresh `lock_token` in one transaction, so concurrent dispatchers take disjoint batches without waiting on each other. Pending events and failed events
+whose backoff elapsed are read by one statement each and merged: with the status fixed, the `(status, created_at, seq)` index returns rows in order and
+each statement stops at its limit, where a single statement over both statuses would sort the whole backlog first — and on MySQL lock every row it
+sorted. A statement may lock up to one batch more than is taken; those rows are released when the fetch transaction ends. `UpdateEvents` writes an event
+only while its stored token still matches; a dispatcher whose lease the unlock sweeper reclaimed writes nothing. Unlocking and expiring clear the token.
+
+`UpdateEvents` and `UnlockStuckEvents` take their row locks in primary-key order, so they cannot deadlock on the rows they share. If the database
+reports a deadlock or a serialization failure anyway (SQLSTATE `40P01` or `40001`, MySQL error 1213), the statement is retried up to three times with a
+short jittered backoff. The package imports no driver, so the code is read from the error's `SQLState()` method (pgx, lib/pq) or `Number` field
+(go-sql-driver/mysql).
+
+`DeleteProcessedEvents` deletes 1000 rows at a time, each chunk in its own short transaction, until a chunk comes back short; a sweep whose context ends
+keeps what it already deleted.
+
+## Schema
+
+| Column       | PostgreSQL     | MySQL / MariaDB  | Notes                                                                                         |
+|--------------|----------------|------------------|-----------------------------------------------------------------------------------------------|
+| `id`         | `VARCHAR(255)` | `VARBINARY(255)` | Primary key                                                                                   |
+| `seq`        | identity       | `AUTO_INCREMENT` | Insertion order; breaks `created_at` ties (a batch saved together shares one `CreatedAt`)     |
+| `topic`      | `BYTEA`        | `LONGBLOB`       | `Event.Key`                                                                                   |
+| `payload`    | `BYTEA NULL`   | `LONGBLOB NULL`  | `nil` round-trips as `nil`, empty as empty                                                    |
+| `status`     | `VARCHAR(32)`  | `VARCHAR(32)`    |                                                                                               |
+| `error`      | `BYTEA NULL`   | `LONGBLOB NULL`  | Unbounded handler errors, NUL bytes included                                                  |
+| `lock_token` | `VARCHAR(64)`  | `VARBINARY(64)`  | Fencing token of the current lease                                                            |
+| timestamps   | `TIMESTAMPTZ`  | `DATETIME(6)`    | `created_at`, `locked_on`, `last_attempt_on`, `next_attempt_at`, `published_at`, `expires_at` |
+
+On MySQL every string column except the fixed-vocabulary `status` is a binary type, so storage and comparison never depend on the database's default
+character set.
+
+| Index (`<table>_<suffix>_idx`) | Columns                   | Serves                                                                    |
+|--------------------------------|---------------------------|---------------------------------------------------------------------------|
+| `fetch`                        | `status, created_at, seq` | The claim, one status at a time, in its `ORDER BY` order (no sort); stats |
+| `locked`                       | `status, locked_on`       | The unlock sweep                                                          |
+| `published`                    | `status, published_at`    | Retention                                                                 |
+| `expires`                      | `status, expires_at`      | The expiry sweep                                                          |
+
+`next_attempt_at` has no index of its own: it is only ever a filter on the claim, whose `created_at` order the `fetch` index already supplies.
+
+### Upgrading
+
+The `expires` index was added after the first release. `EnsureSchema` creates it on an existing table; if you manage the schema yourself, run the
+statement for your server once. On PostgreSQL, `EnsureSchema` builds a missing index inside its transaction, which blocks writes to a large table while
+it builds — creating it beforehand with `CONCURRENTLY` avoids that, and `EnsureSchema` then finds it in place.
+
+```sql
+-- PostgreSQL
+CREATE INDEX CONCURRENTLY IF NOT EXISTS events_outbox_expires_idx ON events_outbox (status, expires_at);
+
+-- MySQL / MariaDB
+ALTER TABLE events_outbox ADD INDEX events_outbox_expires_idx (status, expires_at);
+```
+
+## Watch
+
+`database/sql` has no notification API, so the store does not implement `outbox.Watcher`; `Outbox.Watch` returns `outbox.ErrWatchUnsupported` and
+dispatch runs on the poll schedule.
+
+## Factories
+
+`factory/reliability/outbox.OutboxBuilder.BuildWithSQLDB(ctx, db, dialect, handler)` and
+`factory/messaging/broker.BrokerBuilder.CreateOutboxWithSQLDB(ctx, db, dialect, publisher)` build an outbox over this store. They run `EnsureSchema`
+only when the outbox config sets `ensureSchema: true` (default `false`); otherwise the table must already exist.
+
+## Testing
+
+The outbox integration scenarios in [`tests/integration/outboxit`](../../../../tests/integration/outboxit) run against PostgreSQL, MariaDB and MySQL as
+well as MongoDB.

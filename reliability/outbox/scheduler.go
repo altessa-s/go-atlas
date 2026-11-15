@@ -1,0 +1,368 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package outbox
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+
+	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+
+	corectx "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	schedtask "github.com/altessa-s/go-horai/task"
+)
+
+// scheduledTask describes one outbox cycle's scheduler registration.
+type scheduledTask struct {
+	name        string       // Used in the error message only.
+	id          string       // Scheduler task ID.
+	description string       // Human-facing description.
+	schedule    string       // Cron expression; empty disables registration.
+	enabled     bool         // Extra precondition beyond a non-empty schedule.
+	task        *cycle.Guard // Single-flight guard bound to the cycle body.
+
+	// managed exempts the task from the scheduler's pause/disable operations.
+	// Cleanup is the only cycle an operator can safely stop at runtime — the
+	// others would silently halt delivery — so it is the only managed one.
+	managed bool
+}
+
+// ErrRegistrationIncomplete prevents partially registered schedules from driving
+// delivery before RegisterTasks has installed every configured task.
+var ErrRegistrationIncomplete = errors.New("outbox scheduler registration incomplete")
+
+// RegisterTasks installs configured schedules. New has no scheduler side effects.
+// On partial failure, installed callbacks remain inactive until a retry succeeds;
+// a retry skips already registered tasks. The caller retains this instance.
+func (o *Outbox) RegisterTasks(ctx context.Context) error {
+	o.registrationMu.Lock()
+	defer o.registrationMu.Unlock()
+	opts := o.registrationOpts
+
+	if nilcheck.IsNil(o.scheduler) {
+		return nil
+	}
+
+	if err := validateTaskIDs(opts); err != nil {
+		return err
+	}
+
+	ctx, cancel := corectx.WithMaxTimeout(ctx, DefaultUpdateTimeout)
+	defer cancel()
+
+	tasks := [...]scheduledTask{
+		{
+			name:        "dispatch",
+			id:          opts.dispatchTaskID,
+			description: "Dispatch unprocessed events from outbox",
+			schedule:    opts.dispatchSchedule,
+			enabled:     true,
+			task:        o.dispatchTask,
+		},
+		{
+			name:        "unlock",
+			id:          opts.unlockTaskID,
+			description: "Unlock stuck events in outbox",
+			schedule:    opts.unlockSchedule,
+			enabled:     true,
+			task:        o.unlockTask,
+		},
+		{
+			name:        "expire",
+			id:          opts.expireTaskID,
+			description: "Mark expired events in outbox",
+			schedule:    opts.expireSchedule,
+			enabled:     opts.defaultEventTTL > 0,
+			task:        o.expireTask,
+		},
+		{
+			name:        "stats",
+			id:          opts.statsTaskID,
+			description: "Refresh outbox backlog and dead-letter gauges",
+			schedule:    opts.statsSchedule,
+			enabled:     true,
+			task:        o.statsTask,
+		},
+		{
+			name:        "cleanup",
+			id:          opts.cleanupTaskID,
+			description: "Cleanup old published events from outbox",
+			schedule:    opts.cleanupSchedule,
+			enabled:     opts.publishedEventsLifetime > 0,
+			task:        o.cleanupTask,
+			managed:     true,
+		},
+	}
+
+	for _, t := range tasks {
+		if t.schedule == "" || !t.enabled || t.task.IsManaged() {
+			continue
+		}
+
+		taskCfg := schedtask.Config{
+			ID:          t.id,
+			Description: t.description,
+			// TryRun rather than Run: the scheduler is the registered driver,
+			// so it must not be turned away by the scheduler-managed check it
+			// is itself the reason for.
+			Func: func(ctx context.Context) error {
+				if !o.registrationsReady.Load() {
+					return ErrRegistrationIncomplete
+				}
+				return t.task.TryRun(ctx)
+			},
+			Schedule:       t.schedule,
+			Priority:       schedtask.PriorityNormal,
+			Unmanaged:      !t.managed,
+			DisableHistory: true,
+		}
+		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
+			return coreerrs.WrapOperationWithContext(err, "register outbox scheduler task", t.name)
+		}
+		t.task.MarkManaged()
+	}
+
+	o.registrationsReady.Store(true)
+	return nil
+}
+
+// RegisterDispatchSchedulerFunc returns a function for use by a scheduler and marks
+// dispatch as scheduler-managed. After calling this method, direct calls to
+// RunDispatchCycle will return [cycle.ErrManaged].
+func (o *Outbox) RegisterDispatchSchedulerFunc() func(context.Context) error {
+	return o.dispatchTask.Managed()
+}
+
+// RegisterUnlockSchedulerFunc returns a function for use by a scheduler and marks
+// unlock as scheduler-managed. After calling this method, direct calls to
+// RunUnlockCycle will return [cycle.ErrManaged].
+func (o *Outbox) RegisterUnlockSchedulerFunc() func(context.Context) error {
+	return o.unlockTask.Managed()
+}
+
+// RegisterCleanupSchedulerFunc returns a function for use by a scheduler and marks
+// cleanup as scheduler-managed. After calling this method, direct calls to
+// RunCleanupCycle will return [cycle.ErrManaged].
+func (o *Outbox) RegisterCleanupSchedulerFunc() func(context.Context) error {
+	return o.cleanupTask.Managed()
+}
+
+// RunDispatchCycle executes a single fetch-and-dispatch cycle for unprocessed events.
+// This method is designed to be called manually for one-time dispatch.
+// If the function is registered with a scheduler, this method returns
+// [cycle.ErrManaged].
+func (o *Outbox) RunDispatchCycle(ctx context.Context) error {
+	return o.dispatchTask.Run(ctx)
+}
+
+// runDispatchCycleInternal performs the actual dispatch cycle.
+// Callers must route through dispatchTask so overlapping cycles collapse
+// into a single execution.
+func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
+	_, _, err := o.dispatchOnce(ctx)
+	return err
+}
+
+// dispatchOnce is runDispatchCycleInternal plus the size of the batch it
+// fetched and whether any of it advanced past a retry. The count is what tells
+// a notification-driven caller whether the store still holds more than one
+// batch of work, and the progress flag whether draining it is getting anywhere
+// — see [Outbox.Watch]; the scheduled cycle ignores both and comes back on its
+// own tick.
+func (o *Outbox) dispatchOnce(ctx context.Context) (fetched int, advanced bool, err error) {
+	// A cycle started on a context that has already ended would lock a batch —
+	// the fetch below is detached from cancellation — and attempt none of it,
+	// leaving the events locked until the unlock sweeper reclaims them.
+	if ctx.Err() != nil {
+		return 0, false, nil
+	}
+
+	// Create a context for this processing cycle, derived from the main context
+	// to allow cancellation propagation, but use WithoutCancel for the operation itself
+	// to let it attempt completion, bounded by specific timeouts.
+	cycleCtx := context.WithoutCancel(ctx)
+
+	stop := o.metrics.dispatchDuration.Start()
+	defer stop()
+
+	fetchCtx, cancelFetch := corectx.ApplyTimeout(cycleCtx, o.fetchTimeout)
+	events, err := o.store.FetchUnprocessedEvents(fetchCtx, o.eventsBatchSize)
+	cancelFetch()
+
+	if err != nil {
+		if coreerrs.IsContextCanceled(err) {
+			return 0, false, nil
+		}
+		return 0, false, coreerrs.WrapOperation(err, "fetch unprocessed events")
+	}
+
+	if len(events) == 0 {
+		return 0, false, nil // No events fetched
+	}
+
+	o.logger.DebugContext(ctx, "fetched unprocessed events", slog.Int("count", len(events)))
+
+	// Create context for handleEvents with its own timeout, derived from the *main* context.
+	handleCtx, handleCtxCancel := corectx.ApplyTimeout(ctx, o.handleTimeout)
+	defer handleCtxCancel()
+
+	return len(events), o.handleEvents(handleCtx, events...), nil
+}
+
+// RunUnlockCycle executes a single cycle to unlock stuck events in the store.
+// This method is designed to be called manually for one-time unlock.
+// If the function is registered with a scheduler, this method returns
+// [cycle.ErrManaged].
+func (o *Outbox) RunUnlockCycle(ctx context.Context) error {
+	return o.unlockTask.Run(ctx)
+}
+
+// runUnlockCycleInternal performs the actual unlock cycle.
+// Callers must route through unlockTask so overlapping cycles collapse
+// into a single execution.
+func (o *Outbox) runUnlockCycleInternal(ctx context.Context) error {
+	stop := o.metrics.unlockDuration.Start()
+	defer stop()
+
+	return o.store.UnlockStuckEvents(ctx, o.maxLockTime)
+}
+
+// RunCleanupCycle executes a single cycle to delete processed events from the store.
+// This method is designed to be called manually for one-time cleanup.
+// If the function is registered with a scheduler, this method returns
+// [cycle.ErrManaged].
+func (o *Outbox) RunCleanupCycle(ctx context.Context) error {
+	return o.cleanupTask.Run(ctx)
+}
+
+// runCleanupCycleInternal performs the actual cleanup cycle.
+// Callers must route through cleanupTask so overlapping cycles collapse
+// into a single execution.
+func (o *Outbox) runCleanupCycleInternal(ctx context.Context) error {
+	if o.publishedEventsLifetime <= 0 {
+		return nil
+	}
+
+	stop := o.metrics.cleanupDuration.Start()
+	defer stop()
+
+	return o.store.DeleteProcessedEvents(ctx, o.publishedEventsLifetime)
+}
+
+// RegisterExpireSchedulerFunc returns a function for use by a scheduler and marks
+// expire as scheduler-managed. After calling this method, direct calls to
+// RunExpireCycle will return [cycle.ErrManaged].
+func (o *Outbox) RegisterExpireSchedulerFunc() func(context.Context) error {
+	return o.expireTask.Managed()
+}
+
+// RunExpireCycle executes a single cycle to mark expired events in the store.
+// This method is designed to be called manually for one-time expiration.
+// If the function is registered with a scheduler, this method returns
+// [cycle.ErrManaged].
+func (o *Outbox) RunExpireCycle(ctx context.Context) error {
+	return o.expireTask.Run(ctx)
+}
+
+// validateTaskIDs rejects configurations in which two or more of the
+// scheduler task IDs (dispatch / unlock / expire / cleanup / stats) collide.
+// The underlying scheduler upserts by ID, so a collision would silently
+// overwrite the first task's Func pointer with the second's instead of
+// running both — we'd rather fail loudly at startup than ship a partially
+// scheduled outbox. Checks all IDs unconditionally (even when some
+// schedules are empty, so the next operator who flips the schedule on
+// inherits a working set of IDs).
+func validateTaskIDs(opts *options) error {
+	ids := [...]struct {
+		name, value string
+	}{
+		{"dispatchTaskID", opts.dispatchTaskID},
+		{"unlockTaskID", opts.unlockTaskID},
+		{"expireTaskID", opts.expireTaskID},
+		{"cleanupTaskID", opts.cleanupTaskID},
+		{"statsTaskID", opts.statsTaskID},
+	}
+	seen := make(map[string]string, len(ids))
+	for _, id := range ids {
+		if id.value == "" {
+			// Generated WithXxx setters TrimSpace to non-empty; the
+			// defaults are non-empty constants. An empty value here
+			// would mean a programmatic caller bypassed the setter and
+			// assigned the field directly — not a collision but still
+			// an invalid scheduler ID.
+			return coreerrs.Wrapf(ErrTaskIDCollision, "%s is empty", id.name)
+		}
+		if prev, dup := seen[id.value]; dup {
+			return coreerrs.Wrapf(ErrTaskIDCollision, "%s and %s both resolve to %q", prev, id.name, id.value)
+		}
+		seen[id.value] = id.name
+	}
+	return nil
+}
+
+// RegisterStatsSchedulerFunc returns a function for use by a scheduler and marks
+// stats as scheduler-managed. After calling this method, direct calls to
+// RunStatsCycle will return [cycle.ErrManaged].
+func (o *Outbox) RegisterStatsSchedulerFunc() func(context.Context) error {
+	return o.statsTask.Managed()
+}
+
+// RunStatsCycle refreshes the backlog gauges from a single [Store.Stats] read.
+// This method is designed to be called manually for one-time collection.
+// If the function is registered with a scheduler, this method returns
+// [cycle.ErrManaged].
+func (o *Outbox) RunStatsCycle(ctx context.Context) error {
+	return o.statsTask.Run(ctx)
+}
+
+// runStatsCycleInternal publishes the backlog snapshot as gauges so queue depth,
+// dead-letter depth, and dispatch lag are alertable. Callers must route through
+// statsTask so overlapping cycles collapse into a single execution.
+func (o *Outbox) runStatsCycleInternal(ctx context.Context) error {
+	stop := o.metrics.statsDuration.Start()
+	defer stop()
+
+	stats, err := o.store.Stats(ctx)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "collect outbox stats")
+	}
+
+	o.metrics.pendingEvents.Set(float64(stats.Pending))
+	o.metrics.inProgressEvents.Set(float64(stats.InProgress))
+	o.metrics.deadLetteredEvents.Set(float64(stats.DeadLettered))
+	o.metrics.oldestPendingAge.Set(stats.OldestPendingAge.Seconds())
+
+	if stats.DeadLettered > 0 {
+		o.logger.WarnContext(ctx, "outbox holds dead-lettered events awaiting operator action",
+			slog.Int64("dead_lettered", stats.DeadLettered),
+		)
+	}
+
+	return nil
+}
+
+// runExpireCycleInternal performs the actual expire cycle.
+// It marks pending or failed events whose ExpiresAt has passed as expired.
+// Callers must route through expireTask so overlapping cycles collapse
+// into a single execution.
+func (o *Outbox) runExpireCycleInternal(ctx context.Context) error {
+	stop := o.metrics.expireDuration.Start()
+	defer stop()
+
+	count, err := o.store.ExpireEvents(ctx)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "expire events")
+	}
+
+	if count > 0 {
+		o.metrics.eventsExpired.Add(float64(count))
+		o.logger.InfoContext(ctx, "expired events marked", slog.Int64("count", count))
+	}
+
+	return nil
+}
