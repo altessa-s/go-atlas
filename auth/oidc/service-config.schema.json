@@ -4,12 +4,16 @@
   "title": "OIDC Service Configuration",
   "description": "Declarative configuration schema for OIDC token validation rules, presets, and automatic preset selection",
   "type": "object",
-  "required": ["version"],
+  "required": [
+    "version"
+  ],
   "properties": {
     "version": {
       "type": "string",
       "description": "Configuration schema version",
-      "enum": ["1.0"],
+      "enum": [
+        "1.0"
+      ],
       "default": "1.0"
     },
     "default_validation": {
@@ -40,20 +44,21 @@
       "properties": {
         "leeway": {
           "type": "string",
-          "description": "Clock skew tolerance for time-based claims (Go duration format)",
+          "description": "Clock skew tolerance for time-based claims (Go duration format, at most 5m)",
           "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
           "default": "0s",
-          "examples": ["5s", "10s", "30s"]
-        },
-        "verify_expiration": {
-          "type": "boolean",
-          "description": "Require the exp claim. Omit to keep the JWT-library default (validate when present, allow when missing). Setting true rejects tokens without exp. Setting false is rejected at config-load time — disabling exp validation safely is not supported by the underlying JWT library.",
-          "enum": [true]
+          "examples": [
+            "5s",
+            "10s",
+            "30s"
+          ]
         },
         "verify_not_before": {
           "type": "boolean",
           "description": "Require the nbf claim. Omit to keep the JWT-library default. Setting true rejects tokens without nbf. Setting false is rejected at config-load time.",
-          "enum": [true]
+          "enum": [
+            true
+          ]
         },
         "verify_issued_at": {
           "type": "boolean",
@@ -63,7 +68,10 @@
         "issuer": {
           "type": "string",
           "description": "Expected token issuer (iss claim)",
-          "examples": ["https://accounts.google.com", "https://auth.company.com"]
+          "examples": [
+            "https://accounts.google.com",
+            "https://auth.company.com"
+          ]
         },
         "audiences": {
           "type": "array",
@@ -72,29 +80,54 @@
             "type": "string"
           },
           "minItems": 1,
-          "examples": [["my-api-server"], ["web-app", "mobile-app"]]
+          "examples": [
+            [
+              "my-api-server"
+            ],
+            [
+              "web-app",
+              "mobile-app"
+            ]
+          ]
         },
         "subject": {
           "type": "string",
           "description": "Expected token subject (sub claim)",
-          "examples": ["user-123", "service-account-xyz"]
+          "examples": [
+            "user-123",
+            "service-account-xyz"
+          ]
         },
         "required_claims": {
           "type": "array",
-          "description": "Claims that must be present in the token",
+          "description": "Claims that must be present in the token, in addition to the always-required sub, aud, exp, iat and iss",
           "items": {
             "type": "string"
           },
           "uniqueItems": true,
-          "examples": [["email", "email_verified"], ["sub", "client_id"]]
+          "examples": [
+            [
+              "email",
+              "email_verified"
+            ],
+            [
+              "sub",
+              "client_id"
+            ]
+          ]
         },
         "expected_claims": {
           "type": "object",
           "description": "Claims with expected values (exact match)",
           "additionalProperties": true,
           "examples": [
-            {"email_verified": true},
-            {"token_type": "Bearer", "status": "active"}
+            {
+              "email_verified": true
+            },
+            {
+              "token_type": "Bearer",
+              "status": "active"
+            }
           ]
         },
         "ignored_claims": {
@@ -104,7 +137,16 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "examples": [["nonce", "at_hash"], ["jti", "sid"]]
+          "examples": [
+            [
+              "nonce",
+              "at_hash"
+            ],
+            [
+              "jti",
+              "sid"
+            ]
+          ]
         },
         "allowed_client_ids": {
           "type": "array",
@@ -113,7 +155,16 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "examples": [["service-1", "service-2"], ["internal-api", "backend-service"]]
+          "examples": [
+            [
+              "service-1",
+              "service-2"
+            ],
+            [
+              "internal-api",
+              "backend-service"
+            ]
+          ]
         },
         "require_authorized_party": {
           "type": "boolean",
@@ -127,7 +178,16 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "examples": [["tenant-1", "tenant-2"], ["client-app-1", "client-app-2"]]
+          "examples": [
+            [
+              "tenant-1",
+              "tenant-2"
+            ],
+            [
+              "client-app-1",
+              "client-app-2"
+            ]
+          ]
         },
         "allow_missing_subject": {
           "type": "boolean",
@@ -163,7 +223,16 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "examples": [["openid", "profile"], ["api:read", "api:write"]]
+          "examples": [
+            [
+              "openid",
+              "profile"
+            ],
+            [
+              "api:read",
+              "api:write"
+            ]
+          ]
         },
         "any_of": {
           "type": "array",
@@ -172,7 +241,17 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "examples": [["admin", "superuser"], ["read", "write", "delete"]]
+          "examples": [
+            [
+              "admin",
+              "superuser"
+            ],
+            [
+              "read",
+              "write",
+              "delete"
+            ]
+          ]
         },
         "all_of": {
           "type": "array",
@@ -181,7 +260,13 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "examples": [["openid", "email", "profile"]]
+          "examples": [
+            [
+              "openid",
+              "email",
+              "profile"
+            ]
+          ]
         }
       },
       "additionalProperties": false
@@ -194,13 +279,21 @@
           "type": "string",
           "description": "Minimum token lifetime (Go duration format)",
           "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
-          "examples": ["1m", "5m", "10m"]
+          "examples": [
+            "1m",
+            "5m",
+            "10m"
+          ]
         },
         "max": {
           "type": "string",
           "description": "Maximum token lifetime (Go duration format)",
           "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
-          "examples": ["1h", "12h", "24h"]
+          "examples": [
+            "1h",
+            "12h",
+            "24h"
+          ]
         }
       },
       "additionalProperties": false
@@ -208,14 +301,21 @@
     "CELRuleConfig": {
       "type": "object",
       "description": "CEL (Common Expression Language) validation rule",
-      "required": ["name", "expression"],
+      "required": [
+        "name",
+        "expression"
+      ],
       "properties": {
         "name": {
           "type": "string",
           "description": "Unique rule identifier (used in error messages)",
           "minLength": 1,
           "pattern": "^[a-z][a-z0-9-]*$",
-          "examples": ["email-domain", "admin-role", "active-user"]
+          "examples": [
+            "email-domain",
+            "admin-role",
+            "active-user"
+          ]
         },
         "expression": {
           "type": "string",
@@ -242,14 +342,21 @@
     "PresetConfig": {
       "type": "object",
       "description": "Named validation preset",
-      "required": ["name", "validation"],
+      "required": [
+        "name",
+        "validation"
+      ],
       "properties": {
         "name": {
           "type": "string",
           "description": "Unique preset identifier",
           "minLength": 1,
           "pattern": "^[a-z][a-z0-9-]*$",
-          "examples": ["internal-service", "user-api", "admin-only"]
+          "examples": [
+            "internal-service",
+            "user-api",
+            "admin-only"
+          ]
         },
         "description": {
           "type": "string",
@@ -270,7 +377,10 @@
     "PresetRuleConfig": {
       "type": "object",
       "description": "Automatic preset selection rule",
-      "required": ["preset", "conditions"],
+      "required": [
+        "preset",
+        "conditions"
+      ],
       "properties": {
         "description": {
           "type": "string",
@@ -284,14 +394,20 @@
           "type": "string",
           "description": "Name of the preset to apply when conditions match",
           "minLength": 1,
-          "examples": ["internal-service", "user-api", "admin-only"]
+          "examples": [
+            "internal-service",
+            "user-api",
+            "admin-only"
+          ]
         },
         "conditions": {
           "type": "object",
           "description": "Matching conditions (one condition type per rule)",
           "oneOf": [
             {
-              "required": ["claim_equals"],
+              "required": [
+                "claim_equals"
+              ],
               "properties": {
                 "claim_equals": {
                   "type": "object",
@@ -299,14 +415,20 @@
                   "additionalProperties": true,
                   "minProperties": 1,
                   "examples": [
-                    {"role": "admin"},
-                    {"token_type": "service"}
+                    {
+                      "role": "admin"
+                    },
+                    {
+                      "token_type": "service"
+                    }
                   ]
                 }
               }
             },
             {
-              "required": ["claim_exists"],
+              "required": [
+                "claim_exists"
+              ],
               "properties": {
                 "claim_exists": {
                   "type": "array",
@@ -316,12 +438,22 @@
                   },
                   "minItems": 1,
                   "uniqueItems": true,
-                  "examples": [["email"], ["client_id", "scope"]]
+                  "examples": [
+                    [
+                      "email"
+                    ],
+                    [
+                      "client_id",
+                      "scope"
+                    ]
+                  ]
                 }
               }
             },
             {
-              "required": ["claim_contains"],
+              "required": [
+                "claim_contains"
+              ],
               "properties": {
                 "claim_contains": {
                   "type": "object",
@@ -331,25 +463,36 @@
                   },
                   "minProperties": 1,
                   "examples": [
-                    {"email": "@company.com"},
-                    {"scope": "admin"}
+                    {
+                      "email": "@company.com"
+                    },
+                    {
+                      "scope": "admin"
+                    }
                   ]
                 }
               }
             },
             {
-              "required": ["has_scope"],
+              "required": [
+                "has_scope"
+              ],
               "properties": {
                 "has_scope": {
                   "type": "string",
                   "description": "Match when token has specific scope",
                   "minLength": 1,
-                  "examples": ["admin", "api:write"]
+                  "examples": [
+                    "admin",
+                    "api:write"
+                  ]
                 }
               }
             },
             {
-              "required": ["has_any_scope"],
+              "required": [
+                "has_any_scope"
+              ],
               "properties": {
                 "has_any_scope": {
                   "type": "array",
@@ -359,12 +502,23 @@
                   },
                   "minItems": 1,
                   "uniqueItems": true,
-                  "examples": [["admin", "superuser"], ["read", "write"]]
+                  "examples": [
+                    [
+                      "admin",
+                      "superuser"
+                    ],
+                    [
+                      "read",
+                      "write"
+                    ]
+                  ]
                 }
               }
             },
             {
-              "required": ["has_all_scopes"],
+              "required": [
+                "has_all_scopes"
+              ],
               "properties": {
                 "has_all_scopes": {
                   "type": "array",
@@ -374,12 +528,20 @@
                   },
                   "minItems": 1,
                   "uniqueItems": true,
-                  "examples": [["openid", "profile", "email"]]
+                  "examples": [
+                    [
+                      "openid",
+                      "profile",
+                      "email"
+                    ]
+                  ]
                 }
               }
             },
             {
-              "required": ["cel_expression"],
+              "required": [
+                "cel_expression"
+              ],
               "properties": {
                 "cel_expression": {
                   "type": "string",
@@ -393,7 +555,9 @@
               }
             },
             {
-              "required": ["matcher_and"],
+              "required": [
+                "matcher_and"
+              ],
               "properties": {
                 "matcher_and": {
                   "type": "array",
@@ -404,15 +568,23 @@
                   "minItems": 2,
                   "examples": [
                     [
-                      {"claim_equals": {"role": "admin"}},
-                      {"has_scope": "api:write"}
+                      {
+                        "claim_equals": {
+                          "role": "admin"
+                        }
+                      },
+                      {
+                        "has_scope": "api:write"
+                      }
                     ]
                   ]
                 }
               }
             },
             {
-              "required": ["matcher_or"],
+              "required": [
+                "matcher_or"
+              ],
               "properties": {
                 "matcher_or": {
                   "type": "array",
@@ -423,8 +595,16 @@
                   "minItems": 2,
                   "examples": [
                     [
-                      {"claim_equals": {"role": "admin"}},
-                      {"claim_equals": {"role": "superuser"}}
+                      {
+                        "claim_equals": {
+                          "role": "admin"
+                        }
+                      },
+                      {
+                        "claim_equals": {
+                          "role": "superuser"
+                        }
+                      }
                     ]
                   ]
                 }

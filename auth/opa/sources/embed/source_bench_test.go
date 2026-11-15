@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 	embedsource "github.com/altessa-s/go-atlas/auth/opa/sources/embed"
-	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 )
 
 func BenchmarkFetchWithChecksum(b *testing.B) {

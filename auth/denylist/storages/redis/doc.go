@@ -21,7 +21,7 @@
 // negative cache. To avoid coupling this backend to the cache package, Store
 // does not import negcache; it satisfies that interface structurally.
 //
-// Store also implements [github.com/altessa-s/go-atlas/data/probfilter.DataLoader]
+// Store also implements [github.com/altessa-s/go-atlas/cache/probfilter.DataLoader]
 // via [Store.StreamValues] and [Store.Count], so it can repopulate a negative
 // filter from the full set of revoked keys on rebuild. The stream SCANs the
 // keys under the literal key prefix (glob metacharacters are escaped) and is

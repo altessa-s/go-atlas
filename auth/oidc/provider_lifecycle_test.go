@@ -16,8 +16,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-horai/schedule"
+
+	"github.com/altessa-s/go-atlas/cache/probfilter"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 )
 
 // refreshEvery is the shortest interval robfig/cron supports.
@@ -48,10 +51,10 @@ func TestNewProvider_InvalidRefreshScheduleFails(t *testing.T) {
 	idp := newTestIdP(t)
 
 	_, err := idp.tryNewProvider(t, WithJWKSRefreshSchedule("not a cron"))
-	require.ErrorContains(t, err, "invalid jwks-refresh schedule")
+	require.ErrorIs(t, err, schedule.ErrInvalid)
 
 	_, err = idp.tryNewProvider(t, WithRevocationStorage(&syncStorage{}), WithRevocationSyncSchedule("61 * * * * *"))
-	require.ErrorContains(t, err, "invalid revocation-sync schedule")
+	require.ErrorIs(t, err, schedule.ErrInvalid)
 }
 
 // Each provider owns its cron: two providers in one process both keep
@@ -189,10 +192,10 @@ func TestInitialRevocationSync_RetriesWhileSharedFilterBusy(t *testing.T) {
 			t.Parallel()
 
 			idp := newTestIdP(t)
-			collector := testhelpers.NewTestCollector()
+			collector := metricstest.NewTestCollector()
 			storage := &syncStorage{script: tc.script}
 			opts := []Option{
-				WithCollector(collector), WithRevocationStorage(storage),
+				WithMeter(collector), WithRevocationStorage(storage),
 				WithRevocationInitialSyncWait(time.Second),
 			}
 			if tc.failOpen {
@@ -213,7 +216,7 @@ func TestInitialRevocationSync_RetriesWhileSharedFilterBusy(t *testing.T) {
 			if tc.wantErr != nil || tc.failOpen {
 				wantCount = 1
 			}
-			require.Equal(t, wantCount, testhelpers.GetCounterValue(t, collector, revocationErrorsMetric))
+			require.Equal(t, wantCount, metricstest.GetCounterValue(t, collector, revocationErrorsMetric))
 		})
 	}
 }
@@ -224,17 +227,17 @@ func TestScheduledRevocationSync_SharedFilterOutcomes(t *testing.T) {
 	t.Parallel()
 
 	idp := newTestIdP(t)
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	storage := &syncStorage{script: []error{
 		nil, // construction
 		fmt.Errorf("acquire lease: %w", probfilter.ErrRebuildInProgress),
 		fmt.Errorf("commit: %w", probfilter.ErrRebuildSuperseded),
 	}}
-	p := idp.newProvider(t, WithCollector(collector), WithRevocationStorage(storage))
+	p := idp.newProvider(t, WithMeter(collector), WithRevocationStorage(storage))
 
 	require.NoError(t, p.scheduledRevocationSync(t.Context()))
-	require.Zero(t, testhelpers.GetCounterValue(t, collector, revocationErrorsMetric))
+	require.Zero(t, metricstest.GetCounterValue(t, collector, revocationErrorsMetric))
 
 	require.ErrorIs(t, p.scheduledRevocationSync(t.Context()), probfilter.ErrRebuildSuperseded)
-	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, collector, revocationErrorsMetric))
+	require.Equal(t, 1.0, metricstest.GetCounterValue(t, collector, revocationErrorsMetric))
 }

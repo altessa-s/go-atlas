@@ -33,7 +33,7 @@
 // [RateLimitedStore] is a decorator that consults a caller-supplied
 // [RateLimiter] before delegating to the wrapped store. The package does
 // not ship a rate-limiter implementation — wire one from
-// data/limiters/tokenbucket or another source through the
+// coord/limiters/tokenbucket or another source through the
 // [RateLimiter] interface.
 //
 // # Metrics

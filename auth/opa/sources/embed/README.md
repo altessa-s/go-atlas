@@ -30,28 +30,28 @@ bundle, err := source.Fetch(ctx)
 
 ## Key Types
 
-| Type | Description |
-|------|-------------|
+| Type     | Description                                    |
+|----------|------------------------------------------------|
 | `Source` | Policy source implementation backed by `fs.FS` |
 
 ## Methods
 
-| Method | Description |
-|--------|-------------|
-| `New` | Creates a new embedded policy source from an `fs.FS` |
-| `Fetch` | Retrieves the policy bundle from the embedded filesystem |
-| `Name` | Source identifier |
-| `Close` | Marks the source closed; later `Fetch` calls return `opa.ErrSourceClosed` (repeated closes succeed) |
-| `Dir` / `Extensions` | Configured directory and policy file extensions |
+| Method               | Description                                                                                         |
+|----------------------|-----------------------------------------------------------------------------------------------------|
+| `New`                | Creates a new embedded policy source from an `fs.FS`                                                |
+| `Fetch`              | Retrieves the policy bundle from the embedded filesystem                                            |
+| `Name`               | Source identifier                                                                                   |
+| `Close`              | Marks the source closed; later `Fetch` calls return `opa.ErrSourceClosed` (repeated closes succeed) |
+| `Dir` / `Extensions` | Configured directory and policy file extensions                                                     |
 
 ## Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `WithExtensions` | `[".rego"]` | File extensions loaded as policies |
-| `WithIncludeData` | false | Load `.json` files as OPA data alongside Rego policies |
-| `WithChecksums` | nil | SHA-256 hex digests per policy file; a mismatch, unlisted or missing file fails `Fetch` |
-| `WithLogger` | discard | Structured logger (`*slog.Logger`) |
+| Option            | Default     | Description                                                                             |
+|-------------------|-------------|-----------------------------------------------------------------------------------------|
+| `WithExtensions`  | `[".rego"]` | File extensions loaded as policies                                                      |
+| `WithIncludeData` | false       | Load `.json` files as OPA data alongside Rego policies                                  |
+| `WithChecksums`   | nil         | SHA-256 hex digests per policy file; a mismatch, unlisted or missing file fails `Fetch` |
+| `WithLogger`      | discard     | Structured logger (`*slog.Logger`)                                                      |
 
 ## Features
 

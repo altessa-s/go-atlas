@@ -4,24 +4,25 @@
 import "github.com/altessa-s/go-atlas/auth/spiffe"
 ```
 
-Parses [SPIFFE IDs](https://spiffe.io/) from X.509 certificates. A pure, transport-free primitive: given a verified leaf certificate (or a raw URI), it
+Parses [SPIFFE IDs](https://spiffe.io/) from X.509 certificates. A pure, transport-free primitive: given a verified leaf certificate (or a raw URI),
+it
 returns the workload's `ID` — the trust domain and path of an `spiffe://trust-domain/path` identity. It carries no transport or TLS concern;
-[`auth/mtls`](../mtls) (`SPIFFEIdentity`, the default identity behind the gRPC and HTTP mTLS adapters) wires it into the authentication seam.
+[`auth/mtls`](../mtls) (the default identity behind the gRPC and HTTP mTLS adapters) wires it into the authentication seam.
 
 ## Key types
 
-| Type | Description                                                                                   |
-|------|-----------------------------------------------------------------------------------------------|
+| Type | Description                                                                                        |
+|------|----------------------------------------------------------------------------------------------------|
 | `ID` | Parsed SPIFFE ID: `TrustDomain` (lowercase authority) and `Path` (workload path with leading `/`). |
 
 ## Functions
 
-| Function                      | Description                                                                                   |
-|-------------------------------|-----------------------------------------------------------------------------------------------|
-| `ParseID(raw)`                | Parse `spiffe://trust-domain/path`; enforces scheme, non-empty trust domain, no port/query/fragment. |
-| `IDFromCertificate(cert)`     | Extract the SPIFFE ID from a leaf cert's single URI SAN (the X.509-SVID rule).                  |
-| `ID.String()`                 | Canonical `spiffe://…` form, or `""` for the zero ID.                                          |
-| `ID.IsZero()`                 | Whether the ID is empty.                                                                       |
+| Function                  | Description                                                                                          |
+|---------------------------|------------------------------------------------------------------------------------------------------|
+| `ParseID(raw)`            | Parse `spiffe://trust-domain/path`; enforces scheme, non-empty trust domain, no port/query/fragment. |
+| `IDFromCertificate(cert)` | Extract the SPIFFE ID from a leaf cert's single URI SAN (the X.509-SVID rule).                       |
+| `ID.String()`             | Canonical `spiffe://…` form, or `""` for the zero ID.                                                |
+| `ID.IsZero()`             | Whether the ID is empty.                                                                             |
 
 Errors: `ErrInvalidID`, `ErrNoSVID` (no URI SAN), `ErrMultipleURIs` (more than one URI SAN — never valid for an SVID). Match with `errors.Is`.
 

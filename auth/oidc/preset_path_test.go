@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 )
 
 const (
@@ -38,21 +38,21 @@ func TestValidate_UnmatchedPresetRuleVerifiesOnce(t *testing.T) {
 			t.Parallel()
 
 			idp := newTestIdP(t)
-			collector := testhelpers.NewTestCollector()
+			collector := metricstest.NewTestCollector()
 			strict := NewValidationPreset("strict", WithValidationAudience(testAudience))
-			p := idp.newProvider(t, WithCollector(collector), WithTokenCache(newMemCacher()),
+			p := idp.newProvider(t, WithMeter(collector), WithTokenCache(newMemCacher()),
 				WithPresets(strict), WithPresetRules(rule))
 
 			raw := idp.sign(t, idp.claims(nil))
 			_, err := p.ValidateToken(t.Context(), raw)
 			require.NoError(t, err)
-			require.Equal(t, 1.0, testhelpers.GetCounterValue(t, collector, cacheMissesMetric))
-			require.Zero(t, testhelpers.GetCounterValue(t, collector, cacheHitsMetric), "one verification per validation")
+			require.Equal(t, 1.0, metricstest.GetCounterValue(t, collector, cacheMissesMetric))
+			require.Zero(t, metricstest.GetCounterValue(t, collector, cacheHitsMetric), "one verification per validation")
 
 			_, err = p.ValidateToken(t.Context(), raw)
 			require.NoError(t, err)
-			require.Equal(t, 1.0, testhelpers.GetCounterValue(t, collector, cacheHitsMetric))
-			require.Equal(t, 1.0, testhelpers.GetCounterValue(t, collector, cacheMissesMetric))
+			require.Equal(t, 1.0, metricstest.GetCounterValue(t, collector, cacheHitsMetric))
+			require.Equal(t, 1.0, metricstest.GetCounterValue(t, collector, cacheMissesMetric))
 
 			// The default policy is still enforced on the reused verification.
 			_, err = p.ValidateToken(t.Context(), idp.sign(t, idp.claims(map[string]any{"aud": "other"})))
@@ -183,8 +183,8 @@ func TestValidationMetrics_AllEntryPoints(t *testing.T) {
 			t.Parallel()
 
 			idp := newTestIdP(t)
-			collector := testhelpers.NewTestCollector()
-			p := idp.newProvider(t, WithCollector(collector),
+			collector := metricstest.NewTestCollector()
+			p := idp.newProvider(t, WithMeter(collector),
 				WithPresets(NewValidationPreset("svc", WithValidationAudience(testAudience))), WithPresetRules(tc.rules...))
 
 			tok := idp.sign(t, idp.claims(nil))
@@ -199,13 +199,13 @@ func TestValidationMetrics_AllEntryPoints(t *testing.T) {
 			}
 
 			issuer := []string{"issuer", idp.srv.URL}
-			require.Equal(t, 1.0, testhelpers.GetCounterValue(t, collector, tokenValidationsMetric, issuer...))
+			require.Equal(t, 1.0, metricstest.GetCounterValue(t, collector, tokenValidationsMetric, issuer...))
 			wantErrors := 0.0
 			if tc.wantErr {
 				wantErrors = 1
 			}
-			require.Equal(t, wantErrors, testhelpers.GetCounterValue(t, collector, validationErrorsMetric, issuer...))
-			require.EqualValues(t, 1, testhelpers.GetHistogramCount(t, collector, validationTimeMetric))
+			require.Equal(t, wantErrors, metricstest.GetCounterValue(t, collector, validationErrorsMetric, issuer...))
+			require.EqualValues(t, 1, metricstest.GetHistogramCount(t, collector, validationTimeMetric))
 		})
 	}
 }

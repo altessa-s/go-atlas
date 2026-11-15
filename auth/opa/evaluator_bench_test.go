@@ -18,7 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	prometheusadapter "github.com/altessa-s/go-atlas/observability/metrics/adapters/prometheus"
 )
 
@@ -205,7 +205,7 @@ allow if input.role == "admin"
 
 // newPrometheusCollector returns a collector backed by a real Prometheus
 // registry: the no-op collector hides the cost of label binding.
-func newPrometheusCollector() metrics.Collector {
+func newPrometheusCollector() metrics.Meter {
 	return metrics.New(
 		metrics.WithServiceName("bench"),
 		metrics.WithAdapter(prometheusadapter.New(prometheusadapter.WithRegisterer(prometheus.NewRegistry()))),
@@ -217,7 +217,7 @@ func newPrometheusCollector() metrics.Collector {
 func BenchmarkEvaluate_Cached_Prometheus(b *testing.B) {
 	evaluator := newBenchEvaluator(b,
 		opa.WithDecisionCache(1000, time.Minute),
-		opa.WithCollector(newPrometheusCollector()))
+		opa.WithMeter(newPrometheusCollector()))
 
 	ctx := b.Context()
 	input := map[string]any{"role": "admin"}

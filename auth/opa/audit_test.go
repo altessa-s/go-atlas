@@ -14,37 +14,45 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 )
 
+var _ opa.DecisionRecorder = (*decision.Recorder)(nil)
+
+type decisionRecorderFunc func(context.Context, decision.Decision) error
+
+func (f decisionRecorderFunc) Record(ctx context.Context, d decision.Decision) error {
+	return f(ctx, d)
+}
+
 // errSink is the failure injected by captureSink to exercise FailureRequired.
 var errSink = errors.New("sink failure")
 
-// captureSink is a test [audit.Sink] that records every decision and can
+// captureSink is a test [decision.Sink] that records every decision and can
 // optionally fail every write.
 type captureSink struct {
 	mu        sync.Mutex
-	decisions []audit.Decision
+	decisions []decision.Decision
 	err       error
 }
 
-func (s *captureSink) Record(_ context.Context, d audit.Decision) error {
+func (s *captureSink) Record(_ context.Context, d decision.Decision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.decisions = append(s.decisions, d)
 	return s.err
 }
 
-func (s *captureSink) all() []audit.Decision {
+func (s *captureSink) all() []decision.Decision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.decisions)
 }
 
 // newAuditEvaluator builds a Manager over the boolean allow policy wired to rec.
-func newAuditEvaluator(t *testing.T, rec *audit.Recorder) opa.Evaluator {
+func newAuditEvaluator(t *testing.T, rec opa.DecisionRecorder) opa.Evaluator {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -65,6 +73,28 @@ allow if input.role == "admin"
 	return manager.Evaluator()
 }
 
+func TestEvaluator_DecisionRecorderPort(t *testing.T) {
+	t.Parallel()
+
+	recorderErr := errors.New("recorder failed")
+	var got []decision.Decision
+	recorder := decisionRecorderFunc(func(_ context.Context, d decision.Decision) error {
+		got = append(got, d)
+		return recorderErr
+	})
+	ev := newAuditEvaluator(t, recorder)
+	_, err := ev.Evaluate(t.Context(), map[string]any{"role": "admin"})
+	require.ErrorIs(t, err, recorderErr)
+	require.Len(t, got, 1)
+	require.True(t, got[0].Allowed)
+
+	// A missing recorder leaves evaluations unchanged.
+	ev = newAuditEvaluator(t, nil)
+	res, err := ev.Evaluate(t.Context(), map[string]any{"role": "admin"})
+	require.NoError(t, err)
+	require.True(t, res.Allow)
+}
+
 func TestEvaluator_AuditRecording(t *testing.T) {
 	t.Parallel()
 
@@ -72,7 +102,7 @@ func TestEvaluator_AuditRecording(t *testing.T) {
 		t.Parallel()
 
 		sink := &captureSink{}
-		ev := newAuditEvaluator(t, audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll)))
+		ev := newAuditEvaluator(t, decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll)))
 
 		res, err := ev.Evaluate(t.Context(), map[string]any{"role": "admin"})
 		require.NoError(t, err)
@@ -91,7 +121,7 @@ func TestEvaluator_AuditRecording(t *testing.T) {
 		t.Parallel()
 
 		sink := &captureSink{}
-		ev := newAuditEvaluator(t, audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll)))
+		ev := newAuditEvaluator(t, decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll)))
 
 		res, err := ev.Evaluate(t.Context(), map[string]any{"role": "user"})
 		require.NoError(t, err)
@@ -108,7 +138,7 @@ func TestEvaluator_AuditRecording(t *testing.T) {
 		t.Parallel()
 
 		sink := &captureSink{}
-		ev := newAuditEvaluator(t, audit.NewRecorder(sink)) // default PolicyDenyOnly
+		ev := newAuditEvaluator(t, decision.NewRecorder(sink)) // default PolicyDenyOnly
 
 		_, err := ev.Evaluate(t.Context(), map[string]any{"role": "admin"})
 		require.NoError(t, err)
@@ -123,22 +153,22 @@ func TestEvaluator_AuditRecording(t *testing.T) {
 		t.Parallel()
 
 		sink := &captureSink{err: errSink}
-		ev := newAuditEvaluator(t, audit.NewRecorder(sink,
-			audit.WithPolicyMode(audit.PolicyAll),
-			audit.WithFailureMode(audit.FailureRequired)))
+		ev := newAuditEvaluator(t, decision.NewRecorder(sink,
+			decision.WithPolicyMode(decision.PolicyAll),
+			decision.WithFailureMode(decision.FailureRequired)))
 
 		_, err := ev.Evaluate(t.Context(), map[string]any{"role": "admin"})
 		require.Error(t, err)
-		assert.ErrorIs(t, err, audit.ErrAuditFailed)
+		assert.ErrorIs(t, err, decision.ErrAuditFailed)
 	})
 
 	t.Run("FailureRequiredOnDenyIgnoresError", func(t *testing.T) {
 		t.Parallel()
 
 		sink := &captureSink{err: errSink}
-		ev := newAuditEvaluator(t, audit.NewRecorder(sink,
-			audit.WithPolicyMode(audit.PolicyAll),
-			audit.WithFailureMode(audit.FailureRequired)))
+		ev := newAuditEvaluator(t, decision.NewRecorder(sink,
+			decision.WithPolicyMode(decision.PolicyAll),
+			decision.WithFailureMode(decision.FailureRequired)))
 
 		res, err := ev.Evaluate(t.Context(), map[string]any{"role": "user"})
 		require.NoError(t, err)

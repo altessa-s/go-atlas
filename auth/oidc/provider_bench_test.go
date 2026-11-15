@@ -44,7 +44,7 @@ func BenchmarkValidateToken(b *testing.B) {
 	// The no-op collector hides the cost of label binding; a real Prometheus
 	// registry exposes it.
 	b.Run("cache-hit-prometheus", func(b *testing.B) {
-		p := idp.newProvider(b, WithTokenCache(newMemCacher()), WithCollector(newPrometheusCollector()))
+		p := idp.newProvider(b, WithTokenCache(newMemCacher()), WithMeter(newPrometheusCollector()))
 		if _, err := p.ValidateToken(b.Context(), raw); err != nil {
 			b.Fatal(err)
 		}
@@ -68,7 +68,7 @@ func BenchmarkObserveValidation(b *testing.B) {
 		opts []Option
 	}{
 		{name: "noop"},
-		{name: "prometheus", opts: []Option{WithCollector(newPrometheusCollector())}},
+		{name: "prometheus", opts: []Option{WithMeter(newPrometheusCollector())}},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			p := idp.newProvider(b, tc.opts...)
@@ -92,7 +92,7 @@ func BenchmarkObserveValidation(b *testing.B) {
 
 // newPrometheusCollector returns a collector backed by a fresh Prometheus
 // registry.
-func newPrometheusCollector() metrics.Collector {
+func newPrometheusCollector() metrics.Meter {
 	return metrics.New(
 		metrics.WithServiceName("bench"),
 		metrics.WithAdapter(prometheusadapter.New(prometheusadapter.WithRegisterer(prometheus.NewRegistry()))),

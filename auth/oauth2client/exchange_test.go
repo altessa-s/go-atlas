@@ -48,7 +48,7 @@ func TestExchangerExchange(t *testing.T) {
 		"scope":             "orders:read orders:write",
 	}, 0)
 
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "s3cr3t")
+	ex := mustExchanger(t, srv.URL, "svc", "s3cr3t")
 	tok, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{
 		SubjectToken: "inbound-jwt",
 		Audience:     "https://downstream.internal",
@@ -78,7 +78,7 @@ func TestExchangerExchangeDelegationAndInParamsAuth(t *testing.T) {
 		"token_type":   "Bearer",
 	}, 0)
 
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "s3cr3t",
+	ex := mustExchanger(t, srv.URL, "svc", "s3cr3t",
 		oauth2client.WithAuthStyle(oauth2.AuthStyleInParams),
 	)
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{
@@ -99,7 +99,7 @@ func TestExchangerExchangeDelegationAndInParamsAuth(t *testing.T) {
 
 func TestExchangerExchangeSubjectRequired(t *testing.T) {
 	t.Parallel()
-	ex := oauth2client.NewExchanger("https://idp.invalid/token", "svc", "s3cr3t")
+	ex := mustExchanger(t, "https://idp.invalid/token", "svc", "s3cr3t")
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{})
 	require.ErrorIs(t, err, oauth2client.ErrSubjectTokenRequired)
 }
@@ -107,7 +107,7 @@ func TestExchangerExchangeSubjectRequired(t *testing.T) {
 func TestExchangerExchangeErrorStatus(t *testing.T) {
 	t.Parallel()
 	srv, _, _ := tokenExchangeServer(t, map[string]any{"error": "invalid_request"}, http.StatusBadRequest)
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "s3cr3t")
+	ex := mustExchanger(t, srv.URL, "svc", "s3cr3t")
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "x"})
 	require.ErrorIs(t, err, oauth2client.ErrTokenExchange)
 }
@@ -115,7 +115,7 @@ func TestExchangerExchangeErrorStatus(t *testing.T) {
 func TestExchangerExchangeMissingAccessToken(t *testing.T) {
 	t.Parallel()
 	srv, _, _ := tokenExchangeServer(t, map[string]any{"token_type": "Bearer"}, 0)
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "s3cr3t")
+	ex := mustExchanger(t, srv.URL, "svc", "s3cr3t")
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "x"})
 	require.ErrorIs(t, err, oauth2client.ErrTokenExchange)
 }
@@ -128,7 +128,7 @@ func TestExchangerTokenSource(t *testing.T) {
 		"expires_in":   3600,
 	}, 0)
 
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "s3cr3t")
+	ex := mustExchanger(t, srv.URL, "svc", "s3cr3t")
 	ts := ex.TokenSource(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subj"})
 	tok, err := ts.Token()
 	require.NoError(t, err)

@@ -10,13 +10,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 )
 
 func TestOIDCMetrics_ForIssuer(t *testing.T) {
 	t.Parallel()
 
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	m := newOIDCMetrics(collector)
 
 	first := m.forIssuer("https://a.example")
@@ -30,18 +30,18 @@ func TestOIDCMetrics_ForIssuer(t *testing.T) {
 	require.NotSame(t, first, second)
 	second.validations.Inc()
 
-	require.InDelta(t, 1.0, testhelpers.GetCounterValue(t, collector,
+	require.InDelta(t, 1.0, metricstest.GetCounterValue(t, collector,
 		"test_auth_oidc_token_validations_total", "issuer", "https://a.example"), 0)
-	require.InDelta(t, 1.0, testhelpers.GetCounterValue(t, collector,
+	require.InDelta(t, 1.0, metricstest.GetCounterValue(t, collector,
 		"test_auth_oidc_validation_errors_total", "issuer", "https://a.example"), 0)
-	require.InDelta(t, 1.0, testhelpers.GetCounterValue(t, collector,
+	require.InDelta(t, 1.0, metricstest.GetCounterValue(t, collector,
 		"test_auth_oidc_token_validations_total", "issuer", "https://b.example"), 0)
 }
 
 func TestOIDCMetrics_ForIssuerConcurrent(t *testing.T) {
 	t.Parallel()
 
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	m := newOIDCMetrics(collector)
 
 	const goroutines, perGoroutine = 8, 100
@@ -61,8 +61,8 @@ func TestOIDCMetrics_ForIssuerConcurrent(t *testing.T) {
 	wg.Wait()
 
 	const perIssuer = goroutines / 2 * perGoroutine
-	require.InDelta(t, perIssuer, testhelpers.GetCounterValue(t, collector,
+	require.InDelta(t, perIssuer, metricstest.GetCounterValue(t, collector,
 		"test_auth_oidc_token_validations_total", "issuer", "https://a.example"), 0)
-	require.InDelta(t, perIssuer, testhelpers.GetCounterValue(t, collector,
+	require.InDelta(t, perIssuer, metricstest.GetCounterValue(t, collector,
 		"test_auth_oidc_token_validations_total", "issuer", "https://b.example"), 0)
 }

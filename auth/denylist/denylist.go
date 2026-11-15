@@ -27,9 +27,10 @@ type Checker interface {
 // its own ad-hoc revocation or none at all.
 //
 // Entries are either permanent ([Denylist.Revoke]) or bounded to an expiry
-// ([Denylist.RevokeUntil]). Expired entries are swept on writes and ignored on
-// reads, so a denylist that only ever revokes until each token's own expiry
-// stays bounded without a background goroutine. Unlike a cache it never evicts
+// ([Denylist.RevokeUntil]). Expired entries are ignored on reads and swept by a
+// write at most once per sweep interval (one minute), so a denylist that only
+// ever revokes until each token's own expiry stays bounded without a background
+// goroutine, and a burst of revocations does not rescan the whole set per write. Unlike a cache it never evicts
 // a live (unexpired) entry — dropping one would silently un-revoke a token — so
 // growth is bounded by TTL expiry and the caller's use of permanent
 // revocations, never by capacity.
@@ -38,20 +39,20 @@ type Checker interface {
 type Denylist struct {
 	now func() time.Time
 
-	mu      sync.RWMutex
-	entries map[string]time.Time // key -> expiry; the zero time means permanent.
+	mu        sync.RWMutex
+	entries   map[string]time.Time // key -> expiry; the zero time means permanent.
+	lastSweep time.Time            // guarded by mu
 }
+
+// sweepInterval is the minimum time between the sweeps a write triggers.
+const sweepInterval = time.Minute
 
 // New returns an empty Denylist.
 func New(opts ...Option) *Denylist {
-	d := &Denylist{
-		now:     time.Now,
+	return &Denylist{
+		now:     newOptions(opts...).clock,
 		entries: make(map[string]time.Time),
 	}
-	for _, opt := range opts {
-		opt(d)
-	}
-	return d
 }
 
 // Revoke denies key permanently, until a matching [Denylist.Restore]. Use it
@@ -60,7 +61,7 @@ func New(opts ...Option) *Denylist {
 func (d *Denylist) Revoke(key string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.sweepLocked()
+	d.maybeSweepLocked()
 	d.entries[key] = time.Time{}
 }
 
@@ -75,7 +76,7 @@ func (d *Denylist) RevokeUntil(key string, expiry time.Time) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.sweepLocked()
+	d.maybeSweepLocked()
 	d.entries[key] = expiry
 }
 
@@ -87,7 +88,8 @@ func (d *Denylist) Restore(key string) {
 }
 
 // IsRevoked reports whether key is currently revoked. An entry past its expiry
-// reports false; it is reclaimed on the next write or [Denylist.Sweep].
+// reports false; it is reclaimed by a later write's periodic sweep or by
+// [Denylist.Sweep].
 func (d *Denylist) IsRevoked(key string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -107,7 +109,7 @@ func (d *Denylist) Len() int {
 }
 
 // Sweep removes all expired entries and returns the number dropped. Writes
-// sweep automatically; call it explicitly only to reclaim memory from expired
+// sweep periodically; call it explicitly only to reclaim memory from expired
 // entries once revocations have stopped arriving.
 func (d *Denylist) Sweep() int {
 	d.mu.Lock()
@@ -115,10 +117,19 @@ func (d *Denylist) Sweep() int {
 	return d.sweepLocked()
 }
 
+// maybeSweepLocked sweeps if sweepInterval has passed since the last sweep.
+// The caller holds d.mu.
+func (d *Denylist) maybeSweepLocked() {
+	if d.now().Sub(d.lastSweep) >= sweepInterval {
+		d.sweepLocked()
+	}
+}
+
 // sweepLocked deletes expired entries and returns how many were removed. The
 // caller holds d.mu.
 func (d *Denylist) sweepLocked() int {
 	now := d.now()
+	d.lastSweep = now
 	var n int
 	for key, expiry := range d.entries {
 		if !expiry.IsZero() && !now.Before(expiry) {

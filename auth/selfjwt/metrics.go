@@ -10,6 +10,12 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
+// Metric label names.
+const (
+	labelStatus = "status"
+	labelResult = "result"
+)
+
 // DefaultMetricsSubsystem is the subsystem used when [NewMetrics] receives an
 // empty subsystem name.
 const DefaultMetricsSubsystem = "auth_selfjwt"
@@ -37,7 +43,7 @@ type Metrics struct {
 // NewMetrics constructs a [Metrics] using the given collector and subsystem.
 // If collector is nil, [metrics.Noop] is used and all metric writes become
 // zero-cost no-ops. An empty subsystem falls back to [DefaultMetricsSubsystem].
-func NewMetrics(collector metrics.Collector, subsystem string) *Metrics {
+func NewMetrics(collector metrics.Meter, subsystem string) *Metrics {
 	if collector == nil {
 		collector = metrics.Noop()
 	}
@@ -50,31 +56,27 @@ func NewMetrics(collector metrics.Collector, subsystem string) *Metrics {
 		mints: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "mints_total",
 			Help:       "Total number of token mint attempts.",
-			LabelNames: []string{"status"},
+			LabelNames: []string{labelStatus},
 		}),
 		verifications: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "verifications_total",
 			Help:       "Total number of token verification attempts.",
-			LabelNames: []string{"status"},
+			LabelNames: []string{labelStatus},
 		}),
 		mintDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name:       "mint_duration_seconds",
-				Help:       "Token mint duration in seconds.",
-				LabelNames: []string{"status"},
-			},
+			Name:       "mint_duration_seconds",
+			Help:       "Token mint duration in seconds.",
+			LabelNames: []string{labelStatus},
 		}),
 		verifyDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name:       "verify_duration_seconds",
-				Help:       "Token verification duration in seconds.",
-				LabelNames: []string{"status"},
-			},
+			Name:       "verify_duration_seconds",
+			Help:       "Token verification duration in seconds.",
+			LabelNames: []string{labelStatus},
 		}),
 		cacheLookups: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "verification_key_cache_lookups_total",
 			Help:       "Verification-key cache lookups by result.",
-			LabelNames: []string{"result"},
+			LabelNames: []string{labelResult},
 		}),
 	}
 }
@@ -85,7 +87,7 @@ func (m *Metrics) recordMint(success bool, d time.Duration) {
 	if m == nil {
 		return
 	}
-	label := metrics.Labels{"status": status(success)}
+	label := metrics.Labels{labelStatus: status(success)}
 	m.mints.WithLabels(label).Inc()
 	m.mintDuration.WithLabels(label).ObserveDuration(d)
 }
@@ -96,7 +98,7 @@ func (m *Metrics) recordVerify(success bool, d time.Duration) {
 	if m == nil {
 		return
 	}
-	label := metrics.Labels{"status": status(success)}
+	label := metrics.Labels{labelStatus: status(success)}
 	m.verifications.WithLabels(label).Inc()
 	m.verifyDuration.WithLabels(label).ObserveDuration(d)
 }
@@ -111,7 +113,7 @@ func (m *Metrics) recordCacheLookup(hit bool) {
 	if hit {
 		result = cacheResultHit
 	}
-	m.cacheLookups.WithLabels(metrics.Labels{"result": result}).Inc()
+	m.cacheLookups.WithLabels(metrics.Labels{labelResult: result}).Inc()
 }
 
 // status maps a success flag to its metric label value.

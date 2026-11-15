@@ -32,7 +32,7 @@ func TestClientCredentialsEarlyExpiry(t *testing.T) {
 
 	// An early-expiry window far larger than the token lifetime makes every
 	// Token() call treat the cached token as expired and refetch.
-	src := oauth2client.ClientCredentials(t.Context(), srv.URL, "svc", "sec",
+	src := mustClientCredentials(t, srv.URL, "svc", "sec",
 		oauth2client.WithEarlyExpiry(time.Hour))
 	_, err := src.Token()
 	require.NoError(t, err)
@@ -62,7 +62,7 @@ func TestRevoker(t *testing.T) {
 	t.Parallel()
 	srv, form, auth := revocationServer(t, 0)
 
-	r := oauth2client.NewRevoker(srv.URL, "svc", "s3cr3t")
+	r := mustRevoker(t, srv.URL, "svc", "s3cr3t")
 	err := r.Revoke(t.Context(), "tok-1", oauth2client.WithTokenTypeHint(oauth2client.TokenTypeHintAccessToken))
 	require.NoError(t, err)
 
@@ -73,10 +73,10 @@ func TestRevoker(t *testing.T) {
 
 func TestRevokerErrors(t *testing.T) {
 	t.Parallel()
-	r := oauth2client.NewRevoker("https://idp.invalid/revoke", "svc", "s3cr3t")
+	r := mustRevoker(t, "https://idp.invalid/revoke", "svc", "s3cr3t")
 	require.ErrorIs(t, r.Revoke(t.Context(), ""), oauth2client.ErrRevocation)
 
 	srv, _, _ := revocationServer(t, http.StatusBadRequest)
-	bad := oauth2client.NewRevoker(srv.URL, "svc", "s3cr3t")
+	bad := mustRevoker(t, srv.URL, "svc", "s3cr3t")
 	require.ErrorIs(t, bad.Revoke(t.Context(), "tok"), oauth2client.ErrRevocation)
 }

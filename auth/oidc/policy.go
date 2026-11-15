@@ -7,8 +7,8 @@ package oidc
 import (
 	"slices"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // validationPolicy is a compiled validation option set: the verifier options,

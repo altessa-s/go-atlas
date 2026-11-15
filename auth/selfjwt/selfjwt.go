@@ -4,16 +4,16 @@
 
 package selfjwt
 
-// New builds a [Minter] and a [Verifier] that share the same [KeyProvider] and
-// the same options. Use it instead of separate [NewMinter] / [NewVerifier]
-// calls when a single process both issues and verifies tokens: it guarantees
-// the two sides agree on the settings they have in common — most importantly the
-// issuer (the minter writes the iss claim, the verifier checks it) and the clock
-// — so they cannot drift apart through divergent option lists.
+// New builds a [Minter] and a [Verifier] that share the same [KeyProvider],
+// issuer, audience and options. Use it instead of separate [NewMinter] /
+// [NewVerifier] calls when a single process both issues and verifies tokens: it
+// guarantees the two sides agree on the settings they have in common — the
+// issuer and audience (the minter writes iss and aud, the verifier checks them)
+// and the clock — so they cannot drift apart.
 //
 // Options that only one side consumes are harmless to the other: the minter
 // ignores WithAllowedAlgorithms / WithLeeway, and the verifier ignores
 // WithMaxTokenLifetime / WithRand.
-func New(src KeyProvider, opts ...Option) (*Minter, *Verifier) {
-	return NewMinter(src, opts...), NewVerifier(src, opts...)
+func New(src KeyProvider, issuer, audience string, opts ...Option) (*Minter, *Verifier) {
+	return NewMinter(src, issuer, audience, opts...), NewVerifier(src, issuer, audience, opts...)
 }

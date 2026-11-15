@@ -15,9 +15,9 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
-	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 const (

@@ -35,3 +35,20 @@ func TestPrincipalCustomClaims(t *testing.T) {
 	require.Equal(t, "globex", p.Tenant)
 	require.Equal(t, []string{"ops"}, p.Roles)
 }
+
+// TestClaimsPrincipal pins the mapping the transport auth adapters rely on to
+// expose an OIDC caller through principal.FromContext.
+func TestClaimsPrincipal(t *testing.T) {
+	t.Parallel()
+
+	claims := &oidc.Claims{
+		Subject:   "alice",
+		Scopes:    []string{"files:read"},
+		RawClaims: map[string]any{"sub": "alice", "tenant": "acme", "roles": []any{"admin"}},
+	}
+	require.Equal(t, principal.Principal{
+		Subject: "alice", Tenant: "acme", Scopes: []string{"files:read"}, Roles: []string{"admin"},
+	}, claims.Principal())
+
+	require.True(t, (*oidc.Claims)(nil).Principal().IsZero(), "a nil *Claims maps to the zero Principal")
+}

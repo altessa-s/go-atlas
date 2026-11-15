@@ -15,8 +15,11 @@ import (
 // the sibling auth/* packages (auth_static, auth_selfjwt, auth_opa).
 const DefaultMetricsSubsystem = "auth_oidc"
 
+// labelIssuer is the metric label holding the token issuer.
+const labelIssuer = "issuer"
+
 // oidcMetrics holds all Prometheus metrics for the OIDC provider.
-// When no [metrics.Collector] is provided, [metrics.Noop] is used and
+// When no [metrics.Meter] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type oidcMetrics struct {
 	tokenValidations      metrics.Counter
@@ -50,7 +53,7 @@ func (m *oidcMetrics) forIssuer(issuer string) *issuerCounters {
 		return c
 	}
 
-	labels := metrics.Labels{"issuer": issuer}
+	labels := metrics.Labels{labelIssuer: issuer}
 	c := &issuerCounters{
 		issuer:      issuer,
 		validations: m.tokenValidations.WithLabels(labels),
@@ -61,7 +64,7 @@ func (m *oidcMetrics) forIssuer(issuer string) *issuerCounters {
 	return c
 }
 
-func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
+func newOIDCMetrics(c metrics.Meter) *oidcMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
@@ -72,18 +75,16 @@ func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
 		tokenValidations: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "token_validations_total",
 			Help:       "Total number of token validation attempts.",
-			LabelNames: []string{"issuer"},
+			LabelNames: []string{labelIssuer},
 		}),
 		validationErrors: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "validation_errors_total",
 			Help:       "Total number of token validation errors.",
-			LabelNames: []string{"issuer"},
+			LabelNames: []string{labelIssuer},
 		}),
 		validationDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name: "validation_duration_seconds",
-				Help: "Duration of token validation operations in seconds.",
-			},
+			Name: "validation_duration_seconds",
+			Help: "Duration of token validation operations in seconds.",
 		}),
 		cacheHits: scoped.MustCounter(metrics.MetricOpts{
 			Name: "cache_hits_total",
@@ -102,10 +103,8 @@ func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
 			Help: "Total number of failed JWKS refresh operations.",
 		}),
 		jwksRefreshDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name: "jwks_refresh_duration_seconds",
-				Help: "Duration of JWKS refresh operations in seconds.",
-			},
+			Name: "jwks_refresh_duration_seconds",
+			Help: "Duration of JWKS refresh operations in seconds.",
 		}),
 		jwksStaleRejections: scoped.MustCounter(metrics.MetricOpts{
 			Name: "jwks_stale_rejections_total",

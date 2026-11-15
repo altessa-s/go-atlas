@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
@@ -42,7 +42,7 @@ func NewVerifier(resolver KeyResolver, opts ...Option) *Verifier {
 func buildParserOptions(o *options) []gojwt.ParserOption {
 	parserOpts := []gojwt.ParserOption{
 		gojwt.WithValidMethods(methodNames(o.allowedAlgorithms)),
-		gojwt.WithLeeway(o.leeway),
+		gojwt.WithLeeway(min(o.leeway, MaxLeeway)),
 		gojwt.WithTimeFunc(o.clock.Now),
 	}
 	parserOpts = coreslices.AppendIf(parserOpts, o.expirationRequired, gojwt.WithExpirationRequired())

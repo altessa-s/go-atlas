@@ -4,7 +4,7 @@
 
 package s3
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"context"
@@ -38,4 +38,9 @@ type options struct {
 	includeData bool
 	// logger sets the logger for the S3 source.
 	logger *slog.Logger
+	// checksums maps object keys relative to prefix to their expected SHA-256
+	// hex digests. When set, every fetched object must match its entry and
+	// every entry must be fetched. Nil disables verification, which New
+	// reports once with a warning.
+	checksums map[string]string `optgen:"default=nil"`
 }

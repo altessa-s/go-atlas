@@ -8,37 +8,37 @@ Redis-backed distributed exact revocation store for the [denylist](../../) subsy
 `"1"`); Redis expires bounded revocations natively via per-key TTL, so no background sweeper is needed.
 
 A `Store` satisfies the [negcache](../../negcache/) `Authoritative` interface structurally (via `IsRevoked`) — it deliberately does not import
-`negcache` — and implements [`probfilter.DataLoader`](../../../../data/probfilter/), so it can be both the authoritative tier behind a negative cache
+`negcache` — and implements [`probfilter.DataLoader`](../../../../cache/probfilter/), so it can be both the authoritative tier behind a negative cache
 and the source that rebuilds the cache's filter.
 
 ## Options
 
-| Option                     | Default               | Description                              |
-|----------------------------|-----------------------|------------------------------------------|
-| `WithKeyPrefix(string)`    | `denylist:revoked:`   | Namespace prepended to every stored key. |
+| Option                  | Default             | Description                              |
+|-------------------------|---------------------|------------------------------------------|
+| `WithKeyPrefix(string)` | `denylist:revoked:` | Namespace prepended to every stored key. |
 
 ## Key types
 
-| Type    | Description                                                                                          |
-|---------|------------------------------------------------------------------------------------------------------|
-| `Store` | Distributed revocation store over a `redis.UniversalClient`. Safe for concurrent use.                |
+| Type    | Description                                                                           |
+|---------|---------------------------------------------------------------------------------------|
+| `Store` | Distributed revocation store over a `redis.UniversalClient`. Safe for concurrent use. |
 
 ## Methods
 
-| Method                                                      | Description                                                              |
-|------------------------------------------------------------|--------------------------------------------------------------------------|
-| `New(client, opts...) *Store`                              | Construct over a required `redis.UniversalClient`.                        |
-| `IsRevoked(ctx, key) (bool, error)`                        | Authoritative revocation check (`EXISTS`).                               |
-| `Revoke(ctx, key) error`                                   | Deny permanently (`SET key "1"`, no expiry).                            |
-| `RevokeUntil(ctx, key, ttl) error`                         | Deny for `ttl`; non-positive `ttl` is a no-op.                          |
-| `Restore(ctx, key) error`                                  | Remove the key (`DEL`).                                                  |
-| `StreamValues(ctx) iter.Seq2[string, error]`               | SCAN all revoked keys under the literal prefix, yield bare keys; Cluster/Ring clients yield `ErrUnsupportedClient`. |
-| `Count(ctx) (int64, error)`                                | Returns `-1` (unknown); an exact count needs a full SCAN.               |
+| Method                                       | Description                                                                                                         |
+|----------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `New(client, opts...) *Store`                | Construct over a required `redis.UniversalClient`.                                                                  |
+| `IsRevoked(ctx, key) (bool, error)`          | Authoritative revocation check (`EXISTS`).                                                                          |
+| `Revoke(ctx, key) error`                     | Deny permanently (`SET key "1"`, no expiry).                                                                        |
+| `RevokeUntil(ctx, key, ttl) error`           | Deny for `ttl`; non-positive `ttl` is a no-op.                                                                      |
+| `Restore(ctx, key) error`                    | Remove the key (`DEL`).                                                                                             |
+| `StreamValues(ctx) iter.Seq2[string, error]` | SCAN all revoked keys under the literal prefix, yield bare keys; Cluster/Ring clients yield `ErrUnsupportedClient`. |
+| `Count(ctx) (int64, error)`                  | Returns `-1` (unknown); an exact count needs a full SCAN.                                                           |
 
 ## Errors
 
-| Error                  | Description                                                                                                   |
-|------------------------|---------------------------------------------------------------------------------------------------------------|
+| Error                  | Description                                                                                                                              |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | `ErrUnsupportedClient` | Yielded by `StreamValues` for a Cluster or Ring client, whose keys SCAN cannot enumerate completely; rebuild from an exact source there. |
 
 ## Usage

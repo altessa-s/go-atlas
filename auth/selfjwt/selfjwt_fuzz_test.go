@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/selfjwt"
+
+	jwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // FuzzVerifyRejectsUnsignedToken is the auth-bypass oracle for the self-issued
@@ -33,8 +35,8 @@ func FuzzVerifyRejectsUnsignedToken(f *testing.F) {
 	f.Add("...")
 	f.Add("eyJhbGciOiJIUzI1NiIsImtpZCI6InRlc3Qta2V5In0.eyJzdWIiOiJhZG1pbiJ9.AAAA")
 
-	provider := newProvider(f, selfjwt.AlgEdDSA)
-	verifier := selfjwt.NewVerifier(provider)
+	provider := newProvider(f, jwt.AlgEdDSA)
+	verifier := selfjwt.NewVerifier(provider, testIssuer, testAudience)
 
 	f.Fuzz(func(t *testing.T, raw string) {
 		token, err := verifier.Verify(t.Context(), raw)
@@ -59,9 +61,9 @@ func FuzzMintedTokenVerifies(f *testing.F) {
 	f.Add("ανάγνωση", "εγγραφή")
 	f.Add("a\"b", "c\\d")
 
-	provider := newProvider(f, selfjwt.AlgEdDSA)
-	minter := selfjwt.NewMinter(provider)
-	verifier := selfjwt.NewVerifier(provider)
+	provider := newProvider(f, jwt.AlgEdDSA)
+	minter := selfjwt.NewMinter(provider, testIssuer, testAudience)
+	verifier := selfjwt.NewVerifier(provider, testIssuer, testAudience)
 
 	f.Fuzz(func(t *testing.T, firstScope, secondScope string) {
 		if !utf8.ValidString(firstScope) || !utf8.ValidString(secondScope) {
@@ -102,9 +104,9 @@ func FuzzVerifyRejectsTamperedToken(f *testing.F) {
 	f.Add(uint16(7), byte(0xff))
 	f.Add(uint16(120), byte(3))
 
-	provider := newProvider(f, selfjwt.AlgEdDSA)
-	minter := selfjwt.NewMinter(provider)
-	verifier := selfjwt.NewVerifier(provider)
+	provider := newProvider(f, jwt.AlgEdDSA)
+	minter := selfjwt.NewMinter(provider, testIssuer, testAudience)
+	verifier := selfjwt.NewVerifier(provider, testIssuer, testAudience)
 
 	f.Fuzz(func(t *testing.T, position uint16, delta byte) {
 		if delta == 0 {

@@ -20,8 +20,8 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 var (

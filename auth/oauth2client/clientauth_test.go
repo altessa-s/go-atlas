@@ -48,7 +48,7 @@ func TestPrivateKeyJWTClientCredentials(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	src := oauth2client.ClientCredentials(t.Context(), srv.URL, "svc", "unused",
+	src := mustClientCredentials(t, srv.URL, "svc", "unused",
 		oauth2client.WithClientAuth(auth),
 		oauth2client.WithScopes("orders:read"),
 	)
@@ -76,7 +76,7 @@ func TestClientSecretJWTExchange(t *testing.T) {
 	auth, err := oauth2client.ClientSecretJWT("svc", "s3cr3t")
 	require.NoError(t, err)
 
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "unused", oauth2client.WithClientAuth(auth))
+	ex := mustExchanger(t, srv.URL, "svc", "unused", oauth2client.WithClientAuth(auth))
 	_, err = ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subj"})
 	require.NoError(t, err)
 

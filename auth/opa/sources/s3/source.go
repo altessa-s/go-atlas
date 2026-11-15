@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,10 +18,11 @@ import (
 	"sync"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
+	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -29,6 +31,26 @@ import (
 // guards against a misconfigured bucket/prefix pointing at a huge object.
 const maxObjectBytes = 32 << 20 // 32 MiB
 
+// ErrInsecureEndpoint is returned by the OPA factory when the S3 endpoint it
+// builds a client for is not https:// and plain http was not explicitly
+// allowed. SigV4 protects the credentials but not the policy content, which a
+// MITM could swap. The source itself takes an injected client whose endpoint it
+// cannot see, so the check lives where the client is built.
+var ErrInsecureEndpoint = errors.New("s3 endpoint must use https")
+
+// Checksum sentinel errors, returned when [WithChecksums] is set.
+var (
+	// ErrChecksumMismatch is returned when an object's SHA-256 digest does not
+	// match its manifest entry.
+	ErrChecksumMismatch = errors.New("s3 policy object checksum mismatch")
+	// ErrUnexpectedPolicyFile is returned when a fetched object has no
+	// manifest entry.
+	ErrUnexpectedPolicyFile = errors.New("s3 policy object not in checksums manifest")
+	// ErrMissingPolicyFile is returned when a manifest entry has no fetched
+	// object.
+	ErrMissingPolicyFile = errors.New("s3 policy object in checksums manifest not found")
+)
+
 // Source implements opa.PolicySource for S3-backed policies.
 // It lists and downloads .rego files from an S3 bucket/prefix.
 // Change detection is handled by the Manager.
@@ -36,6 +58,7 @@ type Source struct {
 	opts       *options
 	logger     *slog.Logger
 	extensions *coremaps.ImmutableMap[string, struct{}]
+	checksums  *checksum.Manifest
 	// normalizedPrefix is opts.prefix guaranteed to end with "/" (or empty).
 	// Pre-computed to avoid repeated normalization in relativeKey.
 	normalizedPrefix string
@@ -69,10 +92,21 @@ func New(opts ...Option) (*Source, error) {
 		}
 	}
 
+	manifest := checksum.New(o.checksums)
+	o.checksums = nil
+
+	logger := cmp.Or(o.logger, slog.New(slog.DiscardHandler))
+	if manifest == nil {
+		logger.Warn("s3 policy source has no checksums manifest: fetched policies are not integrity-verified",
+			slog.String("bucket", o.bucket),
+			slog.String("prefix", o.prefix))
+	}
+
 	return &Source{
 		opts:             o,
-		logger:           cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
+		logger:           logger,
 		extensions:       coremaps.NewImmutableMap(extensions),
+		checksums:        manifest,
 		normalizedPrefix: normalizedPrefix,
 	}, nil
 }
@@ -101,6 +135,7 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 
 	modules := make(map[string][]byte)
 	var data map[string]any
+	loaded := make(map[string]string, len(keys))
 
 	for _, key := range keys {
 		content, getErr := s.getObject(ctx, key)
@@ -110,6 +145,11 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 
 		relKey := s.relativeKey(key)
 		ext := path.Ext(key)
+
+		if err := s.checksums.Verify(relKey, content, ErrChecksumMismatch, ErrUnexpectedPolicyFile); err != nil {
+			return nil, err
+		}
+		loaded[relKey] = key
 
 		if s.extensions.Contains(ext) {
 			modules[relKey] = content
@@ -129,6 +169,10 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 			dataKey := strings.TrimSuffix(relKey, ".json")
 			data[dataKey] = jsonData
 		}
+	}
+
+	if err := s.checksums.Covered(loaded, ErrMissingPolicyFile); err != nil {
+		return nil, err
 	}
 
 	if len(modules) == 0 {

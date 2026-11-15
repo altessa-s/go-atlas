@@ -28,21 +28,24 @@ bundle, err := source.Fetch(ctx)
 
 ## Options
 
-| Option | Description |
-|--------|-------------|
-| `WithEndpoint` | GitLab API endpoint URL |
-| `WithToken` | GitLab access token for authentication |
-| `WithProjectID` | GitLab project ID containing policies |
-| `WithRef` | Git ref (branch/tag/commit) to fetch from |
-| `WithDir` | Directory path within the repository |
-| `WithIncludeData` | Include `.json` data files in bundle |
-| `WithHTTPClient` | HTTP client for API requests — required (`ErrHTTPClientRequired` otherwise) |
-| `WithLogger` | Logger for debug output |
+| Option                  | Description                                                                                                               |
+|-------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| `WithEndpoint`          | GitLab API endpoint URL; must be `https://` (`ErrInsecureEndpoint` otherwise)                                             |
+| `WithAllowInsecureHTTP` | Accept a plain `http://` endpoint (token and policies cross the network unprotected)                                      |
+| `WithChecksums`         | Expected SHA-256 hex digest per file name relative to `WithDir`; every fetched file must match and every entry must exist |
+| `WithMaxFileBytes`      | Per-file download cap (default `DefaultMaxFileBytes`, 32 MiB; `ErrFileTooLarge` beyond it)                                |
+| `WithToken`             | GitLab access token for authentication                                                                                    |
+| `WithProjectID`         | GitLab project ID containing policies                                                                                     |
+| `WithRef`               | Git ref (branch/tag/commit) to fetch from                                                                                 |
+| `WithDir`               | Directory path within the repository                                                                                      |
+| `WithIncludeData`       | Include `.json` data files in bundle                                                                                      |
+| `WithHTTPClient`        | HTTP client for API requests — required (`ErrHTTPClientRequired` otherwise)                                               |
+| `WithLogger`            | Logger for debug output                                                                                                   |
 
 ## Key Types
 
-| Type | Description |
-|------|-------------|
+| Type     | Description                                |
+|----------|--------------------------------------------|
 | `Source` | GitLab-backed policy source implementation |
 
 ## Features
@@ -51,5 +54,17 @@ bundle, err := source.Fetch(ctx)
 - Support for both policies (`.rego`) and data (`.json`) files
 - Configurable branch/tag/commit references
 - Compatible with self-hosted GitLab instances
-- Retries, circuit breaking, proxying and SSRF protection through the injected `*http.Client` (required; GitLab's own retries are disabled so the client
+- Retries, circuit breaking, proxying and SSRF protection through the injected `*http.Client` (required; GitLab's own retries are disabled so the
+  client
   is the only retry layer)
+
+## Security
+
+- The endpoint must be `https://`: the access token travels in the `PRIVATE-TOKEN` header and the policies decide authorization.
+  `WithAllowInsecureHTTP`
+  is an explicit opt-out for local development.
+- TLS authenticates the server, not the content. Pin the expected policies with `WithChecksums` (the same SHA-256 manifest as the filesystem source)
+  so a compromised repository or ref cannot swap them silently. Verification is optional: without `WithChecksums` the source loads whatever the
+  repository serves, and `New` logs a warning once (`gitlab policy source has no checksums manifest`) through the `WithLogger` logger so an
+  unverified source is never silent.
+- Each file is read through a `WithMaxFileBytes` cap, so a huge file cannot exhaust memory.

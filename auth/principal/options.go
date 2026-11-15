@@ -4,7 +4,7 @@
 
 package principal
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 // Default claim names used by [FromClaims] when not overridden.
 const (

@@ -8,7 +8,7 @@ import (
 	"cmp"
 	"sync"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
 // watchManager manages subscriptions to policy events.

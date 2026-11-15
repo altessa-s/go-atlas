@@ -23,7 +23,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
+	httpclient "github.com/altessa-s/go-atlas-net/http/client"
 )
 
 // rsaJWK renders key as a public RSA JWK under kid.

@@ -13,9 +13,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // revokedValue is the sentinel stored at a revocation key; only its presence

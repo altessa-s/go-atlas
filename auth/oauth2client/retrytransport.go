@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/retry"
+	"github.com/altessa-s/go-atlas-core/retry"
 )
 
 // Retry-transport defaults, mirroring the [Exchanger] retry defaults.
@@ -31,7 +31,7 @@ const (
 // [DeviceFlow]), which, unlike [Exchanger], do not retry on their own:
 //
 //	client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport)}
-//	src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret,
+//	src, err := oauth2client.ClientCredentials(ctx, tokenURL, id, secret,
 //	    oauth2client.WithHTTPClient(client))
 //
 // A nil base uses [http.DefaultTransport]. Only requests that can be sent twice
@@ -55,11 +55,11 @@ func RetryTransport(base http.RoundTripper, opts ...RetryTransportOption) http.R
 	return &retryTransport{
 		base:     base,
 		attempts: cfg.attempts,
-		nextDelay: retry.Exponential(retry.ExponentialConfig{
-			BaseDelay: cfg.baseDelay,
-			MaxDelay:  cfg.maxDelay,
-			Jitter:    DefaultRetryJitter,
-		}),
+		nextDelay: retry.Exponential(
+			cfg.baseDelay,
+			retry.WithExponentialMaxDelay(cfg.maxDelay),
+			retry.WithExponentialJitter(DefaultRetryJitter),
+		),
 	}
 }
 
@@ -127,7 +127,7 @@ func replayable(req *http.Request) bool {
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// A body that cannot be replayed gets a single attempt.
 	if t.attempts <= 0 || !replayable(req) {
-		return t.base.RoundTrip(req)
+		return t.roundTrip(req)
 	}
 
 	var (
@@ -142,15 +142,15 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			if req.GetBody != nil {
 				body, err := req.GetBody()
 				if err != nil {
-					replayErr = err
-					return err
+					replayErr = preResponseError(err)
+					return replayErr
 				}
 				attemptReq.Body = body
 			}
 		}
 		firstAttempt = false
 
-		resp, err := t.base.RoundTrip(attemptReq) //nolint:bodyclose // resp is stored in lastResp and either drained on retry or returned to the caller
+		resp, err := t.roundTrip(attemptReq) //nolint:bodyclose // resp is stored in lastResp and either drained on retry or returned to the caller
 		lastResp = resp
 		if err != nil {
 			return err
@@ -161,16 +161,8 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil
 	},
 		retry.WithMaxAttempts(t.attempts),
-		retry.WithShouldRetry(func(error) bool { return replayErr == nil }),
-		retry.WithNextDelay(func(attempt int, err error) time.Duration {
-			// Exhausted: surface the last response as is, without the trailing
-			// backoff sleep (and OnRetry drain) retry.Do would otherwise run
-			// after the final failed attempt.
-			if attempt >= t.attempts {
-				return 0
-			}
-			return t.nextDelay(attempt, err)
-		}),
+		retry.WithShouldRetry(func(err error) bool { return replayErr == nil && !permanentRequestError(err) }),
+		retry.WithNextDelay(t.nextDelay),
 		retry.WithOnRetry(func(int, error, time.Duration) {
 			// Discard the retryable response before the backoff sleep.
 			if lastResp != nil {
@@ -180,6 +172,12 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			}
 		}),
 	)
+
+	// If cancellation prevented the first attempt, the base transport never
+	// took ownership of the body. RoundTripper must still close it.
+	if firstAttempt && req.Body != nil {
+		_ = req.Body.Close()
+	}
 
 	switch {
 	case retryErr == nil, errors.Is(retryErr, errRetryableStatus):
@@ -191,6 +189,20 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	default:
 		// A transport error on the last attempt, or context cancellation
 		// mid-backoff (the drained response was already cleared).
-		return lastResp, retryErr
+		return lastResp, preResponseError(retryErr)
 	}
+}
+
+func (t *retryTransport) roundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	response := resp
+	if response == nil {
+		response = req.Response
+	}
+	metadata := &responseMetadata{}
+	if response != nil {
+		metadata.received.Store(true)
+		metadata.status.Store(int64(response.StatusCode))
+	}
+	return resp, metadata.redact(err)
 }

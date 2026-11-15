@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
+	httpclient "github.com/altessa-s/go-atlas-net/http/client"
 )
 
 // stubOIDCServer answers the OIDC discovery probe AND the JWKS endpoint

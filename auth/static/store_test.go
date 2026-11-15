@@ -189,7 +189,7 @@ func TestInMemoryStore_Concurrent(t *testing.T) {
 			for j := range perGoroutine {
 				token := "token_" + strconv.Itoa(i) + "_" + strconv.Itoa(j)
 				s.AddToken(token, userInfo{ID: strconv.Itoa(i)})
-				_, _ = s.Validate(context.Background(), token)
+				_, _ = s.Validate(t.Context(), token)
 				if j%2 == 0 {
 					s.RemoveToken(token)
 				}

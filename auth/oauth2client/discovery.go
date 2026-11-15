@@ -23,7 +23,11 @@ type TokenEndpointSource interface {
 // ClientCredentialsFromDiscovery is [ClientCredentials] with the token endpoint
 // resolved from src (an OIDC discovery document) rather than a literal URL. It
 // returns [ErrNoTokenEndpoint] when src has not discovered a token endpoint —
-// for example when discovery has not yet completed or the IdP omits it.
+// for example when discovery has not yet completed or the IdP omits it — and
+// [ErrInsecureEndpoint] when the discovered endpoint is not https (see
+// [ValidateEndpointURL]). The endpoint may live on another host than the
+// issuer, as it does for IdPs that serve tokens from a dedicated domain;
+// same-origin is enforced by the discovery validation of auth/oidc.
 func ClientCredentialsFromDiscovery(
 	ctx context.Context, src TokenEndpointSource, clientID, clientSecret string, opts ...Option,
 ) (oauth2.TokenSource, error) {
@@ -31,11 +35,13 @@ func ClientCredentialsFromDiscovery(
 	if tokenURL == "" {
 		return nil, ErrNoTokenEndpoint
 	}
-	return ClientCredentials(ctx, tokenURL, clientID, clientSecret, opts...), nil
+	return ClientCredentials(ctx, tokenURL, clientID, clientSecret, opts...)
 }
 
 // NewExchangerFromDiscovery is [NewExchanger] with the token endpoint resolved
-// from src. It returns [ErrNoTokenEndpoint] when src has not discovered one.
+// from src. It returns [ErrNoTokenEndpoint] when src has not discovered one and
+// [ErrInsecureEndpoint] when the discovered endpoint is not https. The
+// endpoint is read from src once, here, not on each request.
 func NewExchangerFromDiscovery(
 	src TokenEndpointSource, clientID, clientSecret string, opts ...Option,
 ) (*Exchanger, error) {
@@ -43,5 +49,5 @@ func NewExchangerFromDiscovery(
 	if tokenURL == "" {
 		return nil, ErrNoTokenEndpoint
 	}
-	return NewExchanger(tokenURL, clientID, clientSecret, opts...), nil
+	return NewExchanger(tokenURL, clientID, clientSecret, opts...)
 }

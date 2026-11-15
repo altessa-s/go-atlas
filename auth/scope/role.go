@@ -7,7 +7,7 @@ package scope
 import (
 	"slices"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
 // RoleScopes is an immutable role→scopes table. It maps each role name to the

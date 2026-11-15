@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	jwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // countingProvider counts VerificationKey calls so a test can observe how often
@@ -21,14 +23,14 @@ import (
 type countingProvider struct {
 	mu    sync.Mutex
 	calls int
-	vk    VerificationKey
+	vk    jwt.VerificationKey
 }
 
-func (p *countingProvider) SigningKey(context.Context, string) (SigningKey, error) {
-	return SigningKey{}, ErrSubjectUnknown
+func (p *countingProvider) SigningKey(context.Context, string) (jwt.SigningKey, error) {
+	return jwt.SigningKey{}, ErrSubjectUnknown
 }
 
-func (p *countingProvider) VerificationKey(context.Context, string, string) (VerificationKey, error) {
+func (p *countingProvider) VerificationKey(context.Context, string, string) (jwt.VerificationKey, error) {
 	p.mu.Lock()
 	p.calls++
 	p.mu.Unlock()
@@ -49,11 +51,11 @@ func TestPublicKeyConcurrentMissesAreConsistent(t *testing.T) {
 	t.Parallel()
 	pub, _ := testhelpers.GenerateEd25519Key(t)
 
-	p := &countingProvider{vk: VerificationKey{Algorithm: AlgEdDSA, Key: pub}}
-	v := NewVerifier(p)
+	p := &countingProvider{vk: jwt.VerificationKey{Algorithm: jwt.AlgEdDSA, Key: pub}}
+	v := NewVerifier(p, "selfjwt-test", "svc")
 
 	const goroutines = 64
-	got := make([]VerificationKey, goroutines)
+	got := make([]jwt.VerificationKey, goroutines)
 	errs := make([]error, goroutines)
 	var wg sync.WaitGroup
 	for i := range goroutines {
@@ -65,7 +67,7 @@ func TestPublicKeyConcurrentMissesAreConsistent(t *testing.T) {
 
 	for i := range goroutines {
 		require.NoErrorf(t, errs[i], "goroutine %d", i)
-		require.Equalf(t, AlgEdDSA, got[i].Algorithm, "goroutine %d", i)
+		require.Equalf(t, jwt.AlgEdDSA, got[i].Algorithm, "goroutine %d", i)
 	}
 	// The provider is consulted at least once; the cache serves every caller
 	// after the first resolution regardless of how the flights interleave.
@@ -80,27 +82,27 @@ type gatedProvider struct {
 	entered chan struct{}
 	release chan struct{}
 	calls   atomic.Int32
-	old     VerificationKey
+	old     jwt.VerificationKey
 }
 
-func (p *gatedProvider) SigningKey(context.Context, string) (SigningKey, error) {
-	return SigningKey{}, ErrSubjectUnknown
+func (p *gatedProvider) SigningKey(context.Context, string) (jwt.SigningKey, error) {
+	return jwt.SigningKey{}, ErrSubjectUnknown
 }
 
-func (p *gatedProvider) VerificationKey(context.Context, string, string) (VerificationKey, error) {
+func (p *gatedProvider) VerificationKey(context.Context, string, string) (jwt.VerificationKey, error) {
 	if p.calls.Add(1) == 1 {
 		close(p.entered)
 		<-p.release
 		return p.old, nil
 	}
-	return VerificationKey{}, ErrKeyRotated
+	return jwt.VerificationKey{}, ErrKeyRotated
 }
 
 func invalidateKey(v *Verifier)     { v.InvalidateKey("svc", "k1") }
 func invalidateSubject(v *Verifier) { v.InvalidateSubject("svc") }
 
 type lookupResult struct {
-	vk  VerificationKey
+	vk  jwt.VerificationKey
 	err error
 }
 
@@ -142,11 +144,11 @@ func TestInvalidationFencesInFlightLookup(t *testing.T) {
 			p := &gatedProvider{
 				entered: make(chan struct{}),
 				release: make(chan struct{}),
-				old:     VerificationKey{Algorithm: AlgEdDSA, Key: pub},
+				old:     jwt.VerificationKey{Algorithm: jwt.AlgEdDSA, Key: pub},
 			}
 			release := sync.OnceFunc(func() { close(p.release) })
 			t.Cleanup(release)
-			v := NewVerifier(p, WithCacheTTL(tc.ttl))
+			v := NewVerifier(p, "selfjwt-test", "svc", WithCacheTTL(tc.ttl))
 
 			lookup := func() <-chan lookupResult { return asyncPublicKey(t.Context(), v, "svc", "k1") }
 
@@ -168,7 +170,7 @@ func TestInvalidationFencesInFlightLookup(t *testing.T) {
 			release()
 			r := <-stale
 			require.NoError(t, r.err, "a lookup started before invalidation may still return the old key")
-			require.Equal(t, AlgEdDSA, r.vk.Algorithm)
+			require.Equal(t, jwt.AlgEdDSA, r.vk.Algorithm)
 
 			// The stale flight must not have re-cached the retired key.
 			_, ok := v.cache.get("svc", "k1")
@@ -211,16 +213,16 @@ type keyedGatedProvider struct {
 	gated   [2]string
 	entered chan struct{}
 	release chan struct{}
-	keys    map[[2]string]VerificationKey
+	keys    map[[2]string]jwt.VerificationKey
 	mu      sync.Mutex
 	calls   map[[2]string]int
 }
 
-func (p *keyedGatedProvider) SigningKey(context.Context, string) (SigningKey, error) {
-	return SigningKey{}, ErrSubjectUnknown
+func (p *keyedGatedProvider) SigningKey(context.Context, string) (jwt.SigningKey, error) {
+	return jwt.SigningKey{}, ErrSubjectUnknown
 }
 
-func (p *keyedGatedProvider) VerificationKey(_ context.Context, subject, kid string) (VerificationKey, error) {
+func (p *keyedGatedProvider) VerificationKey(_ context.Context, subject, kid string) (jwt.VerificationKey, error) {
 	pair := [2]string{subject, kid}
 	p.mu.Lock()
 	p.calls[pair]++
@@ -231,7 +233,7 @@ func (p *keyedGatedProvider) VerificationKey(_ context.Context, subject, kid str
 	}
 	vk, ok := p.keys[pair]
 	if !ok {
-		return VerificationKey{}, ErrSubjectUnknown
+		return jwt.VerificationKey{}, ErrSubjectUnknown
 	}
 	return vk, nil
 }
@@ -249,15 +251,15 @@ func TestPublicKeyFlightKeyIsInjective(t *testing.T) {
 		gated:   pairA,
 		entered: make(chan struct{}),
 		release: make(chan struct{}),
-		keys: map[[2]string]VerificationKey{
-			pairA: {Algorithm: AlgEdDSA, Key: pubA},
-			pairB: {Algorithm: AlgEdDSA, Key: pubB},
+		keys: map[[2]string]jwt.VerificationKey{
+			pairA: {Algorithm: jwt.AlgEdDSA, Key: pubA},
+			pairB: {Algorithm: jwt.AlgEdDSA, Key: pubB},
 		},
 		calls: make(map[[2]string]int),
 	}
 	release := sync.OnceFunc(func() { close(p.release) })
 	t.Cleanup(release)
-	v := NewVerifier(p)
+	v := NewVerifier(p, "selfjwt-test", "svc")
 
 	first := asyncPublicKey(t.Context(), v, pairA[0], pairA[1])
 	<-p.entered

@@ -12,7 +12,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // token_type_hint values for [Revoker.Revoke] (RFC 7009 §2.1).
@@ -40,16 +40,23 @@ type Revoker struct {
 // revocationURL. clientID and clientSecret authenticate this client (pass "" for
 // both when a [WithClientAuth] assertion or a public client is used). The
 // [WithAuthStyle], [WithClientAuth], and [WithHTTPClient] options apply.
-func NewRevoker(revocationURL, clientID, clientSecret string, opts ...Option) *Revoker {
+//
+// A revocationURL that is malformed or not https (plain http is accepted on a
+// loopback host, or anywhere with [WithInsecureHTTP]) returns an error
+// wrapping [ErrInsecureEndpoint].
+func NewRevoker(revocationURL, clientID, clientSecret string, opts ...Option) (*Revoker, error) {
 	o := newOptions(opts...)
+	if err := o.validateEndpoint("revocation URL", revocationURL); err != nil {
+		return nil, err
+	}
 	return &Revoker{
 		revocationURL: revocationURL,
 		clientID:      clientID,
 		clientSecret:  clientSecret,
 		authStyle:     o.authStyle,
 		clientAuth:    o.clientAuth,
-		client:        o.httpClient,
-	}
+		client:        o.client(),
+	}, nil
 }
 
 // revokeConfig carries per-call revocation options.
@@ -96,7 +103,7 @@ func (r *Revoker) Revoke(ctx context.Context, token string, opts ...RevokeOption
 		return coreerrs.Wrap(errors.Join(ErrRevocation, err), "revoke token")
 	}
 	if status < 200 || status >= 300 {
-		return coreerrs.Wrapf(ErrRevocation, "unexpected status %d: %s", status, sanitizeErrorBody(body))
+		return coreerrs.JoinWrap(ErrRevocation, responseError(retrieveError(status, body), status, len(body)))
 	}
 	return nil
 }

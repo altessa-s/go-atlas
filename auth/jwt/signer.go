@@ -69,10 +69,11 @@ func (s *Signer) NewClaims(subject string, ttl time.Duration, scopes ...string) 
 }
 
 // Sign serializes and signs claims with key. It returns [ErrSigningKeyInvalid]
-// for an empty key id and [ErrAlgorithmNotAllowed] when the key's algorithm is
-// outside the allow-list or unknown to golang-jwt.
+// for an empty key id (unless [WithAllowEmptyKeyID] is set, in which case the
+// kid header is omitted) and [ErrAlgorithmNotAllowed] when the key's algorithm
+// is outside the allow-list or unknown to golang-jwt.
 func (s *Signer) Sign(key SigningKey, claims Claims) (string, error) {
-	if key.KeyID == "" {
+	if key.KeyID == "" && !s.opts.allowEmptyKeyID {
 		return "", fmt.Errorf("%w: empty key id", ErrSigningKeyInvalid)
 	}
 	if !slices.Contains(s.opts.allowedAlgorithms, key.Algorithm) {
@@ -83,7 +84,9 @@ func (s *Signer) Sign(key SigningKey, claims Claims) (string, error) {
 		return "", fmt.Errorf("%w: %q", ErrAlgorithmNotAllowed, key.Algorithm)
 	}
 	token := gojwt.NewWithClaims(method, gojwt.MapClaims(claims))
-	token.Header["kid"] = key.KeyID
+	if key.KeyID != "" {
+		token.Header["kid"] = key.KeyID
+	}
 	if s.opts.tokenType != "" {
 		token.Header["typ"] = s.opts.tokenType
 	}

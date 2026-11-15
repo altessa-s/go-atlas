@@ -16,7 +16,7 @@ import (
 // Source streams the keys an authoritative revocation store currently considers
 // revoked. It is the consumer-side view [Cache] reads on every [Cache.Refresh];
 // [github.com/altessa-s/go-atlas/auth/denylist/storages/redis.Store] satisfies
-// it structurally, as does any [github.com/altessa-s/go-atlas/data/probfilter.DataLoader].
+// it structurally, as does any [github.com/altessa-s/go-atlas/cache/probfilter.DataLoader].
 type Source interface {
 	// StreamValues yields every currently-revoked key. A non-nil error ends the
 	// stream and aborts the refresh, leaving the previous snapshot in place.

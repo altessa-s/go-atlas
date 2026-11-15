@@ -29,4 +29,21 @@
 //
 //	claims, _ := verifier.Verify(ctx, raw)
 //	p := principal.FromClaims(claims, principal.WithRolesClaim("groups"))
+//
+// # Request context
+//
+// [NewContext] stores a Principal in a context and [FromContext] reads it
+// back. [NewContextFrom] stores a result held as an interface value without
+// boxing it again. The HTTP auth middleware and the gRPC auth interceptor
+// call it with their authenticator's result, so whenever that is a Principal
+// (or a non-nil *Principal) a handler served over both transports reads the
+// caller uniformly:
+//
+//	if p, ok := principal.FromContext(ctx); ok && p.HasScope("files:read") {
+//	    // ...
+//	}
+//
+// Authenticators that return an application-defined identity type are not
+// bridged; their result stays reachable through the transport's own context
+// accessor.
 package principal

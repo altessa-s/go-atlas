@@ -15,7 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 
-	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 )
 
 func TestNew_ValidDirectory(t *testing.T) {

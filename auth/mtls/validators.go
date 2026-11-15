@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,24 +73,42 @@ func ExpiryValidator(now func() time.Time, leeway time.Duration) CertValidator {
 }
 
 // TrustDomainValidator pins the accepted SPIFFE trust domains: it parses the
-// certificate's SPIFFE ID and rejects any whose trust domain is not in domains.
-// An empty domains list accepts any trust domain (the validator is a no-op). A
-// certificate without a SPIFFE ID is rejected with the underlying parse error.
+// certificate's SPIFFE ID and rejects any whose trust domain is not in domains
+// with [ErrUntrustedDomain]. A certificate without a SPIFFE ID is rejected with
+// the underlying parse error. Domains are trimmed and lower-cased and empty
+// entries are dropped, as [WithTrustDomains] does. A validator left without a
+// domain pins nothing, so it rejects every certificate with
+// [ErrNoTrustDomainPolicy] instead of accepting any trust domain.
+//
+// It is an ancillary check like every other validator: it does not satisfy the
+// trust decision [NewAuthenticator] requires. Use [WithTrustDomains] for that.
 func TrustDomainValidator(domains ...string) CertValidator {
-	allowed := slices.Clone(domains)
-	return func(cert *x509.Certificate) error {
-		if len(allowed) == 0 {
-			return nil
+	allowed := make([]string, 0, len(domains))
+	for _, d := range domains {
+		if d = strings.ToLower(strings.TrimSpace(d)); d != "" {
+			allowed = append(allowed, d)
 		}
-		id, err := spiffe.IDFromCertificate(cert)
-		if err != nil {
-			return err
-		}
-		if !slices.Contains(allowed, id.TrustDomain) {
-			return ErrUntrustedDomain
-		}
-		return nil
 	}
+	if len(allowed) == 0 {
+		err := fmt.Errorf("%w: TrustDomainValidator needs at least one trust domain", ErrNoTrustDomainPolicy)
+		return func(*x509.Certificate) error { return err }
+	}
+	return func(cert *x509.Certificate) error {
+		return checkTrustDomain(cert, allowed)
+	}
+}
+
+// checkTrustDomain rejects a certificate whose SPIFFE ID trust domain is not
+// in allowed.
+func checkTrustDomain(cert *x509.Certificate, allowed []string) error {
+	id, err := spiffe.IDFromCertificate(cert)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(allowed, id.TrustDomain) {
+		return ErrUntrustedDomain
+	}
+	return nil
 }
 
 // RevocationList is a concurrency-safe, in-memory denylist of revoked certificate
@@ -97,7 +116,7 @@ func TrustDomainValidator(domains ...string) CertValidator {
 // a feed (CRL poller, an admin action, an OCSP result you cache) calls [Revoke]
 // and [Validator] rejects any certificate whose serial is listed.
 //
-// The X.509 stapling helpers in [github.com/altessa-s/go-atlas/security/tlsutils/ocsp]
+// The X.509 stapling helpers in [github.com/altessa-s/go-tlsutils/ocsp]
 // staple the server's own certificate status during the handshake; they do not
 // answer "is this peer certificate revoked". For richer client-revocation
 // (live OCSP, full CRL semantics) write your own [CertValidator].
@@ -327,6 +346,10 @@ func containsAll(haystack, needles []string) bool {
 // [ErrDNSNameMismatch]. Matching uses [x509.Certificate.VerifyHostname], so it
 // honors wildcard SANs (a cert with "*.example.org" satisfies "api.example.org")
 // and ignores the legacy CommonName fallback. An empty names list is a no-op.
+//
+// Because wildcards match, one client certificate with a wildcard SAN
+// satisfies every name it covers. Pinning a single client identity this way
+// requires a CA that does not issue wildcard client certificates.
 func DNSNameValidator(names ...string) CertValidator {
 	allowed := slices.Clone(names)
 	return func(cert *x509.Certificate) error {

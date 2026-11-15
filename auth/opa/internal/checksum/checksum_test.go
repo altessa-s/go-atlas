@@ -12,7 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
 
-	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 )
 
 func TestManifest(t *testing.T) {

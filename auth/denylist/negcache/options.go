@@ -4,7 +4,7 @@
 
 package negcache
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 import "time"
 

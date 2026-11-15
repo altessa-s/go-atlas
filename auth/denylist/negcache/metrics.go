@@ -36,7 +36,7 @@ type Metrics struct {
 // NewMetrics constructs a [Metrics] using the given collector and subsystem. If
 // collector is nil, [metrics.Noop] is used and all metric writes become
 // zero-cost no-ops. An empty subsystem falls back to [DefaultMetricsSubsystem].
-func NewMetrics(collector metrics.Collector, subsystem string) *Metrics {
+func NewMetrics(collector metrics.Meter, subsystem string) *Metrics {
 	if collector == nil {
 		collector = metrics.Noop()
 	}

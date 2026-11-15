@@ -4,12 +4,11 @@
 
 package selfjwt
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 import (
 	"crypto/rand"
 	"io"
-	"slices"
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/jwt"
@@ -17,10 +16,6 @@ import (
 
 // Default tunables for the minter and verifier.
 const (
-	// DefaultIssuer is the empty iss claim; deployments override it with
-	// [WithIssuer].
-	DefaultIssuer = ""
-
 	// DefaultMaxTokenLifetime is the ceiling a requested token TTL is clamped to.
 	DefaultMaxTokenLifetime = 30 * 24 * time.Hour
 
@@ -42,6 +37,17 @@ const (
 	// and detached from any single caller's cancellation, so it needs its own
 	// deadline.
 	DefaultKeyLookupTimeout = 10 * time.Second
+
+	// DefaultNegativeCacheTTL is how long a key-provider miss
+	// ([ErrSubjectUnknown], [ErrKeyRotated]) for a (subject, kid) is
+	// remembered, so tokens carrying unknown subjects or kids cannot drive a
+	// provider lookup per request.
+	DefaultNegativeCacheTTL = 30 * time.Second
+
+	// DefaultMaxConcurrentLookups caps the distinct (subject, kid) key-provider
+	// lookups in flight; a lookup for a new pair beyond it fails fast with
+	// [github.com/altessa-s/go-atlas-core/runtime/singleflight.ErrOverloaded].
+	DefaultMaxConcurrentLookups = 64
 )
 
 // defaultRand is the production randomness source for jti generation.
@@ -50,15 +56,22 @@ var defaultRand io.Reader = rand.Reader
 // options carries the minter/verifier tunables. rand and clock are injectable
 // seams for deterministic tests.
 type options struct {
-	issuer            string        `optgen:"default=DefaultIssuer"`
-	maxTokenLifetime  time.Duration `optgen:"default=DefaultMaxTokenLifetime"`
-	leeway            time.Duration `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
-	cacheTTL          time.Duration `optgen:"default=DefaultCacheTTL" optval:"positive=allow_zero"`
-	cacheMaxEntries   int           `optgen:"default=DefaultCacheMaxEntries"`
-	keyLookupTimeout  time.Duration `optgen:"default=DefaultKeyLookupTimeout" optval:"positive"`
-	allowedAlgorithms []Algorithm   `optgen:"manual,default=defaultAllowedAlgorithms"`
-	rand              io.Reader     `optgen:"default=defaultRand"`
-	clock             Clock         `optgen:"default=defaultClock"`
+	maxTokenLifetime time.Duration `optgen:"default=DefaultMaxTokenLifetime"`
+	leeway           time.Duration `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
+	cacheTTL         time.Duration `optgen:"default=DefaultCacheTTL" optval:"positive=allow_zero"`
+	cacheMaxEntries  int           `optgen:"default=DefaultCacheMaxEntries"`
+	keyLookupTimeout time.Duration `optgen:"default=DefaultKeyLookupTimeout" optval:"positive"`
+	negativeCacheTTL time.Duration `optgen:"default=DefaultNegativeCacheTTL" optval:"positive=allow_zero"`
+	// maxConcurrentLookups bounds the distinct key-provider lookups in flight.
+	maxConcurrentLookups int `optgen:"default=DefaultMaxConcurrentLookups" optval:"positive"`
+	// WithAllowedAlgorithms sets the signature algorithms the verifier accepts,
+	// replacing the default asymmetric allow-list ([jwt.DefaultAllowedAlgorithms]).
+	// Restricting or extending the set is the supported way to add support for a
+	// new algorithm: register a signing method with golang-jwt, then list it here.
+	// A call with no algorithms is ignored so the safe default is never cleared.
+	allowedAlgorithms []jwt.Algorithm `opt:"AllowedAlgorithms" optval:"clone,notrim,nodup" optgen:"default=defaultAllowedAlgorithms"`
+	rand              io.Reader       `optgen:"default=defaultRand"`
+	clock             Clock           `optgen:"default=defaultClock"`
 
 	// metrics records mint/verify outcomes, latency, and cache hit/miss.
 	// When nil, all metric writes are no-ops.
@@ -69,18 +82,4 @@ type options struct {
 	// [github.com/altessa-s/go-atlas/auth/jwt.ErrTokenRevoked]. Nil leaves
 	// revocation unchecked. Set via the generated WithRevocation.
 	revocation jwt.RevocationChecker `optgen:"notnil"`
-}
-
-// WithAllowedAlgorithms sets the signature algorithms the verifier accepts,
-// replacing the default asymmetric allow-list ([DefaultAllowedAlgorithms]).
-// Restricting or extending the set is the supported way to add support for a
-// new algorithm: register a signing method with golang-jwt, then list it here.
-// A call with no algorithms is ignored so the safe default is never cleared.
-func WithAllowedAlgorithms(algs ...Algorithm) Option {
-	return func(o *options) {
-		if len(algs) == 0 {
-			return
-		}
-		o.allowedAlgorithms = slices.Clone(algs)
-	}
 }

@@ -50,3 +50,11 @@ func BenchmarkFromClaims(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkFromContext measures the per-request principal lookup handlers run.
+func BenchmarkFromContext(b *testing.B) {
+	ctx := principal.NewContext(b.Context(), principal.Principal{Subject: "alice"})
+	for b.Loop() {
+		_, _ = principal.FromContext(ctx)
+	}
+}

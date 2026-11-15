@@ -4,8 +4,10 @@
 import "github.com/altessa-s/go-atlas/auth/denylist/mirror"
 ```
 
-Adapts an asynchronous, distributed revocation store to the **synchronous** [`jwt.RevocationChecker`](../../jwt) seam that `auth/jwt` and `auth/selfjwt`
-verifiers accept. It keeps a local snapshot of the revoked-key set, refreshed on a schedule, and answers every lookup from memory — so the verifier hot
+Adapts an asynchronous, distributed revocation store to the **synchronous** [`jwt.RevocationChecker`](../../jwt) seam that `auth/jwt` and
+`auth/selfjwt`
+verifiers accept. It keeps a local snapshot of the revoked-key set, refreshed on a schedule, and answers every lookup from memory — so the verifier
+hot
 path never makes a network call and never blocks.
 
 ## Why
@@ -16,20 +18,20 @@ bridges the two: `Refresh` pulls the authoritative revoked set into a local snap
 
 ## Types
 
-| Type     | Description                                                                                                  |
-|----------|--------------------------------------------------------------------------------------------------------------|
+| Type     | Description                                                                                                   |
+|----------|---------------------------------------------------------------------------------------------------------------|
 | `Cache`  | Synchronous, periodically-refreshed snapshot of a distributed denylist. Satisfies `jwt.RevocationChecker`.    |
 | `Source` | Consumer-side seam the cache reads: `StreamValues(ctx) iter.Seq2[string, error]`. `redis.Store` satisfies it. |
 
 ## API
 
-| Symbol                    | Description                                                                                       |
-|---------------------------|---------------------------------------------------------------------------------------------------|
-| `New(src, opt…) *Cache`   | Cache backed by `src`. Snapshot starts empty — call `Refresh` before serving.                     |
-| `Cache.IsRevoked(id)`     | Lock-free membership check against the current snapshot (satisfies `jwt.RevocationChecker`).       |
-| `Cache.Refresh(ctx)`      | Rebuild the snapshot from `src` and swap it in atomically; on error the previous snapshot is kept. |
-| `Cache.Len()`             | Keys in the current snapshot, for observability/tests.                                             |
-| `WithMetrics(m)` / `NewMetrics(collector, subsystem)` | Enable refresh telemetry (see [Metrics](#metrics)).                    |
+| Symbol                                                | Description                                                                                                   |
+|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| `New(src, opt…) *Cache`                               | Cache backed by `src`. Snapshot starts empty (fail-open: nothing is revoked) — call `Refresh` before serving. |
+| `Cache.IsRevoked(id)`                                 | Lock-free membership check against the current snapshot (satisfies `jwt.RevocationChecker`).                  |
+| `Cache.Refresh(ctx)`                                  | Rebuild the snapshot from `src` and swap it in atomically; on error the previous snapshot is kept.            |
+| `Cache.Len()`                                         | Keys in the current snapshot, for observability/tests.                                                        |
+| `WithMetrics(m)` / `NewMetrics(collector, subsystem)` | Enable refresh telemetry (see [Metrics](#metrics)).                                                           |
 
 ## Staleness
 
@@ -42,10 +44,10 @@ snapshot rather than emptying the denylist — a transient store outage degrades
 
 `WithMetrics(NewMetrics(collector, ""))` records, under subsystem `auth_denylist_mirror`:
 
-| Metric            | Type    | Labels   | Meaning                                                                       |
-|-------------------|---------|----------|-------------------------------------------------------------------------------|
-| `refreshes_total` | counter | `result` | Refresh outcomes: `ok` (new snapshot swapped in) / `error` (previous kept).   |
-| `snapshot_size`   | gauge   | —        | Revoked-key count in the current snapshot after the last successful refresh.  |
+| Metric            | Type    | Labels   | Meaning                                                                      |
+|-------------------|---------|----------|------------------------------------------------------------------------------|
+| `refreshes_total` | counter | `result` | Refresh outcomes: `ok` (new snapshot swapped in) / `error` (previous kept).  |
+| `snapshot_size`   | gauge   | —        | Revoked-key count in the current snapshot after the last successful refresh. |
 
 A climbing `result="error"` rate flags a degraded source (the snapshot is going stale); watch `snapshot_size` for unexpected growth or a collapse to
 zero. A nil collector or `*Metrics` makes every recording a zero-cost no-op, so metrics stay entirely optional.
@@ -61,7 +63,7 @@ if err := m.Refresh(ctx); err != nil {
 
 v := jwt.NewVerifier(resolver, jwt.WithRevocation(m))
 
-// Keep the snapshot fresh on a schedule (core/scheduler, a ticker, …):
+// Keep the snapshot fresh on a schedule (the go-horai task contract, a ticker, …):
 _ = registrar.Register(ctx, scheduler.TaskConfig{ID: "denylist-mirror", Schedule: "@every 30s", Func: m.Refresh})
 ```
 

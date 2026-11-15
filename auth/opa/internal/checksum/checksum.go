@@ -5,9 +5,9 @@
 package checksum
 
 import (
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // Manifest owns an immutable snapshot of expected SHA-256 digests. A nil
@@ -17,6 +17,8 @@ type Manifest struct {
 }
 
 // New snapshots entries, preserving the distinction between nil and empty.
+// Nil entries yield a nil manifest, which verifies nothing: a remote source
+// must warn at construction when it runs with one.
 func New(entries map[string]string) *Manifest {
 	if entries == nil {
 		return nil

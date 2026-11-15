@@ -11,9 +11,9 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/denylist"
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache"
-	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
+	"github.com/altessa-s/go-atlas/cache/probfilter/bloom"
 
-	bloommem "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
+	bloommem "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages/memory"
 )
 
 func TestFromChecker_BridgesDenylist(t *testing.T) {

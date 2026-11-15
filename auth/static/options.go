@@ -4,7 +4,7 @@
 
 package static
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
+//go:generate go tool optgen generate
 
 // options holds the configuration for [InMemoryStore].
 type options struct {
@@ -18,7 +18,8 @@ type options struct {
 	// hmacKey is the secret used to derive the per-token storage key.
 	// Set with [WithHMACKey] to share digests across processes; if unset, a
 	// 32-byte random key is generated when [NewInMemoryStore] is invoked.
-	hmacKey []byte `opt:"-"`
+	// Set by WithHMACKey: byte slices require a length check and a defensive copy.
+	hmacKey []byte `optgen:"manual"`
 }
 
 // MinHMACKeyBytes is the smallest HMAC key accepted by [WithHMACKey]. Shorter

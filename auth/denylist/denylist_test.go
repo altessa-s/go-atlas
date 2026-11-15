@@ -80,10 +80,29 @@ func TestExpiredSweptOnWrite(t *testing.T) {
 	advance(2 * time.Minute) // "short" is now expired but still stored
 	require.Equal(t, 1, dl.Len())
 
-	dl.Revoke("perm") // any write sweeps expired entries first
+	dl.Revoke("perm") // a write after the sweep interval sweeps expired entries first
 	require.False(t, dl.IsRevoked("short"))
 	require.True(t, dl.IsRevoked("perm"))
 	require.Equal(t, 1, dl.Len()) // "short" swept, only "perm" remains
+}
+
+func TestWriteSweepsAtMostOncePerInterval(t *testing.T) {
+	t.Parallel()
+	base := time.Now()
+	now, advance := clockAt(base)
+	dl := denylist.New(denylist.WithClock(now))
+
+	dl.RevokeUntil("short", base.Add(10*time.Second)) // first write sweeps (empty set)
+	advance(30 * time.Second)                         // "short" expired, interval not yet passed
+
+	dl.Revoke("a")
+	require.False(t, dl.IsRevoked("short")) // expiry still enforced on read
+	require.Equal(t, 2, dl.Len())           // but not swept yet
+
+	advance(time.Minute)
+	dl.Revoke("b")
+	require.False(t, dl.IsRevoked("short"))
+	require.Equal(t, 2, dl.Len()) // "short" swept; "a" and "b" remain
 }
 
 func TestSweepReclaims(t *testing.T) {
@@ -120,5 +139,13 @@ func TestConcurrentRevokeAndCheck(t *testing.T) {
 		wg.Go(func() { _ = dl.IsRevoked("a") })
 	}
 	wg.Wait()
+	require.True(t, dl.IsRevoked("a"))
+}
+
+// TestWithClockNilIgnored pins that a nil clock keeps the default time source.
+func TestWithClockNilIgnored(t *testing.T) {
+	t.Parallel()
+	dl := denylist.New(denylist.WithClock(nil))
+	dl.RevokeUntil("a", time.Now().Add(time.Hour))
 	require.True(t, dl.IsRevoked("a"))
 }

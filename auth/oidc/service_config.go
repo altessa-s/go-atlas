@@ -8,15 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/types/ptr"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/ptr"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // SupportedConfigVersion is the current supported configuration version.
@@ -46,25 +47,17 @@ type ValidationRulesConfig struct {
 	// Default: "0s"
 	Leeway string `json:"leeway,omitempty"`
 
-	// VerifyExpiration controls verification of token expiration (exp claim).
+	// VerifyNotBefore controls verification of token not-before time (nbf claim).
 	//
 	// Tri-state:
-	//   - nil (field omitted): jwt-go default — exp is validated when
-	//     present, missing exp is accepted.
-	//   - true: exp is required AND validated; tokens without exp are
-	//     rejected with [ErrTokenInvalid]. Equivalent to passing
-	//     [WithValidationExpirationRequired] at runtime.
-	//   - false: REJECTED at config-load time with [ErrInvalidConfig].
-	//     Disabling exp validation safely is not supported by the
-	//     underlying JWT library (the only switch is the all-or-nothing
-	//     [jwt.WithoutClaimsValidation]); rejecting an explicit `false`
-	//     keeps the misconfiguration loud instead of silently inverting
-	//     operator intent.
-	VerifyExpiration *bool `json:"verify_expiration,omitempty"`
-
-	// VerifyNotBefore controls verification of token not-before time (nbf claim).
-	// Same tri-state semantics as [ValidationRulesConfig.VerifyExpiration]:
-	// nil = jwt-go default, true = require nbf, false = config error.
+	//   - nil (field omitted): nbf is validated when present, missing nbf
+	//     is accepted.
+	//   - true: nbf is required AND validated. Equivalent to passing
+	//     [WithValidationNotBeforeRequired] at runtime.
+	//   - false: REJECTED at config-load time with [ErrInvalidConfig], so a
+	//     misconfiguration stays loud instead of silently inverting intent.
+	//
+	// The exp claim has no such switch: it is always required and validated.
 	VerifyNotBefore *bool `json:"verify_not_before,omitempty"`
 
 	// VerifyIssuedAt enables verification of token issued-at time (iat claim).
@@ -84,7 +77,9 @@ type ValidationRulesConfig struct {
 	// RequiredClaims are claims that must be present in the token.
 	RequiredClaims []string `json:"required_claims,omitempty"`
 
-	// ExpectedClaims are claims with expected exact values.
+	// ExpectedClaims are claims with expected exact values, compared by JSON
+	// type (a bool expectation is not satisfied by the string "true"); an
+	// array claim matches when any element matches.
 	ExpectedClaims map[string]any `json:"expected_claims,omitempty"`
 
 	// IgnoredClaims are claims to ignore during validation.
@@ -352,13 +347,9 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 		opts = append(opts, WithValidationLeeway(duration))
 	}
 
-	// Verify expiration: nil = jwt-go default (exp validated when present);
-	// true = require the claim (also rejects tokens missing exp). An
+	// Verify not-before: nil = validated when present; true = required. An
 	// explicit false is refused at config-validation time, so by the time
 	// we reach this conversion it cannot reach the runtime path.
-	opts = slices.AppendIf(opts, ptr.Unwrap(v.VerifyExpiration), WithValidationExpirationRequired())
-
-	// Verify not-before: same tri-state as VerifyExpiration above.
 	opts = slices.AppendIf(opts, ptr.Unwrap(v.VerifyNotBefore), WithValidationNotBeforeRequired())
 
 	// Verify issued at
@@ -377,19 +368,8 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 	opts = append(opts, WithValidationRequiredClaims(v.RequiredClaims...))
 
 	// Expected claims
-	if len(v.ExpectedClaims) > 0 {
-		// Convert map[string]any to map[string]string
-		expectedStr := make(map[string]string)
-		for key, value := range v.ExpectedClaims {
-			if strValue, ok := value.(string); ok {
-				expectedStr[key] = strValue
-			} else {
-				// Convert non-string values to string representation
-				expectedStr[key] = fmt.Sprintf("%v", value)
-			}
-		}
-		opts = append(opts, WithValidationExpectedClaims(expectedStr))
-	}
+	// Values keep their JSON types so the comparison stays type-aware.
+	opts = slices.AppendIf(opts, len(v.ExpectedClaims) > 0, WithValidationExpectedClaims(maps.Clone(v.ExpectedClaims)))
 
 	// Ignored claims
 	opts = append(opts, WithValidationIgnoredClaims(v.IgnoredClaims...))
@@ -490,152 +470,172 @@ func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 
 	switch key {
 	case "claim_equals":
-		typed, ok := value.(map[string]any)
-		if !ok || len(typed) == 0 {
-			return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_equals requires a non-empty object")
-		}
-
-		matchers := make([]PresetMatcherFunc, 0, len(typed))
-		for rawKey, expected := range typed {
-			claimKey := rawKey
-			expectedCopy := expected
-
-			matchers = append(matchers, func(claims map[string]any) bool {
-				claimValue, exists := claims[claimKey]
-				if !exists {
-					return false
-				}
-
-				switch exp := expectedCopy.(type) {
-				case string:
-					actualVal, ok := claimValue.(string)
-					return ok && actualVal == exp
-				case float64:
-					actualVal, ok := claimValue.(float64)
-					return ok && actualVal == exp
-				case bool:
-					actualVal, ok := claimValue.(bool)
-					return ok && actualVal == exp
-				case nil:
-					return claimValue == nil
-				default:
-					return fmt.Sprintf("%v", claimValue) == fmt.Sprintf("%v", expectedCopy)
-				}
-			})
-		}
-
-		return MatcherAnd(matchers...), nil
-
+		return claimEqualsMatcher(value)
 	case "claim_exists":
-		rawList, ok := value.([]any)
-		if !ok || len(rawList) == 0 {
-			return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_exists requires a non-empty array")
-		}
-
-		claimNames := make([]string, len(rawList))
-		for i, item := range rawList {
-			name, ok := item.(string)
-			if !ok || strings.TrimSpace(name) == "" {
-				return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_exists array elements must be non-empty strings")
-			}
-			claimNames[i] = name
-		}
-
-		return func(claims map[string]any) bool {
-			for _, name := range claimNames {
-				if _, exists := claims[name]; !exists {
-					return false
-				}
-			}
-			return true
-		}, nil
-
+		return claimExistsMatcher(value)
 	case "claim_contains":
-		typed, ok := value.(map[string]any)
-		if !ok || len(typed) == 0 {
-			return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_contains requires a non-empty object")
-		}
-
-		matchers := make([]PresetMatcherFunc, 0, len(typed))
-		for rawKey, rawVal := range typed {
-			valueStr, ok := rawVal.(string)
-			if !ok {
-				return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_contains values must be strings")
-			}
-			claimKey := rawKey
-			substring := valueStr
-			matchers = append(matchers, ClaimContains(claimKey, substring))
-		}
-
-		return MatcherAnd(matchers...), nil
-
+		return claimContainsMatcher(value)
 	case "has_scope":
-		scope, ok := value.(string)
-		if !ok || strings.TrimSpace(scope) == "" {
-			return nil, coreerrs.Wrap(ErrInvalidConfig, "has_scope requires a non-empty string")
-		}
-		return HasScope(scope), nil
-
+		return hasScopeMatcher(value)
 	case "has_any_scope":
-		scopes, err := parseNonEmptyStringArray("has_any_scope", value)
+		scopes, err := parseNonEmptyStringArray(key, value)
 		if err != nil {
 			return nil, err
 		}
 		return HasAnyScope(scopes...), nil
-
 	case "has_all_scopes":
-		scopes, err := parseNonEmptyStringArray("has_all_scopes", value)
+		scopes, err := parseNonEmptyStringArray(key, value)
 		if err != nil {
 			return nil, err
 		}
 		return HasAllScopes(scopes...), nil
-
 	case "cel_expression":
-		expression, ok := value.(string)
-		if !ok || strings.TrimSpace(expression) == "" {
-			return nil, coreerrs.Wrap(ErrInvalidConfig, "cel_expression requires a non-empty string")
-		}
-
-		program, err := compileCELExpression(expression)
-		if err != nil {
-			return nil, coreerrs.Wrapf(ErrInvalidCEL, "%v", err)
-		}
-
-		if cache := getCELCache(); cache != nil {
-			cache.Put(expression, program)
-		}
-
-		return func(claims map[string]any) bool {
-			return evaluateCELProgram(program, claims)
-		}, nil
-
-	case "matcher_and", "matcher_or":
-		rawList, ok := value.([]any)
-		if !ok || len(rawList) == 0 {
-			return nil, coreerrs.Wrapf(ErrInvalidConfig, "%s requires a non-empty array", key)
-		}
-
-		matchers := make([]PresetMatcherFunc, 0, len(rawList))
-		for idx, item := range rawList {
-			condMap, ok := item.(map[string]any)
-			if !ok {
-				return nil, coreerrs.Wrapf(ErrInvalidConfig, "%s[%d] must be an object", key, idx)
-			}
-
-			matcher, err := conditionsToMatcher(condMap)
-			if err != nil {
-				return nil, coreerrs.Wrapf(err, "%s[%d]", key, idx)
-			}
-			matchers = append(matchers, matcher)
-		}
-
-		if key == "matcher_and" {
-			return MatcherAnd(matchers...), nil
-		}
-		return MatcherOr(matchers...), nil
+		return celExpressionMatcher(value)
+	case "matcher_and":
+		return combinedMatcher(key, value, MatcherAnd)
+	case "matcher_or":
+		return combinedMatcher(key, value, MatcherOr)
 	}
 
 	return nil, coreerrs.Wrapf(ErrInvalidConfig, "unknown condition type %q", key)
+}
+
+// claimEqualsMatcher requires every listed claim to equal its expected value.
+func claimEqualsMatcher(value any) (PresetMatcherFunc, error) {
+	typed, ok := value.(map[string]any)
+	if !ok || len(typed) == 0 {
+		return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_equals requires a non-empty object")
+	}
+
+	matchers := make([]PresetMatcherFunc, 0, len(typed))
+	for claimKey, expected := range typed {
+		matchers = append(matchers, func(claims map[string]any) bool {
+			claimValue, exists := claims[claimKey]
+			return exists && conditionValueEquals(claimValue, expected)
+		})
+	}
+
+	return MatcherAnd(matchers...), nil
+}
+
+// conditionValueEquals compares a claim with a claim_equals value: strings,
+// numbers, bools and null by JSON type; any other value by its %v text.
+func conditionValueEquals(actual, expected any) bool {
+	switch exp := expected.(type) {
+	case string:
+		got, ok := actual.(string)
+		return ok && got == exp
+	case float64:
+		got, ok := actual.(float64)
+		return ok && got == exp
+	case bool:
+		got, ok := actual.(bool)
+		return ok && got == exp
+	case nil:
+		return actual == nil
+	default:
+		return fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", expected)
+	}
+}
+
+// claimExistsMatcher requires every listed claim to be present.
+func claimExistsMatcher(value any) (PresetMatcherFunc, error) {
+	rawList, ok := value.([]any)
+	if !ok || len(rawList) == 0 {
+		return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_exists requires a non-empty array")
+	}
+
+	claimNames := make([]string, len(rawList))
+	for i, item := range rawList {
+		name, ok := item.(string)
+		if !ok || strings.TrimSpace(name) == "" {
+			return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_exists array elements must be non-empty strings")
+		}
+		claimNames[i] = name
+	}
+
+	return func(claims map[string]any) bool {
+		for _, name := range claimNames {
+			if _, exists := claims[name]; !exists {
+				return false
+			}
+		}
+		return true
+	}, nil
+}
+
+// claimContainsMatcher requires every listed claim to contain its substring.
+func claimContainsMatcher(value any) (PresetMatcherFunc, error) {
+	typed, ok := value.(map[string]any)
+	if !ok || len(typed) == 0 {
+		return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_contains requires a non-empty object")
+	}
+
+	matchers := make([]PresetMatcherFunc, 0, len(typed))
+	for claimKey, rawVal := range typed {
+		substring, ok := rawVal.(string)
+		if !ok {
+			return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_contains values must be strings")
+		}
+		matchers = append(matchers, ClaimContains(claimKey, substring))
+	}
+
+	return MatcherAnd(matchers...), nil
+}
+
+// hasScopeMatcher requires one scope.
+func hasScopeMatcher(value any) (PresetMatcherFunc, error) {
+	scope, ok := value.(string)
+	if !ok || strings.TrimSpace(scope) == "" {
+		return nil, coreerrs.Wrap(ErrInvalidConfig, "has_scope requires a non-empty string")
+	}
+	return HasScope(scope), nil
+}
+
+// celExpressionMatcher compiles a CEL expression evaluated against the claims.
+func celExpressionMatcher(value any) (PresetMatcherFunc, error) {
+	expression, ok := value.(string)
+	if !ok || strings.TrimSpace(expression) == "" {
+		return nil, coreerrs.Wrap(ErrInvalidConfig, "cel_expression requires a non-empty string")
+	}
+
+	program, err := compileCELExpression(expression)
+	if err != nil {
+		return nil, coreerrs.Wrapf(ErrInvalidCEL, "%v", err)
+	}
+
+	if cache := getCELCache(); cache != nil {
+		cache.Put(expression, program)
+	}
+
+	return func(claims map[string]any) bool {
+		return evaluateCELProgram(program, claims)
+	}, nil
+}
+
+// combinedMatcher compiles a matcher_and / matcher_or list of nested
+// conditions and joins them with combine.
+func combinedMatcher(key string, value any, combine func(...PresetMatcherFunc) PresetMatcherFunc) (PresetMatcherFunc, error) {
+	rawList, ok := value.([]any)
+	if !ok || len(rawList) == 0 {
+		return nil, coreerrs.Wrapf(ErrInvalidConfig, "%s requires a non-empty array", key)
+	}
+
+	matchers := make([]PresetMatcherFunc, 0, len(rawList))
+	for idx, item := range rawList {
+		condMap, ok := item.(map[string]any)
+		if !ok {
+			return nil, coreerrs.Wrapf(ErrInvalidConfig, "%s[%d] must be an object", key, idx)
+		}
+
+		matcher, err := conditionsToMatcher(condMap)
+		if err != nil {
+			return nil, coreerrs.Wrapf(err, "%s[%d]", key, idx)
+		}
+		matchers = append(matchers, matcher)
+	}
+
+	return combine(matchers...), nil
 }
 
 func parseNonEmptyStringArray(key string, value any) ([]string, error) {
@@ -659,23 +659,20 @@ func parseNonEmptyStringArray(key string, value any) ([]string, error) {
 func validateValidationRulesConfig(config *ValidationRulesConfig, path string) error {
 	// Validate leeway
 	if config.Leeway != "" {
-		if _, err := time.ParseDuration(config.Leeway); err != nil {
+		leeway, err := time.ParseDuration(config.Leeway)
+		if err != nil {
 			return coreerrs.Wrapf(ErrInvalidDuration, "invalid %s.leeway: %v", path, err)
+		}
+		if err := checkLeeway(leeway); err != nil {
+			return coreerrs.Wrapf(err, "%s.leeway", path)
 		}
 	}
 
-	// Reject an explicit `false` on the verify_expiration / verify_not_before
-	// switches. The underlying jwt-go library does not expose per-claim
-	// opt-outs (the only switch is the all-or-nothing WithoutClaimsValidation),
-	// so silently honoring `false` here would either be a no-op (the JWT
-	// library keeps validating) or, worse, leave operators thinking they
-	// disabled a check that is still running. Refusing the value at
-	// config-load time keeps the misconfiguration loud.
-	if config.VerifyExpiration != nil && !*config.VerifyExpiration {
-		return coreerrs.Wrapf(ErrInvalidConfig,
-			"%s.verify_expiration: explicit `false` is not supported — omit the field to keep the JWT default or set it to true to require the exp claim",
-			path)
-	}
+	// Reject an explicit `false` on the verify_not_before switch. The
+	// validator has no per-claim opt-out, so silently honoring `false` here
+	// would leave operators thinking they disabled a check that is still
+	// running. Refusing the value at config-load time keeps the
+	// misconfiguration loud.
 	if config.VerifyNotBefore != nil && !*config.VerifyNotBefore {
 		return coreerrs.Wrapf(ErrInvalidConfig,
 			"%s.verify_not_before: explicit `false` is not supported — omit the field to keep the JWT default or set it to true to require the nbf claim",

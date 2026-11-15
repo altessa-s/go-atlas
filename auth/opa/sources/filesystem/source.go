@@ -18,12 +18,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/altessa-s/go-atlas-core/io/files"
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
-	"github.com/altessa-s/go-atlas/core/io/files"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 var (

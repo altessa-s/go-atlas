@@ -9,8 +9,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/auth/mtls/revocation"
-
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -22,7 +20,7 @@ func BenchmarkCheckCached(b *testing.B) {
 	srv := responder(b, ca, ocsp.Good, &hits)
 	leaf := makeLeaf(b, ca, 42, srv.URL)
 
-	c := revocation.New([]*x509.Certificate{ca.Cert})
+	c := newChecker([]*x509.Certificate{ca.Cert})
 	if err := c.Check(leaf); err != nil { // prime cache
 		b.Fatal(err)
 	}

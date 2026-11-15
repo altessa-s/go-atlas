@@ -7,14 +7,14 @@ package redis_test
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
 
 	redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
 )
 
 func benchStore(b *testing.B) *redisstore.Store {
 	b.Helper()
-	client, _ := testhelpers.RedisClient(b)
+	client, _ := redistest.RedisClient(b)
 	return redisstore.New(client)
 }
 

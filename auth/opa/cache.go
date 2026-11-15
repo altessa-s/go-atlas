@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/cache/lru"
+	"github.com/altessa-s/go-atlas/cache/lru"
 )
 
 const (

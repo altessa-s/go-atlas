@@ -41,7 +41,7 @@ func TestClientCredentials(t *testing.T) {
 	t.Parallel()
 	srv, form := tokenServer(t, "cc-token")
 
-	src := oauth2client.ClientCredentials(t.Context(), srv.URL, "svc", "s3cr3t",
+	src := mustClientCredentials(t, srv.URL, "svc", "s3cr3t",
 		oauth2client.WithScopes("orders:read", "orders:read", " orders:write "),
 	)
 	tok, err := src.Token()
@@ -58,7 +58,7 @@ func TestRefresh(t *testing.T) {
 	t.Parallel()
 	srv, form := tokenServer(t, "refreshed-token")
 
-	src := oauth2client.Refresh(t.Context(), srv.URL, "svc", "s3cr3t", "stored-refresh")
+	src := mustRefresh(t, srv.URL, "svc", "s3cr3t", "stored-refresh")
 	tok, err := src.Token()
 	require.NoError(t, err)
 	require.Equal(t, "refreshed-token", tok.AccessToken)
@@ -69,7 +69,7 @@ func TestRefresh(t *testing.T) {
 
 func TestAuthCodeURL(t *testing.T) {
 	t.Parallel()
-	ac := oauth2client.NewAuthCode(
+	ac, err := oauth2client.NewAuthCode(
 		oauth2.Endpoint{
 			AuthURL:  "https://idp.example/authorize",
 			TokenURL: "https://idp.example/token",
@@ -77,6 +77,7 @@ func TestAuthCodeURL(t *testing.T) {
 		"svc", "s3cr3t", "https://app.example/callback",
 		oauth2client.WithScopes("openid", "profile"),
 	)
+	require.NoError(t, err)
 
 	raw := ac.AuthCodeURL("state-xyz")
 	u, err := url.Parse(raw)
@@ -93,10 +94,11 @@ func TestAuthCodeExchange(t *testing.T) {
 	t.Parallel()
 	srv, form := tokenServer(t, "authcode-token")
 
-	ac := oauth2client.NewAuthCode(
+	ac, err := oauth2client.NewAuthCode(
 		oauth2.Endpoint{AuthURL: srv.URL + "/authorize", TokenURL: srv.URL},
 		"svc", "s3cr3t", "https://app.example/callback",
 	)
+	require.NoError(t, err)
 	src, tok, err := ac.Exchange(t.Context(), "the-code")
 	require.NoError(t, err)
 	require.Equal(t, "authcode-token", tok.AccessToken)

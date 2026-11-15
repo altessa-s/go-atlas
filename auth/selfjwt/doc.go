@@ -15,7 +15,8 @@
 // # Algorithm agnostic
 //
 // The package does not hard-code a signature algorithm. A [KeyProvider]
-// returns a [SigningKey] / [VerificationKey] carrying an [Algorithm] and a
+// returns a [jwt.SigningKey] / [jwt.VerificationKey] (package
+// github.com/altessa-s/go-atlas/auth/jwt) carrying a [jwt.Algorithm] and a
 // crypto key (ed25519, ECDSA, or RSA), and the verifier accepts only the
 // algorithms in its allow-list. The default allow-list is asymmetric only
 // (EdDSA, ES256, RS256); HMAC is intentionally excluded so a symmetric secret
@@ -25,10 +26,10 @@
 //
 // # Usage
 //
-//	minter := selfjwt.NewMinter(provider, selfjwt.WithIssuer("billing"))
+//	minter := selfjwt.NewMinter(provider, "billing", "billing-api")
 //	res, err := minter.Mint(ctx, selfjwt.MintRequest{Subject: tenantID, Scopes: []string{"files:read"}, TTL: time.Hour})
 //
-//	verifier := selfjwt.NewVerifier(provider, selfjwt.WithIssuer("billing"))
+//	verifier := selfjwt.NewVerifier(provider, "billing", "billing-api")
 //	tok, err := verifier.Verify(ctx, res.Token)
 //
 // # Security
@@ -36,6 +37,9 @@
 // Verification is fail-closed: the algorithm is checked against the allow-list
 // before the signature is verified (closing algorithm-confusion attacks), an
 // exp claim is mandatory, and temporal claims are validated with a configurable
-// clock-skew leeway. Resolved verification keys are cached per (subject, kid)
-// with a TTL via [WithCacheTTL].
+// clock-skew leeway capped at [github.com/altessa-s/go-atlas/auth/jwt.MaxLeeway]. The issuer and audience passed to
+// [NewMinter] / [NewVerifier] are required and bound into every token (iss,
+// aud), so services sharing a [KeyProvider] cannot replay each other's tokens.
+// Resolved verification keys are cached per (subject, kid) with a TTL via
+// [WithCacheTTL].
 package selfjwt

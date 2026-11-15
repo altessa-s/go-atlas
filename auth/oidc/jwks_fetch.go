@@ -13,8 +13,8 @@ import (
 
 	"github.com/MicahParks/jwkset"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreio "github.com/altessa-s/go-atlas/core/io"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	coreio "github.com/altessa-s/go-atlas-core/io"
 )
 
 // fetchJWKS bounds the complete document before any key conversion or publication.

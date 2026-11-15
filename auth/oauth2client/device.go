@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // DeviceFlow drives the device authorization grant (RFC 8628) for
@@ -37,8 +37,18 @@ type DeviceFlow struct {
 // endpoint must carry the device authorization URL ([oauth2.Endpoint.DeviceAuthURL])
 // and the token URL; clientSecret may be "" for a public client. Requested
 // scopes and a custom [http.Client] come from the [Option] values.
-func NewDeviceFlow(endpoint oauth2.Endpoint, clientID, clientSecret string, opts ...Option) *DeviceFlow {
+//
+// Both URLs are checked here: one that is missing, malformed or not https
+// (plain http is accepted on a loopback host, or anywhere with
+// [WithInsecureHTTP]) returns an error wrapping [ErrInsecureEndpoint].
+func NewDeviceFlow(endpoint oauth2.Endpoint, clientID, clientSecret string, opts ...Option) (*DeviceFlow, error) {
 	o := newOptions(opts...)
+	if err := o.validateEndpoint("device authorization URL", endpoint.DeviceAuthURL); err != nil {
+		return nil, err
+	}
+	if err := o.validateEndpoint("token URL", endpoint.TokenURL); err != nil {
+		return nil, err
+	}
 	return &DeviceFlow{
 		cfg: oauth2.Config{
 			ClientID:     clientID,
@@ -46,10 +56,10 @@ func NewDeviceFlow(endpoint oauth2.Endpoint, clientID, clientSecret string, opts
 			Endpoint:     endpoint,
 			Scopes:       o.scopes,
 		},
-		client:  o.httpClient,
+		client:  o.client(),
 		metrics: o.metrics,
 		logger:  o.logger,
-	}
+	}, nil
 }
 
 // Authorize performs the device authorization request and returns the codes and
@@ -57,9 +67,10 @@ func NewDeviceFlow(endpoint oauth2.Endpoint, clientID, clientSecret string, opts
 // VerificationURIComplete, which embeds the user code) together with UserCode,
 // then pass the response to [DeviceFlow.Token].
 func (d *DeviceFlow) Authorize(ctx context.Context) (*oauth2.DeviceAuthResponse, error) {
-	resp, err := d.cfg.DeviceAuth(withHTTPClient(ctx, d.client))
+	ctx, response := withResponseClient(ctx, d.client)
+	resp, err := d.cfg.DeviceAuth(ctx)
 	if err != nil {
-		return nil, coreerrs.Wrap(errors.Join(ErrDeviceAuth, err), "device authorization request")
+		return nil, coreerrs.Wrap(errors.Join(ErrDeviceAuth, response.redact(err)), "device authorization request")
 	}
 	return resp, nil
 }
@@ -71,15 +82,21 @@ func (d *DeviceFlow) Authorize(ctx context.Context) (*oauth2.DeviceAuthResponse,
 // wrapping [ErrDeviceAuth]; the underlying *oauth2.RetrieveError with the RFC
 // 8628 error code stays reachable via errors.As.
 func (d *DeviceFlow) Token(ctx context.Context, da *oauth2.DeviceAuthResponse) (oauth2.TokenSource, *oauth2.Token, error) {
-	ctx = withHTTPClient(ctx, d.client)
+	ctx, response := withResponseClient(ctx, d.client)
 	start := time.Now()
 	tok, err := d.cfg.DeviceAccessToken(ctx, da)
 	d.metrics.recordFetch(grantDeviceCode, err == nil, time.Since(start))
 	if err != nil {
+		if err == context.Canceled || err == context.DeadlineExceeded {
+			response.received.Store(false)
+			response.status.Store(0)
+			response.length.Store(0)
+		}
+		err = response.redact(err)
 		if d.logger != nil {
-			d.logger.Warn("oauth2client: device token poll failed", "err", err)
+			d.logger.Warn("oauth2client: device token poll failed", "err", logError(err))
 		}
 		return nil, nil, coreerrs.Wrap(errors.Join(ErrDeviceAuth, err), "device access token")
 	}
-	return measure(d.cfg.TokenSource(ctx, tok), grantDeviceCode, d.metrics, d.logger), tok, nil
+	return measure(redacted(d.cfg.TokenSource(ctx, tok), response), grantDeviceCode, d.metrics, d.logger), tok, nil
 }

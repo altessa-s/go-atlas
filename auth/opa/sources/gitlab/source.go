@@ -11,13 +11,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"sync"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
+	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	gitlabapi "gitlab.com/gitlab-org/api/client-go"
 )
 
@@ -34,17 +37,32 @@ var (
 	ErrProjectIDRequired = errors.New("gitlab project ID is required")
 	// ErrHTTPClientRequired is returned when no client is passed with
 	// [WithHTTPClient]. Pass the resilient, SSRF-protected client from
-	// transport/http/client (httpclient.New()), as the factory does.
+	// net/http/client (httpclient.New()), as the factory does.
 	ErrHTTPClientRequired = errors.New("gitlab HTTP client is required")
+	// ErrInsecureEndpoint is returned when the endpoint is not an https URL
+	// and [WithAllowInsecureHTTP] is not set.
+	ErrInsecureEndpoint = errors.New("gitlab endpoint must use https")
+	// ErrChecksumMismatch is returned when a fetched file's SHA-256 digest
+	// does not match its [WithChecksums] entry.
+	ErrChecksumMismatch = errors.New("gitlab policy file checksum mismatch")
+	// ErrUnexpectedPolicyFile is returned when a fetched file has no
+	// [WithChecksums] entry.
+	ErrUnexpectedPolicyFile = errors.New("gitlab policy file not in checksums manifest")
+	// ErrMissingPolicyFile is returned when a [WithChecksums] entry has no
+	// fetched file.
+	ErrMissingPolicyFile = errors.New("gitlab policy file in checksums manifest not found")
+	// ErrFileTooLarge is returned when a file exceeds [WithMaxFileBytes].
+	ErrFileTooLarge = errors.New("gitlab policy file too large")
 )
 
 // Source implements [opa.PolicySource] for GitLab-hosted policies.
 // It fetches .rego files from a GitLab repository using the API.
 // Change detection is handled by the Manager.
 type Source struct {
-	opts   *options
-	logger *slog.Logger
-	client *gitlabapi.Client
+	opts      *options
+	logger    *slog.Logger
+	client    *gitlabapi.Client
+	checksums *checksum.Manifest
 
 	mu     sync.Mutex
 	shas   map[string]string // filename -> blob SHA
@@ -71,7 +89,19 @@ func New(opts ...Option) (*Source, error) {
 		return nil, ErrHTTPClientRequired
 	}
 
+	if err := checkEndpointScheme(o.endpoint, o.allowInsecureHTTP); err != nil {
+		return nil, err
+	}
+
+	manifest := checksum.New(o.checksums)
+	o.checksums = nil
+
 	logger := cmp.Or(o.logger, slog.New(slog.DiscardHandler))
+	if manifest == nil {
+		logger.Warn("gitlab policy source has no checksums manifest: fetched policies are not integrity-verified",
+			slog.Int("project", o.projectID),
+			slog.String("ref", o.ref))
+	}
 
 	// gitlab's library-level retry is disabled so the injected client is
 	// the only retry layer.
@@ -87,11 +117,28 @@ func New(opts ...Option) (*Source, error) {
 	}
 
 	return &Source{
-		opts:   o,
-		logger: logger,
-		client: client,
-		shas:   make(map[string]string),
+		opts:      o,
+		logger:    logger,
+		client:    client,
+		checksums: manifest,
+		shas:      make(map[string]string),
 	}, nil
+}
+
+// checkEndpointScheme requires an https endpoint, or http with allowHTTP.
+func checkEndpointScheme(endpoint string, allowHTTP bool) error {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return coreerrs.Wrapf(ErrInsecureEndpoint, "parse %q: %v", endpoint, err)
+	}
+	switch {
+	case u.Scheme == "https" && u.Host != "":
+		return nil
+	case u.Scheme == "http" && u.Host != "" && allowHTTP:
+		return nil
+	default:
+		return coreerrs.Wrapf(ErrInsecureEndpoint, "%q", endpoint)
+	}
 }
 
 // Name returns the source identifier.
@@ -127,7 +174,7 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 
 		switch {
 		case ext == ".rego":
-			content, dlErr := s.downloadRawFile(ctx, name)
+			content, dlErr := s.downloadVerified(ctx, name)
 			if dlErr != nil {
 				return nil, coreerrs.Wrapf(dlErr, "download policy %s", name)
 			}
@@ -135,7 +182,7 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 			modules[name] = content
 			newSHAs[name] = entry.ID
 		case s.opts.includeData && ext == ".json":
-			content, dlErr := s.downloadRawFile(ctx, name)
+			content, dlErr := s.downloadVerified(ctx, name)
 			if dlErr != nil {
 				return nil, coreerrs.Wrapf(dlErr, "download data %s", name)
 			}
@@ -153,6 +200,10 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 			data[key] = jsonData
 			newSHAs[name] = entry.ID
 		}
+	}
+
+	if err := s.checksums.Covered(newSHAs, ErrMissingPolicyFile); err != nil {
+		return nil, err
 	}
 
 	if len(modules) == 0 {
@@ -199,9 +250,9 @@ func (s *Source) listTree(ctx context.Context) ([]*gitlabapi.TreeNode, error) {
 	var all []*gitlabapi.TreeNode
 
 	opts := &gitlabapi.ListTreeOptions{
-		ListOptions: gitlabapi.ListOptions{Page: 1, PerPage: treePageSize},
-		Ref:         new(s.opts.ref),
-		Path:        new(s.opts.dir),
+		Page: 1, PerPage: treePageSize,
+		Ref:  new(s.opts.ref),
+		Path: new(s.opts.dir),
 	}
 
 	for {
@@ -222,21 +273,53 @@ func (s *Source) listTree(ctx context.Context) ([]*gitlabapi.TreeNode, error) {
 	return all, nil
 }
 
-// downloadRawFile downloads a raw file from the GitLab repository.
+// downloadVerified downloads a file and checks it against the checksums
+// manifest, when one is configured.
+func (s *Source) downloadVerified(ctx context.Context, filename string) ([]byte, error) {
+	content, err := s.downloadRawFile(ctx, filename)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checksums.Verify(filename, content, ErrChecksumMismatch, ErrUnexpectedPolicyFile); err != nil {
+		return nil, err
+	}
+	return content, nil
+}
+
+// downloadRawFile downloads a raw file from the GitLab repository, reading at
+// most maxFileBytes of it.
 func (s *Source) downloadRawFile(ctx context.Context, filename string) ([]byte, error) {
 	filePath := path.Join(s.opts.dir, filename)
 
-	data, _, err := s.client.RepositoryFiles.GetRawFile(
-		s.opts.projectID,
-		filePath,
+	req, err := s.client.NewRequest(http.MethodGet,
+		fmt.Sprintf("projects/%d/repository/files/%s/raw", s.opts.projectID, gitlabapi.PathEscape(filePath)),
 		&gitlabapi.GetRawFileOptions{Ref: new(s.opts.ref)},
-		gitlabapi.WithContext(ctx),
-	)
+		[]gitlabapi.RequestOptionFunc{gitlabapi.WithContext(ctx)})
 	if err != nil {
+		return nil, coreerrs.Wrapf(err, "build request for %s", filename)
+	}
+
+	buf := &cappedBuffer{limit: s.opts.maxFileBytes}
+	if _, err := s.client.Do(req, buf); err != nil {
 		return nil, coreerrs.Wrapf(err, "download %s", filename)
 	}
 
-	return data, nil
+	return buf.data, nil
+}
+
+// cappedBuffer collects a response body and fails once it exceeds limit
+// bytes, so an oversized file is never held in memory in full.
+type cappedBuffer struct {
+	data  []byte
+	limit int64
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	if int64(len(b.data))+int64(len(p)) > b.limit {
+		return 0, coreerrs.Wrapf(ErrFileTooLarge, "exceeds %d bytes", b.limit)
+	}
+	b.data = append(b.data, p...)
+	return len(p), nil
 }
 
 // Compile-time interface check.

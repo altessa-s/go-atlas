@@ -8,7 +8,7 @@ import (
 	"iter"
 	"sync/atomic"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
 // Registry maps an action key to the [Scope] required to perform it. The key is

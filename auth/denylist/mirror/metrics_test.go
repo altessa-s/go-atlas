@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/denylist/mirror"
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 )
 
 const (
@@ -21,19 +21,19 @@ const (
 
 func TestMetrics_RecordsRefreshOutcomes(t *testing.T) {
 	t.Parallel()
-	tc := testhelpers.NewTestCollector()
+	tc := metricstest.NewTestCollector()
 	s := &swapSource{keys: []string{"a", "b"}}
 	m := mirror.New(s, mirror.WithMetrics(mirror.NewMetrics(tc, "")))
 
 	require.NoError(t, m.Refresh(t.Context()))
-	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, tc, refreshesMetric, "result", "ok"))
-	require.Equal(t, 2.0, testhelpers.GetGaugeValue(t, tc, snapshotMetric))
+	require.Equal(t, 1.0, metricstest.GetCounterValue(t, tc, refreshesMetric, "result", "ok"))
+	require.Equal(t, 2.0, metricstest.GetGaugeValue(t, tc, snapshotMetric))
 
 	// A failed refresh records result=error and leaves snapshot_size untouched.
 	s.setErr(errors.New("store down"))
 	require.Error(t, m.Refresh(t.Context()))
-	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, tc, refreshesMetric, "result", "error"))
-	require.Equal(t, 2.0, testhelpers.GetGaugeValue(t, tc, snapshotMetric))
+	require.Equal(t, 1.0, metricstest.GetCounterValue(t, tc, refreshesMetric, "result", "error"))
+	require.Equal(t, 2.0, metricstest.GetGaugeValue(t, tc, snapshotMetric))
 }
 
 func TestMetrics_NilIsNoOp(t *testing.T) {

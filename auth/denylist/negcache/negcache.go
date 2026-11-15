@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // ErrFilterNotRebuildable is returned by [Cache.Rebuild] when the configured

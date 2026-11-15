@@ -73,7 +73,7 @@
 // # Auditing
 //
 // Pass [WithAuditRecorder] to record every evaluation decision through an
-// auth/audit Recorder. The recorder is nil-safe and applies its own recording
+// audit/decision Recorder. The recorder is nil-safe and applies its own recording
 // and failure policies; under the default deny-only mode only denials are
 // recorded. Each decision sets Action to the Rego query and an "engine" = "opa"
 // attribute. Recording never alters the verdict in best-effort mode; under

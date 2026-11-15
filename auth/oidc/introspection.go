@@ -13,22 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
-
+	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	coreio "github.com/altessa-s/go-atlas-core/io"
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
-	corecontext "github.com/altessa-s/go-atlas/core/context"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreio "github.com/altessa-s/go-atlas/core/io"
 )
-
-// Filter is an alias for probfilter.Filter
-type Filter = probfilter.Filter
-
-// DataLoader is an alias for probfilter.DataLoader
-type DataLoader = probfilter.DataLoader
-
-// RebuildableFilter is an alias for probfilter.RebuildableFilter
-type RebuildableFilter = probfilter.RebuildableFilter
 
 const (
 	// DefaultIntrospectionTimeout is the timeout for introspection HTTP requests.
@@ -94,26 +83,54 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		return nil, coreerrs.Wrap(ErrIntrospection, "introspection client credentials not configured")
 	}
 
-	// Check cache for revoked token first
+	if cached, ok := p.cachedIntrospection(ctx, token); ok {
+		return cached, nil
+	}
+
+	introspectionResp, err := p.requestIntrospection(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
 	if p.tokenCache != nil {
-		cacheKey := p.introspectionCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
-		var cachedRevoked bool
-		if err := p.tokenCache.Get(ctx, cacheKey, &cachedRevoked); err == nil && cachedRevoked {
-			p.logger.DebugContext(ctx, "token found in revoked cache")
-			return &IntrospectionResponse{Active: false}, nil
+		if introspectionResp.Active {
+			p.cacheActive(ctx, token, introspectionResp)
+		} else {
+			p.cacheInactive(ctx, token, introspectionResp)
 		}
+	}
+
+	return introspectionResp, nil
+}
+
+// cachedIntrospection returns the cached introspection result of token: a
+// revoked token as inactive, or a previously confirmed active token's
+// response.
+func (p *Provider) cachedIntrospection(ctx context.Context, token string) (*IntrospectionResponse, bool) {
+	if p.tokenCache == nil {
+		return nil, false
+	}
+
+	// Check cache for revoked token first
+	cacheKey := p.introspectionCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
+	var cachedRevoked bool
+	if err := p.tokenCache.Get(ctx, cacheKey, &cachedRevoked); err == nil && cachedRevoked {
+		p.logger.DebugContext(ctx, "token found in revoked cache")
+		return &IntrospectionResponse{Active: false}, true
 	}
 
 	// Check short-lived cache for previously confirmed active tokens
-	if p.tokenCache != nil {
-		cacheKey := p.introspectionCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
-		var cachedResponse IntrospectionResponse
-		if err := p.tokenCache.Get(ctx, cacheKey, &cachedResponse); err == nil {
-			p.logger.DebugContext(ctx, "token found in active cache")
-			return &cachedResponse, nil
-		}
+	cacheKey = p.introspectionCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
+	var cachedResponse IntrospectionResponse
+	if err := p.tokenCache.Get(ctx, cacheKey, &cachedResponse); err == nil {
+		p.logger.DebugContext(ctx, "token found in active cache")
+		return &cachedResponse, true
 	}
+	return nil, false
+}
 
+// requestIntrospection asks the introspection endpoint about token.
+func (p *Provider) requestIntrospection(ctx context.Context, token string) (*IntrospectionResponse, error) {
 	// Prepare introspection request
 	formData := url.Values{}
 	formData.Set("token", token)
@@ -148,12 +165,16 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, MaxErrorResponseSize)) //nolint:errcheck
 		return nil, coreerrs.Wrapf(ErrIntrospection, "introspection endpoint returned status %d (%s)", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	return decodeIntrospection(resp.Body)
+}
 
+// decodeIntrospection parses an introspection response body.
+func decodeIntrospection(body io.Reader) (*IntrospectionResponse, error) {
 	// Parse response using pooled buffer to avoid per-request allocation.
 	// Security: cap the read — a malicious or misconfigured IdP must not be
 	// able to OOM the validator with an unbounded response body.
 	buf := coreio.GetBuffer()
-	if _, err := buf.ReadFrom(io.LimitReader(resp.Body, maxIntrospectionResponseSize+1)); err != nil {
+	if _, err := buf.ReadFrom(io.LimitReader(body, maxIntrospectionResponseSize+1)); err != nil {
 		coreio.PutBuffer(buf)
 		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to read introspection response: %v", err)
 	}
@@ -168,57 +189,60 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 	if unmarshalErr != nil {
 		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to parse introspection response: %v", unmarshalErr)
 	}
+	return &introspectionResp, nil
+}
 
-	if p.tokenCache != nil {
-		if !introspectionResp.Active {
-			ttl := boundedIntrospectionTTL(&introspectionResp, RevokedTokenCacheDuration)
-			if ttl > 0 {
-				cacheKey := p.introspectionCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
-				_ = p.tokenCache.Save(ctx, cacheKey, true, ttl) //nolint:errcheck
+// cacheActive caches an active introspection response, no longer than the
+// token lives.
+func (p *Provider) cacheActive(ctx context.Context, token string, introspectionResp *IntrospectionResponse) {
+	ttl := boundedIntrospectionTTL(introspectionResp, ActiveTokenCacheDuration)
+	if ttl > 0 {
+		cacheKey := p.introspectionCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
+		_ = p.tokenCache.Save(ctx, cacheKey, *introspectionResp, ttl) //nolint:errcheck
 
-				p.logger.DebugContext(ctx, "caching revoked token",
-					"ttl", ttl)
-			}
+		p.logger.DebugContext(ctx, "caching active token",
+			"ttl", ttl)
+	}
+}
 
-			// Also add to revocation storage to optimize subsequent checks.
-			// We only populate the storage with values the IdP confirmed
-			// (full token, or jti returned by introspection). The kid is
-			// not returned by RFC 7662 introspection and reading it from
-			// the local header via ParseUnverified is unsafe — an attacker
-			// could craft a non-active token with the kid of a legitimate
-			// signing key, poisoning the revocation set and denying service
-			// to every token that genuinely uses that kid. Operators using
-			// kid-based revocation must populate it via the Sync path from
-			// a trusted source.
-			if p.revocationStorage != nil {
-				var item string
-				switch p.opts.revocationItemType {
-				case RevocationItemTypeJTI:
-					if introspectionResp.Jti != "" {
-						item = introspectionResp.Jti
-					}
-				case RevocationItemTypeKID:
-					// Skip — see security note above.
-				default:
-					item = token
-				}
-				if item != "" {
-					_ = p.revocationStorage.MarkRevoked(ctx, item, ttl) //nolint:errcheck // best-effort
-				}
-			}
-		} else {
-			ttl := boundedIntrospectionTTL(&introspectionResp, ActiveTokenCacheDuration)
-			if ttl > 0 {
-				cacheKey := p.introspectionCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
-				_ = p.tokenCache.Save(ctx, cacheKey, introspectionResp, ttl) //nolint:errcheck
+// cacheInactive caches an inactive token as revoked, no longer than the
+// token lives, and adds it to the revocation storage.
+func (p *Provider) cacheInactive(ctx context.Context, token string, introspectionResp *IntrospectionResponse) {
+	ttl := boundedIntrospectionTTL(introspectionResp, RevokedTokenCacheDuration)
+	if ttl > 0 {
+		cacheKey := p.introspectionCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
+		_ = p.tokenCache.Save(ctx, cacheKey, true, ttl) //nolint:errcheck
 
-				p.logger.DebugContext(ctx, "caching active token",
-					"ttl", ttl)
-			}
-		}
+		p.logger.DebugContext(ctx, "caching revoked token",
+			"ttl", ttl)
 	}
 
-	return &introspectionResp, nil
+	// Also add to revocation storage to optimize subsequent checks.
+	if p.revocationStorage != nil {
+		if item := p.revocationItem(token, introspectionResp); item != "" {
+			_ = p.revocationStorage.MarkRevoked(ctx, item, ttl) //nolint:errcheck // best-effort
+		}
+	}
+}
+
+// revocationItem returns the item an inactive token is marked revoked by,
+// or "" for none. We only populate the storage with values the IdP confirmed
+// (full token, or jti returned by introspection). The kid is not returned by
+// RFC 7662 introspection and reading it from the local header via
+// ParseUnverified is unsafe — an attacker could craft a non-active token with
+// the kid of a legitimate signing key, poisoning the revocation set and
+// denying service to every token that genuinely uses that kid. Operators using
+// kid-based revocation must populate it via the Sync path from a trusted
+// source.
+func (p *Provider) revocationItem(token string, introspectionResp *IntrospectionResponse) string {
+	switch p.opts.revocationItemType {
+	case RevocationItemTypeJTI:
+		return introspectionResp.Jti
+	case RevocationItemTypeKID:
+		return "" // Skip — see security note above.
+	default:
+		return token
+	}
 }
 
 // IntrospectionEndpoint returns the introspection URL from OIDC discovery.

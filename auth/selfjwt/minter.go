@@ -22,18 +22,25 @@ import (
 // a key rotation invalidates the token. The signing crypto and algorithm
 // allow-list are delegated to [github.com/altessa-s/go-atlas/auth/jwt.Signer].
 type Minter struct {
-	src    KeyProvider
-	signer *jwt.Signer
-	opts   *options
+	src      KeyProvider
+	signer   *jwt.Signer
+	opts     *options
+	issuer   string
+	audience string
 }
 
-// NewMinter builds a Minter over the given key provider.
-func NewMinter(src KeyProvider, opts ...Option) *Minter {
+// NewMinter builds a Minter over the given key provider. Every token carries
+// issuer as its iss claim and audience as its aud claim; both are required,
+// and [Minter.Mint] fails with [ErrIssuerRequired] or [ErrAudienceRequired]
+// when either is empty.
+func NewMinter(src KeyProvider, issuer, audience string, opts ...Option) *Minter {
 	o := newOptions(opts...)
 	return &Minter{
-		src:    src,
-		signer: jwt.NewSigner(jwt.WithAllowedAlgorithms(o.allowedAlgorithms...)),
-		opts:   o,
+		src:      src,
+		signer:   jwt.NewSigner(jwt.WithAllowedAlgorithms(o.allowedAlgorithms...)),
+		opts:     o,
+		issuer:   issuer,
+		audience: audience,
 	}
 }
 
@@ -69,6 +76,9 @@ func (m *Minter) mint(ctx context.Context, req MintRequest) (MintResult, error) 
 	if req.Subject == "" {
 		return MintResult{}, ErrSubjectRequired
 	}
+	if err := checkIdentity(m.issuer, m.audience); err != nil {
+		return MintResult{}, err
+	}
 	sk, err := m.src.SigningKey(ctx, req.Subject)
 	if err != nil {
 		return MintResult{}, err
@@ -86,14 +96,13 @@ func (m *Minter) mint(ctx context.Context, req MintRequest) (MintResult, error) 
 	exp := now.Add(ttl)
 
 	claims := jwt.Claims{
+		"iss": m.issuer,
+		"aud": m.audience,
 		"sub": req.Subject,
 		"jti": jti,
 		"iat": now.Unix(),
 		"nbf": now.Unix(),
 		"exp": exp.Unix(),
-	}
-	if m.opts.issuer != "" {
-		claims["iss"] = m.opts.issuer
 	}
 	if len(req.Scopes) > 0 {
 		claims["scope"] = req.Scopes
@@ -104,6 +113,18 @@ func (m *Minter) mint(ctx context.Context, req MintRequest) (MintResult, error) 
 		return MintResult{}, mapSignErr(err)
 	}
 	return MintResult{Token: raw, ID: jti, Expiry: exp}, nil
+}
+
+// checkIdentity rejects an empty issuer or audience: without both, services
+// sharing a key provider would accept each other's tokens.
+func checkIdentity(issuer, audience string) error {
+	if issuer == "" {
+		return ErrIssuerRequired
+	}
+	if audience == "" {
+		return ErrAudienceRequired
+	}
+	return nil
 }
 
 // mapSignErr translates the auth/jwt signing sentinels back onto the selfjwt

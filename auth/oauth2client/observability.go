@@ -47,7 +47,7 @@ func (s *measuredSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		s.metrics.recordFetch(s.grant, false, elapsed)
 		if s.logger != nil {
-			s.logger.Warn("oauth2client: token fetch failed", "grant", s.grant, "err", err)
+			s.logger.Warn("oauth2client: token fetch failed", "grant", s.grant, "err", logError(err))
 		}
 		return nil, err
 	}

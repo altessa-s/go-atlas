@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/selfjwt"
+
+	jwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 func BenchmarkMint(b *testing.B) {
-	p := newProvider(b, selfjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, selfjwt.WithIssuer(testIssuer))
+	p := newProvider(b, jwt.AlgEdDSA)
+	m := selfjwt.NewMinter(p, testIssuer, testAudience)
 	req := selfjwt.MintRequest{Subject: testSubject, Scopes: []string{"files:read"}, TTL: time.Hour}
 	ctx := b.Context()
 
@@ -26,9 +28,9 @@ func BenchmarkMint(b *testing.B) {
 }
 
 func BenchmarkVerify(b *testing.B) {
-	p := newProvider(b, selfjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, selfjwt.WithIssuer(testIssuer))
-	v := selfjwt.NewVerifier(p, selfjwt.WithIssuer(testIssuer))
+	p := newProvider(b, jwt.AlgEdDSA)
+	m := selfjwt.NewMinter(p, testIssuer, testAudience)
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience)
 	ctx := b.Context()
 
 	res, err := m.Mint(ctx, selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})

@@ -299,6 +299,22 @@ func TestSignRejectsBadKey(t *testing.T) {
 	})
 }
 
+func TestSignAllowEmptyKeyID(t *testing.T) {
+	t.Parallel()
+
+	ks := newKeysets(t)[0]
+	key := ks.signing
+	key.KeyID = ""
+
+	raw, err := jwt.NewSigner(jwt.WithAllowEmptyKeyID()).Sign(key, jwt.Claims{"sub": "s"})
+	require.NoError(t, err)
+
+	tok, _, err := gojwt.NewParser().ParseUnverified(raw, gojwt.MapClaims{})
+	require.NoError(t, err)
+	require.NotContains(t, tok.Header, "kid")
+	require.Equal(t, key.Algorithm.String(), tok.Header["alg"])
+}
+
 func TestClaimsAccessors(t *testing.T) {
 	t.Parallel()
 

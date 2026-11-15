@@ -27,8 +27,9 @@ import (
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	httpclient "github.com/altessa-s/go-atlas-net/http/client"
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
+	probfilter "github.com/altessa-s/go-atlas/cache/probfilter"
 )
 
 // testAudience is the audience every test token carries and every test
@@ -38,10 +39,13 @@ const testAudience = "svc"
 // testIdP is an httptest OIDC issuer serving discovery, a one-key JWKS, an
 // RFC 7662 introspection endpoint and a plain-text revocation list.
 type testIdP struct {
-	srv            *httptest.Server
-	keyMu          sync.Mutex
-	key            *rsa.PrivateKey
-	kid            string
+	srv   *httptest.Server
+	keyMu sync.Mutex
+	key   *rsa.PrivateKey
+	kid   string
+	// jwkUse overrides the "use" of the served JWK: nil serves "sig", an empty
+	// string omits the parameter.
+	jwkUse         *string
 	active         atomic.Bool
 	introspections atomic.Int32
 	revokedStatus  atomic.Int32
@@ -80,11 +84,19 @@ func newTestIdP(t testing.TB) *testIdP {
 		w.Header().Set("Content-Type", "application/json")
 		key, kid := idp.signingKey()
 		pub := key.PublicKey
-		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]any{{
+		jwk := map[string]any{
 			"kty": "RSA", "kid": kid, "alg": "RS256", "use": "sig",
 			"n": base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
 			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
-		}}})
+		}
+		switch {
+		case idp.jwkUse == nil:
+		case *idp.jwkUse == "":
+			delete(jwk, "use")
+		default:
+			jwk["use"] = *idp.jwkUse
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]any{jwk}})
 	})
 	mux.HandleFunc("/introspect", func(w http.ResponseWriter, _ *http.Request) {
 		idp.introspections.Add(1)
@@ -152,6 +164,16 @@ func (idp *testIdP) sign(t testing.TB, claims jwt.MapClaims) string {
 	return raw
 }
 
+// signWithoutKid signs claims with the IdP key but leaves "kid" out of the
+// header, so the verifier has to pick the key itself.
+func (idp *testIdP) signWithoutKid(t testing.TB, claims jwt.MapClaims) string {
+	t.Helper()
+	key, _ := idp.signingKey()
+	raw, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(key)
+	require.NoError(t, err)
+	return raw
+}
+
 func (idp *testIdP) newProvider(t testing.TB, opts ...Option) *Provider {
 	t.Helper()
 	p, err := idp.tryNewProvider(t, opts...)
@@ -161,21 +183,30 @@ func (idp *testIdP) newProvider(t testing.TB, opts ...Option) *Provider {
 
 func (idp *testIdP) tryNewProvider(t testing.TB, opts ...Option) (*Provider, error) {
 	t.Helper()
+	return idp.tryNewProviderWithContext(t.Context(), t, opts...)
+}
+
+// tryNewProviderWithContext is tryNewProvider with ctx as the constructor
+// context.
+func (idp *testIdP) tryNewProviderWithContext(ctx context.Context, t testing.TB, opts ...Option) (*Provider, error) {
+	t.Helper()
 	base := []Option{
 		WithLogger(slog.New(slog.DiscardHandler)),
 		WithHTTPClient(httpclient.New(httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("127.0.0.0/8")), httpclient.WithRetryMax(0), httpclient.WithoutProxy())),
+		// The client is built for this provider alone, as the factory's is.
+		WithOwnedHTTPClient(),
 		// httptest serves plain HTTP on loopback.
 		WithDiscoveryValidationMode(DiscoveryValidationModeDisabled),
 		WithDefaultValidationOptions(WithValidationAudience(testAudience)),
 	}
-	p, err := NewProvider(t.Context(), idp.discoveryURL(), append(base, opts...)...)
+	p, err := NewProvider(ctx, idp.discoveryURL(), append(base, opts...)...)
 	if err == nil {
 		t.Cleanup(p.Close)
 	}
 	return p, err
 }
 
-// memCacher is a JSON-serializing Cacher (like data/cache) that records the
+// memCacher is a JSON-serializing Cacher (like cache) that records the
 // TTL of every Save.
 type memCacher struct {
 	mu    sync.Mutex
@@ -217,6 +248,37 @@ func (c *memCacher) saves() []time.Duration {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]time.Duration(nil), c.ttls...)
+}
+
+// Only signature keys may verify a token: a JWK published for encryption
+// ("use":"enc") must not, whether the token names it by kid or carries no kid
+// and is tried against the whole set.
+func TestValidate_OnlySignatureKeysVerify(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		use     string
+		wantErr error
+	}{
+		{name: "use sig", use: "sig"},
+		{name: "use absent", use: ""},
+		{name: "use enc", use: "enc", wantErr: ErrTokenInvalid},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			idp := newTestIdP(t)
+			idp.jwkUse = &tc.use
+			p := idp.newProvider(t)
+
+			_, err := p.ValidateToken(t.Context(), idp.sign(t, idp.claims(nil)))
+			require.ErrorIs(t, err, tc.wantErr, "token with kid")
+
+			_, err = p.ValidateToken(t.Context(), idp.signWithoutKid(t, idp.claims(nil)))
+			require.ErrorIs(t, err, tc.wantErr, "token without kid")
+		})
+	}
 }
 
 func TestValidate_CacheHitStillEnforcesRequestedPolicy(t *testing.T) {
@@ -274,7 +336,7 @@ func TestValidate_NeverCachesWithNonPositiveTTL(t *testing.T) {
 	p := idp.newProvider(t, WithTokenCache(cache))
 
 	// Past exp but inside the default 30s leeway: valid, but must not be cached
-	// (a zero TTL means "no expiration" to data/cache).
+	// (a zero TTL means "no expiration" to cache).
 	expired := idp.sign(t, idp.claims(map[string]any{"exp": time.Now().Add(-5 * time.Second).Unix()}))
 	_, err := p.ValidateToken(t.Context(), expired)
 	require.NoError(t, err)
@@ -282,7 +344,7 @@ func TestValidate_NeverCachesWithNonPositiveTTL(t *testing.T) {
 	noExp := idp.sign(t, idp.claims(map[string]any{"exp": nil}))
 	_, err = p.ValidateTokenWithOptions(t.Context(), noExp,
 		WithValidationAudience(testAudience), WithValidationRequiredClaims("sub"))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrTokenInvalid)
 
 	require.Empty(t, cache.saves())
 
@@ -497,7 +559,7 @@ func (f *rebuildableFilter) AddBatch(ctx context.Context, values iter.Seq[string
 
 func (f *rebuildableFilter) LastRebuild() time.Time { return time.Time{} }
 
-func (f *rebuildableFilter) Rebuild(ctx context.Context, loader DataLoader) error {
+func (f *rebuildableFilter) Rebuild(ctx context.Context, loader probfilter.DataLoader) error {
 	next := map[string]bool{}
 	for v, err := range loader.StreamValues(ctx) {
 		if err != nil {

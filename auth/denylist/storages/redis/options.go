@@ -4,7 +4,7 @@
 
 package redis
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 // DefaultKeyPrefix is the default prefix for revocation keys in Redis.
 const DefaultKeyPrefix = "denylist:revoked:"

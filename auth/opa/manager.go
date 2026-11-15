@@ -11,18 +11,18 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/open-policy-agent/opa/v1/storage"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // Manager manages OPA policies and provides thread-safe evaluation.
@@ -55,7 +55,7 @@ type Manager struct {
 	// closeDone is closed once the first Close has finished its teardown;
 	// concurrent Close callers wait on it.
 	closeDone       chan struct{}
-	updateCycleTask corescheduler.ManagedTask // Guards RunUpdateCycle and marks scheduler management.
+	updateCycleTask *cycle.Guard // Guards RunUpdateCycle and marks scheduler management.
 }
 
 // NewManager creates a new OPA Manager with the given source and query.
@@ -77,10 +77,11 @@ func NewManager(ctx context.Context, source PolicySource, query string, opts ...
 		store:        inmem.New(),
 		watchManager: newWatchManager(),
 		opts:         o,
-		metrics:      newOpaMetrics(o.collector),
+		metrics:      newOpaMetrics(o.meter),
 		logger:       cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
 		closeDone:    make(chan struct{}),
 	}
+	m.updateCycleTask = cycle.New(m.runUpdateCycleInternal)
 
 	// Initialize revision to empty string
 	emptyRevision := ""
@@ -211,7 +212,7 @@ func (m *Manager) pollLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := m.updateCycleTask.TryRun(ctx, m.runUpdateCycleInternal); err != nil {
+			if err := m.updateCycleTask.TryRun(ctx); err != nil {
 				m.logger.Error("policy reload failed", slog.Any("error", err))
 			}
 		}
@@ -238,14 +239,14 @@ func (m *Manager) reload(ctx context.Context) error {
 	if err != nil {
 		m.lastError.Store(&err)
 		m.broadcastError(err)
-		m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "fetch_error"}).Inc()
+		m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "fetch_error"}).Inc()
 		return coreerrs.JoinWrap(ErrBundleFetchFailed, err)
 	}
 
 	currentRevision := m.Revision()
 	if bundle.Revision == currentRevision {
 		m.logger.Debug("bundle unchanged, skipping reload", slog.String("revision", bundle.Revision))
-		m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "unchanged"}).Inc()
+		m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "unchanged"}).Inc()
 		return nil
 	}
 
@@ -255,7 +256,7 @@ func (m *Manager) reload(ctx context.Context) error {
 		if loadErr := loadBundleData(ctx, store, bundle.Data); loadErr != nil {
 			m.lastError.Store(&loadErr)
 			m.broadcastError(loadErr)
-			m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "prepare_error"}).Inc()
+			m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "prepare_error"}).Inc()
 			return coreerrs.JoinWrap(ErrQueryPrepareFailed, loadErr)
 		}
 	}
@@ -275,7 +276,7 @@ func (m *Manager) reload(ctx context.Context) error {
 	if err != nil {
 		m.lastError.Store(&err)
 		m.broadcastError(err)
-		m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "prepare_error"}).Inc()
+		m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "prepare_error"}).Inc()
 		return coreerrs.JoinWrap(ErrQueryPrepareFailed, err)
 	}
 
@@ -294,7 +295,7 @@ func (m *Manager) reload(ctx context.Context) error {
 	now := time.Now()
 	m.lastUpdate.Store(&now)
 	m.lastError.Store(nil)
-	m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "success"}).Inc()
+	m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "success"}).Inc()
 	m.metrics.modulesLoaded.Set(float64(bundle.ModuleCount()))
 
 	m.logger.Info("policies reloaded",
@@ -315,13 +316,16 @@ func (m *Manager) reload(ctx context.Context) error {
 	return nil
 }
 
+// loadBundleData writes data in one write transaction. storage.Txn aborts
+// only on failure: aborting after Commit makes the inmem store panic with
+// "stale transaction".
 func loadBundleData(ctx context.Context, store storage.Store, data map[string]any) error {
-	txn, err := store.NewTransaction(ctx, storage.WriteParams)
-	if err != nil {
-		return err
-	}
-	defer store.Abort(ctx, txn)
+	return storage.Txn(ctx, store, storage.WriteParams, func(txn storage.Transaction) error {
+		return writeBundleData(ctx, store, txn, data)
+	})
+}
 
+func writeBundleData(ctx context.Context, store storage.Store, txn storage.Transaction, data map[string]any) error {
 	for key, value := range data {
 		path, ok := storage.ParsePath("/" + key)
 		if !ok {
@@ -331,8 +335,7 @@ func loadBundleData(ctx context.Context, store storage.Store, data map[string]an
 			return coreerrs.Wrapf(err, "write data %q", key)
 		}
 	}
-
-	return store.Commit(ctx, txn)
+	return nil
 }
 
 // broadcastError sends an error event to all subscribers.
@@ -479,7 +482,7 @@ func (e *regoEvaluator) cached(key string) (*Result, bool) {
 	// one under its original ID would make distinct decisions indistinguishable
 	// in the audit log.
 	if e.manager.opts.decisionLogging {
-		r.DecisionID = uuid.NewString()
+		r.DecisionID = uuid.New().String()
 	}
 
 	e.manager.metrics.cacheHits.Inc()
@@ -508,7 +511,7 @@ func (e *regoEvaluator) resolveResult(results rego.ResultSet) *Result {
 
 	val := results[0].Expressions[0].Value
 
-	// Path A: Boolean result (backward compatible).
+	// Path A: Boolean result.
 	// Queries like "data.authz.allow" return a plain bool.
 	if allow, ok := val.(bool); ok {
 		return e.buildResult(allow)
@@ -534,7 +537,7 @@ func (e *regoEvaluator) recordDecision(ctx context.Context, r *Result) error {
 		return nil
 	}
 
-	d := audit.Decision{
+	d := decision.Decision{
 		Time:       time.Now().UTC(),
 		Allowed:    r.Allow,
 		Action:     e.manager.query,
@@ -564,7 +567,7 @@ func (e *regoEvaluator) buildResult(allow bool) *Result {
 		return &Result{Allow: allow}
 	}
 
-	return &Result{Allow: allow, DecisionID: uuid.NewString()}
+	return &Result{Allow: allow, DecisionID: uuid.New().String()}
 }
 
 // buildResultFromMap parses a structured OPA result object into a Result.
@@ -577,7 +580,7 @@ func (e *regoEvaluator) buildResultFromMap(m map[string]any) *Result {
 	}
 
 	if e.manager.opts.decisionLogging {
-		r.DecisionID = uuid.NewString()
+		r.DecisionID = uuid.New().String()
 	}
 
 	if raw, ok := m["denials"]; ok {

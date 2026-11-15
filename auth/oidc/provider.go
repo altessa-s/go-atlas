@@ -6,33 +6,27 @@ package oidc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"maps"
 	"net/http"
-	"net/netip"
-	"net/url"
 	"slices"
-	"strings"
 	"sync/atomic"
 	"time"
 
-	"github.com/MicahParks/jwkset"
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/robfig/cron/v3"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-atlas-core/runtime/cycle"
 
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	corectx "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	corectx "github.com/altessa-s/go-atlas/core/context"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreretry "github.com/altessa-s/go-atlas/core/retry"
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	probfilter "github.com/altessa-s/go-atlas/cache/probfilter"
 )
 
 var (
@@ -47,13 +41,16 @@ var (
 	// ErrHTTPClientRequired is returned by [NewProvider] when no client is
 	// passed with [WithHTTPClient]. The provider does not pick a transport
 	// policy itself: pass the resilient, SSRF-protected client from
-	// transport/http/client (httpclient.New()), as the factory does.
+	// net/http/client (httpclient.New()), as the factory does.
 	ErrHTTPClientRequired = errors.New("oidc: HTTP client is required")
 	// ErrFilterNotRebuildable is returned by [filterRevocationStorage.Sync]
-	// when the underlying filter does not implement [RebuildableFilter].
+	// when the underlying filter does not implement [probfilter.RebuildableFilter].
 	ErrFilterNotRebuildable = errors.New("revocation filter does not support rebuild/sync")
 	// ErrRevocationLoadFailed is returned by [URLRevocationLoader] and
-	// related sources when the upstream signals a non-OK status.
+	// related sources when the upstream signals a non-OK status, the body
+	// exceeds the size cap, or an entry exceeds [MaxRevocationEntryBytes], and
+	// by the filter storage's Sync when the source turns up empty while the
+	// current revocation set is not. The current set is kept in every case.
 	ErrRevocationLoadFailed = errors.New("revocation source load failed")
 	// ErrJWKSStale is returned when the time since the last successful JWKS
 	// refresh exceeds the configured [DefaultJWKSMaxStaleness] (or whatever
@@ -81,6 +78,9 @@ var (
 	// (IsRevoked or the initial Sync fails) and the provider is fail-closed —
 	// the default unless [WithRevocationFailOpen] is set.
 	ErrRevocationCheck = errors.New("revocation check failed")
+	// ErrRevocationStale is wrapped by [ErrRevocationCheck] when the revocation
+	// storage has not completed a sync within [WithRevocationMaxStaleness].
+	ErrRevocationStale = errors.New("revocation data too stale to trust")
 )
 
 // maxDiscoveryResponseSize is the maximum bytes read from the OIDC discovery
@@ -114,31 +114,6 @@ func drainAndClose(resp *http.Response) {
 	_ = resp.Body.Close()                                                //nolint:errcheck
 }
 
-type discoveryInfo struct {
-	Issuer           string   `json:"issuer"`
-	AuthURL          string   `json:"authorization_endpoint"`
-	TokenURL         string   `json:"token_endpoint"`
-	JwksURL          string   `json:"jwks_uri"`
-	UserInfoURL      string   `json:"userinfo_endpoint"`
-	IntrospectionURL string   `json:"introspection_endpoint"`
-	EndSessionURL    string   `json:"end_session_endpoint"`
-	RevocationURL    string   `json:"revocation_endpoint"`
-	Algorithms       []string `json:"id_token_signing_alg_values_supported"`
-}
-
-// IsValid reports whether the discovery document carries the fields this
-// provider needs to verify tokens: the issuer, the JWKS URI, and at least one
-// supported signing algorithm. The authorization, token, and userinfo endpoints
-// are intentionally not required — they belong to the OAuth flow / UserInfo, not
-// to token validation, and per OpenID Connect Discovery 1.0 §3 userinfo_endpoint
-// is only RECOMMENDED. Requiring them would reject spec-valid token-only IdPs.
-// UserInfo calls guard the empty endpoint themselves.
-func (d *discoveryInfo) IsValid() bool {
-	return d.Issuer != "" &&
-		d.JwksURL != "" &&
-		len(d.Algorithms) > 0
-}
-
 // Provider handles OIDC token validation with automatic JWKS management.
 type Provider struct {
 	opts                *options
@@ -152,8 +127,8 @@ type Provider struct {
 	logger              *slog.Logger
 	tokenCache          Cacher
 	revocationStorage   RevocationStorage
-	revocationLoader    DataLoader
-	revocationFilter    Filter
+	revocationLoader    probfilter.DataLoader
+	revocationFilter    probfilter.Filter
 
 	// Internal state derived from options
 	verifierOptions  *verifierOptions
@@ -172,7 +147,7 @@ type Provider struct {
 	lastKeyFingerprint atomic.Pointer[keyFingerprintMemo]
 
 	// jwksRefreshTask makes concurrent RefreshJWKS calls collapse into one.
-	jwksRefreshTask corescheduler.ManagedTask
+	jwksRefreshTask *cycle.Guard
 	// refreshCron runs the periodic JWKS refresh and revocation sync; nil
 	// when no schedule is configured.
 	refreshCron *cron.Cron
@@ -186,14 +161,35 @@ type Provider struct {
 	// successful refreshJWKSInternal).
 	lastJWKSRefreshUnixNanos atomic.Int64
 
+	// lastRevocationSyncUnixNanos records the last successful revocation sync
+	// (zero: none yet); see [Provider.checkRevocationStaleness].
+	lastRevocationSyncUnixNanos atomic.Int64
+
+	// sharedRevocationSyncUnixNanos caches, as an instant of the local clock,
+	// when the last sync committed by any replica happened, derived from the
+	// age the storage reported ([RevocationSyncReporter]) to a scheduled sync
+	// job (zero: unknown); see
+	// [Provider.refreshSharedRevocationSync].
+	sharedRevocationSyncUnixNanos atomic.Int64
+
+	// seenSharedRevocationCommit is the storage's own timestamp of the commit
+	// sharedRevocationSyncUnixNanos was derived from (zero: none). It only
+	// identifies the commit; it is never compared with the local clock.
+	seenSharedRevocationCommit atomic.Int64
+
 	// metrics provides Prometheus-compatible instrumentation for OIDC operations.
 	metrics *oidcMetrics
 }
 
-// NewProvider creates an OIDC provider from a discovery URL.
-// Call Close when done to release resources. A client passed with
-// [WithHTTPClient] is required; NewProvider returns [ErrHTTPClientRequired]
-// without one.
+// NewProvider creates an OIDC provider from a discovery URL. A client passed
+// with [WithHTTPClient] is required; NewProvider returns
+// [ErrHTTPClientRequired] without one.
+//
+// ctx bounds only the work done before NewProvider returns: discovery, the
+// initial JWKS fetch and the initial revocation sync. The background work
+// ([WithJWKSRefreshSchedule], [WithRevocationSyncSchedule]) keeps ctx's values
+// but outlives its cancellation, so the provider must be closed: only
+// [Provider.Close] stops it.
 //
 // When a revocation storage is configured (directly, or assembled from
 // [WithRevocationFilter] and [WithRevocationLoader]), NewProvider runs one
@@ -211,24 +207,8 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	// Build options first
 	o := newOptions(opt...)
 
-	// If service config path is set, load and apply the configuration
-	if o.serviceConfigPath != "" {
-		config, err := LoadServiceConfig(o.serviceConfigPath)
-		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "load service config")
-		}
-
-		// Convert service config to provider options
-		configOpts, err := config.ToProviderOptions()
-		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "convert service config to options")
-		}
-
-		// Apply all validation options from config
-		// This will override any previously set validation options
-		for i := range configOpts {
-			configOpts[i](o)
-		}
+	if err := applyServiceConfig(o); err != nil {
+		return nil, err
 	}
 
 	client := o.httpClient
@@ -248,35 +228,11 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		revocationFilter:  o.revocationFilter,
 		revocationLoader:  o.revocationLoader,
 		verifierOptions:   o.verifierOptions,
-		metrics:           newOIDCMetrics(o.collector),
+		metrics:           newOIDCMetrics(o.meter),
 	}
+	p.jwksRefreshTask = cycle.New(p.refreshJWKSInternal)
 
-	p.prepareRevocationClients()
-
-	// Share the Provider's HTTP client with any revocation loader that
-	// opts into injection by implementing SetHTTPClient(*http.Client).
-	// Every OIDC outbound call (discovery, JWKS, introspection,
-	// userinfo, revocation) then uses the same connection pool and
-	// proxy resolver. Loaders decide their own preserve-vs-overwrite
-	// policy in their SetHTTPClient implementation.
-	if setter, ok := p.revocationLoader.(httpClientSetter); ok {
-		setter.SetHTTPClient(client)
-	}
-
-	// Initialize revocation storage if not provided but filter/loader are available
-	if p.revocationStorage == nil && p.revocationFilter != nil {
-		p.revocationStorage = NewFilterRevocationStorage(p.revocationFilter, p.revocationLoader, o.revocationAuthoritative)
-	} else if p.revocationStorage == nil && p.revocationLoader != nil && p.revocationFilter == nil {
-		// Warn if loader is provided without filter - loader will be ignored
-		p.logger.Warn("revocation loader provided without revocation filter, loader will be ignored")
-	}
-
-	// A ready-made storage (e.g. the factory's filter storage wrapping a
-	// URLRevocationLoader) gets the shared client too, so its loader does
-	// not fail every sync with ErrLoaderClientNotConfigured.
-	if setter, ok := p.revocationStorage.(httpClientSetter); ok {
-		setter.SetHTTPClient(client)
-	}
+	p.wireRevocation(client)
 
 	// Validate and process preset selection rules
 	p.validatePresetSelectionRules()
@@ -286,12 +242,14 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		return nil, err
 	}
 
-	// Pre-build the ignored claims lookup set for the default verifier options.
-	if p.verifierOptions != nil {
-		p.verifierOptions.buildIgnoredSet()
+	if err := p.prepareDefaultVerifierOptions(); err != nil {
+		return nil, err
 	}
 
-	p.backgroundCtx, p.cancelBackgroundCtx = context.WithCancel(ctx)
+	// Background work (JWKS storage, the refresh cron) keeps ctx's values but
+	// not its cancellation: a startup-timeout ctx must not silence every later
+	// refresh. Only Close ends it.
+	p.backgroundCtx, p.cancelBackgroundCtx = context.WithCancel(context.WithoutCancel(ctx))
 
 	// Every failure from here on must release what construction acquired:
 	// the background context (JWKS storage, keyfunc) and the HTTP client's
@@ -305,11 +263,11 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	}()
 
 	const discoveryTimeout = 5 * time.Second
-	discoveryCtx, cancelFunc := corectx.ApplyTimeout(p.backgroundCtx, discoveryTimeout)
+	discoveryCtx, cancelFunc := corectx.ApplyTimeout(ctx, discoveryTimeout)
 	defer cancelFunc()
 
 	var err error
-	if err = p.getDiscoveryInfo(discoveryCtx); err != nil { //nolint:contextcheck // intentionally uses background context with timeout for discovery
+	if err = p.getDiscoveryInfo(discoveryCtx); err != nil {
 		return nil, err
 	}
 
@@ -347,6 +305,83 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		p.refreshCron.Start()
 	}
 	return p, nil
+}
+
+// applyServiceConfig loads the service config file set by
+// WithServiceConfigPath, if any, and applies its validation options over the
+// ones already in o.
+func applyServiceConfig(o *options) error {
+	if o.serviceConfigPath == "" {
+		return nil
+	}
+	config, err := LoadServiceConfig(o.serviceConfigPath)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "load service config")
+	}
+
+	// Convert service config to provider options
+	configOpts, err := config.ToProviderOptions()
+	if err != nil {
+		return coreerrs.WrapOperation(err, "convert service config to options")
+	}
+
+	// Apply all validation options from config
+	// This will override any previously set validation options
+	for i := range configOpts {
+		configOpts[i](o)
+	}
+	return nil
+}
+
+// wireRevocation prepares the revocation clients and storage and shares the
+// Provider's HTTP client with them.
+func (p *Provider) wireRevocation(client *http.Client) {
+	p.prepareRevocationClients()
+
+	// Share the Provider's HTTP client with any revocation loader that
+	// opts into injection by implementing SetHTTPClient(*http.Client).
+	// Every OIDC outbound call (discovery, JWKS, introspection,
+	// userinfo, revocation) then uses the same connection pool and
+	// proxy resolver. Loaders decide their own preserve-vs-overwrite
+	// policy in their SetHTTPClient implementation.
+	if setter, ok := p.revocationLoader.(httpClientSetter); ok {
+		setter.SetHTTPClient(client)
+	}
+
+	// Initialize revocation storage if not provided but filter/loader are available
+	if p.revocationStorage == nil && p.revocationFilter != nil {
+		p.revocationStorage = NewFilterRevocationStorage(p.revocationFilter, p.revocationLoader, p.opts.revocationAuthoritative)
+	} else if p.revocationStorage == nil && p.revocationLoader != nil && p.revocationFilter == nil {
+		// Warn if loader is provided without filter - loader will be ignored
+		p.logger.Warn("revocation loader provided without revocation filter, loader will be ignored")
+	}
+
+	// A ready-made storage (e.g. the factory's filter storage wrapping a
+	// URLRevocationLoader) gets the shared client too, so its loader does
+	// not fail every sync with ErrLoaderClientNotConfigured.
+	if setter, ok := p.revocationStorage.(httpClientSetter); ok {
+		setter.SetHTTPClient(client)
+	}
+
+	// The built-in storage is provider-local by now (created above or cloned
+	// in prepareRevocationClients), so the setting never leaks to a storage
+	// shared with another provider.
+	if storage, ok := p.revocationStorage.(*filterRevocationStorage); ok && storage != nil {
+		storage.allowEmpty = p.opts.revocationAllowEmpty
+	}
+}
+
+// prepareDefaultVerifierOptions checks the default validation options' leeway
+// and pre-builds their ignored-claims lookup set.
+func (p *Provider) prepareDefaultVerifierOptions() error {
+	if p.verifierOptions == nil {
+		return nil
+	}
+	if err := checkLeeway(p.verifierOptions.leeway); err != nil {
+		return coreerrs.Wrap(err, "default validation options")
+	}
+	p.verifierOptions.buildIgnoredSet()
+	return nil
 }
 
 // UserinfoEndpoint returns the userinfo endpoint URL from OIDC discovery.
@@ -538,7 +573,7 @@ func (p *Provider) validateTokenWithOptions(ctx context.Context, token string, o
 
 	claims, header, err := p.parseAndValidateToken(ctx, token, policy)
 	if err != nil {
-		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
+		logValidationFailure(ctx, p.logger, "failed to validate token", err)
 		return nil, err
 	}
 
@@ -560,8 +595,9 @@ func (p *Provider) validateTokenWithOptions(ctx context.Context, token string, o
 func (p *Provider) verifyAndSelectPreset(ctx context.Context, token string) (jwt.MapClaims, map[string]any, *ValidationPreset, error) {
 	claims, header, err := p.verifyTokenSignature(ctx, token, p.builtinPolicy)
 	if err != nil {
-		p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
-		return nil, nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
+		err = coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
+		logValidationFailure(ctx, p.logger, "signature verification failed", err)
+		return nil, nil, nil, err
 	}
 
 	presetName := p.selectPresetForClaims(cloneClaims(claims))
@@ -593,7 +629,7 @@ func (p *Provider) validateVerified(
 		return coreerrs.Wrapf(ErrTokenInvalid, "signing algorithm %q not allowed%s", alg, scope)
 	}
 	if err := p.applyPolicy(claims, policy); err != nil {
-		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
+		logValidationFailure(ctx, p.logger, "failed to validate token", err)
 		return err
 	}
 	return p.checkTokenRevocationVerified(ctx, token, claims, header)
@@ -624,731 +660,6 @@ func cloneClaimValue(v any) any {
 	}
 }
 
-// checkIntrospection asks the IdP (RFC 7662) whether a signature-verified
-// token is still active. It runs only after the token's signature and claims
-// were verified, so garbage or foreign-signed tokens never reach the IdP.
-//
-// Introspection errors are fatal by default: the token is rejected with
-// [ErrIntrospection] when the endpoint is unreachable ([WithIntrospection]).
-// Enable [WithIntrospectionFailOpen] to instead log the error and accept the
-// token on its signature alone.
-func (p *Provider) checkIntrospection(ctx context.Context, token string) error {
-	introspectionResp, err := p.IntrospectToken(ctx, token)
-	if err != nil {
-		p.metrics.revocationCheckErrors.Inc()
-		if p.opts.introspectionFailOpen {
-			p.logger.WarnContext(ctx, "token introspection failed, continuing with signature validation", slog.Any("error", err))
-			return nil
-		}
-		p.logger.WarnContext(ctx,
-			"token introspection failed, rejecting token",
-			slog.Any("error", err))
-		return coreerrs.Wrap(ErrIntrospection, "introspection endpoint unavailable")
-	}
-	if !introspectionResp.Active {
-		return ErrTokenRevoked
-	}
-	return nil
-}
-
-// checkTokenRevocationVerified runs every revocation check for a token whose
-// signature has been verified: the local revocation storage first (keyed on
-// the full token, or on the verified jti claim / kid header), then RFC 7662
-// introspection when enabled. A local hit always rejects — introspection
-// cannot overrule it — and a local miss never skips introspection.
-//
-// Every validation path runs it after signature and claim verification, so
-// all paths share the same revocation boundary. It must only be called with
-// claims/header returned by a signature-verifying path
-// ([Provider.verifyTokenSignature]); passing unverified data would let an
-// attacker choose the jti/kid lookup key.
-func (p *Provider) checkTokenRevocationVerified(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
-	if err := p.checkLocalRevocation(ctx, token, claims, header); err != nil {
-		return err
-	}
-	if p.opts.introspectionEnabled {
-		return p.checkIntrospection(ctx, token)
-	}
-	return nil
-}
-
-// checkLocalRevocation consults the configured [RevocationStorage]. A storage
-// error rejects the token with [ErrRevocationCheck] unless
-// [WithRevocationFailOpen] is set; either way it is logged and counted.
-func (p *Provider) checkLocalRevocation(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
-	if p.revocationStorage == nil {
-		return nil
-	}
-
-	item := revocationItemFromVerifiedClaims(p.opts.revocationItemType, claims, header, token)
-	isRevoked, err := p.revocationStorage.IsRevoked(ctx, item)
-	if err != nil {
-		p.metrics.revocationCheckErrors.Inc()
-		if p.opts.revocationFailOpen {
-			p.logger.ErrorContext(ctx, "revocation storage check failed; allowing token (fail-open)",
-				"item_type", p.opts.revocationItemType, "error", err)
-			return nil
-		}
-		p.logger.ErrorContext(ctx, "revocation storage check failed; rejecting token (fail-closed)",
-			"item_type", p.opts.revocationItemType, "error", err)
-		return fmt.Errorf("%w: revocation storage: %w", ErrRevocationCheck, err)
-	}
-	if isRevoked {
-		p.logger.DebugContext(ctx, "item found in revocation storage",
-			"item_type", p.opts.revocationItemType)
-		return ErrTokenRevoked
-	}
-
-	return nil
-}
-
-// Backoff bounds for retrying the initial revocation sync while a shared
-// filter is busy (see initialRevocationSync).
-const (
-	initialSyncRetryBaseDelay = 250 * time.Millisecond
-	initialSyncRetryMaxDelay  = 5 * time.Second
-	initialSyncRetryJitter    = 0.2
-)
-
-// initialRevocationSync populates the revocation storage once at
-// construction so the provider never serves with an empty filter while
-// waiting for the first scheduled sync. Failure follows the revocation fail
-// mode: fail-closed (default) aborts construction, fail-open logs and goes on.
-func (p *Provider) initialRevocationSync(ctx context.Context) error {
-	if p.revocationStorage == nil {
-		return nil
-	}
-	// Only a sync this provider completed itself proves the filter holds the
-	// current source. While another replica rebuilds the shared filter
-	// (ErrRebuildInProgress) or this rebuild lost its lease
-	// (ErrRebuildSuperseded) the sync is retried with backoff, bounded by
-	// WithRevocationInitialSyncWait; a peer that publishes releases the lease
-	// and the retry then rebuilds and publishes again, and a peer that fails
-	// or vanishes is replaced by the retry. Any other error, or running out of
-	// time, is a failed initial sync.
-	// The budget bounds only the waiting between attempts: each attempt gets
-	// the caller's context, so a long rebuild of our own is never cut off.
-	waitCtx, cancel := context.WithTimeout(ctx, p.opts.revocationInitialSyncWait)
-	defer cancel()
-	var lastErr error
-	err := coreretry.Do(waitCtx, func(context.Context) error {
-		lastErr = p.revocationStorage.Sync(ctx)
-		return lastErr
-	},
-		coreretry.WithMaxAttempts(-1),
-		coreretry.WithShouldRetry(func(err error) bool {
-			return errors.Is(err, probfilter.ErrRebuildInProgress) || errors.Is(err, probfilter.ErrRebuildSuperseded)
-		}),
-		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
-			BaseDelay: initialSyncRetryBaseDelay, MaxDelay: initialSyncRetryMaxDelay, Jitter: initialSyncRetryJitter,
-		})),
-	)
-	if err == nil {
-		return nil
-	}
-	if lastErr != nil && !errors.Is(err, lastErr) {
-		err = errors.Join(lastErr, err) // budget exhausted while the filter stayed busy
-	}
-	p.metrics.revocationCheckErrors.Inc()
-	if p.opts.revocationFailOpen {
-		p.logger.ErrorContext(ctx, "initial revocation sync failed; starting anyway (fail-open)", "error", err)
-		return nil
-	}
-	return fmt.Errorf("%w: initial revocation sync: %w", ErrRevocationCheck, err)
-}
-
-// revocationItemFromVerifiedClaims extracts the revocation lookup key from
-// signature-verified claims/header. Falls back to the full token when the
-// configured field is missing so the caller still gets a deterministic key.
-func revocationItemFromVerifiedClaims(itemType string, claims jwt.MapClaims, header map[string]any, token string) string {
-	switch itemType {
-	case RevocationItemTypeJTI:
-		if jti, ok := claims[RevocationItemTypeJTI].(string); ok && jti != "" {
-			return jti
-		}
-	case RevocationItemTypeKID:
-		if header != nil {
-			if kid, ok := header[RevocationItemTypeKID].(string); ok && kid != "" {
-				return kid
-			}
-		}
-	}
-	return token
-}
-
-func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.discoveryURL, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := p.client.Do(req) //nolint:bodyclose
-	if err != nil {
-		return coreerrs.WrapOperation(errors.Join(ErrDiscovery, err), "fetch discovery")
-	}
-	defer drainAndClose(resp)
-
-	// Security: cap the read — a malicious or misconfigured IdP must not be
-	// able to OOM the validator with a multi-GB discovery document.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryResponseSize+1))
-	if err != nil {
-		return coreerrs.Wrapf(ErrDiscovery, "%s", err)
-	}
-	if len(body) > maxDiscoveryResponseSize {
-		return coreerrs.Wrapf(ErrDiscovery, "discovery document exceeds %d bytes", maxDiscoveryResponseSize)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return coreerrs.Wrapf(ErrDiscovery, "unexpected response status: %s", resp.Status)
-	}
-
-	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "application/json") {
-		return coreerrs.Wrapf(ErrDiscovery, "unexpected content type: %s", ct)
-	}
-
-	var dInfo discoveryInfo
-	if err = json.Unmarshal(body, &dInfo); err != nil {
-		return coreerrs.Wrapf(ErrDiscovery, "failed to unmarshal response body: %v", err)
-	}
-
-	if !dInfo.IsValid() {
-		return coreerrs.Wrap(ErrDiscovery, "received uncompleted discovery info")
-	}
-
-	// Mix-up / SSRF defense: verify the document's issuer and the endpoints it
-	// advertises before any of them are fetched or sent credentials. A
-	// malicious or compromised IdP (or a network attacker on a non-HTTPS
-	// fetch) must not be able to redirect JWKS/introspection/userinfo calls to
-	// an attacker-chosen host.
-	if err = p.validateDiscoveredEndpoints(&dInfo); err != nil {
-		return err
-	}
-
-	p.discoveryInfo = &dInfo
-
-	return nil
-}
-
-// deriveExpectedIssuer strips the well-known discovery suffix from the
-// configured discovery URL to recover the issuer identifier that the discovery
-// document's issuer field must equal (RFC 8414 §3 / OIDC Discovery §4).
-// Trailing slashes are trimmed so the comparison is stable.
-func deriveExpectedIssuer(discoveryURL string) string {
-	issuer := discoveryURL
-	for _, suffix := range []string{
-		"/.well-known/openid-configuration",
-		"/.well-known/oauth-authorization-server",
-	} {
-		if trimmed, ok := strings.CutSuffix(issuer, suffix); ok {
-			issuer = trimmed
-			break
-		}
-	}
-	return strings.TrimRight(issuer, "/")
-}
-
-// validateDiscoveredEndpoints enforces the discovery issuer/endpoint contract
-// selected by [WithDiscoveryValidationMode]: the document's issuer must equal
-// the configured issuer, and every advertised endpoint must be HTTPS and share
-// the issuer's host — plain http is accepted on a loopback issuer host with
-// [WithDiscoveryAllowLoopbackHTTP]. In [DiscoveryValidationModeWarn] violations are logged and
-// the document is accepted; in [DiscoveryValidationModeDisabled] the check is
-// skipped entirely.
-func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
-	// A Provider built without options (only reachable in white-box tests;
-	// NewProvider always populates opts) has no configured mode — skip.
-	if p.opts == nil || p.opts.discoveryValidationMode == DiscoveryValidationModeDisabled {
-		return nil
-	}
-
-	expectedIssuer := deriveExpectedIssuer(p.discoveryURL)
-
-	var violations []string
-	if strings.TrimRight(d.Issuer, "/") != expectedIssuer {
-		violations = append(violations,
-			fmt.Sprintf("issuer %q does not match configured issuer %q", d.Issuer, expectedIssuer))
-	}
-
-	issuerHost := ""
-	allowHTTP := false
-	if u, err := url.Parse(expectedIssuer); err == nil {
-		issuerHost = u.Host
-		allowHTTP = p.opts.discoveryAllowLoopbackHTTP && isLoopbackHost(u.Hostname())
-		if u.Scheme != "https" && (u.Scheme != "http" || !allowHTTP) {
-			violations = append(violations, fmt.Sprintf("issuer %q is not HTTPS", expectedIssuer))
-		}
-	}
-
-	for _, ep := range []struct{ name, raw string }{
-		{"jwks_uri", d.JwksURL},
-		{"token_endpoint", d.TokenURL},
-		{"introspection_endpoint", d.IntrospectionURL},
-		{"userinfo_endpoint", d.UserInfoURL},
-		{"authorization_endpoint", d.AuthURL},
-		{"end_session_endpoint", d.EndSessionURL},
-		{"revocation_endpoint", d.RevocationURL},
-	} {
-		if ep.raw == "" {
-			continue
-		}
-		u, err := url.Parse(ep.raw)
-		if err != nil {
-			violations = append(violations, fmt.Sprintf("%s %q is not a valid URL", ep.name, ep.raw))
-			continue
-		}
-		// allowHTTP holds only for a loopback issuer, and the host check
-		// below pins the endpoint to that same host.
-		if u.Scheme != "https" && (u.Scheme != "http" || !allowHTTP) {
-			violations = append(violations, fmt.Sprintf("%s %q is not HTTPS", ep.name, ep.raw))
-		}
-		if issuerHost != "" && u.Host != issuerHost {
-			violations = append(violations,
-				fmt.Sprintf("%s host %q does not match issuer host %q", ep.name, u.Host, issuerHost))
-		}
-	}
-
-	if len(violations) == 0 {
-		return nil
-	}
-
-	if p.opts.discoveryValidationMode == DiscoveryValidationModeWarn {
-		p.logger.Error("discovery document failed issuer/endpoint validation; loading anyway (warn mode)",
-			slog.String("discovery_url", p.discoveryURL),
-			slog.Any("violations", violations))
-		return nil
-	}
-
-	return coreerrs.Wrapf(ErrDiscoveryValidation, "%s", strings.Join(violations, "; "))
-}
-
-// isLoopbackHost reports whether host (without port) is "localhost" or a
-// loopback IP literal.
-func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip, err := netip.ParseAddr(host)
-	return err == nil && ip.IsLoopback()
-}
-
-// initializeJWKS loads bounded JWKS storage; the provider owns subsequent refreshes.
-func (p *Provider) initializeJWKS(ctx context.Context) error {
-	// Initialization preserves the dependency's strict validation policy and
-	// default timeout, while all network reads share the bounded fetch path.
-	timeout := p.opts.jwksHTTPTimeout
-	if timeout == 0 {
-		timeout = time.Minute
-	}
-	ctx, cancel := corectx.ApplyTimeout(ctx, timeout)
-	defer cancel()
-	jwks, err := p.fetchJWKS(ctx)
-	if err != nil {
-		return coreerrs.WrapOperation(err, "initialize JWKS storage")
-	}
-	keys := make([]jwkset.JWK, 0, len(jwks.Keys))
-	for _, marshal := range jwks.Keys {
-		key, keyErr := jwkset.NewJWKFromMarshal(marshal, jwkset.JWKMarshalOptions{Private: true}, jwkset.JWKValidateOptions{})
-		if errors.Is(keyErr, jwkset.ErrUnsupportedKey) {
-			continue
-		}
-		if keyErr != nil {
-			return coreerrs.WrapOperation(keyErr, "initialize JWK")
-		}
-		keys = append(keys, key)
-	}
-	storage := jwkset.NewMemoryStorage()
-	if err = storage.KeyReplaceAll(ctx, keys); err != nil {
-		return coreerrs.WrapOperation(err, "initialize JWKS storage")
-	}
-
-	// Create keyfunc with the configured storage
-	p.jwks, err = keyfunc.New(keyfunc.Options{
-		Ctx:     p.backgroundCtx,
-		Storage: storage,
-	})
-	if err != nil {
-		return coreerrs.WrapOperation(err, "create JWKS keyfunc")
-	}
-
-	// Bridge the keyfunc JWKS cache to an authjwt.KeyResolver. keyfunc/v3 reads
-	// only the "kid" and "alg" header fields (not token.Method), so a minimal
-	// synthetic token carrying the verified header is enough to look up the key.
-	// token.Method is intentionally nil here: it is never read by keyfunc/v3, so
-	// this depends on that library behavior. If a future keyfunc version reads
-	// token.Method.Alg() this would nil-panic — the go.mod pin and the JWKS
-	// tests guard against that. The resolved key's Algorithm is left empty so
-	// authjwt's allow-list (WithAllowedAlgorithms) governs the accepted
-	// algorithms; authjwt still rejects a nil key.
-	p.keyResolver = authjwt.KeyResolverFunc(func(ctx context.Context, hdr authjwt.Header, _ authjwt.Claims) (authjwt.VerificationKey, error) {
-		tok := &jwt.Token{Header: map[string]any{"alg": hdr.Alg}}
-		if hdr.Kid != "" {
-			tok.Header["kid"] = hdr.Kid
-		}
-		key, err := p.jwks.KeyfuncCtx(ctx)(tok)
-		if err != nil {
-			return authjwt.VerificationKey{}, err
-		}
-		return authjwt.VerificationKey{Key: key}, nil
-	})
-
-	// Seed the staleness anchor so [Provider.checkJWKSStaleness] does not
-	// reject every request issued before the first scheduled refresh.
-	// Construction is the first authoritative "fresh-as-of-now" event.
-	p.markJWKSRefreshed()
-
-	return nil
-}
-
-// markJWKSRefreshed records the current wall-clock time as the last
-// authoritative JWKS refresh. Callers MUST invoke it only when the
-// storage has been fully repopulated from the IdP (initial bootstrap,
-// successful scheduled refresh, successful manual [Provider.RefreshJWKS]).
-func (p *Provider) markJWKSRefreshed() {
-	p.lastJWKSRefreshUnixNanos.Store(time.Now().UnixNano())
-}
-
-// jwksAge returns the time elapsed since the last successful JWKS refresh.
-// Returns zero if no successful refresh has been recorded yet (the field
-// is seeded in [Provider.initializeJWKS], so in practice this only happens
-// in unit tests that bypass NewProvider).
-func (p *Provider) jwksAge() time.Duration {
-	stored := p.lastJWKSRefreshUnixNanos.Load()
-	if stored == 0 {
-		return 0
-	}
-	age := time.Since(time.Unix(0, stored))
-	if age < 0 {
-		return 0
-	}
-	return age
-}
-
-// checkJWKSStaleness reacts when the local JWKS cache has not been
-// refreshed within [WithJWKSMaxStaleness]. Behavior is controlled by
-// [WithJWKSFailureMode]:
-//
-//   - [JWKSFailureModeEnforce] (default) returns [ErrJWKSStale] so the
-//     caller rejects the validation;
-//   - [JWKSFailureModeWarn] logs at error level and lets the validation
-//     proceed;
-//   - [JWKSFailureModeDisabled] is a no-op.
-//
-// A zero [WithJWKSMaxStaleness] disables the check regardless of mode,
-// preserving the historical opt-in behavior so callers without an
-// active refresh path are not surprised by sudden rejections.
-func (p *Provider) checkJWKSStaleness(ctx context.Context) error {
-	maxStaleness := p.opts.jwksMaxStaleness
-	if maxStaleness <= 0 {
-		return nil
-	}
-	mode := p.opts.jwksFailureMode
-	if mode == JWKSFailureModeDisabled {
-		return nil
-	}
-
-	age := p.jwksAge()
-	if age <= maxStaleness {
-		return nil
-	}
-
-	p.metrics.jwksStaleRejections.Inc()
-	switch mode {
-	case JWKSFailureModeWarn:
-		p.logger.ErrorContext(ctx,
-			"JWKS cache exceeded staleness budget but JWKSFailureModeWarn is configured; allowing validation",
-			slog.Duration("age", age),
-			slog.Duration("max_staleness", maxStaleness))
-		return nil
-	default: // JWKSFailureModeEnforce — also covers empty/unknown modes.
-		p.logger.ErrorContext(ctx,
-			"JWKS cache exceeded staleness budget; rejecting validation",
-			slog.Duration("age", age),
-			slog.Duration("max_staleness", maxStaleness))
-		return coreerrs.Wrapf(ErrJWKSStale,
-			"jwks age %s exceeds max staleness %s", age, maxStaleness)
-	}
-}
-
-// validateClaims performs custom claims validation based on verifier options.
-func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, compiledCELRules []celPreCompiledValidationRule) error {
-	if ops.withoutClaimsValidation {
-		return nil
-	}
-
-	if err := p.checkAudienceConfigured(ops); err != nil {
-		return err
-	}
-
-	// Use the pre-built ignored claims set (populated by buildIgnoredSet).
-	ignored := ops.ignoredClaimsSet
-
-	if err := validateRequiredClaims(claims, ops, ignored); err != nil {
-		return err
-	}
-
-	if err := validateExpectedClaims(claims, ops, ignored); err != nil {
-		return err
-	}
-
-	if err := validateAllowedClientIDs(claims, ops.allowedClientIDs); err != nil {
-		return err
-	}
-
-	if err := validateRequiredScopes(claims, ops.requiredScopes); err != nil {
-		return err
-	}
-
-	if err := validateAuthorizedParty(claims, ops.requireAuthorizedParty, ops.allowedAuthorizedParties); err != nil {
-		return err
-	}
-
-	if err := validateTokenLifetime(claims, ops.maxTokenLifetime); err != nil {
-		return err
-	}
-
-	return validateCELRules(claims, compiledCELRules)
-}
-
-// checkAudienceConfigured enforces the provider's [AudienceFailureMode] when
-// validation runs without an expected audience. With an expected audience set
-// its value is enforced by the jwt verifier ([Provider.jwtVerifyOptions]); the
-// `aud` claim being merely present (DefaultRequiredClaims) does not bind the
-// token to this service, so an unconfigured audience is treated per the mode:
-// enforce rejects, warn logs and continues, disabled is silent.
-func (p *Provider) checkAudienceConfigured(ops *verifierOptions) error {
-	if len(ops.audience) > 0 {
-		return nil
-	}
-
-	switch p.opts.audienceFailureMode {
-	case AudienceFailureModeWarn:
-		p.logger.Warn("token validated without an expected audience; cross-audience replay is possible " +
-			"(configure WithValidationAudience or set WithAudienceFailureMode)")
-		return nil
-	case AudienceFailureModeDisabled:
-		return nil
-	default: // AudienceFailureModeEnforce
-		return coreerrs.Wrap(ErrAudienceNotConfigured,
-			"refusing to validate token without an expected audience (set WithValidationAudience or relax via WithAudienceFailureMode)")
-	}
-}
-
-func isIgnoredClaim(ignored map[string]struct{}, claim string) bool {
-	if len(ignored) == 0 {
-		return false
-	}
-	_, exists := ignored[claim]
-	return exists
-}
-
-func validateRequiredClaims(claims map[string]any, ops *verifierOptions, ignored map[string]struct{}) error {
-	required := ops.requiredClaims
-	if len(required) == 0 {
-		required = DefaultRequiredClaims
-	}
-
-	for _, claim := range required {
-		if isIgnoredClaim(ignored, claim) {
-			continue
-		}
-
-		if claim == "sub" && ops.allowMissingSubject {
-			continue
-		}
-
-		value, exists := claims[claim]
-		if !exists {
-			return coreerrs.Wrapf(ErrTokenInvalid, "missing required claim '%s'", claim)
-		}
-
-		if claim == "sub" {
-			subStr, ok := value.(string)
-			if !ok || subStr == "" {
-				return coreerrs.Wrap(ErrTokenInvalid, "claim 'sub' cannot be empty")
-			}
-		}
-	}
-
-	return nil
-}
-
-func validateExpectedClaims(claims map[string]any, ops *verifierOptions, ignored map[string]struct{}) error {
-	for claim, expectedValue := range ops.expectedClaims {
-		if isIgnoredClaim(ignored, claim) {
-			continue
-		}
-
-		actualValue, exists := claims[claim]
-		if !exists {
-			return coreerrs.Wrapf(ErrTokenInvalid, "missing expected claim '%s'", claim)
-		}
-
-		actualStr := fmt.Sprint(actualValue)
-		if actualStr != expectedValue {
-			return coreerrs.Wrapf(ErrTokenInvalid, "claim '%s' has unexpected value", claim)
-		}
-	}
-
-	return nil
-}
-
-func validateAllowedClientIDs(claims map[string]any, allowed []string) error {
-	if len(allowed) == 0 {
-		return nil
-	}
-
-	clientID, exists := claims["client_id"]
-	if !exists {
-		clientID, exists = claims["azp"]
-	}
-	if !exists {
-		return coreerrs.Wrap(ErrTokenInvalid, "missing 'client_id' or 'azp' claim for client ID validation")
-	}
-
-	clientIDStr, ok := clientID.(string)
-	if !ok {
-		return coreerrs.Wrap(ErrTokenInvalid, "claim 'client_id' is not a string")
-	}
-
-	if !slices.Contains(allowed, clientIDStr) {
-		return coreerrs.Wrap(ErrTokenInvalid, "client_id is not in the allowed list")
-	}
-
-	return nil
-}
-
-func validateRequiredScopes(claims map[string]any, requiredScopes []string) error {
-	if len(requiredScopes) == 0 {
-		return nil
-	}
-
-	tokenScopes, err := strictScopeClaim(claims)
-	if err != nil {
-		return err
-	}
-
-	for _, requiredScope := range requiredScopes {
-		if slices.Contains(tokenScopes, requiredScope) {
-			return nil
-		}
-	}
-
-	return coreerrs.Wrap(ErrTokenInvalid, "token does not contain any of the required scopes")
-}
-
-func strictScopeClaim(claims map[string]any) ([]string, error) {
-	scopeValue, exists := claims["scope"]
-	if !exists {
-		return nil, coreerrs.Wrap(ErrTokenInvalid, "missing 'scope' claim for scope validation")
-	}
-
-	scopes, ok := normalizeScopeValue(scopeValue)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrTokenInvalid, "claim 'scope' has invalid type")
-	}
-
-	return scopes, nil
-}
-
-func validateAuthorizedParty(claims map[string]any, require bool, allowedParties []string) error {
-	if !require {
-		return nil
-	}
-
-	azp, exists := claims["azp"]
-	if !exists {
-		return coreerrs.Wrap(ErrTokenInvalid, "missing required 'azp' (authorized party) claim")
-	}
-
-	azpStr, ok := azp.(string)
-	if !ok {
-		return coreerrs.Wrap(ErrTokenInvalid, "claim 'azp' is not a string")
-	}
-
-	if len(allowedParties) > 0 && !slices.Contains(allowedParties, azpStr) {
-		return coreerrs.Wrap(ErrTokenInvalid, "authorized party is not in the allowed list")
-	}
-
-	return nil
-}
-
-func validateTokenLifetime(claims map[string]any, maxLifetime time.Duration) error {
-	if maxLifetime <= 0 {
-		return nil
-	}
-
-	expTime, expOk := parseClaimAsInt64(claims, "exp")
-	iatTime, iatOk := parseClaimAsInt64(claims, "iat")
-
-	if !expOk || !iatOk {
-		return coreerrs.Wrap(ErrTokenInvalid, "missing or invalid 'exp' or 'iat' claim for lifetime validation")
-	}
-
-	lifetime := time.Duration(expTime-iatTime) * time.Second
-	if lifetime < 0 {
-		return coreerrs.Wrap(ErrTokenInvalid, "invalid token lifetime (exp < iat)")
-	}
-
-	if lifetime > maxLifetime {
-		return coreerrs.Wrapf(ErrTokenInvalid, "token lifetime %v exceeds maximum allowed %v", lifetime, maxLifetime)
-	}
-
-	return nil
-}
-
-func validateCELRules(claims map[string]any, compiled []celPreCompiledValidationRule) error {
-	for i := range compiled {
-		rule := &compiled[i]
-		if rule.matcher(claims) {
-			continue
-		}
-
-		// Use custom message if provided, otherwise use default format
-		if rule.message != "" {
-			return coreerrs.Wrapf(ErrCELValidation, "%s", rule.message)
-		}
-		return coreerrs.Wrapf(ErrCELValidation, "rule '%s' failed (expression: %s)",
-			rule.name, strings.ReplaceAll(rule.expression, "\n", " "))
-	}
-
-	return nil
-}
-
-// parseClaimAsInt64 extracts a numeric claim as int64, returning false if missing or invalid.
-func parseClaimAsInt64(claims map[string]any, claimName string) (int64, bool) {
-	value, ok := claims[claimName]
-	if !ok {
-		return 0, false
-	}
-
-	switch v := value.(type) {
-	case float64:
-		return int64(v), true
-	case int64:
-		return v, true
-	case int:
-		return int64(v), true
-	default:
-		return 0, false
-	}
-}
-
-// getTokenExpirationTTL returns time until token expiration, or 0 if expired/invalid.
-func getTokenExpirationTTL(claims map[string]any) time.Duration {
-	expTime, ok := parseClaimAsInt64(claims, "exp")
-	if !ok {
-		return 0
-	}
-
-	now := time.Now().Unix()
-	ttl := expTime - now
-	if ttl <= 0 {
-		return 0
-	}
-
-	return time.Duration(ttl) * time.Second
-}
-
 // jwtVerifyOptions converts verifier options to authjwt verifier options. It
 // maps only the registered-claim knobs authjwt enforces (algorithms, leeway,
 // exp/nbf/iat, issuer, subject, audience); the OIDC-specific checks
@@ -1374,15 +685,9 @@ func (p *Provider) jwtVerifyOptions(ops *verifierOptions) []authjwt.Option {
 	// instead of falling back to authjwt's 30s default.
 	verifyOpts = append(verifyOpts, authjwt.WithLeeway(ops.leeway))
 
-	// Require the exp claim to be present when explicitly opted in. authjwt
-	// defaults exp-required ON, so the inverse must be applied explicitly to
-	// preserve OIDC's opt-in semantics (a token without exp is accepted unless
-	// expirationRequired was set; exp is still validated when present).
-	if ops.expirationRequired {
-		verifyOpts = append(verifyOpts, authjwt.WithExpirationRequired())
-	} else {
-		verifyOpts = append(verifyOpts, authjwt.WithExpirationOptional())
-	}
+	// The exp claim is always required: no validation option can accept a
+	// token that never expires.
+	verifyOpts = append(verifyOpts, authjwt.WithExpirationRequired())
 
 	// Same contract for the nbf claim — `verify_not_before: true` in the
 	// service config translates to "nbf must be present and respected".

@@ -4,7 +4,7 @@
 
 package oauth2client
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/altessa-s/go-atlas-core/time/clock"
 
 	"golang.org/x/oauth2"
 )
@@ -44,8 +46,9 @@ const (
 )
 
 // options carries the tunables shared by every grant helper. All fields are
-// optional; the zero value talks to a spec-compliant IdP over
-// [http.DefaultClient] with credentials auto-detected.
+// optional; the zero value talks to a spec-compliant IdP over the built-in
+// HTTP client ([DefaultHTTPTimeout], no redirects) with credentials
+// auto-detected.
 type options struct {
 	// scopes are the requested OAuth2 scopes, sent as the space-delimited
 	// scope parameter. Nil requests no explicit scopes.
@@ -62,19 +65,29 @@ type options struct {
 	// [ClientCredentials] and [Exchanger].
 	endpointParams url.Values
 
-	// httpClient issues the token-endpoint requests. Nil uses
-	// [http.DefaultClient]. Inject a client with timeouts, mTLS, or tracing
-	// round-trippers here.
+	// httpClient issues the token-endpoint requests. Nil uses a built-in
+	// client with a [DefaultHTTPTimeout] timeout that does not follow
+	// redirects. Inject a client with other timeouts, mTLS, or tracing
+	// round-trippers here. The client is copied, never modified: without a
+	// CheckRedirect the copy follows no redirect either, and with one a
+	// redirect to another origin fails with [ErrRedirectNotAllowed] before
+	// the client's own policy is consulted.
 	httpClient *http.Client
+
+	// insecureHTTP lets requests go to plain-http endpoints on any host. By
+	// default only https and http on a loopback host are allowed, and any
+	// other request fails with [ErrInsecureEndpoint]. Set it only for a test
+	// IdP: client credentials are sent in the clear.
+	insecureHTTP bool `opt:"InsecureHTTP"`
 
 	// retryAttempts is the number of retries after the first [Exchanger]
 	// attempt on a transient failure (transport error, 429, or 5xx). Zero
-	// disables retrying. It applies only to [Exchanger]; the x/oauth2-backed
-	// helpers manage their own transport.
+	// disables retrying. It applies to [Exchanger] and [JWTBearer]; the
+	// x/oauth2-backed helpers manage their own transport.
 	retryAttempts int `optgen:"default=DefaultRetryAttempts"`
 
 	// retryBaseDelay and retryMaxDelay bound the exponential backoff between
-	// [Exchanger] retries.
+	// [Exchanger] and [JWTBearer] retries.
 	retryBaseDelay time.Duration `optgen:"default=DefaultRetryBaseDelay"`
 	retryMaxDelay  time.Duration `optgen:"default=DefaultRetryMaxDelay"`
 
@@ -90,10 +103,17 @@ type options struct {
 	// earlyExpiry makes a self-refreshing source treat a token as expired this
 	// long before its actual exp, so a fresh token is fetched ahead of expiry to
 	// absorb clock skew and in-flight latency. Zero uses x/oauth2's ~10s default.
-	// It applies to [ClientCredentials] and [Exchanger.TokenSource]; [Refresh]
-	// and [AuthCode] keep the x/oauth2 default (overriding it would drop
-	// refresh-token rotation).
+	// It applies to [ClientCredentials], [Exchanger.TokenSource], and
+	// [JWTBearer]; [Refresh] and [AuthCode] keep the x/oauth2 default
+	// (overriding it would drop refresh-token rotation). [JWTBearer] caps the
+	// window at half of each token's lifetime, so a short-lived token is still
+	// served instead of being exchanged on every call.
 	earlyExpiry time.Duration
+
+	// clock is the time source of [JWTBearer]: it stamps the assertion's iat and
+	// exp, the issued token's expiry, and the cache freshness check. Inject
+	// [clock.NewFake] in tests.
+	clock clock.Clock `optgen:"default=clock.Real(),notnil"`
 
 	// clientAuth authenticates the client with a signed JWT assertion
 	// (private_key_jwt / client_secret_jwt), superseding the secret-based
@@ -104,7 +124,8 @@ type options struct {
 
 // withHTTPClient returns ctx carrying client as the [oauth2.HTTPClient] value
 // x/oauth2 reads, or ctx unchanged when client is nil (x/oauth2 then falls back
-// to [http.DefaultClient]).
+// to [http.DefaultClient]). Every flow passes the client of [options.client],
+// which is never nil.
 func withHTTPClient(ctx context.Context, client *http.Client) context.Context {
 	if client == nil {
 		return ctx

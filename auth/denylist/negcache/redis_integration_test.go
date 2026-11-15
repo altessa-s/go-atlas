@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache"
-	"github.com/altessa-s/go-atlas/data/probfilter"
-	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter/bloom"
 
-	bloomredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
+	bloomredis "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 

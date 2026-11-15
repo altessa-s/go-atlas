@@ -16,7 +16,7 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // ClientCredentials returns a self-refreshing [oauth2.TokenSource] for the
@@ -34,8 +34,15 @@ import (
 // or extra endpoint params with the [Option] values. When a [ClientAuthenticator]
 // is set via [WithClientAuth], the client authenticates with a signed JWT
 // assertion (private_key_jwt / client_secret_jwt) and clientSecret is unused.
-func ClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret string, opts ...Option) oauth2.TokenSource {
+//
+// A tokenURL that is malformed or not https (plain http is accepted on a
+// loopback host, or anywhere with [WithInsecureHTTP]) returns an error
+// wrapping [ErrInsecureEndpoint].
+func ClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret string, opts ...Option) (oauth2.TokenSource, error) {
 	o := newOptions(opts...)
+	if err := o.validateEndpoint("token URL", tokenURL); err != nil {
+		return nil, err
+	}
 	if o.clientAuth != nil {
 		src := &ccAssertionSource{
 			ctx:            ctx,
@@ -43,9 +50,9 @@ func ClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret str
 			scopes:         o.scopes,
 			endpointParams: o.endpointParams,
 			clientAuth:     o.clientAuth,
-			client:         o.httpClient,
+			client:         o.client(),
 		}
-		return measure(reuse(nil, src, o.earlyExpiry), grantClientCredentials, o.metrics, o.logger)
+		return measure(reuse(nil, src, o.earlyExpiry), grantClientCredentials, o.metrics, o.logger), nil
 	}
 	cfg := &clientcredentials.Config{
 		ClientID:       clientID,
@@ -55,15 +62,15 @@ func ClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret str
 		EndpointParams: o.endpointParams,
 		AuthStyle:      o.authStyle,
 	}
-	ctx = withHTTPClient(ctx, o.httpClient)
+	ctx, response := withResponseClient(ctx, o.client())
 	if o.earlyExpiry > 0 {
 		// clientcredentials.Config.TokenSource bakes in x/oauth2's default expiry
 		// window; wrap our own one-shot to honor the configured earlyExpiry.
 		inner := &ccStdSource{ctx: ctx, cfg: cfg}
-		return measure(oauth2.ReuseTokenSourceWithExpiry(nil, inner, o.earlyExpiry),
-			grantClientCredentials, o.metrics, o.logger)
+		return measure(redacted(oauth2.ReuseTokenSourceWithExpiry(nil, inner, o.earlyExpiry), response),
+			grantClientCredentials, o.metrics, o.logger), nil
 	}
-	return measure(cfg.TokenSource(ctx), grantClientCredentials, o.metrics, o.logger)
+	return measure(redacted(cfg.TokenSource(ctx), response), grantClientCredentials, o.metrics, o.logger), nil
 }
 
 // reuse wraps src in a caching token source, honoring earlyExpiry (refresh this
@@ -121,9 +128,9 @@ func (s *ccAssertionSource) Token() (*oauth2.Token, error) {
 		return nil, coreerrs.Wrap(errors.Join(ErrTokenRequest, err), "client_credentials token request")
 	}
 	if status < 200 || status >= 300 {
-		return nil, coreerrs.Wrapf(ErrTokenRequest, "unexpected status %d: %s", status, sanitizeErrorBody(body))
+		return nil, coreerrs.JoinWrap(ErrTokenRequest, responseError(retrieveError(status, body), status, len(body)))
 	}
-	return parseTokenResponse(body)
+	return parseTokenResponse(status, body, time.Now())
 }
 
 // Refresh returns a self-refreshing [oauth2.TokenSource] seeded from an existing
@@ -135,16 +142,24 @@ func (s *ccAssertionSource) Token() (*oauth2.Token, error) {
 // Use this to resume a previously authorized session (for example an
 // authorization-code grant whose refresh token was persisted) without
 // re-prompting the user.
-func Refresh(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string, opts ...Option) oauth2.TokenSource {
+//
+// A tokenURL that is malformed or not https (plain http is accepted on a
+// loopback host, or anywhere with [WithInsecureHTTP]) returns an error
+// wrapping [ErrInsecureEndpoint].
+func Refresh(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string, opts ...Option) (oauth2.TokenSource, error) {
 	o := newOptions(opts...)
+	if err := o.validateEndpoint("token URL", tokenURL); err != nil {
+		return nil, err
+	}
 	cfg := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Endpoint:     oauth2.Endpoint{TokenURL: tokenURL, AuthStyle: o.authStyle},
 		Scopes:       o.scopes,
 	}
-	src := cfg.TokenSource(withHTTPClient(ctx, o.httpClient), &oauth2.Token{RefreshToken: refreshToken})
-	return measure(src, grantRefresh, o.metrics, o.logger)
+	ctx, response := withResponseClient(ctx, o.client())
+	src := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
+	return measure(redacted(src, response), grantRefresh, o.metrics, o.logger), nil
 }
 
 // AuthCode drives the authorization_code grant (RFC 6749 §4.1), the flow used
@@ -166,8 +181,25 @@ type AuthCode struct {
 // IdP is picky, its own [oauth2.AuthStyle]); redirectURL is the callback the
 // IdP redirects back to and must match the client registration. Set the
 // requested scopes and a custom [http.Client] with the [Option] values.
-func NewAuthCode(endpoint oauth2.Endpoint, clientID, clientSecret, redirectURL string, opts ...Option) *AuthCode {
+//
+// The authorization URL is opened by the user's browser and never passes
+// through the HTTP client, so it is checked here together with the token URL:
+// a URL that is set and is not https (plain http is accepted on a loopback
+// host, or anywhere with [WithInsecureHTTP]) returns an error wrapping
+// [ErrInsecureEndpoint].
+func NewAuthCode(endpoint oauth2.Endpoint, clientID, clientSecret, redirectURL string, opts ...Option) (*AuthCode, error) {
 	o := newOptions(opts...)
+	for _, u := range []struct{ name, raw string }{
+		{"authorization URL", endpoint.AuthURL},
+		{"token URL", endpoint.TokenURL},
+	} {
+		if u.raw == "" {
+			continue
+		}
+		if err := ValidateEndpointURL(u.raw, o.insecureHTTP); err != nil {
+			return nil, coreerrs.Wrap(err, u.name)
+		}
+	}
 	return &AuthCode{
 		cfg: oauth2.Config{
 			ClientID:     clientID,
@@ -176,10 +208,10 @@ func NewAuthCode(endpoint oauth2.Endpoint, clientID, clientSecret, redirectURL s
 			RedirectURL:  redirectURL,
 			Scopes:       o.scopes,
 		},
-		client:  o.httpClient,
+		client:  o.client(),
 		metrics: o.metrics,
 		logger:  o.logger,
-	}
+	}, nil
 }
 
 // AuthCodeURL returns the IdP consent URL the user must visit. state is an
@@ -199,15 +231,16 @@ func (a *AuthCode) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) stri
 func (a *AuthCode) Exchange(
 	ctx context.Context, code string, opts ...oauth2.AuthCodeOption,
 ) (oauth2.TokenSource, *oauth2.Token, error) {
-	ctx = withHTTPClient(ctx, a.client)
+	ctx, response := withResponseClient(ctx, a.client)
 	start := time.Now()
 	tok, err := a.cfg.Exchange(ctx, code, opts...)
 	a.metrics.recordFetch(grantAuthorizationCode, err == nil, time.Since(start))
 	if err != nil {
+		err = response.redact(err)
 		if a.logger != nil {
-			a.logger.Warn("oauth2client: authorization-code exchange failed", "err", err)
+			a.logger.Warn("oauth2client: authorization-code exchange failed", "err", logError(err))
 		}
 		return nil, nil, err
 	}
-	return measure(a.cfg.TokenSource(ctx, tok), grantAuthorizationCode, a.metrics, a.logger), tok, nil
+	return measure(redacted(a.cfg.TokenSource(ctx, tok), response), grantAuthorizationCode, a.metrics, a.logger), tok, nil
 }

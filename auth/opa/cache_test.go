@@ -12,7 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 )
 
 // adminPolicy allows only input.role == "admin".
@@ -53,10 +53,10 @@ func TestDecisionCache_ServesRepeatedInput(t *testing.T) {
 	dir := t.TempDir()
 	writePolicy(t, dir, adminPolicy)
 
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	manager := newCachingManager(t, dir,
 		opa.WithDecisionCache(100, time.Minute),
-		opa.WithCollector(collector),
+		opa.WithMeter(collector),
 	)
 
 	evaluator := manager.Evaluator()
@@ -71,9 +71,9 @@ func TestDecisionCache_ServesRepeatedInput(t *testing.T) {
 	require.True(t, second.Allow)
 
 	require.Equal(t, float64(1),
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"))
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"))
 	require.Equal(t, float64(1),
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
 }
 
 // A cached decision must still be counted: caching is an evaluation
@@ -84,10 +84,10 @@ func TestDecisionCache_HitStillCountsEvaluation(t *testing.T) {
 	dir := t.TempDir()
 	writePolicy(t, dir, adminPolicy)
 
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	manager := newCachingManager(t, dir,
 		opa.WithDecisionCache(100, time.Minute),
-		opa.WithCollector(collector),
+		opa.WithMeter(collector),
 	)
 
 	evaluator := manager.Evaluator()
@@ -99,7 +99,7 @@ func TestDecisionCache_HitStillCountsEvaluation(t *testing.T) {
 	}
 
 	require.Equal(t, float64(3),
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_evaluations_total", "result", "allow"),
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_evaluations_total", "result", "allow"),
 		"every decision must be counted, cached or not")
 }
 
@@ -200,10 +200,10 @@ func TestDecisionCache_EntriesExpire(t *testing.T) {
 	dir := t.TempDir()
 	writePolicy(t, dir, adminPolicy)
 
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	manager := newCachingManager(t, dir,
 		opa.WithDecisionCache(100, 20*time.Millisecond),
-		opa.WithCollector(collector),
+		opa.WithMeter(collector),
 	)
 
 	evaluator := manager.Evaluator()
@@ -216,7 +216,7 @@ func TestDecisionCache_EntriesExpire(t *testing.T) {
 		_, err := evaluator.Evaluate(t.Context(), input)
 		require.NoError(t, err)
 
-		return testhelpers.GetCounterValue(t, collector,
+		return metricstest.GetCounterValue(t, collector,
 			"test_auth_opa_decision_cache_lookups_total", "result", "miss") >= 2
 	}, time.Second, 10*time.Millisecond, "entries must stop being served after the TTL")
 }
@@ -231,10 +231,10 @@ func TestDecisionCache_UnmarshalableInputIsRejectedAsBefore(t *testing.T) {
 	dir := t.TempDir()
 	writePolicy(t, dir, adminPolicy)
 
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	cached := newCachingManager(t, dir,
 		opa.WithDecisionCache(100, time.Minute),
-		opa.WithCollector(collector),
+		opa.WithMeter(collector),
 	)
 	uncached := newCachingManager(t, dir)
 
@@ -247,7 +247,7 @@ func TestDecisionCache_UnmarshalableInputIsRejectedAsBefore(t *testing.T) {
 	require.Error(t, cachedErr, "the cache must not turn an unevaluable input into a decision")
 
 	require.Zero(t,
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"),
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"),
 		"an unkeyable input must never report a hit")
 }
 
@@ -258,8 +258,8 @@ func TestDecisionCache_DisabledByDefault(t *testing.T) {
 	dir := t.TempDir()
 	writePolicy(t, dir, adminPolicy)
 
-	collector := testhelpers.NewTestCollector()
-	manager := newCachingManager(t, dir, opa.WithCollector(collector))
+	collector := metricstest.NewTestCollector()
+	manager := newCachingManager(t, dir, opa.WithMeter(collector))
 
 	evaluator := manager.Evaluator()
 	input := map[string]any{"role": "admin"}
@@ -270,9 +270,9 @@ func TestDecisionCache_DisabledByDefault(t *testing.T) {
 	}
 
 	require.Zero(t,
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"))
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"))
 	require.Zero(t,
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
 }
 
 // The size cap must be honored: with room for a single entry, alternating
@@ -283,10 +283,10 @@ func TestDecisionCache_HonorsSizeCap(t *testing.T) {
 	dir := t.TempDir()
 	writePolicy(t, dir, adminPolicy)
 
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	manager := newCachingManager(t, dir,
 		opa.WithDecisionCache(1, time.Minute),
-		opa.WithCollector(collector),
+		opa.WithMeter(collector),
 	)
 
 	evaluator := manager.Evaluator()
@@ -301,10 +301,10 @@ func TestDecisionCache_HonorsSizeCap(t *testing.T) {
 	}
 
 	require.Zero(t,
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"),
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"),
 		"a one-entry cache cannot serve two alternating inputs")
 	require.Equal(t, float64(8),
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
 }
 
 // A larger cap holds both, which is what makes the previous test a statement
@@ -315,10 +315,10 @@ func TestDecisionCache_LargerCapHoldsBoth(t *testing.T) {
 	dir := t.TempDir()
 	writePolicy(t, dir, adminPolicy)
 
-	collector := testhelpers.NewTestCollector()
+	collector := metricstest.NewTestCollector()
 	manager := newCachingManager(t, dir,
 		opa.WithDecisionCache(8, time.Minute),
-		opa.WithCollector(collector),
+		opa.WithMeter(collector),
 	)
 
 	evaluator := manager.Evaluator()
@@ -333,7 +333,7 @@ func TestDecisionCache_LargerCapHoldsBoth(t *testing.T) {
 	}
 
 	require.Equal(t, float64(6),
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"))
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"))
 	require.Equal(t, float64(2),
-		testhelpers.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
+		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
 }

@@ -26,7 +26,9 @@ type Header struct {
 type SigningKey struct {
 	// KeyID is the key identifier written to the token's kid header. It must be
 	// non-empty: [Signer.Sign] returns [ErrSigningKeyInvalid] for an empty
-	// KeyID, since a verifier rejects a token whose kid header is empty.
+	// KeyID, since a verifier rejects a token whose kid header is empty. A
+	// signer built with [WithAllowEmptyKeyID] accepts an empty KeyID and omits
+	// the kid header.
 	KeyID string
 	// Algorithm is the signature algorithm Key is used with.
 	Algorithm Algorithm

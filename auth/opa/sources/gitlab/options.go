@@ -4,12 +4,16 @@
 
 package gitlab
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"log/slog"
 	"net/http"
 )
+
+// DefaultMaxFileBytes caps how much of one repository file is read into
+// memory, matching the S3 source's per-object cap.
+const DefaultMaxFileBytes int64 = 32 << 20 // 32 MiB
 
 // options holds the configuration for the GitLab policy source.
 type options struct {
@@ -33,4 +37,14 @@ type options struct {
 	// SSRF-protected atlas client (retry, breaker, proxy) built from
 	// configuration.
 	httpClient *http.Client `opt:"HTTPClient"`
+	// allowInsecureHTTP permits a plain http:// endpoint. Off by default: the
+	// access token and the policies would cross the network unprotected.
+	allowInsecureHTTP bool `opt:"AllowInsecureHTTP"`
+	// checksums maps policy and data file names (relative to dir) to their
+	// expected SHA-256 hex digests. When set, every fetched file must match
+	// its entry and every entry must be fetched. Nil disables verification,
+	// which New reports once with a warning.
+	checksums map[string]string `optgen:"default=nil"`
+	// maxFileBytes caps the size of one downloaded file.
+	maxFileBytes int64 `optgen:"default=DefaultMaxFileBytes" optval:"positive"`
 }

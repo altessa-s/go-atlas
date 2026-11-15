@@ -31,7 +31,7 @@ func BenchmarkIsRevoked(b *testing.B) {
 		keys[i] = strconv.Itoa(i)
 	}
 	m := mirror.New(keys)
-	if err := m.Refresh(context.Background()); err != nil {
+	if err := m.Refresh(b.Context()); err != nil {
 		b.Fatal(err)
 	}
 
@@ -48,7 +48,7 @@ func BenchmarkRefresh(b *testing.B) {
 		keys[i] = strconv.Itoa(i)
 	}
 	m := mirror.New(keys)
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.ReportAllocs()
 	for b.Loop() {

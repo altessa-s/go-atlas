@@ -4,12 +4,11 @@
 
 package jwt
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 import (
 	"crypto/rand"
 	"io"
-	"slices"
 	"time"
 )
 
@@ -22,6 +21,11 @@ const (
 	// DefaultLeeway is the clock-skew tolerance applied to exp / nbf / iat
 	// verification to absorb drift between signer and verifier.
 	DefaultLeeway = 30 * time.Second
+
+	// MaxLeeway caps the clock-skew tolerance. A larger [WithLeeway] value is
+	// clamped to it, so a configuration typo such as 24h cannot extend every
+	// token's lifetime by a day.
+	MaxLeeway = 5 * time.Minute
 
 	// DefaultMaxTokenLifetime is the ceiling a requested token TTL is clamped to
 	// by [Signer.NewClaims]; a non-positive TTL uses this value.
@@ -47,14 +51,26 @@ type options struct {
 	leeway             time.Duration `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
 	maxTokenLifetime   time.Duration `optgen:"default=DefaultMaxTokenLifetime"`
 	expirationRequired bool          `optgen:"default=DefaultExpirationRequired"`
-	allowedAlgorithms  []Algorithm   `optgen:"manual,default=DefaultAllowedAlgorithms()"`
-	rand               io.Reader     `optgen:"default=defaultRand"`
-	clock              Clock         `optgen:"default=defaultClock"`
+	// WithAllowedAlgorithms sets the signature algorithms the signer and verifier
+	// accept, replacing the default asymmetric allow-list ([DefaultAllowedAlgorithms]).
+	// Restricting or extending the set is the supported way to add a new algorithm:
+	// register a signing method with golang-jwt, then list it here. A call with no
+	// algorithms is ignored so the safe default is never cleared.
+	allowedAlgorithms []Algorithm `opt:"AllowedAlgorithms" optval:"clone,notrim,nodup" optgen:"default=DefaultAllowedAlgorithms()"`
+	rand              io.Reader   `optgen:"default=defaultRand"`
+	clock             Clock       `optgen:"default=defaultClock"`
 
 	// tokenType, when non-empty, is written to the signed token's typ header by
 	// [Signer.Sign] (for example [TypeAccessToken] / "at+jwt" per RFC 9068).
 	// Empty leaves the golang-jwt default of "JWT". Set via [WithTokenType].
 	tokenType string `optgen:"default=DefaultTokenType"`
+
+	// allowEmptyKeyID makes [Signer.Sign] accept a [SigningKey] with an empty
+	// KeyID and omit the kid header instead of returning [ErrSigningKeyInvalid].
+	// Use it only when the receiving party does not resolve keys by kid, such as
+	// an OAuth2 JWT-bearer assertion whose key is bound to its issuer (RFC 7523).
+	// Set via [WithAllowEmptyKeyID].
+	allowEmptyKeyID bool
 
 	// expectedTokenType, when non-empty, makes [Verifier.Verify] require the
 	// token's typ header to match it (case-insensitive, with or without an
@@ -74,14 +90,15 @@ type options struct {
 	// is always honored when present). Set via [WithNotBeforeRequired].
 	notBeforeRequired bool
 
-	// audiences is the set of acceptable aud values; verification accepts a
-	// token whose aud intersects it. Empty means the aud claim is not checked.
-	// Set via [WithAudiences].
-	audiences []string `opt:"-"`
+	// WithAudiences sets the acceptable aud values. Verification accepts a token
+	// whose aud claim intersects this set; an empty set leaves aud unchecked. A
+	// call with no audiences is ignored.
+	audiences []string `opt:"Audiences" optval:"clone,notrim,nodup"`
 
-	// requiredClaims names claims that must be present (beyond the temporal
-	// claims golang-jwt enforces). Set via [WithRequiredClaims].
-	requiredClaims []string `opt:"-"`
+	// WithRequiredClaims names claims that must be present, beyond the temporal
+	// claims the verifier already enforces. Verification fails with [ErrClaimMissing]
+	// when any is absent. A call with no claims is ignored.
+	requiredClaims []string `opt:"RequiredClaims" optval:"clone,notrim,nodup"`
 
 	// revocation, when set, rejects a verified token whose jti has been revoked,
 	// after its signature and registered claims validate, with [ErrTokenRevoked].
@@ -89,44 +106,6 @@ type options struct {
 	// unchecked. Back it with auth/denylist or any [RevocationChecker]. Set via
 	// the generated WithRevocation.
 	revocation RevocationChecker `optgen:"notnil"`
-}
-
-// WithAllowedAlgorithms sets the signature algorithms the signer and verifier
-// accept, replacing the default asymmetric allow-list ([DefaultAllowedAlgorithms]).
-// Restricting or extending the set is the supported way to add a new algorithm:
-// register a signing method with golang-jwt, then list it here. A call with no
-// algorithms is ignored so the safe default is never cleared.
-func WithAllowedAlgorithms(algs ...Algorithm) Option {
-	return func(o *options) {
-		if len(algs) == 0 {
-			return
-		}
-		o.allowedAlgorithms = slices.Clone(algs)
-	}
-}
-
-// WithAudiences sets the acceptable aud values. Verification accepts a token
-// whose aud claim intersects this set; an empty set leaves aud unchecked. A
-// call with no audiences is ignored.
-func WithAudiences(auds ...string) Option {
-	return func(o *options) {
-		if len(auds) == 0 {
-			return
-		}
-		o.audiences = slices.Clone(auds)
-	}
-}
-
-// WithRequiredClaims names claims that must be present, beyond the temporal
-// claims the verifier already enforces. Verification fails with [ErrClaimMissing]
-// when any is absent. A call with no claims is ignored.
-func WithRequiredClaims(names ...string) Option {
-	return func(o *options) {
-		if len(names) == 0 {
-			return
-		}
-		o.requiredClaims = slices.Clone(names)
-	}
 }
 
 // WithExpirationOptional makes the exp claim optional, reversing the

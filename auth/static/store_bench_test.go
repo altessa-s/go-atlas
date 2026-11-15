@@ -5,7 +5,6 @@
 package static_test
 
 import (
-	"context"
 	"strconv"
 	"testing"
 
@@ -59,7 +58,7 @@ func BenchmarkInMemoryStore_Validate_Parallel(b *testing.B) {
 	s := static.NewInMemoryStore(static.WithInitialTokens(generateTokens(1000)))
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
-		ctx := context.Background()
+		ctx := b.Context()
 		for pb.Next() {
 			_, _ = s.Validate(ctx, "token_"+strconv.Itoa(i%1000))
 			i++

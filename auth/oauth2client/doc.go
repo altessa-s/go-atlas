@@ -32,6 +32,17 @@
 //   - [Exchanger] — trade a subject token (optionally with an actor token, for
 //     delegation) for a token scoped to a downstream audience or resource.
 //
+// The JWT bearer authorization grant (RFC 7523 §2.1), used by Google service
+// accounts, is hand-rolled too, because x/oauth2/jwt does not bind the token
+// request to the caller's context and accepts a token without expires_in:
+//
+//   - [JWTBearer] — sign an assertion (iss, aud = token URL, scope, iat, exp)
+//     with an asymmetric [github.com/altessa-s/go-atlas/auth/jwt.SigningKey]
+//     and trade it for an access token. [JWTBearer.Token] runs the exchange on
+//     the caller's context, rejects a response without a positive expires_in,
+//     caches the token until [WithEarlyExpiry] before its expiry, and serializes
+//     refreshes so concurrent callers share one exchange.
+//
 // # Client authentication
 //
 // [WithClientAuth] authenticates the client with a signed JWT assertion
@@ -42,10 +53,10 @@
 // # Refresh timing and revocation
 //
 // [WithEarlyExpiry] refreshes a token a configurable window before its exp to
-// absorb clock skew and in-flight latency (applies to [ClientCredentials] and
-// [Exchanger.TokenSource]). [Revoker] revokes an acquired token at the IdP
+// absorb clock skew and in-flight latency (applies to [ClientCredentials],
+// [Exchanger.TokenSource], and [JWTBearer]). [Revoker] revokes an acquired token at the IdP
 // revocation endpoint (RFC 7009), the symmetric counterpart to acquisition.
-// Only [Exchanger] retries by itself; wrap the transport with [RetryTransport]
+// Only [Exchanger] and [JWTBearer] retry by themselves; wrap the transport with [RetryTransport]
 // and inject it via [WithHTTPClient] to retry the x/oauth2-backed grants.
 //
 // # Secrets
@@ -54,6 +65,39 @@
 // (they are presented on every refresh), so they cannot be zeroized after use.
 // Deployments that must avoid a long-lived in-memory secret should prefer
 // [PrivateKeyJWT], where the client holds a private key the caller manages.
+//
+// # Error confidentiality
+//
+// The identity provider is untrusted: its status line, headers, Location,
+// body, and trailers may echo secrets. Returned error text and package logs
+// withhold IdP bodies, error descriptions, error URIs, decoded values, and
+// IdP-supplied URLs, including a followed redirect URL when a later hop
+// fails. They may show the numeric HTTP status, registered RFC 6749/8628
+// error codes from the fixed allowlist, and body or withheld-field byte
+// lengths.
+//
+// Before a response is parsed, error text is retained only for cancellation
+// or deadline sentinels, all dial-phase [net.OpError] regardless of their inner
+// cause, [net.DNSError], connection errnos ECONNREFUSED, ECONNRESET,
+// EHOSTUNREACH, ENETUNREACH and ETIMEDOUT,
+// [tls.CertificateVerificationError], [x509.CertificateInvalidError],
+// [x509.HostnameError], [x509.UnknownAuthorityError], [x509.SystemRootsError],
+// [tls.AlertError], [tls.RecordHeaderError], and package guard or grant sentinels.
+// URL, syscall, DNS and certificate-verification wrappers qualify only when
+// every nested cause qualifies. Read/write and proxyconnect net.OpError values
+// remain summarized; proxy setup can read peer bytes, including CONNECT responses.
+// Any other pre-response failure, including an unparseable IdP response or
+// unknown wrapper, is summarized with its cause reachable through errors.As.
+// This also applies to every [RetryTransport] attempt when used on its own.
+//
+// Application-supplied HTTP clients/transports, [ClientAuthenticator]
+// implementations, discovery sources, and configured endpoint URLs are
+// trusted; errors they produce on their own are outside this guarantee.
+// Original causes, including response bodies, remain available through
+// errors.Is/errors.As where preserved; avoid logging those causes directly.
+//
+// Some x/oauth2 body-read and JSON decoder errors are flattened upstream, so
+// their original causes cannot be recovered through errors.Is/errors.As.
 //
 // # Observability
 //
@@ -64,14 +108,29 @@
 //
 // # Usage
 //
-//	src := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
+//	src, err := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
 //	    oauth2client.WithScopes("orders:read", "orders:write"),
 //	)
+//	if err != nil {
+//	    return err // tokenURL is malformed or not https
+//	}
 //	creds := client.NewInsecureTokenCredentials(src) // outbound gRPC calls now carry a fresh token
+//
+// JWT bearer grant for a service account, bounded by the call's deadline:
+//
+//	bearer, err := oauth2client.NewJWTBearer(tokenURL, clientEmail,
+//	    jwt.SigningKey{KeyID: keyID, Algorithm: jwt.AlgRS256, Key: rsaKey},
+//	    oauth2client.WithScopes("https://www.googleapis.com/auth/cloud-platform"),
+//	    oauth2client.WithEarlyExpiry(5*time.Minute),
+//	)
+//	tok, err := bearer.Token(ctx)
 //
 // Token exchange, propagating the caller's identity to a downstream service:
 //
-//	ex := oauth2client.NewExchanger(tokenURL, clientID, clientSecret)
+//	ex, err := oauth2client.NewExchanger(tokenURL, clientID, clientSecret)
+//	if err != nil {
+//	    return err
+//	}
 //	tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
 //	    SubjectToken: inboundAccessToken,
 //	    Audience:     "https://downstream.internal",

@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 )
 
 const (
@@ -28,26 +28,26 @@ const (
 
 func TestClientCredentialsMetrics(t *testing.T) {
 	t.Parallel()
-	tc := testhelpers.NewTestCollector()
+	tc := metricstest.NewTestCollector()
 	m := oauth2client.NewMetrics(tc, "")
 	srv, _ := tokenServer(t, "cc-token")
 
-	src := oauth2client.ClientCredentials(t.Context(), srv.URL, "svc", "sec", oauth2client.WithMetrics(m))
+	src := mustClientCredentials(t, srv.URL, "svc", "sec", oauth2client.WithMetrics(m))
 	_, err := src.Token()
 	require.NoError(t, err)
 	// A second call is served from the reuse cache and must not be counted.
 	_, err = src.Token()
 	require.NoError(t, err)
 
-	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, tc, fetchesMetric,
+	require.Equal(t, 1.0, metricstest.GetCounterValue(t, tc, fetchesMetric,
 		"grant", "client_credentials", "status", "success"))
-	require.Equal(t, uint64(1), testhelpers.GetHistogramCount(t, tc, durationMetric,
+	require.Equal(t, uint64(1), metricstest.GetHistogramCount(t, tc, durationMetric,
 		"grant", "client_credentials", "status", "success"))
 }
 
 func TestExchangerMetricsAndRetry(t *testing.T) {
 	t.Parallel()
-	tc := testhelpers.NewTestCollector()
+	tc := metricstest.NewTestCollector()
 	m := oauth2client.NewMetrics(tc, "")
 
 	var hits atomic.Int32
@@ -61,7 +61,7 @@ func TestExchangerMetricsAndRetry(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "sec",
+	ex := mustExchanger(t, srv.URL, "svc", "sec",
 		oauth2client.WithMetrics(m),
 		oauth2client.WithRetryAttempts(5),
 		oauth2client.WithRetryBaseDelay(time.Millisecond),
@@ -70,14 +70,14 @@ func TestExchangerMetricsAndRetry(t *testing.T) {
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subj"})
 	require.NoError(t, err)
 
-	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, tc, fetchesMetric,
+	require.Equal(t, 1.0, metricstest.GetCounterValue(t, tc, fetchesMetric,
 		"grant", "token_exchange", "status", "success"))
-	require.Equal(t, 2.0, testhelpers.GetCounterValue(t, tc, retriesMetric, "grant", "token_exchange"))
+	require.Equal(t, 2.0, metricstest.GetCounterValue(t, tc, retriesMetric, "grant", "token_exchange"))
 }
 
 func TestExchangerMetricsFailureAndLog(t *testing.T) {
 	t.Parallel()
-	tc := testhelpers.NewTestCollector()
+	tc := metricstest.NewTestCollector()
 	m := oauth2client.NewMetrics(tc, "")
 
 	var buf bytes.Buffer
@@ -88,12 +88,12 @@ func TestExchangerMetricsFailureAndLog(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "sec",
+	ex := mustExchanger(t, srv.URL, "svc", "sec",
 		oauth2client.WithMetrics(m), oauth2client.WithLogger(logger))
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subj"})
 	require.ErrorIs(t, err, oauth2client.ErrTokenExchange)
 
-	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, tc, fetchesMetric,
+	require.Equal(t, 1.0, metricstest.GetCounterValue(t, tc, fetchesMetric,
 		"grant", "token_exchange", "status", "error"))
 	require.Contains(t, buf.String(), "token exchange failed")
 }

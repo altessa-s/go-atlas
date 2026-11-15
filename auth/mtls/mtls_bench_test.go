@@ -21,9 +21,9 @@ func BenchmarkAuthenticate(b *testing.B) {
 		NotBefore: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
 		NotAfter:  time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	a := mtls.NewAuthenticator(
+	a := newAuthenticator(b,
 		mtls.WithValidator(mtls.ExpiryValidator(nil, time.Minute)),
-		mtls.WithValidator(mtls.TrustDomainValidator("example.org")),
+		mtls.WithTrustDomains("example.org"),
 	)
 	ctx := b.Context()
 	b.ReportAllocs()
@@ -46,7 +46,8 @@ func BenchmarkValidators(b *testing.B) {
 		NotBefore:      time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),
 		NotAfter:       time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	a := mtls.NewAuthenticator(
+	a := newAuthenticator(b,
+		mtls.WithTrustDomains("example.org"),
 		mtls.WithValidator(mtls.SubjectValidator(pkix.Name{CommonName: "billing"})),
 		mtls.WithValidator(mtls.IssuerValidator(pkix.Name{CommonName: "Acme Root CA"})),
 		mtls.WithValidator(mtls.AuthorityKeyIDValidator([]byte{1, 2, 3})),

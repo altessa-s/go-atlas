@@ -16,25 +16,39 @@ func Seq(v any) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		switch t := v.(type) {
 		case string:
-			for field := range strings.FieldsSeq(t) {
-				if !yield(field) {
-					return
-				}
-			}
+			yieldFields(t, yield)
 		case []string:
-			for _, s := range t {
-				if !yield(s) {
-					return
-				}
-			}
+			yieldAll(t, yield)
 		case []any:
-			for _, raw := range t {
-				if s, ok := raw.(string); ok {
-					if !yield(s) {
-						return
-					}
-				}
-			}
+			yieldStrings(t, yield)
+		}
+	}
+}
+
+// yieldFields yields the space-separated fields of s until yield stops.
+func yieldFields(s string, yield func(string) bool) {
+	for field := range strings.FieldsSeq(s) {
+		if !yield(field) {
+			return
+		}
+	}
+}
+
+// yieldAll yields every element of t until yield stops.
+func yieldAll(t []string, yield func(string) bool) {
+	for _, s := range t {
+		if !yield(s) {
+			return
+		}
+	}
+}
+
+// yieldStrings yields the string elements of t, skipping the others, until
+// yield stops.
+func yieldStrings(t []any, yield func(string) bool) {
+	for _, raw := range t {
+		if s, ok := raw.(string); ok && !yield(s) {
+			return
 		}
 	}
 }

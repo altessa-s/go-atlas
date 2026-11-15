@@ -8,7 +8,7 @@ import (
 	"context"
 	"slices"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // ValidationPreset represents a named, reusable set of validation options.
@@ -22,7 +22,8 @@ type ValidationPreset struct {
 //
 // Example:
 //
-//	preset := oidc.NewValidationPreset("strict", oidc.WithValidationRequiredClaims("sub", "email"))
+//	// Requires email on top of DefaultRequiredClaims (sub, aud, exp, iat, iss).
+//	preset := oidc.NewValidationPreset("strict", oidc.WithValidationRequiredClaims("email"))
 func NewValidationPreset(name string, opts ...ValidationOption) *ValidationPreset {
 	return &ValidationPreset{
 		name:    name,
@@ -72,6 +73,9 @@ func (p *Provider) compilePresets() error {
 
 		// Apply preset options to create compiled verifier
 		ops := newVerifierOptions(preset.options...)
+		if err := checkLeeway(ops.leeway); err != nil {
+			return coreerrs.Wrapf(err, "preset %q", preset.name)
+		}
 
 		// Compile CEL rules if any and store separately. A malformed CEL rule is
 		// a configuration error: fail fast at construction rather than silently

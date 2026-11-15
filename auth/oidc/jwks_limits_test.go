@@ -144,7 +144,10 @@ func TestJWKSInvalidKeyPolicy(t *testing.T) {
 	p, err := newRedirectTestProvider(t, discoveryURL)
 	require.NoError(t, err)
 	setJWKS(`{"keys":[{"kty":"RSA","n":"!","e":"AQAB"}]}`)
-	require.NoError(t, p.RefreshJWKS(t.Context()))
+	// A refresh applies the policy of the initial load: a malformed key fails it.
+	err = p.RefreshJWKS(t.Context())
+	require.ErrorIs(t, err, ErrDiscovery)
+	require.ErrorAs(t, err, &invalidBase64)
 	keys, err := p.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
 	require.Empty(t, keys)

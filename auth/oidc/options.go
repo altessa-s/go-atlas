@@ -4,16 +4,20 @@
 
 package oidc
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate --type=validatorOptions --option-type=ValidatorOption --output=validator_options_gen.go --option-prefix=Validator
+//go:generate go tool optgen generate --type=verifierOptions --option-type=ValidationOption --output=verifier_options_gen.go --option-prefix=Validation
+//go:generate go tool optgen generate
 
 import (
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+
+	probfilter "github.com/altessa-s/go-atlas/cache/probfilter"
 )
 
 const (
@@ -32,6 +36,26 @@ const (
 	// wait above that, or limit how many replicas start together.
 	DefaultRevocationInitialSyncWait = 2 * time.Minute
 
+	// DefaultRevocationMaxStaleness is the default bound on the age of the last
+	// successful revocation sync — see [WithRevocationMaxStaleness]. The sync
+	// schedule is a cron expression with no fixed interval to multiply, so the
+	// bound is a constant: three periods of the default hourly schedule
+	// ("0 0 * * * *"), which tolerates two missed syncs. Set the bound to
+	// several sync intervals when the schedule is sparser.
+	DefaultRevocationMaxStaleness = 3 * time.Hour
+
+	// DefaultRevocationSyncTimeout bounds one scheduled revocation sync — see
+	// [WithRevocationSyncTimeout].
+	DefaultRevocationSyncTimeout = 5 * time.Minute
+
+	// DefaultRevocationMaxResponseBytes is the default cap on the body a
+	// [URLRevocationLoader] reads (256 MiB).
+	DefaultRevocationMaxResponseBytes int64 = 256 << 20
+
+	// MaxRevocationEntryBytes is the longest revocation list entry (one line)
+	// the built-in loaders accept. A longer line fails the whole load.
+	MaxRevocationEntryBytes = 64 << 10
+
 	// DefaultJWKSMaxStaleness is the default maximum age allowed for the
 	// locally cached JWKS before validation reacts per the configured
 	// [JWKSFailureMode]. A value of zero (the default) disables the
@@ -44,7 +68,7 @@ const (
 	// DefaultJWKSFailureMode is the default behavior when the JWKS cache
 	// exceeds [DefaultJWKSMaxStaleness]. Production safe: [JWKSFailureModeEnforce]
 	// rejects validation, matching the rest of the project's safety-mode
-	// pattern (see the plugins `SignatureMode` precedent).
+	// pattern.
 	DefaultJWKSFailureMode = JWKSFailureModeEnforce
 )
 
@@ -77,8 +101,7 @@ const (
 // without any expected audience configured (neither [WithValidationAudience]
 // nor an `audience` entry in the service config). Production safe:
 // [AudienceFailureModeEnforce] rejects validation, matching the rest of the
-// project's safety-mode pattern (see [JWKSFailureMode] and the plugins
-// `SignatureMode` precedent). The default-required `aud` claim only guarantees
+// project's safety-mode pattern (see [JWKSFailureMode]). The default-required `aud` claim only guarantees
 // the token carries *an* audience — without an expected value to match against,
 // a token minted for a different service replays successfully.
 const DefaultAudienceFailureMode = AudienceFailureModeEnforce
@@ -152,6 +175,8 @@ const (
 )
 
 // DefaultRequiredClaims is the list of claims required by OIDC specification.
+// It is always enforced: [WithValidationRequiredClaims] adds claims to this
+// set, and [WithValidationIgnoredClaims] can skip any of them except exp.
 var DefaultRequiredClaims = []string{"sub", "aud", "exp", "iat", "iss"}
 
 // options holds the internal configuration state for the OIDC provider.
@@ -162,30 +187,69 @@ type options struct {
 	// ErrHTTPClientRequired without it. The factory injects the resilient,
 	// SSRF-protected atlas client (retry, breaker, proxy) built from
 	// configuration.
-	httpClient                  *http.Client            `opt:"HTTPClient"`
-	jwksHTTPTimeout             time.Duration           `optgen:"default=DefaultJWKSHTTPTimeout"`
-	jwksMaxStaleness            time.Duration           `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
-	jwksFailureMode             JWKSFailureMode         `optgen:"manual,default=DefaultJWKSFailureMode"`
-	audienceFailureMode         AudienceFailureMode     `optgen:"manual,default=DefaultAudienceFailureMode"`
-	discoveryValidationMode     DiscoveryValidationMode `optgen:"manual,default=DefaultDiscoveryValidationMode"`
+	httpClient *http.Client `opt:"HTTPClient"`
+	// WithOwnedHTTPClient hands the client passed with [WithHTTPClient] over
+	// to the provider: [Provider.Close] then closes the idle connections of
+	// its transport. Set it only for a client built for this provider alone
+	// (the factory does). Without it the client stays the caller's — it may
+	// be shared with other components — and Close leaves its connections
+	// alone.
+	httpClientOwned  bool          `opt:"OwnedHTTPClient"`
+	jwksHTTPTimeout  time.Duration `optgen:"default=DefaultJWKSHTTPTimeout"`
+	jwksMaxStaleness time.Duration `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
+	// WithJWKSFailureMode selects how the provider reacts when its locally
+	// cached JWKS has not been refreshed within [WithJWKSMaxStaleness].
+	// Defaults to [JWKSFailureModeEnforce]. Unknown / empty modes leave the
+	// default in place.
+	//
+	// Pair this with [WithJWKSMaxStaleness] (and an active refresh path such
+	// as [WithJWKSRefreshSchedule] or manual [Provider.RefreshJWKS] calls);
+	// without a non-zero staleness budget the mode has no effect.
+	jwksFailureMode JWKSFailureMode `opt:"JWKSFailureMode" optcheck:"oneof=[JWKSFailureModeEnforce,JWKSFailureModeWarn,JWKSFailureModeDisabled]" optgen:"default=DefaultJWKSFailureMode,onfail=skip"` //nolint:lll
+	// WithAudienceFailureMode selects how the provider reacts when token
+	// validation runs without any expected audience configured. Defaults to
+	// [AudienceFailureModeEnforce]. Unknown / empty modes leave the default in
+	// place. When an expected audience is configured (via [WithValidationAudience]
+	// or service config) its value is always enforced regardless of this mode.
+	audienceFailureMode AudienceFailureMode `opt:"AudienceFailureMode" optcheck:"oneof=[AudienceFailureModeEnforce,AudienceFailureModeWarn,AudienceFailureModeDisabled]" optgen:"default=DefaultAudienceFailureMode,onfail=skip"` //nolint:lll
+	// WithDiscoveryValidationMode selects how the provider validates the OIDC
+	// discovery document's issuer and endpoint URLs before trusting them.
+	// Defaults to [DiscoveryValidationModeEnforce]. Unknown / empty modes leave
+	// the default in place. See [DiscoveryValidationMode] for the threat model.
+	discoveryValidationMode     DiscoveryValidationMode `opt:"DiscoveryValidationMode" optcheck:"oneof=[DiscoveryValidationModeEnforce,DiscoveryValidationModeWarn,DiscoveryValidationModeDisabled]" optgen:"default=DefaultDiscoveryValidationMode,onfail=skip"` //nolint:lll
 	tokenCache                  Cacher
 	tokensCacheKeyPrefix        string `optgen:"default=DefaultTokensCacheKeyPrefix"`
 	revokedTokensCacheKeyPrefix string `optgen:"default=DefaultRevokedTokensCacheKeyPrefix"`
 	activeTokensCacheKeyPrefix  string `optgen:"default=DefaultActiveTokensCacheKeyPrefix"`
 	serviceConfigPath           string
 	logger                      *slog.Logger
-	introspectionEnabled        bool                         `opt:"-"`
-	introspectionClientID       string                       `opt:"-"`
-	introspectionSecret         redacted.RedactedString      `opt:"-"`
-	introspectionFailOpen       bool                         `opt:"-"`
-	verifierOptions             *verifierOptions             `opt:"-"`
-	presets                     map[string]*ValidationPreset `opt:"-"`
-	presetRules                 []PresetRule
-	revocationStorage           RevocationStorage
-	revocationItemType          string        `optgen:"default=DefaultRevocationItemType"`
-	revocationFilter            Filter        `optgen:"notnil"`
-	revocationLoader            DataLoader    `optgen:"notnil"`
-	revocationAuthoritative     Authoritative `optgen:"notnil"`
+	// Set by WithIntrospection: enables introspection and stores its credentials together.
+	introspectionEnabled bool `optgen:"manual"`
+	// Set by WithIntrospection: enables introspection and stores its credentials together.
+	introspectionClientID string `optgen:"manual"`
+	// Set by WithIntrospection: enables introspection and stores its credentials together.
+	introspectionSecret redacted.RedactedString `optgen:"manual"`
+	// WithIntrospectionFailOpen relaxes introspection to fail-open: when the
+	// configured endpoint cannot confirm a token is active (network error, non-2xx
+	// response, parse failure) the error is logged and the token is accepted on
+	// its signature alone. Use this only when IdP availability must take
+	// precedence over revocation enforcement — under this mode a degraded or
+	// unreachable IdP silently bypasses revocation checks.
+	//
+	// Without this option introspection is fail-closed (the secure default):
+	// errors reject the token with [ErrIntrospection].
+	introspectionFailOpen bool `opt:"IntrospectionFailOpen"`
+	// WithDefaultValidationOptions sets default validation options for ValidateToken.
+	// These apply to all validations unless overridden by per-call options.
+	verifierOptions *verifierOptions `optfn:"DefaultValidationOptions=newVerifierOptions"`
+	// Set by WithPresets: filters nil presets and indexes the values by name.
+	presets                 map[string]*ValidationPreset `optgen:"manual"`
+	presetRules             []PresetRule
+	revocationStorage       RevocationStorage
+	revocationItemType      string                `optgen:"default=DefaultRevocationItemType"`
+	revocationFilter        probfilter.Filter     `optgen:"notnil"`
+	revocationLoader        probfilter.DataLoader `optgen:"notnil"`
+	revocationAuthoritative Authoritative         `optgen:"notnil"`
 	// revocationFailOpen accepts a token when the revocation storage cannot
 	// answer (IsRevoked error) and lets NewProvider start when the initial
 	// revocation sync fails. The default (false) is fail-closed: such a token
@@ -194,6 +258,41 @@ type options struct {
 	// revocationInitialSyncWait bounds the initial-sync retries — see
 	// DefaultRevocationInitialSyncWait.
 	revocationInitialSyncWait time.Duration `optgen:"default=DefaultRevocationInitialSyncWait"`
+	// WithRevocationMaxStaleness bounds how long a "not revoked" answer of the
+	// revocation storage is trusted after its last successful
+	// [RevocationStorage.Sync]. Past the bound such an answer counts as a failed
+	// check: the token is rejected with [ErrRevocationCheck] wrapping
+	// [ErrRevocationStale] unless [WithRevocationFailOpen] is set. A revoked
+	// answer always rejects.
+	//
+	// The bound defaults to [DefaultRevocationMaxStaleness] and applies only
+	// when the provider syncs the storage on [WithRevocationSyncSchedule]:
+	// without a scheduled sync nothing refreshes the snapshot, so nothing is
+	// stale. Keep it at several sync intervals. After a failed initial sync
+	// under [WithRevocationFailOpen] the bound counts from construction.
+	//
+	// Zero or a negative value disables the bound: a sync source that stays
+	// unreachable then leaves the last snapshot in force indefinitely.
+	revocationMaxStaleness time.Duration `optgen:"default=DefaultRevocationMaxStaleness" optval:"nonpositive"`
+	// WithRevocationSyncTimeout bounds one scheduled revocation sync
+	// ([WithRevocationSyncSchedule]); a sync that runs longer fails and keeps
+	// the current revocation set. Defaults to [DefaultRevocationSyncTimeout].
+	// Zero disables the timeout; a negative value is ignored. The initial sync
+	// in [NewProvider] is bounded by the constructor's context instead.
+	revocationSyncTimeout time.Duration `optgen:"default=DefaultRevocationSyncTimeout" optval:"positive=allow_zero"`
+	// WithRevocationAllowEmpty makes an empty result of a revocation sync
+	// authoritative for the built-in filter storage ([WithRevocationFilter],
+	// [NewFilterRevocationStorage]): the filter is rebuilt empty and the sync
+	// succeeds, which also refreshes the [WithRevocationMaxStaleness] clock.
+	// Set it when the revocation list can legitimately become empty.
+	//
+	// Without it (the default) a source that yields no entries while the
+	// revocation set holds some fails the sync with [ErrRevocationLoadFailed]
+	// and keeps the current set. With it that protection is gone: a source
+	// that answers 200 with an empty or blank body — an IdP outage, a
+	// misrouted request, a truncated file — un-revokes every item at once.
+	// A custom [RevocationStorage] decides this on its own.
+	revocationAllowEmpty bool
 	// discoveryAllowLoopbackHTTP lets enforce and warn validation accept a
 	// plain-http issuer and endpoints when the issuer host is a loopback
 	// address (localhost, 127.0.0.0/8, ::1) — a local IdP in development or
@@ -202,23 +301,34 @@ type options struct {
 	discoveryAllowLoopbackHTTP bool `opt:"DiscoveryAllowLoopbackHTTP"`
 
 	// Health check configuration
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.Registrar `optgen:"notnil"`
 
 	// Provider-local refresh cron configuration
-	jwksRefreshEnabled     bool   `opt:"-"`
-	jwksRefreshSchedule    string `opt:"-"`
-	revocationSyncEnabled  bool   `opt:"-"`
-	revocationSyncSchedule string `opt:"-"`
+	// Set by WithJWKSRefreshSchedule: enables the process-local refresh task and sets its schedule.
+	jwksRefreshEnabled bool `optgen:"manual"`
+	// Set by WithJWKSRefreshSchedule: enables the process-local refresh task and sets its schedule.
+	jwksRefreshSchedule string `optgen:"manual"`
+	// Set by WithRevocationSyncSchedule: enables the process-local sync task and sets its schedule.
+	revocationSyncEnabled bool `optgen:"manual"`
+	// Set by WithRevocationSyncSchedule: enables the process-local sync task and sets its schedule.
+	revocationSyncSchedule string `optgen:"manual"`
 
-	// Metrics collector for Prometheus-compatible instrumentation.
-	collector metrics.Collector `optgen:"notnil"`
+	// Metrics meter for Prometheus-compatible instrumentation.
+	meter metrics.Meter `optgen:"notnil"`
 }
 
-// WithDefaultValidationOptions sets default validation options for ValidateToken.
-// These apply to all validations unless overridden by per-call options.
-func WithDefaultValidationOptions(vopt ...ValidationOption) Option {
+// WithPresets registers named validation presets for reusable rules.
+// Presets are stored by name and can be referenced during validation.
+func WithPresets(presets ...*ValidationPreset) Option {
 	return func(o *options) {
-		o.verifierOptions = newVerifierOptions(vopt...)
+		if o.presets == nil {
+			o.presets = make(map[string]*ValidationPreset)
+		}
+		for _, preset := range presets {
+			if preset != nil {
+				o.presets[preset.name] = preset
+			}
+		}
 	}
 }
 
@@ -240,36 +350,6 @@ func WithIntrospection(clientID, clientSecret string) Option {
 	}
 }
 
-// WithIntrospectionFailOpen relaxes introspection to fail-open: when the
-// configured endpoint cannot confirm a token is active (network error, non-2xx
-// response, parse failure) the error is logged and the token is accepted on
-// its signature alone. Use this only when IdP availability must take
-// precedence over revocation enforcement — under this mode a degraded or
-// unreachable IdP silently bypasses revocation checks.
-//
-// Without this option introspection is fail-closed (the secure default):
-// errors reject the token with [ErrIntrospection].
-func WithIntrospectionFailOpen() Option {
-	return func(o *options) {
-		o.introspectionFailOpen = true
-	}
-}
-
-// WithPresets registers named validation presets for reusable rules.
-// Presets are stored by name and can be referenced during validation.
-func WithPresets(presets ...*ValidationPreset) Option {
-	return func(o *options) {
-		if o.presets == nil {
-			o.presets = make(map[string]*ValidationPreset)
-		}
-		for _, preset := range presets {
-			if preset != nil {
-				o.presets[preset.name] = preset
-			}
-		}
-	}
-}
-
 // WithJWKSRefreshSchedule refreshes the JWKS keys on the provider's own,
 // process-local cron. The schedule is a six-field cron expression with seconds
 // (e.g. "0 */30 * * * *" for every 30 minutes) or a descriptor such as
@@ -281,56 +361,14 @@ func WithJWKSRefreshSchedule(schedule string) Option {
 	}
 }
 
-// WithJWKSFailureMode selects how the provider reacts when its locally
-// cached JWKS has not been refreshed within [WithJWKSMaxStaleness].
-// Defaults to [JWKSFailureModeEnforce]. Unknown / empty modes leave the
-// default in place.
-//
-// Pair this with [WithJWKSMaxStaleness] (and an active refresh path such
-// as [WithJWKSRefreshSchedule] or manual [Provider.RefreshJWKS] calls);
-// without a non-zero staleness budget the mode has no effect.
-func WithJWKSFailureMode(mode JWKSFailureMode) Option {
-	return func(o *options) {
-		switch mode {
-		case JWKSFailureModeEnforce, JWKSFailureModeWarn, JWKSFailureModeDisabled:
-			o.jwksFailureMode = mode
-		}
-	}
-}
-
-// WithAudienceFailureMode selects how the provider reacts when token
-// validation runs without any expected audience configured. Defaults to
-// [AudienceFailureModeEnforce]. Unknown / empty modes leave the default in
-// place. When an expected audience is configured (via [WithValidationAudience]
-// or service config) its value is always enforced regardless of this mode.
-func WithAudienceFailureMode(mode AudienceFailureMode) Option {
-	return func(o *options) {
-		switch mode {
-		case AudienceFailureModeEnforce, AudienceFailureModeWarn, AudienceFailureModeDisabled:
-			o.audienceFailureMode = mode
-		}
-	}
-}
-
-// WithDiscoveryValidationMode selects how the provider validates the OIDC
-// discovery document's issuer and endpoint URLs before trusting them.
-// Defaults to [DiscoveryValidationModeEnforce]. Unknown / empty modes leave
-// the default in place. See [DiscoveryValidationMode] for the threat model.
-func WithDiscoveryValidationMode(mode DiscoveryValidationMode) Option {
-	return func(o *options) {
-		switch mode {
-		case DiscoveryValidationModeEnforce, DiscoveryValidationModeWarn, DiscoveryValidationModeDisabled:
-			o.discoveryValidationMode = mode
-		}
-	}
-}
-
 // WithRevocationSyncSchedule syncs the revocation storage
 // ([RevocationStorage.Sync]) on the provider's own, process-local cron, on top
 // of the sync NewProvider runs at construction. The schedule is a six-field
 // cron expression with seconds (e.g. "0 */5 * * * *" for every 5 minutes) or
 // a descriptor such as "@every 5m"; an invalid expression fails [NewProvider].
-// It has no effect without a revocation storage.
+// It has no effect without a revocation storage. Each run is bounded by
+// [WithRevocationSyncTimeout], and the schedule turns on the
+// [WithRevocationMaxStaleness] bound.
 func WithRevocationSyncSchedule(schedule string) Option {
 	return func(o *options) {
 		o.revocationSyncEnabled = true

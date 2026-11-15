@@ -41,4 +41,12 @@ var (
 	// empty subject. A subject is mandatory: an empty sub yields a token the
 	// verifier always rejects (resolveKey requires a non-empty subject).
 	ErrSubjectRequired = errors.New("auth/selfjwt: subject required")
+
+	// ErrIssuerRequired is returned by [Minter.Mint] and [Verifier.Verify] when
+	// the minter or verifier was built with an empty issuer.
+	ErrIssuerRequired = errors.New("auth/selfjwt: issuer required")
+
+	// ErrAudienceRequired is returned by [Minter.Mint] and [Verifier.Verify]
+	// when the minter or verifier was built with an empty audience.
+	ErrAudienceRequired = errors.New("auth/selfjwt: audience required")
 )

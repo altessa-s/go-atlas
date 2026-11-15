@@ -4,12 +4,13 @@
 
 package oidc
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=verifierOptions --option-type=ValidationOption --output=verifier_options_gen.go --option-prefix=Validation
-
 import (
 	"log/slog"
 	"strings"
 	"time"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // DefaultValidMethods is the set of JWT signing algorithms allowed by default.
@@ -69,19 +70,26 @@ func isUnsafeSigningMethod(method string) bool {
 // WithValidationLeeway(0) to opt out of any tolerance.
 const DefaultLeeway = 30 * time.Second
 
+// checkLeeway rejects a configured clock-skew leeway above [authjwt.MaxLeeway].
+func checkLeeway(leeway time.Duration) error {
+	if leeway > authjwt.MaxLeeway {
+		return coreerrs.Wrapf(ErrInvalidConfig, "leeway %s exceeds the maximum %s", leeway, authjwt.MaxLeeway)
+	}
+	return nil
+}
+
 // verifierOptions holds token validation configuration.
 // This struct is not exported and is modified through ValidationOption functions.
 type verifierOptions struct {
 	withoutClaimsValidation  bool          `opt:"ClaimsValidation" optval:"invert"`
 	leeway                   time.Duration `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
 	issuedAt                 bool
-	expirationRequired       bool
 	notBeforeRequired        bool
 	issuer                   string
 	subject                  string
 	audience                 []string
 	requiredClaims           []string
-	expectedClaims           map[string]string
+	expectedClaims           map[string]any
 	ignoredClaims            []string
 	allowedClientIDs         []string
 	requiredScopes           []string
@@ -90,8 +98,11 @@ type verifierOptions struct {
 	allowMissingSubject      bool
 	maxTokenLifetime         time.Duration
 	celRules                 []CELValidationRule
-	validMethods             []string            `opt:"-"` // Allowed JWT signing algorithms. Empty = DefaultValidMethods.
-	ignoredClaimsSet         map[string]struct{} `opt:"-"` // Pre-built from ignoredClaims. Call buildIgnoredSet() after finalization.
+	// Set by WithValidationValidMethods: drops unsafe methods and preserves the
+	// default allow-list when the input is empty or entirely unsafe.
+	validMethods []string `optgen:"manual"`
+	// Pre-built from ignoredClaims by buildIgnoredSet() after finalization.
+	ignoredClaimsSet map[string]struct{} `opt:"-"`
 }
 
 // buildIgnoredSet pre-computes ignoredClaimsSet from ignoredClaims.

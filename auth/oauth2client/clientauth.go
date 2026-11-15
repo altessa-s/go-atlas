@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // ClientAssertionTypeJWTBearer is the client_assertion_type value for a JWT

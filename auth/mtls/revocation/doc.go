@@ -28,15 +28,46 @@
 //
 // # Fail mode
 //
-// Network revocation checks fail; [FailOpen] (default) keeps new connections
-// flowing during a responder outage, [FailClosed] rejects anything it cannot
-// confirm good. Pick per the cost of an outage versus the cost of briefly
-// trusting a revoked peer.
+// Network revocation checks fail; [FailClosed] (default) rejects anything it
+// cannot confirm good, so blocking the responder does not let a revoked
+// certificate through. [FailOpen] keeps new connections flowing during a
+// responder outage and must be selected explicitly with [WithFailMode].
+//
+// # Responder destination
+//
+// The responder URL is read from the peer's certificate, so it is restricted:
+// only http and https URLs are requested, and the default client refuses a
+// responder that resolves to a loopback, private, link-local, unique-local,
+// multicast, unspecified or otherwise non-public address
+// ([ErrPrivateResponder]). The refusal runs on the resolved address right
+// before the connect, so it covers redirects and DNS rebinding. An internal
+// PKI whose responder lives on a private network names it with
+// [WithAllowedResponders], which also limits the checker to the listed hosts
+// ([ErrResponderNotAllowed]); [WithInsecureAllowPrivateResponders] turns the
+// refusal off altogether.
+//
+// # Responder authorization
+//
+// A response must be signed with the issuer's own key or by a delegated
+// responder certificate issued directly by that issuer, carrying the
+// id-kp-OCSPSigning extended key usage and within its validity period (RFC
+// 6960 section 4.2.2.2). Anything else is [ErrUnauthorizedResponder].
+//
+// # HTTP client
+//
+// The default OCSP client is bounded by the check timeout and refuses a
+// redirect to a different host ([ErrCrossHostRedirect]), so the responder named
+// in the certificate cannot steer the request elsewhere. A client supplied with
+// [WithHTTPClient] is used as is: its timeout, redirects and destinations are
+// the caller's responsibility.
 //
 // # Usage
 //
-//	checker := revocation.New(caCerts, revocation.WithFailMode(revocation.FailClosed))
-//	authFn := grpcmtls.AuthFunc(coremtls.WithValidator(checker.Validator()))
+//	checker := revocation.New(caCerts)
+//	authFn, err := grpcmtls.AuthFunc(
+//	    coremtls.WithTrustDomains("example.org"),
+//	    coremtls.WithValidator(checker.Validator()),
+//	)
 //
 // # Scope
 //

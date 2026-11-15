@@ -9,7 +9,7 @@ import (
 )
 
 // RateLimiter gates token-validation attempts. Implementations live outside
-// this package — wire in data/limiters/tokenbucket, a Redis-backed limiter,
+// this package — wire in coord/limiters/tokenbucket, a Redis-backed limiter,
 // or any other source through this consumer-side interface.
 //
 // The contract is failure-only: [RateLimiter.Allow] is a pure check that

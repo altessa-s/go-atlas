@@ -22,31 +22,6 @@ func applyValidationOptionsToVerifier(opts []ValidationOption) *verifierOptions 
 	return v
 }
 
-func TestValidationRulesConfig_VerifyExpiration_NilOmitsRequirement(t *testing.T) {
-	t.Parallel()
-
-	cfg := &ValidationRulesConfig{} // VerifyExpiration nil
-	opts, err := cfg.ToValidationOptions()
-	require.NoError(t, err)
-
-	v := applyValidationOptionsToVerifier(opts)
-	require.False(t, v.expirationRequired,
-		"a missing verify_expiration field must NOT switch on the require-exp contract — preserves the JWT-library default")
-}
-
-func TestValidationRulesConfig_VerifyExpiration_TrueRequiresExp(t *testing.T) {
-	t.Parallel()
-
-	enabled := true
-	cfg := &ValidationRulesConfig{VerifyExpiration: &enabled}
-	opts, err := cfg.ToValidationOptions()
-	require.NoError(t, err)
-
-	v := applyValidationOptionsToVerifier(opts)
-	require.True(t, v.expirationRequired,
-		"verify_expiration: true must propagate to WithValidationExpirationRequired so missing-exp tokens are rejected")
-}
-
 func TestValidationRulesConfig_VerifyNotBefore_NilOmitsRequirement(t *testing.T) {
 	t.Parallel()
 
@@ -71,24 +46,6 @@ func TestValidationRulesConfig_VerifyNotBefore_TrueRequiresNbf(t *testing.T) {
 		"verify_not_before: true must propagate to WithValidationNotBeforeRequired")
 }
 
-func TestValidateServiceConfig_RejectsExplicitFalseVerifyExpiration(t *testing.T) {
-	t.Parallel()
-
-	disabled := false
-	cfg := &ServiceConfig{
-		Version: SupportedConfigVersion,
-		DefaultValidation: &ValidationRulesConfig{
-			VerifyExpiration: &disabled,
-		},
-	}
-
-	err := ValidateServiceConfig(cfg)
-	require.ErrorIs(t, err, ErrInvalidConfig,
-		"explicit verify_expiration: false must be rejected — the JWT library has no per-claim opt-out, so silently honoring it would mislead operators")
-	require.Contains(t, err.Error(), "default_validation.verify_expiration",
-		"error must point operators at the offending path")
-}
-
 func TestValidateServiceConfig_RejectsExplicitFalseVerifyNotBefore(t *testing.T) {
 	t.Parallel()
 
@@ -102,7 +59,7 @@ func TestValidateServiceConfig_RejectsExplicitFalseVerifyNotBefore(t *testing.T)
 
 	err := ValidateServiceConfig(cfg)
 	require.ErrorIs(t, err, ErrInvalidConfig,
-		"explicit verify_not_before: false must be rejected for the same reason as verify_expiration: false")
+		"explicit verify_not_before: false must be rejected — the validator has no per-claim opt-out")
 	require.Contains(t, err.Error(), "default_validation.verify_not_before")
 }
 
@@ -119,7 +76,7 @@ func TestValidateServiceConfig_RejectsFalseInsidePresetValidation(t *testing.T) 
 			{
 				Name: "service",
 				Validation: &ValidationRulesConfig{
-					VerifyExpiration: &disabled,
+					VerifyNotBefore: &disabled,
 				},
 			},
 		},
@@ -127,7 +84,7 @@ func TestValidateServiceConfig_RejectsFalseInsidePresetValidation(t *testing.T) 
 
 	err := ValidateServiceConfig(cfg)
 	require.ErrorIs(t, err, ErrInvalidConfig)
-	require.Contains(t, err.Error(), "presets[0].validation.verify_expiration",
+	require.Contains(t, err.Error(), "presets[0].validation.verify_not_before",
 		"error must locate the misconfiguration inside the preset, not just blame default_validation")
 }
 
@@ -141,15 +98,14 @@ func TestValidateServiceConfig_AcceptsExplicitTrueVerifyFlags(t *testing.T) {
 	cfg := &ServiceConfig{
 		Version: SupportedConfigVersion,
 		DefaultValidation: &ValidationRulesConfig{
-			VerifyExpiration: &enabled,
-			VerifyNotBefore:  &enabled,
+			VerifyNotBefore: &enabled,
 		},
 	}
 
 	require.NoError(t, ValidateServiceConfig(cfg))
 }
 
-func TestParseServiceConfig_RejectsFalseVerifyExpirationJSON(t *testing.T) {
+func TestParseServiceConfig_RejectsFalseVerifyNotBeforeJSON(t *testing.T) {
 	t.Parallel()
 
 	// End-to-end via ParseServiceConfig to make sure the JSON unmarshal
@@ -157,11 +113,11 @@ func TestParseServiceConfig_RejectsFalseVerifyExpirationJSON(t *testing.T) {
 	json := []byte(`{
 		"version": "1.0",
 		"default_validation": {
-			"verify_expiration": false
+			"verify_not_before": false
 		}
 	}`)
 
 	_, err := ParseServiceConfig(json)
 	require.ErrorIs(t, err, ErrInvalidConfig,
-		"ParseServiceConfig must refuse verify_expiration: false at load time, not silently strip it")
+		"ParseServiceConfig must refuse verify_not_before: false at load time, not silently strip it")
 }

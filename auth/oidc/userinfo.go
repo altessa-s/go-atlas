@@ -14,8 +14,8 @@ import (
 
 	"golang.org/x/oauth2"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreio "github.com/altessa-s/go-atlas/core/io"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	coreio "github.com/altessa-s/go-atlas-core/io"
 )
 
 // maxUserInfoResponseSize is the maximum bytes read from the userinfo endpoint.

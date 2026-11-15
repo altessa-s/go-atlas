@@ -16,10 +16,18 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/mtls"
 	"github.com/altessa-s/go-atlas/auth/spiffe"
 )
+
+var _ mtls.DecisionRecorder = (*decision.Recorder)(nil)
+
+type decisionRecorderFunc func(context.Context, decision.Decision) error
+
+func (f decisionRecorderFunc) Record(ctx context.Context, d decision.Decision) error {
+	return f(ctx, d)
+}
 
 func svidCert(t *testing.T, id string) *x509.Certificate {
 	t.Helper()
@@ -32,32 +40,71 @@ func svidCert(t *testing.T, id string) *x509.Certificate {
 	}
 }
 
+// newAuthenticator builds an authenticator from a valid configuration.
+func newAuthenticator(tb testing.TB, opts ...mtls.Option) *mtls.Authenticator {
+	tb.Helper()
+	a, err := mtls.NewAuthenticator(opts...)
+	require.NoError(tb, err)
+	return a
+}
+
 type captureSink struct {
-	got []audit.Decision
+	got []decision.Decision
 	err error
 }
 
-func (s *captureSink) Record(_ context.Context, d audit.Decision) error {
+func (s *captureSink) Record(_ context.Context, d decision.Decision) error {
 	s.got = append(s.got, d)
 	return s.err
 }
 
 func TestAuthenticateDefaultSPIFFE(t *testing.T) {
 	t.Parallel()
-	p, err := mtls.NewAuthenticator().Authenticate(t.Context(), svidCert(t, "spiffe://example.org/sa/billing"))
+	a := newAuthenticator(t, mtls.WithInsecureAnyTrustDomain())
+	p, err := a.Authenticate(t.Context(), svidCert(t, "spiffe://example.org/sa/billing"))
 	require.NoError(t, err)
 	require.Equal(t, "spiffe://example.org/sa/billing", p.(spiffe.ID).String())
 }
 
+func TestNoTrustDomainPolicyFailsClosed(t *testing.T) {
+	t.Parallel()
+	cert := svidCert(t, "spiffe://example.org/sa/billing")
+	customIdentity := mtls.WithIdentity(func(*x509.Certificate) (any, error) { return "caller", nil })
+
+	tests := []struct {
+		name    string
+		opts    []mtls.Option
+		wantErr error
+	}{
+		{name: "default options", wantErr: mtls.ErrNoTrustDomainPolicy},
+		{name: "custom identity only", opts: []mtls.Option{customIdentity}, wantErr: mtls.ErrNoTrustDomainPolicy},
+		{name: "trust domain pinned", opts: []mtls.Option{mtls.WithTrustDomains("example.org")}},
+		{name: "explicit opt-in", opts: []mtls.Option{mtls.WithInsecureAnyTrustDomain()}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			a, err := mtls.NewAuthenticator(tc.opts...)
+			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErr != nil {
+				require.Nil(t, a)
+				return
+			}
+			_, err = a.Authenticate(t.Context(), cert)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestAuthenticateNilCert(t *testing.T) {
 	t.Parallel()
-	_, err := mtls.NewAuthenticator().Authenticate(t.Context(), nil)
+	_, err := newAuthenticator(t, mtls.WithInsecureAnyTrustDomain()).Authenticate(t.Context(), nil)
 	require.ErrorIs(t, err, mtls.ErrNoCertificate)
 }
 
 func TestAuthenticateWithIdentity(t *testing.T) {
 	t.Parallel()
-	a := mtls.NewAuthenticator(mtls.WithIdentity(func(c *x509.Certificate) (any, error) {
+	a := newAuthenticator(t, mtls.WithInsecureAnyTrustDomain(), mtls.WithIdentity(func(c *x509.Certificate) (any, error) {
 		id, err := spiffe.IDFromCertificate(c)
 		return id.Path, err
 	}))
@@ -77,11 +124,13 @@ func TestExpiryValidator(t *testing.T) {
 		return func() time.Time { return tt }
 	}
 
-	inWindow := mtls.NewAuthenticator(mtls.WithValidator(mtls.ExpiryValidator(clock("2024-01-15T00:00:00Z"), 0)))
+	inWindow := newAuthenticator(t, mtls.WithTrustDomains("example.org"),
+		mtls.WithValidator(mtls.ExpiryValidator(clock("2024-01-15T00:00:00Z"), 0)))
 	_, err := inWindow.Authenticate(t.Context(), cert)
 	require.NoError(t, err)
 
-	expired := mtls.NewAuthenticator(mtls.WithValidator(mtls.ExpiryValidator(clock("2024-03-01T00:00:00Z"), 0)))
+	expired := newAuthenticator(t, mtls.WithTrustDomains("example.org"),
+		mtls.WithValidator(mtls.ExpiryValidator(clock("2024-03-01T00:00:00Z"), 0)))
 	_, err = expired.Authenticate(t.Context(), cert)
 	require.ErrorIs(t, err, mtls.ErrCertExpired)
 }
@@ -90,23 +139,11 @@ func TestTrustDomainValidator(t *testing.T) {
 	t.Parallel()
 	cert := svidCert(t, "spiffe://example.org/x")
 
-	ok := mtls.NewAuthenticator(mtls.WithValidator(mtls.TrustDomainValidator("example.org", "other.org")))
-	_, err := ok.Authenticate(t.Context(), cert)
-	require.NoError(t, err)
-
-	denied := mtls.NewAuthenticator(mtls.WithValidator(mtls.TrustDomainValidator("other.org")))
-	_, err = denied.Authenticate(t.Context(), cert)
-	require.ErrorIs(t, err, mtls.ErrUntrustedDomain)
-
-	// Empty allowlist is a no-op.
-	any := mtls.NewAuthenticator(mtls.WithValidator(mtls.TrustDomainValidator()))
-	_, err = any.Authenticate(t.Context(), cert)
-	require.NoError(t, err)
+	require.NoError(t, mtls.TrustDomainValidator("example.org", "other.org")(cert))
+	require.ErrorIs(t, mtls.TrustDomainValidator("other.org")(cert), mtls.ErrUntrustedDomain)
 
 	// No SVID surfaces the parse error.
-	noSVID := mtls.NewAuthenticator(mtls.WithValidator(mtls.TrustDomainValidator("example.org")))
-	_, err = noSVID.Authenticate(t.Context(), &x509.Certificate{})
-	require.ErrorIs(t, err, spiffe.ErrNoSVID)
+	require.ErrorIs(t, mtls.TrustDomainValidator("example.org")(&x509.Certificate{}), spiffe.ErrNoSVID)
 }
 
 func TestRevocationList(t *testing.T) {
@@ -115,7 +152,7 @@ func TestRevocationList(t *testing.T) {
 	cert.SerialNumber = big.NewInt(42)
 
 	rl := mtls.NewRevocationList()
-	a := mtls.NewAuthenticator(mtls.WithValidator(rl.Validator()))
+	a := newAuthenticator(t, mtls.WithTrustDomains("example.org"), mtls.WithValidator(rl.Validator()))
 
 	// Not revoked yet.
 	_, err := a.Authenticate(t.Context(), cert)
@@ -215,9 +252,10 @@ func TestAuditRecordsAllowAndDeny(t *testing.T) {
 	t.Run("allow", func(t *testing.T) {
 		t.Parallel()
 		sink := &captureSink{}
-		a := mtls.NewAuthenticator(
+		a := newAuthenticator(t,
+			mtls.WithInsecureAnyTrustDomain(),
 			mtls.WithTransport("grpc"),
-			mtls.WithAudit(audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll)), subjectOf),
+			mtls.WithAudit(decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll)), subjectOf),
 		)
 		_, err := a.Authenticate(t.Context(), cert)
 		require.NoError(t, err)
@@ -231,9 +269,9 @@ func TestAuditRecordsAllowAndDeny(t *testing.T) {
 	t.Run("deny records reason", func(t *testing.T) {
 		t.Parallel()
 		sink := &captureSink{}
-		a := mtls.NewAuthenticator(
-			mtls.WithAudit(audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll)), subjectOf),
-			mtls.WithValidator(mtls.TrustDomainValidator("other.org")),
+		a := newAuthenticator(t,
+			mtls.WithAudit(decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll)), subjectOf),
+			mtls.WithTrustDomains("other.org"),
 		)
 		_, err := a.Authenticate(t.Context(), cert)
 		require.ErrorIs(t, err, mtls.ErrUntrustedDomain)
@@ -246,7 +284,8 @@ func TestAuditRecordsAllowAndDeny(t *testing.T) {
 func TestAuditDenyOnlyDropsAllow(t *testing.T) {
 	t.Parallel()
 	sink := &captureSink{}
-	a := mtls.NewAuthenticator(mtls.WithAudit(audit.NewRecorder(sink), subjectOf)) // default deny-only
+	a := newAuthenticator(t, mtls.WithInsecureAnyTrustDomain(),
+		mtls.WithAudit(decision.NewRecorder(sink), subjectOf)) // default deny-only
 	_, err := a.Authenticate(t.Context(), svidCert(t, "spiffe://example.org/x"))
 	require.NoError(t, err)
 	require.Empty(t, sink.got)
@@ -255,10 +294,50 @@ func TestAuditDenyOnlyDropsAllow(t *testing.T) {
 func TestAuditRequiredFailureFailsClosed(t *testing.T) {
 	t.Parallel()
 	sink := &captureSink{err: errors.New("sink down")}
-	a := mtls.NewAuthenticator(mtls.WithAudit(
-		audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll), audit.WithFailureMode(audit.FailureRequired)),
+	a := newAuthenticator(t, mtls.WithInsecureAnyTrustDomain(), mtls.WithAudit(
+		decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll), decision.WithFailureMode(decision.FailureRequired)),
 		subjectOf,
 	))
 	_, err := a.Authenticate(t.Context(), svidCert(t, "spiffe://example.org/x"))
-	require.ErrorIs(t, err, audit.ErrAuditFailed)
+	require.ErrorIs(t, err, decision.ErrAuditFailed)
+}
+
+func TestDecisionRecorderPort(t *testing.T) {
+	t.Parallel()
+
+	cert := svidCert(t, "spiffe://example.org/sa/billing")
+	var got []decision.Decision
+	recErr := errors.New("recorder failed")
+	recorder := decisionRecorderFunc(func(_ context.Context, d decision.Decision) error {
+		got = append(got, d)
+		return recErr
+	})
+	a := newAuthenticator(t, mtls.WithInsecureAnyTrustDomain(), mtls.WithAudit(recorder, subjectOf))
+	_, err := a.Authenticate(t.Context(), cert)
+	require.ErrorIs(t, err, recErr)
+	require.Len(t, got, 1)
+	require.True(t, got[0].Allowed)
+
+	// An absent recorder leaves authentication behavior unchanged.
+	a = newAuthenticator(t, mtls.WithInsecureAnyTrustDomain(), mtls.WithAudit(nil, subjectOf))
+	_, err = a.Authenticate(t.Context(), cert)
+	require.NoError(t, err)
+}
+
+// TestWithValidatorAppends pins that repeated WithValidator calls accumulate
+// validators instead of replacing them.
+func TestWithValidatorAppends(t *testing.T) {
+	t.Parallel()
+	var ran []string
+	record := func(name string) mtls.CertValidator {
+		return func(*x509.Certificate) error {
+			ran = append(ran, name)
+			return nil
+		}
+	}
+	a := newAuthenticator(t, mtls.WithTrustDomains("example.org"),
+		mtls.WithValidator(record("a"), record("b")), mtls.WithValidator(record("c")))
+	_, err := a.Authenticate(t.Context(), svidCert(t, "spiffe://example.org/sa/billing"))
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b", "c"}, ran)
 }

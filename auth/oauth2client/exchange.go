@@ -12,17 +12,18 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/retry"
+	"github.com/altessa-s/go-atlas-core/retry"
 
 	"golang.org/x/oauth2"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreio "github.com/altessa-s/go-atlas/core/io"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	coreio "github.com/altessa-s/go-atlas-core/io"
 )
 
 // GrantTypeTokenExchange is the RFC 8693 grant_type value.
@@ -43,9 +44,9 @@ const (
 // response is well under 64 KiB; anything larger signals a misbehaving upstream.
 const maxExchangeResponseSize = 1 << 16 // 64 KiB
 
-// maxErrorBodyLen bounds how much of an upstream error body is echoed into an
-// error message, to avoid leaking oversized or sensitive payloads into logs.
-const maxErrorBodyLen = 256
+// maxExpiresInSeconds is the largest expires_in representable as a
+// [time.Duration]; larger values are clamped to it.
+const maxExpiresInSeconds = math.MaxInt64 / int64(time.Second)
 
 // ExchangeRequest describes a single RFC 8693 token exchange: trade a subject
 // token (and optionally an actor token, for delegation) for a new token scoped
@@ -87,9 +88,7 @@ type Exchanger struct {
 	authStyle      oauth2.AuthStyle
 	endpointParams url.Values
 	client         *http.Client
-	retryAttempts  int
-	retryBaseDelay time.Duration
-	retryMaxDelay  time.Duration
+	retry          retryPolicy
 	metrics        *Metrics
 	logger         *slog.Logger
 	clientAuth     ClientAuthenticator
@@ -102,23 +101,28 @@ type Exchanger struct {
 // credential [oauth2.AuthStyle], extra endpoint params, or a custom
 // [http.Client] with the [Option] values (scopes are taken per-request from
 // [ExchangeRequest]).
-func NewExchanger(tokenURL, clientID, clientSecret string, opts ...Option) *Exchanger {
+//
+// A tokenURL that is malformed or not https (plain http is accepted on a
+// loopback host, or anywhere with [WithInsecureHTTP]) returns an error
+// wrapping [ErrInsecureEndpoint].
+func NewExchanger(tokenURL, clientID, clientSecret string, opts ...Option) (*Exchanger, error) {
 	o := newOptions(opts...)
+	if err := o.validateEndpoint("token URL", tokenURL); err != nil {
+		return nil, err
+	}
 	return &Exchanger{
 		tokenURL:       tokenURL,
 		clientID:       clientID,
 		clientSecret:   clientSecret,
 		authStyle:      o.authStyle,
 		endpointParams: o.endpointParams,
-		client:         o.httpClient,
-		retryAttempts:  o.retryAttempts,
-		retryBaseDelay: o.retryBaseDelay,
-		retryMaxDelay:  o.retryMaxDelay,
+		client:         o.client(),
+		retry:          o.retryPolicy(),
 		metrics:        o.metrics,
 		logger:         o.logger,
 		clientAuth:     o.clientAuth,
 		earlyExpiry:    o.earlyExpiry,
-	}
+	}, nil
 }
 
 // Exchange performs a token exchange and returns the issued token. The
@@ -139,38 +143,63 @@ func (e *Exchanger) Exchange(ctx context.Context, req ExchangeRequest) (*oauth2.
 	tok, err := e.exchange(ctx, req)
 	e.metrics.recordFetch(grantTokenExchange, err == nil, time.Since(start))
 	if err != nil && e.logger != nil {
-		e.logger.Warn("oauth2client: token exchange failed", "err", err)
+		e.logger.Warn("oauth2client: token exchange failed", "err", logError(err))
 	}
 	return tok, err
 }
 
 // exchange runs a single exchange or, when configured, a retrying one.
 func (e *Exchanger) exchange(ctx context.Context, req ExchangeRequest) (*oauth2.Token, error) {
-	if e.retryAttempts <= 0 {
-		return e.exchangeOnce(ctx, req)
+	return withRetry(ctx, e.retry, grantTokenExchange, "token exchange", e.metrics, e.logger,
+		func(ctx context.Context) (*oauth2.Token, error) { return e.exchangeOnce(ctx, req) })
+}
+
+// retryPolicy bounds the retries of the hand-rolled token requests ([Exchanger]
+// and [JWTBearer]).
+type retryPolicy struct {
+	attempts  int
+	baseDelay time.Duration
+	maxDelay  time.Duration
+}
+
+// retryPolicy returns the retry tunables of o.
+func (o *options) retryPolicy() retryPolicy {
+	return retryPolicy{attempts: o.retryAttempts, baseDelay: o.retryBaseDelay, maxDelay: o.retryMaxDelay}
+}
+
+// withRetry runs fetch once or, when p allows retries, retries it with
+// exponential backoff while it fails with a retryable [*exchangeError]. Each
+// retry is recorded under grant and logged as a retry of op. The retry wait
+// honors ctx.
+func withRetry(
+	ctx context.Context, p retryPolicy, grant, op string, m *Metrics, logger *slog.Logger,
+	fetch func(context.Context) (*oauth2.Token, error),
+) (*oauth2.Token, error) {
+	if p.attempts <= 0 {
+		return fetch(ctx)
 	}
 
 	var tok *oauth2.Token
 	err := retry.Do(ctx, func(ctx context.Context) error {
 		var err error
-		tok, err = e.exchangeOnce(ctx, req)
+		tok, err = fetch(ctx)
 		return err
 	},
-		retry.WithMaxAttempts(e.retryAttempts),
-		retry.WithNextDelay(retry.Exponential(retry.ExponentialConfig{
-			BaseDelay: e.retryBaseDelay,
-			MaxDelay:  e.retryMaxDelay,
-			Jitter:    DefaultRetryJitter,
-		})),
+		retry.WithMaxAttempts(p.attempts),
+		retry.WithNextDelay(retry.Exponential(
+			p.baseDelay,
+			retry.WithExponentialMaxDelay(p.maxDelay),
+			retry.WithExponentialJitter(DefaultRetryJitter),
+		)),
 		retry.WithShouldRetry(func(err error) bool {
 			ee, ok := errors.AsType[*exchangeError](err)
 			return ok && ee.retryable
 		}),
 		retry.WithOnRetry(func(attempt int, err error, delay time.Duration) {
-			e.metrics.recordRetry(grantTokenExchange)
-			if e.logger != nil {
-				e.logger.Warn("oauth2client: retrying token exchange",
-					"attempt", attempt+1, "delay", delay, "err", err)
+			m.recordRetry(grant)
+			if logger != nil {
+				logger.Warn("oauth2client: retrying "+op,
+					"attempt", attempt+1, "delay", delay, "err", logError(err))
 			}
 		}),
 	)
@@ -188,28 +217,33 @@ func (e *Exchanger) exchangeOnce(ctx context.Context, req ExchangeRequest) (*oau
 
 	status, body, err := doForm(ctx, e.client, e.tokenURL, form, basicUser, basicPass)
 	if err != nil {
-		// Transport errors are transient; let the retry policy decide.
-		return nil, &exchangeError{retryable: true, cause: coreerrs.Wrap(errors.Join(ErrTokenExchange, err), "token exchange")}
+		// Transport errors are transient; let the retry policy decide. An
+		// insecure endpoint or a refused redirect fails the same way every time.
+		return nil, &exchangeError{
+			retryable: !permanentRequestError(err),
+			cause:     coreerrs.Wrap(errors.Join(ErrTokenExchange, err), "token exchange"),
+		}
 	}
 	if status < 200 || status >= 300 {
 		return nil, &exchangeError{
 			retryable: status == http.StatusTooManyRequests || status >= 500,
-			cause:     coreerrs.Wrapf(ErrTokenExchange, "unexpected status %d: %s", status, sanitizeErrorBody(body)),
+			cause:     coreerrs.JoinWrap(ErrTokenExchange, responseError(retrieveError(status, body), status, len(body))),
 		}
 	}
-	return parseTokenResponse(body)
+	return parseTokenResponse(status, body, time.Now())
 }
 
 // doForm POSTs form to tokenURL as application/x-www-form-urlencoded and returns
 // the HTTP status and (size-limited) body. When basicUser is non-empty the
-// request carries HTTP Basic credentials. A nil client uses [http.DefaultClient].
-// A transport or read error is returned with status 0.
+// request carries HTTP Basic credentials. A nil client uses the built-in https-only client.
+// Pre-response failures retain their text only for allowlisted response-free causes;
+// body read errors retain the response status and have their text withheld.
 func doForm(
 	ctx context.Context, client *http.Client, tokenURL string, form url.Values, basicUser, basicPass string,
 ) (int, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, preResponseError(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
@@ -217,17 +251,20 @@ func doForm(
 		req.SetBasicAuth(url.QueryEscape(basicUser), url.QueryEscape(basicPass))
 	}
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultSecureHTTPClient
 	}
-	resp, err := client.Do(req)
+	response := &responseMetadata{}
+	clone := *client
+	clone.Transport = &responseTransport{base: client.Transport, metadata: response}
+	resp, err := clone.Do(req)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, response.redact(err)
 	}
 	defer drainAndClose(resp)
 
 	body, err := readLimited(resp.Body)
 	if err != nil {
-		return resp.StatusCode, nil, err
+		return resp.StatusCode, nil, response.redact(err)
 	}
 	return resp.StatusCode, body, nil
 }
@@ -316,10 +353,13 @@ type tokenExchangeResponse struct {
 //   - token_type "N_A" (RFC 8693, when the issued token is not an access token)
 //     is kept as-is. Such a token is not a bearer credential; do not attach it
 //     with Token.SetAuthHeader, which would emit "N_A ...".
-func parseTokenResponse(body []byte) (*oauth2.Token, error) {
+//
+// now is the instant the expiry is relative to; an expires_in too large for a
+// [time.Duration] is clamped instead of overflowing into the past.
+func parseTokenResponse(status int, body []byte, now time.Time) (*oauth2.Token, error) {
 	var tr tokenExchangeResponse
 	if err := json.Unmarshal(body, &tr); err != nil {
-		return nil, coreerrs.Wrap(errors.Join(ErrTokenExchange, err), "decode token-exchange response")
+		return nil, coreerrs.Wrap(errors.Join(ErrTokenExchange, responseError(err, status, len(body))), "decode token-exchange response")
 	}
 	if tr.AccessToken == "" {
 		return nil, coreerrs.Wrap(ErrTokenExchange, "response missing access_token")
@@ -330,7 +370,7 @@ func parseTokenResponse(body []byte) (*oauth2.Token, error) {
 		RefreshToken: tr.RefreshToken,
 	}
 	if secs, err := tr.ExpiresIn.Int64(); err == nil && secs > 0 {
-		tok.Expiry = time.Now().Add(time.Duration(secs) * time.Second)
+		tok.Expiry = now.Add(time.Duration(min(secs, maxExpiresInSeconds)) * time.Second)
 	}
 	extra := map[string]any{}
 	if tr.IssuedTokenType != "" {
@@ -351,7 +391,7 @@ func readLimited(r io.Reader) ([]byte, error) {
 	buf := coreio.GetBuffer()
 	defer coreio.PutBuffer(buf)
 	if _, err := buf.ReadFrom(io.LimitReader(r, maxExchangeResponseSize)); err != nil {
-		return nil, err
+		return bytes.Clone(buf.Bytes()), err
 	}
 	return bytes.Clone(buf.Bytes()), nil
 }
@@ -360,13 +400,4 @@ func readLimited(r io.Reader) ([]byte, error) {
 func drainAndClose(resp *http.Response) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxExchangeResponseSize))
 	_ = resp.Body.Close()
-}
-
-// sanitizeErrorBody truncates a raw response body to a safe length for error
-// messages.
-func sanitizeErrorBody(b []byte) string {
-	if len(b) <= maxErrorBodyLen {
-		return string(b)
-	}
-	return string(b[:maxErrorBodyLen]) + "...(truncated)"
 }

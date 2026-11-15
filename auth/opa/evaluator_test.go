@@ -15,7 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
 func writePolicy(t *testing.T, dir, content string) {

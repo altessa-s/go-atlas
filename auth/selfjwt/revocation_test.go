@@ -20,10 +20,10 @@ import (
 // revoked, then fails with jwt.ErrTokenRevoked.
 func TestVerifyRejectsRevoked(t *testing.T) {
 	t.Parallel()
-	p := newProvider(t, selfjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, clockOpt(baseTime))
+	p := newProvider(t, jwt.AlgEdDSA)
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
 	dl := denylist.New()
-	v := selfjwt.NewVerifier(p, clockOpt(baseTime), selfjwt.WithRevocation(dl))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime), selfjwt.WithRevocation(dl))
 
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)

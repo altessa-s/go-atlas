@@ -45,7 +45,7 @@ func TestDeviceFlow(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	df := oauth2client.NewDeviceFlow(
+	df := mustDeviceFlow(t,
 		oauth2.Endpoint{DeviceAuthURL: srv.URL + "/device", TokenURL: srv.URL + "/token"},
 		"cli", "", oauth2client.WithScopes("openid"),
 	)
@@ -68,7 +68,7 @@ func TestDeviceFlowAuthorizeError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	df := oauth2client.NewDeviceFlow(
+	df := mustDeviceFlow(t,
 		oauth2.Endpoint{DeviceAuthURL: srv.URL, TokenURL: srv.URL}, "cli", "")
 	_, err := df.Authorize(t.Context())
 	require.ErrorIs(t, err, oauth2client.ErrDeviceAuth)

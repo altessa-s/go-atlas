@@ -11,8 +11,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
+	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
 
 	redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -20,7 +20,7 @@ import (
 
 func setupStore(tb testing.TB, opts ...redisstore.Option) (*redisstore.Store, *miniredis.Miniredis) {
 	tb.Helper()
-	client, mr := testhelpers.RedisClient(tb)
+	client, mr := redistest.RedisClient(tb)
 	return redisstore.New(client, opts...), mr
 }
 

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	jwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // stepClock is a Clock whose instant is advanced manually by tests.
@@ -19,30 +21,30 @@ func (c *stepClock) Now() time.Time { return c.t }
 
 // put stores key unconditionally: the generation is read right before the
 // insert, so no invalidation can fence it.
-func put(c *keyCache, subject, kid string, key VerificationKey) {
+func put(c *keyCache, subject, kid string, key jwt.VerificationKey) {
 	c.putIfGeneration(subject, kid, key, c.generation())
 }
 
 func TestKeyCacheMissThenHit(t *testing.T) {
 	t.Parallel()
 	clk := &stepClock{t: time.Unix(0, 0).UTC()}
-	c := newKeyCache(time.Minute, 100, clk)
+	c := newKeyCache(time.Minute, 0, 100, clk)
 
 	_, ok := c.get("s", "k")
 	require.False(t, ok)
 
-	put(c, "s", "k", VerificationKey{Algorithm: AlgEdDSA})
+	put(c, "s", "k", jwt.VerificationKey{Algorithm: jwt.AlgEdDSA})
 	got, ok := c.get("s", "k")
 	require.True(t, ok)
-	require.Equal(t, AlgEdDSA, got.Algorithm)
+	require.Equal(t, jwt.AlgEdDSA, got.Algorithm)
 }
 
 func TestKeyCacheExpiresLazily(t *testing.T) {
 	t.Parallel()
 	clk := &stepClock{t: time.Unix(0, 0).UTC()}
-	c := newKeyCache(time.Minute, 100, clk)
+	c := newKeyCache(time.Minute, 0, 100, clk)
 
-	put(c, "s", "k", VerificationKey{Algorithm: AlgEdDSA})
+	put(c, "s", "k", jwt.VerificationKey{Algorithm: jwt.AlgEdDSA})
 	clk.t = clk.t.Add(2 * time.Minute) // past the TTL
 
 	_, ok := c.get("s", "k")
@@ -53,11 +55,11 @@ func TestKeyCacheEnforcesMaxEntries(t *testing.T) {
 	t.Parallel()
 	clk := &stepClock{t: time.Unix(0, 0).UTC()}
 	const max = 8
-	c := newKeyCache(time.Hour, max, clk) // long TTL: nothing expires during the loop
+	c := newKeyCache(time.Hour, 0, max, clk) // long TTL: nothing expires during the loop
 
 	// A churn of distinct kids must never grow the cache beyond the cap.
 	for i := range max * 4 {
-		put(c, "s", strconv.Itoa(i), VerificationKey{Algorithm: AlgEdDSA})
+		put(c, "s", strconv.Itoa(i), jwt.VerificationKey{Algorithm: jwt.AlgEdDSA})
 		c.mu.RLock()
 		n := len(c.items)
 		c.mu.RUnlock()
@@ -67,7 +69,7 @@ func TestKeyCacheEnforcesMaxEntries(t *testing.T) {
 
 func TestKeyCachePutIfGenerationFencedByInvalidation(t *testing.T) {
 	t.Parallel()
-	vk := VerificationKey{Algorithm: AlgEdDSA}
+	vk := jwt.VerificationKey{Algorithm: jwt.AlgEdDSA}
 	tests := []struct {
 		name       string
 		invalidate func(c *keyCache)
@@ -82,7 +84,7 @@ func TestKeyCachePutIfGenerationFencedByInvalidation(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			c := newKeyCache(time.Minute, 100, &stepClock{t: time.Unix(0, 0).UTC()})
+			c := newKeyCache(time.Minute, 0, 100, &stepClock{t: time.Unix(0, 0).UTC()})
 			gen := c.generation()
 			tc.invalidate(c)
 			c.putIfGeneration("s", "k", vk, gen)

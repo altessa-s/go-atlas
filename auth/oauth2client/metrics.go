@@ -10,6 +10,12 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
+// Metric label names.
+const (
+	labelGrant  = "grant"
+	labelStatus = "status"
+)
+
 // DefaultMetricsSubsystem is the subsystem used when [NewMetrics] receives an
 // empty subsystem name.
 const DefaultMetricsSubsystem = "auth_oauth2client"
@@ -42,7 +48,7 @@ type Metrics struct {
 // NewMetrics constructs a [Metrics] using the given collector and subsystem. If
 // collector is nil, [metrics.Noop] is used and all metric writes become
 // zero-cost no-ops. An empty subsystem falls back to [DefaultMetricsSubsystem].
-func NewMetrics(collector metrics.Collector, subsystem string) *Metrics {
+func NewMetrics(collector metrics.Meter, subsystem string) *Metrics {
 	if collector == nil {
 		collector = metrics.Noop()
 	}
@@ -55,19 +61,17 @@ func NewMetrics(collector metrics.Collector, subsystem string) *Metrics {
 		fetches: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "token_fetches_total",
 			Help:       "Total number of token acquisitions from the identity provider.",
-			LabelNames: []string{"grant", "status"},
+			LabelNames: []string{labelGrant, labelStatus},
 		}),
 		fetchDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name:       "token_fetch_duration_seconds",
-				Help:       "Token acquisition duration in seconds.",
-				LabelNames: []string{"grant", "status"},
-			},
+			Name:       "token_fetch_duration_seconds",
+			Help:       "Token acquisition duration in seconds.",
+			LabelNames: []string{labelGrant, labelStatus},
 		}),
 		retries: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "token_fetch_retries_total",
 			Help:       "Total number of token-fetch retries after a transient failure.",
-			LabelNames: []string{"grant"},
+			LabelNames: []string{labelGrant},
 		}),
 	}
 }
@@ -78,7 +82,7 @@ func (m *Metrics) recordFetch(grant string, success bool, d time.Duration) {
 	if m == nil {
 		return
 	}
-	label := metrics.Labels{"grant": grant, "status": statusLabel(success)}
+	label := metrics.Labels{labelGrant: grant, labelStatus: statusLabel(success)}
 	m.fetches.WithLabels(label).Inc()
 	m.fetchDuration.WithLabels(label).ObserveDuration(d)
 }
@@ -89,7 +93,7 @@ func (m *Metrics) recordRetry(grant string) {
 	if m == nil {
 		return
 	}
-	m.retries.WithLabels(metrics.Labels{"grant": grant}).Inc()
+	m.retries.WithLabels(metrics.Labels{labelGrant: grant}).Inc()
 }
 
 // statusLabel maps a success flag to its metric label value.

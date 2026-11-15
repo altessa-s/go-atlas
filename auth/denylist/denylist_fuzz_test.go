@@ -18,14 +18,6 @@ import (
 // depend on how long the execution took.
 var epoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-// operation is one mutation the fuzzer can apply, decoded from a byte so the
-// mutator can explore orderings rather than a fixed script.
-type operation struct {
-	kind   byte
-	key    string
-	offset time.Duration
-}
-
 // FuzzRevocationIsNeverForgottenEarly is the revocation oracle: a key that was
 // revoked reports revoked, for as long as it was meant to.
 //

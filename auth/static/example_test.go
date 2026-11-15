@@ -61,7 +61,7 @@ func ExampleNewInMemoryStore_withMetrics() {
 }
 
 // quotaLimiter is a tiny demo limiter — production code should plug a real
-// implementation, e.g. one backed by data/limiters/tokenbucket.
+// implementation, e.g. one backed by coord/limiters/tokenbucket.
 //
 // It demonstrates the failure-only contract: Allow is a pure check that
 // reports whether the per-key budget is exhausted, and RecordFailure is

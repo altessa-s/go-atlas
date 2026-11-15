@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache"
-	"github.com/altessa-s/go-atlas/data/probfilter"
-	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
+	"github.com/altessa-s/go-atlas/cache/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter/bloom"
 
-	bloommem "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
+	bloommem "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages/memory"
 )
 
 // syncAuth is a concurrency-safe Authoritative store that also serves as the

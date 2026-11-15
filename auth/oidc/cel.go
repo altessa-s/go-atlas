@@ -10,14 +10,14 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/ext"
+	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/ext"
 
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
-	"github.com/altessa-s/go-atlas/data/cache/lru"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas/cache/lru"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // getCELEnvironment returns the shared CEL environment, initialized on first call.
@@ -73,10 +73,9 @@ type CELValidationRule struct {
 
 // celPreCompiledValidationRule is the internal representation with pre-compiled matcher.
 type celPreCompiledValidationRule struct {
-	name       string            // Rule name for error messages
-	expression string            // CEL expression to evaluate
-	message    string            // Custom error message (optional)
-	matcher    PresetMatcherFunc // Pre-compiled CEL matcher
+	name    string            // Rule name for error messages
+	message string            // Custom error message (optional)
+	matcher PresetMatcherFunc // Pre-compiled CEL matcher
 }
 
 // CELMatcher creates a matcher using a CEL expression.
@@ -215,9 +214,8 @@ func compileCELRules(rules []CELValidationRule) ([]celPreCompiledValidationRule,
 		// Capture program in local variable to avoid closure capture bug
 		prog := program
 		validRules = append(validRules, celPreCompiledValidationRule{
-			name:       rule.Name,
-			expression: rule.Expression,
-			message:    rule.Message,
+			name:    rule.Name,
+			message: rule.Message,
 			matcher: func(claims map[string]any) bool {
 				return evaluateCELProgram(prog, claims)
 			},

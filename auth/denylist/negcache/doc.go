@@ -9,7 +9,7 @@
 //
 // # Model
 //
-// A [github.com/altessa-s/go-atlas/data/probfilter.Filter] holds a superset of
+// A [github.com/altessa-s/go-atlas/cache/probfilter.Filter] holds a superset of
 // the revoked keys. On a lookup:
 //
 //   - the filter has never been populated by a successful rebuild → the
@@ -39,10 +39,10 @@
 //
 // The cache counts as populated after its first successful Rebuild, once
 // the filter reports a successful rebuild made elsewhere in the process
-// ([github.com/altessa-s/go-atlas/data/probfilter.RebuildableFilter.LastRebuild],
+// ([github.com/altessa-s/go-atlas/cache/probfilter.RebuildableFilter.LastRebuild],
 // for example a factory-scheduled rebuild), or — for a filter shared through
 // Redis — once the filter reports a rebuild committed by any process
-// ([github.com/altessa-s/go-atlas/data/probfilter.RebuildCommitReporter]).
+// ([github.com/altessa-s/go-atlas/cache/probfilter.RebuildCommitReporter]).
 // The shared check costs a Redis round trip and runs at most once per
 // [WithSharedRebuildCheckInterval] (default [DefaultSharedRebuildCheckInterval])
 // while the cache is unpopulated; an error counts as not populated. So a
@@ -58,16 +58,23 @@
 // the same propagation window any locally cached revocation set has; size the
 // rebuild cadence to the revocation-propagation SLA the deployment requires.
 //
+// A [Cache] runs no rebuild loop of its own: it holds no data loader, and
+// scheduling belongs to the filter's rebuild lifecycle. The factory
+// (factory/auth/denylist/negcache) schedules a periodic rebuild by default and
+// logs a warning when none is scheduled; a cache assembled by hand with [New]
+// gets no schedule, so without a periodic [Cache.Rebuild] a revocation made on
+// another node stays invisible to this node indefinitely.
+//
 // [Cache.Close] closes the filter the cache owns, which also stops the
 // rebuilds a factory scheduled for it.
 //
 // # Usage
 //
-// The factory (auth/denylist/negcache/factory) builds the filter and lets
+// The factory (factory/auth/denylist/negcache) builds the filter and lets
 // the authoritative store drive its rebuilds (rebuildOnStart, rebuildCron).
 // Assembled by hand:
 //
-//	filter, err := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build()
+//	filter, err := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build(ctx)
 //	if err != nil {
 //	    return err
 //	}

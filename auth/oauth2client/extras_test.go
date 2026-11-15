@@ -71,7 +71,7 @@ func TestExchangerRetriesOnServerError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "secret",
+	ex := mustExchanger(t, srv.URL, "svc", "secret",
 		oauth2client.WithRetryAttempts(5),
 		oauth2client.WithRetryBaseDelay(time.Millisecond),
 		oauth2client.WithRetryMaxDelay(5*time.Millisecond),
@@ -91,7 +91,7 @@ func TestExchangerNoRetryOnClientError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	ex := oauth2client.NewExchanger(srv.URL, "svc", "secret",
+	ex := mustExchanger(t, srv.URL, "svc", "secret",
 		oauth2client.WithRetryAttempts(5),
 		oauth2client.WithRetryBaseDelay(time.Millisecond),
 	)

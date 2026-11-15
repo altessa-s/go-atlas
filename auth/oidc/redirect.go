@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	probfilter "github.com/altessa-s/go-atlas/cache/probfilter"
 )
 
 const (
@@ -70,13 +72,15 @@ func redirectPort(u *url.URL) string {
 func (p *Provider) prepareRevocationClients() {
 	p.revocationLoader = p.protectedRevocationLoader(p.revocationLoader)
 	if storage, ok := p.revocationStorage.(*filterRevocationStorage); ok && storage != nil {
-		clone := *storage
-		clone.loader = p.protectedRevocationLoader(storage.loader)
-		p.revocationStorage = &clone
+		p.revocationStorage = &filterRevocationStorage{
+			filter:        storage.filter,
+			loader:        p.protectedRevocationLoader(storage.loader),
+			authoritative: storage.authoritative,
+		}
 	}
 }
 
-func (p *Provider) protectedRevocationLoader(loader DataLoader) DataLoader {
+func (p *Provider) protectedRevocationLoader(loader probfilter.DataLoader) probfilter.DataLoader {
 	urlLoader, ok := loader.(*URLRevocationLoader)
 	if !ok || urlLoader == nil {
 		return loader

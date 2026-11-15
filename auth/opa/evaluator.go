@@ -7,7 +7,7 @@ package opa
 import (
 	"context"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
 // Result represents the result of a policy evaluation.
