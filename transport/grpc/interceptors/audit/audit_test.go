@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/audit"
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/audit/audittest"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 
 	"google.golang.org/grpc"
@@ -22,9 +22,33 @@ import (
 	auditgrpc "github.com/altessa-s/go-atlas/transport/grpc/interceptors/audit"
 )
 
+var _ auditgrpc.EventEmitter = (*audit.Auditor)(nil)
+
+type fakeEmitter struct {
+	event *audit.Event
+	ok    bool
+}
+
+func (f *fakeEmitter) Emit(event *audit.Event) bool {
+	f.event = event
+	return f.ok
+}
+
+func TestEventEmitterSeam(t *testing.T) {
+	t.Parallel()
+	emitter := &fakeEmitter{}
+	interceptor := auditgrpc.ServerInterceptor(emitter).ServerUnaryInterceptor()
+	info := &grpc.UnaryServerInfo{FullMethod: "/example.v1.Service/Get"}
+	resp, err := interceptor(t.Context(), nil, info, func(context.Context, any) (any, error) { return "ok", nil })
+	require.NoError(t, err)
+	require.Equal(t, "ok", resp)
+	require.NotNil(t, emitter.event)
+	require.Equal(t, audit.EventTypeAPIRequest, emitter.event.Type)
+}
+
 func TestServerInterceptor_AuditsCall(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	i := auditgrpc.ServerInterceptor(a)
 	interceptor := i.ServerUnaryInterceptor()
@@ -51,7 +75,7 @@ func TestServerInterceptor_AuditsCall(t *testing.T) {
 
 func TestServerInterceptor_IgnoreMethods(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	i := auditgrpc.ServerInterceptor(a,
 		auditgrpc.WithIgnoreMethods("/grpc.health.v1.Health/Check"),
@@ -112,7 +136,7 @@ func TestServerInterceptor_GRPCStatusMapping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a, store, shutdown := testhelpers.NewTestAuditor(t)
+			a, store, shutdown := audittest.NewTestAuditor(t)
 
 			i := auditgrpc.ServerInterceptor(a)
 			interceptor := i.ServerUnaryInterceptor()
@@ -136,7 +160,7 @@ func TestServerInterceptor_GRPCStatusMapping(t *testing.T) {
 
 func TestServerInterceptor_ActorExtractor(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	i := auditgrpc.ServerInterceptor(a,
 		auditgrpc.WithActorExtractor(func(ctx context.Context) audit.Actor {
@@ -158,7 +182,7 @@ func TestServerInterceptor_ActorExtractor(t *testing.T) {
 
 func TestServerInterceptor_RequestIDFromContext(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	i := auditgrpc.ServerInterceptor(a)
 	interceptor := i.ServerUnaryInterceptor()

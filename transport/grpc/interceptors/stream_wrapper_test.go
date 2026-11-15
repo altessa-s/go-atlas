@@ -14,6 +14,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	driver "github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
@@ -50,27 +51,27 @@ func (m *mockServerStream) SetTrailer(grpcmetadata.MD)       {}
 func TestClientStreamWrapper_Context(t *testing.T) {
 	ctx := context.WithValue(t.Context(), struct{}{}, "val")
 	cs := &mockClientStream{ctx: t.Context()}
-	w := NewClientStreamWrapper(ctx, cs, NoopDriver())
+	w := NewClientStreamWrapper(ctx, cs, driver.NoopDriver())
 	require.Equal(t, ctx, w.Context())
 }
 
 func TestClientStreamWrapper_SendMsg(t *testing.T) {
 	cs := &mockClientStream{ctx: t.Context()}
-	w := NewClientStreamWrapper(t.Context(), cs, NoopDriver())
+	w := NewClientStreamWrapper(t.Context(), cs, driver.NoopDriver())
 	err := w.SendMsg("msg")
 	require.NoError(t, err)
 }
 
 func TestClientStreamWrapper_RecvMsg(t *testing.T) {
 	cs := &mockClientStream{ctx: t.Context()}
-	w := NewClientStreamWrapper(t.Context(), cs, NoopDriver())
+	w := NewClientStreamWrapper(t.Context(), cs, driver.NoopDriver())
 	err := w.RecvMsg(nil)
 	require.NoError(t, err)
 }
 
 func TestClientStreamWrapper_CloseSend(t *testing.T) {
 	cs := &mockClientStream{ctx: t.Context()}
-	w := NewClientStreamWrapper(t.Context(), cs, NoopDriver())
+	w := NewClientStreamWrapper(t.Context(), cs, driver.NoopDriver())
 	err := w.CloseSend()
 	require.NoError(t, err)
 }
@@ -84,14 +85,14 @@ func TestClientStreamWrapper_Reuse(t *testing.T) {
 	ctx2 := context.WithValue(t.Context(), struct{}{}, "v2")
 
 	w1 := NewClientStreamWrapper(t.Context(), cs, nil)
-	w2 := NewClientStreamWrapper(ctx2, w1, NoopDriver())
+	w2 := NewClientStreamWrapper(ctx2, w1, driver.NoopDriver())
 	require.Same(t, w1, w2, "a wrapper without a driver adopts the driver")
 	require.Equal(t, ctx2, w2.Context())
 
 	w3 := NewClientStreamWrapper(t.Context(), w2, nil)
 	require.Same(t, w2, w3, "a context-only update reuses the wrapper")
 
-	w4 := NewClientStreamWrapper(t.Context(), w3, NoopDriver())
+	w4 := NewClientStreamWrapper(t.Context(), w3, driver.NoopDriver())
 	require.NotSame(t, w3, w4, "a second driver is nested, not dropped")
 }
 
@@ -105,20 +106,20 @@ func TestClientStreamWrapper_CloseSendWithoutDriver(t *testing.T) {
 func TestServerStreamWrapper_Context(t *testing.T) {
 	ctx := context.WithValue(t.Context(), struct{}{}, "val")
 	ss := &mockServerStream{ctx: t.Context()}
-	w := NewServerWrappedStream(ctx, ss, NoopDriver())
+	w := NewServerWrappedStream(ctx, ss, driver.NoopDriver())
 	require.Equal(t, ctx, w.Context())
 }
 
 func TestServerStreamWrapper_SendMsg(t *testing.T) {
 	ss := &mockServerStream{ctx: t.Context()}
-	w := NewServerWrappedStream(t.Context(), ss, NoopDriver())
+	w := NewServerWrappedStream(t.Context(), ss, driver.NoopDriver())
 	err := w.SendMsg("msg")
 	require.NoError(t, err)
 }
 
 func TestServerStreamWrapper_RecvMsg(t *testing.T) {
 	ss := &mockServerStream{ctx: t.Context()}
-	w := NewServerWrappedStream(t.Context(), ss, NoopDriver())
+	w := NewServerWrappedStream(t.Context(), ss, driver.NoopDriver())
 	err := w.RecvMsg(nil)
 	require.NoError(t, err)
 }
@@ -132,14 +133,14 @@ func TestServerStreamWrapper_Reuse(t *testing.T) {
 	ctx2 := context.WithValue(t.Context(), struct{}{}, "v2")
 
 	w1 := NewServerWrappedStream(t.Context(), ss, nil)
-	w2 := NewServerWrappedStream(ctx2, w1, NoopDriver())
+	w2 := NewServerWrappedStream(ctx2, w1, driver.NoopDriver())
 	require.Same(t, w1, w2, "a wrapper without a driver adopts the driver")
 	require.Equal(t, ctx2, w2.Context())
 
 	w3 := NewServerWrappedStream(t.Context(), w2, nil)
 	require.Same(t, w2, w3, "a context-only update reuses the wrapper")
 
-	w4 := NewServerWrappedStream(t.Context(), w3, NoopDriver())
+	w4 := NewServerWrappedStream(t.Context(), w3, driver.NoopDriver())
 	require.NotSame(t, w3, w4, "a second driver is nested, not dropped")
 }
 
@@ -190,7 +191,7 @@ func TestServerStreamWrapper_ChainedDrivers(t *testing.T) {
 	t.Parallel()
 
 	var log []string
-	rs := &recordingStream{mockServerStream: mockServerStream{ctx: t.Context()}}
+	rs := &recordingStream{ctx: t.Context()}
 	outer := NewServerWrappedStream(t.Context(), rs, &hookDriver{name: "outer", log: &log, replace: "outer-copy"})
 	inner := NewServerWrappedStream(t.Context(), outer, &hookDriver{name: "inner", log: &log, replace: "inner-copy"})
 
@@ -212,7 +213,7 @@ func TestServerStreamWrapper_PreSendAbort(t *testing.T) {
 	t.Parallel()
 
 	var log []string
-	rs := &recordingStream{mockServerStream: mockServerStream{ctx: t.Context()}}
+	rs := &recordingStream{ctx: t.Context()}
 	errReject := errors.New("reject")
 	w := NewServerWrappedStream(t.Context(), rs, &hookDriver{name: "d", log: &log, reject: errReject})
 
@@ -227,7 +228,7 @@ func TestServerStreamWrapper_SendErrorPropagates(t *testing.T) {
 
 	var log []string
 	errSend := errors.New("send failed")
-	rs := &recordingStream{mockServerStream: mockServerStream{ctx: t.Context(), sendErr: errSend}}
+	rs := &recordingStream{ctx: t.Context(), sendErr: errSend}
 	w := NewServerWrappedStream(t.Context(), rs, &hookDriver{name: "d", log: &log})
 
 	require.ErrorIs(t, w.SendMsg("m"), errSend)
@@ -268,7 +269,7 @@ func TestClientStreamWrapper_ChainedDrivers(t *testing.T) {
 	t.Parallel()
 
 	var log []string
-	rs := &recordingClientStream{mockClientStream: mockClientStream{ctx: t.Context()}}
+	rs := &recordingClientStream{ctx: t.Context()}
 	inner := NewClientStreamWrapper(t.Context(), rs, &closeDriver{hookDriver{name: "inner", log: &log, replace: "inner-copy"}})
 	outer := NewClientStreamWrapper(t.Context(), inner, &closeDriver{hookDriver{name: "outer", log: &log, replace: "outer-copy"}})
 
@@ -290,7 +291,7 @@ func TestClientStreamWrapper_PreSendAbort(t *testing.T) {
 	t.Parallel()
 
 	var log []string
-	rs := &recordingClientStream{mockClientStream: mockClientStream{ctx: t.Context()}}
+	rs := &recordingClientStream{ctx: t.Context()}
 	errReject := errors.New("reject")
 	w := NewClientStreamWrapper(t.Context(), rs, &hookDriver{name: "d", log: &log, reject: errReject})
 

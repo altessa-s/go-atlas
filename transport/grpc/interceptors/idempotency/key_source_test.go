@@ -5,14 +5,15 @@
 package idempotency
 
 import (
+	"context"
 	"regexp"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
-	"github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
@@ -21,9 +22,9 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
+	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
 	schedulerv1 "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1"
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
-	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
@@ -44,6 +45,13 @@ func call(t *testing.T, ic *interceptor, method, header string, req any) error {
 
 func newKeeper() *idempotency.Keeper {
 	return idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute))
+}
+
+// newOwnedKeeper is newKeeper binding every record to one owner, as response
+// replay and entity id exposure require.
+func newOwnedKeeper() *idempotency.Keeper {
+	return idempotency.New(memory.New(), idempotency.WithMaxLockDuration(time.Minute),
+		idempotency.WithOwner(func(context.Context) string { return "caller" }))
 }
 
 func TestRequestFieldKey(t *testing.T) {
@@ -175,14 +183,14 @@ func TestResponseReplayOnlyForDecodableUnaryRecords(t *testing.T) {
 	}
 	refused := func(t *testing.T, data any, why string) {
 		t.Helper()
-		k := newKeeper()
+		k := newOwnedKeeper()
 		ic := newTestInterceptor(k, WithResponseReplay())
 		completeKey(t, k, ic, method, req, data)
 		_, err := newRI(ic).check(ctx, req, true)
 		requireScenario(t, err, codes.FailedPrecondition, ReasonIDKAlreadyUsed, why)
 	}
 
-	k := newKeeper()
+	k := newOwnedKeeper()
 	ic := newTestInterceptor(k, WithResponseReplay())
 	completeKey(t, k, ic, method, req, internalidem.Record{Binding: method, Response: replayBytes(created, DefaultMaxReplaySize)})
 	res, err := newRI(ic).check(ctx, req, true)

@@ -26,6 +26,10 @@
 // [Chain] automatically prepends a metadata interceptor so that all subsequent
 // interceptors receive pre-parsed [metadata.CallMetadata] in the context.
 //
+// Third-party stream wrappers without Unwrap() grpc.ServerStream cannot be
+// traversed for per-message context snapshots and must run before the update
+// normalizer, followed by go-atlas interceptors and then the handler.
+//
 // # Interceptor Identity
 //
 // Every interceptor sub-package exports three identification helpers:

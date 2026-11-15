@@ -80,7 +80,7 @@ func TestServerMatchInterceptorFunc(t *testing.T) {
 }
 
 func TestDrivenInterceptor_Name(t *testing.T) {
-	d := NoopDriver()
+	d := driver.NoopDriver()
 	inner := &mockDrivenInterceptor{driver: d}
 
 	// NoopDriver doesn't implement Interceptor, so name should be "driven"
@@ -124,7 +124,7 @@ func TestDrivenInterceptor_Dependencies(t *testing.T) {
 		{
 			name: "forwards dependencies from underlying interceptor",
 			inner: &mockNamedDrivenInterceptor{
-				driver: NoopDriver(),
+				driver: driver.NoopDriver(),
 				name:   "test",
 				deps:   []string{"metadata", "auth"},
 			},
@@ -132,7 +132,7 @@ func TestDrivenInterceptor_Dependencies(t *testing.T) {
 		},
 		{
 			name:     "returns nil when underlying has no Dependencies method",
-			inner:    &mockDrivenInterceptor{driver: NoopDriver()},
+			inner:    &mockDrivenInterceptor{driver: driver.NoopDriver()},
 			wantDeps: nil,
 		},
 	}
@@ -170,9 +170,9 @@ func TestOrderServerInterceptors(t *testing.T) {
 func TestOrderServerInterceptors_DrivenDependencies(t *testing.T) {
 	// Simulate: auth depends on metadata, idempotency depends on metadata+auth.
 	// Expected order: metadata, auth, idempotency.
-	md := &mockNamedDrivenInterceptor{driver: NoopDriver(), name: "metadata"}
-	auth := &mockNamedDrivenInterceptor{driver: NoopDriver(), name: "auth", deps: []string{"metadata"}}
-	idk := &mockNamedDrivenInterceptor{driver: NoopDriver(), name: "idempotency", deps: []string{"metadata", "auth"}}
+	md := &mockNamedDrivenInterceptor{driver: driver.NoopDriver(), name: "metadata"}
+	auth := &mockNamedDrivenInterceptor{driver: driver.NoopDriver(), name: "auth", deps: []string{"metadata"}}
+	idk := &mockNamedDrivenInterceptor{driver: driver.NoopDriver(), name: "idempotency", deps: []string{"metadata", "auth"}}
 
 	// Pass in reverse order to verify ordering works.
 	result, err := OrderServerInterceptors(

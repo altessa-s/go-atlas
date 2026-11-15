@@ -14,6 +14,7 @@ import (
 )
 
 func TestNoopDriver_PreRequest(t *testing.T) {
+	t.Parallel()
 	d := NoopDriver()
 	ctx, err := d.PreRequest(t.Context(), httptest.NewRequest("GET", "/", nil))
 	require.NoError(t, err)
@@ -21,12 +22,14 @@ func TestNoopDriver_PreRequest(t *testing.T) {
 }
 
 func TestNoopDriver_PostRequest(t *testing.T) {
+	t.Parallel()
 	d := NoopDriver()
 	// Should not panic
 	d.PostRequest(t.Context(), ResponseInfo{StatusCode: 200}, httptest.NewRequest("GET", "/", nil), nil)
 }
 
 func TestResponseInfo(t *testing.T) {
+	t.Parallel()
 	ri := ResponseInfo{StatusCode: 200, BytesWritten: 42, HeadersSent: true}
 	require.Equal(t, 200, ri.StatusCode)
 	require.Equal(t, int64(42), ri.BytesWritten)
@@ -55,11 +58,12 @@ type mockDrivenMiddleware struct {
 
 func (m *mockDrivenMiddleware) Name() string { return "mock" }
 
-func (m *mockDrivenMiddleware) DrivenMiddleware(_ context.Context, _ *http.Request) (Driver, context.Context) {
-	return m.driver, context.Background()
+func (m *mockDrivenMiddleware) DrivenMiddleware(ctx context.Context, _ *http.Request) (Driver, context.Context) {
+	return m.driver, ctx
 }
 
 func TestHTTPDrivenMiddleware(t *testing.T) {
+	t.Parallel()
 	md := &mockDriver{}
 	dm := &mockDrivenMiddleware{driver: md}
 	mw := HTTPDrivenMiddleware(dm)
@@ -82,6 +86,7 @@ func TestHTTPDrivenMiddleware(t *testing.T) {
 }
 
 func TestHTTPDrivenMiddleware_NilDriver(t *testing.T) {
+	t.Parallel()
 	dm := &mockDrivenMiddleware{driver: nil}
 	mw := HTTPDrivenMiddleware(dm)
 
@@ -98,6 +103,7 @@ func TestHTTPDrivenMiddleware_NilDriver(t *testing.T) {
 }
 
 func TestHTTPDrivenMiddleware_PreRequestError(t *testing.T) {
+	t.Parallel()
 	errDriver := &errorDriver{}
 	dm := &mockDrivenMiddleware{driver: errDriver}
 	mw := HTTPDrivenMiddleware(dm)
@@ -135,29 +141,14 @@ func (e *errorDriver) PostRequest(_ context.Context, info ResponseInfo, _ *http.
 	e.preErr = err
 }
 
-func TestResponseRecorder_WriteHeader_OnlyOnce(t *testing.T) {
-	rec := httptest.NewRecorder()
-	rr := &responseRecorder{ResponseWriter: rec, statusCode: http.StatusOK}
-
-	rr.WriteHeader(http.StatusCreated)
-	rr.WriteHeader(http.StatusNotFound) // should be ignored
-
-	require.Equal(t, http.StatusCreated, rr.statusCode)
-}
-
-func TestResponseRecorder_Write(t *testing.T) {
-	rec := httptest.NewRecorder()
-	rr := &responseRecorder{ResponseWriter: rec, statusCode: http.StatusOK}
-
-	n, err := rr.Write([]byte("hello"))
-	require.NoError(t, err)
-	require.Equal(t, 5, n)
-	require.Equal(t, int64(5), rr.bytesWritten)
-	require.True(t, rr.headersSent, "headersSent should be true after Write")
-}
-
-func TestResponseRecorder_Unwrap(t *testing.T) {
-	rec := httptest.NewRecorder()
-	rr := &responseRecorder{ResponseWriter: rec}
-	require.Equal(t, rec, rr.Unwrap())
+func TestHTTPDrivenMiddlewareInformationalResponse(t *testing.T) {
+	t.Parallel()
+	md := &mockDriver{}
+	handler := HTTPDrivenMiddleware(&mockDrivenMiddleware{driver: md}).Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusEarlyHints)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	require.Equal(t, http.StatusCreated, md.postResponseInfo.StatusCode)
+	require.True(t, md.postResponseInfo.HeadersSent)
 }

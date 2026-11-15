@@ -65,16 +65,17 @@ whole body was captured and fits `WithMaxReplaySize`. A repeat of the request re
 success`) without running the handler, instead of `422`; cookies, request IDs and other per-request headers are never replayed. In-flight repeats
 stay `409`, failed responses store nothing, and the fingerprint and owner checks run first; the record is bound to the request method and path,
 and only a request with the same binding receives it. A larger body, a record written before replay or without a binding, and a truncated
-capture keep the `422` answer. Replay is off by default because the repeat's caller receives the original response: enable it with keys
-scoped per principal (`idempotency.WithOwner`).
+capture keep the `422` answer. Replay is off by default because the repeat's caller receives the original response, and it fails closed: only a
+record bound to an owner (`idempotency.WithOwner`, such as `reliability/idempotency/principalowner.PrincipalOwner`, the default of the Keeper factory) is replayed, so a
+Keeper without an owner, or a caller it resolves to no owner, keeps the `422` answer.
 
 ## Storage keys
 
 The middleware passes the Keeper the tuple `("transport", "{METHOD}:/{path}", key)` in the length-prefixed v2 format of
-[`data/idempotency.ComposeKey`](../../../../../data/idempotency#storage-key-format) — `POST /api/v1/users` with key `550e8400-…` becomes
+[`reliability/idempotency.ComposeKey`](../../../../../reliability/idempotency#storage-key-format) — `POST /api/v1/users` with key `550e8400-…` becomes
 `idk:v2:9:transport18:POST:/api/v1/users36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage, so a `:` in
 the path or the key cannot make two requests share a record. The format replaced `idk:{METHOD}:/{path}:{key}` with a clean cut: follow the
-[rollout contract](../../../../../data/idempotency#rolling-out-the-v2-key-format) when upgrading.
+[rollout contract](../../../../../reliability/idempotency#rolling-out-the-v2-key-format) when upgrading.
 
 ## Request fingerprints and owners
 
@@ -86,7 +87,7 @@ as a replay; `WithRequestFingerprint(false)` (YAML `disableRequestFingerprint: t
 `writer.HTTPStatuser` errors do) is answered with that status instead — return a 404 error to hide the record.
 
 The stored entity ID is echoed to a duplicate request only with `WithExposeEntityID()` (YAML `exposeEntityID: true`): the caller presenting a duplicate
-key is not verified to be the entity's creator unless the Keeper checks owners.
+key is not verified to be the entity's creator unless the Keeper checks owners, so, like replay, it applies only to a record bound to an owner.
 
 ## Security
 
@@ -101,4 +102,4 @@ reaches debug-level logs.
 
 Hashing is log hygiene rather than a privacy guarantee — a key drawn from a small or guessable set can still be recovered by hashing candidates. For
 end-to-end redaction, run production loggers at Info or above, or wrap the handler with
-[`observability/slog/handler/masking`](../../../../../observability/slog/handler/masking/README.md).
+[go-slogx `handler/masking`](https://github.com/altessa-s/go-slogx/tree/main/handler/masking).

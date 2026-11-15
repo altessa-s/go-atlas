@@ -29,6 +29,24 @@ func BenchmarkMiddleware_WithCORS(b *testing.B) {
 	}
 }
 
+func BenchmarkMiddleware_PreflightRestricted(b *testing.B) {
+	handler := Middleware(
+		WithAllowedOrigins("https://example.com"),
+		WithAllowedMethods("GET", "POST"),
+		WithAllowedHeaders("Content-Type", "X-Request-ID"),
+	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	req := httptest.NewRequest("OPTIONS", "/bench", nil)
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "content-type, x-request-id")
+
+	b.ReportAllocs()
+	for b.Loop() {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+	}
+}
+
 func BenchmarkMiddleware_Preflight(b *testing.B) {
 	handler := Middleware(WithAllowAllOrigins())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	req := httptest.NewRequest("OPTIONS", "/bench", nil)

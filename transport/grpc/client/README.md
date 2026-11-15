@@ -15,7 +15,7 @@ logging, and rich error parsing with field-level validation details.
 | `Client`          | Core gRPC client: single connection or pool mode, retry, timeouts, health checking       |
 | `Error`           | Structured gRPC error with code, request ID, reason, metadata, and field validations     |
 | `FieldError`      | Single field violation from an `io.altessa.badrequest.v1.BadRequest` (go-atlas servers, with `Code`) or `google.rpc.BadRequest` detail |
-| `RetryConfig`     | Retry policy: max attempts, initial/max backoff, multiplier, retryable status codes      |
+| `RetryOption`     | Retry policy setters for `WithRetry`: max attempts, initial/max backoff, multiplier, status codes |
 | `ErrorConverter`  | Hook to override default `ParseStatusError` behavior in the error-status interceptor     |
 | `StaticToken`     | Per-RPC credentials with a fixed bearer token, created via `NewStaticToken`              |
 | `InsecureTokenCredentials` | Per-RPC credentials from an `oauth2.TokenSource` without requiring TLS          |
@@ -29,8 +29,7 @@ logging, and rich error parsing with field-level validation details.
 | `WithTLSConfig`       | TLS 1.2+  | Custom `*tls.Config` for the connection                                     |
 | `WithLogger`          | discard   | Structured logger for call logging and connection events                     |
 | `WithAppName`         | --        | Application name sent in the gRPC User-Agent header                          |
-| `WithRetry`           | disabled  | Enables retry with default config (5 attempts, 1s-10s exponential backoff)   |
-| `WithRetryConfig`     | --        | Enables retry with a custom `RetryConfig`                                    |
+| `WithRetry`           | disabled  | Enables retry (5 attempts, 1s-10s exponential backoff); `RetryOption` values override it |
 | `WithoutHealthCheck`  | enabled   | Drops the client-side `healthCheckConfig` (`health.v1.HealthService`) from the service config |
 | `WithPool`  | nil       | Enables pool mode backed by a `pool.ConnectionPool`                          |
 | `WithDialOptions`     | --        | Appends custom `grpc.DialOption` values (auth credentials, call options)     |
@@ -42,16 +41,27 @@ logging, and rich error parsing with field-level validation details.
 | `WithMutationTimeout` | 30s       | Default timeout for Create/Update/Delete operations                          |
 | `WithQueryTimeout`    | 5s        | Default timeout for Get/List operations                                      |
 | `WithErrorConverter`  | nil       | Custom error converter overriding the default `ParseStatusError`             |
-| `WithHealthCoordinator`  | nil           | Opts the client into `observability/health` (single-mode watcher / pool subscription) |
+| `WithHealthCoordinator`  | nil           | Opts the client into a `health.Reporter` (single-mode watcher / pool subscription) |
 | `WithHealthServiceName`  | `grpc_client` | Service name registered with the coordinator                                          |
 | `WithHealthStateMapper`  | default       | Override the `connectivity.State` → `health.ServingStatus` mapping                    |
 
 ## Client-side health checking
 
-The default service config the client installs carries a `healthCheckConfig` for the `health.v1.HealthService` service, and `WithRetry` /
-`WithRetryConfig` add round-robin load balancing, under which gRPC health-checks every subchannel. For a server that does not implement that health
-service, pass `WithoutHealthCheck()` to leave the entry out; this is independent of `WithHealthCoordinator` below, which only reports the
-connection state.
+The default service config the client installs carries a `healthCheckConfig` for the `health.v1.HealthService` service, and `WithRetry` adds
+round-robin load balancing, under which gRPC health-checks every subchannel. For a server that does not implement that health service, pass
+`WithoutHealthCheck()` to leave the entry out; this is independent of `WithHealthCoordinator` below, which only reports the connection state.
+
+## Retry options
+
+`WithRetry(opts ...RetryOption)` takes generated setters; unset settings keep their defaults.
+
+| Option                       | Default                                               | Description                                  |
+|------------------------------|-------------------------------------------------------|----------------------------------------------|
+| `WithRetryMaxAttempts`       | 5 (`DefaultMaxRetryAttempts`)                         | Maximum attempts, including the initial call |
+| `WithRetryInitialBackoff`    | 1s (`DefaultInitialBackoff`)                          | Initial backoff between retries              |
+| `WithRetryMaxBackoff`        | 10s (`DefaultMaxBackoff`)                             | Maximum backoff                              |
+| `WithRetryBackoffMultiplier` | 2.0 (`DefaultBackoffMultiplier`)                      | Exponential backoff multiplier               |
+| `WithRetryStatusCodes`       | `DefaultRetryableStatusCodes`                         | gRPC status code names that trigger a retry  |
 
 ## Health
 

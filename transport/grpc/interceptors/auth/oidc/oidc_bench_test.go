@@ -8,18 +8,20 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
+
+	authoidc "github.com/altessa-s/go-atlas/auth/oidc"
 )
 
 // BenchmarkAuthFunc_Success measures the token validation happy path through
 // AuthFunc: credential extraction, validator invocation, and claims return.
 // It reuses the mockValidator fixture from oidc_test.go.
 func BenchmarkAuthFunc_Success(b *testing.B) {
-	v := &mockValidator{claims: &Claims{Subject: "user1"}}
+	v := &mockValidator{claims: &authoidc.Claims{Subject: "user1"}}
 	fn := AuthFunc(v)
 
 	req := auth.Request{
-		Base:    auth.Base{AuthMethod: auth.MethodToken},
-		Payload: &auth.TokenCredentials{Token: "valid-token"},
+		AuthMethod: auth.MethodToken,
+		Payload:    &auth.TokenCredentials{Token: "valid-token"},
 	}
 	ctx := b.Context()
 

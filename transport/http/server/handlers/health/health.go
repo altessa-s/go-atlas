@@ -5,12 +5,19 @@
 package health
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
 
 	obsmhealth "github.com/altessa-s/go-atlas/observability/health"
 )
+
+// HealthReporter is the health contract required by the HTTP health endpoints.
+type HealthReporter interface {
+	CheckStatus(context.Context, string) obsmhealth.ServingStatus
+	ListStatuses(context.Context) (map[string]obsmhealth.ServingStatus, error)
+}
 
 // Response is the response shape for the simple health endpoints
 // ([K8sHealtz], [K8sReadyz], [Healthz], [Readyz]).
@@ -44,14 +51,14 @@ func K8sReadyz(rw writer.ReadWriter) {
 }
 
 // Healthz returns a handler that checks overall health via the
-// [obsmhealth.Coordinator]. It returns HTTP 200 when all services are
+// [HealthReporter]. It returns HTTP 200 when all services are
 // healthy, HTTP 503 otherwise. The optional service query parameter
 // checks a specific service.
 //
 // Example:
 //
 //	srv.Handle("/healthz", health.Healthz(coordinator))
-func Healthz(coord *obsmhealth.Coordinator) func(rw writer.ReadWriter) {
+func Healthz(coord HealthReporter) func(rw writer.ReadWriter) {
 	return func(rw writer.ReadWriter) {
 		ctx := rw.Request().Context()
 		service := rw.Request().URL.Query().Get("service")
@@ -70,13 +77,13 @@ func Healthz(coord *obsmhealth.Coordinator) func(rw writer.ReadWriter) {
 }
 
 // Readyz returns a handler that checks readiness via the
-// [obsmhealth.Coordinator]. It returns HTTP 200 when overall health is
+// [HealthReporter]. It returns HTTP 200 when overall health is
 // SERVING, HTTP 503 otherwise.
 //
 // Example:
 //
 //	srv.Handle("/readyz", health.Readyz(coordinator))
-func Readyz(coord *obsmhealth.Coordinator) func(rw writer.ReadWriter) {
+func Readyz(coord HealthReporter) func(rw writer.ReadWriter) {
 	return func(rw writer.ReadWriter) {
 		ctx := rw.Request().Context()
 
@@ -100,7 +107,7 @@ func Readyz(coord *obsmhealth.Coordinator) func(rw writer.ReadWriter) {
 // Example:
 //
 //	srv.Handle("/healthz/details", health.Detailed(coordinator))
-func Detailed(coord *obsmhealth.Coordinator) func(rw writer.ReadWriter) {
+func Detailed(coord HealthReporter) func(rw writer.ReadWriter) {
 	return func(rw writer.ReadWriter) {
 		ctx := rw.Request().Context()
 

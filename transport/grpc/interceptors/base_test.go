@@ -54,12 +54,6 @@ func TestBaseInterceptor_ShouldIgnoreFromContext(t *testing.T) {
 	require.False(t, ignore, "expected nil, false; got %v, %v", meta, ignore)
 }
 
-func TestBaseInterceptor_InternMethod(t *testing.T) {
-	b := NewBaseInterceptor("test", nil)
-	m := b.InternMethod("/test/Method")
-	require.Equal(t, "/test/Method", m)
-}
-
 func TestBaseInterceptor_LogMethods(t *testing.T) {
 	b := NewBaseInterceptor("test", slog.New(slog.DiscardHandler))
 	ctx := t.Context()

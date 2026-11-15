@@ -11,7 +11,7 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
-	internalrequestid "github.com/altessa-s/go-atlas/transport/internal/requestid"
+	internalrequestid "github.com/altessa-s/go-atlas/internal/transport/requestid"
 )
 
 func TestHeaderValue(t *testing.T) {
@@ -21,6 +21,7 @@ func TestHeaderValue(t *testing.T) {
 }
 
 func TestContext_RoundTrip(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	got := FromContext(ctx)
 	require.Equal(t, "", got)
@@ -31,6 +32,7 @@ func TestContext_RoundTrip(t *testing.T) {
 }
 
 func TestServerInterceptor_Dependencies(t *testing.T) {
+	t.Parallel()
 	i := &interceptor{}
 	deps := i.Dependencies()
 	require.Len(t, deps, 1)
@@ -38,6 +40,7 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 }
 
 func TestClientAttachRequestID_NoOutgoingMD(t *testing.T) {
+	t.Parallel()
 	gen := internalrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 
@@ -51,6 +54,7 @@ func TestClientAttachRequestID_NoOutgoingMD(t *testing.T) {
 }
 
 func TestClientAttachRequestID_MergesExistingMD(t *testing.T) {
+	t.Parallel()
 	gen := internalrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 
@@ -72,6 +76,7 @@ func TestClientAttachRequestID_MergesExistingMD(t *testing.T) {
 // pooled-metadata recycle bug: the metadata attached to one outgoing context
 // must not be cleared or overwritten by a later attach on another context.
 func TestClientAttachRequestID_MetadataSurvivesLaterCalls(t *testing.T) {
+	t.Parallel()
 	gen := internalrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 
@@ -84,4 +89,16 @@ func TestClientAttachRequestID_MetadataSurvivesLaterCalls(t *testing.T) {
 	md, ok := metadata.FromOutgoingContext(firstCtx)
 	require.True(t, ok)
 	require.Equal(t, []string{firstID}, md.Get(gen.HeaderName()))
+}
+
+func TestClientAttachGeneratedRequestID(t *testing.T) {
+	t.Parallel()
+	gen := internalrequestid.NewGenerator(internalrequestid.WithGenerateIfMissing(true))
+	i := &interceptor{gen: gen}
+	ctx := i.clientAttachRequestID(t.Context())
+	id := FromContext(ctx)
+	require.NotEmpty(t, id)
+	md, ok := metadata.FromOutgoingContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, []string{id}, md.Get(gen.HeaderName()))
 }

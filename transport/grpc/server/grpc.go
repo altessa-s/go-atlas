@@ -10,18 +10,18 @@ import (
 	"net"
 	"slices"
 
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
-	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 )
 
 // GRPCServer is the contract for a managed gRPC server. It extends

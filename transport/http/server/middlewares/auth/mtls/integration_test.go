@@ -15,8 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/spiffe"
-	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
-	"github.com/altessa-s/go-atlas/transport/internal/mtlstest"
+	"github.com/altessa-s/go-atlas/internal/transport/mtlstest"
 
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	authmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
@@ -43,7 +42,7 @@ func TestMiddlewareRealHandshake(t *testing.T) {
 		MinVersion:   tls.VersionTLS13,
 	})
 
-	handler := mtls.Middleware(coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")))(
+	handler := mustMiddleware(t, coremtls.WithTrustDomains("example.org"))(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, _ := authmw.FromContext(r.Context()).(spiffe.ID)
 			_, _ = io.WriteString(w, id.String())

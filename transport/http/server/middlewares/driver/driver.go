@@ -115,10 +115,8 @@ func (w *drivenMiddlewareWrapper) Handler(next http.Handler) http.Handler {
 		r = r.WithContext(ctx)
 
 		// Wrap response writer to capture response info
-		rr := &responseRecorder{
-			ResponseWriter: rw,
-			statusCode:     http.StatusOK, // default if WriteHeader not called
-		}
+		rr := middlewares.NewResponseWriter(rw, false)
+		defer rr.Release()
 
 		// Execute handler if PreRequest succeeded
 		if preErr == nil {
@@ -131,47 +129,11 @@ func (w *drivenMiddlewareWrapper) Handler(next http.Handler) http.Handler {
 
 		// Post-request hook (always called)
 		driver.PostRequest(ctx, ResponseInfo{
-			StatusCode:   rr.statusCode,
-			BytesWritten: rr.bytesWritten,
-			HeadersSent:  rr.headersSent,
+			StatusCode:   rr.StatusCode(),
+			BytesWritten: rr.BytesWritten(),
+			HeadersSent:  rr.HeadersWritten(),
 		}, r, preErr)
 	})
-}
-
-// responseRecorder wraps http.ResponseWriter to capture response metadata.
-type responseRecorder struct {
-	http.ResponseWriter
-	statusCode   int
-	bytesWritten int64
-	headersSent  bool
-}
-
-func (r *responseRecorder) WriteHeader(statusCode int) {
-	if !r.headersSent {
-		r.statusCode = statusCode
-		r.headersSent = true
-		r.ResponseWriter.WriteHeader(statusCode)
-	}
-}
-
-func (r *responseRecorder) Write(b []byte) (int, error) {
-	if !r.headersSent {
-		r.headersSent = true
-	}
-	// CodeQL: False positive - responseRecorder is a transparent middleware proxy that doesn't
-	// modify or generate response data. It only forwards bytes from the actual handler to the
-	// client while collecting metrics. XSS prevention must be done in the handlers that generate
-	// the response content, not in infrastructure middleware.
-	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
-	n, err := r.ResponseWriter.Write(b) //nolint:gosec // transparent proxy
-	r.bytesWritten += int64(n)
-	return n, err
-}
-
-// Unwrap returns the underlying ResponseWriter.
-// This allows middleware to access the original ResponseWriter if needed.
-func (r *responseRecorder) Unwrap() http.ResponseWriter {
-	return r.ResponseWriter
 }
 
 // NoopDriver returns a no-op Driver.

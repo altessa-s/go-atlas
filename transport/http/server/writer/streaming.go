@@ -8,10 +8,10 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
-	"github.com/altessa-s/go-atlas/transport/internal/headers"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // WriteStream writes a response using streaming encoding (no buffering).
@@ -40,7 +40,7 @@ func (wr *Writer) WriteStream(w http.ResponseWriter, r *http.Request, data any) 
 	}
 
 	// Write headers first (cannot be changed after body starts)
-	w.Header().Set(headers.ContentType, mimeType+"; charset=utf-8")
+	w.Header().Set(httpx.ContentType, mimeType+"; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
 

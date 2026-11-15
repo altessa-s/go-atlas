@@ -31,7 +31,8 @@ type ResponseWriter struct {
 	captureBody   bool
 	body          *bytes.Buffer
 	// written counts the body bytes the handler wrote, captured or not.
-	written int64
+	written  int64
+	writeErr error
 }
 
 var responseWriterPool = sync.Pool{
@@ -54,12 +55,14 @@ func NewResponseWriter(w http.ResponseWriter, captureBody bool) *ResponseWriter 
 	rw.captureBody = captureBody
 	rw.body.Reset()
 	rw.written = 0
+	rw.writeErr = nil
 	return rw
 }
 
 // Release returns the ResponseWriter to the pool.
 func (rw *ResponseWriter) Release() {
 	rw.ResponseWriter = nil
+	rw.writeErr = nil
 	rw.body.Reset()
 	responseWriterPool.Put(rw)
 }
@@ -71,16 +74,27 @@ func (rw *ResponseWriter) WriteHeader(statusCode int) {
 	}
 
 	rw.ResponseWriter.WriteHeader(statusCode)
-	rw.statusCode = statusCode
-	rw.headerWritten = true
+	if statusCode >= http.StatusOK || statusCode == http.StatusSwitchingProtocols {
+		rw.statusCode = statusCode
+		rw.headerWritten = true
+	}
 }
 
 // Write captures the response body if enabled and calls the underlying Write.
 func (rw *ResponseWriter) Write(b []byte) (int, error) {
+	// Count and capture only the bytes accepted by the underlying writer,
+	// including a partial write accompanied by an error.
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
+	n, err := rw.ResponseWriter.Write(b) //nolint:gosec // Transparent proxy forwarding handler output
 	if !rw.headerWritten {
-		rw.WriteHeader(http.StatusOK)
+		rw.statusCode = http.StatusOK
+		rw.headerWritten = true
 	}
-	rw.written += int64(len(b))
+	if rw.writeErr == nil {
+		rw.writeErr = err
+	}
+	rw.written += int64(n)
+	b = b[:n]
 
 	if rw.captureBody && rw.body != nil && rw.body.Len() < MaxCaptureBodySize {
 		remaining := MaxCaptureBodySize - rw.body.Len()
@@ -91,14 +105,16 @@ func (rw *ResponseWriter) Write(b []byte) (int, error) {
 		}
 	}
 
-	// CodeQL: False positive - ResponseWriter is a transparent middleware wrapper that
-	// captures response metrics. The bytes 'b' come from the actual HTTP handler via
-	// its Write calls, not from user input. This middleware doesn't generate or modify
-	// content, it only forwards what handlers produce while capturing it for observability.
-	// The actual XSS prevention must happen in the handlers that generate the content.
-	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
-	return rw.ResponseWriter.Write(b) //nolint:gosec // Transparent proxy forwarding handler output
+	return n, err
 }
+
+// WriteError returns the first body write error, or nil if every write succeeded.
+// A captured response with a write error must not be replayed as complete.
+func (rw *ResponseWriter) WriteError() error { return rw.writeErr }
+
+// HeadersWritten reports whether the final response headers have been sent.
+// Informational responses other than 101 do not commit the final response.
+func (rw *ResponseWriter) HeadersWritten() bool { return rw.headerWritten }
 
 // StatusCode returns the captured status code.
 func (rw *ResponseWriter) StatusCode() int {

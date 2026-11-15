@@ -19,10 +19,10 @@ const (
 	// classification.
 	KindNone Kind = iota // none
 
-	// KindUpdate runs [fieldmask.FieldMask.ApplyUpdateMask] against the
-	// request's update_mask and sibling resource sub-message before the
-	// handler executes. Default classification for methods whose short
-	// name starts with "Update", "Patch", or "BatchUpdate".
+	// KindUpdate applies the request's update_mask to its sibling resource
+	// sub-message (update.Prepare) before the handler executes. Default
+	// classification for methods whose short name starts with "Update",
+	// "Patch", or "BatchUpdate".
 	KindUpdate // update
 
 	// KindRead runs [fieldmask.FieldMask.Filter] against the response
@@ -68,8 +68,8 @@ func ClassifyMethod(fullMethod string) Kind {
 // shortMethod returns the part of fullMethod after the final slash, or the
 // whole string when no slash is present.
 func shortMethod(fullMethod string) string {
-	if i := strings.LastIndexByte(fullMethod, '/'); i >= 0 {
-		return fullMethod[i+1:]
+	if _, method, ok := strings.CutLast(fullMethod, "/"); ok {
+		return method
 	}
 
 	return fullMethod

@@ -13,7 +13,7 @@ decouples the server from any specific routing library, so implementations can b
 | Package                            | Description                                                              |
 |------------------------------------|--------------------------------------------------------------------------|
 | [codec](./codec)                   | Content-type codecs and registry with content negotiation                |
-| [factory](./factory)               | Configuration-driven server and middleware creation                      |
+| [factory](../../../factory/transport/http/server)               | Configuration-driven server and middleware creation                      |
 | [handlers](./handlers)             | Common HTTP handlers (ping, healthz, pprof, metrics)                    |
 | [middlewares](./middlewares)        | Middleware interfaces, chain, and dependency-based ordering              |
 | [responder](./responder)           | Structured error response interception                                   |

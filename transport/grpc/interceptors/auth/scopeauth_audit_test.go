@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 
@@ -19,17 +19,25 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var _ auth.DecisionRecorder = (*decision.Recorder)(nil)
+
+type decisionRecorderFunc func(context.Context, decision.Decision) error
+
+func (f decisionRecorderFunc) Record(ctx context.Context, d decision.Decision) error {
+	return f(ctx, d)
+}
+
 type capSink struct {
-	got []audit.Decision
+	got []decision.Decision
 	err error
 }
 
-func (s *capSink) Record(_ context.Context, d audit.Decision) error {
+func (s *capSink) Record(_ context.Context, d decision.Decision) error {
 	s.got = append(s.got, d)
 	return s.err
 }
 
-func auditedScopeAuth(t *testing.T, rec *audit.Recorder) auth.ClientAuth {
+func auditedScopeAuth(t *testing.T, rec auth.DecisionRecorder) auth.ClientAuth {
 	t.Helper()
 	reg := scope.NewRegistry()
 	reg.Register(methodWrite, "files:write")
@@ -39,6 +47,28 @@ func auditedScopeAuth(t *testing.T, rec *audit.Recorder) auth.ClientAuth {
 		scope.Exact(),
 	))
 	return auth.ScopeClientAuth(enf, auth.WithScopeAudit(rec, func(*testPrincipal) string { return "u1" }))
+}
+
+func TestScopeAudit_DecisionRecorderPort(t *testing.T) {
+	t.Parallel()
+
+	var got []decision.Decision
+	recorderErr := errors.New("recorder failed")
+	recorder := decisionRecorderFunc(func(_ context.Context, d decision.Decision) error {
+		got = append(got, d)
+		return recorderErr
+	})
+	ca := auditedScopeAuth(t, recorder)
+	_, err := ca.ClientAuth(t.Context(), credsFor(methodWrite, &testPrincipal{scopes: []string{"files:write"}}))
+	require.Error(t, err)
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Len(t, got, 1)
+	require.True(t, got[0].Allowed)
+
+	// A nil recorder leaves allowed calls unchanged.
+	ca = auditedScopeAuth(t, nil)
+	_, err = ca.ClientAuth(t.Context(), credsFor(methodWrite, &testPrincipal{scopes: []string{"files:write"}}))
+	require.NoError(t, err)
 }
 
 func TestScopeAuditRecordsDecisions(t *testing.T) {
@@ -62,7 +92,7 @@ func TestScopeAuditRecordsDecisions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			sink := &capSink{}
-			rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll))
+			rec := decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll))
 			ca := auditedScopeAuth(t, rec)
 
 			_, _ = ca.ClientAuth(t.Context(), credsFor(tc.method, tc.data))
@@ -83,7 +113,7 @@ func TestScopeAuditDenyOnlyDropsAllows(t *testing.T) {
 	t.Parallel()
 
 	sink := &capSink{}
-	ca := auditedScopeAuth(t, audit.NewRecorder(sink)) // default PolicyDenyOnly
+	ca := auditedScopeAuth(t, decision.NewRecorder(sink)) // default PolicyDenyOnly
 	_, err := ca.ClientAuth(t.Context(), credsFor(methodWrite, &testPrincipal{scopes: []string{"files:write"}}))
 	require.NoError(t, err)
 	require.Empty(t, sink.got) // allowed decision not recorded under deny-only
@@ -93,7 +123,7 @@ func TestScopeAuditRequiredFailureFailsAllowedCall(t *testing.T) {
 	t.Parallel()
 
 	sink := &capSink{err: errors.New("sink down")}
-	rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll), audit.WithFailureMode(audit.FailureRequired))
+	rec := decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll), decision.WithFailureMode(decision.FailureRequired))
 	ca := auditedScopeAuth(t, rec)
 
 	_, err := ca.ClientAuth(t.Context(), credsFor(methodWrite, &testPrincipal{scopes: []string{"files:write"}}))

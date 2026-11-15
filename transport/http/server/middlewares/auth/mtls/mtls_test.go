@@ -16,7 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/spiffe"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
 
@@ -31,6 +31,14 @@ func requestWithCert(t *testing.T, cert *x509.Certificate) *http.Request {
 		req.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{cert}}}
 	}
 	return req
+}
+
+// mustMiddleware builds the middleware from a valid configuration.
+func mustMiddleware(tb testing.TB, opts ...coremtls.Option) func(http.Handler) http.Handler {
+	tb.Helper()
+	mw, err := mtls.Middleware(opts...)
+	require.NoError(tb, err)
+	return mw
 }
 
 func spiffeCert(t *testing.T, id string) *x509.Certificate {
@@ -52,7 +60,8 @@ func TestMiddlewareSuccess(t *testing.T) {
 	t.Parallel()
 	var got any
 	rec := httptest.NewRecorder()
-	mtls.Middleware()(capture(&got)).ServeHTTP(rec, requestWithCert(t, spiffeCert(t, "spiffe://example.org/sa/billing")))
+	mw := mustMiddleware(t, coremtls.WithTrustDomains("example.org"))
+	mw(capture(&got)).ServeHTTP(rec, requestWithCert(t, spiffeCert(t, "spiffe://example.org/sa/billing")))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	id, ok := got.(spiffe.ID)
@@ -63,10 +72,10 @@ func TestMiddlewareSuccess(t *testing.T) {
 func TestMiddlewareWithIdentity(t *testing.T) {
 	t.Parallel()
 	var got any
-	mw := mtls.Middleware(coremtls.WithIdentity(func(c *x509.Certificate) (any, error) {
+	mw := mustMiddleware(t, coremtls.WithIdentity(func(c *x509.Certificate) (any, error) {
 		id, err := spiffe.IDFromCertificate(c)
 		return id.Path, err
-	}))
+	}), coremtls.WithTrustDomains("example.org"))
 	rec := httptest.NewRecorder()
 	mw(capture(&got)).ServeHTTP(rec, requestWithCert(t, spiffeCert(t, "spiffe://example.org/sa/billing")))
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -86,7 +95,7 @@ func TestMiddlewareUnauthorized(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			mw := mtls.Middleware(coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")))
+			mw := mustMiddleware(t, coremtls.WithTrustDomains("example.org"))
 			rec := httptest.NewRecorder()
 			called := false
 			mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })).ServeHTTP(rec, tc.req(t))
@@ -98,11 +107,11 @@ func TestMiddlewareUnauthorized(t *testing.T) {
 
 func TestMiddlewareRequiredAuditMapsTo500(t *testing.T) {
 	t.Parallel()
-	rec := audit.NewRecorder(
-		audit.SinkFunc(func(context.Context, audit.Decision) error { return errors.New("sink down") }),
-		audit.WithPolicyMode(audit.PolicyAll), audit.WithFailureMode(audit.FailureRequired),
+	rec := decision.NewRecorder(
+		decision.SinkFunc(func(context.Context, decision.Decision) error { return errors.New("sink down") }),
+		decision.WithPolicyMode(decision.PolicyAll), decision.WithFailureMode(decision.FailureRequired),
 	)
-	mw := mtls.Middleware(coremtls.WithAudit(rec, nil))
+	mw := mustMiddleware(t, coremtls.WithAudit(rec, nil), coremtls.WithTrustDomains("example.org"))
 	w := httptest.NewRecorder()
 	mw(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(w, requestWithCert(t, spiffeCert(t, "spiffe://example.org/x")))
 	require.Equal(t, http.StatusInternalServerError, w.Code)

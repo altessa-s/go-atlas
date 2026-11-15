@@ -71,8 +71,7 @@ func TestErrorRulesOrder(t *testing.T) {
 }
 
 // TestExposedRuleNotCachedAcrossErrors pins that an exposed error text is
-// never served from the sentinel cache to another error wrapping the same
-// sentinel.
+// never served from the cache to another error wrapping the same sentinel.
 func TestExposedRuleNotCachedAcrossErrors(t *testing.T) {
 	t.Parallel()
 
@@ -82,7 +81,7 @@ func TestExposedRuleNotCachedAcrossErrors(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			unary := ServerInterceptor(opt, WithCacheOnlySentinel(), WithSentinelErrors(errSecret)).ServerUnaryInterceptor()
+			unary := ServerInterceptor(opt).ServerUnaryInterceptor()
 			call := func(err error) string {
 				_, got := unary(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/s/M"},
 					func(context.Context, any) (any, error) { return nil, err })
@@ -100,9 +99,9 @@ func TestExposedRuleNotCachedAcrossErrors(t *testing.T) {
 
 type tenantKey struct{}
 
-// TestNoCacheConverterNotPreemptedByCache pins that a cached status of a
-// later converter never answers an error a NoCache converter matches.
-func TestNoCacheConverterNotPreemptedByCache(t *testing.T) {
+// TestEarlierConverterNotPreemptedByCache pins that a cached status of a
+// later converter never answers an error an earlier converter matches.
+func TestEarlierConverterNotPreemptedByCache(t *testing.T) {
 	t.Parallel()
 
 	unary := ServerInterceptor(
@@ -111,7 +110,6 @@ func TestNoCacheConverterNotPreemptedByCache(t *testing.T) {
 				return ctx.Value(tenantKey{}) == "vip" && errors.Is(err, errSecret)
 			},
 			Convert: func(context.Context, error) *status.Status { return status.New(codes.Unavailable, "vip") },
-			NoCache: true,
 		}),
 		WithErrorRules(ErrorRule{Target: errSecret, Code: codes.Aborted}),
 	).ServerUnaryInterceptor()

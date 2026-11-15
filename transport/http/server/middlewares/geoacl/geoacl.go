@@ -8,11 +8,13 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas-net/netipx"
+	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/geoacl"
 )
 
 const middlewareName = "geoacl"
@@ -29,9 +31,10 @@ var _ middlewares.Middleware = (*middleware)(nil)
 
 type middleware struct {
 	middlewares.BaseMiddleware
-	resolver         geoacl.GeoResolver
-	registry         *geoacl.Registry
-	fallbackBehavior fallback.Behavior
+	resolver              geoacl.GeoResolver
+	registry              *geoacl.Registry
+	fallbackBehavior      fallback.Behavior
+	allowPrivateAddresses bool
 }
 
 // Dependencies returns optional middlewares that should run before geoacl.
@@ -55,9 +58,10 @@ func New(resolver geoacl.GeoResolver, registry *geoacl.Registry, opt ...Option) 
 			opts.ignorePatterns,
 			opts.logger,
 		),
-		resolver:         resolver,
-		registry:         registry,
-		fallbackBehavior: opts.fallbackBehavior,
+		resolver:              resolver,
+		registry:              registry,
+		fallbackBehavior:      opts.fallbackBehavior,
+		allowPrivateAddresses: opts.allowPrivateAddresses,
 	}
 }
 
@@ -69,12 +73,21 @@ func Middleware(resolver geoacl.GeoResolver, registry *geoacl.Registry, opt ...O
 // Handler wraps an http.Handler with geographic access control.
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := m.InternPath(r.URL.Path)
+		path := r.URL.Path
 		ctx := r.Context()
 
-		if m.ShouldIgnore(path) {
+		if m.ShouldIgnoreRequest(r) {
 			m.LogIgnored(ctx, path)
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// A rule is looked up for the path the router dispatches on; any other
+		// spelling of it ("//admin", "/public/../admin", "/v1%2Fadmin") is refused.
+		if !urlpath.IsCanonicalURL(r.URL) {
+			m.LogDebug(ctx, "non-canonical path", path,
+				slog.String("method", r.Method))
+			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 
@@ -88,6 +101,13 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			default:
 				http.Error(w, "Forbidden", http.StatusForbidden)
 			}
+			return
+		}
+
+		if m.allowPrivateAddresses && netipx.IsPrivate(ip) {
+			m.LogDebug(ctx, "private client address exempt", path,
+				slog.String("method", r.Method))
+			next.ServeHTTP(w, r)
 			return
 		}
 

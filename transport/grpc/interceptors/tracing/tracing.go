@@ -7,10 +7,10 @@ package tracing
 import (
 	"context"
 
+	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	"github.com/altessa-s/go-atlas/transport/internal/depgraph"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"

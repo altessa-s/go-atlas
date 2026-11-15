@@ -4,11 +4,12 @@
 
 package metrics
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"log/slog"
 	"regexp"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
@@ -41,21 +42,36 @@ const (
 // explicit subsystem is provided via [WithMetricsSubsystem]. Override it
 // when several gRPC servers run in the same process so each server's
 // metrics land in their own namespace and do not collide when registered
-// against a shared [metrics.Collector].
+// against a shared [metrics.Meter].
 const DefaultMetricsSubsystem = "grpc"
 
+// DefaultMaxMethods is the default number of distinct method label values the
+// interceptor tracks (see [WithMaxMethods]).
+const DefaultMaxMethods = 1024
+
+// OverflowMethod is the method label value that collects every method seen
+// after the [WithMaxMethods] limit is reached.
+const OverflowMethod = "other"
+
 type options struct {
-	collector              metrics.Collector `optgen:"notnil"`
-	metricsSubsystem       string            `optgen:"default=DefaultMetricsSubsystem"`
-	logger                 *slog.Logger
-	durationBuckets        []float64 `opt:"-" optgen:"default=DefaultDurationBuckets"`
-	sizeBuckets            []float64 `opt:"-" optgen:"default=DefaultSizeBuckets"`
+	meter            metrics.Meter `optgen:"default=metrics.Noop(),notnil"`
+	metricsSubsystem string        `optgen:"default=DefaultMetricsSubsystem"`
+	logger           *slog.Logger
+	// Set by WithDurationBuckets: validates ordering and copies the caller's slice.
+	durationBuckets []float64 `optgen:"manual,default=DefaultDurationBuckets"`
+	// Set by WithSizeBuckets: validates ordering and copies the caller's slice.
+	sizeBuckets            []float64 `optgen:"manual,default=DefaultSizeBuckets"`
 	enableSizeMetrics      bool
 	enableStreamMetrics    bool
 	ignoreMethods          []string
 	ignorePatterns         []*regexp.Regexp       `optgen:"default=defaults.IgnorePatterns"`
 	streamSamplingRate     float64                `optgen:"default=DefaultStreamSamplingRate"`
 	streamSamplingStrategy StreamSamplingStrategy `optgen:"default=PerMessageSampling"`
+	// maxMethods caps the distinct method label values. Method names are
+	// client-controlled when the server installs grpc.UnknownServiceHandler,
+	// so methods seen after the cap is reached are recorded under
+	// [OverflowMethod] instead of minting new series.
+	maxMethods int `optgen:"default=DefaultMaxMethods" optval:"positive"`
 }
 
 // WithDurationBuckets returns an option that sets custom histogram buckets for request duration metrics.
@@ -69,8 +85,8 @@ func WithDurationBuckets(buckets []float64) Option {
 		}
 
 		// Validate buckets are in increasing order
-		mustValidateBuckets(buckets, "duration")
-		o.durationBuckets = cloneBuckets(buckets)
+		metrics.MustValidateBuckets(buckets, "duration")
+		o.durationBuckets = slices.Clone(buckets)
 	}
 }
 
@@ -86,7 +102,7 @@ func WithSizeBuckets(buckets []float64) Option {
 		}
 
 		// Validate buckets are in increasing order
-		mustValidateBuckets(buckets, "size")
-		o.sizeBuckets = cloneBuckets(buckets)
+		metrics.MustValidateBuckets(buckets, "size")
+		o.sizeBuckets = slices.Clone(buckets)
 	}
 }

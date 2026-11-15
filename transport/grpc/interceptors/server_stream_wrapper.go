@@ -41,7 +41,29 @@ func NewServerWrappedStream(ctx context.Context, stream grpc.ServerStream, d dri
 
 // Context returns the wrapped context.
 func (w *ServerStreamWrapper) Context() context.Context {
-	return w.ctx
+	return w.requestContext(w.ctx)
+}
+
+// requestContext composes snapshots from all nested drivers, including when
+// the innermost driver does not itself contribute a context.
+func (w *ServerStreamWrapper) requestContext(ctx context.Context) context.Context {
+	for stream := w.ServerStream; stream != nil; {
+		if inner, ok := stream.(*ServerStreamWrapper); ok {
+			ctx = inner.requestContext(ctx)
+			break
+		}
+
+		wrapper, ok := stream.(interface{ Unwrap() grpc.ServerStream })
+		if !ok {
+			break
+		}
+
+		stream = wrapper.Unwrap()
+	}
+	if dc, ok := w.d.(driver.DriverContext); ok {
+		ctx = dc.RequestContext(ctx)
+	}
+	return ctx
 }
 
 // SendMsg runs the driver's PreMsgSend hook, sends the message it returns and

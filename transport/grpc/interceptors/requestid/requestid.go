@@ -8,9 +8,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/altessa-s/go-atlas/internal/transport/requestid"
+	"github.com/altessa-s/go-atlas/internal/transport/validation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	"github.com/altessa-s/go-atlas/transport/internal/requestid"
-	"github.com/altessa-s/go-atlas/transport/internal/validation"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -165,11 +165,11 @@ func (i *interceptor) clientAttachRequestID(ctx context.Context) context.Context
 	reqID := requestid.FromContext(ctx)
 
 	if reqID == "" {
-		if i.gen.GenerateIfMissing() {
-			reqID = i.gen.Extract(nil)
-			ctx = requestid.NewContext(ctx, reqID)
+		if !i.gen.GenerateIfMissing() {
+			return ctx
 		}
-		return ctx // No ID and generation disabled, return original context
+		reqID = i.gen.Extract(nil)
+		ctx = requestid.NewContext(ctx, reqID)
 	}
 
 	// If we have a request ID, attach it to outgoing metadata. The metadata

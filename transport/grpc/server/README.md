@@ -37,9 +37,9 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 
 ## Subpackages
 
-| Package                    | Description                                                              |
-|----------------------------|--------------------------------------------------------------------------|
-| [factory](./factory)       | Configuration-based server and interceptor creation from config structs  |
+| Package                                           | Description                                                             |
+|---------------------------------------------------|-------------------------------------------------------------------------|
+| [factory](../../../factory/transport/grpc/server) | Configuration-based server and interceptor creation from config structs |
 
 ## Lifecycle observation
 

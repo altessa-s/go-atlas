@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/altessa-s/go-atlas/transport/internal/depgraph"
+	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 )
 
 // Chain is a chain of HTTP middlewares that provides automatic ordering

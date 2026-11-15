@@ -23,7 +23,8 @@ const (
 	// "Create" or "BatchCreate".
 	KindCreate // create
 
-	// KindUpdate runs fieldbehavior.StripUpdate on the request payload.
+	// KindUpdate clears the OUTPUT_ONLY and IMMUTABLE fields of the request
+	// payload and rejects an update_mask naming an IMMUTABLE field.
 	// Default classification for methods whose short name starts with
 	// "Update", "Patch", or "BatchUpdate".
 	KindUpdate // update
@@ -64,8 +65,8 @@ func ClassifyMethod(fullMethod string) Kind {
 // shortMethod returns the part of fullMethod after the final slash, or the
 // whole string when no slash is present.
 func shortMethod(fullMethod string) string {
-	if i := strings.LastIndexByte(fullMethod, '/'); i >= 0 {
-		return fullMethod[i+1:]
+	if _, method, ok := strings.CutLast(fullMethod, "/"); ok {
+		return method
 	}
 
 	return fullMethod

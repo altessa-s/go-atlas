@@ -37,3 +37,12 @@ func TestInterceptor_DrivenInterceptor(t *testing.T) {
 	// Verify it implements the interface
 	var _ driver.DrivenInterceptor = i
 }
+
+// ID references this interceptor in exclusion lists, so it must carry the
+// interceptor's own name.
+func TestID_NamesTheInterceptor(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, Name(), ID.Name())
+	require.Equal(t, metadataInterceptor{}.Name(), ID.Name())
+}

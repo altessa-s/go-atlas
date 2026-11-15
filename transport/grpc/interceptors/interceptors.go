@@ -4,7 +4,7 @@
 
 package interceptors
 
-import "github.com/altessa-s/go-atlas/transport/internal/base"
+import "github.com/altessa-s/go-atlas/internal/transport/base"
 
 // Matcher determines if an interceptor should be applied at runtime.
 // Unlike static boolean conditions, Matcher is evaluated dynamically,

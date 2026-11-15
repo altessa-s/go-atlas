@@ -7,7 +7,7 @@ package defaults
 import (
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/transport/internal/endpointfilter"
+	"github.com/altessa-s/go-atlas/internal/transport/endpointfilter"
 )
 
 // IgnorePatterns contains the default regex patterns to ignore for all interceptors.
@@ -18,8 +18,10 @@ import (
 //   - /grpc.reflection.v1alpha.ServerReflection/* - gRPC reflection service (v1alpha)
 //   - /grpc.health.v1.Health/* - gRPC health check service
 //
+// The patterns are anchored and match only the methods of those services.
 // Interceptors can use this as a default and extend it with additional patterns
-// specific to their needs.
+// specific to their needs. The auth, recovery, ipacl, geoacl and limiter
+// interceptors do not use it by default.
 var IgnorePatterns = []*regexp.Regexp{
 	endpointfilter.ReflectionMethodPattern,
 	endpointfilter.HealthMethodPattern,

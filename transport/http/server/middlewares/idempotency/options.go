@@ -4,18 +4,18 @@
 
 package idempotency
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"log/slog"
 	"net/http"
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
-	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
+	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
+	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // Use defaults package for optgen code generation
@@ -215,7 +215,8 @@ type options struct {
 	// exposeEntityID echoes the stored entity id to a duplicate request in
 	// the entity id header. Off by default: the caller presenting a
 	// duplicate key is not verified to be the principal that created the
-	// entity, unless the Keeper checks owners.
+	// entity, unless the Keeper checks owners. Only a record bound to an
+	// owner (idempotency.WithOwner) has its entity id echoed.
 	exposeEntityID bool
 	// fingerprintTempDir is where a body beyond the memory threshold is
 	// buffered while it is fingerprinted; "" is the system temp dir.
@@ -231,8 +232,8 @@ type options struct {
 	// responseReplay stores the status, the replayHeaders and the body of a
 	// completed 2xx response and writes them to a repeat of the request
 	// instead of the already-used error. Off by default: the
-	// repeat's caller receives the original response, so scope keys per
-	// principal (idempotency.WithOwner).
+	// repeat's caller receives the original response. It fails closed: only
+	// a record bound to an owner (idempotency.WithOwner) is replayed.
 	responseReplay bool
 	// maxReplaySize bounds a stored body; a larger one is not stored and its
 	// repeat is refused as already used.
@@ -251,6 +252,6 @@ type EntityIdExtractor func(r *http.Request, contentType string, body []byte) st
 
 // ErrorHandler writes an HTTP response for idempotency-related errors.
 // The middleware invokes it with the [ErrorScenario] that triggered the error
-// and, when available, the existing [idempotency.State] for the key.
+// and, when available, the existing [storages.State] for the key.
 // A default handler is provided; override it with [WithErrorHandler].
-type ErrorHandler func(w http.ResponseWriter, r *http.Request, scenario ErrorScenario, state *idempotency.State)
+type ErrorHandler func(w http.ResponseWriter, r *http.Request, scenario ErrorScenario, state *storages.State)

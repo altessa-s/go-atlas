@@ -12,16 +12,40 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/audit"
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/audit/audittest"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 
 	audithttp "github.com/altessa-s/go-atlas/transport/http/server/middlewares/audit"
 )
 
+var _ audithttp.EventEmitter = (*audit.Auditor)(nil)
+
+type fakeEmitter struct {
+	event *audit.Event
+}
+
+func (f *fakeEmitter) Emit(event *audit.Event) bool {
+	f.event = event
+	return false
+}
+
+func TestEventEmitterSeam(t *testing.T) {
+	t.Parallel()
+	emitter := &fakeEmitter{}
+	handler := audithttp.Middleware(emitter)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/items", nil))
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	require.NotNil(t, emitter.event)
+	require.Equal(t, audit.EventTypeAPIRequest, emitter.event.Type)
+}
+
 func TestMiddleware_AuditsRequest(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -61,7 +85,7 @@ func TestMiddleware_NilAuditor_PassesThrough(t *testing.T) {
 
 func TestMiddleware_IgnorePaths(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a,
 		audithttp.WithIgnorePaths("/health", "/ready"),
@@ -87,7 +111,7 @@ func TestMiddleware_IgnorePaths(t *testing.T) {
 
 func TestMiddleware_IgnoreMethods(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a,
 		audithttp.WithIgnoreMethods("OPTIONS", "HEAD"),
@@ -126,7 +150,7 @@ func TestMiddleware_HTTPMethodToAction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
 			t.Parallel()
-			a, store, shutdown := testhelpers.NewTestAuditor(t)
+			a, store, shutdown := audittest.NewTestAuditor(t)
 
 			handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
@@ -161,7 +185,7 @@ func TestMiddleware_StatusCodes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			a, store, shutdown := testhelpers.NewTestAuditor(t)
+			a, store, shutdown := audittest.NewTestAuditor(t)
 
 			handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.status)
@@ -181,7 +205,7 @@ func TestMiddleware_StatusCodes(t *testing.T) {
 
 func TestMiddleware_ActorExtractor(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a,
 		audithttp.WithActorExtractor(func(r *http.Request) audit.Actor {
@@ -206,7 +230,7 @@ func TestMiddleware_ActorExtractor(t *testing.T) {
 
 func TestMiddleware_RequestIDFromContext(t *testing.T) {
 	t.Parallel()
-	a, store, shutdown := testhelpers.NewTestAuditor(t)
+	a, store, shutdown := audittest.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -224,7 +248,7 @@ func TestMiddleware_RequestIDFromContext(t *testing.T) {
 
 func TestNew_ReturnsMiddlewareInterface(t *testing.T) {
 	t.Parallel()
-	a, _, _ := testhelpers.NewTestAuditor(t)
+	a, _, _ := audittest.NewTestAuditor(t)
 
 	m := audithttp.New(a)
 	assert.Equal(t, "audit", m.Name())

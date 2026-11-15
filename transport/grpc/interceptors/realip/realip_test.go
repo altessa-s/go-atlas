@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
 )
 
 func TestServerInterceptor_Name(t *testing.T) {

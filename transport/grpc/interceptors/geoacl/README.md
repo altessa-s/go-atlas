@@ -11,7 +11,7 @@ geographic location.
 
 ```go
 // Inside this module only; external services configure rules through the server factory.
-// import geopolicy "github.com/altessa-s/go-atlas/transport/internal/geoacl"
+// import geopolicy "github.com/altessa-s/go-atlas/transport/policy/geoacl"
 registry := geopolicy.NewRegistry(geopolicy.PolicyDeny)
 registry.Register("/admin.AdminService/Delete", &geopolicy.AccessRule{
     AllowCountries: []string{"US", "CA"},
@@ -35,12 +35,31 @@ server := grpc.NewServer(
 | `WithFallbackBehavior` | Action when geo resolution fails (default: deny) |
 | `WithLogger` | Logger for debug output |
 | `WithIgnoreMethods` | Exact full method names to skip |
-| `WithIgnorePatterns` | Regex patterns for methods to skip (default: reflection and health) |
+| `WithIgnorePatterns` | Regex patterns for methods to skip (default: none) |
+| `WithAllowPrivateAddresses` | Let loopback, private and link-local clients through without a geographic check (default: off) |
+
+No method is exempt by default, gRPC health and reflection included: a denied IP or country is denied on every method. Exempt only what must be
+public, with exact full method names or anchored patterns; the reflection and health exemptions applied by default before are an explicit
+opt-in: `geoacl.WithIgnorePatterns(defaults.IgnorePatterns...)` (package [`defaults`](../defaults)).
+
+## Internal callers
+
+A GeoIP database has no location for loopback, private and link-local addresses, so health probes and in-cluster callers arrive with an unknown
+location. A rule with deny lists only under `PolicyAllow` lets them through; a rule with an allow list, or a `PolicyDeny` registry, denies them (see
+[`transport/policy/geoacl`](../../../../transport/policy/geoacl)). Nothing is exempted silently. Choose one of the two explicit controls:
+
+- by method: `WithIgnoreMethods` / `WithIgnorePatterns` for the methods internal callers use (health);
+- by caller: `WithAllowPrivateAddresses()` skips the geographic check, deny lists included, when the client address is loopback, private,
+  link-local or otherwise reserved (`netipx.IsPrivate`).
+
+The client address is the one `realip` resolved. With `WithAllowPrivateAddresses` forwarded metadata naming a private address is as good as a
+pass, so accept it from trusted proxies only.
 
 ## Key Types
 
-`Registry`, `AccessRule`, `GeoResolver` and `NewRegistry` come from the module-internal [`transport/internal/geoacl`](../../../internal/geoacl) package;
-services outside the module configure them through the [server factory](../../server/factory).
+`Registry`, `AccessRule`, `GeoResolver` and `NewRegistry` come from the
+[`transport/policy/geoacl`](../../../../transport/policy/geoacl) package; services outside the module configure them through the [server
+factory](../../../../factory/transport/grpc/server).
 
 | Type | Description |
 |------|-------------|

@@ -11,18 +11,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-aip/fieldmask"
+	"github.com/altessa-s/go-aip/fieldmask/extract"
+	"github.com/altessa-s/go-aip/pagination/pagetoken"
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
-	"github.com/altessa-s/go-atlas/core/encoding/etag"
-	"github.com/altessa-s/go-atlas/data/keyset"
-	"github.com/altessa-s/go-atlas/domain/proto/fieldmask"
+	"github.com/altessa-s/go-atlas-core/encoding/etag"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // handlerViolation is the status a handler used to build itself for an
@@ -62,7 +63,7 @@ func TestRequestFieldErrorsMatchHandlerViolations(t *testing.T) {
 
 	wrap := func(err error) error { return fmt.Errorf("list: %w", err) }
 	pageToken := func(field string, err error) error {
-		return &coreerrs.FieldError{Field: field, Reason: keyset.Classify(err).String(), Err: err}
+		return &coreerrs.FieldError{Field: field, Reason: pagetoken.Classify(err).String(), Err: err}
 	}
 	_, wildcardErr := fieldmask.FromPaths("*", "name").SelectsAll()
 	_, missingEtag := etag.ParseVersion("")
@@ -73,10 +74,10 @@ func TestRequestFieldErrorsMatchHandlerViolations(t *testing.T) {
 		err          error
 		path, reason string
 	}{
-		{"page token malformed", pageToken("pageToken", wrap(keyset.ErrInvalidToken)), "pageToken", "malformed"},
-		{"page token rebound", pageToken("pageToken", wrap(keyset.ErrFilterChanged)), "pageToken", "malformed"},
-		{"page token without codec", pageToken("page_token", wrap(keyset.ErrCodecRequired)), "page_token", "malformed"},
-		{"page token expired", pageToken("pageToken", wrap(keyset.ErrExpiredToken)), "pageToken", "expired"},
+		{"page token malformed", pageToken("pageToken", wrap(pagetoken.ErrInvalidToken)), "pageToken", "malformed"},
+		{"page token rebound", pageToken("pageToken", wrap(pagetoken.ErrFilterChanged)), "pageToken", "malformed"},
+		{"page token without codec", pageToken("page_token", wrap(pagetoken.ErrCodecRequired)), "page_token", "malformed"},
+		{"page token expired", pageToken("pageToken", wrap(pagetoken.ErrExpiredToken)), "pageToken", "expired"},
 		{"negative page size", coreerrs.NewFieldError("pageSize", "must not be negative"), "pageSize", "must not be negative"},
 		{
 			"wildcard not alone", &coreerrs.FieldError{Field: "updateMask", Reason: `"*" must be the only path`, Err: wildcardErr},
@@ -110,14 +111,14 @@ func TestRequestFieldErrorsMatchHandlerViolations(t *testing.T) {
 	t.Run("snake update mask field mapped to camel case", func(t *testing.T) {
 		t.Parallel()
 		opts := modes["camel paths"].opts
-		err := &coreerrs.FieldError{Field: fieldmask.DefaultUpdateMaskFieldName, Reason: `"*" must be the only path`, Err: wildcardErr}
+		err := &coreerrs.FieldError{Field: extract.DefaultUpdateMaskFieldName, Reason: `"*" must be the only path`, Err: wildcardErr}
 		requireSameStatus(t, callWith(t, handlerViolation("updateMask", `"*" must be the only path`), opts...), callWith(t, err, opts...))
 	})
 
 	t.Run("the wrapped cause stays matchable", func(t *testing.T) {
 		t.Parallel()
-		err := pageToken("pageToken", wrap(keyset.ErrExpiredToken))
-		require.ErrorIs(t, err, keyset.ErrExpiredToken)
+		err := pageToken("pageToken", wrap(pagetoken.ErrExpiredToken))
+		require.ErrorIs(t, err, pagetoken.ErrExpiredToken)
 		require.ErrorIs(t, &coreerrs.FieldError{Field: "etag", Reason: "required", Err: missingEtag}, etag.ErrMissing)
 		require.True(t, errors.Is(wildcardErr, fieldmask.ErrWildcardNotAlone))
 	})

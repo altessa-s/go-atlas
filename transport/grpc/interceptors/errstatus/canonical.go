@@ -7,7 +7,7 @@ package errstatus
 import (
 	"google.golang.org/grpc/codes"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // Messages and ErrorInfo reasons of the canonical rules ([WithCanonicalRules]).
@@ -78,5 +78,17 @@ func WithCanonicalRules() Option {
 			ErrorRule{Target: coreerrs.ErrUnavailable, Code: codes.Unavailable, Message: MessageUnavailable, Reason: ReasonUnavailable}.converter(),
 			ErrorRule{Target: coreerrs.ErrBusy, Code: codes.Aborted, Message: MessageBusy, Reason: ReasonBusy}.converter(),
 		)
+	}
+}
+
+// WithCanonicalAPIRules is [WithCanonicalRules] with field paths in
+// lowerCamelCase, the proto JSON names an API publishes: it also sets
+// [WithFieldPathMapper] to [CamelPath], which leaves a path a handler already
+// mapped (for example with [Rooted]) unchanged. A later WithFieldPathMapper
+// replaces the mapper.
+func WithCanonicalAPIRules() Option {
+	return func(o *options) {
+		WithFieldPathMapper(CamelPath)(o)
+		WithCanonicalRules()(o)
 	}
 }

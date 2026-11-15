@@ -99,7 +99,7 @@ func TestOrderClientInterceptors(t *testing.T) {
 // both DrivenServerInterceptor and DrivenClientInterceptor dependency forwarding.
 
 func TestDrivenInterceptorFunc(t *testing.T) {
-	d := NoopDriver()
+	d := driver.NoopDriver()
 	f := DrivenInterceptorFunc(func(ctx context.Context) (driver.Driver, context.Context) {
 		return d, ctx
 	})

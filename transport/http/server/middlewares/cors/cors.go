@@ -7,13 +7,12 @@ package cors
 import (
 	"net/http"
 	"regexp"
+	"regexp/syntax"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
 // Header names for CORS.
@@ -122,11 +121,15 @@ func Middleware(opt ...Option) func(next http.Handler) http.Handler {
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this path should be ignored
-		if m.ShouldIgnore(r.URL.Path) {
+		if m.ShouldIgnoreRequest(r) {
 			m.LogIgnored(r.Context(), r.URL.Path)
 			next.ServeHTTP(w, r)
 			return
 		}
+
+		// Every response below depends on the request Origin (present or not,
+		// allowed or not), so shared caches must key on it.
+		w.Header().Add(HeaderVary, HeaderOrigin)
 
 		origin := r.Header.Get(HeaderOrigin)
 
@@ -171,7 +174,7 @@ func (m *middleware) precompute() {
 	m.allowedMethodsStr = strings.Join(m.opts.allowedMethods, ", ")
 	m.allowedMethodsMap = make(map[string]struct{}, len(m.opts.allowedMethods))
 	for _, method := range m.opts.allowedMethods {
-		m.allowedMethodsMap[corestrings.InternUpperString(method)] = struct{}{}
+		m.allowedMethodsMap[strings.ToUpper(method)] = struct{}{}
 	}
 
 	// Pre-join and normalize headers
@@ -205,19 +208,52 @@ var broadOriginCanaries = []string{
 }
 
 // firstBroadOriginPattern returns the first pattern that matches a canary foreign
-// origin, or nil when every pattern is suitably narrow. Returning the regexp (not
-// its string) avoids conflating "not found" with an empty-string pattern, which
-// itself matches everything.
+// origin or is not anchored at the end, or nil when every pattern is suitably
+// narrow. A pattern without a trailing `$` matches any origin that merely starts
+// with an allowed one (`^https://.*\.example\.com` also matches
+// https://x.example.com.evil.io), which no fixed canary can detect. Returning the
+// regexp (not its string) avoids conflating "not found" with an empty-string
+// pattern, which itself matches everything.
 func firstBroadOriginPattern(patterns []*regexp.Regexp) *regexp.Regexp {
 	for _, pattern := range patterns {
 		if pattern == nil {
 			continue
 		}
-		if slices.ContainsFunc(broadOriginCanaries, pattern.MatchString) {
+		if slices.ContainsFunc(broadOriginCanaries, pattern.MatchString) || !endAnchored(pattern) {
 			return pattern
 		}
 	}
 	return nil
+}
+
+// endAnchored reports whether every match of pattern must end at the end of
+// the input.
+func endAnchored(pattern *regexp.Regexp) bool {
+	re, err := syntax.Parse(pattern.String(), syntax.Perl)
+	if err != nil {
+		return false
+	}
+	return endsAtText(re)
+}
+
+func endsAtText(re *syntax.Regexp) bool {
+	switch re.Op {
+	case syntax.OpEndText, syntax.OpEndLine:
+		return true
+	case syntax.OpConcat:
+		return len(re.Sub) > 0 && endsAtText(re.Sub[len(re.Sub)-1])
+	case syntax.OpCapture:
+		return endsAtText(re.Sub[0])
+	case syntax.OpAlternate:
+		for _, sub := range re.Sub {
+			if !endsAtText(sub) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 // isOriginAllowed checks if the given origin is allowed.
@@ -246,8 +282,7 @@ func (m *middleware) isOriginAllowed(origin string) bool {
 func (m *middleware) handlePreflight(w http.ResponseWriter, r *http.Request, origin string) {
 	h := w.Header()
 
-	// Always add Vary headers for preflight
-	h.Add(HeaderVary, HeaderOrigin)
+	// Always add Vary headers for preflight (Origin is added by Handler)
 	h.Add(HeaderVary, HeaderAccessControlRequestMethod)
 	h.Add(HeaderVary, HeaderAccessControlRequestHeaders)
 
@@ -301,9 +336,6 @@ func (m *middleware) handlePreflight(w http.ResponseWriter, r *http.Request, ori
 func (m *middleware) handleActual(w http.ResponseWriter, origin string) {
 	h := w.Header()
 
-	// Add Vary header
-	h.Add(HeaderVary, HeaderOrigin)
-
 	// Set origin header
 	m.setOriginHeader(h, origin)
 
@@ -331,7 +363,7 @@ func (m *middleware) setOriginHeader(h http.Header, origin string) {
 
 // isMethodAllowed checks if the given method is in the allowed list.
 func (m *middleware) isMethodAllowed(method string) bool {
-	_, ok := m.allowedMethodsMap[corestrings.InternUpperString(method)]
+	_, ok := m.allowedMethodsMap[strings.ToUpper(method)]
 	return ok
 }
 
@@ -345,7 +377,7 @@ func (m *middleware) areHeadersAllowed(requestedHeaders string) bool {
 	headers := strings.SplitSeq(requestedHeaders, ",")
 	for header := range headers {
 		header = strings.TrimSpace(header)
-		header = corestrings.InternLowerString(header)
+		header = strings.ToLower(header)
 		if _, ok := m.allowedHeadersMap[header]; !ok {
 			return false
 		}

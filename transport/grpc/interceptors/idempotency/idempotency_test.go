@@ -9,11 +9,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
-
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // findErrorInfo returns the [errdetails.ErrorInfo] detail from st or nil.
@@ -31,7 +31,7 @@ func TestDefaultStatusCreator(t *testing.T) {
 	tests := []struct {
 		name       string
 		scenario   ErrorScenario
-		state      *idempotency.State
+		state      *storages.State
 		wantCode   codes.Code
 		wantMsg    string
 		wantReason string
@@ -60,7 +60,7 @@ func TestDefaultStatusCreator(t *testing.T) {
 		{
 			name:       "already_used",
 			scenario:   ErrorIDKAlreadyUsed,
-			state:      &idempotency.State{Data: "550e8400-e29b-41d4-a716-446655440000"},
+			state:      &storages.State{Data: "550e8400-e29b-41d4-a716-446655440000"},
 			wantCode:   codes.FailedPrecondition,
 			wantMsg:    "This idempotency key has already been used",
 			wantReason: ReasonIDKAlreadyUsed,

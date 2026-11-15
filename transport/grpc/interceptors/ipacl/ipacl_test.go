@@ -11,9 +11,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/ipacl"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -101,4 +102,30 @@ func TestInterceptor_Dependencies(t *testing.T) {
 	reqDeps := i.RequiredDependencies()
 	require.Len(t, reqDeps, 1)
 	require.Equal(t, "realip", reqDeps[0])
+}
+
+// TestUnaryInterceptor_NoDefaultExemptions pins that reflection and health
+// are guarded like any other method unless the caller opts in to
+// defaults.IgnorePatterns.
+func TestUnaryInterceptor_NoDefaultExemptions(t *testing.T) {
+	t.Parallel()
+
+	for _, method := range []string{
+		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+		"/grpc.health.v1.Health/Check",
+	} {
+		t.Run(method, func(t *testing.T) {
+			t.Parallel()
+			ctx := clientip.NewContext(t.Context(), netip.MustParseAddr("1.2.3.4"))
+			info := &grpc.UnaryServerInfo{FullMethod: method}
+
+			_, err := ServerInterceptor(newTestRegistry()).ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
+			require.Equal(t, codes.PermissionDenied, status.Code(err))
+
+			optIn := ServerInterceptor(newTestRegistry(), WithIgnorePatterns(defaults.IgnorePatterns...))
+			resp, err := optIn.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
+			require.NoError(t, err)
+			require.Equal(t, "ok", resp)
+		})
+	}
 }

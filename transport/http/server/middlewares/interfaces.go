@@ -7,7 +7,7 @@ package middlewares
 import (
 	"net/http"
 
-	"github.com/altessa-s/go-atlas/transport/internal/base"
+	"github.com/altessa-s/go-atlas/internal/transport/base"
 )
 
 // Middleware is the interface that all chainable HTTP middlewares must implement.
@@ -89,8 +89,8 @@ func (m *middlewareFuncWithDeps) Dependencies() []string { return m.deps }
 // so [OrderMiddlewares] and [Chain.Ordered] sort it correctly.
 func FuncWithDeps(name string, deps []string, handler func(http.Handler) http.Handler) Middleware {
 	return &middlewareFuncWithDeps{
-		middlewareFunc: middlewareFunc{name: name, handler: handler},
-		deps:           deps,
+		name: name, handler: handler,
+		deps: deps,
 	}
 }
 

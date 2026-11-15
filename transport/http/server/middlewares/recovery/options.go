@@ -4,19 +4,14 @@
 
 package recovery
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"context"
 	"log/slog"
 	"net/http"
 	"regexp"
-
-	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
-
-// Use defaults package for optgen code generation
-var _ = defaults.IgnorePatterns
 
 // PanicHandler is a function that handles panics in HTTP handlers.
 // It receives the context, ResponseWriter, Request, and the recovered panic
@@ -28,9 +23,11 @@ type PanicHandler func(ctx context.Context, w http.ResponseWriter, r *http.Reque
 
 // options configures the panic recovery middleware.
 type options struct {
-	logger         *slog.Logger
-	handler        PanicHandler `optgen:"notnil"`
+	logger  *slog.Logger
+	handler PanicHandler `optgen:"notnil"`
+	// ignorePaths and ignorePatterns have no defaults: the middleware exempts
+	// nothing unless the caller configures it.
 	ignorePaths    []string
-	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
-	logStack       bool             `optgen:"default=true"`
+	ignorePatterns []*regexp.Regexp
+	logStack       bool `optgen:"default=true"`
 }

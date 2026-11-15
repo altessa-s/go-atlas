@@ -4,7 +4,7 @@
 
 package cache
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"log/slog"
@@ -37,21 +37,11 @@ const (
 // Use defaults package for optgen code generation
 var _ = defaults.IgnorePatterns
 
-// CompressionPreset is an alias for [compression.Preset] for easier access.
-type CompressionPreset = compression.Preset
-
-const (
-	PresetNone     = compression.PresetNone
-	PresetFast     = compression.PresetFast
-	PresetBalanced = compression.PresetBalanced
-	PresetBest     = compression.PresetBest
-)
-
-// MethodConfig defines caching configuration for a specific gRPC method.
-// It contains the response prototype for unmarshaling, cache TTL duration,
-// and compression settings for this specific method.
-// This internal type is used to store per-method configuration.
-type MethodConfig struct {
+// MethodPolicy is the caching policy of one gRPC method: the response
+// prototype used for unmarshaling and the compression applied to its cached
+// responses. It is a per-method record, registered with [WithMethodPolicy] or
+// [WithMethods] and handed to a [Serializer] on every cached call.
+type MethodPolicy struct {
 	Name          string // Name of the gRPC method (e.g., "/api.UserService/GetUser")
 	ResponseProto any    // responseProto is a prototype of the response message for unmarshaling
 	// compressor is the Compressor to use for this method (if UseCompression is true)
@@ -60,7 +50,7 @@ type MethodConfig struct {
 }
 
 // Compressor returns the Compressor configured for this method.
-func (com *MethodConfig) Compressor() compression.Compressor {
+func (com *MethodPolicy) Compressor() compression.Compressor {
 	if com.compressor == nil {
 		// Default to no-op compressor if none is set
 		return compression.NewNoOpCompressor()
@@ -69,7 +59,7 @@ func (com *MethodConfig) Compressor() compression.Compressor {
 }
 
 // HasCompressor checks if this method has a compressor configured.
-func (com *MethodConfig) HasCompressor() bool {
+func (com *MethodPolicy) HasCompressor() bool {
 	return com.compressor != nil && com.compressor != compression.NewNoOpCompressor()
 }
 
@@ -79,12 +69,14 @@ func (com *MethodConfig) HasCompressor() bool {
 // Options are applied using the functional options pattern.
 type options struct {
 	// methods contains per-method cache configurations
-	methods map[string]*MethodConfig `optgen:"default=make(map[string]*MethodConfig)"`
+	methods map[string]*MethodPolicy `optgen:"default=make(map[string]*MethodPolicy)"`
 	// keyGenerator generates cache keys. The default is built once per
 	// interceptor and snapshots DefaultMetadataKeys at construction time.
 	keyGenerator KeyGenerator `optgen:"default=newDefaultKeyGenerator()"`
-	// cacheHeadersEnabled adds cache hit/miss headers to responses
-	cacheHeadersEnabled bool `optgen:"default=true"`
+	// WithCacheHeaders controls whether cache hit/miss headers are added to responses.
+	// When enabled, responses include an "x-cache" header with values "hit" or "miss".
+	// This is useful for debugging and monitoring cache behavior in development and production.
+	cacheHeadersEnabled bool `opt:"CacheHeaders" optval:"param" optgen:"default=true"`
 	// serializer handles response serialization/deserialization
 	serializer Serializer `optgen:"default=NewDefaultSerializer(nil)"`
 	// cacheDecision is the function that decides whether to cache a response.
@@ -101,9 +93,11 @@ type options struct {
 	// ignorePatterns contains regex patterns to skip caching for
 	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
 	// metadataKeys is a list of gRPC metadata keys to include in cache hash
-	metadataKeys []string `opt:"-"`
+	// Set by WithMetadataKeys, which also rebuilds keyGenerator.
+	metadataKeys []string `optgen:"manual"`
 	// metadataProcessor is a custom function to process metadata for hashing
-	metadataProcessor MetadataProcessor `opt:"-"`
+	// Set by WithMetadataProcessor, which also rebuilds keyGenerator.
+	metadataProcessor MetadataProcessor `optgen:"manual"`
 }
 
 // WithMetadataKeys sets the gRPC metadata keys to include in the cache key hash.
@@ -126,13 +120,11 @@ func WithMetadataProcessor(p MetadataProcessor) Option {
 	}
 }
 
-// WithCacheHeaders controls whether cache hit/miss headers are added to responses.
-// When enabled, responses include an "x-cache" header with values "hit" or "miss".
-// This is useful for debugging and monitoring cache behavior in development and production.
-func WithCacheHeaders(enabled bool) Option {
-	return func(o *options) {
-		o.cacheHeadersEnabled = enabled
-	}
+// WithCacheHeadersEnabled enables the cacheHeadersEnabled option.
+//
+// cacheHeadersEnabled adds cache hit/miss headers to responses
+func WithCacheHeadersEnabled() Option {
+	return func(o *options) { o.cacheHeadersEnabled = true }
 }
 
 // WithDefaultTTL sets the default cache TTL for all methods.
@@ -154,20 +146,20 @@ func WithMethod(method string, responseProto any) Option {
 			return
 		}
 
-		o.methods[strings.ToLower(method)] = &MethodConfig{
+		o.methods[strings.ToLower(method)] = &MethodPolicy{
 			Name:          method,
 			ResponseProto: responseProto,
 		}
 	}
 }
 
-// WithMethodConfig adds multiple method configurations using the provided Method structs.
-// Each Method struct contains the method name, response prototype, TTL, and compression preset.
-// This allows for bulk configuration of multiple methods in a single call.
-func WithMethodConfig(method ...MethodConfig) Option {
+// WithMethodPolicy registers the given per-method policies. Each [MethodPolicy]
+// carries the method name, response prototype, and compression preset, so
+// several methods can be registered in a single call.
+func WithMethodPolicy(method ...MethodPolicy) Option {
 	return func(o *options) {
 		for _, m := range method {
-			o.methods[strings.ToLower(m.Name)] = &MethodConfig{
+			o.methods[strings.ToLower(m.Name)] = &MethodPolicy{
 				Name:              m.Name,
 				ResponseProto:     m.ResponseProto,
 				CompressionPreset: m.CompressionPreset,

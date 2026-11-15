@@ -14,7 +14,7 @@ unauthenticated requests rejected before consuming limiter budget).
 
 | Type / Interface | Description                                                                        |
 |------------------|------------------------------------------------------------------------------------|
-| `Limiter`        | Uses `data/limiters.Limiter` interface: `Limit(ctx) (*LimitInfo, error)`           |
+| `limiters.Limiter`        | Uses `coord/limiters.Limiter` interface: `Limit(ctx) (*LimitInfo, error)`           |
 
 ## Server options
 
@@ -22,9 +22,12 @@ unauthenticated requests rejected before consuming limiter budget).
 |------------------------|--------------------|-----------------------------------------------------|
 | `WithLogger`           | discard            | Structured logger                                   |
 | `WithIgnoreMethods`    | --                 | Methods to skip rate limiting                       |
-| `WithIgnorePatterns`   | reflection, health | Regex patterns for methods to skip                  |
+| `WithIgnorePatterns`   | --                 | Regex patterns for methods to skip                  |
 | `WithFallbackBehavior` | Deny               | Behavior on limiter failure (Allow, Deny, or Error) |
 | `WithExposeHeaders`    | false (off)        | Emit `x-ratelimit-*` response headers               |
+
+No method is exempt by default, gRPC health and reflection included: every call consumes limiter budget. The reflection and health exemptions
+applied by default before are an explicit opt-in: `limiter.WithIgnorePatterns(defaults.IgnorePatterns...)` (package [`defaults`](../defaults)).
 
 ## Client options
 

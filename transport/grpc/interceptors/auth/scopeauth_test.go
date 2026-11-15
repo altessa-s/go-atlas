@@ -35,7 +35,7 @@ func newScopeAuth(t *testing.T) auth.ClientAuth {
 }
 
 func credsFor(method string, data any) auth.Credentials {
-	return auth.Credentials{Base: auth.Base{FullyMethodName: method}, Data: data}
+	return auth.Credentials{FullyMethodName: method, Data: data}
 }
 
 func TestScopeClientAuthAllows(t *testing.T) {

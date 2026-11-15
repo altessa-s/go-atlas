@@ -16,7 +16,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
+	"github.com/altessa-s/go-aip/fieldbehavior"
+
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
 
 	"google.golang.org/protobuf/types/known/anypb"

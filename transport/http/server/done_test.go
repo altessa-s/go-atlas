@@ -15,16 +15,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
-	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
 
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
+	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 )
 
 func TestServer_DoneServeFailure(t *testing.T) {
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Config{
+	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
 	})))
 	if err != nil {
@@ -66,7 +66,7 @@ func TestServer_DoneServeFailure(t *testing.T) {
 
 func TestServer_DoneNormalShutdown(t *testing.T) {
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Config{
+	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
 	})))
 	if err != nil {
@@ -133,8 +133,8 @@ func (h *retryHandler) Register(r RouteRegistrar, _ <-chan struct{}) {
 }
 
 func TestServer_EarlyFailureRetry(t *testing.T) {
-	ln := &retryListener{doneListener: doneListener{closed: make(chan struct{})}}
-	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Config{
+	ln := &retryListener{closed: make(chan struct{})}
+	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
 		StartupVerification: 50 * time.Millisecond, ShutdownWarning: time.Second,
 	})))
 	if err != nil {
@@ -163,7 +163,7 @@ func TestServer_ConcurrentStart(t *testing.T) {
 	ln := &doneListener{closed: make(chan struct{})}
 	srv, err := New(WithRouter(std.New()), WithBaseOptions(
 		baseserver.WithListener(ln),
-		baseserver.WithTimeouts(timeouts.Config{
+		baseserver.WithTimeouts(timeouts.Lifecycle{
 			StartupVerification: 50 * time.Millisecond, ShutdownWarning: time.Second,
 		}),
 	))
@@ -219,7 +219,7 @@ func TestServer_CanceledShutdownClosesActiveConnection(t *testing.T) {
 			})
 			srv, err := New(WithRouter(r), WithBaseOptions(
 				baseserver.WithAddress("127.0.0.1:0"),
-				baseserver.WithTimeouts(timeouts.Config{
+				baseserver.WithTimeouts(timeouts.Lifecycle{
 					StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
 				}),
 			))
@@ -294,7 +294,7 @@ func TestServer_EarlyFailureClosesAcceptedConnection(t *testing.T) {
 	ln := &acceptedFailureListener{conn: accepted}
 	srv, err := New(WithRouter(std.New()), WithBaseOptions(
 		baseserver.WithListener(ln),
-		baseserver.WithTimeouts(timeouts.Config{StartupVerification: 5 * time.Second}),
+		baseserver.WithTimeouts(timeouts.Lifecycle{StartupVerification: 5 * time.Second}),
 	))
 	if err != nil {
 		t.Fatal(err)

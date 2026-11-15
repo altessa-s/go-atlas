@@ -8,29 +8,32 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"time"
+	"unicode"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/text/strings"
-	"github.com/altessa-s/go-atlas/core/time/timeformat"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas-core/time/timeformat"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas/internal/transport/endpointfilter"
+	"github.com/altessa-s/go-atlas/internal/transport/observability"
+	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/observability/tracing"
-	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
-	"github.com/altessa-s/go-atlas/transport/internal/endpointfilter"
-	"github.com/altessa-s/go-atlas/transport/internal/observability"
-	"github.com/altessa-s/go-atlas/transport/internal/recovery"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
+	slogx "github.com/altessa-s/go-slogx"
 	stdSlices "slices"
 )
 
@@ -110,6 +113,7 @@ func (i *interceptor) init() {
 	i.ignoreChecker = endpointfilter.NewOrNoop(
 		i.opts.ignoreMethods,
 		endpointfilter.WithIgnorePatterns(i.opts.ignorePatterns...),
+		endpointfilter.WithFoldCase(),
 	)
 
 	// Pre-calculate gRPC response codes to log
@@ -150,14 +154,14 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 	// Pre-allocate with expected capacity
 	fields := make(slogx.Fields, 0, 15) //nolint:mnd
 	fields = append(fields,
-		slogx.Field{Key: FieldKeyGrpcMethod, Value: strings.InternString(meta.FullyMethodName)},
+		slogx.Field{Key: FieldKeyGrpcMethod, Value: intern.String(sanitizeLogValue(meta.FullyMethodName, i.opts.maxMethodLength))},
 		slogx.Field{Key: FieldKeyGrpcStream, Value: meta.IsStream},
-		slogx.Field{Key: FieldKeyGrpcService, Value: strings.InternString(meta.ServiceName)},
+		slogx.Field{Key: FieldKeyGrpcService, Value: intern.String(sanitizeLogValue(meta.ServiceName, i.opts.maxMethodLength))},
 	)
 
 	fields = slices.AppendIf(fields, !meta.IsClient,
 		slogx.Field{Key: observability.FieldKeyClientPeerIP, Value: meta.ClientPerIP},
-		slogx.Field{Key: observability.FieldKeyClientUserAgent, Value: meta.ClientUserAgent},
+		slogx.Field{Key: observability.FieldKeyClientUserAgent, Value: sanitizeLogValue(meta.ClientUserAgent, i.opts.maxUserAgentLength)},
 	)
 
 	if d, ok := ctx.Deadline(); ok {
@@ -232,7 +236,7 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 		slogx.Field{Key: observability.FieldKeyRequestStartTime, Value: timeformat.FormatTime(ri.meta.StartTime, ri.opts.timeFormat)},
 		slogx.Field{Key: observability.FieldKeyRequestEndTime, Value: timeformat.FormatTime(now, ri.opts.timeFormat)},
 		slogx.Field{Key: observability.FieldKeyRequestDuration, Value: timeformat.FormatDuration(now.Sub(ri.meta.StartTime), ri.opts.timeFormat)},
-		slogx.Field{Key: FieldKeyGrpcMessage, Value: st.Message()},
+		slogx.Field{Key: FieldKeyGrpcMessage, Value: sanitizeLogValue(st.Message(), ri.opts.maxMessageLength)},
 	)
 
 	// Add trace correlation fields if available
@@ -246,20 +250,20 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 	if st.Code() != codes.OK {
 		for _, detail := range st.Details() {
 			if t, ok := detail.(*errdetails.ErrorInfo); ok {
-				fields = append(fields, slogx.Field{Key: FieldKeyGrpcErrorReason, Value: t.GetReason()})
+				fields = append(fields, slogx.Field{Key: FieldKeyGrpcErrorReason, Value: sanitizeLogValue(t.GetReason(), ri.opts.maxMessageLength)})
 			}
 		}
 
 		if perr, ok := errors.AsType[*recovery.PanicError](err); ok {
 			fields = append(fields,
-				slogx.Field{Key: observability.FieldKeyError, Value: perr.Error()},
+				slogx.Field{Key: observability.FieldKeyError, Value: sanitizeLogValue(perr.Error(), ri.opts.maxMessageLength)},
 				slogx.Field{Key: observability.FieldKeyPanic, Value: perr.Panic},
 				slogx.Field{Key: observability.FieldKeyPanicStacktrace, Value: perr.Frames},
 			)
 		} else if ie, ok := errors.AsType[*interceptors.Error](err); ok {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: ie.Error()})
+			fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: sanitizeLogValue(ie.Error(), ri.opts.maxMessageLength)})
 		} else if _, ok := status.FromError(err); !ok {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: err.Error()})
+			fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: sanitizeLogValue(err.Error(), ri.opts.maxMessageLength)})
 		}
 	}
 
@@ -272,6 +276,23 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 	ri.logger.Log(ctx, "call finished", code, fields)
 
 	return err
+}
+
+// sanitizeLogValue prepares a peer-controlled string for a log record: it is
+// cut to maxLen bytes and its control characters (CR, LF, the rest of C0, DEL
+// and C1) are removed, so a user-agent or an echoed request value cannot forge
+// a log line and an oversized value cannot bloat the record.
+func sanitizeLogValue(s string, maxLen int) string {
+	s = corestrings.TruncateBytes(s, maxLen, TruncationSuffix)
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func (ri *requestInterceptor) PreCall(ctx context.Context, req any) (any, error) {

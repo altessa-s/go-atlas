@@ -13,10 +13,10 @@ import (
 
 	"github.com/aohorodnyk/mimeheader"
 
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 var (
@@ -269,5 +269,5 @@ func normalizeMimeType(mimeType string) string {
 
 	// Trim whitespace and convert to lowercase using interned string pool
 	// InternTrimString handles trimming, then InternLowerString converts to lowercase
-	return corestrings.InternLowerString(corestrings.InternTrimString(mimeType))
+	return intern.LowerString(intern.TrimString(mimeType))
 }

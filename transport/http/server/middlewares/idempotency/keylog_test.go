@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 )
 
 func TestParseKeyLogMode(t *testing.T) {

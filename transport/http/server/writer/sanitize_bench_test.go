@@ -7,7 +7,7 @@ package writer
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
+	"github.com/altessa-s/go-aip/fieldbehavior"
 
 	testpb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )

@@ -6,64 +6,18 @@ package errstatus
 
 import (
 	"context"
-	"errors"
 	"reflect"
-	"strconv"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // errorTypeString returns a string representation of the error type for debugging.
-// This is used for logging and cache key generation.
 func errorTypeString(err error) string {
 	if err == nil {
 		return "<nil>"
 	}
 	return reflect.TypeOf(err).String()
-}
-
-// errorKey generates a cache key from error type and message.
-// This is used when caching all errors (not just sentinels).
-//
-// The returned key embeds err.Error() and is retained in the
-// interceptor's in-process LRU conversion cache. Retention is bounded
-// by the cache capacity ([WithCacheSize], default [DefaultCacheSize]),
-// and the strings never leave the process — cached entries are not
-// sent to clients.
-func errorKey(err error) string {
-	if err == nil {
-		return ""
-	}
-	return reflect.TypeOf(err).String() + ":" + err.Error()
-}
-
-// sentinelErrorKey generates a cache key for sentinel errors using their pointer address.
-// Sentinel errors are package-level variables with stable addresses.
-func sentinelErrorKey(err error) string {
-	if err == nil {
-		return ""
-	}
-	// For sentinel errors, pointer address is the most reliable identifier.
-	// Sentinel errors are by definition package-level variables with stable addresses.
-	return reflect.TypeOf(err).String() + ":0x" + strconv.FormatUint(uint64(reflect.ValueOf(err).Pointer()), 16)
-}
-
-// findSentinelError searches through a list of sentinel errors to find which one
-// the given error matches using errors.Is(). Returns the matching sentinel or nil.
-func findSentinelError(err error, sentinels []error) error {
-	if err == nil {
-		return nil
-	}
-	for _, sentinel := range sentinels {
-		if sentinel == nil {
-			continue
-		}
-		if errors.Is(err, sentinel) {
-			return sentinel
-		}
-	}
-	return nil
 }
 
 // buildStatusConverterIndex builds an optimized index of status errorConverters.

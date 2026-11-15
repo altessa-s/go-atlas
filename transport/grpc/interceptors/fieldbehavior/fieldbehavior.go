@@ -9,17 +9,23 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"sync/atomic"
 
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-aip/fieldmask/update"
+	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
+
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/types/ptr"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	pbfieldbehavior "github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
+	pbfieldbehavior "github.com/altessa-s/go-aip/fieldbehavior"
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
 
@@ -44,6 +50,8 @@ type interceptor struct {
 	interceptors.BaseInterceptor
 	opts      *options
 	stripOpts []pbfieldbehavior.Option
+	// updates applies the update_mask of Update requests.
+	updates *updatemask.Normalizer
 }
 
 // Dependencies returns interceptors that fieldbehavior requires to run before
@@ -58,6 +66,7 @@ type requestInterceptor struct {
 	*interceptor
 	meta *sharedmetadata.CallMetadata
 	kind Kind
+	plan atomic.Pointer[update.DeferredPlan]
 }
 
 // DrivenInterceptor implements the driver.DrivenInterceptor interface.
@@ -68,6 +77,9 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 		interceptor: i,
 		meta:        meta,
 		kind:        i.classify(meta.Method()),
+	}
+	if ri.kind == KindUpdate {
+		ctx = updatemask.Track(ctx)
 	}
 
 	return ri, ctx
@@ -82,6 +94,10 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 		pbfieldbehavior.WithMaxDepth(opts.maxStripDepth),
 	}
 
+	if opts.updateNormalizer == nil {
+		opts.updateNormalizer = updatemask.New()
+	}
+
 	ic := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
 			interceptorName,
@@ -91,6 +107,7 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 		),
 		opts:      opts,
 		stripOpts: stripOpts,
+		updates:   opts.updateNormalizer,
 	}
 
 	return interceptors.ServerDrivenInterceptor(ic)
@@ -201,7 +218,7 @@ func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, e
 	}
 
 	// A strict pass detects populated INPUT_ONLY fields without mutating msg.
-	detectErr := pbfieldbehavior.StripResponse(msg, append(slices.Clone(ri.stripOpts), pbfieldbehavior.WithStrict())...)
+	detectErr := pbfieldbehavior.StripResponse(msg, append(slices.Clone(ri.stripOpts), pbfieldbehavior.WithStrict(true))...)
 	if detectErr == nil {
 		return m, nil
 	}
@@ -248,23 +265,20 @@ func (ri *requestInterceptor) shouldSkip() bool {
 // stripRequest applies the kind-appropriate Strip* function to req. Returns a
 // gRPC status error on traversal failures.
 func (ri *requestInterceptor) stripRequest(ctx context.Context, req any) error {
-	var fn stripFn
-
-	switch ri.kind {
-	case KindCreate:
-		fn = pbfieldbehavior.StripCreate
-	case KindUpdate:
-		fn = pbfieldbehavior.StripUpdate
-	case KindNone, KindSkip:
-		return nil
-	}
-
 	msg, ok := req.(proto.Message)
 	if !ok {
 		return nil
 	}
 
-	return ri.runStrip(ctx, msg, fn, ri.kind.String(), "request")
+	switch ri.kind {
+	case KindCreate:
+		return ri.runStrip(ctx, msg, pbfieldbehavior.StripCreate, ri.kind.String(), "request")
+	case KindUpdate:
+		return ri.stripUpdateRequest(ctx, msg)
+	case KindNone, KindSkip:
+	}
+
+	return nil
 }
 
 // stripResponse applies StripResponse to resp.
@@ -299,6 +313,17 @@ func (ri *requestInterceptor) runStrip(ctx context.Context, msg proto.Message, f
 	})
 
 	if stripErr := fn(msg, ri.stripOpts...); stripErr != nil {
+		// A request value that breaks its AIP-202 format is the client's
+		// error, not the server's.
+		if violation, ok := errors.AsType[*pbfieldbehavior.BehaviorViolationError](stripErr); ok && side == "request" {
+			ri.LogDebug(ctx, "fieldbehavior request rejected", method,
+				slog.String("kind", label),
+				slog.Int("violations", len(violation.Violations)),
+			)
+
+			return interceptors.NewError(buildViolationStatus(violation), stripErr)
+		}
+
 		ri.LogError(ctx, "fieldbehavior strip failed", method, stripErr,
 			slog.String("side", side),
 			slog.String("kind", label),
@@ -316,4 +341,34 @@ func (ri *requestInterceptor) runStrip(ctx context.Context, msg proto.Message, f
 	)
 
 	return nil
+}
+
+// buildViolationStatus renders a request the walk rejects as InvalidArgument
+// with an io.altessa.badrequest.v1.BadRequest detail carrying one
+// FieldViolation per offending field — the detail the fieldmask and
+// protovalidate interceptors emit, so a go-atlas client parses every
+// server-side violation the same way.
+func buildViolationStatus(err *pbfieldbehavior.BehaviorViolationError) *status.Status {
+	violations := make([]*badrequestv1.FieldViolation, 0, len(err.Violations))
+	for _, v := range err.Violations {
+		violations = append(violations, &badrequestv1.FieldViolation{
+			FieldPath: ptr.WrapNonZero(v.Path),
+			Message:   ptr.WrapNonZero(v.Reason),
+		})
+	}
+
+	st := status.New(codes.InvalidArgument, "field behavior violation")
+	if detailed, derr := st.WithDetails(&badrequestv1.BadRequest{FieldViolations: violations}); derr == nil {
+		return detailed
+	}
+
+	return st
+}
+
+// RequestContext attaches a snapshot of this message's deferred update plan.
+func (ri *requestInterceptor) RequestContext(ctx context.Context) context.Context {
+	if plan := ri.plan.Load(); plan != nil {
+		return update.ContextWithPlan(ctx, plan)
+	}
+	return ctx
 }

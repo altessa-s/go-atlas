@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	slogx "github.com/altessa-s/go-slogx"
 )
 
 // LogHandler is the logging backend interface for the logger middleware.
@@ -76,7 +76,7 @@ func (h *slogHandler) Log(ctx context.Context, msg string, statusCode int, field
 	if !h.logger.Enabled(ctx, level) {
 		return
 	}
-	h.logger.LogAttrs(ctx, level, msg, slogx.FieldsToAttrs(fields.Unique())...)
+	h.logger.LogAttrs(ctx, level, msg, fields.Unique().Grouped()...)
 }
 
 // Matches the logic used in gRPC logger for consistency.

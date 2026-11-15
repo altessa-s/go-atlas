@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
 
@@ -348,4 +349,65 @@ func TestMiddleware_LegacyIgnorePatternsOptIn(t *testing.T) {
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/users", nil))
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestMiddleware_BridgesPrincipal(t *testing.T) {
+	t.Parallel()
+
+	alice := principal.Principal{Subject: "alice", Scopes: []string{"files:read"}}
+	tests := []struct {
+		name   string
+		data   any
+		wantOK bool
+	}{
+		{name: "value", data: alice, wantOK: true},
+		{name: "pointer", data: &alice, wantOK: true},
+		{name: "nil pointer", data: (*principal.Principal)(nil), wantOK: false},
+		{name: "application type", data: testUserInfo{ID: "user1"}, wantOK: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := New(
+				WithAuthFunc(AuthenticateFunc(func(context.Context, string) (any, error) {
+					return tc.data, nil
+				})),
+			)
+			var (
+				got  principal.Principal
+				ok   bool
+				data any
+			)
+			handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got, ok = principal.FromContext(r.Context())
+				data = FromContext(r.Context())
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+			req.Header.Set("Authorization", "Bearer valid_token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, tc.wantOK, ok)
+			require.Equal(t, tc.data, data, "FromContext must keep returning the authenticator's value")
+			if tc.wantOK {
+				require.Equal(t, alice, got)
+			}
+		})
+	}
+}
+
+func TestContextWithPrincipal_BridgesPrincipal(t *testing.T) {
+	t.Parallel()
+
+	alice := principal.Principal{Subject: "alice"}
+	ctx := ContextWithPrincipal(t.Context(), alice)
+
+	got, ok := principal.FromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, alice, got)
+	require.Equal(t, alice, FromContext(ctx))
 }

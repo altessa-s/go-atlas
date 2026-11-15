@@ -14,24 +14,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
-	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/http/server/responder"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
-)
-
-// Re-export router types for convenience.
-type (
-	// Router abstracts HTTP routing functionality.
-	Router = router.Router
-	// Route represents a registered route.
-	Route = router.Route
-	// Middleware is a function that wraps an HTTP handler.
-	Middleware = router.Middleware
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 )
 
 // ResponseWriter is the contract for request/response helpers used by handlers.
@@ -73,18 +63,18 @@ type Server struct {
 	routerOnce        sync.Once
 	stopCh            chan struct{}
 	http              *http.Server
-	router            Router
+	router            router.Router
 	readTimeout       time.Duration
 	readHeaderTimeout time.Duration
 	writeTimeout      time.Duration
 	idleTimeout       time.Duration
 	maxHeaderBytes    int
 	writer            ResponseWriter
-	middleware        []Middleware
+	middleware        []router.Middleware
 	handlers          []Handler
 }
 
-// New creates a new HTTP [Server]. A [Router] is required (via [WithRouter]);
+// New creates a new HTTP [Server]. A [router.Router] is required (via [WithRouter]);
 // if no [ResponseWriter] is provided, a default [writer.Writer] is used.
 // Returns an error if the router is nil.
 func New(opts ...Option) (*Server, error) {
@@ -123,9 +113,9 @@ func (s *Server) RegisterHandlers(handlers ...Handler) {
 
 // RegisterMiddleware registers HTTP middleware. Call before [Server.Start].
 // Nil middleware entries are silently filtered out.
-func (s *Server) RegisterMiddleware(middleware ...Middleware) {
+func (s *Server) RegisterMiddleware(middleware ...router.Middleware) {
 	// Filter out nil middleware and append
-	s.middleware = append(s.middleware, slices.Collect(coreslices.Filter(middleware, func(m Middleware) bool {
+	s.middleware = append(s.middleware, slices.Collect(coreslices.Filter(middleware, func(m router.Middleware) bool {
 		return nilcheck.IsNotNil(m)
 	}))...)
 }
@@ -140,7 +130,7 @@ func (s *Server) RegisterMiddleware(middleware ...Middleware) {
 //
 // Note: Handle() should be called before Start(). Registering routes after Start()
 // may work but is not recommended and may cause race conditions.
-func (s *Server) Handle(pattern string, handler HandlerFunc) Route {
+func (s *Server) Handle(pattern string, handler HandlerFunc) router.Route {
 	// Warn if the server is already started (routes should be registered before Start())
 	if s.IsStarted() && s.Logger() != nil {
 		s.Logger().Warn("registering route after server start, this may cause race conditions",
@@ -166,7 +156,7 @@ func (s *Server) IsStopped() bool {
 
 // errorInterceptorMiddleware returns middleware that wraps ResponseWriter
 // to intercept error responses and convert them to structured responses.
-func (s *Server) errorInterceptorMiddleware() Middleware {
+func (s *Server) errorInterceptorMiddleware() router.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Inject the writer into context for explicit WriteError usage
@@ -275,7 +265,7 @@ func (s *Server) Handlers() iter.Seq[Handler] {
 }
 
 // Middleware returns an iterator over registered middleware.
-func (s *Server) Middleware() iter.Seq[Middleware] {
+func (s *Server) Middleware() iter.Seq[router.Middleware] {
 	return slices.Values(s.middleware)
 }
 

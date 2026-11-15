@@ -33,6 +33,13 @@ Allow-Credentials, Expose-Headers, and Max-Age. Supports preflight caching and p
 combinations are rejected:
 
 - `WithAllowAllOrigins` + `WithAllowCredentials`.
-- `WithAllowCredentials` + a `WithAllowedOriginPatterns` regex that matches arbitrary origins (e.g. `.*`, `^https?://.*$`, or an empty pattern).
+- `WithAllowCredentials` + a `WithAllowedOriginPatterns` regex that matches arbitrary origins (e.g. `.*`, `^https?://.*$`, or an empty pattern) or is
+  not anchored at the end with `$` (`^https://.*\.example\.com` also matches `https://x.example.com.evil.io`).
 
 Domain-anchored patterns such as `^https://[a-z0-9-]+\.example\.com$` are unaffected. Anchor your patterns to your own domains.
+
+## Caching
+
+Every response that passes through the middleware (not ignored) carries `Vary: Origin`, whether the request had an allowed, a disallowed, or no
+`Origin` header, so a shared cache never serves one origin's response to another. Preflight responses also vary on
+`Access-Control-Request-Method` and `Access-Control-Request-Headers`.

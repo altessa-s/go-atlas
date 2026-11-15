@@ -10,17 +10,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/cache/storages"
+	"github.com/altessa-s/go-atlas/cache/storages"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	datacache "github.com/altessa-s/go-atlas/data/cache"
+	datacache "github.com/altessa-s/go-atlas/cache"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
 // benchMemoryProvider is a minimal in-memory cache provider for benchmarks,
-// mirroring the map-backed provider used by data/cache benchmarks.
+// mirroring the map-backed provider used by cache benchmarks.
 type benchMemoryProvider struct {
 	store map[string][]byte
 }

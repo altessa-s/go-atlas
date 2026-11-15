@@ -13,14 +13,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/internal/transport/observability"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-	"github.com/altessa-s/go-atlas/transport/internal/observability"
 
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	slogx "github.com/altessa-s/go-slogx"
 )
 
 func TestMiddleware_NilHandler(t *testing.T) {
@@ -77,6 +78,22 @@ func TestMiddleware_IgnoresMethod(t *testing.T) {
 
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("OPTIONS", "/test", nil))
 	require.False(t, logged, "should not log ignored method")
+}
+
+// TestMiddleware_IgnoresMethodCaseInsensitively pins that the method filter
+// still matches a lowercase method once it is no longer interned.
+func TestMiddleware_IgnoresMethodCaseInsensitively(t *testing.T) {
+	t.Parallel()
+
+	var logged atomic.Bool
+	lh := LogHandlerFunc(func(context.Context, string, int, slogx.Fields) { logged.Store(true) })
+	handler := Middleware(lh, WithIgnoreMethods("OPTIONS"))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("options", "/test", nil))
+	require.False(t, logged.Load(), "should not log an ignored method in another case")
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/test", nil))
+	require.True(t, logged.Load(), "should log a method that is not ignored")
 }
 
 func TestMiddleware_IgnoresResponseCode(t *testing.T) {

@@ -10,12 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/audit"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 	tracingmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/tracing"
 )
 
@@ -33,9 +35,14 @@ var _ middlewares.Middleware = (*middleware)(nil)
 
 type middleware struct {
 	middlewares.BaseMiddleware
-	auditor          *audit.Auditor
+	auditor          EventEmitter
 	opts             *options
 	ignoreMethodsMap map[string]struct{}
+}
+
+// EventEmitter is the audit event sink required by the HTTP middleware.
+type EventEmitter interface {
+	Emit(*audit.Event) bool
 }
 
 // Dependencies returns optional middlewares that audit reads from context.
@@ -55,7 +62,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if m.ShouldIgnore(r.URL.Path) {
+		if m.ShouldIgnoreRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -90,12 +97,15 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		if actor.UserAgent == "" {
 			actor.UserAgent = r.UserAgent()
 		}
+		// The path and the User-Agent are client-controlled: cap what one
+		// request can write into the audit store.
+		actor.UserAgent = corestrings.TruncateBytes(actor.UserAgent, m.opts.maxUserAgentLength, TruncationSuffix)
 
 		ctx := r.Context()
 		info := audit.RequestInfo{
-			Action:       audit.HTTPMethodToAction(r.Method),
+			Action:       httpMethodToAction(r.Method),
 			ResourceType: "http.endpoint",
-			ResourcePath: r.URL.Path,
+			ResourcePath: corestrings.TruncateBytes(r.URL.Path, m.opts.maxPathLength, TruncationSuffix),
 			Actor:        actor,
 			Context: audit.NewEventContext(
 				tracing.TraceIDFromContext(ctx),
@@ -107,7 +117,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		event := audit.BuildTransportEvent(info, func() audit.Result {
-			return audit.ClassifyHTTPStatus(sw.StatusCode())
+			return classifyHTTPStatus(sw.StatusCode())
 		})
 
 		m.auditor.Emit(event)
@@ -115,8 +125,8 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 }
 
 // New creates a new audit middleware with the given Auditor and options.
-func New(auditor *audit.Auditor, opts ...Option) *middleware {
-	if auditor == nil {
+func New(auditor EventEmitter, opts ...Option) *middleware {
+	if nilcheck.IsNil(auditor) {
 		return &middleware{
 			BaseMiddleware: middlewares.NewBaseMiddleware(middlewareName, nil),
 		}
@@ -144,6 +154,6 @@ func New(auditor *audit.Auditor, opts ...Option) *middleware {
 
 // Middleware returns an HTTP middleware that audits requests using the provided Auditor.
 // This is a convenience function; prefer New() for access to the full Middleware interface.
-func Middleware(auditor *audit.Auditor, opts ...Option) func(next http.Handler) http.Handler {
+func Middleware(auditor EventEmitter, opts ...Option) func(next http.Handler) http.Handler {
 	return New(auditor, opts...).Handler
 }

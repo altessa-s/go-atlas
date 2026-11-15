@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"regexp"
 
+	"github.com/altessa-s/go-atlas/internal/transport/base"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
-	"github.com/altessa-s/go-atlas/transport/internal/base"
 )
 
 // BaseInterceptor provides common functionality for gRPC interceptors.
@@ -62,11 +62,6 @@ func NewBaseInterceptor(name string, logger *slog.Logger) BaseInterceptor {
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseInterceptorWithFilter(name string, ignoreMethods []string, ignorePatterns []*regexp.Regexp, logger *slog.Logger) BaseInterceptor {
 	return BaseInterceptor{Base: base.NewWithFilter(name, "interceptor", "method", ignoreMethods, ignorePatterns, logger)}
-}
-
-// InternMethod returns an interned version of the method name for memory efficiency.
-func (b *BaseInterceptor) InternMethod(method string) string {
-	return b.InternEndpoint(method)
 }
 
 // ShouldIgnoreFromContext checks if the current call should be ignored based on CallMetadata.

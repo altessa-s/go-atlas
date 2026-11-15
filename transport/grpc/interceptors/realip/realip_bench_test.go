@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"

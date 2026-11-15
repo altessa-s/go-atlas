@@ -15,10 +15,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 
-	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
+	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
 )
 
 // created answers 201 with a numbered body, a Location, a JSON content type,
@@ -43,7 +43,7 @@ func TestResponseReplay(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	h := Middleware(newKeeper(), WithResponseReplay())(created(&calls))
+	h := Middleware(newOwnedKeeper(), WithResponseReplay())(created(&calls))
 	first := post(t, h, t.Context(), "/orders", `{"amount":10}`)
 	require.Equal(t, http.StatusCreated, first.Code)
 
@@ -77,7 +77,7 @@ func TestResponseReplaySizeCap(t *testing.T) {
 	t.Parallel()
 
 	var calls atomic.Int32
-	h := Middleware(newKeeper(), WithResponseReplay(), WithMaxReplaySize(8))(created(&calls))
+	h := Middleware(newOwnedKeeper(), WithResponseReplay(), WithMaxReplaySize(8))(created(&calls))
 	require.Equal(t, http.StatusCreated, post(t, h, t.Context(), "/orders", "a").Code)
 	require.Equal(t, http.StatusUnprocessableEntity, post(t, h, t.Context(), "/orders", "a").Code)
 	require.EqualValues(t, 1, calls.Load())
@@ -97,7 +97,7 @@ func TestResponseReplayNeverStoresATruncatedBody(t *testing.T) {
 		calls.Add(1)
 		_, _ = w.Write([]byte(strings.Repeat("x", middlewares.MaxCaptureBodySize+1)))
 	})
-	m := New(newKeeper(), WithResponseReplay(), WithMaxReplaySize(middlewares.MaxCaptureBodySize))
+	m := New(newOwnedKeeper(), WithResponseReplay(), WithMaxReplaySize(middlewares.MaxCaptureBodySize))
 	h := m.Handler(huge)
 	require.Equal(t, http.StatusOK, post(t, h, t.Context(), "/orders", "a").Code)
 	require.Equal(t, http.StatusUnprocessableEntity, post(t, h, t.Context(), "/orders", "a").Code)
@@ -116,7 +116,7 @@ func TestResponseReplayFailureNotStored(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusCreated)
 	})
-	h := Middleware(newKeeper(), WithResponseReplay())(flaky)
+	h := Middleware(newOwnedKeeper(), WithResponseReplay())(flaky)
 	require.Equal(t, http.StatusServiceUnavailable, post(t, h, t.Context(), "/orders", "a").Code)
 	require.Equal(t, http.StatusCreated, post(t, h, t.Context(), "/orders", "a").Code)
 	rec := post(t, h, t.Context(), "/orders", "a")
@@ -141,6 +141,34 @@ func TestResponseReplayOwnerChecked(t *testing.T) {
 	require.EqualValues(t, 1, calls.Load())
 }
 
+// A record bound to no owner is never replayed and its entity ID never
+// echoed, so caller B reusing caller A's key learns nothing of A's response:
+// the repeat is refused as already used. It holds for a Keeper without an
+// owner function and for a caller it resolves to no owner.
+func TestResponseReplayRefusedWithoutOwner(t *testing.T) {
+	t.Parallel()
+
+	for name, k := range map[string]*idempotency.Keeper{
+		"keeper without owner": newKeeper(),
+		"anonymous caller":     newKeeper(idempotency.WithOwner(func(context.Context) string { return "" })),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var calls atomic.Int32
+			extract := WithEntityIDExtractor(func(*http.Request, string, []byte) string { return "entity-a" })
+			h := Middleware(k, extract, WithResponseReplay(), WithExposeEntityID())(created(&calls))
+			require.Equal(t, http.StatusCreated, post(t, h, t.Context(), "/orders", "a").Code)
+
+			rec := post(t, h, t.Context(), "/orders", "a")
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+			require.NotContains(t, rec.Body.String(), `"id"`)
+			require.Empty(t, rec.Header().Get("Location"))
+			require.Empty(t, rec.Header().Get(DefaultIdempotencyKeyEntityIdHeader))
+			require.EqualValues(t, 1, calls.Load())
+		})
+	}
+}
+
 // A record written before replay (a bare entity ID) has no response: the
 // repeat is refused as already used, and the entity ID is still echoed when
 // enabled.
@@ -149,7 +177,7 @@ func TestResponseReplayLegacyRecord(t *testing.T) {
 
 	var calls atomic.Int32
 	extract := WithEntityIDExtractor(func(*http.Request, string, []byte) string { return "entity-1" })
-	k := newKeeper()
+	k := newOwnedKeeper()
 	require.Equal(t, http.StatusCreated, post(t, Middleware(k, extract)(created(&calls)), t.Context(), "/orders", "a").Code)
 
 	rec := post(t, Middleware(k, extract, WithResponseReplay(), WithExposeEntityID())(created(&calls)), t.Context(), "/orders", "a")
@@ -167,7 +195,7 @@ func TestResponseReplayNeedsMatchingBinding(t *testing.T) {
 	for name, binding := range map[string]string{"no binding": "", "other operation": "PUT /orders"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			k := newKeeper()
+			k := newOwnedKeeper()
 			m := New(k, WithResponseReplay(), WithRequestFingerprint(false))
 			key := m.buildKey(http.MethodPost, "/orders", httpTestKey)
 			ok, held, err := k.AttemptLock(t.Context(), key)

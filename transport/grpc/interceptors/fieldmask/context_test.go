@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
-	pbfieldmask "github.com/altessa-s/go-atlas/domain/proto/fieldmask"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
 
@@ -43,7 +42,7 @@ func TestReadMaskFromContext(t *testing.T) {
 
 	withHeader := func(t *testing.T, value string) context.Context {
 		t.Helper()
-		return metadata.NewIncomingContext(t.Context(), metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, value))
+		return metadata.NewIncomingContext(t.Context(), metadata.Pairs(fieldmask.DefaultMetadataReadMaskHeader, value))
 	}
 
 	t.Run("request field mask", func(t *testing.T) {

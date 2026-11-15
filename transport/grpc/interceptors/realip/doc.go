@@ -3,7 +3,7 @@
 // the LICENSE file.
 
 // Package realip provides gRPC interceptors for extracting real client IP from proxy headers.
-// Processes X-Forwarded-For, X-Real-IP, CF-Connecting-IP headers from gRPC metadata.
+// Processes X-Forwarded-For (and any opted-in single-address header) from gRPC metadata.
 //
 // Example:
 //

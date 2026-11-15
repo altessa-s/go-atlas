@@ -13,16 +13,16 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache/compression"
 )
 
-// compression is used by TestWithCompressionPreset and TestMethodConfig_HasCompressor
+// compression is used by TestWithCompressionPreset and TestMethodPolicy_HasCompressor
 
-func TestMethodConfig_Compressor(t *testing.T) {
-	mc := &MethodConfig{}
+func TestMethodPolicy_Compressor(t *testing.T) {
+	mc := &MethodPolicy{}
 	c := mc.Compressor()
 	require.NotNil(t, c, "should return noop compressor")
 }
 
-func TestMethodConfig_HasCompressor(t *testing.T) {
-	mc := &MethodConfig{}
+func TestMethodPolicy_HasCompressor(t *testing.T) {
+	mc := &MethodPolicy{}
 	require.False(t, mc.HasCompressor(), "should not have compressor")
 
 	mc.compressor = compression.NewCompressor(1024, 0, 6)
@@ -53,6 +53,11 @@ func TestWithDefaultTTL_Invalid(t *testing.T) {
 func TestWithCacheHeaders(t *testing.T) {
 	opts := newOptions(WithCacheHeaders(false))
 	require.False(t, opts.cacheHeadersEnabled, "should be disabled")
+}
+
+func TestWithCacheHeadersEnabled(t *testing.T) {
+	opts := newOptions(WithCacheHeadersEnabled())
+	require.True(t, opts.cacheHeadersEnabled)
 }
 
 func TestWithCompressionPreset(t *testing.T) {

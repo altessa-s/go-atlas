@@ -7,8 +7,6 @@ package interceptors
 import (
 	"context"
 
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
-
 	"google.golang.org/grpc"
 )
 
@@ -73,14 +71,4 @@ func (i *NoOpClientInterceptor) ClientStreamInterceptor() grpc.StreamClientInter
 	) (grpc.ClientStream, error) {
 		return streamer(ctx, desc, cc, method, opts...)
 	}
-}
-
-// NoopDriver returns a no-operation driver for testing and defaults.
-//
-// Example:
-//
-//	driver := interceptors.NoopDriver()
-//	// Use where Driver is expected
-func NoopDriver() driver.Driver {
-	return driver.NoopDriver()
 }

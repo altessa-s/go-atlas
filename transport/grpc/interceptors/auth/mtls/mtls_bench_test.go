@@ -10,11 +10,10 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/mtls"
-
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 
+	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	authgrpc "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 )
 
@@ -26,7 +25,7 @@ func BenchmarkAuthFunc(b *testing.B) {
 			State: tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{cert}}},
 		},
 	})
-	authFn := mtls.AuthFunc()
+	authFn := mustAuthFunc(b, coremtls.WithTrustDomains("example.org"))
 	req := authgrpc.Request{}
 	b.ReportAllocs()
 	for b.Loop() {

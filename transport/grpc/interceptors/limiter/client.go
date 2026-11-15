@@ -9,21 +9,21 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
+	sharedlimiter "github.com/altessa-s/go-atlas/coord/limiters"
 	stdGrpc "google.golang.org/grpc"
 )
 
 var _ interceptors.ClientInterceptor = (*clientInterceptor)(nil)
 
 type clientInterceptor struct {
-	limiter          Limiter
+	limiter          sharedlimiter.Limiter
 	logger           *slog.Logger
 	fallbackBehavior fallback.Behavior
 }
@@ -34,10 +34,10 @@ type clientInterceptor struct {
 //
 // Example:
 //
-//	// Create a limiter (e.g., token bucket)
-//	limiter := tokenbucket.New(100, 10) // 100 requests/sec, burst of 10
+//	// Create a limiter (e.g., token bucket): 100 requests per second.
+//	rl, err := tokenbucket.New(tokenbucket.RateLimitSettings{Limit: 100, Period: time.Second}, storage)
 //
-//	interceptor := limiter.ClientInterceptor(limiter,
+//	interceptor := limiter.ClientInterceptor(rl,
 //	    limiter.WithClientLogger(logger),
 //	)
 //
@@ -45,7 +45,7 @@ type clientInterceptor struct {
 //	    grpc.WithUnaryInterceptor(interceptor.ClientUnaryInterceptor()),
 //	    grpc.WithStreamInterceptor(interceptor.ClientStreamInterceptor()),
 //	)
-func ClientInterceptor(limiter Limiter, opts ...ClientOption) interceptors.ClientInterceptor {
+func ClientInterceptor(limiter sharedlimiter.Limiter, opts ...ClientOption) interceptors.ClientInterceptor {
 	ic := &clientInterceptor{
 		limiter:          limiter,
 		logger:           slog.Default(),
@@ -77,12 +77,12 @@ func WithClientFallbackBehavior(behavior fallback.Behavior) ClientOption {
 }
 
 // ClientUnaryInterceptor returns a new unary client interceptor that limits requests.
-func ClientUnaryInterceptor(limiter Limiter, opts ...ClientOption) stdGrpc.UnaryClientInterceptor {
+func ClientUnaryInterceptor(limiter sharedlimiter.Limiter, opts ...ClientOption) stdGrpc.UnaryClientInterceptor {
 	return ClientInterceptor(limiter, opts...).ClientUnaryInterceptor()
 }
 
 // ClientStreamInterceptor returns a new streaming client interceptor that limits requests.
-func ClientStreamInterceptor(limiter Limiter, opts ...ClientOption) stdGrpc.StreamClientInterceptor {
+func ClientStreamInterceptor(limiter sharedlimiter.Limiter, opts ...ClientOption) stdGrpc.StreamClientInterceptor {
 	return ClientInterceptor(limiter, opts...).ClientStreamInterceptor()
 }
 
@@ -126,7 +126,7 @@ func (c *clientInterceptor) ClientStreamInterceptor() stdGrpc.StreamClientInterc
 }
 
 func (c *clientInterceptor) checkLimit(ctx context.Context, method string) error {
-	internedMethod := strings.InternString(method)
+	internedMethod := intern.String(method)
 
 	info, err := c.limiter.Limit(ctx)
 	if err != nil {

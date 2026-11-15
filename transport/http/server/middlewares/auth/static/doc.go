@@ -6,8 +6,7 @@
 // middleware.
 //
 // The package is a thin adapter over
-// [github.com/altessa-s/go-atlas/auth/static]: it re-exports the store
-// types/options and provides [AuthFunc], which wraps store errors with the
+// [github.com/altessa-s/go-atlas/auth/static]. It provides [AuthFunc], which wraps store errors with the
 // transport-level [auth.ErrUnauthorized] sentinel while preserving the
 // original cause for logs and custom [auth.ErrorHandler] implementations.
 //
@@ -16,8 +15,10 @@
 //
 // # Usage
 //
-//	store := static.NewInMemoryStore(
-//	    static.WithInitialTokens(map[string]any{
+// Import auth/static as staticstore for store construction.
+//
+//	store := staticstore.NewInMemoryStore(
+//	    staticstore.WithInitialTokens(map[string]any{
 //	        "sk_live_xxx": UserInfo{ID: "u1"},
 //	    }),
 //	)

@@ -6,16 +6,17 @@
 // interceptor.
 //
 // The package is a thin adapter over
-// [github.com/altessa-s/go-atlas/auth/static]: it re-exports the store
-// types/options and provides [AuthFunc], which maps store errors to gRPC
+// [github.com/altessa-s/go-atlas/auth/static]. It provides [AuthFunc], which maps store errors to gRPC
 // status codes ([codes.Unauthenticated], [codes.ResourceExhausted],
 // [codes.Internal]). Token storage, hashing, and metrics live in
 // auth/static and are shared with the HTTP middleware adapter.
 //
 // # Usage
 //
-//	store := static.NewInMemoryStore(
-//	    static.WithInitialTokens(map[string]any{
+// Import auth/static as staticstore for store construction.
+//
+//	store := staticstore.NewInMemoryStore(
+//	    staticstore.WithInitialTokens(map[string]any{
 //	        "sk_live_xxx": UserInfo{ID: "u1"},
 //	    }),
 //	)

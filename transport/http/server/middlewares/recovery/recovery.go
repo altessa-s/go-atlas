@@ -10,11 +10,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/altessa-s/go-atlas/core/runtime/helpers"
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/runtime/helpers"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
-	"github.com/altessa-s/go-atlas/transport/internal/recovery"
 )
 
 const logPanicStackSkip = 2
@@ -73,7 +73,7 @@ func PanicRecover(logger *slog.Logger, opt ...Option) func(next http.Handler) ht
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Check if this path should be ignored
-		if m.ShouldIgnore(request.URL.Path) {
+		if m.ShouldIgnoreRequest(request) {
 			next.ServeHTTP(writer, request)
 			return
 		}

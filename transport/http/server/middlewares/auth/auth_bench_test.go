@@ -98,7 +98,7 @@ func BenchmarkExtractTokenFromHeader(b *testing.B) {
 }
 
 func BenchmarkFromContext(b *testing.B) {
-	ctx := context.WithValue(context.Background(), authContextKey, testUserInfo{ID: "user1", Role: "admin"})
+	ctx := context.WithValue(b.Context(), authContextKey, testUserInfo{ID: "user1", Role: "admin"})
 	b.ResetTimer()
 	for b.Loop() {
 		_ = FromContext(ctx)

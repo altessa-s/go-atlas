@@ -3,10 +3,10 @@
 // the LICENSE file.
 
 // Package metrics provides middleware that records HTTP server metrics via
-// the [observability/metrics.Collector] abstraction.
+// the [observability/metrics.Meter] abstraction.
 //
 // The middleware tracks three core metrics and two optional size metrics
-// (names shown after [Collector.WithSubsystem] is applied; default subsystem
+// (names shown after [github.com/altessa-s/go-atlas/observability/metrics.Meter.WithSubsystem] is applied; default subsystem
 // is "http"):
 //
 //   - {service}_http_server_requests_total — total requests, labels: method, status
@@ -16,7 +16,7 @@
 //   - {service}_http_server_response_size_bytes — response body sizes (opt-in)
 //
 // Each call to [New] constructs a fresh middleware wired to the provided
-// [metrics.Collector]. The underlying adapter deduplicates metric
+// [metrics.Meter]. The underlying adapter deduplicates metric
 // registrations by name, so reusing the same collector across multiple calls
 // with the same subsystem shares the same metric vectors. To emit metrics
 // for two unrelated upstreams against a single registry, pass distinct
@@ -25,7 +25,7 @@
 // # Example
 //
 //	mw := metrics.New(
-//	    metrics.WithCollector(coll),
+//	    metrics.WithMeter(coll),
 //	    metrics.WithMetricsSubsystem("api"),
 //	    metrics.WithEnableSizeMetrics(),
 //	)

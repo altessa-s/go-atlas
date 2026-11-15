@@ -164,6 +164,9 @@ func TestNew_BroadOriginPatternWithCredentials_Panics(t *testing.T) {
 		{"match everything", `.*`},
 		{"any scheme+host", `^https?://.*$`},
 		{"empty pattern", ``},
+		// Not anchored at the end: also matches https://x.example.com.evil.io.
+		{"suffix-unanchored subdomain", `^https://.*\.example\.com`},
+		{"suffix-unanchored alternative", `^https://a\.example\.com$|^https://b\.example\.com`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			defer func() {
@@ -187,4 +190,57 @@ func TestNew_NarrowOriginPatternWithCredentials_NoPanic(t *testing.T) {
 	require.NotNil(t, m)
 	require.True(t, m.isOriginAllowed("https://app.example.com"))
 	require.False(t, m.isOriginAllowed("https://evil.invalid"))
+}
+
+// TestMiddleware_VaryOrigin pins that every response whose CORS headers depend
+// on the request Origin carries Vary: Origin, so a shared cache never serves
+// one origin's (or a no-Origin request's) response to another origin.
+func TestMiddleware_VaryOrigin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		opts   []Option
+		method string
+		origin string
+	}{
+		{"no origin", []Option{WithAllowedOrigins("https://a.example.com")}, http.MethodGet, ""},
+		{"disallowed origin", []Option{WithAllowedOrigins("https://a.example.com")}, http.MethodGet, "https://evil.invalid"},
+		{"allowed origin", []Option{WithAllowedOrigins("https://a.example.com")}, http.MethodGet, "https://a.example.com"},
+		{"disallowed preflight", []Option{WithAllowedOrigins("https://a.example.com")}, http.MethodOptions, "https://evil.invalid"},
+		{"allowed preflight", []Option{WithAllowedOrigins("https://a.example.com")}, http.MethodOptions, "https://a.example.com"},
+		{"allow all, no origin", []Option{WithAllowAllOrigins()}, http.MethodGet, ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := New(tc.opts...).Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			req := httptest.NewRequest(tc.method, "/api", nil)
+			if tc.origin != "" {
+				req.Header.Set(HeaderOrigin, tc.origin)
+			}
+			if tc.method == http.MethodOptions {
+				req.Header.Set(HeaderAccessControlRequestMethod, http.MethodGet)
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			vary := rec.Header().Values(HeaderVary)
+			require.Equal(t, 1, countValue(vary, HeaderOrigin), "want exactly one Vary: Origin, got %q", vary)
+		})
+	}
+}
+
+func countValue(values []string, want string) int {
+	n := 0
+	for _, v := range values {
+		if v == want {
+			n++
+		}
+	}
+	return n
 }

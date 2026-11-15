@@ -11,7 +11,7 @@ addresses.
 
 ```go
 // Inside this module only; external services configure rules through the server factory.
-// import aclpolicy "github.com/altessa-s/go-atlas/transport/internal/ipacl"
+// import aclpolicy "github.com/altessa-s/go-atlas/transport/policy/ipacl"
 registry := aclpolicy.NewRegistry(aclpolicy.PolicyDeny)
 registry.Register("/admin.AdminService/Delete", &aclpolicy.AccessRule{
     Allowlist: []netip.Prefix{
@@ -38,12 +38,16 @@ server := grpc.NewServer(
 | `WithFallbackBehavior` | Action when no client IP available (default: deny) |
 | `WithLogger` | Logger for debug output |
 | `WithIgnoreMethods` | Exact full method names to skip |
-| `WithIgnorePatterns` | Regex patterns for methods to skip (default: reflection and health) |
+| `WithIgnorePatterns` | Regex patterns for methods to skip (default: none) |
+
+No method is exempt by default, gRPC health and reflection included: a denied IP is denied on every method. Exempt only what must be
+public, with exact full method names or anchored patterns; the reflection and health exemptions applied by default before are an explicit
+opt-in: `ipacl.WithIgnorePatterns(defaults.IgnorePatterns...)` (package [`defaults`](../defaults)).
 
 ## Key Types
 
-`Registry`, `AccessRule` and `NewRegistry` come from the module-internal [`transport/internal/ipacl`](../../../internal/ipacl) package; services outside
-the module configure them through the [server factory](../../server/factory).
+`Registry`, `AccessRule` and `NewRegistry` come from the [`transport/policy/ipacl`](../../../../transport/policy/ipacl) package;
+services outside the module configure them through the [server factory](../../../../factory/transport/grpc/server).
 
 | Type | Description |
 |------|-------------|

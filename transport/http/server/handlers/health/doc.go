@@ -9,8 +9,8 @@
 //   - Static stubs ([K8sHealtz], [K8sReadyz]) always return 200 OK and have
 //     no dependencies. Suitable for the simplest deployments where the only
 //     signal that matters is "the process is up and accepting connections".
-//   - Coordinator-backed handlers ([Healthz], [Readyz], [Detailed]) consult
-//     a [observability/health.Coordinator] and translate its
+//   - Reporter-backed handlers ([Healthz], [Readyz], [Detailed]) consult a
+//     [HealthReporter], implemented by [observability/health.Coordinator], and translate its
 //     [observability/health.ServingStatus] into HTTP 200/503 plus a JSON
 //     body. Use these once your dependencies report health into a
 //     coordinator (see docs/observability/health.md).

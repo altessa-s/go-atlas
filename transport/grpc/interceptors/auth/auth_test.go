@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 
 	"google.golang.org/grpc/codes"
@@ -221,4 +222,125 @@ func TestServerInterceptor_LegacyIgnorePatternsOptIn(t *testing.T) {
 
 	_, err = unary(t.Context(), nil, &stdGrpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}, handler)
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
+}
+
+func TestServerInterceptor_StoresCredentials(t *testing.T) {
+	t.Parallel()
+
+	tokenOpt := WithTokenExtractor(TokenExtractorFunc(func(_ context.Context) (string, error) {
+		return "test-token", nil
+	}))
+	authOpt := WithAuthFn(AuthFunc(func(_ context.Context, _ Request) (any, error) {
+		return "user-data", nil
+	}))
+
+	tests := []struct {
+		name string
+		opts []Option
+	}{
+		{name: "without client auth", opts: []Option{tokenOpt, authOpt}},
+		{name: "with client auth", opts: []Option{tokenOpt, authOpt,
+			WithClientAuth(ClientAuthFunc(func(ctx context.Context, _ Credentials) (context.Context, error) {
+				return ctx, nil
+			}))}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				got Credentials
+				ok  bool
+			)
+			handler := func(ctx context.Context, _ any) (any, error) {
+				got, ok = CredentialsFromContext(ctx)
+				return "ok", nil
+			}
+			info := &stdGrpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}
+
+			_, err := ServerInterceptor(tc.opts...).ServerUnaryInterceptor()(t.Context(), nil, info, handler)
+			require.NoError(t, err)
+			require.True(t, ok, "credentials must be stored in the handler context")
+			require.Equal(t, "user-data", got.Data)
+			require.True(t, got.IsToken())
+			require.Equal(t, "/test.Service/Method", got.FullyMethodName)
+		})
+	}
+}
+
+func TestServerInterceptor_ClientAuthSeesCredentials(t *testing.T) {
+	t.Parallel()
+
+	var ok bool
+	si := ServerInterceptor(
+		WithTokenExtractor(TokenExtractorFunc(func(_ context.Context) (string, error) {
+			return "test-token", nil
+		})),
+		WithAuthFn(AuthFunc(func(_ context.Context, _ Request) (any, error) {
+			return "user-data", nil
+		})),
+		WithClientAuth(ClientAuthFunc(func(ctx context.Context, _ Credentials) (context.Context, error) {
+			_, ok = CredentialsFromContext(ctx)
+			return ctx, nil
+		})),
+	)
+	info := &stdGrpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}
+	handler := func(context.Context, any) (any, error) { return "ok", nil }
+
+	_, err := si.ServerUnaryInterceptor()(t.Context(), nil, info, handler)
+	require.NoError(t, err)
+	require.True(t, ok, "ClientAuth must receive a context carrying the credentials")
+}
+
+func TestCredentialsFromContext_Absent(t *testing.T) {
+	t.Parallel()
+
+	_, ok := CredentialsFromContext(t.Context())
+	require.False(t, ok)
+}
+
+func TestServerInterceptor_BridgesPrincipal(t *testing.T) {
+	t.Parallel()
+
+	alice := principal.Principal{Subject: "alice", Scopes: []string{"files:read"}}
+	tests := []struct {
+		name   string
+		data   any
+		wantOK bool
+	}{
+		{name: "value", data: alice, wantOK: true},
+		{name: "pointer", data: &alice, wantOK: true},
+		{name: "nil pointer", data: (*principal.Principal)(nil), wantOK: false},
+		{name: "application type", data: "user-data", wantOK: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			si := ServerInterceptor(
+				WithTokenExtractor(TokenExtractorFunc(func(_ context.Context) (string, error) {
+					return "test-token", nil
+				})),
+				WithAuthFn(AuthFunc(func(_ context.Context, _ Request) (any, error) {
+					return tc.data, nil
+				})),
+			)
+			var (
+				got principal.Principal
+				ok  bool
+			)
+			handler := func(ctx context.Context, _ any) (any, error) {
+				got, ok = principal.FromContext(ctx)
+				return "ok", nil
+			}
+			info := &stdGrpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}
+
+			_, err := si.ServerUnaryInterceptor()(t.Context(), nil, info, handler)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantOK, ok)
+			if tc.wantOK {
+				require.Equal(t, alice, got)
+			}
+		})
+	}
 }

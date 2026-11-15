@@ -4,12 +4,13 @@
 
 package server
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"time"
 
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
+	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
+	router "github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
 // Default timeout and size constants for HTTP server configuration.
@@ -38,7 +39,7 @@ const (
 type options struct {
 	baseOpts []baseserver.Option `opt:"BaseOptions"`
 
-	router            Router        `optgen:"notnil"`
+	router            router.Router `optgen:"notnil"`
 	readTimeout       time.Duration `optgen:"default=DefaultReadTimeout"`
 	readHeaderTimeout time.Duration `optgen:"default=DefaultReadHeaderTimeout"`
 	writeTimeout      time.Duration `optgen:"default=DefaultWriteTimeout"`

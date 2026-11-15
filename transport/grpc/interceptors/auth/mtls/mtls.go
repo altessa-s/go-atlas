@@ -8,8 +8,9 @@ import (
 	"context"
 	"crypto/x509"
 	"errors"
+	"fmt"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 
 	"google.golang.org/grpc/codes"
@@ -57,7 +58,10 @@ func PeerCertificate(ctx context.Context) (*x509.Certificate, error) {
 // and audit to a [github.com/altessa-s/go-atlas/auth/mtls.Authenticator] built
 // from opts. Configure it with that package's options — [coremtls.WithIdentity],
 // [coremtls.WithValidator], [coremtls.WithAudit] — the transport label is set to
-// "grpc" automatically.
+// "grpc" automatically. opts must make the trust decision
+// ([coremtls.WithTrustDomains] or [coremtls.WithInsecureAnyTrustDomain]);
+// validators do not count as one, and without it AuthFunc returns an error
+// wrapping [coremtls.ErrNoTrustDomainPolicy] instead of an auth function.
 //
 // A missing peer, non-mTLS connection, or no verified certificate, and any
 // identity or validator failure, map to codes.Unauthenticated (fail-closed). A
@@ -66,8 +70,11 @@ func PeerCertificate(ctx context.Context) (*x509.Certificate, error) {
 //
 // Identity is read from the connection's verified certificate chain, not from
 // request metadata, so the [auth.Request] argument is unused.
-func AuthFunc(opts ...coremtls.Option) auth.AuthFunc {
-	authenticator := coremtls.NewAuthenticator(append([]coremtls.Option{coremtls.WithTransport("grpc")}, opts...)...)
+func AuthFunc(opts ...coremtls.Option) (auth.AuthFunc, error) {
+	authenticator, err := coremtls.NewAuthenticator(append([]coremtls.Option{coremtls.WithTransport("grpc")}, opts...)...)
+	if err != nil {
+		return nil, fmt.Errorf("mtls: build authenticator: %w", err)
+	}
 	return func(ctx context.Context, _ auth.Request) (any, error) {
 		cert, err := PeerCertificate(ctx)
 		if err != nil {
@@ -77,11 +84,11 @@ func AuthFunc(opts ...coremtls.Option) auth.AuthFunc {
 		}
 		principal, err := authenticator.Authenticate(ctx, cert)
 		if err != nil {
-			if errors.Is(err, audit.ErrAuditFailed) {
+			if errors.Is(err, decision.ErrAuditFailed) {
 				return nil, status.Error(codes.Internal, "mtls: audit failed")
 			}
 			return nil, status.Error(codes.Unauthenticated, "unauthenticated")
 		}
 		return principal, nil
-	}
+	}, nil
 }

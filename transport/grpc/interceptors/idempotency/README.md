@@ -31,6 +31,7 @@ gRPC metadata (default header: `Idempotency-Key`). Uses the driven interceptor p
 | `WithMethodClassifier`            | nil                        | Per-method `Policy` (skip, optional, mandatory, default); `VerbMethodClassifier(p)` |
 | `WithResponseReplay`              | off                        | Return the stored response to a repeat of a completed unary call (see below) |
 | `WithMaxReplaySize`               | `DefaultMaxReplaySize` (256 KiB) | Largest stored response (marshaled); larger ones are not stored |
+| `WithLogger`                      | discard                    | Logger for a key that could not be completed or released |
 | `WithEntityIDExtractor`           | nil                        | Extract entity ID from response              |
 | `WithExposeEntityID`              | false (off)                | Echo the stored entity ID to duplicate callers (see below) |
 | `WithRequestFingerprint`          | true                       | Refuse a key reused for a different request (see below) |
@@ -43,7 +44,8 @@ gRPC metadata (default header: `Idempotency-Key`). Uses the driven interceptor p
 On a duplicate request whose key already resolved to a success, the interceptor can return the stored entity ID in the `Idempotency-Key-Entity-Id`
 response metadata. That is **off by default**: the caller presenting a duplicate key is not verified to be the principal that created the original
 entity, so echoing it unconditionally would leak another principal's entity ID to anyone who reuses (or guesses) the key. Enable `WithExposeEntityID()`
-(YAML `exposeEntityID: true`) only when idempotency keys are unguessable and scoped per principal, or when the entity ID is not sensitive.
+(YAML `exposeEntityID: true`) only when idempotency keys are unguessable and scoped per principal, or when the entity ID is not sensitive. Even
+then the entity ID is echoed only for a record bound to an owner (`idempotency.WithOwner`): a record without one never reveals it.
 
 ## Key sources and method policies
 
@@ -67,15 +69,17 @@ request or another owner's key never sees the response. Storage keys are scoped 
 independently of fingerprinting: a repeat of another method of the service is never answered with it, and the replayed message must be the
 method's registered response type. A response larger than the cap, a record written before replay (a bare entity ID) or without a method binding,
 a response type that is not (or no longer) the method's, and streaming calls keep the `FAILED_PRECONDITION` answer. Replay is off by default because the repeat's
-caller receives the original response: enable it with keys scoped per principal (`idempotency.WithOwner`).
+caller receives the original response, and it fails closed: only a record bound to an owner (`idempotency.WithOwner`, such as
+`reliability/idempotency/principalowner.PrincipalOwner`, the default of the Keeper factory) is replayed, so a Keeper without an owner, or a caller it resolves to no owner,
+keeps the `FAILED_PRECONDITION` answer.
 
 ## Storage keys
 
 The interceptor passes the Keeper the tuple `("transport", "package.Service", key)` in the length-prefixed v2 format of
-[`data/idempotency.ComposeKey`](../../../../data/idempotency#storage-key-format) — every method of `users.UserService` with key `550e8400-…` shares
+[`reliability/idempotency.ComposeKey`](../../../../reliability/idempotency#storage-key-format) — every method of `users.UserService` with key `550e8400-…` shares
 `idk:v2:9:transport17:users.UserService36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage. Keys are
 scoped by service, and the bytes of the key cannot reach another service's record. The format replaced `idk:{service}:{key}` with a clean cut: follow
-the [rollout contract](../../../../data/idempotency#rolling-out-the-v2-key-format) when upgrading.
+the [rollout contract](../../../../reliability/idempotency#rolling-out-the-v2-key-format) when upgrading.
 
 ## Request fingerprints and owners
 

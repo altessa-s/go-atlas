@@ -10,11 +10,14 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
-	benchResp any
-	benchErr  error
+	benchResp   any
+	benchErr    error
+	benchStatus *status.Status
 )
 
 // benchServerUnary drives the unary interceptor with a handler that always
@@ -44,4 +47,22 @@ func BenchmarkServerUnaryInterceptor_PlainError(b *testing.B) {
 // conversion cache warm after the first request.
 func BenchmarkServerUnaryInterceptor_SentinelError(b *testing.B) {
 	benchServerUnary(b, context.DeadlineExceeded)
+}
+
+// BenchmarkServerUnaryInterceptor_DirectStatus measures the passthrough of a
+// client-facing status the handler returned directly, without details: the
+// DebugInfo check must not copy the status.
+func BenchmarkServerUnaryInterceptor_DirectStatus(b *testing.B) {
+	benchServerUnary(b, status.Error(codes.NotFound, "user not found"))
+}
+
+// BenchmarkWithoutDebugInfo_NoDetails measures the DebugInfo check alone on a
+// status without details; it reports zero allocations.
+func BenchmarkWithoutDebugInfo_NoDetails(b *testing.B) {
+	st := status.New(codes.NotFound, "user not found")
+
+	b.ReportAllocs()
+	for b.Loop() {
+		benchStatus, _ = withoutDebugInfo(st)
+	}
 }

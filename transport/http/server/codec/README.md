@@ -28,7 +28,7 @@ Package `codec` provides HTTP body encoding/decoding with content negotiation. A
 
 ## Subpackages
 
-| Package                              | Description                                                        |
-|--------------------------------------|--------------------------------------------------------------------|
-| [providers/json](./providers/json)   | JSON codec backed by `encoding/json`                               |
-| [providers/xml](./providers/xml)     | XML codec backed by `encoding/xml`                                 |
+| Package        | Description                          |
+|----------------|--------------------------------------|
+| [json](./json) | JSON codec backed by `encoding/json` |
+| [xml](./xml)   | XML codec backed by `encoding/xml`   |

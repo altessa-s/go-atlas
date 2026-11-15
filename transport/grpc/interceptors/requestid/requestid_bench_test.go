@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
-	internalrequestid "github.com/altessa-s/go-atlas/transport/internal/requestid"
+	internalrequestid "github.com/altessa-s/go-atlas/internal/transport/requestid"
 )
 
 func BenchmarkClientAttachRequestID(b *testing.B) {

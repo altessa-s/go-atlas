@@ -8,16 +8,17 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"slices"
 
 	"github.com/cespare/xxhash/v2"
 
-	"github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 const (
@@ -26,6 +27,10 @@ const (
 	maxMetadataValueSize = 1024 // Maximum size of a single metadata value in bytes (increased for JWT tokens, etc.)
 	maxMetadataValues    = 20   // Maximum number of values per metadata key (increased for multi-value headers)
 )
+
+// ErrMetadataTooLarge means cache partition metadata exceeds the key-generation
+// bounds. The interceptor skips caching instead of dropping identity fields.
+var ErrMetadataTooLarge = errors.New("cache: metadata exceeds key generation limits")
 
 // MetadataProcessor defines a function type for custom processing of gRPC metadata.
 // It can be used to extract additional identifiers from headers (e.g., parsing JWT tokens from Authorization).
@@ -75,14 +80,14 @@ func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGene
 	// Intern keys to reduce memory usage as they're used frequently
 	internedKeys := make([]string, len(metadataKeys))
 	for i, k := range metadataKeys {
-		internedKeys[i] = strings.InternLowerString(k)
+		internedKeys[i] = intern.LowerString(k)
 	}
 	slices.Sort(internedKeys)
 	internedKeys = slices.Compact(internedKeys)
 
 	return func(ctx context.Context, method string, req any) (string, error) {
 		// Intern the method name to reduce memory usage
-		internedMethod := strings.InternLowerString(method)
+		internedMethod := intern.String(method)
 
 		// Create hash; every component is length-framed (see writeHashField).
 		h := xxhash.New()
@@ -92,16 +97,17 @@ func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGene
 			return "", coreerrs.WrapOperation(err, "write request to hash")
 		}
 
-		// Add metadata if present
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			writeMetadataToXXHasher(h, md, internedKeys)
-
-			// Run custom processor if provided
-			if processor != nil {
-				extra := processor(ctx, md)
-				if len(extra) > 0 {
-					writeProcessedMetadataToXXHasher(h, extra)
-				}
+		md, _ := metadata.FromIncomingContext(ctx)
+		if err := writeMetadataToXXHasher(h, md, internedKeys); err != nil {
+			return "", err
+		}
+		// Processors may derive identity from context values even without headers.
+		if processor != nil {
+			if md == nil {
+				md = make(metadata.MD)
+			}
+			if err := writeProcessedMetadataToXXHasher(h, processor(ctx, md)); err != nil {
+				return "", err
 			}
 		}
 
@@ -113,7 +119,7 @@ func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGene
 func writeRequestToXXHasher(h *xxhash.Digest, req any) error {
 	switch v := req.(type) {
 	case proto.Message:
-		if data, err := proto.Marshal(v); err == nil {
+		if data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(v); err == nil {
 			writeHashBytes(h, tagRequest, data)
 		} else {
 			return coreerrs.WrapOperation(err, "marshal proto message")
@@ -130,7 +136,7 @@ func writeRequestToXXHasher(h *xxhash.Digest, req any) error {
 }
 
 // writeMetadataToXXHasher writes selected gRPC metadata to the xxhash hasher.
-func writeMetadataToXXHasher(h *xxhash.Digest, md metadata.MD, relevantKeys []string) {
+func writeMetadataToXXHasher(h *xxhash.Digest, md metadata.MD, relevantKeys []string) error {
 	processedKeys := 0
 	for _, key := range relevantKeys {
 		values, exists := md[key]
@@ -138,31 +144,19 @@ func writeMetadataToXXHasher(h *xxhash.Digest, md metadata.MD, relevantKeys []st
 			continue
 		}
 
-		if len(key) > maxMetadataKeySize {
-			continue
+		processedKeys++
+		if processedKeys > maxMetadataKeys || len(key) > maxMetadataKeySize || len(values) > maxMetadataValues {
+			return ErrMetadataTooLarge
 		}
-
 		writeHashField(h, tagMetadataKey, key)
-
-		processedValues := 0
 		for _, v := range values {
 			if len(v) > maxMetadataValueSize {
-				continue
+				return ErrMetadataTooLarge
 			}
-
 			writeHashField(h, tagMetadataValue, v)
-			processedValues++
-
-			if processedValues >= maxMetadataValues {
-				break
-			}
-		}
-
-		processedKeys++
-		if processedKeys >= maxMetadataKeys {
-			break
 		}
 	}
+	return nil
 }
 
 const hexDigits = "0123456789abcdef"
@@ -179,7 +173,10 @@ func formatHex16(v uint64) string {
 }
 
 // writeProcessedMetadataToXXHasher writes extra metadata from processor to the hasher.
-func writeProcessedMetadataToXXHasher(h *xxhash.Digest, extra map[string]string) {
+func writeProcessedMetadataToXXHasher(h *xxhash.Digest, extra map[string]string) error {
+	if len(extra) > maxMetadataKeys {
+		return ErrMetadataTooLarge
+	}
 	// Sort keys for consistency
 	keys := make([]string, 0, len(extra))
 	for k := range extra {
@@ -190,11 +187,12 @@ func writeProcessedMetadataToXXHasher(h *xxhash.Digest, extra map[string]string)
 	for _, k := range keys {
 		v := extra[k]
 		if len(k) > maxMetadataKeySize || len(v) > maxMetadataValueSize {
-			continue
+			return ErrMetadataTooLarge
 		}
-		writeHashField(h, tagProcessedKey, strings.InternLowerString(k))
+		writeHashField(h, tagProcessedKey, k)
 		writeHashField(h, tagProcessedValue, v)
 	}
+	return nil
 }
 
 // Field tags written by [writeHashField]; each kind of key component has its

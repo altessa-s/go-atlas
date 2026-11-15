@@ -15,7 +15,7 @@ import (
 
 func BenchmarkHandler_GetServiceInfo(b *testing.B) {
 	h := serviceinfo.New(serviceinfo.WithServiceID("node-a"))
-	ctx := context.Background()
+	ctx := b.Context()
 	req := &serviceinfov1.GetServiceInfoRequest{}
 
 	b.ReportAllocs()
@@ -33,7 +33,7 @@ func BenchmarkHandler_GetServiceInfoWithLeader(b *testing.B) {
 			return false, "node-b"
 		}),
 	)
-	ctx := context.Background()
+	ctx := b.Context()
 	req := &serviceinfov1.GetServiceInfoRequest{}
 
 	b.ReportAllocs()

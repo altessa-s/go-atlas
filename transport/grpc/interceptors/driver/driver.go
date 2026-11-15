@@ -56,6 +56,13 @@ type DriverStreamPreSend interface {
 	PreMsgSend(ctx context.Context, m any) (any, error)
 }
 
+// DriverPanic is an optional server-side hook called when the RPC handler
+// panics, while the panic keeps unwinding; PostCall does not run for such a
+// call. A driver uses it to give back what PreCall or a message hook took.
+type DriverPanic interface {
+	OnPanic(ctx context.Context)
+}
+
 // DrivenInterceptor provides metadata access and lifecycle hooks via Driver.
 // It is the entry point for implementing the Driven Interceptor pattern.
 //
@@ -115,3 +122,10 @@ func (noopDriver) PreCall(context.Context, any) (any, error) { return nil, nil }
 // as part of an interceptor chain (for example, when an interceptor without
 // custom logic relies on NoopDriver for its lifecycle hooks).
 func (noopDriver) PostCall(_ context.Context, _ any, err error) error { return err }
+
+// DriverContext optionally derives the handler context after request hooks.
+// Implementations must support concurrent calls with stream sends and receives.
+// A returned context is a snapshot and must not change with later messages.
+type DriverContext interface {
+	RequestContext(context.Context) context.Context
+}

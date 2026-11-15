@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 func TestCanonicalRules(t *testing.T) {
@@ -101,6 +102,23 @@ func TestCanonicalRulesFieldErrors(t *testing.T) {
 		got := callWith(t, err, WithCanonicalRules(), WithFieldPathMapper(CamelPath), final)
 		requireBadRequest(t, got, "referenceItem.attrs.lawCode", "required", "svc")
 	})
+
+	t.Run("API rules camel-case the path", func(t *testing.T) {
+		t.Parallel()
+		requireBadRequest(t, callWith(t, fieldErr, WithCanonicalAPIRules(), final), "attrs.lawCode", "required", "svc")
+	})
+
+	t.Run("API rules keep a rooted path", func(t *testing.T) {
+		t.Parallel()
+		got := callWith(t, Rooted(fieldErr, "referenceItem"), WithCanonicalAPIRules(), final)
+		requireBadRequest(t, got, "referenceItem.attrs.lawCode", "required", "svc")
+	})
+
+	t.Run("a later mapper replaces the API one", func(t *testing.T) {
+		t.Parallel()
+		got := callWith(t, fieldErr, WithCanonicalAPIRules(), WithFieldPathMapper(strings.ToUpper), final)
+		requireBadRequest(t, got, "ATTRS.LAW_CODE", "required", "svc")
+	})
 }
 
 func TestCanonicalRulesOrder(t *testing.T) {
@@ -146,15 +164,11 @@ func TestCanonicalRulesOrder(t *testing.T) {
 }
 
 // TestCanonicalInvalidArgumentTextNotCached pins that one request's
-// InvalidArgument text or field never answers another request, with the
-// sentinel cache keyed on ErrInvalidArgument.
+// InvalidArgument text or field never answers another request.
 func TestCanonicalInvalidArgumentTextNotCached(t *testing.T) {
 	t.Parallel()
 
-	unary := ServerInterceptor(
-		WithCanonicalRules(), WithFieldPathMapper(CamelPath),
-		WithCacheOnlySentinel(), WithSentinelErrors(coreerrs.ErrInvalidArgument),
-	).ServerUnaryInterceptor()
+	unary := ServerInterceptor(WithCanonicalRules(), WithFieldPathMapper(CamelPath)).ServerUnaryInterceptor()
 	call := func(err error) string {
 		_, got := unary(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/s/M"},
 			func(context.Context, any) (any, error) { return nil, err })

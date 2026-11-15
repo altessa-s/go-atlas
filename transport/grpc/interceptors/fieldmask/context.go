@@ -17,7 +17,7 @@ type readMaskKey struct{}
 
 // ReadMaskFromContext returns the AIP-157 read mask the interceptor captured
 // for the current KindRead call, so a handler can push the selection down to
-// storage (see data/projection) instead of loading the full resource:
+// storage (see go-aip projection) instead of loading the full resource:
 //
 //	if mask, ok := fieldmask.ReadMaskFromContext(ctx); ok {
 //	    spec, err := parser.ParsePaths(ctx, mask.GetPaths())

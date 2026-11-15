@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
 ```
 
-Package `metrics` provides metrics collection for gRPC servers via the `observability/metrics.Collector` abstraction. Default metrics: requests_total,
+Package `metrics` provides metrics collection for gRPC servers via the `observability/metrics.Meter` abstraction. Default metrics: requests_total,
 request_duration_seconds, requests_in_flight, requests_in_flight_by_method. Optional: request_size_bytes, response_size_bytes, stream messages.
 
 ## Default metrics
@@ -33,7 +33,7 @@ Metric names are prefixed with the collector's service name and the configured s
 
 | Option                       | Default                 | Description                                                                                            |
 |------------------------------|-------------------------|--------------------------------------------------------------------------------------------------------|
-| `WithCollector`              | none (required)         | Metrics collector to register with; there is no no-op fallback, pass `metrics.Noop()` to disable       |
+| `WithMeter`                  | `metrics.Noop()`        | Metrics collector to register with; unset records nothing                                              |
 | `WithMetricsSubsystem`       | `grpc`                  | Subsystem prefix; override per upstream so multiple servers can share one registry                     |
 | `WithEnableSizeMetrics`      | false                   | Enable request/response size histograms                                                                |
 | `WithEnableStreamMetrics`    | false                   | Enable per-stream message counters                                                                     |
@@ -41,6 +41,7 @@ Metric names are prefixed with the collector's service name and the configured s
 | `WithSizeBuckets`            | default size buckets    | Custom size histogram buckets (bytes)                                                                  |
 | `WithStreamSamplingRate`     | 1.0                     | Sampling rate for stream metrics (0.0–1.0)                                                             |
 | `WithStreamSamplingStrategy` | `PerMessageSampling`    | Sampling strategy: `PerMessageSampling` or `PerStreamSampling`                                         |
+| `WithMaxMethods`             | 1024                    | Cap on distinct `method` label values; later methods are recorded as `other`                           |
 | `WithIgnoreMethods`          | --                      | Methods to skip metrics collection                                                                     |
 | `WithIgnorePatterns`         | reflection, health      | Regex patterns for methods to skip                                                                     |
 | `WithLogger`                 | discard                 | Structured logger                                                                                      |

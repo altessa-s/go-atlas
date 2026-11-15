@@ -11,7 +11,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 func BenchmarkFieldErrorType(b *testing.B) {

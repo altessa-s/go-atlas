@@ -4,7 +4,7 @@
 
 package errstatus
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
+	"github.com/altessa-s/go-atlas/internal/transport/requestid"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	"github.com/altessa-s/go-atlas/transport/internal/requestid"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -26,7 +26,8 @@ import (
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 )
 
-// DefaultCacheSize is the default size for error conversion cache.
+// DefaultCacheSize is the default number of converters, in registration
+// order, whose status the error conversion cache may hold ([WithCacheSize]).
 const DefaultCacheSize = 1000
 
 const interceptorName = "errstatus"
@@ -49,13 +50,19 @@ var ID = interceptors.Ref(interceptorName)
 type ErrorConverter struct {
 	// Matcher determines whether this converter should handle the given error
 	Matcher func(context.Context, error) bool
-	// Convert transforms the matched error into a gRPC status
+	// Convert transforms the matched error into a gRPC status. The
+	// interceptor then treats it like a status a handler returned: an
+	// Internal, Unknown or DataLoss status gets the fixed message and keeps
+	// only the server-fault details, and errdetails.DebugInfo is removed
+	// from any status.
 	Convert func(context.Context, error) *status.Status
-	// NoCache keeps the converted status out of the conversion cache. Set it
-	// when the status depends on more than what the cache keys on — the
-	// error text, under [WithCacheOnlySentinel], where every error wrapping
-	// a sentinel shares one entry.
-	NoCache bool
+	// Static declares that Convert returns the same status for every error
+	// the converter matches. Only then is the status cached: Convert runs
+	// once and its result is reused for the converter, whatever error
+	// matched. Leave it unset when the status takes anything from the error
+	// (its text, a field, a wrapped value), or one request's status would
+	// answer another.
+	Static bool
 }
 
 // StatusConverter defines a custom status-to-error conversion strategy for
@@ -98,24 +105,26 @@ type statusConverterIndex struct {
 // These options are set through functional option functions and control
 // how errors are converted, cached, and processed.
 type options struct {
-	// errorConverters holds the list of custom error errorConverters in priority order
-	errorConverters []ErrorConverter `opt:"-"`
-	// statusConverter holds the list of custom status-to-error errorConverters for client-side
-	statusConverter []StatusConverter `opt:"-"`
-	// statusConverterIndex holds indexed status errorConverters for O(1) fast path lookup
+	// WithErrorConverters adds multiple custom error errorConverters in a single call.
+	// Converters are appended to the existing list and evaluated in the order provided.
+	errorConverters []ErrorConverter `opt:"ErrorConverters" optgen:"append"`
+	// WithStatusConverters adds client-side [StatusConverter] entries that map
+	// incoming gRPC statuses back to application errors. Converters are appended
+	// to the existing list and evaluated in registration order; the first match wins.
+	statusConverter []StatusConverter `opt:"StatusConverters" optgen:"append"`
+	// Derived from statusConverter during interceptor setup.
 	statusConverterIndex *statusConverterIndex `opt:"-"`
-	// sentinelErrors holds additional sentinel errors eligible for caching in sentinel-only mode
-	sentinelErrors []error
 	// logger is used for debugging error conversion behavior
 	logger *slog.Logger
 	// finalizer is the post-processing function for converted errors
 	finalizer Finalizer
-	// cacheSize is the maximum number of entries in the conversion cache
+	// cacheSize is the number of converters, in registration order, whose
+	// status may be cached. The cache holds one status per
+	// [ErrorConverter.Static] converter, so a size at or above the number of
+	// converters covers them all; zero or less disables caching.
 	cacheSize int `optgen:"default=DefaultCacheSize"`
 	// cacheDisabled completely disables error conversion caching
 	cacheDisabled bool
-	// cacheOnlySentinel restricts caching to sentinel errors only to prevent memory leaks
-	cacheOnlySentinel bool
 	// domain is the service domain name populated in errdetails.ErrorInfo.Domain by the Finalizer
 	domain string
 	// fieldPathMapper maps the Field of a core/errors.FieldError to the API
@@ -124,22 +133,17 @@ type options struct {
 	fieldPathMapper PathMapper
 }
 
-// WithErrorConverters adds multiple custom error errorConverters in a single call.
-// Converters are appended to the existing list and evaluated in the order provided.
-func WithErrorConverters(converters ...ErrorConverter) Option {
-	return func(o *options) {
-		o.errorConverters = append(o.errorConverters, converters...)
-	}
-}
-
 // WithErrorMapping adds a simple error mapping converter for common use cases.
 // It creates an ErrorConverter using errors.Is() for matching and converts
 // the error to the specified gRPC code and message.
 //
-// If message is empty, uses err.Error() as the status message.
+// If message is empty, uses err.Error() as the status message; such a status
+// is never cached. For codes.Internal, codes.Unknown and codes.DataLoss the
+// interceptor replaces either message with the fixed one ([MessageInternal]
+// or the code's name), so a server fault never publishes the error text.
 func WithErrorMapping(target error, code codes.Code, message string) Option {
 	return WithErrorConverters(ErrorConverter{
-		NoCache: message == "",
+		Static: message != "",
 		Matcher: func(ctx context.Context, err error) bool {
 			return errors.Is(err, target)
 		},
@@ -200,7 +204,7 @@ func (r ErrorRule) converter() ErrorConverter {
 		Convert: func(_ context.Context, err error) *status.Status { return r.status(err) },
 		// An exposed error text differs per error; a cached status would
 		// hand one request's text to another.
-		NoCache: r.Expose && r.Message == "",
+		Static: !r.Expose || r.Message != "",
 	}
 }
 
@@ -219,6 +223,9 @@ func WithErrorRules(rules ...ErrorRule) Option {
 // and extracts custom messages using the provided getMessage function.
 //
 // If getMessage returns an empty string, err.Error() will be used as fallback.
+// For codes.Internal, codes.Unknown and codes.DataLoss the interceptor
+// replaces either message with the fixed one. The message is taken from the
+// matched error, so the status is never cached (see [ErrorConverter.Static]).
 func WithErrorTypeMapping[T error](code codes.Code, getMessage func(T) string) Option {
 	return WithErrorConverters(ErrorConverter{
 		Matcher: func(ctx context.Context, err error) bool {
@@ -248,9 +255,8 @@ func WithErrorTypeMapping[T error](code codes.Code, getMessage func(T) string) O
 //
 // Like every converter it is evaluated in registration order, so a rule
 // registered before it (say, NotFound) wins for an error that wraps both. The
-// status depends on the field error's content, which the conversion cache
-// does not key on (under [WithCacheOnlySentinel] every error wrapping a
-// sentinel shares one entry), so it is never cached ([ErrorConverter.NoCache]).
+// status depends on the field error's content, so it is never cached (see
+// [ErrorConverter.Static]).
 func WithFieldErrorType[T error](field func(T) (path, reason string)) Option {
 	return WithErrorConverters(fieldErrorConverter(field))
 }
@@ -267,16 +273,6 @@ func fieldErrorConverter[T error](field func(T) (path, reason string)) ErrorConv
 			path, reason := field(target)
 			return BadRequest(path, reason)
 		},
-		NoCache: true,
-	}
-}
-
-// WithStatusConverters adds client-side [StatusConverter] entries that map
-// incoming gRPC statuses back to application errors. Converters are appended
-// to the existing list and evaluated in registration order; the first match wins.
-func WithStatusConverters(converters ...StatusConverter) Option {
-	return func(o *options) {
-		o.statusConverter = append(o.statusConverter, converters...)
 	}
 }
 

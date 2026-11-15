@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 
@@ -17,29 +17,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Validator defines the interface for OIDC token validation. It returns the
-// verified token's structured [Claims], so a validator and the [AuthFunc] /
-// [validator.DefaultValidator] built on it agree on one claim type rather than
-// a raw map. Returns an error if the token is invalid, expired, or verification
-// fails.
-type Validator interface {
-	// ValidateToken verifies the token and extracts its claims.
-	ValidateToken(ctx context.Context, token string) (*Claims, error)
-}
-
 // AuthFunc creates a gRPC authentication function that validates OIDC tokens.
 // This function integrates with the grpc/interceptors/auth package to provide
 // OIDC-based authentication for gRPC services.
 //
 // The returned auth.Func performs the following steps:
 //  1. Extracts the token from the request metadata (expects Bearer token format)
-//  2. Validates the token using the provided Validator
-//  3. Returns the extracted Claims for use in subsequent interceptors or handlers
+//  2. Validates the token using the provided [oidc.ClaimsValidator]
+//  3. Returns the extracted *oidc.Claims for use in subsequent interceptors or handlers
 //
 // Usage example:
 //
 //	// provider is a *github.com/altessa-s/go-atlas/auth/oidc.Provider.
-//	authFunc := oidc.AuthFunc(validator.NewDefaultValidator(provider))
+//	authFunc := grpcoidc.AuthFunc(oidc.NewValidator(provider))
 //
 //	// Use with gRPC server interceptor
 //	server := grpc.NewServer(
@@ -47,11 +37,12 @@ type Validator interface {
 //	)
 //
 // Returns an auth.Func that can be used with gRPC server interceptors.
-// Authentication failures return gRPC Unauthenticated errors.
+// Every validation failure — the validator returns plain errors — is mapped to
+// a codes.Unauthenticated status.
 //
 // Pass [WithAudit] to record each token-validation decision through an
-// [github.com/altessa-s/go-atlas/auth/audit.Recorder].
-func AuthFunc(validator Validator, opts ...AuthOption) auth.AuthFunc {
+// [auth.DecisionRecorder].
+func AuthFunc(validator oidc.ClaimsValidator, opts ...AuthOption) auth.AuthFunc {
 	var cfg authConfig
 	for _, opt := range opts {
 		opt(&cfg)
@@ -79,24 +70,24 @@ func AuthFunc(validator Validator, opts ...AuthOption) auth.AuthFunc {
 type AuthOption func(*authConfig)
 
 type authConfig struct {
-	recorder  *audit.Recorder
-	subjectOf func(*Claims) string
+	recorder  auth.DecisionRecorder
+	subjectOf func(*oidc.Claims) string
 }
 
 // WithAudit records each token-validation decision through rec, with action
-// "validate_token". subjectOf extracts the principal identity from the [Claims]
+// "validate_token". subjectOf extracts the principal identity from the [oidc.Claims]
 // returned on success; pass nil to leave the subject empty. When rec is
-// configured with audit.FailureRequired and recording an otherwise-successful
+// configured with decision.FailureRequired and recording an otherwise-successful
 // validation fails, the call is failed with codes.Internal so nothing proceeds
 // unrecorded.
-func WithAudit(rec *audit.Recorder, subjectOf func(*Claims) string) AuthOption {
+func WithAudit(rec auth.DecisionRecorder, subjectOf func(*oidc.Claims) string) AuthOption {
 	return func(c *authConfig) {
 		c.recorder = rec
 		c.subjectOf = subjectOf
 	}
 }
 
-func (c authConfig) finalize(ctx context.Context, claims *Claims, allowed bool, reason string, authErr error) error {
+func (c authConfig) finalize(ctx context.Context, claims *oidc.Claims, allowed bool, reason string, authErr error) error {
 	if c.recorder == nil {
 		return authErr
 	}
@@ -104,7 +95,7 @@ func (c authConfig) finalize(ctx context.Context, claims *Claims, allowed bool, 
 	if allowed && c.subjectOf != nil {
 		subject = c.subjectOf(claims)
 	}
-	recErr := c.recorder.Record(ctx, audit.Decision{
+	recErr := c.recorder.Record(ctx, decision.Decision{
 		Time:       time.Now().UTC(),
 		Allowed:    allowed,
 		Subject:    subject,

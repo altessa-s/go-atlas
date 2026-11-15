@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-aip/fieldmask/extract"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 
 	"google.golang.org/grpc"
@@ -19,7 +21,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
-	pbfieldmask "github.com/altessa-s/go-atlas/domain/proto/fieldmask"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
 
@@ -49,7 +50,7 @@ func TestServerInterceptor_ResolutionPrecedence(t *testing.T) {
 
 		req := &pb.UpdateResourceRequest{
 			Resource:   &pb.Resource{Name: "n", TenantId: "x"},
-			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 		}
 		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
 		require.NoError(t, err)
@@ -74,7 +75,7 @@ func TestServerInterceptor_ResolutionPrecedence(t *testing.T) {
 		// IMMUTABLE, but the global default returns ok=false → passthrough.
 		req := &pb.UpdateResourceRequest{
 			Resource:   &pb.Resource{Name: "n", TenantId: "x"},
-			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 		}
 		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
 		require.NoError(t, err, "global default shadowed the built-in reflection extractor")
@@ -87,7 +88,7 @@ func TestServerInterceptor_ResolutionPrecedence(t *testing.T) {
 		uni := newUnary(t)
 		req := &pb.UpdateResourceRequest{
 			Resource:   &pb.Resource{Name: "n", TenantId: "x"},
-			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 		}
 		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
 		require.Error(t, err)
@@ -100,7 +101,7 @@ func TestServerInterceptor_ResolutionPrecedence(t *testing.T) {
 func TestServerInterceptor_NestedUpdateMask(t *testing.T) {
 	t.Parallel()
 
-	nestedExtractor := pbfieldmask.NewUpdateExtractor(
+	nestedExtractor := extract.NewUpdateFunc(
 		func(r *pb.NestedUpdateResourceRequest) *fieldmaskpb.FieldMask { return r.GetOptions().GetUpdateMask() },
 		func(r *pb.NestedUpdateResourceRequest) *pb.Resource { return r.GetResource() },
 		func(r *pb.NestedUpdateResourceRequest, m *fieldmaskpb.FieldMask) {
@@ -121,7 +122,7 @@ func TestServerInterceptor_NestedUpdateMask(t *testing.T) {
 		req := &pb.NestedUpdateResourceRequest{
 			Resource: &pb.Resource{Name: "n", TenantId: "altered"},
 			Options: &pb.NestedUpdateResourceRequest_Options{
-				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 			},
 		}
 		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateNestedResource", req, &pb.Resource{}, nil)
@@ -157,7 +158,7 @@ func TestServerInterceptor_NestedUpdateMask(t *testing.T) {
 		req := &pb.NestedUpdateResourceRequest{
 			Resource: &pb.Resource{Name: "n", TenantId: "altered"},
 			Options: &pb.NestedUpdateResourceRequest_Options{
-				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 			},
 		}
 		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateNestedResource", req, &pb.Resource{}, nil)
@@ -170,7 +171,7 @@ func TestServerInterceptor_NestedUpdateMask(t *testing.T) {
 func TestServerInterceptor_NestedReadMask(t *testing.T) {
 	t.Parallel()
 
-	nestedRead := pbfieldmask.NewReadExtractor(
+	nestedRead := extract.NewReadFunc(
 		func(r *pb.NestedGetResourceRequest) *fieldmaskpb.FieldMask { return r.GetOptions().GetReadMask() },
 	)
 
@@ -206,7 +207,7 @@ func TestServerInterceptor_DefaultExtractorOverride(t *testing.T) {
 
 		uni := newUnary(t,
 			fieldmask.WithMethodKind("/x.v1.X/UpdateNestedResource", fieldmask.KindUpdate),
-			fieldmask.WithDefaultUpdateExtractor(pbfieldmask.NewUpdateExtractor(
+			fieldmask.WithDefaultUpdateExtractor(extract.NewUpdateFunc(
 				func(r *pb.NestedUpdateResourceRequest) *fieldmaskpb.FieldMask { return r.GetOptions().GetUpdateMask() },
 				func(r *pb.NestedUpdateResourceRequest) *pb.Resource { return r.GetResource() },
 				func(r *pb.NestedUpdateResourceRequest, m *fieldmaskpb.FieldMask) { r.Options.UpdateMask = m },
@@ -216,7 +217,7 @@ func TestServerInterceptor_DefaultExtractorOverride(t *testing.T) {
 		req := &pb.NestedUpdateResourceRequest{
 			Resource: &pb.Resource{Name: "n", TenantId: "altered"},
 			Options: &pb.NestedUpdateResourceRequest_Options{
-				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 			},
 		}
 		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateNestedResource", req, &pb.Resource{}, nil)
@@ -229,7 +230,7 @@ func TestServerInterceptor_DefaultExtractorOverride(t *testing.T) {
 
 		uni := newUnary(t,
 			fieldmask.WithMethodKind("/x.v1.X/GetNestedResource", fieldmask.KindRead),
-			fieldmask.WithDefaultReadExtractor(pbfieldmask.NewReadExtractor(
+			fieldmask.WithDefaultReadExtractor(extract.NewReadFunc(
 				func(r *pb.NestedGetResourceRequest) *fieldmaskpb.FieldMask { return r.GetOptions().GetReadMask() },
 			)),
 		)
@@ -273,7 +274,7 @@ func TestServerInterceptor_MetadataReadMask(t *testing.T) {
 		t.Parallel()
 
 		uni := newUnary(t)
-		md := metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, "name")
+		md := metadata.Pairs(fieldmask.DefaultMetadataReadMaskHeader, "name")
 		req := &pb.GetResourceRequest{Name: "id-1"}
 		resp := &pb.Resource{Id: "id-1", Name: "kept", Description: "dropped"}
 
@@ -290,7 +291,7 @@ func TestServerInterceptor_MetadataReadMask(t *testing.T) {
 		t.Parallel()
 
 		uni := newUnary(t)
-		md := metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, "name")
+		md := metadata.Pairs(fieldmask.DefaultMetadataReadMaskHeader, "name")
 		req := &pb.GetResourceRequest{
 			Name:     "id-1",
 			ReadMask: &fieldmaskpb.FieldMask{Paths: []string{"description"}},
@@ -327,7 +328,7 @@ func TestServerInterceptor_MetadataReadMask(t *testing.T) {
 		t.Parallel()
 
 		uni := newUnary(t)
-		md := metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, "*")
+		md := metadata.Pairs(fieldmask.DefaultMetadataReadMaskHeader, "*")
 		req := &pb.GetResourceRequest{Name: "id-1"}
 		resp := &pb.Resource{Name: "kept", Description: "also kept"}
 
@@ -359,7 +360,7 @@ func TestServerInterceptor_MetadataReadMask(t *testing.T) {
 		t.Parallel()
 
 		uni := newUnary(t, fieldmask.WithMetadataReadMaskHeader("x-custom-fieldmask"))
-		md := metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, "name")
+		md := metadata.Pairs(fieldmask.DefaultMetadataReadMaskHeader, "name")
 		req := &pb.GetResourceRequest{Name: "id-1"}
 		resp := &pb.Resource{Name: "kept", Description: "also kept"}
 

@@ -8,11 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/ipacl"
 )
 
 const middlewareName = "ipacl"
@@ -67,12 +68,21 @@ func Middleware(registry *ipacl.Registry, opt ...Option) func(http.Handler) http
 // Handler wraps an http.Handler with IP access control.
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := m.InternPath(r.URL.Path)
+		path := r.URL.Path
 		ctx := r.Context()
 
-		if m.ShouldIgnore(path) {
+		if m.ShouldIgnoreRequest(r) {
 			m.LogIgnored(ctx, path)
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// A rule is looked up for the path the router dispatches on; any other
+		// spelling of it ("//admin", "/public/../admin", "/v1%2Fadmin") is refused.
+		if !urlpath.IsCanonicalURL(r.URL) {
+			m.LogDebug(ctx, "non-canonical path", path,
+				slog.String("method", r.Method))
+			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
 

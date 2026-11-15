@@ -8,7 +8,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"

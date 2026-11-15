@@ -5,6 +5,7 @@
 package auth
 
 import (
+	"context"
 	"net/netip"
 	"time"
 
@@ -31,15 +32,11 @@ type Request struct {
 // It returns the credentials and true if the request uses token authentication
 // and the payload is valid TokenCredentials, otherwise returns nil and false.
 func (r *Request) TokenCredentials() (*TokenCredentials, bool) {
-	if !r.IsToken() || r.Payload == nil {
+	if r == nil || !r.IsToken() {
 		return nil, false
 	}
-
-	if tc, ok := r.Payload.(*TokenCredentials); ok {
-		return tc, true
-	}
-
-	return nil, false
+	tc, ok := r.Payload.(*TokenCredentials)
+	return tc, ok && tc != nil
 }
 
 // UserAgentFromCallMeta creates a UserAgent instance from gRPC call metadata.
@@ -59,7 +56,10 @@ type Credentials struct {
 	// Data contains custom authentication data returned by the auth function
 	// (e.g., user ID, roles, permissions, JWT claims).
 	Data any
-	// Headers contains all gRPC metadata headers from the incoming request.
+	// Headers contains the gRPC metadata headers from the incoming request,
+	// minus authorization, cookie and proxy-authorization. The server
+	// interceptor fills it only when a [ClientAuth] is configured; handlers
+	// read the request metadata directly otherwise.
 	Headers map[string]string
 }
 
@@ -102,4 +102,16 @@ type UserAgent struct {
 
 	// UserAgent is the user agent string provided by the client (e.g., "grpc-go/1.50.0").
 	UserAgent string
+}
+
+// credentialsKey is the context key under which the server interceptor stores
+// the authenticated [Credentials].
+type credentialsKey struct{}
+
+// CredentialsFromContext returns the [Credentials] the server interceptor
+// stored after a successful authentication. The bool is false when the call
+// was not authenticated by the interceptor (for example an ignored method).
+func CredentialsFromContext(ctx context.Context) (Credentials, bool) {
+	c, ok := ctx.Value(credentialsKey{}).(Credentials)
+	return c, ok
 }

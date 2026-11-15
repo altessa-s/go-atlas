@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/auth/scope"
 )
@@ -25,7 +25,7 @@ import (
 // denies, is answered with 403 Forbidden and the chain stops. ScopeMiddleware
 // must run after the authentication [Middleware] that populates the context.
 // Pass [WithScopeAudit] to record every decision through an
-// [github.com/altessa-s/go-atlas/auth/audit.Recorder].
+// [DecisionRecorder].
 func ScopeMiddleware[P any](e *scope.Enforcer[P], keyFunc func(*http.Request) string, opts ...ScopeMiddlewareOption[P]) func(http.Handler) http.Handler {
 	var cfg scopeMiddlewareConfig[P]
 	for _, opt := range opts {
@@ -71,7 +71,7 @@ func ScopeMiddlewarePrincipal(
 type ScopeMiddlewareOption[P any] func(*scopeMiddlewareConfig[P])
 
 type scopeMiddlewareConfig[P any] struct {
-	recorder  *audit.Recorder
+	recorder  DecisionRecorder
 	subjectOf func(P) string
 }
 
@@ -79,9 +79,9 @@ type scopeMiddlewareConfig[P any] struct {
 // keyFunc's action key. subjectOf extracts the principal identity for the
 // record; pass nil to leave the subject empty (it is not called when no
 // principal of type P is present). When rec is configured with
-// audit.FailureRequired and recording an otherwise-allowed request fails, the
+// decision.FailureRequired and recording an otherwise-allowed request fails, the
 // request is answered with 500 so nothing proceeds unrecorded.
-func WithScopeAudit[P any](rec *audit.Recorder, subjectOf func(P) string) ScopeMiddlewareOption[P] {
+func WithScopeAudit[P any](rec DecisionRecorder, subjectOf func(P) string) ScopeMiddlewareOption[P] {
 	return func(c *scopeMiddlewareConfig[P]) {
 		c.recorder = rec
 		c.subjectOf = subjectOf
@@ -99,7 +99,7 @@ func (c scopeMiddlewareConfig[P]) record(r *http.Request, key, subject string, a
 	if c.recorder == nil {
 		return nil
 	}
-	return c.recorder.Record(r.Context(), audit.Decision{
+	return c.recorder.Record(r.Context(), decision.Decision{
 		Time:       time.Now().UTC(),
 		Allowed:    allowed,
 		Subject:    subject,

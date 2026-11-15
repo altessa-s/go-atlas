@@ -4,20 +4,21 @@
 
 package idempotency
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"context"
+	"log/slog"
 	"regexp"
 	"slices"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
 	"google.golang.org/grpc/status"
 
-	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
+	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
+	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // Use defaults package for optgen code generation
@@ -141,6 +142,9 @@ func VerbMethodClassifier(p Policy, opts ...VerbOption) MethodClassifier {
 
 // options holds configuration for the idempotency interceptor.
 type options struct {
+	// logger receives the warnings of a key that could not be completed or
+	// released; nil discards them.
+	logger                         *slog.Logger
 	ignoreMethods                  []string
 	ignorePatterns                 []*regexp.Regexp   `optgen:"default=defaults.IgnorePatterns"`
 	idempotencyKeyHeader           string             `optgen:"default=DefaultIdempotencyKeyHeader"`
@@ -168,7 +172,9 @@ type options struct {
 	// responseReplay stores the response of a completed unary call and
 	// returns it to a repeat of the request instead of the
 	// already-used error. Off by default: the repeat's caller receives the
-	// original response, so scope keys per principal (idempotency.WithOwner).
+	// original response. It fails closed: only a record bound to an owner
+	// (idempotency.WithOwner) is replayed, as is the entity id echoed by
+	// exposeEntityID.
 	responseReplay bool
 	// maxReplaySize bounds a stored response (the marshaled message); a
 	// larger one is not stored and its repeat is refused as already used.
@@ -179,4 +185,4 @@ type options struct {
 type EntityIdExtractor func(method string, resp any) string
 
 // StatusCreator serves for creating a custom gRPC status error for idempotency scenarios.
-type StatusCreator func(ctx context.Context, scenario ErrorScenario, state *idempotency.State) *status.Status
+type StatusCreator func(ctx context.Context, scenario ErrorScenario, state *storages.State) *status.Status

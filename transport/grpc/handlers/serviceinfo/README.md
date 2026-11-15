@@ -7,7 +7,8 @@ import "github.com/altessa-s/go-atlas/transport/grpc/handlers/serviceinfo"
 Package `serviceinfo` implements the gRPC `ServiceInfoService` from
 [`github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1`](https://pkg.go.dev/github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1). The
 `Handler` reports name, description, identifiers, semantic version, build details, leader status, uptime, and arbitrary metadata. The static portion is
-built once in `New` from `core/runtime/appinfo` and protobuf-cloned on every request to keep callers isolated from each other.
+built once in `New` from [`go-atlas-core/runtime/appinfo`](https://github.com/altessa-s/go-atlas-core/tree/develop/runtime/appinfo) and protobuf-cloned
+on every request to keep callers isolated from each other.
 
 ## Security
 
@@ -20,7 +21,7 @@ Exposed publicly, it discloses service name, version, build details, instance id
 | Type / Interface | Description                                                                                |
 |------------------|--------------------------------------------------------------------------------------------|
 | `Handler`        | Implements `ServiceInfoServiceServer` with options-driven configuration                    |
-| `LeaderProvider` | Two-method interface (`IsLeader`, `LeaderId`) — `data/leadelect.Leader` satisfies it natively |
+| `LeaderProvider` | Two-method interface (`IsLeader`, `LeaderId`) — `coord/leadelect.Leader` satisfies it natively |
 | `LeaderFunc`     | `func(ctx) (isLeader bool, leaderID string)` accepted by `WithLeader` for ad-hoc sources   |
 
 ## RPCs
@@ -38,7 +39,7 @@ Exposed publicly, it discloses service name, version, build details, instance id
 | `WithServiceName`       | `appinfo.Name` | Override `service_name`                                                |
 | `WithServiceDescription`| `""`           | Populate `service_description` (omitted when empty)                    |
 | `WithServiceID`         | `""`           | Populate `service_id` and use as `leader_id` when this instance is leader |
-| `WithLeaderProvider`    | `nil`          | Plug in a `LeaderProvider` (e.g. `*data/leadelect.Leader`)             |
+| `WithLeaderProvider`    | `nil`          | Plug in a `LeaderProvider` (e.g. `*coord/leadelect.Leader`)             |
 | `WithLeader`            | `nil`          | Functional shortcut: provide leader state via a single closure         |
 | `WithExtraMetadata`     | `nil`          | Merge extra keys into `metadata`; caller keys win on conflict          |
 
@@ -51,7 +52,7 @@ The handler does not populate `service_info.proto_version` — surface the proto
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/data/leadelect"
+    "github.com/altessa-s/go-atlas/coord/leadelect"
     "github.com/altessa-s/go-atlas/transport/grpc/handlers/serviceinfo"
 )
 
@@ -67,7 +68,7 @@ handler := serviceinfo.New(
 handler.Register(grpcServer, stopCh)
 ```
 
-For services without `data/leadelect`, plug in a function:
+For services without `coord/leadelect`, plug in a function:
 
 ```go
 serviceinfo.WithLeader(func(ctx context.Context) (bool, string) {

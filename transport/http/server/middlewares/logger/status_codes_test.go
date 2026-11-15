@@ -44,9 +44,3 @@ func TestDefaultLogStatusCodesSet(t *testing.T) {
 	_, ok = DefaultLogStatusCodesSet[999]
 	require.False(t, ok, "should not contain 999")
 }
-
-func BenchmarkInternedStatusString(b *testing.B) {
-	for b.Loop() {
-		InternedStatusString(http.StatusOK)
-	}
-}

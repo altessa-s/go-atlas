@@ -11,6 +11,8 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	"google.golang.org/grpc/connectivity"
+
+	pool "github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 )
 
 // clientHealth implements the optional [observability/health] integration
@@ -26,9 +28,9 @@ import (
 // case all methods are cheap noops.
 type clientHealth struct {
 	client      *Client
-	coordinator *health.Coordinator // may be nil
+	coordinator health.Reporter // may be nil
 	serviceName string
-	mapper      StateMapper // never nil
+	mapper      pool.StateMapper // never nil
 
 	// single-mode resources
 	cancel context.CancelFunc
@@ -60,6 +62,8 @@ func newClientHealth(c *Client) *clientHealth {
 // attach registers the client checker and starts the appropriate watcher.
 // Must be called from [Client.connect] after c.conn is set (single mode) or
 // after pool mode is confirmed (pool mode).
+//
+//nolint:contextcheck // the single-mode watcher lifecycle is detach-scoped, not request-scoped
 func (h *clientHealth) attach(ctx context.Context) error {
 	if h == nil {
 		return nil
@@ -84,8 +88,7 @@ func (h *clientHealth) attach(ctx context.Context) error {
 	// owned by this helper and canceled in detach.
 	watcherCtx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
-	h.wg.Add(1)
-	go h.watchSingle(watcherCtx) //nolint:contextcheck // watcher lifecycle is detach-scoped, not request-scoped
+	h.wg.Go(func() { h.watchSingle(watcherCtx) })
 	return nil
 }
 
@@ -109,7 +112,6 @@ func (h *clientHealth) detach() {
 }
 
 func (h *clientHealth) watchSingle(ctx context.Context) {
-	defer h.wg.Done()
 	if h.client.conn == nil {
 		return
 	}

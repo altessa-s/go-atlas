@@ -13,8 +13,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
 const middlewareName = "metrics"
@@ -30,7 +28,7 @@ var ID = middlewares.Noop(middlewareName)
 var _ middlewares.Middleware = (*Middleware)(nil)
 
 // Middleware provides Prometheus metrics collection for HTTP servers.
-// Metric collectors come from the supplied [metrics.Collector]; the
+// Metric collectors come from the supplied [metrics.Meter]; the
 // underlying adapter deduplicates registrations by name, so calling [New]
 // multiple times against the same collector is safe and shares the same
 // metric vectors. To emit metrics for two unrelated upstreams against a
@@ -101,7 +99,7 @@ func (m *Middleware) Dependencies() []string {
 // New creates a new Prometheus metrics middleware with the provided options.
 //
 // Each call constructs a fresh middleware wired to the provided
-// [metrics.Collector]. The underlying adapter deduplicates metric
+// [metrics.Meter]. The underlying adapter deduplicates metric
 // registrations by name, so reusing the same collector across multiple
 // calls with the same subsystem is safe and shares the same metric
 // vectors.
@@ -124,14 +122,14 @@ func New(opt ...Option) *Middleware {
 // Handler wraps an http.Handler with Prometheus metrics collection.
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := corestrings.InternLowerString(r.URL.Path)
-		if m.ShouldIgnore(path) {
-			m.LogIgnored(r.Context(), path)
+		if m.ShouldIgnoreRequest(r) {
+			m.LogIgnored(r.Context(), r.URL.Path)
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		rec := newRecorder(w)
+		rec := middlewares.NewResponseWriter(w, false)
+		defer rec.Release()
 		start := time.Now()
 
 		m.requestsInFlight.Inc()
@@ -146,7 +144,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 // initializeMetrics creates all metrics.
 func (m *Middleware) initializeMetrics() {
-	scoped := m.opts.collector.WithSubsystem(m.opts.metricsSubsystem)
+	scoped := m.opts.meter.WithSubsystem(m.opts.metricsSubsystem)
 
 	m.requestsTotal = scoped.MustCounter(metrics.MetricOpts{
 		Name:       "server_requests_total",
@@ -155,12 +153,10 @@ func (m *Middleware) initializeMetrics() {
 	})
 
 	m.requestDuration = scoped.MustHistogram(metrics.HistogramOpts{
-		MetricOpts: metrics.MetricOpts{
-			Name:       "server_request_duration_seconds",
-			Help:       "Duration of HTTP server requests in seconds",
-			LabelNames: []string{methodLabel, statusLabel},
-		},
-		Buckets: m.opts.durationBuckets,
+		Name:       "server_request_duration_seconds",
+		Help:       "Duration of HTTP server requests in seconds",
+		LabelNames: []string{methodLabel, statusLabel},
+		Buckets:    m.opts.durationBuckets,
 	})
 
 	m.requestsInFlight = scoped.MustGauge(metrics.MetricOpts{
@@ -170,21 +166,17 @@ func (m *Middleware) initializeMetrics() {
 
 	if m.opts.enableSizeMetrics {
 		m.requestSize = scoped.MustHistogram(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name:       "server_request_size_bytes",
-				Help:       "Size of HTTP server request bodies in bytes",
-				LabelNames: []string{methodLabel, statusLabel},
-			},
-			Buckets: m.opts.sizeBuckets,
+			Name:       "server_request_size_bytes",
+			Help:       "Size of HTTP server request bodies in bytes",
+			LabelNames: []string{methodLabel, statusLabel},
+			Buckets:    m.opts.sizeBuckets,
 		})
 
 		m.responseSize = scoped.MustHistogram(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name:       "server_response_size_bytes",
-				Help:       "Size of HTTP server response bodies in bytes",
-				LabelNames: []string{methodLabel, statusLabel},
-			},
-			Buckets: m.opts.sizeBuckets,
+			Name:       "server_response_size_bytes",
+			Help:       "Size of HTTP server response bodies in bytes",
+			LabelNames: []string{methodLabel, statusLabel},
+			Buckets:    m.opts.sizeBuckets,
 		})
 	}
 }
@@ -225,7 +217,7 @@ func boundedMethod(method string) string {
 }
 
 // recordMetrics records all metrics for a completed request.
-func (m *Middleware) recordMetrics(r *http.Request, rec *recorder, startTime time.Time) {
+func (m *Middleware) recordMetrics(r *http.Request, rec *middlewares.ResponseWriter, startTime time.Time) {
 	duration := time.Since(startTime)
 	statusCode := statusString(rec.StatusCode())
 
@@ -238,7 +230,7 @@ func (m *Middleware) recordMetrics(r *http.Request, rec *recorder, startTime tim
 		if r.ContentLength >= 0 {
 			h.reqSize.Observe(float64(r.ContentLength))
 		}
-		h.respSize.Observe(float64(rec.Size()))
+		h.respSize.Observe(float64(rec.BytesWritten()))
 	}
 
 	m.LogDebug(r.Context(), "recorded prometheus metrics", r.URL.Path,

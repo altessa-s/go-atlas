@@ -5,19 +5,19 @@
 package fieldmask_test
 
 import (
+	"context"
 	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
+	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -26,17 +26,18 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
-	pbfieldmask "github.com/altessa-s/go-atlas/domain/proto/fieldmask"
+	pbfieldmask "github.com/altessa-s/go-aip/fieldmask"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
 
-// TestServerInterceptor_UpdateMask_ParentOfIdentifierRejected pins that an
-// explicit update_mask naming a message whole is rejected when the message
-// holds an IDENTIFIER, populated or absent: the handler would otherwise get a
-// mask authorizing the replacement (or clearing) of the parent together with
-// its identifier. Naming the parent's other fields passes and keeps the nested
-// identifier out of the handler's mask.
-func TestServerInterceptor_UpdateMask_ParentOfIdentifierRejected(t *testing.T) {
+// TestServerInterceptor_UpdateMask_ParentOfIdentifierExpanded pins that an
+// explicit update_mask naming a message whole that holds a server-managed
+// field (an IDENTIFIER, an OUTPUT_ONLY), populated or absent, is expanded to
+// the message's other fields: the handler never gets a mask authorizing the
+// replacement (or clearing) of the parent together with its identifier.
+// Naming the parent's other fields passes and keeps the nested identifier out
+// of the handler's mask.
+func TestServerInterceptor_UpdateMask_ParentOfIdentifierExpanded(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -55,19 +56,13 @@ func TestServerInterceptor_UpdateMask_ParentOfIdentifierRejected(t *testing.T) {
 				Resource:   tt.resource,
 				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"profile"}},
 			}
-			_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
-			require.Equal(t, codes.InvalidArgument, status.Code(err), "got %v", err)
-
-			st, _ := status.FromError(err)
-			var paths []string
-			for _, d := range st.Details() {
-				if br, ok := d.(*badrequestv1.BadRequest); ok {
-					for _, v := range br.GetFieldViolations() {
-						paths = append(paths, v.GetFieldPath())
-					}
-				}
-			}
-			require.Equal(t, []string{"profile.id", "profile.updated_at"}, paths)
+			seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+			require.NoError(t, err)
+			got, ok := seenReq.(*pb.UpdateResourceRequest)
+			require.True(t, ok)
+			paths := got.GetUpdateMask().GetPaths()
+			slices.Sort(paths)
+			require.Equal(t, []string{"profile.display_name", "profile.secret"}, paths)
 		})
 	}
 
@@ -146,11 +141,8 @@ func grandchildDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 	return fd.Messages().ByName("UpdateResRequest")
 }
 
-// TestServerInterceptor_EmptyUpdateMask_AbsentProtectedGrandchild pins that
-// the synthesized mask never selects a populated sub-message whole when its
-// schema holds a protected field in an absent descendant (an IDENTIFIER child,
-// an IMMUTABLE grandchild, on a recursive type): it names the populated leaves
-// instead, so an update of an editable field is not rejected.
+// TestServerInterceptor_EmptyUpdateMask_AbsentProtectedGrandchild verifies the compatibility option is a no-op.
+// An explicit empty mask stays empty with nested protected fields.
 func TestServerInterceptor_EmptyUpdateMask_AbsentProtectedGrandchild(t *testing.T) {
 	t.Parallel()
 
@@ -168,7 +160,7 @@ func TestServerInterceptor_EmptyUpdateMask_AbsentProtectedGrandchild(t *testing.
 	req.Set(resFD, protoreflect.ValueOfMessage(res))
 	req.Set(reqMD.Fields().ByName("update_mask"), protoreflect.ValueOfMessage((&fieldmaskpb.FieldMask{}).ProtoReflect()))
 
-	uni := newUnary(t, fieldmask.WithApplyEmptyUpdateMask())
+	uni := newUnary(t)
 	seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateRes", req, dynamicpb.NewMessage(resMD), nil)
 	require.NoError(t, err, "an editable leaf under a parent with absent protected descendants must pass")
 
@@ -176,7 +168,7 @@ func TestServerInterceptor_EmptyUpdateMask_AbsentProtectedGrandchild(t *testing.
 	require.True(t, ok)
 	mask, ok := got.Get(reqMD.Fields().ByName("update_mask")).Message().Interface().(*fieldmaskpb.FieldMask)
 	require.True(t, ok)
-	require.Equal(t, []string{"profile.name"}, mask.GetPaths())
+	require.Empty(t, mask.GetPaths())
 }
 
 // outputOnlyDescriptor builds an update request whose resource has a nested
@@ -242,7 +234,8 @@ func outputOnlyDescriptor(tb testing.TB) protoreflect.MessageDescriptor {
 // OUTPUT_ONLY entry — here one that is also IMMUTABLE — is removed from the
 // mask written back to the handler and its client value is cleared, so the
 // protected field cannot be changed through the nested path. Alone, the entry
-// leaves no path at all rather than a whole "sub" selection.
+// leaves no path at all rather than a whole "sub" selection: the update is a
+// no-op and the handler gets an empty mask.
 func TestServerInterceptor_UpdateMask_NestedOutputOnlyDropped(t *testing.T) {
 	t.Parallel()
 
@@ -253,7 +246,7 @@ func TestServerInterceptor_UpdateMask_NestedOutputOnlyDropped(t *testing.T) {
 	subMD := subFD.Message()
 	maskFD := reqMD.Fields().ByName("update_mask")
 
-	run := func(paths ...string) (*dynamicpb.Message, []string) {
+	run := func(wantNote bool, paths ...string) (*dynamicpb.Message, []string) {
 		sub := dynamicpb.NewMessage(subMD)
 		sub.Set(subMD.Fields().ByName("code"), protoreflect.ValueOfString("client"))
 		sub.Set(subMD.Fields().ByName("note"), protoreflect.ValueOfString("n"))
@@ -271,21 +264,20 @@ func TestServerInterceptor_UpdateMask_NestedOutputOnlyDropped(t *testing.T) {
 		require.True(t, ok)
 		gotSub := got.Get(resFD).Message().Get(subFD).Message()
 		require.False(t, gotSub.Has(subMD.Fields().ByName("code")), "the client value of the OUTPUT_ONLY field is cleared")
+		require.Equal(t, wantNote, gotSub.Has(subMD.Fields().ByName("note")), "the fields the update uses stay")
 		return got, mask.GetPaths()
 	}
 
-	_, paths := run("sub.code", "sub.note")
+	_, paths := run(true, "sub.code", "sub.note")
 	require.Equal(t, []string{"sub.note"}, paths)
 
-	_, paths = run("sub.code")
-	require.Empty(t, paths, "an emptied branch disappears instead of selecting the whole sub-message")
+	_, paths = run(false, "sub.code")
+	require.Empty(t, paths, "an emptied branch disappears instead of selecting the whole sub-message: the update changes nothing")
 }
 
 // TestServerInterceptor_EmptyUpdateMask_NestedOutputOnlySkipped pins that the
-// synthesized mask skips a nested OUTPUT_ONLY field, also one that is
-// IMMUTABLE: the populated sub-message is masked by its other set fields
-// instead of being collapsed to a whole selection, the update is not rejected,
-// and the client value is cleared.
+// explicit empty mask stays empty while OUTPUT_ONLY and unselected mutable
+// fields are cleared, including an OUTPUT_ONLY field also marked IMMUTABLE.
 func TestServerInterceptor_EmptyUpdateMask_NestedOutputOnlySkipped(t *testing.T) {
 	t.Parallel()
 
@@ -305,14 +297,14 @@ func TestServerInterceptor_EmptyUpdateMask_NestedOutputOnlySkipped(t *testing.T)
 	req.Set(resFD, protoreflect.ValueOfMessage(res))
 	req.Set(maskFD, protoreflect.ValueOfMessage((&fieldmaskpb.FieldMask{}).ProtoReflect()))
 
-	seenReq, _, err := runUnary(t, newUnary(t, fieldmask.WithApplyEmptyUpdateMask()), "/x.v1.X/UpdateRes", req, dynamicpb.NewMessage(resMD), nil)
+	seenReq, _, err := runUnary(t, newUnary(t), "/x.v1.X/UpdateRes", req, dynamicpb.NewMessage(resMD), nil)
 	require.NoError(t, err)
 	got, ok := seenReq.(*dynamicpb.Message)
 	require.True(t, ok)
 	mask, ok := got.Get(maskFD).Message().Interface().(*fieldmaskpb.FieldMask)
 	require.True(t, ok)
-	require.Equal(t, []string{"sub.note"}, mask.GetPaths())
-	require.False(t, got.Get(resFD).Message().Get(subFD).Message().Has(subMD.Fields().ByName("code")))
+	require.Empty(t, mask.GetPaths())
+	require.False(t, got.Get(resFD).Message().Has(subFD), "output-only and unselected mutable descendants are cleared")
 }
 
 // TestServerInterceptor_UpdateMask_OutputOnlyIdentifierCleared pins that an
@@ -357,8 +349,9 @@ func TestServerInterceptor_UpdateMask_OutputOnlyIdentifierCleared(t *testing.T) 
 
 // TestServerInterceptor_UpdateMask_ServerManagedSubtreesSurvive pins that no
 // mask the interceptor hands over can replace a sub-message holding a
-// server-managed field. An explicit whole selection is rejected (OUTPUT_ONLY
-// descendants count, also IMMUTABLE or IDENTIFIER ones); the synthesized mask
+// server-managed field. An explicit whole selection is expanded to the
+// editable leaves (OUTPUT_ONLY descendants count, also IMMUTABLE or IDENTIFIER
+// ones); the synthesized mask
 // names populated leaves, also under a sub-message whose OUTPUT_ONLY
 // descendant is absent; and an absent parent is left out. Applied to the
 // stored resource — by leaf paths, or with Merge for top-level paths — the
@@ -398,7 +391,9 @@ func TestServerInterceptor_UpdateMask_ServerManagedSubtreesSurvive(t *testing.T)
 	call := func(res *dynamicpb.Message, paths []string, opts ...fieldmask.Option) (*dynamicpb.Message, []string, error) {
 		req := dynamicpb.NewMessage(reqMD)
 		req.Set(resFD, protoreflect.ValueOfMessage(res))
-		req.Set(maskFD, protoreflect.ValueOfMessage((&fieldmaskpb.FieldMask{Paths: paths}).ProtoReflect()))
+		if paths != nil {
+			req.Set(maskFD, protoreflect.ValueOfMessage((&fieldmaskpb.FieldMask{Paths: paths}).ProtoReflect()))
+		}
 		seenReq, _, err := runUnary(t, newUnary(t, opts...), "/x.v1.X/UpdateRes", req, dynamicpb.NewMessage(resMD), nil)
 		if err != nil {
 			return nil, nil, err
@@ -421,12 +416,16 @@ func TestServerInterceptor_UpdateMask_ServerManagedSubtreesSurvive(t *testing.T)
 		require.Equal(t, "server", dst.Get(rf.ByName("rid")).String())
 	}
 
-	// Explicit whole selections are rejected.
-	for _, path := range []string{"sub", "box"} {
+	// Explicit whole selections are expanded to the editable leaves.
+	for path, want := range map[string][]string{"sub": {"sub.note"}, "box": {"box.label"}} {
 		body := dynamicpb.NewMessage(resMD)
 		set(body, "title", "t")
-		_, _, err := call(body, []string{path})
-		require.Equal(t, codes.InvalidArgument, status.Code(err), "%s: got %v", path, err)
+		gotBody, paths, err := call(body, []string{path})
+		require.NoError(t, err, path)
+		require.Equal(t, want, paths, path)
+		dst := stored()
+		testhelpers.ApplyLeafPaths(t, dst, gotBody, paths)
+		assertServerValues(dst)
 	}
 
 	// Synthesized mask: populated leaves only.
@@ -438,7 +437,7 @@ func TestServerInterceptor_UpdateMask_ServerManagedSubtreesSurvive(t *testing.T)
 	box := dynamicpb.NewMessage(boxMD)
 	set(box, "label", "new")
 	body.Set(rf.ByName("box"), protoreflect.ValueOfMessage(box))
-	gotBody, paths, err := call(body, nil, fieldmask.WithApplyEmptyUpdateMask())
+	gotBody, paths, err := call(body, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"box.label", "sub.note", "title"}, paths)
 	dst := stored()
@@ -450,21 +449,18 @@ func TestServerInterceptor_UpdateMask_ServerManagedSubtreesSurvive(t *testing.T)
 	// Absent parents: left out of the synthesized mask; Merge keeps them.
 	body = dynamicpb.NewMessage(resMD)
 	set(body, "title", "new")
-	gotBody, paths, err = call(body, nil, fieldmask.WithApplyEmptyUpdateMask())
+	gotBody, paths, err = call(body, nil)
 	require.NoError(t, err)
 	require.Equal(t, []string{"title"}, paths)
 	dst = stored()
-	require.NoError(t, pbfieldmask.FromPaths(paths...).Merge(dst, gotBody))
+	require.NoError(t, update.Merge(pbfieldmask.FromPaths(paths...), dst, gotBody))
 	assertServerValues(dst)
 	require.Equal(t, "new", dst.Get(rf.ByName("title")).String())
 }
 
-// TestServerInterceptor_EmptyUpdateMask_OnlySkippedFieldsCleared pins that a
-// synthesized mask left empty — every populated field was skipped (nested
-// OUTPUT_ONLY, IDENTIFIER also OUTPUT_ONLY, identifiers) — still goes through
-// the cleanup: the handler sees an empty mask that authorizes nothing, and the
-// skipped client values are cleared from the body like on the non-empty path.
-func TestServerInterceptor_EmptyUpdateMask_OnlySkippedFieldsCleared(t *testing.T) {
+// TestServerInterceptor_EmptyUpdateMask_UnselectedContainersDropped verifies prepared no-op sanitization.
+// An explicit empty mask authorizes no writes and keeps only the resource routing identity.
+func TestServerInterceptor_EmptyUpdateMask_UnselectedContainersDropped(t *testing.T) {
 	t.Parallel()
 
 	reqMD := outputOnlyDescriptor(t)
@@ -483,16 +479,14 @@ func TestServerInterceptor_EmptyUpdateMask_OnlySkippedFieldsCleared(t *testing.T
 	req.Set(resFD, protoreflect.ValueOfMessage(res))
 	req.Set(maskFD, protoreflect.ValueOfMessage((&fieldmaskpb.FieldMask{}).ProtoReflect()))
 
-	seenReq, _, err := runUnary(t, newUnary(t, fieldmask.WithApplyEmptyUpdateMask()), "/x.v1.X/UpdateRes", req, dynamicpb.NewMessage(resMD), nil)
+	seenReq, _, err := runUnary(t, newUnary(t), "/x.v1.X/UpdateRes", req, dynamicpb.NewMessage(resMD), nil)
 	require.NoError(t, err)
 	got, ok := seenReq.(*dynamicpb.Message)
 	require.True(t, ok)
 	mask, ok := got.Get(maskFD).Message().Interface().(*fieldmaskpb.FieldMask)
 	require.True(t, ok)
 	require.Empty(t, mask.GetPaths())
-	gotSub := got.Get(resFD).Message().Get(subFD).Message()
-	require.False(t, gotSub.Has(subMD.Fields().ByName("code")), "sub.code keeps no client value")
-	require.False(t, gotSub.Has(subMD.Fields().ByName("ref")), "sub.ref keeps no client value")
+	require.False(t, got.Get(resFD).Message().Has(subFD), "OUTPUT_ONLY input is cleared")
 
 	// A top-level identifier on its own stays in the body: it addresses the
 	// resource.
@@ -500,11 +494,25 @@ func TestServerInterceptor_EmptyUpdateMask_OnlySkippedFieldsCleared(t *testing.T
 		Resource:   &pb.Resource{Id: "id-1", Profile: &pb.Profile{Id: "p-1", UpdatedAt: "client"}},
 		UpdateMask: &fieldmaskpb.FieldMask{},
 	}
-	seen, _, err := runUnary(t, newUnary(t, fieldmask.WithApplyEmptyUpdateMask()), "/x.v1.X/UpdateResource", idReq, &pb.Resource{}, nil)
+	handlerCalled := false
+	_, err = newUnary(t)(t.Context(), idReq, &grpc.UnaryServerInfo{FullMethod: "/x.v1.X/UpdateResource"}, func(ctx context.Context, request any) (any, error) {
+		handlerCalled = true
+		gotReq, ok := request.(*pb.UpdateResourceRequest)
+		require.True(t, ok)
+		require.NotNil(t, gotReq.UpdateMask, "an explicit empty mask must not become an omitted mask")
+		require.Empty(t, gotReq.UpdateMask.Paths)
+		require.Equal(t, "id-1", gotReq.GetResource().GetId())
+		require.Nil(t, gotReq.GetResource().GetProfile(), "an unselected container is dropped even with a nested identifier")
+		require.True(t, proto.Equal(&pb.Resource{Id: "id-1"}, gotReq.Resource))
+		pending, ok := update.PlanFromContext(ctx, gotReq.Resource)
+		require.True(t, ok)
+		require.Empty(t, pending.Mask())
+		require.Empty(t, pending.Operations())
+		mask, err := pending.Complete(&pb.Resource{Id: "id-1", Profile: &pb.Profile{Id: "stored"}})
+		require.NoError(t, err)
+		require.Empty(t, mask)
+		return &pb.Resource{}, nil
+	})
 	require.NoError(t, err)
-	gotReq, ok := seen.(*pb.UpdateResourceRequest)
-	require.True(t, ok)
-	require.Empty(t, gotReq.GetUpdateMask().GetPaths())
-	require.Equal(t, "id-1", gotReq.GetResource().GetId())
-	require.Empty(t, gotReq.GetResource().GetProfile().GetUpdatedAt(), "profile.updated_at keeps no client value")
+	require.True(t, handlerCalled)
 }

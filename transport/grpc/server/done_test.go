@@ -11,15 +11,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
+	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
+	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 	stdgrpc "google.golang.org/grpc"
 )
 
 func TestServer_DoneServeFailure(t *testing.T) {
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Config{
+	srv, err := New(WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
 	})))
 	if err != nil {
@@ -61,7 +61,7 @@ func TestServer_DoneServeFailure(t *testing.T) {
 
 func TestServer_DoneNormalShutdown(t *testing.T) {
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Config{
+	srv, err := New(WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
 	})))
 	if err != nil {

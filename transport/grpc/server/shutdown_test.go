@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
 	stdGrpc "google.golang.org/grpc"
 )
 

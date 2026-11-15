@@ -6,8 +6,7 @@ package interceptors
 
 import (
 	"errors"
-
-	"github.com/altessa-s/go-atlas/core/text/strings"
+	"strings"
 
 	"google.golang.org/grpc/status"
 )
@@ -40,7 +39,7 @@ type Error struct {
 //	)
 func NewError(st *status.Status, err error) *Error {
 	if err == nil {
-		err = errors.New(strings.InternLowerString(st.Message()))
+		err = errors.New(strings.ToLower(st.Message()))
 	}
 	return &Error{
 		s:   st,

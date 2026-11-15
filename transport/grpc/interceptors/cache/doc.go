@@ -6,8 +6,8 @@
 // compression support.
 //
 // Use [ServerInterceptor] to create a caching interceptor backed by any
-// [Cacher] implementation (redis, freecache, lru, noop). Configure per-method
-// caching with [MethodConfig], set caching policies with [DecisionFunc] (see
+// [github.com/altessa-s/go-atlas/cache.Cacher] implementation (redis, freecache, lru, noop). Configure per-method
+// caching with [MethodPolicy], set caching policies with [DecisionFunc] (see
 // [DefaultSuccessOnlyDecision] and [DefaultSuccessAndErrorDecision]), and
 // generate cache keys with [KeyGenerator] (see [DefaultKeyGenerator] and
 // [NewKeyGenerator]).
@@ -25,14 +25,14 @@
 // Example:
 //
 //	interceptor := cache.ServerInterceptor(memCache,
-//	    cache.WithMethodConfig(
+//	    cache.WithMethodPolicy(
 //	        cache.Method{
 //	            Method:        "/api.UserService/GetUser",
 //	            ResponseProto: &pb.User{},
 //	            TTL:           5 * time.Minute,
 //	        },
 //	    ),
-//	    cache.WithCompressionPreset(cache.CompressionPresetBalanced),
+//	    cache.WithCompressionPreset(compression.PresetBalanced),
 //	)
 //
 //	opts, _ := interceptors.NewChain(interceptor).ServerOptions()

@@ -11,8 +11,12 @@
 // [github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth.ScopeMiddleware])
 // reads it via FromContext.
 //
-// Configure behavior with the core package's options (mtls.WithIdentity /
-// WithValidator / WithAudit); this adapter sets the "http" transport label and
+// Configure behavior with the core package's options (mtls.WithTrustDomains /
+// WithIdentity / WithValidator / WithAudit). The options must make the trust
+// decision — mtls.WithTrustDomains or the mtls.WithInsecureAnyTrustDomain
+// opt-in; validators never count as one, and without it [Middleware] returns
+// an error wrapping mtls.ErrNoTrustDomainPolicy instead of a middleware. This
+// adapter sets the "http" transport label and
 // maps a missing or rejected certificate to 401, a required-audit failure to
 // 500. The certificate is read from the verified chain (populated only under
 // tls.RequireAndVerifyClientCert), never the unverified PeerCertificates.
@@ -25,10 +29,13 @@
 //	    "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
 //	)
 //
-//	authn := mtls.Middleware(coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")))
+//	authn, err := mtls.Middleware(coremtls.WithTrustDomains("example.org"))
+//	if err != nil {
+//	    return err
+//	}
 //	authz := httpauth.ScopeMiddleware(enf, keyFunc)
 //	handler = authn(authz(handler)) // authn populates the principal authz reads
 //
 // The TLS configuration that requires and verifies client certificates is set up
-// separately — see [github.com/altessa-s/go-atlas/security/tlsutils].
+// separately — see [github.com/altessa-s/go-tlsutils].
 package mtls

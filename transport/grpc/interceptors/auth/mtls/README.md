@@ -12,7 +12,7 @@ package's options; this adapter adds the `grpc` transport label and maps failure
 
 | Symbol                    | Description                                                                                       |
 |---------------------------|--------------------------------------------------------------------------------------------------|
-| `AuthFunc(opts…)`         | `auth.AuthFunc`; `opts` are `auth/mtls` options. Unauthenticated peer / rejected cert → `Unauthenticated`; required-audit failure → `Internal`. |
+| `AuthFunc(opts…)`         | `(auth.AuthFunc, error)`; `opts` are `auth/mtls` options. Errors with `coremtls.ErrNoTrustDomainPolicy` without a trust decision. Unauthenticated peer / rejected cert → `Unauthenticated`; required-audit failure → `Internal`. |
 | `PeerCertificate(ctx)`    | Verified leaf client certificate from the context (verified chain, not unverified peer certs).    |
 
 Errors from `PeerCertificate`: `ErrNoPeer`, `ErrNoTLS`, `ErrNoVerifiedCert` (`errors.Is`).
@@ -26,17 +26,26 @@ import (
     "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/mtls"
 )
 
+authFn, err := mtls.AuthFunc(                                       // peer cert → spiffe.ID
+    coremtls.WithTrustDomains("example.org"),                       // the trust decision
+    coremtls.WithValidator(coremtls.ExpiryValidator(nil, 30*time.Second)),
+    coremtls.WithAudit(rec, func(p any) string { id, _ := p.(spiffe.ID); return id.String() }),
+)
+if err != nil {
+    return err // coremtls.ErrNoTrustDomainPolicy: no trust decision
+}
 interceptor := grpcauth.ServerInterceptor(
-    grpcauth.WithAuthFn(mtls.AuthFunc(                              // peer cert → spiffe.ID
-        coremtls.WithValidator(coremtls.ExpiryValidator(nil, 30*time.Second)),
-        coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")),
-        coremtls.WithAudit(rec, func(p any) string { id, _ := p.(spiffe.ID); return id.String() }),
-    )),
+    grpcauth.WithAuthFn(authFn),
     grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf)),         // authorize on the principal
 )
 ```
 
-The TLS configuration that requires and verifies client certificates is set up separately — see [`security/tlsutils`](../../../../../security/tlsutils).
+The options must make the trust decision — `coremtls.WithTrustDomains(domains…)` or the `coremtls.WithInsecureAnyTrustDomain()` opt-in. Validators
+(`WithValidator`) never count as one: without the decision `AuthFunc` returns an error wrapping `coremtls.ErrNoTrustDomainPolicy` (match with
+`errors.Is`), so the service fails at startup instead of answering `Unauthenticated` at runtime.
+
+The TLS configuration that requires and verifies client certificates is set up separately — see
+[`go-tlsutils`](https://github.com/altessa-s/go-tlsutils/tree/develop).
 
 ## See also
 

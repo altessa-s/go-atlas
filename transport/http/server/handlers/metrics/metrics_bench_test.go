@@ -5,6 +5,7 @@
 package metrics_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/transport/http/server/handlers/metrics"
@@ -12,6 +13,6 @@ import (
 
 func BenchmarkMount(b *testing.B) {
 	for b.Loop() {
-		_ = metrics.Mount(&mockRouter{})
+		_ = metrics.Mount(&mockRouter{}, http.NotFoundHandler())
 	}
 }

@@ -28,14 +28,14 @@ type userInfo struct {
 func TestAuthFunc_Success(t *testing.T) {
 	t.Parallel()
 	want := userInfo{ID: "user1", Role: "admin"}
-	store := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{
+	store := authstatic.NewInMemoryStore(authstatic.WithInitialTokens(map[string]any{
 		"valid_token": want,
 	}))
 	fn := static.AuthFunc(store)
 
 	data, err := fn(t.Context(), auth.Request{
-		Base:    auth.Base{AuthMethod: auth.MethodToken},
-		Payload: &auth.TokenCredentials{Token: "valid_token"},
+		AuthMethod: auth.MethodToken,
+		Payload:    &auth.TokenCredentials{Token: "valid_token"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, want, data)
@@ -45,35 +45,35 @@ func TestAuthFunc_ErrorMapping(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name     string
-		store    static.TokenStore
+		store    authstatic.TokenStore
 		req      auth.Request
 		wantCode codes.Code
 		wantMsg  string
 	}{
 		{
 			name:     "missing token credentials",
-			store:    static.NewInMemoryStore(),
+			store:    authstatic.NewInMemoryStore(),
 			req:      auth.Request{Base: auth.Base{AuthMethod: "other"}},
 			wantCode: codes.Unauthenticated,
 			wantMsg:  "missing token credentials",
 		},
 		{
 			name:     "invalid token",
-			store:    static.NewInMemoryStore(),
+			store:    authstatic.NewInMemoryStore(),
 			req:      auth.Request{Base: auth.Base{AuthMethod: auth.MethodToken}, Payload: &auth.TokenCredentials{Token: "bad"}},
 			wantCode: codes.Unauthenticated,
 			wantMsg:  "invalid token",
 		},
 		{
 			name:     "empty token",
-			store:    static.NewInMemoryStore(),
+			store:    authstatic.NewInMemoryStore(),
 			req:      auth.Request{Base: auth.Base{AuthMethod: auth.MethodToken}, Payload: &auth.TokenCredentials{Token: ""}},
 			wantCode: codes.Unauthenticated,
 			wantMsg:  "invalid token",
 		},
 		{
 			name:     "rate limited",
-			store:    static.NewRateLimitedStore(static.NewInMemoryStore(), denyLimiter{}, func(context.Context) string { return "client-1" }),
+			store:    authstatic.NewRateLimitedStore(authstatic.NewInMemoryStore(), denyLimiter{}, func(context.Context) string { return "client-1" }),
 			req:      auth.Request{Base: auth.Base{AuthMethod: auth.MethodToken}, Payload: &auth.TokenCredentials{Token: "anything"}},
 			wantCode: codes.ResourceExhausted,
 		},

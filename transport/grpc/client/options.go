@@ -4,7 +4,8 @@
 
 package client
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=retryOptions --option-type=RetryOption --option-prefix=Retry --output=retry_options_gen.go
+//go:generate go tool optgen generate --type=options
 
 import (
 	"context"
@@ -24,11 +25,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 )
-
-// StateMapper is the same type as [pool.StateMapper]; the alias lets callers
-// declare a single mapper and pass it to either [WithHealthStateMapper] or
-// [pool.WithHealthStateMapper].
-type StateMapper = pool.StateMapper
 
 // DefaultClientHealthServiceName is the default service name used when a
 // [health.Coordinator] is configured. Mirrors the metrics subsystem
@@ -66,7 +62,7 @@ const (
 )
 
 // DefaultRetryableStatusCodes lists the gRPC status code names that trigger an
-// automatic retry when retry is enabled via [WithRetry] or [WithRetryConfig].
+// automatic retry when retry is enabled via [WithRetry].
 var DefaultRetryableStatusCodes = []string{"UNAVAILABLE", "DEADLINE_EXCEEDED", "RESOURCE_EXHAUSTED"}
 
 // ErrorConverter transforms a gRPC [status.Status] into a domain-specific error.
@@ -74,40 +70,9 @@ var DefaultRetryableStatusCodes = []string{"UNAVAILABLE", "DEADLINE_EXCEEDED", "
 // in the client's error-status interceptor.
 type ErrorConverter func(ctx context.Context, st *status.Status) error
 
-// RetryConfig controls the gRPC service-config-level retry policy injected
-// into every connection. The policy uses exponential backoff and limits
-// retries to the status codes listed in RetryableStatusCodes.
-type RetryConfig struct {
-	// MaxAttempts is the maximum number of retry attempts (including initial call).
-	MaxAttempts int
-
-	// InitialBackoff is the initial backoff duration between retries.
-	InitialBackoff time.Duration
-
-	// MaxBackoff is the maximum backoff duration.
-	MaxBackoff time.Duration
-
-	// BackoffMultiplier is the multiplier for exponential backoff.
-	BackoffMultiplier float64
-
-	// RetryableStatusCodes are the gRPC status codes that should trigger a retry.
-	RetryableStatusCodes []string
-}
-
-// DefaultRetryConfig returns the default retry configuration.
-func DefaultRetryConfig() *RetryConfig {
-	return &RetryConfig{
-		MaxAttempts:          DefaultMaxRetryAttempts,
-		InitialBackoff:       DefaultInitialBackoff,
-		MaxBackoff:           DefaultMaxBackoff,
-		BackoffMultiplier:    DefaultBackoffMultiplier,
-		RetryableStatusCodes: DefaultRetryableStatusCodes,
-	}
-}
-
 // ProxyFunc resolves the proxy URL for an outgoing connection. It
 // matches the signature of [http.Transport.Proxy] and the
-// [transport/http/client.ProxyFunc] alias, so resolvers are
+// [net/http/client.ProxyFunc] alias, so resolvers are
 // interchangeable between the two clients.
 //
 // Returning (nil, nil) means "no proxy for this connection";
@@ -122,13 +87,29 @@ type ProxyFunc = func(*http.Request) (*url.URL, error)
 // options holds the internal configuration state for the gRPC client.
 // This struct is not exported and is modified through Option functions.
 type options struct {
-	tlsConfig        *tls.Config  `optgen:"default=defaultSecureTLSConfig()"`
-	insecure         bool         `optgen:"manual"`
-	logger           *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler)"`
-	appName          string
-	pool             *pool.ConnectionPool
-	enableRetry      bool              `optgen:"manual"`
-	retryConfig      *RetryConfig      `optgen:"manual"`
+	tlsConfig *tls.Config `optgen:"default=defaultSecureTLSConfig()"`
+	// Set by WithInsecure: it clears tlsConfig and marks plaintext transport.
+	insecure bool         `optgen:"manual"`
+	logger   *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler)"`
+	appName  string
+	pool     *pool.ConnectionPool
+	// Enabled by generated WithRetry through its enables directive.
+	enableRetry bool `opt:"-"`
+	// WithRetry enables automatic retry. Without retry options it uses exponential
+	// backoff and retries on UNAVAILABLE, DEADLINE_EXCEEDED, and RESOURCE_EXHAUSTED;
+	// the generated [RetryOption] values override individual policy settings.
+	//
+	// Example:
+	//
+	//	c, err := client.New(ctx, "localhost:8080",
+	//		client.WithRetry(
+	//			client.WithRetryMaxBackoff(5*time.Second),
+	//			client.WithRetryBackoffMultiplier(1.5),
+	//			client.WithRetryStatusCodes("UNAVAILABLE", "INTERNAL"),
+	//		),
+	//		client.WithInsecure(),
+	//	)
+	retryOptions     *retryOptions     `optfn:"Retry=newRetryOptions" optgen:"enables=enableRetry"`
 	mutationTimeout  time.Duration     `optgen:"default=DefaultMutationTimeout"`
 	queryTimeout     time.Duration     `optgen:"default=DefaultQueryTimeout"`
 	extraDialOptions []grpc.DialOption `opt:"DialOptions" optgen:"append"`
@@ -147,7 +128,7 @@ type options struct {
 	// [grpc.ClientConn.WaitForStateChange] watcher; in pool mode it
 	// subscribes to [pool.ConnectionPool.SubscribeTarget] for its address.
 	// Leave nil to disable.
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.Reporter `optgen:"notnil"`
 	// healthServiceName is the service name used when registering the
 	// client's checker. Defaults to [DefaultClientHealthServiceName].
 	healthServiceName string `optgen:"default=DefaultClientHealthServiceName"`
@@ -155,12 +136,12 @@ type options struct {
 	// [health.ServingStatus]. Set via [WithHealthStateMapper]. A nil value
 	// is rejected by the option; the helper falls back to
 	// [pool.DefaultStateMapper] when the field is unset.
-	healthStateMapper StateMapper `optgen:"notnil,default=pool.DefaultStateMapper"`
+	healthStateMapper pool.StateMapper `optgen:"notnil,default=pool.DefaultStateMapper"`
 	// withoutHealthCheck drops the client-side healthCheckConfig
 	// ("health.v1.HealthService") from the default service config. Set it
 	// with the generated WithoutHealthCheck when the server does not
 	// implement that health service: with round-robin load balancing
-	// (selected by WithRetry and WithRetryConfig) gRPC health-checks every
+	// (selected by WithRetry) gRPC health-checks every
 	// subchannel, and a server without the service never becomes ready for
 	// calls. Independent of WithHealthCoordinator, which only reports the
 	// connection state.
@@ -180,49 +161,6 @@ func WithInsecure() Option {
 	return func(o *options) {
 		o.tlsConfig = nil
 		o.insecure = true
-	}
-}
-
-// WithRetry enables automatic retry with the default configuration.
-// Uses exponential backoff and retries on UNAVAILABLE, DEADLINE_EXCEEDED, and RESOURCE_EXHAUSTED.
-//
-// Example:
-//
-//	client, err := client.New(ctx, "localhost:8080",
-//		client.WithRetry(),
-//		client.WithInsecure(),
-//	)
-func WithRetry() Option {
-	return func(o *options) {
-		o.enableRetry = true
-		o.retryConfig = DefaultRetryConfig()
-	}
-}
-
-// WithRetryConfig enables automatic retry with custom configuration.
-// Note: gRPC service config requires durations to be in seconds format.
-//
-// Example:
-//
-//	retryConfig := &client.RetryConfig{
-//		MaxAttempts:          5,
-//		InitialBackoff:       1 * time.Second,
-//		MaxBackoff:           5 * time.Second,
-//		BackoffMultiplier:    1.5,
-//		RetryableStatusCodes: []string{"UNAVAILABLE", "INTERNAL"},
-//	}
-//
-//	c, err := client.New(ctx, "localhost:8080",
-//		client.WithRetryConfig(retryConfig),
-//		client.WithInsecure(),
-//	)
-func WithRetryConfig(config *RetryConfig) Option {
-	return func(o *options) {
-		if config == nil {
-			return
-		}
-		o.enableRetry = true
-		o.retryConfig = config
 	}
 }
 

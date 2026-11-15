@@ -36,5 +36,5 @@ func (m *mockRouter) ServeHTTP(http.ResponseWriter, *http.Request) {}
 func (m *mockRouter) Subrouter() router.Router                     { return m }
 
 func TestMount(t *testing.T) {
-	require.NotNil(t, metrics.Mount(&mockRouter{}))
+	require.NotNil(t, metrics.Mount(&mockRouter{}, http.NotFoundHandler()))
 }

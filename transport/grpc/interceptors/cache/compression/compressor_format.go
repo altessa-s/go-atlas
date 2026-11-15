@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"sync"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // Header creation helper functions

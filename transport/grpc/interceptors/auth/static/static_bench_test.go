@@ -8,9 +8,11 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/static"
+
+	originalStatic "github.com/altessa-s/go-atlas/auth/static"
 )
 
 func generateTokens(count int) map[string]any {
@@ -25,12 +27,12 @@ func generateTokens(count int) map[string]any {
 }
 
 func BenchmarkAuthFunc_Hit(b *testing.B) {
-	store := static.NewInMemoryStore(static.WithInitialTokens(generateTokens(1000)))
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(generateTokens(1000)))
 	fn := static.AuthFunc(store)
 	ctx := b.Context()
 	req := auth.Request{
-		Base:    auth.Base{AuthMethod: auth.MethodToken},
-		Payload: &auth.TokenCredentials{Token: "token_500"},
+		AuthMethod: auth.MethodToken,
+		Payload:    &auth.TokenCredentials{Token: "token_500"},
 	}
 	b.ResetTimer()
 	for b.Loop() {
@@ -39,12 +41,12 @@ func BenchmarkAuthFunc_Hit(b *testing.B) {
 }
 
 func BenchmarkAuthFunc_Miss(b *testing.B) {
-	store := static.NewInMemoryStore(static.WithInitialTokens(generateTokens(1000)))
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(generateTokens(1000)))
 	fn := static.AuthFunc(store)
 	ctx := b.Context()
 	req := auth.Request{
-		Base:    auth.Base{AuthMethod: auth.MethodToken},
-		Payload: &auth.TokenCredentials{Token: "no_such_token"},
+		AuthMethod: auth.MethodToken,
+		Payload:    &auth.TokenCredentials{Token: "no_such_token"},
 	}
 	b.ResetTimer()
 	for b.Loop() {
@@ -53,7 +55,7 @@ func BenchmarkAuthFunc_Miss(b *testing.B) {
 }
 
 func BenchmarkAuthFunc_Parallel(b *testing.B) {
-	store := static.NewInMemoryStore(static.WithInitialTokens(generateTokens(1000)))
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(generateTokens(1000)))
 	fn := static.AuthFunc(store)
 	ctx := b.Context()
 
@@ -61,8 +63,8 @@ func BenchmarkAuthFunc_Parallel(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			req := auth.Request{
-				Base:    auth.Base{AuthMethod: auth.MethodToken},
-				Payload: &auth.TokenCredentials{Token: redacted.RedactedString("token_" + strconv.Itoa(i%1000))},
+				AuthMethod: auth.MethodToken,
+				Payload:    &auth.TokenCredentials{Token: redacted.RedactedString("token_" + strconv.Itoa(i%1000))},
 			}
 			_, _ = fn(ctx, req)
 			i++

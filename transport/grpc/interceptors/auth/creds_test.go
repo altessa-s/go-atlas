@@ -104,12 +104,10 @@ func TestMethodToken(t *testing.T) {
 
 func TestCredentials(t *testing.T) {
 	c := Credentials{
-		Base: Base{
-			AuthMethod:      MethodToken,
-			AuthenticatedAt: time.Now(),
-		},
-		Data:    "user-123",
-		Headers: map[string]string{"authorization": "Bearer tok"},
+		AuthMethod:      MethodToken,
+		AuthenticatedAt: time.Now(),
+		Data:            "user-123",
+		Headers:         map[string]string{"authorization": "Bearer tok"},
 	}
 	require.True(t, c.IsAuthenticated(), "should be authenticated")
 	require.True(t, c.IsToken(), "should be token")

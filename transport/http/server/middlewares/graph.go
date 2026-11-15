@@ -7,7 +7,7 @@ package middlewares
 import (
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/transport/internal/depgraph"
+	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 )
 
 // middlewareWrapper wraps a Middleware to satisfy depgraph.Namer

@@ -10,13 +10,13 @@ import (
 	"reflect"
 	"sync/atomic"
 
-	"github.com/altessa-s/go-atlas/core/encoding/keys"
-	"github.com/altessa-s/go-atlas/core/text/strings"
-	"github.com/altessa-s/go-atlas/data/idempotency"
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -27,8 +27,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
+	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
-	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
 	grpcmetadata "google.golang.org/grpc/metadata"
 	stdStrings "strings"
 )
@@ -43,15 +44,13 @@ func Name() string { return interceptorName }
 var ID = interceptors.Ref(interceptorName)
 
 var _ driver.DrivenInterceptor = (*interceptor)(nil)
+var _ driver.DriverPanic = (*requestInterceptor)(nil)
 var _ interceptors.Interceptor = (*interceptor)(nil)
-
-// Idempotency is an alias for [idempotency.Idempotency] from data/idempotency.
-type Idempotency = idempotency.Idempotency
 
 // interceptor implements the Idempotency interface.
 type interceptor struct {
 	interceptors.BaseInterceptor
-	i    Idempotency
+	i    idempotency.Idempotency
 	opts *options
 }
 
@@ -68,7 +67,7 @@ type requestInterceptor struct {
 	meta        *sharedmetadata.CallMetadata
 	currentKey  atomic.Value
 	lockedKey   string
-	lockedState *idempotency.State // populated by AttemptLock; required by Complete
+	lockedState *storages.State // populated by AttemptLock; required by Complete
 }
 
 // DrivenInterceptor implements the driver.DrivenInterceptor interface.
@@ -85,7 +84,7 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 }
 
 // ServerInterceptor creates a new ServerInterceptor that uses the provided storage.
-func ServerInterceptor(i Idempotency, opt ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(i idempotency.Idempotency, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	if opts.statusCreator == nil {
@@ -100,7 +99,7 @@ func ServerInterceptor(i Idempotency, opt ...Option) interceptors.ServerIntercep
 			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
-			nil, // idempotency interceptor doesn't need logging
+			opts.logger,
 		),
 		i:    i,
 		opts: opts,
@@ -111,7 +110,7 @@ func ServerInterceptor(i Idempotency, opt ...Option) interceptors.ServerIntercep
 
 // defaultStatusCreator creates a gRPC status for an idempotency error and
 // attaches an [errdetails.ErrorInfo] detail with a scenario-specific reason code.
-func defaultStatusCreator(_ context.Context, scenario ErrorScenario, _ *idempotency.State) *status.Status {
+func defaultStatusCreator(_ context.Context, scenario ErrorScenario, _ *storages.State) *status.Status {
 	var (
 		st     *status.Status
 		reason string
@@ -181,7 +180,7 @@ func (ri *requestInterceptor) check(ctx context.Context, req any, replay bool) (
 		return nil, interceptors.NewError(ri.opts.statusCreator(ctx, ErrorIDKInvalidFormat, nil), nil)
 	}
 
-	storageKey := ri.buildKey(strings.InternString(ri.meta.FullyMethodName), idempotencyKey)
+	storageKey := ri.buildKey(intern.String(ri.meta.FullyMethodName), idempotencyKey)
 
 	locked, state, err := ri.i.AttemptLockWithOpts(ctx, storageKey, idempotency.AttemptLockOpts{
 		Fingerprint: ri.requestFingerprint(req),
@@ -206,16 +205,16 @@ func (ri *requestInterceptor) check(ctx context.Context, req any, replay bool) (
 		return nil, interceptors.NewError(ri.opts.statusCreator(ctx, ErrorIDKInProgress, state), nil)
 	case internalidem.LockCompleted:
 		md := grpcmetadata.Pairs(ri.opts.idempotencyKeyStatusMetadata, "success")
-		// Only echo the stored entity id when explicitly enabled. The caller
-		// presenting a duplicate key is not verified to be the principal that
-		// created the original entity, so returning it by default would leak
-		// another principal's entity id to anyone who reuses the key.
-		if ri.opts.exposeEntityID && record.EntityID != "" {
+		// Fail closed: only a record bound to an owner, which the Keeper has
+		// checked against the caller, hands its entity id or response to the
+		// repeat. Without one, any caller presenting the key would get them.
+		bound := state.Owner() != ""
+		if ri.opts.exposeEntityID && bound && record.EntityID != "" {
 			md.Set(ri.opts.idempotencyKeyEntityIdMetadata, record.EntityID)
 		}
 		_ = grpc.SetHeader(ctx, md) //nolint:errcheck // Optional metadata
 
-		if replay && ri.opts.responseReplay {
+		if replay && ri.opts.responseReplay && bound {
 			if res := replayedResponse(record, ri.meta.FullyMethodName); res != nil {
 				return res, nil
 			}
@@ -355,20 +354,41 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, res any, err error) 
 	}
 
 	if err != nil {
-		// Release only the lock owned by this failed request.
-		_ = ri.i.Release(ctx, ri.lockedKey, ri.lockedState) //nolint:errcheck // Best-effort cleanup
+		ri.release(ctx)
 		return err
 	}
 
-	// On success, complete the key
-	data := ri.completionData(res)
+	// On success, complete the key under internalidem.FinalizeContext, so a
+	// client that disconnected does not leave it in progress until the lock
+	// expires.
+	ctx, cancel := internalidem.FinalizeContext(ctx)
+	defer cancel()
 
-	// Best-effort completion. ErrLockStolen means the lock TTL expired
-	// while we were processing and another node took over — our result
-	// is no longer authoritative, so silently drop it rather than
-	// overwriting the new holder's state.
-	_ = ri.i.Complete(ctx, ri.lockedKey, data, ri.lockedState) //nolint:errcheck
+	// ErrLockStolen means the lock TTL expired while we were processing and
+	// another node took over — our result is no longer authoritative, so it
+	// is dropped rather than overwriting the new holder's state.
+	if completeErr := ri.i.Complete(ctx, ri.lockedKey, ri.completionData(res), ri.lockedState); completeErr != nil {
+		ri.LogWarn(ctx, "idempotency key not completed", ri.meta.FullyMethodName, completeErr)
+	}
 	return nil
+}
+
+// OnPanic releases the lock of a call whose handler panicked; PostCall does
+// not run for it.
+func (ri *requestInterceptor) OnPanic(ctx context.Context) {
+	if ri.lockedKey != "" {
+		ri.release(ctx)
+	}
+}
+
+// release removes only the lock owned by this failed request, under
+// internalidem.FinalizeContext.
+func (ri *requestInterceptor) release(ctx context.Context) {
+	ctx, cancel := internalidem.FinalizeContext(ctx)
+	defer cancel()
+	if err := ri.i.Release(ctx, ri.lockedKey, ri.lockedState); err != nil {
+		ri.LogWarn(ctx, "idempotency key not released", ri.meta.FullyMethodName, err)
+	}
 }
 
 // PreCall is called before the call is made.

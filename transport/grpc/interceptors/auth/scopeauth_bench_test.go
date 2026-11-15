@@ -5,7 +5,6 @@
 package auth_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/auth/scope"
@@ -21,7 +20,7 @@ func BenchmarkScopeClientAuth(b *testing.B) {
 		scope.Exact(),
 	))
 	ca := auth.ScopeClientAuth(enf)
-	ctx := context.Background()
+	ctx := b.Context()
 	cred := credsFor(methodWrite, &testPrincipal{scopes: []string{"files:write"}})
 
 	for b.Loop() {

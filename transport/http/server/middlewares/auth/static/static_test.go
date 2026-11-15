@@ -28,7 +28,7 @@ type userInfo struct {
 func TestAuthFunc_Success(t *testing.T) {
 	t.Parallel()
 	want := userInfo{ID: "user1", Role: "admin"}
-	store := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{
+	store := authstatic.NewInMemoryStore(authstatic.WithInitialTokens(map[string]any{
 		"valid_token": want,
 	}))
 	fn := static.AuthFunc(store)
@@ -42,25 +42,25 @@ func TestAuthFunc_ErrorWrapping(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name          string
-		store         static.TokenStore
+		store         authstatic.TokenStore
 		token         string
 		wantSentinels []error
 	}{
 		{
 			name:          "invalid token",
-			store:         static.NewInMemoryStore(),
+			store:         authstatic.NewInMemoryStore(),
 			token:         "bad",
 			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrTokenInvalid},
 		},
 		{
 			name:          "empty token",
-			store:         static.NewInMemoryStore(),
+			store:         authstatic.NewInMemoryStore(),
 			token:         "",
 			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrTokenEmpty},
 		},
 		{
 			name:          "rate limited",
-			store:         static.NewRateLimitedStore(static.NewInMemoryStore(), denyLimiter{}, func(context.Context) string { return "client-1" }),
+			store:         authstatic.NewRateLimitedStore(authstatic.NewInMemoryStore(), denyLimiter{}, func(context.Context) string { return "client-1" }),
 			token:         "x",
 			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrRateLimited},
 		},
@@ -100,7 +100,7 @@ func TestAuthFunc_InternalErrorWrapped(t *testing.T) {
 func TestHTTPIntegration_BearerToken(t *testing.T) {
 	t.Parallel()
 	want := userInfo{ID: "user1", Role: "admin"}
-	store := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{
+	store := authstatic.NewInMemoryStore(authstatic.WithInitialTokens(map[string]any{
 		"secret_token": want,
 	}))
 
@@ -130,7 +130,7 @@ func TestHTTPIntegration_BearerToken(t *testing.T) {
 func TestHTTPIntegration_APIKey(t *testing.T) {
 	t.Parallel()
 	want := userInfo{ID: "service1", Role: "api_client"}
-	store := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{
+	store := authstatic.NewInMemoryStore(authstatic.WithInitialTokens(map[string]any{
 		"api_key_123": want,
 	}))
 
@@ -169,7 +169,7 @@ func TestHTTPIntegration_APIKey(t *testing.T) {
 
 func TestHTTPIntegration_DynamicTokenManagement(t *testing.T) {
 	t.Parallel()
-	store := static.NewInMemoryStore()
+	store := authstatic.NewInMemoryStore()
 	middleware := auth.Middleware(auth.WithAuthFunc(static.AuthFunc(store)))
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

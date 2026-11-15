@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/internal/transport/authprincipal"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 
@@ -101,7 +103,7 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 }
 
 func (i *interceptor) auth(ctx context.Context, callMeta *sharedmetadata.CallMetadata) (context.Context, error) {
-	method := i.InternMethod(callMeta.FullyMethodName)
+	method := intern.String(callMeta.FullyMethodName)
 
 	if i.ShouldIgnore(method) {
 		i.LogIgnored(ctx, method)
@@ -114,7 +116,7 @@ func (i *interceptor) auth(ctx context.Context, callMeta *sharedmetadata.CallMet
 }
 
 func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *sharedmetadata.CallMetadata) (context.Context, error) {
-	method := i.InternMethod(callMeta.FullyMethodName)
+	method := intern.String(callMeta.FullyMethodName)
 
 	token, err := i.opts.tokenExtractor.ExtractToken(ctx)
 	if err != nil {
@@ -124,15 +126,13 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 	}
 
 	credsReq := Request{
-		Base: Base{
-			AuthMethod:      MethodToken,
-			AuthenticatedAt: time.Now(),
-			UserAgent:       UserAgentFromCallMeta(callMeta),
-			ServiceName:     callMeta.ServiceName,
-			MethodName:      callMeta.MethodName,
-			FullyMethodName: callMeta.FullyMethodName,
-		},
-		Payload: &TokenCredentials{Token: redacted.RedactedString(token)},
+		AuthMethod:      MethodToken,
+		AuthenticatedAt: time.Now(),
+		UserAgent:       UserAgentFromCallMeta(callMeta),
+		ServiceName:     callMeta.ServiceName,
+		MethodName:      callMeta.MethodName,
+		FullyMethodName: callMeta.FullyMethodName,
+		Payload:         &TokenCredentials{Token: redacted.RedactedString(token)},
 	}
 
 	var data any
@@ -153,21 +153,18 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 		return ctx, err
 	}
 
-	var newCtx = ctx
+	// The credentials always reach the handler through CredentialsFromContext.
+	// Headers is a copy of the incoming metadata that only ClientAuth needs,
+	// so the copy is made only when ClientAuth is configured.
+	creds := Credentials{Base: credsReq.Base, Data: data}
 	if i.opts.clientAuth != nil {
-		// Credentials only feed ClientAuth; build them, and copy the
-		// metadata, only when it is configured.
-		creds := Credentials{Base: credsReq.Base, Data: data}
-		if md, ok := grpcmetadata.FromIncomingContext(ctx); ok {
-			creds.Headers = make(map[string]string, len(md))
-			for k, v := range md {
-				if isSensitiveHeader(k) {
-					continue
-				}
-				creds.Headers[k] = strings.Join(v, ",")
-			}
-		}
-		newCtx, err = i.opts.clientAuth.ClientAuth(ctx, creds)
+		creds.Headers = credentialHeaders(ctx)
+	}
+	newCtx := context.WithValue(ctx, credentialsKey{}, creds)
+	newCtx = authprincipal.Bridge(newCtx, data)
+
+	if i.opts.clientAuth != nil {
+		newCtx, err = i.opts.clientAuth.ClientAuth(newCtx, creds)
 		if err != nil {
 			i.LogWarn(ctx, "authentication failed", method, err)
 			if _, ok := status.FromError(err); !ok {
@@ -180,6 +177,24 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 	i.LogDebug(ctx, "authentication successful", method)
 
 	return newCtx, nil
+}
+
+// credentialHeaders copies the incoming metadata into a header map, dropping
+// the keys [isSensitiveHeader] reports. It returns nil when ctx carries no
+// incoming metadata.
+func credentialHeaders(ctx context.Context) map[string]string {
+	md, ok := grpcmetadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil
+	}
+	headers := make(map[string]string, len(md))
+	for k, v := range md {
+		if isSensitiveHeader(k) {
+			continue
+		}
+		headers[k] = strings.Join(v, ",")
+	}
+	return headers
 }
 
 // isSensitiveHeader reports whether a metadata key should be excluded from

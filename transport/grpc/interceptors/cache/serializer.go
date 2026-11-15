@@ -16,9 +16,9 @@ import (
 // Serializer handles serialization and deserialization of response data with method-specific compression support.
 type Serializer interface {
 	// MarshalForMethod serializes a response with method-specific compression settings
-	MarshalForMethod(ctx context.Context, data any, methodConfig *MethodConfig) ([]byte, error)
+	MarshalForMethod(ctx context.Context, data any, methodPolicy *MethodPolicy) ([]byte, error)
 	// UnmarshalForMethod deserializes bytes with method-specific decompression settings
-	UnmarshalForMethod(ctx context.Context, data []byte, methodConfig *MethodConfig) (any, error)
+	UnmarshalForMethod(ctx context.Context, data []byte, methodPolicy *MethodPolicy) (any, error)
 }
 
 // DefaultSerializer provides the default serialization behavior using protobuf with method-specific compression support.
@@ -39,7 +39,7 @@ func NewDefaultSerializer(compressor compression.Compressor) *DefaultSerializer 
 // MarshalForMethod serializes a response with method-specific compression settings.
 // If the method configuration specifies compression, it uses the method's Compressor.
 // Otherwise, it falls back to the default serializer's Compressor.
-func (s *DefaultSerializer) MarshalForMethod(ctx context.Context, data any, methodConfig *MethodConfig) ([]byte, error) {
+func (s *DefaultSerializer) MarshalForMethod(ctx context.Context, data any, methodPolicy *MethodPolicy) ([]byte, error) {
 	if msg, ok := data.(proto.Message); ok {
 		data, err := proto.Marshal(msg)
 		if err != nil {
@@ -48,8 +48,8 @@ func (s *DefaultSerializer) MarshalForMethod(ctx context.Context, data any, meth
 
 		// Use method-specific Compressor if configured
 		compressor := s.compressor
-		if methodConfig.HasCompressor() {
-			compressor = methodConfig.Compressor()
+		if methodPolicy.HasCompressor() {
+			compressor = methodPolicy.Compressor()
 		}
 
 		// Apply compression
@@ -61,12 +61,12 @@ func (s *DefaultSerializer) MarshalForMethod(ctx context.Context, data any, meth
 // UnmarshalForMethod deserializes bytes with method-specific decompression settings.
 // If the method configuration specifies compression, it uses the method's Compressor.
 // Otherwise, it falls back to the default serializer's Compressor.
-func (s *DefaultSerializer) UnmarshalForMethod(ctx context.Context, data []byte, methodConfig *MethodConfig) (any, error) {
-	if msg, ok := methodConfig.ResponseProto.(proto.Message); ok {
+func (s *DefaultSerializer) UnmarshalForMethod(ctx context.Context, data []byte, methodPolicy *MethodPolicy) (any, error) {
+	if msg, ok := methodPolicy.ResponseProto.(proto.Message); ok {
 		// Use method-specific Compressor if configured
 		compressor := s.compressor
-		if methodConfig.HasCompressor() {
-			compressor = methodConfig.Compressor()
+		if methodPolicy.HasCompressor() {
+			compressor = methodPolicy.Compressor()
 		}
 
 		// Decompress data first

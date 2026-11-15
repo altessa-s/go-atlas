@@ -11,19 +11,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	internstrings "github.com/altessa-s/go-atlas/core/text/strings"
-	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
+	sharedlimiter "github.com/altessa-s/go-atlas/coord/limiters"
 	stdGrpc "google.golang.org/grpc"
 )
 
@@ -32,17 +31,14 @@ import (
 // these headers from the response metadata to implement adaptive backoff.
 var (
 	// RateLimitMetadataKey is the metadata key for the total request limit.
-	RateLimitMetadataKey = internstrings.InternString("x-ratelimit-limit")
+	RateLimitMetadataKey = intern.String("x-ratelimit-limit")
 	// RateLimitRemaining is the metadata key for remaining requests in the current window.
-	RateLimitRemaining = internstrings.InternString("x-ratelimit-remaining")
+	RateLimitRemaining = intern.String("x-ratelimit-remaining")
 	// RateLimitReset is the metadata key for the Unix timestamp when the limit resets.
-	RateLimitReset = internstrings.InternString("x-ratelimit-reset")
+	RateLimitReset = intern.String("x-ratelimit-reset")
 )
 
 const interceptorName = "limiter"
-
-// Limiter is an alias for [sharedlimiter.Limiter] from data/limiters.
-type Limiter = sharedlimiter.Limiter
 
 // Name returns the interceptor name used for dependency resolution and chain ordering.
 func Name() string { return interceptorName }
@@ -56,7 +52,7 @@ var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	limiter Limiter
+	limiter sharedlimiter.Limiter
 	opts    *options
 }
 
@@ -75,7 +71,7 @@ func (i *interceptor) RequiredDependencies() []string {
 }
 
 // ServerInterceptor returns a new interceptor that limits the rate of incoming requests.
-func ServerInterceptor(limiter Limiter, opt ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(limiter sharedlimiter.Limiter, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	return &interceptor{
@@ -91,19 +87,19 @@ func ServerInterceptor(limiter Limiter, opt ...Option) interceptors.ServerInterc
 }
 
 // ServerUnaryInterceptor returns a new unary server interceptor that limits the rate of incoming requests.
-func ServerUnaryInterceptor(limiter Limiter, opt ...Option) stdGrpc.UnaryServerInterceptor {
+func ServerUnaryInterceptor(limiter sharedlimiter.Limiter, opt ...Option) stdGrpc.UnaryServerInterceptor {
 	return ServerInterceptor(limiter, opt...).ServerUnaryInterceptor()
 }
 
 // ServerStreamInterceptor returns a new streaming server interceptor that limits the rate of incoming requests.
-func ServerStreamInterceptor(limiter Limiter, opt ...Option) stdGrpc.StreamServerInterceptor {
+func ServerStreamInterceptor(limiter sharedlimiter.Limiter, opt ...Option) stdGrpc.StreamServerInterceptor {
 	return ServerInterceptor(limiter, opt...).ServerStreamInterceptor()
 }
 
 // ServerUnaryInterceptor returns a new unary server interceptor that limits the rate of incoming requests.
 func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *stdGrpc.UnaryServerInfo, handler stdGrpc.UnaryHandler) (resp any, err error) {
-		md, err := i.rateLimit(ctx, i.InternMethod(info.FullMethod))
+		md, err := i.rateLimit(ctx, intern.String(info.FullMethod))
 		_ = stdGrpc.SetHeader(ctx, md) //nolint:errcheck
 		if err != nil {
 			return nil, err
@@ -115,7 +111,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 // ServerStreamInterceptor returns a new streaming server interceptor that limits the rate of incoming requests.
 func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor {
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) error {
-		md, err := i.rateLimit(stream.Context(), i.InternMethod(info.FullMethod))
+		md, err := i.rateLimit(stream.Context(), intern.String(info.FullMethod))
 		_ = stream.SetHeader(md) //nolint:errcheck
 		if err != nil {
 			return err
@@ -136,11 +132,11 @@ func (i *interceptor) rateLimit(ctx context.Context, method string) (metadata.MD
 	}
 
 	if ip := clientip.FromContext(ctx); ip.IsValid() {
-		ctx = tokenbucket.ContextWithClientIP(ctx, ip.String())
+		ctx = sharedlimiter.ContextWithClientIP(ctx, ip.String())
 	}
 
 	if token := extractBearerToken(ctx); token != "" {
-		ctx = tokenbucket.ContextWithAuthToken(ctx, token)
+		ctx = sharedlimiter.ContextWithAuthToken(ctx, token)
 	}
 
 	info, err := i.limiter.Limit(ctx)

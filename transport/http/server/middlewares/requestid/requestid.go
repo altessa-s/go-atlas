@@ -8,15 +8,15 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/altessa-s/go-atlas-net/httpx"
+	"github.com/altessa-s/go-atlas/internal/transport/requestid"
+	"github.com/altessa-s/go-atlas/internal/transport/validation"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-	"github.com/altessa-s/go-atlas/transport/internal/headers"
-	"github.com/altessa-s/go-atlas/transport/internal/requestid"
-	"github.com/altessa-s/go-atlas/transport/internal/validation"
 )
 
 // singleHeaderAdapter adapts HTTPHeaderGetter to requestid.HeaderGetter interface.
 type singleHeaderAdapter struct {
-	*headers.HTTPHeaderGetter
+	*httpx.HTTPHeaderGetter
 }
 
 // GetHeader returns the first value for the given header name.
@@ -51,11 +51,8 @@ func (m *middleware) Dependencies() []string { return nil }
 //  1. If a valid UUID v4 is present in the request header, it will be used
 //  2. If no header is present or the UUID is invalid:
 //     - If generateIfMissing is true (default): generate a new UUID v4
-//     - If generateIfMissing is false: no request ID will be set
+//     - If generateIfMissing is false: the request is rejected with 400 Bad Request
 //  3. The request ID is stored in the context and set in the response header
-//
-// This middleware never returns an error - invalid request IDs are simply
-// ignored and a new one is generated (if generateIfMissing is true).
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Skip OPTIONS requests
@@ -65,7 +62,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		// Extract existing ID from header using HeaderGetter and generate if needed
-		adapter := &singleHeaderAdapter{headers.NewHTTPHeaderGetter(request)}
+		adapter := &singleHeaderAdapter{httpx.NewHTTPHeaderGetter(request)}
 		reqID := m.gen.Extract(adapter)
 
 		// If generation is disabled and ID is missing or invalid, return 400

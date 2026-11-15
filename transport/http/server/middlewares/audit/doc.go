@@ -4,5 +4,6 @@
 
 // Package audit provides HTTP middleware that emits audit events for every
 // processed request. It captures method, path, status code, duration, and
-// caller identity via the [audit.Auditor] pipeline.
+// caller identity via the [EventEmitter] contract. The audit package's
+// Auditor implements that contract.
 package audit

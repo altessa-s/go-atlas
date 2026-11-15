@@ -13,7 +13,7 @@ import (
 
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
-	"github.com/altessa-s/go-atlas/transport/internal/requestid"
+	"github.com/altessa-s/go-atlas/internal/transport/requestid"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"

@@ -56,9 +56,3 @@ func TestAllCodes_AllHaveStrings(t *testing.T) {
 		require.NotEqual(t, "", s)
 	}
 }
-
-func BenchmarkCodeToString(b *testing.B) {
-	for b.Loop() {
-		CodeToString(codes.OK)
-	}
-}

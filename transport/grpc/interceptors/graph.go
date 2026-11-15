@@ -7,7 +7,7 @@ package interceptors
 import (
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/transport/internal/depgraph"
+	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 )
 
 // namedItem wraps an interceptor item for use with the generic depgraph package.

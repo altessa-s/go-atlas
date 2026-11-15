@@ -8,7 +8,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/audit"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
@@ -19,6 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 )
 
@@ -36,12 +38,20 @@ var _ interceptors.Interceptor = (*interceptor)(nil)
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	auditor *audit.Auditor
+	auditor EventEmitter
 	opts    *options
 }
 
+// EventEmitter is the audit event sink required by the gRPC interceptor.
+type EventEmitter interface {
+	Emit(*audit.Event) bool
+}
+
 // ServerInterceptor returns a gRPC server interceptor that audits calls.
-func ServerInterceptor(auditor *audit.Auditor, opts ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(auditor EventEmitter, opts ...Option) interceptors.ServerInterceptor {
+	if nilcheck.IsNil(auditor) {
+		auditor = nil
+	}
 	o := newOptions(opts...)
 	i := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
@@ -98,11 +108,15 @@ func (d *requestDriver) PostCall(ctx context.Context, _ any, err error) error {
 	if d.opts.actorExtractor != nil {
 		actor = d.opts.actorExtractor(ctx)
 	}
+	// The User-Agent, the method names and the status message are
+	// client-controlled or echo client input: cap what one call can write
+	// into the audit store.
+	actor.UserAgent = corestrings.TruncateBytes(actor.UserAgent, d.opts.maxUserAgentLength, TruncationSuffix)
 
 	var resourceType, resourcePath string
 	if d.meta != nil {
-		resourceType = d.meta.ServiceName
-		resourcePath = d.meta.FullyMethodName
+		resourceType = corestrings.TruncateBytes(d.meta.ServiceName, d.opts.maxMethodLength, TruncationSuffix)
+		resourcePath = corestrings.TruncateBytes(d.meta.FullyMethodName, d.opts.maxMethodLength, TruncationSuffix)
 	}
 
 	info := audit.RequestInfo{
@@ -120,7 +134,9 @@ func (d *requestDriver) PostCall(ctx context.Context, _ any, err error) error {
 	}
 
 	event := audit.BuildTransportEvent(info, func() audit.Result {
-		return classifyGRPCStatus(err)
+		result := classifyGRPCStatus(err)
+		result.Message = corestrings.TruncateBytes(result.Message, d.opts.maxMessageLength, TruncationSuffix)
+		return result
 	})
 
 	d.auditor.Emit(event)

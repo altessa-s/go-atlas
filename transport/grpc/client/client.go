@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/time/timeformat"
+	"github.com/altessa-s/go-atlas-core/time/timeformat"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
@@ -24,9 +24,9 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	corecontext "github.com/altessa-s/go-atlas/core/context"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	grpcinterceptors "github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	grpcerrstatus "github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	grpclogger "github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
@@ -212,13 +212,6 @@ func (c *Client) QueryTimeout() time.Duration {
 	return c.options.queryTimeout
 }
 
-// ApplyTimeout derives a context with the given timeout unless one is already set.
-// When timeout is zero or the context already carries a deadline, the original context
-// is returned. The caller must always call the returned cancel function.
-func (c *Client) ApplyTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	return corecontext.ApplyTimeout(ctx, timeout)
-}
-
 // ApplyMutationTimeout applies the mutation timeout to the context.
 func (c *Client) ApplyMutationTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return corecontext.ApplyTimeout(ctx, c.options.mutationTimeout)
@@ -264,22 +257,22 @@ func (c *Client) buildServiceConfig() string {
 		healthCheck = healthCheckServiceConfig
 	}
 
-	if !c.options.enableRetry || c.options.retryConfig == nil {
+	if !c.options.enableRetry || c.options.retryOptions == nil {
 		return "{" + healthCheck + "\n}"
 	}
 
 	if healthCheck != "" {
 		healthCheck += ","
 	}
-	cfg := c.options.retryConfig
+	cfg := c.options.retryOptions
 	return fmt.Sprintf(retryConfigTemplate,
 		healthCheck,
-		(time.Duration(cfg.MaxAttempts) * cfg.MaxBackoff).String(),
-		cfg.MaxAttempts,
-		cfg.InitialBackoff.String(),
-		cfg.MaxBackoff.String(),
-		cfg.BackoffMultiplier,
-		joinStatusCodes(cfg.RetryableStatusCodes),
+		(time.Duration(cfg.maxAttempts) * cfg.maxBackoff).String(),
+		cfg.maxAttempts,
+		cfg.initialBackoff.String(),
+		cfg.maxBackoff.String(),
+		cfg.backoffMultiplier,
+		joinStatusCodes(cfg.statusCodes),
 	)
 }
 

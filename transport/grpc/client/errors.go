@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 // FieldError represents a validation error for a specific field.

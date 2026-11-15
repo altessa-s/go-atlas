@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
-	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
 
@@ -23,32 +23,32 @@ import (
 )
 
 type fakeValidator struct {
-	claims *oidc.Claims
+	claims *authoidc.Claims
 	err    error
 }
 
-func (f fakeValidator) ValidateToken(_ context.Context, _ string) (*oidc.Claims, error) {
+func (f fakeValidator) ValidateToken(_ context.Context, _ string) (*authoidc.Claims, error) {
 	return f.claims, f.err
 }
 
 type capSink struct {
-	got []audit.Decision
+	got []decision.Decision
 	err error
 }
 
-func (s *capSink) Record(_ context.Context, d audit.Decision) error {
+func (s *capSink) Record(_ context.Context, d decision.Decision) error {
 	s.got = append(s.got, d)
 	return s.err
 }
 
 func tokenReq(token string) auth.Request {
 	return auth.Request{
-		Base:    auth.Base{AuthMethod: auth.MethodToken},
-		Payload: &auth.TokenCredentials{Token: redacted.RedactedString(token)},
+		AuthMethod: auth.MethodToken,
+		Payload:    &auth.TokenCredentials{Token: redacted.RedactedString(token)},
 	}
 }
 
-func subjectOfClaims(c *oidc.Claims) string { return c.Subject }
+func subjectOfClaims(c *authoidc.Claims) string { return c.Subject }
 
 func TestAuditRecordsDecisions(t *testing.T) {
 	t.Parallel()
@@ -63,7 +63,7 @@ func TestAuditRecordsDecisions(t *testing.T) {
 	}{
 		{
 			name:        "success",
-			validator:   fakeValidator{claims: &oidc.Claims{Subject: "user1"}},
+			validator:   fakeValidator{claims: &authoidc.Claims{Subject: "user1"}},
 			request:     tokenReq("valid-token"),
 			wantAllowed: true,
 			wantReason:  "",
@@ -107,7 +107,7 @@ func TestAuditRecordsDecisions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			sink := &capSink{}
-			rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll))
+			rec := decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll))
 			fn := oidc.AuthFunc(tc.validator, oidc.WithAudit(rec, subjectOfClaims))
 
 			_, _ = fn(t.Context(), tc.request)
@@ -128,8 +128,8 @@ func TestAuditNilSubjectOf(t *testing.T) {
 	t.Parallel()
 
 	sink := &capSink{}
-	rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll))
-	fn := oidc.AuthFunc(fakeValidator{claims: &oidc.Claims{Subject: "user1"}}, oidc.WithAudit(rec, nil))
+	rec := decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll))
+	fn := oidc.AuthFunc(fakeValidator{claims: &authoidc.Claims{Subject: "user1"}}, oidc.WithAudit(rec, nil))
 
 	_, err := fn(t.Context(), tokenReq("valid-token"))
 	require.NoError(t, err)
@@ -141,8 +141,8 @@ func TestAuditDenyOnlyDropsAllows(t *testing.T) {
 	t.Parallel()
 
 	sink := &capSink{}
-	rec := audit.NewRecorder(sink) // default PolicyDenyOnly
-	fn := oidc.AuthFunc(fakeValidator{claims: &oidc.Claims{Subject: "user1"}}, oidc.WithAudit(rec, subjectOfClaims))
+	rec := decision.NewRecorder(sink) // default PolicyDenyOnly
+	fn := oidc.AuthFunc(fakeValidator{claims: &authoidc.Claims{Subject: "user1"}}, oidc.WithAudit(rec, subjectOfClaims))
 
 	_, err := fn(t.Context(), tokenReq("valid-token"))
 	require.NoError(t, err)
@@ -153,8 +153,8 @@ func TestAuditRequiredFailureFailsAllowedCall(t *testing.T) {
 	t.Parallel()
 
 	sink := &capSink{err: errors.New("sink down")}
-	rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll), audit.WithFailureMode(audit.FailureRequired))
-	fn := oidc.AuthFunc(fakeValidator{claims: &oidc.Claims{Subject: "user1"}}, oidc.WithAudit(rec, subjectOfClaims))
+	rec := decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll), decision.WithFailureMode(decision.FailureRequired))
+	fn := oidc.AuthFunc(fakeValidator{claims: &authoidc.Claims{Subject: "user1"}}, oidc.WithAudit(rec, subjectOfClaims))
 
 	_, err := fn(t.Context(), tokenReq("valid-token"))
 	require.Equal(t, codes.Internal, status.Code(err))

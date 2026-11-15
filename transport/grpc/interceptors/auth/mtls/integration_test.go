@@ -13,8 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/spiffe"
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/mtls"
-	"github.com/altessa-s/go-atlas/transport/internal/mtlstest"
+	"github.com/altessa-s/go-atlas/internal/transport/mtlstest"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -68,7 +67,7 @@ func TestAuthFuncRealHandshake(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	authFn := mtls.AuthFunc(coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")))
+	authFn := mustAuthFunc(t, coremtls.WithTrustDomains("example.org"))
 	authInterceptor := func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		principal, err := authFn(ctx, authgrpc.Request{})
 		if err != nil {

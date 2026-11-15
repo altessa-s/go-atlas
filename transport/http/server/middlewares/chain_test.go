@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/internal/depgraph"
+	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 )
 
 func TestNewChain(t *testing.T) {

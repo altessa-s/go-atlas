@@ -7,13 +7,13 @@ package serviceinfo
 import (
 	"context"
 
-	_ "github.com/altessa-s/go-atlas/core/runtime/appinfo"
+	_ "github.com/altessa-s/go-atlas-core/runtime/appinfo"
 )
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 // LeaderProvider is the consumer-side contract for leader-election state.
-// The method names match data/leadelect.Leader so that *leadelect.Leader
+// The method names match coord/leadelect.Leader so that *leadelect.Leader
 // satisfies this interface as-is, with no adapter required. Custom
 // implementations (Raft, etcd, external coordinator) can be supplied
 // through [WithLeaderProvider].
@@ -21,7 +21,7 @@ type LeaderProvider interface {
 	// IsLeader reports whether this instance currently holds leadership.
 	IsLeader() bool
 	// LeaderId returns the identifier of the current leader. The spelling
-	// LeaderId (not LeaderID) is intentional: it mirrors data/leadelect.Leader
+	// LeaderId (not LeaderID) is intentional: it mirrors coord/leadelect.Leader
 	// so that type satisfies the interface natively.
 	LeaderId(ctx context.Context) (string, error)
 }
@@ -32,7 +32,7 @@ type LeaderProvider interface {
 //
 // It is deliberately separate from LeaderProvider, and unexported, so existing
 // implementations stay source-compatible — the same reasoning as
-// providers.Prober in data/locks/dlock. [Handler.Snapshot] type-asserts for it
+// providers.Prober in coord/dlock. [Handler.Snapshot] type-asserts for it
 // and falls back to the two-method path when it is absent.
 //
 // It exists because LeaderProvider.IsLeader takes no context. For an

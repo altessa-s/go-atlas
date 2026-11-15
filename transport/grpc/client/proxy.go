@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/altessa-s/go-atlas/transport/proxydial"
+	"github.com/altessa-s/go-atlas-net/proxydial"
 )
 
 // dialFunc is the dialer signature grpc.WithContextDialer expects.
@@ -32,7 +32,7 @@ type dialFunc = func(ctx context.Context, addr string) (net.Conn, error)
 //
 // Resolver errors surface from the dialer call itself; this function
 // never returns an error eagerly. Mirror of
-// [transport/http/client.proxyAwareDialer].
+// [net/http/client.proxyAwareDialer].
 func proxyDialer(proxyFn ProxyFunc, tlsCfg *tls.Config) dialFunc {
 	base := proxydial.DefaultDialer()
 	return func(ctx context.Context, addr string) (net.Conn, error) {

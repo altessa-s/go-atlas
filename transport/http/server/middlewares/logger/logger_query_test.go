@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	slogx "github.com/altessa-s/go-slogx"
 )
 
 // queryField runs one request through the middleware and returns the

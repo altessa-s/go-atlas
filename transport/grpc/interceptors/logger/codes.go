@@ -5,7 +5,7 @@
 package logger
 
 import (
-	"github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 
 	"google.golang.org/grpc/codes"
 )
@@ -33,7 +33,7 @@ var internedCodes = func() map[codes.Code]string {
 		codes.DataLoss,
 		codes.Unauthenticated,
 	} {
-		m[code] = strings.InternString(code.String())
+		m[code] = intern.String(code.String())
 	}
 	return m
 }()
@@ -66,5 +66,5 @@ func InternedCodeString(code codes.Code) string {
 	if s, ok := internedCodes[code]; ok {
 		return s
 	}
-	return strings.InternString(code.String())
+	return intern.String(code.String())
 }

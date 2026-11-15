@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/requesti
 ```
 
 Package `requestid` provides middleware for UUID v4 request ID extraction or generation. The request ID is read from the incoming request header
-(configurable, defaults to `Request-ID`). If the header is missing or contains an invalid UUID and generation is enabled, a new UUID v4 is generated;
+(configurable, defaults to `X-Request-ID`). If the header is missing or contains an invalid UUID and generation is enabled, a new UUID v4 is generated;
 when generation is disabled, such requests are rejected with 400 Bad Request. The ID is stored in the request context (retrievable via `FromContext`)
 and echoed in the response header. OPTIONS requests are always passed through without processing.
 

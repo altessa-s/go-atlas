@@ -35,7 +35,8 @@
 //
 // # Health integration
 //
-// Pass [WithHealthCoordinator] to register an aggregate [health.Checker]
+// Pass a [health.DynamicReporter] (typically a [health.Coordinator]) via
+// [WithHealthCoordinator] to register an aggregate [health.Checker]
 // reporting the worst per-target status across the pool. When
 // [WithHealthPerTarget] is set, a `<service>.<target>` checker is
 // registered lazily on the first conn for a target and removed when its

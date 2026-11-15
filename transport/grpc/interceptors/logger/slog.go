@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/grpc/codes"
 
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	slogx "github.com/altessa-s/go-slogx"
 )
 
 // Slog returns a [Logger] that writes through the provided [slog.Logger].
@@ -20,7 +20,7 @@ import (
 //   - Warn: DeadlineExceeded, NotFound, AlreadyExists, ResourceExhausted, Aborted, OutOfRange
 //   - Error: all other codes (Unknown, InvalidArgument, Internal, Unavailable, etc.)
 //
-// Duplicate fields are deduplicated via [slogx.FieldsToAttrs] before emission.
+// Duplicate fields are deduplicated via [slogx.Fields.Grouped] before emission.
 //
 // The returned logger also implements [LevelChecker], letting the
 // interceptor skip field building for calls whose mapped level the handler
@@ -37,7 +37,7 @@ type slogLogger struct {
 
 // Log implements [Logger].
 func (s slogLogger) Log(ctx context.Context, msg string, grpcCode codes.Code, fields slogx.Fields) {
-	attrs := slogx.FieldsToAttrs(fields)
+	attrs := fields.Grouped()
 	s.l.LogAttrs(ctx, grpcCodeToLevel(grpcCode), msg, attrs...)
 }
 

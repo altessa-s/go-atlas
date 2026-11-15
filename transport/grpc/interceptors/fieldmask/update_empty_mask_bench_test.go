@@ -29,7 +29,7 @@ import (
 // synthesis path on a resource with a populated sub-message holding an
 // identifier and an OUTPUT_ONLY field, and populated collections.
 func BenchmarkServerInterceptor_EmptyUpdateMask_Nested(b *testing.B) {
-	uni := fieldmask.ServerInterceptor(fieldmask.WithApplyEmptyUpdateMask()).ServerUnaryInterceptor()
+	uni := fieldmask.ServerInterceptor().ServerUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/x.v1.X/UpdateResource"}
 	handler := func(_ context.Context, _ any) (any, error) { return &pb.Resource{}, nil }
 
@@ -112,7 +112,7 @@ func BenchmarkServerInterceptor_EmptyUpdateMask_Recursive(b *testing.B) {
 		return req
 	}
 
-	uni := fieldmask.ServerInterceptor(fieldmask.WithApplyEmptyUpdateMask()).ServerUnaryInterceptor()
+	uni := fieldmask.ServerInterceptor().ServerUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/x.v1.X/UpdateNode"}
 	var seen proto.Message
 	handler := func(_ context.Context, r any) (any, error) {

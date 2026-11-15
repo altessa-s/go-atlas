@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/secure"
+	"github.com/altessa-s/go-atlas/internal/transport/authprincipal"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
 const middlewareName = "auth"
@@ -67,9 +67,9 @@ func Middleware(opt ...Option) func(http.Handler) http.Handler {
 // Handler wraps an http.Handler with authentication.
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := m.InternPath(r.URL.Path)
+		path := r.URL.Path
 
-		if m.ShouldIgnore(path) {
+		if m.ShouldIgnoreRequest(r) {
 			m.LogIgnored(r.Context(), path)
 			next.ServeHTTP(w, r)
 			return
@@ -81,8 +81,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), authContextKey, data)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r.WithContext(ContextWithPrincipal(r.Context(), data)))
 	})
 }
 
@@ -145,8 +144,13 @@ func (m *middleware) handleAuthError(w http.ResponseWriter, r *http.Request, err
 // establish the principal outside the token flow — for example the mTLS
 // middleware, which derives it from the client certificate — use it to install
 // their result so downstream authorization (e.g. [ScopeMiddleware]) sees it.
+//
+// When principal is a [github.com/altessa-s/go-atlas/auth/principal.Principal]
+// (or a non-nil pointer to one), or maps itself onto one as *oidc.Claims does,
+// it is also stored through the principal package, so handlers read it with
+// principal.FromContext regardless of transport.
 func ContextWithPrincipal(ctx context.Context, principal any) context.Context {
-	return context.WithValue(ctx, authContextKey, principal)
+	return authprincipal.Bridge(context.WithValue(ctx, authContextKey, principal), principal)
 }
 
 // FromContext extracts authentication data from the context.
@@ -170,7 +174,7 @@ func MustFromContext(ctx context.Context) any {
 func ExtractBearerToken() TokenExtractor {
 	return ExtractTokenFromHeader("Authorization", func(value string) (string, error) {
 		const bearerPrefix = "bearer "
-		if corestrings.TimingSafePrefixMatch(value, bearerPrefix) {
+		if secure.PrefixMatch(value, bearerPrefix) {
 			return strings.TrimSpace(value[len(bearerPrefix):]), nil
 		}
 		return "", ErrInvalidToken

@@ -20,7 +20,7 @@ func benchNoopInvoker(_ context.Context, _ string, _, _ any, _ *grpc.ClientConn,
 
 func BenchmarkUnaryClientInterceptor_Stamps(b *testing.B) {
 	interceptor := idempotency.UnaryClientInterceptor()
-	ctx := idempotency.WithOperation(context.Background(), "op-42")
+	ctx := idempotency.WithOperation(b.Context(), "op-42")
 
 	b.ReportAllocs()
 	for b.Loop() {
@@ -30,7 +30,7 @@ func BenchmarkUnaryClientInterceptor_Stamps(b *testing.B) {
 
 func BenchmarkUnaryClientInterceptor_NoSeed(b *testing.B) {
 	interceptor := idempotency.UnaryClientInterceptor()
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.ReportAllocs()
 	for b.Loop() {
@@ -40,7 +40,7 @@ func BenchmarkUnaryClientInterceptor_NoSeed(b *testing.B) {
 
 func BenchmarkUnaryClientInterceptor_ExplicitKey(b *testing.B) {
 	interceptor := idempotency.UnaryClientInterceptor()
-	ctx := metadata.AppendToOutgoingContext(context.Background(),
+	ctx := metadata.AppendToOutgoingContext(b.Context(),
 		idempotency.DefaultIdempotencyKeyHeader, "11111111-1111-4111-8111-111111111111",
 	)
 	ctx = idempotency.WithOperation(ctx, "op-42")

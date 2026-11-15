@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
+	"github.com/altessa-s/go-aip/fieldbehavior"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -42,7 +42,7 @@ func sanitizeResponse(data any, maxDepth int) (any, error) {
 
 	// Detect populated INPUT_ONLY fields without mutating the original: strict
 	// mode leaves msg intact and reports violations instead of clearing them.
-	err := fieldbehavior.StripResponse(msg, fieldbehavior.WithStrict(), fieldbehavior.WithMaxDepth(maxDepth))
+	err := fieldbehavior.StripResponse(msg, fieldbehavior.WithStrict(true), fieldbehavior.WithMaxDepth(maxDepth))
 	if err == nil {
 		return data, nil
 	}

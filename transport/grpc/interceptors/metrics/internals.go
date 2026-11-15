@@ -4,13 +4,6 @@
 
 package metrics
 
-import (
-	"fmt"
-	"slices"
-
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-)
-
 // Metric label names used by the interceptor. Compile-time constants;
 // the Go runtime points all references at the same backing string so no
 // runtime interning is required for these short keys.
@@ -43,26 +36,6 @@ var (
 	}
 )
 
-// validateBuckets checks that buckets is non-empty and in strictly
-// increasing order. name identifies which bucket set failed validation.
-func validateBuckets(buckets []float64, name string) error {
-	if len(buckets) == 0 {
-		return fmt.Errorf("%s buckets cannot be empty", name)
-	}
-	if !coreslices.IsStrictlyIncreasing(buckets) {
-		return fmt.Errorf("%s buckets must be in strictly increasing order: %v", name, buckets)
-	}
-	return nil
-}
-
-// mustValidateBuckets panics if buckets fails validation. Used by
-// option setters where invalid buckets are a programming error.
-func mustValidateBuckets(buckets []float64, name string) {
-	if err := validateBuckets(buckets, name); err != nil {
-		panic(err)
-	}
-}
-
 // getMessageSize extracts the serialized byte size of msg by probing
 // known sizing interfaces:
 //
@@ -86,7 +59,3 @@ func getMessageSize(msg any) (int, bool) {
 	}
 	return 0, false
 }
-
-// cloneBuckets returns a defensive copy of buckets. Wraps stdlib
-// [slices.Clone] for clarity at call sites.
-func cloneBuckets(buckets []float64) []float64 { return slices.Clone(buckets) }

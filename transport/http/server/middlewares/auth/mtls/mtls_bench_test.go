@@ -12,13 +12,13 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
+	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 )
 
 func BenchmarkMiddleware(b *testing.B) {
 	u, _ := url.Parse("spiffe://example.org/sa/billing")
 	cert := &x509.Certificate{URIs: []*url.URL{u}}
-	handler := mtls.Middleware()(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	handler := mustMiddleware(b, coremtls.WithTrustDomains("example.org"))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{cert}}}
 

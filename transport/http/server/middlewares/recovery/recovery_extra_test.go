@@ -61,6 +61,27 @@ func TestPanicRecover_IgnorePaths_NoPanic(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr2.Code)
 }
 
+// TestPanicRecover_NoDefaultIgnore pins that recovery covers every path by
+// default, including health, metrics, and pprof endpoints.
+func TestPanicRecover_NoDefaultIgnore(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"/healthz", "/metrics", "/debug/pprof/heap", "/users/metrics"} {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			inner := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") })
+			rr := httptest.NewRecorder()
+
+			require.NotPanics(t, func() {
+				recovery.PanicRecover(slog.New(slog.DiscardHandler))(inner).
+					ServeHTTP(rr, httptest.NewRequest(http.MethodGet, path, nil))
+			})
+			require.Equal(t, http.StatusInternalServerError, rr.Code)
+		})
+	}
+}
+
 func TestPanicRecover_NilLogger(t *testing.T) {
 	// Should not panic with nil logger
 	handler := recovery.PanicRecover(nil)

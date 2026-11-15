@@ -5,10 +5,13 @@
 package errstatus
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"google.golang.org/grpc/status"
 )
 
 func TestWithDomain(t *testing.T) {
@@ -33,22 +36,44 @@ func TestWithDomain(t *testing.T) {
 	}
 }
 
+func TestMigratedConverterOptionsAppendAtApplicationTime(t *testing.T) {
+	first := ErrorConverter{}
+	second := ErrorConverter{Matcher: func(context.Context, error) bool { return true }}
+	errorInput := []ErrorConverter{first}
+	errorOption := WithErrorConverters(errorInput...)
+	errorInput[0] = second
+	errorOptions := &options{errorConverters: []ErrorConverter{first}}
+	errorOption(errorOptions)
+	require.Len(t, errorOptions.errorConverters, 2)
+	require.NotNil(t, errorOptions.errorConverters[1].Matcher, "WithErrorConverters did not append the value present at apply time")
+	errorInput[0] = first
+	require.NotNil(t, errorOptions.errorConverters[1].Matcher, "mutating input after applying changed stored converters")
+	WithErrorConverters()(errorOptions)
+	require.Len(t, errorOptions.errorConverters, 2)
+
+	statusInput := []StatusConverter{{}}
+	statusOption := WithStatusConverters(statusInput...)
+	statusInput[0] = StatusConverter{Matcher: func(context.Context, *status.Status) bool { return true }}
+	statusOptions := &options{statusConverter: []StatusConverter{{}}}
+	statusOption(statusOptions)
+	require.Len(t, statusOptions.statusConverter, 2)
+	require.NotNil(t, statusOptions.statusConverter[1].Matcher)
+	statusInput[0] = StatusConverter{}
+	require.NotNil(t, statusOptions.statusConverter[1].Matcher)
+	WithStatusConverters()(statusOptions)
+	require.Len(t, statusOptions.statusConverter, 2)
+}
+
 func TestDefaultOptions(t *testing.T) {
 	opts := defaultOptions()
 	require.Equal(t, DefaultCacheSize, opts.cacheSize)
 	require.NotNil(t, opts.logger, "logger should not be nil")
 	require.False(t, opts.cacheDisabled, "cacheDisabled should be false by default")
-	require.False(t, opts.cacheOnlySentinel, "cacheOnlySentinel should be false by default")
 }
 
 func TestWithCacheDisabled(t *testing.T) {
 	opts := newOptions(WithCacheDisabled())
 	require.True(t, opts.cacheDisabled, "cacheDisabled should be true")
-}
-
-func TestWithCacheOnlySentinel(t *testing.T) {
-	opts := newOptions(WithCacheOnlySentinel())
-	require.True(t, opts.cacheOnlySentinel, "cacheOnlySentinel should be true")
 }
 
 func TestWithCacheSize(t *testing.T) {
@@ -67,11 +92,6 @@ func TestWithLogger(t *testing.T) {
 		opts := newOptions(WithLogger(l))
 		require.Equal(t, l, opts.logger)
 	})
-}
-
-func TestWithSentinelErrors_Empty_Ignored(t *testing.T) {
-	opts := newOptions(WithSentinelErrors())
-	require.Len(t, opts.sentinelErrors, 0)
 }
 
 func TestWithFinalizer(t *testing.T) {

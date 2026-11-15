@@ -12,7 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 // Router wraps gorilla/mux.Router to implement router.Router interface.

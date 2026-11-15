@@ -14,9 +14,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
-	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
+	sharedlimiter "github.com/altessa-s/go-atlas/coord/limiters"
 )
 
 type mockLimiter struct {
@@ -61,6 +61,34 @@ func TestMiddleware_RateLimited(t *testing.T) {
 
 	require.False(t, called, "handler should not be called")
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+}
+
+// TestMiddleware_NoDefaultIgnore pins that the limiter exempts nothing unless
+// the caller configures it: infrastructure-looking paths, nested or not, are
+// rate limited like any other route.
+func TestMiddleware_NoDefaultIgnore(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"/users/metrics", "/x/pprof/y", "/admin/healthz", "/healthz", "/metrics"} {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			lim := &mockLimiter{
+				info: &sharedlimiter.LimitInfo{Limit: 100, Remaining: 0, Reset: 60},
+				err:  sharedlimiter.ErrLimitExceeded,
+			}
+			called := false
+			handler := Middleware(lim)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				called = true
+			}))
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
+
+			require.False(t, called, "path %q must not bypass the rate limiter", path)
+			require.Equal(t, http.StatusTooManyRequests, rec.Code)
+		})
+	}
 }
 
 func TestMiddleware_FallbackAllow(t *testing.T) {

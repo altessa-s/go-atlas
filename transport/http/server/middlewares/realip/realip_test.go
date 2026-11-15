@@ -12,18 +12,18 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
 )
 
 func TestFromContext_Empty(t *testing.T) {
-	ip := FromContext(t.Context())
+	ip := clientip.FromContext(t.Context())
 	require.False(t, ip.IsValid(), "expected invalid addr")
 }
 
 func TestNewContext_FromContext(t *testing.T) {
 	addr := netip.MustParseAddr("10.0.0.1")
-	ctx := NewContext(t.Context(), addr)
-	got := FromContext(ctx)
+	ctx := clientip.NewContext(t.Context(), addr)
+	got := clientip.FromContext(ctx)
 	require.Equal(t, addr, got)
 }
 
@@ -33,7 +33,7 @@ func TestMiddleware(t *testing.T) {
 
 	var gotIP netip.Addr
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotIP = FromContext(r.Context())
+		gotIP = clientip.FromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 

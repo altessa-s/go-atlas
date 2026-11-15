@@ -4,7 +4,7 @@
 
 package auth
 
-import "github.com/altessa-s/go-atlas/core/types/redacted"
+import "github.com/altessa-s/go-atlas-core/types/redacted"
 
 // TokenCredentials contains authentication fields specific to token-based authentication.
 // This struct is used to pass token data from the token extractor to the auth function,

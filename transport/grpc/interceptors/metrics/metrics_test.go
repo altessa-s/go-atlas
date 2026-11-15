@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,14 +33,14 @@ func TestGetStatusCode(t *testing.T) {
 	}
 }
 func TestServerInterceptor_WithCustomCollector(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
-	i := ServerInterceptor(WithCollector(tc))
+	tc := metricstest.NewTestCollector()
+	i := ServerInterceptor(WithMeter(tc))
 	require.NotNil(t, i, "should not be nil")
 	require.Equal(t, "metrics", i.Name())
 }
 func TestServerInterceptor_Dependencies(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
-	i, _ := ServerInterceptor(WithCollector(tc)).(*serverInterceptorWrapper) //nolint:errcheck
+	tc := metricstest.NewTestCollector()
+	i, _ := ServerInterceptor(WithMeter(tc)).(*serverInterceptorWrapper) //nolint:errcheck
 	deps := i.Dependencies()
 	require.Len(t, deps, 1)
 	require.Equal(t, "metadata", deps[0])
@@ -50,13 +50,13 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 // two interceptors with distinct subsystems can register against the same
 // Prometheus registry without panicking on duplicate metric registration —
 // the bug that motivated the move from singleton + raw Registerer to
-// metrics.Collector + WithMetricsSubsystem.
+// metrics.Meter + WithMetricsSubsystem.
 func TestServerInterceptor_TwoSubsystemsShareCollector(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
+	tc := metricstest.NewTestCollector()
 
 	require.NotPanics(t, func() {
-		_ = ServerInterceptor(WithCollector(tc), WithMetricsSubsystem("egrul"))
-		_ = ServerInterceptor(WithCollector(tc), WithMetricsSubsystem("kfocus"))
+		_ = ServerInterceptor(WithMeter(tc), WithMetricsSubsystem("egrul"))
+		_ = ServerInterceptor(WithMeter(tc), WithMetricsSubsystem("kfocus"))
 	})
 }
 
@@ -64,16 +64,18 @@ func TestServerInterceptor_TwoSubsystemsShareCollector(t *testing.T) {
 // dedupes by name: calling ServerInterceptor twice with the same collector
 // and same subsystem reuses the existing metric vectors without panic.
 func TestServerInterceptor_SameSubsystemReusesMetrics(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
+	tc := metricstest.NewTestCollector()
 
 	require.NotPanics(t, func() {
-		_ = ServerInterceptor(WithCollector(tc))
-		_ = ServerInterceptor(WithCollector(tc))
+		_ = ServerInterceptor(WithMeter(tc))
+		_ = ServerInterceptor(WithMeter(tc))
 	})
 }
-func BenchmarkGetStatusCode(b *testing.B) {
-	err := status.Error(codes.NotFound, "not found")
-	for b.Loop() {
-		getStatusCode(err)
-	}
+
+// TestServerInterceptor_WithoutCollector pins the safe no-op default:
+// omitting WithMeter must not panic.
+func TestServerInterceptor_WithoutCollector(t *testing.T) {
+	t.Parallel()
+
+	require.NotPanics(t, func() { ServerInterceptor() })
 }

@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 )
 
 // Pre-computed interned strings for common HTTP status codes.
@@ -81,7 +81,7 @@ var internedStatusCodes = func() map[int]string {
 
 	m := make(map[int]string, len(codes))
 	for _, code := range codes {
-		m[code] = strings.InternString(strconv.Itoa(code))
+		m[code] = intern.String(strconv.Itoa(code))
 	}
 	return m
 }()
@@ -129,10 +129,10 @@ var DefaultLogStatusCodesSet = func() map[int]struct{} {
 
 // InternedStatusString returns the interned string representation of an HTTP
 // status code. Common codes are pre-computed at init time; unknown codes
-// are interned on first use via [strings.InternString].
+// are interned on first use via [intern.String].
 func InternedStatusString(code int) string {
 	if s, ok := internedStatusCodes[code]; ok {
 		return s
 	}
-	return strings.InternString(strconv.Itoa(code))
+	return intern.String(strconv.Itoa(code))
 }

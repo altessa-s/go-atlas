@@ -4,12 +4,13 @@
 
 package writer
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
+	"github.com/altessa-s/go-aip/fieldbehavior"
+
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
 )
 

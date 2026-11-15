@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
+	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/transport/grpc/handlers/serviceinfo"
 
 	serviceinfov1 "github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1"

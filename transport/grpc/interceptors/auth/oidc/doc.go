@@ -2,29 +2,25 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package oidc provides OIDC (OpenID Connect) token validation support for the auth interceptor.
-// It integrates with OIDC providers to validate JWT tokens and extract standard OIDC claims.
+// Package oidc plugs OIDC (OpenID Connect) token validation into the gRPC auth
+// interceptor.
 //
-// # Overview
-//
-// This package bridges the gap between the auth interceptor and OIDC providers, providing:
-//   - Token validation against OIDC providers
-//   - Structured claim extraction from JWT tokens
-//   - Integration with the auth.AuthFunc interface
+// The package is a thin adapter over
+// [github.com/altessa-s/go-atlas/auth/oidc]: token verification lives in
+// oidc.Provider, and the transport-neutral claims model ([oidc.Claims]) and
+// claim extraction ([oidc.Validator]) live there too, shared with the HTTP
+// middleware adapter. [AuthFunc] only runs an [oidc.ClaimsValidator] against
+// the request's bearer token and maps every validation failure to a
+// codes.Unauthenticated status.
 //
 // # Basic Usage
-//
-// Create an auth function that validates OIDC tokens:
 //
 //	import (
 //	    authoidc "github.com/altessa-s/go-atlas/auth/oidc"
 //	    "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
-//	    "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
-//	    "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc/validator"
+//	    grpcoidc "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
 //	)
 //
-//	// Setup the OIDC provider (github.com/altessa-s/go-atlas/auth/oidc); it
-//	// satisfies validator.Provider.
 //	provider, err := authoidc.NewProvider(ctx,
 //	    "https://auth.example.com/realms/myrealm/.well-known/openid-configuration",
 //	    authoidc.WithHTTPClient(httpclient.New()),
@@ -38,13 +34,8 @@
 //	}
 //	defer provider.Close()
 //
-//	// Create validator
-//	oidcValidator := validator.NewDefaultValidator(provider)
+//	authFunc := grpcoidc.AuthFunc(authoidc.NewValidator(provider))
 //
-//	// Create auth function
-//	authFunc := oidc.AuthFunc(oidcValidator)
-//
-//	// Use with gRPC server
 //	server := grpc.NewServer(
 //	    grpc.UnaryInterceptor(auth.ServerUnaryInterceptor(
 //	        auth.WithAuthFn(authFunc),
@@ -53,111 +44,65 @@
 //
 // # Accessing Claims in Handlers
 //
-// After successful authentication, OIDC claims are available in the context:
+// After successful authentication, the verified *oidc.Claims are the
+// credentials' Data:
 //
 //	func (s *MyService) GetUser(ctx context.Context, req *GetUserRequest) (*User, error) {
 //	    creds, ok := auth.CredentialsFromContext(ctx)
 //	    if !ok {
 //	        return nil, status.Error(codes.Unauthenticated, "no credentials")
 //	    }
-//
-//	    // The verified *Claims are stored in the Data field
-//	    claims, ok := creds.Data.(*oidc.Claims)
+//	    claims, ok := creds.Data.(*authoidc.Claims)
 //	    if !ok {
 //	        return nil, status.Error(codes.Unauthenticated, "unexpected credentials type")
 //	    }
-//	    subject := claims.Subject
-//	    email := claims.Email
-//
-//	    return s.getUserBySubject(subject)
+//	    return s.getUserBySubject(claims.Subject)
 //	}
+//
+// The interceptor also stores the caller as the canonical principal mapped by
+// oidc.Claims.Principal (default "tenant" and "roles" claims), so
+// transport-neutral code reads it the same way as for any other
+// authenticator:
+//
+//	p, ok := principal.FromContext(ctx)
 //
 // # Custom Validators
 //
-// Implement the Validator interface for custom validation logic:
+// Any [oidc.ClaimsValidator] works, for example a decorator adding checks
+// against the raw claim set:
 //
-//	type CustomValidator struct {
-//	    inner oidc.Validator // e.g. a *validator.DefaultValidator
-//	}
+//	type tenantValidator struct{ inner authoidc.ClaimsValidator }
 //
-//	func (v *CustomValidator) ValidateToken(ctx context.Context, token string) (*oidc.Claims, error) {
+//	func (v tenantValidator) ValidateToken(ctx context.Context, token string) (*authoidc.Claims, error) {
 //	    claims, err := v.inner.ValidateToken(ctx, token)
 //	    if err != nil {
 //	        return nil, err
 //	    }
-//
-//	    // Additional validation logic against the raw claim set.
 //	    if claims.RawClaims["tenant_id"] != "expected-tenant" {
 //	        return nil, errors.New("invalid tenant")
 //	    }
-//
 //	    return claims, nil
 //	}
 //
 // # Integration with scope-based authorization
 //
-// Keep the AuthFunc focused on authentication — return the verified claims — and
-// layer authorization on with the transport-neutral
-// github.com/altessa-s/go-atlas/auth/scope package, wired through the auth
-// interceptor's ScopeClientAuth. Deny-by-default and the method→scope policy
-// live in the scope.Enforcer, not in the AuthFunc:
+// Keep the AuthFunc focused on authentication and layer authorization on with
+// github.com/altessa-s/go-atlas/auth/scope, wired through the auth
+// interceptor's ScopeClientAuth:
 //
-//	import "github.com/altessa-s/go-atlas/auth/scope"
-//
-//	// Authentication: the verified *oidc.Claims become Credentials.Data.
-//	authFunc := oidc.AuthFunc(oidcValidator)
-//
-//	// Authorization: every method must be registered (unregistered methods
-//	// are denied); the empty scope marks a method as public.
 //	registry := scope.NewRegistry()
 //	registry.Register("/orders.v1.OrderService/GetOrder", "orders:read")
 //	registry.Register("/orders.v1.OrderService/Ping", "")
 //	registry.Freeze()
 //
-//	enf := scope.NewEnforcer(registry, scope.ScopeAuthorizer(oidc.ScopesOf, scope.Exact()))
+//	enf := scope.NewEnforcer(registry, scope.ScopeAuthorizer(authoidc.ScopesOf, scope.Exact()))
 //
 //	interceptor := auth.ServerInterceptor(
 //	    auth.WithAuthFn(authFunc),
 //	    auth.WithClientAuth(auth.ScopeClientAuth(enf)),
 //	)
 //
-// # Claims Structure
-//
-// The Claims struct provides typed access to standard OIDC claims:
-//   - Subject (sub): Unique user identifier
-//   - Email: User's email address
-//   - PreferredUsername: User's preferred username
-//   - Scopes: OAuth 2.0 scopes
-//   - Issuer (iss): Token issuer URL
-//   - Audience (aud): Intended recipients
-//   - ExpiresAt (exp): Token expiration time
-//   - IssuedAt (iat): Token issuance time
-//   - NotBefore (nbf): Token validity start time
-//   - Name: Full name
-//   - GivenName: First name
-//   - FamilyName: Last name
-//   - RawClaims: All claims as map[string]any
-//
-// # Validator Package
-//
-// The validator subpackage provides a default OIDC token validator implementation
-// that extracts standard claims and handles common OIDC validation scenarios.
-// See the validator package documentation for more details.
-//
-// # Security Considerations
-//
-//   - Always verify token signatures using the OIDC provider
-//   - Validate token expiration (exp) and not-before (nbf) times
-//   - Verify the issuer (iss) matches your expected OIDC provider
-//   - Check the audience (aud) includes your service
-//   - Use HTTPS for all OIDC provider communication
-//   - Implement proper error handling to avoid information leakage
-//   - Consider implementing token caching with TTL
-//
-// # Performance
-//
-//   - Token validation involves cryptographic operations (JWT signature verification)
-//   - JWKS keys are typically cached by the OIDC provider implementation
-//   - Consider implementing application-level token caching for high-traffic services
-//   - Claims extraction is lightweight (JSON parsing)
+// Pass [WithAudit] to record each token-validation decision through an
+// auth.DecisionRecorder; the audit reason distinguishes revoked and invalid
+// tokens because the validator keeps the provider's error chain.
 package oidc

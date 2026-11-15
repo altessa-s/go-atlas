@@ -8,12 +8,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/altessa-s/go-aip/fieldmask/extract"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
-	pbfieldmask "github.com/altessa-s/go-atlas/domain/proto/fieldmask"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
 
@@ -35,7 +36,21 @@ func BenchmarkServerInterceptor_UpdateMask(b *testing.B) {
 			Resource:   &pb.Resource{Name: "n"},
 			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name", "create_time"}},
 		}
-		_, _ = uni(context.Background(), req, info, handler)
+		_, _ = uni(b.Context(), req, info, handler)
+	}
+}
+
+func BenchmarkServerInterceptor_StrictUpdateMask(b *testing.B) {
+	uni := fieldmask.ServerInterceptor(fieldmask.WithStrictMode()).ServerUnaryInterceptor()
+	info := &grpc.UnaryServerInfo{FullMethod: "/x.v1.X/UpdateResource"}
+	handler := func(_ context.Context, _ any) (any, error) { return &pb.Resource{}, nil }
+	b.ReportAllocs()
+	for b.Loop() {
+		req := &pb.UpdateResourceRequest{
+			Resource:   &pb.Resource{Name: "n", Description: "d"},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name", "description"}},
+		}
+		_, _ = uni(b.Context(), req, info, handler)
 	}
 }
 
@@ -51,14 +66,14 @@ func BenchmarkServerInterceptor_ReadMask(b *testing.B) {
 			Name:     "id-1",
 			ReadMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
 		}
-		_, _ = uni(context.Background(), req, info, handler)
+		_, _ = uni(b.Context(), req, info, handler)
 	}
 }
 
 func BenchmarkServerInterceptor_CustomUpdateExtractor(b *testing.B) {
 	uni := fieldmask.ServerInterceptor(
 		fieldmask.WithMethodKind("/x.v1.X/UpdateNestedResource", fieldmask.KindUpdate),
-		fieldmask.WithUpdateExtractor("/x.v1.X/UpdateNestedResource", pbfieldmask.NewUpdateExtractor(
+		fieldmask.WithUpdateExtractor("/x.v1.X/UpdateNestedResource", extract.NewUpdateFunc(
 			func(r *pb.NestedUpdateResourceRequest) *fieldmaskpb.FieldMask { return r.GetOptions().GetUpdateMask() },
 			func(r *pb.NestedUpdateResourceRequest) *pb.Resource { return r.GetResource() },
 			func(r *pb.NestedUpdateResourceRequest, m *fieldmaskpb.FieldMask) { r.Options.UpdateMask = m },
@@ -75,7 +90,7 @@ func BenchmarkServerInterceptor_CustomUpdateExtractor(b *testing.B) {
 				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"name", "create_time"}},
 			},
 		}
-		_, _ = uni(context.Background(), req, info, handler)
+		_, _ = uni(b.Context(), req, info, handler)
 	}
 }
 
@@ -89,6 +104,6 @@ func BenchmarkServerInterceptor_Passthrough(b *testing.B) {
 		req := &pb.UpdateResourceRequest{
 			Resource: &pb.Resource{Name: "n"},
 		}
-		_, _ = uni(context.Background(), req, info, handler)
+		_, _ = uni(b.Context(), req, info, handler)
 	}
 }

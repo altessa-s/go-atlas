@@ -20,7 +20,7 @@ import (
 // reads the body — but a handler that never reads it lets the
 // chunked-drip attacker hold the connection open until ReadTimeout.
 //
-// We keep the default permissive for backward compatibility; the
+// The default is permissive; the
 // opt-in WithRequireContentLength test below shows how operators close
 // the door.
 func TestMiddleware_ChunkedBypassesPreCheckByDefault(t *testing.T) {

@@ -8,36 +8,38 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"reflect"
 	"slices"
-	"strconv"
+	"sync/atomic"
 
-	"github.com/altessa-s/go-atlas/data/cache/lru"
+	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/known/anypb"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	stdGrpc "google.golang.org/grpc"
 )
 
 var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 
-// cacheEntry stores a cached status along with metadata.
-type cacheEntry struct {
-	status   *status.Status
-	isCustom bool // true if created by a custom converter
-}
-
-var defaultSentinelErrors = []error{
-	context.DeadlineExceeded,
-	context.Canceled,
-	health.ErrServiceUnavailable,
-}
+// Statuses of the built-in conversions. They do not depend on the error, so
+// one value serves every request.
+var (
+	statusDeadlineExceeded = status.New(codes.DeadlineExceeded, "Deadline Exceeded")
+	statusCanceled         = status.New(codes.Canceled, "Canceled")
+	statusUnavailable      = status.New(codes.Unavailable, "Service Unavailable")
+	statusInternal         = status.New(codes.Internal, MessageInternal)
+)
 
 // StatusError is an interface that allows custom services to convert errors to gRPC status errors.
 type StatusError interface {
@@ -46,13 +48,22 @@ type StatusError interface {
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	options      *options
-	cache        lru.Cacher[string, *cacheEntry]
-	allSentinels []error // Pre-built list of all sentinel errors
-	// skipCustomCache disables the cached-custom shortcut: with a NoCache
-	// converter configured, a cached result of a later converter could
-	// pre-empt it for an error it would match.
-	skipCustomCache bool
+	options *options
+	// cache holds the status of each [ErrorConverter.Static] converter,
+	// indexed by the converter's position in options.errorConverters; it
+	// covers the first cacheSize converters and is nil when caching is
+	// disabled. The key is the converter that matched, never a property of
+	// the error, so an entry is the same for every error the converter
+	// matches. Which converter matches is decided for every error by running
+	// the matchers in order.
+	cache []atomic.Pointer[status.Status]
+}
+
+// debugEnabled reports whether debug records are logged. Hot paths check it
+// before building log attributes, which would otherwise be allocated only to
+// be dropped.
+func (i *interceptor) debugEnabled(ctx context.Context) bool {
+	return i.options.logger != nil && i.options.logger.Enabled(ctx, slog.LevelDebug)
 }
 
 // Dependencies declares that errstatus must run after requestid so that
@@ -63,6 +74,10 @@ func (i *interceptor) Dependencies() []string {
 }
 
 const convertOperation = "convert"
+
+// MessageInternal is the client-facing message of every codes.Internal status
+// the interceptor produces; the original error text stays in the server logs.
+const MessageInternal = "Internal Server Error"
 
 // ServerInterceptor returns a new interceptor that converts errors to gRPC status errors.
 func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
@@ -75,31 +90,17 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 
 	base := interceptors.NewBaseInterceptor(interceptorName, opts.logger)
 
-	var cache lru.Cacher[string, *cacheEntry]
+	var cache []atomic.Pointer[status.Status]
 
 	// Only create cache if not disabled and size > 0.
 	if !opts.cacheDisabled && opts.cacheSize > 0 {
-		var err error
-		cache, err = lru.NewCache[string, *cacheEntry](opts.cacheSize)
-		if err != nil {
-			base.LogError(context.Background(), "failed to create error conversion cache, continue without cache", convertOperation, err,
-				slog.Int("size", opts.cacheSize))
-			// Continue without cache on error (graceful degradation).
-			cache = nil
-		}
+		cache = make([]atomic.Pointer[status.Status], min(len(opts.errorConverters), opts.cacheSize))
 	}
-
-	// Pre-build the complete list of sentinel errors to avoid repeated allocations.
-	allSentinels := make([]error, 0, len(opts.sentinelErrors)+len(defaultSentinelErrors))
-	allSentinels = append(allSentinels, opts.sentinelErrors...)
-	allSentinels = append(allSentinels, defaultSentinelErrors...)
 
 	return &interceptor{
 		BaseInterceptor: base,
 		options:         opts,
 		cache:           cache,
-		allSentinels:    allSentinels,
-		skipCustomCache: slices.ContainsFunc(opts.errorConverters, func(c ErrorConverter) bool { return c.NoCache }),
 	}
 }
 
@@ -125,7 +126,11 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 		if err == nil {
 			return resp, nil
 		}
-		return nil, i.handleServerError(ctx, info.Server, err)
+		if err = i.handleServerError(ctx, info.Server, err); err == nil {
+			// The service-level converter suppressed the error.
+			return resp, nil
+		}
+		return nil, err
 	}
 }
 
@@ -144,76 +149,120 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 	}
 }
 
-// cacheStatus adds a status to the cache if caching is enabled and conditions are met.
-func (i *interceptor) cacheStatus(err error, st *status.Status, isCustom bool) {
-	if i.cache == nil {
-		return
-	}
-	if i.options.cacheOnlySentinel && !i.isSentinel(err) {
-		return
-	}
-	key := i.makeKey(err)
-	i.cache.Put(key, &cacheEntry{status: st, isCustom: isCustom})
-}
-
-// logErrorConversion logs error conversion activity for debugging.
-func (i *interceptor) logErrorConversion(ctx context.Context, err error, extraAttrs ...slog.Attr) {
-	attrs := append([]slog.Attr{
-		slog.Any("error", err),
-		slog.String("error_type", errorTypeString(err)),
-	}, extraAttrs...)
-	i.LogDebug(ctx, "handling error conversion", convertOperation, attrs...)
-}
-
-// tryCustomConverters attempts to convert an error using custom errorConverters.
-// Returns the converted status if a converter matches, nil otherwise, and
-// whether the status may be cached (see [ErrorConverter.NoCache]).
-func (i *interceptor) tryCustomConverters(ctx context.Context, err error) (*status.Status, bool) {
-	for _, converter := range i.options.errorConverters {
-		if converter.Matcher(ctx, err) {
-			i.LogDebug(ctx, "matched custom converter", convertOperation, slog.Any("error", err))
-			return converter.Convert(ctx, err), !converter.NoCache
+// tryCustomConverters converts err with the first custom converter whose
+// matcher accepts it, or returns nil. The matchers run for every error, in
+// registration order, so an error that several converters match always gets
+// the first one. Only the status of a [ErrorConverter.Static] converter is
+// cached, under the converter itself.
+func (i *interceptor) tryCustomConverters(ctx context.Context, err error) *status.Status {
+	for idx, converter := range i.options.errorConverters {
+		if !converter.Matcher(ctx, err) {
+			continue
 		}
-	}
-	return nil, false
-}
-
-// getCachedEntry retrieves a cached error conversion if available.
-// Returns the cached entry if found, nil otherwise.
-func (i *interceptor) getCachedEntry(ctx context.Context, err error) *cacheEntry {
-	if i.cache == nil {
-		return nil
-	}
-	key := i.makeKey(err)
-	if entry, found := i.cache.Get(key); found {
-		i.LogDebug(ctx, "using cached error conversion", convertOperation,
-			slog.Any("error", err),
-			slog.Bool("is_custom", entry.isCustom))
-		return entry
+		if i.debugEnabled(ctx) {
+			i.LogDebug(ctx, "matched custom converter", convertOperation, slog.Any("error", err))
+		}
+		cached := converter.Static && idx < len(i.cache)
+		if cached {
+			if st := i.cache[idx].Load(); st != nil {
+				return st
+			}
+		}
+		st := i.sanitizeConverted(ctx, converter.Convert(ctx, err), err)
+		if cached && st != nil {
+			i.cache[idx].Store(st)
+		}
+		return st
 	}
 	return nil
+}
+
+// sanitizeConverted applies to the status of a converter the rules of a
+// status a handler returns directly, so a mapping cannot publish what the
+// status path would withhold: a server-fault status gets the fixed message
+// and the server-fault details of [clientStatus], and any other status loses
+// its errdetails.DebugInfo. It runs before the status is cached.
+func (i *interceptor) sanitizeConverted(ctx context.Context, st *status.Status, err error) *status.Status {
+	if st == nil {
+		return nil
+	}
+	if !isServerFault(st.Code()) {
+		out, stripped := withoutDebugInfo(st)
+		if stripped {
+			i.logDroppedDetails(ctx, st.Code(), []string{string(debugInfoName)})
+		}
+		return out
+	}
+	if st.Message() == serverFaultMessage(st.Code()) && len(st.Details()) == 0 {
+		return st
+	}
+	out, dropped := clientStatus(st, err)
+	if out.Message() != st.Message() {
+		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, err,
+			slog.String("code", st.Code().String()),
+			slog.Bool("converter", true))
+	}
+	i.logDroppedDetails(ctx, st.Code(), dropped)
+	return out
+}
+
+// logDroppedDetails logs the type names of the details left out of a status.
+func (i *interceptor) logDroppedDetails(ctx context.Context, code codes.Code, dropped []string) {
+	if len(dropped) == 0 {
+		return
+	}
+	i.LogDebug(ctx, "gRPC status details dropped", convertOperation,
+		slog.String("code", code.String()),
+		slog.Any("dropped", dropped))
 }
 
 // tryBuiltInErrors attempts to convert an error using built-in error type mappings.
 // Returns the converted status if a built-in type matches, nil otherwise.
 func (i *interceptor) tryBuiltInErrors(ctx context.Context, err error) *status.Status {
+	var st *status.Status
 	switch {
 	case coreerrs.IsContextDeadlineExceeded(err):
-		i.LogDebug(ctx, "matched built-in error type: DeadlineExceeded", convertOperation, slog.Any("error", err))
-		return status.New(codes.DeadlineExceeded, "Deadline Exceeded")
+		st = statusDeadlineExceeded
 	case coreerrs.IsContextCanceled(err):
-		i.LogDebug(ctx, "matched built-in error type: Canceled", convertOperation, slog.Any("error", err))
-		return status.New(codes.Canceled, "Canceled")
+		st = statusCanceled
 	case errors.Is(err, health.ErrServiceUnavailable):
-		i.LogDebug(ctx, "matched built-in error type: ServiceUnavailable", convertOperation, slog.Any("error", err))
-		return status.New(codes.Unavailable, "Service Unavailable")
+		st = statusUnavailable
 	default:
 		return nil
 	}
+	if i.debugEnabled(ctx) {
+		i.LogDebug(ctx, "matched built-in error type", convertOperation,
+			slog.Any("error", err), slog.String("code", st.Code().String()))
+	}
+	return st
+}
+
+// convertError converts an error that carries no gRPC status. Priority order:
+//  1. Custom errorConverters, first match in registration order
+//  2. Built-in error types
+//  3. Default Internal error
+func (i *interceptor) convertError(ctx context.Context, err error, debug bool) error {
+	if customSt := i.tryCustomConverters(ctx, err); customSt != nil {
+		return interceptors.NewError(customSt, err)
+	}
+	if builtInSt := i.tryBuiltInErrors(ctx, err); builtInSt != nil {
+		return interceptors.NewError(builtInSt, err)
+	}
+	if debug {
+		i.LogDebug(ctx, "no specific error conversion found, using default Internal error", convertOperation,
+			slog.Any("error", err),
+			slog.String("error_type", errorTypeString(err)))
+	}
+	return interceptors.NewError(statusInternal, err)
 }
 
 func (i *interceptor) handleServerError(ctx context.Context, srv any, err error) error {
-	i.logErrorConversion(ctx, err)
+	debug := i.debugEnabled(ctx)
+	if debug {
+		i.LogDebug(ctx, "handling error conversion", convertOperation,
+			slog.Any("error", err),
+			slog.String("error_type", errorTypeString(err)))
+	}
 
 	// Check if srv is not nil before type assertion.
 	if srv != nil {
@@ -223,80 +272,173 @@ func (i *interceptor) handleServerError(ctx context.Context, srv any, err error)
 		}
 	}
 
-	st, ok := status.FromError(err)
-	if !ok {
-		// Priority order for error conversion:
-		// 1. Cached custom conversions (highest priority - skip converter check)
-		// 2. Custom errorConverters (override non-custom cache)
-		// 3. Cached non-custom conversions
-		// 4. Built-in error types
-		// 5. Default Internal error
-
-		// Check cache first.
-		entry := i.getCachedEntry(ctx, err)
-		if entry != nil && entry.isCustom && !i.skipCustomCache {
-			// Custom cache entry - use it immediately without checking errorConverters again.
-			return interceptors.NewError(entry.status, err)
-		}
-
-		// Try custom errorConverters (they override non-custom cache).
-		if customSt, cacheable := i.tryCustomConverters(ctx, err); customSt != nil {
-			if cacheable {
-				i.cacheStatus(err, customSt, true)
-			}
-			return interceptors.NewError(customSt, err)
-		}
-
-		// Use non-custom cache entry if available.
-		if entry != nil && !entry.isCustom {
-			return interceptors.NewError(entry.status, err)
-		}
-
-		// Try built-in error types.
-		if builtInSt := i.tryBuiltInErrors(ctx, err); builtInSt != nil {
-			i.cacheStatus(err, builtInSt, false)
-			return interceptors.NewError(builtInSt, err)
-		}
-
-		// Default to Internal error (not cached as it's not specific).
-		i.LogDebug(ctx, "no specific error conversion found, using default Internal error", convertOperation,
-			slog.Any("error", err),
-			slog.String("error_type", errorTypeString(err)))
-		st = status.New(codes.Internal, "Internal Server Error")
-		return interceptors.NewError(st, err)
+	// A service-level converter suppresses an error by returning nil.
+	if err == nil {
+		return nil
 	}
 
-	i.LogDebug(ctx, "error already has gRPC status", convertOperation,
-		slog.Any("error", err),
-		slog.String("code", st.Code().String()))
+	// status.FromError builds an Unknown status out of an error that carries
+	// none; checking for a carrier first keeps that off the common path.
+	if _, carries := errors.AsType[grpcStatuser](err); !carries {
+		return i.convertError(ctx, err, debug)
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return i.convertError(ctx, err, debug)
+	}
+	// An OK status is not an error either; a non-nil error carrying it would
+	// reach the client as Unknown.
+	if st.Code() == codes.OK {
+		return nil
+	}
+
+	if debug {
+		i.LogDebug(ctx, "error already has gRPC status", convertOperation,
+			slog.Any("error", err),
+			slog.String("code", st.Code().String()))
+	}
+
+	// Only a status the handler returned directly is sent as is. For a
+	// status found through wrapping, status.FromError reports the whole
+	// err.Error() chain as the message, and an Internal, Unknown or DataLoss
+	// status describes a server fault; both would publish internals.
+	_, direct := err.(grpcStatuser)
+	if !direct || isServerFault(st.Code()) {
+		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, err,
+			slog.String("code", st.Code().String()),
+			slog.Bool("wrapped", !direct))
+		clientSt, dropped := clientStatus(st, err)
+		i.logDroppedDetails(ctx, st.Code(), dropped)
+		cause := err
+		if ie, ok := errors.AsType[*interceptors.Error](err); ok && direct {
+			cause = ie.Unwrap()
+		}
+		return interceptors.NewError(clientSt, cause)
+	}
+
+	// A direct client-facing status keeps its message and details, except
+	// errdetails.DebugInfo, which no path forwards.
+	st, stripped := withoutDebugInfo(st)
+	if stripped {
+		i.logDroppedDetails(ctx, st.Code(), []string{string(debugInfoName)})
+	}
 
 	// Handle interceptors.Error wrapping.
 	if ie, ok := errors.AsType[*interceptors.Error](err); ok {
 		return interceptors.NewError(st, ie.Unwrap())
 	}
+	if stripped {
+		return interceptors.NewError(st, err)
+	}
 
 	return st.Err()
 }
 
-// makeKey creates a unique key for an error.
-// For sentinel errors (package-level vars), we use pointer address.
-// For other errors, we use type + message.
-func (i *interceptor) makeKey(err error) string {
-	if i.options.cacheOnlySentinel {
-		if sentinel := i.resolveSentinel(err); sentinel != nil {
-			return sentinelErrorKey(sentinel)
+// debugInfoName is the protobuf name of errdetails.DebugInfo.
+var debugInfoName = detailName(&errdetails.DebugInfo{})
+
+// withoutDebugInfo returns st without its errdetails.DebugInfo details and
+// reports whether it removed any. A status that carries none is returned as
+// is, without copying it. st.Details is the only accessor that does not clone
+// the status, so it gates the scan of the type URLs; a detail it cannot decode
+// is scanned too.
+func withoutDebugInfo(st *status.Status) (*status.Status, bool) {
+	suspect := slices.ContainsFunc(st.Details(), func(d any) bool {
+		switch d.(type) {
+		case *errdetails.DebugInfo, error:
+			return true
+		default:
+			return false
 		}
-		return "0x" + strconv.FormatUint(uint64(reflect.ValueOf(err).Pointer()), 16)
+	})
+	if !suspect {
+		return st, false
 	}
-	// For non-sentinel mode, use type and error message.
-	return errorKey(err)
+	p := st.Proto() // a copy; the original status is not mutated
+	n := len(p.Details)
+	p.Details = slices.DeleteFunc(p.Details, func(d *anypb.Any) bool { return d.MessageName() == debugInfoName })
+	if len(p.Details) == n {
+		return st, false
+	}
+	return status.FromProto(p), true
 }
 
-// isSentinel checks if an error is a sentinel error (package-level variable).
-func (i *interceptor) isSentinel(err error) bool {
-	return i.resolveSentinel(err) != nil
+// isServerFault reports whether code describes a failure inside the server,
+// whose message is not meant for clients.
+func isServerFault(code codes.Code) bool {
+	return code == codes.Internal || code == codes.Unknown || code == codes.DataLoss
 }
 
-func (i *interceptor) resolveSentinel(err error) error {
-	return findSentinelError(err, i.allSentinels)
+// serverFaultMessage returns the fixed client-facing message of a server-fault
+// status: [MessageInternal] for codes.Internal, the code's name otherwise.
+func serverFaultMessage(code codes.Code) string {
+	if code == codes.Internal {
+		return MessageInternal
+	}
+	return code.String()
+}
+
+// grpcStatuser is the interface of errors that carry a gRPC status.
+type grpcStatuser interface {
+	error
+	GRPCStatus() *status.Status
+}
+
+// detailName returns the full protobuf name of a status detail type.
+func detailName(m proto.Message) protoreflect.FullName {
+	return m.ProtoReflect().Descriptor().FullName()
+}
+
+// clientSafeDetails is the allowlist of status detail types that
+// [clientStatus] forwards. The value reports whether the type is also
+// forwarded on a server-fault status ([isServerFault]); the rest describe the
+// client's own request and only make sense on a client-facing code.
+// errdetails.DebugInfo is absent on purpose: it is never forwarded.
+var clientSafeDetails = coremaps.NewImmutableMap(map[protoreflect.FullName]bool{
+	detailName(&errdetails.RetryInfo{}):           true,
+	detailName(&errdetails.RequestInfo{}):         true,
+	detailName(&errdetails.LocalizedMessage{}):    true,
+	detailName(&errdetails.Help{}):                true,
+	detailName(&errdetails.BadRequest{}):          false,
+	detailName(&badrequestv1.BadRequest{}):        false,
+	detailName(&errdetails.PreconditionFailure{}): false,
+	detailName(&errdetails.QuotaFailure{}):        false,
+	detailName(&errdetails.ResourceInfo{}):        false,
+	detailName(&errdetails.ErrorInfo{}):           false,
+})
+
+// clientStatus returns the status sent to the client in place of st, the
+// status of err, when st is a server fault or was found through wrapping. It
+// also returns the type names of the details it left out.
+//
+// Two policies apply, chosen by the code:
+//   - server fault (Internal, Unknown, DataLoss): the message is fixed,
+//     [MessageInternal] for codes.Internal and the code's name otherwise, and
+//     only the [clientSafeDetails] marked for server faults are kept;
+//   - any other code, reached only for a wrapped status: the message is the
+//     wrapped status's own, without the wrapper text, and every detail in
+//     [clientSafeDetails] is kept.
+func clientStatus(st *status.Status, err error) (*status.Status, []string) {
+	serverFault := isServerFault(st.Code())
+
+	p := st.Proto() // a copy; the original status is not mutated
+	if serverFault {
+		p.Message = serverFaultMessage(st.Code())
+	} else {
+		p.Message = st.Code().String()
+		if inner, ok := errors.AsType[grpcStatuser](err); ok && inner.GRPCStatus() != nil {
+			p.Message = inner.GRPCStatus().Message()
+		}
+	}
+
+	var dropped []string
+	p.Details = slices.DeleteFunc(p.Details, func(d *anypb.Any) bool {
+		onServerFault, safe := clientSafeDetails.Get(d.MessageName())
+		if safe && (onServerFault || !serverFault) {
+			return false
+		}
+		dropped = append(dropped, string(d.MessageName()))
+		return true
+	})
+	return status.FromProto(p), dropped
 }

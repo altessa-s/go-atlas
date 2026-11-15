@@ -14,9 +14,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/geoacl"
 )
 
 type mockResolver struct {
@@ -163,6 +163,30 @@ func TestMiddleware_IgnoredPath(t *testing.T) {
 	handler.ServeHTTP(rec, requestWithIP("GET", "/denied", netip.MustParseAddr("1.2.3.4")))
 
 	require.True(t, called, "handler should be called for ignored path")
+}
+
+// TestMiddleware_NoDefaultIgnore pins that the geo check exempts nothing
+// unless the caller configures it: infrastructure-looking paths, nested or
+// not, are enforced like any other route.
+func TestMiddleware_NoDefaultIgnore(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"/users/metrics", "/x/pprof/y", "/admin/healthz", "/healthz", "/metrics"} {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			called := false
+			handler := Middleware(newTestResolver(), newTestRegistry())(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				called = true
+			}))
+
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, requestWithIP("GET", path, netip.MustParseAddr("10.1.1.1")))
+
+			require.False(t, called, "path %q must not bypass the geo access check", path)
+			require.Equal(t, http.StatusForbidden, rec.Code)
+		})
+	}
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {

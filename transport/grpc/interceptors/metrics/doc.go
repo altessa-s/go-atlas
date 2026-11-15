@@ -3,13 +3,13 @@
 // the LICENSE file.
 
 // Package metrics provides metrics collection for gRPC servers
-// via the [observability/metrics.Collector] abstraction. It implements both
+// via the [observability/metrics.Meter] abstraction. It implements both
 // unary and streaming interceptors that automatically collect detailed
 // metrics about request counts, durations, status codes, and optionally
 // message sizes.
 //
 // The interceptor collects the following metrics by default (names shown
-// after [Collector.WithSubsystem] is applied; default subsystem is "grpc"):
+// after [github.com/altessa-s/go-atlas/observability/metrics.Meter.WithSubsystem] is applied; default subsystem is "grpc"):
 //
 //   - {service}_grpc_server_requests_total — total request count, labels: method, status
 //   - {service}_grpc_server_request_duration_seconds — request latency histogram, labels: method, status
@@ -29,7 +29,7 @@
 //
 // The interceptor is thread-safe and designed for production use with
 // configurable metric subsystems, custom histogram buckets, method ignoring,
-// and pluggable [metrics.Collector] backends. Each call to [ServerInterceptor]
+// and pluggable [metrics.Meter] backends. Each call to [ServerInterceptor]
 // creates a fresh interceptor; the underlying adapter deduplicates metric
 // registrations by name, so reusing the same collector across multiple calls
 // with the same subsystem shares the same metric vectors.
@@ -37,11 +37,11 @@
 // Example:
 //
 //	// Basic usage with default metrics.
-//	interceptor := metrics.ServerInterceptor(metrics.WithCollector(coll))
+//	interceptor := metrics.ServerInterceptor(metrics.WithMeter(coll))
 //
 //	// Advanced configuration with a custom subsystem and ignored methods.
 //	interceptor := metrics.ServerInterceptor(
-//		metrics.WithCollector(coll),
+//		metrics.WithMeter(coll),
 //		metrics.WithMetricsSubsystem("api"),
 //		metrics.WithEnableSizeMetrics(),
 //		metrics.WithIgnoreMethods("/grpc.health.v1.Health/Check"),

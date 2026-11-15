@@ -11,7 +11,7 @@ import (
 	"log/slog"
 	"sync"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 var (
@@ -38,14 +38,11 @@ type gzipWriterError struct {
 	err error
 }
 
-// Helper functions for backward compatibility buffer management
 func getBytesBuffer() *bytes.Buffer {
-	// Use the new sized buffer function with default size for backward compatibility
 	return getSizedBytesBuffer(defaultBufferSize)
 }
 
 func putBytesBuffer(buf *bytes.Buffer) {
-	// Use the new sized buffer function with default size for backward compatibility
 	putSizedBytesBuffer(buf, defaultBufferSize)
 }
 

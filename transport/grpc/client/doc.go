@@ -78,7 +78,8 @@
 //
 // # Health integration
 //
-// Pass an [observability/health.Coordinator] via [WithHealthCoordinator] to
+// Pass a [health.Reporter] (typically an [observability/health.Coordinator])
+// via [WithHealthCoordinator] to
 // register the client as a health checker. The status is derived from
 // [grpc.ClientConn] connectivity state via [DefaultStateMapper] (override
 // with [WithHealthStateMapper]):
@@ -100,18 +101,17 @@
 //
 // # Custom Retry Configuration
 //
-// Configure custom retry behavior:
-//
-//	retryConfig := &client.RetryConfig{
-//		MaxAttempts:          5,
-//		InitialBackoff:       50 * time.Millisecond,
-//		MaxBackoff:           5 * time.Second,
-//		BackoffMultiplier:    1.5,
-//		RetryableStatusCodes: []string{"UNAVAILABLE", "INTERNAL"},
-//	}
+// Configure custom retry behavior with [RetryOption] values passed to
+// [WithRetry]; unset settings keep their defaults:
 //
 //	c, err := client.New(ctx, "localhost:8080",
-//		client.WithRetryConfig(retryConfig),
+//		client.WithRetry(
+//			client.WithRetryMaxAttempts(5),
+//			client.WithRetryInitialBackoff(50*time.Millisecond),
+//			client.WithRetryMaxBackoff(5*time.Second),
+//			client.WithRetryBackoffMultiplier(1.5),
+//			client.WithRetryStatusCodes("UNAVAILABLE", "INTERNAL"),
+//		),
 //		client.WithInsecure(),
 //	)
 //

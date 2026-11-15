@@ -27,9 +27,9 @@ Callers must return every connection obtained via `GetConnection` by calling `Re
 | `WithConnectTimeout`  | 10s     | Timeout for establishing a new connection                                     |
 | `WithLogger`          | discard | Structured logger for pool lifecycle events                                   |
 | `WithClientFactory`   | nil     | Custom factory function for creating gRPC connections                         |
-| `WithCollector`       | no-op   | Metrics collector for pool metrics                                            |
+| `WithMeter`           | no-op   | Metrics collector for pool metrics                                            |
 | `WithMetricsSubsystem` | `grpc_connection_pool` | Prometheus subsystem for emitted metrics; override per upstream so multiple pools can share one registry |
-| `WithHealthCoordinator`     | nil          | Opts the pool into `observability/health` aggregate registration                                |
+| `WithHealthCoordinator`     | nil          | Opts the pool into a `health.DynamicReporter` (aggregate and per-target registration)           |
 | `WithHealthServiceName`     | `grpc_pool`  | Service name registered with the coordinator                                                    |
 | `WithHealthPerTarget` | off          | Also register `<service>.<target>` checkers lazily on first conn for that target                |
 | `WithHealthStateMapper`     | default      | Override the `connectivity.State` → `health.ServingStatus` mapping                              |

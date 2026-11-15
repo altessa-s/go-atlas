@@ -21,8 +21,8 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 
-	corecontext "github.com/altessa-s/go-atlas/core/context"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // closeReason identifies why a connection was closed.
@@ -113,7 +113,7 @@ func New(opts ...Option) *ConnectionPool {
 	cp := &ConnectionPool{
 		opts:    options,
 		logger:  options.logger,
-		metrics: newPoolMetrics(options.collector, options.metricsSubsystem),
+		metrics: newPoolMetrics(options.meter, options.metricsSubsystem),
 		tracker: newStateTracker(),
 		done:    make(chan struct{}),
 	}
@@ -302,7 +302,7 @@ func (cp *ConnectionPool) getOrCreateTargetPool(target string) (*targetPool, err
 	}
 	tp := &targetPool{pool: cp, target: target, opts: cp.opts,
 		logger: cp.logger.With("target", target), active: make(map[*grpc.ClientConn]*pooledConnection), changed: make(chan struct{}),
-		reused: cp.metrics.connectionsReused.WithLabels(metrics.Labels{"target": target})}
+		reused: cp.metrics.connectionsReused.WithLabels(metrics.Labels{labelTarget: target})}
 	cp.pools.Store(target, tp)
 	return tp, nil
 }
@@ -433,7 +433,7 @@ func (tp *targetPool) createConnection(ctx context.Context, binding *Binding) (*
 	if binding != nil {
 		factory = binding.factory
 	}
-	stop := tp.pool.metrics.connectDuration.WithLabels(metrics.Labels{"target": tp.target}).Start()
+	stop := tp.pool.metrics.connectDuration.WithLabels(metrics.Labels{labelTarget: tp.target}).Start()
 	var conn *grpc.ClientConn
 	var err error
 	if factory != nil {
@@ -458,7 +458,7 @@ func (tp *targetPool) createConnection(ctx context.Context, binding *Binding) (*
 		if conn != nil {
 			_ = conn.Close()
 		}
-		tp.pool.metrics.connectionErrors.WithLabels(metrics.Labels{"target": tp.target}).Inc()
+		tp.pool.metrics.connectionErrors.WithLabels(metrics.Labels{labelTarget: tp.target}).Inc()
 		return nil, coreerrs.Wrapf(err, "failed to connect to %s", tp.target)
 	}
 	pc := &pooledConnection{conn: conn, target: tp.target, created: time.Now(), binding: binding}
@@ -468,7 +468,7 @@ func (tp *targetPool) createConnection(ctx context.Context, binding *Binding) (*
 	tp.pool.connOwner.Store(conn, tp)
 	tp.pool.tracker.attach(tp.target, pc) //nolint:contextcheck // Watchers outlive the borrowing request.
 	tp.pool.health.onConnAttached(tp.target)
-	tp.pool.metrics.connectionsCreated.WithLabels(metrics.Labels{"target": tp.target}).Inc()
+	tp.pool.metrics.connectionsCreated.WithLabels(metrics.Labels{labelTarget: tp.target}).Inc()
 	tp.pool.metrics.connectionsActive.Inc()
 	tp.pool.metrics.connectionsInUse.Inc()
 	return conn, nil
@@ -493,7 +493,7 @@ func (tp *targetPool) closeConnectionLocked(pc *pooledConnection, reason closeRe
 	tp.pool.tracker.detach(tp.target, pc)
 	tp.pool.health.onConnDetached(tp.target)
 	m := tp.pool.metrics
-	m.connectionsClosed.WithLabels(metrics.Labels{"target": tp.target, "reason": string(reason)}).Inc()
+	m.connectionsClosed.WithLabels(metrics.Labels{labelTarget: tp.target, labelReason: string(reason)}).Inc()
 	m.connectionsActive.Dec()
 	if pc.inUse.Load() {
 		m.connectionsInUse.Dec()

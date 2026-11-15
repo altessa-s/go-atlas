@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/metrics"
 ```
 
-Package `metrics` provides middleware that records HTTP server metrics via the `observability/metrics.Collector` abstraction. Each call to `New`
+Package `metrics` provides middleware that records HTTP server metrics via the `observability/metrics.Meter` abstraction. Each call to `New`
 constructs a fresh middleware wired to the supplied collector; the underlying adapter deduplicates metric registrations by name, so reusing the same
 collector across multiple calls with the same subsystem shares the same metric vectors.
 
@@ -25,7 +25,7 @@ Metric names are prefixed with the collector's service name and the configured s
 
 | Option                  | Default                 | Description                                                                                            |
 |-------------------------|-------------------------|--------------------------------------------------------------------------------------------------------|
-| `WithCollector`         | -- (required)           | Metrics collector to register with; `New` panics when it is unset                                      |
+| `WithMeter`             | `metrics.Noop()`        | Metrics collector to register with; unset records nothing                                              |
 | `WithMetricsSubsystem`  | `http`                  | Subsystem prefix; override per upstream so multiple servers can share one registry                     |
 | `WithEnableSizeMetrics` | false                   | Enable request/response size histograms                                                                |
 | `WithDurationBuckets`   | collector default       | Custom duration histogram buckets (seconds); unset uses `observability/metrics.DefaultDurationBuckets`  |

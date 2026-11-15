@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/grpc"
+
+	driver "github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 )
 
 func TestNoOpInterceptor_Name(t *testing.T) {
@@ -54,7 +56,7 @@ func TestNoOpClientInterceptor_ImplementsClientInterceptor(t *testing.T) {
 }
 
 func TestNoopDriver(t *testing.T) {
-	d := NoopDriver()
+	d := driver.NoopDriver()
 	require.NotNil(t, d, "NoopDriver returned nil")
 	resp, err := d.PreCall(t.Context(), nil)
 	require.Nil(t, resp)

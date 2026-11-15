@@ -11,11 +11,11 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 )
 
 // Router implements [router.Router] using [http.ServeMux] (Go 1.22+).

@@ -5,10 +5,10 @@
 package idempotency
 
 import (
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 )
 
 // Interned header names for memory efficiency.
 var (
-	InternedHeaderIdempotencyKey = corestrings.InternString(DefaultIdempotencyKeyHeader)
+	InternedHeaderIdempotencyKey = intern.String(DefaultIdempotencyKeyHeader)
 )

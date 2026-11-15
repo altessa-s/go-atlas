@@ -6,12 +6,14 @@ package limiter
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/limiters"
+	"github.com/altessa-s/go-atlas/coord/limiters"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 
 	"google.golang.org/grpc/metadata"
 )
@@ -53,4 +55,34 @@ func TestDependencies_IncludesAuth(t *testing.T) {
 
 	i := ServerInterceptor(fakeLimiter()).(*interceptor)
 	require.Contains(t, i.Dependencies(), auth.Name())
+}
+
+// TestRateLimit_NoDefaultExemptions pins that reflection and health consume
+// limiter budget like any other method unless the caller opts in to
+// defaults.IgnorePatterns.
+func TestRateLimit_NoDefaultExemptions(t *testing.T) {
+	t.Parallel()
+
+	for _, method := range []string{
+		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+		"/grpc.health.v1.Health/Check",
+	} {
+		t.Run(method, func(t *testing.T) {
+			t.Parallel()
+			var calls atomic.Int32
+			lim := limiters.Func(func(context.Context) (*limiters.LimitInfo, error) {
+				calls.Add(1)
+				return &limiters.LimitInfo{Limit: 1, Remaining: 1}, nil
+			})
+
+			_, err := ServerInterceptor(lim).(*interceptor).rateLimit(t.Context(), method)
+			require.NoError(t, err)
+			require.Equal(t, int32(1), calls.Load(), "method must be rate-limited by default")
+
+			optIn := ServerInterceptor(lim, WithIgnorePatterns(defaults.IgnorePatterns...)).(*interceptor)
+			_, err = optIn.rateLimit(t.Context(), method)
+			require.NoError(t, err)
+			require.Equal(t, int32(1), calls.Load(), "opted-in exemption must skip the limiter")
+		})
+	}
 }

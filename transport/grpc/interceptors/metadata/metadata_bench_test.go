@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 )
 
@@ -24,6 +25,16 @@ func BenchmarkNewCallMetadata_UnaryWithPeer(b *testing.B) {
 	ctx := peer.NewContext(b.Context(), &peer.Peer{
 		Addr: &net.TCPAddr{IP: net.IPv4(10, 0, 0, 1), Port: 50051},
 	})
+	info := &grpc.UnaryServerInfo{FullMethod: "/bench.Service/Method"}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		NewCallMetadata(ctx, info.FullMethod, info)
+	}
+}
+
+func BenchmarkNewCallMetadata_UnaryWithUserAgent(b *testing.B) {
+	ctx := metadata.NewIncomingContext(b.Context(), metadata.Pairs("user-agent", "grpc-go/1.70.0"))
 	info := &grpc.UnaryServerInfo{FullMethod: "/bench.Service/Method"}
 
 	b.ReportAllocs()

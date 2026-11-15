@@ -32,8 +32,8 @@ extraction, validation, and error handling with path-based filtering.
 
 No path is exempt by default. Exempt only what must be public, with exact paths (`WithIgnorePaths("/healthz")`) or patterns anchored at both ends
 (`^/public/[^/]+$`): an unanchored pattern such as `/metrics/?$` also exempts `/admin/metrics`. The health, metrics, and pprof exemptions applied by
-default before are available as an explicit opt-in, with that caveat: `auth.WithIgnorePatterns(defaults.IgnorePatterns...)` (package
-[`defaults`](../defaults)).
+default before are available as an explicit opt-in: `auth.WithIgnorePatterns(defaults.IgnorePatterns...)` (package [`defaults`](../defaults)). Those
+patterns are anchored and match only the endpoints at the root or under `/internal`.
 
 ## Usage
 
@@ -92,11 +92,22 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+When the authenticator returns an [`auth/principal`](../../../../../auth/principal) `Principal` (or a non-nil `*Principal`), the middleware — and
+`ContextWithPrincipal` — also store it through `principal.NewContextFrom`. A result that maps itself onto a principal, such as the `*oidc.Claims`
+of the [`oidc`](oidc) adapter, is stored as its `Principal()`. A handler served over HTTP and gRPC reads the caller the same way:
+
+```go
+if p, ok := principal.FromContext(r.Context()); ok {
+    fmt.Fprintf(w, "Hello, %s", p.Subject)
+}
+```
+
 ## Subpackages
 
 | Package              | Description                                                |
 |----------------------|------------------------------------------------------------|
 | [static](./static)   | Static token/API key validation with timing-safe comparison |
+| [oidc](./oidc)       | OIDC adapter over [`auth/oidc`](../../../../../auth/oidc) `ClaimsValidator`; failures → 401 |
 
 ## Integration with middleware chain
 

@@ -18,10 +18,3 @@ func BenchmarkBaseInterceptor_ShouldIgnore(b *testing.B) {
 		bi.ShouldIgnore("/grpc.health.v1.Health/Check")
 	}
 }
-
-func BenchmarkBaseInterceptor_InternMethod(b *testing.B) {
-	bi := NewBaseInterceptor("bench", nil)
-	for b.Loop() {
-		bi.InternMethod("/test/Method")
-	}
-}

@@ -171,8 +171,6 @@ func TestServerInterceptor_Cache(t *testing.T) {
 		sentinel := errors.New("cached error")
 		si := ServerInterceptor(
 			WithErrorMapping(sentinel, codes.NotFound, "not found"),
-			WithSentinelErrors(sentinel),
-			WithCacheOnlySentinel(),
 		).(*interceptor)
 
 		code1, _ := callUnary(t, si, sentinel)
@@ -183,7 +181,7 @@ func TestServerInterceptor_Cache(t *testing.T) {
 
 	t.Run("disabled", func(t *testing.T) {
 		si := ServerInterceptor(WithCacheDisabled()).(*interceptor)
-		require.Equal(t, nil, si.cache)
+		require.Nil(t, si.cache)
 	})
 }
 

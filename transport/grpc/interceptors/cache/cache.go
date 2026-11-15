@@ -10,9 +10,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/text/strings"
-	"github.com/altessa-s/go-atlas/data/cache"
-	"github.com/altessa-s/go-atlas/data/cache/storages"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
@@ -21,7 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	slogx "github.com/altessa-s/go-slogx"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
@@ -33,11 +32,6 @@ func Name() string { return interceptorName }
 // ID is a lightweight [interceptors.Interceptor] reference for this package,
 // suitable for passing to exclusion lists.
 var ID = interceptors.Ref(interceptorName)
-
-// Cacher is an alias for cache.Cacher from the data/cache package.
-// It defines the interface for high-level cache operations.
-// Implementations must be thread-safe for concurrent access from multiple goroutines.
-type Cacher = cache.Cacher
 
 // cachedEntry represents a serialized cache entry containing either response data or error information.
 // This internal type is used for JSON serialization of cached responses and errors.
@@ -52,14 +46,14 @@ type cachedEntry struct {
 // compression when beneficial for large payloads.
 //
 // The cacher parameter must be thread-safe as it will be accessed concurrently.
-// Use any Cacher implementation from github.com/altessa-s/go-atlas/data/cache.
+// Use any Cacher implementation from github.com/altessa-s/go-atlas/cache.
 //
 // Options configure method-specific caching behavior, compression settings, and
 // cache decision functions.
 //
 // Returns a configured interceptor that can be used with grpc.NewServer.
 // Supports unary gRPC methods using the driven interceptor pattern.
-func ServerInterceptor(cacher Cacher, opt ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(cacher cache.Cacher, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 	// Build the fallback decision after all options ran so WithDefaultTTL /
 	// WithCacheTTL take effect; an explicit WithCacheDecision is kept as is.
@@ -81,7 +75,7 @@ func ServerInterceptor(cacher Cacher, opt ...Option) interceptors.ServerIntercep
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	cacher Cacher
+	cacher cache.Cacher
 	opts   *options
 }
 
@@ -103,7 +97,7 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 	meta, _ := metadata.FromContext(ctx)
 
 	// Check if method is cacheable
-	config, ok := i.opts.methods[strings.InternLowerString(meta.FullyMethodName)]
+	config, ok := i.opts.methods[intern.LowerString(meta.FullyMethodName)]
 	if !ok {
 		return driver.NoopDriver(), ctx
 	}
@@ -126,7 +120,7 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 // for storage. It supports method-specific compression settings when available.
 // Serialization errors are logged but do not affect the main request flow
 // to ensure graceful degradation when caching fails.
-func (i *interceptor) cacheResponse(ctx context.Context, key string, resp any, err error, ttl time.Duration, config *MethodConfig) {
+func (i *interceptor) cacheResponse(ctx context.Context, key string, resp any, err error, ttl time.Duration, config *MethodPolicy) {
 	// Check for context cancellation before doing any work
 	select {
 	case <-ctx.Done():
@@ -177,14 +171,14 @@ func (i *interceptor) cacheResponse(ctx context.Context, key string, resp any, e
 // whether a valid cache entry was found. Supports method-specific decompression.
 //
 // Cache misses, deserialization failures, or invalid entries return false for the found parameter.
-func (i *interceptor) getCachedResponse(ctx context.Context, key string, config *MethodConfig) (any, error, bool) {
+func (i *interceptor) getCachedResponse(ctx context.Context, key string, config *MethodPolicy) (any, error, bool) {
 	key = i.buildKey(key)
 
 	var entry cachedEntry
 	err := i.cacher.Get(ctx, key, &entry)
 	if err != nil {
 		// Cache miss or error - don't log ErrMissing as it's expected behavior
-		if !errors.Is(err, storages.ErrMissing) && !errors.Is(err, cache.ErrMissing) {
+		if !errors.Is(err, cache.ErrMissing) {
 			i.Logger().Error("failed to get cached entry",
 				slog.String("key", key), slogx.Error(err))
 		}
@@ -221,11 +215,11 @@ func (i *interceptor) buildKey(key string) string {
 // injected into gRPC response metadata so clients can distinguish cache hits from misses.
 var (
 	// HeaderKey is the gRPC metadata key for the cache status header.
-	HeaderKey = strings.InternString("x-cache")
+	HeaderKey = intern.String("x-cache")
 	// HeaderHit is the metadata value indicating a cache hit.
-	HeaderHit = strings.InternString("hit")
+	HeaderHit = intern.String("hit")
 	// HeaderMiss is the metadata value indicating a cache miss.
-	HeaderMiss = strings.InternString("miss")
+	HeaderMiss = intern.String("miss")
 )
 
 // cacheDriver implements the Driver interface for per-call cache operations.
@@ -235,7 +229,7 @@ type cacheDriver struct {
 	// Immutable fields - set once during creation, safe for concurrent read access
 	interceptor *interceptor
 	meta        *metadata.CallMetadata
-	config      *MethodConfig
+	config      *MethodPolicy
 
 	logger *slog.Logger // Optional logger for debugging and monitoring
 
@@ -263,7 +257,7 @@ func (d *cacheDriver) PreCall(ctx context.Context, req any) (any, error) {
 	}
 
 	// Generate cache key for this call
-	key, err := d.interceptor.opts.keyGenerator(ctx, strings.InternString(d.meta.FullyMethodName), req)
+	key, err := d.interceptor.opts.keyGenerator(ctx, intern.String(d.meta.FullyMethodName), req)
 	if err != nil {
 		// If key generation fails, skip caching but log the error for debugging
 		// We don't return the error to avoid breaking the request flow
@@ -314,7 +308,7 @@ func (d *cacheDriver) PostCall(ctx context.Context, resp any, err error) error {
 	cacheKey := d.key
 
 	// For cache misses, use decision function to determine if we should cache
-	decision := d.interceptor.opts.cacheDecision(ctx, strings.InternString(d.meta.FullyMethodName), d.req, resp, err)
+	decision := d.interceptor.opts.cacheDecision(ctx, intern.String(d.meta.FullyMethodName), d.req, resp, err)
 	if decision.ShouldCache {
 		d.interceptor.cacheResponse(ctx, cacheKey, resp, err, decision.TTL, d.config)
 	}

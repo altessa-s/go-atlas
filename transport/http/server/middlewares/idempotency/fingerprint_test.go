@@ -19,8 +19,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
-	"github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 )
 
 const httpTestKey = "0b8a4f7e-6c1d-4e2a-9b3c-5d6e7f8a9b0c"
@@ -45,6 +45,12 @@ func post(t *testing.T, h http.Handler, ctx context.Context, target, body string
 
 func newKeeper(opts ...idempotency.Option) *idempotency.Keeper {
 	return idempotency.New(memory.New(), append([]idempotency.Option{idempotency.WithMaxLockDuration(time.Minute)}, opts...)...)
+}
+
+// newOwnedKeeper is newKeeper binding every record to one owner, as response
+// replay and entity ID exposure require.
+func newOwnedKeeper(opts ...idempotency.Option) *idempotency.Keeper {
+	return newKeeper(append([]idempotency.Option{idempotency.WithOwner(func(context.Context) string { return "caller" })}, opts...)...)
 }
 
 func TestRequestFingerprint(t *testing.T) {
@@ -197,13 +203,13 @@ func extractBody(_ *http.Request, _ string, body []byte) string { return string(
 func TestEntityIDHeaderOptIn(t *testing.T) {
 	t.Parallel()
 
-	off := Middleware(newKeeper(), WithEntityIDExtractor(extractBody))(entityEcho)
+	off := Middleware(newOwnedKeeper(), WithEntityIDExtractor(extractBody))(entityEcho)
 	require.Equal(t, http.StatusCreated, post(t, off, t.Context(), "/orders", "a").Code)
 	rec := post(t, off, t.Context(), "/orders", "a")
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	require.Empty(t, rec.Header().Get(DefaultIdempotencyKeyEntityIdHeader), "not echoed by default")
 
-	on := Middleware(newKeeper(), WithEntityIDExtractor(extractBody), WithExposeEntityID())(entityEcho)
+	on := Middleware(newOwnedKeeper(), WithEntityIDExtractor(extractBody), WithExposeEntityID())(entityEcho)
 	require.Equal(t, http.StatusCreated, post(t, on, t.Context(), "/orders", "a").Code)
 	rec = post(t, on, t.Context(), "/orders", "a")
 	require.Equal(t, "order-42", rec.Header().Get(DefaultIdempotencyKeyEntityIdHeader))

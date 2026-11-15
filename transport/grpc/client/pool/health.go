@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/grpc/connectivity"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 )
 
 // DefaultPoolHealthServiceName is the service name used when the pool
@@ -50,7 +50,7 @@ func DefaultStateMapper(s connectivity.State) health.ServingStatus {
 // [ConnectionPool.StateForTarget] using the default mapper.
 type poolHealth struct {
 	pool        *ConnectionPool
-	coordinator *health.Coordinator // may be nil
+	coordinator health.DynamicReporter // may be nil
 	serviceName string
 	mapper      StateMapper // never nil
 	perTarget   bool

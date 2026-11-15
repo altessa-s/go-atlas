@@ -12,22 +12,49 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 )
 
 type capScopeSink struct {
-	got []audit.Decision
+	got []decision.Decision
 	err error
 }
 
-func (s *capScopeSink) Record(_ context.Context, d audit.Decision) error {
+var _ DecisionRecorder = (*decision.Recorder)(nil)
+
+type decisionRecorderFunc func(context.Context, decision.Decision) error
+
+func (f decisionRecorderFunc) Record(ctx context.Context, d decision.Decision) error {
+	return f(ctx, d)
+}
+
+func (s *capScopeSink) Record(_ context.Context, d decision.Decision) error {
 	s.got = append(s.got, d)
 	return s.err
 }
 
-func auditedScope(rec *audit.Recorder) http.Handler {
+func auditedScope(rec DecisionRecorder) http.Handler {
 	return ScopeMiddleware(newScopeEnforcer(), scopeKey,
 		WithScopeAudit(rec, func(*scopePrincipal) string { return "u1" }))(okHandler())
+}
+
+func TestScopeMiddlewareAuditDecisionRecorderPort(t *testing.T) {
+	t.Parallel()
+
+	var got []decision.Decision
+	recorderErr := errors.New("recorder failed")
+	recorder := decisionRecorderFunc(func(_ context.Context, d decision.Decision) error {
+		got = append(got, d)
+		return recorderErr
+	})
+	code := serveScope(auditedScope(recorder), http.MethodGet, "/files", &scopePrincipal{scopes: []string{"files:read"}})
+	require.Equal(t, http.StatusInternalServerError, code)
+	require.Len(t, got, 1)
+	require.True(t, got[0].Allowed)
+
+	// A nil recorder leaves allowed requests unchanged.
+	code = serveScope(auditedScope(nil), http.MethodGet, "/files", &scopePrincipal{scopes: []string{"files:read"}})
+	require.Equal(t, http.StatusOK, code)
 }
 
 func TestScopeMiddlewareAuditRecords(t *testing.T) {
@@ -53,7 +80,7 @@ func TestScopeMiddlewareAuditRecords(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			sink := &capScopeSink{}
-			rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll))
+			rec := decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll))
 			code := serveScope(auditedScope(rec), http.MethodGet, tc.path, tc.data)
 			require.Equal(t, tc.wantCode, code)
 			require.Len(t, sink.got, 1)
@@ -70,7 +97,7 @@ func TestScopeMiddlewareAuditRecords(t *testing.T) {
 func TestScopeMiddlewareAuditDenyOnlyDropsAllow(t *testing.T) {
 	t.Parallel()
 	sink := &capScopeSink{}
-	code := serveScope(auditedScope(audit.NewRecorder(sink)), // default deny-only
+	code := serveScope(auditedScope(decision.NewRecorder(sink)), // default deny-only
 		http.MethodGet, "/files", &scopePrincipal{scopes: []string{"files:read"}})
 	require.Equal(t, http.StatusOK, code)
 	require.Empty(t, sink.got)
@@ -79,7 +106,7 @@ func TestScopeMiddlewareAuditDenyOnlyDropsAllow(t *testing.T) {
 func TestScopeMiddlewareAuditRequiredFailureFails(t *testing.T) {
 	t.Parallel()
 	sink := &capScopeSink{err: errors.New("sink down")}
-	rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll), audit.WithFailureMode(audit.FailureRequired))
+	rec := decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll), decision.WithFailureMode(decision.FailureRequired))
 	code := serveScope(auditedScope(rec), http.MethodGet, "/files", &scopePrincipal{scopes: []string{"files:read"}})
 	require.Equal(t, http.StatusInternalServerError, code)
 }

@@ -10,7 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
+	sharedlimiter "github.com/altessa-s/go-atlas/coord/limiters"
 )
 
 func BenchmarkMiddleware_Allowed(b *testing.B) {

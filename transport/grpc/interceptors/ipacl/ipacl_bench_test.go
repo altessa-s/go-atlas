@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
 
 	"google.golang.org/grpc"
 )

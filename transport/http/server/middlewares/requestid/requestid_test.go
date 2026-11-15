@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/internal/requestid"
+	"github.com/altessa-s/go-atlas/internal/transport/requestid"
 )
 
 func TestRequestId_GeneratesIfMissing(t *testing.T) {
@@ -70,4 +70,41 @@ func TestFromContext_Empty(t *testing.T) {
 func TestNewContext(t *testing.T) {
 	ctx := NewContext(t.Context(), "test-id")
 	require.Equal(t, "test-id", FromContext(ctx))
+}
+
+func TestRequestId_GenerationDisabled(t *testing.T) {
+	t.Parallel()
+
+	gen := requestid.NewGenerator(requestid.WithGenerateIfMissing(false))
+	const validID = "550e8400-e29b-41d4-a716-446655440000"
+
+	tests := []struct {
+		name     string
+		header   string
+		wantCode int
+		wantID   string
+	}{
+		{"missing_id_is_rejected", "", http.StatusBadRequest, ""},
+		{"invalid_id_is_rejected", "not-a-uuid", http.StatusBadRequest, ""},
+		{"valid_id_passes", validID, http.StatusOK, validID},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var gotID string
+			handler := RequestId(gen)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				gotID = FromContext(r.Context())
+			}))
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			if tc.header != "" {
+				req.Header.Set(gen.HeaderName(), tc.header)
+			}
+			handler.ServeHTTP(rec, req)
+
+			require.Equal(t, tc.wantCode, rec.Code)
+			require.Equal(t, tc.wantID, gotID)
+		})
+	}
 }

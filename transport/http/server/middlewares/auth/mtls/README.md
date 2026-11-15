@@ -13,7 +13,7 @@ transport label.
 
 | Symbol                    | Description                                                                                    |
 |---------------------------|------------------------------------------------------------------------------------------------|
-| `Middleware(opts…)`       | `func(http.Handler) http.Handler`; `opts` are `auth/mtls` options. No/ rejected cert → `401`; required-audit failure → `500`. |
+| `Middleware(opts…)`       | `(func(http.Handler) http.Handler, error)`; `opts` are `auth/mtls` options. Errors with `coremtls.ErrNoTrustDomainPolicy` without a trust decision. No/ rejected cert → `401`; required-audit failure → `500`. |
 | `PeerCertificate(r)`      | Verified leaf client certificate from `r.TLS.VerifiedChains` (not unverified peer certs).       |
 
 Errors from `PeerCertificate`: `ErrNoTLS`, `ErrNoVerifiedCert` (`errors.Is`).
@@ -27,17 +27,24 @@ import (
     "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
 )
 
-authn := mtls.Middleware(
+authn, err := mtls.Middleware(
+    coremtls.WithTrustDomains("example.org"), // the trust decision
     coremtls.WithValidator(coremtls.ExpiryValidator(nil, 30*time.Second)),
-    coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")),
 )
+if err != nil {
+    return err // coremtls.ErrNoTrustDomainPolicy: no trust decision
+}
 authz := httpauth.ScopeMiddleware(enf, func(r *http.Request) string { return r.Method + " " + r.Pattern })
 
 handler = authn(authz(handler)) // authn populates the principal authz reads
 ```
 
+The options must make the trust decision — `coremtls.WithTrustDomains(domains…)` or the `coremtls.WithInsecureAnyTrustDomain()` opt-in. Validators
+(`WithValidator`) never count as one: without the decision `Middleware` returns an error wrapping `coremtls.ErrNoTrustDomainPolicy` (match with
+`errors.Is`), so the service fails at startup instead of answering `401` at runtime.
+
 The TLS configuration that requires and verifies client certificates is set up separately — see
-[`security/tlsutils`](../../../../../../security/tlsutils).
+[`go-tlsutils`](https://github.com/altessa-s/go-tlsutils/tree/develop).
 
 ## See also
 

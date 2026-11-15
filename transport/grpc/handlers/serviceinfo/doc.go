@@ -22,7 +22,7 @@
 //
 // # Leader state
 //
-// Pass either a [LeaderProvider] (the [data/leadelect.Leader] type
+// Pass either a [LeaderProvider] (the [coord/leadelect.Leader] type
 // satisfies it directly) via [WithLeaderProvider], or a function via
 // [WithLeader] when integrating a custom coordinator. The two options
 // are mutually exclusive — the last call wins.

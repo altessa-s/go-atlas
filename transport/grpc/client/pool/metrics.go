@@ -8,6 +8,12 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
+// Metric label names.
+const (
+	labelTarget = "target"
+	labelReason = "reason"
+)
+
 // DefaultMetricsSubsystem is the Prometheus subsystem name used when no
 // explicit subsystem is provided via [WithMetricsSubsystem]. Override it
 // when several pools target different upstreams from the same process so
@@ -16,7 +22,7 @@ import (
 const DefaultMetricsSubsystem = "grpc_connection_pool"
 
 // poolMetrics holds all Prometheus metrics for the gRPC connection pool.
-// When no [metrics.Collector] is provided, [metrics.Noop] is used and
+// When no [metrics.Meter] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type poolMetrics struct {
 	connectionsCreated metrics.Counter
@@ -32,7 +38,7 @@ type poolMetrics struct {
 	cleanupRemoved     metrics.Counter
 }
 
-func newPoolMetrics(c metrics.Collector, subsystem string) *poolMetrics {
+func newPoolMetrics(c metrics.Meter, subsystem string) *poolMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
@@ -46,22 +52,22 @@ func newPoolMetrics(c metrics.Collector, subsystem string) *poolMetrics {
 		connectionsCreated: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "connections_created_total",
 			Help:       "Total number of connections created.",
-			LabelNames: []string{"target"},
+			LabelNames: []string{labelTarget},
 		}),
 		connectionsClosed: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "connections_closed_total",
 			Help:       "Total number of connections closed.",
-			LabelNames: []string{"target", "reason"},
+			LabelNames: []string{labelTarget, labelReason},
 		}),
 		connectionsReused: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "connections_reused_total",
 			Help:       "Total number of connections reused from the pool.",
-			LabelNames: []string{"target"},
+			LabelNames: []string{labelTarget},
 		}),
 		connectionErrors: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "connection_errors_total",
 			Help:       "Total number of connection creation failures.",
-			LabelNames: []string{"target"},
+			LabelNames: []string{labelTarget},
 		}),
 		connectionsActive: scoped.MustGauge(metrics.MetricOpts{
 			Name: "connections_active",
@@ -80,17 +86,13 @@ func newPoolMetrics(c metrics.Collector, subsystem string) *poolMetrics {
 			Help: "Number of goroutines waiting for a connection.",
 		}),
 		connectDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name:       "connect_duration_seconds",
-				Help:       "Duration of connection establishment in seconds.",
-				LabelNames: []string{"target"},
-			},
+			Name:       "connect_duration_seconds",
+			Help:       "Duration of connection establishment in seconds.",
+			LabelNames: []string{labelTarget},
 		}),
 		cleanupDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name: "cleanup_duration_seconds",
-				Help: "Duration of cleanup cycles in seconds.",
-			},
+			Name: "cleanup_duration_seconds",
+			Help: "Duration of cleanup cycles in seconds.",
 		}),
 		cleanupRemoved: scoped.MustCounter(metrics.MetricOpts{
 			Name: "cleanup_connections_removed",

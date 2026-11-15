@@ -12,11 +12,11 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
-	"github.com/altessa-s/go-atlas/transport/internal/headers"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreio "github.com/altessa-s/go-atlas/core/io"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	coreio "github.com/altessa-s/go-atlas-core/io"
 )
 
 // Sentinel errors for [Writer] and [ReadWriter] operations.
@@ -102,7 +102,7 @@ func (wr *Writer) Write(w http.ResponseWriter, r *http.Request, data any) error 
 	}
 
 	// Write response (Content-Length is set automatically by http.ResponseWriter)
-	w.Header().Set(headers.ContentType, mimeType+"; charset=utf-8")
+	w.Header().Set(httpx.ContentType, mimeType+"; charset=utf-8")
 	w.WriteHeader(statusCode)
 
 	// CodeQL: False positive - 'body' is a codec-encoded response structure (JSON/XML/Protobuf),
@@ -130,7 +130,7 @@ func (wr *Writer) Read(r *http.Request, out any) error {
 	}
 
 	// Get Content-Type
-	contentType := r.Header.Get(headers.ContentType)
+	contentType := r.Header.Get(httpx.ContentType)
 	if contentType == "" {
 		contentType = wr.options.defaultCodec
 	}
@@ -222,7 +222,7 @@ func (wr *Writer) WriteError(w http.ResponseWriter, r *http.Request, err error, 
 
 // negotiateEncoder selects encoder based on Accept header.
 func (wr *Writer) negotiateEncoder(r *http.Request) (codec.Encoder, string, error) {
-	acceptHeader := r.Header.Get(headers.Accept)
+	acceptHeader := r.Header.Get(httpx.Accept)
 
 	// Try content negotiation
 	if acceptHeader != "" && acceptHeader != "*/*" {
@@ -259,7 +259,7 @@ func (wr *Writer) writeError(w http.ResponseWriter, r *http.Request, err error, 
 	encoder, mimeType, encErr := wr.negotiateEncoder(r)
 	if encErr != nil {
 		// Cannot negotiate codec, write plain text error
-		w.Header().Set(headers.ContentType, ContentTypePlainText)
+		w.Header().Set(httpx.ContentType, ContentTypePlainText)
 		w.WriteHeader(http.StatusInternalServerError)
 		wr.writeFallback(r.Context(), w)
 		return coreerrs.WrapOperation(encErr, "negotiate encoder for error response")
@@ -269,14 +269,14 @@ func (wr *Writer) writeError(w http.ResponseWriter, r *http.Request, err error, 
 	body, encErr := encoder.Encode(errorResponse)
 	if encErr != nil {
 		// Cannot encode error, write plain text
-		w.Header().Set(headers.ContentType, ContentTypePlainText)
+		w.Header().Set(httpx.ContentType, ContentTypePlainText)
 		w.WriteHeader(http.StatusInternalServerError)
 		wr.writeFallback(r.Context(), w)
 		return coreerrs.WrapOperation(encErr, "encode error response")
 	}
 
 	// Write error response (Content-Length is set automatically)
-	w.Header().Set(headers.ContentType, mimeType+"; charset=utf-8")
+	w.Header().Set(httpx.ContentType, mimeType+"; charset=utf-8")
 	w.WriteHeader(statusCode)
 	// CodeQL: False positive - 'body' is an encoded error response structure, not user input.
 	// The responseBuilder.Build() method creates a controlled error structure that explicitly

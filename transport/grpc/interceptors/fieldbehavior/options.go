@@ -4,13 +4,14 @@
 
 package fieldbehavior
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"log/slog"
 	"regexp"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 )
 
 // Use defaults package for optgen code generation.
@@ -24,14 +25,15 @@ const DefaultMaxStripDepth = 32
 
 // options holds configuration for the fieldbehavior interceptor.
 type options struct {
-	// methodKinds overrides ClassifyMethod for specific fully-qualified
-	// method names ("/x.v1.X/CreateBucket"). Populated by [WithMethodKind].
-	methodKinds map[string]Kind `opt:"-"`
-
-	// skipResponse disables the automatic StripResponse pass on successful
-	// responses. Set via [WithSkipResponse]. The per-method KindSkip override
-	// is still honored regardless of this flag.
-	skipResponse bool `opt:"-"`
+	// WithMethodKind overrides the default classification for fullMethod. The key
+	// is the value gRPC passes as info.FullMethod, including the leading slash
+	// ("/x.v1.X/CreateBucket"). Calling the option multiple times accumulates
+	// overrides; later calls replace earlier ones for the same method.
+	methodKinds map[string]Kind `opt:"MethodKind" optgen:"put"`
+	// WithSkipResponse disables the automatic StripResponse pass that runs on
+	// every successful response. Use it when the host strips INPUT_ONLY fields
+	// elsewhere (e.g. inside the handler) and the duplicate walk is wasted work.
+	skipResponse bool `optgen:"default=false"`
 
 	// maxStripDepth caps the descriptor traversal depth passed to every
 	// Strip* call. Defaults to DefaultMaxStripDepth.
@@ -45,34 +47,18 @@ type options struct {
 	// stripping for. Defaults to gRPC reflection and health-check patterns.
 	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
 
+	// WithUpdateNormalizer sets how the update_mask of an Update request is
+	// applied to its resource. Defaults to updatemask.New(): the canonical
+	// AIP-134 request shape, the default update options. Give it the
+	// normalizer of the fieldmask interceptor (fieldmask.UpdateNormalizer with
+	// the same options) so both apply a mask the same way: a renamed or nested
+	// mask field, per-method extractors, mask limits, strict mode. Nil is
+	// ignored.
+	// By default, the singular google.protobuf.FieldMask is declared as update_mask,
+	// falling back to updateMask only when update_mask is not declared.
+	updateNormalizer *updatemask.Normalizer `optgen:"notnil"`
+
 	// logger is the slog.Logger for debug/error logging. Defaults to a
 	// discard logger.
 	logger *slog.Logger
-}
-
-// WithSkipResponse disables the automatic StripResponse pass that runs on
-// every successful response. Use it when the host strips INPUT_ONLY fields
-// elsewhere (e.g. inside the handler) and the duplicate walk is wasted work.
-func WithSkipResponse() Option {
-	return func(o *options) {
-		o.skipResponse = true
-	}
-}
-
-// WithMethodKind overrides the default classification for fullMethod. The key
-// is the value gRPC passes as info.FullMethod, including the leading slash
-// ("/x.v1.X/CreateBucket"). Calling the option multiple times accumulates
-// overrides; later calls replace earlier ones for the same method.
-func WithMethodKind(fullMethod string, kind Kind) Option {
-	return func(o *options) {
-		if fullMethod == "" {
-			return
-		}
-
-		if o.methodKinds == nil {
-			o.methodKinds = make(map[string]Kind)
-		}
-
-		o.methodKinds[fullMethod] = kind
-	}
 }

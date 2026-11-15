@@ -82,7 +82,17 @@ func (i *DrivenServerInterceptor) ServerUnaryInterceptor() grpc.UnaryServerInter
 			return resp, nil
 		}
 
+		if dc, ok := d.(driver.DriverContext); ok {
+			newCtx = dc.RequestContext(newCtx)
+		}
+		returned := false
+		defer func() {
+			if !returned {
+				notifyPanic(newCtx, d)
+			}
+		}()
 		resp, err = handler(newCtx, req)
+		returned = true
 
 		postErr := d.PostCall(newCtx, resp, err)
 		if postErr != nil {
@@ -110,9 +120,24 @@ func (i *DrivenServerInterceptor) ServerStreamInterceptor() grpc.StreamServerInt
 			return err
 		}
 
+		returned := false
+		defer func() {
+			if !returned {
+				notifyPanic(newCtx, d)
+			}
+		}()
 		err := handler(srv, NewServerWrappedStream(newCtx, stream, d))
+		returned = true
 
 		return d.PostCall(newCtx, nil, err)
+	}
+}
+
+// notifyPanic tells a driver implementing [driver.DriverPanic] that the
+// handler panicked. It runs deferred, so the panic keeps unwinding.
+func notifyPanic(ctx context.Context, d driver.Driver) {
+	if dp, ok := d.(driver.DriverPanic); ok {
+		dp.OnPanic(ctx)
 	}
 }
 

@@ -7,10 +7,11 @@ package auth
 import (
 	"context"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/secure"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	grpcmetadata "google.golang.org/grpc/metadata"
 	strings "strings"
 )
@@ -43,7 +44,7 @@ import (
 func ExtractBearerToken() TokenExtractor {
 	return ExtractTokenFromHeader("authorization", func(t string) (string, error) {
 		const bearerPrefix = "bearer "
-		if corestrings.TimingSafePrefixMatch(t, bearerPrefix) {
+		if secure.PrefixMatch(t, bearerPrefix) {
 			return strings.TrimSpace(t[len(bearerPrefix):]), nil
 		}
 		return "", status.Error(codes.Unauthenticated, "missing or invalid bearer token")

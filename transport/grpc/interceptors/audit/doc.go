@@ -4,5 +4,6 @@
 
 // Package audit provides a gRPC server interceptor that emits audit events
 // for every processed RPC. It captures method name, status code, duration,
-// caller identity, and request metadata via the [audit.Auditor] pipeline.
+// caller identity, and request metadata via the [EventEmitter] contract. The
+// audit package's Auditor implements that contract.
 package audit

@@ -4,7 +4,8 @@
 
 // Package health implements the gRPC health checking protocol (grpc_health_v1).
 //
-// [Handler] delegates to an [health.Coordinator] from the observability/health
+// [Handler] depends on the consumer-side [HealthWatcher] contract, implemented
+// by [health.Coordinator] from the observability/health
 // package, supporting Check (single service), List (all services), and Watch
 // (server-streaming status updates). The Watch stream terminates with
 // codes.Canceled when the server's stop channel is closed.

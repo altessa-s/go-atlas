@@ -4,7 +4,7 @@
 
 package bodylimit
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"net/http"

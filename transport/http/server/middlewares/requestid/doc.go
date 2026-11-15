@@ -26,7 +26,7 @@
 //
 // # Example
 //
-//	gen := requestid.NewGenerator(requestid.WithGenerateIfMissing())
+//	gen := requestid.NewGenerator(requestid.WithGenerateIfMissing(true))
 //	handler := requestid.RequestId(gen)(yourHandler)
 //
 //	// In a downstream handler:

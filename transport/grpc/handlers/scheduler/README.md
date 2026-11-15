@@ -4,16 +4,20 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/handlers/scheduler"
 ```
 
-Package `scheduler` implements the gRPC `SchedulerService` defined in `proto/scheduler/v1/scheduler.proto`. `Handler` delegates to a `sched.Scheduler`
-and exposes task lifecycle operations plus scheduler status queries and task history listing. `List` and `ListHistory` accept an optional CEL filter
-expression that is parsed by the scheduler and evaluated by the storage backend. Scheduler domain errors are translated to appropriate gRPC status codes
-(`NotFound`, `FailedPrecondition`, `InvalidArgument`, `Internal`) by the internal `mapError` function.
+Package `scheduler` implements the gRPC `SchedulerService` defined in `proto/scheduler/v1/scheduler.proto` over a
+[go-horai](https://github.com/altessa-s/go-horai) `scheduler.Scheduler`. It owns what go-horai leaves to the transport: CEL filters, parsed with
+the go-aip `filter/parser` and translated to typed go-horai queries, and page tokens signed with a go-aip `pagination/pagetoken` codec. Scheduler domain errors
+are translated
+to gRPC status codes (`NotFound`, `FailedPrecondition`, `InvalidArgument`, `Internal`) by the internal `mapError` function.
 
 ## Key types
 
-| Type / Interface | Description                                                                            |
-|------------------|----------------------------------------------------------------------------------------|
-| `Handler`        | Implements `SchedulerServiceServer` by delegating to a `sched.Scheduler` instance      |
+| Type / Symbol                | Description                                                                            |
+|------------------------------|----------------------------------------------------------------------------------------|
+| `Handler`                    | Implements `SchedulerServiceServer` by delegating to a go-horai scheduler              |
+| `New(s, tokens, parser)`     | Creates a `Handler`; `tokens` implements `TokenCodec` and `parser` implements the required `FilterParser` |
+| `ErrPageTokensNotConfigured` | `List`/`ListHistory` without a codec (`FailedPrecondition`)                            |
+| `ErrInvalidCursor`           | A malformed, tampered, expired or foreign page token (`InvalidArgument`)               |
 
 ## RPCs
 
@@ -29,3 +33,9 @@ expression that is parsed by the scheduler and evaluated by the storage backend.
 | `Enable`       | Enables a disabled task                                                          |
 | `Trigger`      | Manually triggers immediate execution of a task, bypassing its cron schedule     |
 | `SkipNextRun`  | Marks the next scheduled run of a task to be skipped                             |
+
+## Filters
+
+Supported: `&&`, `||`, `!`, comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`) and `in` between a field and literals, `startsWith` and `contains` on a
+string field, and a bare boolean field (`unmanaged`). Fields are the go-horai `query.TaskFields` and `query.HistoryFields` (camelCase, as in the
+proto). Anything else is `InvalidArgument`.

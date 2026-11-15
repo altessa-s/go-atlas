@@ -32,45 +32,6 @@ func TestErrorTypeString(t *testing.T) {
 	}
 }
 
-func TestErrorKey(t *testing.T) {
-	got := errorKey(nil)
-	require.Equal(t, "", got)
-	got = errorKey(errors.New("test"))
-	require.NotEqual(t, "", got)
-}
-
-func TestSentinelErrorKey(t *testing.T) {
-	got := sentinelErrorKey(nil)
-	require.Equal(t, "", got)
-	got = sentinelErrorKey(errors.New("sentinel"))
-	require.NotEqual(t, "", got)
-}
-
-func TestFindSentinelError(t *testing.T) {
-	s1 := errors.New("s1")
-	s2 := errors.New("s2")
-
-	tests := []struct {
-		name      string
-		err       error
-		sentinels []error
-		want      error
-	}{
-		{"nil_error", nil, []error{s1, s2}, nil},
-		{"match_first", s1, []error{s1, s2}, s1},
-		{"match_second", s2, []error{s1, s2}, s2},
-		{"no_match", errors.New("other"), []error{s1, s2}, nil},
-		{"nil_sentinel_entry", s1, []error{nil, s1}, s1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := findSentinelError(tt.err, tt.sentinels)
-			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestBuildStatusConverterIndex(t *testing.T) {
 	t.Run("nil_input", func(t *testing.T) {
 		idx := buildStatusConverterIndex(nil)

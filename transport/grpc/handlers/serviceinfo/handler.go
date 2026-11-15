@@ -10,10 +10,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
-	"github.com/altessa-s/go-atlas/core/text/strings"
-	"github.com/altessa-s/go-atlas/core/types/ptr"
+	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/text/strings"
+	"github.com/altessa-s/go-atlas-core/types/ptr"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"

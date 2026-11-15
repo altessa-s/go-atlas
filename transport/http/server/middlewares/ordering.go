@@ -4,7 +4,7 @@
 
 package middlewares
 
-import "github.com/altessa-s/go-atlas/transport/internal/depgraph"
+import "github.com/altessa-s/go-atlas/internal/transport/depgraph"
 
 // OrderMiddlewares sorts middlewares by their declared dependencies using
 // topological sort. Middlewares implementing depgraph.DependencyDeclarer

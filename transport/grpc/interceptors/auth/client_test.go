@@ -90,11 +90,3 @@ func TestClientInterceptor_ExistingMetadata(t *testing.T) {
 	require.NotEqual(t, 0, len(v))
 	require.Equal(t, "Bearer tok", v[0])
 }
-
-func BenchmarkClientInterceptor_AttachToken(b *testing.B) {
-	ci := ClientInterceptor(StaticTokenProvider("tok"))
-	inner := ci.(*clientInterceptor)
-	for b.Loop() {
-		inner.attachToken(b.Context()) //nolint:errcheck
-	}
-}

@@ -9,7 +9,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
@@ -75,7 +75,7 @@ var errPrincipalTypeMismatch = interceptors.NewError(
 //	)
 //
 // Pass [WithScopeAudit] to record every decision through an
-// [github.com/altessa-s/go-atlas/auth/audit.Recorder].
+// [DecisionRecorder].
 func ScopeClientAuth[P any](e *scope.Enforcer[P], opts ...ScopeClientAuthOption[P]) ClientAuth {
 	var cfg scopeClientAuthConfig[P]
 	for _, opt := range opts {
@@ -109,7 +109,7 @@ func ScopeClientAuthPrincipal(
 type ScopeClientAuthOption[P any] func(*scopeClientAuthConfig[P])
 
 type scopeClientAuthConfig[P any] struct {
-	recorder  *audit.Recorder
+	recorder  DecisionRecorder
 	subjectOf func(P) string
 }
 
@@ -117,9 +117,9 @@ type scopeClientAuthConfig[P any] struct {
 // gRPC full method. subjectOf extracts the principal identity for the record;
 // pass nil to leave the subject empty (it is not called on a principal-type
 // mismatch, where no principal is available). When rec is configured with
-// audit.FailureRequired and recording an otherwise-allowed call fails, the call
+// decision.FailureRequired and recording an otherwise-allowed call fails, the call
 // is failed with codes.Internal so nothing proceeds unrecorded.
-func WithScopeAudit[P any](rec *audit.Recorder, subjectOf func(P) string) ScopeClientAuthOption[P] {
+func WithScopeAudit[P any](rec DecisionRecorder, subjectOf func(P) string) ScopeClientAuthOption[P] {
 	return func(c *scopeClientAuthConfig[P]) {
 		c.recorder = rec
 		c.subjectOf = subjectOf
@@ -142,7 +142,7 @@ func (c scopeClientAuthConfig[P]) finalize(
 	if c.recorder == nil {
 		return authErr
 	}
-	recErr := c.recorder.Record(ctx, audit.Decision{
+	recErr := c.recorder.Record(ctx, decision.Decision{
 		Time:       time.Now().UTC(),
 		Allowed:    allowed,
 		Subject:    subject,

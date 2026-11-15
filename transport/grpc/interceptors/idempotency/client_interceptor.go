@@ -4,7 +4,7 @@
 
 package idempotency
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=clientOptions --option-type=ClientOption --option-prefix=Client --output=client_options_gen.go
+//go:generate go tool optgen generate --type=clientOptions --option-type=ClientOption --option-prefix=Client --output=client_options_gen.go
 
 import (
 	"context"

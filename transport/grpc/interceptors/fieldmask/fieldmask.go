@@ -6,30 +6,31 @@ package fieldmask
 
 import (
 	"context"
-	"errors"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 
-	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
+	"github.com/altessa-s/go-aip/fieldmask/extract"
+	"github.com/altessa-s/go-aip/fieldmask/update"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
-	"github.com/altessa-s/go-atlas/core/types/ptr"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
-	pbfieldmask "github.com/altessa-s/go-atlas/domain/proto/fieldmask"
+	pbfieldmask "github.com/altessa-s/go-aip/fieldmask"
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
 
-const interceptorName = "fieldmask"
+const (
+	interceptorName     = "fieldmask"
+	updateMaskFieldName = "update_mask"
+)
 
 // Name returns the interceptor name used for dependency resolution and chain
 // ordering.
@@ -48,19 +49,10 @@ var (
 // interceptor implements the fieldmask gRPC interceptor.
 type interceptor struct {
 	interceptors.BaseInterceptor
-	opts          *options
-	builtinUpdate pbfieldmask.UpdateExtractorFunc
-	builtinRead   pbfieldmask.ReadExtractorFunc
-}
-
-// builtinUpdateExtractor invokes the cached reflection-based update
-// extractor on the current request. Used as the bottom-of-stack fallback
-// after per-method and global-default overrides miss.
-func (ri *requestInterceptor) builtinUpdateExtractor(
-	ctx context.Context,
-	req proto.Message,
-) (*fieldmaskpb.FieldMask, proto.Message, func(*fieldmaskpb.FieldMask), bool) {
-	return ri.builtinUpdate(ctx, req)
+	opts        *options
+	builtinRead extract.ReadFunc
+	// updates applies the update_mask of Update requests.
+	updates *updatemask.Normalizer
 }
 
 // builtinReadExtractor invokes the cached reflection-based read extractor.
@@ -80,6 +72,7 @@ type requestInterceptor struct {
 	*interceptor
 	meta *sharedmetadata.CallMetadata
 	kind Kind
+	plan atomic.Pointer[update.DeferredPlan]
 	// readMask is the read_mask of the first request of a KindRead call,
 	// published once. A stored snapshot with a nil mask records a request
 	// without one. Sends on a stream may run concurrently with receives, so
@@ -90,10 +83,9 @@ type requestInterceptor struct {
 // readMaskSnapshot is the captured read_mask, owned by the interceptor.
 type readMaskSnapshot struct {
 	mask *fieldmaskpb.FieldMask
-	// parsed builds the filter tree once per call or stream. Filter only
-	// reads it, so concurrent sends share it. A panic while parsing repeats
-	// on every call, reaching filterResponse's recovery each time.
-	parsed func() pbfieldmask.FieldMask
+	// parsed is the filter tree, built once per call or stream when the
+	// mask is captured. Filter only reads it, so concurrent sends share it.
+	parsed pbfieldmask.FieldMask
 }
 
 // capturedReadMask returns the captured read_mask, or nil when none applies.
@@ -114,6 +106,9 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 		meta:        meta,
 		kind:        i.classify(meta.Method()),
 	}
+	if ri.kind == KindUpdate {
+		ctx = updatemask.Track(ctx)
+	}
 	if ri.kind == KindRead {
 		ctx = context.WithValue(ctx, readMaskKey{}, ri)
 	}
@@ -122,17 +117,12 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 }
 
 // ServerInterceptor returns a server interceptor that wires
-// [pbfieldmask.FieldMask.ApplyUpdateMask] into Update* methods and
-// [pbfieldmask.FieldMask.Filter] into Get/List/Search/BatchGet methods based
-// on the gRPC method name.
+// go-aip update.Prepare into Update* methods and [pbfieldmask.FieldMask.Filter] into
+// Get/List/Search/BatchGet methods based on the gRPC method name.
 func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
-	var extractOpts []pbfieldmask.ExtractOption
-	extractOpts = slices.AppendIf(extractOpts, opts.maskFieldName != "", pbfieldmask.WithMaskField(opts.maskFieldName))
-	extractOpts = slices.AppendIf(extractOpts, opts.resourceFieldName != "", pbfieldmask.WithResourceField(opts.resourceFieldName))
-
-	builtinUpdate, builtinRead := newBuiltinExtractors(extractOpts, opts.metadataReadMaskHeader)
+	_, builtinRead := newBuiltinExtractors(extractOptions(opts), opts.metadataReadMaskHeader)
 
 	ic := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
@@ -141,9 +131,9 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 			opts.ignorePatterns,
 			opts.logger,
 		),
-		opts:          opts,
-		builtinUpdate: builtinUpdate,
-		builtinRead:   builtinRead,
+		opts:        opts,
+		builtinRead: builtinRead,
+		updates:     newUpdateNormalizer(opts),
 	}
 
 	return interceptors.ServerDrivenInterceptor(ic)
@@ -163,8 +153,8 @@ func (i *interceptor) classify(fullMethod string) Kind {
 	return ClassifyMethod(fullMethod)
 }
 
-// PreCall extracts the mask + resource for KindUpdate methods, applies
-// ApplyUpdateMask, and writes the cleaned mask back. For KindRead methods it
+// PreCall applies the update_mask of KindUpdate methods to their resource and
+// writes the effective mask back. For KindRead methods it
 // captures the read_mask for use in PostCall. Other kinds short-circuit.
 func (ri *requestInterceptor) PreCall(ctx context.Context, req any) (any, error) {
 	if ri.meta != nil && ri.meta.IsClient {
@@ -277,8 +267,8 @@ func (ri *requestInterceptor) shouldSkip() bool {
 	return ri.ShouldIgnore(ri.meta.FullyMethodName)
 }
 
-// handleRequest dispatches by kind. KindUpdate runs ApplyUpdateMask and
-// writes back; KindRead captures the read_mask for use in PostCall.
+// handleRequest dispatches by kind. KindUpdate applies the update_mask and
+// writes the effective mask back; KindRead captures the read_mask for use in PostCall.
 func (ri *requestInterceptor) handleRequest(ctx context.Context, req any) error {
 	msg, ok := req.(proto.Message)
 	if !ok {
@@ -289,8 +279,7 @@ func (ri *requestInterceptor) handleRequest(ctx context.Context, req any) error 
 	case KindUpdate:
 		return ri.applyUpdateMask(ctx, msg)
 	case KindRead:
-		ri.captureReadMask(ctx, msg)
-		return nil
+		return ri.captureReadMask(ctx, msg)
 	case KindNone, KindSkip:
 	}
 
@@ -313,68 +302,33 @@ func (ri *requestInterceptor) handleResponse(ctx context.Context, resp any) erro
 	return ri.filterResponse(ctx, msg, mask)
 }
 
-// applyUpdateMask runs ApplyUpdateMask against the request and writes the
-// cleaned mask back. Returns a converted gRPC status error on violation.
-func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Message) (err error) {
+// applyUpdateMask applies the update_mask of req to its resource and writes
+// the effective mask back (see [updatemask.Normalizer.Normalize]).
+func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Message) error {
 	method := ri.meta.Method()
 
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
-		ri.LogError(ctx, "fieldmask update_mask panicked", method, nil,
-			slog.String("side", "request"),
-			slog.String("kind", ri.kind.String()),
-			slog.Any("panic", r),
-		)
-		err = interceptors.NewError(
-			status.New(codes.Internal, "Internal Error"),
-			nil,
-		)
-	})
+	res, err := ri.updates.Normalize(ctx, req)
+	ri.plan.Store(res.Plan)
+	if err != nil {
+		if status.Code(err) == codes.Internal {
+			ri.LogError(ctx, "fieldmask update_mask apply failed", method, err)
+		} else {
+			ri.LogDebug(ctx, "fieldmask update_mask rejected", method, slog.String("error", err.Error()))
+		}
 
-	rawMask, resource, writeback, ok := ri.resolveUpdate(ctx, req)
-	if !ok {
+		return err
+	}
+
+	if !res.Located {
 		ri.LogDebug(ctx, "fieldmask update_mask not present", method,
 			slog.String("kind", ri.kind.String()),
 		)
+
 		return nil
 	}
 
-	msk := pbfieldmask.FromProtoFieldMask(rawMask)
-
-	// An empty update_mask clears the resource by default (ApplyUpdateMask
-	// below). Opt-in via WithApplyEmptyUpdateMask to instead synthesize a mask
-	// from the resource's set fields, applying AIP-134 "update every populated
-	// field".
-	if len(msk) == 0 && ri.opts.applyEmptyUpdateMask {
-		// Server-managed fields stay out of the synthesized mask: an
-		// IDENTIFIER addresses its resource (AIP-203), and a populated
-		// sub-message is masked by its set fields rather than whole, which
-		// ApplyUpdateMask rejects (see FromSetFieldsForUpdate).
-		msk = pbfieldmask.FromSetFieldsForUpdate(resource)
-		// An empty result (nothing populated, or only skipped fields) still
-		// goes through ApplyUpdateMask: the empty mask authorizes nothing
-		// and the filter clears the skipped client values, keeping set
-		// top-level identifiers.
-		ri.LogDebug(ctx, "fieldmask update_mask synthesized from set fields", method,
-			slog.Int("synthesized_paths", len(msk)),
-		)
-	}
-
-	if applyErr := msk.ApplyUpdateMask(resource); applyErr != nil {
-		return ri.convertUpdateError(ctx, method, applyErr)
-	}
-
-	// ApplyUpdateMask adds the set IDENTIFIER fields to msk so they survive
-	// the filter. They address the resource rather than name fields to
-	// change, so the handler gets the mask without them.
-	msk.DropIdentifiers(resource)
-
-	cleaned := msk.ToProtoFieldMask()
-	if writeback != nil {
-		writeback(cleaned)
-	}
-
 	ri.LogDebug(ctx, "fieldmask update_mask applied", method,
-		slog.Int("cleaned_paths", len(cleaned.GetPaths())),
+		slog.Int("cleaned_paths", res.Paths),
 	)
 
 	return nil
@@ -383,24 +337,30 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 // captureReadMask records the read_mask of the first request, as an owned
 // copy, so later requests on a stream and handler mutations of the request
 // cannot change it. A missing mask is recorded too and is a silent
-// passthrough: responses are not filtered.
-func (ri *requestInterceptor) captureReadMask(ctx context.Context, req proto.Message) {
+// passthrough: responses are not filtered. A malformed mask (AIP-161 path
+// grammar, mask limits) is rejected with InvalidArgument before the handler
+// runs.
+func (ri *requestInterceptor) captureReadMask(ctx context.Context, req proto.Message) error {
 	if ri.readMask.Load() != nil {
-		return
+		return nil
 	}
 
 	snap := &readMaskSnapshot{}
 	if mask, ok := ri.resolveRead(ctx, req); ok {
+		parsed, err := pbfieldmask.FromProtoFieldMask(mask)
+		if err != nil {
+			ri.LogDebug(ctx, "fieldmask read_mask rejected", ri.meta.Method(), slog.String("error", err.Error()))
+			return interceptors.NewError(status.New(codes.InvalidArgument, err.Error()), err)
+		}
 		snap.mask, _ = proto.Clone(mask).(*fieldmaskpb.FieldMask)
-		owned := snap.mask
-		snap.parsed = sync.OnceValue(func() pbfieldmask.FieldMask {
-			return pbfieldmask.FromProtoFieldMask(owned)
-		})
+		snap.parsed = parsed
 	} else {
 		ri.LogDebug(ctx, "fieldmask read_mask not present", ri.meta.Method())
 	}
 
 	ri.readMask.CompareAndSwap(nil, snap)
+
+	return nil
 }
 
 // filterResponse applies the captured read_mask to resp. Panics are
@@ -422,11 +382,22 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 
 	var msk pbfieldmask.FieldMask
 	if snap := ri.readMask.Load(); snap != nil && snap.mask == rawMask && snap.parsed != nil {
-		msk = snap.parsed()
+		msk = snap.parsed
 	} else {
-		msk = pbfieldmask.FromProtoFieldMask(rawMask)
+		parsed, parseErr := pbfieldmask.FromProtoFieldMask(rawMask)
+		if parseErr != nil {
+			return interceptors.NewError(status.New(codes.InvalidArgument, parseErr.Error()), parseErr)
+		}
+		msk = parsed
 	}
-	msk.Filter(resp)
+	// A path the response schema does not hold is the client's error
+	// (AIP-161); the response is not sent half-filtered.
+	if filterErr := msk.Filter(resp); filterErr != nil {
+		ri.LogDebug(ctx, "fieldmask read_mask does not match the response", method,
+			slog.String("error", filterErr.Error()),
+		)
+		return interceptors.NewError(status.New(codes.InvalidArgument, filterErr.Error()), filterErr)
+	}
 
 	ri.LogDebug(ctx, "fieldmask read_mask applied", method,
 		slog.Int("paths", len(rawMask.GetPaths())),
@@ -435,52 +406,18 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 	return nil
 }
 
-// convertUpdateError maps ApplyUpdateMask errors to gRPC status responses.
-// UpdateMaskBehaviorError becomes InvalidArgument + io.altessa.badrequest.v1.BadRequest;
-// ValidationError becomes InvalidArgument; everything else becomes Internal.
-func (ri *requestInterceptor) convertUpdateError(ctx context.Context, method string, applyErr error) error {
-	if behaviorErr, ok := errors.AsType[*pbfieldmask.UpdateMaskBehaviorError](applyErr); ok {
-		ri.LogDebug(ctx, "fieldmask update_mask behavior violation", method,
-			slog.Int("violations", len(behaviorErr.Violations)),
-		)
-		return interceptors.NewError(buildBehaviorStatus(behaviorErr), applyErr)
+// updateMaskName returns the configured update_mask field name.
+func updateMaskName(opts *options) string {
+	if opts.maskFieldName != "" {
+		return opts.maskFieldName
 	}
-
-	if validationErr, ok := errors.AsType[*pbfieldmask.ValidationError](applyErr); ok {
-		ri.LogDebug(ctx, "fieldmask update_mask validation error", method,
-			slog.String("path", validationErr.Path),
-		)
-		st := status.New(codes.InvalidArgument, applyErr.Error())
-		return interceptors.NewError(st, applyErr)
-	}
-
-	ri.LogError(ctx, "fieldmask update_mask apply failed", method, applyErr)
-	return interceptors.NewError(
-		status.New(codes.Internal, "Internal Error"),
-		applyErr,
-	)
+	return updateMaskFieldName
 }
 
-// buildBehaviorStatus produces an InvalidArgument status carrying an
-// io.altessa.badrequest.v1.BadRequest detail with one FieldViolation per
-// offending field — the same detail type the protovalidate interceptor and
-// errstatus emit, so a go-atlas client parses every server-side violation the
-// same way.
-func buildBehaviorStatus(err *pbfieldmask.UpdateMaskBehaviorError) *status.Status {
-	violations := make([]*badrequestv1.FieldViolation, 0, len(err.Violations))
-	for _, v := range err.Violations {
-		violations = append(violations, &badrequestv1.FieldViolation{
-			FieldPath: ptr.WrapNonZero(v.Path),
-			Message:   ptr.WrapNonZero(v.Reason),
-		})
+// RequestContext attaches a snapshot of this message's deferred update plan.
+func (ri *requestInterceptor) RequestContext(ctx context.Context) context.Context {
+	if plan := ri.plan.Load(); plan != nil {
+		return update.ContextWithPlan(ctx, plan)
 	}
-
-	st := status.New(codes.InvalidArgument, "field behavior violation")
-	if detailed, derr := st.WithDetails(&badrequestv1.BadRequest{
-		FieldViolations: violations,
-	}); derr == nil {
-		return detailed
-	}
-
-	return st
+	return ctx
 }

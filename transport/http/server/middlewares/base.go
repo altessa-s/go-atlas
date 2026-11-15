@@ -5,11 +5,13 @@
 package middlewares
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/transport/internal/base"
+	"github.com/altessa-s/go-atlas/internal/transport/base"
+	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
 )
 
 // BaseMiddleware provides common functionality for HTTP middlewares.
@@ -39,7 +41,33 @@ import (
 //	    }
 //	}
 type BaseMiddleware struct {
-	base.Base
+	// base is not embedded: its path-only ShouldIgnore must not be reachable
+	// from a handler, see ShouldIgnoreRequest.
+	base base.Base
+}
+
+// Name returns the middleware name.
+func (b *BaseMiddleware) Name() string { return b.base.Name() }
+
+// Logger returns the configured slog logger.
+func (b *BaseMiddleware) Logger() *slog.Logger { return b.base.Logger() }
+
+// LogIgnored logs a debug message that the path was ignored.
+func (b *BaseMiddleware) LogIgnored(ctx context.Context, path string) { b.base.LogIgnored(ctx, path) }
+
+// LogDebug logs a debug message with middleware context.
+func (b *BaseMiddleware) LogDebug(ctx context.Context, msg, path string, attrs ...slog.Attr) {
+	b.base.LogDebug(ctx, msg, path, attrs...)
+}
+
+// LogWarn logs a warning message with middleware context.
+func (b *BaseMiddleware) LogWarn(ctx context.Context, msg, path string, err error, attrs ...slog.Attr) {
+	b.base.LogWarn(ctx, msg, path, err, attrs...)
+}
+
+// LogError logs an error message with middleware context.
+func (b *BaseMiddleware) LogError(ctx context.Context, msg, path string, err error, attrs ...slog.Attr) {
+	b.base.LogError(ctx, msg, path, err, attrs...)
 }
 
 // NewBaseMiddleware creates a new BaseMiddleware with the given name and logger.
@@ -49,7 +77,7 @@ type BaseMiddleware struct {
 //   - name: The middleware name used for identification
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseMiddleware(name string, logger *slog.Logger) BaseMiddleware {
-	return BaseMiddleware{Base: base.New(name, "middleware", "path", logger)}
+	return BaseMiddleware{base: base.New(name, "middleware", "path", logger)}
 }
 
 // NewBaseMiddlewareWithFilter creates a new BaseMiddleware with path filtering support.
@@ -61,12 +89,16 @@ func NewBaseMiddleware(name string, logger *slog.Logger) BaseMiddleware {
 //   - ignorePatterns: Regex patterns for paths to skip
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseMiddlewareWithFilter(name string, ignorePaths []string, ignorePatterns []*regexp.Regexp, logger *slog.Logger) BaseMiddleware {
-	return BaseMiddleware{Base: base.NewWithFilter(name, "middleware", "path", ignorePaths, ignorePatterns, logger)}
+	return BaseMiddleware{base: base.NewWithFilter(name, "middleware", "path", ignorePaths, ignorePatterns, logger)}
 }
 
-// InternPath returns an interned version of the path for memory efficiency.
-func (b *BaseMiddleware) InternPath(path string) string {
-	return b.InternEndpoint(path)
+// ShouldIgnoreRequest reports whether the request path is on the ignore list.
+// Only a canonical request path ([urlpath.IsCanonicalURL]) can be:
+// "/healthz/../admin", "//healthz" or "/v1%2Fhealthz" never skips the
+// middleware, whatever the router behind it makes of them. It is the only way
+// to consult the list: a bare path does not tell how it was escaped.
+func (b *BaseMiddleware) ShouldIgnoreRequest(r *http.Request) bool {
+	return urlpath.IsCanonicalURL(r.URL) && b.base.ShouldIgnore(r.URL.Path)
 }
 
 // WrapResponseWriter wraps an [http.ResponseWriter] to capture status code and body.

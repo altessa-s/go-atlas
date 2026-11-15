@@ -9,9 +9,10 @@ import (
 	"hash/fnv"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
@@ -49,7 +50,7 @@ type serverInterceptorWrapper struct {
 func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *stdGrpc.UnaryServerInfo, handler stdGrpc.UnaryHandler) (resp any, err error) {
 		_, meta := sharedmetadata.EnsureInContext(ctx, info.FullMethod, info)
-		method := w.InternMethod(meta.FullyMethodName)
+		method := intern.String(meta.FullyMethodName)
 
 		if w.ShouldIgnore(method) {
 			w.LogIgnored(ctx, method)
@@ -74,7 +75,7 @@ func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerI
 func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor {
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) error {
 		_, meta := sharedmetadata.EnsureInContext(stream.Context(), info.FullMethod, info)
-		method := w.InternMethod(meta.FullyMethodName)
+		method := intern.String(meta.FullyMethodName)
 
 		if w.ShouldIgnore(method) {
 			w.LogIgnored(stream.Context(), method)
@@ -138,6 +139,9 @@ type interceptor struct {
 	// byMethod caches bound label handles per method (see metrics_helper.go)
 	// so the request path never rebuilds label maps.
 	byMethod sync.Map
+	// methodCount is the number of methods tracked in byMethod, not counting
+	// [OverflowMethod]; it enforces [WithMaxMethods].
+	methodCount atomic.Int64
 }
 
 // streamWrapper wraps a grpc.ServerStream to intercept SendMsg and RecvMsg calls
@@ -158,10 +162,16 @@ type streamWrapper struct {
 	streamSampled       bool
 }
 
+// Unwrap returns the underlying stream so driven interceptors can compose
+// per-message context snapshots through the metrics wrapper.
+func (s *streamWrapper) Unwrap() stdGrpc.ServerStream {
+	return s.ServerStream
+}
+
 // ServerInterceptor returns a new interceptor that collects metrics for gRPC requests.
 //
 // Each call constructs a fresh interceptor wired to the provided
-// [metrics.Collector]. The underlying adapter deduplicates metric
+// [metrics.Meter]. The underlying adapter deduplicates metric
 // registrations by name, so reusing the same collector across multiple
 // calls with the same subsystem is safe and shares the same metric
 // vectors. To emit metrics for two unrelated upstreams against a single
@@ -334,8 +344,8 @@ func (s *streamWrapper) shouldSampleMessage(messageCount int64, isSent bool) boo
 		return s.streamSampled
 	}
 
-	// For PerMessageSampling, make an individual decision per message
-	// Use optimized approach with pre-computed hash seeds and simple message count XOR
+	// For PerMessageSampling, make an individual decision per message,
+	// deterministic per (method+direction, stream, message index).
 	var baseHash uint64
 	if isSent {
 		baseHash = s.methodHashSent
@@ -343,13 +353,36 @@ func (s *streamWrapper) shouldSampleMessage(messageCount int64, isSent bool) boo
 		baseHash = s.methodHashRecv
 	}
 
-	// Use XOR with message count for fast deterministic variation per message
-	// This is much faster than creating new hash objects and writing bytes
-	finalHash := baseHash ^ uint64(messageCount) ^ s.streamSeed // #nosec G115 -- messageCount is non-negative
+	// Walk a SplitMix64 sequence seeded by the method hash and stream seed:
+	// the finalizer avalanches every input bit, so consecutive message
+	// indices yield independent decisions. A plain XOR with the index would
+	// only flip low bits and leave the whole stream on the same side of the
+	// threshold.
+	finalHash := splitmix64((baseHash ^ s.streamSeed) + uint64(messageCount)*splitmixGamma) // #nosec G115 -- messageCount is non-negative
 
-	// Use the hash to generate a deterministic float between 0 and 1
-	hashValue := float64(finalHash) / float64(^uint64(0))
+	// The top 53 bits map exactly onto a float64 in [0, 1).
+	hashValue := float64(finalHash>>(uint64Bits-float64Mantissa)) / (1 << float64Mantissa)
 	return hashValue < samplingRate
+}
+
+// SplitMix64 constants (Steele, Lea, Flood 2014).
+const (
+	splitmixGamma   = 0x9E3779B97F4A7C15 // Increment: 2^64 / golden ratio, odd.
+	splitmixMul1    = 0xBF58476D1CE4E5B9
+	splitmixMul2    = 0x94D049BB133111EB
+	splitmixShift1  = 30
+	splitmixShift2  = 27
+	splitmixShift3  = 31
+	float64Mantissa = 53 // Bits of precision in a float64 significand.
+	uint64Bits      = 64
+)
+
+// splitmix64 is the SplitMix64 output finalizer: a cheap bijective mix whose
+// every output bit depends on every input bit.
+func splitmix64(x uint64) uint64 {
+	x = (x ^ (x >> splitmixShift1)) * splitmixMul1
+	x = (x ^ (x >> splitmixShift2)) * splitmixMul2
+	return x ^ (x >> splitmixShift3)
 }
 
 // finalizeStreamMetrics records the final stream metrics when the stream completes.
@@ -360,7 +393,7 @@ func (s *streamWrapper) finalizeStreamMetrics() {
 	}
 
 	samplingRate := s.interceptor.opts.streamSamplingRate
-	internedStatus := strings.InternString(s.statusCode.String())
+	internedStatus := intern.String(s.statusCode.String())
 
 	// If sampling is disabled, don't record any metrics
 	if samplingRate <= MinStreamSamplingRate {
@@ -393,7 +426,7 @@ func (s *streamWrapper) finalizeStreamMetrics() {
 }
 
 func (i *interceptor) initializeMetrics() {
-	scoped := i.opts.collector.WithSubsystem(i.opts.metricsSubsystem)
+	scoped := i.opts.meter.WithSubsystem(i.opts.metricsSubsystem)
 
 	i.requestsTotal = scoped.MustCounter(metrics.MetricOpts{
 		Name:       "server_requests_total",
@@ -402,12 +435,10 @@ func (i *interceptor) initializeMetrics() {
 	})
 
 	i.requestDuration = scoped.MustHistogram(metrics.HistogramOpts{
-		MetricOpts: metrics.MetricOpts{
-			Name:       "server_request_duration_seconds",
-			Help:       "Duration of gRPC server requests in seconds",
-			LabelNames: []string{methodLabel, statusLabel},
-		},
-		Buckets: i.opts.durationBuckets,
+		Name:       "server_request_duration_seconds",
+		Help:       "Duration of gRPC server requests in seconds",
+		LabelNames: []string{methodLabel, statusLabel},
+		Buckets:    i.opts.durationBuckets,
 	})
 
 	i.requestsInFlight = scoped.MustGauge(metrics.MetricOpts{
@@ -423,21 +454,17 @@ func (i *interceptor) initializeMetrics() {
 
 	if i.opts.enableSizeMetrics {
 		i.requestSize = scoped.MustHistogram(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name:       "server_request_size_bytes",
-				Help:       "Size of gRPC server request messages in bytes",
-				LabelNames: []string{methodLabel, statusLabel},
-			},
-			Buckets: i.opts.sizeBuckets,
+			Name:       "server_request_size_bytes",
+			Help:       "Size of gRPC server request messages in bytes",
+			LabelNames: []string{methodLabel, statusLabel},
+			Buckets:    i.opts.sizeBuckets,
 		})
 
 		i.responseSize = scoped.MustHistogram(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name:       "server_response_size_bytes",
-				Help:       "Size of gRPC server response messages in bytes",
-				LabelNames: []string{methodLabel, statusLabel},
-			},
-			Buckets: i.opts.sizeBuckets,
+			Name:       "server_response_size_bytes",
+			Help:       "Size of gRPC server response messages in bytes",
+			LabelNames: []string{methodLabel, statusLabel},
+			Buckets:    i.opts.sizeBuckets,
 		})
 	}
 
@@ -457,12 +484,10 @@ func (i *interceptor) initializeMetrics() {
 		// Stream message size metric (only if both stream and size metrics are enabled)
 		if i.opts.enableSizeMetrics {
 			i.streamMessageSize = scoped.MustHistogram(metrics.HistogramOpts{
-				MetricOpts: metrics.MetricOpts{
-					Name:       "server_stream_message_size_bytes",
-					Help:       "Size of individual gRPC stream messages in bytes",
-					LabelNames: []string{methodLabel, directionLabel},
-				},
-				Buckets: i.opts.sizeBuckets,
+				Name:       "server_stream_message_size_bytes",
+				Help:       "Size of individual gRPC stream messages in bytes",
+				LabelNames: []string{methodLabel, directionLabel},
+				Buckets:    i.opts.sizeBuckets,
 			})
 		}
 	}

@@ -14,7 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/spiffe"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/mtls"
 
@@ -35,6 +35,14 @@ func ctxWithVerifiedCert(ctx context.Context, cert *x509.Certificate) context.Co
 	})
 }
 
+// mustAuthFunc builds the auth function from a valid configuration.
+func mustAuthFunc(tb testing.TB, opts ...coremtls.Option) authgrpc.AuthFunc {
+	tb.Helper()
+	authFn, err := mtls.AuthFunc(opts...)
+	require.NoError(tb, err)
+	return authFn
+}
+
 func spiffeCert(t *testing.T, id string) *x509.Certificate {
 	t.Helper()
 	u, err := url.Parse(id)
@@ -46,7 +54,8 @@ func TestAuthFuncSPIFFEDefault(t *testing.T) {
 	t.Parallel()
 	ctx := ctxWithVerifiedCert(t.Context(), spiffeCert(t, "spiffe://example.org/ns/default/sa/billing"))
 
-	principal, err := mtls.AuthFunc()(ctx, authgrpc.Request{})
+	authFn := mustAuthFunc(t, coremtls.WithTrustDomains("example.org"))
+	principal, err := authFn(ctx, authgrpc.Request{})
 	require.NoError(t, err)
 
 	id, ok := principal.(spiffe.ID)
@@ -58,10 +67,10 @@ func TestAuthFuncWithIdentity(t *testing.T) {
 	t.Parallel()
 	ctx := ctxWithVerifiedCert(t.Context(), spiffeCert(t, "spiffe://example.org/ns/default/sa/billing"))
 
-	authFn := mtls.AuthFunc(coremtls.WithIdentity(func(c *x509.Certificate) (any, error) {
+	authFn := mustAuthFunc(t, coremtls.WithIdentity(func(c *x509.Certificate) (any, error) {
 		id, err := spiffe.IDFromCertificate(c)
 		return id.Path, err
-	}))
+	}), coremtls.WithTrustDomains("example.org"))
 	principal, err := authFn(ctx, authgrpc.Request{})
 	require.NoError(t, err)
 	require.Equal(t, "/ns/default/sa/billing", principal)
@@ -90,7 +99,7 @@ func TestAuthFuncUnauthenticated(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			authFn := mtls.AuthFunc(coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")))
+			authFn := mustAuthFunc(t, coremtls.WithTrustDomains("example.org"))
 			_, err := authFn(tc.ctx(t), authgrpc.Request{})
 			require.Equal(t, codes.Unauthenticated, status.Code(err))
 		})
@@ -99,11 +108,11 @@ func TestAuthFuncUnauthenticated(t *testing.T) {
 
 func TestAuthFuncRequiredAuditMapsToInternal(t *testing.T) {
 	t.Parallel()
-	rec := audit.NewRecorder(
-		audit.SinkFunc(func(context.Context, audit.Decision) error { return errors.New("sink down") }),
-		audit.WithPolicyMode(audit.PolicyAll), audit.WithFailureMode(audit.FailureRequired),
+	rec := decision.NewRecorder(
+		decision.SinkFunc(func(context.Context, decision.Decision) error { return errors.New("sink down") }),
+		decision.WithPolicyMode(decision.PolicyAll), decision.WithFailureMode(decision.FailureRequired),
 	)
-	authFn := mtls.AuthFunc(coremtls.WithAudit(rec, nil))
+	authFn := mustAuthFunc(t, coremtls.WithAudit(rec, nil), coremtls.WithTrustDomains("example.org"))
 	ctx := ctxWithVerifiedCert(t.Context(), spiffeCert(t, "spiffe://example.org/x"))
 	_, err := authFn(ctx, authgrpc.Request{})
 	require.Equal(t, codes.Internal, status.Code(err))

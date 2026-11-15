@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
@@ -109,7 +109,7 @@ func Middleware(opt ...Option) func(next http.Handler) http.Handler {
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this path should be ignored
-		if m.ShouldIgnore(r.URL.Path) {
+		if m.ShouldIgnoreRequest(r) {
 			m.LogIgnored(r.Context(), r.URL.Path)
 			next.ServeHTTP(w, r)
 			return

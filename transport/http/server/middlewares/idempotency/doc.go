@@ -30,7 +30,7 @@
 // guarantee — a key from a small or guessable set can be recovered by hashing
 // candidates. For end-to-end redaction, run production loggers at Info or
 // above, or wrap the handler with the masking handler from
-// [github.com/altessa-s/go-atlas/observability/slog/handler/masking].
+// github.com/altessa-s/go-slogx/handler/masking.
 //
 // # Example
 //

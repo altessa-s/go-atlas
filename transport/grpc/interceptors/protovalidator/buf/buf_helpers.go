@@ -16,7 +16,7 @@ import (
 
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
-	"github.com/altessa-s/go-atlas/core/types/ptr"
+	"github.com/altessa-s/go-atlas-core/types/ptr"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"

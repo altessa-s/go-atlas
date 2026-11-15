@@ -14,13 +14,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
+	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
 	stdGrpc "google.golang.org/grpc"
 )
 
@@ -53,7 +53,7 @@ func newLifecycleServer(t *testing.T, verify time.Duration, handlers ...grpcserv
 
 	srv, err := grpcserver.New(grpcserver.WithBaseOptions(
 		baseserver.WithListener(ln),
-		baseserver.WithTimeouts(timeouts.Config{
+		baseserver.WithTimeouts(timeouts.Lifecycle{
 			StartupVerification: verify,
 			ShutdownGraceful:    time.Minute,
 			ShutdownWarning:     time.Minute,

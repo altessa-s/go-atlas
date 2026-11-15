@@ -12,26 +12,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-	"github.com/altessa-s/go-atlas/transport/internal/headers"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
-	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
-)
-
-// HTTP status code for rate limit exceeded.
-const (
-	StatusTooManyRequests    = http.StatusTooManyRequests
-	StatusServiceUnavailable = http.StatusServiceUnavailable
+	sharedlimiter "github.com/altessa-s/go-atlas/coord/limiters"
 )
 
 const middlewareName = "limiter"
-
-// Limiter is an alias for [sharedlimiter.Limiter] from data/limiters.
-type Limiter = sharedlimiter.Limiter
 
 // Name returns the middleware name used for dependency resolution and chain ordering.
 func Name() string { return middlewareName }
@@ -45,7 +35,7 @@ var _ middlewares.Middleware = (*middleware)(nil)
 
 type middleware struct {
 	middlewares.BaseMiddleware
-	limiter          Limiter
+	limiter          sharedlimiter.Limiter
 	fallbackBehavior fallback.Behavior
 }
 
@@ -59,11 +49,11 @@ func (m *middleware) RequiredDependencies() []string {
 	return []string{realip.Name()}
 }
 
-// New creates a new rate limiter middleware with the given [Limiter]
+// New creates a new rate limiter middleware with the given [sharedlimiter.Limiter]
 // and options. The middleware declares a dependency on the "realip" middleware
 // to identify clients by IP address; if realip is absent, [http.Request.RemoteAddr]
 // is used as a fallback.
-func New(limiter Limiter, opt ...Option) *middleware {
+func New(limiter sharedlimiter.Limiter, opt ...Option) *middleware {
 	opts := newOptions(opt...)
 
 	return &middleware{
@@ -80,7 +70,7 @@ func New(limiter Limiter, opt ...Option) *middleware {
 
 // Middleware returns an HTTP middleware that limits the rate of incoming requests.
 // This is a convenience function; prefer New() for access to the full Middleware interface.
-func Middleware(limiter Limiter, opt ...Option) func(http.Handler) http.Handler {
+func Middleware(limiter sharedlimiter.Limiter, opt ...Option) func(http.Handler) http.Handler {
 	return New(limiter, opt...).Handler
 }
 
@@ -95,20 +85,20 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 }
 
 func (m *middleware) rateLimit(w http.ResponseWriter, r *http.Request) error {
-	path := m.InternPath(r.URL.Path)
+	path := r.URL.Path
 	ctx := r.Context()
 
-	if m.ShouldIgnore(path) {
+	if m.ShouldIgnoreRequest(r) {
 		m.LogIgnored(ctx, path)
 		return nil
 	}
 
 	if ip := clientip.FromContext(ctx); ip.IsValid() {
-		ctx = tokenbucket.ContextWithClientIP(ctx, ip.String())
+		ctx = sharedlimiter.ContextWithClientIP(ctx, ip.String())
 	}
 
 	if token := extractBearerToken(r); token != "" {
-		ctx = tokenbucket.ContextWithAuthToken(ctx, token)
+		ctx = sharedlimiter.ContextWithAuthToken(ctx, token)
 	}
 
 	info, err := m.limiter.Limit(ctx)
@@ -120,9 +110,9 @@ func (m *middleware) rateLimit(w http.ResponseWriter, r *http.Request) error {
 			slog.Int64("remaining", info.Remaining),
 			slog.Int64("reset", info.Reset))
 
-		w.Header().Set(headers.RateLimitLimit, strconv.FormatInt(info.Limit, 10))
-		w.Header().Set(headers.RateLimitRemaining, strconv.FormatInt(info.Remaining, 10))
-		w.Header().Set(headers.RateLimitReset, strconv.FormatInt(info.Reset, 10))
+		w.Header().Set(httpx.RateLimitLimit, strconv.FormatInt(info.Limit, 10))
+		w.Header().Set(httpx.RateLimitRemaining, strconv.FormatInt(info.Remaining, 10))
+		w.Header().Set(httpx.RateLimitReset, strconv.FormatInt(info.Reset, 10))
 	}
 
 	if err != nil {
@@ -130,9 +120,9 @@ func (m *middleware) rateLimit(w http.ResponseWriter, r *http.Request) error {
 			m.LogDebug(ctx, "rate limit exceeded", path,
 				slog.String("method", r.Method))
 			if info != nil {
-				w.Header().Set(headers.RetryAfter, strconv.FormatInt(retryAfterSeconds(info.Reset, time.Now()), 10))
+				w.Header().Set(httpx.RetryAfter, strconv.FormatInt(retryAfterSeconds(info.Reset, time.Now()), 10))
 			}
-			http.Error(w, "Rate Limit Exceeded", StatusTooManyRequests)
+			http.Error(w, "Rate Limit Exceeded", http.StatusTooManyRequests)
 			return err
 		}
 
@@ -143,7 +133,7 @@ func (m *middleware) rateLimit(w http.ResponseWriter, r *http.Request) error {
 		case fallback.Allow:
 			return nil
 		case fallback.Deny:
-			http.Error(w, "Service Temporarily Unavailable", StatusServiceUnavailable)
+			http.Error(w, "Service Temporarily Unavailable", http.StatusServiceUnavailable)
 			return err
 		default:
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)

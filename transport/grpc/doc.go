@@ -17,5 +17,5 @@
 //   - [server] -- gRPC server lifecycle with graceful shutdown and TLS.
 //     Use [server.New] to create a server and [server.Server.Start] to begin
 //     accepting connections.
-//   - [server/factory] -- configuration-driven server and interceptor creation.
+//   - factory/transport/grpc/server -- configuration-driven server and interceptor creation.
 package grpc

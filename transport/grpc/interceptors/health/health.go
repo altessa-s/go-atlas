@@ -8,12 +8,13 @@ import (
 	"context"
 	"errors"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	stdGrpc "google.golang.org/grpc"
 )
 
@@ -80,7 +81,7 @@ func ServerStreamInterceptor(health Health, opt ...Option) stdGrpc.StreamServerI
 
 func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *stdGrpc.UnaryServerInfo, handler stdGrpc.UnaryHandler) (any, error) {
-		method := i.InternMethod(info.FullMethod)
+		method := intern.String(info.FullMethod)
 
 		// Skip health check for configured methods
 		if i.ShouldIgnore(method) {
@@ -101,7 +102,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor {
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) error {
 		ctx := stream.Context()
-		method := i.InternMethod(info.FullMethod)
+		method := intern.String(info.FullMethod)
 
 		// Skip health check for configured methods
 		if i.ShouldIgnore(method) {

@@ -11,7 +11,7 @@ import (
 
 	"google.golang.org/grpc/connectivity"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 // stateChangeFn receives connectivity-state updates for one target.

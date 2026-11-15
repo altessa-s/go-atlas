@@ -6,9 +6,9 @@
 // address from request headers and stores it in the request context.
 //
 // The extraction is delegated to a [clientip.Extractor] which handles
-// trusted-proxy validation and header parsing (X-Forwarded-For,
-// X-Real-IP, etc.). Downstream middleware and handlers retrieve the IP
-// via [FromContext].
+// trusted-proxy validation and header parsing (X-Forwarded-For by
+// default; single-address headers such as X-Real-IP when opted in). Downstream middleware and handlers retrieve the IP
+// via [github.com/altessa-s/go-atlas-net/clientip.FromContext].
 //
 // This middleware has no dependencies and should be placed early in the
 // chain so that other middleware (logger, limiter, tracing) can read
@@ -17,7 +17,7 @@
 // # Example
 //
 //	extractor, _ := clientip.NewExtractor(
-//	    clientip.WithHeaders("X-Real-IP", "X-Forwarded-For"),
+//	    clientip.WithTrustedProxies(netip.MustParsePrefix("10.0.0.0/8")),
 //	)
 //	handler := realip.Middleware(extractor, logger)(yourHandler)
 package realip

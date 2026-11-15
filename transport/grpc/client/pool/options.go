@@ -4,7 +4,7 @@
 
 package pool
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"context"
@@ -41,26 +41,26 @@ const (
 // options holds configuration for the connection pool.
 type options struct {
 	// size caps active, idle, and in-progress connections per target in total.
-	size int `optgen:"default=DefaultPoolSize,min=1"`
+	size int `optgen:"default=DefaultPoolSize"`
 	// maxIdleTime sets the maximum idle time before a connection is closed.
-	maxIdleTime time.Duration `optgen:"default=DefaultMaxIdleTime,min=1s"`
+	maxIdleTime time.Duration `optgen:"default=DefaultMaxIdleTime"`
 	// cleanupInterval sets the interval for cleaning up idle connections.
-	cleanupInterval time.Duration `optgen:"default=DefaultCleanupInterval,min=1s"`
+	cleanupInterval time.Duration `optgen:"default=DefaultCleanupInterval"`
 	// connectTimeout sets the timeout for establishing a connection.
-	connectTimeout time.Duration `optgen:"default=DefaultConnectTimeout,min=1s"`
+	connectTimeout time.Duration `optgen:"default=DefaultConnectTimeout"`
 	// logger sets the logger for the pool.
 	logger *slog.Logger
 	// clientFactory sets a custom client factory function for creating gRPC connections.
 	clientFactory ClientFactory
-	// collector sets the metrics collector for the pool.
-	collector metrics.Collector `optgen:"notnil"`
+	// meter sets the metrics meter for the pool.
+	meter metrics.Meter `optgen:"notnil"`
 	// metricsSubsystem sets the Prometheus subsystem name for emitted metrics.
 	metricsSubsystem string `optgen:"default=DefaultMetricsSubsystem"`
 	// healthCoordinator opts the pool into [observability/health] integration.
 	// When non-nil the pool registers an aggregate [health.Checker] that
 	// reflects the worst per-target status across all tracked connections.
 	// Leave nil to disable the integration entirely.
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.DynamicReporter `optgen:"notnil"`
 	// healthServiceName is the service name used when registering the
 	// aggregate checker. Defaults to [DefaultPoolHealthServiceName].
 	healthServiceName string `optgen:"default=DefaultPoolHealthServiceName"`

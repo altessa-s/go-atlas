@@ -23,11 +23,10 @@ func BenchmarkStreamReadMask(b *testing.B) {
 	const method = "/x.v1.X/ListResources"
 	newRI := func() *requestInterceptor {
 		opts := newOptions()
-		builtinUpdate, builtinRead := newBuiltinExtractors(nil, opts.metadataReadMaskHeader)
+		_, builtinRead := newBuiltinExtractors(nil, opts.metadataReadMaskHeader)
 		ic := &interceptor{
 			BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(interceptorName, nil, nil, opts.logger),
 			opts:            opts,
-			builtinUpdate:   builtinUpdate,
 			builtinRead:     builtinRead,
 		}
 		ri := &requestInterceptor{

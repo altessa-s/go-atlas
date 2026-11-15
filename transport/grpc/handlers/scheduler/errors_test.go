@@ -6,14 +6,18 @@ package scheduler
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-aip/filter"
+	"github.com/altessa-s/go-horai/query"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	sched "github.com/altessa-s/go-atlas/service/scheduler"
+	horai "github.com/altessa-s/go-horai"
 )
 
 func TestMapError(t *testing.T) {
@@ -22,15 +26,21 @@ func TestMapError(t *testing.T) {
 		err  error
 		code codes.Code
 	}{
-		{"not_found", sched.ErrTaskNotFound, codes.NotFound},
-		{"page_tokens_not_configured", sched.ErrPageTokensNotConfigured, codes.FailedPrecondition},
-		{"not_registered", sched.ErrTaskNotRegistered, codes.NotFound},
-		{"unmanaged", sched.ErrTaskUnmanaged, codes.FailedPrecondition},
-		{"not_paused", sched.ErrTaskNotPaused, codes.FailedPrecondition},
-		{"not_disabled", sched.ErrTaskNotDisabled, codes.FailedPrecondition},
-		{"disabled", sched.ErrTaskDisabled, codes.FailedPrecondition},
-		{"completed", sched.ErrTaskCompleted, codes.FailedPrecondition},
-		{"schedule_conflict", sched.ErrScheduleConflict, codes.InvalidArgument},
+		{"not_found", horai.ErrTaskNotFound, codes.NotFound},
+		{"page_tokens_not_configured", ErrPageTokensNotConfigured, codes.FailedPrecondition},
+		{"not_registered", horai.ErrTaskNotRegistered, codes.NotFound},
+		{"unmanaged", horai.ErrTaskUnmanaged, codes.FailedPrecondition},
+		{"not_paused", horai.ErrTaskNotPaused, codes.FailedPrecondition},
+		{"not_disabled", horai.ErrTaskNotDisabled, codes.FailedPrecondition},
+		{"disabled", horai.ErrTaskDisabled, codes.FailedPrecondition},
+		{"completed", horai.ErrTaskCompleted, codes.FailedPrecondition},
+		{"schedule_conflict", horai.ErrScheduleConflict, codes.InvalidArgument},
+		{"invalid_argument", horai.ErrInvalidArgument, codes.InvalidArgument},
+		{"invalid_cursor", invalidCursor(errors.New("bad")), codes.InvalidArgument},
+		{"invalid_query", fmt.Errorf("list: %w", query.ErrInvalid), codes.InvalidArgument},
+		{"filter_parse", fmt.Errorf("parse: %w", filter.ErrParseFailed), codes.InvalidArgument},
+		{"filter_field_not_allowed", fmt.Errorf("eval: %w", filter.ErrFieldNotAllowed), codes.InvalidArgument},
+		{"filter_server_misconfig", filter.ErrAllowlistRequired, codes.Internal},
 		{"generic", errors.New("something"), codes.Internal},
 	}
 

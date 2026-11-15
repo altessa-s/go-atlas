@@ -4,22 +4,23 @@
 
 package limiter
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"log/slog"
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-
-	_ "github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 )
 
 // options holds configuration for the rate limiter interceptor.
 type options struct {
-	logger           *slog.Logger
+	logger *slog.Logger
+	// ignoreMethods and ignorePatterns have no defaults: rate limiting exempts
+	// nothing, gRPC reflection and health included, unless the caller
+	// opts in, e.g. WithIgnorePatterns(defaults.IgnorePatterns...).
 	ignoreMethods    []string
-	ignorePatterns   []*regexp.Regexp  `optgen:"default=defaults.IgnorePatterns"`
+	ignorePatterns   []*regexp.Regexp
 	fallbackBehavior fallback.Behavior `optgen:"default=fallback.Deny"`
 	exposeHeaders    bool              `optgen:"default=false"`
 }

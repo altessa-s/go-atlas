@@ -35,7 +35,7 @@
 //	import (
 //	    "github.com/altessa-s/go-atlas/transport/http/server"
 //	    "github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
-//	    baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
+//	    baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 //	)
 //
 //	srv, err := server.New(

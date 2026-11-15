@@ -3,15 +3,21 @@
 // the LICENSE file.
 
 // Package scheduler implements the gRPC SchedulerService defined in
-// proto/scheduler/v1/scheduler.proto.
+// proto/scheduler/v1/scheduler.proto over a github.com/altessa-s/go-horai
+// scheduler.
 //
-// [Handler] delegates to a [sched.Scheduler] and exposes task lifecycle
-// operations (Get, List, Pause, Resume, Disable, Enable, Trigger,
+// [Handler] delegates to a go-horai scheduler.Scheduler and exposes task
+// lifecycle operations (Get, List, Pause, Resume, Disable, Enable, Trigger,
 // SkipNextRun) as well as scheduler status queries and task history listing.
 //
-// List and ListHistory accept an optional CEL filter expression; the handler
-// passes it to the scheduler's paginated methods, which parse the filter and
-// push evaluation to the storage backend.
+// go-horai leaves two things to the transport, and the handler owns them:
+//
+//   - Filters. List and ListHistory accept an optional CEL filter, parsed with
+//     an injected go-aip filter parser and translated to a typed go-horai query:
+//     &&, ||, !, comparisons and in between a field and literals, startsWith
+//     and contains on a string field, and a bare boolean field.
+//   - Page tokens. Cursors are signed with a go-aip pagination/pagetoken codec and bound to
+//     the list, the task and the filter expression.
 //
 // Scheduler domain errors are translated to appropriate gRPC status codes
 // (NotFound, FailedPrecondition, InvalidArgument, Internal) by the internal
@@ -19,7 +25,19 @@
 //
 // # Usage
 //
-//	handler, err := scheduler.New(sched)
+//	import filterparser "github.com/altessa-s/go-aip/filter/parser"
+//	import pagetokenfactory "github.com/altessa-s/go-atlas/factory/ext/aip/pagination/pagetoken"
+//	import scheduler "github.com/altessa-s/go-atlas/transport/grpc/handlers/scheduler"
+//
+//	tokens, err := pagetokenfactory.New(cfg.Scheduler.Paging).Build()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	parser, err := filterparser.New()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	handler, err := scheduler.New(sched, tokens, parser)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

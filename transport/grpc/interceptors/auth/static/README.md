@@ -1,13 +1,16 @@
 # static
 
 ```go
-import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/static"
+import (
+    "github.com/altessa-s/go-atlas/auth/static"
+    staticadapter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/static"
+)
 ```
 
-Thin gRPC adapter over [`auth/static`](../../../../../auth/static). Re-exports the store types/options and provides `AuthFunc`, which translates
+Thin gRPC adapter over [`auth/static`](../../../../../auth/static). Provides `AuthFunc`, which translates
 `auth/static` sentinel errors into gRPC status codes for the parent [auth interceptor](..). Missing token credentials also yield
 `codes.Unauthenticated`; unknown store errors are not leaked to the client. Pass `WithAudit(recorder, subjectOf)` to record each authentication decision
-through an `auth/audit.Recorder`.
+through `auth.DecisionRecorder`.
 
 ## Error mapping
 
@@ -18,23 +21,7 @@ through an `auth/audit.Recorder`.
 | `ErrRateLimited`     | `codes.ResourceExhausted`  |
 | anything else        | `codes.Internal`           |
 
-## Re-exports
-
-| Symbol                  | Source                                                 |
-|-------------------------|--------------------------------------------------------|
-| `TokenStore`            | `auth/static.TokenStore`                               |
-| `InMemoryStore`         | `auth/static.InMemoryStore`                            |
-| `Option`                | `auth/static.Option`                                   |
-| `Metrics`               | `auth/static.Metrics`                                  |
-| `RateLimiter`           | `auth/static.RateLimiter`                              |
-| `RateLimitedStore`      | `auth/static.RateLimitedStore`                         |
-| `KeyFunc`               | `auth/static.KeyFunc`                                  |
-| `NewInMemoryStore`      | `auth/static.NewInMemoryStore`                         |
-| `NewMetrics`            | `auth/static.NewMetrics`                               |
-| `NewRateLimitedStore`   | `auth/static.NewRateLimitedStore`                      |
-| `WithInitialTokens`     | `auth/static.WithInitialTokens`                        |
-| `WithMetrics`           | `auth/static.WithMetrics`                              |
-| `WithHMACKey`           | `auth/static.WithHMACKey`                              |
+Store types, options, and constructors are provided by `github.com/altessa-s/go-atlas/auth/static`.
 
 ## Usage
 
@@ -49,7 +36,7 @@ store := static.NewInMemoryStore(
 )
 
 interceptor := auth.ServerInterceptor(
-    auth.WithAuthFn(static.AuthFunc(store)),
+    auth.WithAuthFn(staticadapter.AuthFunc(store)),
 )
 ```
 
@@ -62,14 +49,14 @@ extractor := auth.ExtractTokenFromHeader("x-api-key", func(v string) (string, er
 
 interceptor := auth.ServerInterceptor(
     auth.WithTokenExtractor(extractor),
-    auth.WithAuthFn(static.AuthFunc(store)),
+    auth.WithAuthFn(staticadapter.AuthFunc(store)),
 )
 ```
 
 ### Rate limiting
 
-The decorator lives in `auth/static`; wire in an external limiter implementation (for example one backed by `data/limiters/tokenbucket`) through the
-consumer-side `RateLimiter` interface:
+The decorator lives in `auth/static`; wire in an external limiter implementation (for example one backed by `coord/limiters/tokenbucket`) through the
+consumer-side `static.RateLimiter` interface:
 
 ```go
 store := static.NewRateLimitedStore(inner, myLimiter, func(ctx context.Context) string {
@@ -77,7 +64,7 @@ store := static.NewRateLimitedStore(inner, myLimiter, func(ctx context.Context) 
 })
 
 interceptor := auth.ServerInterceptor(
-    auth.WithAuthFn(static.AuthFunc(store)),
+    auth.WithAuthFn(staticadapter.AuthFunc(store)),
 )
 ```
 

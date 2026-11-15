@@ -4,23 +4,21 @@
 
 package limiter
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"log/slog"
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 )
-
-// Use defaults package for optgen code generation
-var _ = defaults.IgnorePatterns
 
 // options holds configuration for the rate limiter middleware.
 type options struct {
-	logger           *slog.Logger
+	logger *slog.Logger
+	// ignorePaths and ignorePatterns have no defaults: the middleware exempts
+	// nothing unless the caller configures it.
 	ignorePaths      []string
-	ignorePatterns   []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
+	ignorePatterns   []*regexp.Regexp
 	fallbackBehavior fallback.Behavior
 }

@@ -58,5 +58,5 @@ Only the message passed as the response is inspected. Not sanitized:
 - error bodies written by `WriteError`.
 
 Non-proto responses pass through unchanged. Disable sanitization with `WithResponseSanitizationDisabled()` when a service has an external reason to emit
-INPUT_ONLY fields on the read path. See [`domain/proto/fieldbehavior`](../../../../domain/proto/fieldbehavior/README.md) for the underlying strip
+INPUT_ONLY fields on the read path. See go-aip [`fieldbehavior`](https://github.com/altessa-s/go-aip/tree/develop/fieldbehavior) for the underlying strip
 semantics.

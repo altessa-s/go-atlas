@@ -5,6 +5,8 @@
 package errstatus
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +16,8 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // requireViolation asserts err is InvalidArgument "<path>: <reason>" with
@@ -79,4 +83,20 @@ func TestPrefixed(t *testing.T) {
 	for _, tc := range tests {
 		require.Equal(t, tc.want, Prefixed(tc.prefix)(tc.field), "%q under %q", tc.field, tc.prefix)
 	}
+}
+
+func TestRooted(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, Rooted(nil, "provider"))
+	plain := errors.New("boom")
+	require.Same(t, plain, Rooted(plain, "provider"))
+
+	cause := errors.New("cause")
+	err := Rooted(fmt.Errorf("decode: %w", &coreerrs.FieldError{Field: "steps[0].min_confidence", Reason: "too low", Err: cause}), "ocrChain")
+	fe, ok := errors.AsType[*coreerrs.FieldError](err)
+	require.True(t, ok, "err = %v, want a FieldError", err)
+	require.Equal(t, "ocrChain.steps[0].minConfidence", fe.Field)
+	require.Equal(t, "too low", fe.Reason)
+	require.ErrorIs(t, err, cause)
 }

@@ -16,23 +16,17 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/altessa-s/go-atlas/core/encoding/keys"
-	"github.com/altessa-s/go-atlas/core/io/spool"
-	"github.com/altessa-s/go-atlas/data/idempotency"
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
+	"github.com/altessa-s/go-atlas-core/io/spool"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
-	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
-)
-
-// HTTP status codes used by the middleware.
-const (
-	StatusConflict            = http.StatusConflict
-	StatusServiceUnavailable  = http.StatusServiceUnavailable
-	StatusInternalServerError = http.StatusInternalServerError
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
+	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
+	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // Response messages.
@@ -53,12 +47,9 @@ var ID = middlewares.Noop(middlewareName)
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
 
-// Idempotency is an alias for [idempotency.Idempotency] from data/idempotency.
-type Idempotency = idempotency.Idempotency
-
 type middleware struct {
 	middlewares.BaseMiddleware
-	i    Idempotency
+	i    idempotency.Idempotency
 	opts *options
 	// replayHeaders is the canonical set of opts.replayHeaders.
 	replayHeaders *coremaps.ImmutableMap[string, struct{}]
@@ -71,10 +62,10 @@ func (m *middleware) Dependencies() []string {
 }
 
 // New creates a new idempotency middleware with the given
-// [Idempotency] storage backend and [Option] values.
+// [idempotency.Idempotency] storage backend and [Option] values.
 // If no [WithErrorHandler] option is provided, a default handler that
 // writes plain-text error responses is used.
-func New(storage Idempotency, opt ...Option) *middleware {
+func New(storage idempotency.Idempotency, opt ...Option) *middleware {
 	opts := newOptions(opt...)
 
 	if opts.errorHandler == nil {
@@ -114,13 +105,13 @@ func New(storage Idempotency, opt ...Option) *middleware {
 
 // Middleware returns an HTTP middleware that prevents duplicate request processing.
 // This is a convenience function; prefer New() for access to the full Middleware interface.
-func Middleware(storage Idempotency, opt ...Option) func(http.Handler) http.Handler {
+func Middleware(storage idempotency.Idempotency, opt ...Option) func(http.Handler) http.Handler {
 	return New(storage, opt...).Handler
 }
 
 // defaultErrorHandler handles idempotency errors by writing a plain text response.
 // Override with [WithErrorHandler] to produce structured (JSON/XML) responses.
-func defaultErrorHandler(w http.ResponseWriter, _ *http.Request, scenario ErrorScenario, _ *idempotency.State) {
+func defaultErrorHandler(w http.ResponseWriter, _ *http.Request, scenario ErrorScenario, _ *storages.State) {
 	switch scenario {
 	case ErrorIDKMissing:
 		http.Error(w, "Idempotency key is required for this operation", http.StatusBadRequest)
@@ -160,31 +151,51 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		sw := m.WrapResponseWriter(w, m.opts.entityIdExtractor != nil || m.opts.responseReplay)
 		defer sw.Release()
 
-		// 3. Execute
-		next.ServeHTTP(sw, r)
-
-		// 4. Lifecycle (Success/Error)
-		if storageKey != "" {
-			if sw.StatusCode() >= http.StatusOK && sw.StatusCode() < http.StatusMultipleChoices {
-				data := m.completionData(r, sw)
-				// Best-effort completion. ErrLockStolen here means the
-				// lock TTL expired during processing and another node
-				// took over — silently drop our result rather than
-				// overwriting the new holder's state.
-				_ = m.i.Complete(r.Context(), storageKey, data, lockState) //nolint:errcheck
-			} else {
-				// Release only the lock owned by this failed request.
-				_ = m.i.Release(r.Context(), storageKey, lockState) //nolint:errcheck // Best-effort cleanup, main operation already failed
+		// 3. Lifecycle (Success/Error), deferred so a panicking handler
+		// releases its lock while the panic keeps unwinding.
+		panicked := true
+		defer func() {
+			if storageKey != "" {
+				m.finalize(r, sw, storageKey, lockState, panicked)
 			}
-		}
+		}()
+
+		// 4. Execute
+		next.ServeHTTP(sw, r)
+		panicked = false
 	})
 }
 
-func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (string, *idempotency.State, error) {
-	path := m.InternPath(r.URL.Path)
+// finalize ends the lifecycle of the key locked for r: a 2xx response
+// completes it, any other response or a handler panic releases it. It runs
+// under internalidem.FinalizeContext, so a client that disconnected does not
+// leave the key in progress until the lock expires.
+func (m *middleware) finalize(
+	r *http.Request, sw *middlewares.ResponseWriter, storageKey string, lockState *storages.State, panicked bool,
+) {
+	ctx, cancel := internalidem.FinalizeContext(r.Context())
+	defer cancel()
+
+	if !panicked && sw.StatusCode() >= http.StatusOK && sw.StatusCode() < http.StatusMultipleChoices {
+		// ErrLockStolen here means the lock TTL expired during processing
+		// and another node took over — our result is dropped rather than
+		// overwriting the new holder's state.
+		if err := m.i.Complete(ctx, storageKey, m.completionData(r, sw), lockState); err != nil {
+			m.LogWarn(ctx, "idempotency key not completed", r.URL.Path, err, slog.String("method", r.Method))
+		}
+		return
+	}
+	// Release only the lock owned by this failed request.
+	if err := m.i.Release(ctx, storageKey, lockState); err != nil {
+		m.LogWarn(ctx, "idempotency key not released", r.URL.Path, err, slog.String("method", r.Method))
+	}
+}
+
+func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (string, *storages.State, error) {
+	path := r.URL.Path
 	ctx := r.Context()
 
-	if m.ShouldIgnore(path) {
+	if m.ShouldIgnoreRequest(r) {
 		m.LogIgnored(ctx, path)
 		return "", nil, nil
 	}
@@ -275,10 +286,14 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 			m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 
 		w.Header().Set(m.opts.idempotencyKeyStatusHeader, "success")
-		if m.opts.exposeEntityID && record.EntityID != "" {
+		// Fail closed: only a record bound to an owner, which the Keeper
+		// has checked against the caller, hands anything of it to the
+		// repeat. Without one, any caller presenting the key would get it.
+		bound := state.Owner() != ""
+		if m.opts.exposeEntityID && bound && record.EntityID != "" {
 			w.Header().Set(m.opts.idempotencyKeyEntityIdHeader, record.EntityID)
 		}
-		if m.opts.responseReplay && m.replay(w, record, replayBinding(r)) {
+		if m.opts.responseReplay && bound && m.replay(w, record, replayBinding(r)) {
 			return "", nil, errKeyNotUnique
 		}
 		m.opts.errorHandler(w, r, ErrorIDKAlreadyUsed, state)
@@ -309,7 +324,7 @@ func (m *middleware) completionData(r *http.Request, sw *middlewares.ResponseWri
 	}
 	record := internalidem.NewRecord(entityID, replayBinding(r))
 	body := sw.Body()
-	if sw.BytesWritten() == int64(len(body)) && int64(len(body)) <= m.opts.maxReplaySize {
+	if sw.WriteError() == nil && sw.BytesWritten() == int64(len(body)) && int64(len(body)) <= m.opts.maxReplaySize {
 		record.Status = sw.StatusCode()
 		record.Header = m.filterReplayHeaders(sw.Header())
 		record.Body = bytes.Clone(body)
@@ -455,7 +470,7 @@ var errIdempotencyKeyInvalidFormat = http.ErrAbortHandler
 // length-prefixed v2 format. For HTTP, service is represented as {method}:/{path}.
 // Example: idk:v2:9:transport18:POST:/api/v1/users36:550e8400-e29b-41d4-a716-446655440000
 func (m *middleware) buildKey(method, path, idempotencyKey string) string {
-	path = corestrings.InternString(strings.TrimPrefix(path, "/"))
+	path = intern.String(strings.TrimPrefix(path, "/"))
 	return internalidem.BuildStorageKey(method+":/"+path, idempotencyKey)
 }
 
@@ -477,10 +492,10 @@ func (m *middleware) handleStorageError(w http.ResponseWriter, r *http.Request, 
 	case fallback.Allow:
 		return nil
 	case fallback.Deny:
-		http.Error(w, messageServiceTemporaryUnavailable, StatusServiceUnavailable)
+		http.Error(w, messageServiceTemporaryUnavailable, http.StatusServiceUnavailable)
 		return err
 	default:
-		http.Error(w, messageInternalServerError, StatusInternalServerError)
+		http.Error(w, messageInternalServerError, http.StatusInternalServerError)
 		return err
 	}
 }

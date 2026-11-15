@@ -5,7 +5,6 @@
 package idempotency_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
@@ -27,7 +26,7 @@ func BenchmarkDeriveKey(b *testing.B) {
 
 func BenchmarkWithKey_NoExistingMetadata(b *testing.B) {
 	const key = "3b24398f-257d-4879-8ba1-89cb176abe72"
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.ReportAllocs()
 	for b.Loop() {
@@ -37,7 +36,7 @@ func BenchmarkWithKey_NoExistingMetadata(b *testing.B) {
 
 func BenchmarkWithKey_WithExistingMetadata(b *testing.B) {
 	const key = "3b24398f-257d-4879-8ba1-89cb176abe72"
-	ctx := metadata.AppendToOutgoingContext(context.Background(),
+	ctx := metadata.AppendToOutgoingContext(b.Context(),
 		"authorization", "Bearer t",
 		"x-request-id", "11111111-1111-1111-1111-111111111111",
 	)
@@ -53,7 +52,7 @@ func BenchmarkWithDerivedKey(b *testing.B) {
 		seed = "operation-3b24398f-257d-4879-8ba1-89cb176abe72"
 		call = "users.UserService/Update"
 	)
-	ctx := context.Background()
+	ctx := b.Context()
 
 	b.ReportAllocs()
 	for b.Loop() {

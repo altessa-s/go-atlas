@@ -4,14 +4,12 @@
 
 package recovery
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 import (
 	"context"
 	"log/slog"
 	"regexp"
-
-	_ "github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 )
 
 // PanicHandler is a function that handles panics.
@@ -19,8 +17,10 @@ type PanicHandler func(ctx context.Context, p any) error
 
 // options holds configuration for the recovery interceptor.
 type options struct {
-	panicHandler   PanicHandler
-	logger         *slog.Logger
+	panicHandler PanicHandler
+	logger       *slog.Logger
+	// ignoreMethods and ignorePatterns have no defaults: the middleware exempts
+	// nothing unless the caller configures it.
 	ignoreMethods  []string
-	ignorePatterns []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
+	ignorePatterns []*regexp.Regexp
 }

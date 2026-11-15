@@ -7,9 +7,9 @@ package interceptors
 import (
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
-	"github.com/altessa-s/go-atlas/transport/internal/depgraph"
 
 	"google.golang.org/grpc"
 )

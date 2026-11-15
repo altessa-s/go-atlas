@@ -11,9 +11,17 @@ import (
 	"fmt"
 	"io"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
+
+// compressionRatioLimit is shared by encoding and both decoding paths.
+func compressionRatioLimit(compressedSize int) int {
+	if compressedSize < suspiciousPayloadThreshold {
+		return maxSuspiciousCompressionRatio
+	}
+	return maxCompressionRatio
+}
 
 // canStoreCompressed applies both the space-saving and decoder ratio constraints.
 // Highly repetitive legitimate data is stored raw instead of producing an entry
@@ -22,10 +30,7 @@ func canStoreCompressed(originalSize, compressedSize int) bool {
 	if compressedSize <= 0 || compressedSize+headerSize >= originalSize {
 		return false
 	}
-	limit := maxCompressionRatio
-	if compressedSize < suspiciousPayloadThreshold {
-		limit = maxSuspiciousCompressionRatio
-	}
+	limit := compressionRatioLimit(compressedSize)
 	return float64(originalSize)/float64(compressedSize) <= float64(limit)
 }
 
@@ -93,21 +98,11 @@ func (c *GzipCompressor) decompressSmall(_ context.Context, data []byte, result 
 		compressionRatio := float64(expectedSize) / float64(compressedSize)
 
 		// Apply stricter limits for small payloads that compress suspiciously well
-		maxAllowedRatio := maxCompressionRatio
-		if compressedSize < suspiciousPayloadThreshold {
-			maxAllowedRatio = maxSuspiciousCompressionRatio
-		}
+		maxAllowedRatio := compressionRatioLimit(compressedSize)
 
 		if compressionRatio > float64(maxAllowedRatio) {
 			return nil, fmt.Errorf("suspicious compression ratio: %d compressed to %d bytes (ratio: %.1f:1, max allowed: %d:1 for payload size %d)",
 				compressedSize, expectedSize, compressionRatio, maxAllowedRatio, compressedSize)
-		}
-
-		// Layer 3: Sanity check for reasonable compression ratios
-		// Even legitimate data shouldn't compress better than 1000:1 under any circumstances
-		const AbsoluteMaxCompressionRatio = 1000
-		if compressionRatio > AbsoluteMaxCompressionRatio {
-			return nil, fmt.Errorf("impossible compression ratio: %.1f:1 exceeds physical limits", compressionRatio)
 		}
 	}
 
@@ -497,10 +492,7 @@ func (c *GzipCompressor) decompressLarge(ctx context.Context, result compressedD
 	if compressedSize > 0 {
 		// Note: expectedSize is already validated against maxDecompressionSize above
 		compressionRatio := float64(expectedSize) / float64(compressedSize)
-		maxAllowedRatio := maxCompressionRatio
-		if compressedSize < suspiciousPayloadThreshold {
-			maxAllowedRatio = maxSuspiciousCompressionRatio
-		}
+		maxAllowedRatio := compressionRatioLimit(compressedSize)
 
 		if compressionRatio > float64(maxAllowedRatio) {
 			return nil, fmt.Errorf("suspicious compression ratio: %d compressed to %d bytes (ratio: %.1f:1, max allowed: %d:1 for payload size %d)",

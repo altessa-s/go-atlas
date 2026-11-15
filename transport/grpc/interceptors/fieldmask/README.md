@@ -4,28 +4,37 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 ```
 
-Server-side gRPC interceptor that wires [`domain/proto/fieldmask`](../../../../domain/proto/fieldmask/README.md) into the chain: it runs
-`FieldMask.ApplyUpdateMask` on AIP-134 `Update*` requests and `FieldMask.Filter` on AIP-157 `Get*` / `List*` / `Search*` / `BatchGet*` responses, all
-driven by the gRPC method name. Behavior violations (REQUIRED cleared, IMMUTABLE modified, IDENTIFIER named in the mask) are surfaced as the
-canonical `InvalidArgument` + `io.altessa.badrequest.v1.BadRequest` shape (the detail type the protovalidate interceptor also emits) rather than
-leaking to the storage layer.
+Server-side gRPC interceptor that wires go-aip [`fieldmask`](https://github.com/altessa-s/go-aip/tree/develop/fieldmask) and its [`update`](https://github.com/altessa-s/go-aip/tree/develop/fieldmask/update) and
+[`extract`](https://github.com/altessa-s/go-aip/tree/develop/fieldmask/extract) packages into the chain: it applies the `update_mask` of AIP-134 `Update*` requests with `update.Prepare`, through the shared
+[`updatemask`](../updatemask/README.md) normalizer, and runs `FieldMask.Filter` on AIP-157
+`Get*` / `List*` / `Search*` / `BatchGet*` responses, all driven by the gRPC method name. Stateless behavior violations (such as REQUIRED cleared) are surfaced as the canonical `InvalidArgument` + `io.altessa.badrequest.v1.BadRequest` shape (the detail type the
+protovalidate interceptor also emits) rather than leaking to the storage layer.
 
-An `IDENTIFIER` set in the resource body addresses the resource (AIP-203): it is kept, is not an error, and is left out of both the writeback mask and
-the mask synthesized by `WithApplyEmptyUpdateMask`, so the handler sees only the fields the client asked to change. The same holds for an `IDENTIFIER`
-inside a populated singular sub-message (`profile.id`); a sub-message that carries only its identifier is left out of the synthesized mask rather than
-replaced as a whole. An explicit mask naming such a sub-message whole (`profile`) is rejected with a violation at `profile.id`, populated or absent: it
-would authorize replacing or clearing the identifier together with its parent — name the sub-message's other fields instead. The same applies to an
-`IMMUTABLE` descendant; the synthesized mask names the set fields of such a sub-message rather than the whole sub-message — also when the protected
-field sits in an absent descendant (the check follows the schema, cycle-safe). Nested `OUTPUT_ONLY` fields are skipped as well (they are never written),
-so they do not collapse a populated sub-message into a whole selection either. A synthesized mask left empty (every populated field was skipped) still
-runs through `ApplyUpdateMask`: the handler gets an empty mask that authorizes nothing, and the skipped client values are cleared from the body (a set
-top-level identifier is kept). A mask path into collection elements that names an element `IDENTIFIER` or `IMMUTABLE` field — `labels.k.id`,
-`labels.*.id`, `aliases.*.id`, `aliases.id` — is rejected the same way, and element `OUTPUT_ONLY` leaves are removed from the writeback mask; a
-collection or element named whole (`labels`, `labels.k`, `aliases.*`) is a replacement and is accepted, which is also how the synthesized mask names
-populated collections. The elements a mask path addresses keep their set `IDENTIFIER` like a singular sub-message: for `labels.k.display_name`,
-`labels.*.display_name`, `aliases.*.display_name` or `aliases.display_name` the element `id` stays in the body and is left out of the writeback mask.
-The synthesis and the identifier cleanup come from `fieldmask.FromSetFieldsForUpdate` and `FieldMask.DropIdentifiers`, so the policy lives in
-`domain/proto/fieldmask` alone.
+By default, a request mask is a singular `google.protobuf.FieldMask` declared as `update_mask` / `read_mask`, falling back to `updateMask` /
+`readMask` only when the corresponding snake_case name is not declared. A non-empty `WithMaskFieldName` selects an exact declared name without fallback.
+
+Updates use `update.Prepare` to validate raw paths, normalize the resource, write back the initial effective mask, and retain a deferred plan.
+`IMMUTABLE` and `IDENTIFIER` values are captured in the deferred plan for comparison with stored state; their paths do not authorize writes in the initial mask.
+Protected paths, including explicit clears, are deferred. An unchanged protected value is ignored; a change is `INVALID_ARGUMENT` from stateful
+planning in the handler. `OUTPUT_ONLY` input is sanitized during normalization, including explicit empty and dropped-only masks.
+An omitted mask implies populated fields; an explicit empty mask is a no-op. An empty interim mask can still require protected-field comparison.
+With explicit paths or an explicit empty mask, the handler-visible resource retains selected input and the resource routing identity.
+Unselected containers are dropped even when they contain IMMUTABLE or nested IDENTIFIER fields.
+Selected collection elements retain their identifiers, map keys, and list positions; OUTPUT_ONLY input is cleared.
+The plan captures original values for deferred comparison; selected protected values remain visible. Omitted masks and * retain protected input.
+An omitted mask selects populated leaves; an explicit empty mask clears unselected mutable input and performs no writes or secret changes.
+A dropped-only mask also filters unselected input. Writable masks retain selected values for downstream validation; `*` processes replacement selection.
+`OUTPUT_ONLY` is cleared in every case. The deferred plan captures original input for comparison, replacements and selected `INPUT_ONLY` secrets.
+No `KeepIdentity` cleanup runs before completion. Never persist the normalized request as a replacement.
+
+The handler must call `update.Patch.Run` with the received context and stored-resource callbacks, or call `Spec.Plan` with
+`update.WithPlanContext(ctx)` and `update.WithCurrent(stored)`, then merge the final paths. Merging only the written-back mask does not perform
+the protected-field check. Always complete the plan, even when the written-back mask is empty.
+Map handler errors with `errstatus.WithCanonicalRules()` (or equivalent conversion) to expose protected-field failures as `InvalidArgument`.
+
+Unary handlers receive the plan through `update.ContextWithPlan`. Streaming handlers obtain a context snapshot from `stream.Context()` after
+each successful receive. Each message gets its own plan; use a fresh resource instance when retaining earlier contexts. Both interceptors share
+a per-message tracker: the first successful normalization and its original mask are retained, and the second interceptor reuses that plan.
 
 ## Method classification
 
@@ -33,7 +42,7 @@ The short method name (the part after the final `/`) is matched case-sensitively
 
 | Prefix                                  | Kind         | Effect                                                             |
 |-----------------------------------------|--------------|--------------------------------------------------------------------|
-| `Update*`, `Patch*`, `BatchUpdate*`     | `KindUpdate` | `PreCall`: `ApplyUpdateMask(req)`, then writeback the cleaned mask |
+| `Update*`, `Patch*`, `BatchUpdate*`     | `KindUpdate` | `PreCall`: `update.Prepare(req)`, writeback the effective mask   |
 | `Get*`, `List*`, `Search*`, `BatchGet*` | `KindRead`   | `PreCall` captures `read_mask`; `PostCall` runs `Filter(response)` |
 | anything else                           | `KindNone`   | request and response untouched                                     |
 
@@ -42,21 +51,38 @@ specific fully-qualified method.
 
 ## Options
 
-| Option                                  | Default                         | Description                                                                                                              |
-|-----------------------------------------|---------------------------------|--------------------------------------------------------------------------------------------------------------------------|
-| `WithMethodKind(fullMethod, kind)`      | --                              | Override classification for `info.FullMethod`. Accumulates across calls.                                                 |
-| `WithSkipReadMask()`                    | off                             | Disable the response-side `Filter` pass on `KindRead` methods.                                                           |
-| `WithMaskFieldName(name)`               | `"update_mask"` / `"read_mask"` | Override the conventional mask field name (descriptor name).                                                             |
-| `WithResourceFieldName(name)`           | first non-mask message field    | Override the resource carrier field name on Update requests.                                                             |
-| `WithUpdateExtractor(fullMethod, fn)`   | --                              | Per-method update extractor. See [Custom extractors](#custom-extractors).                                                |
-| `WithReadExtractor(fullMethod, fn)`     | --                              | Per-method read extractor.                                                                                               |
-| `WithDefaultUpdateExtractor(fn)`        | built-in reflection             | Global default update extractor used when no per-method override matches.                                                |
-| `WithDefaultReadExtractor(fn)`          | built-in chain                  | Global default read extractor.                                                                                           |
-| `WithMetadataReadMaskHeader(name)`      | `"x-goog-fieldmask"`            | Override the gRPC metadata key the built-in AIP-157 read extractor reads.                                                |
-| `WithApplyEmptyUpdateMask()`            | off                             | AIP-134: when `update_mask` is present but empty, synthesize from `FromSetFieldsForUpdate(resource)` and apply normally. |
-| `WithIgnoreMethods(...string)`          | --                              | Fully-qualified method names to bypass entirely.                                                                         |
-| `WithIgnorePatterns(...*regexp.Regexp)` | `defaults.IgnorePatterns`       | Regex patterns to bypass (default skips reflection and health probes).                                                   |
-| `WithLogger(*slog.Logger)`              | discard                         | Logger for debug/error messages.                                                                                         |
+| Option                                  | Default                         | Description                                                                                                                                                                                 |
+|-----------------------------------------|---------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `WithMethodKind(fullMethod, kind)`      | --                              | Override classification for `info.FullMethod`. Accumulates across calls.                                                                                                                    |
+| `WithSkipReadMask()`                    | off                             | Disable the response-side `Filter` pass on `KindRead` methods.                                                                                                                              |
+| `WithMaskFieldName(name)`               | declared names above           | Select an exact declared mask field name without fallback. Empty uses the defaults above.                                                                                                 |
+| `WithResourceFieldName(name)`           | exactly one non-mask message    | Override the resource carrier field name on Update requests.                                                                                                                                |
+| `WithUpdateExtractor(fullMethod, fn)`   | --                              | Per-method update extractor. See [Custom extractors](#custom-extractors).                                                                                                                   |
+| `WithReadExtractor(fullMethod, fn)`     | --                              | Per-method read extractor.                                                                                                                                                                  |
+| `WithDefaultUpdateExtractor(fn)`        | built-in reflection             | Global default update extractor used when no per-method override matches.                                                                                                                   |
+| `WithDefaultReadExtractor(fn)`          | built-in chain                  | Global default read extractor.                                                                                                                                                              |
+| `WithMetadataReadMaskHeader(name)`      | `"x-goog-fieldmask"`            | Override the gRPC metadata key the built-in AIP-157 read extractor reads.                                                                                                                   |
+| `WithStrictMode()`                      | off                             | Reject missing/empty masks and invalid paths before preparing; emits `google.rpc.BadRequest`.                                                               |
+| `WithUpdateOptions(...update.Option)`   | go-aip defaults                 | Options of `update.Prepare`: resolver, identity, immutable and implied-skip fields, atomic messages, path validation, limits.                                                              |
+| `WithIgnoreMethods(...string)`          | --                              | Fully-qualified method names to bypass entirely.                                                                                                                                            |
+| `WithIgnorePatterns(...*regexp.Regexp)` | `defaults.IgnorePatterns`       | Regex patterns to bypass (default skips reflection and health probes).                                                                                                                      |
+| `WithLogger(*slog.Logger)`              | discard                         | Logger for debug/error messages.                                                                                                                                                            |
+
+## Strict update masks
+
+`WithStrictMode()` rejects missing or empty masks and validates every raw path regardless of path-validation mode.
+Protected values still require handler completion; OUTPUT_ONLY paths are ignored. Strict refusals carry `google.rpc.BadRequest` details.
+
+The built-in extractor handles the canonical request shape automatically: one top-level `google.protobuf.FieldMask update_mask` and exactly one other
+singular message field for the resource. Use `WithUpdateExtractor` for exceptions such as a mask nested in an options message.
+
+A strict `*` mask follows AIP-134's full-replacement convention and excludes `OUTPUT_ONLY` fields. `IMMUTABLE` and `IDENTIFIER` values are compared
+with stored state when the handler completes the deferred plan: unchanged populated values are accepted, while changes, including wildcard clears of
+non-empty protected values, are rejected.
+
+```go
+fieldmask.ServerInterceptor(fieldmask.WithStrictMode())
+```
 
 ## Custom extractors
 
@@ -64,8 +90,8 @@ The built-in extractor assumes the canonical AIP-134 shape — `UpdateXxxRequest
 level of the request via descriptor reflection. Requests that nest the mask inside an `Options` sub-message (`req.Options.UpdateMask`) are not reachable
 from there.
 
-For those, plug a typed extractor in. The function types and the generic builders live in
-[`domain/proto/fieldmask`](../../../../domain/proto/fieldmask/README.md#custom-extractors) so non-gRPC callers can reuse them.
+For those, plug a typed extractor in. The function types and the generic builders live in go-aip
+[`fieldmask/extract`](https://github.com/altessa-s/go-aip/tree/develop/fieldmask/extract) so non-gRPC callers can reuse them.
 
 ```go
 chain := interceptors.NewChain(
@@ -73,7 +99,7 @@ chain := interceptors.NewChain(
     fieldmask.ServerInterceptor(
         fieldmask.WithMethodKind("/x.v1.X/UpdateBucket", fieldmask.KindUpdate),
         fieldmask.WithUpdateExtractor("/x.v1.X/UpdateBucket",
-            pbfieldmask.NewUpdateExtractor(
+            extract.NewUpdateFunc(
                 func(r *pb.UpdateBucketRequest) *fieldmaskpb.FieldMask { return r.GetOptions().GetUpdateMask() },
                 func(r *pb.UpdateBucketRequest) *pb.Bucket             { return r.GetBucket() },
                 func(r *pb.UpdateBucketRequest, m *fieldmaskpb.FieldMask) { r.Options.UpdateMask = m },
@@ -91,9 +117,14 @@ For every call the interceptor resolves the extractor in this order:
 1. **Per-method override** registered via `WithUpdateExtractor(fullMethod, fn)` / `WithReadExtractor(fullMethod, fn)` — wins when `fn != nil`.
 2. **Global default** registered via `WithDefaultUpdateExtractor(fn)` / `WithDefaultReadExtractor(fn)` — used when no per-method match.
 3. **Built-in** — the bottom-of-stack fallback.
-   - Update path: `pbfieldmask.DefaultUpdateExtractor` (single reflection extractor). Honors `WithMaskFieldName` / `WithResourceFieldName`.
-   - Read path: `pbfieldmask.ChainReadExtractors(MetadataReadExtractor, DefaultReadExtractor)` — modern AIP-157 metadata header first, deprecated
+   - Update path: `updatemask.DefaultExtractor` (extends go-aip lookup to omitted masks). Honors `WithMaskFieldName` / `WithResourceFieldName`.
+   - Read path: `extract.ChainRead(MetadataReadExtractor, extract.DefaultRead)` — modern AIP-157 metadata header first, deprecated
      AIP-161 request-message `read_mask` second.
+
+`UpdateNormalizer(opts...)` returns the `updatemask.Normalizer` of these options: this extractor resolution (the method is read from the call
+metadata), `WithUpdateOptions`, `WithStrictMode`. Give it to the [`fieldbehavior`](../fieldbehavior/README.md)
+interceptor (`fieldbehavior.WithUpdateNormalizer`) with the options of this interceptor so both apply an `update_mask` the same way; the gRPC server
+factory does this from the `fieldMask` configuration and `UseFieldMaskOptions`, even when this interceptor is disabled.
 
 A custom extractor returning `ok=false` means "I do not handle this request" — the interceptor logs at Debug and passes through. It does **not** fall
 back to a lower tier. This keeps the precedence deterministic when callers register an extractor specifically to disable handling for a method.
@@ -107,18 +138,42 @@ consults that header first and falls back to the request-message `read_mask`. An
 mask.
 
 Override the header name with `WithMetadataReadMaskHeader("x-custom-fieldmask")`. The override applies only to the built-in chain; callers that replace
-the read extractor wholesale via `WithDefaultReadExtractor` or `WithReadExtractor` own their own header convention.
+the read extractor wholesale via `WithDefaultReadExtractor` or `WithReadExtractor` own their own header convention and can reuse the metadata extractor:
+
+| Symbol                                                   | Purpose                                                                                        |
+|----------------------------------------------------------|------------------------------------------------------------------------------------------------|
+| `MetadataReadExtractor(opts ...MetadataExtractorOption)` | Reads the field mask from incoming gRPC metadata per AIP-157.                                  |
+| `WithMetadataHeader(name)`                               | Override the metadata key. Defaults to `DefaultMetadataReadMaskHeader` (`"x-goog-fieldmask"`). |
+| `DefaultMetadataReadMaskHeader`                          | Constant for the default header name.                                                          |
+
+| Metadata state                        | Result                                           |
+|---------------------------------------|--------------------------------------------------|
+| No incoming metadata in `ctx`         | `ok=false` (silent passthrough)                  |
+| Header absent                         | `ok=false`                                       |
+| Header empty / whitespace only        | `ok=false` (AIP-157: omitted ⇒ all fields)       |
+| Header == `"*"`                       | `ok=false` (AIP-157: `*` ⇒ all fields)           |
+| Header == `"name,authors.given_name"` | `&fieldmaskpb.FieldMask{Paths: [name, …]}, true` |
+| Multiple values on the same key       | First value wins; the rest are ignored           |
+| Surrounding whitespace around paths   | Trimmed; empty entries dropped                   |
+
+```go
+read := extract.ChainRead(
+    fieldmask.MetadataReadExtractor(fieldmask.WithMetadataHeader("x-custom-fieldmask")), // AIP-157 modern path
+    extract.DefaultRead(),                                                                // AIP-161 deprecated request-field fallback
+)
+```
 
 ### Writeback
 
-`UpdateExtractorFunc` returns an optional writeback closure. The interceptor calls it with the mask after `ApplyUpdateMask` removes OUTPUT_ONLY entries
-— for the nested example above, that updates `req.Options.UpdateMask` so the handler sees a coherent `(mask, resource)` pair. Return `nil` from the
-writeback slot to skip writeback (when the handler already reads the original mask and ignores OUTPUT_ONLY paths).
+`extract.UpdateFunc` returns a writeback closure. The interceptor calls it with the effective mask `update.Prepare` returns — for the nested
+example above, that updates `req.Options.UpdateMask` so the handler sees a coherent `(mask, resource)` pair. The writeback is required: the mask as
+sent may cover server-managed fields the resource no longer holds, so an extractor that locates a mask but returns no writeback fails the request
+with `Internal`.
 
 ### Pushing the read mask down to storage
 
 `ReadMaskFromContext(ctx)` hands the handler the read mask the interceptor captured for the current `KindRead` call — resolved by the same extractor
-chain, returned as a copy — so the selection can become a database projection through [`data/projection`](../../../../data/projection) instead of
+chain, returned as a copy — so the selection can become a database projection through go-aip [`projection`](https://github.com/altessa-s/go-aip/tree/develop/projection) instead of
 loading the full resource and trimming it afterwards. It reports `ok=false` for non-read methods, skipped calls and requests without a mask (AIP-157:
 all fields). On a server stream, call it after the first `Recv`.
 
@@ -166,7 +221,7 @@ mask-cleaned payload.
 ### From configuration
 
 The gRPC server factory wires the interceptor from the `interceptors.fieldMask` section of [`config/grpc`](../../../../config/grpc/README.md)
-(`enabled`, `ignoreMethods`, `ignorePatterns`, `skipReadMask`, `applyEmptyUpdateMask`, `maskFieldName`, `resourceFieldName`,
+(`enabled`, `ignoreMethods`, `ignorePatterns`, `skipReadMask`, `maskFieldName`, `resourceFieldName`,
 `metadataReadMaskHeader`; disabled by default) between `fieldbehavior` and `protovalidator`. Method kinds and extractors are code-level and are added
 with `UseFieldMaskOptions`:
 
@@ -181,10 +236,13 @@ srv, err := factory.New(cfg.Grpc).
 
 | Source                                           | gRPC status       | Detail attached                       |
 |--------------------------------------------------|-------------------|---------------------------------------|
-| `*fieldmask.UpdateMaskBehaviorError`             | `InvalidArgument` | `io.altessa.badrequest.v1.BadRequest` |
+| `*update.BehaviorError`                          | `InvalidArgument` | `io.altessa.badrequest.v1.BadRequest` |
 | `*fieldmask.ValidationError` (bad mask path)     | `InvalidArgument` | --                                    |
+| `*update.StrictError` (strict mode)              | `InvalidArgument` | `google.rpc.BadRequest`               |
+| `read_mask` path the response does not hold      | `InvalidArgument` | --                                    |
 | Reflection miss (no `update_mask` / `read_mask`) | --                | silent passthrough, logged at Debug   |
-| Panic inside `ApplyUpdateMask` / `Filter`        | `Internal`        | logged at Error, request rejected     |
+| Update extractor with no writeback               | `Internal`        | logged at Error, request rejected     |
+| Panic inside an extractor, `Prepare`, `Filter` | `Internal`        | logged at Error, request rejected     |
 
 Each behavior violation carries the dot-separated field path (`field_path`) and a human description (`message`: `"immutable field cannot be
 modified"`, `"identifier field cannot be modified"`, `"required field cannot be cleared"`). The go-atlas gRPC client maps it into `client.Error.Fields`.
@@ -198,8 +256,14 @@ request do not alter it, and concurrent sends and receives on a bidi stream are 
 
 ## See also
 
-- [`domain/proto/fieldmask`](../../../../domain/proto/fieldmask/README.md) — the underlying `FieldMask` operations and the `ExtractUpdateMask` /
-  `ExtractReadMask` / `SetUpdateMask` reflection helpers this interceptor uses.
-- [`docs/domain/proto/fieldmask.md`](../../../../docs/domain/proto/fieldmask.md) — full reference, traversal semantics, performance.
+- go-aip [`fieldmask`](https://github.com/altessa-s/go-aip/tree/develop/fieldmask), [`fieldmask/update`](https://github.com/altessa-s/go-aip/tree/develop/fieldmask/update) and [`fieldmask/extract`](https://github.com/altessa-s/go-aip/tree/develop/fieldmask/extract) — the
+  underlying `FieldMask` operations, the update check and the `UpdateMask` / `ReadMask` / `SetUpdateMask` reflection helpers this interceptor uses.
+- [go-aip field mask guide](https://github.com/altessa-s/go-aip/tree/develop/docs/fieldmask.md) — full reference, traversal semantics, performance.
 - [`transport/grpc/interceptors/fieldbehavior`](../fieldbehavior/README.md) — sibling AIP-203 interceptor; pair before `fieldmask`.
 - [`transport/grpc/interceptors/protovalidator`](../protovalidator/README.md) — pair after `fieldmask` so validation runs on the mask-cleaned payload.
+
+## Policy propagation
+
+`WithUpdateOptions` supplies the `update.Option` policy of `update.Prepare`; the normalizer appends `update.WithUpdateMaskFieldName` with the
+configured mask field name and `update.WithStrict` last. `WithMaskFieldName` also controls the field name in strict
+validation error details.

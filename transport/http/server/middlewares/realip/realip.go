@@ -5,15 +5,14 @@
 package realip
 
 import (
-	"context"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-	"github.com/altessa-s/go-atlas/transport/internal/headers"
 )
 
 const middlewareName = "realip"
@@ -78,20 +77,5 @@ func (m *middleware) getIP(r *http.Request) netip.Addr {
 		return netip.Addr{}
 	}
 
-	return m.extractor.Extract(r.Context(), peerIP, headers.NewHTTPHeaderGetter(r))
-}
-
-// FromContext returns the real IP address stored by this middleware from the
-// context. Returns an invalid [netip.Addr] (where IsValid returns false) if
-// no real IP is present. The value is set by [middleware.Handler] or
-// manually via [NewContext].
-func FromContext(ctx context.Context) netip.Addr {
-	return clientip.FromContext(ctx)
-}
-
-// NewContext returns a new context with the given real IP address.
-// This is useful for injecting a real IP into the context manually,
-// for example in tests. Retrieve it later with [FromContext].
-func NewContext(ctx context.Context, ip netip.Addr) context.Context {
-	return clientip.NewContext(ctx, ip)
+	return m.extractor.Extract(r.Context(), peerIP, httpx.NewHTTPHeaderGetter(r))
 }

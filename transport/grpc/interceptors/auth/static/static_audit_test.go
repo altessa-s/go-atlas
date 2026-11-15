@@ -12,37 +12,39 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/static"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	originalStatic "github.com/altessa-s/go-atlas/auth/static"
 )
 
 // captureSink records every decision it receives for later assertions.
 type captureSink struct {
 	mu        sync.Mutex
-	decisions []audit.Decision
+	decisions []decision.Decision
 }
 
-func (s *captureSink) Record(_ context.Context, d audit.Decision) error {
+func (s *captureSink) Record(_ context.Context, d decision.Decision) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.decisions = append(s.decisions, d)
 	return nil
 }
 
-func (s *captureSink) all() []audit.Decision {
+func (s *captureSink) all() []decision.Decision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]audit.Decision(nil), s.decisions...)
+	return append([]decision.Decision(nil), s.decisions...)
 }
 
 // failingSink always fails, to exercise the FailureRequired path.
 type failingSink struct{}
 
-func (failingSink) Record(context.Context, audit.Decision) error {
+func (failingSink) Record(context.Context, decision.Decision) error {
 	return errors.New("sink unavailable")
 }
 
@@ -55,17 +57,17 @@ func TestAuthFunc_Audit_Success(t *testing.T) {
 	t.Parallel()
 	sink := &captureSink{}
 	want := userInfo{ID: "user1", Role: "admin"}
-	store := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(map[string]any{
 		"valid_token": want,
 	}))
 	fn := static.AuthFunc(store, static.WithAudit(
-		audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll)),
+		decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll)),
 		subjectFromUserInfo,
 	))
 
 	data, err := fn(t.Context(), auth.Request{
-		Base:    auth.Base{AuthMethod: auth.MethodToken},
-		Payload: &auth.TokenCredentials{Token: "valid_token"},
+		AuthMethod: auth.MethodToken,
+		Payload:    &auth.TokenCredentials{Token: "valid_token"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, want, data)
@@ -104,9 +106,9 @@ func TestAuthFunc_Audit_Denials(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			sink := &captureSink{}
-			store := static.NewInMemoryStore()
+			store := originalStatic.NewInMemoryStore()
 			fn := static.AuthFunc(store, static.WithAudit(
-				audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll)),
+				decision.NewRecorder(sink, decision.WithPolicyMode(decision.PolicyAll)),
 				subjectFromUserInfo,
 			))
 
@@ -130,15 +132,15 @@ func TestAuthFunc_Audit_DenyOnlyDropsSuccess(t *testing.T) {
 	t.Parallel()
 	sink := &captureSink{}
 	want := userInfo{ID: "user1", Role: "admin"}
-	store := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(map[string]any{
 		"valid_token": want,
 	}))
 	// Default policy is deny-only: a granted decision must be dropped.
-	fn := static.AuthFunc(store, static.WithAudit(audit.NewRecorder(sink), subjectFromUserInfo))
+	fn := static.AuthFunc(store, static.WithAudit(decision.NewRecorder(sink), subjectFromUserInfo))
 
 	data, err := fn(t.Context(), auth.Request{
-		Base:    auth.Base{AuthMethod: auth.MethodToken},
-		Payload: &auth.TokenCredentials{Token: "valid_token"},
+		AuthMethod: auth.MethodToken,
+		Payload:    &auth.TokenCredentials{Token: "valid_token"},
 	})
 	require.NoError(t, err)
 	require.Equal(t, want, data)
@@ -148,20 +150,20 @@ func TestAuthFunc_Audit_DenyOnlyDropsSuccess(t *testing.T) {
 func TestAuthFunc_Audit_FailureRequiredOnSuccess(t *testing.T) {
 	t.Parallel()
 	want := userInfo{ID: "user1", Role: "admin"}
-	store := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(map[string]any{
 		"valid_token": want,
 	}))
 	fn := static.AuthFunc(store, static.WithAudit(
-		audit.NewRecorder(failingSink{},
-			audit.WithPolicyMode(audit.PolicyAll),
-			audit.WithFailureMode(audit.FailureRequired),
+		decision.NewRecorder(failingSink{},
+			decision.WithPolicyMode(decision.PolicyAll),
+			decision.WithFailureMode(decision.FailureRequired),
 		),
 		subjectFromUserInfo,
 	))
 
 	data, err := fn(t.Context(), auth.Request{
-		Base:    auth.Base{AuthMethod: auth.MethodToken},
-		Payload: &auth.TokenCredentials{Token: "valid_token"},
+		AuthMethod: auth.MethodToken,
+		Payload:    &auth.TokenCredentials{Token: "valid_token"},
 	})
 	require.Error(t, err)
 	require.Nil(t, data)

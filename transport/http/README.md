@@ -5,7 +5,7 @@ negotiation, and pluggable routing.
 
 ## Packages
 
-| Package              | Description                                                                            |
-|----------------------|----------------------------------------------------------------------------------------|
-| [client](./client)   | Resilient HTTP client with retries, circuit breaker, rate limiting, and SSRF protection |
-| [server](./server)   | HTTP server with graceful shutdown, middleware support, and pluggable routers           |
+| Package                                                                      | Description                                                                             |
+|------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| [client](https://github.com/altessa-s/go-atlas-net/tree/develop/http/client) | Resilient HTTP client with retries, circuit breaker, rate limiting, and SSRF protection |
+| [server](./server)                                                           | HTTP server with graceful shutdown, middleware support, and pluggable routers           |

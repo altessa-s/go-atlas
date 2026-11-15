@@ -5,6 +5,8 @@
 package middlewares
 
 import (
+	"net/http"
+	"net/url"
 	"regexp"
 	"testing"
 
@@ -17,7 +19,7 @@ func TestNewBaseMiddleware(t *testing.T) {
 	require.NotNil(t, b.Logger())
 }
 
-func TestBaseMiddleware_ShouldIgnore(t *testing.T) {
+func TestBaseMiddleware_ShouldIgnoreRequest(t *testing.T) {
 	tests := []struct {
 		name  string
 		paths []string
@@ -32,15 +34,10 @@ func TestBaseMiddleware_ShouldIgnore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewBaseMiddlewareWithFilter("test", tt.paths, tt.pats, nil)
-			got := b.ShouldIgnore(tt.check)
+			got := b.ShouldIgnoreRequest(&http.Request{URL: &url.URL{Path: tt.check}})
 			require.Equal(t, tt.want, got)
 		})
 	}
-}
-
-func TestBaseMiddleware_InternPath(t *testing.T) {
-	b := NewBaseMiddleware("test", nil)
-	require.Equal(t, "/test", b.InternPath("/test"))
 }
 
 func TestBaseMiddleware_LogMethods(t *testing.T) {

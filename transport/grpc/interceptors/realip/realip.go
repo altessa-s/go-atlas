@@ -9,12 +9,12 @@ import (
 	"log/slog"
 	"net/netip"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	"github.com/altessa-s/go-atlas/transport/internal/headers"
 
 	"google.golang.org/grpc/peer"
 
+	grpcmetadata "github.com/altessa-s/go-atlas-net/grpc/metadata"
 	stdGrpc "google.golang.org/grpc"
 )
 
@@ -92,7 +92,7 @@ func (i *interceptor) getIP(ctx context.Context) *netip.Addr {
 		return nil
 	}
 
-	ip := i.extractor.Extract(ctx, peerAddrPort.Addr(), headers.NewGRPCHeaderGetter(ctx))
+	ip := i.extractor.Extract(ctx, peerAddrPort.Addr(), grpcmetadata.NewHeaderGetter(ctx))
 	if !ip.IsValid() {
 		return nil
 	}

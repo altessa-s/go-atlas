@@ -24,6 +24,15 @@ accurate client IP logging when behind proxies or load balancers.
 | `WithIgnorePaths`         | --                       | Paths to skip                                                |
 | `WithIgnorePatterns`      | health, metrics, pprof   | Regex patterns for paths to skip                             |
 | `WithContextLogger`       | nil                      | Store the request-enriched logger in the context             |
+| `WithMaxPathLength`       | 2048 bytes               | Cap of the logged `http.path` (`DefaultMaxPathLength`)       |
+| `WithMaxUserAgentLength`  | 512 bytes                | Cap of the logged User-Agent (`DefaultMaxUserAgentLength`)   |
+
+## Path and User-Agent are sanitized
+
+The URL path and the User-Agent come from the client, and the path is logged decoded, so `/a%0d%0alevel=ERROR` would otherwise put a line break
+into the record. Both values are cut to their cap (the cut is marked with `TruncationSuffix`, `...`, which counts toward the cap) and their control
+characters — CR, LF, the rest of C0, DEL and C1 — are removed before logging. The request itself is not changed: handlers see the original path and
+header. A cap below 1 is ignored.
 
 ## Body logging is redacted by default
 

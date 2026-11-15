@@ -1,6 +1,6 @@
 # transport
 
-Transport layer for the Atlas framework. Provides message broker, gRPC, and HTTP abstractions with production-ready features including resilience,
+Transport layer for the Atlas framework. Provides gRPC and HTTP abstractions (the message broker lives in [messaging](../messaging)) with production-ready features including resilience,
 observability, security, and configuration-driven creation of all transport components.
 
 ## Design principles
@@ -12,10 +12,9 @@ observability, security, and configuration-driven creation of all transport comp
 
 ## Subpackages
 
-| Package                | Description                                                                                        |
-|------------------------|----------------------------------------------------------------------------------------------------|
-| [broker](./broker)     | High-level message broker with Transactional Outbox pattern and NATS JetStream provider            |
-| [clientip](./clientip) | Real client IP extraction behind trusted proxies, shared by the HTTP and gRPC realip components |
-| [grpc](./grpc)         | gRPC server and client with connection pooling, interceptor chain, and service handlers            |
-| [http](./http)         | HTTP server and client with content negotiation, middleware chain, and pluggable router             |
-| [proxydial](./proxydial) | Forward-proxy dialers for non-HTTP client connections (SMTP, SOAP, raw TCP, gRPC over CONNECT/SOCKS5) |
+| Package                                                                       | Description                                                                                           |
+|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| [clientip](https://github.com/altessa-s/go-atlas-net/tree/develop/clientip)   | Real client IP extraction behind trusted proxies, shared by the HTTP and gRPC realip components       |
+| [grpc](./grpc)                                                                | gRPC server and client with connection pooling, interceptor chain, and service handlers               |
+| [http](./http)                                                                | HTTP server and client with content negotiation, middleware chain, and pluggable router               |
+| [proxydial](https://github.com/altessa-s/go-atlas-net/tree/develop/proxydial) | Forward-proxy dialers for non-HTTP client connections (SMTP, SOAP, raw TCP, gRPC over CONNECT/SOCKS5) |

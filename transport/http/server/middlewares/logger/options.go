@@ -8,14 +8,14 @@ import (
 	"log/slog"
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/core/time/timeformat"
+	"github.com/altessa-s/go-atlas-core/time/timeformat"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
 
 // Use defaults package for optgen code generation
 var _ = defaults.IgnorePatterns
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
+//go:generate go tool optgen generate --type=options
 
 // BodyRedactFunc is called to redact sensitive data from request/response body
 // content before it is written to logs. It receives the raw body string and
@@ -44,7 +44,7 @@ type options struct {
 	logResponseCodes    []int
 	ignoreResponseCodes []int
 	// contextLogger enables storing enriched logger in context.
-	// Handlers can retrieve it via slogx.FromContextOrDefault(ctx).
+	// Handlers can retrieve it via slogx.FromContext(ctx).
 	// If nil, context injection is disabled (default behavior).
 	contextLogger *slog.Logger   `optgen:"default=nil"`
 	bodyRedactor  BodyRedactFunc `optgen:"default=nil"`
@@ -54,7 +54,28 @@ type options struct {
 	// redactQueryParams lists query parameter names (exact, case-sensitive)
 	// whose values are replaced with [RedactedQueryValue] in http.query.
 	redactQueryParams []string
+	// maxPathLength caps, in bytes, the URL path logged as http.path. A longer
+	// path is truncated and marked with [TruncationSuffix]. Values below 1 are
+	// ignored.
+	maxPathLength int `optcheck:"min=1" optgen:"default=DefaultMaxPathLength,onfail=skip"`
+	// maxUserAgentLength caps, in bytes, the logged User-Agent. A longer value
+	// is truncated and marked with [TruncationSuffix]. Values below 1 are
+	// ignored.
+	maxUserAgentLength int `optcheck:"min=1" optgen:"default=DefaultMaxUserAgentLength,onfail=skip"`
 }
+
+// Length caps of the client-controlled request fields.
+const (
+	// DefaultMaxPathLength is the default cap, in bytes, of the logged URL path.
+	DefaultMaxPathLength = 2048
+	// DefaultMaxUserAgentLength is the default cap, in bytes, of the logged
+	// User-Agent.
+	DefaultMaxUserAgentLength = 512
+)
+
+// TruncationSuffix marks a logged value that was cut to its length cap; it
+// counts toward the cap.
+const TruncationSuffix = "..."
 
 // RedactedQueryValue replaces the value of a query parameter listed in
 // [WithRedactQueryParams].

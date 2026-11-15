@@ -63,6 +63,15 @@
 //	    }
 //	}
 //
+// When the authenticator returns a
+// [github.com/altessa-s/go-atlas/auth/principal.Principal] (or a non-nil
+// pointer to one), the middleware also stores it through
+// principal.NewContextFrom; a result that maps itself onto a principal, such
+// as the *oidc.Claims of the oidc adapter, is stored as its Principal(). A
+// handler served over HTTP and gRPC reads the caller the same way:
+//
+//	p, ok := principal.FromContext(r.Context())
+//
 // # Path Filtering
 //
 // No path is exempt by default: every request is authenticated unless the
@@ -76,9 +85,9 @@
 //	)
 //
 // The health, metrics, and pprof exemptions applied by default before are
-// available as an explicit opt-in. Those patterns are unanchored at the
-// start — they also exempt /admin/metrics or /api/pprof/heap — so use them
-// only when every route that matches is meant to be public:
+// available as an explicit opt-in. Those patterns are anchored and match only
+// the endpoints at the root or under /internal (/healthz, /internal/metrics/,
+// /debug/pprof/heap), so use them when those endpoints are meant to be public:
 //
 //	auth.WithIgnorePatterns(defaults.IgnorePatterns...)
 //
@@ -93,5 +102,12 @@
 //
 //	middleware := auth.Middleware(
 //	    auth.WithAuthFunc(authFunc),
+//	)
+//
+// The oidc subpackage validates OIDC bearer tokens through
+// github.com/altessa-s/go-atlas/auth/oidc and answers 401 on failure:
+//
+//	middleware := auth.Middleware(
+//	    auth.WithAuthFunc(oidc.AuthFunc(authoidc.NewValidator(provider))),
 //	)
 package auth

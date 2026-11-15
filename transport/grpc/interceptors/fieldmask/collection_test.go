@@ -9,10 +9,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
-
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
-
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -30,17 +26,12 @@ func collectionResource() *pb.Resource {
 	}
 }
 
-// TestServerInterceptor_UpdateMask_CollectionElementIdentifierRejected pins,
-// through the interceptor chain, that an update_mask sub-path naming the
-// identifier of collection elements — keyed map, map wildcard, repeated
-// wildcard, implicit repeated form, or inside a map value — is rejected with
-// InvalidArgument and a BadRequest violation, and a list index is rejected as
-// indexed access, so the handler never gets a mask authorizing an element
-// identifier change.
-func TestServerInterceptor_UpdateMask_CollectionElementIdentifierRejected(t *testing.T) {
+// TestServerInterceptor_UpdateMask_CollectionElementIdentifierDeferred verifies the v0.1.5 contract.
+// Protected collection paths are deferred; invalid list paths are rejected.
+func TestServerInterceptor_UpdateMask_CollectionElementIdentifierDeferred(t *testing.T) {
 	t.Parallel()
 
-	for _, path := range []string{"labels.k.id", "labels.*.id", "aliases.*.id", "aliases.id"} {
+	for _, path := range []string{"labels.k.id", "labels.*.id", "aliases.*.id"} {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 
@@ -49,38 +40,27 @@ func TestServerInterceptor_UpdateMask_CollectionElementIdentifierRejected(t *tes
 				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{path, "description"}},
 			}
 			_, _, err := runUnary(t, newUnary(t), "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
-			require.Equal(t, codes.InvalidArgument, status.Code(err), "got %v", err)
-
-			st, _ := status.FromError(err)
-			var paths []string
-			for _, d := range st.Details() {
-				if br, ok := d.(*badrequestv1.BadRequest); ok {
-					for _, v := range br.GetFieldViolations() {
-						paths = append(paths, v.GetFieldPath())
-					}
-				}
-			}
-			require.Equal(t, []string{path}, paths)
+			require.NoError(t, err)
+			require.Equal(t, []string{"description"}, req.UpdateMask.Paths)
 		})
 	}
 
-	t.Run("list index", func(t *testing.T) {
-		t.Parallel()
+	for _, path := range []string{"aliases.0.id", "aliases.id", "aliases.display_name"} {
+		t.Run("invalid "+path, func(t *testing.T) {
+			t.Parallel()
 
-		req := &pb.UpdateResourceRequest{
-			Resource:   collectionResource(),
-			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"aliases.0.id"}},
-		}
-		_, _, err := runUnary(t, newUnary(t), "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
-		require.Equal(t, codes.InvalidArgument, status.Code(err), "got %v", err)
-	})
+			req := &pb.UpdateResourceRequest{
+				Resource:   collectionResource(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{path}},
+			}
+			_, _, err := runUnary(t, newUnary(t), "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+			require.Equal(t, codes.InvalidArgument, status.Code(err), "got %v", err)
+		})
+	}
 }
 
-// TestServerInterceptor_UpdateMask_CollectionElementPaths pins the mask the
-// handler gets for accepted collection sub-paths: OUTPUT_ONLY element leaves
-// are removed (and a branch left empty disappears), editable leaves and whole
-// collections or elements stay, and the filter clears the element fields the
-// mask does not name.
+// TestServerInterceptor_UpdateMask_CollectionElementPaths verifies the v0.1.5 contract.
+// Mutable collection paths remain writable; whole protected replacements are deferred.
 func TestServerInterceptor_UpdateMask_CollectionElementPaths(t *testing.T) {
 	t.Parallel()
 
@@ -91,8 +71,7 @@ func TestServerInterceptor_UpdateMask_CollectionElementPaths(t *testing.T) {
 	}{
 		{name: "keyed map", paths: []string{"labels.k.display_name", "labels.k.updated_at"}, want: []string{"labels.k.display_name"}},
 		{name: "repeated wildcard", paths: []string{"aliases.*.display_name", "aliases.*.updated_at"}, want: []string{"aliases.*.display_name"}},
-		{name: "implicit repeated", paths: []string{"aliases.updated_at", "description"}, want: []string{"description"}},
-		{name: "whole", paths: []string{"labels", "aliases.*"}, want: []string{"aliases.*", "labels"}},
+		{name: "whole", paths: []string{"labels", "aliases.*"}, want: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -125,31 +104,30 @@ func TestServerInterceptor_UpdateMask_CollectionElementPaths(t *testing.T) {
 	require.Equal(t, "id-1", got.GetResource().GetId(), "the resource identifier is kept")
 }
 
-// TestServerInterceptor_UpdateMask_CollectionElementIdentifierPreserved pins,
-// through the interceptor chain, that a sub-path into collection elements —
-// keyed map, map wildcard, repeated wildcard or implicit repeated form — keeps
-// the identifier of every addressed element in the body, while the mask the
-// handler gets names only the client's paths: the identifiers ApplyUpdateMask
-// added to keep them are removed again.
-func TestServerInterceptor_UpdateMask_CollectionElementIdentifierPreserved(t *testing.T) {
+// TestServerInterceptor_UpdateMask_SelectedCollectionElementsPreserved verifies that
+// selected elements keep their identities and positions while unselected collections are dropped.
+func TestServerInterceptor_UpdateMask_SelectedCollectionElementsPreserved(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		path        string
-		labels      bool
-		wantAliases bool
+		path      string
+		labelKeys []string
 	}{
-		{path: "labels.k.display_name", labels: true},
-		{path: "labels.*.display_name", labels: true},
-		{path: "aliases.*.display_name", wantAliases: true},
-		{path: "aliases.display_name", wantAliases: true},
+		{path: "labels.k.display_name", labelKeys: []string{"k"}},
+		{path: "labels.*.display_name", labelKeys: []string{"k", "other"}},
+		// Numeric list indices are rejected by the mask grammar; use a wildcard
+		// over distinct elements to verify that both positions survive.
+		{path: "aliases.*.display_name"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
 			t.Parallel()
 
+			resource := collectionResource()
+			resource.Labels["other"] = &pb.Profile{Id: "other-id", DisplayName: "other-label", UpdatedAt: "client"}
+			resource.Aliases = append(resource.Aliases, &pb.Profile{Id: "second-id", DisplayName: "second-alias", UpdatedAt: "client"})
 			req := &pb.UpdateResourceRequest{
-				Resource:   collectionResource(),
+				Resource:   resource,
 				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{tt.path}},
 			}
 			seenReq, _, err := runUnary(t, newUnary(t), "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
@@ -160,33 +138,46 @@ func TestServerInterceptor_UpdateMask_CollectionElementIdentifierPreserved(t *te
 
 			res := got.GetResource()
 			require.Equal(t, "id-1", res.GetId())
-			if tt.labels {
-				require.Equal(t, "client", res.GetLabels()["k"].GetId())
-				require.Empty(t, res.GetLabels()["k"].GetUpdatedAt())
-				require.Empty(t, res.GetAliases(), "a collection the mask does not name is cleared")
-			}
-			if tt.wantAliases {
-				require.Equal(t, "client", res.GetAliases()[0].GetId())
-				require.Empty(t, res.GetAliases()[0].GetUpdatedAt())
-				require.Empty(t, res.GetLabels(), "a collection the mask does not name is cleared")
+			if len(tt.labelKeys) > 0 {
+				require.Empty(t, res.GetAliases(), "the entirely unselected list is dropped")
+				require.Len(t, res.GetLabels(), len(tt.labelKeys))
+				want := map[string]*pb.Profile{
+					"k":     {Id: "client", DisplayName: "l"},
+					"other": {Id: "other-id", DisplayName: "other-label"},
+				}
+				for _, key := range tt.labelKeys {
+					require.Contains(t, res.GetLabels(), key)
+					label := res.GetLabels()[key]
+					require.Equal(t, want[key].Id, label.GetId(), "key %s", key)
+					require.Equal(t, want[key].DisplayName, label.GetDisplayName(), "key %s", key)
+					require.Empty(t, label.GetUpdatedAt(), "key %s", key)
+				}
+			} else {
+				require.Empty(t, res.GetLabels(), "the entirely unselected map is dropped")
+				require.Len(t, res.GetAliases(), 2)
+				for i, want := range []*pb.Profile{{Id: "client", DisplayName: "a"}, {Id: "second-id", DisplayName: "second-alias"}} {
+					alias := res.GetAliases()[i]
+					require.Equal(t, want.Id, alias.GetId(), "position %d", i)
+					require.Equal(t, want.DisplayName, alias.GetDisplayName(), "position %d", i)
+					require.Empty(t, alias.GetUpdatedAt(), "position %d", i)
+				}
 			}
 		})
 	}
 }
 
-// TestServerInterceptor_EmptyUpdateMask_CollectionsNamedWhole pins that the
-// mask synthesized for an empty update_mask names populated collections whole,
-// as replacements, and so is accepted even when elements carry identifiers.
-func TestServerInterceptor_EmptyUpdateMask_CollectionsNamedWhole(t *testing.T) {
+// TestServerInterceptor_EmptyUpdateMask_CollectionsNoop verifies the v0.1.5 contract.
+// The deprecated option cannot turn an empty collection mask into writes.
+func TestServerInterceptor_EmptyUpdateMask_CollectionsNoop(t *testing.T) {
 	t.Parallel()
 
 	req := &pb.UpdateResourceRequest{
 		Resource:   collectionResource(),
 		UpdateMask: &fieldmaskpb.FieldMask{},
 	}
-	seenReq, _, err := runUnary(t, newUnary(t, fieldmask.WithApplyEmptyUpdateMask()), "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+	seenReq, _, err := runUnary(t, newUnary(t), "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
 	require.NoError(t, err)
 	got, ok := seenReq.(*pb.UpdateResourceRequest)
 	require.True(t, ok)
-	require.ElementsMatch(t, []string{"aliases", "labels"}, got.GetUpdateMask().GetPaths())
+	require.Empty(t, got.GetUpdateMask().GetPaths())
 }

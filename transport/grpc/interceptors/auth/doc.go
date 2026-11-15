@@ -14,7 +14,13 @@
 //
 // Bearer tokens are extracted from the "authorization" gRPC metadata header.
 // After successful authentication, [Credentials] are injected into the context
-// and can be retrieved with CredentialsFromContext.
+// — whether or not a [ClientAuth] is configured — and can be retrieved with
+// [CredentialsFromContext]. When the authenticated data is a
+// [github.com/altessa-s/go-atlas/auth/principal.Principal] (or a non-nil
+// pointer to one), it is also stored through principal.NewContextFrom; data
+// that maps itself onto a principal, such as the *oidc.Claims of the oidc
+// adapter, is stored as its Principal(). A handler served over gRPC and HTTP
+// reads the caller with principal.FromContext.
 //
 // No method is exempt from authentication by default, gRPC health and
 // reflection included. Opt methods out with exact names via WithIgnoreMethods
@@ -22,8 +28,10 @@
 // reflection and health exemptions applied by default before are restored with
 // WithIgnorePatterns(defaults.IgnorePatterns...).
 //
-// The [oidc] sub-package provides [oidc.AuthFunc] for OIDC/JWT validation,
-// and [oidc/validator] provides a production-ready [validator.DefaultValidator].
+// The oidc sub-package provides oidc.AuthFunc, a thin adapter that runs an
+// [github.com/altessa-s/go-atlas/auth/oidc.ClaimsValidator] (typically
+// auth/oidc.NewValidator over an auth/oidc.Provider) and maps failures to
+// codes.Unauthenticated.
 //
 // Example:
 //

@@ -4,40 +4,42 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
 ```
 
-Package `oidc` provides OIDC (OpenID Connect) token validation for the auth interceptor. Bridges the auth interceptor with OIDC providers via the
-`Validator` interface. Provides `AuthFunc` for integration with gRPC auth, structured `Claims` extraction, and `ScopesOf` for building an
-[`auth/scope`](../../../../../auth/scope/README.md) authorizer over an `auth/scope.Registry`.
+Thin gRPC adapter over [`auth/oidc`](../../../../../auth/oidc/README.md). `AuthFunc` runs an `auth/oidc.ClaimsValidator` (typically
+`auth/oidc.NewValidator(provider)`) against the request's bearer token, returns the verified `*auth/oidc.Claims` as `Credentials.Data`, and maps every
+validation failure to `codes.Unauthenticated`. The claims model, claim extraction and `ScopesOf` live in `auth/oidc` and are shared with the
+[HTTP middleware adapter](../../../../http/server/middlewares/auth/oidc).
 
 ## Key types
 
-| Type / Interface | Description                                                                       |
-|------------------|-----------------------------------------------------------------------------------|
-| `Validator`      | Interface for OIDC token validation: `ValidateToken(ctx, token) (*Claims, error)` |
-| `AuthFunc`       | Creates an `auth.AuthFunc` from a Validator for gRPC auth interceptor integration |
-| `Claims`         | Structured OIDC claims: Subject, Email, Scopes, Issuer, Audience, and timestamps  |
-| `WithAudit`      | `AuthOption` recording each token-validation decision through an `auth/audit.Recorder` |
-| `ScopesOf`       | Returns the granted scopes of a `*Claims`, for use with `auth/scope`               |
+| Symbol      | Description                                                                              |
+|-------------|------------------------------------------------------------------------------------------|
+| `AuthFunc`  | Creates an `auth.AuthFunc` from an `auth/oidc.ClaimsValidator`; failures → `Unauthenticated` |
+| `AuthOption`| Configures `AuthFunc`                                                                    |
+| `WithAudit` | Records each token-validation decision (action `validate_token`) through `auth.DecisionRecorder` |
 
-## Claims fields
+## Error mapping
 
-| Field               | JSON Key             | Description                                       |
-|---------------------|----------------------|---------------------------------------------------|
-| `Subject`           | `sub`                | Unique user identifier within the issuer          |
-| `PreferredUsername`  | `preferred_username` | Display username (not guaranteed unique)           |
-| `Email`             | `email`              | User email address                                |
-| `Issuer`            | `iss`                | OIDC provider that issued the token               |
-| `Audience`          | `aud`                | Intended token recipients (string or array)        |
-| `Scopes`            | `scope`              | Granted OAuth 2.0 scopes (original token order)  |
-| `ExpiresAt`         | `exp`                | Token expiration time                              |
-| `IssuedAt`          | `iat`                | Token issuance time                                |
-| `NotBefore`         | `nbf`                | Token validity start time                          |
-| `Name`              | `name`               | Full display name                                  |
-| `GivenName`         | `given_name`         | First name                                         |
-| `FamilyName`        | `family_name`        | Last name                                          |
-| `RawClaims`         | --                   | All claims from the original token (custom access) |
+| Failure                            | gRPC status       | Audit reason    |
+|------------------------------------|-------------------|-----------------|
+| No bearer token in the request     | `Unauthenticated` | `missing_token` |
+| Validator error wrapping `ErrTokenRevoked` | `Unauthenticated` | `revoked` |
+| Validator error wrapping `ErrTokenInvalid` | `Unauthenticated` | `invalid_token` |
+| Any other validator error          | `Unauthenticated` | `error`         |
 
-## Subpackages
+## Usage
 
-| Package                    | Description                                  |
-|----------------------------|----------------------------------------------|
-| [validator](./validator)   | Production-ready OIDC token validator         |
+```go
+provider, err := authoidc.NewProvider(ctx, discoveryURL, authoidc.WithHTTPClient(httpclient.New()))
+if err != nil {
+    return err
+}
+
+interceptor := auth.ServerInterceptor(
+    auth.WithAuthFn(grpcoidc.AuthFunc(authoidc.NewValidator(provider))),
+)
+```
+
+Read the claims in a handler with `auth.CredentialsFromContext(ctx)` and a `creds.Data.(*authoidc.Claims)` assertion; build a scope enforcer with
+`scope.ScopeAuthorizer(authoidc.ScopesOf, scope.Exact())`. The interceptor also stores the caller as an
+[`auth/principal`](../../../../../auth/principal) `Principal` mapped by `Claims.Principal` (default `tenant` and `roles` claims), so
+`principal.FromContext(ctx)` works on the OIDC path too.

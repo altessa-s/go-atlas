@@ -12,13 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
-
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
 // CallMetadata provides comprehensive RPC call information for interceptors.
@@ -83,10 +82,10 @@ func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string,
 		// Slow path: parse and intern
 		trimmed := strings.TrimPrefix(fullMethod, "/")
 		if before, after, ok0 := strings.Cut(trimmed, "/"); ok0 {
-			callMetadata.ServiceName = corestrings.InternString(before)
-			callMetadata.MethodName = corestrings.InternString(after)
+			callMetadata.ServiceName = intern.String(before)
+			callMetadata.MethodName = intern.String(after)
 		} else {
-			callMetadata.ServiceName = corestrings.InternString(trimmed)
+			callMetadata.ServiceName = intern.String(trimmed)
 		}
 
 		methodCache.Store(fullMethod, parsedMethod{
@@ -131,7 +130,7 @@ func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string,
 
 	userAgent := metadata.ValueFromIncomingContext(ctx, "user-agent")
 	if len(userAgent) > 0 {
-		callMetadata.ClientUserAgent = corestrings.InternString(userAgent[0])
+		callMetadata.ClientUserAgent = userAgent[0]
 	}
 
 	return callMetadata

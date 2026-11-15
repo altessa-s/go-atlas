@@ -19,8 +19,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	pbfieldbehavior "github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
+	pbfieldbehavior "github.com/altessa-s/go-aip/fieldbehavior"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
+	driver "github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 )
 
 func TestClassifyMethod(t *testing.T) {
@@ -105,7 +106,7 @@ func runUnary(t *testing.T, uni grpc.UnaryServerInterceptor, method string, req,
 		return resp, handlerErr
 	}
 
-	got, err := uni(context.Background(), req, info, handler)
+	got, err := uni(t.Context(), req, info, handler)
 
 	return seenReq, got, err
 }
@@ -128,27 +129,32 @@ func TestServerInterceptor_StripCreateRequest(t *testing.T) {
 	require.Equal(t, "my-slug", got.GetSlug(), "REQUIRED+IMMUTABLE preserved on Create")
 }
 
+// TestServerInterceptor_StripUpdateRequest verifies the v0.1.5 contract.
+// StripUpdate fallback retains protected fields and clears OUTPUT_ONLY.
 func TestServerInterceptor_StripUpdateRequest(t *testing.T) {
 	t.Parallel()
 
 	uni := newUnary(t)
-	req := fullResource()
-	seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
+	seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", fullResource(), &pb.Resource{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, fullResource().TenantId, seenReq.(*pb.Resource).TenantId)
+
+	res := fullResource()
+	res.TenantId, res.Slug = "", ""
+	seenReq, _, err = runUnary(t, uni, "/x.v1.X/UpdateResource", res, &pb.Resource{}, nil)
 	require.NoError(t, err)
 
 	got := seenReq.(*pb.Resource)
 	require.Equal(t, "id-1", got.GetId(), "IDENTIFIER preserved on Update: it addresses the resource (AIP-203)")
 	require.Empty(t, got.GetCreateTime(), "OUTPUT_ONLY cleared on Update")
-	require.Empty(t, got.GetTenantId(), "IMMUTABLE cleared on Update")
-	require.Empty(t, got.GetSlug(), "IMMUTABLE-tagged slug cleared on Update")
 	require.Equal(t, "my-resource", got.GetName(), "REQUIRED preserved on Update")
 	require.Equal(t, "secret", got.GetPassword(), "INPUT_ONLY preserved on Update")
 }
 
 // TestServerInterceptor_UpdateRequestWrapper pins AIP-203 on the AIP-134
 // request shape: the resource nested in an Update*Request keeps its
-// IDENTIFIER (and the nested resources keep theirs), while OUTPUT_ONLY and
-// IMMUTABLE fields are still cleared. The Create counterpart clears it.
+// IDENTIFIER (and the nested resources keep theirs), while OUTPUT_ONLY fields
+// are still cleared. The Create counterpart clears it.
 func TestServerInterceptor_UpdateRequestWrapper(t *testing.T) {
 	t.Parallel()
 
@@ -168,6 +174,7 @@ func TestServerInterceptor_UpdateRequestWrapper(t *testing.T) {
 
 			uni := newUnary(t)
 			res := fullResource()
+			res.TenantId, res.Slug = "", ""
 			res.Profile = &pb.Profile{Id: "profile-1", UpdatedAt: "2026-01-01T00:00:00Z"}
 			req := &pb.UpdateResourceRequest{Resource: res}
 
@@ -310,7 +317,7 @@ func runStream(t *testing.T, method string, handler grpc.StreamHandler) *chainSt
 
 	base := &chainStream{ctx: t.Context(), recv: fullResource()}
 	var ss grpc.ServerStream = interceptors.NewServerWrappedStream(t.Context(), base, nil)
-	ss = interceptors.NewServerWrappedStream(t.Context(), ss, interceptors.NoopDriver())
+	ss = interceptors.NewServerWrappedStream(t.Context(), ss, driver.NoopDriver())
 
 	stream := fieldbehavior.ServerInterceptor().ServerStreamInterceptor()
 	info := &grpc.StreamServerInfo{FullMethod: method, IsServerStream: true, IsClientStream: true}

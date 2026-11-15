@@ -91,3 +91,4 @@ requests are validated and sanitized, and streamed responses are sanitized and m
 | [recovery](./recovery)                         | Panic recovery with stack trace capture               |
 | [requestid](./requestid)                       | Request ID generation and propagation                 |
 | [tracing](./tracing)                           | Distributed tracing with W3C Trace Context            |
+| [updatemask](./updatemask)                     | Shared AIP-134 `update_mask` normalizer (`update.Prepare`) |

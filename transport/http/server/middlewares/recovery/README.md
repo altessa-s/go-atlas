@@ -15,8 +15,10 @@ Error response. Panics with `http.ErrAbortHandler` are re-raised rather than rec
 | `WithHandler`        | bare 500               | `PanicHandler` that writes the error response       |
 | `WithLogStack`       | `true`                 | Log the stack trace with the panic                  |
 | `WithIgnorePaths`    | --                     | Paths to skip                                       |
-| `WithIgnorePatterns` | health, metrics, pprof | Regex patterns for paths to skip                    |
+| `WithIgnorePatterns` | --                     | Regex patterns for paths to skip                    |
 | `WithLogger`         | discard                | Structured logger                                   |
+
+Recovery covers every path by default, including health, metrics, and pprof endpoints.
 
 ## Started responses
 

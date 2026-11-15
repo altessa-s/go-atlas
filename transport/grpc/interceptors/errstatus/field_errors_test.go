@@ -100,16 +100,16 @@ func TestWithFieldErrorType(t *testing.T) {
 }
 
 // TestFieldErrorTypeNeverCached pins that a field violation is never served
-// from the conversion cache to another field error, in either cache mode: the
-// status depends on the field, which neither cache key captures reliably.
+// from the conversion cache to another field error, with the cache on or off:
+// the status depends on the field.
 func TestFieldErrorTypeNeverCached(t *testing.T) {
 	t.Parallel()
 
 	sentinelErr := errors.New("validation")
 	byField := WithFieldErrorType(func(e *wrappingFieldError) (string, string) { return e.field, e.reason })
 	for name, mode := range map[string][]Option{
-		"text keys":     nil,
-		"sentinel keys": {WithCacheOnlySentinel(), WithSentinelErrors(sentinelErr)},
+		"cache enabled":  nil,
+		"cache disabled": {WithCacheDisabled()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -120,8 +120,8 @@ func TestFieldErrorTypeNeverCached(t *testing.T) {
 					func(context.Context, any) (any, error) { return nil, err })
 				return status.Convert(got).Message()
 			}
-			// Same error text, different fields: a text-keyed cache would
-			// confuse them, and so would a sentinel-keyed one.
+			// Same error text and the same wrapped sentinel, different
+			// fields: a cache keyed on either would confuse them.
 			a := &wrappingFieldError{field: "a.name", reason: "required", cause: sentinelErr}
 			b := &wrappingFieldError{field: "b.name", reason: "required", cause: sentinelErr}
 			require.Equal(t, "a.name: required", call(a))

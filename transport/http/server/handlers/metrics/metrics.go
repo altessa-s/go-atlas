@@ -5,24 +5,18 @@
 package metrics
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"net/http"
 
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
-// Mount registers the Prometheus default-gatherer handler on r under
-// `/metrics` and returns the mounted subrouter for further chaining.
-//
-// Compression is intentionally disabled to match the Prometheus
-// scraper's expectations; pair it with the standard Prometheus exposition
-// content type that promhttp.HandlerFor sets automatically.
-func Mount(r router.Router) router.Router {
+// Mount mounts handler at /metrics/ on r and returns the subrouter. The
+// handler comes from the metrics backend, for example
+// promadapter.DefaultHandler() or (*promadapter.Adapter).Handler(), so this
+// package depends on no metrics library.
+func Mount(r router.Router, handler http.Handler) router.Router {
 	metricsRouter := r.PathPrefix("/metrics").Subrouter()
-	metricsRouter.Handle("/", promhttp.HandlerFor(
-		prometheus.DefaultGatherer,
-		promhttp.HandlerOpts{DisableCompression: true},
-	))
+	metricsRouter.Handle("/", handler)
 
 	return metricsRouter
 }

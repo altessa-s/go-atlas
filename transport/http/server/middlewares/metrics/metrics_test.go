@@ -11,17 +11,19 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 )
 
 func TestNew(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
-	m := New(WithCollector(tc))
+	t.Parallel()
+	tc := metricstest.NewTestCollector()
+	m := New(WithMeter(tc))
 	require.Equal(t, "metrics", m.Name())
 }
 func TestMiddleware_Handler(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
-	m := New(WithCollector(tc))
+	t.Parallel()
+	tc := metricstest.NewTestCollector()
+	m := New(WithMeter(tc))
 	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -31,41 +33,21 @@ func TestMiddleware_Handler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 func TestMiddleware_Dependencies(t *testing.T) {
+	t.Parallel()
 	m := &Middleware{}
 	require.Nil(t, m.Dependencies())
-}
-func TestRecorder(t *testing.T) {
-	rec := httptest.NewRecorder()
-	r := newRecorder(rec)
-	r.WriteHeader(http.StatusNotFound)
-	require.Equal(t, http.StatusNotFound, r.StatusCode())
-	n, err := r.Write([]byte("hello"))
-	require.NoError(t, err)
-	require.Equal(t, 5, n)
-	require.Equal(t, 5, r.Size())
-}
-func TestRecorder_DoubleWriteHeader(t *testing.T) {
-	rec := httptest.NewRecorder()
-	r := newRecorder(rec)
-	r.WriteHeader(http.StatusOK)
-	r.WriteHeader(http.StatusNotFound) // should be ignored
-	require.Equal(t, http.StatusOK, r.StatusCode())
-}
-func TestRecorder_Unwrap(t *testing.T) {
-	rec := httptest.NewRecorder()
-	r := newRecorder(rec)
-	require.Equal(t, rec, r.Unwrap())
 }
 
 // TestMiddleware_TwoSubsystemsShareCollector locks the contract that two
 // middlewares with distinct subsystems can register against the same
 // Prometheus registry without panicking on duplicate metric registration.
 func TestMiddleware_TwoSubsystemsShareCollector(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
+	t.Parallel()
+	tc := metricstest.NewTestCollector()
 
 	require.NotPanics(t, func() {
-		egrul := New(WithCollector(tc), WithMetricsSubsystem("egrul"))
-		kfocus := New(WithCollector(tc), WithMetricsSubsystem("kfocus"))
+		egrul := New(WithMeter(tc), WithMetricsSubsystem("egrul"))
+		kfocus := New(WithMeter(tc), WithMetricsSubsystem("kfocus"))
 		runOne := func(m *Middleware) {
 			handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
@@ -78,10 +60,10 @@ func TestMiddleware_TwoSubsystemsShareCollector(t *testing.T) {
 		runOne(kfocus)
 	})
 	require.Equal(t, float64(1),
-		testhelpers.GetCounterValue(t, tc, "test_egrul_server_requests_total",
+		metricstest.GetCounterValue(t, tc, "test_egrul_server_requests_total",
 			"method", "GET", "status", "200"))
 	require.Equal(t, float64(1),
-		testhelpers.GetCounterValue(t, tc, "test_kfocus_server_requests_total",
+		metricstest.GetCounterValue(t, tc, "test_kfocus_server_requests_total",
 			"method", "GET", "status", "200"))
 }
 
@@ -89,17 +71,18 @@ func TestMiddleware_TwoSubsystemsShareCollector(t *testing.T) {
 // name: calling New twice with the same collector and same subsystem reuses
 // the existing metric vectors without panic.
 func TestMiddleware_SameSubsystemReusesMetrics(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
+	t.Parallel()
+	tc := metricstest.NewTestCollector()
 
 	require.NotPanics(t, func() {
-		_ = New(WithCollector(tc))
-		_ = New(WithCollector(tc))
+		_ = New(WithMeter(tc))
+		_ = New(WithMeter(tc))
 	})
 }
 
 func TestMiddleware_UnknownMethodsShareOneSeries(t *testing.T) {
 	t.Parallel()
-	m := New(WithCollector(testhelpers.NewTestCollector()))
+	m := New(WithMeter(metricstest.NewTestCollector()))
 	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -113,4 +96,32 @@ func TestMiddleware_UnknownMethodsShareOneSeries(t *testing.T) {
 		return true
 	})
 	require.ElementsMatch(t, []string{methodOther, http.MethodGet}, methods)
+}
+
+func TestMiddlewareInformationalResponse(t *testing.T) {
+	t.Parallel()
+	tc := metricstest.NewTestCollector()
+	m := New(WithMeter(tc))
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusEarlyHints)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	require.Equal(t, float64(1), metricstest.GetCounterValue(t, tc, "test_http_server_requests_total", "method", "GET", "status", "201"))
+}
+
+// TestNew_WithoutCollector pins the safe no-op default: omitting
+// WithMeter must neither panic nor break request handling.
+func TestNew_WithoutCollector(t *testing.T) {
+	t.Parallel()
+
+	var m *Middleware
+	require.NotPanics(t, func() { m = New() })
+
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api", nil))
+	require.Equal(t, http.StatusTeapot, rec.Code)
 }

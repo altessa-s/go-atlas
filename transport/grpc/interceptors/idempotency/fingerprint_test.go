@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency"
-	"github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"

@@ -4,8 +4,8 @@
 import healthh "github.com/altessa-s/go-atlas/transport/http/server/handlers/health"
 ```
 
-HTTP handlers for liveness and readiness probes. Static stubs work without any dependency; coordinator-backed handlers consult an
-`observability/health.Coordinator` and return 503 when the service is not serving.
+HTTP handlers for liveness and readiness probes. Static stubs work without any dependency; reporter-backed handlers accept a `HealthReporter`,
+implemented by `observability/health.Coordinator`, and return 503 when the service is not serving.
 
 ## Handlers
 
@@ -16,6 +16,8 @@ HTTP handlers for liveness and readiness probes. Static stubs work without any d
 | `Healthz(coord)` | `/healthz` | `coord.CheckStatus(ctx, ?service)`; 200 / 503 |
 | `Readyz(coord)` | `/readyz` | `coord.CheckStatus(ctx, "")`; 200 only when overall is `SERVING` |
 | `Detailed(coord)` | `/healthz/details` | `coord.ListStatuses`; per-service breakdown, 503 if any service down |
+
+`HealthReporter` exposes `CheckStatus(context.Context, string)` and `ListStatuses(context.Context)`.
 
 ## Response shapes
 

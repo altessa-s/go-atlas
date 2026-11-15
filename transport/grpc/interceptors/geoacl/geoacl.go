@@ -8,11 +8,13 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/transport/clientip"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas-net/netipx"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
-	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
+	"github.com/altessa-s/go-atlas/transport/policy/fallback"
+	"github.com/altessa-s/go-atlas/transport/policy/geoacl"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -79,7 +81,7 @@ func ServerStreamInterceptor(resolver geoacl.GeoResolver, registry *geoacl.Regis
 // ServerUnaryInterceptor returns a unary server interceptor for geographic access control.
 func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *stdGrpc.UnaryServerInfo, handler stdGrpc.UnaryHandler) (any, error) {
-		if err := i.checkAccess(ctx, i.InternMethod(info.FullMethod)); err != nil {
+		if err := i.checkAccess(ctx, intern.String(info.FullMethod)); err != nil {
 			return nil, err
 		}
 		return handler(ctx, req)
@@ -89,7 +91,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 // ServerStreamInterceptor returns a streaming server interceptor for geographic access control.
 func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor {
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) error {
-		if err := i.checkAccess(stream.Context(), i.InternMethod(info.FullMethod)); err != nil {
+		if err := i.checkAccess(stream.Context(), intern.String(info.FullMethod)); err != nil {
 			return err
 		}
 		return handler(srv, stream)
@@ -111,6 +113,11 @@ func (i *interceptor) checkAccess(ctx context.Context, method string) error {
 		default:
 			return status.Error(codes.PermissionDenied, "Access Denied")
 		}
+	}
+
+	if i.opts.allowPrivateAddresses && netipx.IsPrivate(ip) {
+		i.LogDebug(ctx, "private client address exempt", method)
+		return nil
 	}
 
 	allowed, err := i.registry.Evaluate(ctx, i.resolver, ip, method)

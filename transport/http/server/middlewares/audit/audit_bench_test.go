@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/audit"
-	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
-	"github.com/altessa-s/go-atlas/service/dispatch"
+	"github.com/altessa-s/go-atlas-core/runtime/dispatch"
+	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/audit/storages/memory"
 
 	audithttp "github.com/altessa-s/go-atlas/transport/http/server/middlewares/audit"
 )

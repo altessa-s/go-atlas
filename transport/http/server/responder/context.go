@@ -8,7 +8,7 @@ import (
 	"context"
 	"net/http"
 
-	corecontext "github.com/altessa-s/go-atlas/core/context"
+	corecontext "github.com/altessa-s/go-atlas-core/context"
 )
 
 // ErrorWriter defines the interface for writing structured error responses.

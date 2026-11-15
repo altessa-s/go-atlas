@@ -12,6 +12,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/static"
+
+	originalStatic "github.com/altessa-s/go-atlas/auth/static"
 )
 
 func generateTokens(count int) map[string]any {
@@ -27,7 +29,7 @@ func generateTokens(count int) map[string]any {
 }
 
 func BenchmarkAuthFunc_Hit(b *testing.B) {
-	store := static.NewInMemoryStore(static.WithInitialTokens(generateTokens(1000)))
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(generateTokens(1000)))
 	fn := static.AuthFunc(store)
 	ctx := b.Context()
 
@@ -38,7 +40,7 @@ func BenchmarkAuthFunc_Hit(b *testing.B) {
 }
 
 func BenchmarkHTTPIntegration_BearerToken(b *testing.B) {
-	store := static.NewInMemoryStore(static.WithInitialTokens(generateTokens(1000)))
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(generateTokens(1000)))
 	middleware := auth.Middleware(auth.WithAuthFunc(static.AuthFunc(store)))
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -56,7 +58,7 @@ func BenchmarkHTTPIntegration_BearerToken(b *testing.B) {
 }
 
 func BenchmarkHTTPIntegration_APIKey(b *testing.B) {
-	store := static.NewInMemoryStore(static.WithInitialTokens(generateTokens(1000)))
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(generateTokens(1000)))
 	extractor := auth.ExtractTokenFromHeader("X-API-Key", func(v string) (string, error) { return v, nil })
 
 	middleware := auth.Middleware(
@@ -79,7 +81,7 @@ func BenchmarkHTTPIntegration_APIKey(b *testing.B) {
 }
 
 func BenchmarkHTTPIntegration_Parallel(b *testing.B) {
-	store := static.NewInMemoryStore(static.WithInitialTokens(generateTokens(1000)))
+	store := originalStatic.NewInMemoryStore(originalStatic.WithInitialTokens(generateTokens(1000)))
 	middleware := auth.Middleware(auth.WithAuthFunc(static.AuthFunc(store)))
 
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

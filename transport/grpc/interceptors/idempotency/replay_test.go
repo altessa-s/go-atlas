@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
+	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 
 	"google.golang.org/grpc"
@@ -20,8 +20,8 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	schedulerv1 "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1"
+	idempotencydata "github.com/altessa-s/go-atlas/reliability/idempotency"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
@@ -62,8 +62,13 @@ func unaryMethod(t *testing.T, ic grpc.UnaryServerInterceptor, ctx context.Conte
 	return ic(ctx, req, &grpc.UnaryServerInfo{FullMethod: method}, h)
 }
 
+// newReplayKeeper returns a Keeper binding every record to one owner, as response
+// replay and entity id exposure require; opts may replace the owner.
 func newReplayKeeper(opts ...idempotencydata.Option) *idempotencydata.Keeper {
-	return idempotencydata.New(memory.New(), append([]idempotencydata.Option{idempotencydata.WithMaxLockDuration(time.Minute)}, opts...)...)
+	return idempotencydata.New(memory.New(), append([]idempotencydata.Option{
+		idempotencydata.WithMaxLockDuration(time.Minute),
+		idempotencydata.WithOwner(func(context.Context) string { return "caller" }),
+	}, opts...)...)
 }
 
 // A repeat of a completed request returns the stored response with an OK
@@ -168,6 +173,61 @@ func TestResponseReplayOwnerChecked(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res, "the owner gets the replay")
 	require.EqualValues(t, 1, h.calls.Load())
+}
+
+// headerStream is a grpc.ServerTransportStream recording the headers set on it.
+type headerStream struct{ md grpcmetadata.MD }
+
+func (s *headerStream) Method() string { return replayMethod }
+
+func (s *headerStream) SetHeader(md grpcmetadata.MD) error {
+	s.md = grpcmetadata.Join(s.md, md)
+	return nil
+}
+
+func (s *headerStream) SendHeader(md grpcmetadata.MD) error { return s.SetHeader(md) }
+
+func (s *headerStream) SetTrailer(grpcmetadata.MD) error { return nil }
+
+// A record bound to no owner is never replayed and its entity id never
+// echoed, so caller B reusing caller A's key learns nothing of A's response:
+// the repeat is refused as already used. It holds for a Keeper without an
+// owner function and for a caller it resolves to no owner.
+func TestResponseReplayRefusedWithoutOwner(t *testing.T) {
+	t.Parallel()
+
+	for name, k := range map[string]*idempotencydata.Keeper{
+		"keeper without owner": idempotencydata.New(memory.New(), idempotencydata.WithMaxLockDuration(time.Minute)),
+		"anonymous caller":     newReplayKeeper(idempotencydata.WithOwner(func(context.Context) string { return "" })),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ic := idempotency.ServerInterceptor(k, idempotency.WithResponseReplay(), idempotency.WithExposeEntityID(),
+				idempotency.WithEntityIDExtractor(func(string, any) string { return "entity-a" })).ServerUnaryInterceptor()
+			h := &counter{}
+			_, err := unary(t, ic, t.Context(), getReq("order"), h.handle)
+			require.NoError(t, err)
+
+			stream := &headerStream{}
+			res, err := unary(t, ic, grpc.NewContextWithServerTransportStream(t.Context(), stream), getReq("order"), h.handle)
+			require.Equal(t, codes.FailedPrecondition, status.Code(err))
+			require.Nil(t, res)
+			require.Empty(t, stream.md.Get(idempotency.DefaultIdempotencyKeyEntityIdMetadata))
+			require.EqualValues(t, 1, h.calls.Load())
+		})
+	}
+
+	// The header capture works: an owned record echoes its entity id.
+	owned := newReplayKeeper(idempotencydata.WithOwner(func(context.Context) string { return "alice" }))
+	ic := idempotency.ServerInterceptor(owned, idempotency.WithExposeEntityID(),
+		idempotency.WithEntityIDExtractor(func(string, any) string { return "entity-a" })).ServerUnaryInterceptor()
+	h := &counter{}
+	_, err := unary(t, ic, t.Context(), getReq("order"), h.handle)
+	require.NoError(t, err)
+	stream := &headerStream{}
+	_, err = unary(t, ic, grpc.NewContextWithServerTransportStream(t.Context(), stream), getReq("order"), h.handle)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, []string{"entity-a"}, stream.md.Get(idempotency.DefaultIdempotencyKeyEntityIdMetadata))
 }
 
 // Keys are scoped by service, not method: with fingerprinting off, another

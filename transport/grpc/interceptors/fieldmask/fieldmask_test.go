@@ -6,19 +6,15 @@ package fieldmask_test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
-
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 
-	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,6 +23,7 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
+	driver "github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 )
 
 func TestClassifyMethod(t *testing.T) {
@@ -95,7 +92,7 @@ func runUnary(t *testing.T, uni grpc.UnaryServerInterceptor, method string, req,
 	return seenReq, got, err
 }
 
-func TestServerInterceptor_UpdateMask_ImmutableRejected(t *testing.T) {
+func TestServerInterceptor_UpdateMask_ImmutableDeferred(t *testing.T) {
 	t.Parallel()
 
 	uni := newUnary(t)
@@ -105,24 +102,9 @@ func TestServerInterceptor_UpdateMask_ImmutableRejected(t *testing.T) {
 	}
 
 	_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
-	require.Error(t, err)
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
-
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-
-	var found *badrequestv1.BadRequest
-	for _, d := range st.Details() {
-		_, isGoogle := d.(*errdetails.BadRequest)
-		require.False(t, isGoogle, "google.rpc.BadRequest must not be emitted")
-		if br, isBR := d.(*badrequestv1.BadRequest); isBR {
-			found = br
-		}
-	}
-	require.NotNil(t, found, "BadRequest detail must be attached")
-	require.Len(t, found.GetFieldViolations(), 1)
-	require.Equal(t, "tenant_id", found.GetFieldViolations()[0].GetFieldPath())
-	require.Contains(t, found.GetFieldViolations()[0].GetMessage(), "immutable")
+	require.NoError(t, err)
+	require.Equal(t, "altered", req.Resource.TenantId)
+	require.Empty(t, req.UpdateMask.Paths)
 }
 
 func TestServerInterceptor_UpdateMask_OutputOnlyStripped(t *testing.T) {
@@ -144,11 +126,8 @@ func TestServerInterceptor_UpdateMask_OutputOnlyStripped(t *testing.T) {
 		"OUTPUT_ONLY entry must be removed from the writeback mask")
 }
 
-// TestServerInterceptor_UpdateMask_Identifier pins AIP-203 on the update
-// path: the IDENTIFIER in the resource body addresses the resource, so it is
-// kept and is not an error, and it does not leak into the writeback mask (the
-// handler sees only the fields the client asked to update). Naming the
-// IDENTIFIER in the mask is still a violation: it cannot be changed.
+// TestServerInterceptor_UpdateMask_Identifier verifies the v0.1.5 contract.
+// Identifiers remain in the body and are excluded from initial effective paths.
 func TestServerInterceptor_UpdateMask_Identifier(t *testing.T) {
 	t.Parallel()
 
@@ -170,7 +149,7 @@ func TestServerInterceptor_UpdateMask_Identifier(t *testing.T) {
 		require.Equal(t, []string{"name"}, got.GetUpdateMask().GetPaths(), "IDENTIFIER not added to the writeback mask")
 	})
 
-	t.Run("identifier in mask rejected", func(t *testing.T) {
+	t.Run("identifier in mask deferred", func(t *testing.T) {
 		t.Parallel()
 
 		uni := newUnary(t)
@@ -180,12 +159,12 @@ func TestServerInterceptor_UpdateMask_Identifier(t *testing.T) {
 		}
 
 		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
-		require.Equal(t, codes.InvalidArgument, status.Code(err))
-		require.Contains(t, status.Convert(err).Message()+fmt.Sprint(status.Convert(err).Details()), "identifier")
+		require.NoError(t, err)
+		require.Empty(t, req.UpdateMask.Paths)
 	})
 }
 
-func TestServerInterceptor_UpdateMask_NoMaskPassthrough(t *testing.T) {
+func TestServerInterceptor_UpdateMask_Omitted(t *testing.T) {
 	t.Parallel()
 
 	uni := newUnary(t)
@@ -195,7 +174,8 @@ func TestServerInterceptor_UpdateMask_NoMaskPassthrough(t *testing.T) {
 
 	seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
 	require.NoError(t, err)
-	require.Equal(t, req, seenReq, "missing update_mask passes through untouched")
+	require.Equal(t, req, seenReq)
+	require.Equal(t, []string{"name"}, req.GetUpdateMask().GetPaths(), "omitted mask implies populated fields")
 }
 
 func TestServerInterceptor_ReadMask_FiltersResponse(t *testing.T) {
@@ -221,6 +201,34 @@ func TestServerInterceptor_ReadMask_FiltersResponse(t *testing.T) {
 	require.Empty(t, got.GetId())
 	require.Empty(t, got.GetTenantId())
 	require.Empty(t, got.GetDescription())
+}
+
+// TestServerInterceptor_ReadMask_InvalidRejected pins AIP-161 on the read
+// path: a read_mask the path grammar rejects fails with InvalidArgument before
+// the handler runs, and a path the response schema does not hold fails with
+// InvalidArgument instead of a half-filtered response.
+func TestServerInterceptor_ReadMask_InvalidRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		paths       []string
+		wantHandler bool
+	}{
+		{name: "malformed path", paths: []string{"name..x"}, wantHandler: false},
+		{name: "unknown field", paths: []string{"no_such_field"}, wantHandler: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := &pb.GetResourceRequest{Name: "id-1", ReadMask: &fieldmaskpb.FieldMask{Paths: tt.paths}}
+			seenReq, gotResp, err := runUnary(t, newUnary(t), "/x.v1.X/GetResource", req, &pb.Resource{Name: "n"}, nil)
+			require.Equal(t, codes.InvalidArgument, status.Code(err), "got %v", err)
+			require.Nil(t, gotResp)
+			require.Equal(t, tt.wantHandler, seenReq != nil)
+		})
+	}
 }
 
 func TestServerInterceptor_ReadMask_AbsentMaskPassthrough(t *testing.T) {
@@ -284,7 +292,7 @@ func TestServerInterceptor_MethodKindOverride(t *testing.T) {
 		t.Parallel()
 		req := &pb.UpdateResourceRequest{
 			Resource:   &pb.Resource{Name: "n", TenantId: "x"},
-			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 		}
 		_, _, err := runUnary(t, uni, "/x.v1.X/Archive", req, &pb.Resource{}, nil)
 		require.Error(t, err)
@@ -295,7 +303,7 @@ func TestServerInterceptor_MethodKindOverride(t *testing.T) {
 		t.Parallel()
 		req := &pb.UpdateResourceRequest{
 			Resource:   &pb.Resource{Name: "n", TenantId: "x"},
-			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+			UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 		}
 		_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
 		require.NoError(t, err, "KindSkip disables the interceptor for the method")
@@ -308,11 +316,11 @@ func TestServerInterceptor_IgnoreMethods(t *testing.T) {
 	uni := newUnary(t, fieldmask.WithIgnoreMethods("/x.v1.X/UpdateResource"))
 	req := &pb.UpdateResourceRequest{
 		Resource:   &pb.Resource{Name: "n", TenantId: "x"},
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 	}
 
 	_, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
-	require.NoError(t, err, "ignored method bypasses ApplyUpdateMask")
+	require.NoError(t, err, "ignored method bypasses update.Apply")
 }
 
 func TestServerInterceptor_NonProtoPayload(t *testing.T) {
@@ -330,11 +338,11 @@ func TestServerInterceptor_NonAIPMethodPassthrough(t *testing.T) {
 	uni := newUnary(t)
 	req := &pb.UpdateResourceRequest{
 		Resource:   &pb.Resource{Name: "n", TenantId: "x"},
-		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"tenant_id"}},
+		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"no_such_field"}},
 	}
 
 	_, _, err := runUnary(t, uni, "/x.v1.X/Archive", req, &pb.Resource{}, nil)
-	require.NoError(t, err, "KindNone passes through without ApplyUpdateMask")
+	require.NoError(t, err, "KindNone passes through without update.Apply")
 }
 
 // maskStream is a minimal grpc.ServerStream: it serves recv on RecvMsg and
@@ -369,7 +377,7 @@ func TestServerStreamInterceptor_ReadMaskBeforeSend(t *testing.T) {
 		ReadMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
 	}}
 	var ss grpc.ServerStream = interceptors.NewServerWrappedStream(t.Context(), base, nil)
-	ss = interceptors.NewServerWrappedStream(t.Context(), ss, interceptors.NoopDriver())
+	ss = interceptors.NewServerWrappedStream(t.Context(), ss, driver.NoopDriver())
 
 	resp := &pb.Resource{Id: "id-1", Name: "kept", Description: "dropped"}
 	stream := fieldmask.ServerInterceptor().ServerStreamInterceptor()

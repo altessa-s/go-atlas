@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+
+	driver "github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 )
 
 func BenchmarkNoOpInterceptor_ServerUnary(b *testing.B) {
@@ -23,7 +25,7 @@ func BenchmarkNoOpInterceptor_ServerUnary(b *testing.B) {
 }
 
 func BenchmarkNoopDriver(b *testing.B) {
-	d := NoopDriver()
+	d := driver.NoopDriver()
 	ctx := b.Context()
 	for b.Loop() {
 		d.PreCall(ctx, nil)       //nolint:errcheck

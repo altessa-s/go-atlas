@@ -4,7 +4,7 @@
 
 package idempotency
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=verbOptions --option-type=VerbOption --output=verb_options_gen.go
+//go:generate go tool optgen generate --type=verbOptions --option-type=VerbOption --output=verb_options_gen.go
 
 // verbOptions tunes [VerbMethodClassifier]. Configure it through the
 // generated [VerbOption] values.

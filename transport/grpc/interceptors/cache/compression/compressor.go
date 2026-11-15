@@ -94,8 +94,7 @@ const (
 	// MediumBufferSize for payloads 8KB-256KB
 	MediumBufferSize = 64 * 1024 // 64KB for medium payloads
 	// LargeBufferSize for payloads 256KB+
-	LargeBufferSize = 256 * 1024 // 256KB for large payloads
-	// defaultBufferSize maintained for backward compatibility
+	LargeBufferSize     = 256 * 1024 // 256KB for large payloads
 	defaultBufferSize   = MediumBufferSize
 	maxPooledBufferSize = 2 * 1024 * 1024 // 2MB max buffer size to return to pool
 )
@@ -190,8 +189,6 @@ var (
 			return bytes.NewBuffer(make([]byte, 0, LargeBufferSize))
 		},
 	}
-
-	// Note: bytesBufferPool now delegates to sized pools for backward compatibility
 )
 
 // NewCompressor creates a new GzipCompressor with the specified configuration.

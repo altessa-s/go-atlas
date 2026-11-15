@@ -8,19 +8,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // methodHandles caches the bound label handles for a single gRPC method so
 // the per-request path reuses them instead of building a label map and a
-// labeled wrapper on every observation. Cardinality is bounded by the
-// service's method set (times the gRPC status-code set for byStatus).
+// labeled wrapper on every observation. Cardinality is bounded by
+// [WithMaxMethods] (times the gRPC status-code set for byStatus).
 type methodHandles struct {
 	method      string
 	inFlight    metrics.Gauge
@@ -40,8 +40,40 @@ type statusHandles struct {
 }
 
 // methodFor returns the cached handles for method, binding them on first use.
+// Once [WithMaxMethods] distinct methods are tracked, any further method
+// shares the handles of [OverflowMethod].
 func (i *interceptor) methodFor(method string) *methodHandles {
 	if v, ok := i.byMethod.Load(method); ok {
+		return v.(*methodHandles) //nolint:errcheck // only *methodHandles is stored
+	}
+	if !i.reserveMethod() {
+		return i.bindMethod(OverflowMethod, false)
+	}
+	return i.bindMethod(method, true)
+}
+
+// reserveMethod claims one of the [WithMaxMethods] slots for a new method.
+func (i *interceptor) reserveMethod() bool {
+	limit := int64(i.opts.maxMethods)
+	for {
+		n := i.methodCount.Load()
+		if n >= limit {
+			return false
+		}
+		if i.methodCount.CompareAndSwap(n, n+1) {
+			return true
+		}
+	}
+}
+
+// bindMethod stores the handles for method unless a concurrent caller already
+// did. reserved reports that the caller holds a slot from reserveMethod, which
+// is returned when the method turns out to be tracked already.
+func (i *interceptor) bindMethod(method string, reserved bool) *methodHandles {
+	if v, ok := i.byMethod.Load(method); ok {
+		if reserved {
+			i.methodCount.Add(-1)
+		}
 		return v.(*methodHandles) //nolint:errcheck // only *methodHandles is stored
 	}
 	mh := &methodHandles{
@@ -52,7 +84,10 @@ func (i *interceptor) methodFor(method string) *methodHandles {
 		mh.msgSizeSent = i.streamMessageSize.WithLabels(metrics.Labels{methodLabel: method, directionLabel: directionSent})
 		mh.msgSizeRecv = i.streamMessageSize.WithLabels(metrics.Labels{methodLabel: method, directionLabel: directionReceived})
 	}
-	v, _ := i.byMethod.LoadOrStore(method, mh)
+	v, loaded := i.byMethod.LoadOrStore(method, mh)
+	if loaded && reserved {
+		i.methodCount.Add(-1)
+	}
 	return v.(*methodHandles) //nolint:errcheck // only *methodHandles is stored
 }
 
@@ -87,7 +122,7 @@ func (i *interceptor) recordMetrics(mh *methodHandles, startTime time.Time, req,
 	duration := time.Since(startTime)
 	statusCode := getStatusCode(err)
 
-	h := i.statusFor(mh, strings.InternString(statusCode.String()))
+	h := i.statusFor(mh, intern.String(statusCode.String()))
 
 	h.total.Inc()
 	h.duration.Observe(duration.Seconds())

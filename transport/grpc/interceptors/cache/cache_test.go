@@ -13,18 +13,34 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/data/cache/storages"
+	"github.com/altessa-s/go-atlas/cache/storages"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+
+	sharedcache "github.com/altessa-s/go-atlas/cache"
 )
 
-// recordingCacher is an always-missing [Cacher] that records Get calls and
+// recordingCacher is an always-missing [sharedcache.Cacher] that records Get calls and
 // the TTL of every Save.
 type recordingCacher struct {
 	mu   sync.Mutex
 	gets int
 	ttls []time.Duration
+}
+
+func TestGetCachedResponse_StorageMissMatchesCacheSentinel(t *testing.T) {
+	t.Parallel()
+
+	err := storages.ErrMissing
+	require.ErrorIs(t, err, sharedcache.ErrMissing)
+
+	cacher := &recordingCacher{}
+	i := &interceptor{cacher: cacher, opts: newOptions()}
+	resp, cachedErr, found := i.getCachedResponse(t.Context(), "key", nil)
+	require.Nil(t, resp)
+	require.NoError(t, cachedErr)
+	require.False(t, found)
 }
 
 func (c *recordingCacher) Save(_ context.Context, _ string, _ any, ttl ...time.Duration) error {
@@ -38,7 +54,7 @@ func (c *recordingCacher) Get(context.Context, string, any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gets++
-	return storages.ErrMissing
+	return sharedcache.ErrMissing
 }
 
 func (c *recordingCacher) Exists(context.Context, string) (bool, error) { return false, nil }
@@ -54,7 +70,7 @@ func (c *recordingCacher) snapshot() (int, []time.Duration) {
 const testMethod = "/test.Service/Get"
 
 // callUnary runs one unary call for testMethod through a cache interceptor.
-func callUnary(t *testing.T, cacher Cacher, req any, opts ...Option) any {
+func callUnary(t *testing.T, cacher sharedcache.Cacher, req any, opts ...Option) any {
 	t.Helper()
 	opts = append([]Option{WithMethod(testMethod, &wrapperspb.StringValue{}), WithCacheHeaders(false)}, opts...)
 	unary := ServerInterceptor(cacher, opts...).ServerUnaryInterceptor()

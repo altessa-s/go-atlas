@@ -25,12 +25,21 @@ payloads, request IDs, trace correlation, and client IP with structured logging 
 | `WithLogResponse`           | false              | Include response payloads in log output            |
 | `WithLogRequest`            | false              | Include request payloads in log output             |
 | `WithIgnoreMethods`         | --                 | Methods to skip logging                            |
-| `WithIgnorePatterns`        | reflection, health | Regex patterns for methods to skip                 |
+| `WithIgnorePatterns`        | reflection, health | Regex patterns for methods to skip, matched against the lowercased method |
 | `WithLogGrpcResponseCodes`  | `DefaultLogCodes`  | gRPC response codes to always log                  |
 | `WithIgnoreGrpcResponseCodes` | --               | gRPC response codes to never log (takes precedence) |
 | `WithContextLogger`         | nil                | Store enriched logger in context for handlers       |
 | `WithPayloadRedactor`       | nil                | `PayloadRedactor` applied to logged request/response payloads |
 | `WithDebugRedact`           | off                | Clear `debug_redact` fields from logged payloads, before the payload redactor |
+| `WithMaxMethodLength`       | 1024               | Cap, in bytes, of the logged service and method names |
+| `WithMaxUserAgentLength`    | 512                | Cap, in bytes, of the logged User-Agent             |
+| `WithMaxMessageLength`      | 1024               | Cap, in bytes, of the logged status message, error reason and error text |
+
+## Method, User-Agent and messages are sanitized
+
+The method names, the User-Agent, the status message, the `ErrorInfo` reason and the error text are peer-controlled or echo request values. Each is
+truncated to its cap and marked with `TruncationSuffix` (`...`), and its control characters (CR, LF, the rest of C0, DEL and C1) are removed, so
+one call can neither forge a log line nor bloat the record. The caller still receives the full status.
 
 ## Redacting payloads
 

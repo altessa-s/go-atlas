@@ -12,7 +12,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 )
 
 // BadRequest returns a codes.InvalidArgument status for one offending field:
@@ -73,4 +74,12 @@ func Prefixed(prefix string) PathMapper {
 	return func(field string) string {
 		return prefix + "." + CamelPath(field)
 	}
+}
+
+// Rooted re-roots a core/errors FieldError in err (a snake_case or camelCase
+// path relative to a resource) under prefix, the request field holding the
+// resource, with [Prefixed] ("provider" maps "base_url" to
+// "provider.baseUrl"); any other error, and nil, is returned as is.
+func Rooted(err error, prefix string) error {
+	return coreerrs.MapFieldPath(err, Prefixed(prefix))
 }

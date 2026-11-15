@@ -8,9 +8,9 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
-	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 )
@@ -73,7 +73,7 @@ func New(tracer tracing.Tracer, opts ...Option) *Middleware {
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if this path should be ignored
-		if m.ShouldIgnore(r.URL.Path) {
+		if m.ShouldIgnoreRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

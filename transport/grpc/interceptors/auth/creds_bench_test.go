@@ -14,7 +14,7 @@ func BenchmarkBase_IsAuthenticated(b *testing.B) {
 }
 
 func BenchmarkRequest_TokenCredentials(b *testing.B) {
-	req := Request{Base: Base{AuthMethod: MethodToken}, Payload: &TokenCredentials{Token: "abc"}}
+	req := Request{AuthMethod: MethodToken, Payload: &TokenCredentials{Token: "abc"}}
 	for b.Loop() {
 		req.TokenCredentials()
 	}

@@ -5,6 +5,7 @@
 package logger
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -12,20 +13,22 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 
-	"github.com/altessa-s/go-atlas/core/time/timeformat"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas-core/time/timeformat"
+	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas/internal/transport/observability"
 	"github.com/altessa-s/go-atlas/observability/tracing"
-	"github.com/altessa-s/go-atlas/transport/clientip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
-	"github.com/altessa-s/go-atlas/transport/internal/observability"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	coreio "github.com/altessa-s/go-atlas/core/io"
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	coreio "github.com/altessa-s/go-atlas-core/io"
+	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 	tracingmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/tracing"
+	slogx "github.com/altessa-s/go-slogx"
 )
 
 const (
@@ -73,138 +76,188 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		// Check if this path should be ignored
-		if m.ShouldIgnore(request.URL.Path) {
+		if m.skipRequest(request) {
 			next.ServeHTTP(writer, request)
 			return
 		}
-
-		// Check if this HTTP method should be ignored (O(1) lookup)
-		if len(m.ignoreMethodsMap) > 0 {
-			if _, ignored := m.ignoreMethodsMap[corestrings.InternUpperString(request.Method)]; ignored {
-				next.ServeHTTP(writer, request)
-				return
-			}
-		}
-
-		// Capture request body if enabled.
-		// Uses a pooled buffer to avoid per-request allocations from io.ReadAll.
-		var requestBody string
-		if m.opts.logRequest && request.Body != nil {
-			request.Body, requestBody = captureBody(request.Body)
-		}
-
-		start := time.Now()
-
-		// Pre-allocate fields with expected capacity
-		fields := make(slogx.Fields, 0, DefaultFieldsCapacity)
-		fields = append(fields,
-			slogx.Field{Key: FieldKeyHTTPMethod, Value: request.Method},
-			slogx.Field{Key: FieldKeyHTTPPath, Value: request.URL.Path},
-			slogx.Field{Key: FieldKeyHTTPProto, Value: request.Proto},
-		)
-		if m.opts.logQuery && request.URL.RawQuery != "" {
-			fields = append(fields, slogx.Field{Key: FieldKeyHTTPQuery, Value: m.redactedQuery(request.URL.RawQuery)})
-		}
-
-		// Extract peer IP
-		peerIP, _, splitErr := net.SplitHostPort(request.RemoteAddr)
-		if splitErr != nil {
-			peerIP = request.RemoteAddr
-		}
-		fields = append(fields,
-			slogx.Field{Key: observability.FieldKeyClientPeerIP, Value: peerIP},
-			slogx.Field{Key: observability.FieldKeyClientUserAgent, Value: request.UserAgent()},
-		)
-
-		// Extract real IP if available from context (set by realip middleware).
-		// If realip middleware is not used, FromContext returns invalid netip.Addr
-		// and this field is simply not added to the log (graceful degradation).
-		if realIP := clientip.FromContext(request.Context()); realIP.IsValid() {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyClientRealIP, Value: realIP.String()})
-		}
-
-		// Inject fields into context
-		ctx := slogx.InjectFields(request.Context(), fields)
-
-		// Inject enriched logger into context if configured
-		if m.opts.contextLogger != nil {
-			ctx = slogx.InjectLogger(ctx, m.opts.contextLogger)
-		}
-
-		request = request.WithContext(ctx)
-
-		// Wrap the writer to capture the status code and optionally the response body
-		sw := middlewares.NewResponseWriter(writer, m.opts.logResponse)
-		defer sw.Release()
-		writer = sw
-
-		next.ServeHTTP(writer, request)
-
-		// Get status code
-		status := http.StatusOK
-		rw, isRW := writer.(*middlewares.ResponseWriter)
-		if isRW {
-			status = rw.StatusCode()
-		}
-
-		// Check if this status code should be logged (O(1) lookup)
-		if !shouldLogStatusCode(status, m.logCodesSet, m.ignoreCodesSet) {
-			return
-		}
-		// Skip building the completion record when the handler would drop it.
-		if lc, ok := m.logHandler.(levelChecker); ok && !lc.Enabled(ctx, status) {
-			return
-		}
-		var responseBody string
-		if isRW && m.opts.logResponse {
-			responseBody = rw.BodyString()
-		}
-
-		// Add timing fields
-		now := time.Now()
-		elapsed := now.Sub(start)
-
-		// Get fields from context (may have been modified by handlers)
-		fields = slogx.FieldsFromContext(ctx)
-		fields = append(fields,
-			slogx.Field{Key: FieldKeyHTTPStatus, Value: status},
-			slogx.Field{Key: observability.FieldKeyRequestStartTime, Value: timeformat.FormatTime(start, m.opts.timeFormat)},
-			slogx.Field{Key: observability.FieldKeyRequestEndTime, Value: timeformat.FormatTime(now, m.opts.timeFormat)},
-			slogx.Field{Key: observability.FieldKeyRequestDuration, Value: timeformat.FormatDuration(elapsed, m.opts.timeFormat)},
-		)
-
-		// Add request ID
-		if reqID := requestid.FromContext(ctx); reqID != "" {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyRequestID, Value: reqID})
-		}
-
-		// Add trace correlation fields if available
-		if traceID := tracing.TraceIDFromContext(ctx); traceID != "" {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyTraceID, Value: traceID})
-		}
-		if spanID := tracing.SpanIDFromContext(ctx); spanID != "" {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeySpanID, Value: spanID})
-		}
-
-		// Add request body if captured
-		if requestBody != "" {
-			if m.opts.bodyRedactor != nil {
-				requestBody = m.opts.bodyRedactor(requestBody)
-			}
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyRequestContent, Value: requestBody})
-		}
-
-		// Add response body if captured
-		if responseBody != "" {
-			if m.opts.bodyRedactor != nil {
-				responseBody = m.opts.bodyRedactor(responseBody)
-			}
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyResponseContent, Value: responseBody})
-		}
-
-		m.logHandler.Log(ctx, "request completed", status, fields)
+		m.serve(next, writer, request)
 	})
+}
+
+// skipRequest reports whether the request's path or method is excluded from
+// logging.
+func (m *middleware) skipRequest(request *http.Request) bool {
+	// Check if this path should be ignored
+	if m.ShouldIgnoreRequest(request) {
+		return true
+	}
+	// Check if this HTTP method should be ignored (O(1) lookup)
+	if len(m.ignoreMethodsMap) == 0 {
+		return false
+	}
+	_, ignored := m.ignoreMethodsMap[strings.ToUpper(request.Method)] // Client-written: not interned.
+	return ignored
+}
+
+// serve runs next with the request fields in the context and logs the
+// completed request.
+func (m *middleware) serve(next http.Handler, writer http.ResponseWriter, request *http.Request) {
+	// Capture request body if enabled.
+	// Uses a pooled buffer to avoid per-request allocations from io.ReadAll.
+	var requestBody string
+	if m.opts.logRequest && request.Body != nil {
+		request.Body, requestBody = captureBody(request.Body)
+	}
+
+	start := time.Now()
+
+	// Inject fields into context
+	ctx := slogx.InjectFields(request.Context(), m.requestFields(request))
+
+	// Inject enriched logger into context if configured
+	if m.opts.contextLogger != nil {
+		ctx = slogx.InjectLogger(ctx, m.opts.contextLogger)
+	}
+
+	request = request.WithContext(ctx)
+
+	// Wrap the writer to capture the status code and optionally the response body
+	sw := middlewares.NewResponseWriter(writer, m.opts.logResponse)
+	defer sw.Release()
+	writer = sw
+
+	next.ServeHTTP(writer, request)
+
+	// Get status code
+	status := http.StatusOK
+	rw, isRW := writer.(*middlewares.ResponseWriter)
+	if isRW {
+		status = rw.StatusCode()
+	}
+
+	// Check if this status code should be logged (O(1) lookup)
+	if !shouldLogStatusCode(status, m.logCodesSet, m.ignoreCodesSet) {
+		return
+	}
+	// Skip building the completion record when the handler would drop it.
+	if lc, ok := m.logHandler.(levelChecker); ok && !lc.Enabled(ctx, status) {
+		return
+	}
+	var responseBody string
+	if isRW && m.opts.logResponse {
+		responseBody = rw.BodyString()
+	}
+
+	m.logCompletion(ctx, status, start, requestBody, responseBody)
+}
+
+// requestFields returns the fields describing the request, logged with every
+// record of its context.
+func (m *middleware) requestFields(request *http.Request) slogx.Fields {
+	// Pre-allocate fields with expected capacity
+	fields := make(slogx.Fields, 0, DefaultFieldsCapacity)
+	fields = append(fields,
+		slogx.Field{Key: FieldKeyHTTPMethod, Value: request.Method},
+		slogx.Field{Key: FieldKeyHTTPPath, Value: sanitizeLogValue(request.URL.Path, m.opts.maxPathLength)},
+		slogx.Field{Key: FieldKeyHTTPProto, Value: request.Proto},
+	)
+	if m.opts.logQuery && request.URL.RawQuery != "" {
+		fields = append(fields, slogx.Field{Key: FieldKeyHTTPQuery, Value: m.redactedQuery(request.URL.RawQuery)})
+	}
+
+	// Extract peer IP
+	peerIP, _, splitErr := net.SplitHostPort(request.RemoteAddr)
+	if splitErr != nil {
+		peerIP = request.RemoteAddr
+	}
+	fields = append(fields,
+		slogx.Field{Key: observability.FieldKeyClientPeerIP, Value: peerIP},
+		slogx.Field{
+			Key:   observability.FieldKeyClientUserAgent,
+			Value: sanitizeLogValue(request.UserAgent(), m.opts.maxUserAgentLength),
+		},
+	)
+
+	// Extract real IP if available from context (set by realip middleware).
+	// If realip middleware is not used, FromContext returns invalid netip.Addr
+	// and this field is simply not added to the log (graceful degradation).
+	if realIP := clientip.FromContext(request.Context()); realIP.IsValid() {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeyClientRealIP, Value: realIP.String()})
+	}
+	return fields
+}
+
+// sanitizeLogValue prepares a client-controlled string for a log record: it
+// is cut to maxLen bytes and its control characters (CR, LF, the rest of C0,
+// DEL and C1) are removed, so a decoded path such as "/a%0d%0alevel=ERROR"
+// cannot forge a log line and an oversized value cannot bloat the record.
+func sanitizeLogValue(s string, maxLen int) string {
+	s = corestrings.TruncateBytes(s, maxLen, TruncationSuffix)
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// logCompletion logs the completed request: the context fields (which
+// handlers may have modified), timing, correlation IDs and captured bodies.
+func (m *middleware) logCompletion(ctx context.Context, status int, start time.Time, requestBody, responseBody string) {
+	// Add timing fields
+	now := time.Now()
+	elapsed := now.Sub(start)
+
+	// Get fields from context (may have been modified by handlers)
+	fields := slogx.FieldsFromContext(ctx)
+	fields = append(fields,
+		slogx.Field{Key: FieldKeyHTTPStatus, Value: status},
+		slogx.Field{Key: observability.FieldKeyRequestStartTime, Value: timeformat.FormatTime(start, m.opts.timeFormat)},
+		slogx.Field{Key: observability.FieldKeyRequestEndTime, Value: timeformat.FormatTime(now, m.opts.timeFormat)},
+		slogx.Field{Key: observability.FieldKeyRequestDuration, Value: timeformat.FormatDuration(elapsed, m.opts.timeFormat)},
+	)
+	fields = appendCorrelationFields(ctx, fields)
+
+	// Add request body if captured
+	if requestBody != "" {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeyRequestContent, Value: m.redactBody(requestBody)})
+	}
+
+	// Add response body if captured
+	if responseBody != "" {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeyResponseContent, Value: m.redactBody(responseBody)})
+	}
+
+	m.logHandler.Log(ctx, "request completed", status, fields)
+}
+
+// appendCorrelationFields appends the request, trace and span IDs present
+// in ctx.
+func appendCorrelationFields(ctx context.Context, fields slogx.Fields) slogx.Fields {
+	// Add request ID
+	if reqID := requestid.FromContext(ctx); reqID != "" {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeyRequestID, Value: reqID})
+	}
+
+	// Add trace correlation fields if available
+	if traceID := tracing.TraceIDFromContext(ctx); traceID != "" {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeyTraceID, Value: traceID})
+	}
+	if spanID := tracing.SpanIDFromContext(ctx); spanID != "" {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeySpanID, Value: spanID})
+	}
+	return fields
+}
+
+// redactBody applies the body redactor, if any, to a captured body.
+func (m *middleware) redactBody(body string) string {
+	if m.opts.bodyRedactor != nil {
+		return m.opts.bodyRedactor(body)
+	}
+	return body
 }
 
 // New creates a new logger middleware with the given [LogHandler] and options.
@@ -235,7 +288,7 @@ func New(logHandler LogHandler, opt ...Option) *middleware {
 	ignoreMethodsMap := make(map[string]struct{}, len(opts.ignoreMethods))
 	for _, method := range opts.ignoreMethods {
 		// Methods are already uppercased by optgen, but intern for consistency
-		ignoreMethodsMap[corestrings.InternUpperString(method)] = struct{}{}
+		ignoreMethodsMap[intern.UpperString(method)] = struct{}{}
 	}
 
 	// Build log codes set for O(1) lookup (custom codes or default)

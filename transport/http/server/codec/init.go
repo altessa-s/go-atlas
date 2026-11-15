@@ -5,8 +5,8 @@
 package codec
 
 import (
-	jsoncodec "github.com/altessa-s/go-atlas/transport/http/server/codec/providers/json"
-	xmlcodec "github.com/altessa-s/go-atlas/transport/http/server/codec/providers/xml"
+	jsoncodec "github.com/altessa-s/go-atlas/transport/http/server/codec/json"
+	xmlcodec "github.com/altessa-s/go-atlas/transport/http/server/codec/xml"
 )
 
 func init() {

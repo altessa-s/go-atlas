@@ -12,7 +12,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	slogx "github.com/altessa-s/go-slogx"
 )
 
 func BenchmarkMiddleware(b *testing.B) {
@@ -30,6 +30,12 @@ func BenchmarkSlog(b *testing.B) {
 	lh := Slog(slog.New(slog.DiscardHandler))
 	for b.Loop() {
 		lh.Log(b.Context(), "test", 200, nil)
+	}
+}
+
+func BenchmarkInternedStatusString(b *testing.B) {
+	for b.Loop() {
+		InternedStatusString(http.StatusOK)
 	}
 }
 

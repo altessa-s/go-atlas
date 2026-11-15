@@ -5,19 +5,19 @@
 package logger
 
 import (
-	"github.com/altessa-s/go-atlas/core/text/strings"
-	"github.com/altessa-s/go-atlas/transport/internal/observability"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/internal/transport/observability"
 )
 
 // gRPC-specific field keys.
 // Interned for memory efficiency - these strings are used frequently
 // across many log entries and should be deduplicated in memory.
 var (
-	FieldKeyGrpcMethod      observability.FieldKey = strings.InternString("grpc.method")
-	FieldKeyGrpcStream      observability.FieldKey = strings.InternString("grpc.stream")
-	FieldKeyGrpcService     observability.FieldKey = strings.InternString("grpc.service")
-	FieldKeyGrpcCode        observability.FieldKey = strings.InternString("grpc.code")
-	FieldKeyGrpcMessage     observability.FieldKey = strings.InternString("grpc.message")
-	FieldKeyGrpcErrorReason observability.FieldKey = strings.InternString("grpc.error_reason")
-	FieldKeyResponseHeaders observability.FieldKey = strings.InternString("grpc.response.headers")
+	FieldKeyGrpcMethod      observability.FieldKey = intern.String("grpc.method")
+	FieldKeyGrpcStream      observability.FieldKey = intern.String("grpc.stream")
+	FieldKeyGrpcService     observability.FieldKey = intern.String("grpc.service")
+	FieldKeyGrpcCode        observability.FieldKey = intern.String("grpc.code")
+	FieldKeyGrpcMessage     observability.FieldKey = intern.String("grpc.message")
+	FieldKeyGrpcErrorReason observability.FieldKey = intern.String("grpc.error_reason")
+	FieldKeyResponseHeaders observability.FieldKey = intern.String("grpc.response.headers")
 )

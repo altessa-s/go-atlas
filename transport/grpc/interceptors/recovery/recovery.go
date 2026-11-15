@@ -8,12 +8,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/core/runtime/helpers"
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/runtime/helpers"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
-	"github.com/altessa-s/go-atlas/transport/internal/recovery"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

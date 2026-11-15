@@ -4,7 +4,11 @@
 
 package server
 
-import "github.com/altessa-s/go-atlas/transport/http/server/writer"
+import (
+	"github.com/altessa-s/go-atlas/transport/http/server/writer"
+
+	router "github.com/altessa-s/go-atlas/transport/http/server/router"
+)
 
 // RouteRegistrar registers routes with ReadWriter support.
 // This minimal interface decouples handlers from the concrete Server type,
@@ -12,7 +16,7 @@ import "github.com/altessa-s/go-atlas/transport/http/server/writer"
 type RouteRegistrar interface {
 	// Handle registers a HandlerFunc for the given pattern.
 	// Returns Route for further configuration (Methods, PathPrefix, etc.)
-	Handle(pattern string, handler HandlerFunc) Route
+	Handle(pattern string, handler HandlerFunc) router.Route
 }
 
 // Handler registers HTTP routes with a [RouteRegistrar].

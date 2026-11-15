@@ -6,8 +6,9 @@ package health
 
 import (
 	"context"
+	"errors"
 
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	"google.golang.org/grpc/codes"
@@ -18,17 +19,24 @@ import (
 )
 
 // Handler implements grpc_health_v1.HealthServer by delegating to a shared
-// [health.Coordinator]. The coordinator may be used concurrently by other
+// [HealthWatcher]. The watcher may be used concurrently by other
 // subsystems (HTTP health endpoints, readiness probes, etc.).
 type Handler struct {
 	grpc_health_v1.UnimplementedHealthServer
 
-	coordinator *health.Coordinator
+	coordinator HealthWatcher
 	stop        <-chan struct{}
 }
 
+// HealthWatcher is the health contract required by the gRPC health handler.
+type HealthWatcher interface {
+	CheckStatus(context.Context, string) health.ServingStatus
+	ListStatuses(context.Context) (map[string]health.ServingStatus, error)
+	Subscribe(context.Context, string) (health.Subscriber, error)
+}
+
 // New creates a Handler backed by coord. Panics if coord is nil.
-func New(coord *health.Coordinator) *Handler {
+func New(coord HealthWatcher) *Handler {
 	panics.MustNonNil(coord, "coordinator must not be nil")
 	return &Handler{coordinator: coord}
 }
@@ -71,16 +79,18 @@ func (h *Handler) List(ctx context.Context, _ *grpc_health_v1.HealthListRequest)
 
 // Watch opens a server-streaming subscription for the named service.
 // It sends the current status immediately, then pushes changes until the
-// client disconnects, the stop channel closes (codes.Canceled), or the
-// coordinator signals codes.ResourceExhausted when watcher limits are hit.
-// Duplicate consecutive statuses are suppressed.
+// client disconnects or the stop channel closes (codes.Canceled). A
+// subscription refused because the per-service watcher limit is reached
+// fails with codes.ResourceExhausted; one refused because the coordinator
+// is shut down fails with codes.Unavailable. Duplicate consecutive statuses
+// are suppressed.
 func (h *Handler) Watch(req *grpc_health_v1.HealthCheckRequest, stream stdGrpc.ServerStreamingServer[grpc_health_v1.HealthCheckResponse]) error {
 	service := req.GetService()
 	ctx := stream.Context()
 
 	subscription, err := h.coordinator.Subscribe(ctx, service)
 	if err != nil {
-		return status.Errorf(codes.ResourceExhausted, "too many watchers for service: %s", service)
+		return subscribeError(err, service)
 	}
 	defer subscription.Close()
 
@@ -110,5 +120,18 @@ func (h *Handler) Watch(req *grpc_health_v1.HealthCheckRequest, stream stdGrpc.S
 				return err
 			}
 		}
+	}
+}
+
+// subscribeError maps a [health.Coordinator.Subscribe] failure to a gRPC
+// status.
+func subscribeError(err error, service string) error {
+	switch {
+	case errors.Is(err, health.ErrWatcherLimitExceeded):
+		return status.Errorf(codes.ResourceExhausted, "too many watchers for service: %s", service)
+	case errors.Is(err, health.ErrCoordinatorShutdown):
+		return status.Error(codes.Unavailable, "health coordinator is shut down")
+	default:
+		return status.Error(codes.Internal, "internal error")
 	}
 }

@@ -7,9 +7,10 @@ package mtls
 import (
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net/http"
 
-	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/audit/decision"
 
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	authmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
@@ -43,14 +44,20 @@ func PeerCertificate(r *http.Request) (*x509.Certificate, error) {
 // downstream with [authmw.FromContext], e.g. by [authmw.ScopeMiddleware]).
 // Identity derivation, validation, and audit are delegated to a
 // [github.com/altessa-s/go-atlas/auth/mtls.Authenticator] built from opts; the
-// transport label is set to "http".
+// transport label is set to "http". opts must make the trust decision
+// ([coremtls.WithTrustDomains] or [coremtls.WithInsecureAnyTrustDomain]);
+// validators do not count as one, and without it Middleware returns an error
+// wrapping [coremtls.ErrNoTrustDomainPolicy] instead of a middleware.
 //
 // A request without a verified client certificate, or one the authenticator
 // rejects, is answered 401 Unauthorized. A required-audit failure on an
 // otherwise-successful authentication is answered 500 so nothing proceeds
 // unrecorded.
-func Middleware(opts ...coremtls.Option) func(http.Handler) http.Handler {
-	authenticator := coremtls.NewAuthenticator(append([]coremtls.Option{coremtls.WithTransport("http")}, opts...)...)
+func Middleware(opts ...coremtls.Option) (func(http.Handler) http.Handler, error) {
+	authenticator, err := coremtls.NewAuthenticator(append([]coremtls.Option{coremtls.WithTransport("http")}, opts...)...)
+	if err != nil {
+		return nil, fmt.Errorf("mtls: build authenticator: %w", err)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cert, err := PeerCertificate(r)
@@ -60,7 +67,7 @@ func Middleware(opts ...coremtls.Option) func(http.Handler) http.Handler {
 			}
 			principal, err := authenticator.Authenticate(r.Context(), cert)
 			if err != nil {
-				if errors.Is(err, audit.ErrAuditFailed) {
+				if errors.Is(err, decision.ErrAuditFailed) {
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 					return
 				}
@@ -70,5 +77,5 @@ func Middleware(opts ...coremtls.Option) func(http.Handler) http.Handler {
 			ctx := authmw.ContextWithPrincipal(r.Context(), principal)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
-	}
+	}, nil
 }

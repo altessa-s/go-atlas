@@ -11,6 +11,8 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/static"
 
 	"google.golang.org/grpc"
+
+	originalStatic "github.com/altessa-s/go-atlas/auth/static"
 )
 
 // UserInfo represents the data stored alongside each token.
@@ -20,8 +22,8 @@ type UserInfo struct {
 }
 
 func ExampleAuthFunc() {
-	store := static.NewInMemoryStore(
-		static.WithInitialTokens(map[string]any{
+	store := originalStatic.NewInMemoryStore(
+		originalStatic.WithInitialTokens(map[string]any{
 			"valid_token": UserInfo{ID: "user1", Roles: []string{"admin"}},
 		}),
 	)
@@ -40,8 +42,8 @@ func ExampleAuthFunc() {
 }
 
 func ExampleAuthFunc_apiKey() {
-	store := static.NewInMemoryStore(
-		static.WithInitialTokens(map[string]any{
+	store := originalStatic.NewInMemoryStore(
+		originalStatic.WithInitialTokens(map[string]any{
 			"api_key_123": UserInfo{ID: "service1"},
 		}),
 	)

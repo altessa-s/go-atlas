@@ -17,11 +17,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
-	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
 
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
+	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 )
 
 func TestDefaultOptions(t *testing.T) {
@@ -142,7 +142,7 @@ func newTestServer(t *testing.T, pattern string, handler http.HandlerFunc) *Serv
 		WithBaseOptions(
 			baseserver.WithAddress(ln.Addr().String()),
 			baseserver.WithListener(ln),
-			baseserver.WithTimeouts(timeouts.Config{
+			baseserver.WithTimeouts(timeouts.Lifecycle{
 				StartupVerification: 200 * time.Millisecond,
 				ShutdownGraceful:    5 * time.Second,
 				ShutdownWarning:     5 * time.Second,
