@@ -8,8 +8,11 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
+// labelType is the metric label holding the authentication error type.
+const labelType = "type"
+
 // vaultAuthMetrics holds all Prometheus metrics for the Vault authenticator.
-// When no [metrics.Collector] is provided, [metrics.Noop] is used and
+// When no [metrics.Meter] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type vaultAuthMetrics struct {
 	authAttempts       metrics.Counter
@@ -18,7 +21,7 @@ type vaultAuthMetrics struct {
 	tokenRenewalErrors metrics.Counter
 }
 
-func newVaultAuthMetrics(c metrics.Collector) *vaultAuthMetrics {
+func newVaultAuthMetrics(c metrics.Meter) *vaultAuthMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
@@ -33,7 +36,7 @@ func newVaultAuthMetrics(c metrics.Collector) *vaultAuthMetrics {
 		authErrors: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "auth_errors_total",
 			Help:       "Total number of authentication errors.",
-			LabelNames: []string{"type"},
+			LabelNames: []string{labelType},
 		}),
 		tokenRenewals: scoped.MustCounter(metrics.MetricOpts{
 			Name: "token_renewals_total",

@@ -7,6 +7,7 @@ package userpass_test
 import (
 	"testing"
 
+	"github.com/altessa-s/go-atlas/security/vault/auth"
 	"github.com/altessa-s/go-atlas/security/vault/auth/userpass"
 )
 
@@ -18,7 +19,7 @@ func BenchmarkNew(b *testing.B) {
 
 func BenchmarkNew_WithMountPath(b *testing.B) {
 	for b.Loop() {
-		_ = userpass.New("admin", "pass", userpass.WithMountPath("/auth/userpass"))
+		_ = userpass.New("admin", "pass", auth.WithMountPathOption[*auth.MountPathMethod]("/auth/userpass"))
 	}
 }
 

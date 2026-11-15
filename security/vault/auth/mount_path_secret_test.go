@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/secure"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -22,7 +22,7 @@ import (
 func TestMountPathMethod_ShutdownWipesSecret(t *testing.T) {
 	t.Parallel()
 
-	s := corestrings.NewSecureString("s3cr3t")
+	s := secure.NewString("s3cr3t")
 	m := auth.NewMountPathMethod(
 		"test",
 		func(context.Context, *vaultApi.Client, string) (*vaultApi.Secret, error) { return nil, nil },

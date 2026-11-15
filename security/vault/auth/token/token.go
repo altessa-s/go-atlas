@@ -8,10 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/secure"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -19,7 +20,19 @@ import (
 // It validates and uses an existing Vault token.
 // The token is stored in a SecureString and zeroed on Shutdown.
 type AuthMethod struct {
-	token *corestrings.SecureString
+	// mu guards token: Shutdown may run while a login is in progress.
+	mu    sync.Mutex
+	token *secure.String
+}
+
+// tokenString returns the token, or false after Shutdown.
+func (a *AuthMethod) tokenString() (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.token == nil {
+		return "", false
+	}
+	return a.token.String(), true
 }
 
 // New creates a new token authentication method.
@@ -29,13 +42,20 @@ type AuthMethod struct {
 //
 //	authMethod := token.New("hvs.CAESIJ...")
 func New(token string) *AuthMethod {
-	return &AuthMethod{token: corestrings.NewSecureString(strings.TrimSpace(token))}
+	return &AuthMethod{token: secure.NewString(strings.TrimSpace(token))}
 }
 
 // Authenticate validates the token and returns its metadata.
 // The token is set on the client and a lookup is performed to verify validity.
+//
+// After Shutdown the token is gone and Authenticate returns an error wrapping
+// [auth.ErrMethodShutDown].
 func (a *AuthMethod) Authenticate(ctx context.Context, client *vaultApi.Client) (*vaultApi.Secret, error) {
-	client.SetToken(a.token.String())
+	tok, ok := a.tokenString()
+	if !ok {
+		return nil, auth.WrapAuthError("token", auth.ErrMethodShutDown)
+	}
+	client.SetToken(tok)
 
 	secret, err := client.Auth().Token().LookupSelfWithContext(ctx)
 	if err != nil {
@@ -51,7 +71,7 @@ func (a *AuthMethod) Authenticate(ctx context.Context, client *vaultApi.Client) 
 	// seems like a Vault bug or at least a major inconsistency.
 	if secret.Auth == nil {
 		secret.Auth = &vaultApi.SecretAuth{
-			ClientToken: a.token.String(),
+			ClientToken: tok,
 		}
 
 		var ok bool
@@ -73,6 +93,8 @@ func (a *AuthMethod) Name() string { return "token" }
 
 // Shutdown zeros the token in memory and releases resources.
 func (a *AuthMethod) Shutdown() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.token != nil {
 		a.token.Clear()
 		a.token = nil

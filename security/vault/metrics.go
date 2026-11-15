@@ -9,7 +9,7 @@ import (
 )
 
 // vaultMetrics holds all Prometheus metrics for the Vault client.
-// When no [metrics.Collector] is provided, [metrics.Noop] is used and
+// When no [metrics.Meter] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type vaultMetrics struct {
 	renewalAttempts metrics.Counter
@@ -17,7 +17,7 @@ type vaultMetrics struct {
 	renewalDuration metrics.Timer
 }
 
-func newVaultMetrics(c metrics.Collector) *vaultMetrics {
+func newVaultMetrics(c metrics.Meter) *vaultMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
@@ -34,10 +34,8 @@ func newVaultMetrics(c metrics.Collector) *vaultMetrics {
 			Help: "Total number of Vault token renewal failures.",
 		}),
 		renewalDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name: "renewal_duration_seconds",
-				Help: "Duration of Vault token renewal operations in seconds.",
-			},
+			Name: "renewal_duration_seconds",
+			Help: "Duration of Vault token renewal operations in seconds.",
 		}),
 	}
 }

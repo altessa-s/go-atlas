@@ -6,7 +6,7 @@ package auth
 
 import "strings"
 
-// MethodOption configures a concrete auth method value (typically a pointer, e.g. *approle.AuthMethod).
+// MethodOption configures a concrete auth method value (typically a pointer, e.g. *MountPathMethod).
 // Keeping options as functions over the concrete value avoids generics pitfalls with pointer method sets.
 type MethodOption[T any] func(T)
 

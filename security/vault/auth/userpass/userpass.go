@@ -9,32 +9,24 @@ import (
 
 	"github.com/hashicorp/vault/api/auth/userpass"
 
+	"github.com/altessa-s/go-atlas-core/text/strings/secure"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
-// AuthMethod implements Vault username/password authentication.
-type AuthMethod = auth.MountPathMethod
-
-// Option configures AuthMethod.
-type Option = auth.MethodOption[*AuthMethod]
+// Option configures the userpass authentication method.
+type Option = auth.MethodOption[*auth.MountPathMethod]
 
 // New creates a new userpass authentication method. The password is held in a
 // SecureString and zeroed when the method's Shutdown runs, so it does not remain
 // in the heap for the process lifetime.
-func New(username, password string, opt ...Option) *AuthMethod {
+func New(username, password string, opt ...Option) *auth.MountPathMethod {
 	username = strings.TrimSpace(username)
-	pw := corestrings.NewSecureString(strings.TrimSpace(password))
+	pw := secure.NewString(strings.TrimSpace(password))
 
 	opt = append(opt, auth.WithSecret(pw))
 	return auth.NewMountPathMethodOptions("userpass", userpass.WithMountPath, func(opts ...userpass.LoginOption) (vaultApi.AuthMethod, error) {
 		return userpass.NewUserpassAuth(username, &userpass.Password{FromString: pw.String()}, opts...)
 	}, opt...)
-}
-
-// WithMountPath sets a custom mount path for the userpass auth method.
-func WithMountPath[T interface{ string | *string }](path T) Option {
-	return auth.WithMountPathOption[*AuthMethod](path)
 }

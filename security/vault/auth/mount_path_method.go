@@ -7,7 +7,8 @@ package auth
 import (
 	"context"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/secure"
+
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -23,13 +24,13 @@ type MountPathMethod struct {
 	// secret holds credential material (e.g. a userpass password or an approle
 	// secret ID) captured by loginFn. It is zeroed on Shutdown so the credential
 	// does not linger in the heap after the method is retired.
-	secret *corestrings.SecureString
+	secret *secure.String
 }
 
 // WithSecret attaches credential material to the method so it is zeroed on
 // Shutdown. The same SecureString is read by the login function, so it must not
 // be cleared until the method is retired.
-func WithSecret(s *corestrings.SecureString) MethodOption[*MountPathMethod] {
+func WithSecret(s *secure.String) MethodOption[*MountPathMethod] {
 	return func(m *MountPathMethod) { m.secret = s }
 }
 
@@ -61,4 +62,11 @@ func (m *MountPathMethod) Shutdown() error {
 	return nil
 }
 
-var _ Method = (*MountPathMethod)(nil)
+// IssuesToken reports that every login mints a new token, so the Vault client
+// may revoke it on close.
+func (m *MountPathMethod) IssuesToken() bool { return true }
+
+var (
+	_ Method      = (*MountPathMethod)(nil)
+	_ TokenIssuer = (*MountPathMethod)(nil)
+)

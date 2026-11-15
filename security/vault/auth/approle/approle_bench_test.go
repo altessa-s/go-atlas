@@ -7,6 +7,7 @@ package approle_test
 import (
 	"testing"
 
+	"github.com/altessa-s/go-atlas/security/vault/auth"
 	"github.com/altessa-s/go-atlas/security/vault/auth/approle"
 )
 
@@ -18,7 +19,7 @@ func BenchmarkNew(b *testing.B) {
 
 func BenchmarkNew_WithMountPath(b *testing.B) {
 	for b.Loop() {
-		_ = approle.New("role-123", "secret-456", approle.WithMountPath("/auth/approle"))
+		_ = approle.New("role-123", "secret-456", auth.WithMountPathOption[*auth.MountPathMethod]("/auth/approle"))
 	}
 }
 

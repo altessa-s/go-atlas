@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 )
 
 func TestVaultAuthMetrics_Noop(t *testing.T) {
@@ -24,7 +24,7 @@ func TestVaultAuthMetrics_Noop(t *testing.T) {
 }
 
 func TestVaultAuthMetrics_Prometheus(t *testing.T) {
-	tc := testhelpers.NewTestCollector()
+	tc := metricstest.NewTestCollector()
 
 	m := newVaultAuthMetrics(tc)
 
@@ -35,18 +35,18 @@ func TestVaultAuthMetrics_Prometheus(t *testing.T) {
 	m.tokenRenewals.Inc()
 	m.tokenRenewalErrors.Inc()
 
-	val := testhelpers.GetCounterValue(t, tc, "test_vault_auth_auth_attempts_total")
+	val := metricstest.GetCounterValue(t, tc, "test_vault_auth_auth_attempts_total")
 	assert.Equal(t, float64(2), val)
 
-	val = testhelpers.GetCounterValue(t, tc, "test_vault_auth_auth_errors_total", "type", "permanent")
+	val = metricstest.GetCounterValue(t, tc, "test_vault_auth_auth_errors_total", "type", "permanent")
 	assert.Equal(t, float64(1), val)
 
-	val = testhelpers.GetCounterValue(t, tc, "test_vault_auth_auth_errors_total", "type", "transient")
+	val = metricstest.GetCounterValue(t, tc, "test_vault_auth_auth_errors_total", "type", "transient")
 	assert.Equal(t, float64(1), val)
 
-	val = testhelpers.GetCounterValue(t, tc, "test_vault_auth_token_renewals_total")
+	val = metricstest.GetCounterValue(t, tc, "test_vault_auth_token_renewals_total")
 	assert.Equal(t, float64(1), val)
 
-	val = testhelpers.GetCounterValue(t, tc, "test_vault_auth_token_renewal_errors_total")
+	val = metricstest.GetCounterValue(t, tc, "test_vault_auth_token_renewal_errors_total")
 	assert.Equal(t, float64(1), val)
 }

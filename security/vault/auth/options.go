@@ -4,7 +4,7 @@
 
 package auth
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 import (
 	"log/slog"
@@ -15,9 +15,10 @@ import (
 
 // Default configuration for authentication retries.
 const (
-	// DefaultBackoffBase is the base duration for retry backoff.
+	// DefaultBackoffBase is the delay after the first failed login. It
+	// doubles with every consecutive failure.
 	DefaultBackoffBase = 2 * time.Second
-	// DefaultBackoffMax is the maximum duration for retry backoff.
+	// DefaultBackoffMax caps the delay between failed logins.
 	DefaultBackoffMax = 30 * time.Second
 	// DefaultAuthTimeout is the timeout for individual authentication operations.
 	DefaultAuthTimeout = 30 * time.Second
@@ -25,17 +26,19 @@ const (
 
 type options struct {
 	logger      *slog.Logger
-	backoffBase time.Duration     `optgen:"default=DefaultBackoffBase"`
-	backoffMax  time.Duration     `optgen:"default=DefaultBackoffMax"`
-	authTimeout time.Duration     `optgen:"default=DefaultAuthTimeout"`
-	collector   metrics.Collector `opt:"-"`
-}
-
-// WithCollector sets the [metrics.Collector] used to record Vault auth metrics.
-// When nil (the default), [metrics.Noop] is used and all metric operations
-// become zero-cost no-ops.
-func WithCollector(c metrics.Collector) Option {
-	return func(o *options) {
-		o.collector = c
-	}
+	backoffBase time.Duration `optgen:"default=DefaultBackoffBase"`
+	backoffMax  time.Duration `optgen:"default=DefaultBackoffMax"`
+	authTimeout time.Duration `optgen:"default=DefaultAuthTimeout"`
+	// meter ([WithMeter]) records Vault auth metrics. When nil (the default),
+	// [metrics.Noop] is used and all metric operations become zero-cost no-ops.
+	meter metrics.Meter
+	// keepMethodOnExit leaves the auth [Method] usable when
+	// [Authenticator.Run] returns instead of calling its Shutdown, which zeroes
+	// the credentials. Set it when the method outlives one run, and shut the
+	// method down yourself once it is retired.
+	keepMethodOnExit bool
+	// onLogin is called by [Authenticator.Run], on its goroutine, each time a
+	// login succeeded and before Run does anything else with the token. It
+	// must not block.
+	onLogin func()
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/security/vault/auth"
 	"github.com/altessa-s/go-atlas/security/vault/auth/userpass"
 )
 
@@ -43,7 +44,7 @@ func TestNew_WithMountPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := userpass.New("admin", "pass", userpass.WithMountPath(tt.mountPath))
+			m := userpass.New("admin", "pass", auth.WithMountPathOption[*auth.MountPathMethod](tt.mountPath))
 			require.NotNil(t, m)
 			require.Equal(t, tt.mountPath, m.MountPath())
 		})
@@ -52,7 +53,7 @@ func TestNew_WithMountPath(t *testing.T) {
 
 func TestNew_WithMountPathPointer(t *testing.T) {
 	path := "/auth/custom-userpass"
-	m := userpass.New("admin", "pass", userpass.WithMountPath(&path))
+	m := userpass.New("admin", "pass", auth.WithMountPathOption[*auth.MountPathMethod](&path))
 	require.NotNil(t, m)
 	require.Equal(t, path, m.MountPath())
 }

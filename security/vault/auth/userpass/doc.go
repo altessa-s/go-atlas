@@ -10,5 +10,5 @@
 //	authMethod := userpass.New("username", "password")
 //	// With custom mount path:
 //	authMethod := userpass.New("username", "password",
-//	    userpass.WithMountPath("custom-userpass"))
+//	    auth.WithMountPathOption[*auth.MountPathMethod]("custom-userpass"))
 package userpass

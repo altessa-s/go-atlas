@@ -10,7 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -26,7 +27,18 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	// ErrPermissionDenied is returned when the token lacks required permissions.
 	ErrPermissionDenied = errors.New("permission denied")
+	// ErrMethodShutDown is returned by a [Method] asked to authenticate after
+	// its Shutdown zeroed the credentials. It is not retried.
+	ErrMethodShutDown = errors.New("auth method was shut down")
+	// ErrTokenExpired ends [Authenticator.Run] when a non-renewable token
+	// reached the end of its TTL and the auth method cannot obtain a new one
+	// (it is not a [TokenIssuer]).
+	ErrTokenExpired = errors.New("vault token expired and cannot be replaced")
 )
+
+// genericAuthFailure is the safe reason reported when a Vault error carries no
+// message, or one the sanitizer does not recognize.
+const genericAuthFailure = "authentication failed"
 
 // AuthError represents a structured authentication error with additional context.
 // Use NewAuthError or WrapAuthError to create instances.
@@ -104,7 +116,7 @@ func WrapAuthError(method string, err error) error {
 
 	// Check if it's a Vault API response error
 	if vaultErr, ok := errors.AsType[*vaultApi.ResponseError](err); ok {
-		reason := "authentication failed"
+		reason := genericAuthFailure
 		if len(vaultErr.Errors) > 0 {
 			// Sanitize error message to avoid leaking sensitive information
 			reason = sanitizeErrorMessage(vaultErr.Errors[0])
@@ -133,7 +145,8 @@ func IsAuthenticationError(err error) bool {
 	// Check for specific error types
 	if errors.Is(err, ErrUnauthorized) ||
 		errors.Is(err, ErrInvalidCredentials) ||
-		errors.Is(err, ErrPermissionDenied) {
+		errors.Is(err, ErrPermissionDenied) ||
+		errors.Is(err, ErrMethodShutDown) {
 		return true
 	}
 
@@ -147,7 +160,7 @@ func IsAuthenticationError(err error) bool {
 		// Check specific error messages
 		for _, errMsg := range vaultErr.Errors {
 			switch errMsg {
-			case "invalid secret id", "invalid role ID", "invalid username or password":
+			case "invalid secret id", "invalid role ID", "invalid username or password": //nolint:goconst // Vault texts, not the sanitizer table
 				return true
 			}
 		}
@@ -196,7 +209,7 @@ func IsRetryableError(err error) bool {
 // while preserving useful debugging information.
 func sanitizeErrorMessage(errorMsg string) string {
 	// Convert to lowercase for case-insensitive matching
-	lowerMsg := corestrings.InternLowerString(errorMsg)
+	lowerMsg := intern.LowerString(errorMsg)
 
 	// Define safe error messages that don't contain sensitive data
 	safeErrors := map[string]string{
@@ -226,5 +239,5 @@ func sanitizeErrorMessage(errorMsg string) string {
 
 	// For unknown error messages, return a generic safe message
 	// to avoid potentially leaking sensitive information
-	return "authentication failed"
+	return genericAuthFailure
 }

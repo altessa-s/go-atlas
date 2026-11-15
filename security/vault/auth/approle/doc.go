@@ -11,5 +11,5 @@
 //	authMethod := approle.New("role-id", "secret-id")
 //	// With custom mount path:
 //	authMethod := approle.New("role-id", "secret-id",
-//	    approle.WithMountPath("custom-approle"))
+//	    auth.WithMountPathOption[*auth.MountPathMethod]("custom-approle"))
 package approle

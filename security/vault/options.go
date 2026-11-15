@@ -4,7 +4,7 @@
 
 package vault
 
-//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
+//go:generate go tool optgen generate
 
 import (
 	"crypto/tls"
@@ -26,7 +26,7 @@ type options struct {
 	tlsConfig         *tls.Config
 	authMethod        auth.Method `opgen:"nonnil"`
 	logger            *slog.Logger
-	authTimeout       time.Duration `optgen:"default=DefaultInitialAuthTimeout"`
-	healthCoordinator *health.Coordinator
-	collector         metrics.Collector `optgen:"notnil"`
+	authTimeout       time.Duration    `optgen:"default=DefaultInitialAuthTimeout"`
+	healthCoordinator health.Registrar `optgen:"notnil"`
+	meter             metrics.Meter    `optgen:"notnil"`
 }
