@@ -1,0 +1,130 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package cache
+
+//go:generate go tool optgen generate
+
+import (
+	"context"
+	"time"
+
+	"github.com/altessa-s/go-atlas-core/encoding/serializer"
+	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
+	generation "github.com/altessa-s/go-atlas/cache/generation"
+)
+
+// KeyNamespaceFunc derives a namespace from context. Namespace/key pairs are
+// encoded with a length prefix; an empty namespace is distinct from every
+// non-empty namespace. Nil disables namespacing.
+type KeyNamespaceFunc func(context.Context) string
+
+// DefaultTTL is the default time-to-live for cache items (1 hour).
+const DefaultTTL = 1 * time.Hour
+
+// DefaultMaxConcurrentFallbacks bounds distinct active fallback computations.
+// New keys at capacity return ErrOverloaded without creating background work.
+// Calls sharing an active key can still join it. Non-positive values disable
+// this admission limit.
+const DefaultMaxConcurrentFallbacks = 1024
+
+// DefaultFallbackTimeout bounds the shared fallback and cache write context.
+const DefaultFallbackTimeout = 15 * time.Second
+
+// options contains Cache configuration.
+type options struct {
+	ttl                    time.Duration         `optgen:"default=DefaultTTL"`
+	fallbackTimeout        time.Duration         `optgen:"default=DefaultFallbackTimeout"`
+	negativeTtl            time.Duration         // zero = disabled
+	maxConcurrentFallbacks int                   `optgen:"default=DefaultMaxConcurrentFallbacks"`
+	serializer             serializer.Serializer `optgen:"default=&serializer.JSON{}"`
+	meter                  metrics.Meter         `optgen:"notnil"`
+	name                   string
+	// keyNamespace, when set, isolates cache entries and singleflight de-dup by a
+	// per-context namespace (typically tenant/subject). Nil = no prefixing.
+	keyNamespace KeyNamespaceFunc `optgen:"default=nil"`
+	// WithFailOpen sets failOpen; it is manual because the option also clamps
+	// ioTimeout and couples both fields.
+	failOpen bool `optgen:"manual"`
+	// WithFailOpen sets ioTimeout; it is manual because negative values are
+	// clamped to zero while the same option enables failOpen.
+	ioTimeout time.Duration `optgen:"manual"`
+	// WithIsolatedResults is hand-written because its public toggle takes no argument.
+	isolatedResults bool `optgen:"manual"`
+	// WithKeyVersion embeds the version returned by version in every key, ahead of
+	// the [WithKeyNamespace] namespace, for every operation including the singleflight
+	// key of [Cache.GetWithFallback]. Changing the version orphans every entry stored
+	// under an older one, and callers of a new version never join a fallback started
+	// under an old one.
+	//
+	// When version returns an error the version is unknown and no cache entry is read
+	// or written:
+	//
+	//   - [Cache.GetWithFallback] and [GetWithFallbackT] run the fallback directly in
+	//     the caller (unshared, within [WithFallbackTimeout]) and store nothing,
+	//     whatever the fail-open setting: the source of truth is always safe to read.
+	//   - Get, Exists, Save, GetManyRaw and [GetManyT] return the error; with
+	//     [WithFailOpen] they report a miss (Save: nil) instead.
+	//   - Delete and DeleteMany return the error.
+	//
+	// Each such event increments cache_errors_total and
+	// cache_fail_open_total{op="version"} (the latter only when degraded).
+	// [WithKeyVersion] replaces an earlier [WithGeneration]; [Cache.InvalidateAll]
+	// then returns [ErrNoGeneration]. A nil version disables key versioning.
+	keyVersion KeyVersionFunc `opt:"KeyVersion" optgen:"allownull,resets=invalidate"`
+	// Set by WithGeneration: validates the store and constructs the version
+	// and invalidation callbacks together. Generated WithKeyVersion resets it.
+	invalidate func(context.Context) error `optgen:"manual"`
+}
+
+// WithIsolatedResults makes callers collapsed onto one fallback by
+// [Cache.GetWithFallback] and [GetWithFallbackT] share the serialized bytes
+// rather than the loaded value: every caller, the one that ran the fallback
+// included, decodes its own copy, so no slice, map or pointer is shared
+// between callers. It costs one decode per caller on the miss path.
+func WithIsolatedResults() Option {
+	return func(o *options) {
+		o.isolatedResults = true
+	}
+}
+
+// WithFailOpen makes the cache an optimization that never fails a request on
+// its own: a storage error or timeout on a read is a miss, a stored value that
+// cannot be decoded is a miss (and is deleted best-effort), a failed write is
+// ignored, and a fallback rejected with [ErrOverloaded] runs directly in the
+// caller. Each such event is counted in the errors and fail_open metrics.
+// Fallback errors, [ErrMissing] and negative caching are unchanged, and a
+// caller's own context cancellation is still returned.
+//
+// A positive ioTimeout bounds every storage Get, GetMany and Save call; zero
+// adds no bound beyond the caller's context. Negative values are treated as zero.
+func WithFailOpen(ioTimeout time.Duration) Option {
+	return func(o *options) {
+		o.failOpen = true
+		o.ioTimeout = max(ioTimeout, 0)
+	}
+}
+
+// WithGeneration versions every key with the generation of namespace in
+// store (see [WithKeyVersion] for the failure behavior) and makes
+// [Cache.InvalidateAll] bump it. With a store shared by several replicas
+// (cache/generation/storages/redis), an invalidation on one replica
+// reaches the caches of all of them within the store's staleness bound.
+// Panics if store is nil.
+//
+// Example:
+//
+//	c := cache.New(storage, cache.WithGeneration(redisgen.New(client), "catalog"))
+//	// after a write:
+//	_ = c.InvalidateAll(ctx)
+func WithGeneration(store generation.Storage, namespace string) Option {
+	panics.MustNonNil(store, "generation store must be provided")
+	version, invalidate := generationOptions(store, namespace)
+	return func(o *options) {
+		o.keyVersion = version
+		o.invalidate = invalidate
+	}
+}
