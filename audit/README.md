@@ -1,0 +1,127 @@
+# audit
+
+```go
+import "github.com/altessa-s/go-atlas/audit"
+```
+
+Package `audit` provides high-performance, asynchronous user action auditing. Delivery guarantees come from the dispatcher: a WAL-backed engine gives
+durable delivery, a volatile one can drop events when full — check `Emit` for admission failures.
+
+Auditor is a thin facade over a `Dispatcher` (typically `dispatch.Engine`). The caller creates and starts the dispatch engine, then passes it to
+`New`.
+Events flow through the engine's pipeline: channel buffer, worker pool, batch buffer, and storage write with exponential-backoff retry. Storage writes
+run off the request path; submission itself runs in the caller and can block on a WAL append or configured back-pressure.
+
+## Key types
+
+| Type / Interface            | Description                                                             |
+|-----------------------------|-------------------------------------------------------------------------|
+| `Auditor`                   | Main entry point for emitting audit events (non-blocking)               |
+| `Dispatcher`                | Async item dispatch interface (`Submit`, `Dropped`)                     |
+| `Storage`                   | Persistence interface: Store, StoreBatch, Query, Count, Close           |
+| `StorageSink`               | Adapts `Storage` to `dispatch.Sink` for engine construction             |
+| `JSONCodec`                 | Default `dispatch.Codec` for WAL durability (JSON)                      |
+| `Event`                     | Single audit event with full context                                    |
+| `EventType`                 | Category: api.request, business.event, data.change, auth, system        |
+| `Action`                    | Operation: create, read, update, delete, execute, login, etc.           |
+| `Actor`                     | Entity performing an action (user, service, api_key, etc.)              |
+| `Resource`                  | Target of the action with optional change tracking                      |
+| `Result`                    | Outcome with status, code, message, and error details                   |
+| `EventBuilder`              | Fluent builder returned by `Auditor.NewEvent`                           |
+| `NewContext`, `FromContext` | Carry an `*Auditor` in a `context.Context`                              |
+| `Query`                     | Filter criteria, page size and page token for querying events           |
+| `FetchPage`                 | Returns one page of events and the token of the next page               |
+| `Page`                      | One page of results: `Events` and the `Next` page token                 |
+| `PageTokens`                | Signs and verifies page tokens (built on go-aip `pagination/pagetoken`) |
+| `Cursor`                    | Position in the (timestamp milliseconds, ID) order                      |
+
+## Options
+
+| Option                 | Default   | Description                               |
+|------------------------|-----------|-------------------------------------------|
+| `WithServiceInfo`      | --        | Service identification (name, version)    |
+| `WithLogger`           | discard   | Structured logger (`*slog.Logger`)        |
+| `WithMeter`            | noop      | Prometheus metrics collector              |
+| `WithMetricsSubsystem` | `"audit"` | Override the metrics subsystem name       |
+| `WithShutdownHooks`    | process   | Scope `Start` registers its shutdown into |
+
+Dispatch-level options (buffer, batch, workers, retries, WAL) are configured on the `dispatch.Engine` — see
+go-atlas-core [runtime/dispatch](https://github.com/altessa-s/go-atlas-core/tree/develop/runtime/dispatch).
+
+### Shutdown scope
+
+By default `Start` registers the auditor's shutdown in the process-wide registry
+([`go-atlas-core/runtime.OnShutdown`](https://github.com/altessa-s/go-atlas-core/tree/develop/runtime)), which runs once for the whole program — an
+auditor registered there cannot have its hook run on its own (call `Auditor.Shutdown(ctx)` directly to stop it). Pass a
+[`runtime.HookGroup`](https://github.com/altessa-s/go-atlas-core/tree/develop/runtime) when the auditor's lifetime is shorter than the process's, e.g.
+when a factory owns it and the caller may tear the subsystem down and rebuild it:
+
+```go
+var hooks runtime.HookGroup
+
+a, _ := audit.New(engine, audit.WithShutdownHooks(&hooks))
+_ = a.Start()
+...
+_ = hooks.Shutdown(ctx) // stops this auditor, leaves the process running
+```
+
+## Paging
+
+Queries page with signed keyset tokens instead of offsets. Every storage orders events by timestamp (milliseconds) then ID, newest first unless
+`SortOrder` is ascending, so a position is unambiguous even when events share a millisecond.
+
+```go
+codec, _ := pagetoken.New(signingKey) // ≥ 32 bytes, the same on every replica
+tokens := audit.NewPageTokens(codec)
+
+page, err := audit.FetchPage(ctx, storage, tokens, audit.Query{ActorID: "u1", Limit: 50, Subject: caller})
+// next page: query.After = page.Next; empty Next means the last page
+```
+
+- `FetchPage` resolves `Query.After` into `Query.Cursor`, which storages honor; storages never see tokens.
+- A token is bound to the filter, the sort order and `Subject` (the caller): replaying it under another filter, order or principal fails with
+  `pagetoken.ErrFilterChanged`, `ErrSortChanged` or `ErrSubjectMismatch`. The page size is not bound. Tokens expire after 24h by default.
+- Continuation is keyset-based, not a snapshot: events inserted ahead of the position appear on later pages, events behind it do not.
+- `Count` counts every event matching the filter; the page position, size and order are ignored.
+- `Query.Offset` was removed: offset paging skipped or repeated events under concurrent inserts and scanned the skipped rows.
+
+Every backend runs the shared conformance suite in [`storages/storagetest`](./storages/storagetest).
+
+## Usage
+
+```go
+storage := memory.New()
+eng, _ := dispatch.NewEngine[*audit.Event](
+    audit.StorageSink{Storage: storage},
+    dispatch.WithBufferSize[*audit.Event](10000),
+)
+eng.Start()
+defer eng.Shutdown(ctx)
+
+auditor, _ := audit.New(eng,
+    audit.WithServiceInfo(audit.ServiceInfo{Name: "my-service"}),
+    audit.WithMeter(collector),
+)
+auditor.Start()
+defer auditor.Shutdown(ctx)
+
+// Fire-and-forget
+auditor.Emit(&audit.Event{...})
+
+// Fluent builder
+auditor.NewEvent(audit.EventTypeDataChange, audit.ActionUpdate).
+    WithResource(resource).
+    WithSuccess().
+    Emit()
+```
+
+## Subpackages
+
+| Package                                        | Description                                 |
+|------------------------------------------------|---------------------------------------------|
+| [factory](../factory/audit)                    | Fluent builder from config                  |
+| [storages/memory](./storages/memory)           | In-memory backend for dev/test              |
+| [storages/mongo](./storages/mongo)             | MongoDB-backed persistent storage           |
+| [storages/clickhouse](./storages/clickhouse)   | ClickHouse storage with schema drift checks |
+| [storages/sqldb](./storages/sqldb)             | PostgreSQL, MySQL, MariaDB storage          |
+| [storages/storagetest](./storages/storagetest) | Conformance suite every storage runs        |
