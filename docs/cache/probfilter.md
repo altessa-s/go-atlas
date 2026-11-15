@@ -1,7 +1,7 @@
 # Probabilistic Filters
 
 ```go
-import "github.com/altessa-s/go-atlas/data/probfilter"
+import "github.com/altessa-s/go-atlas/cache/probfilter"
 ```
 
 Probabilistic filters answer "is X in the set?" using only in-process memory or a shared Redis bitmap. A negative answer is always correct -- the
@@ -23,7 +23,8 @@ go-atlas provides two filter types with pluggable storage backends (in-memory an
 | Full condition        | No                  | Yes (`ErrFilterFull`)       |
 | False-positive tuning | `falsePositiveRate` | Not tunable (backend-fixed) |
 
-Use **Bloom** when you only add items and can periodically rebuild. Use **Cuckoo** when you need to delete individual items; it can be rebuilt from its
+Use **Bloom** when you only add items and can periodically rebuild. Use **Cuckoo** when you need to delete individual items; it can be rebuilt from
+its
 source too.
 
 ## When to use
@@ -48,8 +49,8 @@ source too.
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/data/probfilter/bloom"
-    bloommemory "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
+    "github.com/altessa-s/go-atlas/cache/probfilter/bloom"
+    bloommemory "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages/memory"
 )
 
 storage := bloommemory.New(bloommemory.WithExpectedItems(100000))
@@ -64,8 +65,8 @@ exists, _ = filter.MightExist(ctx, "user:999")   // false (definitely not)
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/data/probfilter/cuckoo"
-    cuckoomemory "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/memory"
+    "github.com/altessa-s/go-atlas/cache/probfilter/cuckoo"
+    cuckoomemory "github.com/altessa-s/go-atlas/cache/probfilter/cuckoo/storages/memory"
 )
 
 storage := cuckoomemory.New(cuckoomemory.WithCapacity(100000))
@@ -128,14 +129,14 @@ probabilisticFilter:
 |----------------------|-----------|-------------|----------------------------------------------------|
 | `storage.type`       | `string`  | `memory`    | Storage backend: `memory` or `redis`               |
 | `capacity`           | `int64`   | --          | **Required.** Initial filter capacity              |
-| `fingerprintSize`    | `int`     | `12`        | **Deprecated**, ignored (backends use 8 bits)      |
 | `capacityMultiplier` | `float64` | `2.0`       | Growth factor; Redis only (`EXPANSION`)            |
-| `maxCapacity`        | `int64`   | `100000000` | **Deprecated**, ignored (no backend bounds growth) |
 | `storage.redis`      | `object`  | --          | Redis config (required when `storage.type: redis`) |
 
 How the `factory` builders apply these settings:
 
-- `rebuildOnStart` / `rebuildCron` need a data source, so they apply only when a loader is injected with `UseDataLoader`; without a loader
+- The factory maps `rebuildOnStart` / `rebuildCron` onto the Bloom rebuild options and starts the lifecycle with `bloom.Filter.StartRebuild`
+  (see [Rebuild lifecycle without the factory](#rebuild-lifecycle-without-the-factory)). They need a data source, so they apply only when a loader is
+  injected with `UseDataLoader`; without a loader
   both are inert. `rebuildOnStart` always rebuilds synchronously inside `Build` (a failure fails `Build`), so every new filter is populated
   regardless of persisted schedule state. A shared filter whose initial rebuild is refused because another process is rebuilding it
   (`ErrRebuildInProgress`) also fails `Build`, unless the builder opted into `TolerateRebuildInProgress` (the negcache factory does: its cache never
@@ -146,8 +147,6 @@ How the `factory` builders apply these settings:
 - `capacityMultiplier` becomes the RedisBloom `EXPANSION` argument (rounded up) of a Redis Cuckoo filter. The memory backend has a fixed-size
   table and does not grow (chained sub-filters would make a delete unable to tell which sub-filter owns a fingerprint). A per-filter value
   with memory storage is logged as ignored.
-- `fingerprintSize` and `maxCapacity` are deprecated and ignored: both backends use fixed 8-bit fingerprints and neither can bound growth.
-  They are still validated so existing configurations load; per-filter values are logged.
 
 ---
 
@@ -158,30 +157,57 @@ The `factory` package creates filters from configuration using a fluent builder 
 ### Single filter
 
 ```go
-import "github.com/altessa-s/go-atlas/data/probfilter/factory"
+import "github.com/altessa-s/go-atlas/factory/cache/probfilter"
 
 filter, err := factory.NewFilter("users", filterCfg, defaults).
     UseLogger(logger).
-    UseRedisClient(redisClient).
+    UseBloomStorage(probfilterconfig.StorageTypeRedis, bloomredisfactory.Builder(redisClient)).
     UseDataLoader(usersLoader). // enables rebuildOnStart / rebuildCron
     UseScheduler(scheduler).    // runs rebuildCron
-    Build()
+    Build(ctx)
 ```
+
+The factory builds only the in-memory storages. A `redis` storage is registered with `UseBloomStorage` / `UseCuckooStorage` from
+`factory/cache/probfilter/bloom/storages/redis` (`bloomredisfactory`) and `factory/cache/probfilter/cuckoo/storages/redis` (`cuckooredisfactory`);
+without one `Build` fails naming the package to add.
 
 ### Manager with all configured filters
 
 ```go
 mgr, err := factory.NewManager(cfg.ProbabilisticFilter).
     UseLogger(logger).
-    UseRedisClient(redisClient).
+    UseBloomStorage(probfilterconfig.StorageTypeRedis, bloomredisfactory.Builder(redisClient)).
+    UseCuckooStorage(probfilterconfig.StorageTypeRedis, cuckooredisfactory.Builder(redisClient)).
     UseDataLoader("users", usersLoader).
     UseScheduler(scheduler).
-    UseCollector(collector). // probfilter metrics
-    Build()
+    UseMeter(collector). // probfilter metrics
+    Build(ctx)
 if err != nil {
     log.Fatal(err)
 }
 defer mgr.Close()
+```
+
+### Rebuild lifecycle without the factory
+
+The rebuild lifecycle lives in the `bloom` package, so a filter built programmatically gets the same behavior. `bloom.New` has no side
+effects; `StartRebuild` runs the initial rebuild and starts the schedule, and fails at most once per filter on the same conditions as `Build`
+(an invalid schedule wraps `bloom.ErrInvalidRebuildSchedule`; a second call returns `bloom.ErrRebuildAlreadyStarted`). A filter that never calls
+it keeps `Rebuild`, `Done` and `Close` for an externally owned schedule.
+
+```go
+filter := bloom.New(bloomredis.New(redisClient, "users"),
+    bloom.WithName("users"),                 // task ID probfilter-rebuild-users
+    bloom.WithLogger(logger),
+    bloom.WithRebuildLoader(usersLoader),
+    bloom.WithRebuildOnStart(),
+    bloom.WithRebuildSchedule("0 0 * * * *"),
+    bloom.WithScheduler(scheduler),          // shared storages only; in-memory filters use a local cron
+)
+if err := filter.StartRebuild(ctx); err != nil {
+    _ = filter.Close(context.WithoutCancel(ctx))
+    return err
+}
 ```
 
 ---
@@ -216,13 +242,14 @@ mgr.Unregister("sessions")
 mgr.Close()
 ```
 
-The Manager accepts a `metrics.Collector` via `WithCollector` option for Prometheus instrumentation. See [Metrics](#metrics) for details.
+The Manager accepts a `metrics.Meter` via `WithMeter` option for Prometheus instrumentation. See [Metrics](#metrics) for details.
 
 ---
 
 ## Data loading and rebuild
 
-Bloom filters don't support deletion. Instead, rebuild the filter periodically from a fresh data source using the `DataLoader` interface. Cuckoo filters
+Bloom filters don't support deletion. Instead, rebuild the filter periodically from a fresh data source using the `DataLoader` interface. Cuckoo
+filters
 can be rebuilt the same way, which also drops fingerprints of values removed from the source but never deleted from the filter.
 
 ```go
@@ -277,7 +304,8 @@ step (a pointer swap, or `RENAME`).
   when it started.
 - A Redis Cuckoo delete is bound to the filter generation it observed: every commit attempt advances a generation counter
   (`__probfilter__:{<tag>}:generation:…`, same cluster slot), and a delete request delayed past a rebuild (for example after a client timeout) finds a
-  different token and does nothing instead of removing a colliding member of the new filter (`Delete` then reports an error; it is never retried against
+  different token and does nothing instead of removing a colliding member of the new filter (`Delete` then reports an error; it is never retried
+  against
   the new filter). The counter advances before the rename and on every attempt (retries included), so no promotion can keep a generation a delete
   observed.
 - Each Redis Cuckoo delete request runs its `CF.DEL` at most once: before the delete, a pending record of the request is stored in a per-filter
@@ -300,7 +328,8 @@ step (a pointer swap, or `RENAME`).
   taken before the data source is read. A rebuild that finds the lease held returns `ErrRebuildInProgress` without reading its source (the
   holder publishes a fresh snapshot). Only the current holder can publish: a rebuild that lost its lease (for example a stalled process)
   returns `ErrRebuildSuperseded` and its possibly outdated snapshot is discarded, so an older snapshot never overwrites a newer one.
-- Staging keys are reserved together with a TTL (`StagingTTL`, one hour, refreshed after every staging batch) in one Lua script and are never recreated
+- Staging keys are reserved together with a TTL (`StagingTTL`, one hour, refreshed after every staging batch) in one Lua script and are never
+  recreated
   once gone (staging batches use `NOCREATE`), so a process that crashes mid-rebuild cannot leak one; a staging key that vanishes during a slow rebuild
   fails that rebuild. The commit is one Lua script (`RENAME`, `PERSIST`, commit marker).
 - Each staging key is created at most once: the stage request records its id in a TTL-less registry and carries a one-minute server-time
@@ -346,7 +375,7 @@ stats, err := sp.Stats(ctx)
 
 ## Metrics
 
-When a `metrics.Collector` is provided to the Manager (`WithCollector`, or `UseCollector` on the factory `ManagerBuilder`), `Register` attaches an
+When a `metrics.Meter` is provided to the Manager (`WithMeter`, or `UseMeter` on the factory `ManagerBuilder`), `Register` attaches an
 observer to every `ObservableFilter` (the Bloom and Cuckoo filters) that records the following metrics under the `probfilter` subsystem; `Unregister`
 and `Close` detach it. Operations on a filter that is not registered with such a Manager are not recorded:
 
@@ -374,7 +403,8 @@ an error. A superseded rebuild (`ErrRebuildSuperseded`) and every other failure 
 | Cuckoo options | `WithCapacity`                               | `WithCapacity`, `WithKeyPrefix`, `WithExpansion` |
 | Requirement    | None                                         | `redis.UniversalClient`                          |
 
-Redis implementations batch items into chunks of 1000 for `AddBatch` to avoid oversized Redis commands. They accept replies in both RESP2 and RESP3 (the
+Redis implementations batch items into chunks of 1000 for `AddBatch` to avoid oversized Redis commands. They accept replies in both RESP2 and RESP3 (
+the
 go-redis v9 default): RedisBloom answers `*.EXISTS`/`CF.DEL` with integers under RESP2 and booleans under RESP3, and `*.INFO` with an array or a map.
 
 The in-memory Cuckoo storage never evicts a member on a failed insert: `ErrFilterFull` leaves the filter unchanged. Deleting a value that was
@@ -386,24 +416,26 @@ never added can still remove a colliding member's fingerprint, so only delete va
 
 ### Interfaces and types
 
-| Interface           | Package      | Methods                                                                 |
-|---------------------|--------------|-------------------------------------------------------------------------|
-| `Filter`            | `probfilter` | `Add`, `AddBatch`, `MightExist`                                         |
-| `DeletableFilter`   | `probfilter` | `Filter` + `Delete`                                                     |
-| `RebuildableFilter` | `probfilter` | `Filter` + `Rebuild`, `LastRebuild`                                     |
-| `ObservableFilter`  | `probfilter` | `Filter` + `SetObserver`                                                |
-| `RebuildCommitReporter` | `probfilter` | `RebuildCommitted`                                                  |
-| `Observer`          | `probfilter` | `ObserveLookup`, `ObserveAdd`, `ObserveRebuild`                         |
-| `StatsProvider`     | `probfilter` | `Stats`                                                                 |
-| `DataLoader`        | `probfilter` | `StreamValues`, `Count`                                                 |
-| `Manager` (struct)  | `probfilter` | `Register`, `Get`, `MustGet`, `Unregister`, `Names`, `Filters`, `Close` |
+| Interface                   | Package      | Methods                                                                                              |
+|-----------------------------|--------------|------------------------------------------------------------------------------------------------------|
+| `Filter`                    | `probfilter` | `Add`, `AddBatch`, `MightExist`                                                                      |
+| `DeletableFilter`           | `probfilter` | `Filter` + `Delete`                                                                                  |
+| `RebuildableFilter`         | `probfilter` | `Filter` + `Rebuild`, `LastRebuild`                                                                  |
+| `ObservableFilter`          | `probfilter` | `Filter` + `SetObserver`                                                                             |
+| `RebuildCommitReporter`     | `probfilter` | `RebuildCommitted`                                                                                   |
+| `RebuildCommitTimeReporter` | `probfilter` | `LastRebuildCommit`: commit time of the last rebuild by any process (Redis clock for a Redis filter) |
+| `RebuildLoadReporter`       | `probfilter` | `LastRebuildLoaded`: values the last committed rebuild loaded from its source                        |
+| `Observer`                  | `probfilter` | `ObserveLookup`, `ObserveAdd`, `ObserveRebuild`                                                      |
+| `StatsProvider`             | `probfilter` | `Stats`                                                                                              |
+| `DataLoader`                | `probfilter` | `StreamValues`, `Count`                                                                              |
+| `Manager` (struct)          | `probfilter` | `Register`, `Get`, `MustGet`, `Unregister`, `Names`, `Filters`, `Close`                              |
 
 ### Builders
 
-| Builder          | Package              | Methods                                                                                                                     |
-|------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `FilterBuilder`  | `probfilter/factory` | `NewFilter` -> `UseLogger`, `UseRedisClient`, `UseDataLoader`, `UseScheduler`, `TolerateRebuildInProgress`, `Build`         |
-| `ManagerBuilder` | `probfilter/factory` | `NewManager` -> `UseLogger`, `UseDefaultLogger`, `UseRedisClient`, `UseDataLoader`, `UseScheduler`, `UseCollector`, `Build` |
+| Builder          | Package                    | Methods                                                                                                                                      |
+|------------------|----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `FilterBuilder`  | `factory/cache/probfilter` | `NewFilter` -> `UseLogger`, `UseBloomStorage`, `UseCuckooStorage`, `UseDataLoader`, `UseScheduler`, `TolerateRebuildInProgress`, `Build`     |
+| `ManagerBuilder` | `factory/cache/probfilter` | `NewManager` -> `UseLogger`, `UseDefaultLogger`, `UseBloomStorage`, `UseCuckooStorage`, `UseDataLoader`, `UseScheduler`, `UseMeter`, `Build` |
 
 ### Errors
 

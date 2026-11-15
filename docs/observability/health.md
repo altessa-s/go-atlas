@@ -10,27 +10,28 @@ import (
 ```
 
 A single `health.Coordinator` owns the per-service status registry, caches results, and pushes change notifications to subscribers. The HTTP
-handlers (`Healthz`, `Readyz`, `Detailed`) and the gRPC `Handler` (`grpc_health_v1.HealthServer`) are thin transport adapters on top of it —
-they query the same coordinator and translate its `ServingStatus` into HTTP codes or `grpc_health_v1` enum values.
+handlers (`Healthz`, `Readyz`, `Detailed`) depend on `HealthReporter`; the gRPC `Handler` (`grpc_health_v1.HealthServer`) depends on
+`HealthWatcher`. `health.Coordinator` implements both contracts, and the handlers translate its `ServingStatus` into HTTP codes or
+`grpc_health_v1` enum values.
 
 ---
 
 ## What it does
 
-| Feature                    | How it works                                                                |
-|----------------------------|-----------------------------------------------------------------------------|
-| Per-service registry       | `Checker` implementations registered by name                                |
-| Status caching             | Per-service TTL cache, default 500 ms                                       |
-| Reactive subscriptions     | Sharded watcher pool fed by `RunHealthCheckCycle`                           |
-| Periodic checks            | Optional cron schedule via `WithScheduler` + `WithCheckSchedule`            |
-| HTTP probes                | `Healthz` / `Readyz` (coordinator-backed) and `K8sHealtz` / `K8sReadyz` (stubs) |
-| HTTP detailed view         | `Detailed` lists every registered service                                   |
-| gRPC                       | `Handler` exposes `Check`, `List`, `Watch` per `grpc_health_v1`             |
-| Adaptive watcher buffers   | Channel size grows under high subscriber load                               |
-| Concurrent check limit     | `ListStatuses` fan-out is bounded                                           |
-| Lifecycle broadcast        | `Close()` pins the pull-API to `NOT_SERVING` and broadcasts to every watcher |
-| Manual override            | `SetOverallStatus` flips `CheckStatus`/`CheckHealth` ahead of dependency teardown |
-| Metrics                    | Cycle duration histogram, change/check counters                             |
+| Feature                  | How it works                                                                      |
+|--------------------------|-----------------------------------------------------------------------------------|
+| Per-service registry     | `Checker` implementations registered by name                                      |
+| Status caching           | Per-service TTL cache, default 500 ms                                             |
+| Reactive subscriptions   | Sharded watcher pool fed by `RunHealthCheckCycle`                                 |
+| Periodic checks          | Optional cron schedule via `WithScheduler` + `WithCheckSchedule`                  |
+| HTTP probes              | `Healthz` / `Readyz` (coordinator-backed) and `K8sHealtz` / `K8sReadyz` (stubs)   |
+| HTTP detailed view       | `Detailed` lists every registered service                                         |
+| gRPC                     | `Handler` exposes `Check`, `List`, `Watch` per `grpc_health_v1`                   |
+| Adaptive watcher buffers | Channel size grows under high subscriber load                                     |
+| Concurrent check limit   | `ListStatuses` fan-out is bounded                                                 |
+| Lifecycle broadcast      | `Close()` pins the pull-API to `NOT_SERVING` and broadcasts to every watcher      |
+| Manual override          | `SetOverallStatus` flips `CheckStatus`/`CheckHealth` ahead of dependency teardown |
+| Metrics                  | Cycle duration histogram, change/check counters                                   |
 
 ## How it's wired
 
@@ -48,18 +49,19 @@ checkers ─────► │   health.Coordinator     │ ◄─── schedu
       └─────────────┘ └─────────────┘ └──────────────────────────┘
 ```
 
-Each `Checker` is owned by the consumer (database, broker, secret manager, plugin manager — packages such as `security/secrets`, `security/vault`,
-`auth/oidc`, `auth/opa`, `plugins`, `data/locks/dlock` ship one) and registered into a shared `Coordinator`. Each check runs with a
+Each `Checker` is owned by the consumer (database, broker, secret manager, plugin manager — packages such as `factory/ext/kryptos`, `security/vault`,
+`auth/oidc`, `auth/opa`, `coord/dlock` ship one) and registered into a shared `Coordinator`. Each check runs with a
 `WithCheckTimeout` deadline on its context; the timeout is cooperative — the coordinator calls checkers synchronously, so a checker must honor
 cancellation and bound its own I/O. Results live in a sharded cache, so probe handlers stay cheap under load.
 
-In-tree subsystems that self-register when supplied a `*health.Coordinator` via their `WithHealthCoordinator` option:
+In-tree subsystems that self-register when supplied a `health.Registrar` (or the wider `health.Reporter` / `health.DynamicReporter` ports that
+`*health.Coordinator` also implements) via their `WithHealthCoordinator` option:
 
-| Package                          | Default service name | What is probed                                                                       |
-|----------------------------------|----------------------|--------------------------------------------------------------------------------------|
-| `data/locks/dlock`               | `dlock`              | Lock provider connection (NATS / noop) via the `Prober` interface                    |
+| Package       | Default service name | What is probed                                                    |
+|---------------|----------------------|-------------------------------------------------------------------|
+| `coord/dlock` | `dlock`              | Lock provider connection (NATS / noop) via the `Prober` interface |
 
-The broker packages (`transport/broker`, `transport/broker/inprogress`, `transport/broker/outbox`) do not register a health checker today; wrap them
+The broker packages (`messaging/broker`, `messaging/broker/inprogress`, `messaging/broker/outbox`) do not register a health checker today; wrap them
 in a `health.Func` yourself if you need them in the registry.
 
 ---
@@ -125,11 +127,11 @@ coord.Close()               // broadcast NOT_SERVING to remaining subscribers
 ### From config (factory)
 
 ```go
-import healthfactory "github.com/altessa-s/go-atlas/observability/health/factory"
+import healthfactory "github.com/altessa-s/go-atlas/factory/observability/health"
 
 coord, err := healthfactory.New(&cfg.Health).
     UseLogger(logger).
-    Build()
+    Build(ctx)
 if err != nil {
     return err
 }
@@ -140,27 +142,27 @@ defer coord.Close()
 
 ## Coordinator API
 
-| Method                                     | What it does                                                            |
-|--------------------------------------------|-------------------------------------------------------------------------|
-| `New(opts...)`                             | Construct a coordinator                                                 |
-| `(c) RegisterService(name, Checker)`       | Add a service                                                           |
-| `(c) UnregisterService(name)`              | Remove a service and clear its cache entry                              |
-| `(c) ListServices() iter.Seq[string]`      | Iterate over registered names                                           |
-| `(c) CheckStatus(ctx, service)`            | Read status (cached when fresh); empty `service` = overall              |
-| `(c) CheckServiceHealth(ctx, service)`     | Bypass cache, run the named checker once                                |
-| `(c) CheckHealth(ctx)`                     | Bypass cache, return `SERVING` only if every checker is `SERVING`       |
-| `(c) Health(ctx) error`                    | `CheckHealth` as an error: nil while `SERVING`, else wraps `ErrNotServing`; fits the gRPC health interceptor |
-| `(c) ListStatuses(ctx)`                    | Fan-out check across all services (bounded by `MaxConcurrentHealthChecks`) |
-| `(c) Subscribe(ctx, service)`              | Get a `Subscription` for status change updates                          |
-| `(c) NotifyStatusChange(service, status)`  | Push an explicit status change to watchers and update the cache         |
-| `(c) BroadcastStatus(status)`              | Push the same status to every watcher across every service              |
-| `(c) SetOverallStatus(status)`             | Pin the pull API (`CheckHealth`/`CheckStatus`) to `status`; pass `StatusUnknown` to clear |
-| `(c) OverallStatusOverride()`              | Read the current pinned status (or `StatusUnknown` if no override is in effect) |
-| `(c) TriggerRecheckAll()`                  | Drop all cached statuses; next call re-runs the checker                 |
-| `(c) RegisterHealthCheckSchedulerFunc()`   | Hand the cycle to a scheduler; direct calls then return `ErrSchedulerManaged` |
-| `(c) RunHealthCheckCycle(ctx)`             | One iteration over watched services + delivery of changes               |
-| `(c) GetMetrics()`                         | Snapshot of `active_watchers`, `cached_statuses`, …                     |
-| `(c) Close()`                              | Idempotent shutdown; pins overall status to `NOT_SERVING` and broadcasts the same to every watcher |
+| Method                                    | What it does                                                                                                 |
+|-------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| `New(opts...)`                            | Construct a coordinator                                                                                      |
+| `(c) RegisterService(name, Checker)`      | Add a service                                                                                                |
+| `(c) UnregisterService(name)`             | Remove a service and clear its cache entry                                                                   |
+| `(c) ListServices() iter.Seq[string]`     | Iterate over registered names                                                                                |
+| `(c) CheckStatus(ctx, service)`           | Read status (cached when fresh); empty `service` = overall                                                   |
+| `(c) CheckServiceHealth(ctx, service)`    | Bypass cache, run the named checker once                                                                     |
+| `(c) CheckHealth(ctx)`                    | Bypass cache, return `SERVING` only if every checker is `SERVING`                                            |
+| `(c) Health(ctx) error`                   | `CheckHealth` as an error: nil while `SERVING`, else wraps `ErrNotServing`; fits the gRPC health interceptor |
+| `(c) ListStatuses(ctx)`                   | Fan-out check across all services (bounded by `MaxConcurrentHealthChecks`)                                   |
+| `(c) Subscribe(ctx, service)`             | Get a `Subscription` for status change updates                                                               |
+| `(c) NotifyStatusChange(service, status)` | Push an explicit status change to watchers and update the cache                                              |
+| `(c) BroadcastStatus(status)`             | Push the same status to every watcher across every service                                                   |
+| `(c) SetOverallStatus(status)`            | Pin the pull API (`CheckHealth`/`CheckStatus`) to `status`; pass `StatusUnknown` to clear                    |
+| `(c) OverallStatusOverride()`             | Read the current pinned status (or `StatusUnknown` if no override is in effect)                              |
+| `(c) TriggerRecheckAll()`                 | Drop all cached statuses; next call re-runs the checker                                                      |
+| `(c) RegisterHealthCheckSchedulerFunc()`  | Hand the cycle to a scheduler; direct calls then return `ErrSchedulerManaged`                                |
+| `(c) RunHealthCheckCycle(ctx)`            | One iteration over watched services + delivery of changes                                                    |
+| `(c) GetMetrics()`                        | Snapshot of `active_watchers`, `cached_statuses`, …                                                          |
+| `(c) Close()`                             | Idempotent shutdown; pins overall status to `NOT_SERVING` and broadcasts the same to every watcher           |
 
 ### `Checker` and `Func`
 
@@ -184,13 +186,13 @@ The context passed to `CheckHealth` carries the per-check timeout configured via
 
 ## `ServingStatus`
 
-| Constant                | String           | gRPC enum                     | HTTP code (probe handlers) |
-|-------------------------|------------------|-------------------------------|----------------------------|
-| `StatusUnknown`         | `UNKNOWN`        | `UNKNOWN`                     | 503                        |
-| `StatusServing`         | `SERVING`        | `SERVING`                     | 200                        |
-| `StatusNotServing`      | `NOT_SERVING`    | `NOT_SERVING`                 | 503                        |
-| `StatusServiceUnknown`  | `SERVICE_UNKNOWN`| `SERVICE_UNKNOWN`             | 503; gRPC `Check` returns `codes.NotFound` |
-| `StatusDegraded`        | `DEGRADED`       | `UNKNOWN` (no proto mapping)  | 503                        |
+| Constant               | String            | gRPC enum                    | HTTP code (probe handlers)                 |
+|------------------------|-------------------|------------------------------|--------------------------------------------|
+| `StatusUnknown`        | `UNKNOWN`         | `UNKNOWN`                    | 503                                        |
+| `StatusServing`        | `SERVING`         | `SERVING`                    | 200                                        |
+| `StatusNotServing`     | `NOT_SERVING`     | `NOT_SERVING`                | 503                                        |
+| `StatusServiceUnknown` | `SERVICE_UNKNOWN` | `SERVICE_UNKNOWN`            | 503; gRPC `Check` returns `codes.NotFound` |
+| `StatusDegraded`       | `DEGRADED`        | `UNKNOWN` (no proto mapping) | 503                                        |
 
 `String()` produces stable values you can put on the wire; the `status` fields in the bodies of `Healthz`/`Readyz` (200 only) and `Detailed` use
 these strings — see [HTTP handlers](#http-handlers) for the exact response shapes.
@@ -213,7 +215,7 @@ Both always write `Response{Status: "ok"}` with HTTP 200 regardless of any state
 `writer.NewDefault()` builder). They exist for the simplest deployments where the only signal that matters is "the process is up and the listener
 is accepting".
 
-> **Default wiring caveat.** `transport/http/server/factory` registers
+> **Default wiring caveat.** `factory/transport/http/server` registers
 > `K8sHealtz` at `/internal/healthz` and `K8sReadyz` at `/internal/readyz`
 > as built-in handlers (on by default; disable them with
 > `WithoutBuiltinHandlers()`). They will **not** flip to `NOT_SERVING` on
@@ -226,11 +228,11 @@ is accepting".
 
 ### Coordinator-backed — `Healthz`, `Readyz`, `Detailed`
 
-| Handler           | Behavior                                                                                       |
-|-------------------|------------------------------------------------------------------------------------------------|
-| `Healthz(coord)`  | `CheckStatus(ctx, service)` (`?service=` query); 200 if `SERVING`, 503 otherwise               |
-| `Readyz(coord)`   | `CheckStatus(ctx, "")`; 200 only when **overall** is `SERVING`                                 |
-| `Detailed(coord)` | `ListStatuses(ctx)`; JSON map of every service; 503 if any service is not `SERVING`            |
+| Handler           | Behavior                                                                            |
+|-------------------|-------------------------------------------------------------------------------------|
+| `Healthz(coord)`  | `CheckStatus(ctx, service)` (`?service=` query); 200 if `SERVING`, 503 otherwise    |
+| `Readyz(coord)`   | `CheckStatus(ctx, "")`; 200 only when **overall** is `SERVING`                      |
+| `Detailed(coord)` | `ListStatuses(ctx)`; JSON map of every service; 503 if any service is not `SERVING` |
 
 Every handler writes through the server's `writer.ReadWriter`, so the payload is passed to the writer's response `Builder`. The shapes below are
 the handler payloads; with the default `writer.NewDefault()` builder they arrive wrapped in its envelope as `{"data": …}`.
@@ -259,11 +261,11 @@ body, to tell `NOT_SERVING` from `UNKNOWN`, `SERVICE_UNKNOWN`, or `DEGRADED`.
 
 `transport/grpc/handlers/health.Handler` implements `grpc_health_v1.HealthServer`.
 
-| RPC      | Type             | Behavior                                                                                  |
-|----------|------------------|-------------------------------------------------------------------------------------------|
-| `Check`  | unary            | `coord.CheckStatus`; returns `codes.NotFound` if the service name is non-empty and unknown |
-| `List`   | unary            | `coord.ListStatuses`; map of every service to `HealthCheckResponse`                       |
-| `Watch`  | server-stream    | `coord.Subscribe`, sends initial status, pushes every change; suppresses duplicates       |
+| RPC     | Type          | Behavior                                                                                   |
+|---------|---------------|--------------------------------------------------------------------------------------------|
+| `Check` | unary         | `coord.CheckStatus`; returns `codes.NotFound` if the service name is non-empty and unknown |
+| `List`  | unary         | `coord.ListStatuses`; map of every service to `HealthCheckResponse`                        |
+| `Watch` | server-stream | `coord.Subscribe`, sends initial status, pushes every change; suppresses duplicates        |
 
 ### Watch stream lifecycle
 
@@ -402,55 +404,55 @@ directly; the coordinator stays usable, and you can clear the override later wit
 
 Subsystem `health` (override via `WithMetricsSubsystem` is not exposed today — the prefix is fixed).
 
-| Metric                                  | Type      | What it measures                                                  |
-|-----------------------------------------|-----------|-------------------------------------------------------------------|
-| `health_check_cycle_duration_seconds`   | Histogram | Wall time of a single `RunHealthCheckCycle` invocation            |
-| `health_status_changes_total`           | Counter   | Number of status diffs forwarded to watchers                      |
-| `health_checks_performed_total`         | Counter   | Individual `Checker.CheckHealth` calls executed inside the cycle  |
+| Metric                                | Type      | What it measures                                                 |
+|---------------------------------------|-----------|------------------------------------------------------------------|
+| `health_check_cycle_duration_seconds` | Histogram | Wall time of a single `RunHealthCheckCycle` invocation           |
+| `health_status_changes_total`         | Counter   | Number of status diffs forwarded to watchers                     |
+| `health_checks_performed_total`       | Counter   | Individual `Checker.CheckHealth` calls executed inside the cycle |
 
 Runtime gauges (live values, not Prometheus metrics) come from `Coordinator.GetMetrics()`:
 
-| Key                     | Meaning                                              |
-|-------------------------|------------------------------------------------------|
-| `active_watchers`       | Watchers currently subscribed                        |
-| `total_watchers`        | Same value, computed from shards (sanity check)      |
-| `list_calls_in_flight`  | Concurrent `ListStatuses` invocations                |
-| `cached_statuses`       | Entries in the per-service cache                     |
+| Key                    | Meaning                                         |
+|------------------------|-------------------------------------------------|
+| `active_watchers`      | Watchers currently subscribed                   |
+| `total_watchers`       | Same value, computed from shards (sanity check) |
+| `list_calls_in_flight` | Concurrent `ListStatuses` invocations           |
+| `cached_statuses`      | Entries in the per-service cache                |
 
 ---
 
 ## Options
 
-| Option                              | Default            | What it sets                                                  |
-|-------------------------------------|--------------------|---------------------------------------------------------------|
-| `WithLogger`                        | discard            | `*slog.Logger` for diagnostic logs                            |
-| `WithCollector`                     | noop               | Prometheus collector for the metrics above                    |
-| `WithWatcherChannelBuffer`          | `10`               | Base buffer per subscriber                                    |
-| `WithMaxWatchersPerService`         | `1000`             | Cap; further `Subscribe` calls return `ErrWatcherLimitExceeded` |
-| `WithNumShards`                     | `32`               | Watcher map shards (lock contention)                          |
-| `WithMaxConcurrentHealthChecks`     | `10`               | Fan-out cap for `ListStatuses`                                |
-| `WithStatusCacheTTL`                | `500 ms`           | How long `CheckStatus` reuses a result                        |
-| `WithCheckTimeout`                  | `2 s`              | Per-checker timeout via `corectx.ApplyTimeout`                |
-| `WithAdaptiveBufferThreshold`       | `100`              | Watcher count above which new buffers scale up                |
-| `WithAdaptiveBufferMultiplier`      | `2`                | Multiplier applied above the threshold                        |
-| `WithMaxAdaptiveBuffer`             | `100`              | Hard cap on the scaled buffer                                 |
-| `WithScheduler`                     | nil                | `corescheduler.TaskRegistrar` to drive the cycle              |
-| `WithCheckSchedule`                 | empty              | Cron expression; required alongside `WithScheduler`           |
+| Option                          | Default  | What it sets                                                    |
+|---------------------------------|----------|-----------------------------------------------------------------|
+| `WithLogger`                    | discard  | `*slog.Logger` for diagnostic logs                              |
+| `WithMeter`                     | noop     | Prometheus collector for the metrics above                      |
+| `WithWatcherChannelBuffer`      | `10`     | Base buffer per subscriber                                      |
+| `WithMaxWatchersPerService`     | `1000`   | Cap; further `Subscribe` calls return `ErrWatcherLimitExceeded` |
+| `WithNumShards`                 | `32`     | Watcher map shards (lock contention)                            |
+| `WithMaxConcurrentHealthChecks` | `10`     | Fan-out cap for `ListStatuses`                                  |
+| `WithStatusCacheTTL`            | `500 ms` | How long `CheckStatus` reuses a result                          |
+| `WithCheckTimeout`              | `2 s`    | Per-checker timeout via `corectx.ApplyTimeout`                  |
+| `WithAdaptiveBufferThreshold`   | `100`    | Watcher count above which new buffers scale up                  |
+| `WithAdaptiveBufferMultiplier`  | `2`      | Multiplier applied above the threshold                          |
+| `WithMaxAdaptiveBuffer`         | `100`    | Hard cap on the scaled buffer                                   |
+| `WithScheduler`                 | nil      | `schedtask.Registrar` to drive the cycle                        |
+| `WithCheckSchedule`             | empty    | Cron expression; required alongside `WithScheduler`             |
 
 ---
 
 ## Errors
 
-| Sentinel                    | Returned by                                                          |
-|-----------------------------|----------------------------------------------------------------------|
-| `ErrCoordinatorShutdown`    | `Subscribe` after `Close`                                            |
-| `ErrWatcherLimitExceeded`   | `Subscribe` when `MaxWatchersPerService` is reached                  |
-| `ErrSchedulerManaged`       | `RunHealthCheckCycle` after `RegisterHealthCheckSchedulerFunc`       |
-| `ErrNotServing`             | `Health` when the overall status is not `SERVING`                    |
-| `ErrServiceNotFound`        | Reserved; not returned by this package                               |
-| `ErrCheckTimeout`           | Reserved for callers wrapping their own checker timeouts              |
-| `ErrInvalidServiceName`     | Reserved for callers validating registration input                   |
-| `ErrNilCheckFunc`           | Reserved for callers asserting `health.Func` is non-nil              |
+| Sentinel                  | Returned by                                                    |
+|---------------------------|----------------------------------------------------------------|
+| `ErrCoordinatorShutdown`  | `Subscribe` after `Close`                                      |
+| `ErrWatcherLimitExceeded` | `Subscribe` when `MaxWatchersPerService` is reached            |
+| `ErrSchedulerManaged`     | `RunHealthCheckCycle` after `RegisterHealthCheckSchedulerFunc` |
+| `ErrNotServing`           | `Health` when the overall status is not `SERVING`              |
+| `ErrServiceNotFound`      | Reserved; not returned by this package                         |
+| `ErrCheckTimeout`         | Reserved for callers wrapping their own checker timeouts       |
+| `ErrInvalidServiceName`   | Reserved for callers validating registration input             |
+| `ErrNilCheckFunc`         | Reserved for callers asserting `health.Func` is non-nil        |
 
 Wrap helpers (`WrapCheckError`, `WrapWatchError`, `WrapShutdownError`) add a service-aware operation prefix using `core/errors`.
 
@@ -474,7 +476,7 @@ health:
   maxAdaptiveBuffer:         100
 ```
 
-The factory in `observability/health/factory` maps every field above onto its `With*` counterpart. `healthCheckInterval` is used only when a
+The factory in `factory/observability/health` maps every field above onto its `With*` counterpart. `healthCheckInterval` is used only when a
 scheduler is supplied via `UseScheduler`: the factory then passes `WithScheduler` + `WithCheckSchedule("@every <interval>")` and calls
 `RegisterHealthChecks` in `Build`. Without a scheduler (or with a zero interval) it has no effect — the coordinator itself does not poll, so call
 `RunHealthCheckCycle` from your own loop.
@@ -489,4 +491,4 @@ scheduler is supplied via `UseScheduler`: the factory then passes `WithScheduler
 - HTTP probe handlers — Kubernetes `livez` / `readyz`, plus richer endpoints that surface per-service status as JSON.
 - A gRPC handler that implements the standard `grpc_health_v1` service against the same coordinator.
 
-Subsystems that ship a built-in `Checker`: OIDC authentication, OPA authorization, secrets manager, Vault client, plugins host.
+Subsystems that ship a built-in `Checker`: OIDC authentication, OPA authorization, secrets manager, Vault client.

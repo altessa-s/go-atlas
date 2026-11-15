@@ -23,17 +23,17 @@ certificates — using the same YAML-driven model across every consumer in go-at
 Proxy support lives in three layers:
 
 1. **Config struct** — the shared `proxyconfig.Config` defines the YAML schema and validation for both transports;
-   `transport/proxydial/factory.HTTPClientOptions(cfg)` / `GRPCClientOptions(cfg)` materialize it into option slices.
-2. **Client options** — the `WithProxy*` family of functional options on `transport/http/client` and `transport/grpc/client` applies the options to
+   `factory/ext/net/proxydial.HTTPClientOptions(cfg)` / `GRPCClientOptions(cfg)` materialize it into option slices.
+2. **Client options** — the `WithProxy*` family of functional options on `net/http/client` and `transport/grpc/client` applies the options to
    the respective clients.
-3. **Shared dialer** — `transport/proxydial` implements HTTP CONNECT (RFC 7231 §4.3.6), SOCKS5, and the `*tls.Config` merge rules used by both
+3. **Shared dialer** — `net/proxydial` implements HTTP CONNECT (RFC 7231 §4.3.6), SOCKS5, and the `*tls.Config` merge rules used by both
    clients.
 
 ### Default behavior
 
 **Passthrough is the default.** When the `proxy` block is omitted from YAML (or the receiver is `nil`):
 
-- `transport/http/client` disables environment proxies under its default SSRF protection.
+- `net/http/client` disables environment proxies under its default SSRF protection.
   `WithoutSSRFProtection()` restores `http.ProxyFromEnvironment` lookup.
 - `transport/grpc/client` uses grpc-go's built-in env lookup
   (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`).
@@ -46,32 +46,32 @@ An explicit configuration overrides the env-based default — including the `Mod
 
 ### Config types
 
-| Type               | Purpose                                                                                                                                           |
-|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| `proxyconfig.Config`     | Shared YAML-driven proxy schema; `proxydial/factory.HTTPClientOptions(p)` → `[]httpclient.Option`, `GRPCClientOptions(p)` → `[]grpcclient.Option` |
-| `proxyconfig.Auth` | Username + secret-redacted password                                                                                                               |
-| `proxyconfig.Mode` | Mode enum: `none` / `url` / `host` (or empty = passthrough)                                                                                       |
+| Type                 | Purpose                                                                                                                                                   |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `proxyconfig.Config` | Shared YAML-driven proxy schema; `factory/ext/net/proxydial.HTTPClientOptions(p)` → `[]httpclient.Option`, `GRPCClientOptions(p)` → `[]grpcclient.Option` |
+| `proxyconfig.Auth`   | Username + secret-redacted password                                                                                                                       |
+| `proxyconfig.Mode`   | Mode enum: `none` / `url` / `host` (or empty = passthrough)                                                                                               |
 
 ### HTTP client options
 
-| Option | Description |
-|--------|-------------|
-| `WithProxy(host, port, auth)` | Route through `http://host:port` with optional `*url.Userinfo` |
-| `WithProxyURL(u)` | Route through any proxy URL (`http` / `https` / `socks5` / `socks5h`) |
-| `WithProxyFunc(f)` | Custom resolver matching `http.Transport.Proxy` signature |
-| `WithoutProxy()` | Disable proxy resolution entirely, including env-var lookup |
-| `WithProxyTLSConfig(cfg)` | Custom `*tls.Config` for the handshake to an `https://` proxy |
-| `HTTPClientSetter` | Interface `SetHTTPClient(*http.Client)` for sub-components that adopt the parent's client |
+| Option                        | Description                                                                               |
+|-------------------------------|-------------------------------------------------------------------------------------------|
+| `WithProxy(host, port, auth)` | Route through `http://host:port` with optional `*url.Userinfo`                            |
+| `WithProxyURL(u)`             | Route through any proxy URL (`http` / `https` / `socks5` / `socks5h`)                     |
+| `WithProxyFunc(f)`            | Custom resolver matching `http.Transport.Proxy` signature                                 |
+| `WithoutProxy()`              | Disable proxy resolution entirely, including env-var lookup                               |
+| `WithProxyTLSConfig(cfg)`     | Custom `*tls.Config` for the handshake to an `https://` proxy                             |
+| `HTTPClientSetter`            | Interface `SetHTTPClient(*http.Client)` for sub-components that adopt the parent's client |
 
 ### gRPC client options
 
-| Option | Description |
-|--------|-------------|
-| `WithProxy(host, port, auth)` | Route through `http://host:port` with optional `*url.Userinfo` |
-| `WithProxyURL(u)` | Route through any proxy URL (`http` / `https` / `socks5` / `socks5h`) |
-| `WithProxyFunc(f)` | Custom resolver matching `http.Transport.Proxy` signature |
-| `WithoutProxy()` | Disable proxy resolution including grpc-go's env lookup |
-| `WithProxyTLSConfig(cfg)` | Custom `*tls.Config` for the handshake to an `https://` proxy |
+| Option                        | Description                                                           |
+|-------------------------------|-----------------------------------------------------------------------|
+| `WithProxy(host, port, auth)` | Route through `http://host:port` with optional `*url.Userinfo`        |
+| `WithProxyURL(u)`             | Route through any proxy URL (`http` / `https` / `socks5` / `socks5h`) |
+| `WithProxyFunc(f)`            | Custom resolver matching `http.Transport.Proxy` signature             |
+| `WithoutProxy()`              | Disable proxy resolution including grpc-go's env lookup               |
+| `WithProxyTLSConfig(cfg)`     | Custom `*tls.Config` for the handshake to an `https://` proxy         |
 
 ### Shared dialer
 
@@ -116,12 +116,12 @@ proxy:
 
 ### Mode semantics
 
-| Mode | Effect |
-|------|--------|
-| *(empty)* | Passthrough — env vars decide |
-| `none` | Disable proxy resolution (even env vars) |
-| `url` | Send all traffic to `url` (must include port) |
-| `host` | Build `http://host:port` from fields; `auth.password` supports secret expansion |
+| Mode      | Effect                                                                          |
+|-----------|---------------------------------------------------------------------------------|
+| *(empty)* | Passthrough — env vars decide                                                   |
+| `none`    | Disable proxy resolution (even env vars)                                        |
+| `url`     | Send all traffic to `url` (must include port)                                   |
+| `host`    | Build `http://host:port` from fields; `auth.password` supports secret expansion |
 
 ### Validation rules
 
@@ -168,7 +168,7 @@ OIDC/OPA factories reject the `url`/`host` modes shown in this schema example.
 import (
     "net/url"
 
-    httpclient "github.com/altessa-s/go-atlas/transport/http/client"
+    httpclient "github.com/altessa-s/go-atlas-net/http/client"
 )
 
 // Host/port with credentials (most common).
@@ -228,13 +228,14 @@ c, err = grpcclient.New(ctx, "service.example.com:443",
 
 ### Non-HTTP consumers (SMTP, IMAP, raw TCP, custom protocols)
 
-Protocols that do not go through `net/http` use the [`transport/proxydial`](../transport/proxydial) package via its fluent factory at
-[`transport/proxydial/factory`](../transport/proxydial/factory). The factory takes a `*proxyconfig.Config` and returns a `DialContextFunc`
+Protocols that do not go through `net/http` use the [`net/proxydial`](https://github.com/altessa-s/go-atlas-net/tree/develop/proxydial) package via
+its fluent factory at
+[`factory/ext/net/proxydial`](../factory/ext/net/proxydial). The factory takes a `*proxyconfig.Config` and returns a `DialContextFunc`
 (`func(ctx, network, addr) (net.Conn, error)`) that any library accepting a custom dialer can consume.
 
 ```go
 import (
-    proxydialfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
+    proxydialfactory "github.com/altessa-s/go-atlas/factory/ext/net/proxydial"
     "github.com/wneessen/go-mail"
 )
 
@@ -256,11 +257,11 @@ client, err := mail.NewClient(cfg.SMTP.Host, mailOpts...)
 A nil result means proxying is opted out of — caller should leave the
 library on its default direct dialer. Concrete behavior by `Mode`:
 
-| Mode             | Build() result                                                              |
-|------------------|-----------------------------------------------------------------------------|
-| empty / `none`   | `nil` — direct dial                                                         |
-| `url`            | tunnel resolved from `cfg.URL` scheme (`http`/`https`/`socks5`/`socks5h`)   |
-| `host`           | http-proxy tunnel to `cfg.Host:cfg.Port` with optional `cfg.Auth`           |
+| Mode           | Build() result                                                            |
+|----------------|---------------------------------------------------------------------------|
+| empty / `none` | `nil` — direct dial                                                       |
+| `url`          | tunnel resolved from `cfg.URL` scheme (`http`/`https`/`socks5`/`socks5h`) |
+| `host`         | http-proxy tunnel to `cfg.Host:cfg.Port` with optional `cfg.Auth`         |
 
 The builder also exposes `UseDialer` (custom `*net.Dialer`) and `UseProxyTLSConfig` (TLS to the proxy itself) for callers that need to
 override the defaults.
@@ -282,13 +283,13 @@ custom dialer hook accepts a `DialContextFunc` produced by `proxydial`.
 ## Wiring patterns
 
 Every consumer that supports proxy configuration follows the same pattern: materialize the config via `proxyfactory.HTTPClientOptions(cfg.Proxy)` /
-`GRPCClientOptions(cfg.Proxy)` (package `transport/proxydial/factory`) and pass the options to the target client's constructor.
+`GRPCClientOptions(cfg.Proxy)` (package `factory/ext/net/proxydial`) and pass the options to the target client's constructor.
 
 ### OIDC
 
 The factory rejects explicit proxy modes before the wiring below; only empty/`none` modes reach this code.
 
-`auth/oidc/factory/builder.go`:
+`factory/auth/oidc/builder.go`:
 
 ```go
 proxyOpts, err := proxyfactory.HTTPClientOptions(cfg.Proxy)
@@ -307,7 +308,7 @@ proxy. The same client also reaches a loader wrapped in a ready-made storage (`W
 
 Explicit proxy modes are rejected before this wiring.
 
-`auth/opa/factory/builder.go`:
+`factory/auth/opa/builder.go`:
 
 ```go
 proxyOpts, err := proxyfactory.HTTPClientOptions(gl.Proxy)
@@ -320,7 +321,8 @@ opts = append(opts, gitlab.WithHTTPClient(httpclient.New(clientOpts...)))
 
 ### OPA — S3 source
 
-S3 is the one consumer that **conditionally injects** the resilient HTTP client — only for explicit mode `none`; modes `url` and `host` are rejected. Without an override the
+S3 is the one consumer that **conditionally injects** the resilient HTTP client — only for explicit mode `none`; modes `url` and `host` are rejected.
+Without an override the
 AWS SDK keeps its own HTTP client (which already honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) and its own retry layer, avoiding double-retry with
 go-atlas's breaker:
 
@@ -334,20 +336,32 @@ awsCfgOpts = slices.AppendIfFunc(awsCfgOpts, len(proxyOpts) > 0, func() []func(*
 })
 ```
 
-### OTLP — gRPC exporter
+### OTLP — gRPC and HTTP exporters
 
-`observability/tracing/adapters/otlp/grpc_client.go`:
+`factory/observability/tracing/builder.go` builds the exporter's client from `TracingOTLP.Proxy` and injects it into the adapter, so both protocols
+share one proxy policy:
 
 ```go
-opts := []grpcclient.Option{}
-opts = slices.AppendIf(opts, c.insecure, grpcclient.WithInsecure())
-if c.retry { /* ... */ }
-// Caller-supplied options come last so they win over defaults.
-// Used by the tracing factory to inject proxy resolvers from proxyconfig.Config.
-opts = append(opts, c.extraClientOptions...)
+// Protocol: http (factory/observability/tracing/otlphttp.go)
+proxyOpts, err := proxyfactory.HTTPClientOptions(cfg.Proxy)
+policy, err := httpclient.NewEgressPolicy(collectorAndProxyAllowRules, nil) // exact host and port of each
+hc := httpclient.New(append([]httpclient.Option{httpclient.WithEgressPolicy(policy), httpclient.WithoutRetry()}, proxyOpts...)...)
+adapter, err := otlp.New(ctx, append(opts, otlp.WithHTTPClient(hc))...)
 
-client, err := grpcclient.New(ctx, c.endpoint, opts...)
+// Protocol: grpc
+proxyOpts, err := proxyfactory.GRPCClientOptions(cfg.Proxy)
+client, err := grpcclient.New(ctx, cfg.Endpoint, append(grpcOpts, proxyOpts...)...)
+conn, err := client.GetConnection(ctx)
+adapter, err := otlp.New(ctx, append(opts, otlp.WithGRPCConn(conn))...) // the factory closes client on Shutdown
 ```
+
+The HTTP client keeps SSRF protection on and allows exactly the configured collector host and port (a literal IP as that address, a host name at
+whatever address it resolves to) plus the proxy that carries the export; any other private or reserved destination is refused, and redirects are not
+followed (a 3xx reply fails the export, so custom headers never reach another host). The gRPC client dials only the configured endpoint and has no
+redirects, so it is not guarded. Retries stay with `otlptracehttp`. Without a proxy block both paths keep the `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`
+env
+lookup (the HTTP client installs `http.ProxyFromEnvironment` explicitly and allows the proxy it picks for the collector). A standalone `otlp.New`
+without injected clients dials with grpc-go defaults or uses the `otlptracehttp` default client, both of which honor the same env variables.
 
 ---
 
@@ -412,10 +426,10 @@ OPA S3 retains the AWS SDK client when no proxy mode is configured; that client 
 
 Both transports share `proxydial.DefaultDialer()` with:
 
-| Field | Value |
-|-------|-------|
-| `Timeout` | 30s |
-| `KeepAlive` | 30s |
+| Field       | Value |
+|-------------|-------|
+| `Timeout`   | 30s   |
+| `KeepAlive` | 30s   |
 
 These are exported as `proxydial.DefaultDialTimeout` and `proxydial.DefaultDialKeepAlive` so tests and alternative transports can reuse them without
 duplicating literals.
@@ -435,10 +449,6 @@ URL. The `host` / `port` / `auth` form with `password: $__secret{...}` keeps the
 
 ## Known limitations
 
-- **OTLP `Protocol: http`**: `TracingOTLP.Proxy` (a shared `*proxyconfig.Config`) only
-  wires into the gRPC exporter path. The config validator rejects the combination `Protocol: http` + `Proxy: {...}` at load time — the HTTP exporter
-  must use env-var proxy (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`) instead. Full HTTP-exporter wiring would require separate
-  `otlp.WithHTTPClientOptions([]otlptracehttp.Option)` plumbing and is tracked as a future enhancement.
 - **OPA — S3**: the AWS SDK has its own retry layer, so go-atlas's resilient
   client is injected only for explicit mode `none`; modes `url` and `host` are rejected.
   Inject a separately constructed S3 client for custom HTTP behavior.
@@ -450,5 +460,5 @@ URL. The `host` / `port` / `auth` form with `password: $__secret{...}` keeps the
 - [Configuration guide](configuration.md) — loader, env vars, templates
 - [Architecture](architecture.md) — package layout, layering
 - [OIDC](auth/oidc.md) — `oidc.proxy` field, JWKS / introspection clients
-- `transport/http/client` — HTTP client API reference
+- `net/http/client` — HTTP client API reference
 - `transport/grpc/client` — gRPC client API reference

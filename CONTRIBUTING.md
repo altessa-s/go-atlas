@@ -4,7 +4,7 @@ Thank you for your interest in contributing to go-atlas! This guide will help yo
 
 ## Prerequisites
 
-- **Go 1.26+** — [download](https://go.dev/dl/)
+- **Go 1.27+** — [download](https://go.dev/dl/)
 - **Make** — for running project targets
 - **Git** — for version control
 
@@ -72,9 +72,9 @@ Examples:
 
 ```
 feat(transport/grpc): add gRPC reflection support
-fix(data/cache): handle nil pointer in Redis fallback
+fix(cache): handle nil pointer in Redis fallback
 docs(README): add quick start examples
-test(domain/converter): add benchmark for slice conversion
+test(domain/money): add benchmark for allocation
 build(root): update Go version to 1.25
 ```
 
@@ -88,7 +88,7 @@ build(root): update Go version to 1.25
 
 ### Formatting
 
-- Run `make fmt` before committing — this runs `gci` with the project's import ordering.
+- Run `make fmt` before committing — this runs `golangci-lint fmt` with the project's import ordering.
 - Maximum line length: **156 characters** (enforced by `lll` linter).
 
 ### Import Ordering

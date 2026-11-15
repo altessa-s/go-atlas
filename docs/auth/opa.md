@@ -111,21 +111,21 @@ revision equals the loaded one is a no-op, so a quiet source costs only the fetc
 
 ## Package Map
 
-| File | Responsibility |
-|------|----------------|
-| `manager.go` | `Manager`, initial load, atomic reload, poll loop, `regoEvaluator`, denial parsing |
-| `evaluator.go` | `Evaluator`, `Result` |
-| `source.go` | `PolicySource` interface |
-| `bundle.go` | `PolicyBundle`, revision hashing, iterators |
-| `event.go` | `PolicyEvent`, `EventType`, `WatchOptions`, `WatchResult`, overflow policy |
-| `watcher.go` | `watchManager` — subscription fan-out |
-| `scheduler.go` | Scheduler task registration (`RunUpdateCycle`) |
-| `health.go` | Health check reporting |
-| `metrics.go` | `opaMetrics` (reloads, evaluations, latency, modules) |
-| `errors.go` | Sentinel errors |
-| `options.go` / `options_gen.go` | Functional options |
-| `factory/` | Config-driven builder (`factory.New(cfg).…Build(ctx)`) |
-| `sources/{embed,filesystem,gitlab,s3}/` | `PolicySource` implementations |
+| File                                    | Responsibility                                                                     |
+|-----------------------------------------|------------------------------------------------------------------------------------|
+| `manager.go`                            | `Manager`, initial load, atomic reload, poll loop, `regoEvaluator`, denial parsing |
+| `evaluator.go`                          | `Evaluator`, `Result`                                                              |
+| `source.go`                             | `PolicySource` interface                                                           |
+| `bundle.go`                             | `PolicyBundle`, revision hashing, iterators                                        |
+| `event.go`                              | `PolicyEvent`, `EventType`, `WatchOptions`, `WatchResult`, overflow policy         |
+| `watcher.go`                            | `watchManager` — subscription fan-out                                              |
+| `scheduler.go`                          | Scheduler task registration (`RunUpdateCycle`)                                     |
+| `health.go`                             | Health check reporting                                                             |
+| `metrics.go`                            | `opaMetrics` (reloads, evaluations, latency, modules)                              |
+| `errors.go`                             | Sentinel errors                                                                    |
+| `options.go` / `options_gen.go`         | Functional options                                                                 |
+| `factory/`                              | Config-driven builder (`factory.New(cfg).…Build(ctx)`)                             |
+| `sources/{embed,filesystem,gitlab,s3}/` | `PolicySource` implementations                                                     |
 
 ## Quick Start
 
@@ -160,12 +160,12 @@ empty query, or a policy set that fails to compile surfaces immediately rather t
 
 ### Source Matrix
 
-| Source | Import | Backend | Notes |
-|--------|--------|---------|-------|
-| Embed | `sources/embed` | `fs.FS` compiled into the binary | Immutable; revision is fixed at build time |
-| Filesystem | `sources/filesystem` | Local directory | No `fsnotify`; changes are detected by the `Manager` poll loop or scheduler |
-| GitLab | `sources/gitlab` | Repository via GitLab API | Network-backed; supports resilient HTTP client |
-| S3 | `sources/s3` | S3-compatible object store | Network-backed; AWS SDK transport, optional proxy |
+| Source     | Import               | Backend                          | Notes                                                                       |
+|------------|----------------------|----------------------------------|-----------------------------------------------------------------------------|
+| Embed      | `sources/embed`      | `fs.FS` compiled into the binary | Immutable; revision is fixed at build time                                  |
+| Filesystem | `sources/filesystem` | Local directory                  | No `fsnotify`; changes are detected by the `Manager` poll loop or scheduler |
+| GitLab     | `sources/gitlab`     | Repository via GitLab API        | Network-backed; supports resilient HTTP client                              |
+| S3         | `sources/s3`         | S3-compatible object store       | Network-backed; AWS SDK transport, optional proxy                           |
 
 Each source is a passive fetcher. The `Manager` drives polling at `pollInterval` (default 30s) when watching, or runs cycles on the
 scheduler when one is wired.
@@ -187,13 +187,23 @@ compute the revision hash for you.
 ### Outbound HTTP (GitLab, S3)
 
 The GitLab and S3 sources reach external services and accept proxy / retry / breaker configuration through the resilient
-[`transport/http/client`](../../transport/http/client/):
+[`net/http/client`](https://github.com/altessa-s/go-atlas-net/tree/develop/http/client):
 
 - **GitLab** receives a client via `gitlab.WithHTTPClient(...)`; the factory always injects the resilient client.
 - **S3** swaps the AWS SDK transport via `awsconfig.WithHTTPClient(httpclient.New(...))` only when `s3.proxy` is explicitly configured;
   otherwise the SDK keeps its own transport and retry layer.
 
-See the [Proxy guide](../proxy.md) for YAML modes and the [factory README](../../auth/opa/factory/) for wiring details.
+See the [Proxy guide](../proxy.md) for YAML modes and the [factory README](../../factory/auth/opa/) for wiring details.
+
+Integrity of remote policies:
+
+- **GitLab** requires an `https://` endpoint (`ErrInsecureEndpoint`; opt out with `gitlab.WithAllowInsecureHTTP`, in YAML `gitlab.allowInsecureHTTP:
+  true`) and caps each file at `gitlab.WithMaxFileBytes` (default 32 MiB).
+- **S3** built by the factory requires an `https://` `s3.endpoint` when one is set (`s3source.ErrInsecureEndpoint`; opt out with
+  `s3.allowInsecureHTTP: true`). An injected client's endpoint is the caller's to secure.
+- **GitLab** and **S3** accept `WithChecksums` (YAML `gitlab.checksums` / `s3.checksums`: file name or object key to lower-case SHA-256 hex), the
+  same manifest as the filesystem source: every fetched file must match its digest and every manifest entry must be fetched, so a writer to the
+  repository or bucket cannot swap policies silently.
 
 ## Evaluation
 
@@ -273,17 +283,17 @@ for event := range watch.Events {
 `WatchOptions` tunes the subscription: `BufferSize` (default 10), an `EventTypes` filter (empty = all), and a `BufferOverflowPolicy` for a
 full buffer:
 
-| Policy | Behavior |
-|--------|----------|
-| `OverflowPolicyDropNewest` | Drop the incoming event (default). Non-blocking; never delays the producer |
-| `OverflowPolicyDropOldest` | Evict the oldest event to admit the newest. Keeps the most recent events |
-| `OverflowPolicyBlock` | Block until space frees or the context cancels. Can slow the producer, so use with care |
+| Policy                     | Behavior                                                                                |
+|----------------------------|-----------------------------------------------------------------------------------------|
+| `OverflowPolicyDropNewest` | Drop the incoming event (default). Non-blocking; never delays the producer              |
+| `OverflowPolicyDropOldest` | Evict the oldest event to admit the newest. Keeps the most recent events                |
+| `OverflowPolicyBlock`      | Block until space frees or the context cancels. Can slow the producer, so use with care |
 
 `WatchResult` exposes the `Events` channel, a `Stop` function, and a `Done` channel closed when the watch ends.
 
 ## Scheduled Updates
 
-Instead of (or alongside) the internal poll loop, drive reloads from a cron scheduler. Provide a `core/scheduler.TaskRegistrar` via
+Instead of (or alongside) the internal poll loop, drive reloads from a cron scheduler. Provide a `schedtask.Registrar` via
 `WithScheduler` and a cron expression via `WithUpdateSchedule`:
 
 ```go
@@ -295,11 +305,11 @@ manager, err := opa.NewManager(ctx, source, "data.authz.allow",
 
 `WithUpdateSchedule` takes the cron expression and a `runOnStart` flag, and only takes effect when a scheduler is wired. The registered
 task runs the same guarded update cycle as the poll loop. Calling the scheduler-managed entry point directly returns
-`scheduler.ErrSchedulerManaged` from `core/scheduler`.
+`cycle.ErrManaged` from `go-atlas-core/runtime/cycle`.
 
 ## Factory
 
-For configuration-driven setup, the [`factory`](../../auth/opa/factory/) package builds a manager from an OPA config block with a fluent,
+For configuration-driven setup, the [`factory`](../../factory/auth/opa/) package builds a manager from an OPA config block with a fluent,
 deferred-error builder: every step accumulates errors and `Build(ctx)` returns the first one:
 
 ```go
@@ -318,18 +328,18 @@ env-based passthrough (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`).
 
 Options are functional, applied to `NewManager`:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `WithLogger` | discard | Structured `*slog.Logger` |
-| `WithDecisionLogging` | `false` | Stamp a unique `DecisionID` on every result for audit correlation |
-| `WithWatchChannelSize` | 10 | Default buffer size for watch event channels |
-| `WithScheduler` | nil | `TaskRegistrar` for scheduler-driven update cycles |
-| `WithUpdateSchedule` | — | Cron expression + run-on-start flag (requires `WithScheduler`) |
-| `WithHealthCoordinator` | nil | Register the manager with a `health.Coordinator` |
-| `WithPollInterval` | 30s (`DefaultPollInterval`) | Interval between source polls when watching |
-| `WithCollector` | `metrics.Noop()` | Metrics collector |
-| `WithAuditRecorder` | nil | `*audit.Recorder` recording every evaluation decision; nil disables auditing |
-| `WithDecisionCache(size, ttl)` | off | Memoize decisions per (revision, input); bounded by `size` entries and `ttl` |
+| Option                         | Default                     | Description                                                                   |
+|--------------------------------|-----------------------------|-------------------------------------------------------------------------------|
+| `WithLogger`                   | discard                     | Structured `*slog.Logger`                                                     |
+| `WithDecisionLogging`          | `false`                     | Stamp a unique `DecisionID` on every result for audit correlation             |
+| `WithWatchChannelSize`         | 10                          | Default buffer size for watch event channels                                  |
+| `WithScheduler`                | nil                         | `TaskRegistrar` for scheduler-driven update cycles                            |
+| `WithUpdateSchedule`           | —                           | Cron expression + run-on-start flag (requires `WithScheduler`)                |
+| `WithHealthCoordinator`        | nil                         | Register the manager with a `health.Registrar` (e.g. `*health.Coordinator`)   |
+| `WithPollInterval`             | 30s (`DefaultPollInterval`) | Interval between source polls when watching                                   |
+| `WithMeter`                    | `metrics.Noop()`            | Metrics collector                                                             |
+| `WithAuditRecorder`            | nil                         | `DecisionRecorder` recording every evaluation decision; nil disables auditing |
+| `WithDecisionCache(size, ttl)` | off                         | Memoize decisions per (revision, input); bounded by `size` entries and `ttl`  |
 
 The poll interval defaults to `DefaultPollInterval` (30s). `WithDecisionLogging` is the one option with a runtime cost worth weighing: it
 adds a UUID generation per evaluation for traceable decision IDs.
@@ -342,20 +352,20 @@ than silently serving stale policy.
 
 ## Errors
 
-| Sentinel | Returned when |
-|----------|---------------|
-| `ErrSourceRequired` | `NewManager` got a nil source |
-| `ErrQueryRequired` | `NewManager` got an empty query |
-| `ErrPoliciesNotLoaded` | `Evaluate` called before any bundle compiled |
-| `ErrSourceClosed` | Operation on a closed source |
-| `ErrManagerClosed` | Operation on a closed manager |
-| `ErrNoPolicyFiles` | No policy files found at the configured path |
-| `ErrBundleFetchFailed` | Fetching the bundle from the source failed |
-| `ErrQueryPrepareFailed` | Compiling the Rego query against the loaded modules failed |
-| `ErrWatchStartFailed` | Starting the watch on the source failed |
-| `ErrInvalidDataPath` | A bundle data key could not be parsed into an OPA store path |
+| Sentinel                | Returned when                                                |
+|-------------------------|--------------------------------------------------------------|
+| `ErrSourceRequired`     | `NewManager` got a nil source                                |
+| `ErrQueryRequired`      | `NewManager` got an empty query                              |
+| `ErrPoliciesNotLoaded`  | `Evaluate` called before any bundle compiled                 |
+| `ErrSourceClosed`       | Operation on a closed source                                 |
+| `ErrManagerClosed`      | Operation on a closed manager                                |
+| `ErrNoPolicyFiles`      | No policy files found at the configured path                 |
+| `ErrBundleFetchFailed`  | Fetching the bundle from the source failed                   |
+| `ErrQueryPrepareFailed` | Compiling the Rego query against the loaded modules failed   |
+| `ErrWatchStartFailed`   | Starting the watch on the source failed                      |
+| `ErrInvalidDataPath`    | A bundle data key could not be parsed into an OPA store path |
 
-A scheduler-managed entry point called directly returns `scheduler.ErrSchedulerManaged` from `core/scheduler`.
+A scheduler-managed entry point called directly returns `cycle.ErrManaged` from `go-atlas-core/runtime/cycle`.
 
 `ErrBundleFetchFailed` and `ErrQueryPrepareFailed` are joined with the underlying cause, so `errors.Is` matches the sentinel while the
 original error stays reachable through the chain.
@@ -364,14 +374,14 @@ original error stays reachable through the chain.
 
 Metrics are published under the `auth_opa` subsystem. With no collector, `metrics.Noop()` is used and every write is a zero-cost no-op.
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `auth_opa_policy_reloads_total` | Counter | `result` | Reload outcomes (`success`, `unchanged`, `fetch_error`, `prepare_error`) |
-| `auth_opa_policy_reload_duration_seconds` | Histogram | — | Reload duration |
-| `auth_opa_evaluations_total` | Counter | `result` | Evaluation outcomes (`allow`, `deny`, `error`) |
-| `auth_opa_evaluation_duration_seconds` | Histogram | — | Evaluation duration |
-| `auth_opa_modules_loaded` | Gauge | — | Modules in the currently loaded bundle |
-| `auth_opa_decision_cache_lookups_total` | Counter | `result` | Decision cache lookups (`hit`, `miss`); only with `WithDecisionCache` |
+| Metric                                    | Type      | Labels   | Description                                                              |
+|-------------------------------------------|-----------|----------|--------------------------------------------------------------------------|
+| `auth_opa_policy_reloads_total`           | Counter   | `result` | Reload outcomes (`success`, `unchanged`, `fetch_error`, `prepare_error`) |
+| `auth_opa_policy_reload_duration_seconds` | Histogram | —        | Reload duration                                                          |
+| `auth_opa_evaluations_total`              | Counter   | `result` | Evaluation outcomes (`allow`, `deny`, `error`)                           |
+| `auth_opa_evaluation_duration_seconds`    | Histogram | —        | Evaluation duration                                                      |
+| `auth_opa_modules_loaded`                 | Gauge     | —        | Modules in the currently loaded bundle                                   |
+| `auth_opa_decision_cache_lookups_total`   | Counter   | `result` | Decision cache lookups (`hit`, `miss`); only with `WithDecisionCache`    |
 
 ## Thread Safety
 
@@ -381,6 +391,6 @@ is idempotent.
 
 ---
 
-See the package [`README`](../../auth/opa/README.md) and the [`factory`](../../auth/opa/factory/) / source subpackage READMEs for
+See the package [`README`](../../auth/opa/README.md) and the [`factory`](../../factory/auth/opa/) / source subpackage READMEs for
 file-level reference, and [`docs/auth/oidc.md`](oidc.md), [`docs/auth/selfjwt.md`](selfjwt.md), and [`docs/auth/static.md`](static.md) for
 the other authentication and authorization building blocks.

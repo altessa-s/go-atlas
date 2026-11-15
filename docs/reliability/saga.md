@@ -1,7 +1,8 @@
 # Saga orchestration
 
-This guide explains the [`data/saga`](../../data/saga) package: what an orchestration saga is, how the engine drives one, how it survives
-crashes, and how to wire a durable backend. For the terse API reference see the package [`README`](../../data/saga/README.md); this page is the
+This guide explains the [`reliability/saga`](../../reliability/saga) package: what an orchestration saga is, how the engine drives one, how it
+survives
+crashes, and how to wire a durable backend. For the terse API reference see the package [`README`](../../reliability/saga/README.md); this page is the
 narrative version with diagrams and worked examples.
 
 ## What problem it solves
@@ -17,20 +18,20 @@ Use a saga when:
 - each step can be undone by an idempotent compensation (release the hold, refund the charge);
 - you can tolerate brief inconsistency between a step committing and its compensation running.
 
-Do **not** reach for a saga when a single local transaction (or the [outbox](../../data/outbox) pattern for "DB write + publish") already gives
+Do **not** reach for a saga when a single local transaction (or the [outbox](../../reliability/outbox) pattern for "DB write + publish") already gives
 you atomicity.
 
 ## Core model
 
-| Concept             | What it is                                                                                                              |
-|---------------------|-----------------------------------------------------------------------------------------------------------------------|
-| `Definition[T]`     | An immutable, validated blueprint: an ordered list of stages plus the compensation policy. Built once at startup.     |
-| Stage               | One position in the saga: a single step, or a parallel group that runs and compensates concurrently.                  |
-| `Step[T]`           | A forward action (`StepFunc[T]`) plus an optional compensation (`CompensateFunc[T]`) and per-step overrides.          |
-| Pivot               | The point of no return. Failures **at or after** the pivot stage roll forward (retry) instead of compensating.        |
-| `Orchestrator[T]`   | Drives one `Definition` over a `Storage`. `Start` runs a new instance; `Resume` continues a persisted one.              |
-| `Instance`          | The persisted state of one execution: status, stage cursor, serialized data, version, deadline, step history.         |
-| `Storage`             | The persistence backend. Reads and writes whole instances; defined on the consumer side so backends depend on saga.   |
+| Concept           | What it is                                                                                                          |
+|-------------------|---------------------------------------------------------------------------------------------------------------------|
+| `Definition[T]`   | An immutable, validated blueprint: an ordered list of stages plus the compensation policy. Built once at startup.   |
+| Stage             | One position in the saga: a single step, or a parallel group that runs and compensates concurrently.                |
+| `Step[T]`         | A forward action (`StepFunc[T]`) plus an optional compensation (`CompensateFunc[T]`) and per-step overrides.        |
+| Pivot             | The point of no return. Failures **at or after** the pivot stage roll forward (retry) instead of compensating.      |
+| `Orchestrator[T]` | Drives one `Definition` over a `Storage`. `Start` runs a new instance; `Resume` continues a persisted one.          |
+| `Instance`        | The persisted state of one execution: status, stage cursor, serialized data, version, deadline, step history.       |
+| `Storage`         | The persistence backend. Reads and writes whole instances; defined on the consumer side so backends depend on saga. |
 
 The orchestrator is generic over the saga's shared data type `T`. Each step receives `*T` by pointer so it can read inputs and record outputs
 for later steps and compensations. The orchestrator serializes `T` into the persisted checkpoint after every stage.
@@ -52,8 +53,8 @@ stateDiagram-v2
     FAILED --> [*]: dead-letter hook fires
 ```
 
-| Status         | Meaning                                                                                            | Terminal |
-|----------------|----------------------------------------------------------------------------------------------------|----------|
+| Status         | Meaning                                                                                             | Terminal |
+|----------------|-----------------------------------------------------------------------------------------------------|----------|
 | `RUNNING`      | Executing forward stages.                                                                           | no       |
 | `COMPENSATING` | A pre-pivot step failed; rolling back completed stages in reverse order.                            | no       |
 | `COMPLETED`    | Every forward stage committed.                                                                      | yes      |
@@ -143,21 +144,21 @@ flowchart LR
     Orch -->|register recovery cycle| Sched[scheduler.TaskRegistrar]
     Orch -->|gate to leader| Leader[LeaderElector]
     Orch -->|on FAILED| DLQ[DeadLetterFunc]
-    Orch -->|counters / timers| Metrics[metrics.Collector]
+    Orch -->|counters / timers| Metrics[metrics.Meter]
     Engine[JetStream engine] -->|Start per command| Orch
     App -->|Submit| Engine
 ```
 
 - **Store** — the one required dependency. Pick a backend by deployment: `memory` for a single node or tests, `mongo`/`redis`/`nats`/`sqldb` for
-  durable multi-node setups. All five pass the same contract suite, [`storages/storagetest`](../../data/saga/storages/storagetest).
+  durable multi-node setups. All five pass the same contract suite, [`storages/storagetest`](../../reliability/saga/storages/storagetest).
 - **Scheduler** — optional. With a recovery schedule it drives a background cycle that resumes stalled instances and auto-rolls-back
   timed-out pre-pivot ones. The factory's `Build` registers that cycle; with `saga.New` call `orch.RegisterRecovery(ctx)` yourself and handle
   its error — constructing the orchestrator registers nothing.
 - **LeaderElector** — optional. Gates the recovery cycle so only the elected leader scans the store. This is an optimization, not a
   correctness requirement: the store's optimistic concurrency already makes concurrent cycles safe.
 - **DeadLetterFunc** — optional. Fires with a clone of the instance when it reaches `FAILED`, so you can alert or enqueue for a human.
-- **Collector** — optional Prometheus metrics. Defaults to a no-op.
-- **JetStream engine** — optional. [`engines/jetstream`](../../data/saga/engines/jetstream) puts a durable work queue in front of the
+- **Meter** — optional Prometheus metrics (`WithMeter`). Defaults to a no-op.
+- **JetStream engine** — optional. [`engines/jetstream`](../../reliability/saga/engines/jetstream) puts a durable work queue in front of the
   orchestrator: `Submit` publishes a start command, and `Run` on any node consumes it and calls `Start`. See
   [Distributed execution with JetStream](#distributed-execution-with-jetstream).
 
@@ -186,10 +187,12 @@ What this gives you:
 - **Idempotent steps are mandatory.** On forward resume, the interrupted stage runs again — the checkpoint advances only *after* a stage
   commits, so a crash between "side effect done" and "checkpoint written" replays that step. Actions and compensations must tolerate
   re-execution.
-- **Compensations may see pre-action data.** The steps of a stage are recorded as pending before their actions run. If recovery switches
-  the instance to compensation instead (deadline expired before the pivot), those pending compensations run with the last checkpointed
-  data, which lacks anything the interrupted action wrote. A compensation must therefore tolerate an absent or partial effect and locate it
-  by a key persisted beforehand (e.g. the saga or order ID), not by a value the action itself produced.
+- **Compensations may run for steps that never executed.** All steps of a stage are recorded as pending before the stage runs. If the
+  process crashes at that point and recovery switches the instance to compensation instead (deadline expired before the pivot), every pending
+  compensation runs — including those of steps whose action never started or only partly completed — with the last checkpointed data, which
+  lacks anything the interrupted action wrote. A compensation must therefore be idempotent **and** tolerate "nothing to undo": treat an
+  absent or partial effect as success, and locate the effect by a key persisted beforehand (e.g. the saga or order ID), not by a value the
+  action itself produced.
 - **Deadlines enable auto-rollback.** Set `WithSagaTimeout` to give each instance a wall-clock deadline. A `RUNNING` instance past its
   deadline and still **before the pivot** is flipped to `COMPENSATING` by recovery and rolled back. At or beyond the pivot, recovery resumes
   forward execution instead, so the instance can still complete after its deadline.
@@ -284,8 +287,10 @@ orch := saga.New(store, def,
 
 ### Durable backend via the factory
 
-In production, assemble the orchestrator from [`sagaconfig.Config`](../../config/saga/saga.go) and an injected client. The factory picks the store
-named by `sagaconfig.Config.Storage.Type` and wires every option.
+In production, assemble the orchestrator from [`sagaconfig.Config`](../../config/saga/saga.go) and a registered store. The factory picks the
+store named by `sagaconfig.Config.Storage.Type` and wires every option. It builds only the memory and sqldb stores; the nats, mongo and redis
+stores register with `UseStorage` from `reliability/saga/storages/<backend>/factory`, and a configured type without one fails `Build` naming the
+package to add.
 
 ```go
 cfg := sagaconfig.Default()
@@ -295,11 +300,11 @@ cfg.Storage = &sagaconfig.StorageConfig{
 }
 
 orch, err := factory.New(&cfg, def).
-    UseRedisClient(rdb).
+    UseStorage(sagaconfig.StorageTypeRedis, redisfactory.Builder(rdb)).
     UseScheduler(scheduler).      // registers the background recovery cycle
     UseLeaderElector(leader).     // only the leader runs recovery
     UseOnDeadLetter(alertOnFail).
-    Build()
+    Build(ctx)
 ```
 
 The YAML equivalent (see [`config/templates/saga.yaml`](../../config/templates/saga.yaml)):
@@ -328,21 +333,21 @@ if err := orch.RunRecoveryCycle(ctx); err != nil {
 
 ## Storage backends
 
-| Backend  | Package                                                  | Durable | Version token        | Recovery scan                                  | Notes                                          |
-|----------|---------------------------------------------------------|---------|----------------------|------------------------------------------------|------------------------------------------------|
-| `memory` | [`storages/memory`](../../data/saga/storages/memory)       | no      | in-struct counter    | map scan                                       | Single node, tests, reference implementation.  |
-| `mongo`  | [`storages/mongo`](../../data/saga/storages/mongo)         | yes     | document `version`   | `(status, deadline)` compound index            | Query-capable; one document per instance.      |
-| `redis`  | [`storages/redis`](../../data/saga/storages/redis)         | yes     | hash field, Lua CAS  | sorted set scored by recover-eligibility time  | No auto-delete without a TTL — see retention.  |
-| `nats`   | [`storages/nats`](../../data/saga/storages/nats)           | yes     | KV revision          | full bucket scan                               | Bucket carries a long backstop TTL by default. File-backed; see its README for buckets created as memory by earlier releases. |
-| `sqldb`  | [`storages/sqldb`](../../data/saga/storages/sqldb)         | yes     | row `version`        | `(status, lease_until)`, `(status, deadline)` indexes | PostgreSQL, MySQL, MariaDB over a caller-owned `*sql.DB`; `EnsureSchema` or migrations. |
+| Backend  | Package                                                     | Durable | Version token       | Recovery scan                                         | Notes                                                                                                                         |
+|----------|-------------------------------------------------------------|---------|---------------------|-------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
+| `memory` | [`storages/memory`](../../reliability/saga/storages/memory) | no      | in-struct counter   | map scan                                              | Single node, tests, reference implementation.                                                                                 |
+| `mongo`  | [`storages/mongo`](../../reliability/saga/storages/mongo)   | yes     | document `version`  | `(status, deadline)` compound index                   | Query-capable; one document per instance.                                                                                     |
+| `redis`  | [`storages/redis`](../../reliability/saga/storages/redis)   | yes     | hash field, Lua CAS | sorted set scored by recover-eligibility time         | No auto-delete without a TTL — see retention.                                                                                 |
+| `nats`   | [`storages/nats`](../../reliability/saga/storages/nats)     | yes     | KV revision         | full bucket scan                                      | Bucket carries a long backstop TTL by default. File-backed; see its README for buckets created as memory by earlier releases. |
+| `sqldb`  | [`storages/sqldb`](../../reliability/saga/storages/sqldb)   | yes     | row `version`       | `(status, lease_until)`, `(status, deadline)` indexes | PostgreSQL, MySQL, MariaDB over a caller-owned `*sql.DB`; `EnsureSchema` or migrations.                                       |
 
-All backends return the same sentinel errors from [`errs`](../../data/saga/errs) (`ErrInstanceNotFound`, `ErrInstanceExists`,
+All backends return the same sentinel errors of [`saga`](../../reliability/saga) (`ErrInstanceNotFound`, `ErrInstanceExists`,
 `ErrVersionConflict`, …); match them with `errors.Is`.
 
 ## Distributed execution with JetStream
 
 `Orchestrator.Start` runs a saga in the caller's goroutine. When the decision to start a saga must survive a crash of the caller, or execution
-should be spread over a pool of workers, put the [`engines/jetstream`](../../data/saga/engines/jetstream) engine in front of the orchestrator.
+should be spread over a pool of workers, put the [`engines/jetstream`](../../reliability/saga/engines/jetstream) engine in front of the orchestrator.
 Combined with the `nats` store this is an all-NATS deployment.
 
 ```mermaid
@@ -364,7 +369,7 @@ sequenceDiagram
 ```
 
 ```go
-store, _ := natsstore.New(js)
+store, _ := natsstore.New(ctx, js)
 orch := saga.New(store, def, saga.WithScheduler(sched))
 if err := orch.RegisterRecovery(ctx); err != nil {
     return err
@@ -394,11 +399,11 @@ stream or consumer, so per-process options for those resources only apply when t
 Forgetting a compensation silently ships a saga whose rollback is incomplete. The build-time policy guards against that for compensatable
 steps — those before the pivot and not marked `ReadOnly`.
 
-| Policy             | Effect                                                                                  |
-|--------------------|-----------------------------------------------------------------------------------------|
-| `PolicyWarn`       | Default. `Build` succeeds; `New` logs a warning naming the steps that lack compensation. |
-| `PolicyEnforce`    | `Build` returns `ErrNoCompensation` (and `MustBuild` panics).                            |
-| `PolicyDisabled`   | Turns the check off.                                                                     |
+| Policy           | Effect                                                                                   |
+|------------------|------------------------------------------------------------------------------------------|
+| `PolicyWarn`     | Default. `Build` succeeds; `New` logs a warning naming the steps that lack compensation. |
+| `PolicyEnforce`  | `Build` returns `ErrNoCompensation` (and `MustBuild` panics).                            |
+| `PolicyDisabled` | Turns the check off.                                                                     |
 
 ```go
 def, err := builder.Build(saga.WithCompensationPolicy(saga.PolicyEnforce))
@@ -406,29 +411,31 @@ def, err := builder.Build(saga.WithCompensationPolicy(saga.PolicyEnforce))
 
 ## Metrics
 
-When a `metrics.Collector` is configured, the orchestrator records the following under the `saga` subsystem (the collector prepends its
+When a `metrics.Meter` is configured, the orchestrator records the following under the `saga` subsystem (the collector prepends its
 namespace, e.g. `myapp_saga_started_total`).
 
-| Metric                         | Type      | Meaning                                                       |
-|--------------------------------|-----------|---------------------------------------------------------------|
-| `started_total`                | counter   | Instances started.                                            |
-| `completed_total`              | counter   | Instances that committed all stages.                          |
-| `compensated_total`            | counter   | Instances that fully rolled back.                             |
-| `failed_total`                 | counter   | Instances that entered the unrecoverable `FAILED` state.      |
-| `in_flight`                    | gauge     | Instances currently executing.                                |
-| `steps_executed_total`         | counter   | Forward step actions that committed.                          |
-| `step_failures_total`          | counter   | Forward step actions that failed after retries.               |
-| `step_retries_total`           | counter   | Step action retry attempts.                                   |
-| `compensations_total`          | counter   | Compensations that ran successfully.                          |
-| `compensation_failures_total`  | counter   | Compensations that failed after retries.                      |
-| `recovery_cycles_total`        | counter   | Background recovery cycles executed.                          |
-| `recovered_total`              | counter   | Stalled or timed-out instances picked up by recovery.         |
-| `stage_duration_seconds`       | histogram | Duration of forward stage execution.                          |
+| Metric                        | Type      | Meaning                                                  |
+|-------------------------------|-----------|----------------------------------------------------------|
+| `started_total`               | counter   | Instances started.                                       |
+| `completed_total`             | counter   | Instances that committed all stages.                     |
+| `compensated_total`           | counter   | Instances that fully rolled back.                        |
+| `failed_total`                | counter   | Instances that entered the unrecoverable `FAILED` state. |
+| `in_flight`                   | gauge     | Instances currently executing.                           |
+| `steps_executed_total`        | counter   | Forward step actions that committed.                     |
+| `step_failures_total`         | counter   | Forward step actions that failed after retries.          |
+| `step_retries_total`          | counter   | Step action retry attempts.                              |
+| `compensations_total`         | counter   | Compensations that ran successfully.                     |
+| `compensation_failures_total` | counter   | Compensations that failed after retries.                 |
+| `recovery_cycles_total`       | counter   | Background recovery cycles executed.                     |
+| `recovered_total`             | counter   | Stalled or timed-out instances picked up by recovery.    |
+| `stage_duration_seconds`      | histogram | Duration of forward stage execution.                     |
 
 ## Gotchas
 
 - **Idempotency is not optional.** Both actions and compensations may run more than once across retries and crash recovery. Design them to be
   safe to repeat (use external idempotency keys, upserts, conditional writes).
+- **A compensation can be called with nothing to undo.** After a crash, rollback covers every step of the interrupted stage, whether or not
+  its action ran (see [Crash recovery](#crash-recovery)). Return success when the effect is absent instead of failing the rollback.
 - **Parallel members share `*T`.** Concurrent steps in a group must not write the same fields; if they must produce outputs, give each its own
   field or use a separate stage.
 - **Terminal instances are not garbage-collected.** Completed and failed instances stay in the store for inspection. Set a TTL (redis/nats) or
@@ -438,6 +445,6 @@ namespace, e.g. `myapp_saga_started_total`).
 
 ## See also
 
-- [`data/saga/README.md`](../../data/saga/README.md) — API reference and full option table.
+- [`reliability/saga/README.md`](../../reliability/saga/README.md) — API reference and full option table.
 - [docs/configuration.md](../configuration.md) — how config is loaded from YAML, env, and secrets.
 - [docs/metrics.md](../metrics.md) — the full metrics catalog across subsystems.

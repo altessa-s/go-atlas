@@ -48,13 +48,13 @@ The package is transport-neutral and algorithm-agnostic. It hard-codes neither a
 
 ## When to Use selfjwt vs. oidc
 
-| | [`auth/oidc`](oidc.md) | `auth/selfjwt` |
-|---|---|---|
-| Token issuer | An external identity provider (Keycloak, Auth0, …) | This service |
-| Token verifier | This service | This service |
-| Key discovery | Remote JWKS over the well-known endpoint | A local `KeyProvider` resolving keys per subject |
-| Key granularity | One key set for the issuer | One signing key **per subject**, rotated per subject |
-| Revocation | Revocation store / introspection | Key rotation (new `kid` invalidates old tokens); optional per-`jti` check via `WithRevocation` |
+|                 | [`auth/oidc`](oidc.md)                             | `auth/selfjwt`                                                                                 |
+|-----------------|----------------------------------------------------|------------------------------------------------------------------------------------------------|
+| Token issuer    | An external identity provider (Keycloak, Auth0, …) | This service                                                                                   |
+| Token verifier  | This service                                       | This service                                                                                   |
+| Key discovery   | Remote JWKS over the well-known endpoint           | A local `KeyProvider` resolving keys per subject                                               |
+| Key granularity | One key set for the issuer                         | One signing key **per subject**, rotated per subject                                           |
+| Revocation      | Revocation store / introspection                   | Key rotation (new `kid` invalidates old tokens); optional per-`jti` check via `WithRevocation` |
 
 Use `oidc` to validate tokens minted elsewhere. Use `selfjwt` when the service issues its own short-lived, per-subject credentials
 (service-to-tenant API tokens, download URLs, capability tokens) and wants per-subject key rotation as the invalidation primitive.
@@ -130,18 +130,18 @@ requests for an uncached subject cannot stampede the provider.
 
 ## Package Map
 
-| File | Responsibility |
-|------|----------------|
-| `minter.go` | `Minter`, `MintRequest`, `MintResult`, `jti` generation |
-| `verifier.go` | `Verifier`, parse → resolve key → verify, singleflight on misses |
-| `keys.go` | `KeyProvider`, `SigningKey`, `VerificationKey` |
-| `token.go` | `Token` (verified result) and the internal claim set |
-| `algorithm.go` | `Algorithm`, the algorithm constants, the default allow-list |
-| `cache.go` | `keyCache` — per-`(subject, kid)` TTL cache with a size cap |
-| `clock.go` | `Clock` seam (system UTC in production, injectable in tests) |
-| `metrics.go` | `Metrics` (mint/verify counters, latency, cache hit/miss) |
-| `errors.go` | Sentinel errors |
-| `options.go` / `options_gen.go` | Functional options |
+| File                            | Responsibility                                                   |
+|---------------------------------|------------------------------------------------------------------|
+| `minter.go`                     | `Minter`, `MintRequest`, `MintResult`, `jti` generation          |
+| `verifier.go`                   | `Verifier`, parse → resolve key → verify, singleflight on misses |
+| `keys.go`                       | `KeyProvider` (uses `auth/jwt` key types)                   |
+| `token.go`                      | `Token` (verified result) and the internal claim set             |
+| `algorithm.go`                  | The default allow-list (uses `auth/jwt` algorithms)     |
+| `cache.go`                      | `keyCache` — per-`(subject, kid)` TTL cache with a size cap      |
+| `clock.go`                      | `Clock` seam (system UTC in production, injectable in tests)     |
+| `metrics.go`                    | `Metrics` (mint/verify counters, latency, cache hit/miss)        |
+| `errors.go`                     | Sentinel errors                                                  |
+| `options.go` / `options_gen.go` | Functional options                                               |
 
 ## Quick Start
 
@@ -149,7 +149,7 @@ requests for an uncached subject cannot stampede the provider.
 provider := myKeyStore{} // implements selfjwt.KeyProvider
 
 // Issuer side.
-minter := selfjwt.NewMinter(provider, selfjwt.WithIssuer("billing"))
+minter := selfjwt.NewMinter(provider, "billing", "billing-api")
 res, err := minter.Mint(ctx, selfjwt.MintRequest{
     Subject: tenantID,
     Scopes:  []string{"files:read"},
@@ -158,7 +158,7 @@ res, err := minter.Mint(ctx, selfjwt.MintRequest{
 // res.Token is the serialized JWT; persist res.ID (jti) and res.Expiry as the caller sees fit.
 
 // Verifier side.
-verifier := selfjwt.NewVerifier(provider, selfjwt.WithIssuer("billing"))
+verifier := selfjwt.NewVerifier(provider, "billing", "billing-api")
 tok, err := verifier.Verify(ctx, res.Token)
 switch {
 case errors.Is(err, selfjwt.ErrTokenExpired):
@@ -181,18 +181,18 @@ a PEM blob, a KMS handle); the provider returns ready `crypto` keys.
 type KeyProvider interface {
     // SigningKey returns the subject's current signing material.
     // Return ErrSubjectUnknown when the subject has no keys.
-    SigningKey(ctx context.Context, subject string) (SigningKey, error)
+    SigningKey(ctx context.Context, subject string) (jwt.SigningKey, error)
 
     // VerificationKey resolves a token's kid to the subject's public key,
     // accepting the current key and any retired-but-valid key still inside
     // the rotation overlap window.
     // Return ErrSubjectUnknown when the subject is unknown,
     // ErrKeyRotated when the subject is known but the kid is not.
-    VerificationKey(ctx context.Context, subject, kid string) (VerificationKey, error)
+    VerificationKey(ctx context.Context, subject, kid string) (jwt.VerificationKey, error)
 }
 ```
 
-`SigningKey` and `VerificationKey` each carry the `Algorithm` they are used with, plus the raw `crypto.PrivateKey` / `crypto.PublicKey`
+`jwt.SigningKey` and `jwt.VerificationKey` each carry the `jwt.Algorithm` they are used with, plus the raw `crypto.PrivateKey` / `crypto.PublicKey`
 whose concrete type must match (`ed25519.PrivateKey` for `EdDSA`, `*ecdsa.PrivateKey` for `ES*`, `*rsa.PrivateKey` for `RS*`/`PS*`).
 
 Returning the right sentinel from the provider matters: `Verifier` propagates `ErrSubjectUnknown` and `ErrKeyRotated` **unwrapped** so a
@@ -203,10 +203,10 @@ caller can branch on them with `errors.Is`.
 Rotation is the invalidation mechanism. Because the signing key's id rides in the token's `kid` header and the verifier resolves the public
 key by that `kid`, a caller invalidates a subject's outstanding tokens by issuing the subject a new signing key (a new `kid`):
 
-1. Generate a new key pair for the subject and make it the value returned by `SigningKey`; new tokens carry the new `kid`.
-2. Keep the **old** public key resolvable from `VerificationKey` for an overlap window so already-minted tokens keep verifying until they
+1. Generate a new key pair for the subject and make it the value returned by `KeyProvider.SigningKey`; new tokens carry the new `kid`.
+2. Keep the **old** public key resolvable from `KeyProvider.VerificationKey` for an overlap window so already-minted tokens keep verifying until they
    expire naturally.
-3. Once the overlap window passes the longest possible token lifetime, drop the old key. `VerificationKey` then returns `ErrKeyRotated`
+3. Once the overlap window passes the longest possible token lifetime, drop the old key. `KeyProvider.VerificationKey` then returns `ErrKeyRotated`
    for the old `kid` — but only on a cache miss.
 4. Each `Verifier` caches resolved keys for `WithCacheTTL` (default 5 minutes), so a retired `kid` keeps verifying from cache until its entry
    expires. Call `InvalidateKey(subject, kid)` (or `InvalidateSubject(subject)` when the old `kid` is unknown) on **every** verifier
@@ -221,29 +221,33 @@ invalidation. A short overlap window plus a short `MaxTokenLifetime` keeps that 
 
 ## Configuration
 
-All tunables are functional options applied to both `NewMinter` and `NewVerifier`. Defaults are exported `Default*` constants.
+The issuer and audience are required positional arguments of `NewMinter`, `NewVerifier` and `New`: the minter writes them as `iss` / `aud`, the
+verifier rejects any other value, and an empty one fails `Mint` / `Verify` with `ErrIssuerRequired` / `ErrAudienceRequired`. Pass the same pair on
+both sides; services that share a key provider but use different pairs cannot replay each other's tokens.
 
-| Option | Default | Applies to | Description |
-|--------|---------|------------|-------------|
-| `WithIssuer` | `""` (`DefaultIssuer`) | mint + verify | The `iss` claim set on mint and required on verify (when non-empty) |
-| `WithMaxTokenLifetime` | 30 days | mint | Ceiling a requested TTL is clamped to; a non-positive TTL uses the maximum |
-| `WithLeeway` | 30s (`DefaultLeeway`) | verify | Leeway applied to `exp` / `nbf` to tolerate clock drift between minter and verifier |
-| `WithCacheTTL` | 5m | verify | How long a resolved verification key is cached before reload |
-| `WithCacheMaxEntries` | 10000 | verify | Hard cap on cached verification keys; non-positive disables the cap |
-| `WithAllowedAlgorithms` | `EdDSA, ES256, RS256` | mint + verify | Replaces the asymmetric-only allow-list; an empty call is ignored |
-| `WithMetrics` | nil (no-op) | mint + verify | Attaches a `*Metrics` for counters and latency |
-| `WithRevocation` | nil (unchecked) | verify | `jwt.RevocationChecker` rejecting a verified token whose `jti` is revoked (`jwt.ErrTokenRevoked`) |
-| `WithClock` | system UTC | mint + verify | Injectable clock for deterministic tests |
-| `WithRand` | `crypto/rand` | mint | Injectable randomness for the `jti` |
+All other tunables are functional options applied to both `NewMinter` and `NewVerifier`. Defaults are exported `Default*` constants.
 
-`WithIssuer` is shared deliberately: set the same issuer on both sides so the verifier rejects tokens minted by a different service.
+| Option                     | Default                            | Applies to    | Description                                                                                                      |
+|----------------------------|------------------------------------|---------------|------------------------------------------------------------------------------------------------------------------|
+| `WithMaxTokenLifetime`     | 30 days                            | mint          | Ceiling a requested TTL is clamped to; a non-positive TTL uses the maximum                                       |
+| `WithLeeway`               | 30s (`DefaultLeeway`)              | verify        | Leeway applied to `exp` / `nbf` to tolerate clock drift between minter and verifier; clamped to `jwt.MaxLeeway` (5m) |
+| `WithCacheTTL`             | 5m                                 | verify        | How long a resolved verification key is cached before reload                                                     |
+| `WithCacheMaxEntries`      | 10000                              | verify        | Hard cap on cached verification keys; non-positive disables the cap                                              |
+| `WithKeyLookupTimeout`     | 10s                                | verify        | Deadline for a shared key-provider lookup on a cache miss                                                        |
+| `WithNegativeCacheTTL`     | 30s (`DefaultNegativeCacheTTL`)    | verify        | How long a provider `ErrSubjectUnknown` / `ErrKeyRotated` is cached; `0` disables it                             |
+| `WithMaxConcurrentLookups` | 64 (`DefaultMaxConcurrentLookups`) | verify        | Distinct key-provider lookups in flight; a new one beyond it fails fast with `singleflight.ErrOverloaded`        |
+| `WithAllowedAlgorithms`    | `EdDSA, ES256, RS256`              | mint + verify | Replaces the asymmetric-only allow-list; an empty call is ignored                                                |
+| `WithMetrics`              | nil (no-op)                        | mint + verify | Attaches a `*Metrics` for counters and latency                                                                   |
+| `WithRevocation`           | nil (unchecked)                    | verify        | `jwt.RevocationChecker` rejecting a verified token whose `jti` is revoked (`jwt.ErrTokenRevoked`)                |
+| `WithClock`                | system UTC                         | mint + verify | Injectable clock for deterministic tests                                                                         |
+| `WithRand`                 | `crypto/rand`                      | mint          | Injectable randomness for the `jti`                                                                              |
 
 ## Go API
 
 ### Minter
 
 ```go
-func NewMinter(src KeyProvider, opts ...Option) *Minter
+func NewMinter(src KeyProvider, issuer, audience string, opts ...Option) *Minter
 func (m *Minter) Mint(ctx context.Context, req MintRequest) (MintResult, error)
 
 type MintRequest struct {
@@ -259,18 +263,18 @@ type MintResult struct {
 }
 ```
 
-`Mint` returns `ErrSubjectRequired` for an empty `Subject`, `ErrSigningKeyInvalid` when the provider hands back signing material with an
-empty `KeyID`, and `ErrAlgorithmNotAllowed` when the signing key names an algorithm outside the `WithAllowedAlgorithms` allow-list or not
-registered with golang-jwt.
+`Mint` returns `ErrSubjectRequired` for an empty `Subject`, `ErrIssuerRequired` / `ErrAudienceRequired` for an empty issuer / audience,
+`ErrSigningKeyInvalid` when the provider hands back signing material with an empty `KeyID`, and `ErrAlgorithmNotAllowed` when the signing key names an
+algorithm outside the `WithAllowedAlgorithms` allow-list or not registered with golang-jwt.
 
 ### Verifier
 
 ```go
-func NewVerifier(src KeyProvider, opts ...Option) *Verifier
+func NewVerifier(src KeyProvider, issuer, audience string, opts ...Option) *Verifier
 func (v *Verifier) Verify(ctx context.Context, raw string) (*Token, error)
 ```
 
-The parser options (valid methods, expiration-required, leeway, issuer) are built once in `NewVerifier`, so `Verify` allocates no option
+The parser options (valid methods, expiration-required, leeway, issuer, audience) are built once in `NewVerifier`, so `Verify` allocates no option
 slice per call.
 
 ### Token
@@ -289,16 +293,16 @@ caller's concern and is built on top of this.
 
 ## Algorithms
 
-`Algorithm` is a plain JWA name string. The constants cover the asymmetric algorithms golang-jwt supports out of the box:
+`jwt.Algorithm` is a plain JWA name string. The constants cover the asymmetric algorithms golang-jwt supports out of the box:
 
-| Family | Constants |
-|--------|-----------|
-| EdDSA | `AlgEdDSA` |
-| ECDSA | `AlgES256`, `AlgES384`, `AlgES512` |
-| RSA PKCS#1 v1.5 | `AlgRS256`, `AlgRS384`, `AlgRS512` |
-| RSA PSS | `AlgPS256`, `AlgPS384`, `AlgPS512` |
+| Family          | Constants                          |
+|-----------------|------------------------------------|
+| EdDSA           | `jwt.AlgEdDSA`                         |
+| ECDSA           | `jwt.AlgES256`, `jwt.AlgES384`, `jwt.AlgES512` |
+| RSA PKCS#1 v1.5 | `jwt.AlgRS256`, `jwt.AlgRS384`, `jwt.AlgRS512` |
+| RSA PSS         | `jwt.AlgPS256`, `jwt.AlgPS384`, `jwt.AlgPS512` |
 
-`DefaultAllowedAlgorithms()` returns a copy of the verifier's fail-closed default allow-list: `EdDSA`, `ES256`, `RS256`. To support an
+`jwt.DefaultAllowedAlgorithms()` returns a copy of the verifier's fail-closed default allow-list: `EdDSA`, `ES256`, `RS256`. To support an
 algorithm not registered out of the box, register a signing method with golang-jwt via `jwt.RegisterSigningMethod`, then pass it through
 `WithAllowedAlgorithms`.
 
@@ -309,7 +313,7 @@ Verification is fail-closed:
 - **Algorithm before signature.** The token algorithm is checked against the allow-list **before** the signature is verified, closing
   algorithm-confusion attacks. The default allow-list is asymmetric only; HMAC (`HS256`, …) is intentionally excluded so a symmetric
   secret can never be confused with a public key.
-- **Each key is bound to one algorithm.** A `VerificationKey` must name the `Algorithm` it verifies; the verifier rejects a token whose
+- **Each key is bound to one algorithm.** A `jwt.VerificationKey` must set its `Algorithm` field to the algorithm it verifies; the verifier rejects a token whose
   algorithm is empty or does not match the resolved key's algorithm, so a key can never be coerced into verifying a different scheme.
 - **`exp` is mandatory.** Tokens without an expiry are rejected; temporal claims (`exp` / `nbf`) are validated with the configured
   clock-skew leeway.
@@ -326,20 +330,23 @@ until a slot is free. A non-positive cap leaves the cache unbounded.
 
 `InvalidateKey` and `InvalidateSubject` advance a cache-wide invalidation generation. A lookup records the generation before consulting the provider,
 uses it in its `singleflight` key, and caches its result only if no invalidation happened meanwhile — so an invalidation fences lookups already in
-flight. The generation is cache-wide rather than per subject to keep the bookkeeping bounded; an invalidation therefore also makes an overlapping lookup
+flight. The generation is cache-wide rather than per subject to keep the bookkeeping bounded; an invalidation therefore also makes an overlapping
+lookup
 for an unrelated subject skip one cache populate.
 
 ## Errors
 
-| Sentinel | Meaning |
-|----------|---------|
-| `ErrTokenInvalid` | Malformed token, unexpected algorithm, bad signature, or a non-expiry claim failure |
-| `ErrTokenExpired` | `exp` is in the past beyond the clock-skew leeway |
-| `ErrSubjectUnknown` | `KeyProvider` has no keys for the subject (propagated unwrapped) |
-| `ErrKeyRotated` | Subject is known but the `kid` is not — rotated away (propagated unwrapped) |
-| `ErrAlgorithmNotAllowed` | Algorithm is unregistered, mismatched, or the resolved key names no algorithm |
-| `ErrSigningKeyInvalid` | `Minter` got signing material that cannot produce a verifiable token (e.g. empty key id) |
-| `ErrSubjectRequired` | `Minter` got a `MintRequest` with an empty `Subject` |
+| Sentinel                 | Meaning                                                                                  |
+|--------------------------|------------------------------------------------------------------------------------------|
+| `ErrTokenInvalid`        | Malformed token, unexpected algorithm, bad signature, or a non-expiry claim failure      |
+| `ErrTokenExpired`        | `exp` is in the past beyond the clock-skew leeway                                        |
+| `ErrSubjectUnknown`      | `KeyProvider` has no keys for the subject (propagated unwrapped)                         |
+| `ErrKeyRotated`          | Subject is known but the `kid` is not — rotated away (propagated unwrapped)              |
+| `ErrAlgorithmNotAllowed` | Algorithm is unregistered, mismatched, or the resolved key names no algorithm            |
+| `ErrSigningKeyInvalid`   | `Minter` got signing material that cannot produce a verifiable token (e.g. empty key id) |
+| `ErrSubjectRequired`     | `Minter` got a `MintRequest` with an empty `Subject`                                     |
+| `ErrIssuerRequired`      | The minter or verifier was built with an empty issuer                                    |
+| `ErrAudienceRequired`    | The minter or verifier was built with an empty audience                                  |
 
 Always compare with `errors.Is`. `ErrTokenExpired` and `ErrTokenInvalid` wrap the underlying golang-jwt error, so the original cause is
 available through the chain.
@@ -349,13 +356,13 @@ available through the chain.
 Pass a `*Metrics` via `WithMetrics` to record telemetry. A nil `*Metrics` is a valid no-op receiver, so metrics are entirely optional.
 Construct one with `NewMetrics(collector, subsystem)`; an empty subsystem falls back to `DefaultMetricsSubsystem` (`auth_selfjwt`).
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `auth_selfjwt_mints_total` | Counter | `status` | Token mint attempts |
-| `auth_selfjwt_verifications_total` | Counter | `status` | Token verification attempts |
-| `auth_selfjwt_mint_duration_seconds` | Histogram | `status` | Mint duration |
-| `auth_selfjwt_verify_duration_seconds` | Histogram | `status` | Verification duration |
-| `auth_selfjwt_verification_key_cache_lookups_total` | Counter | `result` | Verification-key cache lookups (`hit` / `miss`) |
+| Metric                                              | Type      | Labels   | Description                                     |
+|-----------------------------------------------------|-----------|----------|-------------------------------------------------|
+| `auth_selfjwt_mints_total`                          | Counter   | `status` | Token mint attempts                             |
+| `auth_selfjwt_verifications_total`                  | Counter   | `status` | Token verification attempts                     |
+| `auth_selfjwt_mint_duration_seconds`                | Histogram | `status` | Mint duration                                   |
+| `auth_selfjwt_verify_duration_seconds`              | Histogram | `status` | Verification duration                           |
+| `auth_selfjwt_verification_key_cache_lookups_total` | Counter   | `result` | Verification-key cache lookups (`hit` / `miss`) |
 
 `status` is `success` or `failure`.
 
@@ -368,7 +375,7 @@ key. Compromise of one tenant's key (or a routine rotation) invalidates only tha
 no central revocation list.
 
 ```go
-minter := selfjwt.NewMinter(tenantKeys, selfjwt.WithIssuer("billing"), selfjwt.WithMaxTokenLifetime(15*time.Minute))
+minter := selfjwt.NewMinter(tenantKeys, "billing", "billing-api", selfjwt.WithMaxTokenLifetime(15*time.Minute))
 res, _ := minter.Mint(ctx, selfjwt.MintRequest{Subject: tenantID, Scopes: []string{"invoices:read"}, TTL: 15 * time.Minute})
 ```
 

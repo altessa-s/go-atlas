@@ -1,7 +1,7 @@
 # Audit
 
 ```go
-import "github.com/altessa-s/go-atlas/data/audit"
+import "github.com/altessa-s/go-atlas/audit"
 ```
 
 Async audit trail for user actions. Events go through a buffered channel into a worker pool, get batched, and land in storage. Sink delivery is
@@ -13,16 +13,16 @@ process crashes mid-flight, the optional WAL recovers what was in the buffer.
 
 ## What it does
 
-| Feature                | How it works                                                     |
-|------------------------|------------------------------------------------------------------|
-| Async dispatch         | Buffered channel + worker pool; `Emit` never waits on the sink   |
-| Batch writes           | Accumulates events, flushes on size or timer                     |
-| Retry                  | Exponential backoff per failed batch                             |
-| WAL                    | Write-ahead log on disk, replayed on restart                     |
-| Fluent builder         | `NewEvent(...).WithActor(...).WithSuccess().Emit()`              |
-| gRPC / HTTP hooks      | Interceptor and middleware that emit per-request events           |
-| Storage                | In-memory for tests, MongoDB for prod                            |
-| Metrics                | Two counters: emitted and dropped                                |
+| Feature           | How it works                                                   |
+|-------------------|----------------------------------------------------------------|
+| Async dispatch    | Buffered channel + worker pool; `Emit` never waits on the sink |
+| Batch writes      | Accumulates events, flushes on size or timer                   |
+| Retry             | Exponential backoff per failed batch                           |
+| WAL               | Write-ahead log on disk, replayed on restart                   |
+| Fluent builder    | `NewEvent(...).WithActor(...).WithSuccess().Emit()`            |
+| gRPC / HTTP hooks | Interceptor and middleware that emit per-request events        |
+| Storage           | In-memory for tests, MongoDB for prod                          |
+| Metrics           | Two counters: emitted and dropped                              |
 
 ## How it's wired
 
@@ -57,9 +57,9 @@ import (
     "log/slog"
     "time"
 
-    "github.com/altessa-s/go-atlas/data/audit"
-    "github.com/altessa-s/go-atlas/data/audit/storages/memory"
-    "github.com/altessa-s/go-atlas/service/dispatch"
+    "github.com/altessa-s/go-atlas/audit"
+    "github.com/altessa-s/go-atlas/audit/storages/memory"
+    "github.com/altessa-s/go-atlas-core/runtime/dispatch"
 )
 
 func main() {
@@ -110,8 +110,8 @@ eng, _ := dispatch.NewEngine[*audit.Event](
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/data/audit/factory"
-    dispatchfactory "github.com/altessa-s/go-atlas/service/dispatch/factory"
+    "github.com/altessa-s/go-atlas/factory/audit"
+    dispatchfactory "github.com/altessa-s/go-atlas/factory/ext/core/dispatch"
 )
 
 eng, _ := dispatchfactory.New[*audit.Event](&cfg.Audit.Dispatch).
@@ -124,7 +124,7 @@ eng.Start()
 auditor, _ := factory.New(&cfg.Audit).
     UseLogger(logger).
     UseDispatcher(eng).
-    Build()
+    Build(ctx)
 ```
 
 ---
@@ -133,46 +133,46 @@ auditor, _ := factory.New(&cfg.Audit).
 
 ### Event types
 
-| Constant                   | Value              | When to use                                |
-|----------------------------|--------------------|--------------------------------------------|
-| `EventTypeAPIRequest`      | `api.request`      | Inbound gRPC/HTTP call                     |
-| `EventTypeBusinessEvent`   | `business.event`   | Domain action (order placed, plan changed) |
-| `EventTypeDataChange`      | `data.change`      | Create/update/delete on a record           |
-| `EventTypeAuth`            | `auth`             | Login, logout, permission check            |
-| `EventTypeSystem`          | `system`           | Migration, scheduled job, health check     |
+| Constant                 | Value            | When to use                                |
+|--------------------------|------------------|--------------------------------------------|
+| `EventTypeAPIRequest`    | `api.request`    | Inbound gRPC/HTTP call                     |
+| `EventTypeBusinessEvent` | `business.event` | Domain action (order placed, plan changed) |
+| `EventTypeDataChange`    | `data.change`    | Create/update/delete on a record           |
+| `EventTypeAuth`          | `auth`           | Login, logout, permission check            |
+| `EventTypeSystem`        | `system`         | Migration, scheduled job, health check     |
 
 ### Actions
 
-| Constant         | Value      |
-|------------------|------------|
-| `ActionCreate`   | `create`   |
-| `ActionRead`     | `read`     |
-| `ActionUpdate`   | `update`   |
-| `ActionDelete`   | `delete`   |
-| `ActionExecute`  | `execute`  |
-| `ActionLogin`    | `login`    |
-| `ActionLogout`   | `logout`   |
-| `ActionGrant`    | `grant`    |
-| `ActionRevoke`   | `revoke`   |
+| Constant        | Value     |
+|-----------------|-----------|
+| `ActionCreate`  | `create`  |
+| `ActionRead`    | `read`    |
+| `ActionUpdate`  | `update`  |
+| `ActionDelete`  | `delete`  |
+| `ActionExecute` | `execute` |
+| `ActionLogin`   | `login`   |
+| `ActionLogout`  | `logout`  |
+| `ActionGrant`   | `grant`   |
+| `ActionRevoke`  | `revoke`  |
 
 ### Actor types
 
-| Constant              | Value       |
-|-----------------------|-------------|
-| `ActorTypeUser`       | `user`      |
-| `ActorTypeService`    | `service`   |
-| `ActorTypeSystem`     | `system`    |
-| `ActorTypeAPIKey`     | `api_key`   |
-| `ActorTypeAnonymous`  | `anonymous` |
+| Constant             | Value       |
+|----------------------|-------------|
+| `ActorTypeUser`      | `user`      |
+| `ActorTypeService`   | `service`   |
+| `ActorTypeSystem`    | `system`    |
+| `ActorTypeAPIKey`    | `api_key`   |
+| `ActorTypeAnonymous` | `anonymous` |
 
 ### Result statuses
 
-| Constant               | Value     | Meaning                            |
-|------------------------|-----------|------------------------------------|
-| `ResultStatusSuccess`  | `success` | Completed normally                 |
-| `ResultStatusFailure`  | `failure` | Client-side problem (bad input)    |
-| `ResultStatusDenied`   | `denied`  | Auth rejected                      |
-| `ResultStatusError`    | `error`   | Server-side error                  |
+| Constant              | Value     | Meaning                         |
+|-----------------------|-----------|---------------------------------|
+| `ResultStatusSuccess` | `success` | Completed normally              |
+| `ResultStatusFailure` | `failure` | Client-side problem (bad input) |
+| `ResultStatusDenied`  | `denied`  | Auth rejected                   |
+| `ResultStatusError`   | `error`   | Server-side error               |
 
 ---
 
@@ -191,19 +191,19 @@ auditor.NewEvent(audit.EventTypeDataChange, audit.ActionUpdate).
     Emit()
 ```
 
-| Method              | What it does                                     |
-|---------------------|--------------------------------------------------|
-| `WithActor`         | Who did it                                       |
-| `WithResource`      | What was affected                                |
-| `WithResult`        | Set result directly                              |
-| `WithSuccess`       | Shorthand: `Result{Status: Success}`             |
-| `WithFailure`       | Failure with code and message                    |
-| `WithError`         | Wraps an `error` into result                     |
-| `WithChanges`       | Before/after snapshots + list of changed fields  |
-| `WithEventContext`  | Request ID, trace ID, correlation ID             |
-| `WithMetadata`      | Arbitrary key-value pairs                        |
-| `Build`             | Get the `*Event` without emitting                |
-| `Emit`              | Send to auditor, returns false if dropped        |
+| Method             | What it does                                    |
+|--------------------|-------------------------------------------------|
+| `WithActor`        | Who did it                                      |
+| `WithResource`     | What was affected                               |
+| `WithResult`       | Set result directly                             |
+| `WithSuccess`      | Shorthand: `Result{Status: Success}`            |
+| `WithFailure`      | Failure with code and message                   |
+| `WithError`        | Wraps an `error` into result                    |
+| `WithChanges`      | Before/after snapshots + list of changed fields |
+| `WithEventContext` | Request ID, trace ID, correlation ID            |
+| `WithMetadata`     | Arbitrary key-value pairs                       |
+| `Build`            | Get the `*Event` without emitting               |
+| `Emit`             | Send to auditor, returns false if dropped       |
 
 ---
 
@@ -252,18 +252,19 @@ handler := audithttp.Middleware(auditor,
 )(next)
 ```
 
-HTTP method maps to action (`GET` = read, `POST` = create, `PUT`/`PATCH` = update, `DELETE` = delete). Status code maps to result (2xx = success, 4xx =
+HTTP method maps to action (`GET` = read, `POST` = create, `PUT`/`PATCH` = update, `DELETE` = delete). Status code maps to result (2xx = success,
+4xx =
 failure, 5xx = error).
 
 ---
 
 ## Storage
 
-| Backend    | Package                           | Use case                                          |
-|------------|-----------------------------------|---------------------------------------------------|
-| Memory     | `data/audit/storages/memory`      | Dev and tests                                     |
-| MongoDB    | `data/audit/storages/mongo`       | Production                                        |
-| ClickHouse | `data/audit/storages/clickhouse`  | High-volume production, analytical queries        |
+| Backend    | Package                     | Use case                                   |
+|------------|-----------------------------|--------------------------------------------|
+| Memory     | `audit/storages/memory`     | Dev and tests                              |
+| MongoDB    | `audit/storages/mongo`      | Production                                 |
+| ClickHouse | `audit/storages/clickhouse` | High-volume production, analytical queries |
 
 All implement:
 
@@ -277,9 +278,9 @@ type Storage interface {
 }
 ```
 
-The ClickHouse storage takes a connection from `infrastructure/clickhouse/factory`, writes column-wise batches, and checks the table against
+The ClickHouse storage takes a connection from `factory/infrastructure/clickhouse`, writes column-wise batches, and checks the table against
 its expected schema at startup (missing or differently defined columns, skip indexes, sorting and partition keys). See the
-[package README](../../data/audit/storages/clickhouse/README.md).
+[package README](../../audit/storages/clickhouse/README.md).
 
 ### Paging
 
@@ -287,7 +288,7 @@ Every storage orders events by timestamp (milliseconds) then ID and continues af
 `audit.FetchPage` returns one page and the signed token of the next one:
 
 ```go
-codec, _ := keyset.New(signingKey) // ≥ 32 bytes, the same on every replica
+codec, _ := pagetoken.New(signingKey) // ≥ 32 bytes, the same on every replica
 tokens := audit.NewPageTokens(codec)
 
 page, err := audit.FetchPage(ctx, storage, tokens, audit.Query{ActorID: "u1", Limit: 50, Subject: caller})
@@ -295,28 +296,30 @@ next, err := audit.FetchPage(ctx, storage, tokens, audit.Query{ActorID: "u1", Li
 ```
 
 A token is bound to the filter, the sort order and the subject, expires after 24h by default, and cannot be forged without the key. `Count`
-counts all events matching the filter, ignoring the page position. Offset paging was removed. From configuration, `factory.BuildStorage()`
-and `factory.BuildPageTokens()` (the `paging` block) provide both.
+counts all events matching the filter, ignoring the page position. Offset paging was removed. From configuration, `factory.BuildStorage(ctx)`
+and `factory.BuildPageTokens()` (the `paging` block, the shared [`config/paging`](../../config/paging) schema; `keyEncoding: base64` takes
+keys as base64) provide both.
 
 ---
 
 ## Options
 
-| Option                  | Default   | What it sets                              |
-|-------------------------|-----------|-------------------------------------------|
-| `WithServiceInfo`       | --        | Name, version, instance ID                |
-| `WithLogger`            | discard   | `*slog.Logger` for warnings               |
-| `WithCollector`         | noop      | Prometheus collector for facade metrics   |
-| `WithMetricsSubsystem`  | `"audit"` | Prometheus subsystem prefix               |
+| Option                 | Default   | What it sets                            |
+|------------------------|-----------|-----------------------------------------|
+| `WithServiceInfo`      | --        | Name, version, instance ID              |
+| `WithLogger`           | discard   | `*slog.Logger` for warnings             |
+| `WithMeter`            | noop      | Prometheus collector for facade metrics |
+| `WithMetricsSubsystem` | `"audit"` | Prometheus subsystem prefix             |
 
-Buffer size, batch size, workers, retries, and WAL are all on the `dispatch.Engine`. See `service/dispatch`.
+Buffer size, batch size, workers, retries, and WAL are all on the `dispatch.Engine`. See go-atlas-core [
+`runtime/dispatch`](https://github.com/altessa-s/go-atlas-core/tree/develop/runtime/dispatch).
 
 ## Metrics
 
-| Metric                         | Type    | What it counts                           |
-|--------------------------------|---------|------------------------------------------|
-| `audit_events_emitted_total`   | Counter | Events accepted by the dispatcher        |
-| `audit_events_dropped_total`   | Counter | Events rejected (buffer full)            |
+| Metric                       | Type    | What it counts                    |
+|------------------------------|---------|-----------------------------------|
+| `audit_events_emitted_total` | Counter | Events accepted by the dispatcher |
+| `audit_events_dropped_total` | Counter | Events rejected (buffer full)     |
 
 The engine adds its own metrics (worker count, flush latency, WAL size, sink errors) under a separate subsystem.
 

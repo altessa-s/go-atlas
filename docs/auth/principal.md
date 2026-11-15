@@ -35,13 +35,13 @@ through caller-supplied extractors. `Principal` is just a convenient, standard `
 
 ## The Type
 
-| Field     | Type             | Role                                                                |
-|-----------|------------------|---------------------------------------------------------------------|
+| Field     | Type             | Role                                                                           |
+|-----------|------------------|--------------------------------------------------------------------------------|
 | `Subject` | `string`         | Authenticated subject (token `sub` / certificate identity). Empty = anonymous. |
-| `Tenant`  | `string`         | Organization/workspace scope; empty when single-tenant or absent.   |
-| `Scopes`  | `[]string`       | Granted authorization scopes (OAuth `scope`, RFC 9068).             |
-| `Roles`   | `[]string`       | Granted roles, mapped to scopes by a role registry where role-based. |
-| `Claims`  | `map[string]any` | Raw claims not promoted to a field, for service-specific needs; may be nil. |
+| `Tenant`  | `string`         | Organization/workspace scope; empty when single-tenant or absent.              |
+| `Scopes`  | `[]string`       | Granted authorization scopes (OAuth `scope`, RFC 9068).                        |
+| `Roles`   | `[]string`       | Granted roles, mapped to scopes by a role registry where role-based.           |
+| `Claims`  | `map[string]any` | Raw claims not promoted to a field, for service-specific needs; may be nil.    |
 
 Every field is optional. The zero `Principal` is a valid anonymous identity, and `IsZero` reports it.
 
@@ -49,15 +49,15 @@ Every field is optional. The zero `Principal` is a valid anonymous identity, and
 
 The common membership checks live as methods so callers don't re-scan the slices by hand.
 
-| Method                    | Result                                                     |
-|---------------------------|------------------------------------------------------------|
-| `HasScope(s)`             | Whether scope `s` was granted.                             |
-| `HasAnyScope(s…)`         | Whether at least one of the scopes was granted (none → false). |
-| `HasAllScopes(s…)`        | Whether every scope was granted (none → true, vacuously).  |
-| `HasRole(r)`              | Whether role `r` was granted.                              |
-| `HasAnyRole(r…)`          | Whether at least one of the roles was granted (none → false). |
-| `Claim(name)`             | Raw claim lookup — `(value, ok)`; `ok=false` when `Claims` is nil or absent. |
-| `IsZero()`                | Whether the principal carries no identity at all.          |
+| Method             | Result                                                                       |
+|--------------------|------------------------------------------------------------------------------|
+| `HasScope(s)`      | Whether scope `s` was granted.                                               |
+| `HasAnyScope(s…)`  | Whether at least one of the scopes was granted (none → false).               |
+| `HasAllScopes(s…)` | Whether every scope was granted (none → true, vacuously).                    |
+| `HasRole(r)`       | Whether role `r` was granted.                                                |
+| `HasAnyRole(r…)`   | Whether at least one of the roles was granted (none → false).                |
+| `Claim(name)`      | Raw claim lookup — `(value, ok)`; `ok=false` when `Claims` is nil or absent. |
+| `IsZero()`         | Whether the principal carries no identity at all.                            |
 
 ## Building from Claims
 
@@ -65,20 +65,20 @@ The common membership checks live as methods so callers don't re-scan the slices
 type. It promotes `sub`→`Subject`, the scope claim→`Scopes`, and the configurable tenant/roles claims. The raw `Claims` map is left nil —
 set it on the result when a service needs claims beyond the promoted fields.
 
-| Claim source method        | Reads                                                    |
-|----------------------------|----------------------------------------------------------|
-| `Subject() string`         | the `sub` claim → `Subject`.                             |
-| `Scopes() []string`        | the granted scopes → `Scopes`.                           |
-| `String(name)`             | the tenant claim → `Tenant`.                             |
-| `StringSlice(name)`        | the roles claim → `Roles`.                               |
+| Claim source method | Reads                          |
+|---------------------|--------------------------------|
+| `Subject() string`  | the `sub` claim → `Subject`.   |
+| `Scopes() []string` | the granted scopes → `Scopes`. |
+| `String(name)`      | the tenant claim → `Tenant`.   |
+| `StringSlice(name)` | the roles claim → `Roles`.     |
 
 `ClaimsSource` is satisfied by [`auth/jwt`](../../auth/jwt) `Claims` and any other claim type exposing the same accessors, so the mapping
 stays decoupled from a particular token package.
 
-| Option               | Effect                                            |
-|----------------------|---------------------------------------------------|
-| `WithTenantClaim(n)` | Claim read into `Tenant` (default `"tenant"`).    |
-| `WithRolesClaim(n)`  | Claim read into `Roles` (default `"roles"`).      |
+| Option               | Effect                                         |
+|----------------------|------------------------------------------------|
+| `WithTenantClaim(n)` | Claim read into `Tenant` (default `"tenant"`). |
+| `WithRolesClaim(n)`  | Claim read into `Roles` (default `"roles"`).   |
 
 ## Relationship to the Decision Cores
 
@@ -127,18 +127,18 @@ enf = scope.NewEnforcer(reg, authorize)
 
 ## API Reference
 
-| Symbol                               | Description                                                                              |
-|--------------------------------------|------------------------------------------------------------------------------------------|
-| `principal.Principal`                | Canonical verified identity (`Subject`/`Tenant`/`Scopes`/`Roles`/`Claims`).              |
-| `Principal.HasScope(s)`              | Scope membership check.                                                                   |
-| `Principal.HasAnyScope(s…)` / `HasAllScopes(s…)` | Any/all scope checks (none → false / true).                                   |
-| `Principal.HasRole(r)` / `HasAnyRole(r…)` | Role membership checks.                                                              |
-| `Principal.Claim(name)`              | Raw claim lookup, `(value, ok)`.                                                          |
-| `Principal.IsZero()`                 | Whether the principal is anonymous (no identity at all).                                  |
-| `principal.ClaimsSource`             | Narrow claim-set view `FromClaims` reads; satisfied by `auth/jwt` `Claims`.               |
-| `principal.FromClaims(c, opt…)`      | Build a `Principal` from a verified claim set.                                            |
-| `principal.WithTenantClaim(n)`       | Name of the claim mapped to `Tenant` (default `"tenant"`).                                |
-| `principal.WithRolesClaim(n)`        | Name of the claim mapped to `Roles` (default `"roles"`).                                  |
+| Symbol                                           | Description                                                                 |
+|--------------------------------------------------|-----------------------------------------------------------------------------|
+| `principal.Principal`                            | Canonical verified identity (`Subject`/`Tenant`/`Scopes`/`Roles`/`Claims`). |
+| `Principal.HasScope(s)`                          | Scope membership check.                                                     |
+| `Principal.HasAnyScope(s…)` / `HasAllScopes(s…)` | Any/all scope checks (none → false / true).                                 |
+| `Principal.HasRole(r)` / `HasAnyRole(r…)`        | Role membership checks.                                                     |
+| `Principal.Claim(name)`                          | Raw claim lookup, `(value, ok)`.                                            |
+| `Principal.IsZero()`                             | Whether the principal is anonymous (no identity at all).                    |
+| `principal.ClaimsSource`                         | Narrow claim-set view `FromClaims` reads; satisfied by `auth/jwt` `Claims`. |
+| `principal.FromClaims(c, opt…)`                  | Build a `Principal` from a verified claim set.                              |
+| `principal.WithTenantClaim(n)`                   | Name of the claim mapped to `Tenant` (default `"tenant"`).                  |
+| `principal.WithRolesClaim(n)`                    | Name of the claim mapped to `Roles` (default `"roles"`).                    |
 
 ## Design Notes
 

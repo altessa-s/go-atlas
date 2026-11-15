@@ -1,7 +1,7 @@
 # Configuration
 
 ```go
-import "github.com/altessa-s/go-atlas/config/loader"
+import "github.com/altessa-s/go-nomos/loader"
 ```
 
 Multi-source configuration loading with environment variable expansion, secret injection, and validation.
@@ -47,7 +47,7 @@ The `Load()` method executes the following steps in order:
 | 1    | Read and decode configuration files                                               | No path configured   |
 | 2    | Load environment variables                                                        | `WithSkipEnv()`      |
 | 3    | Call `Default()` and apply `default` struct tags to fields nothing set (one pass) | `WithSkipDefaults()` |
-| 4    | Expand `$__secret{namespace:key}` placeholders                                    | No secrets manager   |
+| 4    | Resolve `$__secret{}` at the source: all file ones, winning env, tags             | No secrets manager   |
 | 5    | Call `Validate()` if implemented                                                  | --                   |
 | 6    | Call `Normalize()` if implemented                                                 | --                   |
 
@@ -64,26 +64,26 @@ p := loader.New(backend,
     loader.WithStructTag("yaml"),
     loader.WithSkipEnv(),
     loader.WithSkipDefaults(),
-    loader.WithSecretsManager(manager),
+    loader.WithSecretResolver(secrets.NewStringResolver(manager)),
     loader.WithStrict(),
     loader.WithMaxConfigBytes(16 * 1024 * 1024),
     loader.WithMaxEnvSliceLen(1024),
 )
 ```
 
-| Option                    | Default              | Description                                                                                                                                       |
-|---------------------------|----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| `WithPath`                | --                   | Config file path. Supports `~` home directory expansion                                                                                           |
-| `WithPathOnEnvKey`        | --                   | Load path from env var with a fallback default path                                                                                               |
-| `WithEnvPrefix`           | `""`                 | Read only variables with this prefix; normalized to one trailing `_` (`app`, `APP`, `APP_` all mean `APP_`)                                       |
-| `WithEnvSectionDelimiter` | `"__"`               | Delimiter for nested struct mapping in env vars                                                                                                   |
-| `WithStructTag`           | `"yaml"`             | Struct tag name for field mapping                                                                                                                 |
-| `WithSkipEnv`             | `false`              | Skip environment variable loading                                                                                                                 |
-| `WithSkipDefaults`        | `false`              | Skip default value application                                                                                                                    |
-| `WithSecretsManager`      | `nil`                | Secrets manager for `$__secret{}` expansion                                                                                                       |
-| `WithStrict`              | `false`              | Error on undefined env vars and unsupported field types                                                                                           |
-| `WithMaxConfigBytes`      | `16 MiB`             | Cap per-file read size. Guards against `/dev/zero`, multi-GB tmpfs files, or malicious include targets that would OOM the loader before parsing   |
-| `WithMaxEnvSliceLen`      | `1024`               | Max length an indexed env variable can grow a slice to; a larger or negative index fails with `ErrEnvIndexOutOfRange`                             |
+| Option                    | Default  | Description                                                                                                                                     |
+|---------------------------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------|
+| `WithPath`                | --       | Config file path. Supports `~` home directory expansion                                                                                         |
+| `WithPathOnEnvKey`        | --       | Load path from env var with a fallback default path                                                                                             |
+| `WithEnvPrefix`           | `""`     | Read only variables with this prefix; normalized to one trailing `_` (`app`, `APP`, `APP_` all mean `APP_`)                                     |
+| `WithEnvSectionDelimiter` | `"__"`   | Delimiter for nested struct mapping in env vars                                                                                                 |
+| `WithStructTag`           | `"yaml"` | Struct tag name for field mapping                                                                                                               |
+| `WithSkipEnv`             | `false`  | Skip environment variable loading                                                                                                               |
+| `WithSkipDefaults`        | `false`  | Skip default value application                                                                                                                  |
+| `WithSecretResolver`      | `nil`    | Secret resolver for `$__secret{}` expansion                                                                                                     |
+| `WithStrict`              | `false`  | Error on undefined env vars and unsupported field types                                                                                         |
+| `WithMaxConfigBytes`      | `16 MiB` | Cap per-file read size. Guards against `/dev/zero`, multi-GB tmpfs files, or malicious include targets that would OOM the loader before parsing |
+| `WithMaxEnvSliceLen`      | `1024`   | Max length an indexed env variable can grow a slice to; a larger or negative index fails with `ErrEnvIndexOutOfRange`                           |
 
 ---
 
@@ -195,7 +195,8 @@ The rule above replaced per-path naming. Breaking changes:
 | `env:"-"` named a variable `-`                                              | `env:"-"` keeps the field out of the environment                                        |
 | Parse errors quoted the value                                               | Parse errors name the variable only                                                     |
 
-A variable whose first level names no field is ignored silently, even with `WithStrict`, so a renamed override simply stops applying; below a recognized
+A variable whose first level names no field is ignored silently, even with `WithStrict`, so a renamed override simply stops applying; below a
+recognized
 root field, `WithStrict` fails the load with `ErrFieldNotFound` for a level no field answers to. Before upgrading, audit deployment manifests for
 unprefixed overrides, path names of `env`-tagged fields (`APP_SECTION__FIELD` for a field tagged `env:"DB_HOST"`), section `env` tags used as level
 names and lower-case names.
@@ -229,13 +230,14 @@ database:
   api_key: $__secret{external:api_key}
 ```
 
-Configure the secrets manager:
+Each placeholder looks up the key `namespace:key` (for example `myapp:db_password`). Configure the secrets manager, by hand or from a `secrets`
+section with `factory.New(&cfg.Secrets).BuildString(ctx)` (`factory/ext/kryptos`):
 
 ```go
-manager, _ := secrets.New[string](provider)
+store, _ := manager.New[string](provider) // github.com/altessa-s/go-kryptos/manager
 p := loader.New(nil,
     loader.WithPath("config.yaml"),
-    loader.WithSecretsManager(manager),
+    loader.WithSecretResolver(manager.NewStringResolver(store)),
 )
 ```
 
@@ -244,12 +246,15 @@ missing secrets cause an error.
 
 ### Secret providers
 
-| Provider             | Package                              | Best for                     |
-|----------------------|--------------------------------------|------------------------------|
-| HashiCorp Vault      | `security/secrets/providers/vault`   | Production secret management |
-| GCP Secret Manager   | `security/secrets/providers/gcp`     | GCP environments             |
-| Yandex Cloud Lockbox | `security/secrets/providers/lockbox` | Yandex Cloud environments    |
-| In-memory            | `security/secrets/providers/memory`  | Testing, development         |
+| Provider             | Package (go-kryptos) | Factory                          | Best for                     |
+|----------------------|----------------------|----------------------------------|------------------------------|
+| HashiCorp Vault      | `providers/vault`    | `factory/ext/kryptos/vault`      | Production secret management |
+| GCP Secret Manager   | `providers/gcp`      | `factory/ext/kryptos/gcp`        | GCP environments             |
+| Yandex Cloud Lockbox | `providers/lockbox`  | `factory/ext/kryptos/lockbox`    | Yandex Cloud environments    |
+| In-memory            | `providers/memory`   | built into `factory/ext/kryptos` | Testing, development         |
+
+The secrets factory builds only the in-memory provider; a remote provider is registered with `UseProvider` from its `factory` subpackage, for
+example `UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder(vaultClient))` from `factory/ext/kryptos/vault`.
 
 ---
 
@@ -306,10 +311,10 @@ When enabled via `WithStrict()`, the loader returns errors instead of silently i
 
 ## Backends
 
-| Backend | Extensions          | Package                          |
-|---------|---------------------|----------------------------------|
-| YAML v3 | `.yaml`, `.yml`     | `config/loader/backend/yaml3`    |
-| TOML    | `.toml`, `.tml`     | `config/loader/backend/toml`     |
+| Backend | Extensions      | Package                         |
+|---------|-----------------|---------------------------------|
+| YAML v3 | `.yaml`, `.yml` | `go-nomos/loader/backend/yaml3` |
+| TOML    | `.toml`, `.tml` | `go-nomos/loader/backend/toml`  |
 
 ---
 
@@ -321,7 +326,7 @@ The `config/templates` package provides 30+ pre-built YAML templates for common 
 |----------------|-----------------------------------------------------------------------------------------------|
 | Transport      | `http.yaml`, `grpc.yaml`, `broker.yaml` + middleware/interceptor dirs                         |
 | Proxy          | `http_proxy.yaml`, `grpc_proxy.yaml` (reusable via `!include`)                                |
-| Data           | `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`                                 |
+| Data           | `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`, `storage_backend.yaml`         |
 | Security       | `auth.yaml`, `auth_oidc.yaml`, `opa.yaml`, `vault.yaml`, `secrets.yaml`, `tls-*.yaml`         |
 | Observability  | `observability.yaml`, `health.yaml`, `logger.yaml` (pprof is configured in `http.yaml`)       |
 | Services       | `scheduler.yaml`, `probabilistic_filter.yaml`, `idempotency.yaml`, `idempotency_storage.yaml` |

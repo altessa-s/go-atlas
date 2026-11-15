@@ -3,33 +3,38 @@
 All metrics are Prometheus-compatible and follow the naming convention `{serviceName}_{subsystem}_{name}`. The `serviceName` prefix is configured via
 `observabilityconfig.Metrics.ServiceName`.
 
-**39 subsystems, 227 metrics.**
+Components and factory builders receive a `metrics.Meter` (instrument creation only, through `WithMeter` / `WithMetrics` or `UseMeter`);
+the application holds the `metrics.Collector`, which adds `Shutdown` / `ForceFlush`, and passes it or a `WithSubsystem` scope down. See
+[observability/metrics](../observability/metrics/README.md#meter-vs-collector).
+
+**38 subsystems, 224 metrics.**
 
 ---
 
 ## async
 
-Package: `service/dispatch`
+Package: `factory/ext/core/dispatch/observe` (metrics observer of the go-atlas-core `runtime/dispatch` engine)
 
-The subsystem defaults to `DefaultMetricsSubsystem` (`async`) and can be changed with `WithMetricsSubsystem` or the dispatch config.
+The subsystem defaults to `DefaultMetricsSubsystem` (`async`) and can be changed with `observe.WithMetricsSubsystem` or the dispatch config
+(`metricsSubsystem`, applied when the factory is given a meter with `WithMeter`).
 
-| Name                                 | Type      | Labels | Description                               |
-|--------------------------------------|-----------|--------|-------------------------------------------|
-| `async_items_enqueued_total`         | Counter   | --     | Items accepted into the dispatch buffer   |
-| `async_items_dropped_total`          | Counter   | --     | Items dropped (buffer full or shutdown)   |
-| `async_batch_flush_duration_seconds` | Histogram | --     | Batch flush duration                      |
-| `async_sink_errors_total`            | Counter   | --     | Batches the sink failed after all retries |
-| `async_wal_errors_total`             | Counter   | --     | WAL append/ack failures                   |
-| `async_encode_errors_total`          | Counter   | --     | Items the codec failed to encode          |
-| `async_workers_active`               | Gauge     | --     | Currently active dispatch workers         |
-| `async_wal_bytes`                    | Gauge     | --     | WAL size on disk                          |
-| `async_wal_replay_total`             | Counter   | --     | Items replayed from the WAL on start      |
+| Name                                 | Type      | Labels | Description                                     |
+|--------------------------------------|-----------|--------|-------------------------------------------------|
+| `async_items_enqueued_total`         | Counter   | --     | Items accepted into the dispatch buffer         |
+| `async_items_dropped_total`          | Counter   | --     | Items dropped (buffer full or shutdown)         |
+| `async_batch_flush_duration_seconds` | Histogram | --     | Batch flush duration                            |
+| `async_sink_errors_total`            | Counter   | --     | Items of failed sink attempts, retries included |
+| `async_wal_errors_total`             | Counter   | --     | WAL append/ack failures                         |
+| `async_encode_errors_total`          | Counter   | --     | Items the codec failed to encode                |
+| `async_workers_active`               | Gauge     | --     | Currently active dispatch workers               |
+| `async_wal_bytes`                    | Gauge     | --     | WAL size on disk                                |
+| `async_wal_replay_total`             | Counter   | --     | Items replayed from the WAL on start            |
 
 ---
 
 ## audit
 
-Package: `data/audit`
+Package: `audit`
 
 | Name                         | Type    | Labels | Description                               |
 |------------------------------|---------|--------|-------------------------------------------|
@@ -99,7 +104,7 @@ Package: `auth/static`
 
 ## broker
 
-Package: `transport/broker`
+Package: `messaging/broker`
 
 | Name                                         | Type      | Labels    | Description                        |
 |----------------------------------------------|-----------|-----------|------------------------------------|
@@ -121,40 +126,40 @@ On publisher metrics, `subject` is the published subject; at most `DefaultSubjec
 
 ## broker_inprogress
 
-Package: `transport/broker/inprogress`
+Package: `messaging/broker/inprogress`
 
-| Name                                       | Type    | Labels | Description                              |
-|--------------------------------------------|---------|--------|------------------------------------------|
-| `broker_inprogress_heartbeats_sent_total`  | Counter | --     | InProgress heartbeats sent               |
-| `broker_inprogress_heartbeat_errors_total` | Counter | --     | Failed InProgress heartbeat attempts     |
+| Name                                       | Type    | Labels | Description                          |
+|--------------------------------------------|---------|--------|--------------------------------------|
+| `broker_inprogress_heartbeats_sent_total`  | Counter | --     | InProgress heartbeats sent           |
+| `broker_inprogress_heartbeat_errors_total` | Counter | --     | Failed InProgress heartbeat attempts |
 
 ---
 
 ## broker_idempotency
 
-Package: `transport/broker/idempotency`
+Package: `messaging/broker/idempotency`
 
-| Name                                | Type    | Labels                | Description                                                          |
-|-------------------------------------|---------|-----------------------|----------------------------------------------------------------------|
+| Name                                | Type    | Labels                | Description                                                         |
+|-------------------------------------|---------|-----------------------|---------------------------------------------------------------------|
 | `broker_idempotency_outcomes_total` | Counter | `consumer`, `outcome` | Broker idempotency outcome counters (processed, duplicate, busy...) |
 
 ---
 
 ## budget_limiter
 
-Package: `data/limiters/budget`
+Package: `coord/limiters/budget`
 
-| Name                                         | Type    | Labels | Description                                      |
-|----------------------------------------------|---------|--------|--------------------------------------------------|
-| `budget_limiter_requests_allowed_total`      | Counter | --     | Requests allowed by the budget limiter           |
-| `budget_limiter_requests_rejected_total`     | Counter | --     | Requests rejected due to budget exhaustion       |
-| `budget_limiter_limit_check_errors_total`    | Counter | --     | Errors during budget limit checks                |
+| Name                                      | Type    | Labels | Description                                |
+|-------------------------------------------|---------|--------|--------------------------------------------|
+| `budget_limiter_requests_allowed_total`   | Counter | --     | Requests allowed by the budget limiter     |
+| `budget_limiter_requests_rejected_total`  | Counter | --     | Requests rejected due to budget exhaustion |
+| `budget_limiter_limit_check_errors_total` | Counter | --     | Errors during budget limit checks          |
 
 ---
 
 ## cache
 
-Package: `data/cache`
+Package: `cache`
 
 | Name                              | Type      | Labels       | Description                          |
 |-----------------------------------|-----------|--------------|--------------------------------------|
@@ -171,21 +176,21 @@ Package: `data/cache`
 
 ## dlock
 
-Package: `data/locks/dlock`
+Package: `coord/dlock`
 
-| Name                             | Type      | Labels | Description                                            |
-|----------------------------------|-----------|--------|--------------------------------------------------------|
-| `dlock_locks_acquired_total`     | Counter   | --     | Locks successfully acquired                            |
-| `dlock_locks_released_total`     | Counter   | --     | Locks successfully released (paired with acquired)     |
-| `dlock_locks_failed_total`       | Counter   | --     | Lock acquisition failures                              |
-| `dlock_acquire_duration_seconds` | Histogram | --     | Lock acquisition duration                              |
-| `dlock_synchronizations_total`   | Counter   | --     | Synchronize calls completed                            |
+| Name                             | Type      | Labels | Description                                        |
+|----------------------------------|-----------|--------|----------------------------------------------------|
+| `dlock_locks_acquired_total`     | Counter   | --     | Locks successfully acquired                        |
+| `dlock_locks_released_total`     | Counter   | --     | Locks successfully released (paired with acquired) |
+| `dlock_locks_failed_total`       | Counter   | --     | Lock acquisition failures                          |
+| `dlock_acquire_duration_seconds` | Histogram | --     | Lock acquisition duration                          |
+| `dlock_synchronizations_total`   | Counter   | --     | Synchronize calls completed                        |
 
 ---
 
 ## eventbus
 
-Package: `domain/eventbus`
+Package: `messaging/eventbus`
 
 | Name                                | Type      | Labels            | Description                          |
 |-------------------------------------|-----------|-------------------|--------------------------------------|
@@ -197,15 +202,17 @@ Package: `domain/eventbus`
 
 ## filter
 
-Package: `data/filter`
+Package: go-aip `filter/parser` and the backend filter translators, recording through
+[`observability/metrics/aipmeter`](../observability/metrics/aipmeter/README.md)
 
-| Name                            | Type      | Labels           | Description                           |
-|---------------------------------|-----------|------------------|---------------------------------------|
-| `filter_parse_duration_seconds` | Histogram | --               | CEL expression parse duration         |
-| `filter_parse_errors_total`     | Counter   | --               | CEL expression parse failures         |
+| Name                                          | Type      | Labels | Description                                  |
+|-----------------------------------------------|-----------|--------|----------------------------------------------|
+| `filter_parse_duration_seconds`               | Histogram | --     | CEL expression parse duration                |
+| `filter_parse_errors_total`                   | Counter   | --     | CEL expression parse failures                |
+| `filter_<backend>_translate_duration_seconds` | Histogram | --     | Translation duration of one backend's filter |
 
-Only the parser is instrumented. The translators live in independent subpackages that are deliberately not given the collector, so there is no
-per-backend translation counter.
+A parser or translator records only when it is given a collector (`parser.WithCollector`, `WithFilterCollector` in a backend) wrapped with
+`aipmeter.New`.
 
 ---
 
@@ -279,7 +286,8 @@ The subsystem defaults to `DefaultMetricsSubsystem` (`http`) and can be changed 
 
 ## http_client
 
-Package: `transport/http/client`
+Package: `factory/ext/net/httpclient/observe` (recorded from the events of `net/http/client` when `observe.New` is installed with `WithObserver`; the
+subsystem defaults to `http_client` and can be changed with `observe.WithMetricsSubsystem`)
 
 | Name                                      | Type      | Labels                   | Description                                           |
 |-------------------------------------------|-----------|--------------------------|-------------------------------------------------------|
@@ -294,15 +302,15 @@ Package: `transport/http/client`
 
 ## idempotency
 
-Package: `data/idempotency`
+Package: `reliability/idempotency`
 
-| Name                               | Type    | Labels | Description                              |
-|------------------------------------|---------|--------|------------------------------------------|
-| `idempotency_locks_acquired_total` | Counter | --     | Idempotency keys successfully locked     |
-| `idempotency_locks_denied_total`   | Counter | --     | Duplicate requests detected              |
-| `idempotency_completions_total`    | Counter | --     | Idempotency keys marked as complete      |
-| `idempotency_deletions_total`      | Counter | --     | Idempotency keys deleted                 |
-| `idempotency_errors_total`         | Counter | --     | Idempotency operation errors             |
+| Name                               | Type    | Labels | Description                          |
+|------------------------------------|---------|--------|--------------------------------------|
+| `idempotency_locks_acquired_total` | Counter | --     | Idempotency keys successfully locked |
+| `idempotency_locks_denied_total`   | Counter | --     | Duplicate requests detected          |
+| `idempotency_completions_total`    | Counter | --     | Idempotency keys marked as complete  |
+| `idempotency_deletions_total`      | Counter | --     | Idempotency keys deleted             |
+| `idempotency_errors_total`         | Counter | --     | Idempotency operation errors         |
 
 ---
 
@@ -310,34 +318,34 @@ Package: `data/idempotency`
 
 Package: `observability/metrics` (bridge for `core/text/strings`)
 
-| Name                       | Type    | Labels | Description                                          |
-|----------------------------|---------|--------|------------------------------------------------------|
-| `interner_hot_hits_total`  | Counter | --     | Lookups served from the hot cache (atomic slots)     |
-| `interner_cold_hits_total` | Counter | --     | Lookups served from the cold cache (sync.Map)        |
-| `interner_misses_total`    | Counter | --     | Lookups requiring a new entry                        |
-| `interner_evictions_total` | Counter | --     | Entries removed by background LRU eviction           |
-| `interner_current_size`    | Gauge   | --     | Currently interned strings                           |
-| `interner_hit_rate`        | Gauge   | --     | Overall cache hit rate (hot + cold / total)          |
-| `interner_hot_hit_rate`    | Gauge   | --     | Hot cache hit rate (hot / total)                     |
+| Name                       | Type    | Labels | Description                                      |
+|----------------------------|---------|--------|--------------------------------------------------|
+| `interner_hot_hits_total`  | Counter | --     | Lookups served from the hot cache (atomic slots) |
+| `interner_cold_hits_total` | Counter | --     | Lookups served from the cold cache (sync.Map)    |
+| `interner_misses_total`    | Counter | --     | Lookups requiring a new entry                    |
+| `interner_evictions_total` | Counter | --     | Entries removed by background LRU eviction       |
+| `interner_current_size`    | Gauge   | --     | Currently interned strings                       |
+| `interner_hit_rate`        | Gauge   | --     | Overall cache hit rate (hot + cold / total)      |
+| `interner_hot_hit_rate`    | Gauge   | --     | Hot cache hit rate (hot / total)                 |
 
 ---
 
 ## leader_election
 
-Package: `data/leadelect`
+Package: `coord/leadelect`
 
-| Name                                        | Type      | Labels | Description                                     |
-|---------------------------------------------|-----------|--------|-------------------------------------------------|
-| `leader_election_transitions_total`         | Counter   | `type` | Leadership transitions                          |
-| `leader_election_is_leader`                 | Gauge     | --     | Current leader status (1=leader, 0=follower)    |
-| `leader_election_callback_duration_seconds` | Histogram | --     | Leadership callback execution duration          |
-| `leader_election_callback_errors_total`     | Counter   | --     | Failed leadership callback executions           |
+| Name                                        | Type      | Labels | Description                                  |
+|---------------------------------------------|-----------|--------|----------------------------------------------|
+| `leader_election_transitions_total`         | Counter   | `type` | Leadership transitions                       |
+| `leader_election_is_leader`                 | Gauge     | --     | Current leader status (1=leader, 0=follower) |
+| `leader_election_callback_duration_seconds` | Histogram | --     | Leadership callback execution duration       |
+| `leader_election_callback_errors_total`     | Counter   | --     | Failed leadership callback executions        |
 
 ---
 
 ## mongo
 
-Package: `data/mongo`
+Package: `store/mongo`
 
 | Name                                 | Type      | Labels             | Description                  |
 |--------------------------------------|-----------|--------------------|------------------------------|
@@ -352,7 +360,7 @@ Package: `data/mongo`
 
 ## nats_kv_lease
 
-Package: `data/internal/natskvlease`
+Package: `internal/nats/natskvlease`
 
 | Name                             | Type    | Labels         | Description                            |
 |----------------------------------|---------|----------------|----------------------------------------|
@@ -363,7 +371,7 @@ Package: `data/internal/natskvlease`
 
 ## nats_leader_election
 
-Package: `data/leadelect/providers/nats`
+Package: `coord/leadelect/providers/nats`
 
 | Name                                                      | Type      | Labels         | Description                                  |
 |-----------------------------------------------------------|-----------|----------------|----------------------------------------------|
@@ -396,53 +404,55 @@ Package: `auth/oidc`
 
 Package: `auth/opa`
 
-| Name                                      | Type      | Labels   | Description                     |
-|-------------------------------------------|-----------|----------|---------------------------------|
-| `auth_opa_policy_reloads_total`           | Counter   | `result` | Policy reload operations        |
-| `auth_opa_policy_reload_duration_seconds` | Histogram | --       | Policy reload duration          |
-| `auth_opa_evaluations_total`              | Counter   | `result` | Policy evaluations              |
-| `auth_opa_evaluation_duration_seconds`    | Histogram | --       | Policy evaluation duration      |
-| `auth_opa_modules_loaded`                 | Gauge     | --       | Policy modules currently loaded |
+| Name                                      | Type      | Labels   | Description                                                                            |
+|-------------------------------------------|-----------|----------|----------------------------------------------------------------------------------------|
+| `auth_opa_policy_reloads_total`           | Counter   | `result` | Policy reload operations                                                               |
+| `auth_opa_policy_reload_duration_seconds` | Histogram | --       | Policy reload duration                                                                 |
+| `auth_opa_evaluations_total`              | Counter   | `result` | Policy evaluations                                                                     |
+| `auth_opa_evaluation_duration_seconds`    | Histogram | --       | Policy evaluation duration                                                             |
+| `auth_opa_modules_loaded`                 | Gauge     | --       | Policy modules currently loaded                                                        |
 | `auth_opa_decision_cache_lookups_total`   | Counter   | `result` | Decision cache lookups (`hit`/`miss`); emitted only when the decision cache is enabled |
 
 ---
 
 ## orderby
 
-Package: `data/orderby`
+Package: go-aip `orderby` and the backend order translators, recording through
+[`observability/metrics/aipmeter`](../observability/metrics/aipmeter/README.md)
 
-| Name                             | Type      | Labels | Description             |
-|----------------------------------|-----------|--------|-------------------------|
-| `orderby_parse_duration_seconds` | Histogram | --     | order_by parse duration |
-| `orderby_parse_errors_total`     | Counter   | --     | order_by parse errors   |
+| Name                                           | Type      | Labels | Description                         |
+|------------------------------------------------|-----------|--------|-------------------------------------|
+| `orderby_parse_duration_seconds`               | Histogram | --     | order_by parse duration             |
+| `orderby_parse_errors_total`                   | Counter   | --     | order_by parse errors               |
+| `orderby_<backend>_translate_duration_seconds` | Histogram | --     | Translation duration of one backend |
 
 ---
 
 ## outbox
 
-Package: `data/outbox`
+Package: `reliability/outbox`
 
-| Name                                            | Type      | Labels | Description                                        |
-|-------------------------------------------------|-----------|--------|----------------------------------------------------|
-| `outbox_events_dispatched_total`                | Counter   | --     | Events successfully dispatched                     |
-| `outbox_events_dispatch_attempts_failed_total`  | Counter   | --     | Failed delivery attempts                           |
-| `outbox_events_saved_total`                     | Counter   | --     | Events persisted to the outbox store               |
-| `outbox_events_skipped_total`                   | Counter   | --     | Events skipped due to key compaction               |
-| `outbox_events_rejected_total`                  | Counter   | --     | Events dead-lettered as permanently undeliverable  |
-| `outbox_events_expired_total`                   | Counter   | --     | Events that expired before dispatch                |
-| `outbox_events_retries_scheduled_total`         | Counter   | --     | Failures rescheduled for a later attempt           |
-| `outbox_max_retries_exhausted_total`            | Counter   | --     | Events hitting the retry limit                     |
-| `outbox_watch_notifications_total`              | Counter   | --     | Change notifications pushed to `Outbox.Watch`      |
-| `outbox_events_in_flight`                       | Gauge     | --     | Events currently being dispatched                  |
-| `outbox_events_pending`                         | Gauge     | --     | Backlog depth: events awaiting dispatch            |
-| `outbox_events_in_progress`                     | Gauge     | --     | Events currently locked by a dispatcher            |
-| `outbox_events_dead_lettered`                   | Gauge     | --     | Dead-letter depth: exhausted plus rejected events  |
-| `outbox_events_oldest_pending_age_seconds`      | Gauge     | --     | Dispatch lag: age of the oldest undispatched event |
-| `outbox_dispatch_cycle_duration_seconds`        | Histogram | --     | Dispatch cycle duration                            |
-| `outbox_unlock_cycle_duration_seconds`          | Histogram | --     | Unlock cycle duration                              |
-| `outbox_cleanup_cycle_duration_seconds`         | Histogram | --     | Cleanup cycle duration                             |
-| `outbox_expire_cycle_duration_seconds`          | Histogram | --     | Expire cycle duration                              |
-| `outbox_stats_cycle_duration_seconds`           | Histogram | --     | Stats cycle duration                               |
+| Name                                           | Type      | Labels | Description                                        |
+|------------------------------------------------|-----------|--------|----------------------------------------------------|
+| `outbox_events_dispatched_total`               | Counter   | --     | Events successfully dispatched                     |
+| `outbox_events_dispatch_attempts_failed_total` | Counter   | --     | Failed delivery attempts                           |
+| `outbox_events_saved_total`                    | Counter   | --     | Events persisted to the outbox store               |
+| `outbox_events_skipped_total`                  | Counter   | --     | Events skipped due to key compaction               |
+| `outbox_events_rejected_total`                 | Counter   | --     | Events dead-lettered as permanently undeliverable  |
+| `outbox_events_expired_total`                  | Counter   | --     | Events that expired before dispatch                |
+| `outbox_events_retries_scheduled_total`        | Counter   | --     | Failures rescheduled for a later attempt           |
+| `outbox_max_retries_exhausted_total`           | Counter   | --     | Events hitting the retry limit                     |
+| `outbox_watch_notifications_total`             | Counter   | --     | Change notifications pushed to `Outbox.Watch`      |
+| `outbox_events_in_flight`                      | Gauge     | --     | Events currently being dispatched                  |
+| `outbox_events_pending`                        | Gauge     | --     | Backlog depth: events awaiting dispatch            |
+| `outbox_events_in_progress`                    | Gauge     | --     | Events currently locked by a dispatcher            |
+| `outbox_events_dead_lettered`                  | Gauge     | --     | Dead-letter depth: exhausted plus rejected events  |
+| `outbox_events_oldest_pending_age_seconds`     | Gauge     | --     | Dispatch lag: age of the oldest undispatched event |
+| `outbox_dispatch_cycle_duration_seconds`       | Histogram | --     | Dispatch cycle duration                            |
+| `outbox_unlock_cycle_duration_seconds`         | Histogram | --     | Unlock cycle duration                              |
+| `outbox_cleanup_cycle_duration_seconds`        | Histogram | --     | Cleanup cycle duration                             |
+| `outbox_expire_cycle_duration_seconds`         | Histogram | --     | Expire cycle duration                              |
+| `outbox_stats_cycle_duration_seconds`          | Histogram | --     | Stats cycle duration                               |
 
 **Alert on the gauges, not the counters.** A stalled outbox and an idle one produce identical counter rates — zero — and differ only in
 `outbox_events_pending` and `outbox_events_oldest_pending_age_seconds`. `outbox_events_dead_lettered` never decreases on its own: those events
@@ -456,14 +466,14 @@ interval — correct, but at the latency the schedule dictates.
 **Renamed.** Two names no longer matched what they measured once the in-process retry loop was removed, and the backlog gauges did not share the
 `outbox_events_` prefix of the rest of the package. Update dashboards and alert rules accordingly:
 
-| Old                                     | New                                            |
-|-----------------------------------------|------------------------------------------------|
-| `outbox_events_dispatch_errors_total`   | `outbox_events_dispatch_attempts_failed_total` |
-| `outbox_dispatch_retries_total`         | `outbox_events_retries_scheduled_total`        |
-| `outbox_pending_events`                 | `outbox_events_pending`                        |
-| `outbox_in_progress_events`             | `outbox_events_in_progress`                    |
-| `outbox_dead_lettered_events`           | `outbox_events_dead_lettered`                  |
-| `outbox_oldest_pending_event_age_seconds` | `outbox_events_oldest_pending_age_seconds`   |
+| Old                                       | New                                            |
+|-------------------------------------------|------------------------------------------------|
+| `outbox_events_dispatch_errors_total`     | `outbox_events_dispatch_attempts_failed_total` |
+| `outbox_dispatch_retries_total`           | `outbox_events_retries_scheduled_total`        |
+| `outbox_pending_events`                   | `outbox_events_pending`                        |
+| `outbox_in_progress_events`               | `outbox_events_in_progress`                    |
+| `outbox_dead_lettered_events`             | `outbox_events_dead_lettered`                  |
+| `outbox_oldest_pending_event_age_seconds` | `outbox_events_oldest_pending_age_seconds`     |
 
 `outbox_events_dispatch_attempts_failed_total` also counts differently: it used to increment once per event after all retries were spent, and now
 increments once per failed attempt.
@@ -472,26 +482,28 @@ increments once per failed attempt.
 
 ## projection
 
-Package: `data/projection`
+Package: go-aip `projection` and the backend projection translators, recording through
+[`observability/metrics/aipmeter`](../observability/metrics/aipmeter/README.md)
 
-| Name                                | Type      | Labels | Description            |
-|-------------------------------------|-----------|--------|------------------------|
-| `projection_parse_duration_seconds` | Histogram | --     | fields parse duration  |
-| `projection_parse_errors_total`     | Counter   | --     | fields parse errors    |
+| Name                                              | Type      | Labels | Description                         |
+|---------------------------------------------------|-----------|--------|-------------------------------------|
+| `projection_parse_duration_seconds`               | Histogram | --     | fields parse duration               |
+| `projection_parse_errors_total`                   | Counter   | --     | fields parse errors                 |
+| `projection_<backend>_translate_duration_seconds` | Histogram | --     | Translation duration of one backend |
 
 ---
 
 ## probfilter
 
-Package: `data/probfilter`
+Package: `cache/probfilter`
 
-| Name                                  | Type      | Labels                  | Description                          |
-|---------------------------------------|-----------|-------------------------|--------------------------------------|
+| Name                                  | Type      | Labels                  | Description                                                              |
+|---------------------------------------|-----------|-------------------------|--------------------------------------------------------------------------|
 | `probfilter_lookups_total`            | Counter   | `filter_name`, `result` | Probabilistic filter lookups (`result`: `positive`, `negative`, `error`) |
-| `probfilter_adds_total`               | Counter   | `filter_name`           | Items added to probabilistic filters |
-| `probfilter_lookup_duration_seconds`  | Histogram | `filter_name`           | Filter lookup duration               |
-| `probfilter_rebuild_duration_seconds` | Histogram | --                      | Filter rebuild duration              |
-| `probfilter_rebuild_errors_total`     | Counter   | --                      | Failed filter rebuild operations     |
+| `probfilter_adds_total`               | Counter   | `filter_name`           | Items added to probabilistic filters                                     |
+| `probfilter_lookup_duration_seconds`  | Histogram | `filter_name`           | Filter lookup duration                                                   |
+| `probfilter_rebuild_duration_seconds` | Histogram | --                      | Filter rebuild duration                                                  |
+| `probfilter_rebuild_errors_total`     | Counter   | --                      | Failed filter rebuild operations                                         |
 
 A rebuild skipped because another process is rebuilding the shared Redis filter (`ErrRebuildInProgress`) records neither metric.
 
@@ -499,7 +511,7 @@ A rebuild skipped because another process is rebuilding the shared Redis filter 
 
 ## rate_limiter
 
-Package: `data/limiters/tokenbucket`
+Package: `coord/limiters/tokenbucket`
 
 | Name                                    | Type    | Labels | Description                          |
 |-----------------------------------------|---------|--------|--------------------------------------|
@@ -511,7 +523,7 @@ Package: `data/limiters/tokenbucket`
 
 ## regex_cache
 
-Package: `observability/metrics` (bridge for `data/filter`)
+Package: `observability/metrics` (bridge for the regex cache of a go-aip `filter.Policy`)
 
 | Name                       | Type    | Labels | Description                                      |
 |----------------------------|---------|--------|--------------------------------------------------|
@@ -524,69 +536,54 @@ Package: `observability/metrics` (bridge for `data/filter`)
 
 ## saga
 
-Package: `data/saga`
+Package: `reliability/saga`
 
-| Name                                  | Type      | Labels | Description                                       |
-|---------------------------------------|-----------|--------|---------------------------------------------------|
-| `saga_started_total`                  | Counter   | --     | Saga instances started                            |
-| `saga_completed_total`                | Counter   | --     | Saga instances that committed all stages          |
-| `saga_compensated_total`              | Counter   | --     | Saga instances that fully rolled back             |
-| `saga_failed_total`                   | Counter   | --     | Saga instances that entered the Failed state      |
-| `saga_in_flight`                      | Gauge     | --     | Saga instances currently executing                |
-| `saga_steps_executed_total`           | Counter   | --     | Forward step actions that committed               |
-| `saga_step_failures_total`            | Counter   | --     | Forward step actions that failed after retries    |
-| `saga_step_retries_total`             | Counter   | --     | Step action retry attempts                        |
-| `saga_compensations_total`            | Counter   | --     | Compensations that ran successfully               |
-| `saga_compensation_failures_total`    | Counter   | --     | Compensations that failed after retries           |
-| `saga_recovery_cycles_total`          | Counter   | --     | Background recovery cycles executed               |
-| `saga_recovered_total`                | Counter   | --     | Stalled or timed-out instances picked up          |
-| `saga_stage_duration_seconds`         | Histogram | --     | Forward stage execution duration                  |
+| Name                               | Type      | Labels | Description                                    |
+|------------------------------------|-----------|--------|------------------------------------------------|
+| `saga_started_total`               | Counter   | --     | Saga instances started                         |
+| `saga_completed_total`             | Counter   | --     | Saga instances that committed all stages       |
+| `saga_compensated_total`           | Counter   | --     | Saga instances that fully rolled back          |
+| `saga_failed_total`                | Counter   | --     | Saga instances that entered the Failed state   |
+| `saga_in_flight`                   | Gauge     | --     | Saga instances currently executing             |
+| `saga_steps_executed_total`        | Counter   | --     | Forward step actions that committed            |
+| `saga_step_failures_total`         | Counter   | --     | Forward step actions that failed after retries |
+| `saga_step_retries_total`          | Counter   | --     | Step action retry attempts                     |
+| `saga_compensations_total`         | Counter   | --     | Compensations that ran successfully            |
+| `saga_compensation_failures_total` | Counter   | --     | Compensations that failed after retries        |
+| `saga_recovery_cycles_total`       | Counter   | --     | Background recovery cycles executed            |
+| `saga_recovered_total`             | Counter   | --     | Stalled or timed-out instances picked up       |
+| `saga_stage_duration_seconds`      | Histogram | --     | Forward stage execution duration               |
 
-Package: `data/saga/engines/jetstream`
+Package: `reliability/saga/engines/jetstream`
 
-| Name                                  | Type      | Labels | Description                                       |
-|---------------------------------------|-----------|--------|---------------------------------------------------|
-| `saga_engine_submitted_total`         | Counter   | --     | Start commands published to JetStream             |
-| `saga_engine_consumed_total`          | Counter   | --     | Start commands received from JetStream            |
-| `saga_engine_acked_total`             | Counter   | --     | Commands acked after a terminal saga state        |
-| `saga_engine_naked_total`             | Counter   | --     | Commands returned for redelivery                  |
-| `saga_engine_terminated_total`        | Counter   | --     | Poison commands terminated without redelivery     |
-| `saga_engine_ack_errors_total`        | Counter   | --     | Failed Ack, Nak, Term or InProgress calls         |
-| `saga_engine_in_flight`               | Gauge     | --     | Sagas the engine is currently driving             |
+| Name                           | Type    | Labels | Description                                   |
+|--------------------------------|---------|--------|-----------------------------------------------|
+| `saga_engine_submitted_total`  | Counter | --     | Start commands published to JetStream         |
+| `saga_engine_consumed_total`   | Counter | --     | Start commands received from JetStream        |
+| `saga_engine_acked_total`      | Counter | --     | Commands acked after a terminal saga state    |
+| `saga_engine_naked_total`      | Counter | --     | Commands returned for redelivery              |
+| `saga_engine_terminated_total` | Counter | --     | Poison commands terminated without redelivery |
+| `saga_engine_ack_errors_total` | Counter | --     | Failed Ack, Nak, Term or InProgress calls     |
+| `saga_engine_in_flight`        | Gauge   | --     | Sagas the engine is currently driving         |
 
 ---
 
 ## scheduler
 
-Package: `service/scheduler`
+Package: `factory/ext/horai` (go-horai `Metrics` port)
 
-| Name                                    | Type      | Labels                | Description                                  |
-|-----------------------------------------|-----------|-----------------------|----------------------------------------------|
-| `scheduler_tasks_dispatched_total`      | Counter   | `task_id`, `priority` | Task executions started                      |
-| `scheduler_task_duration_seconds`       | Histogram | `task_id`, `priority` | Task execution duration                      |
-| `scheduler_task_errors_total`           | Counter   | `task_id`             | Failed task executions                       |
-| `scheduler_tasks_skipped_total`         | Counter   | `task_id`             | Executions skipped via SkipNextRun           |
-| `scheduler_stale_tasks_recovered_total` | Counter   | --                    | Stale task recoveries                        |
-| `scheduler_tick_duration_seconds`       | Histogram | --                    | Tick cycle duration                          |
-| `scheduler_tasks_running`               | Gauge     | --                    | Currently executing tasks                    |
-| `scheduler_tasks_registered`            | Gauge     | --                    | Registered tasks                             |
-| `scheduler_dispatch_lag_seconds`        | Histogram | `task_id`             | Scheduled vs actual execution delay          |
-| `scheduler_storage_errors_total`        | Counter   | `op`                  | Storage operation failures                   |
-
----
-
-## secrets
-
-Package: `security/secrets`
-
-| Name                                    | Type      | Labels | Description                   |
-|-----------------------------------------|-----------|--------|-------------------------------|
-| `secrets_cache_hits_total`              | Counter   | --     | Cache hits                    |
-| `secrets_cache_misses_total`            | Counter   | --     | Cache misses                  |
-| `secrets_fetch_duration_seconds`        | Histogram | --     | Secret fetch duration         |
-| `secrets_update_cycle_duration_seconds` | Histogram | --     | Cache update cycle duration   |
-| `secrets_update_cycle_errors_total`     | Counter   | --     | Failed update cycles          |
-| `secrets_cache_size`                    | Gauge     | --     | Current cache entries         |
+| Name                                    | Type      | Labels                | Description                         |
+|-----------------------------------------|-----------|-----------------------|-------------------------------------|
+| `scheduler_tasks_dispatched_total`      | Counter   | `task_id`, `priority` | Task executions started             |
+| `scheduler_task_duration_seconds`       | Histogram | `task_id`, `priority` | Task execution duration             |
+| `scheduler_task_errors_total`           | Counter   | `task_id`             | Failed task executions              |
+| `scheduler_tasks_skipped_total`         | Counter   | `task_id`             | Executions skipped via SkipNextRun  |
+| `scheduler_stale_tasks_recovered_total` | Counter   | --                    | Stale task recoveries               |
+| `scheduler_tick_duration_seconds`       | Histogram | --                    | Tick cycle duration                 |
+| `scheduler_tasks_running`               | Gauge     | --                    | Currently executing tasks           |
+| `scheduler_tasks_registered`            | Gauge     | --                    | Registered tasks                    |
+| `scheduler_dispatch_lag_seconds`        | Histogram | `task_id`             | Scheduled vs actual execution delay |
+| `scheduler_storage_errors_total`        | Counter   | `op`                  | Storage operation failures          |
 
 ---
 
@@ -594,11 +591,11 @@ Package: `security/secrets`
 
 Package: `security/vault`
 
-| Name                             | Type      | Labels | Description                      |
-|----------------------------------|-----------|--------|----------------------------------|
-| `vault_renewal_attempts_total`   | Counter   | --     | Vault token renewal attempts     |
-| `vault_renewal_errors_total`     | Counter   | --     | Vault token renewal failures     |
-| `vault_renewal_duration_seconds` | Histogram | --     | Vault token renewal duration     |
+| Name                             | Type      | Labels | Description                  |
+|----------------------------------|-----------|--------|------------------------------|
+| `vault_renewal_attempts_total`   | Counter   | --     | Vault token renewal attempts |
+| `vault_renewal_errors_total`     | Counter   | --     | Vault token renewal failures |
+| `vault_renewal_duration_seconds` | Histogram | --     | Vault token renewal duration |
 
 ---
 
@@ -606,38 +603,9 @@ Package: `security/vault`
 
 Package: `security/vault/auth`
 
-| Name                                    | Type    | Labels | Description                       |
-|-----------------------------------------|---------|--------|-----------------------------------|
-| `vault_auth_auth_attempts_total`        | Counter | --     | Authentication attempts           |
-| `vault_auth_auth_errors_total`          | Counter | `type` | Authentication errors             |
-| `vault_auth_token_renewals_total`       | Counter | --     | Successful token renewals         |
-| `vault_auth_token_renewal_errors_total` | Counter | --     | Token renewal errors              |
-
----
-
-## plugins
-
-Package: `plugins`
-
-| Name                                              | Type      | Labels | Description                                           |
-|---------------------------------------------------|-----------|--------|-------------------------------------------------------|
-| `plugins_signature_verification_attempts_total`   | Counter   | --     | Plugin signature verification attempts                |
-| `plugins_signature_verification_success_total`    | Counter   | --     | Successful plugin signature verifications             |
-| `plugins_signature_verification_failures_total`   | Counter   | --     | Failed plugin signature verifications                 |
-| `plugins_signature_verification_duration_seconds` | Histogram | --     | Plugin signature verification duration                |
-| `plugins_load_attempts_total`                     | Counter   | --     | Plugin load attempts                                  |
-| `plugins_load_success_total`                      | Counter   | --     | Successful plugin loads                               |
-| `plugins_load_failures_total`                     | Counter   | --     | Failed plugin loads                                   |
-| `plugins_load_duration_seconds`                   | Histogram | --     | Plugin load duration                                  |
-| `plugins_loaded_total`                            | Gauge     | --     | Currently loaded plugins (a gauge despite the suffix) |
-| `plugins_quarantine_added_total`                  | Counter   | --     | Plugins added to quarantine                           |
-| `plugins_quarantine_cleared_total`                | Counter   | --     | Plugins cleared from quarantine                       |
-| `plugins_quarantine_size`                         | Gauge     | --     | Currently quarantined plugins                         |
-| `plugins_ready`                                   | Gauge     | --     | Plugins in ready state                                |
-| `plugins_failed`                                  | Gauge     | --     | Plugins in failed state                               |
-| `plugins_registered`                              | Gauge     | --     | Registered plugins                                    |
-| `plugins_init_attempts_total`                     | Counter   | --     | Plugin Init calls                                     |
-| `plugins_init_success_total`                      | Counter   | --     | Successful plugin Init calls                          |
-| `plugins_init_failures_total`                     | Counter   | --     | Failed plugin Init calls                              |
-| `plugins_init_duration_seconds`                   | Histogram | --     | Plugin Init duration                                  |
-| `plugins_init_panics_total`                       | Counter   | --     | Panics during plugin Init                             |
+| Name                                    | Type    | Labels | Description               |
+|-----------------------------------------|---------|--------|---------------------------|
+| `vault_auth_auth_attempts_total`        | Counter | --     | Authentication attempts   |
+| `vault_auth_auth_errors_total`          | Counter | `type` | Authentication errors     |
+| `vault_auth_token_renewals_total`       | Counter | --     | Successful token renewals |
+| `vault_auth_token_renewal_errors_total` | Counter | --     | Token renewal errors      |

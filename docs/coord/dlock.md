@@ -1,7 +1,7 @@
 # Distributed locks (`dlock`)
 
 ```go
-import "github.com/altessa-s/go-atlas/data/locks/dlock"
+import "github.com/altessa-s/go-atlas/coord/dlock"
 ```
 
 A distributed mutex for coordinating work across instances of the same service. NATS JetStream KV under the hood, with an optional noop for tests.
@@ -11,12 +11,12 @@ One owner per key, automatic lease renewal while you hold it, and a fencing toke
 
 ## When to reach for `dlock`
 
-| Scenario | Use |
-|---|---|
-| "Only one instance should do X right now" | `dl.Synchronize(ctx, key, fn)` — acquires, runs, releases |
-| Long critical section spanning several functions | `dl.Lock(ctx, key)` + `defer lock.Release(ctx)` |
-| Need to inspect who holds the lock | `dl.GetLockInfo(ctx, key)` → owner, acquired_at, fencing token |
-| Test without network infrastructure | `dlock.NewWithNoop()` — operations succeed without external calls |
+| Scenario                                         | Use                                                               |
+|--------------------------------------------------|-------------------------------------------------------------------|
+| "Only one instance should do X right now"        | `dl.Synchronize(ctx, key, fn)` — acquires, runs, releases         |
+| Long critical section spanning several functions | `dl.Lock(ctx, key)` + `defer lock.Release(ctx)`                   |
+| Need to inspect who holds the lock               | `dl.GetLockInfo(ctx, key)` → owner, acquired_at, fencing token    |
+| Test without network infrastructure              | `dlock.NewWithNoop()` — operations succeed without external calls |
 
 This is not consensus. If you need a single owner with linearisable writes, look at raft or etcd. `dlock` gives you mutual exclusion with a TTL.
 Once that TTL expires without a renew, another instance takes the key, even if you're still alive.
@@ -31,9 +31,9 @@ Once that TTL expires without a renew, another instance takes the key, even if y
 nc, _ := nats.Connect(natsURL)
 defer nc.Drain()
 
-dl, err := dlock.NewWithNATS(ctx, nc, "myapp-locks",
+dl, err := natsprovider.NewDLock(ctx, nc, "myapp-locks",
     dlock.WithLogger(logger),
-    dlock.WithCollector(collector),
+    dlock.WithMeter(collector),
 )
 if err != nil {
     return err
@@ -45,8 +45,8 @@ err = dl.Synchronize(ctx, "rebuild-cache", func(ctx context.Context) error {
 })
 ```
 
-`NewWithNATS` sets only the bucket. To pass other provider options (`WithTTL`, `WithMigrateBucketTTL`, …), build the provider from
-`data/locks/dlock/providers/nats` (imported as `natsprovider` here) and wrap it, as `dlock/factory` does:
+`natsprovider` is `coord/dlock/providers/nats`; `dlock` itself does not import a driver. `NewDLock` sets only the bucket. To pass other provider
+options (`WithTTL`, `WithMigrateBucketTTL`, …), build the provider and wrap it, as `factory/coord/dlock` does:
 
 ```go
 prov, err := natsprovider.New(ctx, nc,
@@ -77,11 +77,14 @@ where the call to `dlock` matters more than real coordination.
 ### Factory from YAML
 
 ```go
-import dlockfactory "github.com/altessa-s/go-atlas/data/locks/dlock/factory"
+import (
+    dlockfactory "github.com/altessa-s/go-atlas/factory/coord/dlock"
+    natsfactory "github.com/altessa-s/go-atlas/factory/coord/dlock/providers/nats"
+)
 
 dl, err := dlockfactory.New(cfg.DistributionLock).
     UseLogger(logger).
-    UseNATSConn(natsConn).
+    UseProvider(lockconfig.DistributionLockProviderNATS, natsfactory.Builder(natsConn)).
     UseHealthCoordinator(healthCoord).
     Build(ctx)
 ```
@@ -104,10 +107,10 @@ enum in `config/lock/dlock.go` and adding a branch to `factory/builder.go::Build
 
 ## Synchronize vs Lock
 
-| Method | When |
-|---|---|
-| `Synchronize(ctx, key, fn)` | The critical section fits in one function. `dlock` owns the lifecycle |
-| `Lock(ctx, key)` → `(providers.Lock, error)` | The section spans several functions or modules |
+| Method                                       | When                                                                  |
+|----------------------------------------------|-----------------------------------------------------------------------|
+| `Synchronize(ctx, key, fn)`                  | The critical section fits in one function. `dlock` owns the lifecycle |
+| `Lock(ctx, key)` → `(providers.Lock, error)` | The section spans several functions or modules                        |
 
 `Lock` returns a `providers.Lock` with only `Release(ctx)` and `GetLockInfo(ctx)`. The `defer lock.Release(ctx)` discipline is on you. The NATS
 provider keeps renewing the lease in the background for as long as the lock's context lives and the connection is healthy, so a forgotten
@@ -134,12 +137,12 @@ The window is computed from the provider's configured TTL, which is also the buc
 `WithTTL`. `New` enforces it: when the bucket already exists with a different key TTL it returns `nats.ErrBucketTTLMismatch` and leaves the bucket
 alone, rather than rewriting it and silently shortening or stretching the locks of the providers already using it. Pass `WithMigrateBucketTTL()` to
 change the TTL of an existing bucket deliberately — once every provider sharing it is configured with the new TTL. A lock built from YAML through
-`dlock/factory` takes the same switch as `distributionLock.nats.migrateBucketTTL: true`.
+`factory/coord/dlock` takes the same switch as `distributionLock.nats.migrateBucketTTL: true`.
 
 The bucket is memory-backed unless the provider is built with `WithStorage(jetstream.FileStorage)`. The server cannot change an existing bucket's
 storage type, so the provider's `MigrateBucketStorage` recreates the bucket instead, while every user is stopped. Its first revision is set just
 above the old bucket's last one, so fencing tokens keep growing across the move. The provider README has the procedure; what all NATS KV backends
-share is in [NATS KeyValue bucket storage migration](../nats-kv-storage-migration.md).
+share is in [NATS KeyValue bucket storage migration](../data/nats-kv-storage-migration.md).
 
 `GetLockInfo` exposes a `FencingToken`, a monotonically increasing revision from NATS KV. If you do an out-of-band side effect tied to lock
 ownership (writing to another database, publishing to a queue), have the receiver check that the fencing token is at least as large as the last
@@ -166,10 +169,10 @@ status := coord.CheckServiceHealth(ctx, "dlock") // health.StatusServing
 
 Internally `(*DLock).CheckHealth` delegates to `providers.Prober`:
 
-| Provider | What `Probe(ctx)` checks |
-|---|---|
-| `nats` | Not closed; `client.Status() == CONNECTED`; `kv.Status(ctx)` responds (bucket exists and is reachable) |
-| `noop` | Not closed. Nothing else to probe — it's a stub |
+| Provider | What `Probe(ctx)` checks                                                                               |
+|----------|--------------------------------------------------------------------------------------------------------|
+| `nats`   | Not closed; `client.Status() == CONNECTED`; `kv.Status(ctx)` responds (bucket exists and is reachable) |
+| `noop`   | Not closed. Nothing else to probe — it's a stub                                                        |
 
 A third-party provider that doesn't implement `providers.Prober` is reported as healthy by default. The type assertion in `CheckHealth` falls
 into the `Serving` branch — failing readiness on an unknown implementation would block deploys for no diagnosable reason, so we err the other
@@ -178,14 +181,14 @@ way and let you wire your own probe if you need one.
 Multiple `dlock` instances in one process with separate health reporting:
 
 ```go
-dlPayments, err := dlock.NewWithNATS(ctx, nc, "payments-locks",
+dlPayments, err := natsprovider.NewDLock(ctx, nc, "payments-locks",
     dlock.WithHealthCoordinator(coord),
     dlock.WithHealthServiceName("dlock-payments"),
 )
 if err != nil {
     return err
 }
-dlInventory, err := dlock.NewWithNATS(ctx, nc, "inventory-locks",
+dlInventory, err := natsprovider.NewDLock(ctx, nc, "inventory-locks",
     dlock.WithHealthCoordinator(coord),
     dlock.WithHealthServiceName("dlock-inventory"),
 )
@@ -198,15 +201,15 @@ if err != nil {
 
 ## Metrics
 
-Subsystem `dlock` (see also [`docs/metrics.md`](../../metrics.md)):
+Subsystem `dlock` (see also [`docs/metrics.md`](../metrics.md)):
 
-| Metric | Type | When it increments |
-|---|---|---|
-| `dlock_locks_acquired_total` | counter | `Synchronize` acquired the lock |
-| `dlock_locks_released_total` | counter | `Synchronize` released the lock successfully |
-| `dlock_locks_failed_total` | counter | `Synchronize` lock acquisition returned an error |
-| `dlock_acquire_duration_seconds` | histogram | Time for `Synchronize` to acquire the lock (success or error) |
-| `dlock_synchronizations_total` | counter | `Synchronize` finished (including cases where `fn` returned an error) |
+| Metric                           | Type      | When it increments                                                    |
+|----------------------------------|-----------|-----------------------------------------------------------------------|
+| `dlock_locks_acquired_total`     | counter   | `Synchronize` acquired the lock                                       |
+| `dlock_locks_released_total`     | counter   | `Synchronize` released the lock successfully                          |
+| `dlock_locks_failed_total`       | counter   | `Synchronize` lock acquisition returned an error                      |
+| `dlock_acquire_duration_seconds` | histogram | Time for `Synchronize` to acquire the lock (success or error)         |
+| `dlock_synchronizations_total`   | counter   | `Synchronize` finished (including cases where `fn` returned an error) |
 
 All metrics are recorded inside `Synchronize` only. `Lock` and the `providers.Lock` it returns record nothing, so locks taken through `Lock` —
 including one whose `defer Release` was forgotten — are invisible here; instrument that path at your call site if you need it.
@@ -236,6 +239,6 @@ work done under the lock, or raise `nats.WithTTL`.
 
 ## Related docs
 
-- [`docs/configuration.md`](../../configuration.md) — overall YAML format and where `dlock.yaml` fits
-- [`docs/observability/health.md`](../../observability/health.md) — how `health.Coordinator` polls registered services
-- [`docs/metrics.md`](../../metrics.md) — the full metric reference for the repository
+- [`docs/configuration.md`](../configuration.md) — overall YAML format and where `dlock.yaml` fits
+- [`docs/observability/health.md`](../observability/health.md) — how `health.Coordinator` polls registered services
+- [`docs/metrics.md`](../metrics.md) — the full metric reference for the repository

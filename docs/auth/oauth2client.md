@@ -18,6 +18,7 @@ currency the gRPC client credentials consume, so an acquired token drops into th
   - [Config + factory](#config--factory)
 - [Client Authentication (JWT assertion)](#client-authentication-jwt-assertion)
 - [Refresh, Retry, and Revocation](#refresh-retry-and-revocation)
+- [Transport Security](#transport-security)
 - [Observability](#observability)
 - [Errors](#errors)
 - [API Reference](#api-reference)
@@ -50,18 +51,19 @@ Because every helper yields an `oauth2.TokenSource`, the result flows straight i
 
 ## Options
 
-| Option                                     | Applies to                                    | Effect                                                                 |
-|--------------------------------------------|-----------------------------------------------|-----------------------------------------------------------------------|
-| `WithScopes(s…)`                           | all                                           | Requested scopes; trimmed and de-duplicated.                          |
-| `WithAuthStyle(style)`                     | `ClientCredentials`, `Refresh`, `Exchanger`   | Present credentials in the header or the body. Default: auto-detect.  |
-| `WithEndpointParams(v)`                    | `ClientCredentials`, `Exchanger`              | Extra non-standard token params (e.g. Auth0 `audience`).              |
-| `WithHTTPClient(c)`                        | all                                           | Custom client for timeouts, mTLS, or tracing round-trippers.          |
-| `WithClientAuth(a)`                        | `ClientCredentials`, `Exchanger`              | Authenticate with a signed JWT assertion (RFC 7523), superseding the secret. |
-| `WithEarlyExpiry(d)`                       | `ClientCredentials`, `Exchanger.TokenSource`  | Refresh `d` before `exp` (clock-skew margin). 0 = x/oauth2 default (~10s). |
-| `WithRetryAttempts(n)`                     | `Exchanger`                                   | Retries after the first attempt on transport errors, 429, 5xx. 0 disables. |
-| `WithRetryBaseDelay` / `WithRetryMaxDelay` | `Exchanger`                                   | Bound the exponential backoff between exchange retries.               |
-| `WithMetrics(m)`                           | all                                           | Record fetch counts, latency, retries. Build with `NewMetrics`.       |
-| `WithLogger(l)`                            | all                                           | Log fetch failures and retry attempts (never the token). Nil disables. |
+| Option                                     | Applies to                                   | Effect                                                                       |
+|--------------------------------------------|----------------------------------------------|------------------------------------------------------------------------------|
+| `WithScopes(s…)`                           | all                                          | Requested scopes; trimmed and de-duplicated.                                 |
+| `WithAuthStyle(style)`                     | `ClientCredentials`, `Refresh`, `Exchanger`  | Present credentials in the header or the body. Default: auto-detect.         |
+| `WithEndpointParams(v)`                    | `ClientCredentials`, `Exchanger`             | Extra non-standard token params (e.g. Auth0 `audience`).                     |
+| `WithHTTPClient(c)`                        | all                                          | Custom client for timeouts, mTLS, or tracing. Default: the built-in client.  |
+| `WithInsecureHTTP()`                       | all                                          | Allow plain http on any host. Default: https, or http on loopback only.      |
+| `WithClientAuth(a)`                        | `ClientCredentials`, `Exchanger`             | Authenticate with a signed JWT assertion (RFC 7523), superseding the secret. |
+| `WithEarlyExpiry(d)`                       | `ClientCredentials`, `Exchanger.TokenSource` | Refresh `d` before `exp` (clock-skew margin). 0 = x/oauth2 default (~10s).   |
+| `WithRetryAttempts(n)`                     | `Exchanger`                                  | Retries after the first attempt on transport errors, 429, 5xx. 0 disables.   |
+| `WithRetryBaseDelay` / `WithRetryMaxDelay` | `Exchanger`                                  | Bound the exponential backoff between exchange retries.                      |
+| `WithMetrics(m)`                           | all                                          | Record fetch counts, latency, retries. Build with `NewMetrics`.              |
+| `WithLogger(l)`                            | all                                          | Log fetch failures and retry attempts (never the token). Nil disables.       |
 
 ## Quick Start
 
@@ -75,9 +77,12 @@ import (
     "github.com/altessa-s/go-atlas/transport/grpc/client"
 )
 
-src := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
+src, err := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
     oauth2client.WithScopes("orders:read", "orders:write"),
 )
+if err != nil {
+    return err // tokenURL is malformed or not https
+}
 creds := client.NewInsecureTokenCredentials(src) // every outbound call now carries a fresh token
 ```
 
@@ -87,7 +92,10 @@ Trade an inbound token for one scoped to a downstream service, propagating the c
 repeated exchange in a self-refreshing source; `Exchange` is the one-shot form.
 
 ```go
-ex := oauth2client.NewExchanger(tokenURL, clientID, clientSecret)
+ex, err := oauth2client.NewExchanger(tokenURL, clientID, clientSecret)
+if err != nil {
+    return err
+}
 tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
     SubjectToken: inboundAccessToken,          // required
     Audience:     "https://downstream.internal",
@@ -112,12 +120,16 @@ Load a ready client_credentials source (or an `Exchanger`) from `authconfig.OAut
 config sets `discoveryURL` — from an injected OIDC discovery source.
 
 ```go
-import "github.com/altessa-s/go-atlas/auth/oauth2client/factory"
+import "github.com/altessa-s/go-atlas/factory/auth/oauth2client"
 
 src, err := factory.New(cfg.OAuth2Client).
     UseTokenEndpointSource(provider). // needed only when config uses discoveryUrl
     Build(ctx)
 ```
+
+`tokenURL` and `discoveryURL` must be https; validation accepts http on a loopback host only. `allowInsecureHTTP: true` lifts the restriction for any
+host and maps to `WithInsecureHTTP()`. A discovered token endpoint goes through the same check, so `Build` and `BuildExchanger` return
+`ErrInsecureEndpoint` for an http endpoint the configuration did not allow.
 
 ## Client Authentication (JWT assertion)
 
@@ -125,15 +137,15 @@ Enterprise / FAPI IdPs often require the client to authenticate with a signed JW
 `WithClientAuth` supplies one; it supersedes `WithAuthStyle`/`clientSecret` for `ClientCredentials` and `Exchanger` (the assertion is minted
 fresh per fetch — `iss`=`sub`=client id, `aud`=token endpoint, unique `jti`, short `exp`). `Refresh` and `AuthCode` keep the secret path.
 
-| Constructor                               | Scheme              | Signs the assertion with                          |
-|-------------------------------------------|---------------------|---------------------------------------------------|
-| `PrivateKeyJWT(clientID, jwt.SigningKey)` | `private_key_jwt`   | the client's asymmetric private key (kid → IdP).  |
-| `ClientSecretJWT(clientID, clientSecret)` | `client_secret_jwt` | the client secret via HS256 (secret never sent).  |
+| Constructor                               | Scheme              | Signs the assertion with                         |
+|-------------------------------------------|---------------------|--------------------------------------------------|
+| `PrivateKeyJWT(clientID, jwt.SigningKey)` | `private_key_jwt`   | the client's asymmetric private key (kid → IdP). |
+| `ClientSecretJWT(clientID, clientSecret)` | `client_secret_jwt` | the client secret via HS256 (secret never sent). |
 
 ```go
 auth, _ := oauth2client.PrivateKeyJWT("svc",
     jwt.SigningKey{KeyID: "key-1", Algorithm: jwt.AlgRS256, Key: privKey})
-src := oauth2client.ClientCredentials(ctx, tokenURL, "svc", "", oauth2client.WithClientAuth(auth))
+src, err := oauth2client.ClientCredentials(ctx, tokenURL, "svc", "", oauth2client.WithClientAuth(auth))
 ```
 
 Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`.
@@ -146,17 +158,57 @@ Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`.
 - **Retry.** Only `Exchanger` retries on its own (`WithRetryAttempts`). To add retries to the x/oauth2-backed grants, wrap the transport
   with `RetryTransport` and inject it via `WithHTTPClient`; it retries transport errors, 429, and 5xx on replayable requests, surfacing the
   last response on exhaustion.
-- **Revocation.** `NewRevoker(revocationURL, id, secret).Revoke(ctx, token, WithTokenTypeHint(…))` revokes an acquired token at the IdP
-  (RFC 7009), reusing the same client auth. Per the RFC the endpoint answers `200` even for an unknown token, so a nil error means "not (or
-  no longer) valid".
+- **Revocation.** A `Revoker` built with `NewRevoker(revocationURL, id, secret)` and called as `Revoke(ctx, token, WithTokenTypeHint(…))`
+  revokes an acquired token at the IdP (RFC 7009), reusing the same client auth. Per the RFC the endpoint answers `200` even for an unknown
+  token, so a nil error means "not (or no longer) valid".
 
 ```go
 client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport)}
-src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithHTTPClient(client))
+src, err := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithHTTPClient(client))
 ```
 
 Two RFC edge cases are preserved verbatim: a response without `expires_in` yields a never-expiring token (a self-refreshing source won't
 refresh it), and `token_type: "N_A"` (RFC 8693) is not a bearer credential — don't attach it with `SetAuthHeader`.
+
+## Transport Security
+
+Every flow sends the client credentials to the IdP, so the defaults keep them off an unprotected or unintended connection.
+
+- **https only.** A request to an endpoint that is not https fails with `ErrInsecureEndpoint` before anything is sent. Plain http is accepted on a
+  loopback host (`localhost` or a loopback IP literal), where the request never leaves the machine. `WithInsecureHTTP()` (config
+  `allowInsecureHTTP: true`) accepts http on any host and is meant for a test IdP. The check sits on the transport, so it covers the token, revocation
+  and device endpoints of every flow and each redirect hop of an injected client. `ValidateEndpointURL(url, allowInsecureHTTP)` applies the same rule
+  up front.
+- **Built-in client.** Without `WithHTTPClient` every flow, the x/oauth2-backed ones included, uses a client with a `DefaultHTTPTimeout` (30s) timeout
+  that does not follow redirects: a 307 or 308 would re-POST the form, client secret included, to the redirect target. A redirect answer is reported
+  as a failed request.
+- **Injected client.** A `WithHTTPClient` client keeps its timeout and transport and is copied, never modified. Without a `CheckRedirect` the copy
+  follows no redirect, like the built-in client. With one, a redirect to another origin (scheme, host, port) fails with `ErrRedirectNotAllowed`
+  before the client's own policy is consulted; hops within the origin are left to that policy. This holds with `WithInsecureHTTP()` too.
+- **Construction.** Every constructor (`ClientCredentials`, `Refresh`, `NewAuthCode`, `NewDeviceFlow`, `NewExchanger`, `NewRevoker`,
+  `NewJWTBearer` and the `*FromDiscovery` variants) checks all its endpoint URLs with the https rule above and returns an error wrapping
+  `ErrInsecureEndpoint` for one that is malformed or not https, before anything is sent. The `*FromDiscovery` constructors read the token endpoint
+  from the discovery source once, at construction, and check it then. The transport check stays as a second line of defense.
+  `ErrInsecureEndpoint` and `ErrRedirectNotAllowed` are never retried.
+- **Logs and error text.** The identity provider is untrusted: its status line, headers, `Location`, body, and trailers may echo secrets. Returned error
+  text and package logs withhold IdP bodies, error descriptions, error URIs, decoded values, and IdP-supplied URLs, including a followed redirect URL
+  when a later hop fails. They may show the numeric HTTP status, registered RFC 6749/8628 error codes from the fixed allowlist, and body or
+  withheld-field byte lengths.
+
+  Errors raised before a response is parsed keep their text only for cancellation or deadline sentinels, all dial-phase `net.OpError` values (regardless
+  of their inner cause), `net.DNSError`, the connection errnos `ECONNREFUSED`, `ECONNRESET`, `EHOSTUNREACH`, `ENETUNREACH`, and `ETIMEDOUT`, TLS
+  certificate verification errors, `x509.CertificateInvalidError`, `x509.HostnameError`, `x509.UnknownAuthorityError`, `x509.SystemRootsError`,
+  `tls.AlertError`, `tls.RecordHeaderError`, and package guard or grant sentinels. URL, syscall, DNS, and certificate-verification wrappers qualify only
+  when every nested cause qualifies. Read/write and `proxyconnect` `net.OpError` values remain summarized; proxy setup can read peer bytes, including
+  CONNECT responses. Any other pre-response failure, including an unparseable IdP response or an unknown wrapper, is summarized; its original cause
+  remains reachable through `errors.As`. This rule also applies to every `RetryTransport` attempt when used on its own.
+
+  Application-supplied HTTP clients/transports, `ClientAuthenticator` implementations, discovery sources, and configured endpoint URLs are trusted;
+  errors they produce on their own are outside this guarantee. Original causes, including response bodies, remain available through
+  `errors.Is`/`errors.As` where preserved; avoid logging those causes directly.
+
+  Some `x/oauth2` body-read and JSON decoder errors are flattened upstream, so their original causes cannot be recovered through
+  `errors.Is`/`errors.As`.
 
 ## Observability
 
@@ -174,32 +226,34 @@ the hot path allocation-free.
 
 ## Errors
 
-`ClientCredentials`, `Refresh`, and `AuthCode` surface the underlying x/oauth2 error unchanged (typically an `*oauth2.RetrieveError`,
-carrying the IdP status and body) — except `ClientCredentials` with `WithClientAuth`, whose hand-rolled request wraps `ErrTokenRequest` for a
+`ClientCredentials`, `Refresh`, and `AuthCode` return a wrapper around the underlying x/oauth2 error (typically an `*oauth2.RetrieveError`,
+carrying the IdP status and body). The wrapper's text leaves the body out, so inspect the x/oauth2 error with `errors.As` (or `errors.AsType`); a
+direct type assertion on the returned error does not match. The exception is `ClientCredentials` with `WithClientAuth`, whose hand-rolled request wraps `ErrTokenRequest` for a
 transport failure or a non-2xx response; an unparsable body or one without `access_token` wraps `ErrTokenExchange` (the response parser is
 shared with the exchanger). `Exchanger` returns `ErrSubjectTokenRequired` for a missing subject token and
 wraps `ErrTokenExchange` for a transport failure, a non-2xx response, or an unparsable body — match both with `errors.Is`. `Revoker.Revoke`
 wraps `ErrRevocation`, `DeviceFlow` wraps `ErrDeviceAuth` (the `*oauth2.RetrieveError` stays reachable via `errors.As`), and a client
 authenticator that cannot build or sign its assertion wraps `ErrClientAssertion`. Discovery-based constructors return `ErrNoTokenEndpoint`
-when the endpoint has not resolved.
+when the endpoint has not resolved. Any flow returns an error wrapping `ErrInsecureEndpoint` for an endpoint that is not https (see
+[Transport Security](#transport-security)).
 
 ## API Reference
 
-| Symbol                                              | Description                                                                     |
-|-----------------------------------------------------|---------------------------------------------------------------------------------|
-| `ClientCredentials(ctx, url, id, secret, opt…)`     | Self-refreshing client_credentials `oauth2.TokenSource`.                        |
-| `Refresh(ctx, url, id, secret, refresh, opt…)`      | Source resuming from a stored refresh token.                                    |
-| `NewAuthCode(endpoint, id, secret, redirect, opt…)` | Authorization-code driver: `AuthCodeURL` then `Exchange`.                        |
-| `NewExchanger(url, id, secret, opt…)`               | RFC 8693 client: `Exchange` and `TokenSource`.                                  |
-| `NewDeviceFlow(endpoint, id, secret, opt…)`         | RFC 8628 device-code driver: request a code, then poll.                         |
-| `ClientCredentialsFromDiscovery(...)` / `NewExchangerFromDiscovery(...)` | As above, endpoint from a `TokenEndpointSource`.            |
-| `NewRevoker(url, id, secret, opt…)`                 | RFC 7009 revocation client; `Revoke(ctx, token, …)`.                            |
-| `RetryTransport(rt)`                                | `http.RoundTripper` retrying transport errors, 429, 5xx on replayable requests. |
-| `PrivateKeyJWT(id, key)` / `ClientSecretJWT(id, secret)` | RFC 7523 client authenticators for `WithClientAuth`.                       |
-| `Principal(subject, tok)`                           | Build an `auth/principal.Principal` from a fetched token (does not verify it).   |
-| `ExchangeRequest`                                   | One exchange: `SubjectToken` (required), actor token, `Audience`/`Resource`, `Scopes`. |
-| `ErrTokenExchange` / `ErrSubjectTokenRequired` / `ErrNoTokenEndpoint` / `ErrTokenRequest` / `ErrRevocation` / `ErrDeviceAuth` / `ErrClientAssertion` | Sentinel errors matched with `errors.Is`. |
-| `factory.New(cfg).Build(ctx)` / `.BuildExchanger(ctx)` | Build a source / `Exchanger` from `authconfig.OAuth2Client`.                     |
+| Symbol                                                                                                                                               | Description                                                                            |
+|------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
+| `ClientCredentials(ctx, url, id, secret, opt…)`                                                                                                      | Self-refreshing client_credentials `oauth2.TokenSource`.                               |
+| `Refresh(ctx, url, id, secret, refresh, opt…)`                                                                                                       | Source resuming from a stored refresh token.                                           |
+| `NewAuthCode(endpoint, id, secret, redirect, opt…)`                                                                                                  | Authorization-code driver: `AuthCodeURL` then `Exchange`.                              |
+| `NewExchanger(url, id, secret, opt…)`                                                                                                                | RFC 8693 client: `Exchange` and `TokenSource`.                                         |
+| `NewDeviceFlow(endpoint, id, secret, opt…)`                                                                                                          | RFC 8628 device-code driver: request a code, then poll.                                |
+| `ClientCredentialsFromDiscovery(...)` / `NewExchangerFromDiscovery(...)`                                                                             | As above, endpoint from a `TokenEndpointSource`.                                       |
+| `NewRevoker(url, id, secret, opt…)`                                                                                                                  | RFC 7009 revocation client; `Revoke(ctx, token, …)`.                                   |
+| `RetryTransport(rt)`                                                                                                                                 | `http.RoundTripper` retrying transport errors, 429, 5xx on replayable requests.        |
+| `PrivateKeyJWT(id, key)` / `ClientSecretJWT(id, secret)`                                                                                             | RFC 7523 client authenticators for `WithClientAuth`.                                   |
+| `Principal(subject, tok)`                                                                                                                            | Build an `auth/principal.Principal` from a fetched token (does not verify it).         |
+| `ExchangeRequest`                                                                                                                                    | One exchange: `SubjectToken` (required), actor token, `Audience`/`Resource`, `Scopes`. |
+| `ErrTokenExchange` / `ErrSubjectTokenRequired` / `ErrNoTokenEndpoint` / `ErrTokenRequest` / `ErrRevocation` / `ErrDeviceAuth` / `ErrClientAssertion` | Sentinel errors matched with `errors.Is`.                                              |
+| `factory.New(cfg).Build(ctx)` / `.BuildExchanger(ctx)`                                                                                               | Build a source / `Exchanger` from `authconfig.OAuth2Client`.                           |
 
 ## Design Notes
 

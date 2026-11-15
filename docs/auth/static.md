@@ -63,7 +63,7 @@ graph TB
     end
 
     subgraph "Caller-supplied"
-        RL[RateLimiter<br/>e.g. data/limiters/tokenbucket]
+        RL[RateLimiter<br/>e.g. coord/limiters/tokenbucket]
         KF[KeyFunc<br/>IP / tenant / key-prefix]
     end
 
@@ -106,14 +106,14 @@ sequenceDiagram
 
 ## Package Map
 
-| File | Responsibility |
-|------|----------------|
-| `store.go` | `TokenStore`, `InMemoryStore`, HMAC digesting, `AddToken`/`RemoveToken`/`TokenCount` |
-| `ratelimit.go` | `RateLimiter`, `KeyFunc`, `RateLimitedStore` decorator |
-| `metrics.go` | `Metrics` (validations, active tokens, latency) |
-| `errors.go` | Sentinel errors |
-| `options.go` / `options_gen.go` | Functional options |
-| `example_test.go` | Runnable examples |
+| File                            | Responsibility                                                                       |
+|---------------------------------|--------------------------------------------------------------------------------------|
+| `store.go`                      | `TokenStore`, `InMemoryStore`, HMAC digesting, `AddToken`/`RemoveToken`/`TokenCount` |
+| `ratelimit.go`                  | `RateLimiter`, `KeyFunc`, `RateLimitedStore` decorator                               |
+| `metrics.go`                    | `Metrics` (validations, active tokens, latency)                                      |
+| `errors.go`                     | Sentinel errors                                                                      |
+| `options.go` / `options_gen.go` | Functional options                                                                   |
+| `example_test.go`               | Runnable examples                                                                    |
 
 ## Quick Start
 
@@ -149,11 +149,11 @@ n := store.TokenCount()
 
 ## Configuration
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `WithInitialTokens` | empty | Token → data pairs seeded at construction time |
-| `WithMetrics` | nil (no-op) | `*Metrics` recording validations and the active-token count |
-| `WithHMACKey` | per-instance 32-byte random key | Stable digest key for cross-process consistency (minimum 16 bytes; shorter values are ignored) |
+| Option              | Default                         | Description                                                                                    |
+|---------------------|---------------------------------|------------------------------------------------------------------------------------------------|
+| `WithInitialTokens` | empty                           | Token → data pairs seeded at construction time                                                 |
+| `WithMetrics`       | nil (no-op)                     | `*Metrics` recording validations and the active-token count                                    |
+| `WithHMACKey`       | per-instance 32-byte random key | Stable digest key for cross-process consistency (minimum 16 bytes; shorter values are ignored) |
 
 `WithHMACKey` enforces a `MinHMACKeyBytes` (16) floor — NIST SP 800-107 recommends a key at least as long as the digest size, which for
 HMAC-SHA256 is 32 bytes. Keys below the floor are silently ignored and the random default is used.
@@ -188,9 +188,12 @@ not usable; always construct with `NewInMemoryStore`.
 
 ## Storage and Timing
 
-`InMemoryStore` keys tokens by their HMAC-SHA256 digest. The plaintext token is hashed at insertion time and the store's map holds only digests; the map
-passed to `WithInitialTokens` is not retained after construction (only references the caller keeps to it stay live). A lookup is a single map probe (no
-linear scan, no early-break loop), so timing depends on token length only, not on token position or membership. The HMAC instance is recycled through a
+`InMemoryStore` keys tokens by their HMAC-SHA256 digest. The plaintext token is hashed at insertion time and the store's map holds only digests; the
+map
+passed to `WithInitialTokens` is not retained after construction (only references the caller keeps to it stay live). A lookup is a single map probe (
+no
+linear scan, no early-break loop), so timing depends on token length only, not on token position or membership. The HMAC instance is recycled through
+a
 `sync.Pool`, so a steady-state lookup allocates only the digest byte slice.
 
 ## Stable Cross-Process Digests
@@ -206,7 +209,7 @@ store := static.NewInMemoryStore(static.WithHMACKey(secret)) // secret >= 16 byt
 ## Rate Limiting
 
 `RateLimitedStore` wraps any `TokenStore` and consults a caller-supplied `RateLimiter` before delegating. The package ships **no**
-limiter implementation; wire one from `data/limiters/tokenbucket`, a Redis-backed limiter, or any other source through the interface.
+limiter implementation; wire one from `coord/limiters/tokenbucket`, a Redis-backed limiter, or any other source through the interface.
 
 ```go
 limiter := myLimiter // implements static.RateLimiter
@@ -249,11 +252,11 @@ The key is never embedded in the returned error text, keeping client identifiers
 
 ## Errors
 
-| Sentinel | Returned when |
-|----------|---------------|
-| `ErrTokenInvalid` | Token is non-empty but not registered with the store |
-| `ErrTokenEmpty` | Token is the empty string |
-| `ErrRateLimited` | `RateLimitedStore` rejects a request via its `RateLimiter` |
+| Sentinel          | Returned when                                              |
+|-------------------|------------------------------------------------------------|
+| `ErrTokenInvalid` | Token is non-empty but not registered with the store       |
+| `ErrTokenEmpty`   | Token is the empty string                                  |
+| `ErrRateLimited`  | `RateLimitedStore` rejects a request via its `RateLimiter` |
 
 Compare with `errors.Is`, not `==`: the HTTP adapter wraps these with additional context while preserving the cause. The gRPC adapter returns a
 fresh status error without the cause, so branch on `status.Code(err)` there.
@@ -263,11 +266,11 @@ fresh status error without the cause, so branch on `status.Code(err)` there.
 Pass a `*Metrics` via `WithMetrics`. A nil `*Metrics` is a valid no-op receiver. Construct one with `NewMetrics(collector, subsystem)`; an
 empty subsystem falls back to `DefaultMetricsSubsystem` (`auth_static`).
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `auth_static_validations_total` | Counter | `status` | Token validation attempts |
-| `auth_static_tokens_active` | Gauge | — | Current number of active tokens in the store |
-| `auth_static_validation_duration_seconds` | Histogram | — | Validation duration |
+| Metric                                    | Type      | Labels   | Description                                  |
+|-------------------------------------------|-----------|----------|----------------------------------------------|
+| `auth_static_validations_total`           | Counter   | `status` | Token validation attempts                    |
+| `auth_static_tokens_active`               | Gauge     | —        | Current number of active tokens in the store |
+| `auth_static_validation_duration_seconds` | Histogram | —        | Validation duration                          |
 
 `status` is `success` or `failure`. `tokens_active` is republished on every `AddToken` / `RemoveToken` and on construction.
 
@@ -281,12 +284,12 @@ with `auth/static`; the adapter wires it into the interceptor or middleware.
 
 `transport/grpc/interceptors/auth/static` provides `AuthFunc`, translating sentinels into gRPC status codes:
 
-| `auth/static` error | gRPC status code |
-|---------------------|------------------|
-| `ErrTokenInvalid` | `codes.Unauthenticated` |
-| `ErrTokenEmpty` | `codes.Unauthenticated` |
-| `ErrRateLimited` | `codes.ResourceExhausted` |
-| anything else | `codes.Internal` |
+| `auth/static` error | gRPC status code          |
+|---------------------|---------------------------|
+| `ErrTokenInvalid`   | `codes.Unauthenticated`   |
+| `ErrTokenEmpty`     | `codes.Unauthenticated`   |
+| `ErrRateLimited`    | `codes.ResourceExhausted` |
+| anything else       | `codes.Internal`          |
 
 ```go
 store := static.NewInMemoryStore(static.WithInitialTokens(tokens))

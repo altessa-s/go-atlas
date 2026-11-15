@@ -38,14 +38,14 @@ The two halves answer different questions. An authenticator proves identity and 
 access. Because they stay separate, the same OIDC token can feed either an OPA policy or a scope check, and a scope policy can be unit-tested with a
 fake principal.
 
-| Question                          | Layer          | Packages                                  |
-|-----------------------------------|----------------|-------------------------------------------|
-| Who is the caller?                | AuthN          | `jwt`, [`oidc`](oidc.md), [`selfjwt`](selfjwt.md), [`static`](static.md), `spiffe`/`mtls` |
-| What identity do we pass around?  | Shared type    | `principal`                               |
-| How do I authenticate outbound?   | AuthN (client) | `oauth2client`, `security/tlsutils/spiffe` |
-| Is this token still valid?        | Revocation     | `denylist`                                |
-| May this caller do this action?   | AuthZ          | [`scope`](scope.md), [`opa`](opa.md)      |
-| What was decided, and why?        | Audit          | [`audit`](audit.md)                       |
+| Question                         | Layer          | Packages                                                                                  |
+|----------------------------------|----------------|-------------------------------------------------------------------------------------------|
+| Who is the caller?               | AuthN          | `jwt`, [`oidc`](oidc.md), [`selfjwt`](selfjwt.md), [`static`](static.md), `spiffe`/`mtls` |
+| What identity do we pass around? | Shared type    | `principal`                                                                               |
+| How do I authenticate outbound?  | AuthN (client) | `oauth2client`, `go-tlsutils/spiffe`                                                      |
+| Is this token still valid?       | Revocation     | `denylist`                                                                                |
+| May this caller do this action?  | AuthZ          | [`scope`](scope.md), [`opa`](opa.md)                                                      |
+| What was decided, and why?       | Audit          | [`audit`](audit.md)                                                                       |
 
 AuthN produces a *principal* — an OIDC `*Claims`, a static token's associated data, or the canonical `principal.Principal` an adapter builds via
 `principal.FromClaims`. AuthZ consumes that principal and owns no identity type of its own. Audit records either layer's outcome. The
@@ -54,31 +54,33 @@ authorization, and auditing.
 
 ## Package Map
 
-| Package                     | Role        | Summary                                                                                       | Guide |
-|-----------------------------|-------------|-----------------------------------------------------------------------------------------------|-------|
-| `auth/principal`            | Shared type | Canonical verified-identity (`Subject`/`Tenant`/`Scopes`/`Roles`/`Claims` + accessors + `FromClaims`); reusable `Mapper`/`NewMapper` for hot paths; the standard `P` for scope authorizers. | [principal.md](principal.md) |
-| `auth/jwt`                  | AuthN core  | Low-level JWT `Signer`/`Verifier`/`Claims` over golang-jwt; the shared core for selfjwt and oidc. | — |
-| `auth/oidc`                 | AuthN       | OIDC/JWT validation with JWKS auto-rotation, CEL claim rules, introspection, presets.          | [oidc.md](oidc.md) |
-| `auth/selfjwt`              | AuthN       | Self-issued JWT minting + verification with per-subject keys and rotation.                     | [selfjwt.md](selfjwt.md) |
-| `auth/oauth2client`         | AuthN (client) | Acquires IdP tokens for outbound calls: client_credentials / refresh / auth_code / device + RFC 8693 exchange; returns a self-refreshing `oauth2.TokenSource`. | [oauth2client.md](oauth2client.md) |
-| `auth/spiffe`               | AuthN       | SPIFFE ID parsing from X.509 certificates (trust domain + path); pure primitive.              | — |
-| `auth/mtls`                 | AuthN       | Verified client cert → principal core: identity + validators (expiry, trust-domain, revocation incl. live-OCSP, subject/issuer/CA-pin, DNS-SAN, EKU) + audit. | — |
-| `auth/mtls/revocation`      | AuthN       | Live OCSP peer-revocation `CertValidator`: queries the issuer's responder, TTL-caches, fail-open/closed; network-backed complement to `RevocationList`. | — |
-| `transport/.../auth/mtls`   | AuthN       | gRPC interceptor + HTTP middleware deriving a principal from the verified mTLS client certificate. | — |
-| `security/tlsutils/spiffe`  | mTLS source | Producer side: fetches the service's own rotating SVID + trust bundle from the SPIFFE Workload API and builds rotating mTLS configs/dialers. | — |
-| `auth/static`               | AuthN       | Static token / API-key validation for service-to-service calls, with optional rate limiting.   | [static.md](static.md) |
-| `auth/scope`                | AuthZ       | Transport-neutral, deny-by-default scope policy (`Registry`, `Enforcer`, `Matcher`), plus resource-aware authorization through `ResourceEnforcer` and `ResourceAuthorizer`.         | [scope.md](scope.md) |
-| `auth/opa`                  | AuthZ       | Open Policy Agent Rego evaluation with policy hot-reload and event-driven reload.              | [opa.md](opa.md) |
-| `auth/audit`               | Audit       | `Decision` + consumer-side `Sink` seam + `Recorder` with policy/failure modes.                | [audit.md](audit.md) |
-| `auth/audit/sinks/dataaudit` | Audit sink | Bridges `audit.Sink` to the framework's `data/audit` dispatcher.                               | [audit.md](audit.md) |
-| `auth/denylist`            | Revocation  | Reusable token-revocation seam: concurrency-safe set of revoked ids (jti/subject), permanent or TTL-bounded, exposed as a `Checker`; never evicts a live entry. | [denylist.md](denylist.md) |
-| `auth/denylist/negcache`   | Revocation  | Probabilistic negative cache (Bloom/Cuckoo) in front of an authoritative store — never-revoked tokens answered locally, no false negatives. | [denylist.md](denylist.md) |
-| `auth/denylist/storages/redis` | Revocation | Redis-backed authoritative denylist store for cross-instance revocation.                   | [denylist.md](denylist.md) |
-| `auth/denylist/mirror`     | Revocation  | Synchronous local snapshot of a distributed denylist; satisfies `jwt.RevocationChecker` for jwt/selfjwt with no hot-path network call. | [denylist.md](denylist.md) |
+| Package                                  | Role           | Summary                                                                                                                                                                                     | Guide                              |
+|------------------------------------------|----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------|
+| `reliability/idempotency/principalowner` | Adapter        | Binds `reliability/idempotency` records to the verified tenant and subject in context.                                                                                                      | —                                  |
+| `auth/principal`                         | Shared type    | Canonical verified-identity (`Subject`/`Tenant`/`Scopes`/`Roles`/`Claims` + accessors + `FromClaims`); reusable `Mapper`/`NewMapper` for hot paths; the standard `P` for scope authorizers. | [principal.md](principal.md)       |
+| `auth/jwt`                               | AuthN core     | Low-level JWT `Signer`/`Verifier`/`Claims` over golang-jwt; the shared core for selfjwt and oidc.                                                                                           | —                                  |
+| `auth/oidc`                              | AuthN          | OIDC/JWT validation with JWKS auto-rotation, CEL claim rules, introspection, presets.                                                                                                       | [oidc.md](oidc.md)                 |
+| `auth/selfjwt`                           | AuthN          | Self-issued JWT minting + verification with per-subject keys and rotation.                                                                                                                  | [selfjwt.md](selfjwt.md)           |
+| `auth/oauth2client`                      | AuthN (client) | Acquires IdP tokens for outbound calls: client_credentials / refresh / auth_code / device + RFC 8693 exchange; returns a self-refreshing `oauth2.TokenSource`.                              | [oauth2client.md](oauth2client.md) |
+| `auth/spiffe`                            | AuthN          | SPIFFE ID parsing from X.509 certificates (trust domain + path); pure primitive.                                                                                                            | —                                  |
+| `auth/mtls`                              | AuthN          | Verified client cert → principal core: identity + validators (expiry, trust-domain, revocation incl. live-OCSP, subject/issuer/CA-pin, DNS-SAN, EKU) + audit.                               | —                                  |
+| `auth/mtls/revocation`                   | AuthN          | Live OCSP peer-revocation `CertValidator`: queries the issuer's responder, TTL-caches, fail-closed by default; network-backed complement to `RevocationList`.                               | —                                  |
+| `transport/.../auth/mtls`                | AuthN          | gRPC interceptor + HTTP middleware deriving a principal from the verified mTLS client certificate.                                                                                          | —                                  |
+| `go-tlsutils/spiffe`                     | mTLS source    | Producer side: fetches the service's own rotating SVID + trust bundle from the SPIFFE Workload API and builds rotating mTLS configs/dialers.                                                | —                                  |
+| `auth/static`                            | AuthN          | Static token / API-key validation for service-to-service calls, with optional rate limiting.                                                                                                | [static.md](static.md)             |
+| `auth/scope`                             | AuthZ          | Transport-neutral, deny-by-default scope policy (`Registry`, `Enforcer`, `Matcher`), plus resource-aware authorization through `ResourceEnforcer` and `ResourceAuthorizer`.                 | [scope.md](scope.md)               |
+| `auth/opa`                               | AuthZ          | Open Policy Agent Rego evaluation with policy hot-reload and event-driven reload.                                                                                                           | [opa.md](opa.md)                   |
+| `audit/decision`                         | Audit          | `Decision` + consumer-side `Sink` seam + `Recorder` with policy/failure modes.                                                                                                              | [audit.md](audit.md)               |
+| `audit/decision/sinks/dataaudit`         | Audit sink     | Bridges `audit.Sink` to the framework's `audit` dispatcher.                                                                                                                                 | [audit.md](audit.md)               |
+| `auth/denylist`                          | Revocation     | Reusable token-revocation seam: concurrency-safe set of revoked ids (jti/subject), permanent or TTL-bounded, exposed as a `Checker`; never evicts a live entry.                             | [denylist.md](denylist.md)         |
+| `auth/denylist/negcache`                 | Revocation     | Probabilistic negative cache (Bloom/Cuckoo) in front of an authoritative store — never-revoked tokens answered locally, no false negatives.                                                 | [denylist.md](denylist.md)         |
+| `auth/denylist/storages/redis`           | Revocation     | Redis-backed authoritative denylist store for cross-instance revocation.                                                                                                                    | [denylist.md](denylist.md)         |
+| `auth/denylist/mirror`                   | Revocation     | Synchronous local snapshot of a distributed denylist; satisfies `jwt.RevocationChecker` for jwt/selfjwt with no hot-path network call.                                                      | [denylist.md](denylist.md)         |
 
 ## The Request Pipeline
 
-A protected request flows through up to three stages. Each is optional and independently configured; a service may run only AuthN, only AuthZ, or both,
+A protected request flows through up to three stages. Each is optional and independently configured; a service may run only AuthN, only AuthZ, or
+both,
 with audit attached to either.
 
 ```
@@ -100,36 +102,36 @@ request ──▶ AuthN ──────────▶ AuthZ ─────�
 ## Initialization
 
 Several packages offer both direct construction and a factory + config path. Use **direct construction** for full control in code; use the **factory +
-config template** when configuration is loaded from YAML/env through `config/loader`.
+config template** when configuration is loaded from YAML/env through `go-nomos/loader`.
 
 ### Direct construction
 
-| Package   | Primary constructor                                                               | Notes                                                                                                                   |
-|-----------|-----------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| `jwt`     | `NewSigner(opts…) *Signer` / `NewVerifier(resolver KeyResolver, opts…) *Verifier` | Mandatory `KeyResolver` is positional.                                                                                  |
-| `oidc`    | `NewProvider(ctx, discoveryURL, opt…) (*Provider, error)`                         | Loads JWKS once; refreshes on its own cron with `WithJWKSRefreshSchedule` (or call `RefreshJWKS`); leeway `30s`.        |
-| `selfjwt` | `New(src KeyProvider, opts…) (*Minter, *Verifier)`                                | Returns a matched minter/verifier pair; `NewMinter`/`NewVerifier` for either alone.                                     |
-| `static`  | `NewInMemoryStore(opt…) *InMemoryStore`                                           | Wrap with `NewRateLimitedStore(store, limiter, keyFn)` to gate attempts.                                                |
-| `scope`   | `NewRegistry()` → `Register`/`Freeze`, then `NewEnforcer(reg, authorize)`         | `authorize` is the sole principal seam; registry is build-once / read-many.                                             |
-| `opa`     | `NewManager(ctx, source, query, opts…) (*Manager, error)`                         | `source` is the policy source (hot-reloadable); `query` is the Rego entrypoint.                                         |
-| `audit`   | `NewRecorder(sink, opt…) *Recorder`                                               | Nil sink → no-op; wrap a `dataaudit.New(auditor)` sink for durability.                                                  |
+| Package   | Primary constructor                                                               | Notes                                                                                                            |
+|-----------|-----------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
+| `jwt`     | `NewSigner(opts…) *Signer` / `NewVerifier(resolver KeyResolver, opts…) *Verifier` | Mandatory `KeyResolver` is positional.                                                                           |
+| `oidc`    | `NewProvider(ctx, discoveryURL, opt…) (*Provider, error)`                         | Loads JWKS once; refreshes on its own cron with `WithJWKSRefreshSchedule` (or call `RefreshJWKS`); leeway `30s`. |
+| `selfjwt` | `New(src KeyProvider, opts…) (*Minter, *Verifier)`                                | Returns a matched minter/verifier pair; `NewMinter`/`NewVerifier` for either alone.                              |
+| `static`  | `NewInMemoryStore(opt…) *InMemoryStore`                                           | Wrap with `NewRateLimitedStore(store, limiter, keyFn)` to gate attempts.                                         |
+| `scope`   | `NewRegistry()` → `Register`/`Freeze`, then `NewEnforcer(reg, authorize)`         | `authorize` is the sole principal seam; registry is build-once / read-many.                                      |
+| `opa`     | `NewManager(ctx, source, query, opts…) (*Manager, error)`                         | `source` is the policy source (hot-reloadable); `query` is the Rego entrypoint.                                  |
+| `audit`   | `NewRecorder(sink, opt…) *Recorder`                                               | Nil sink → no-op; wrap a `dataaudit.New(auditor)` sink for durability.                                           |
 
 ### Factory + config template
 
 Several packages ship a `factory/` builder that constructs the component (or its options) from a config struct; the rest are configured directly in
 code.
 
-| Package        | Factory entrypoint                       | Config struct (Go)                  | YAML template                       |
-|----------------|------------------------------------------|-------------------------------------|-------------------------------------|
-| `oidc`         | `oidc/factory.New(cfg *authconfig.OIDC) *ProviderBuilder` | `authconfig.OIDC` (`config/auth/auth_oidc.go`)  | `config/templates/auth_oidc.yaml`  |
-| `opa`          | `opa/factory.New(cfg *authconfig.OPA) *ManagerBuilder`    | `authconfig.OPA` (`config/auth/opa.go`)         | `config/templates/opa.yaml`        |
-| `scope`        | `scope/factory.New(cfg *authconfig.ScopeRegistry) *RegistryBuilder` | `authconfig.ScopeRegistry` (`config/auth/auth_scope.go`) | `config/templates/auth_scope.yaml` |
-| `mtls`         | `mtls/factory.New(cfg *authconfig.MTLS) *Builder` (returns `[]mtls.Option`) | `authconfig.MTLS` (`config/auth/auth_mtls.go`) | `config/templates/auth_mtls.yaml`  |
-| `oauth2client` | `oauth2client/factory.New(cfg *authconfig.OAuth2Client) *Builder` (`Build` → `oauth2.TokenSource`, `BuildExchanger` → `*Exchanger`) | `authconfig.OAuth2Client` (`config/auth/oauth2_client.go`) | `config/templates/oauth2_client.yaml` |
-| `denylist`     | `denylist/negcache/factory.NewBuilder(...)` (negative filter) + `denylist/storages/redis.New(...)` (authoritative store) | `authconfig.Denylist` (`config/auth/auth_denylist.go`) | `config/templates/auth_denylist.yaml` |
+| Package        | Factory entrypoint                                                                                                                       | Config struct (Go)                                         | YAML template                         |
+|----------------|------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------|---------------------------------------|
+| `oidc`         | `factory/auth/oidc.New(cfg *authconfig.OIDC) *ProviderBuilder`                                                                           | `authconfig.OIDC` (`config/auth/auth_oidc.go`)             | `config/templates/auth_oidc.yaml`     |
+| `opa`          | `factory/auth/opa.New(cfg *authconfig.OPA) *ManagerBuilder`                                                                              | `authconfig.OPA` (`config/auth/opa.go`)                    | `config/templates/opa.yaml`           |
+| `scope`        | `factory/auth/scope.New(cfg *authconfig.ScopeRegistry) *RegistryBuilder`                                                                 | `authconfig.ScopeRegistry` (`config/auth/auth_scope.go`)   | `config/templates/auth_scope.yaml`    |
+| `mtls`         | `factory/auth/mtls.New(cfg *authconfig.MTLS) *Builder` (returns `[]mtls.Option`)                                                         | `authconfig.MTLS` (`config/auth/auth_mtls.go`)             | `config/templates/auth_mtls.yaml`     |
+| `oauth2client` | `factory/auth/oauth2client.New(cfg *authconfig.OAuth2Client) *Builder` (`Build` → `oauth2.TokenSource`, `BuildExchanger` → `*Exchanger`) | `authconfig.OAuth2Client` (`config/auth/oauth2_client.go`) | `config/templates/oauth2_client.yaml` |
+| `denylist`     | `factory/auth/denylist/negcache.NewBuilder(...)` (negative filter) + `denylist/storages/redis.New(...)` (authoritative store)            | `authconfig.Denylist` (`config/auth/auth_denylist.go`)     | `config/templates/auth_denylist.yaml` |
 
 The builder pattern resolves dependencies and applies options; see each package's `factory/` README for the `Build`/accessor surface. The
-`config/templates/auth.yaml` template is the aggregate auth section consumed by `config/loader`. The `scope` factory builds only the deny-by-default
+`config/templates/auth.yaml` template is the aggregate auth section consumed by `go-nomos/loader`. The `scope` factory builds only the deny-by-default
 registry from config — the matcher and authorizer stay in code, since they depend on the caller's principal type.
 
 ## Transport Wiring
@@ -148,14 +150,15 @@ import (
 )
 
 interceptor := grpcauth.ServerInterceptor(
-    grpcauth.WithAuthFn(grpcoidc.AuthFunc(validator)),         // AuthN: token → *Claims (Credentials.Data)
+    grpcauth.WithAuthFn(grpcoidc.AuthFunc(validator)),         // AuthN: token → *authoidc.Claims (Credentials.Data)
     grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf,      // AuthZ: scope decision on that principal
         grpcauth.WithScopeAudit(rec, subjectOf))),            // optional audit
     grpcauth.WithIgnoreMethods("/grpc.health.v1.Health/Check"),
 )
 ```
 
-Symbols: `ServerInterceptor(opt…)`, `WithAuthFn(Auth)`, `WithClientAuth(ClientAuth)`, `WithTokenExtractor`, `WithIgnoreMethods` / `WithIgnorePatterns`;
+Symbols: `ServerInterceptor(opt…)`, `WithAuthFn(Auth)`, `WithClientAuth(ClientAuth)`, `WithTokenExtractor`, `WithIgnoreMethods` /
+`WithIgnorePatterns`;
 `ScopeClientAuth[P](e, opts…)` + `WithScopeAudit[P]`; per-mechanism `static.AuthFunc(store, opts…)` and `oidc.AuthFunc(validator, opts…)`, each with a
 `WithAudit` option.
 
@@ -213,14 +216,20 @@ func thingsHandler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-A direct, transport-free validation is just `store.Validate(ctx, token) (any, error)`; the HTTP adapter wraps `static.ErrTokenInvalid` / `ErrTokenEmpty`
-/ `ErrRateLimited` in `auth.ErrUnauthorized` (the cause stays reachable via `errors.Is`), and the default error handler answers `401` for all of them —
+A direct, transport-free validation is just `store.Validate(ctx, token) (any, error)`; the HTTP adapter wraps `static.ErrTokenInvalid` /
+`ErrTokenEmpty`
+/ `ErrRateLimited` in `auth.ErrUnauthorized` (the cause stays reachable via `errors.Is`), and the default error handler answers `401` for all of
+them —
 return `429` for `ErrRateLimited` through `WithErrorHandler`. The gRPC adapter maps rate limiting to `codes.ResourceExhausted`.
 
 ### OIDC token validation
 
-`Provider` discovers the issuer's metadata and JWKS at construction; it keeps the keys fresh on its own process-local cron when given a refresh schedule
-(`WithJWKSRefreshSchedule`) — otherwise call `provider.RefreshJWKS(ctx)` periodically yourself. `ValidateToken` returns the verified claims.
+`Provider` discovers the issuer's metadata and JWKS at construction; it keeps the keys fresh on its own process-local cron when given a refresh
+schedule
+(`WithJWKSRefreshSchedule`) — otherwise call `provider.RefreshJWKS(ctx)` periodically yourself. `ValidateToken` returns the verified claims. The
+constructor context bounds construction only; the cron outlives its cancellation, so call `provider.Close()` on shutdown. With a revocation sync
+schedule, tokens are rejected once the revocation source has been unreachable longer than `WithRevocationMaxStaleness` (default 3h); see
+[oidc.md](oidc.md#token-revocation-go).
 
 ```go
 import "github.com/altessa-s/go-atlas/auth/oidc"
@@ -244,7 +253,7 @@ Loading the provider from a `authconfig.OIDC` instead (the factory path, e.g. wh
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/auth/oidc/factory"
+    "github.com/altessa-s/go-atlas/factory/auth/oidc"
     authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
 
@@ -253,6 +262,11 @@ provider, err := factory.New(&cfg /* *authconfig.OIDC */).Build(ctx)
 
 Per-call overrides (extra audience, required claims) go through `provider.ValidateTokenWithOptions(ctx, raw, opt…)`; see [oidc.md](oidc.md).
 
+Only signature keys verify a token: a JWKS key whose `use` is `enc` is ignored, and a key with `use: sig` or no `use` is accepted. A rejected token
+is an everyday event any caller can provoke, so `Provider` and `Validator` log it at Debug (`ErrTokenInvalid`, `ErrCELValidation`,
+`ErrTokenRevoked`); failures of the provider's own infrastructure — a stale JWKS, an unreachable revocation storage or introspection endpoint — keep
+their Error and Warn records. Count rejections with the validation error metric, not the log.
+
 ### Self-issued JWTs between services
 
 The issuing service mints short-lived tokens; the receiving service verifies them. `New` returns a matched pair backed by the same key provider.
@@ -260,7 +274,7 @@ The issuing service mints short-lived tokens; the receiving service verifies the
 ```go
 import "github.com/altessa-s/go-atlas/auth/selfjwt"
 
-minter, verifier := selfjwt.New(keyProvider)
+minter, verifier := selfjwt.New(keyProvider, "svc-billing", "svc-ledger")
 
 // Issuer side:
 res, err := minter.Mint(ctx, selfjwt.MintRequest{
@@ -289,32 +303,40 @@ import (
     "github.com/altessa-s/go-atlas/transport/grpc/client"
 )
 
-src := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
+src, err := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
     oauth2client.WithScopes("orders:read", "orders:write"),
 )
+if err != nil {
+    return err // tokenURL is malformed or not https
+}
 creds := client.NewInsecureTokenCredentials(src) // outbound calls now carry a fresh token
 ```
 
 To propagate the caller's identity to a downstream service, trade the inbound token for a downstream-scoped one (RFC 8693 token exchange):
 
 ```go
-ex := oauth2client.NewExchanger(tokenURL, clientID, clientSecret)
+ex, err := oauth2client.NewExchanger(tokenURL, clientID, clientSecret)
+if err != nil {
+    return err
+}
 tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
     SubjectToken: inboundAccessToken,
     Audience:     "https://downstream.internal",
 })
 ```
 
-Load client credentials from `authconfig.OAuth2Client` with `oauth2client/factory.New(cfg.OAuth2Client).Build(ctx)`, or construct an exchanger with
+Load client credentials from `authconfig.OAuth2Client` with `factory/auth/oauth2client.New(cfg.OAuth2Client).Build(ctx)`, or construct an exchanger
+with
 `.BuildExchanger(ctx)`; when the config sets `discoveryURL` instead of `tokenURL`, inject an `oidc.Provider` as the token-endpoint source via
 `Builder.UseTokenEndpointSource`.
 
 ### mTLS / SPIFFE identity
 
 In a mesh, the caller's identity is its verified mTLS client certificate. The transport-free core `auth/mtls` derives a principal (by default the
-certificate's SPIFFE ID), runs validators, and records audit; the gRPC interceptor and HTTP middleware only extract the verified certificate. Configure
+certificate's SPIFFE ID), runs validators, and records audit; the gRPC interceptor and HTTP middleware only extract the verified certificate.
+Configure
 behavior with the core's options. The TLS credentials that require and verify the client cert are set up on the server separately (see
-`security/tlsutils`).
+`github.com/altessa-s/go-tlsutils`).
 
 ```go
 import (
@@ -323,32 +345,72 @@ import (
     grpcmtls "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/mtls"
 )
 
+authFn, err := grpcmtls.AuthFunc(                                   // peer cert → spiffe.ID as Credentials.Data
+    coremtls.WithTrustDomains("example.org"),                       // the trust decision; validators below never replace it
+    coremtls.WithValidator(coremtls.ExpiryValidator(nil, 30*time.Second)),
+    coremtls.WithValidator(revocations.Validator()),               // static denylist, or revocation.New(caCerts).Validator() for live OCSP
+    coremtls.WithAudit(rec, func(p any) string { id, _ := p.(spiffe.ID); return id.String() }),
+)
+if err != nil {
+    return err                                                      // coremtls.ErrNoTrustDomainPolicy: no trust decision
+}
 interceptor := grpcauth.ServerInterceptor(
-    grpcauth.WithAuthFn(grpcmtls.AuthFunc(                          // peer cert → spiffe.ID as Credentials.Data
-        coremtls.WithValidator(coremtls.ExpiryValidator(nil, 30*time.Second)),
-        coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")),
-        coremtls.WithValidator(revocations.Validator()),           // static denylist, or revocation.New(caCerts).Validator() for live OCSP
-        coremtls.WithAudit(rec, func(p any) string { id, _ := p.(spiffe.ID); return id.String() }),
-    )),
+    grpcauth.WithAuthFn(authFn),
     grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf)),         // authorize on the spiffe.ID
 )
 ```
 
-The same options drive the HTTP middleware `httpmtls.Middleware(opts…)` (it installs the principal via `auth.ContextWithPrincipal` for
-`ScopeMiddleware`). Override the principal with `coremtls.WithIdentity(func(*x509.Certificate) (any, error) { … })` — e.g. to carry the subject common
-name or pair the SPIFFE ID with `scope.RoleScopes`. Build the validator options from config with `mtls/factory.New(&cfg.MTLS).Options()` — beyond
-`trustDomains`/`checkExpiry` it also emits the classic-PKI pins from `allowedSubjectCNs`, `allowedIssuerCNs`, `issuerKeyIDs`, `allowedDNSNames`, and
-`requiredEKUs`. A caller that did not complete mTLS is rejected with `codes.Unauthenticated` (gRPC) / 401 (HTTP).
+The same options drive the HTTP middleware `httpmtls.Middleware(opts…)`, which also returns an error (it installs the principal via
+`auth.ContextWithPrincipal` for `ScopeMiddleware`). Override the principal with
+`coremtls.WithIdentity(func(*x509.Certificate) (any, error) { … })` — e.g. to carry the subject common name or pair the SPIFFE ID with
+`scope.RoleScopes`. The identity function runs last, only for a certificate that passed the trust-domain pin and every validator, so a lookup
+or just-in-time provisioning in it never runs for a foreign, expired or revoked certificate; the audit record of a rejected certificate carries
+the certificate's SPIFFE ID (or Subject DN) instead of a principal. Build the validator options from config with
+`factory/auth/mtls.New(&cfg.MTLS).Options()` — beyond `trustDomains`/`checkExpiry` it also emits the classic-PKI pins from `allowedSubjectCNs`,
+`allowedIssuerCNs`, `issuerKeyIDs`, `allowedDNSNames`, and `requiredEKUs`. A caller that did not complete mTLS is rejected with
+`codes.Unauthenticated` (gRPC) / 401 (HTTP).
+
+The authenticator requires a trust-domain decision. Without one it would turn any certificate the TLS trust pool accepts into a principal —
+including one a shared or federated CA issued for a foreign trust domain — so `coremtls.NewAuthenticator`, `grpcmtls.AuthFunc` and
+`httpmtls.Middleware` return `ErrNoTrustDomainPolicy` (wrapped by the adapters, match with `errors.Is`) and the service fails at startup instead of
+rejecting requests at runtime. Pin the accepted domains with `coremtls.WithTrustDomains("example.org")`, or opt in with
+`coremtls.WithInsecureAnyTrustDomain()` when the decision is made elsewhere: the trust pool itself, or DN and CA pins for certificates that carry
+no SPIFFE ID (a custom `WithIdentity`). Validators added with `WithValidator` never count as the decision — not an expiry re-check, not a
+revocation lookup, not `TrustDomainValidator`, which now rejects every certificate when built without domains. Blank entries do not count either:
+`WithTrustDomains` trims and lower-cases its domains and drops empty ones. The factory applies the same rule to the config: `Options` fails with
+`ErrNoTrustDomainPolicy` unless `trustDomains` is set or `allowAnyTrustDomain: true` opts in, and `MTLS.Validate` rejects a `trustDomains` entry
+that is empty (an unset substitution) or not a SPIFFE trust domain name.
+
+Live OCSP revocation (`auth/mtls/revocation`) is fail-closed by default: a certificate whose status cannot be confirmed — the responder is
+unreachable or answers "unknown", the certificate names no responder, no configured issuer matches — is rejected. `WithFailMode(revocation.FailOpen)`
+is an explicit opt-in for deployments where a responder outage costs more than accepting a revoked peer. The default OCSP client bounds a whole
+check, retries included, with `DefaultTimeout` (5s, `WithTimeout`) and follows a redirect only to the same host (`ErrCrossHostRedirect` otherwise);
+a client injected with `WithHTTPClient` keeps its own timeout, redirect policy and destination restrictions. Each request is bounded separately by
+`DefaultAttemptTimeout` (1s, `WithAttemptTimeout`, never above the check timeout), so a stalled responder costs one attempt and the retries still
+run; attempts rotate through every responder URL the certificate names. A leaf is matched to its issuer by Authority Key ID across the whole
+issuer list, then by issuer DN — by signature when several issuers share it — so a CA key rollover does not fail the new CA's clients closed.
+
+> **OCSP responders on private addresses are refused by default.** The responder URL comes from the peer's certificate, so the checker requests
+> only `http`/`https` URLs and its default client refuses a responder that resolves to a loopback, private, link-local, unique-local, multicast,
+> unspecified or otherwise non-public address (`ErrPrivateResponder`) — checked on the resolved IP right before the connect, which also covers
+> redirects and DNS rebinding. An internal PKI must name its responder: `revocation.WithAllowedResponders("ocsp.corp.example")` limits the checker
+> to the listed hosts (`ErrResponderNotAllowed` for any other) and lifts the address refusal for them.
+> `revocation.WithInsecureAllowPrivateResponders()` turns the refusal off for every responder and is a last resort. The checker is wired in code;
+> there are no YAML keys for it.
+
+An OCSP response must be signed with the issuer's own key or by a delegated responder certificate the issuer issued directly, carrying the
+`id-kp-OCSPSigning` extended key usage and within its validity period (RFC 6960 section 4.2.2.2); any other signer is `ErrUnauthorizedResponder`.
+A status is cached per issuer name, issuer public key and serial number.
 
 That covers the *verifier* side — turning a peer's certificate into a principal. The *producer* side, obtaining the service's own SVID and keeping it
-fresh, lives in `security/tlsutils/spiffe`. It pulls the X.509-SVID and trust bundle from the SPIFFE Workload API (a SPIRE agent socket) and hands out
-`*tls.Config` values that pick up the current SVID on every handshake, so a long-running server or client survives rotation without a restart. A peer
-authorizer is mandatory — fail-closed.
+fresh, lives in `github.com/altessa-s/go-tlsutils/spiffe`. It pulls the X.509-SVID and trust bundle from the SPIFFE Workload API (a SPIRE agent
+socket) and hands out `*tls.Config` values that pick up the current SVID on every handshake, so a long-running server or client survives rotation
+without a restart. A peer authorizer is mandatory — fail-closed.
 
 ```go
 import (
-    spiffesrc "github.com/altessa-s/go-atlas/security/tlsutils/spiffe"
-    spiffefactory "github.com/altessa-s/go-atlas/security/tlsutils/spiffe/factory"
+    spiffesrc "github.com/altessa-s/go-tlsutils/spiffe"
+    spiffefactory "github.com/altessa-s/go-atlas/factory/ext/tlsutils/spiffe"
 )
 
 provider, err := spiffefactory.New(&cfg.SPIFFE).Provider(ctx)      // socket + authorizer from authconfig.SPIFFE
@@ -367,13 +429,13 @@ beyond the standard verified certificate chain. Obtaining and auto-rotating the 
 
 ### Scope policy over OIDC claims
 
-Build the registry once, freeze it, and enforce. `oidc.ScopesOf` (the transport adapter's helper) extracts granted scopes from `*Claims`, so a token's
-`scope` claim drives the decision.
+Build the registry once, freeze it, and enforce. `authoidc.ScopesOf` extracts granted scopes from `*authoidc.Claims`, so a token's `scope` claim
+drives the decision.
 
 ```go
 import (
+    authoidc "github.com/altessa-s/go-atlas/auth/oidc"
     "github.com/altessa-s/go-atlas/auth/scope"
-    grpcoidc "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
 )
 
 reg := scope.NewRegistry()
@@ -382,7 +444,7 @@ reg.Register("/files.v1.Files/Write", "files:write")
 reg.Register("/health.v1.Health/Check", "") // empty scope = public
 reg.Freeze()
 
-enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(grpcoidc.ScopesOf, scope.Exact()))
+enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(authoidc.ScopesOf, scope.Exact()))
 
 if err := enf.Enforce(claims, "/files.v1.Files/Write"); err != nil {
     // errors.Is(err, scope.ErrAccessDenied)
@@ -401,7 +463,7 @@ Compile a Rego bundle into a `Manager`, then evaluate request input against it. 
 import (
     "embed"
 
-    "github.com/altessa-s/go-atlas/auth/audit"
+    "github.com/altessa-s/go-atlas/audit/decision"
     "github.com/altessa-s/go-atlas/auth/opa"
     opasource "github.com/altessa-s/go-atlas/auth/opa/sources/embed"
 )
@@ -429,14 +491,19 @@ if !res.Allow {
 }
 ```
 
+The remote sources (GitLab, S3) verify fetched policies against a SHA-256 manifest (`WithChecksums`, config `gitlab.checksums` / `s3.checksums`).
+The manifest is optional, but a source built without one loads whatever the remote serves and logs a warning once at construction (`… policy source
+has no checksums manifest`), so an unverified source is never silent. See [opa.md](opa.md).
+
 ### Full gRPC server: OIDC + scope + audit
 
 The three layers composed on one interceptor: validate the bearer token, enforce the scope policy on the resulting claims, and record both.
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/auth/audit"
-    "github.com/altessa-s/go-atlas/auth/audit/sinks/dataaudit"
+    "github.com/altessa-s/go-atlas/audit/decision"
+    "github.com/altessa-s/go-atlas/audit/decision/sinks/dataaudit"
+    authoidc "github.com/altessa-s/go-atlas/auth/oidc"
     "github.com/altessa-s/go-atlas/auth/scope"
     grpcauth "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
     grpcoidc "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
@@ -446,18 +513,18 @@ rec := audit.NewRecorder(dataaudit.New(auditor)) // deny-only, best-effort by de
 
 interceptor := grpcauth.ServerInterceptor(
     grpcauth.WithAuthFn(grpcoidc.AuthFunc(validator,                    // AuthN → *Claims
-        grpcoidc.WithAudit(rec, func(c *grpcoidc.Claims) string { return c.Subject }))),
+        grpcoidc.WithAudit(rec, func(c *authoidc.Claims) string { return c.Subject }))),
     grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf,               // AuthZ on *Claims
-        grpcauth.WithScopeAudit(rec, func(c *grpcoidc.Claims) string { return c.Subject }))),
+        grpcauth.WithScopeAudit(rec, func(c *authoidc.Claims) string { return c.Subject }))),
     grpcauth.WithIgnoreMethods("/grpc.health.v1.Health/Check"),
 )
 
 // Register on the framework's gRPC server builder:
-builder.WithInterceptor(interceptor) // *grpc/server/factory.ServerBuilder
+builder.WithInterceptor(interceptor) // *factory/transport/grpc/server.ServerBuilder
 ```
 
-Here `validator` is any `grpcoidc.Validator` (`ValidateToken(ctx, token) (*Claims, error)`) and `enf` is a `*scope.Enforcer[*grpcoidc.Claims]` built as
-in the recipe above.
+Here `validator` is any `authoidc.ClaimsValidator` (`ValidateToken(ctx, token) (*Claims, error)`), typically `authoidc.NewValidator(provider)`, and
+`enf` is a `*scope.Enforcer[*authoidc.Claims]` built as in the recipe above.
 
 ## Cross-Cutting Concerns
 
@@ -467,7 +534,8 @@ in the recipe above.
   subsystems (`auth_oidc`, `auth_opa`, `auth_oauth2client`, `auth_denylist_negcache`, `auth_denylist_mirror`, …); see [../metrics.md](../metrics.md).
   Metrics aggregate; audit records each decision. They answer different questions, so keep both.
 - **Revocation.** `denylist` is a shared seam for rejecting tokens revoked before their natural expiry: a verifier consults a `Checker`, backed by an
-  in-memory set now and a Redis store (`denylist/storages/redis`) later, optionally fronted by a probabilistic negative cache (`denylist/negcache`) that
+  in-memory set now and a Redis store (`denylist/storages/redis`) later, optionally fronted by a probabilistic negative cache (`denylist/negcache`)
+  that
   answers the never-revoked common case without a network hop. It complements — does not replace — `oidc`'s own introspection-based revocation.
 - **Defaults & clock skew.** Token validators share a consistent default leeway of `30s` (`oidc`, `selfjwt`); error sentinels are aligned
   (`ErrTokenInvalid`, `ErrTokenEmpty`, `ErrRateLimited`) so adapters map them uniformly to gRPC codes / HTTP status.
@@ -476,14 +544,16 @@ in the recipe above.
 ## Design Principles
 
 - **Standards-based** — OIDC discovery (RFC 8414), token introspection (RFC 7662), OPA Rego policies.
-- **Secure by default** — asymmetric-only signing, deny-by-default authorization, revocation checks, optional checksum verification of policy files; an
+- **Secure by default** — asymmetric-only signing, deny-by-default authorization, revocation checks, optional checksum verification of policy files;
+  an
   unconfigured dependency falls back to a no-op rather than silently allowing access.
-- **AuthN/AuthZ separation** — authenticators yield a principal; authorizers consume one. The core authorization packages own no identity type and bake
+- **AuthN/AuthZ separation** — authenticators yield a principal; authorizers consume one. The core authorization packages own no identity type and
+  bake
   in no superuser/tenant/role fields — those live in the caller's `Authorizer`.
 - **Consumer-side seams** — extension points (`KeyResolver`, `Authorizer`, `Sink`, gRPC `Auth`/`ClientAuth`) are narrow interfaces defined for the
   consumer; transports adapt the same core.
 - **Factory-driven config** — `oidc`, `opa`, `scope`, `mtls`, `oauth2client`, and `denylist/negcache` build from `authconfig.*` structs loaded by
-  `config/loader`; everything else configures through generated functional options.
+  `go-nomos/loader`; everything else configures through generated functional options.
 
 ## See Also
 

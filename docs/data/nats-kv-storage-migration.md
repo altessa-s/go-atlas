@@ -6,13 +6,13 @@ when `WithStrictBucketStorage()` is set. To actually move such a bucket, each ba
 the configured storage while every process using it is stopped. This page covers what the backends share; each backend README covers what happens
 to its own entries.
 
-| Backend          | Package                                                                    | First argument | Target storage                    | Entries                                              |
-|------------------|----------------------------------------------------------------------------|----------------|-----------------------------------|------------------------------------------------------|
-| Idempotency      | [`data/idempotency/storages/nats`](../../data/idempotency/storages/nats)   | `js`           | file                              | copied, with their remaining lifetimes               |
-| Rate limiter     | [`data/limiters/storages/nats`](../../data/limiters/storages/nats)         | `js`           | file                              | copied                                               |
-| Saga             | [`data/saga/storages/nats`](../../data/saga/storages/nats)                 | `js`           | file                              | copied                                               |
-| Distributed lock | [`data/locks/dlock/providers/nats`](../../data/locks/dlock/providers/nats) | `nc`           | `WithStorage` (memory by default) | not copied: no lock is held while all are stopped    |
-| Leader election  | [`data/leadelect/providers/nats`](../../data/leadelect/providers/nats)     | `nc`           | `WithStorage` (memory by default) | not copied: there is no leader while all are stopped |
+| Backend          | Package                                                                                | First argument | Target storage                    | Entries                                              |
+|------------------|----------------------------------------------------------------------------------------|----------------|-----------------------------------|------------------------------------------------------|
+| Idempotency      | [`reliability/idempotency/storages/nats`](../../reliability/idempotency/storages/nats) | `js`           | file                              | copied, with their remaining lifetimes               |
+| Rate limiter     | [`coord/limiters/storages/nats`](../../coord/limiters/storages/nats)                   | `js`           | file                              | copied                                               |
+| Saga             | [`reliability/saga/storages/nats`](../../reliability/saga/storages/nats)               | `js`           | file                              | copied                                               |
+| Distributed lock | [`coord/dlock/providers/nats`](../../coord/dlock/providers/nats)                       | `nc`           | `WithStorage` (memory by default) | not copied: no lock is held while all are stopped    |
+| Leader election  | [`coord/leadelect/providers/nats`](../../coord/leadelect/providers/nats)               | `nc`           | `WithStorage` (memory by default) | not copied: there is no leader while all are stopped |
 
 ## Procedure
 

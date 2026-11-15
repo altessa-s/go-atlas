@@ -1,19 +1,21 @@
 # Event Bus (`eventbus`)
 
 ```go
-import "github.com/altessa-s/go-atlas/domain/eventbus"
+import "github.com/altessa-s/go-atlas/messaging/eventbus"
 ```
 
-> The package lives under `domain/eventbus/`. Its quick reference is the package [`README`](../../domain/eventbus/README.md); this guide is the
-> narrative: delivery and transaction semantics, the companion [`uow`](../../domain/eventbus/uow/README.md) unit of work, and how the pair stays
+> The package lives under `messaging/eventbus/`. Its quick reference is the package [`README`](../../messaging/eventbus/README.md); this guide is the
+> narrative: delivery and transaction semantics, the companion [`uow`](../../messaging/eventbus/uow/README.md) unit of work, and how the pair stays
 > storage-agnostic across any database.
 
 A synchronous, lock-free, in-process event bus for decoupling domains that must coordinate without taking a direct dependency on one another. Handlers
-run in the caller's goroutine, context, and database transaction; any handler error stops the chain and propagates out of `Publish`, so a subscriber can
+run in the caller's goroutine, context, and database transaction; any handler error stops the chain and propagates out of `Publish`, so a subscriber
+can
 veto the operation that produced the event (for example, abort the enclosing transaction).
 
-It is **not** a message broker. For inter-process / inter-service messaging use [`transport/broker`](../../transport/broker); for durable, persisted,
-cross-service rollback use [`data/saga`](../../data/saga). `eventbus` is the in-process counterpart: one goroutine, one transaction, no network.
+It is **not** a message broker. For inter-process / inter-service messaging use [`messaging/broker`](../../messaging/broker); for durable, persisted,
+cross-service rollback use [`reliability/saga`](../../reliability/saga). `eventbus` is the in-process counterpart: one goroutine, one transaction, no
+network.
 
 ---
 
@@ -22,9 +24,11 @@ cross-service rollback use [`data/saga`](../../data/saga). `eventbus` is the in-
 For a given event the bus runs, **in registration order**: the type-specific handlers, then the type-specific adapters, then the global adapters. It
 stops at the first error and returns it. A `nil` event matches no type-specific handlers but still runs the global adapters.
 
-- **Synchronous, same goroutine.** A handler runs on the publisher's `context.Context`, so whatever transaction that context carries is the transaction
+- **Synchronous, same goroutine.** A handler runs on the publisher's `context.Context`, so whatever transaction that context carries is the
+  transaction
   the handler's writes land in. Returning an error rolls that transaction back; that is the bus's veto power.
-- **No panic recovery.** Dispatch deliberately does not recover panics: a panicking handler must propagate so an enclosing transaction rolls back rather
+- **No panic recovery.** Dispatch deliberately does not recover panics: a panicking handler must propagate so an enclosing transaction rolls back
+  rather
   than committing partial work.
 - **Lock-free reads.** The handler/adapter tables use atomic copy-on-write, so the hot `Publish` path takes no lock; only registration (`Subscribe`,
   `RegisterAdapter`, `RequireHandler`) serializes on a mutex.
@@ -33,17 +37,18 @@ stops at the first error and returns it. A `nil` event matches no type-specific 
 
 Because dispatch is synchronous, the chain can cascade (a handler publishes another event). Two guards bound that:
 
-| Error | Returned when |
-|-------|---------------|
-| `ErrEventCycle` | An event type is published again while it is already in flight in the same chain (e.g. handler A publishes B whose handler publishes A) |
-| `ErrDispatchTooDeep` | Nested publishing exceeds the depth limit (32), guarding against unbounded recursion |
+| Error                | Returned when                                                                                                                           |
+|----------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| `ErrEventCycle`      | An event type is published again while it is already in flight in the same chain (e.g. handler A publishes B whose handler publishes A) |
+| `ErrDispatchTooDeep` | Nested publishing exceeds the depth limit (32), guarding against unbounded recursion                                                    |
 
 Both are matchable with `errors.Is`. They do **not** detect a deadlock on a non-event application lock. See Locking.
 
 ## Locking
 
 Any application lock held when `Publish` is called stays held for the entire handler chain (dispatch is synchronous). Do not call `Publish` while
-holding a lock that a handler might try to acquire, directly or through a call back into the publishing service; that deadlocks the goroutine. Pass the
+holding a lock that a handler might try to acquire, directly or through a call back into the publishing service; that deadlocks the goroutine. Pass
+the
 state handlers need inside the event itself rather than letting them reach back into the publisher's internals.
 
 ## Typed API
@@ -51,13 +56,13 @@ state handlers need inside the event itself rather than letting them reach back 
 The generic helpers are a type-safe facade over the untyped `Bus`: they derive the event key from the static type parameter `E` (which must be a
 concrete, non-interface type), so a typed publish always reaches its typed subscribers and handlers receive `E` without a manual type assertion.
 
-| Symbol | Role |
-|--------|------|
-| `Subscribe[E](bus, handler)` | Register a typed handler for events of type `E` |
-| `RegisterAdapter[E](bus, adapter)` | Register a typed adapter (runs after all handlers for `E`) |
-| `Publish[E](ctx, pub, event)` | Publish a typed event, keyed by its own type `E` |
-| `Require[E](bus)` | Declare that `E` must have at least one handler (checked by `Validate`) |
-| `PublishTx[E](ctx, bus, event)` | Publish only inside an active transaction; else `ErrNotInTransaction` |
+| Symbol                             | Role                                                                    |
+|------------------------------------|-------------------------------------------------------------------------|
+| `Subscribe[E](bus, handler)`       | Register a typed handler for events of type `E`                         |
+| `RegisterAdapter[E](bus, adapter)` | Register a typed adapter (runs after all handlers for `E`)              |
+| `Publish[E](ctx, pub, event)`      | Publish a typed event, keyed by its own type `E`                        |
+| `Require[E](bus)`                  | Declare that `E` must have at least one handler (checked by `Validate`) |
+| `PublishTx[E](ctx, bus, event)`    | Publish only inside an active transaction; else `ErrNotInTransaction`   |
 
 ## Adapters, requirements, and validation
 
@@ -78,7 +83,8 @@ so the decorator is always safe to construct. See the [Metrics Reference](../met
 ## Boundaries
 
 The bus carries commands, cascades, vetoes, and notifications: interactions whose only reply is success or failure. It is **not** request/response:
-`Publish` returns only an error, so a subscriber cannot hand a value back. Do not smuggle a result out by mutating the event; with several handlers that
+`Publish` returns only an error, so a subscriber cannot hand a value back. Do not smuggle a result out by mutating the event; with several handlers
+that
 races and hides the real contract. When a caller needs a value from another domain, depend on a narrow interface of that domain instead: the
 notification flows one way through the event, the query the other way through the interface, and the dependency graph stays acyclic.
 
@@ -87,7 +93,8 @@ notification flows one way through the event, the query the other way through th
 ## Transactional unit of work (`uow`)
 
 A synchronous-in-transaction handler can only roll back the transactional store: aborting the transaction undoes the database writes but not any
-non-transactional effect: an object-storage put, a cache mutation, an external call. The companion [`uow`](../../domain/eventbus/uow/README.md) package
+non-transactional effect: an object-storage put, a cache mutation, an external call. The companion [`uow`](../../messaging/eventbus/uow/README.md)
+package
 closes that gap with **post-commit compensation** (an in-process saga), without an outbox or distributed transaction.
 
 The model:
@@ -98,11 +105,21 @@ The model:
 3. If a later effect fails, the already-applied ones are compensated in **LIFO** order.
 
 Applying after the commit means a driver-retried transaction never duplicates an effect, and an aborted transaction simply never runs them (clean
-rollback, no compensation). `Effect.Apply` runs on the caller's context; `Effect.Compensate` runs on a `context.WithoutCancel` copy, so an undo is never
+rollback, no compensation). `Effect.Apply` runs on the caller's context; `Effect.Compensate` runs on a `context.WithoutCancel` copy, so an undo is
+never
 skipped because the caller's context was canceled. A `nil` `Compensate` marks the effect best-effort / irreversible.
 
-`uow` and `eventbus` do **not** import each other; they meet only through the `context`. `uow.Run` puts the unit of work and the transaction in `ctx`;
-`WithTransaction` derives a child `ctx` that preserves both; `eventbus.Publish` passes that `ctx` to handlers (it preserves parent values); the handler
+Fire-and-forget work such as a cache invalidation registers with `Runner.AfterCommit` instead: the hook runs after the commit on a
+cancellation-detached
+context and its panic is recovered. A `Run` inside the body of the same runner joins the enclosing unit, so a store method that opens its own unit of
+work is safe to call from a larger one: its effects wait for the outermost commit. With `uow.WithDetector(datamongo.Transaction)` the runner also
+refuses (`ErrForeignTransaction`) to run or register inside a transaction other than its unit's (one it did not start, or another client's), and a
+body that returned nil before a failed commit is reported as
+`ErrUnknownOutcome`.
+
+`uow` and `eventbus` do **not** import each other; they meet only through the `context`. `uow.Run` puts the unit of work in the transaction-scoped
+`ctx`
+that `WithTransaction` passes to the body; `eventbus.Publish` passes that `ctx` to handlers (it preserves parent values); the handler
 calls `uow.OnCommit(ctx, …)` and finds the unit. The bus's `TxProbe` and `uow`'s `Committer` key off the same transaction, so inside `uow.Run` the bus
 reports `InTransaction == true` and `PublishTx` works.
 
@@ -137,15 +154,17 @@ func indexOnFileUploaded(txCtx context.Context, e FileUploaded) error {
 Neither `eventbus` nor `uow` imports a database driver. A database is wired in through two small consumer-defined seams; the cores never change.
 Switching or adding a database means writing these two adapters where the database handle lives. Nothing in `eventbus` / `uow` is touched.
 
-| Seam | Contract | What you supply |
-|------|----------|-----------------|
-| `uow.Committer` | `WithTransaction(ctx, fn) error` | A type that opens a transaction and passes a transaction-scoped context to `fn` (your database handle; `data/mongo.Mongo` already satisfies it) |
-| `eventbus.TxProbe` | reports whether `ctx` carries an active transaction | A function that detects your database's transaction in `ctx` |
+| Seam               | Contract                                            | What you supply                                                                                                                                  |
+|--------------------|-----------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
+| `uow.Committer`    | `WithTransaction(ctx, fn) error`                    | A type that opens a transaction and passes a transaction-scoped context to `fn` (your database handle; `store/mongo.Mongo` already satisfies it) |
+| `eventbus.TxProbe` | reports whether `ctx` carries an active transaction | A function that detects your database's transaction in `ctx`                                                                                     |
 
 The one behavioral nuance is per-database, not per-design. Some drivers carry the transaction in the context and **retry** the `WithTransaction`
 callback on transient errors (for example, the MongoDB driver), which is exactly why `uow` resets its registered effects on every attempt. Others have
-no ambient session, so the `Committer` must **thread the transaction handle through the context explicitly** and repositories read the executor from the
-context, the "transactor" pattern (for example, a SQL database via `database/sql` or pgx). `uow`'s per-attempt reset covers both, whether your committer
+no ambient session, so the `Committer` must **thread the transaction handle through the context explicitly** and repositories read the executor from
+the
+context, the "transactor" pattern (for example, a SQL database via `database/sql` or pgx). `uow`'s per-attempt reset covers both, whether your
+committer
 runs the callback once or wraps it in a retry loop.
 
 A sketch of a `Committer` for a database with no ambient session (here, a SQL-style handle), to show the two seams concretely:

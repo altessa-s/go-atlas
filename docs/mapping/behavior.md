@@ -1,31 +1,35 @@
 # Behavior (`behavior`)
 
 ```go
-import "github.com/altessa-s/go-atlas/domain/behavior"
+import "github.com/altessa-s/go-atlas/mapping/behavior"
 ```
 
-The reflection-based counterpart to [`fieldbehavior`](proto/fieldbehavior.md): where that package reads `google.api.field_behavior` off a
-`proto.Message` descriptor, `behavior` reads the same vocabulary from `behavior:"…"` tags on an ordinary Go struct. One struct declares which fields are
+The reflection-based counterpart to go-aip [`fieldbehavior`](https://github.com/altessa-s/go-aip/tree/develop/docs/fieldbehavior.md): where that package reads `google.api.field_behavior` off a
+`proto.Message` descriptor, `behavior` reads the same vocabulary from `behavior:"…"` tags on an ordinary Go struct. One struct declares which fields
+are
 server-owned, immutable, or input-only — instead of a separate Create/Update/storage type per operation.
 
-The package is a **core** that runs a single reflection walk over a struct and hands the resolved tree to a pluggable `Translator`. The same walk can feed
-different output models: the built-in `Strip`/`Clean` produce a cleaned struct; backend translators under [`translators/`](../../domain/behavior/translators)
+The package is a **core** that runs a single reflection walk over a struct and hands the resolved tree to a pluggable `Translator`. The same walk can
+feed
+different output models: the built-in `Strip`/`Clean` produce a cleaned struct; backend translators under [
+`translators/`](../../mapping/behavior/translators)
 fold it into something else (a MongoDB `bson.M`, …). `behavior` itself stays dependency-free.
 
 ---
 
 ## Two ways to use it
 
-| You want…                                                  | Use                                                                            |
-|------------------------------------------------------------|--------------------------------------------------------------------------------|
-| Clear server-owned fields on a domain struct, in place     | `StripCreate(&v)` / `StripUpdate(&v)` / `StripResponse(&v)`                    |
-| The same, but keep the original and return a cleaned copy  | `Clean(v, WithKinds(...))`                                                     |
-| Report populated forbidden fields instead of clearing them | add `WithStrict()` → `*ViolationError`                                         |
-| Fold the struct into a different output model              | `New[Out](translator, opts...).Translate(ctx, &v)`                             |
-| Build a MongoDB update/insert document or projection       | the [`translators/mongo`](../../domain/behavior/translators/mongo) translators |
+| You want…                                                  | Use                                                                             |
+|------------------------------------------------------------|---------------------------------------------------------------------------------|
+| Clear server-owned fields on a domain struct, in place     | `StripCreate(&v)` / `StripUpdate(&v)` / `StripResponse(&v)`                     |
+| The same, but keep the original and return a cleaned copy  | `Clean(v, WithKinds(...))`                                                      |
+| Report populated forbidden fields instead of clearing them | add `WithStrict()` → `*ViolationError`                                          |
+| Fold the struct into a different output model              | `New[Out](translator, opts...).Translate(ctx, &v)`                              |
+| Build a MongoDB update/insert document or projection       | the [`translators/mongo`](../../mapping/behavior/translators/mongo) translators |
 
 "Strip" clears a field to its zero value, which reads the same for every representation: a plain `T` becomes its zero value, a `*T` becomes `nil`, an
-[`optional.Optional`](../../core/types/optional) becomes `None`, and a slice or map becomes `nil`. Callers may model partial updates with either `*T` or
+[`optional.Optional`](https://github.com/altessa-s/go-atlas-core/tree/develop/types/optional) becomes `None`, and a slice or map becomes `nil`.
+Callers may model partial updates with either `*T` or
 `Optional`; the outcome is identical.
 
 ---
@@ -55,8 +59,10 @@ if err := behavior.StripCreate(&bucket); err != nil {
 | `Strip`         | none (no-op unless `WithKinds`) | Custom combinations, in place            |
 | `Clean`         | none (no-op unless `WithKinds`) | Custom combinations, returns a deep copy |
 
-`Strip*` take `*S` and clear in place; `Clean` takes `S` and returns a deep-cleaned copy, leaving the original untouched. A typed-nil pointer is a no-op; a
-pointer to a non-struct is an error. Under `WithStrict()` the value is left untouched and a `*ViolationError` lists every populated field that would have
+`Strip*` take `*S` and clear in place; `Clean` takes `S` and returns a deep-cleaned copy, leaving the original untouched. A typed-nil pointer is a
+no-op; a
+pointer to a non-struct is an error. Under `WithStrict()` the value is left untouched and a `*ViolationError` lists every populated field that would
+have
 been cleared (each `Violation` carries a `Path` and `Kind`).
 
 On update the identifier addresses the resource (AIP-203), so `StripUpdate` keeps it and never reports it under `WithStrict()`. A storage update
@@ -65,10 +71,13 @@ itself, whatever kinds the engine strips.
 
 ### Migrating: the identifier on update
 
-`DefaultUpdateKinds` — and with it `StripUpdate` — used to strip `Identifier` too; it now keeps the identifier. A payload passed through `StripUpdate`,
-and the tree a custom `Translator` receives from an engine built with `WithKinds(DefaultUpdateKinds...)`, now carry the identifier the client sent, with
+`DefaultUpdateKinds` — and with it `StripUpdate` — used to strip `Identifier` too; it now keeps the identifier. A payload passed through
+`StripUpdate`,
+and the tree a custom `Translator` receives from an engine built with `WithKinds(DefaultUpdateKinds...)`, now carry the identifier the client sent,
+with
 `Field.Strip` false. Use it to address the record, and leave it out of what you persist: the MongoDB update translator
-([`translators/mongo`](../../domain/behavior/translators/mongo)) does so itself, while any other translator, and code that serializes a `StripUpdate`d
+([`translators/mongo`](../../mapping/behavior/translators/mongo)) does so itself, while any other translator, and code that serializes a `StripUpdate`
+d
 payload into a storage write, must exclude it explicitly, as in the sketch below. To keep the former behavior instead, pass the former strip set:
 `StripUpdate(&v, WithKinds(OutputOnly, Identifier, Immutable))`, or the same `WithKinds` on the engine.
 
@@ -100,7 +109,8 @@ eng := behavior.New[map[string]any](columns{}, behavior.WithKinds(behavior.Defau
 | `immutable`   | `Immutable`  | `StripUpdate`                       |
 | `identifier`  | `Identifier` | `StripCreate`                       |
 
-Combine with commas (`behavior:"required,immutable"`); a field matches when any of its kinds intersect the strip set. An unrecognized token is an error.
+Combine with commas (`behavior:"required,immutable"`); a field matches when any of its kinds intersect the strip set. An unrecognized token is an
+error.
 
 ### Options
 
@@ -117,7 +127,8 @@ Combine with commas (`behavior:"required,immutable"`); a field matches when any 
 
 ## Translators
 
-For outputs other than a cleaned struct, inject a `Translator` into `New` and call `Translate`. The engine resolves the struct into an `Object`/`Field`
+For outputs other than a cleaned struct, inject a `Translator` into `New` and call `Translate`. The engine resolves the struct into an `Object`/
+`Field`
 tree once and folds it with the translator, so a single reflection walk feeds any output model.
 
 ```go
@@ -129,41 +140,49 @@ eng := behavior.New[Out](myTranslator, behavior.WithKinds(behavior.OutputOnly))
 out, err := eng.Translate(ctx, &v) // v: struct or non-nil pointer to struct
 ```
 
-`WithKinds` on the engine decides which fields are marked `Field.Strip`; the translator decides what to do with them (drop, project, …). `Resolve` returns
+`WithKinds` on the engine decides which fields are marked `Field.Strip`; the translator decides what to do with them (drop, project, …). `Resolve`
+returns
 the same `Object` tree without folding, for translators that recurse into values discovered at run time.
 
-In the resolved tree a nested struct hangs off `Field.Nested`; slice/array/map elements hang off `Field.Collection` as one `Object` per element, with map
-keys in `Collection.Keys`. The walk builds that tree on an internal chunked arena. A translator must not retain `root` — or anything reachable from it —
+In the resolved tree a nested struct hangs off `Field.Nested`; slice/array/map elements hang off `Field.Collection` as one `Object` per element, with
+map
+keys in `Collection.Keys`. The walk builds that tree on an internal chunked arena. A translator must not retain `root` — or anything reachable from
+it —
 after `Translate` returns, and its output must not alias that memory: under `WithPooling` the engine reuses the arena for later walks, so a retained
-reference would silently be overwritten with another value's data. `Strip`/`Clean` always pool internally (their tree never escapes the call); for engines
+reference would silently be overwritten with another value's data. `Strip`/`Clean` always pool internally (their tree never escapes the call); for
+engines
 pooling is opt-in — enable it on hot paths once the translator honors the retention rule.
 
 ### Policy-aware translators
 
 A translator that judges values the walk did not resolve — a nil pointer, an empty collection — from their declared type needs the policy behind the
 strip marks. It implements `PolicyBinder[Out]`: `New` calls `BindPolicy(Policy)` once with the engine's effective `Policy` (its tag key, `TagName()`,
-and stripped kinds, `Kinds()` / `Strips(k)`) and drives the returned translator, leaving the original unchanged. The zero `Policy` reads the default tag
+and stripped kinds, `Kinds()` / `Strips(k)`) and drives the returned translator, leaving the original unchanged. The zero `Policy` reads the default
+tag
 key and strips nothing.
 
 ### Schema-walk
 
 By default the walk is value-driven: nil pointers and empty collections are not descended. A **type-driven** translator (e.g. a projection that must
-enumerate nested field paths regardless of values) builds the engine with `WithSchemaWalk()`, which descends nested struct *types* even when the instance
+enumerate nested field paths regardless of values) builds the engine with `WithSchemaWalk()`, which descends nested struct *types* even when the
+instance
 value is a nil pointer or an empty/nil slice/array/map (one representative element per collection). Schema-walk is for read-only translators only —
 `Strip`, `Clean`, and the in-place fold never use it.
 
 ### MongoDB translators
 
-[`translators/mongo`](../../domain/behavior/translators/mongo) exposes only `behavior.Translator[bson.M]` constructors — the strip-kind and tag policy lives
+[`translators/mongo`](../../mapping/behavior/translators/mongo) exposes only `behavior.Translator[bson.M]` constructors — the strip-kind and tag
+policy lives
 on the engine via `behavior.WithKinds` / `behavior.WithTagName`, and the package keeps only its own concerns: the `bson` tag (`WithBsonTagName`) and
 the driver's BSON registry (`WithRegistry`). Pass the registry the driver uses (for example `bsoncodec.NewRegistry()` from
-[`data/mongo/bsoncodec`](../../data/mongo/bsoncodec)) so that types with an encoder of their own, such as `decimal.Decimal` and `optional.Optional[T]`,
+[`store/mongo/bsoncodec`](../../store/mongo/bsoncodec)) so that types with an encoder of their own, such as `decimal.Decimal` and
+`optional.Optional[T]`,
 are written as a unit instead of folded field by field.
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/domain/behavior"
-    mongotr "github.com/altessa-s/go-atlas/domain/behavior/translators/mongo"
+    "github.com/altessa-s/go-atlas/mapping/behavior"
+    mongotr "github.com/altessa-s/go-atlas/mapping/behavior/translators/mongo"
 )
 
 // Update document: {"$set": …, "$unset": …}, _id removed from $set, fields whose
@@ -186,7 +205,8 @@ proj := behavior.New[bson.M](mongotr.NewProjectionTranslator(),
 projection, err := proj.Translate(ctx, Entity{})
 ```
 
-This is independent of the legacy [`data/mongo`](../../data/mongo) converter, which keeps its own CSFLE-aware parser. Reach for the translator when you want a
+This is independent of the legacy [`store/mongo`](../../store/mongo) converter, which keeps its own CSFLE-aware parser. Reach for the translator when
+you want a
 behavior-tag-driven document or projection without the encryption machinery.
 
 ---
@@ -201,7 +221,8 @@ behavior-tag-driven document or projection without the encryption machinery.
 | Map with struct values                          | Field cleared       | Recursive descent into each value         |
 | Nested collections (`[][]T`, `map[K][]T`, …)    | Field cleared       | Recursive descent down to struct elements |
 
-A `behavior` tag placed on a field *inside* an `Optional` is never applied — `Optional` is an opaque leaf, cleared whole only when the field holding it is
+A `behavior` tag placed on a field *inside* an `Optional` is never applied — `Optional` is an opaque leaf, cleared whole only when the field holding
+it is
 itself tagged. Tags on unexported fields are validated (a typo still fails loudly) but never strip, since unexported fields cannot be set. Unlike
 `encoding/json`, name shadowing between an outer field and a field promoted from an embedded struct is not resolved: both are processed independently.
 
@@ -209,8 +230,9 @@ itself tagged. Tags on unexported fields are validated (a typo still fails loudl
 
 ## See also
 
-* [`domain/behavior` README](../../domain/behavior/README.md) — package reference (functions, options, tag vocabulary).
-* [`domain/behavior/translators/mongo`](../../domain/behavior/translators/mongo/README.md) — the MongoDB translator subpackage.
-* [`domain/proto/fieldbehavior`](proto/fieldbehavior.md) — the `proto.Message` equivalent driven by `google.api.field_behavior`.
-* [`core/types/optional`](../../core/types/optional) — the `Some`/`None` type that round-trips cleanly through a strip.
+* [`mapping/behavior` README](../../mapping/behavior/README.md) — package reference (functions, options, tag vocabulary).
+* [`mapping/behavior/translators/mongo`](../../mapping/behavior/translators/mongo/README.md) — the MongoDB translator subpackage.
+* go-aip [`fieldbehavior`](https://github.com/altessa-s/go-aip/tree/develop/docs/fieldbehavior.md) — the `proto.Message` equivalent driven by `google.api.field_behavior`.
+* [`core/types/optional`](https://github.com/altessa-s/go-atlas-core/tree/develop/types/optional) — the `Some`/`None` type that round-trips cleanly
+  through a strip.
 * **AIP-203** — `field_behavior` definitions ([aip.dev/203](https://google.aip.dev/203)).

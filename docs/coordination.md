@@ -8,43 +8,47 @@ two axes:
   database)?
 - **Durability.** Is the coordination **ephemeral** (lost on crash) or **persisted** (survives a crash, recovers / resumes)?
 
-| Mechanism | Boundary | Delivery | Durable | Atomicity scope | Rollback model |
-|-----------|----------|----------|---------|-----------------|----------------|
-| [`domain/eventbus`](domain/eventbus.md) | In-process | Synchronous | No | The caller's single transaction | Handler error → that transaction aborts |
-| [`domain/eventbus/uow`](../domain/eventbus/uow/README.md) | In-process | Synchronous | No | One transaction + post-commit effects | LIFO compensation of applied effects |
-| [`data/outbox`](../data/outbox/README.md) | Cross-process | Async, at-least-once | Yes | The producing transaction only | No rollback — reliable forward delivery |
-| [`transport/broker`](../transport/broker/README.md) | Cross-process | Async pub/sub | Yes (with outbox) | None (it moves messages) | None — consumers must be idempotent |
-| [`data/saga`](data/saga.md) | Cross-service | Step sequence | Yes (persisted) | Each step's own transaction | Reverse-order compensation, crash recovery |
+| Mechanism                                                       | Boundary      | Delivery             | Durable           | Atomicity scope                       | Rollback model                             |
+|-----------------------------------------------------------------|---------------|----------------------|-------------------|---------------------------------------|--------------------------------------------|
+| [`messaging/eventbus`](messaging/eventbus.md)                   | In-process    | Synchronous          | No                | The caller's single transaction       | Handler error → that transaction aborts    |
+| [`messaging/eventbus/uow`](../messaging/eventbus/uow/README.md) | In-process    | Synchronous          | No                | One transaction + post-commit effects | LIFO compensation of applied effects       |
+| [`reliability/outbox`](../reliability/outbox/README.md)         | Cross-process | Async, at-least-once | Yes               | The producing transaction only        | No rollback — reliable forward delivery    |
+| [`messaging/broker`](../messaging/broker/README.md)             | Cross-process | Async pub/sub        | Yes (with outbox) | None (it moves messages)              | None — consumers must be idempotent        |
+| [`reliability/saga`](reliability/saga.md)                       | Cross-service | Step sequence        | Yes (persisted)   | Each step's own transaction           | Reverse-order compensation, crash recovery |
 
 ---
 
 ## The shared problem: the dual write
 
-Almost every choice here comes down to one hazard. You change state in a database **and** you need a second thing to happen: notify another domain, put
-an object in a store, send a message to another service. If that second thing is **not** in the same database transaction, a crash or abort between the
+Almost every choice here comes down to one hazard. You change state in a database **and** you need a second thing to happen: notify another domain,
+put
+an object in a store, send a message to another service. If that second thing is **not** in the same database transaction, a crash or abort between
+the
 two leaves the system inconsistent: the row is written but the message never sent, or the message is sent but the row rolled back.
 
 The four mechanisms answer that one hazard differently, and which you reach for depends on where the second thing lives.
 
 ## The mechanisms
 
-### `domain/eventbus` — decouple domains in one process
+### `messaging/eventbus` — decouple domains in one process
 
-A synchronous, in-process event bus. A handler runs in the **publisher's goroutine, context, and transaction**, so its writes join the same transaction
+A synchronous, in-process event bus. A handler runs in the **publisher's goroutine, context, and transaction**, so its writes join the same
+transaction
 and a handler error rolls the whole thing back (the bus's veto power). Use it to let one domain react to another's change without a direct code
 dependency, and to fail the originating operation if the reaction can't proceed. No durability, no network. See the
-[Event Bus guide](domain/eventbus.md).
+[Event Bus guide](messaging/eventbus.md).
 
-### `domain/eventbus/uow` — non-transactional effects with compensation
+### `messaging/eventbus/uow` — non-transactional effects with compensation
 
 The companion unit of work. When a handler needs a **non-transactional** side effect (an object-storage put, a cache write, an external call), it does
 not run it inline; it registers it with `OnCommit`, and `uow` applies it **once after the commit**, compensating already-applied effects in LIFO order
 if a later one fails. Closes the dual-write gap **inside one process** without an outbox. It is **not** crash-safe: a crash between the commit and the
 effect leaves inconsistency. That is the deliberate single-process trade-off.
 
-### `data/outbox` — reliable delivery out of a transaction
+### `reliability/outbox` — reliable delivery out of a transaction
 
-The transactional-outbox pattern. The event is **persisted to a store in the same transaction as the state change**, then dispatched later by background
+The transactional-outbox pattern. The event is **persisted to a store in the same transaction as the state change**, then dispatched later by
+background
 cycles (dispatch, unlock, expire, cleanup, stats). This is the crash-safe answer to the dual write: because the event is written atomically with
 the state, it cannot be lost; because it is delivered out-of-band, the transaction never waits on the network. Delivery is **at-least-once**,
 transport-agnostic (the `Handler` decides how to deliver: broker, HTTP, gRPC). Lease and retention windows are evaluated against the **database
@@ -64,25 +68,27 @@ Five properties are worth knowing before you design against it:
 - **The backlog is only visible if you schedule the stats cycle.** Counters cannot distinguish a stalled outbox from an idle one — both report zero.
   `outbox_events_pending`, `outbox_events_dead_lettered`, and `outbox_events_oldest_pending_age_seconds` are what an alert can be written against; see
   [metrics.md](metrics.md#outbox).
-- **Delivery latency is the dispatch interval, unless you run a watcher.** A saved event waits for the next scheduled cycle. `Outbox.Watch` closes that
+- **Delivery latency is the dispatch interval, unless you run a watcher.** A saved event waits for the next scheduled cycle. `Outbox.Watch` closes
+  that
   gap by blocking on store notifications and dispatching as soon as events land — the MongoDB store implements it with a change stream, so an event
   becomes visible the instant its transaction commits. It is layered **on top of** the schedule, never instead of it: a notification means "something
   arrived", never "this event is due", so retry backoffs elapsing and the unlock cycle freeing a stuck lease stay the poll cycle's job. Change streams
   need a replica set or sharded cluster; on a standalone `mongod` the call returns `ErrWatchUnsupported` and dispatch simply keeps polling.
 
-### `transport/broker` — asynchronous messaging between services
+### `messaging/broker` — asynchronous messaging between services
 
 A message-broker abstraction (NATS JetStream provider) for async pub/sub across processes and services. It is the **transport** an outbox delivers to.
-`transport/broker/outbox` is the broker-specific adapter over `data/outbox` (`msg.Message` conversion + broker retry), implementing `broker.Outboxer`.
+`messaging/broker/outbox` is the broker-specific adapter over `reliability/outbox` (`msg.Message` conversion + broker retry), implementing
+`broker.Outboxer`.
 Use the broker for fire-and-forget or event-driven integration where producer and consumer are decoupled in time and space. Consumers must be
-**idempotent** (at-least-once), so pair them with [`data/idempotency`](../data/idempotency/README.md).
+**idempotent** (at-least-once), so pair them with [`reliability/idempotency`](../reliability/idempotency/README.md).
 
-### `data/saga` — orchestrated multi-step distributed transaction
+### `reliability/saga` — orchestrated multi-step distributed transaction
 
 A durable, persisted orchestration saga for a business transaction that spans **several steps, each its own local transaction, possibly in different
 services**. Each step has an optional compensating action; on failure the completed steps roll back in reverse order. A checkpoint is persisted after
 every stage, so an instance survives a crash and can be **resumed or automatically rolled back**. The `pivot` marks the point of no return: failures
-past it roll forward (retry) rather than compensate. See the [Saga guide](data/saga.md).
+past it roll forward (retry) rather than compensate. See the [Saga guide](reliability/saga.md).
 
 ## Choosing
 
@@ -90,42 +96,49 @@ Walk the questions in order; the first match wins.
 
 1. **Does the reaction need to run inside the same transaction and be able to veto it?** → `eventbus` (in-process, synchronous). If that reaction also
    has a non-transactional effect to undo on later failure, add `uow`.
-2. **Do you need a second thing to reliably happen in another process/service after this transaction commits?** → persist it with `data/outbox` and
-   deliver via `transport/broker`. Never publish to the broker directly inside the transaction; that is the dual write.
+2. **Do you need a second thing to reliably happen in another process/service after this transaction commits?** → persist it with `reliability/outbox`
+   and
+   deliver via `messaging/broker`. Never publish to the broker directly inside the transaction; that is the dual write.
 3. **Is it a multi-step business transaction across services, where each step must be compensable and the whole thing must survive a crash?** →
-   `data/saga`.
-4. **Is it just async pub/sub with no transactional coupling to a local write?** → `transport/broker` alone.
+   `reliability/saga`.
+4. **Is it just async pub/sub with no transactional coupling to a local write?** → `messaging/broker` alone.
 
 ## How they compose
 
 They are layers, not alternatives. A common reliable-event pipeline uses three of them together:
 
-1. Inside the database transaction, the domain writes its state and **publishes a domain event on `eventbus`**; in-process handlers react synchronously
+1. Inside the database transaction, the domain writes its state and **publishes a domain event on `eventbus`**; in-process handlers react
+   synchronously
    (and may veto).
-2. An `eventbus` **adapter persists an outbox record** in the same transaction (`data/outbox`). The cross-service hop is now crash-safe.
-3. After commit, the outbox worker dispatches the record through `transport/broker` to the message broker; the remote service consumes it
+2. An `eventbus` **adapter persists an outbox record** in the same transaction (`reliability/outbox`). The cross-service hop is now crash-safe.
+3. After commit, the outbox worker dispatches the record through `messaging/broker` to the message broker; the remote service consumes it
    **idempotently**.
 
 `uow` slots in for the **local** non-transactional effects that should not become messages (an object-store write you want to compensate, not relay).
-`data/saga` sits **above** all of this when the operation is a multi-service workflow: the broker/outbox move its messages, while the saga owns the step
+`reliability/saga` sits **above** all of this when the operation is a multi-service workflow: the broker/outbox move its messages, while the saga owns
+the step
 sequence, compensation, and crash recovery.
 
 ## Rules and anti-patterns
 
 - **Never dual-write.** Writing the database and then publishing to the broker as two separate steps loses messages on a crash in between. Persist via
-  `data/outbox` in the transaction; deliver after commit.
+  `reliability/outbox` in the transaction; deliver after commit.
 - **`eventbus` is in-process only.** Do not use it to reach another process or service — it has no network and no durability. Use the broker for that.
-- **`uow` is not durability.** Its compensation handles an effect that fails *after* a successful commit; it does **not** survive a crash between commit
+- **`uow` is not durability.** Its compensation handles an effect that fails *after* a successful commit; it does **not** survive a crash between
+  commit
   and effect. When you need crash-safety, route through the outbox instead.
-- **At-least-once means idempotent consumers.** Both `data/outbox` and `transport/broker` can deliver a message more than once, so consumers must
-  dedupe — use [`data/idempotency`](../data/idempotency/README.md). Broker-side deduplication narrows the window but does not close it: the
-  `transport/broker/outbox` adapter sends the outbox event ID as `Nats-Msg-Id` so JetStream collapses a republished event within its duplicate
+- **At-least-once means idempotent consumers.** Both `reliability/outbox` and `messaging/broker` can deliver a message more than once, so consumers
+  must
+  dedupe — use [`reliability/idempotency`](../reliability/idempotency/README.md). Broker-side deduplication narrows the window but does not close it:
+  the
+  `messaging/broker/outbox` adapter sends the outbox event ID as `Nats-Msg-Id` so JetStream collapses a republished event within its duplicate
   window, and a repeat that arrives after that window still reaches the consumer.
 - **A change-stream watcher does not replace the dispatch schedule.** `Outbox.Watch` only ever reports that something was *saved*. Retry backoffs
   expiring and stuck leases being reclaimed are time-driven, produce no change event, and are invisible to it — as is any notification that arrives
   while a cycle is already running. Sparsening the schedule because "the watcher covers it" strands exactly the events that already failed once.
 - **A dead-letter queue nobody watches is data loss with extra steps.** Terminal failures are retained deliberately and never expire on their own.
-  Schedule the stats cycle and alert on `outbox_events_dead_lettered` and `outbox_events_oldest_pending_age_seconds`, or the retention is just storage.
+  Schedule the stats cycle and alert on `outbox_events_dead_lettered` and `outbox_events_oldest_pending_age_seconds`, or the retention is just
+  storage.
 - **Don't reach for a saga for a single local transaction.** A saga is for multi-step, multi-transaction (often multi-service) workflows with
   compensation and recovery. One local transaction with `eventbus` / `uow` is simpler and atomic; a saga there is overkill.
 - **Keep the boundary honest.** In-process coordination (`eventbus` / `uow`) gives true atomicity within one transaction. Cross-process coordination
@@ -134,7 +147,7 @@ sequence, compensation, and crash recovery.
 
 ## See also
 
-- [Event Bus](domain/eventbus.md) — in-process delivery semantics and the `uow` companion
-- [Saga](data/saga.md) — orchestration model, status lifecycle, crash recovery, examples
-- Package references: [`transport/broker`](../transport/broker/README.md), [`data/outbox`](../data/outbox/README.md),
-  [`data/saga`](../data/saga/README.md), [`data/idempotency`](../data/idempotency/README.md)
+- [Event Bus](messaging/eventbus.md) — in-process delivery semantics and the `uow` companion
+- [Saga](reliability/saga.md) — orchestration model, status lifecycle, crash recovery, examples
+- Package references: [`messaging/broker`](../messaging/broker/README.md), [`reliability/outbox`](../reliability/outbox/README.md),
+  [`reliability/saga`](../reliability/saga/README.md), [`reliability/idempotency`](../reliability/idempotency/README.md)

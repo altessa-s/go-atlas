@@ -57,6 +57,7 @@ JWT token validation with automatic JWKS rotation, claims validation, presets, i
   - [Multi-Tenant SaaS](#multi-tenant-saas)
   - [Service Mesh (Internal Only)](#service-mesh-internal-only)
 - [Configuration Validation](#configuration-validation)
+
 ---
 
 ## Overview
@@ -254,10 +255,12 @@ type TaskRegistrar interface {
 }
 ```
 
-**health.Coordinator** — registers health checks (a concrete `*health.Coordinator`, not an interface).
+**health.Registrar** — registers health checks; `*health.Coordinator` implements it.
 
 ```go
-func (c *Coordinator) RegisterService(name string, checker Checker)
+type Registrar interface {
+    RegisterService(name string, checker Checker)
+}
 ```
 
 ## What's provided
@@ -318,10 +321,10 @@ claims, err := provider.ValidateToken(ctx, bearerToken)
 
 ## Configuration Layers
 
-| Layer | Format | Purpose | Loaded by |
-|-------|--------|---------|-----------|
-| **YAML application config** | YAML | Infrastructure: discovery URL, credentials, cache, JWKS, revocation, schedules | `authconfig.OIDC` via app loader |
-| **JSON service config** | JSON | Validation logic: claims rules, presets, selection rules, CEL | `oidc.LoadServiceConfig()` / `WithServiceConfigPath()` |
+| Layer                       | Format | Purpose                                                                        | Loaded by                                              |
+|-----------------------------|--------|--------------------------------------------------------------------------------|--------------------------------------------------------|
+| **YAML application config** | YAML   | Infrastructure: discovery URL, credentials, cache, JWKS, revocation, schedules | `authconfig.OIDC` via app loader                       |
+| **JSON service config**     | JSON   | Validation logic: claims rules, presets, selection rules, CEL                  | `oidc.LoadServiceConfig()` / `WithServiceConfigPath()` |
 
 The two layers are complementary. YAML handles "how to connect" and "what infrastructure to use". JSON handles "what tokens to accept".
 
@@ -363,10 +366,10 @@ oidc:
   clockSkew: 10s
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `discoveryURL` | `string` | Yes | — | OIDC discovery endpoint URL |
-| `clockSkew` | `duration` | No | `30s` | Acceptable clock skew for time-based claims. Min: `1s`, max: `1m` |
+| Field          | Type       | Required | Default | Description                                                       |
+|----------------|------------|----------|---------|-------------------------------------------------------------------|
+| `discoveryURL` | `string`   | Yes      | —       | OIDC discovery endpoint URL                                       |
+| `clockSkew`    | `duration` | No       | `30s`   | Acceptable clock skew for time-based claims. Min: `1s`, max: `1m` |
 
 ### Client Credentials
 
@@ -379,12 +382,13 @@ oidc:
     clientSecret: "${OIDC_CLIENT_SECRET}"
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `clientID` | `string` | Yes (if section present) | OAuth2 client identifier |
+| Field          | Type     | Required                 | Description                                                                                 |
+|----------------|----------|--------------------------|---------------------------------------------------------------------------------------------|
+| `clientID`     | `string` | Yes (if section present) | OAuth2 client identifier                                                                    |
 | `clientSecret` | `string` | Yes (if section present) | OAuth2 client secret. Env-var substitution supported. Stored as `Secret` — redacted in logs |
 
 The `clientSecret` field uses the `Secret` type internally. It is automatically redacted in:
+
 - Log output (`<redacted>`)
 - JSON/YAML marshaling (`<redacted>`)
 - `fmt.Stringer` / `fmt.GoStringer`
@@ -405,10 +409,10 @@ oidc:
     # fail_open defaults to false (fail-closed) — the secure production default.
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `enabled` | `bool` | No | `false` | Toggle introspection on/off |
-| `failOpen` | `bool` | No | `false` | Fail-open: accept tokens on signature alone when the introspection endpoint is unreachable. Default `false` is fail-closed |
+| Field      | Type   | Required | Default | Description                                                                                                                |
+|------------|--------|----------|---------|----------------------------------------------------------------------------------------------------------------------------|
+| `enabled`  | `bool` | No       | `false` | Toggle introspection on/off                                                                                                |
+| `failOpen` | `bool` | No       | `false` | Fail-open: accept tokens on signature alone when the introspection endpoint is unreachable. Default `false` is fail-closed |
 
 **Validation rule:** If `introspection.enabled` is `true`, the `clientCredentials` section **must** be configured. The application will fail
 validation at startup otherwise.
@@ -421,15 +425,16 @@ By default introspection is **fail-closed**: if the IdP is unreachable (network 
 This keeps authentication available during IdP degradation but lets revoked tokens slip through until the endpoint is back — use it only when
 availability outweighs revocation guarantees.
 
-| Scenario | Default (fail-closed) | `failOpen: true` |
-|---|---|---|
-| Endpoint returns `200 OK`, `active=true` | accept | accept |
-| Endpoint returns `200 OK`, `active=false` | reject (`ErrTokenRevoked`) | reject (`ErrTokenRevoked`) |
-| Network error / DNS failure | warn, reject (`ErrIntrospection`) | warn, accept (signature only) |
-| Endpoint returns 5xx / unparseable body | warn, reject (`ErrIntrospection`) | warn, accept (signature only) |
-| `introspection.enabled: false` | falls through to revocation storage if configured | same |
+| Scenario                                  | Default (fail-closed)                             | `failOpen: true`              |
+|-------------------------------------------|---------------------------------------------------|-------------------------------|
+| Endpoint returns `200 OK`, `active=true`  | accept                                            | accept                        |
+| Endpoint returns `200 OK`, `active=false` | reject (`ErrTokenRevoked`)                        | reject (`ErrTokenRevoked`)    |
+| Network error / DNS failure               | warn, reject (`ErrIntrospection`)                 | warn, accept (signature only) |
+| Endpoint returns 5xx / unparseable body   | warn, reject (`ErrIntrospection`)                 | warn, accept (signature only) |
+| `introspection.enabled: false`            | falls through to revocation storage if configured | same                          |
 
-The behavior also exists on the Go API: `oidc.WithIntrospectionFailOpen()` sits next to `oidc.WithIntrospection(clientID, secret)` and can be passed to
+The behavior also exists on the Go API: `oidc.WithIntrospectionFailOpen()` sits next to `oidc.WithIntrospection(clientID, secret)` and can be passed
+to
 `oidc.NewProvider` directly without going through YAML.
 
 **Operator guidance:** leave `failOpen` at its default (`false`) in production when introspection is enabled. Pair it with a generous IdP timeout and
@@ -457,12 +462,12 @@ oidc:
       audience: ["my-service"]
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `issuer` | `string` | No | — | Expected `iss` claim. Must be a valid URL |
-| `maxTokenLifetime` | `duration` | No | `0` (disabled) | Reject tokens with `exp - iat` exceeding this value |
-| `expression` | `object` | No | — | Single CEL expression for custom validation |
-| `claims` | `object` | No | — | Claims validation rules (see below) |
+| Field              | Type       | Required | Default        | Description                                         |
+|--------------------|------------|----------|----------------|-----------------------------------------------------|
+| `issuer`           | `string`   | No       | —              | Expected `iss` claim. Must be a valid URL           |
+| `maxTokenLifetime` | `duration` | No       | `0` (disabled) | Reject tokens with `exp - iat` exceeding this value |
+| `expression`       | `object`   | No       | —              | Single CEL expression for custom validation         |
+| `claims`           | `object`   | No       | —              | Claims validation rules (see below)                 |
 
 ### Claims Validation
 
@@ -482,17 +487,17 @@ oidc:
       allowMissingSubject: false
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `required` | `[]string` | — | Claims that must be present in every token |
-| `expected` | `map[string]string` | — | Claims that must have exact string values |
-| `ignored` | `[]string` | — | Claims to skip during validation |
-| `audience` | `[]string` | — | Expected `aud` claim values (token must contain at least one) |
-| `allowedClientIDs` | `[]string` | — | Whitelist of `client_id` values. Empty = all allowed |
-| `requiredScopes` | `[]string` | — | OAuth2 scopes checked in the `scope` claim with any-one-of semantics (at least one must be present) |
-| `requireAuthorizedParty` | `bool` | `false` | Require the `azp` (authorized party) claim |
-| `allowedAuthorizedParties` | `[]string` | — | Whitelist of `azp` values. Required when `requireAuthorizedParty: true` |
-| `allowMissingSubject` | `bool` | `false` | Allow tokens without `sub` claim (for client credentials flow tokens) |
+| Field                      | Type                | Default | Description                                                                                         |
+|----------------------------|---------------------|---------|-----------------------------------------------------------------------------------------------------|
+| `required`                 | `[]string`          | —       | Claims that must be present in every token                                                          |
+| `expected`                 | `map[string]string` | —       | Claims that must have exact string values                                                           |
+| `ignored`                  | `[]string`          | —       | Claims to skip during validation                                                                    |
+| `audience`                 | `[]string`          | —       | Expected `aud` claim values (token must contain at least one)                                       |
+| `allowedClientIDs`         | `[]string`          | —       | Whitelist of `client_id` values. Empty = all allowed                                                |
+| `requiredScopes`           | `[]string`          | —       | OAuth2 scopes checked in the `scope` claim with any-one-of semantics (at least one must be present) |
+| `requireAuthorizedParty`   | `bool`              | `false` | Require the `azp` (authorized party) claim                                                          |
+| `allowedAuthorizedParties` | `[]string`          | —       | Whitelist of `azp` values. Required when `requireAuthorizedParty: true`                             |
+| `allowMissingSubject`      | `bool`              | `false` | Allow tokens without `sub` claim (for client credentials flow tokens)                               |
 
 ### CEL Expressions (YAML)
 
@@ -506,10 +511,10 @@ oidc:
       name: "require-org"
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `expression` | `string` | Yes | CEL expression evaluating to `bool`. Available variable: `claims` (`map[string]any`) |
-| `name` | `string` | No | Rule identifier for error messages. Defaults to `"custom-validation"` (or `"<preset-name>-validation"` in presets) |
+| Field        | Type     | Required | Description                                                                                                        |
+|--------------|----------|----------|--------------------------------------------------------------------------------------------------------------------|
+| `expression` | `string` | Yes      | CEL expression evaluating to `bool`. Available variable: `claims` (`map[string]any`)                               |
+| `name`       | `string` | No       | Rule identifier for error messages. Defaults to `"custom-validation"` (or `"<preset-name>-validation"` in presets) |
 
 ### Presets and Selectors
 
@@ -546,23 +551,24 @@ oidc:
 
 **Preset fields:**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | `string` | Yes | Unique identifier. Pattern: `^[a-z][a-z0-9-]*$` |
-| `issuer` | `string` | No | Expected `iss` for this preset |
-| `maxTokenLifetime` | `duration` | No | Max token lifetime for this preset |
-| `expression` | `object` | No | CEL expression for this preset |
-| `claims` | `object` | No | Claims validation (same structure as `validation.claims`) |
+| Field              | Type       | Required | Description                                               |
+|--------------------|------------|----------|-----------------------------------------------------------|
+| `name`             | `string`   | Yes      | Unique identifier. Pattern: `^[a-z][a-z0-9-]*$`           |
+| `issuer`           | `string`   | No       | Expected `iss` for this preset                            |
+| `maxTokenLifetime` | `duration` | No       | Max token lifetime for this preset                        |
+| `expression`       | `object`   | No       | CEL expression for this preset                            |
+| `claims`           | `object`   | No       | Claims validation (same structure as `validation.claims`) |
 
 **Selector fields:**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `expression` | `string` | Yes | CEL expression that evaluates to `bool` |
-| `priority` | `int` | No | Evaluation order (higher = evaluated first) |
-| `presetName` | `string` | Yes | Name of the preset to apply when matched |
+| Field        | Type     | Required | Description                                 |
+|--------------|----------|----------|---------------------------------------------|
+| `expression` | `string` | Yes      | CEL expression that evaluates to `bool`     |
+| `priority`   | `int`    | No       | Evaluation order (higher = evaluated first) |
+| `presetName` | `string` | Yes      | Name of the preset to apply when matched    |
 
 **Rules:**
+
 - `presets.list` and `presets.selectors` must be configured together or both omitted.
 - When `ValidateToken` is called, selectors are evaluated by descending priority. The first match applies.
 - Selectors run on the signature-verified claims; when none matches (or the matched preset does not exist), the default validation reuses that
@@ -576,7 +582,8 @@ The cache stores only the claims and header of a token whose signature the provi
 complete requested policy (signing-algorithm allow-list, `exp`/`nbf`/`iat` with the configured leeway, issuer, audience, required claims, scopes,
 presets, per-call options, CEL rules) and the revocation checks, so one entry safely serves every preset and per-call option set. An entry lives until
 the token's `exp`; tokens without `exp`, or already past it, are never cached. Each entry records the fingerprint of the public key that verified it,
-and a hit counts only while the provider's current JWKS resolves the same key for the token's `kid`/`alg` — a key removed or replaced by a JWKS refresh
+and a hit counts only while the provider's current JWKS resolves the same key for the token's `kid`/`alg` — a key removed or replaced by a JWKS
+refresh
 (or absent from a freshly started provider's JWKS) forces full re-verification. Cache keys bind the provider's trust domain (discovery issuer and JWKS
 URL), so providers sharing a Redis namespace never reuse each other's signature verifications.
 
@@ -588,11 +595,11 @@ oidc:
     revokedTokensKeyPrefix: "revoked-tokens:"
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | `bool` | `false` | Enable/disable caching |
-| `tokensKeyPrefix` | `string` | `"tokens:"` | Cache key prefix for validated tokens |
-| `revokedTokensKeyPrefix` | `string` | `"revoked-tokens:"` | Cache key prefix for revoked tokens |
+| Field                    | Type     | Default             | Description                           |
+|--------------------------|----------|---------------------|---------------------------------------|
+| `enabled`                | `bool`   | `false`             | Enable/disable caching                |
+| `tokensKeyPrefix`        | `string` | `"tokens:"`         | Cache key prefix for validated tokens |
+| `revokedTokensKeyPrefix` | `string` | `"revoked-tokens:"` | Cache key prefix for revoked tokens   |
 
 Cache keys are SHA-256 hashes of a versioned string, prefixed with the configured prefix. Validated-token keys bind the issuer, JWKS URL and
 raw token; introspection keys bind the issuer, introspection endpoint, introspection client ID and raw token, so providers sharing a cache
@@ -610,11 +617,11 @@ oidc:
     httpTimeout: 30s
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `refreshEnabled` | `bool` | `true` | Enable proactive JWKS refresh on the provider's own process-local cron |
-| `refreshSchedule` | `string` | `"0 0 * * * *"` | Cron expression (6-field with seconds) |
-| `httpTimeout` | `duration` | `30s` | HTTP timeout for JWKS endpoint requests |
+| Field             | Type       | Default         | Description                                                            |
+|-------------------|------------|-----------------|------------------------------------------------------------------------|
+| `refreshEnabled`  | `bool`     | `true`          | Enable proactive JWKS refresh on the provider's own process-local cron |
+| `refreshSchedule` | `string`   | `"0 0 * * * *"` | Cron expression (6-field with seconds)                                 |
+| `httpTimeout`     | `duration` | `30s`           | HTTP timeout for JWKS endpoint requests                                |
 
 Each provider runs the refresh on its own process-local cron, so every replica keeps its own key set fresh. With `refreshEnabled: false`
 (or no schedule) JWKS keys are loaded once at construction; refresh them with `provider.RefreshJWKS(ctx)`.
@@ -631,10 +638,10 @@ provider, _ := oidc.NewProvider(ctx, discoveryURL,
 )
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `WithJWKSMaxStaleness(d)` | `0` (disabled) | Maximum age of the local JWKS cache before the failure mode kicks in. Pair with an active refresh path (`WithJWKSRefreshSchedule` or manual `Provider.RefreshJWKS`) |
-| `WithJWKSFailureMode(mode)` | `JWKSFailureModeEnforce` | Reaction when the staleness budget is exceeded: `Enforce` (reject with `ErrJWKSStale`), `Warn` (log and accept), `Disabled` (no check) |
+| Option                      | Default                  | Description                                                                                                                                                         |
+|-----------------------------|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `WithJWKSMaxStaleness(d)`   | `0` (disabled)           | Maximum age of the local JWKS cache before the failure mode kicks in. Pair with an active refresh path (`WithJWKSRefreshSchedule` or manual `Provider.RefreshJWKS`) |
+| `WithJWKSFailureMode(mode)` | `JWKSFailureModeEnforce` | Reaction when the staleness budget is exceeded: `Enforce` (reject with `ErrJWKSStale`), `Warn` (log and accept), `Disabled` (no check)                              |
 
 The staleness check is not exposed through YAML — leave the threshold at zero to keep the legacy "validate on whatever the cache holds"
 behavior, or opt in via Go options when a freshness guarantee is required.
@@ -646,14 +653,15 @@ The discovery document's `issuer` must equal the configured issuer, and every ad
 issuer's host. The provider exposes them as `AuthorizationEndpoint()`, `TokenEndpoint()`, `UserinfoEndpoint()`, `EndSessionEndpoint()`,
 `RevocationEndpoint()` and `IntrospectionEndpoint()`; each returns `""` when the IdP does not advertise the endpoint.
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `WithDiscoveryValidationMode(mode)` | `DiscoveryValidationModeEnforce` | `Enforce` (fail with `ErrDiscoveryValidation`), `Warn` (log and accept), `Disabled` (no check) |
-| `WithDiscoveryAllowLoopbackHTTP()` | off | Accept plain-http issuer and endpoints when the issuer host is loopback (`localhost`, `127.0.0.0/8`, `::1`); endpoints stay pinned to that host |
+| Option                              | Default                          | Description                                                                                                                                     |
+|-------------------------------------|----------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
+| `WithDiscoveryValidationMode(mode)` | `DiscoveryValidationModeEnforce` | `Enforce` (fail with `ErrDiscoveryValidation`), `Warn` (log and accept), `Disabled` (no check)                                                  |
+| `WithDiscoveryAllowLoopbackHTTP()`  | off                              | Accept plain-http issuer and endpoints when the issuer host is loopback (`localhost`, `127.0.0.0/8`, `::1`); endpoints stay pinned to that host |
 
 The factory's SSRF-protected HTTP client may still refuse loopback addresses, so a local IdP also needs a client that allows them.
 
-The HTTP client used for JWKS refresh, OIDC discovery, introspection, userinfo, and URL-based revocation honors `oidc.proxy` (see [Proxy](../proxy.md))
+The HTTP client used for JWKS refresh, OIDC discovery, introspection, userinfo, and URL-based revocation honors `oidc.proxy` (
+see [Proxy](../proxy.md))
 — so a single proxy block applies to every outbound OIDC call. Sub-components (e.g. URL revocation loaders) inherit the Provider's HTTP client via
 the `httpclient.HTTPClientSetter` interface.
 
@@ -668,14 +676,14 @@ oidc:
     url: http://proxy.corp.example:3128
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `mode` | `string` | `""` (passthrough) | One of `none` / `url` / `host`. Empty = honor `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` env vars |
-| `url` | `string` | — | Proxy URL when `mode: url`. Schemes: `http`, `https`, `socks5`, `socks5h`. Port required |
-| `host` | `string` | — | Proxy hostname when `mode: host` |
-| `port` | `int` | — | Proxy port (1–65535) when `mode: host` |
-| `auth.username` | `string` | — | Proxy auth username (optional) |
-| `auth.password` | `secret` | — | Proxy auth password — supports `$__secret{...}` expansion |
+| Field           | Type     | Default            | Description                                                                                      |
+|-----------------|----------|--------------------|--------------------------------------------------------------------------------------------------|
+| `mode`          | `string` | `""` (passthrough) | One of `none` / `url` / `host`. Empty = honor `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` env vars |
+| `url`           | `string` | —                  | Proxy URL when `mode: url`. Schemes: `http`, `https`, `socks5`, `socks5h`. Port required         |
+| `host`          | `string` | —                  | Proxy hostname when `mode: host`                                                                 |
+| `port`          | `int`    | —                  | Proxy port (1–65535) when `mode: host`                                                           |
+| `auth.username` | `string` | —                  | Proxy auth username (optional)                                                                   |
+| `auth.password` | `secret` | —                  | Proxy auth password — supports `$__secret{...}` expansion                                        |
 
 Omit the `proxy` block entirely to keep the env-var passthrough default. Use `mode: none` to disable proxy resolution explicitly. See the [Proxy
 guide](../proxy.md) for full mode semantics, TLS-to-proxy options, and operator guidance.
@@ -701,16 +709,20 @@ oidc:
       # OR: file: "/etc/oidc/revoked.txt"
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | `bool` | `false` | Enable revocation checking |
-| `syncEnabled` | `bool` | `true` | Enable periodic sync of revocation data |
-| `syncSchedule` | `string` | `"0 0 * * * *"` | Cron expression for sync |
-| `itemType` | `string` | `"token"` | What to check: `"token"` (full JWT), `"jti"` (claim), or `"kid"` (key ID) |
-| `failOpen` | `bool` | `false` | Accept tokens when the storage cannot answer and start when the initial sync fails. Default `false` is fail-closed |
-| `filter` | `object` | — | Probabilistic filter configuration (`type`, `bloom` or `cuckoo`) |
-| `source.url` | `string` | — | URL to fetch revocation list from |
-| `source.file` | `string` | — | Local file path for revocation list |
+| Field              | Type       | Default         | Description                                                                                                        |
+|--------------------|------------|-----------------|--------------------------------------------------------------------------------------------------------------------|
+| `enabled`          | `bool`     | `false`         | Enable revocation checking                                                                                         |
+| `syncEnabled`      | `bool`     | `true`          | Enable periodic sync of revocation data                                                                            |
+| `syncSchedule`     | `string`   | `"0 0 * * * *"` | Cron expression for sync                                                                                           |
+| `maxStaleness`     | `duration` | `3h`            | Max age of the last successful sync before "not revoked" answers are rejected; `0` disables the bound              |
+| `syncTimeout`      | `duration` | `5m`            | Time limit of one scheduled sync; `0` disables the timeout                                                         |
+| `maxResponseBytes` | `int64`    | `268435456`     | Cap on the `source.url` response body in bytes (256 MiB); a larger list fails the sync                             |
+| `allowEmpty`       | `bool`     | `false`         | Treat an empty list as authoritative and empty the filter. Default `false` fails such a sync and keeps the set     |
+| `itemType`         | `string`   | `"token"`       | What to check: `"token"` (full JWT), `"jti"` (claim), or `"kid"` (key ID)                                          |
+| `failOpen`         | `bool`     | `false`         | Accept tokens when the storage cannot answer and start when the initial sync fails. Default `false` is fail-closed |
+| `filter`           | `object`   | —               | Probabilistic filter configuration (`type`, `bloom` or `cuckoo`)                                                   |
+| `source.url`       | `string`   | —               | URL to fetch revocation list from                                                                                  |
+| `source.file`      | `string`   | —               | Local file path for revocation list                                                                                |
 
 Whenever the `revocation` block is present — even with `enabled: false` — `filter` and `source` are both required (validation fails
 otherwise); set either `source.url` or `source.file`.
@@ -722,6 +734,24 @@ a second schedule and are rejected by the factory (`rebuildCron: ""` and `rebuil
 failed initial sync fails provider construction, and a storage error during validation rejects the token with `ErrRevocationCheck`;
 `failOpen: true` logs both, increments `auth_oidc_revocation_check_errors_total`, and continues.
 
+**Breaking default — `maxStaleness`.** With `syncEnabled: true` the provider trusts a "not revoked" answer only while the last successful sync is
+younger than `maxStaleness` (default `3h`, three periods of the default hourly `syncSchedule`). Once the source has been unreachable for longer,
+tokens are rejected with `ErrRevocationCheck` wrapping `ErrRevocationStale` until a sync succeeds again (`failOpen: true` accepts them and
+counts each check). Earlier releases kept the last list in force indefinitely. Keep `maxStaleness` at several sync intervals — a daily
+`syncSchedule` needs a bound of days, and the provider logs a warning at startup when the schedule is sparser than the bound — or set
+`maxStaleness: 0` to restore the previous behavior. The bound does not apply with `syncEnabled: false`.
+
+**Sync limits.** `syncTimeout` (default `5m`, `0` disables) bounds one scheduled sync, and `maxResponseBytes` (default 256 MiB, must be positive)
+caps the body read from `source.url`; a sync that exceeds either fails and keeps the current revocation set. `maxResponseBytes` does not apply to
+`source.file`.
+
+**Empty list — `allowEmpty`.** By default a source that turns up empty while the last committed list holds entries is a failed sync: the set stays,
+and if the source stays empty the `maxStaleness` bound eventually rejects tokens. A list that has been empty all along needs nothing, also with
+introspection adding entries to the filter. Set `allowEmpty: true` when the list can legitimately go from non-empty to empty —
+the empty result is then authoritative, the filter is rebuilt empty and the sync counts as successful. The cost is the protection itself: a source
+that answers `200` with an empty body during an outage, or a file that was truncated, then un-revokes every item at once. Leave it off unless the
+source is trusted to return an empty list only when nothing is revoked.
+
 The factory names the filter `oidc-revocation-<hash>`, where the hash covers `discoveryURL`, `itemType` and `source`; with Redis storage the
 key is that name under the configured `keysPrefix`. Replicas of one provider share the filter; providers with a different issuer, item type
 or source never overwrite each other's revocation set. (Earlier releases used the fixed name `oidc-revocation`; the new key is populated by
@@ -732,12 +762,12 @@ the startup sync and the old one can be deleted.)
 All revocation checks run **after** the token's signature and claims have been verified, so forged claims can neither choose the lookup key
 nor trigger IdP traffic:
 
-| Check | Key | Order |
-|-------|-----|-------|
-| Local storage, `itemType: token` | the full encoded JWT | after verification |
-| Local storage, `itemType: jti` | the verified `jti` claim | after verification |
-| Local storage, `itemType: kid` | the verified `kid` header | after verification |
-| Introspection (when enabled) | the full encoded JWT | after verification and the local storage check |
+| Check                            | Key                       | Order                                          |
+|----------------------------------|---------------------------|------------------------------------------------|
+| Local storage, `itemType: token` | the full encoded JWT      | after verification                             |
+| Local storage, `itemType: jti`   | the verified `jti` claim  | after verification                             |
+| Local storage, `itemType: kid`   | the verified `kid` header | after verification                             |
+| Introspection (when enabled)     | the full encoded JWT      | after verification and the local storage check |
 
 Garbage or foreign-signed tokens are rejected before any IdP request. A local storage hit always rejects; a local miss never skips
 introspection.
@@ -786,12 +816,12 @@ provider, err := oidc.NewProvider(ctx, discoveryURL, opts...)
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `version` | `string` | Yes | Schema version. Must be `"1.0"` |
-| `default_validation` | `object` | No | Default validation rules for all tokens |
-| `presets` | `array` | No | Named validation rule sets |
-| `preset_rules` | `array` | No | Rules for automatic preset selection |
+| Field                | Type     | Required | Description                             |
+|----------------------|----------|----------|-----------------------------------------|
+| `version`            | `string` | Yes      | Schema version. Must be `"1.0"`         |
+| `default_validation` | `object` | No       | Default validation rules for all tokens |
+| `presets`            | `array`  | No       | Named validation rule sets              |
+| `preset_rules`       | `array`  | No       | Rules for automatic preset selection    |
 
 ### Validation Rules
 
@@ -800,7 +830,6 @@ Used in `default_validation` and in each preset's `validation` field.
 ```json
 {
   "leeway": "10s",
-  "verify_expiration": true,
   "verify_not_before": true,
   "verify_issued_at": false,
   "issuer": "https://auth.example.com",
@@ -818,36 +847,35 @@ Used in `default_validation` and in each preset's `validation` field.
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `leeway` | `string` (duration) | `"30s"` (`oidc.DefaultLeeway`) | Clock skew tolerance for `exp`, `nbf`, `iat`; `"0s"` disables it |
-| `verify_expiration` | `bool` (tri-state) | omit | Tri-state: omit = jwt-go default (validate when present); `true` = require the `exp` claim AND validate it; `false` = **rejected at config-load time** with `ErrInvalidConfig` (the JWT library has no per-claim opt-out, so silently honoring `false` would mislead operators) |
-| `verify_not_before` | `bool` (tri-state) | omit | Same tri-state semantics as `verify_expiration` for the `nbf` claim |
-| `verify_issued_at` | `bool` | `false` | Verify `iat` claim |
-| `issuer` | `string` | — | Expected `iss` claim (exact match) |
-| `audiences` | `[]string` | — | Expected `aud` values (at least one must match) |
-| `subject` | `string` | — | Expected `sub` claim (exact match, rarely used) |
-| `required_claims` | `[]string` | — | Claims that must be present |
-| `expected_claims` | `object` | — | Claims with expected values (string, number, bool, null) |
-| `ignored_claims` | `[]string` | — | Claims to skip |
-| `allowed_client_ids` | `[]string` | — | Whitelist of `client_id` values |
-| `require_authorized_party` | `bool` | `false` | Require `azp` claim |
-| `allowed_authorized_parties` | `[]string` | — | Whitelist of `azp` values |
-| `allow_missing_subject` | `bool` | `false` | Allow tokens without `sub` |
-| `scopes` | `object` | — | Scope validation (see below) |
-| `token_lifetime` | `object` | — | Lifetime restrictions (see below) |
-| `cel_rules` | `array` | — | Custom CEL validation rules |
+| Field                        | Type                | Default                        | Description                                                                                                                                                                                                                                                                                                                            |
+|------------------------------|---------------------|--------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `leeway`                     | `string` (duration) | `"30s"` (`oidc.DefaultLeeway`) | Clock skew tolerance for `exp`, `nbf`, `iat`; `"0s"` disables it; above `"5m"` (`jwt.MaxLeeway`) is rejected                                                                                                                                                                                                                          |
+| `verify_not_before`          | `bool` (tri-state)  | omit                           | Tri-state: omit = validate `nbf` when present; `true` = require the `nbf` claim AND validate it; `false` = **rejected at config-load time** with `ErrInvalidConfig` (the validator has no per-claim opt-out, so silently honoring `false` would mislead operators). The `exp` claim has no switch: it is always required and validated |
+| `verify_issued_at`           | `bool`              | `false`                        | Verify `iat` claim                                                                                                                                                                                                                                                                                                                     |
+| `issuer`                     | `string`            | —                              | Expected `iss` claim (exact match)                                                                                                                                                                                                                                                                                                     |
+| `audiences`                  | `[]string`          | —                              | Expected `aud` values (at least one must match)                                                                                                                                                                                                                                                                                        |
+| `subject`                    | `string`            | —                              | Expected `sub` claim (exact match, rarely used)                                                                                                                                                                                                                                                                                        |
+| `required_claims`            | `[]string`          | —                              | Claims that must be present, in addition to `sub`, `aud`, `exp`, `iat`, `iss` (`oidc.DefaultRequiredClaims`); the list extends the defaults, never replaces them                                                                                                                                                                       |
+| `expected_claims`            | `object`            | —                              | Claims with expected values (string, number, bool, null), compared by JSON type: `true` is not satisfied by the string `"true"`; a string expectation also matches a bool or number with the same text; an array claim matches when any element does                                                                                   |
+| `ignored_claims`             | `[]string`          | —                              | Claims to skip in required/expected-claim checks; `exp` cannot be skipped                                                                                                                                                                                                                                                              |
+| `allowed_client_ids`         | `[]string`          | —                              | Whitelist of `client_id` values                                                                                                                                                                                                                                                                                                        |
+| `require_authorized_party`   | `bool`              | `false`                        | Require `azp` claim                                                                                                                                                                                                                                                                                                                    |
+| `allowed_authorized_parties` | `[]string`          | —                              | Whitelist of `azp` values                                                                                                                                                                                                                                                                                                              |
+| `allow_missing_subject`      | `bool`              | `false`                        | Allow tokens without `sub`                                                                                                                                                                                                                                                                                                             |
+| `scopes`                     | `object`            | —                              | Scope validation (see below)                                                                                                                                                                                                                                                                                                           |
+| `token_lifetime`             | `object`            | —                              | Lifetime restrictions (see below)                                                                                                                                                                                                                                                                                                      |
+| `cel_rules`                  | `array`             | —                              | Custom CEL validation rules                                                                                                                                                                                                                                                                                                            |
 
 ### Duration Format
 
 All duration fields accept Go duration syntax:
 
-| Example | Meaning |
-|---------|---------|
-| `"10s"` | 10 seconds |
-| `"5m"` | 5 minutes |
+| Example   | Meaning           |
+|-----------|-------------------|
+| `"10s"`   | 10 seconds        |
+| `"5m"`    | 5 minutes         |
 | `"1h30m"` | 1 hour 30 minutes |
-| `"24h"` | 24 hours |
+| `"24h"`   | 24 hours          |
 
 ### Scopes Configuration
 
@@ -859,11 +887,11 @@ All duration fields accept Go duration syntax:
 }
 ```
 
-| Field | Logic | Description |
-|-------|-------|-------------|
-| `required` | OR | At least one of these scopes must be present |
-| `any_of` | OR | At least one must be present (space-delimited string or list `scope` claim) |
-| `all_of` | OR | Merged into `required`, so it has the same any-one-of semantics (not AND) |
+| Field      | Logic | Description                                                                 |
+|------------|-------|-----------------------------------------------------------------------------|
+| `required` | OR    | At least one of these scopes must be present                                |
+| `any_of`   | OR    | At least one must be present (space-delimited string or list `scope` claim) |
+| `all_of`   | OR    | Merged into `required`, so it has the same any-one-of semantics (not AND)   |
 
 `required` and `all_of` are concatenated into a single list checked with **any-one-of** semantics: the token passes when it carries at least
 one of the listed scopes. `any_of` is compiled into a CEL rule built on the CEL strings extension (`split`), which the provider's CEL
@@ -880,10 +908,10 @@ environment enables — so `split`, `join`, `lowerAscii` and the other strings-e
 }
 ```
 
-| Field | Description |
-|-------|-------------|
+| Field | Description                                                         |
+|-------|---------------------------------------------------------------------|
 | `min` | Accepted by the schema but **not enforced** — only `max` is applied |
-| `max` | Maximum `exp - iat` (security policy compliance) |
+| `max` | Maximum `exp - iat` (security policy compliance)                    |
 
 ### CEL Rules
 
@@ -906,25 +934,25 @@ Multiple CEL rules per validation block. Each rule must return `bool`.
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | `string` | Yes | Rule identifier (pattern: `^[a-z][a-z0-9-]*$`). Used in error messages |
-| `expression` | `string` | Yes | CEL expression. Context variable: `claims` (`map[string]any`) |
-| `message` | `string` | No | Custom error message shown when rule fails |
+| Field        | Type     | Required | Description                                                            |
+|--------------|----------|----------|------------------------------------------------------------------------|
+| `name`       | `string` | Yes      | Rule identifier (pattern: `^[a-z][a-z0-9-]*$`). Used in error messages |
+| `expression` | `string` | Yes      | CEL expression. Context variable: `claims` (`map[string]any`)          |
+| `message`    | `string` | No       | Custom error message shown when rule fails                             |
 
 **Available CEL functions:**
 
-| Function | Description |
-|----------|-------------|
-| `has(map.field)` | Check field presence |
-| `string.endsWith(suffix)` | String ends with |
-| `string.startsWith(prefix)` | String starts with |
-| `string.contains(sub)` | String contains substring |
-| `value in list` | Membership check |
-| `list.exists(v, cond)` | Any element satisfies condition |
-| `list.all(v, cond)` | All elements satisfy condition |
-| `timestamp(int64)` | Create timestamp from epoch seconds |
-| `timestamp.getDayOfWeek()` | Day of week (0=Sunday) |
+| Function                    | Description                         |
+|-----------------------------|-------------------------------------|
+| `has(map.field)`            | Check field presence                |
+| `string.endsWith(suffix)`   | String ends with                    |
+| `string.startsWith(prefix)` | String starts with                  |
+| `string.contains(sub)`      | String contains substring           |
+| `value in list`             | Membership check                    |
+| `list.exists(v, cond)`      | Any element satisfies condition     |
+| `list.all(v, cond)`         | All elements satisfy condition      |
+| `timestamp(int64)`          | Create timestamp from epoch seconds |
+| `timestamp.getDayOfWeek()`  | Day of week (0=Sunday)              |
 
 CEL programs are compiled once at load time and cached (LRU, max 1000 entries). Evaluation is limited to 10,000 cost units per rule.
 
@@ -966,11 +994,11 @@ Named validation rule sets for different token types or use cases.
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | `string` | Yes | Unique identifier. Pattern: `^[a-z][a-z0-9-]*$` |
-| `description` | `string` | No | Human-readable description |
-| `validation` | `object` | Yes | Validation rules (same structure as `default_validation`) |
+| Field         | Type     | Required | Description                                               |
+|---------------|----------|----------|-----------------------------------------------------------|
+| `name`        | `string` | Yes      | Unique identifier. Pattern: `^[a-z][a-z0-9-]*$`           |
+| `description` | `string` | No       | Human-readable description                                |
+| `validation`  | `object` | Yes      | Validation rules (same structure as `default_validation`) |
 
 **Explicit preset usage in code:**
 
@@ -1004,27 +1032,27 @@ Rules pick a preset automatically based on token claims.
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `description` | `string` | No | Human-readable rule description |
-| `preset` | `string` | Yes | Name of preset to apply (must exist in `presets`) |
-| `conditions` | `object` | Yes | Exactly one condition type (see below) |
+| Field         | Type     | Required | Description                                       |
+|---------------|----------|----------|---------------------------------------------------|
+| `description` | `string` | No       | Human-readable rule description                   |
+| `preset`      | `string` | Yes      | Name of preset to apply (must exist in `presets`) |
+| `conditions`  | `object` | Yes      | Exactly one condition type (see below)            |
 
 Rules are processed in declaration order. First match wins. Place specific rules before general ones.
 
 ### Condition Types
 
-| Condition | Value Type | Logic | Description |
-|-----------|-----------|-------|-------------|
-| `claim_equals` | `object` | AND | All specified claims must have exact values |
-| `claim_exists` | `[]string` | AND | All specified claims must be present |
-| `claim_contains` | `object` | AND | String claims must contain substrings |
-| `has_scope` | `string` | — | Token must have this scope |
-| `has_any_scope` | `[]string` | OR | Token must have at least one scope |
-| `has_all_scopes` | `[]string` | AND | Token must have all scopes |
-| `cel_expression` | `string` | — | CEL expression must return `true` |
-| `matcher_and` | `[]object` | AND | All nested conditions must be true |
-| `matcher_or` | `[]object` | OR | At least one nested condition must be true |
+| Condition        | Value Type | Logic | Description                                 |
+|------------------|------------|-------|---------------------------------------------|
+| `claim_equals`   | `object`   | AND   | All specified claims must have exact values |
+| `claim_exists`   | `[]string` | AND   | All specified claims must be present        |
+| `claim_contains` | `object`   | AND   | String claims must contain substrings       |
+| `has_scope`      | `string`   | —     | Token must have this scope                  |
+| `has_any_scope`  | `[]string` | OR    | Token must have at least one scope          |
+| `has_all_scopes` | `[]string` | AND   | Token must have all scopes                  |
+| `cel_expression` | `string`   | —     | CEL expression must return `true`           |
+| `matcher_and`    | `[]object` | AND   | All nested conditions must be true          |
+| `matcher_or`     | `[]object` | OR    | At least one nested condition must be true  |
 
 **Composite conditions:**
 
@@ -1055,12 +1083,12 @@ Rules are processed in declaration order. First match wins. Place specific rules
 
 ## Factory Builder
 
-The factory builder (`auth/oidc/factory`) translates YAML config + injected dependencies into a configured `oidc.Provider`.
+The factory builder (`factory/auth/oidc`) translates YAML config + injected dependencies into a configured `oidc.Provider`.
 
 ### Basic Usage
 
 ```go
-import oidcfactory "github.com/altessa-s/go-atlas/auth/oidc/factory"
+import oidcfactory "github.com/altessa-s/go-atlas/factory/auth/oidc"
 
 provider, err := oidcfactory.New(cfg.Auth.OIDC).
     UseLogger(logger).
@@ -1075,32 +1103,38 @@ if err != nil {
 ```go
 provider, err := oidcfactory.New(cfg.Auth.OIDC).
     UseLogger(logger).
-    UseTokenCache(redisCache).     // for token validation caching
-    UseRedisClient(redisClient).   // for revocation filter (auto-created)
+    UseTokenCache(redisCache). // for token validation caching
+    UseRevocationBloomStorage(probfilterconfig.StorageTypeRedis, // for a Redis revocation filter (auto-created)
+        bloomredisfactory.Builder(redisClient)).
     Build(ctx)
 ```
 
-| Method | Required | Description |
-|--------|----------|-------------|
-| `UseLogger(*slog.Logger)` | No | Sets structured logger. Default: discard |
-| `UseDefaultLogger()` | No | Uses `slog.Default()` |
-| `UseTokenCache(Cacher)` | No | Enables token validation caching (requires `cache.enabled: true` in config) |
-| `UseRedisClient(redis.UniversalClient)` | No | Required when revocation is enabled (creates probabilistic filter automatically) |
-| `UseRevocationStorage(RevocationStorage)` | No | Custom revocation storage (bypasses auto-creation from config) |
+| Method                                                       | Required | Description                                                                                                                                                  |
+|--------------------------------------------------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `UseLogger(*slog.Logger)`                                    | No       | Sets structured logger. Default: discard                                                                                                                     |
+| `UseDefaultLogger()`                                         | No       | Uses `slog.Default()`                                                                                                                                        |
+| `UseTokenCache(Cacher)`                                      | No       | Enables token validation caching (requires `cache.enabled: true` in config)                                                                                  |
+| `UseRevocationBloomStorage(StorageType, BloomStorageFunc)`   | No       | Required when revocation is enabled with a `redis` Bloom filter: `bloomredisfactory.Builder(client)` from `factory/cache/probfilter/bloom/storages/redis`    |
+| `UseRevocationCuckooStorage(StorageType, CuckooStorageFunc)` | No       | Required when revocation is enabled with a `redis` Cuckoo filter: `cuckooredisfactory.Builder(client)` from `factory/cache/probfilter/cuckoo/storages/redis` |
+| `UseRevocationStorage(RevocationStorage)`                    | No       | Custom revocation storage (bypasses auto-creation from config)                                                                                               |
 
 All `Use*` methods return `*ProviderBuilder` for chaining. Errors accumulate and surface at `Build()` time.
 
 ### What the Builder Wires
 
-| Config Section | Provider Option | Condition |
-|----------------|-----------------|-----------|
-| `jwks` | `WithJwksHTTPTimeout` | `jwks` configured |
-| `validation` | `WithDefaultValidationOptions` | `validation` configured |
-| `presets` | `WithPresets` + `WithPresetRules` | `presets` configured |
-| `cache` | `WithTokenCache` + key prefixes | `cache.enabled` + cache injected |
-| `clientCredentials` + `introspection` | `WithIntrospection` | `introspection.enabled` + `clientCredentials` configured |
-| `revocation` | `WithRevocationStorage` + `WithRevocationItemType` (+ `WithRevocationFailOpen` when `failOpen`) | `revocation.enabled` |
-| `jwks.refreshSchedule`, `revocation.syncSchedule` | `WithJWKSRefreshSchedule`, `WithRevocationSyncSchedule` | `refreshEnabled` / `syncEnabled` (sync also needs a revocation storage) |
+| Config Section                                    | Provider Option                                                                                 | Condition                                                               |
+|---------------------------------------------------|-------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| `jwks`                                            | `WithJwksHTTPTimeout`                                                                           | `jwks` configured                                                       |
+| `validation`                                      | `WithDefaultValidationOptions`                                                                  | `validation` configured                                                 |
+| `presets`                                         | `WithPresets` + `WithPresetRules`                                                               | `presets` configured                                                    |
+| `cache`                                           | `WithTokenCache` + key prefixes                                                                 | `cache.enabled` + cache injected                                        |
+| `clientCredentials` + `introspection`             | `WithIntrospection`                                                                             | `introspection.enabled` + `clientCredentials` configured                |
+| `revocation`                                      | `WithRevocationStorage` + `WithRevocationItemType` (+ `WithRevocationFailOpen` when `failOpen`) | `revocation.enabled`                                                    |
+| `revocation.maxStaleness`                         | `WithRevocationMaxStaleness`                                                                    | `revocation.enabled`                                                    |
+| `revocation.syncTimeout`                          | `WithRevocationSyncTimeout`                                                                     | `revocation.enabled`                                                    |
+| `revocation.maxResponseBytes`                     | `URLRevocationLoader.MaxResponseBytes`                                                          | `revocation.enabled` + `source.url`, storage built by the factory       |
+| `revocation.allowEmpty`                           | `WithRevocationAllowEmpty`                                                                      | `revocation.enabled` + `allowEmpty`                                     |
+| `jwks.refreshSchedule`, `revocation.syncSchedule` | `WithJWKSRefreshSchedule`, `WithRevocationSyncSchedule`                                         | `refreshEnabled` / `syncEnabled` (sync also needs a revocation storage) |
 
 ### Combined: YAML + Service Config
 
@@ -1208,21 +1242,21 @@ When `ValidateToken` is called without an explicit preset, the provider evaluate
 
 Matchers test token claims for preset selection. They can be composed with boolean combinators.
 
-| Matcher | Description |
-|---------|-------------|
-| `ClaimEquals(claim, value)` | String claim equals value |
-| `ClaimContains(claim, sub)` | String claim contains substring |
-| `ClaimExists(claim)` | Claim is present |
-| `HasScope(scope)` | Token has scope |
-| `HasAnyScope(scopes...)` | At least one scope present |
-| `HasAllScopes(scopes...)` | All scopes present |
-| `ClientIDEquals(id)` | `client_id` or `azp` equals value |
-| `IssuerEquals(issuer)` | `iss` claim matches |
-| `AudienceContains(aud)` | `aud` contains value |
-| `CELMatcher(ctx, expr)` | CEL expression against claims |
-| `MatcherAnd(m...)` | All must match |
-| `MatcherOr(m...)` | Any must match |
-| `MatcherNot(m)` | Invert result |
+| Matcher                     | Description                       |
+|-----------------------------|-----------------------------------|
+| `ClaimEquals(claim, value)` | String claim equals value         |
+| `ClaimContains(claim, sub)` | String claim contains substring   |
+| `ClaimExists(claim)`        | Claim is present                  |
+| `HasScope(scope)`           | Token has scope                   |
+| `HasAnyScope(scopes...)`    | At least one scope present        |
+| `HasAllScopes(scopes...)`   | All scopes present                |
+| `ClientIDEquals(id)`        | `client_id` or `azp` equals value |
+| `IssuerEquals(issuer)`      | `iss` claim matches               |
+| `AudienceContains(aud)`     | `aud` contains value              |
+| `CELMatcher(ctx, expr)`     | CEL expression against claims     |
+| `MatcherAnd(m...)`          | All must match                    |
+| `MatcherOr(m...)`           | Any must match                    |
+| `MatcherNot(m)`             | Invert result                     |
 
 ### CEL Validation (Go)
 
@@ -1252,8 +1286,8 @@ Three revocation item types are supported: `"token"` (full JWT), `"jti"` (claim)
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/data/probfilter/bloom"
-    "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
+    "github.com/altessa-s/go-atlas/cache/probfilter/bloom"
+    "github.com/altessa-s/go-atlas/cache/probfilter/bloom/storages/memory"
 )
 
 filter := bloom.New(memory.New(
@@ -1278,7 +1312,7 @@ and the provider starts with whatever the storage holds. A custom filter that do
 therefore fails construction (`ErrFilterNotRebuildable`) instead of running with a filter that never fills.
 
 For a filter shared through Redis, replicas serialize their rebuilds with a lease (see
-[probfilter rebuild guarantees](../data/probfilter.md#rebuild-guarantees)). The initial sync counts as done only when this provider
+[probfilter rebuild guarantees](../cache/probfilter.md#rebuild-guarantees)). The initial sync counts as done only when this provider
 completes a sync itself: while another replica rebuilds (`probfilter.ErrRebuildInProgress`) or this rebuild lost its lease before
 publishing (`probfilter.ErrRebuildSuperseded`), `NewProvider` retries with backoff for up to `WithRevocationInitialSyncWait` (default 2m)
 before the fail mode applies — a peer that publishes releases the lease, and a peer that fails or vanishes is replaced by the retry. A
@@ -1294,12 +1328,56 @@ with limited surge (for example a Kubernetes `maxSurge` of a few pods) so that o
 
 `WithRevocationAuthoritative` only confirms filter **hits**; it does not protect against keys missing from the filter. Every `Sync` — the one
 at construction and every scheduled one — rebuilds the filter atomically (see
-[probfilter rebuild guarantees](../data/probfilter.md#rebuild-guarantees)): lookups keep the previous contents while it runs and after it
+[probfilter rebuild guarantees](../cache/probfilter.md#rebuild-guarantees)): lookups keep the previous contents while it runs and after it
 fails, so starting a replica never empties a filter other replicas share.
 
 Revocation checks are **fail-closed** by default, independently of the introspection `failOpen` setting: when `RevocationStorage.IsRevoked`
 returns an error, the provider logs it, increments `auth_oidc_revocation_check_errors_total`, and rejects the token with
 `ErrRevocationCheck`. `WithRevocationFailOpen()` (YAML `revocation.failOpen: true`) accepts the token instead.
+
+**Staleness bound.** A provider with a sync schedule trusts a "not revoked" answer only while its last successful sync is younger than
+`WithRevocationMaxStaleness` (YAML `revocation.maxStaleness`; default `oidc.DefaultRevocationMaxStaleness`, 3h). The schedule is a cron
+expression with no fixed interval to multiply, so the default is a constant: three periods of the default hourly schedule. Past the bound the
+check fails with `ErrRevocationCheck` wrapping `ErrRevocationStale` (fail-open accepts and counts it); a revoked answer still rejects with
+`ErrTokenRevoked`. Zero or a negative value disables the bound, and without a sync schedule it never applies: nothing would refresh the
+snapshot. Startup is unchanged — fail-closed still fails `NewProvider` on a failed initial sync, and a fail-open provider that started on one
+counts the bound from construction, giving the scheduled sync that long to catch up.
+
+**Replicas sharing a filter.** With a Redis filter only one replica rebuilds at a time; the others get `ErrRebuildInProgress` and skip the
+tick. A skipped tick is not a sync: whether the peer's rebuild publishes is unknown at that point, and counting it would let a replica that
+keeps losing the lease trust a set no one has refreshed. Freshness comes from commits instead. The age the bound is checked against is that of
+the newest of the provider's own last successful sync and the last rebuild committed by any replica — the filter's
+`probfilter.RebuildCommitTimeReporter`, which for a Redis filter is the Redis server time recorded atomically with the commit. A replica that
+loses the lease on every tick therefore stays fresh exactly as long as some peer commits, and goes stale with everyone else when none does. The
+provider reads it once after each scheduled sync, never while validating a token. The commit time is an instant of the Redis clock and is
+never compared with the local one: the same read returns the commit's age as Redis computes it from its own clock
+(`probfilter.RebuildCommitAgeReporter`), and the provider places the commit at local now minus that age. A Redis clock ahead of or behind the
+replica's therefore neither stretches nor shortens the bound. The instant is taken once per commit — re-reading a commit already seen, as every
+failed tick does, never refreshes it. A
+custom `RevocationStorage` gets the same treatment by implementing `oidc.RevocationSyncReporter`; without it only its own syncs count.
+
+**Sync limits.** A scheduled sync is limited to `WithRevocationSyncTimeout` (YAML `revocation.syncTimeout`; default 5m; zero disables); the
+initial sync is bounded by the context passed to `NewProvider`. `URLRevocationLoader` reads at most `MaxResponseBytes` (YAML
+`revocation.maxResponseBytes`; default `oidc.DefaultRevocationMaxResponseBytes`, 256 MiB), and both built-in loaders trim surrounding
+whitespace, skip blank lines and accept entries up to `oidc.MaxRevocationEntryBytes` (64 KiB). A larger body or a longer line fails the whole
+sync with `ErrRevocationLoadFailed` — a cut-off list is never applied.
+
+**Empty list.** The filter storage fails a sync whose source yields no entries while the revocation set holds some: an empty `200` body would
+otherwise un-revoke everything. "Holds some" means the last committed list was non-empty: every rebuild records, atomically with its commit,
+how many entries it loaded from the source, and the guard reads that size from the filter (`probfilter.RebuildLoadReporter`, which the Bloom
+and Cuckoo filters implement) on every empty result — not from what this replica loaded last, because with a filter shared through Redis a
+peer may have published a list since. The read happens after the source was read, while the rebuild still holds the shared rebuild lease, so
+no peer can publish between the check and the commit. Items the provider adds with `MarkRevoked` after an introspection answer of
+`active: false` are not part of the list and do not count: a deployment whose list is legitimately empty and which uses introspection keeps
+syncing, with no need for `allowEmpty`. When the size is unknown — the filter was never rebuilt, its key was recreated, or the last commit
+came from a release that did not record it — the guard falls back to the filter's item count (`probfilter.StatsProvider`), which does include
+marked items; a size or count that cannot be read counts as entries, and only a filter reporting neither falls back to this replica's own last
+sync. It costs one Redis round trip per empty result. For a revocation list that goes from non-empty to empty, pass
+`WithRevocationAllowEmpty()` (YAML
+`revocation.allowEmpty: true`): the empty result is then authoritative, the filter is rebuilt empty, and the sync succeeds and refreshes the
+staleness clock. With the option on, a source that returns `200` with an empty body during an IdP outage un-revokes everything, so enable it
+only for a source trusted to be empty when nothing is revoked. The option covers the built-in filter storage; a custom `RevocationStorage`
+decides this itself.
 
 The local storage is checked after signature verification for every item type, before introspection: a hit always rejects, even when the
 IdP would report the token active, and a miss never replaces the IdP's answer when introspection is enabled.
@@ -1327,34 +1405,37 @@ oidc.WithIntrospection("client-id", "client-secret"),
 
 The provider calls the introspection endpoint and returns an `IntrospectionResponse` with active status, scopes, and claims.
 
-### gRPC Integration
+### gRPC and HTTP Integration
+
+`oidc.NewValidator(provider)` turns the provider's verified claim map into a typed `*oidc.Claims` and returns plain, wrapped errors. Both transport
+adapters take it as an `oidc.ClaimsValidator` and only map failures: the gRPC adapter to `codes.Unauthenticated`, the HTTP adapter to
+`auth.ErrUnauthorized` (401).
 
 ```go
-// Create the validator
-v := validator.NewDefaultValidator(provider)
+v := oidc.NewValidator(provider)
 
-// Wire into the auth interceptor
-authInterceptor := auth.ServerInterceptor(
-    auth.WithAuthFn(oidcgrpc.AuthFunc(v)),
-    auth.WithIgnoreMethods("/grpc.health.v1.Health/Check"),
+// gRPC (transport/grpc/interceptors/auth + .../auth/oidc)
+authInterceptor := grpcauth.ServerInterceptor(
+    grpcauth.WithAuthFn(grpcoidc.AuthFunc(v)),
+    grpcauth.WithIgnoreMethods("/grpc.health.v1.Health/Check"),
+)
+
+// HTTP (transport/http/server/middlewares/auth + .../auth/oidc)
+authMiddleware := httpauth.Middleware(
+    httpauth.WithAuthFunc(httpoidc.AuthFunc(v)),
 )
 ```
 
-After authentication, the verified `*oidcgrpc.Claims` is the `auth.Credentials.Data` handed to the `ClientAuth` stage; the interceptor does
-not store it in the context itself. Put it there from a `ClientAuth` (or authorize with `ScopeClientAuth`):
+After authentication the verified `*oidc.Claims` is the authenticated data: over gRPC read it with `grpcauth.CredentialsFromContext(ctx)` (it is
+`Credentials.Data`, also handed to the `ClientAuth` stage); over HTTP with `httpauth.FromContext(r.Context())`.
 
 ```go
-type claimsKey struct{}
-
-authInterceptor := auth.ServerInterceptor(
-    auth.WithAuthFn(oidcgrpc.AuthFunc(v)),
-    auth.WithClientAuth(auth.ClientAuthFunc(func(ctx context.Context, cred auth.Credentials) (context.Context, error) {
-        return context.WithValue(ctx, claimsKey{}, cred.Data.(*oidcgrpc.Claims)), nil
-    })),
-)
-
 func (s *Server) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
-    claims, ok := ctx.Value(claimsKey{}).(*oidcgrpc.Claims)
+    creds, ok := grpcauth.CredentialsFromContext(ctx)
+    if !ok {
+        return nil, status.Error(codes.Unauthenticated, "no credentials")
+    }
+    claims, ok := creds.Data.(*oidc.Claims)
     if !ok {
         return nil, status.Error(codes.Unauthenticated, "no claims")
     }
@@ -1365,9 +1446,9 @@ func (s *Server) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUs
 }
 ```
 
-### gRPC Claims Struct
+### Claims Struct
 
-The `transport/grpc/interceptors/auth/oidc` package provides typed access to common claims:
+`auth/oidc` provides typed access to common claims:
 
 ```go
 type Claims struct {
@@ -1387,7 +1468,7 @@ type Claims struct {
 }
 ```
 
-It arrives as `auth.Credentials.Data` in the `ClientAuth` stage (see above); `oidcgrpc.ScopesOf(claims)` returns its scopes.
+`oidc.ScopesOf(claims)` returns its scopes, ready for `scope.ScopeAuthorizer`.
 
 ---
 
@@ -1405,18 +1486,18 @@ Returns `StatusServing` when the discovery document is valid and JWKS keys are l
 
 ### Prometheus Metrics
 
-| Metric | Description |
-|--------|-------------|
-| `auth_oidc_token_validations_total` | Total validation attempts |
-| `auth_oidc_validation_errors_total` | Validation failures |
-| `auth_oidc_validation_duration_seconds` | Validation latency histogram |
-| `auth_oidc_cache_hits_total` | Token cache hits |
-| `auth_oidc_cache_misses_total` | Token cache misses |
-| `auth_oidc_jwks_refreshes_total` | JWKS refresh count |
-| `auth_oidc_jwks_refresh_errors_total` | JWKS refresh failures |
-| `auth_oidc_jwks_refresh_duration_seconds` | JWKS refresh latency histogram |
-| `auth_oidc_jwks_stale_rejections_total` | Validations affected by an over-stale JWKS cache (enforced or warned) |
-| `auth_oidc_revocation_check_errors_total` | Revocation check failures |
+| Metric                                    | Description                                                           |
+|-------------------------------------------|-----------------------------------------------------------------------|
+| `auth_oidc_token_validations_total`       | Total validation attempts                                             |
+| `auth_oidc_validation_errors_total`       | Validation failures                                                   |
+| `auth_oidc_validation_duration_seconds`   | Validation latency histogram                                          |
+| `auth_oidc_cache_hits_total`              | Token cache hits                                                      |
+| `auth_oidc_cache_misses_total`            | Token cache misses                                                    |
+| `auth_oidc_jwks_refreshes_total`          | JWKS refresh count                                                    |
+| `auth_oidc_jwks_refresh_errors_total`     | JWKS refresh failures                                                 |
+| `auth_oidc_jwks_refresh_duration_seconds` | JWKS refresh latency histogram                                        |
+| `auth_oidc_jwks_stale_rejections_total`   | Validations affected by an over-stale JWKS cache (enforced or warned) |
+| `auth_oidc_revocation_check_errors_total` | Revocation check failures                                             |
 
 Only `token_validations_total` and `validation_errors_total` carry the `issuer` label; the rest are unlabeled.
 
@@ -1438,6 +1519,10 @@ oidc.WithRevocationSyncSchedule("*/30 * * * * *"),    // every 30s
 Overlapping ticks of a job are skipped, an invalid expression fails `NewProvider`, failures are logged and counted
 (`auth_oidc_jwks_refresh_errors_total`, `auth_oidc_revocation_check_errors_total`), and `Close` stops the cron and waits for a running
 job. Without a JWKS schedule, the keys are loaded once at construction; call `provider.RefreshJWKS(ctx)` to refresh them.
+
+The context passed to `NewProvider` bounds construction only (discovery, the initial JWKS fetch, the initial revocation sync). The cron keeps
+that context's values but not its cancellation, so a startup-timeout context does not silence later refreshes — and nothing but `Close` stops
+them: every provider must be closed.
 
 ---
 
@@ -1742,26 +1827,26 @@ oidc:
 
 The `authconfig.OIDC.Validate()` method runs automatically during app config loading:
 
-| Rule | Error |
-|------|-------|
-| `discoveryURL` missing or invalid URL | `discoveryURL: cannot be blank` / `must be a valid URL` |
-| `clockSkew` outside `[1s, 1m]` | `clockSkew: must be no less than 1s` |
-| `introspection.enabled: true` without `clientCredentials` | `clientCredentials must be configured when introspection is enabled` |
-| `presets.list` without `presets.selectors` (or vice versa) | `presets.list and presets.selectors must be configured together` |
-| Preset name violates pattern | `name: must be in a valid format` |
-| `requireAuthorizedParty: true` without `allowedAuthorizedParties` | `allowedAuthorizedParties: cannot be blank` |
-| `revocation` block present (even `enabled: false`) without `filter` or `source` | `filter: cannot be blank` |
+| Rule                                                                            | Error                                                                |
+|---------------------------------------------------------------------------------|----------------------------------------------------------------------|
+| `discoveryURL` missing or invalid URL                                           | `discoveryURL: cannot be blank` / `must be a valid URL`              |
+| `clockSkew` outside `[1s, 1m]`                                                  | `clockSkew: must be no less than 1s`                                 |
+| `introspection.enabled: true` without `clientCredentials`                       | `clientCredentials must be configured when introspection is enabled` |
+| `presets.list` without `presets.selectors` (or vice versa)                      | `presets.list and presets.selectors must be configured together`     |
+| Preset name violates pattern                                                    | `name: must be in a valid format`                                    |
+| `requireAuthorizedParty: true` without `allowedAuthorizedParties`               | `allowedAuthorizedParties: cannot be blank`                          |
+| `revocation` block present (even `enabled: false`) without `filter` or `source` | `filter: cannot be blank`                                            |
 
 ### JSON Service Config Validation (at load time)
 
 `ValidateServiceConfig()` runs when the service config is parsed:
 
-| Check | Error |
-|-------|-------|
-| `version` missing or not `"1.0"` | schema version error |
-| Invalid duration string | `invalid duration '...' in ...` |
-| Duplicate preset names | preset name uniqueness error |
-| `preset_rules[].preset` references nonexistent preset | `preset rule references unknown preset '...'` |
-| CEL expression compilation failure | `invalid CEL expression in rule '...': ...` |
-| Empty preset name | `presets[N].name is required` (the `^[a-z][a-z0-9-]*$` pattern is enforced only by the JSON schema, not at runtime) |
+| Check                                                 | Error                                                                                                               |
+|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `version` missing or not `"1.0"`                      | schema version error                                                                                                |
+| Invalid duration string                               | `invalid duration '...' in ...`                                                                                     |
+| Duplicate preset names                                | preset name uniqueness error                                                                                        |
+| `preset_rules[].preset` references nonexistent preset | `preset rule references unknown preset '...'`                                                                       |
+| CEL expression compilation failure                    | `invalid CEL expression in rule '...': ...`                                                                         |
+| Empty preset name                                     | `presets[N].name is required` (the `^[a-z][a-z0-9-]*$` pattern is enforced only by the JSON schema, not at runtime) |
 

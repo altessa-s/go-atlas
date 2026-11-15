@@ -33,23 +33,23 @@ import "github.com/altessa-s/go-atlas/auth/denylist"
 
 Companion packages extend the seam across a network:
 
-| Package                          | Role                                                                                             |
-|----------------------------------|--------------------------------------------------------------------------------------------------|
-| `auth/denylist`                  | In-memory exact set + the `Checker` seam. The whole story for a single process.                  |
-| `auth/denylist/storages/redis`   | Redis-backed exact store for cross-instance revocation; native per-key TTL, no sweeper.          |
-| `auth/denylist/negcache`         | Probabilistic negative cache fronting an authoritative store — never-revoked tokens answered locally. |
-| `auth/denylist/mirror`           | Synchronous local snapshot of a distributed store; satisfies `jwt.RevocationChecker` so jwt/selfjwt verifiers enforce distributed revocation with no hot-path network call. |
+| Package                        | Role                                                                                                                                                                        |
+|--------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `auth/denylist`                | In-memory exact set + the `Checker` seam. The whole story for a single process.                                                                                             |
+| `auth/denylist/storages/redis` | Redis-backed exact store for cross-instance revocation; native per-key TTL, no sweeper.                                                                                     |
+| `auth/denylist/negcache`       | Probabilistic negative cache fronting an authoritative store — never-revoked tokens answered locally.                                                                       |
+| `auth/denylist/mirror`         | Synchronous local snapshot of a distributed store; satisfies `jwt.RevocationChecker` so jwt/selfjwt verifiers enforce distributed revocation with no hot-path network call. |
 
 It complements, rather than replaces, mechanisms a token package already has: `oidc` carries introspection-based revocation, and `selfjwt`
 rotates keys. `denylist` is the small explicit seam any of them can share.
 
 ## Model
 
-| Concept    | Type / signature                     | Role                                                                              |
-|------------|--------------------------------------|-----------------------------------------------------------------------------------|
-| Denylist   | `*denylist.Denylist`                 | The in-memory revoked-identifier set, with permanent and expiry-bounded entries.  |
-| Checker    | `denylist.Checker` — `IsRevoked(key) bool` | Read seam a verifier accepts; `*Denylist` and any adapter satisfy it.       |
-| Authoritative | `negcache.Authoritative` — `IsRevoked(ctx, key) (bool, error)` | The exact store a negative cache defers to.            |
+| Concept       | Type / signature                                               | Role                                                                             |
+|---------------|----------------------------------------------------------------|----------------------------------------------------------------------------------|
+| Denylist      | `*denylist.Denylist`                                           | The in-memory revoked-identifier set, with permanent and expiry-bounded entries. |
+| Checker       | `denylist.Checker` — `IsRevoked(key) bool`                     | Read seam a verifier accepts; `*Denylist` and any adapter satisfy it.            |
+| Authoritative | `negcache.Authoritative` — `IsRevoked(ctx, key) (bool, error)` | The exact store a negative cache defers to.                                      |
 
 The core distinguishes two entry kinds: **permanent** (`Revoke`, cleared only by `Restore`) and **expiry-bounded** (`RevokeUntil`, forgotten
 after its expiry). The common case revokes a token until its own `exp` **plus the verifier's clock-skew leeway** (`auth/jwt.DefaultLeeway`,
@@ -107,7 +107,7 @@ false positives only cost an extra authoritative lookup and never admit a revoke
 ```go
 import "github.com/altessa-s/go-atlas/auth/denylist/negcache"
 
-filter, err := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build()
+filter, err := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build(ctx)
 if err != nil {
     return err
 }
@@ -127,10 +127,10 @@ filter shared through Redis, a rebuild committed by any node (`probfilter.Rebuil
 store. Then feed it with `cache.Add(ctx, key)` on local revocations and scheduled rebuilds. `negcache.FromChecker(checker)` adapts a synchronous
 `denylist.Checker` to `Authoritative` when the exact tier is itself a `Checker`. `cache.Close(ctx)` closes the filter the cache owns.
 
-The factory (`negcache/factory.NewBuilder`) schedules the rebuilds itself: the authoritative store, when it is a `probfilter.DataLoader` (`redis.Store`
-is), or a loader set with `UseDataLoader`, rebuilds the Bloom filter per `rebuildOnStart` (inside `Build`) and `rebuildCron` (a process-local cron for
-an in-memory filter, a task registered with the `UseScheduler` scheduler for a Redis filter). If another node is rebuilding the shared Redis filter
-during `Build`, `Build` still succeeds and the cache defers to the authoritative store until that rebuild is committed.
+The factory (`factory/auth/denylist/negcache.NewBuilder`) schedules the rebuilds itself: the authoritative store, when it is a `probfilter.DataLoader`
+(`redis.Store` is), or a loader set with `UseDataLoader`, rebuilds the Bloom filter per `rebuildOnStart` (inside `Build`) and `rebuildCron` (a
+process-local cron for an in-memory filter, a task registered with the `UseScheduler` scheduler for a Redis filter). If another node is rebuilding the
+shared Redis filter during `Build`, `Build` still succeeds and the cache defers to the authoritative store until that rebuild is committed.
 `authconfig.Denylist.RebuildInterval` (`rebuildInterval`) is for callers that run `cache.Rebuild` themselves; with a Bloom filter it requires
 `filter.bloom.rebuildCron: ""`, so one filter never gets two schedules. `redis.Store.StreamValues` is complete only on a single Redis server; with a
 Cluster or Ring client it fails with `ErrUnsupportedClient` — inject an exact loader with `UseDataLoader` there.
@@ -152,9 +152,9 @@ rebuild the cache defers every lookup to the authoritative store.
 
 `negcache.WithMetrics(NewMetrics(collector, ""))` records one counter, `lookups_total`, under subsystem `auth_denylist_negcache`:
 
-| Label    | Values                                                                                          |
-|----------|-------------------------------------------------------------------------------------------------|
-| `result` | `fast_negative` (answered locally), `authoritative_hit`, `authoritative_miss`, `authoritative_error` |
+| Label    | Values                                                                                                                       |
+|----------|------------------------------------------------------------------------------------------------------------------------------|
+| `result` | `fast_negative` (answered locally), `authoritative_hit`, `authoritative_miss`, `authoritative_error`                         |
 | `filter` | `ok`, `error` (the filter errored and the lookup fell back), `unpopulated` (no successful rebuild yet; filter not consulted) |
 
 The hit rate is `fast_negative / total` — the share of lookups that skipped the round trip; a rising `filter=error` share flags a degraded
@@ -166,22 +166,22 @@ their own.
 
 ## API Reference
 
-| Symbol                                       | Description                                                                        |
-|----------------------------------------------|------------------------------------------------------------------------------------|
-| `denylist.New(opt…)`                         | Empty in-memory denylist. `WithClock(now)` overrides the time source.              |
-| `Denylist.Revoke(key)`                       | Deny `key` permanently, until a matching `Restore`.                                |
-| `Denylist.RevokeUntil(key, expiry)`          | Deny `key` until `expiry`; an expiry at or before now is a no-op.                  |
-| `Denylist.Restore(key)`                      | Re-allow `key`.                                                                    |
-| `Denylist.IsRevoked(key) bool`               | Whether `key` is currently revoked (expired entries report false).                |
-| `Denylist.Sweep() int` / `Len() int`         | Drop expired entries / tracked-entry count, for observability and tests.           |
-| `denylist.Checker`                           | Read seam `IsRevoked(key) bool` a verifier accepts.                                |
-| `redisstore.New(client, opt…)`               | Redis-backed exact store; `WithKeyPrefix` sets the namespace.                      |
-| `Store.IsRevoked` / `Revoke` / `RevokeUntil` / `Restore` | Context-taking distributed equivalents of the core methods.            |
-| `Store.StreamValues(ctx)` / `Count(ctx)`     | SCAN revoked keys (`probfilter.DataLoader`) / count (returns `-1`, unknown).       |
-| `negcache.New(filter, authoritative)`        | Negative cache over a filter and an exact store.                                   |
-| `Cache.IsRevoked(ctx, key)` / `Add(ctx, key)` / `Rebuild(ctx, loader)` | Lookup / record local revocation / repopulate the filter.        |
-| `negcache.FromChecker(checker)`              | Adapt a synchronous `denylist.Checker` to `Authoritative`.                         |
-| `negcache.WithMetrics(m)` / `NewMetrics(collector, subsystem)` | Enable lookup telemetry.                                          |
+| Symbol                                                                 | Description                                                                  |
+|------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| `denylist.New(opt…)`                                                   | Empty in-memory denylist. `WithClock(now)` overrides the time source.        |
+| `Denylist.Revoke(key)`                                                 | Deny `key` permanently, until a matching `Restore`.                          |
+| `Denylist.RevokeUntil(key, expiry)`                                    | Deny `key` until `expiry`; an expiry at or before now is a no-op.            |
+| `Denylist.Restore(key)`                                                | Re-allow `key`.                                                              |
+| `Denylist.IsRevoked(key) bool`                                         | Whether `key` is currently revoked (expired entries report false).           |
+| `Denylist.Sweep() int` / `Len() int`                                   | Drop expired entries / tracked-entry count, for observability and tests.     |
+| `denylist.Checker`                                                     | Read seam `IsRevoked(key) bool` a verifier accepts.                          |
+| `redisstore.New(client, opt…)`                                         | Redis-backed exact store; `WithKeyPrefix` sets the namespace.                |
+| `Store.IsRevoked` / `Revoke` / `RevokeUntil` / `Restore`               | Context-taking distributed equivalents of the core methods.                  |
+| `Store.StreamValues(ctx)` / `Count(ctx)`                               | SCAN revoked keys (`probfilter.DataLoader`) / count (returns `-1`, unknown). |
+| `negcache.New(filter, authoritative)`                                  | Negative cache over a filter and an exact store.                             |
+| `Cache.IsRevoked(ctx, key)` / `Add(ctx, key)` / `Rebuild(ctx, loader)` | Lookup / record local revocation / repopulate the filter.                    |
+| `negcache.FromChecker(checker)`                                        | Adapt a synchronous `denylist.Checker` to `Authoritative`.                   |
+| `negcache.WithMetrics(m)` / `NewMetrics(collector, subsystem)`         | Enable lookup telemetry.                                                     |
 
 ## Design Notes
 
@@ -196,7 +196,7 @@ their own.
 
 - [`auth/denylist` README](../../auth/denylist/README.md) · [`negcache` README](../../auth/denylist/negcache/README.md) ·
   [`storages/redis` README](../../auth/denylist/storages/redis/README.md) — package quick references.
-- [`data/probfilter`](../../data/probfilter) — the Bloom/Cuckoo filter behind `negcache`.
+- [`cache/probfilter`](../../cache/probfilter) — the Bloom/Cuckoo filter behind `negcache`.
 - [`auth/denylist/mirror`](../../auth/denylist/mirror) — synchronous local snapshot of a distributed store for the `jwt.RevocationChecker` seam.
 - [oidc.md](oidc.md) · [selfjwt.md](selfjwt.md) — token packages that consult a `Checker`.
 - [architecture.md](../architecture.md) — package map and layering.

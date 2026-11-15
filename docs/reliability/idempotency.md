@@ -1,7 +1,7 @@
 # Idempotency keeper (`idempotency`)
 
 ```go
-import "github.com/altessa-s/go-atlas/data/idempotency"
+import "github.com/altessa-s/go-atlas/reliability/idempotency"
 ```
 
 A duplicate-request detector with a state machine. `AttemptLock` either claims a key (caller does the work) or returns the current `*State` of
@@ -13,18 +13,18 @@ MongoDB, which joins the caller's transaction.
 
 ## When to reach for `idempotency`
 
-| Scenario | Use |
-|---|---|
-| HTTP / gRPC handler returning a cached response for a repeated request (`Idempotency-Key` header) | `AttemptLock` + `Complete(data)` |
-| Long-running operation; concurrent caller should see "in progress, retry later" | `AttemptLock` + check `State.Status == StatusInProgress` |
-| Need to know success vs failure from a previous run | `state.Status` enum + `state.Data` payload |
-| Operation that may exceed lock TTL — protect against stolen-lock overwrite | `Complete` returns `ErrLockStolen` |
-| Different lock lifetime per key (short OTP vs long webhook) | `AttemptLockWithOpts` with `LockTTL` |
-| Crashed holder leaves an InProgress entry — unblock retries before bucket TTL fires | `WithMaxLockDuration` (or per-call `MaxLockDuration`) — orphan-lock CAS-steal |
-| Same key reused for a different request — refuse instead of replaying | `AttemptLockOpts.Fingerprint` → `ErrFingerprintMismatch` |
-| Replays visible only to the caller that recorded the key | `WithOwner` (+ `WithReplayAuthorizer`) → `ErrOwnerMismatch` |
-| Key and business write must commit atomically | MongoDB backend inside the caller's transaction |
-| Failure cleanup so the next attempt can re-claim | `Release` |
+| Scenario                                                                                          | Use                                                                           |
+|---------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+| HTTP / gRPC handler returning a cached response for a repeated request (`Idempotency-Key` header) | `AttemptLock` + `Complete(data)`                                              |
+| Long-running operation; concurrent caller should see "in progress, retry later"                   | `AttemptLock` + check `State.Status == StatusInProgress`                      |
+| Need to know success vs failure from a previous run                                               | `state.Status` enum + `state.Data` payload                                    |
+| Operation that may exceed lock TTL — protect against stolen-lock overwrite                        | `Complete` returns `storages.ErrLockStolen`                                            |
+| Different lock lifetime per key (short OTP vs long webhook)                                       | `AttemptLockWithOpts` with `LockTTL`                                          |
+| Crashed holder leaves an InProgress entry — unblock retries before bucket TTL fires               | `WithMaxLockDuration` (or per-call `MaxLockDuration`) — orphan-lock CAS-steal |
+| Same key reused for a different request — refuse instead of replaying                             | `AttemptLockOpts.Fingerprint` → `ErrFingerprintMismatch`                      |
+| Replays visible only to the caller that recorded the key                                          | `WithOwner` (+ `WithReplayAuthorizer`) → `ErrOwnerMismatch`                   |
+| Key and business write must commit atomically                                                     | MongoDB backend inside the caller's transaction                               |
+| Failure cleanup so the next attempt can re-claim                                                  | `Release`                                                                     |
 
 ---
 
@@ -40,7 +40,7 @@ ok, state, err := keeper.AttemptLock(ctx, "request-id-42")
 if err != nil { return err }
 
 if !ok {
-    if state.Status == idempotency.StatusSuccess {
+    if state.Status == storages.StatusSuccess {
         return state.Data.(MyResponse), nil // cached
     }
     return ErrInProgress // someone else is processing
@@ -99,22 +99,28 @@ keeper := idempotency.New(storage)
 ```
 
 Called inside `mongo.Session.WithTransaction`, the lock and the result commit or abort together with the caller's own writes; see
-[`storages/mongo`](../../data/idempotency/storages/mongo/README.md).
+[`storages/mongo`](../../reliability/idempotency/storages/mongo/README.md).
 
 ### Factory from YAML
 
 ```go
-import idempfactory "github.com/altessa-s/go-atlas/data/idempotency/factory"
+import (
+    idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+    idempfactory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
+    redisfactory "github.com/altessa-s/go-atlas/factory/reliability/idempotency/storages/redis"
+)
 
 keeper, err := idempfactory.New(cfg.Idempotency).
     UseLogger(logger).
-    UseRedisClient(redisClient).
-    UseJetstream(js).
-    UseMongoDatabase(db).
+    UseStorage(idempotencyconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
     UseScheduler(scheduler).
-    UseCollector(collector).
+    UseMeter(collector).
     Build()
 ```
+
+The factory builds only the memory storage. The `redis`, `nats` and `mongo` storages register with `UseStorage` from
+`reliability/idempotency/storages/<backend>/factory` (`redisfactory.Builder(client)`, `natsfactory.Builder(js)`, `mongofactory.Builder(db)`); a
+configured type without one fails `Build` naming the package to add.
 
 YAML:
 
@@ -135,16 +141,16 @@ string) so a scheduler periodically purges expired entries; the mongo backend ac
 
 ## Methods
 
-| Method | Behavior |
-|---|---|
-| `AttemptLock(ctx, key)` | Atomic CAS claim. `(true, *State, nil)` on win (State carries CAS token); `(false, *State, nil)` on collision |
+| Method                                | Behavior                                                                                                                                                                                                          |
+|---------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AttemptLock(ctx, key)`               | Atomic CAS claim. `(true, *State, nil)` on win (State carries CAS token); `(false, *State, nil)` on collision                                                                                                     |
 | `AttemptLockWithOpts(ctx, key, opts)` | Same as AttemptLock with per-call overrides — `LockTTL` (lock lifetime), `MaxLockDuration` (orphan-reclaim threshold) and `Fingerprint` (request fingerprint). Zero values fall back to backend / Keeper defaults |
-| `Complete(ctx, key, data, lockState)` | CAS-guarded write of success state. Returns `ErrLockStolen` if lock was taken over since AttemptLock |
-| `Release(ctx, key, lockState)` | Removes the caller's own lock. Use on failure paths so the next attempt can re-claim; `ErrLockStolen` if the lock is no longer the caller's |
-| `Delete(ctx, key)` | Unconditional removal, for administrative invalidation — not request cleanup |
+| `Complete(ctx, key, data, lockState)` | CAS-guarded write of success state. Returns `storages.ErrLockStolen` if lock was taken over since AttemptLock                                                                                                              |
+| `Release(ctx, key, lockState)`        | Removes the caller's own lock. Use on failure paths so the next attempt can re-claim; `storages.ErrLockStolen` if the lock is no longer the caller's                                                                       |
+| `Delete(ctx, key)`                    | Unconditional removal, for administrative invalidation — not request cleanup                                                                                                                                      |
 
 `*State` returned by `AttemptLock` carries a private CAS token. Pass it back to `Complete` exactly as received; passing `nil` returns
-`ErrMissingLockState` (the guard cannot be silently disabled).
+`storages.ErrMissingLockState` (the guard cannot be silently disabled).
 
 ---
 
@@ -160,14 +166,14 @@ The classic bug it closes:
 Without a guard, step 4 silently overwrites B's state. Caller C reads back `resultA`, but the actual operation was performed by B — business
 inconsistency.
 
-`Complete` is CAS-guarded so step 4 returns `ErrLockStolen` instead. Per-backend mechanism:
+`Complete` is CAS-guarded so step 4 returns `storages.ErrLockStolen` instead. Per-backend mechanism:
 
-| Backend | Mechanism |
-|---|---|
-| memory | mutex-protected byte comparison (current value vs lockToken) |
-| redis | Lua script: `GET == lockToken ? SET : ErrLockStolen` |
-| nats | `kv.Update(key, val, revision)` — server rejects on revision mismatch |
-| mongo | `UpdateOne` filtered on the stored bytes |
+| Backend | Mechanism                                                             |
+|---------|-----------------------------------------------------------------------|
+| memory  | mutex-protected byte comparison (current value vs lockToken)          |
+| redis   | Lua script: `GET == lockToken ? SET : ErrLockStolen`                  |
+| nats    | `kv.Update(key, val, revision)` — server rejects on revision mismatch |
+| mongo   | `UpdateOne` filtered on the stored bytes                              |
 
 The token is opaque to callers — just pass the `*State` from `AttemptLock` back to `Complete`. The Keeper also injects a per-attempt UUID
 nonce into the serialized state so two consecutive `AttemptLock` calls on the same key produce distinct bytes (memory and Redis CAS by byte
@@ -186,10 +192,10 @@ ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOp
 })
 ```
 
-| Field             | Resolution order (first match wins)                                |
-|-------------------|--------------------------------------------------------------------|
-| `LockTTL`         | per-call value > backend `WithTTL` / `WithMaxAge` > 24h hard default |
-| `MaxLockDuration` | per-call value > Keeper `WithMaxLockDuration` > `DefaultMaxLockDuration` (5m) |
+| Field             | Resolution order (first match wins)                                                                                  |
+|-------------------|----------------------------------------------------------------------------------------------------------------------|
+| `LockTTL`         | per-call value > backend `WithTTL` / `WithMaxAge` > 24h hard default                                                 |
+| `MaxLockDuration` | per-call value > Keeper `WithMaxLockDuration` > `DefaultMaxLockDuration` (5m)                                        |
 | `Fingerprint`     | per-call value; nil records and checks no fingerprint (see [Request fingerprints](#request-fingerprints-and-owners)) |
 
 Useful when different keys within one Keeper need different lifetimes — short-lived OTP tokens vs long-running webhook processing — or when a
@@ -208,7 +214,7 @@ A key identifies one command. `core/encoding/keys.Digest(parts...)` hashes the o
 `WithOwner(func(ctx) string)` records an opaque owner label with each key. A caller with another label gets `ErrOwnerMismatch` and nothing of
 the record. `WithReplayAuthorizer(func(ctx, owner) error)` replaces the label comparison: it decides every replay from the recorded label, and
 its error is returned wrapped in `ErrOwnerMismatch` (return the service's NotFound error to hide the record). Only the record's own owner may
-take over its orphaned lock. See the [package README](../../data/idempotency/README.md#owners) for details.
+take over its orphaned lock. See the [package README](../../reliability/idempotency/README.md#owners) for details.
 
 ### NATS lock-TTL requirement
 
@@ -232,9 +238,9 @@ level=WARN msg="idempotency: using default MaxLockDuration; review for your serv
 `MaxLockDuration` is the hinge of the [orphan-lock reclaim](#orphan-lock-reclaim) mechanism: the threshold past which a stale InProgress entry
 is treated as abandoned and forcibly reclaimed by the next `AttemptLock`. Picking it wrong has asymmetric costs:
 
-| Too short relative to real handler p99 | Too long relative to retry window |
-|---|---|
-| **False-positive steal.** Holder A is still legitimately working when caller B reclaims the key and starts its own work. A finishes, calls `Complete` → `ErrLockStolen` (correctly rejected), but B re-runs the same operation. **Duplicate side-effects** — second SMS, second bank call, second webhook delivery. Worse than the original "stuck in-progress" symptom. | **Reclaim never fires.** If `MaxLockDuration` exceeds the broker's retry window (e.g. NATS JetStream `AckWait × MaxDeliver`), the broker has already given up and dropped the message before any caller would have triggered reclaim. The orphan then waits out the storage bucket TTL — typically 24h — exactly the failure mode this feature was meant to fix. |
+| Too short relative to real handler p99                                                                                                                                                                                                                                                                                                                                   | Too long relative to retry window                                                                                                                                                                                                                                                                                                                                |
+|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **False-positive steal.** Holder A is still legitimately working when caller B reclaims the key and starts its own work. A finishes, calls `Complete` → `storages.ErrLockStolen` (correctly rejected), but B re-runs the same operation. **Duplicate side-effects** — second SMS, second bank call, second webhook delivery. Worse than the original "stuck in-progress" symptom. | **Reclaim never fires.** If `MaxLockDuration` exceeds the broker's retry window (e.g. NATS JetStream `AckWait × MaxDeliver`), the broker has already given up and dropped the message before any caller would have triggered reclaim. The orphan then waits out the storage bucket TTL — typically 24h — exactly the failure mode this feature was meant to fix. |
 
 The "right" value is service-specific: it depends on the realistic upper bound of handler runtime *and* the retry window of whatever upstream
 is calling in. A service with synchronous HTTP traffic and 30s client timeouts wants something close to 30-60s. A worker behind a NATS
@@ -298,32 +304,32 @@ Every InProgress wire embeds a `LockedAt` timestamp. On `AttemptLock` collision,
 older than the resolved `MaxLockDuration`, the Keeper calls the storage layer's `Steal` primitive to atomically replace the orphan with a
 fresh wire — and the new holder gets a fresh CAS token.
 
-The crashed holder's stale `Complete` then surfaces `ErrLockStolen` (its CAS token is no longer current), so callers see the normal "we lost
+The crashed holder's stale `Complete` then surfaces `storages.ErrLockStolen` (its CAS token is no longer current), so callers see the normal "we lost
 the race" path and skip writing.
 
 Per-backend Steal mechanism:
 
-| Backend | Mechanism |
-|---|---|
-| memory | mutex + `bytes.Equal` + replace |
-| redis | Lua script: `GET == expectedVal ? SET PX ttl : ErrLockStolen` |
-| nats | `kv.Get` → `bytes.Equal` → `kv.Update(key, val, revision)` (revision check protects the Get/Update gap) |
-| mongo | `UpdateOne` filtered on the stored bytes |
+| Backend | Mechanism                                                                                               |
+|---------|---------------------------------------------------------------------------------------------------------|
+| memory  | mutex + `bytes.Equal` + replace                                                                         |
+| redis   | Lua script: `GET == expectedVal ? SET PX ttl : ErrLockStolen`                                           |
+| nats    | `kv.Get` → `bytes.Equal` → `kv.Update(key, val, revision)` (revision check protects the Get/Update gap) |
+| mongo   | `UpdateOne` filtered on the stored bytes                                                                |
 
 Tune via:
 
-| Setting                                 | Effect                                                                                        |
-|-----------------------------------------|-----------------------------------------------------------------------------------------------|
-| `WithMaxLockDuration(d)` (default `5m`) | Keeper-wide threshold for collision-time orphan-reclaim                                       |
-| `AttemptLockOpts{MaxLockDuration: d}`   | Per-call override (positive value wins over Keeper default)                                   |
-| `WithMaxLockDuration(d)` with `d <= 0`  | Ignored — `New` falls back to `5m`; reclaim cannot be disabled through the public API         |
+| Setting                                 | Effect                                                                                |
+|-----------------------------------------|---------------------------------------------------------------------------------------|
+| `WithMaxLockDuration(d)` (default `5m`) | Keeper-wide threshold for collision-time orphan-reclaim                               |
+| `AttemptLockOpts{MaxLockDuration: d}`   | Per-call override (positive value wins over Keeper default)                           |
+| `WithMaxLockDuration(d)` with `d <= 0`  | Ignored — `New` falls back to `5m`; reclaim cannot be disabled through the public API |
 
 Reclaim only triggers on the *next* `AttemptLock` collision; there's no background sweeper. If no caller retries the key, the entry remains
 until the bucket TTL fires (which is the original failure mode without this feature).
 
 ---
 
-## State and `Status`
+## State and `storages.Status`
 
 ```go
 const (
@@ -339,8 +345,8 @@ type State struct {
 
 On `AttemptLock` collision, `state.Status` is the answer to "what's happening with this key right now":
 
-- `StatusInProgress` — another holder is still working. Block, retry, or return 409 to the user.
-- `StatusSuccess` — already completed, `state.Data` is the cached result.
+- `storages.StatusInProgress` — another holder is still working. Block, retry, or return 409 to the user.
+- `storages.StatusSuccess` — already completed, `state.Data` is the cached result.
 
 Callers don't mutate `*State` themselves — write through `Complete(data, state)` and `Keeper` builds the new `Success` payload.
 
@@ -348,13 +354,13 @@ Callers don't mutate `*State` themselves — write through `Complete(data, state
 
 ## Errors
 
-| Error | When |
-|---|---|
-| `ErrEmptyKey` | Empty key passed to AttemptLock/Complete/Release/Delete — silently succeeding would disable dedupe |
-| `ErrMissingLockState` | `Complete(... nil)` or `Release(... nil)` — the state returned by AttemptLock is required for the CAS guard |
-| `ErrLockStolen` | Lock was taken over by another holder between AttemptLock and Complete/Release |
-| `ErrFingerprintMismatch` | The key was recorded with another request fingerprint |
-| `ErrOwnerMismatch` | The key belongs to another owner, or the `ReplayAuthorizer` refused the replay (its error is wrapped) |
+| Error                    | When                                                                                                        |
+|--------------------------|-------------------------------------------------------------------------------------------------------------|
+| `storages.ErrEmptyKey`            | Empty key passed to AttemptLock/Complete/Release/Delete — silently succeeding would disable dedupe          |
+| `storages.ErrMissingLockState`    | `Complete(... nil)` or `Release(... nil)` — the state returned by AttemptLock is required for the CAS guard |
+| `storages.ErrLockStolen`          | Lock was taken over by another holder between AttemptLock and Complete/Release                              |
+| `ErrFingerprintMismatch` | The key was recorded with another request fingerprint                                                       |
+| `ErrOwnerMismatch`       | The key belongs to another owner, or the `ReplayAuthorizer` refused the replay (its error is wrapped)       |
 
 ---
 
@@ -382,13 +388,13 @@ applies to real traffic, not just test code.
 
 Subsystem `idempotency`:
 
-| Metric | Type | Description |
-|---|---|---|
-| `idempotency_locks_acquired_total` | counter | Successful AttemptLock claims |
-| `idempotency_locks_denied_total` | counter | AttemptLock collisions |
-| `idempotency_completions_total` | counter | Successful Complete calls |
-| `idempotency_deletions_total` | counter | Delete calls |
-| `idempotency_errors_total` | counter | Storage errors from any operation |
+| Metric                             | Type    | Description                       |
+|------------------------------------|---------|-----------------------------------|
+| `idempotency_locks_acquired_total` | counter | Successful AttemptLock claims     |
+| `idempotency_locks_denied_total`   | counter | AttemptLock collisions            |
+| `idempotency_completions_total`    | counter | Successful Complete calls         |
+| `idempotency_deletions_total`      | counter | Delete calls                      |
+| `idempotency_errors_total`         | counter | Storage errors from any operation |
 
 Useful ratio: `denied / (denied + acquired)` is the duplicate-detection rate. A spike usually means upstream retries got more aggressive (or broken).
 
@@ -396,7 +402,7 @@ Useful ratio: `denied / (denied + acquired)` is the duplicate-detection rate. A 
 
 ## Failure modes
 
-**`ErrLockStolen` from `Complete`.** Lock TTL expired during processing, another node took over. The current attempt's result is no longer
+**`storages.ErrLockStolen` from `Complete`.** Lock TTL expired during processing, another node took over. The current attempt's result is no longer
 authoritative — drop it silently. Don't retry by re-acquiring; the new holder is doing the work. If this is frequent, raise the lock TTL or
 shorten the operation.
 

@@ -4,7 +4,7 @@
 - **Audience:** Backend engineers, architects, on-call engineers.
 - **Version:** 1.0
 - **Related:** [Concurrency and Consistency Patterns](concurrency-patterns.md), [Message Brokers and Queues](message-brokers.md), [Performance and
-  Profiling](performance-profiling.md), [Metrics Reference](../metrics.md), [Logging (slog)](../observability/slog.md),
+  Profiling](performance-profiling.md), [Metrics Reference](../metrics.md), [go-slogx](https://github.com/altessa-s/go-slogx),
   [Health](../observability/health.md)
 
 ---
@@ -16,10 +16,12 @@ them says exactly where to look or what justifies waking someone up. This guide 
 requirements collected from the other guides.
 
 The difference between monitoring and observability in one sentence: **monitoring answers the questions you thought of in advance; observability lets
-you ask a new question at 3 a.m. without shipping a release.** The first is a dashboard with CPU utilization. The second is the ability to ask "show me
+you ask a new question at 3 a.m. without shipping a release.** The first is a dashboard with CPU utilization. The second is the ability to ask "show
+me
 every request from this customer in the last ten minutes that took longer than a second, and what inside them was slow".
 
-A word on priority up front, because the rollout order is usually chosen wrong. Start not with tracing, however fashionable it is, but with correlation:
+A word on priority up front, because the rollout order is usually chosen wrong. Start not with tracing, however fashionable it is, but with
+correlation:
 `trace_id` in every log line and end-to-end context propagation across every boundary, including the broker. Without it, the three data sources remain
 three unrelated sources, and an investigation turns into matching timestamps by eye.
 
@@ -27,12 +29,12 @@ three unrelated sources, and an investigation turns into matching timestamps by 
 
 ## 1. Signals and what each one answers
 
-| Source | Cost | Question it answers |
-|---|---|---|
-| **Metrics** | Low; volume does not depend on traffic | Is something wrong? How badly? When did it start? |
-| **Traces** | Medium; depends on sampling | Where exactly in the service chain is the problem? |
-| **Logs** | High; grows linearly with traffic | What exactly happened to this request? |
-| **Profiles** | Low with continuous collection | Why is this piece of code expensive? |
+| Source       | Cost                                   | Question it answers                                |
+|--------------|----------------------------------------|----------------------------------------------------|
+| **Metrics**  | Low; volume does not depend on traffic | Is something wrong? How badly? When did it start?  |
+| **Traces**   | Medium; depends on sampling            | Where exactly in the service chain is the problem? |
+| **Logs**     | High; grows linearly with traffic      | What exactly happened to this request?             |
+| **Profiles** | Low with continuous collection         | Why is this piece of code expensive?               |
 
 During an incident, work proceeds top-down: a metric fires the alert, a trace shows which service and which step the time is spent in, a log provides
 the details of the specific case, and a profile explains why the code is slow. Starting with logs is the slowest path available.
@@ -62,14 +64,16 @@ The standard is W3C Trace Context, the `traceparent` header. Over HTTP and gRPC 
 trouble starts where the boundary is crossed not by a call but by a message.
 
 **The asynchronous boundary is where everyone loses context.** An event goes out to NATS, a consumer picks it up, and a new trace starts that is
-unrelated to the original. As a result, the chain "user clicks a button → service writes → event → three consumers → push notification" falls apart into
+unrelated to the original. As a result, the chain "user clicks a button → service writes → event → three consumers → push notification" falls apart
+into
 five independent traces that can only be connected manually by a business identifier.
 
 The fix is to inject the context into message headers on publish and extract it on consume. NATS has headers, Kafka has headers, and this works for
 both.
 
 A subtle point of semantics: a parent-child relationship expresses causality, not waiting, so making the consumer span a child of the publish span is
-valid for single-message processing. For batch consumption and long fan-out chains, start a new trace on the consumer side and attach a **link** to the
+valid for single-message processing. For batch consumption and long fan-out chains, start a new trace on the consumer side and attach a **link** to
+the
 producer's span context: it keeps traces from growing to thousands of spans, and correlation across the distinct trace IDs goes through the links.
 
 ### Mandatory log context
@@ -85,7 +89,8 @@ tell whether a spike of errors relates to the latest rollout.
 
 Why averages are useless is covered in [Performance and Profiling](performance-profiling.md); this section is about implementation.
 
-Prometheus-compatible systems offer two types for distributions. A **histogram** counts observations into buckets on the service side; the percentile is
+Prometheus-compatible systems offer two types for distributions. A **histogram** counts observations into buckets on the service side; the percentile
+is
 computed at query time and aggregates correctly across instances. A **summary** computes percentiles on the service side, and they **cannot** be
 aggregated across instances — the average of the `p99` of ten pods is not the system's `p99`.
 
@@ -95,7 +100,8 @@ Rule: histogram always, summary never. The percentile is computed by a query:
 histogram_quantile(0.99, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m])))
 ```
 
-Bucket boundaries are chosen to match the expected distribution. The default Prometheus buckets are tuned for web requests and fit poorly for operations
+Bucket boundaries are chosen to match the expected distribution. The default Prometheus buckets are tuned for web requests and fit poorly for
+operations
 that take seconds or, conversely, microseconds.
 
 ### Cardinality is the main danger
@@ -103,7 +109,8 @@ that take seconds or, conversely, microseconds.
 Every unique combination of label values creates a separate time series. A metric with a `user_id` label and a million users is a million series, and
 that does not just load the metrics store — it kills it.
 
-**Never put into labels:** user, request, order, or session identifiers; email addresses; IP addresses; full URL paths with parameters; error messages;
+**Never put into labels:** user, request, order, or session identifiers; email addresses; IP addresses; full URL paths with parameters; error
+messages;
 timestamps.
 
 The test: **a label is acceptable if its set of values is finite, small, and does not grow with traffic.** HTTP method — yes. Route template
@@ -115,10 +122,12 @@ Anything needed per identifier lives in logs and traces, not in metrics. That is
 
 **RED for inbound traffic** — per route or gRPC method: request count, error ratio, duration histogram.
 
-**The same for every outbound dependency** — the database, the cache, every service called. Without it, during a slowdown you cannot tell "we are slow"
+**The same for every outbound dependency** — the database, the cache, every service called. Without it, during a slowdown you cannot tell "we are
+slow"
 from "a neighboring service is slowing us down".
 
-**Connection pool** — in use, idle, and time spent waiting in line for a connection. As [Performance and Profiling](performance-profiling.md) explains,
+**Connection pool** — in use, idle, and time spent waiting in line for a connection. As [Performance and Profiling](performance-profiling.md)
+explains,
 pool waits masquerade as slow queries, and without this metric they are indistinguishable.
 
 **Go runtime metrics** — goroutine count, heap size, GC frequency and duration, scheduler latency. They are collected by a ready-made collector; there
@@ -126,7 +135,8 @@ is almost nothing to configure.
 
 **Broker metrics** — consumer lag, number of unacknowledged messages, redelivery rate, DLQ depth.
 
-**Business metrics** in a separate namespace: payments, sign-ups, push notifications sent, credits. They catch what technical metrics miss: the service
+**Business metrics** in a separate namespace: payments, sign-ups, push notifications sent, credits. They catch what technical metrics miss: the
+service
 responds with 200s while payments fail.
 
 ### Naming
@@ -170,7 +180,8 @@ The boundaries must be the same in every service; otherwise an alert on the ERRO
 - **INFO** — significant business events, one or two entries per request. Not an execution trace.
 - **DEBUG** — disabled in production. Enabled selectively and temporarily.
 
-The most common level mistake is `ERROR` for an input validation failure. A user sent malformed JSON — that is `INFO` or `WARN`; there is nothing to act
+The most common level mistake is `ERROR` for an input validation failure. A user sent malformed JSON — that is `INFO` or `WARN`; there is nothing to
+act
 on, and the error ratio on the dashboard is polluted.
 
 ### Log an error once
@@ -181,7 +192,8 @@ levels of the stack.
 The place to log is the top boundary: the HTTP handler, the gRPC interceptor, the message handler. That is also where the error becomes a response
 status. Below it, only wrap with context and return (`fmt.Errorf("...: %w", err)` or the project's equivalent).
 
-> **In go-atlas.** Packages that already use [`core/errors`](../../core/errors) keep its conventions: wrap with `coreerrs.Wrap` / `Wrapf` rather than
+> **In go-atlas.** Packages that already use [`core/errors`](https://github.com/altessa-s/go-atlas-core/tree/develop/errors) keep its conventions:
+> wrap with `coreerrs.Wrap` / `Wrapf` rather than
 > switching to `fmt.Errorf`.
 
 ### What must never appear in logs
@@ -209,7 +221,8 @@ Logs are the most expensive part of observability because their volume grows lin
 
 The industry standard: vendor-neutral and supported everywhere. We do not use vendor SDKs: switching backends must not mean rewriting instrumentation.
 
-Automatic instrumentation covers transports and clients: `otelhttp`, `otelgrpc` (via `StatsHandler`, not the deprecated interceptors), and wrappers for
+Automatic instrumentation covers transports and clients: `otelhttp`, `otelgrpc` (via `StatsHandler`, not the deprecated interceptors), and wrappers
+for
 the Mongo and Redis drivers. This gives you the skeleton of a trace for free.
 
 Manual spans are needed in business logic — where the transport cannot see the structure of the work:
@@ -236,18 +249,22 @@ Tracing everything is expensive in storage and network. There are two approaches
 **Head-based.** The decision is made at the start of the trace, usually at random with a given probability. Cheap, simple, works without a central
 component. The drawback: a failed or slow request is dropped with the same probability as a normal one — so exactly what you need is what gets lost.
 
-**Tail-based.** The decision is made in a collector that buffers spans for a decision window and then applies policies — for example, keep every failed
+**Tail-based.** The decision is made in a collector that buffers spans for a decision window and then applies policies — for example, keep every
+failed
 and every slow trace while sampling successful ones. It works only if all spans of a trace reach the same collector instance (trace-ID-aware routing),
-upstream services export everything (no head sampling before it), and the window and memory are sized for your longest traces; spans arriving after the
+upstream services export everything (no head sampling before it), and the window and memory are sized for your longest traces; spans arriving after
+the
 decision are handled separately. It requires the OTel Collector with the `tail_sampling` processor.
 
-**Our rule:** sample successful fast requests; keep in full every request with an error and every request above the latency threshold. In practice that
+**Our rule:** sample successful fast requests; keep in full every request with an error and every request above the latency threshold. In practice
+that
 means tail-based sampling in the collector. Until you get there — head-based at 5–10% plus forced sampling via a context flag for debugging; keep in
 mind that head sampling cannot recover a failed trace it has already discarded.
 
 ### Exemplars
 
-A mechanism that links a point on a metric graph to a specific trace. You see a spike in the top bucket of a histogram, click it, and land on the trace
+A mechanism that links a point on a metric graph to a specific trace. You see a spike in the top bucket of a histogram, click it, and land on the
+trace
 of a request that fell into it. A cheap feature that drastically shortens the path from "something is wrong" to "there it is".
 
 ---
@@ -281,21 +298,21 @@ over a day — a ticket for working hours). This is an order of magnitude more p
 This table collects the requirements that the other guides left without an owner. The second column names where the requirement comes from: a guide
 in this set, the baseline every service needs, or domain-specific invariants.
 
-| Alert | Source topic |
-|---|---|
-| Error-ratio SLO violation (fast and slow burn) | Baseline |
-| Latency SLO violation | Baseline |
-| Consumer lag growing steadily | [Message brokers](message-brokers.md) |
-| DLQ depth above zero | [Message brokers](message-brokers.md) |
-| Redelivery rate above normal | [Message brokers](message-brokers.md) |
-| Age of the oldest unsent outbox record | [Concurrency](concurrency-patterns.md) |
-| Goroutine count growing under stable load | [Performance](performance-profiling.md) |
-| Connection pool utilization close to the limit | [Performance](performance-profiling.md) |
-| Approaching `GOMEMLIMIT`, OOM restarts | [Performance](performance-profiling.md) |
-| Materialized balance diverging from the sum of ledger entries | Domain-specific |
-| Ratio of failed monetary operations | Domain-specific |
-| Database replication lag | Baseline |
-| Certificate expiry, disk space | Baseline |
+| Alert                                                         | Source topic                            |
+|---------------------------------------------------------------|-----------------------------------------|
+| Error-ratio SLO violation (fast and slow burn)                | Baseline                                |
+| Latency SLO violation                                         | Baseline                                |
+| Consumer lag growing steadily                                 | [Message brokers](message-brokers.md)   |
+| DLQ depth above zero                                          | [Message brokers](message-brokers.md)   |
+| Redelivery rate above normal                                  | [Message brokers](message-brokers.md)   |
+| Age of the oldest unsent outbox record                        | [Concurrency](concurrency-patterns.md)  |
+| Goroutine count growing under stable load                     | [Performance](performance-profiling.md) |
+| Connection pool utilization close to the limit                | [Performance](performance-profiling.md) |
+| Approaching `GOMEMLIMIT`, OOM restarts                        | [Performance](performance-profiling.md) |
+| Materialized balance diverging from the sum of ledger entries | Domain-specific                         |
+| Ratio of failed monetary operations                           | Domain-specific                         |
+| Database replication lag                                      | Baseline                                |
+| Certificate expiry, disk space                                | Baseline                                |
 
 A consumer without a lag alert is considered not configured — that wording comes from [Message Brokers and Queues](message-brokers.md), and it now has
 concrete content.
@@ -309,10 +326,12 @@ on-call engineer's memory, and on-call engineers rotate.
 
 ## 7. Dashboards
 
-**One standard overview dashboard per service**, with the same structure for all: RED for inbound traffic, RED for each dependency, runtime, resources.
+**One standard overview dashboard per service**, with the same structure for all: RED for inbound traffic, RED for each dependency, runtime,
+resources.
 Uniformity matters more than completeness — the on-call engineer should not have to learn a new layout for every service.
 
-Distinguish two dashboard types. An **on-call** dashboard answers "is everything fine" from three meters away: few graphs, large, understandable without
+Distinguish two dashboard types. An **on-call** dashboard answers "is everything fine" from three meters away: few graphs, large, understandable
+without
 context. An **investigation** dashboard is for analysis and can be as detailed as needed.
 
 No dashboard should show average latency. Percentiles only.
@@ -373,18 +392,18 @@ A reasonable retention baseline: metrics for a year with reduced resolution, tra
 
 ## 11. Defaults
 
-| Layer | Decision |
-|---|---|
-| Metrics | VictoriaMetrics, Prometheus format |
-| Logs | `log/slog`, JSON, shipped to ClickHouse or VictoriaLogs |
-| Tracing | OpenTelemetry, exported via the OTel Collector |
-| Profiles | Pyroscope, continuous collection |
-| Visualization and alerting | Grafana |
-| Context format | W3C Trace Context, `traceparent` |
-| Context over NATS | Injected into message headers, connected via a link |
-| Trace sampling | Tail-based: all failed and slow, successful ones selectively |
-| Timestamps in logs | RFC 3339 in UTC |
-| Probes | Liveness without external dependencies, readiness with them |
+| Layer                      | Decision                                                     |
+|----------------------------|--------------------------------------------------------------|
+| Metrics                    | VictoriaMetrics, Prometheus format                           |
+| Logs                       | `log/slog`, JSON, shipped to ClickHouse or VictoriaLogs      |
+| Tracing                    | OpenTelemetry, exported via the OTel Collector               |
+| Profiles                   | Pyroscope, continuous collection                             |
+| Visualization and alerting | Grafana                                                      |
+| Context format             | W3C Trace Context, `traceparent`                             |
+| Context over NATS          | Injected into message headers, connected via a link          |
+| Trace sampling             | Tail-based: all failed and slow, successful ones selectively |
+| Timestamps in logs         | RFC 3339 in UTC                                              |
+| Probes                     | Liveness without external dependencies, readiness with them  |
 
 ---
 
@@ -428,5 +447,6 @@ individual events, and counter resets on restarts make exact totals unreliable.
 ignore it" is the most dangerous: the habit of ignoring spreads to the whole channel.
 
 **How much should traces be sampled?** Start with 10% head-based sampling; keeping all failed traces requires tail-based sampling. Then watch storage
-volume and how often the trace you need turns out to be missing during an investigation. If it is missing regularly, move to tail-based sampling rather
+volume and how often the trace you need turns out to be missing during an investigation. If it is missing regularly, move to tail-based sampling
+rather
 than raising the percentage.

@@ -10,12 +10,15 @@
 
 ## 0. About this guide
 
-This guide covers how message brokers differ from one another and which one to choose for a given task. Read sections 1–2 before design work. Section 3
-explains the concepts that cause the most confusion, sections 4–7 cover specific products, and section 8 describes the patterns without which any broker
+This guide covers how message brokers differ from one another and which one to choose for a given task. Read sections 1–2 before design work. Section
+3
+explains the concepts that cause the most confusion, sections 4–7 cover specific products, and section 8 describes the patterns without which any
+broker
 turns into a source of incidents.
 
 The key difference from choosing a database: **a database fails loudly, a broker fails silently.** A poorly chosen database immediately hits a latency
-wall or lacks a query you need, and that is visible. A misconfigured broker runs for years while silently losing one message in three thousand, and the
+wall or lacks a query you need, and that is visible. A misconfigured broker runs for years while silently losing one message in three thousand, and
+the
 problem surfaces only when a customer asks why a payment was never credited. For brokers, therefore, a mistake in delivery semantics costs more than a
 mistake in product choice.
 
@@ -26,20 +29,20 @@ Kafka affects the architecture far less than the answer to the question "what ha
 
 ## 1. Selection criteria
 
-| Criterion | What to clarify |
-|---|---|
-| **Delivery semantics** | Is losing a message acceptable? Is a duplicate acceptable? Which is more expensive? |
-| **Ordering** | Is global ordering required, per-key ordering, or none at all? |
-| **Consumption model** | Each message to one handler (queue) or to all subscribers (bus)? |
-| **Retention** | Does a message disappear after processing, or is the log kept and replayable? |
-| **Throughput** | Hundreds per second, tens of thousands, millions? |
-| **Latency** | Single-digit milliseconds, or are seconds acceptable? |
-| **Message size** | Kilobytes or megabytes? Are there attachments? |
-| **Number of topics** | Dozens, or hundreds of thousands created dynamically? |
-| **Fan-out** | How many independent consumers does one event have, and will new ones appear? |
-| **Replay** | Will a new service need to reread the history from the beginning? |
-| **Operations** | Who administers it, how is it upgraded, what happens on split-brain, how is a node loss survived? |
-| **Transactionality** | Must the message be published atomically with a database write? |
+| Criterion              | What to clarify                                                                                   |
+|------------------------|---------------------------------------------------------------------------------------------------|
+| **Delivery semantics** | Is losing a message acceptable? Is a duplicate acceptable? Which is more expensive?               |
+| **Ordering**           | Is global ordering required, per-key ordering, or none at all?                                    |
+| **Consumption model**  | Each message to one handler (queue) or to all subscribers (bus)?                                  |
+| **Retention**          | Does a message disappear after processing, or is the log kept and replayable?                     |
+| **Throughput**         | Hundreds per second, tens of thousands, millions?                                                 |
+| **Latency**            | Single-digit milliseconds, or are seconds acceptable?                                             |
+| **Message size**       | Kilobytes or megabytes? Are there attachments?                                                    |
+| **Number of topics**   | Dozens, or hundreds of thousands created dynamically?                                             |
+| **Fan-out**            | How many independent consumers does one event have, and will new ones appear?                     |
+| **Replay**             | Will a new service need to reread the history from the beginning?                                 |
+| **Operations**         | Who administers it, how is it upgraded, what happens on split-brain, how is a node loss survived? |
+| **Transactionality**   | Must the message be published atomically with a database write?                                   |
 
 The answer to the last question is almost always "yes", and it is almost always forgotten. See section 8, transactional outbox.
 
@@ -47,19 +50,19 @@ The answer to the last question is almost always "yes", and it is almost always 
 
 ## 2. Quick reference
 
-| Task | Primary choice | Alternative |
-|---|---|---|
-| Events between microservices, integration | NATS JetStream | Kafka, RabbitMQ |
-| Background jobs within a single service | PostgreSQL + `SKIP LOCKED` | asynq (Redis), NATS WorkQueue |
-| Event log with long retention and replay | Kafka | NATS JetStream with long retention, Pulsar |
-| Complex routing, priorities, per-message TTL | RabbitMQ | — |
-| Device telemetry, IoT, beacons | MQTT (EMQX, Mosquitto) | NATS with leaf nodes |
-| Analytics stream into ClickHouse | NATS JetStream or Kafka | Direct batch insert |
-| Real-time notifications without guarantees | NATS Core, Redis Pub/Sub | WebSocket directly |
-| Orchestration of long-running business processes, sagas | Temporal | Hand-written sagas on JetStream |
-| Deferred execution, scheduling | River / asynq | Broker with delayed queues |
-| CDC from the database to the bus | Debezium | MongoDB change streams |
-| Queue in AWS with zero operations | SQS + SNS | EventBridge |
+| Task                                                    | Primary choice             | Alternative                                |
+|---------------------------------------------------------|----------------------------|--------------------------------------------|
+| Events between microservices, integration               | NATS JetStream             | Kafka, RabbitMQ                            |
+| Background jobs within a single service                 | PostgreSQL + `SKIP LOCKED` | asynq (Redis), NATS WorkQueue              |
+| Event log with long retention and replay                | Kafka                      | NATS JetStream with long retention, Pulsar |
+| Complex routing, priorities, per-message TTL            | RabbitMQ                   | —                                          |
+| Device telemetry, IoT, beacons                          | MQTT (EMQX, Mosquitto)     | NATS with leaf nodes                       |
+| Analytics stream into ClickHouse                        | NATS JetStream or Kafka    | Direct batch insert                        |
+| Real-time notifications without guarantees              | NATS Core, Redis Pub/Sub   | WebSocket directly                         |
+| Orchestration of long-running business processes, sagas | Temporal                   | Hand-written sagas on JetStream            |
+| Deferred execution, scheduling                          | River / asynq              | Broker with delayed queues                 |
+| CDC from the database to the bus                        | Debezium                   | MongoDB change streams                     |
+| Queue in AWS with zero operations                       | SQS + SNS                  | EventBridge                                |
 
 ---
 
@@ -101,7 +104,8 @@ Global ordering and horizontal scaling are incompatible. What actually exists:
 - **Ordering within a subject.** JetStream preserves order within a stream; an ordered consumer guarantees sequential reads without gaps.
 - **No ordering at all.** SQS Standard, RabbitMQ with multiple consumers, any queue with competing workers.
 
-A separate trap: **a retry breaks ordering even where it is guaranteed.** A message fails and is scheduled for a retry in 30 s; meanwhile, the next ten
+A separate trap: **a retry breaks ordering even where it is guaranteed.** A message fails and is scheduled for a retry in 30 s; meanwhile, the next
+ten
 messages go through. If ordering is critical, the retry must block the partition, which means head-of-line blocking with all its consequences.
 
 ### Push and pull
@@ -127,10 +131,12 @@ This is our primary broker, so it is covered in more detail.
 
 ### NATS Core
 
-Plain pub/sub without persistence. A message goes to the subscribers that are online right now; if there are none, it disappears. Latency is a fraction
+Plain pub/sub without persistence. A message goes to the subscribers that are online right now; if there are none, it disappears. Latency is a
+fraction
 of a millisecond, throughput reaches millions of messages per second on modest hardware, and the server is about 20 MB and runs as a single binary.
 
-Subjects are hierarchical, with wildcards: `orders.created`, `orders.*.updated`, `devices.>`. This is more convenient than Kafka's flat topic namespace
+Subjects are hierarchical, with wildcards: `orders.created`, `orders.*.updated`, `devices.>`. This is more convenient than Kafka's flat topic
+namespace
 and lets you subscribe to slices without creating new entities.
 
 It also has built-in request-reply: `nc.Request()` sends a message and waits for a reply on a temporary inbox subject. The result is RPC over the bus
@@ -145,31 +151,38 @@ A persistence layer on top of Core. It provides what teams usually look to Kafka
 
 What matters at design time:
 
-**Streams and retention.** A stream collects messages by subject and stores them under one of three policies. `Limits` is a regular log bounded by time,
+**Streams and retention.** A stream collects messages by subject and stores them under one of three policies. `Limits` is a regular log bounded by
+time,
 size, or message count; any number of independent consumers can read it. `WorkQueue` deletes a message once it is acknowledged, giving a classic job
 queue. `Interest` keeps a message while there are interested consumers. The policy determines whether you have a log or a queue, and changing it later
 is painful.
 
-**Deduplication.** The `Nats-Msg-Id` header plus a deduplication window (two minutes by default, configurable). A producer that retries a publish after
-a timeout will not create a duplicate. It is cheap and eliminates a whole class of problems — always use it. The identifier must be unique per event (an
+**Deduplication.** The `Nats-Msg-Id` header plus a deduplication window (two minutes by default, configurable). A producer that retries a publish
+after
+a timeout will not create a duplicate. It is cheap and eliminates a whole class of problems — always use it. The identifier must be unique per event (
+an
 event ID or outbox-record ID) and persisted, so every retry reuses it; a UUID generated once and stored is fine, while an ID derived from the entity
 alone suppresses distinct events for that entity.
 
 **Consumers.** A durable pull consumer with `AckExplicit`, `MaxDeliver`, and a configured `BackOff` is the standard setup. When `BackOff` is set it
 overrides `AckWait`, so size `BackOff[0]` with ample headroom over the actual processing time; otherwise you get spurious redeliveries under load. A
-plain `Nak()` redelivers immediately and bypasses the backoff; use `NakWithDelay` for delayed retries. Messages that reach `MaxDeliver` emit an advisory
+plain `Nak()` redelivers immediately and bypasses the backoff; use `NakWithDelay` for delayed retries. Messages that reach `MaxDeliver` emit an
+advisory
 on `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.<stream>.<consumer>` (subscribe to `...MAX_DELIVERIES.>` for all consumers); hook a DLQ-stream transfer
 and an alert onto it.
 
-**Clustering.** Raft, with R1, R3, or R5 replicas at the stream level. We do not use R1 in production even for "unimportant" data: losing the node means
+**Clustering.** Raft, with R1, R3, or R5 replicas at the stream level. We do not use R1 in production even for "unimportant" data: losing the node
+means
 losing the stream.
 
-**KV and Object Store.** On top of streams, JetStream provides a key-value store with watch and an object store. KV is convenient for configuration with
+**KV and Object Store.** On top of streams, JetStream provides a key-value store with watch and an object store. KV is convenient for configuration
+with
 change subscriptions and for distributed leader election. It does not replace a full Redis, but it removes an extra dependency where only a little is
 needed.
 
 **Limitations to know in advance.** The default maximum message size is 1 MB (it can be raised, but going above 8 MB is not recommended — use a claim
-check). There is no ecosystem comparable to Kafka Connect: connectors to external systems are written by hand. There is also no stream processing in the
+check). There is no ecosystem comparable to Kafka Connect: connectors to external systems are written by hand. There is also no stream processing in
+the
 style of Kafka Streams or Flink.
 
 **Go:** `nats-io/nats.go`, using the new `jetstream` API instead of the deprecated `nc.JetStream()`.
@@ -184,7 +197,8 @@ A partitioned distributed log. A topic is split into partitions, each partition 
 among themselves. Ordering is guaranteed within a partition, and the message key determines the partition.
 
 Strengths: throughput of millions of messages per second, retention for years if needed, log compaction (keep only the latest value per key, which
-yields a state snapshot in a topic), transactions for exactly-once within Kafka, and a huge ecosystem — Connect for integrations, Streams and Flink for
+yields a state snapshot in a topic), transactions for exactly-once within Kafka, and a huge ecosystem — Connect for integrations, Streams and Flink
+for
 stream processing, Schema Registry for contracts.
 
 Choose it when you specifically need a log with long retention and replay, when an event has many consumers that appear over time, when volumes are in
@@ -210,8 +224,10 @@ librdkafka).
 
 ### Redpanda
 
-Kafka-compatible at the protocol level, written in C++ without a JVM, with a thread-per-core architecture and no ZooKeeper/KRaft machinery. Latency and
-hardware consumption are noticeably better, operations are simpler, and Kafka clients work as is. If the decision "we need Kafka" has already been made,
+Kafka-compatible at the protocol level, written in C++ without a JVM, with a thread-per-core architecture and no ZooKeeper/KRaft machinery. Latency
+and
+hardware consumption are noticeably better, operations are simpler, and Kafka clients work as is. If the decision "we need Kafka" has already been
+made,
 consider Redpanda before deploying Kafka itself. Check the license: part of the functionality is under the BSL.
 
 ### Apache Pulsar
@@ -229,8 +245,10 @@ community and talent pool. We do not choose it without a specific reason.
 A classic broker based on the AMQP model: the producer writes to an exchange, the exchange distributes messages to queues according to binding rules,
 and consumers read from the queues.
 
-Its main advantage over the others is **routing**. Direct, topic, fanout, and headers exchanges let you express delivery logic declaratively, in broker
-configuration rather than in code. It also offers message priorities, per-message TTL, a dead-letter exchange out of the box, and delayed delivery via a
+Its main advantage over the others is **routing**. Direct, topic, fanout, and headers exchanges let you express delivery logic declaratively, in
+broker
+configuration rather than in code. It also offers message priorities, per-message TTL, a dead-letter exchange out of the box, and delayed delivery via
+a
 plugin.
 
 Worth knowing:
@@ -258,11 +276,13 @@ result is a perfectly workable persistent queue with at-least-once delivery.
 Reasonable when Redis is already deployed, volumes are moderate, and you do not want to run a separate broker. The limitation is the same as for Redis
 in general: everything lives in memory, so long retention is not its strength.
 
-**Redis Pub/Sub is not a queue.** No persistence, no acknowledgments: if a subscriber is offline, the message is gone. It is fine for cache invalidation
+**Redis Pub/Sub is not a queue.** No persistence, no acknowledgments: if a subscriber is offline, the message is gone. It is fine for cache
+invalidation
 and live updates and unsuitable for anything that must not be lost. These two are confused regularly.
 
 Lists as a queue work with caveats. `BLPOP` is destructive: a crashed worker takes its message with it. `LMOVE` into a per-worker processing list,
-followed by `LREM` as the acknowledgment and a sweeper for stale entries, gives a reliable queue — but you build acks and recovery yourself. If you use
+followed by `LREM` as the acknowledgment and a sweeper for stale entries, gives a reliable queue — but you build acks and recovery yourself. If you
+use
 Redis, prefer Streams.
 
 ### MQTT: Mosquitto, EMQX, VerneMQ, NanoMQ
@@ -270,7 +290,8 @@ Redis, prefer Streams.
 A protocol for devices: a compact binary format, operation over unstable links, minimal overhead. For our IoT and BLE components, it is the primary
 option, not an alternative.
 
-What the protocol provides: three QoS levels (0 — no guarantee, 1 — at least once, 2 — exactly once via a four-step handshake), retained messages (a new
+What the protocol provides: three QoS levels (0 — no guarantee, 1 — at least once, 2 — exactly once via a four-step handshake), retained messages (a
+new
 subscriber immediately receives the last known value for a topic — ideal for sensor state), Last Will and Testament (the broker itself publishes a
 message if a device disconnects without saying goodbye), persistent sessions, and topic wildcards `+` and `#`. MQTT 5 added session expiry, shared
 subscriptions, and request-response.
@@ -278,7 +299,8 @@ subscriptions, and request-response.
 Choosing a broker: **Mosquitto** — single node, lightweight, for small deployments and development. **EMQX** — clustered, millions of concurrent
 connections, routing rules, bridges to Kafka and databases. **NanoMQ** — for the edge and gateways on low-end hardware.
 
-The typical setup: devices speak MQTT to the broker, the broker bridges the stream into NATS or Kafka, and from there these are ordinary events for the
+The typical setup: devices speak MQTT to the broker, the broker bridges the stream into NATS or Kafka, and from there these are ordinary events for
+the
 backend. Do not pull MQTT deeper into the service layer, just as you should not force devices to speak AMQP.
 
 ### PostgreSQL as a queue
@@ -291,20 +313,24 @@ FOR UPDATE SKIP LOCKED
 LIMIT 10;
 ```
 
-An underrated option. It provides something no broker does: **enqueueing a job in the same transaction as the business data change.** No outbox, no dual
+An underrated option. It provides something no broker does: **enqueueing a job in the same transaction as the business data change.** No outbox, no
+dual
 write, no drift. In addition, jobs are visible with plain SQL, can be fixed with an `UPDATE`, and the whole history stays in the database.
 
 It handles thousands of jobs per second, which is almost always enough for background jobs within a service. Limitations: it is not a bus between
 services, vacuum needs attention under high churn, and latency is determined by the polling interval (or `LISTEN/NOTIFY` if a faster reaction is
 needed).
 
-**Go:** `riverqueue/river` — a mature implementation with retries, priorities, scheduling, and job uniqueness. There is no need to write your own on top
+**Go:** `riverqueue/river` — a mature implementation with retries, priorities, scheduling, and job uniqueness. There is no need to write your own on
+top
 of `SKIP LOCKED`.
 
 ### Task queues in Go
 
-`asynq` on top of Redis — jobs, scheduling, retries with backoff, a web UI. A good option for background jobs if Postgres is unsuitable for some reason.
-`watermill` is not a broker but an abstraction layer over different brokers; it is useful when the transport may change, but you pay for that generality
+`asynq` on top of Redis — jobs, scheduling, retries with backoff, a web UI. A good option for background jobs if Postgres is unsuitable for some
+reason.
+`watermill` is not a broker but an abstraction layer over different brokers; it is useful when the transport may change, but you pay for that
+generality
 by losing the specifics of a particular broker.
 
 ### Temporal
@@ -318,8 +344,10 @@ become painful. The cost is one more serious component to operate.
 
 ### Cloud services
 
-**SQS.** Standard — at-least-once without ordering, practically unlimited throughput. FIFO — ordering within a message group and deduplication, but with
-rate limits. The consumer acknowledges by calling `DeleteMessage` after successful processing; until then the visibility timeout hides the message, and
+**SQS.** Standard — at-least-once without ordering, practically unlimited throughput. FIFO — ordering within a message group and deduplication, but
+with
+rate limits. The consumer acknowledges by calling `DeleteMessage` after successful processing; until then the visibility timeout hides the message,
+and
 it reappears if not deleted. A declaratively configured DLQ, messages up to 1 MiB. Zero operations. AWS only.
 
 **SNS.** Fan-out over SQS, HTTP, and Lambda. SQS and SNS together implement the "one event — many independent queues" pattern.
@@ -348,18 +376,23 @@ A problem everyone has and notices late. A service writes an order to the databa
 and crashes before committing the transaction. Atomically writing to the database and sending to the broker is impossible — these are two different
 systems.
 
-The solution: the event is written to an `outbox` table or collection **in the same transaction** as the business data. A separate process (a poller or
+The solution: the event is written to an `outbox` table or collection **in the same transaction** as the business data. A separate process (a poller
+or
 CDC) reads the outbox, publishes to the broker, and marks entries as sent. Publication is at-least-once; duplicates are removed by broker-side
 deduplication or consumer idempotency.
 
-In MongoDB, a change stream on the outbox collection reduces delivery latency: the event goes to the broker at the moment the transaction commits rather
+In MongoDB, a change stream on the outbox collection reduces delivery latency: the event goes to the broker at the moment the transaction commits
+rather
 than on the next poller tick. It requires a replica set or a sharded cluster — a standalone `mongod` has no oplog, and the stream will not open. The
-stream **cannot** replace the poller, however: retry-backoff expiry and stale-lock release are time-driven, produce no insert, and are invisible to the
+stream **cannot** replace the poller, however: retry-backoff expiry and stale-lock release are time-driven, produce no insert, and are invisible to
+the
 stream. The change stream therefore runs on top of the poller, not instead of it — the stream shortens the typical case, and the poller remains the
 guarantee. In Postgres, the poller role is played by a regular `SKIP LOCKED` query on the table.
 
-The counterpart is the **inbox**: the consumer writes the identifier of the processed message into a table with a unique index, in the same transaction
-as the processing result. A redelivery hits the conflict and is discarded. This is the simplest way to achieve idempotency when the operation itself is
+The counterpart is the **inbox**: the consumer writes the identifier of the processed message into a table with a unique index, in the same
+transaction
+as the processing result. A redelivery hits the conflict and is discarded. This is the simplest way to achieve idempotency when the operation itself
+is
 inherently non-idempotent.
 
 ### Idempotency
@@ -383,7 +416,8 @@ will not fix it.
 
 ### Claim check
 
-Do not put messages larger than a megabyte into the broker. The file goes to MinIO, and the message carries a reference and a checksum. This applies to
+Do not put messages larger than a megabyte into the broker. The file goes to MinIO, and the message carries a reference and a checksum. This applies
+to
 attachments, large exports, and the base64 images that periodically try to ride along in the payload.
 
 ### Head-of-line blocking
@@ -400,7 +434,8 @@ component, but the process is visible in one place. For three or four steps, use
 ### Event versioning
 
 An event is a public contract between services, and it outlives the code that produced it. Rules: add new fields only as optional; never remove or
-rename existing ones; version the event type in the subject name or in a header; keep the schema in one place and review it separately from the code. An
+rename existing ones; version the event type in the subject name or in a header; keep the schema in one place and review it separately from the code.
+An
 event in a log with a one-year retention must still be readable a year later.
 
 ---
@@ -409,14 +444,14 @@ event in a log with a one-year retention must still be readable a year later.
 
 This is the only normative section.
 
-| Task | What we use |
-|---|---|
-| Events between microservices, sagas, integration | NATS JetStream |
-| Background jobs within a service | PostgreSQL + `SKIP LOCKED` (River) |
-| Live updates, presence, cache invalidation | NATS Core |
-| Telemetry from devices and beacons | MQTT bridged into NATS |
-| Event stream into ClickHouse | NATS JetStream, with a consumer that batches inserts |
-| Configuration with change subscriptions | JetStream KV |
+| Task                                             | What we use                                          |
+|--------------------------------------------------|------------------------------------------------------|
+| Events between microservices, sagas, integration | NATS JetStream                                       |
+| Background jobs within a service                 | PostgreSQL + `SKIP LOCKED` (River)                   |
+| Live updates, presence, cache invalidation       | NATS Core                                            |
+| Telemetry from devices and beacons               | MQTT bridged into NATS                               |
+| Event stream into ClickHouse                     | NATS JetStream, with a consumer that batches inserts |
+| Configuration with change subscriptions          | JetStream KV                                         |
 
 **Rules for new services.**
 
@@ -434,7 +469,8 @@ This is the only normative section.
 
 1. **The broker as a database.** "Kafka stores everything, why do we need a database?" ends with having to replay an entire topic to answer a simple
    question.
-2. **A queue where a synchronous response is needed.** If the caller is waiting for the result, it is RPC. Asynchrony adds complexity and gains nothing.
+2. **A queue where a synchronous response is needed.** If the caller is waiting for the result, it is RPC. Asynchrony adds complexity and gains
+   nothing.
 3. **At-least-once without idempotency.** Works only until the first network failure, and the consequences show up in financial reports a month later.
 4. **Publishing without an outbox.** The gap between commit and send always exists; the only question is when it will bite.
 5. **Assuming ordering where there is none.** Especially after adding a second consumer to the group.
@@ -452,19 +488,19 @@ This is the only normative section.
 
 ## 11. Summary table
 
-| Broker | Model | Persistence | Ordering | Throughput | Replay | Operational complexity |
-|---|---|---|---|---|---|---|
-| NATS Core | Pub/Sub | No | No | Millions/s | No | Minimal |
-| NATS JetStream | Log and queue | Yes | Within a stream | Hundreds of thousands/s | Yes | Low |
-| Kafka | Log | Yes | Within a partition | Millions/s | Yes | High |
-| Redpanda | Log (Kafka API) | Yes | Within a partition | Millions/s | Yes | Medium |
-| Pulsar | Log and queue | Yes | Within a partition | Millions/s | Yes | High |
-| RabbitMQ | Queue and routing | Yes | Within a queue | Tens of thousands/s | Streams only | Medium |
-| Redis Streams | Log | In memory | Within a stream | Hundreds of thousands/s | Up to MAXLEN | Low |
-| Redis Pub/Sub | Pub/Sub | No | No | High | No | Low |
-| MQTT (EMQX) | Pub/Sub with QoS | Optional | Within a topic at QoS 1–2 | Hundreds of thousands/s | Retained messages | Medium |
-| PostgreSQL SKIP LOCKED | Queue | Yes | By `ORDER BY` | Thousands/s | Yes, it is a table | None (the database already exists) |
-| SQS | Queue | Yes | FIFO only | High | No | None (SaaS) |
+| Broker                 | Model             | Persistence | Ordering                  | Throughput              | Replay             | Operational complexity             |
+|------------------------|-------------------|-------------|---------------------------|-------------------------|--------------------|------------------------------------|
+| NATS Core              | Pub/Sub           | No          | No                        | Millions/s              | No                 | Minimal                            |
+| NATS JetStream         | Log and queue     | Yes         | Within a stream           | Hundreds of thousands/s | Yes                | Low                                |
+| Kafka                  | Log               | Yes         | Within a partition        | Millions/s              | Yes                | High                               |
+| Redpanda               | Log (Kafka API)   | Yes         | Within a partition        | Millions/s              | Yes                | Medium                             |
+| Pulsar                 | Log and queue     | Yes         | Within a partition        | Millions/s              | Yes                | High                               |
+| RabbitMQ               | Queue and routing | Yes         | Within a queue            | Tens of thousands/s     | Streams only       | Medium                             |
+| Redis Streams          | Log               | In memory   | Within a stream           | Hundreds of thousands/s | Up to MAXLEN       | Low                                |
+| Redis Pub/Sub          | Pub/Sub           | No          | No                        | High                    | No                 | Low                                |
+| MQTT (EMQX)            | Pub/Sub with QoS  | Optional    | Within a topic at QoS 1–2 | Hundreds of thousands/s | Retained messages  | Medium                             |
+| PostgreSQL SKIP LOCKED | Queue             | Yes         | By `ORDER BY`             | Thousands/s             | Yes, it is a table | None (the database already exists) |
+| SQS                    | Queue             | Yes         | FIFO only                 | High                    | No                 | None (SaaS)                        |
 
 ---
 
@@ -491,16 +527,19 @@ This is the only normative section.
 second, a need to keep an event log for months with replay for new consumers, or a need for the Connect ecosystem and stream processing. "We have more
 events now" is not a reason on its own.
 
-**Can we use NATS alone, without Postgres queues?** You can, but you should not. A background job within a service, enqueued in the same transaction as
+**Can we use NATS alone, without Postgres queues?** You can, but you should not. A background job within a service, enqueued in the same transaction
+as
 the business data, is simpler and more reliable in the database than through a broker with an outbox. The broker is for inter-service communication.
 
 **Do we need an outbox if the broker has deduplication?** Yes. Deduplication solves repeated publication; the outbox solves publication that never
 happened at all. These are different failures.
 
 **What if the broker goes down?** The answer must be built into the service design in advance. Options: reject the caller (if the event is critical),
-store it in a local buffer (bbolt, the outbox table) and resend after recovery, or degrade functionality. Silently losing it is not an option, yet that
+store it in a local buffer (bbolt, the outbox table) and resend after recovery, or degrade functionality. Silently losing it is not an option, yet
+that
 is exactly what happens by default.
 
-**How many partitions or consumers should we configure?** Start with a number equal to the planned processing parallelism and leave headroom: in Kafka,
+**How many partitions or consumers should we configure?** Start with a number equal to the planned processing parallelism and leave headroom: in
+Kafka,
 partitions are easy to add and impossible to remove. In JetStream, parallelism is controlled by the number of instances on a pull consumer and can be
 changed freely.

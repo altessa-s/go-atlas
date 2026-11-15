@@ -12,7 +12,8 @@
 
 This is the document you open when something already hurts. It is therefore structured not as a reference but as a sequence of steps.
 
-The central thesis, from which everything else follows: **do not optimize without measuring.** Intuition about performance is systematically wrong, and
+The central thesis, from which everything else follows: **do not optimize without measuring.** Intuition about performance is systematically wrong,
+and
 wrong in a predictable direction — people optimize what they understand, not what is slow. The classic outcome of a week of work is a carefully
 accelerated function that accounts for half a percent of the time, while a `COLLSCAN` is alive and well in the neighboring module.
 
@@ -28,7 +29,8 @@ The workflow is always the same:
 4. Change one thing.
 5. Measure again and compare.
 
-Step 4 is violated most often. Three changes at once produce a speedup of unknown origin, and a month later nobody remembers which of them can be rolled
+Step 4 is violated most often. Three changes at once produce a speedup of unknown origin, and a month later nobody remembers which of them can be
+rolled
 back.
 
 ---
@@ -37,7 +39,8 @@ back.
 
 ### The average is useless
 
-Average latency hides exactly what you care about. A service with a 40 ms mean response time can have a `p99` of three seconds, and those three seconds
+Average latency hides exactly what you care about. A service with a 40 ms mean response time can have a `p99` of three seconds, and those three
+seconds
 are seen by every hundredth user — and with ten requests per page, by every tenth.
 
 Look at percentiles: `p50`, `p95`, `p99`, and `p99.9` when tails matter. Compare instances and time periods by percentiles as well, not by averages.
@@ -50,7 +53,8 @@ monitoring system does this, you are looking at a number that means nothing.
 For a service, use **RED**: Rate (requests per second), Errors (error ratio), Duration (latency distribution). Three graphs per service; anything else
 as circumstances require.
 
-For a resource, use **USE**: Utilization (how busy it is), Saturation (depth of the wait queue), Errors. Utilization without saturation is misleading: a
+For a resource, use **USE**: Utilization (how busy it is), Saturation (depth of the wait queue), Errors. Utilization without saturation is misleading:
+a
 disk at 70% utilization with a queue of forty operations performs worse than one at 95% with no queue.
 
 ### Tail latency multiplies
@@ -64,16 +68,19 @@ typical case, not a rare one.
 
 ### Little's law
 
-`L = λ × W`: the number of requests in the system equals the arrival rate multiplied by the processing time. Useful as a back-of-the-envelope estimate:
+`L = λ × W`: the number of requests in the system equals the arrival rate multiplied by the processing time. Useful as a back-of-the-envelope
+estimate:
 at 500 rps and 200 ms of processing, about 100 requests are in flight at any moment. If the database connection pool holds 20, you already know where
 the queue is.
 
 ### Coordinated omission
 
-A load-testing trap. A tool that sends the next request only after receiving the response to the previous one (a closed model) simply stops loading the
+A load-testing trap. A tool that sends the next request only after receiving the response to the previous one (a closed model) simply stops loading
+the
 system during a stall and never records how bad things got. The result is pretty graphs for a service that has actually degraded.
 
-A load test needs an open model: requests arrive at a fixed rate regardless of whether the system is responding. `k6` and `vegeta` support this, but it
+A load test needs an open model: requests arrive at a fixed rate regardless of whether the system is responding. `k6` and `vegeta` support this, but
+it
 has to be configured explicitly.
 
 ---
@@ -93,20 +100,21 @@ go func() {
 }()
 ```
 
-The import registers handlers on `http.DefaultServeMux`. **Do not expose them on a public port**: a profile reveals memory contents, function names, and
+The import registers handlers on `http.DefaultServeMux`. **Do not expose them on a public port**: a profile reveals memory contents, function names,
+and
 code structure, and `/debug/pprof/profile` also costs CPU time under load. Use an internal port reachable only from inside the cluster.
 
 ### Profile types
 
-| Profile | What it shows | When to capture |
-|---|---|---|
-| `profile` | Where CPU time is spent (30 s sampling) | High CPU usage |
-| `heap` | Live objects in memory right now | Growing RSS, suspected leak |
-| `allocs` | All allocations since process start | GC pressure, lots of garbage |
-| `goroutine` | Stacks of all goroutines | Suspected goroutine leak, hang |
-| `block` | Where goroutines wait on synchronization | Latency while the CPU is idle |
-| `mutex` | Mutex contention | Poor scaling across cores |
-| `threadcreate` | OS thread creation | Rarely; when blocking calls are suspected |
+| Profile        | What it shows                            | When to capture                           |
+|----------------|------------------------------------------|-------------------------------------------|
+| `profile`      | Where CPU time is spent (30 s sampling)  | High CPU usage                            |
+| `heap`         | Live objects in memory right now         | Growing RSS, suspected leak               |
+| `allocs`       | All allocations since process start      | GC pressure, lots of garbage              |
+| `goroutine`    | Stacks of all goroutines                 | Suspected goroutine leak, hang            |
+| `block`        | Where goroutines wait on synchronization | Latency while the CPU is idle             |
+| `mutex`        | Mutex contention                         | Poor scaling across cores                 |
+| `threadcreate` | OS thread creation                       | Rarely; when blocking calls are suspected |
 
 `block` and `mutex` are disabled by default and must be enabled explicitly:
 
@@ -161,7 +169,8 @@ go tool trace trace.out
 
 Five seconds is already a lot: the file grows fast and the overhead during collection is significant. Collect in short windows.
 
-What to look for: goroutines waiting while processors are free (meaning they are blocked on an external system or a lock), long GC pauses, and scheduler
+What to look for: goroutines waiting while processors are free (meaning they are blocked on an external system or a lock), long GC pauses, and
+scheduler
 latency between "runnable" and "running" (meaning `GOMAXPROCS` is too low or the CPU is taken by neighbors).
 
 To annotate your own code, use regions and tasks; they appear on the timeline:
@@ -231,7 +240,8 @@ alongside your code and eats CPU.
 `GOGC` (default 100) sets how much the heap may grow relative to live data before the next collection. One hundred means doubling.
 
 `GOMEMLIMIT` is a soft limit on the memory managed by the Go runtime (heap, goroutine stacks, runtime metadata) — not on total process memory. It
-arrived in Go 1.19 and solves the main container problem: previously, a service under a cgroup memory limit was killed by the OOM killer because the GC
+arrived in Go 1.19 and solves the main container problem: previously, a service under a cgroup memory limit was killed by the OOM killer because the
+GC
 did not know about the limit and kept growing.
 
 A working configuration for containers: set `GOMEMLIMIT` to roughly 80–90% of the container memory limit. This leaves headroom for memory the runtime
@@ -246,7 +256,8 @@ the limit approaches. This works well when the live data size is stable and poor
 A historical trap that cost many teams weeks of investigation. The Go runtime read the host's CPU count rather than the cgroup limit: a pod limited to
 one CPU on a 64-core machine ran 64 OS threads and suffered huge scheduler delays and throttling.
 
-Since Go 1.25 the runtime accounts for cgroup limits on its own. Older versions still need `uber-go/automaxprocs` — a single blank import. Check the Go
+Since Go 1.25 the runtime accounts for cgroup limits on its own. Older versions still need `uber-go/automaxprocs` — a single blank import. Check the
+Go
 version in every service's `go.mod`: if it is older, the dependency is mandatory.
 
 ### Escape analysis
@@ -257,7 +268,8 @@ The compiler decides whether an object lives on the stack or escapes to the heap
 go build -gcflags='-m -m' ./... 2>&1 | grep 'escapes to heap'
 ```
 
-Typical reasons for escaping to the heap: returning a pointer to a local variable, passing a value as an interface, a closure capturing a variable, and
+Typical reasons for escaping to the heap: returning a pointer to a local variable, passing a value as an interface, a closure capturing a variable,
+and
 a slice whose size is unknown at compile time.
 
 ### What actually reduces allocations
@@ -272,14 +284,16 @@ Before doing any of this, look at `alloc_space`. Optimizing allocations in a fun
 
 ### RSS exceeds the heap, and that is normal
 
-Go does not return freed memory to the operating system immediately. The process `RSS` will be noticeably higher than `inuse_space` in the profile, and
+Go does not return freed memory to the operating system immediately. The process `RSS` will be noticeably higher than `inuse_space` in the profile,
+and
 that is not a leak. A leak is `inuse_space` growing over time under steady load.
 
 ---
 
 ## 6. Profile-guided optimization
 
-An underrated capability: the compiler can use a real profile to optimize. Place a production CPU profile as `default.pgo` in the main package directory
+An underrated capability: the compiler can use a real profile to optimize. Place a production CPU profile as `default.pgo` in the main package
+directory
 of the binary (or pass `-pgo=path`), and `go build` picks it up automatically — it inlines hot functions more aggressively and lays out code better.
 
 The gain is modest: the [Go documentation](https://go.dev/doc/pgo) reports 2–14% improvements on a set of representative programs; your result depends
@@ -298,7 +312,8 @@ The list is ordered by how often each item turns out to be the real cause.
 aggregation on the database side. Detect it with the metric "queries per incoming call": if it is not constant, you have N+1.
 
 **Missing or unsuitable index.** In Postgres, run `EXPLAIN (ANALYZE, BUFFERS)` and look for a `Seq Scan` where an index was expected, and for a gap
-between estimated and actual row counts (a substantial discrepancy may indicate stale statistics or estimation limits). `pg_stat_statements` helps find
+between estimated and actual row counts (a substantial discrepancy may indicate stale statistics or estimation limits). `pg_stat_statements` helps
+find
 the most expensive queries in aggregate rather than per call.
 
 In MongoDB, use `explain("executionStats")`; the key numbers are `totalDocsExamined` versus `nReturned`. A ratio much greater than one means the index
@@ -357,14 +372,16 @@ What most often spoils the results:
 
 - **An empty database.** A query against a table of a thousand rows fits in cache and shows nothing. Data must be comparable to production in both
   volume and distribution.
-- **No warm-up.** The first seconds measure cold caches, connection establishment, and runtime warm-up (heap growth, pool fill-up). Discard the initial
+- **No warm-up.** The first seconds measure cold caches, connection establishment, and runtime warm-up (heap growth, pool fill-up). Discard the
+  initial
   interval.
 - **A run that is too short.** GC, connection rotation, and state accumulation manifest over minutes, not seconds.
 - **Uniform load.** The same request with the same parameters warms the cache to an unrealistic state. You need a key distribution that resembles the
   real one.
 - **The load generator as the bottleneck.** Verify that you have not hit its limits instead of the system's.
 
-The goal of a test is to find the point after which latency grows nonlinearly and to understand what limits it. A figure like "handles 3000 rps" without
+The goal of a test is to find the point after which latency grows nonlinearly and to understand what limits it. A figure like "handles 3000 rps"
+without
 percentiles and without naming the limiting factor is useless.
 
 ---
@@ -391,19 +408,19 @@ percentiles and without naming the limiting factor is useless.
 
 ## 10. Defaults
 
-| Task | Decision |
-|---|---|
-| Production profiling | `net/http/pprof` on an internal port, reachable only from inside the cluster |
-| Continuous profiling | Pyroscope |
-| Before/after comparison | `go tool pprof -base` |
-| Benchmarks | `-count=10` plus `benchstat`; `b.ReportAllocs()` is mandatory |
-| Memory limit | `GOMEMLIMIT` ≈ 85% of the container memory budget available to the Go process |
-| CPU count | Automatic on Go 1.25+; `automaxprocs` on older versions |
-| Build optimization | `default.pgo` in the main package directory, refreshed every few releases |
+| Task                     | Decision                                                                                    |
+|--------------------------|---------------------------------------------------------------------------------------------|
+| Production profiling     | `net/http/pprof` on an internal port, reachable only from inside the cluster                |
+| Continuous profiling     | Pyroscope                                                                                   |
+| Before/after comparison  | `go tool pprof -base`                                                                       |
+| Benchmarks               | `-count=10` plus `benchstat`; `b.ReportAllocs()` is mandatory                               |
+| Memory limit             | `GOMEMLIMIT` ≈ 85% of the container memory budget available to the Go process               |
+| CPU count                | Automatic on Go 1.25+; `automaxprocs` on older versions                                     |
+| Build optimization       | `default.pgo` in the main package directory, refreshed every few releases                   |
 | Database connection pool | Explicit `MaxOpenConns`, `MaxIdleConns`, `ConnMaxLifetime`; totals computed across all pods |
-| HTTP client | A dedicated `Transport`; `DefaultTransport` is not used |
-| Load testing | `k6` with an open model on production-scale data |
-| Latency metrics | Percentiles and histograms; averages are not shown on dashboards |
+| HTTP client              | A dedicated `Transport`; `DefaultTransport` is not used                                     |
+| Load testing             | `k6` with an open model on production-scale data                                            |
+| Latency metrics          | Percentiles and histograms; averages are not shown on dashboards                            |
 
 ---
 
@@ -426,14 +443,17 @@ percentiles and without naming the limiting factor is useless.
 
 ## Appendix: FAQ
 
-**Where do I start if "everything is slow"?** With a breakdown of latency by stage, not with a profile. How much time went to processing in the service,
+**Where do I start if "everything is slow"?** With a breakdown of latency by stage, not with a profile. How much time went to processing in the
+service,
 how much to each dependency, how much to waiting for the pool. Nine times out of ten that is enough to find the answer, and the profile is no longer
 needed.
 
-**Should `encoding/json` be replaced?** Only if the profile shows it in the top three. Replacement yields a real gain at high rps with large structures;
+**Should `encoding/json` be replaced?** Only if the profile shows it in the top three. Replacement yields a real gain at high rps with large
+structures;
 in every other case it is an extra dependency with nonstandard behavior in edge cases.
 
-**Does `sync.Pool` help?** Sometimes a lot, sometimes it hurts. The rule: large, short-lived, frequently created buffers — yes. Small structs — no; the
+**Does `sync.Pool` help?** Sometimes a lot, sometimes it hurts. The rule: large, short-lived, frequently created buffers — yes. Small structs — no;
+the
 pool's overhead will exceed the savings. Verify only with a benchmark using `ReportAllocs`.
 
 **What if RSS grows but `inuse_space` does not?** That is not a heap leak. Look at memory outside the profiled heap: goroutine stacks (the `goroutine`
@@ -442,5 +462,6 @@ profile), CGO memory, memory-mapped files, and network library buffers. And reme
 **Cache or query optimization?** The query first. A cache in front of a slow query masks the problem and leaves it waiting for the moment the cache
 misses — and it will miss at the worst time: on a cold start after a rollout or during a burst of unique keys.
 
-**When should we rewrite in another language?** For performance reasons, practically never. In our Go services the CPU is not the limiting factor, and a
+**When should we rewrite in another language?** For performance reasons, practically never. In our Go services the CPU is not the limiting factor, and
+a
 rewrite will not speed up waiting for the database. That decision is made on other grounds.
