@@ -28,7 +28,6 @@ type Storage struct {
 	name           string
 	ttl            time.Duration
 	stmts          statements
-	qualifier      string
 	purgeBatchSize int
 	purge          *purgeloop.Loop
 }
@@ -49,12 +48,15 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Storage, error) {
 		return nil, err
 	}
 	o := newOptions(opts...)
+	if d == DialectMySQL && o.purgeBatchSize > sqldialect.MaxKeyBatch {
+		return nil, coreerrs.Wrapf(coreerrs.ErrInvalidArgument, "sqldb: MySQL purge batch size must be at most %d", sqldialect.MaxKeyBatch)
+	}
 	table, err := dl.Table(o.tableName)
 	if err != nil {
 		return nil, err
 	}
 	s := &Storage{db: db, dialect: dl, table: table, name: sqldialect.Unqualified(o.tableName), ttl: o.ttl,
-		qualifier: sqldialect.Qualifier(o.tableName), purgeBatchSize: o.purgeBatchSize}
+		purgeBatchSize: o.purgeBatchSize}
 	s.stmts = s.buildStatements()
 	s.purge = purgeloop.New(o.purgeInterval, s.PurgeExpired, o.logger, "expired idempotency keys")
 	return s, nil

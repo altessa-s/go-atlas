@@ -20,9 +20,8 @@ var indexes = [...]struct{ suffix, columns string }{
 }
 
 // EnsureSchema creates the instances table and its recovery indexes if they do
-// not exist, and adds indexes missing from an existing table. It is
-// idempotent and safe to run concurrently from several instances; call it
-// once at startup (or apply the same DDL through your
+// not exist. It is idempotent and safe to run concurrently from several
+// instances; call it once at startup (or apply the same DDL through your
 // migration tool).
 //
 // On MySQL/MariaDB every string column is a binary type (VARBINARY,
@@ -36,16 +35,8 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.tableName}, s.postgresSchema()),
 			"create saga schema")
 	}
-	if _, err := s.db.ExecContext(ctx, s.mysqlSchema()); err != nil {
-		return coreerrs.WrapOperation(err, "create saga schema")
-	}
-	indexesToEnsure := make([]sqldialect.MySQLIndex, 0, len(indexes))
-	for _, ix := range indexes {
-		indexesToEnsure = append(indexesToEnsure, sqldialect.MySQLIndex{
-			Name: s.dialect.IndexName(s.tableName, ix.suffix), Columns: ix.columns,
-		})
-	}
-	return coreerrs.WrapOperation(sqldialect.AddMissingMySQLIndexes(ctx, s.db, s.schema, s.tableName, indexesToEnsure), "create saga indexes")
+	_, err := s.db.ExecContext(ctx, s.mysqlSchema())
+	return coreerrs.WrapOperation(err, "create saga schema")
 }
 
 // postgresSchema lists the PostgreSQL DDL. Timestamps are Unix nanoseconds, 0

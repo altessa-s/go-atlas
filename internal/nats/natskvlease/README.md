@@ -4,17 +4,15 @@
 import "github.com/altessa-s/go-atlas/internal/nats/natskvlease"
 ```
 
-Shared NATS KeyValue lease and migration utilities for the data packages. Provides revision-based ownership, renewal, retry and resumable bucket
-storage migration.
+Shared NATS KeyValue lease utilities for the data packages. Provides revision-based ownership, renewal, retry and bucket creation.
 
 ## Key types
 
 | Type | Purpose |
 |------|---------|
 | `Lease` | Acquires, renews and releases revision-fenced leases |
-| `KVHelper` | Creates buckets and migrates their storage |
-| `BucketSpec` | Desired state of a bucket, reconciled by `GetOrCreateBucket` and targeted by `MigrateBucketStorage` |
-| `MigrationOptions` | Controls migration and resuming an interrupted operation |
+| `KVHelper` | Creates buckets and reconciles existing ones against a `BucketSpec` |
+| `BucketSpec` | Desired state of a bucket, reconciled by `GetOrCreateBucket` |
 
 ## Options
 
@@ -35,8 +33,3 @@ storage migration.
 | `WithRetryMaxAttempts` | `DefaultMaxRetries` | Total attempts, the first call included; zero behaves like one |
 | `WithRetryMaxElapsedTime` | `DefaultMaxElapsedTime` | Time budget across all attempts |
 | `WithRetryJitter` | `DefaultJitter` | Fraction of each delay added as randomization; zero is deterministic |
-
-## Migration TTLs
-
-Source and marker headers share validation of whole-second TTLs. Negative numeric values and values exceeding `time.Duration` are rejected;
-`never` is the explicit no-expiration marker. Duration strings are truncated to whole seconds without floating-point conversion.

@@ -48,22 +48,22 @@ func TestNew_BucketTTLMismatch(t *testing.T) {
 	require.Equal(t, 2*time.Hour, status.LimitMarkerTTL(), "migration also moves the marker TTL, which follows MaxAge")
 }
 
-// TestNew_MigrateLegacyBucketEnablesPerKeyTTL pins that migrating a bucket
-// created without a limit-marker TTL (before per-key TTL was enabled) turns
-// per-key TTL on, so AttemptLockWithTTL works on the migrated bucket.
-func TestNew_MigrateLegacyBucketEnablesPerKeyTTL(t *testing.T) {
+// TestNew_MigrateBucketWithoutMarkerTTLEnablesPerKeyTTL pins that migrating a
+// bucket created without a limit-marker TTL turns per-key TTL on, so
+// AttemptLockWithTTL works on the migrated bucket.
+func TestNew_MigrateBucketWithoutMarkerTTLEnablesPerKeyTTL(t *testing.T) {
 	t.Parallel()
 
 	ns := natstest.StartNATSServer(t)
 	_, js := natstest.ConnectJetStream(t, ns)
 	ctx := t.Context()
 
-	// Learn the storage type New applies, so the legacy bucket differs only in
+	// Learn the storage type New applies, so the existing bucket differs only in
 	// its TTLs: a storage-type change would be rejected by the server.
 	_, err := idempnats.New(js, idempnats.WithBucket("storage-probe"), idempnats.WithReplicas(1))
 	require.NoError(t, err)
 
-	const bucket = "legacy-idempotency"
+	const bucket = "no-marker-idempotency"
 	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket:   bucket,
 		TTL:      time.Hour,
@@ -87,7 +87,7 @@ func TestNew_MigrateLegacyBucketEnablesPerKeyTTL(t *testing.T) {
 	status, err = kv.Status(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 2*time.Hour, status.TTL())
-	require.Equal(t, 2*time.Hour, status.LimitMarkerTTL(), "migration must enable per-key TTL on a legacy bucket")
+	require.Equal(t, 2*time.Hour, status.LimitMarkerTTL(), "migration must enable per-key TTL on a bucket without one")
 
 	locked, _, _, err := storage.AttemptLockWithTTL(ctx, "key", []byte("v"), time.Minute)
 	require.NoError(t, err, "a per-key TTL write must succeed on the migrated bucket")

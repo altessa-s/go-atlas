@@ -83,10 +83,15 @@ func TestCloseConcurrentAndPermanent(t *testing.T) {
 	l.Start()
 	testhelpers.WaitFor(t, time.Second, func() bool { return calls.Load() > 0 }, "pass starts")
 	var closes sync.WaitGroup
+	errs := make(chan error, 10)
 	for range 10 {
-		closes.Go(func() { require.NoError(t, l.Close(t.Context())) })
+		closes.Go(func() { errs <- l.Close(t.Context()) })
 	}
 	closes.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
 	done := l.Stop()
 	require.NotNil(t, done)
 	require.True(t, channelClosed(done))
@@ -170,6 +175,23 @@ func TestDrainShortBatchUsesConsideredCount(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 3, total)
 	require.Equal(t, 3, calls)
+}
+
+// A full batch that deletes nothing (rows still visible in a REPEATABLE READ
+// snapshot after a concurrent delete) must end the pass instead of looping.
+func TestDrainStopsWithoutProgress(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	total, err := purgeloop.Drain(t.Context(), 2, 0, func(context.Context) (int64, int64, error) {
+		calls++
+		if calls == 1 {
+			return 2, 2, nil
+		}
+		return 0, 2, nil
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, total)
+	require.Equal(t, 2, calls)
 }
 
 func TestDrainErrorIncludesCompletedDeletions(t *testing.T) {

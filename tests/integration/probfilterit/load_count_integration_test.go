@@ -93,10 +93,10 @@ func TestRebuildLoaded_InsertsDuringRebuildDoNotCount(t *testing.T) {
 	requireLoaded(t, b, 20, true)
 }
 
-// TestRebuildLoaded_OlderMarkerFormats asserts that ready markers written by
-// earlier releases — the commit time alone, or "1" — report the list size as
-// unknown on a real server, and that the next commit records it again.
-func TestRebuildLoaded_OlderMarkerFormats(t *testing.T) {
+// TestRebuildLoaded_TimestampOnlyMarker asserts that a ready marker holding
+// the commit time alone reports the list size as unknown on a real server,
+// and that the next commit records it again.
+func TestRebuildLoaded_TimestampOnlyMarker(t *testing.T) {
 	t.Parallel()
 
 	fx := newFixture(t)
@@ -109,10 +109,6 @@ func TestRebuildLoaded_OlderMarkerFormats(t *testing.T) {
 	require.NoError(t, fx.admin.Set(ctx, fx.metaKey("ready"), strconv.FormatInt(committed.UnixMilli(), 10), 0).Err())
 	requireLoaded(t, a, 0, false)
 	require.True(t, committed.Equal(lastCommit(t, a)), "the commit time of a timestamp-only marker stays readable")
-
-	require.NoError(t, fx.admin.Set(ctx, fx.metaKey("ready"), "1", 0).Err())
-	requireLoaded(t, a, 0, false)
-	require.True(t, lastCommit(t, a).IsZero())
 
 	require.NoError(t, a.Rebuild(ctx, openLoader(values("listed", 12), false)))
 	requireLoaded(t, a, 12, true)

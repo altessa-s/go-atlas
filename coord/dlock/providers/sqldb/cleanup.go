@@ -6,11 +6,9 @@ package sqldb
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"strings"
 
 	"github.com/altessa-s/go-atlas/internal/purgeloop"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -46,12 +44,12 @@ func (l *Locker) deleteExpiredBatch(ctx context.Context) (deleted, selected int6
 		return n, n, execErr
 	}
 
-	keys, err := s.expiredKeys(ctx)
+	keys, err := sqldialect.QueryKeys(ctx, s.db, s.purgeBatchSize, s.stmts.expiredKeys, s.graceUs, s.purgeBatchSize)
 	if err != nil || len(keys) == 0 {
 		return 0, 0, err
 	}
 	selected = int64(len(keys))
-	query := fmt.Sprintf(s.stmts.deleteExpired, strings.Repeat(", ?", len(keys))[2:])
+	query := sqldialect.InList(s.stmts.deleteExpired, len(keys))
 	keys = append(keys, s.graceUs)
 	res, err := s.db.ExecContext(ctx, query, keys...)
 	if err != nil {
@@ -59,23 +57,4 @@ func (l *Locker) deleteExpiredBatch(ctx context.Context) (deleted, selected int6
 	}
 	deleted, err = res.RowsAffected()
 	return deleted, selected, err
-}
-
-// expiredKeys reads, without locking, the MySQL keys of up to one batch of
-// expired rows.
-func (s *store) expiredKeys(ctx context.Context) ([]any, error) {
-	rows, err := s.db.QueryContext(ctx, s.stmts.expiredKeys, s.graceUs, s.purgeBatchSize)
-	if err != nil {
-		return nil, err
-	}
-	var keys []any
-	for rows.Next() {
-		var key []byte
-		if err := rows.Scan(&key); err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-		keys = append(keys, key)
-	}
-	return keys, errors.Join(rows.Err(), rows.Close())
 }

@@ -14,9 +14,10 @@ import (
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 )
 
-// TestEnsureSchemaRestoresMySQLIndexes simulates a table created before the
-// trace index existed, then checks that startup restores its definition.
-func TestEnsureSchemaRestoresMySQLIndexes(t *testing.T) {
+// TestEnsureSchemaCreatesMySQLIndexes checks the inline index definitions of
+// the MySQL table, created through a schema-qualified name, and that a second
+// EnsureSchema is a no-op.
+func TestEnsureSchemaCreatesMySQLIndexes(t *testing.T) {
 	t.Parallel()
 	for _, target := range sqlTargets() {
 		if target.dialect != sqldb.DialectMySQL {
@@ -24,23 +25,13 @@ func TestEnsureSchemaRestoresMySQLIndexes(t *testing.T) {
 		}
 		t.Run(target.name, func(t *testing.T) {
 			t.Parallel()
-			st, db, table := target.open(t)
-			index := sqldialect.MySQL.IndexName(table, "trace")
-			_, err := db.ExecContext(t.Context(), "ALTER TABLE "+sqldialect.MySQL.Ident(table)+" DROP INDEX "+index)
-			require.NoError(t, err)
-			var count int
-			require.NoError(t, db.QueryRowContext(t.Context(),
-				"SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
-				table, strings.Trim(index, "`")).Scan(&count))
-			require.Zero(t, count)
-
-			// Use the schema-qualified name to check catalog scoping too.
+			_, db, table := target.open(t)
 			var schema string
 			require.NoError(t, db.QueryRowContext(t.Context(), "SELECT DATABASE()").Scan(&schema))
-			st, err = sqldb.New(db, target.dialect, sqldb.WithTableName(schema+"."+table))
+			st, err := sqldb.New(db, target.dialect, sqldb.WithTableName(schema+"."+table))
 			require.NoError(t, err)
 			require.NoError(t, st.EnsureSchema(t.Context()))
-			require.NoError(t, st.EnsureSchema(t.Context()), "reconciliation is idempotent")
+			require.NoError(t, st.EnsureSchema(t.Context()), "EnsureSchema is idempotent")
 			for suffix, columns := range map[string]string{
 				"ts": "ts_ms, id", "actor": "actor_id, ts_ms, id", "resource": "resource_type, resource_id, ts_ms, id",
 				"request": "request_id", "trace": "trace_id",

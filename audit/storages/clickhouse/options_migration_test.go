@@ -7,21 +7,6 @@ package clickhouse
 import "testing"
 
 func TestOptionModesMigrationBaseline(t *testing.T) {
-	t.Run("schema migration", func(t *testing.T) {
-		got := defaultOptions()
-		WithSchemaMigration(SchemaMigrationMode("bad"))(got)
-		if got.schemaMigrationMode != DefaultSchemaMigrationMode {
-			t.Fatal("invalid mode changed default")
-		}
-		WithSchemaMigration(SchemaMigrationModeAdditive)(got)
-		if got.schemaMigrationMode != SchemaMigrationModeAdditive {
-			t.Fatal("valid mode not applied")
-		}
-		WithSchemaMigration(SchemaMigrationMode("bad"))(got)
-		if got.schemaMigrationMode != SchemaMigrationModeAdditive {
-			t.Fatal("invalid mode replaced configured value")
-		}
-	})
 	t.Run("schema check", func(t *testing.T) {
 		got := defaultOptions()
 		WithSchemaCheck(SchemaCheckMode("bad"))(got)

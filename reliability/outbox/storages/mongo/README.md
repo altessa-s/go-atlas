@@ -26,7 +26,7 @@ produced by whichever worker picked the event up afterwards. Unlocking and expir
 
 A failed event carries `next_attempt_at`, computed server-side as `$$NOW` plus the `Event.RetryAfter` duration the outbox supplied. Only a duration
 crosses the process boundary, so the deadline stays anchored to the database clock. `FetchUnprocessedEvents` treats an absent `next_attempt_at` as
-"eligible now", which is also how documents written before this field existed behave — no backfill is required.
+"eligible now".
 
 ## Change streams
 
@@ -69,19 +69,21 @@ carry the driver's error, never the connection string — the store holds only a
 | `expires_at`      | Dispatch deadline; absent means no expiration                  |
 | `error`           | Last dispatch error, retained for dead-letter inspection       |
 
-## Migration
+## Indexes
 
-Legacy collections stored timestamps as int64 Unix seconds. Run the in-place, idempotent migration **once per collection** before serving traffic with
-this store, then wire it into your migration registry (do not call it from `New`):
+The constructor creates the indexes below; existing ones are left as they are.
 
-| Function                                       | Direction                          |
-|------------------------------------------------|------------------------------------|
-| `MigrateTimestampsToDate(ctx, collection)`     | int64 Unix seconds → BSON `Date`   |
-| `RevertTimestampsToUnix(ctx, collection)`      | BSON `Date` → int64 Unix seconds (rollback) |
+| Index                          | Serves                                                         |
+|--------------------------------|----------------------------------------------------------------|
+| `status, created_at, seq`      | The fetch: one query per ready status, read in fetch order     |
+| `status, locked_on`            | The unlock sweep                                               |
+| `status, published_at`         | The retention sweep                                            |
+| `status, expires_at` (partial) | The expiry sweep; holds only events with a TTL                 |
 
-Both return the number of documents converted, only touch documents still in the source layout (so re-running is a no-op), and drop optional timestamps
-that are zero/absent rather than mapping them to `1970`. The rollback also removes `lock_token` and `next_attempt_at`, which the legacy layout has no
-notion of — a stale lock token left behind would fence out an event's own writes after a roll forward.
+`FetchUnprocessedEvents` queries pending events and failed events separately, each an equality on `status` read through the first index in
+`created_at, seq` order, and merges the two batches. A single `$or` over both statuses cannot take its sort from one index, so the server would sort the
+whole backlog for every batch.
 
-`lock_token` and `next_attempt_at` need no forward migration: an absent `next_attempt_at` means "eligible now", so documents written before these fields
-existed are picked up unchanged.
+The index cannot bound retry eligibility: the failed query walks failed events in creation order and skips those whose `next_attempt_at` is still
+ahead, so a large failed backlog that is all backing off is read on every fetch. The SQL store reads failed rows the same way. Keep the failed backlog
+small with `outbox.WithRetryMaxAttempts` rather than long backoffs.

@@ -35,7 +35,7 @@ the optimistic-concurrency token, so `Update` rejects a stale writer with `errs.
 |--------------------|-----------------------------------------------------------------------------------------------------------------------------------|
 | `Create`           | PostgreSQL: `INSERT … ON CONFLICT (id) DO NOTHING`. MySQL: plain `INSERT`; a duplicate-key error (Number field 1062) is `ErrInstanceExists`.  |
 | `Update`           | `UPDATE … WHERE id = ? AND version = ?`; on no match a lookup tells `ErrInstanceNotFound` from `ErrVersionConflict`.              |
-| `FetchRecoverable` | One indexed `SELECT` mirroring `Instance.Recoverable`, compared at full precision against the given `now`.                        |
+| `FetchRecoverable` | `SELECT` mirroring `Instance.Recoverable` at full precision against `now`, in `(status, lease_until)` index order: compensating sagas first. |
 | `Delete`           | `DELETE … WHERE id = ?`; a missing row is not an error.                                                                           |
 
 ## Schema

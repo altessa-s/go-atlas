@@ -15,10 +15,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	"github.com/altessa-s/go-atlas/coord/dlock/providers"
 	"github.com/altessa-s/go-atlas/coord/dlock/providers/sqldb"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 var (
@@ -175,10 +176,9 @@ func TestEnsureSchema(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, l.EnsureSchema(t.Context()))
 		calls := fake.Calls()
-		require.Len(t, calls, 3)
-		require.Equal(t, []any{"app", "locks"}, calls[1].Args)
-		require.Equal(t, "ALTER TABLE `app`.`locks` ADD INDEX `locks_expires_idx` (expires_at)", calls[2].Query)
+		require.Len(t, calls, 1)
 		q := calls[0].Query
+		require.Contains(t, q, "INDEX `locks_expires_idx` (expires_at)")
 		require.Contains(t, q, "lock_key    VARBINARY(1020) NOT NULL PRIMARY KEY")
 		require.NotRegexp(t, `\b(VARCHAR|TEXT)\b`, q)
 	})
@@ -243,6 +243,12 @@ func TestNew_HardLeaseAndCleanupValidation(t *testing.T) {
 	require.Error(t, err, "a hard lease still needs a TTL of at least 1ms")
 	_, err = sqldb.New(db, sqldb.DialectPostgres, sqldb.WithoutRenewal(), sqldb.WithTTL(time.Millisecond))
 	require.NoError(t, err, "a hard lease needs no renewal interval")
+	_, err = sqldb.New(db, sqldb.DialectMySQL, sqldb.WithPurgeBatchSize(65_535))
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument, "a MySQL key list holds at most 65534 keys")
+	_, err = sqldb.New(db, sqldb.DialectMySQL, sqldb.WithPurgeBatchSize(65_534))
+	require.NoError(t, err)
+	_, err = sqldb.New(db, sqldb.DialectPostgres, sqldb.WithPurgeBatchSize(65_535))
+	require.NoError(t, err, "PostgreSQL binds no key list")
 }
 
 // TestPurgeExpired pins the cleanup sweep: nothing without
@@ -280,8 +286,11 @@ func TestPurgeExpired(t *testing.T) {
 		require.Len(t, calls, 2, "a full batch is followed by another")
 		q := calls[0].Query
 		require.Contains(t, q, `DELETE FROM "dlocks" WHERE lock_key IN (SELECT lock_key FROM "dlocks" WHERE expires_at <= CAST(`)
-		require.Contains(t, q, "clock_timestamp()")
-		require.Contains(t, q, "LIMIT $2 FOR UPDATE SKIP LOCKED")
+		// statement_timestamp() is stable, so the cutoff can bound an index
+		// scan on expires_at; the volatile clock_timestamp() cannot.
+		require.Contains(t, q, "statement_timestamp()")
+		require.NotContains(t, q, "clock_timestamp()")
+		require.Contains(t, q, "ORDER BY expires_at LIMIT $2 FOR UPDATE SKIP LOCKED")
 		require.Equal(t, []any{int64(1_500_000), int64(4)}, calls[0].Args)
 	})
 	t.Run("mysql", func(t *testing.T) {
@@ -300,7 +309,7 @@ func TestPurgeExpired(t *testing.T) {
 		calls := fake.Calls()
 		require.Len(t, calls, 2, "a short batch ends the sweep")
 		require.Contains(t, calls[0].Query, "UTC_TIMESTAMP(6)")
-		require.Contains(t, calls[0].Query, "LIMIT ?")
+		require.Contains(t, calls[0].Query, "ORDER BY expires_at LIMIT ?")
 		require.NotContains(t, calls[0].Query, "FOR UPDATE")
 		require.Equal(t, []any{int64(1_500_000), int64(4)}, calls[0].Args)
 		require.Contains(t, calls[1].Query, "DELETE FROM `dlocks` WHERE lock_key IN (?, ?) AND expires_at <= ")

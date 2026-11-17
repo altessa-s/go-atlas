@@ -33,8 +33,8 @@ import (
 var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 
 // ErrBucketStorageMismatch is returned by New when the bucket already exists
-// with another storage type and [WithStrictBucketStorage] is set. The bucket is
-// left untouched.
+// with another storage type. The bucket is left untouched:
+// the server cannot convert a bucket's storage type.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
 // ErrKeyTooLong is returned, before any network I/O, for a key whose escaped
@@ -92,15 +92,14 @@ func New(ctx context.Context, js jetstream.JetStream, opts ...Option) (*Provider
 	}, nil
 }
 
-// bucketConfig is the bucket New creates and MigrateBucketStorage migrates to.
+// bucketConfig is the bucket New creates or reconciles.
 func bucketConfig(o *options) natskvlease.BucketSpec {
 	return natskvlease.BucketSpec{
-		Bucket:        o.bucket,
-		TTL:           o.maxAge,
-		Storage:       jetstream.FileStorage,
-		Replicas:      o.replicas,
-		MigrateTTL:    o.migrateBucketTTL,
-		StrictStorage: o.strictBucketStorage,
+		Bucket:     o.bucket,
+		TTL:        o.maxAge,
+		Storage:    jetstream.FileStorage,
+		Replicas:   o.replicas,
+		MigrateTTL: o.migrateBucketTTL,
 	}
 }
 

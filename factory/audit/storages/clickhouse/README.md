@@ -5,8 +5,8 @@ import auditchfactory "github.com/altessa-s/go-atlas/factory/audit/storages/clic
 ```
 
 Maps the `storage.clickhouse` block of the audit configuration to a [ClickHouse audit storage](../../../../audit/storages/clickhouse/) for
-[`factory/audit`](../..), which builds only the memory, mongo and sqldb storages. Missing columns and indexes are added when `schemaMigrationMode`
-opts in, then the table is checked against the expected schema, each step bounded by `ddlTimeout`.
+[`factory/audit`](../..), which builds only the memory, mongo and sqldb storages. The table is checked against the expected schema at startup,
+bounded by `ddlTimeout`.
 
 ## Usage
 

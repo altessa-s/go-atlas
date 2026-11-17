@@ -90,18 +90,6 @@ func WithStorage(v jetstream.StorageType) Option {
 	}
 }
 
-// WithStrictBucketStorage enables the strictBucketStorage option.
-//
-// strictBucketStorage rejects a pre-existing bucket whose storage type
-// differs from the one this backend asks for with
-// [ErrBucketStorageMismatch] instead of adopting it with a warning.
-func WithStrictBucketStorage() Option {
-	return func(o *options) {
-		value := true
-		o.strictBucketStorage = value
-	}
-}
-
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{

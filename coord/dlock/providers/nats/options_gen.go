@@ -83,23 +83,11 @@ func WithRenewRatio(v float64) Option {
 
 // WithStorage sets the storage option.
 //
-// storage is the storage type of a bucket New creates and the target of
-// MigrateBucketStorage. An existing bucket keeps its storage type.
+// storage is the storage type of a bucket New creates. An existing bucket
+// with another storage type is rejected with [ErrBucketStorageMismatch].
 func WithStorage(v jetstream.StorageType) Option {
 	return func(o *options) {
 		o.storage = v
-	}
-}
-
-// WithStrictBucketStorage enables the strictBucketStorage option.
-//
-// strictBucketStorage rejects a pre-existing bucket whose storage type
-// differs from the one this backend asks for with
-// [ErrBucketStorageMismatch] instead of adopting it with a warning.
-func WithStrictBucketStorage() Option {
-	return func(o *options) {
-		value := true
-		o.strictBucketStorage = value
 	}
 }
 

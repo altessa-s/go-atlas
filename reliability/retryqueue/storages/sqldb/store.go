@@ -71,8 +71,7 @@ type Store[P any] struct {
 	purgeBatchSize int
 	stmts          statements
 
-	qualifier string
-	purge     *purgeloop.Loop
+	purge *purgeloop.Loop
 }
 
 // statements are the fixed queries, rendered once for the dialect.
@@ -113,7 +112,6 @@ func New[P any](db *sql.DB, d Dialect, opts ...Option) (*Store[P], error) {
 		codec:          o.codec,
 		retention:      o.resolvedRetention,
 		purgeBatchSize: o.purgeBatchSize,
-		qualifier:      sqldialect.Qualifier(o.tableName),
 	}
 	every := o.purgeInterval
 	if o.resolvedRetention <= 0 {
@@ -137,10 +135,14 @@ func (s *Store[P]) buildStatements() statements {
 	// COMMITTED; at REPEATABLE READ or SERIALIZABLE, an insert committed after
 	// the caller's snapshot causes a serialization error (SQLSTATE 40001).
 	getMark := sel + " WHERE id = ?"
+	// DeleteObsolete's lookup follows a DELETE that read the current row; it
+	// must read the same row, not an older snapshot, for the same reason.
+	newer := "SELECT 1 FROM " + t + " WHERE id = ? AND generation > ?"
 	if s.dialect.name == DialectPostgres {
 		insert += " ON CONFLICT (id) DO NOTHING"
 	} else {
 		getMark += " LOCK IN SHARE MODE"
+		newer += " LOCK IN SHARE MODE"
 	}
 	purge := "DELETE FROM " + t + " WHERE id IN (SELECT id FROM " + t + " WHERE state = " + resolved +
 		" AND resolved_at <> 0 AND resolved_at <= " + s.dialect.nowNanos + " - ? LIMIT " + strconv.Itoa(s.purgeBatchSize) +
@@ -170,7 +172,7 @@ func (s *Store[P]) buildStatements() statements {
 			" WHERE id = ? AND state = " + pending + " AND generation = ? AND (flagged = FALSE OR flag_reason <> ?)"),
 		unflag:         b("UPDATE " + t + " SET flagged = FALSE, flag_reason = '' WHERE id = ? AND generation = ? AND flagged = TRUE"),
 		deleteObsolete: b("DELETE FROM " + t + " WHERE id = ? AND generation <= ?"),
-		newer:          b("SELECT 1 FROM " + t + " WHERE id = ? AND generation > ?"),
+		newer:          b(newer),
 		remove:         b("DELETE FROM " + t + " WHERE id = ?"),
 		listByState:    b(sel + " WHERE state = ? ORDER BY since, id LIMIT ?"),
 		// Requeue appends its key list, then binds; see [Store.Requeue].
@@ -231,6 +233,11 @@ func (s *Store[P]) Mark(ctx context.Context, item retryqueue.Item[P]) (retryqueu
 	if err != nil {
 		return retryqueue.Item[P]{}, err
 	}
+	return s.mark(ctx, item, payload)
+}
+
+// mark is [Store.Mark] after the key check and with the payload encoded.
+func (s *Store[P]) mark(ctx context.Context, item retryqueue.Item[P], payload []byte) (retryqueue.Item[P], error) {
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
 	q := s.q(ctx)
 	for range markAttempts {
@@ -295,7 +302,7 @@ func (s *Store[P]) Reopen(ctx context.Context, item retryqueue.Item[P]) (retryqu
 		if n > 0 {
 			return s.fresh(item, payload)
 		}
-		out, err = s.Mark(ctx, item)
+		out, err = s.mark(ctx, item, payload)
 		if err != nil {
 			return retryqueue.Item[P]{}, err
 		}

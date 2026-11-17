@@ -7,6 +7,8 @@ package idempotencyconfig
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/config/internal/validators"
+
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -88,7 +90,8 @@ type SQLStorageConfig struct {
 	// PurgeInterval is the time between background purge passes. Zero disables
 	// the loop; explicit PurgeExpired calls remain available.
 	PurgeInterval time.Duration `yaml:"purgeInterval" default:"1m"`
-	// PurgeBatchSize bounds the rows deleted by one purge statement.
+	// PurgeBatchSize bounds the rows deleted by one purge statement, at most
+	// 65534 (the MySQL placeholder limit of the key list).
 	PurgeBatchSize int `yaml:"purgeBatchSize" default:"1000"`
 }
 
@@ -96,9 +99,9 @@ type SQLStorageConfig struct {
 func (c *SQLStorageConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
-		validation.Field(&c.Table, validation.Required),
+		validation.Field(&c.Table, validation.Required, validators.SQLTableName),
 		validation.Field(&c.PurgeInterval, validation.Min(time.Duration(0))),
-		validation.Field(&c.PurgeBatchSize, validation.Min(1)),
+		validation.Field(&c.PurgeBatchSize, validation.Min(1), validation.Max(validators.MaxSQLKeyBatch)),
 	)
 }
 

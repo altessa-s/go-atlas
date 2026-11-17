@@ -82,31 +82,3 @@ func TestBuilder_MigrateBucketTTL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2*time.Hour, natstest.KVBucketTTL(t, js, bucket), "migrate_bucket_ttl must update the bucket")
 }
-
-// TestBuilder_StrictBucketStorage pins that storage.nats.strict_bucket_storage
-// reaches the NATS store: a bucket with another storage type is rejected
-// instead of being adopted.
-func TestBuilder_StrictBucketStorage(t *testing.T) {
-	t.Parallel()
-
-	ns := natstest.StartNATSServer(t)
-	_, js := natstest.ConnectJetStream(t, ns)
-
-	const bucket = "factory-saga-strict"
-	natstest.CreateNATSKV(t, js, bucket, time.Hour) // memory storage
-
-	cfg := func(strict bool) *sagaconfig.Config {
-		c := sagaconfig.Default()
-		c.Storage = &sagaconfig.StorageConfig{
-			Type: sagaconfig.StorageTypeNATS,
-			NATS: &sagaconfig.NATSStorageConfig{Bucket: bucket, MaxAge: time.Hour, StrictBucketStorage: strict},
-		}
-		return &c
-	}
-
-	_, err := build(t, cfg(true), js)
-	require.ErrorIs(t, err, natsstore.ErrBucketStorageMismatch)
-
-	_, err = build(t, cfg(false), js)
-	require.NoError(t, err, "without the flag the bucket is adopted")
-}

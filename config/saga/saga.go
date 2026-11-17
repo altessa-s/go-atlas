@@ -7,6 +7,8 @@ package sagaconfig
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/config/internal/validators"
+
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -87,10 +89,6 @@ type NATSStorageConfig struct {
 	// default: the bucket's key TTL expires every instance in it, including
 	// those of other processes sharing the bucket.
 	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
-	// StrictBucketStorage fails with ErrBucketStorageMismatch when the bucket
-	// already exists with another storage type, instead of using it as is
-	// with a warning.
-	StrictBucketStorage bool `yaml:"strictBucketStorage"`
 }
 
 // Validate performs validation of the NATS saga storage configuration.
@@ -152,7 +150,7 @@ type SQLStorageConfig struct {
 func (c *SQLStorageConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
-		validation.Field(&c.Table, validation.Required),
+		validation.Field(&c.Table, validation.Required, validators.SQLTableName),
 	)
 }
 

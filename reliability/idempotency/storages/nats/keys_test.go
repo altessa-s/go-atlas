@@ -58,10 +58,10 @@ func TestStorage_ValidKeyIsStoredUnderItself(t *testing.T) {
 	storage := setupStorage(t)
 	ctx := t.Context()
 
-	_, _, _, err := storage.AttemptLock(ctx, natskeytest.LegacyKey, []byte("v"))
+	_, _, _, err := storage.AttemptLock(ctx, natskeytest.PlainKey, []byte("v"))
 	require.NoError(t, err)
 
-	entry, err := storage.KV().Get(ctx, natskeytest.LegacyKey)
+	entry, err := storage.KV().Get(ctx, natskeytest.PlainKey)
 	require.NoError(t, err)
 	require.Equal(t, []byte("v"), entry.Value())
 }

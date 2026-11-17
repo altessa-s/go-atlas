@@ -13,8 +13,8 @@ type Option func(o *options)
 
 // WithFlagField sets the flagField option.
 //
-// flagField names the document field of the attention flag, so a
-// collection written by an earlier store keeps its wire format.
+// flagField names the document field of the attention flag, so the store
+// can adopt a collection whose documents name it differently.
 func WithFlagField[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
 		var value string

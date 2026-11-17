@@ -24,9 +24,17 @@ import (
 	retryqueuefactory "github.com/altessa-s/go-atlas/factory/reliability/retryqueue"
 	memorystore "github.com/altessa-s/go-atlas/reliability/retryqueue/storages/memory"
 	sqlstore "github.com/altessa-s/go-atlas/reliability/retryqueue/storages/sqldb"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 var errBuild = errors.New("build failed")
+
+// requireValidationError asserts err carries the config's validation errors.
+func requireValidationError(tb testing.TB, err error) {
+	tb.Helper()
+	_, ok := errors.AsType[validation.Errors](err)
+	require.True(tb, ok, "want a config validation error, got %v", err)
+}
 
 type payload struct {
 	Note string
@@ -56,11 +64,11 @@ func TestBuildInvalidConfig(t *testing.T) {
 	t.Parallel()
 	cfg := retryqueueconfig.Config{}
 	_, err := retryqueuefactory.New[payload](&cfg).Build(t.Context())
-	require.ErrorContains(t, err, "validate retry queue config")
+	requireValidationError(t, err)
 
 	cfg = retryqueueconfig.Config{Storage: &retryqueueconfig.StorageConfig{Type: "etcd"}}
 	_, err = retryqueuefactory.New[payload](&cfg).Build(t.Context())
-	require.ErrorContains(t, err, "validate retry queue config")
+	requireValidationError(t, err)
 }
 
 func TestBuildMemory(t *testing.T) {
@@ -138,7 +146,7 @@ func TestBuildSQLRejectsUnknownDialect(t *testing.T) {
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 	cfg := sqlConfig("oracle", false)
 	_, err := retryqueuefactory.New[payload](&cfg).UseSQLDB(db).Build(t.Context())
-	require.ErrorContains(t, err, "validate retry queue config")
+	requireValidationError(t, err)
 }
 
 func TestBuildSQLRejectsInvalidTable(t *testing.T) {

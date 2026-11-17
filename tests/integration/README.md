@@ -16,17 +16,17 @@ tests/integration/
 ├── retryqueueit/          # reliability/retryqueue: MongoDB and SQL storages — contracts, indexes, query plans, racing replicas, purge
 ├── mongoit/               # store/mongo: transactions abort on panic, migration failure and rollback, keyset paging with FindPage, ListCursor projections
 ├── sagait/                # reliability/saga: storage contracts on SQL, Mongo and Redis + orchestrator over SQL
-├── idempotencyit/         # reliability/idempotency: storage contracts on Redis, Mongo and NATS + Keeper and HTTP middleware
+├── idempotencyit/         # reliability/idempotency: storage contracts on Redis, Mongo, NATS and SQL + Keeper and HTTP middleware
 ├── cacheit/               # cache: the Redis storage and the Cache facade (singleflight, negative caching) on Redis
 └── internal/livebackend/  # fixtures shared by several suites: Redis address and client, per-test names and key prefixes
 ```
 
 ## Why a separate module
 
-Exercising the SQL storages (audit, outbox, saga, retryqueue, dlock) needs `pgx` and `go-sql-driver/mysql` (`clickhouse-go` is already a root dependency
-of the ClickHouse audit storage). Those are test dependencies of a *library*, so putting them in the root `go.mod` would push both into the dependency
-graph and `go.sum` of every project that imports go-atlas. A separate module with `replace github.com/altessa-s/go-atlas => ../..` keeps the toolkit's
-own graph clean, the same way `devtools/` does.
+Exercising the SQL storages (audit, outbox, saga, retryqueue, dlock, idempotency) needs `pgx` and `go-sql-driver/mysql` (`clickhouse-go` is already a
+root dependency of the ClickHouse audit storage). Those are test dependencies of a *library*, so putting them in the root `go.mod` would push both into
+the dependency graph and `go.sum` of every project that imports go-atlas. A separate module with `replace github.com/altessa-s/go-atlas => ../..` keeps
+the toolkit's own graph clean, the same way `devtools/` does.
 
 The cost: these tests are not part of the root module's `go test ./...`. Run them explicitly.
 
@@ -59,6 +59,16 @@ The AIP request contracts (filter, order, projection, listing) and their live-da
 
 Each test creates its own throwaway table, database or index with a unique name and drops it on cleanup — two runs against the same server
 never collide.
+
+### Volume tests
+
+`TestVolume_*` tests sit behind the `volume` build tag. They seed `ATLAS_VOLUME_ROWS` rows (default 1,000,000) per backend, check the query plans of
+every hot statement for full scans and log the throughput of the bulk operations. `make test-volume` runs them with `-p 1`; `VOLUME_ROWS`,
+`VOLUME_RUN` (default `^TestVolume`) and `VOLUME_TIMEOUT` (default `120m`) override the row count, the test filter and the timeout:
+
+```bash
+make test-volume VOLUME_ROWS=20000 VOLUME_RUN='^TestVolume_Dispatch'
+```
 
 ### MongoDB runs as a replica set
 

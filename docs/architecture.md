@@ -45,7 +45,7 @@ requires the go-aip backends it uses itself. `tests/architecture` enforces this;
 
 `reliability/idempotency/principalowner` is the adapter at the authentication/data boundary: it turns the verified tenant and subject in
 `auth/principal` into a
-`reliability/idempotency.OwnerFunc`. The data package accepts only that callback and no longer imports authentication packages.
+`reliability/idempotency.OwnerFunc`. The data package accepts only that callback and imports no authentication packages.
 
 Schemas and runtime packages alike register tasks through the go-horai `task` contract and parse cron specs with its `schedule` grammar. `cache/lru`
 uses `github.com/hashicorp/golang-lru/v2`; it is an explicit package-scoped exception of a shared leaf. The egress rule grammar lives in go-atlas-net
@@ -94,11 +94,11 @@ flowchart TD
 have a `sqldb` backend beside their MongoDB (and NATS or Redis) ones. The backends take a caller-owned `*sql.DB` and a dialect — `postgres`, or `mysql`
 for MySQL and MariaDB — through `internal/sqldialect`, so no SQL driver enters the root module; drivers appear only in `tests/integration`, which runs
 each backend's conformance suite against PostgreSQL, MariaDB and MySQL. They follow the same contract: `New` performs no I/O and `EnsureSchema` is a
-separate idempotent call; time predicates use the database clock; the outbox, idempotency and retry-queue stores join a caller transaction through
-`WithTx`; and the stores whose MongoDB counterpart relies on a TTL index purge expired rows with `PurgeExpired`, from a background loop that starts on
-the first write and stops with `Close`. The outbox store implements `outbox.Watcher` with PostgreSQL `LISTEN`/`NOTIFY` through an injected
-`Listener`, the SQL counterpart of the MongoDB change stream. Configuration keys and the shared rules are in
-[configuration](configuration.md#sql-backends).
+separate idempotent call; the lock, idempotency and outbox stores evaluate time predicates against the database clock; the outbox, idempotency and
+retry-queue stores join a caller transaction through `WithTx`; and the stores whose MongoDB counterpart relies on a TTL index purge expired rows with
+`PurgeExpired`, from a background loop that starts on the first write and stops with `Close`. The outbox store implements `outbox.Watcher` with
+PostgreSQL `LISTEN`/`NOTIFY` through an injected `Listener`, the SQL counterpart of the MongoDB change stream. Configuration keys and the shared rules
+are in [configuration](configuration.md#sql-backends).
 
 ## Configuration and adapters
 

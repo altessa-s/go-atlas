@@ -52,8 +52,7 @@ func TestCore_LastRebuildCommit_VisibleToPeer(t *testing.T) {
 	requireCommitTime(t, peer, at)
 }
 
-// A filter key that is gone, and a ready marker written by a release that did
-// not record the time, both report no commit time.
+// A filter key that is gone reports no commit time; a malformed marker fails.
 func TestCore_LastRebuildCommit_UnknownIsZero(t *testing.T) {
 	t.Parallel()
 
@@ -63,15 +62,6 @@ func TestCore_LastRebuildCommit_UnknownIsZero(t *testing.T) {
 		commitStaged(t, mr, core)
 		mr.Del("t:f")
 		requireCommitTime(t, core, time.Time{})
-	})
-
-	t.Run("legacy marker", func(t *testing.T) {
-		t.Parallel()
-		mr, core, _ := newReadyCore(t)
-		commitStaged(t, mr, core)
-		require.NoError(t, mr.Set(core.readyKey, "1"))
-		requireCommitTime(t, core, time.Time{})
-		requireReady(t, core, true)
 	})
 
 	t.Run("malformed marker", func(t *testing.T) {

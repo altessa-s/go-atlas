@@ -63,8 +63,6 @@ func Builder(conn auditclickhouse.Conn) auditfactory.StorageBuilder {
 			auditclickhouse.WithTimeRangeMode(auditclickhouse.TimeRangeMode(ch.TimeRangeMode)))
 		opts = coreslices.AppendIf(opts, ch.SchemaCheckMode != "",
 			auditclickhouse.WithSchemaCheck(auditclickhouse.SchemaCheckMode(ch.SchemaCheckMode)))
-		opts = coreslices.AppendIf(opts, ch.SchemaMigrationMode != "",
-			auditclickhouse.WithSchemaMigration(auditclickhouse.SchemaMigrationMode(ch.SchemaMigrationMode)))
 		opts = coreslices.AppendIf(opts, ch.TTL > 0, auditclickhouse.WithTTL(ch.TTL))
 		opts = coreslices.AppendIf(opts, ch.DDLTimeout > 0, auditclickhouse.WithDDLTimeout(ch.DDLTimeout))
 		opts = coreslices.AppendIf(opts, ch.AutoCreateTable, auditclickhouse.WithAutoCreateTable())
@@ -75,18 +73,12 @@ func Builder(conn auditclickhouse.Conn) auditfactory.StorageBuilder {
 			return nil, coreerrs.WrapOperation(err, "create audit clickhouse storage")
 		}
 
-		// Migration runs first so the check reports only what was left
-		// unrepaired; it is a no-op unless the configuration opts in. Each step
-		// gets its own DDLTimeout, so a hung server fails startup instead of
-		// blocking it.
-		timeout := cmp.Or(ch.DDLTimeout, auditclickhouse.DefaultDDLTimeout)
-		for _, step := range []func(context.Context) error{storage.MigrateSchema, storage.CheckSchema} {
-			stepCtx, cancel := corecontext.WithMaxTimeout(ctx, timeout)
-			err := step(stepCtx)
-			cancel()
-			if err != nil {
-				return nil, err
-			}
+		// The check is bounded by DDLTimeout, so a hung server fails startup
+		// instead of blocking it.
+		checkCtx, cancel := corecontext.WithMaxTimeout(ctx, cmp.Or(ch.DDLTimeout, auditclickhouse.DefaultDDLTimeout))
+		defer cancel()
+		if err := storage.CheckSchema(checkCtx); err != nil {
+			return nil, err
 		}
 
 		return storage, nil

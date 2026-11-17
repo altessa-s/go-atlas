@@ -328,13 +328,7 @@ func sqlVolSeed(t *testing.T, db *sql.DB, d sqldb.Dialect, table string, n int) 
 				payloads[volCategoryOf(i)]}
 		})
 	})
-	if d == sqldb.DialectPostgres {
-		_, err := db.ExecContext(t.Context(), "ANALYZE "+table)
-		require.NoError(t, err)
-		return
-	}
-	_, err := db.ExecContext(t.Context(), "ANALYZE TABLE "+table)
-	require.NoError(t, err)
+	livebackend.Analyze(t, db, string(d), table)
 }
 
 // sqlExplain returns the JSON plan of query.

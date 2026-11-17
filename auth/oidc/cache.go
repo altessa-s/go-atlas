@@ -57,8 +57,7 @@ func tokenCacheKey(prefix, token string) string {
 }
 
 // signatureCacheVersion versions the signature-cache key derivation and entry
-// format. Bumping it moves new entries to keys that older binaries never read
-// (and vice versa), which keeps rolling upgrades that share a cache safe.
+// format; it prefixes every key, so a change of format must change it too.
 const signatureCacheVersion = "oidc-sig-v2"
 
 // cachedToken is the signature-cache entry: the claims and header of a token

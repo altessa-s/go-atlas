@@ -33,7 +33,6 @@ type Store struct {
 	dialect   dialect
 	table     string // quoted
 	tableName string // unqualified, for index names and the DDL lock
-	schema    string // qualifier of the table name; empty when unqualified
 	stmts     statements
 }
 
@@ -70,7 +69,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	}
 	o := newOptions(opts...)
 
-	s := &Store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), schema: sqldialect.Qualifier(o.tableName)}
+	s := &Store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName)}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}
@@ -93,9 +92,16 @@ func (s *Store) buildStatements() statements {
 	// The recovery predicate of saga.Instance.Recoverable: non-terminal, no
 	// active lease, and interrupted compensation, an owner whose lease has
 	// expired, or a passed deadline. A zero lease_until or deadline is 0.
+	//
+	// The rows come in (status, lease_until) order, the order of the lease
+	// index: the index then serves a limited batch by reading it in order and
+	// stopping at the limit. Without the order PostgreSQL costs a LIMIT
+	// against an evenly spread sequential scan and reads the table from its
+	// start, through every old terminal row.
 	recoverable := "SELECT " + columns + " FROM " + t +
 		" WHERE status IN (?, ?) AND lease_until <= ?" +
 		" AND (status = ? OR lease_owner <> '' OR (deadline <> 0 AND deadline <= ?))"
+	const order = " ORDER BY status, lease_until"
 	recoverableDef := recoverable + " AND definition = ?"
 	return statements{
 		get:    b("SELECT "+columns+" FROM "+t+" WHERE id = ?", 1),
@@ -105,10 +111,10 @@ func (s *Store) buildStatements() statements {
 			" data = ?, steps = ?, created_at = ?, updated_at = ?, deadline = ?, last_error = ?, version = ?"+
 			" WHERE id = ? AND version = ?", 1),
 		remove:              b("DELETE FROM "+t+" WHERE id = ?", 1),
-		recoverable:         b(recoverable, 1),
-		recoverableLimit:    b(recoverable+" LIMIT ?", 1),
-		recoverableDef:      b(recoverableDef, 1),
-		recoverableDefLimit: b(recoverableDef+" LIMIT ?", 1),
+		recoverable:         b(recoverable+order, 1),
+		recoverableLimit:    b(recoverable+order+" LIMIT ?", 1),
+		recoverableDef:      b(recoverableDef+order, 1),
+		recoverableDefLimit: b(recoverableDef+order+" LIMIT ?", 1),
 	}
 }
 
@@ -199,6 +205,8 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 // FetchRecoverable returns up to limit instances that satisfy
 // [saga.Instance.Recoverable] at now, compared at full precision, restricted
 // to definition when it is non-empty. A non-positive limit means no cap.
+// Instances come compensating first, then running, each by lease expiry,
+// the order in which the (status, lease_until) index reads them.
 func (s *Store) FetchRecoverable(ctx context.Context, definition string, now time.Time, limit int) ([]*saga.Instance, error) {
 	running, compensating := s.dialect.textArg(string(saga.StatusRunning)), s.dialect.textArg(string(saga.StatusCompensating))
 	at := unixNano(now)

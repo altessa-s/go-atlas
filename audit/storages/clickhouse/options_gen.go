@@ -132,20 +132,6 @@ func WithSchemaCheck(v SchemaCheckMode) Option {
 	}
 }
 
-// WithSchemaMigration selects whether [Storage.MigrateSchema] may change the
-// live table. Defaults to [DefaultSchemaMigrationMode]; an unknown mode
-// leaves the configured one in place.
-func WithSchemaMigration(v SchemaMigrationMode) Option {
-	return func(o *options) {
-		switch v {
-		case SchemaMigrationModeOff, SchemaMigrationModeAdditive:
-		default:
-			return
-		}
-		o.schemaMigrationMode = v
-	}
-}
-
 // WithTTL sets the ttl option.
 func WithTTL(v time.Duration) Option {
 	return func(o *options) {
@@ -198,14 +184,13 @@ func WithTimeRangeMode(v TimeRangeMode) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		ddlTimeout:          DefaultDDLTimeout,
-		engine:              DefaultEngine,
-		logger:              slog.New(slog.DiscardHandler),
-		maxBatchSize:        DefaultMaxBatchSize,
-		schemaCheckMode:     DefaultSchemaCheckMode,
-		schemaMigrationMode: DefaultSchemaMigrationMode,
-		tableName:           DefaultTableName,
-		timeRangeMode:       DefaultTimeRangeMode,
+		ddlTimeout:      DefaultDDLTimeout,
+		engine:          DefaultEngine,
+		logger:          slog.New(slog.DiscardHandler),
+		maxBatchSize:    DefaultMaxBatchSize,
+		schemaCheckMode: DefaultSchemaCheckMode,
+		tableName:       DefaultTableName,
+		timeRangeMode:   DefaultTimeRangeMode,
 	}
 }
 

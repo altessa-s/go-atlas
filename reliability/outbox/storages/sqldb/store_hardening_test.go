@@ -157,6 +157,34 @@ func TestDeleteProcessedEventsInChunks(t *testing.T) {
 	})
 }
 
+// Expiry marks in bounded chunks, one statement each, until a chunk comes back
+// short, and sums the chunks.
+func TestExpireEventsInChunks(t *testing.T) {
+	t.Parallel()
+	byDialect(t, func(t *testing.T, d sqldb.Dialect, _, _ string) {
+		affected := []int64{1000, 1000, 7}
+		var n atomic.Int64
+		store, _, fake := newStore(t, d, func(string, []any) testhelpers.FakeSQLReply {
+			return testhelpers.FakeSQLReply{Affected: affected[n.Add(1)-1]}
+		})
+		total, err := store.ExpireEvents(t.Context())
+		require.NoError(t, err)
+		require.EqualValues(t, 2007, total)
+
+		calls := fake.Calls()
+		require.Len(t, calls, len(affected), "a short chunk ends the sweep")
+		for _, c := range calls {
+			require.False(t, c.InTx, "each chunk commits on its own")
+			require.Contains(t, c.Query, "LIMIT 1000")
+			require.Equal(t, []any{"expired", "pending", "failed"}, c.Args)
+			if d == sqldb.DialectPostgres {
+				require.Contains(t, c.Query, "WHERE id IN (SELECT id FROM", "PostgreSQL has no UPDATE ... LIMIT")
+				require.Contains(t, c.Query, "FOR UPDATE SKIP LOCKED")
+			}
+		}
+	})
+}
+
 // A sweep whose context ends stops between chunks and reports it.
 func TestDeleteProcessedEventsStopsWhenContextEnds(t *testing.T) {
 	t.Parallel()
@@ -314,64 +342,11 @@ func TestDeadlocksAreRetried(t *testing.T) {
 	}
 }
 
-// EnsureSchema brings a MySQL table created by an earlier version up to the
-// current index set: it adds exactly the indexes the catalog lacks.
-func TestEnsureSchemaAddsMissingMySQLIndexes(t *testing.T) {
-	t.Parallel()
-
-	catalog := func(alter error) func(string, []any) testhelpers.FakeSQLReply {
-		return func(q string, _ []any) testhelpers.FakeSQLReply {
-			switch {
-			case strings.Contains(q, "information_schema.statistics"):
-				return testhelpers.FakeSQLReply{Columns: []string{"index_name"}, Rows: [][]driver.Value{
-					{"PRIMARY"}, {"events_outbox_fetch_idx"}, {"events_outbox_locked_idx"}, {"events_outbox_published_idx"},
-				}}
-			case strings.HasPrefix(q, "ALTER"):
-				return testhelpers.FakeSQLReply{Err: alter}
-			default:
-				return testhelpers.FakeSQLReply{}
-			}
-		}
-	}
-
-	t.Run("adds the missing index", func(t *testing.T) {
-		t.Parallel()
-		store, _, fake := newStore(t, sqldb.DialectMySQL, catalog(nil))
-		require.NoError(t, store.EnsureSchema(t.Context()))
-
-		calls := fake.Calls()
-		require.Len(t, calls, 3)
-		require.Equal(t, []any{nil, "events_outbox"}, calls[1].Args, "an unqualified table lives in the default database")
-		require.Equal(t, "ALTER TABLE `events_outbox` ADD INDEX `events_outbox_expires_idx` (status, expires_at)", calls[2].Query)
-	})
-
-	t.Run("looks a qualified table up in its schema", func(t *testing.T) {
-		t.Parallel()
-		db, fake := testhelpers.NewFakeSQL(t, catalog(nil))
-		store, err := sqldb.New(db, sqldb.DialectMySQL, sqldb.WithTableName("app.events_outbox"))
-		require.NoError(t, err)
-		require.NoError(t, store.EnsureSchema(t.Context()))
-		require.Equal(t, []any{"app", "events_outbox"}, fake.Calls()[1].Args)
-	})
-
-	t.Run("tolerates another instance adding it first", func(t *testing.T) {
-		t.Parallel()
-		store, _, _ := newStore(t, sqldb.DialectMySQL, catalog(&mysqlError{1061}))
-		require.NoError(t, store.EnsureSchema(t.Context()))
-	})
-
-	t.Run("reports any other failure", func(t *testing.T) {
-		t.Parallel()
-		store, _, _ := newStore(t, sqldb.DialectMySQL, catalog(errBoom))
-		require.ErrorIs(t, store.EnsureSchema(t.Context()), errBoom)
-	})
-}
-
 // The expiry sweep has its own index on both dialects.
 func TestEnsureSchemaIndexesExpiry(t *testing.T) {
 	t.Parallel()
 	byDialect(t, func(t *testing.T, d sqldb.Dialect, _, _ string) {
-		store, _, fake := newStore(t, d, existingIndexes)
+		store, _, fake := newStore(t, d, ok)
 		require.NoError(t, store.EnsureSchema(t.Context()))
 
 		var ddl strings.Builder

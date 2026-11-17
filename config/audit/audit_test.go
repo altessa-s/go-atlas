@@ -28,13 +28,12 @@ func validConfig() auditconfig.Config {
 		Storage: auditconfig.Storage{
 			Type: auditconfig.StorageTypeClickHouse,
 			ClickHouse: &auditconfig.StorageClickHouse{
-				TableName:           "audit_events",
-				Engine:              "ReplacingMergeTree",
-				MaxBatchSize:        10_000,
-				DDLTimeout:          30 * time.Second,
-				TimeRangeMode:       "warn",
-				SchemaCheckMode:     "warn",
-				SchemaMigrationMode: "off",
+				TableName:       "audit_events",
+				Engine:          "ReplacingMergeTree",
+				MaxBatchSize:    10_000,
+				DDLTimeout:      30 * time.Second,
+				TimeRangeMode:   "warn",
+				SchemaCheckMode: "warn",
 			},
 		},
 		Paging: &pagingconfig.Config{SigningKey: key(32), TokenTTL: 24 * time.Hour},
@@ -68,12 +67,9 @@ func TestConfig_Validate(t *testing.T) {
 		{"clickhouse negative ddl timeout", func(c *auditconfig.Config) { c.Storage.ClickHouse.DDLTimeout = -time.Second }, true},
 		{"clickhouse unknown time range mode", func(c *auditconfig.Config) { c.Storage.ClickHouse.TimeRangeMode = "strict" }, true},
 		{"clickhouse unknown schema check mode", func(c *auditconfig.Config) { c.Storage.ClickHouse.SchemaCheckMode = "on" }, true},
-		{"clickhouse unknown migration mode", func(c *auditconfig.Config) {
-			c.Storage.ClickHouse.SchemaMigrationMode = "destructive"
-		}, true},
 		{"clickhouse empty modes use defaults", func(c *auditconfig.Config) {
 			ch := c.Storage.ClickHouse
-			ch.TimeRangeMode, ch.SchemaCheckMode, ch.SchemaMigrationMode = "", "", ""
+			ch.TimeRangeMode, ch.SchemaCheckMode = "", ""
 		}, false},
 		{"enabled wal without dir", func(c *auditconfig.Config) {
 			c.Dispatch.WAL = &dispatchconfig.WAL{Enabled: true}

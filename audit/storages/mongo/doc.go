@@ -4,5 +4,7 @@
 
 // Package mongo provides a MongoDB-backed [audit.Storage] implementation.
 // Events are persisted in a configurable collection with automatic index
-// creation for efficient queries by actor, resource type, and time range.
+// creation for efficient queries by time range, actor, resource, request ID
+// and trace ID. [New] creates the indexes missing from an existing
+// collection too.
 package mongo

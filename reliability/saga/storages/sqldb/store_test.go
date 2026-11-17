@@ -276,7 +276,8 @@ func TestFetchRecoverable(t *testing.T) {
 	require.Len(t, calls, 2)
 	require.NotContains(t, calls[0].Query, "LIMIT")
 	require.Equal(t, []any{"RUNNING", "COMPENSATING", now.UnixNano(), "COMPENSATING", now.UnixNano()}, calls[0].Args)
-	require.Contains(t, calls[1].Query, "LIMIT $6")
+	require.Contains(t, calls[0].Query, " ORDER BY status, lease_until")
+	require.Contains(t, calls[1].Query, " ORDER BY status, lease_until LIMIT $6")
 	require.Equal(t, int64(7), calls[1].Args[5])
 	require.Equal(t, 2, fake.RowsClosed())
 }
@@ -301,7 +302,7 @@ func TestFetchRecoverableByDefinition(t *testing.T) {
 	require.Contains(t, calls[0].Query, "AND definition = $6")
 	require.NotContains(t, calls[0].Query, "LIMIT")
 	require.Equal(t, "place-order", calls[0].Args[5])
-	require.Contains(t, calls[1].Query, "AND definition = $6 LIMIT $7")
+	require.Contains(t, calls[1].Query, "AND definition = $6 ORDER BY status, lease_until LIMIT $7")
 	require.Equal(t, []any{"place-order", int64(7)}, calls[1].Args[5:])
 }
 
@@ -347,7 +348,7 @@ func TestEnsureSchemaMySQLBinaryTypes(t *testing.T) {
 	require.NoError(t, store.EnsureSchema(t.Context()))
 
 	calls := fake.Calls()
-	require.Len(t, calls, 4, "table, catalog query, and two missing indexes")
+	require.Len(t, calls, 1, "the table with its indexes inline")
 	q := calls[0].Query
 	require.NotRegexp(t, `\b(VARCHAR|TEXT|MEDIUMTEXT|LONGTEXT)\b`, q)
 	require.NotContains(t, q, "COLLATE")

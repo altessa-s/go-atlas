@@ -30,13 +30,6 @@
 #    # Default value: false
 #    migrateBucketTTL: false
 #
-#    # <bool> Fail when the bucket already exists with another storage type.
-#    # When false, such a bucket is used as is and a warning is logged on every start;
-#    # the server cannot convert a bucket's storage type (see the backend's README for
-#    # the storage migration).
-#    # Default value: false
-#    strictBucketStorage: false
-#
 #  # <object> MongoDB provider configuration, applicable only if the provider is 'mongo'.
 #  # The *mongo.Database is injected into the factory (UseMongoDB).
 #  mongo:
@@ -122,10 +115,10 @@
 #    expiredCleanupGrace: "0s"
 #
 #    # <duration> Time between background purge passes; "0s" disables the loop.
-#    # Inactive until retention is enabled.
+#    # Inactive until expiredCleanup is enabled.
 #    # Default value: 1m
 #    purgeInterval: "1m"
 #
-#    # <int> Maximum rows deleted by one purge statement.
+#    # <int> Maximum rows deleted by one purge statement, at most 65534 (the MySQL placeholder limit).
 #    # Default value: 1000
 #    purgeBatchSize: 1000

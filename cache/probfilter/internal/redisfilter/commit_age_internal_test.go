@@ -64,21 +64,15 @@ func TestCore_RebuildCommitAge_EdgeCases(t *testing.T) {
 		require.Zero(t, age)
 	})
 
-	for name, marker := range map[string]string{"legacy marker": "1", "live key gone": ""} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			mr, core, _ := newReadyCore(t)
-			commitStaged(t, mr, core)
-			if marker == "" {
-				mr.Del("t:f")
-			} else {
-				require.NoError(t, mr.Set(core.readyKey, marker))
-			}
-			_, _, known, err := core.RebuildCommitAge(t.Context())
-			require.NoError(t, err)
-			require.False(t, known)
-		})
-	}
+	t.Run("live key gone", func(t *testing.T) {
+		t.Parallel()
+		mr, core, _ := newReadyCore(t)
+		commitStaged(t, mr, core)
+		mr.Del("t:f")
+		_, _, known, err := core.RebuildCommitAge(t.Context())
+		require.NoError(t, err)
+		require.False(t, known)
+	})
 
 	t.Run("marker with a list size", func(t *testing.T) {
 		t.Parallel()

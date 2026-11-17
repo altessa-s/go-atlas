@@ -52,8 +52,9 @@ func WithOperationsTimeout(v time.Duration) Option {
 	}
 }
 
-// WithPurgeBatchSize bounds the rows deleted by each statement.
-// Nonpositive values leave the configured size unchanged.
+// WithPurgeBatchSize bounds the rows deleted by each statement. On MySQL it
+// must be at most 65534 (the placeholder limit of the key list), or [New]
+// fails. Nonpositive values leave the configured size unchanged.
 func WithPurgeBatchSize(v int) Option {
 	return func(o *options) {
 		if v <= 0 {

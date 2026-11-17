@@ -39,8 +39,8 @@ type Record struct {
 }
 
 // EntityIDData returns the data a transport stores with a completed key
-// when response replay is off: entityID, or nil when it is empty — the
-// format written before replay existed, which [DecodeRecord] reads back.
+// when response replay is off: entityID, or nil when it is empty, which
+// [DecodeRecord] reads back.
 func EntityIDData(entityID string) any {
 	if entityID == "" {
 		return nil

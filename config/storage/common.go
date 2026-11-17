@@ -51,11 +51,6 @@ type NATSConfig struct {
 	// Off by default: the bucket's key TTL expires every key in it, including
 	// keys of other processes sharing the bucket.
 	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
-
-	// StrictBucketStorage fails with ErrBucketStorageMismatch when the bucket
-	// already exists with another storage type, instead of using it as is
-	// with a warning.
-	StrictBucketStorage bool `yaml:"strictBucketStorage"`
 }
 
 // Validate performs validation of the NATS storage configuration.

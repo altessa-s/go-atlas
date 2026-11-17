@@ -42,8 +42,7 @@ freecache, LRU, noop). Supports per-method configuration, decision functions, ke
 
 The default generator is built once per interceptor and snapshots `DefaultMetadataKeys` at construction time. Every hashed component (method, request
 bytes, metadata keys and values, processor output) is written as tag + length + payload, so distinct inputs cannot collide by concatenation (for example
-`tenant-id=["auser-idb"]` versus `tenant-id=["a"], user-id=["b"]`). This framing changed the key format: entries written by earlier versions are no
-longer hit and expire on their TTL. When key generation fails the call bypasses the cache entirely.
+`tenant-id=["auser-idb"]` versus `tenant-id=["a"], user-id=["b"]`). When key generation fails the call bypasses the cache entirely.
 
 ## Subpackages
 
@@ -51,10 +50,9 @@ longer hit and expire on their TTL. When key generation fails the call bypasses 
 |----------------------------------|--------------------------------------------------|
 | [compression](./compression)     | High-performance gzip compression for cache ops  |
 
-Method names and processor-output keys are case-sensitive; protobuf requests use deterministic serialization, including map fields. Keys produced by
-older versions may therefore miss and expire normally. Selected metadata is bounded to 100 keys, 256 bytes per key, 20 values per key and 1024 bytes
-per value. Processor output uses the same key/value bounds. Exceeding a bound returns `ErrMetadataTooLarge` and bypasses caching, rather than omitting
-identity fields from the cache key.
+Method names and processor-output keys are case-sensitive; protobuf requests use deterministic serialization, including map fields. Selected metadata is
+bounded to 100 keys, 256 bytes per key, 20 values per key and 1024 bytes per value. Processor output uses the same key/value bounds. Exceeding a bound
+returns `ErrMetadataTooLarge` and bypasses caching, rather than omitting identity fields from the cache key.
 
 A custom `MetadataProcessor` runs even when the incoming context has no gRPC metadata. It receives an empty writable metadata map in that case, so
 identity stored in context values still contributes to cache partitioning.

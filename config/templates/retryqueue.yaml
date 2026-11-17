@@ -26,8 +26,8 @@
 #      # Default value: retry_items
 #      collection: retry_items
 #
-#      # <string> Document field of the attention flag, so a collection written by an
-#      # earlier store keeps its wire format.
+#      # <string> Document field of the attention flag, so the store can adopt a
+#      # collection whose documents name it differently.
 #      # Default value: flagged
 #      flagField: flagged
 #

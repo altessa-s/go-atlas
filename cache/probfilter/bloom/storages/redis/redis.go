@@ -129,8 +129,7 @@ func (s *Storage) RebuildCommitted(ctx context.Context) (bool, error) {
 // LastRebuildCommit returns the Redis server time at which the last rebuild
 // of the shared filter committed, whichever process ran it (see
 // [storages.RebuildCommitTimeReporter]). It is read from Redis on every call
-// and is the zero time when [Storage.RebuildCommitted] would report false or
-// the commit was made by a release that did not record the time.
+// and is the zero time when [Storage.RebuildCommitted] would report false.
 // [Storage.LastRebuild] stays process-local.
 func (s *Storage) LastRebuildCommit(ctx context.Context) (time.Time, error) {
 	return s.core.LastRebuildCommit(ctx)
@@ -148,8 +147,8 @@ func (s *Storage) RebuildCommitAge(ctx context.Context) (age time.Duration, comm
 // filter loaded from its data source, whichever process ran it (see
 // [storages.RebuildLoadReporter]). The count is stored with the commit and
 // read from Redis on every call; known is false when
-// [Storage.RebuildCommitted] would report false or the commit was made by a
-// release that did not record the count.
+// [Storage.RebuildCommitted] would report false or the rebuild did not record
+// the count.
 func (s *Storage) LastRebuildLoaded(ctx context.Context) (loaded int64, known bool, err error) {
 	return s.core.LastRebuildLoaded(ctx)
 }

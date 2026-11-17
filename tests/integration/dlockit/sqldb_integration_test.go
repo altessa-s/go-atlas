@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/coord/dlock"
@@ -329,8 +330,8 @@ func TestSQLCleanupRacesAcquisitions(t *testing.T) {
 			sweeps.Go(func() {
 				for sweepCtx.Err() == nil {
 					n, err := sweeper.PurgeExpired(sweepCtx)
-					if sweepCtx.Err() == nil {
-						require.NoError(t, err)
+					if sweepCtx.Err() == nil && !assert.NoError(t, err) {
+						return
 					}
 					deleted += n
 				}
@@ -345,11 +346,16 @@ func TestSQLCleanupRacesAcquisitions(t *testing.T) {
 							time.Sleep(2 * time.Millisecond)
 							lk, err = l.Lock(t.Context(), "resource")
 						}
-						require.NoError(t, err)
+						// assert, not require: FailNow must run on the test goroutine.
+						if !assert.NoError(t, err) {
+							return
+						}
 						leave := section.Enter(holder)
 						time.Sleep(10 * time.Millisecond)
 						leave()
-						require.NoError(t, lk.Release(t.Context()))
+						if !assert.NoError(t, lk.Release(t.Context())) {
+							return
+						}
 					}
 				})
 			}

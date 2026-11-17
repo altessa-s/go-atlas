@@ -37,7 +37,7 @@ type schemaDiff struct {
 
 	// mismatches describe definitions that differ from the expected schema:
 	// column types, skip index types and granularities, the sorting and the
-	// partition key. Additive migration cannot repair them.
+	// partition key.
 	mismatches []string
 
 	// unmaterializedIndexes exist on the table but hold no data while the
@@ -145,9 +145,8 @@ func (s *Storage) diffSchema(ctx context.Context) (schemaDiff, error) {
 // wherever the service already tolerates a startup round trip — a readiness
 // probe, a migration step, or right after wiring the storage up.
 //
-// It reports drift and never repairs it. See [Storage.MigrateSchema] for the
-// additive repair, and [Storage.MaterializeIndexes] for the part-rewriting
-// one.
+// It reports drift and never repairs it: a drifted table must be recreated
+// from [SchemaDDL] or fixed by hand.
 func (s *Storage) CheckSchema(ctx context.Context) error {
 	if s.opts.schemaCheckMode == SchemaCheckModeDisabled {
 		return nil
@@ -174,7 +173,7 @@ func (s *Storage) CheckSchema(ctx context.Context) error {
 		s.opts.logger.WarnContext(ctx, "audit skip indexes hold no data and appear to cover no existing part",
 			"table", s.opts.tableName,
 			"indexes", strings.Join(names, ", "),
-			"remedy", "call MaterializeIndexes to backfill them")
+			"remedy", "run ALTER TABLE ... MATERIALIZE INDEX by hand to backfill them")
 	}
 
 	if diff.empty() {
@@ -287,7 +286,7 @@ func (s *Storage) reportDrift(ctx context.Context, missing []string) error {
 	s.opts.logger.WarnContext(ctx, "audit table schema is out of date",
 		"table", s.opts.tableName,
 		"missing", strings.Join(missing, ", "),
-		"remedy", "MigrateSchema adds what is missing; MaterializeIndexes backfills existing parts")
+		"remedy", "recreate the table from SchemaDDL or fix it by hand")
 
 	return nil
 }

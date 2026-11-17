@@ -29,7 +29,7 @@ Sort fields must contain comparable scalars of consistent BSON types and survive
 default is `_id`. Filter bytes are encoded with the requested registry and BSON options, used both in the query and token binding; use deterministic
 ordered documents. A nil codec reads a single page without issuing a token. Pagination is not a snapshot.
 
-Import this package directly; the root no longer re-exports keyset types or functions.
+Import this package directly; the root does not re-export keyset types or functions.
 
 ## Identity path
 

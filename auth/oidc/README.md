@@ -105,10 +105,10 @@ silently disables revocation — which is why it is an explicit dependency rathe
 
 A provider that syncs on `WithRevocationSyncSchedule` also bounds how long it trusts the last successful sync. Past `WithRevocationMaxStaleness`
 (`DefaultRevocationMaxStaleness`, 3h: three periods of the default hourly schedule) a "not revoked" answer fails the check with `ErrRevocationCheck`
-wrapping `ErrRevocationStale`, unless `WithRevocationFailOpen` is set. This is a **breaking default**: tokens are now rejected once the revocation
-source has been unreachable for longer than the bound. Keep the bound at several sync intervals (`NewProvider` logs a warning when the schedule is
-sparser than the bound), or pass zero or a negative value to turn it off. Without a scheduled sync the bound does not apply. A fail-open provider
-that started on a failed initial sync counts the bound from construction.
+wrapping `ErrRevocationStale`, unless `WithRevocationFailOpen` is set. Tokens are rejected once the revocation source has been unreachable for longer
+than the bound. Keep the bound at several sync intervals (`NewProvider` logs a warning when the schedule is sparser than the bound), or pass zero or a
+negative value to turn it off. Without a scheduled sync the bound does not apply. A fail-open provider that started on a failed initial sync counts the
+bound from construction.
 
 Replicas sharing a Redis filter rebuild one at a time; a replica whose tick finds a peer rebuilding (`ErrRebuildInProgress`) skips it without counting
 it as a sync. The bound is checked against the newest of the provider's own last successful sync and the last rebuild committed by any replica, which

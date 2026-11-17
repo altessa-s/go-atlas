@@ -7,6 +7,8 @@ package lockconfig
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/config/internal/validators"
+
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -59,7 +61,8 @@ type DistributionLockSQL struct {
 	// PurgeInterval is the time between background purge passes. Zero disables
 	// the loop; explicit PurgeExpired calls remain available.
 	PurgeInterval time.Duration `yaml:"purgeInterval" default:"1m"`
-	// PurgeBatchSize bounds the rows deleted by one purge statement.
+	// PurgeBatchSize bounds the rows deleted by one purge statement, at most
+	// 65534 (the MySQL placeholder limit of the key list).
 	PurgeBatchSize int `yaml:"purgeBatchSize" default:"1000"`
 
 	// TTL is the lease of a lock: a holder that stops renewing loses the lock
@@ -91,9 +94,9 @@ type DistributionLockSQL struct {
 func (c *DistributionLockSQL) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
-		validation.Field(&c.Table, validation.Required),
+		validation.Field(&c.Table, validation.Required, validators.SQLTableName),
 		validation.Field(&c.PurgeInterval, validation.Min(time.Duration(0))),
-		validation.Field(&c.PurgeBatchSize, validation.Min(1)),
+		validation.Field(&c.PurgeBatchSize, validation.Min(1), validation.Max(validators.MaxSQLKeyBatch)),
 		// Zero keeps the provider default; ozzo rules skip zero values.
 		validation.Field(&c.TTL, validation.Min(time.Millisecond)),
 		validation.Field(&c.RenewRatio, validation.Min(0.0), validation.Max(1.0).Exclusive()),
@@ -172,11 +175,6 @@ type DistributionLockNATS struct {
 	// default: the bucket's key TTL expires every lock in it, including locks
 	// of other processes sharing the bucket.
 	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
-
-	// StrictBucketStorage fails with ErrBucketStorageMismatch when the bucket
-	// already exists with another storage type, instead of using it as is
-	// with a warning.
-	StrictBucketStorage bool `yaml:"strictBucketStorage"`
 }
 
 // DistributionLock defines the configuration for distributed locking.

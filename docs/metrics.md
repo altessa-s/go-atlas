@@ -463,21 +463,6 @@ to be scheduled (`statsSchedule`).
 flat line while `outbox_events_saved_total` climbs means the watcher died or was never started and dispatch quietly fell back to the poll
 interval — correct, but at the latency the schedule dictates.
 
-**Renamed.** Two names no longer matched what they measured once the in-process retry loop was removed, and the backlog gauges did not share the
-`outbox_events_` prefix of the rest of the package. Update dashboards and alert rules accordingly:
-
-| Old                                       | New                                            |
-|-------------------------------------------|------------------------------------------------|
-| `outbox_events_dispatch_errors_total`     | `outbox_events_dispatch_attempts_failed_total` |
-| `outbox_dispatch_retries_total`           | `outbox_events_retries_scheduled_total`        |
-| `outbox_pending_events`                   | `outbox_events_pending`                        |
-| `outbox_in_progress_events`               | `outbox_events_in_progress`                    |
-| `outbox_dead_lettered_events`             | `outbox_events_dead_lettered`                  |
-| `outbox_oldest_pending_event_age_seconds` | `outbox_events_oldest_pending_age_seconds`     |
-
-`outbox_events_dispatch_attempts_failed_total` also counts differently: it used to increment once per event after all retries were spent, and now
-increments once per failed attempt.
-
 ---
 
 ## projection

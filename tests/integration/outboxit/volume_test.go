@@ -372,17 +372,7 @@ func TestVolume_Explain(t *testing.T) {
 			seed := newVolumeSeed(t)
 			b, _ := newVolumeSQL(t, target, seed)
 			livebackend.Measure(t, "analyze SQL outbox", seed.total, func() {
-				stmt := "ANALYZE " + b.events
-				if b.dialect == outboxsql.DialectMySQL {
-					stmt = "ANALYZE TABLE " + b.events
-				}
-				rows, err := b.db.QueryContext(t.Context(), stmt)
-				require.NoError(t, err)
-				// Drain ANALYZE TABLE's result before using the connection again.
-				for rows.Next() {
-				}
-				require.NoError(t, rows.Err())
-				require.NoError(t, rows.Close())
+				livebackend.Analyze(t, b.db, string(b.dialect), b.events)
 			})
 			// One subtest per query, so a full scan does not hide later hot queries.
 			for _, q := range volumeSQLQueries(t, b) {

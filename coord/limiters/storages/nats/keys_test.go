@@ -43,10 +43,10 @@ func TestProvider_ValidKeyIsStoredUnderItself(t *testing.T) {
 	provider := setupProvider(t)
 	ctx := t.Context()
 
-	_, err := provider.Allow(ctx, natskeytest.LegacyKey, 1, time.Minute)
+	_, err := provider.Allow(ctx, natskeytest.PlainKey, 1, time.Minute)
 	require.NoError(t, err)
 
-	_, err = provider.KV().Get(ctx, natskeytest.LegacyKey)
+	_, err = provider.KV().Get(ctx, natskeytest.PlainKey)
 	require.NoError(t, err)
 }
 

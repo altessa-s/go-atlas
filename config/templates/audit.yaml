@@ -55,7 +55,7 @@
 #      # Default value: 10000
 #      maxBatchSize: 10000
 #
-#      # <duration> Bound on each startup schema operation (create, migrate, check).
+#      # <duration> Bound on each startup schema operation (create, check).
 #      # Default value: 30s
 #      ddlTimeout: "30s"
 #
@@ -76,11 +76,6 @@
 #      # Supported values: enforce, warn, disabled
 #      # Default value: warn
 #      schemaCheckMode: warn
-#
-#      # <string> Add missing columns and indexes at startup.
-#      # Supported values: off, additive
-#      # Default value: off
-#      schemaMigrationMode: "off"
 #
 #    # <object> SQL-specific storage configuration (audit/storages/sqldb).
 #    # Required when type is "sqldb". The *sql.DB is injected into the factory

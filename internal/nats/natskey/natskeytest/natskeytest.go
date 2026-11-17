@@ -4,9 +4,9 @@
 
 package natskeytest
 
-// LegacyKey is already a valid NATS KeyValue key without '=', so it must be
+// PlainKey is already a valid NATS KeyValue key without '=', so it must be
 // stored under itself.
-const LegacyKey = "plain-key_1/v2.x"
+const PlainKey = "plain-key_1/v2.x"
 
 // Keys returns distinct logical keys a NATS KeyValue bucket rejects verbatim.
 // "a:b" and "a=3Ab" are both included: they must not reach the same entry.

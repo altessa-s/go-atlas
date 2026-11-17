@@ -67,7 +67,7 @@ non-creating `BF.INSERT`/`CF.INSERT ... NOCREATE` form; a missing key is recreat
 `LastRebuild` only knows the rebuilds of the calling process. `LastRebuildCommit` (`RebuildCommitTimeReporter`) returns the commit time of the last
 rebuild by any process: the commit script stores the Redis server time as the value of the ready marker, in the same step as the promotion, so every
 process reads the same instant whatever its own clock says. It costs one Redis round trip per call and is the zero time when `RebuildCommitted` is
-false or the commit came from a release that did not record the time. A memory-backed filter returns its `LastRebuild`.
+false. A memory-backed filter returns its `LastRebuild`.
 
 `RebuildCommitAge` (`RebuildCommitAgeReporter`) returns the age of that commit together with its time, both from the Redis clock in one script, so
 a caller checking the age against a bound does not depend on how its own clock relates to the server's. A memory-backed filter uses the local clock.

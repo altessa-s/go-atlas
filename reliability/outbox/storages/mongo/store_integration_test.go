@@ -22,7 +22,7 @@ import (
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-// dateDoc decodes an outbox document with Date-typed timestamps (current layout).
+// dateDoc decodes an outbox document with Date-typed timestamps.
 type dateDoc struct {
 	ID            string     `bson:"_id"`
 	Status        string     `bson:"status"`
@@ -31,16 +31,6 @@ type dateDoc struct {
 	LastAttemptOn *time.Time `bson:"last_attempt_on"`
 	LockedOn      *time.Time `bson:"locked_on"`
 	ExpiresAt     *time.Time `bson:"expires_at"`
-}
-
-// unixDoc decodes an outbox document with legacy int64 Unix-second timestamps.
-type unixDoc struct {
-	ID            string `bson:"_id"`
-	CreatedAt     int64  `bson:"created_at"`
-	PublishedAt   int64  `bson:"published_at"`
-	LastAttemptOn int64  `bson:"last_attempt_on"`
-	LockedOn      int64  `bson:"locked_on"`
-	ExpiresAt     int64  `bson:"expires_at"`
 }
 
 // itDBSeq keeps database names unique when parallel tests start in the same nanosecond.
@@ -82,77 +72,6 @@ func newIT(t *testing.T) (*outboxmongo.Store, *mongo.Collection) {
 		t.Skipf("mongodb store setup failed (server not usable for tests): %v", err)
 	}
 	return store, coll
-}
-
-func TestIntegration_MigrateTimestampsToDate_ForwardAndRevert(t *testing.T) {
-	t.Parallel()
-	store, coll := newIT(t)
-	ctx := t.Context()
-	_ = store
-
-	const sec = int64(1700000000)
-	_, err := coll.InsertMany(ctx, []any{
-		// m1: optional timestamps absent/zero, as legacy SaveEvents wrote them.
-		bson.M{"_id": "m1", "status": "pending", "created_at": sec, "published_at": int64(0), "last_attempt_on": int64(0)},
-		// m2: every timestamp set.
-		bson.M{"_id": "m2", "status": "sent", "created_at": sec, "published_at": sec + 10,
-			"last_attempt_on": sec + 5, "locked_on": sec + 1, "expires_at": sec + 100},
-	})
-	require.NoError(t, err)
-
-	n, err := outboxmongo.MigrateTimestampsToDate(ctx, coll)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), n)
-
-	// Idempotent: a second run touches nothing.
-	n2, err := outboxmongo.MigrateTimestampsToDate(ctx, coll)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), n2)
-
-	// m1: created_at is now a Date; zero optionals were dropped, not mapped to 1970.
-	var d1 dateDoc
-	require.NoError(t, coll.FindOne(ctx, bson.M{"_id": "m1"}).Decode(&d1))
-	require.Equal(t, sec, d1.CreatedAt.Unix())
-	require.Nil(t, d1.PublishedAt)
-	require.Nil(t, d1.LastAttemptOn)
-	require.Nil(t, d1.LockedOn)
-	require.Nil(t, d1.ExpiresAt)
-
-	// m2: every timestamp converted to the right instant.
-	var d2 dateDoc
-	require.NoError(t, coll.FindOne(ctx, bson.M{"_id": "m2"}).Decode(&d2))
-	require.Equal(t, sec, d2.CreatedAt.Unix())
-	require.NotNil(t, d2.PublishedAt)
-	require.Equal(t, sec+10, d2.PublishedAt.Unix())
-	require.NotNil(t, d2.LastAttemptOn)
-	require.Equal(t, sec+5, d2.LastAttemptOn.Unix())
-	require.NotNil(t, d2.LockedOn)
-	require.Equal(t, sec+1, d2.LockedOn.Unix())
-	require.NotNil(t, d2.ExpiresAt)
-	require.Equal(t, sec+100, d2.ExpiresAt.Unix())
-
-	// Revert restores the legacy int64 layout (round-trip).
-	nr, err := outboxmongo.RevertTimestampsToUnix(ctx, coll)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), nr)
-
-	nr2, err := outboxmongo.RevertTimestampsToUnix(ctx, coll)
-	require.NoError(t, err)
-	require.Equal(t, int64(0), nr2)
-
-	var u2 unixDoc
-	require.NoError(t, coll.FindOne(ctx, bson.M{"_id": "m2"}).Decode(&u2))
-	require.Equal(t, sec, u2.CreatedAt)
-	require.Equal(t, sec+10, u2.PublishedAt)
-	require.Equal(t, sec+100, u2.ExpiresAt)
-	require.Equal(t, sec+1, u2.LockedOn)
-	require.Equal(t, sec+5, u2.LastAttemptOn)
-
-	// m1: created_at restored; dropped optionals decode back to zero.
-	var u1 unixDoc
-	require.NoError(t, coll.FindOne(ctx, bson.M{"_id": "m1"}).Decode(&u1))
-	require.Equal(t, sec, u1.CreatedAt)
-	require.Equal(t, int64(0), u1.PublishedAt)
 }
 
 func TestIntegration_ExpireEvents_UsesServerClock(t *testing.T) {
@@ -258,6 +177,32 @@ func TestIntegration_FetchUnprocessedEvents_KeepsBatchOrder(t *testing.T) {
 		got = append(got, ev.Id)
 	}
 	require.Equal(t, ids, got)
+}
+
+// Pending and failed events are fetched by separate queries; the batch merges
+// them oldest first and keeps to the batch size.
+func TestIntegration_FetchUnprocessedEvents_MergesStatusesInOrder(t *testing.T) {
+	t.Parallel()
+	store, _ := newIT(t)
+	ctx := t.Context()
+
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	require.NoError(t, store.SaveEvents(ctx,
+		outbox.Event{Id: "p2", Key: "k", Status: outbox.StatusPending, CreatedAt: now.Add(2 * time.Second)},
+		outbox.Event{Id: "f1", Key: "k", Status: outbox.StatusFailed, CreatedAt: now.Add(time.Second)},
+		outbox.Event{Id: "p0", Key: "k", Status: outbox.StatusPending, CreatedAt: now},
+		outbox.Event{Id: "f3", Key: "k", Status: outbox.StatusFailed, CreatedAt: now.Add(3 * time.Second)},
+	))
+
+	events, err := store.FetchUnprocessedEvents(ctx, 3)
+	if err != nil {
+		t.Skipf("FetchUnprocessedEvents requires a replica set: %v", err)
+	}
+	got := make([]string, 0, len(events))
+	for _, ev := range events {
+		got = append(got, ev.Id)
+	}
+	require.Equal(t, []string{"p0", "f1", "p2"}, got)
 }
 
 // A dispatcher that lost its lease must not be able to write its result: the

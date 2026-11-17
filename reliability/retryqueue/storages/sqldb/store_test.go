@@ -469,11 +469,7 @@ func TestEnsureSchema(t *testing.T) {
 	store, fake, _ := newStore(t, sqldb.DialectMySQL, nil, sqldb.WithTableName("app.queue"))
 	require.NoError(t, store.EnsureSchema(t.Context()))
 	calls := fake.Calls()
-	require.Len(t, calls, 5)
-	require.Equal(t, []any{"app", "queue"}, calls[1].Args)
-	require.Equal(t, "ALTER TABLE `app`.`queue` ADD INDEX `queue_due_idx` (state, next_attempt_at, id)", calls[2].Query)
-	require.Equal(t, "ALTER TABLE `app`.`queue` ADD INDEX `queue_state_idx` (state, since, id)", calls[3].Query)
-	require.Equal(t, "ALTER TABLE `app`.`queue` ADD INDEX `queue_resolved_idx` (state, resolved_at)", calls[4].Query)
+	require.Len(t, calls, 1)
 	ddl := calls[0].Query
 	require.Contains(t, ddl, "CREATE TABLE IF NOT EXISTS `app`.`queue`")
 	require.Contains(t, ddl, "VARBINARY(1020)")

@@ -5,6 +5,7 @@
 package mongo
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"slices"
@@ -51,12 +52,10 @@ const (
 	// opCond is the ternary aggregation operator: [condition, then, else].
 	opCond = "$cond"
 
-	// opRemove is the aggregation variable that omits a field from the output,
-	// which is how an optional timestamp is unset rather than zeroed.
-	opRemove = "$$REMOVE"
-
 	opOr     = "$or"     // Logical disjunction.
 	opEq     = "$eq"     // Equality comparison.
+	opLte    = "$lte"    // Less-than-or-equal comparison.
+	opLt     = "$lt"     // Less-than comparison.
 	opExists = "$exists" // Field-presence test.
 	opSum    = "$sum"    // Accumulator used by the stats aggregation.
 
@@ -64,8 +63,6 @@ const (
 	opIn       = "$in"       // Membership test.
 	opExpr     = "$expr"     // Aggregation expression inside a query filter.
 	opSubtract = "$subtract" // Arithmetic or date difference.
-	opType     = "$type"     // BSON type test or name.
-	opToLong   = "$toLong"   // Conversion to a 64-bit integer.
 )
 
 // Store implements outbox.Storage interface using MongoDB as the backend.
@@ -136,7 +133,7 @@ func NewWithCollectionOptions(col *mongo.Collection, opt ...Option) (*Store, err
 func (s *Store) UnlockStuckEvents(ctx context.Context, lockExpiry time.Duration) error {
 	filter := bson.M{
 		collectionFieldStatus: outbox.StatusInProgress, // Only events currently in progress.
-		opExpr: bson.M{"$lt": bson.A{
+		opExpr: bson.M{opLt: bson.A{
 			"$" + collectionFieldLockedOn,
 			bson.M{opSubtract: bson.A{serverNow, lockExpiry.Milliseconds()}},
 		}},
@@ -155,14 +152,23 @@ func (s *Store) UnlockStuckEvents(ctx context.Context, lockExpiry time.Duration)
 	return nil
 }
 
+// sweepBoundMargin widens the client-side time bound of the expiry and
+// retention sweeps, so a client clock behind the server's by less than this
+// still reaches every due event in the same sweep. The bound only lets an
+// index limit the scan; the server clock ($$NOW) still decides.
+const sweepBoundMargin = time.Hour
+
 // DeleteProcessedEvents removes processed events (sent, skipped, or expired) whose
 // publication is older than olderThan, evaluated server-side ($$NOW - olderThan).
+// A client bound on published_at, sweepBoundMargin later than the cutoff, lets
+// the (status, published_at) index limit the sweep to events near or past it.
 func (s *Store) DeleteProcessedEvents(ctx context.Context, olderThan time.Duration) error {
 	filter := bson.M{
 		collectionFieldStatus: bson.M{opIn: []outbox.Status{
 			outbox.StatusSent, outbox.StatusSkipped, outbox.StatusExpired,
 		}},
-		opExpr: bson.M{"$lt": bson.A{
+		collectionFieldPublishedAt: bson.M{opLt: time.Now().Add(-olderThan + sweepBoundMargin)},
+		opExpr: bson.M{opLt: bson.A{
 			"$" + collectionFieldPublishedAt,
 			bson.M{opSubtract: bson.A{serverNow, olderThan.Milliseconds()}},
 		}},
@@ -318,23 +324,26 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([
 	}}
 
 	// A failed event carries its own backoff deadline, written server-side when
-	// the attempt failed. A missing deadline means "eligible now", which also
-	// covers documents written before next_attempt_at existed.
+	// the attempt failed. A missing or null deadline means "eligible now": a
+	// never-attempted event omits the field and the unlock sweep writes null.
 	backoffElapsed := bson.M{opOr: bson.A{
 		bson.M{collectionFieldNextAttemptAt: bson.M{opExists: false}},
 		bson.M{collectionFieldNextAttemptAt: nil},
-		bson.M{opExpr: bson.M{"$lte": bson.A{"$" + collectionFieldNextAttemptAt, serverNow}}},
+		bson.M{opExpr: bson.M{opLte: bson.A{"$" + collectionFieldNextAttemptAt, serverNow}}},
 	}}
 
-	readyFilter := bson.M{opOr: bson.A{
-		bson.M{collectionFieldStatus: outbox.StatusPending},
-		bson.M{"$and": bson.A{
-			bson.M{collectionFieldStatus: outbox.StatusFailed},
-			backoffElapsed,
-		}},
-	}}
-
-	filter := bson.M{"$and": bson.A{readyFilter, notExpiredFilter}}
+	// One query per ready status, each an equality on status read through
+	// fetchIndexKeys in fetch order, merged below. A single $or over both
+	// statuses cannot take its sort from one index, so the server would sort
+	// the whole backlog to return a batch.
+	filters := [...]bson.M{
+		{"$and": bson.A{bson.M{collectionFieldStatus: outbox.StatusPending}, notExpiredFilter}},
+		{"$and": bson.A{bson.M{collectionFieldStatus: outbox.StatusFailed}, backoffElapsed, notExpiredFilter}},
+	}
+	findOpts := mongoOptions.Find().
+		SetSort(bson.D{{Key: collectionFieldCreatedAt, Value: 1}, {Key: collectionFieldSeq, Value: 1}}).
+		SetLimit(int64(batchSize)).
+		SetHint(fetchIndexKeys)
 
 	var (
 		mongoEvents []event
@@ -366,17 +375,13 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([
 		lockedAt = time.Now().UTC()
 		lockToken = uuid.New().String()
 
-		cursor, txErr := s.collection.Find(sessCtx, filter, mongoOptions.Find().
-			SetSort(bson.D{{Key: collectionFieldCreatedAt, Value: 1}, {Key: collectionFieldSeq, Value: 1}}).
-			SetLimit(int64(batchSize)))
-		if txErr != nil {
-			return nil, coreerrs.Wrap(txErr, "MongoDB Find failed in FetchUnprocessedEvents")
+		var batches [2][]event
+		for i, filter := range filters {
+			if txErr := s.findAll(sessCtx, filter, findOpts, &batches[i]); txErr != nil {
+				return nil, txErr
+			}
 		}
-		defer func() { _ = cursor.Close(sessCtx) }()
-
-		if txErr = cursor.All(sessCtx, &mongoEvents); txErr != nil {
-			return nil, coreerrs.Wrap(txErr, "MongoDB cursor.All failed in FetchUnprocessedEvents")
-		}
+		mongoEvents = mergeFetchBatches(batches[0], batches[1], int(batchSize))
 
 		if len(mongoEvents) == 0 {
 			return 0, nil // No events to process
@@ -391,7 +396,7 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([
 			collectionFieldLockedOn:  serverNow,
 			collectionFieldLockToken: lockToken,
 		}}}}
-		if _, txErr = s.collection.UpdateMany(sessCtx, bson.M{collectionFieldId: bson.M{opIn: idsToLock}}, update); txErr != nil {
+		if _, txErr := s.collection.UpdateMany(sessCtx, bson.M{collectionFieldId: bson.M{opIn: idsToLock}}, update); txErr != nil {
 			return nil, coreerrs.Wrap(txErr, "MongoDB UpdateMany (to lock events) failed in FetchUnprocessedEvents")
 		}
 		return 0, nil
@@ -422,6 +427,40 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([
 			LockToken:     lockToken,
 		}
 	})), nil
+}
+
+// findAll runs one fetch query and decodes every document into out.
+func (s *Store) findAll(ctx context.Context, filter bson.M, opts *mongoOptions.FindOptionsBuilder, out *[]event) error {
+	cursor, err := s.collection.Find(ctx, filter, opts)
+	if err != nil {
+		return coreerrs.Wrap(err, "MongoDB Find failed in FetchUnprocessedEvents")
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+	return coreerrs.Wrap(cursor.All(ctx, out), "MongoDB cursor.All failed in FetchUnprocessedEvents")
+}
+
+// mergeFetchBatches merges two batches already in fetch order into one of at
+// most limit events, in fetch order.
+func mergeFetchBatches(a, b []event, limit int) []event {
+	out := make([]event, 0, min(len(a)+len(b), limit))
+	for len(out) < limit && (len(a) > 0 || len(b) > 0) {
+		if len(b) == 0 || (len(a) > 0 && compareFetchOrder(a[0], b[0]) <= 0) {
+			out, a = append(out, a[0]), a[1:]
+		} else {
+			out, b = append(out, b[0]), b[1:]
+		}
+	}
+	return out
+}
+
+// compareFetchOrder orders events as the fetch sort does: created_at, then
+// seq. A missing seq decodes as the zero ObjectID, which sorts first, as an
+// absent field does on the server.
+func compareFetchOrder(a, b event) int {
+	if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+		return c
+	}
+	return bytes.Compare(a.Seq[:], b.Seq[:])
 }
 
 // Stats returns the backlog snapshot backing the outbox gauges.
@@ -506,11 +545,14 @@ func (s *Store) Stats(ctx context.Context) (outbox.Stats, error) {
 // ExpireEvents marks pending or failed events whose ExpiresAt has passed as expired.
 // The deadline is evaluated against the server clock ($expires_at <= $$NOW), and
 // published_at is stamped with $$NOW so subsequent cleanup is clock-skew safe too.
+// A client bound of now plus sweepBoundMargin on expires_at lets the
+// (status, expires_at) index limit the sweep to events expiring around now
+// instead of the whole pending and failed backlog; $$NOW still decides.
 func (s *Store) ExpireEvents(ctx context.Context) (int64, error) {
 	filter := bson.M{
 		collectionFieldStatus:    bson.M{opIn: []outbox.Status{outbox.StatusPending, outbox.StatusFailed}},
-		collectionFieldExpiresAt: bson.M{opExists: true},
-		opExpr:                   bson.M{"$lte": bson.A{"$" + collectionFieldExpiresAt, serverNow}},
+		collectionFieldExpiresAt: bson.M{opLte: time.Now().Add(sweepBoundMargin)},
+		opExpr:                   bson.M{opLte: bson.A{"$" + collectionFieldExpiresAt, serverNow}},
 	}
 	update := mongo.Pipeline{bson.D{{Key: opSet, Value: bson.M{
 		collectionFieldStatus:        outbox.StatusExpired,

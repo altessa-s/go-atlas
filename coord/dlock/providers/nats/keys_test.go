@@ -77,17 +77,17 @@ func TestLocker_ValidKeyIsStoredUnderItself(t *testing.T) {
 	ns := natstest.StartNATSServer(t)
 	nc, js := natstest.ConnectJetStream(t, ns)
 	ctx := t.Context()
-	locker, err := locknats.New(ctx, nc, locknats.WithBucket("legacy"))
+	locker, err := locknats.New(ctx, nc, locknats.WithBucket("plain"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = locker.Close(context.Background()) })
 
-	lk, err := locker.Lock(ctx, natskeytest.LegacyKey)
+	lk, err := locker.Lock(ctx, natskeytest.PlainKey)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = lk.Release(context.Background()) })
 
-	kv, err := js.KeyValue(ctx, "legacy")
+	kv, err := js.KeyValue(ctx, "plain")
 	require.NoError(t, err)
-	_, err = kv.Get(ctx, natskeytest.LegacyKey)
+	_, err = kv.Get(ctx, natskeytest.PlainKey)
 	require.NoError(t, err)
 }
 

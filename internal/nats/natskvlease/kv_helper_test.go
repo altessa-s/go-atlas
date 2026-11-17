@@ -48,6 +48,7 @@ func TestGetOrCreateBucket_ExistingBucketTTL(t *testing.T) {
 			got, err := helper.GetOrCreateBucket(t.Context(), natskvlease.BucketSpec{
 				Bucket:     "shared",
 				TTL:        tc.ttl,
+				Storage:    jetstream.MemoryStorage, // as CreateNATSKV made it
 				MigrateTTL: tc.migrate,
 			})
 			if tc.wantErr != nil {
@@ -111,6 +112,7 @@ func TestGetOrCreateBucket_ConcurrentCreation(t *testing.T) {
 			_, err := helper.GetOrCreateBucket(t.Context(), natskvlease.BucketSpec{
 				Bucket:     "raced",
 				TTL:        tc.ttl,
+				Storage:    jetstream.MemoryStorage, // as CreateNATSKV made it
 				MigrateTTL: tc.migrate,
 			})
 			if tc.wantErr != nil {
@@ -151,8 +153,9 @@ func TestGetOrCreateBucket_Storage(t *testing.T) {
 }
 
 // TestGetOrCreateBucket_ExistingBucketStorage pins that an existing bucket
-// with another storage type is adopted as is — the server cannot convert it —
-// and that a TTL migration keeps its storage instead of failing on it.
+// with another storage type is rejected with ErrBucketStorageMismatch and left
+// untouched — the server cannot convert it — even when a TTL migration is
+// requested, and that a matching storage type is accepted.
 func TestGetOrCreateBucket_ExistingBucketStorage(t *testing.T) {
 	t.Parallel()
 
@@ -169,48 +172,27 @@ func TestGetOrCreateBucket_ExistingBucketStorage(t *testing.T) {
 
 			ns := natstest.StartNATSServer(t)
 			_, js := natstest.ConnectJetStream(t, ns)
-			natstest.CreateNATSKV(t, js, "legacy", time.Minute) // memory storage
+			natstest.CreateNATSKV(t, js, "existing", time.Minute) // memory storage
 
 			got, err := natskvlease.NewKVHelper(js, nil).GetOrCreateBucket(t.Context(), natskvlease.BucketSpec{
-				Bucket:     "legacy",
+				Bucket:     "existing",
 				TTL:        tc.ttl,
 				Storage:    jetstream.FileStorage,
 				MigrateTTL: tc.migrate,
 			})
-			require.NoError(t, err)
-			require.NotNil(t, got)
-			require.Equal(t, jetstream.MemoryStorage, natstest.KVBucketStorage(t, js, "legacy"), "the existing storage must be kept")
-			require.Equal(t, tc.ttl, natstest.KVBucketTTL(t, js, "legacy"))
+			require.ErrorIs(t, err, natskvlease.ErrBucketStorageMismatch)
+			require.Nil(t, got)
+			require.Equal(t, jetstream.MemoryStorage, natstest.KVBucketStorage(t, js, "existing"))
+			require.Equal(t, time.Minute, natstest.KVBucketTTL(t, js, "existing"), "a rejected bucket must not be migrated")
+
+			_, err = natskvlease.NewKVHelper(js, nil).GetOrCreateBucket(t.Context(), natskvlease.BucketSpec{
+				Bucket:  "existing",
+				TTL:     time.Minute,
+				Storage: jetstream.MemoryStorage,
+			})
+			require.NoError(t, err, "a matching storage type is accepted")
 		})
 	}
-}
-
-// TestGetOrCreateBucket_StrictStorage pins that StrictStorage turns the storage
-// adoption into ErrBucketStorageMismatch and leaves the bucket untouched.
-func TestGetOrCreateBucket_StrictStorage(t *testing.T) {
-	t.Parallel()
-
-	ns := natstest.StartNATSServer(t)
-	_, js := natstest.ConnectJetStream(t, ns)
-	natstest.CreateNATSKV(t, js, "legacy", time.Minute) // memory storage
-
-	got, err := natskvlease.NewKVHelper(js, nil).GetOrCreateBucket(t.Context(), natskvlease.BucketSpec{
-		Bucket:        "legacy",
-		TTL:           time.Minute,
-		Storage:       jetstream.FileStorage,
-		StrictStorage: true,
-	})
-	require.ErrorIs(t, err, natskvlease.ErrBucketStorageMismatch)
-	require.Nil(t, got)
-	require.Equal(t, jetstream.MemoryStorage, natstest.KVBucketStorage(t, js, "legacy"))
-
-	_, err = natskvlease.NewKVHelper(js, nil).GetOrCreateBucket(t.Context(), natskvlease.BucketSpec{
-		Bucket:        "legacy",
-		TTL:           time.Minute,
-		Storage:       jetstream.MemoryStorage,
-		StrictStorage: true,
-	})
-	require.NoError(t, err, "a matching storage type passes the strict check")
 }
 
 // TestGetOrCreateBucket_NoTTL pins that NoTTL creates a bucket whose keys never

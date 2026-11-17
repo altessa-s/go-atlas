@@ -16,8 +16,8 @@ const DefaultFlagField = "flagged"
 const DefaultFlagReasonField = "flagReason"
 
 type options struct {
-	// flagField names the document field of the attention flag, so a
-	// collection written by an earlier store keeps its wire format.
+	// flagField names the document field of the attention flag, so the store
+	// can adopt a collection whose documents name it differently.
 	flagField string `optval:"nonempty" optgen:"default=DefaultFlagField"`
 	// flagReasonField names the document field of the flag's reason.
 	flagReasonField string `optval:"nonempty" optgen:"default=DefaultFlagReasonField"`

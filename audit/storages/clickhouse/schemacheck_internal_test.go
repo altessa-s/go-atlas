@@ -262,7 +262,7 @@ func TestCheckSchemaModes(t *testing.T) {
 
 			if tt.wantLog {
 				require.Contains(t, logs.String(), "schema is out of date")
-				require.Contains(t, logs.String(), "MigrateSchema", "the warning must name the remedy")
+				require.Contains(t, logs.String(), "SchemaDDL", "the warning must name the remedy")
 			} else {
 				require.Empty(t, logs.String())
 			}
@@ -294,7 +294,7 @@ func TestCheckSchemaReportsUnmaterializedIndexes(t *testing.T) {
 
 	require.Contains(t, logs.String(), "hold no data")
 	require.Contains(t, logs.String(), skipIndexes[0].name)
-	require.Contains(t, logs.String(), "MaterializeIndexes")
+	require.Contains(t, logs.String(), "MATERIALIZE INDEX")
 	require.NotContains(t, logs.String(), skipIndexes[1].name, "an index holding data is not reported")
 }
 

@@ -132,8 +132,7 @@ tokens. The continuation must also repeat the sort and cursor-ID field of the fi
 which requests the default sort — fails with `ErrCursorChecksumMismatch` instead of being replaced by the cursor's. Together with the filter hash
 (`ErrCursorFilterMismatch`, whose text never spells the hashes) and the subject, this leaves two endpoints interchangeable only when they page the same
 collection with the same filter, sort and subject; use a storage (or key prefix) per endpoint, or a subject that includes the endpoint, where even that
-matters. A record stored before the collection binding existed carries no collection, so nothing tells which endpoint issued it: it is rejected with
-`ErrCursorCollectionMismatch` on every collection, and a client holding such a token across the upgrade restarts pagination.
+matters.
 
 ## Signed stateless cursors
 

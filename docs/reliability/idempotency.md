@@ -86,9 +86,8 @@ NATS bucket auto-enables `LimitMarkerTTL`, so per-key TTL on `AttemptLockWithTTL
 bucket creation with `ErrLimitMarkerTTLNotSupported` (visible at `New()`, not at runtime). When the bucket already exists with a different key TTL,
 `New` returns `ErrBucketTTLMismatch` and leaves it untouched; pass `natsstorage.WithMigrateBucketTTL()` (YAML: `storage.nats.migrateBucketTTL: true`)
 to update it deliberately. Migration rewrites the whole bucket config, not only the key TTL: the limit-marker TTL follows the new `MaxAge` too, and a
-bucket created without one (before per-key TTL was enabled) gets per-key TTL turned on, which needs NATS server 2.11+. New buckets are file-backed.
-Earlier releases created memory buckets by mistake; such a bucket is adopted with a warning, and the storage README explains how to move it to
-file storage.
+bucket created without one gets per-key TTL turned on, which needs NATS server 2.11+. New buckets are file-backed; a bucket that already exists with
+another storage type fails with `ErrBucketStorageMismatch`, since the server cannot convert it.
 
 ### MongoDB (transactional)
 
@@ -426,8 +425,8 @@ progress" until either a retry triggers reclaim or the bucket TTL fires.
 **Memory backend "drift" between processes.** Memory storage is in-process — two instances of the same service won't see each other's locks.
 Use Redis, NATS or MongoDB for distributed deployments. Memory is for tests and single-binary services.
 
-**NATS bucket creation fails with `ErrLimitMarkerTTLNotSupported`.** Server is older than 2.11. Either upgrade the server or downgrade go-atlas
-to a version before per-key TTL was wired in (not recommended — you lose `AttemptLockWithTTL`).
+**NATS bucket creation fails with `ErrLimitMarkerTTLNotSupported`.** Server is older than 2.11, which per-key TTL (`AttemptLockWithTTL`) needs.
+Upgrade the server.
 
 ---
 

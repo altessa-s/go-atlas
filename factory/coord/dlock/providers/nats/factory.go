@@ -51,7 +51,6 @@ func Builder(conn *nats.Conn) dlockfactory.ProviderFunc {
 			natsprovider.WithStorage(bucketStorage(cfg.NATS.Storage)),
 		}
 		provOpts = coreslices.AppendIf(provOpts, cfg.NATS.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
-		provOpts = coreslices.AppendIf(provOpts, cfg.NATS.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
 
 		prov, err := natsprovider.New(ctx, conn, provOpts...)
 		if err != nil {

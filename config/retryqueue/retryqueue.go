@@ -53,8 +53,8 @@ func (c *MemoryStorageConfig) Validate() error {
 type MongoStorageConfig struct {
 	// Collection is the MongoDB collection that stores retry items.
 	Collection string `yaml:"collection" default:"retry_items"`
-	// FlagField is the document field of the attention flag, so a collection
-	// written by an earlier store keeps its wire format.
+	// FlagField is the document field of the attention flag, so the store can
+	// adopt a collection whose documents name it differently.
 	FlagField string `yaml:"flagField" default:"flagged"`
 	// FlagReasonField is the document field of the flag's reason.
 	FlagReasonField string `yaml:"flagReasonField" default:"flagReason"`

@@ -58,36 +58,6 @@ func TestBuilder_MigrateBucketTTL(t *testing.T) {
 	require.NotNil(t, keeper)
 	require.Equal(t, 2*time.Hour, natstest.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
 }
-
-// TestBuilder_StrictBucketStorage pins that storage.nats.strictBucketStorage
-// reaches the NATS storage: a bucket with another storage type is rejected
-// instead of being adopted.
-func TestBuilder_StrictBucketStorage(t *testing.T) {
-	t.Parallel()
-
-	ns := natstest.StartNATSServer(t)
-	_, js := natstest.ConnectJetStream(t, ns)
-
-	const bucket = "factory-idempotency-strict"
-	natstest.CreateNATSKV(t, js, bucket, time.Hour) // memory storage
-
-	cfg := func(strict bool) *idempotencyconfig.Config {
-		return &idempotencyconfig.Config{
-			TTL: time.Hour,
-			Storage: &idempotencyconfig.StorageConfig{
-				Type: idempotencyconfig.StorageTypeNATS,
-				NATS: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
-			},
-		}
-	}
-
-	_, err := build(cfg(true), js)
-	require.ErrorIs(t, err, idempnats.ErrBucketStorageMismatch)
-
-	_, err = build(cfg(false), js)
-	require.NoError(t, err, "without the flag the bucket is adopted")
-}
-
 func TestBuilder_Errors(t *testing.T) {
 	t.Parallel()
 

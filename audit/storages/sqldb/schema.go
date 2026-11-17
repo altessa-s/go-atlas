@@ -45,7 +45,7 @@ var indexes = []index{
 }
 
 // EnsureSchema creates the events table and its indexes if they do not exist.
-// It also adds indexes missing from an existing table. It is idempotent and
+// It is idempotent and
 // safe to run concurrently from several instances; call it once at startup
 // (or apply the same DDL through your migration tool).
 //
@@ -57,17 +57,8 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
 		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.tableName}, s.postgresSchema()),
 			"create audit schema")
 	}
-	if _, err := s.db.ExecContext(ctx, s.mysqlSchema()); err != nil {
-		return coreerrs.WrapOperation(err, "create audit schema")
-	}
-	indexesToEnsure := make([]sqldialect.MySQLIndex, 0, len(indexes))
-	for _, ix := range indexes {
-		indexesToEnsure = append(indexesToEnsure, sqldialect.MySQLIndex{
-			Name: s.dialect.IndexName(s.tableName, ix.suffix), Columns: strings.Join(ix.columns, ", "),
-		})
-	}
-	return coreerrs.WrapOperation(sqldialect.AddMissingMySQLIndexes(ctx, s.db, sqldialect.Qualifier(s.opts.tableName),
-		s.tableName, indexesToEnsure), "create audit indexes")
+	_, err := s.db.ExecContext(ctx, s.mysqlSchema())
+	return coreerrs.WrapOperation(err, "create audit schema")
 }
 
 // postgresSchema lists the PostgreSQL DDL. The ID and filter columns use the

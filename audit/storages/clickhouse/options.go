@@ -73,25 +73,6 @@ const (
 	SchemaCheckModeDisabled SchemaCheckMode = "disabled"
 )
 
-// DefaultSchemaMigrationMode is the default: report drift, do not repair it.
-// Changing a table is an act an operator opts into.
-const DefaultSchemaMigrationMode = SchemaMigrationModeOff
-
-// SchemaMigrationMode controls whether [Storage.MigrateSchema] is allowed to
-// change the live table.
-type SchemaMigrationMode string
-
-const (
-	// SchemaMigrationModeOff makes [Storage.MigrateSchema] a no-op.
-	SchemaMigrationModeOff SchemaMigrationMode = "off"
-
-	// SchemaMigrationModeAdditive permits the metadata-only statements that
-	// cannot lose data: ADD COLUMN and ADD INDEX. Nothing is modified or
-	// dropped, and no existing part is rewritten — backfilling an index
-	// over old parts stays [Storage.MaterializeIndexes], by hand.
-	SchemaMigrationModeAdditive SchemaMigrationMode = "additive"
-)
-
 // options carries the tunable [Storage] configuration.
 type options struct {
 	tableName    string        `optval:"nonempty" optgen:"default=DefaultTableName"`
@@ -124,9 +105,5 @@ type options struct {
 	// the schema this package expects. Defaults to [DefaultSchemaCheckMode]; an
 	// unknown mode leaves the configured one in place.
 	schemaCheckMode SchemaCheckMode `opt:"SchemaCheck" optcheck:"oneof=[SchemaCheckModeEnforce,SchemaCheckModeWarn,SchemaCheckModeDisabled]" optgen:"default=DefaultSchemaCheckMode,onfail=skip"` //nolint:lll
-	// WithSchemaMigration selects whether [Storage.MigrateSchema] may change the
-	// live table. Defaults to [DefaultSchemaMigrationMode]; an unknown mode
-	// leaves the configured one in place.
-	schemaMigrationMode SchemaMigrationMode `opt:"SchemaMigration" optcheck:"oneof=[SchemaMigrationModeOff,SchemaMigrationModeAdditive]" optgen:"default=DefaultSchemaMigrationMode,onfail=skip"` //nolint:lll
-	logger              *slog.Logger
+	logger          *slog.Logger
 }

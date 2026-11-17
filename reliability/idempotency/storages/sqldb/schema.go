@@ -12,10 +12,10 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
-// EnsureSchema creates the table and expiry index. PostgreSQL DDL is serialized
-// under an advisory lock; MySQL declares its index inline and reconciles missing
-// indexes on existing tables. Run at startup or
-// apply equivalent DDL through migrations. It does not join WithTx.
+// EnsureSchema creates the table and expiry index if they do not exist.
+// PostgreSQL DDL is serialized under an advisory lock; MySQL declares the index
+// inline. Run at startup or apply equivalent DDL through migrations. It does
+// not join WithTx.
 func (s *Storage) EnsureSchema(ctx context.Context) error {
 	index := s.dialect.IndexName(s.name, "expires_key")
 	if s.dialect.name == DialectPostgres {
@@ -37,9 +37,5 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
   revision   BIGINT NOT NULL DEFAULT 0,
   INDEX `+index+` (expires_at, `+s.dialect.Ident("key")+`)
 ) ENGINE=InnoDB`)
-	if err != nil {
-		return coreerrs.WrapOperation(err, "create idempotency schema")
-	}
-	return coreerrs.WrapOperation(sqldialect.AddMissingMySQLIndexes(ctx, s.db, s.qualifier, s.name,
-		[]sqldialect.MySQLIndex{{Name: index, Columns: "expires_at, " + s.dialect.Ident("key")}}), "create idempotency indexes")
+	return coreerrs.WrapOperation(err, "create idempotency schema")
 }

@@ -27,11 +27,8 @@ func (l *Locker) EnsureSchema(ctx context.Context) error {
 		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, l.s.db, []string{l.s.tableName}, l.postgresSchema()),
 			"create dlock schema")
 	}
-	if _, err := l.s.db.ExecContext(ctx, l.mysqlSchema()); err != nil {
-		return coreerrs.WrapOperation(err, "create dlock schema")
-	}
-	return coreerrs.WrapOperation(sqldialect.AddMissingMySQLIndexes(ctx, l.s.db, l.s.qualifier, l.s.tableName,
-		[]sqldialect.MySQLIndex{{Name: l.s.dialect.IndexName(l.s.tableName, "expires"), Columns: "expires_at"}}), "create dlock indexes")
+	_, err := l.s.db.ExecContext(ctx, l.mysqlSchema())
+	return coreerrs.WrapOperation(err, "create dlock schema")
 }
 
 // postgresSchema is the PostgreSQL DDL. Times are server-clock Unix
@@ -51,7 +48,8 @@ func (l *Locker) postgresSchema() []string {
 }
 
 // mysqlSchema declares the key and owner as binary types; the key width is in
-// bytes, four per character of [MaxKeyLength].
+// bytes, four per character of [MaxKeyLength]. MySQL has no CREATE INDEX IF
+// NOT EXISTS, so the expires_at index is declared inline.
 func (l *Locker) mysqlSchema() string {
 	return `CREATE TABLE IF NOT EXISTS ` + l.s.table + ` (
   lock_key    VARBINARY(1020) NOT NULL PRIMARY KEY,
@@ -60,6 +58,7 @@ func (l *Locker) mysqlSchema() string {
   acquired_at BIGINT          NOT NULL DEFAULT 0,
   renewed_at  BIGINT          NOT NULL DEFAULT 0,
   expires_at  BIGINT          NOT NULL DEFAULT 0,
-  ttl_us      BIGINT          NOT NULL DEFAULT 0
+  ttl_us      BIGINT          NOT NULL DEFAULT 0,
+  INDEX ` + l.s.dialect.IndexName(l.s.tableName, "expires") + ` (expires_at)
 ) ENGINE=InnoDB`
 }

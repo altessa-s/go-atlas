@@ -8,9 +8,7 @@ package dlockit_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +23,6 @@ import (
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	lockmongo "github.com/altessa-s/go-atlas/coord/dlock/providers/mongo"
-	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 func TestVolume_SQLLocker(t *testing.T) {
@@ -46,8 +43,8 @@ func TestVolume_SQLLocker(t *testing.T) {
 				clock = "TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(6))"
 			}
 			quotedTable := style.Ident(table)
-			// Formats: coord/dlock/providers/sqldb/schema.go:39-65. All times
-			// are Unix microseconds; binary MySQL keys match dialect.go:71-75.
+			// Formats: coord/dlock/providers/sqldb postgresSchema and mysqlSchema. All times
+			// are Unix microseconds; binary MySQL keys match dialect.textArg.
 			livebackend.Measure(t, "seed SQL lock rows", n, func() {
 				livebackend.SQLBulkInsert(t, db, string(target.dialect), quotedTable,
 					[]string{"lock_key", "owner", "fencing", "acquired_at", "renewed_at", "expires_at", "ttl_us"},
@@ -65,19 +62,14 @@ func TestVolume_SQLLocker(t *testing.T) {
 					})
 			})
 			require.Equal(t, n, rowCount(t, db, table))
-			analyze := "ANALYZE " + quotedTable
-			if target.dialect == sqldb.DialectMySQL {
-				analyze = "ANALYZE TABLE " + quotedTable
-			}
-			_, err := db.ExecContext(t.Context(), analyze)
-			require.NoError(t, err)
+			livebackend.Analyze(t, db, string(target.dialect), quotedTable)
 			var key, owner any = "k00000000", "candidate"
 			primary := table + "_pkey"
 			if target.dialect == sqldb.DialectMySQL {
 				key, owner, primary = []byte("k00000000"), []byte("candidate"), "PRIMARY"
 			}
-			// Query shapes: coord/dlock/providers/sqldb/sqldb.go:156-200;
-			// Database clocks: coord/dlock/providers/sqldb/dialect.go:53-62.
+			// Query shapes: coord/dlock/providers/sqldb store.buildStatements;
+			// Database clocks: coord/dlock/providers/sqldb dialectFor.
 			t.Run("explain_acquire", func(t *testing.T) {
 				query := "INSERT INTO " + quotedTable + " AS cur (lock_key, owner, fencing, acquired_at, renewed_at, expires_at, ttl_us)" +
 					" VALUES (?, ?, 1, " + clock + ", " + clock + ", " + clock + " + ?, ?)" +
@@ -94,65 +86,58 @@ func TestVolume_SQLLocker(t *testing.T) {
 				if target.dialect == sqldb.DialectPostgres {
 					index = ""
 				}
-				volumeSQLExplain(t, db, style, table, index, query, args...)
+				livebackend.ExplainSQL(t, db, style, table, index, query, args...)
 			})
 			t.Run("explain_renew", func(t *testing.T) {
-				volumeSQLExplain(t, db, style, table, primary, "UPDATE "+quotedTable+" SET renewed_at = "+clock+
+				livebackend.ExplainSQL(t, db, style, table, primary, "UPDATE "+quotedTable+" SET renewed_at = "+clock+
 					", expires_at = "+clock+" + ? WHERE lock_key = ? AND owner = ? AND fencing = ? AND expires_at > "+clock,
 					ttlUs, key, owner, int64(1))
 			})
 			t.Run("explain_renew_lock_row", func(t *testing.T) {
-				volumeSQLExplain(t, db, style, table, primary, "SELECT 1 FROM "+quotedTable+" WHERE lock_key = ? FOR UPDATE", key)
+				livebackend.ExplainSQL(t, db, style, table, primary, "SELECT 1 FROM "+quotedTable+" WHERE lock_key = ? FOR UPDATE", key)
 			})
 			index := strings.Trim(style.IndexName(table, "expires"), "\"`")
-			cleanup := "SELECT lock_key FROM " + quotedTable + " WHERE expires_at <= " + clock + " - ? LIMIT ?"
-			if target.dialect == sqldb.DialectMySQL {
-				t.Run("explain_cleanup", func(t *testing.T) {
-					volumeSQLExplain(t, db, style, table, index, cleanup, int64(0), 1000)
-				})
-			}
+			// The cleanup cutoff reads the clock once per statement (dialect.go cutoffNow).
+			cutoff := strings.ReplaceAll(clock, "clock_timestamp()", "statement_timestamp()")
+			cleanup := "SELECT lock_key FROM " + quotedTable + " WHERE expires_at <= " + cutoff + " - ? ORDER BY expires_at LIMIT ?"
+			t.Run("explain_cleanup", func(t *testing.T) {
+				if target.dialect == sqldb.DialectPostgres {
+					livebackend.ExplainPostgresPurge(t, db, table, index, "lock_key", cleanup, n, int64(0), 1000)
+					return
+				}
+				livebackend.ExplainSQL(t, db, style, table, index, cleanup, int64(0), 1000)
+			})
 
 			volumeLockerContenders(t, locker, n)
-			// Release writes the database's current time (sqldb.go:164). Take
-			// a fresh cutoff after every release, so those rows also count.
-			nowUs = time.Now().UTC().UnixMicro()
+			// Release writes the database's current time. Count by the same
+			// database clock the cleanup cutoff reads, after every release, so
+			// those rows count whatever the host clock says.
 			var expected int64
-			require.NoError(t, db.QueryRowContext(t.Context(), target.bind("SELECT COUNT(*) FROM "+quotedTable+
-				" WHERE expires_at <= ?"), nowUs).Scan(&expected))
+			require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+quotedTable+
+				" WHERE expires_at <= "+cutoff).Scan(&expected))
+			var deleted int64
 			livebackend.Measure(t, "purge SQL lock rows", int(expected), func() {
-				deleted, err := locker.PurgeExpired(t.Context())
-				require.NoError(t, err)
-				require.Equal(t, expected, deleted)
-				require.Equal(t, n-int(expected), rowCount(t, db, table))
+				var err error
 				deleted, err = locker.PurgeExpired(t.Context())
 				require.NoError(t, err)
-				require.Zero(t, deleted)
 			})
-			if target.dialect == sqldb.DialectPostgres {
-				// Over the seed, nine in ten rows expired, reading the table until
-				// the LIMIT fills is the right plan. Check the plan in the steady
-				// state a running cleanup keeps: after the purge, re-analyzed.
-				t.Run("explain_cleanup", func(t *testing.T) {
-					_, err := db.ExecContext(t.Context(), analyze)
-					require.NoError(t, err)
-					volumePostgresPurgeExplain(t, db, table, index, "lock_key", cleanup, n, int64(0), 1000)
-				})
-			}
+			require.Equal(t, expected, deleted)
+			require.Equal(t, n-int(expected), rowCount(t, db, table))
+			deleted, err := locker.PurgeExpired(t.Context())
+			require.NoError(t, err)
+			require.Zero(t, deleted)
 		})
 	}
 }
 
 func TestVolume_MongoLocker(t *testing.T) {
-	if os.Getenv("MONGO_URI") == "" {
-		t.Skip("MONGO_URI not set — export it to run the MongoDB backend")
-	}
-	db := mongoDB(t)
+	db := livebackend.MongoDatabase(t, "dlockvol")
 	locker := mongoLocker(t, db, lockmongo.WithExpiredCleanup(0))
 	require.NoError(t, locker.EnsureIndexes(t.Context()))
 	coll := db.Collection(lockmongo.DefaultCollection)
 	n := livebackend.VolumeRows(t)
 	now := time.Now().UTC()
-	// Exact lockDoc fields: coord/dlock/providers/mongo/mongo.go:50-58.
+	// Exact lockDoc fields: coord/dlock/providers/mongo lockDoc.
 	livebackend.Measure(t, "seed MongoDB lock documents", n, func() {
 		livebackend.MongoBulkInsert(t, coll, n, func(i int) any {
 			expires, owner := now.Add(-time.Hour), ""
@@ -166,12 +151,12 @@ func TestVolume_MongoLocker(t *testing.T) {
 			}
 		})
 	})
-	// The acquisition filter is mongo.go:260; the TTL index is :190-192.
+	// The acquisition filter is Acquire's _id match; the TTL index is the cleanup index.
 	t.Run("explain_key", func(t *testing.T) {
-		volumeMongoExplain(t, coll, bson.M{"_id": "k00000000"}, "")
+		livebackend.ExplainMongoFind(t, coll, bson.M{"_id": "k00000000"}, "")
 	})
 	t.Run("explain_expiry", func(t *testing.T) {
-		volumeMongoExplain(t, coll, bson.M{"expires_at": bson.M{"$lte": now}}, "expires_at_ttl")
+		livebackend.ExplainMongoFind(t, coll, bson.M{"expires_at": bson.M{"$lte": now}}, "expires_at_ttl")
 	})
 	// Missing seeds and expired seeds are equally free: the TTL monitor may
 	// remove them at any time. MongoDB has no exact purge API to count.
@@ -237,61 +222,5 @@ func volumeLockerKey(tb testing.TB, locker providers.Provider, key string, expir
 		info, err := locker.GetLockInfo(ctx, key)
 		require.NoError(tb, err)
 		require.Equal(tb, "seed", info.Owner)
-	}
-}
-
-// volumeSQLExplain checks the plan of query with the dialect's EXPLAIN helper.
-// index is the index the query must use; empty skips that check, as for an
-// upsert, whose plan names the primary key only as its conflict arbiter.
-func volumeSQLExplain(tb testing.TB, db *sql.DB, style sqldialect.Style, table, index, query string, args ...any) {
-	tb.Helper()
-	if style.Numbered {
-		indexes := livebackend.ExplainPostgres(tb, db, table, style.Bind(query, 1), args...)
-		tb.Logf("%s: indexes %v", query, indexes)
-		if index != "" {
-			require.Contains(tb, indexes, index)
-		}
-		return
-	}
-	access, key := livebackend.ExplainMySQL(tb, db, table, []string{index}, query, args...)
-	tb.Logf("%s: access %s, key %s", query, access, key)
-}
-
-// volumeMongoExplain checks that a find with filter uses an index, and index
-// when it is not empty.
-func volumeMongoExplain(tb testing.TB, coll *mongodrv.Collection, filter bson.M, index string) {
-	tb.Helper()
-	indexes := livebackend.ExplainMongo(tb, coll.Database(), bson.D{{Key: "find", Value: coll.Name()}, {Key: "filter", Value: filter}})
-	tb.Logf("MongoDB filter %v: indexes %v", filter, indexes)
-	if index != "" {
-		require.Contains(tb, indexes, index)
-	}
-}
-
-// volStrictPurgePlanRows is the seeded size from which the PostgreSQL purge
-// plan must use the expires index, as in auditit.
-const volStrictPurgePlanRows = 100_000
-
-// volumePostgresPurgeExplain checks the PostgreSQL purge of the locker: from
-// volStrictPurgePlanRows on, the batch select must use index and the DELETE
-// joining it to the table must not read the table sequentially. Below that the
-// plans are only logged: the batch select has no ORDER BY and compares
-// expires_at with a clock expression, so the planner estimates a third of the
-// rows to match and reads a small table sequentially until the LIMIT fills,
-// and it joins the batch with a hash semi join that reads the table whole.
-func volumePostgresPurgeExplain(tb testing.TB, db *sql.DB, table, index, column, batch string, n int, args ...any) {
-	tb.Helper()
-	inner := sqldialect.Postgres.Bind(batch+" FOR UPDATE SKIP LOCKED", 1)
-	del := sqldialect.Postgres.Bind("DELETE FROM "+sqldialect.Postgres.Ident(table)+" WHERE "+column+" IN ("+batch+" FOR UPDATE SKIP LOCKED)", 1)
-	if n >= volStrictPurgePlanRows {
-		indexes := livebackend.ExplainPostgres(tb, db, table, inner, args...)
-		require.Contains(tb, indexes, index, "the purge batch select must use %s", index)
-		tb.Logf("purge plan indexes: %v", livebackend.ExplainPostgres(tb, db, table, del, args...))
-		return
-	}
-	for _, q := range []string{inner, del} {
-		var plan string
-		require.NoError(tb, db.QueryRowContext(tb.Context(), "EXPLAIN (FORMAT JSON) "+q, args...).Scan(&plan))
-		tb.Logf("purge plan below %d rows, not checked: %s", volStrictPurgePlanRows, strings.Join(strings.Fields(plan), " "))
 	}
 }

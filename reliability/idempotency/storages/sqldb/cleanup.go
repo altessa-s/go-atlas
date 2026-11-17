@@ -6,9 +6,8 @@ package sqldb
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"strings"
+
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 )
 
 // Close permanently stops background purging and waits for it within ctx.
@@ -24,28 +23,10 @@ func (s *Storage) deleteExpiredBatch(ctx context.Context) (int64, int64, error) 
 		n, err := execCount(ctx, ex, s.stmts.cleanup, s.purgeBatchSize)
 		return n, n, err
 	}
-	keys, err := s.expiredKeys(ctx, ex)
+	keys, err := sqldialect.QueryKeys(ctx, ex, s.purgeBatchSize, s.stmts.expiredKeys, s.purgeBatchSize)
 	if err != nil || len(keys) == 0 {
 		return 0, 0, err
 	}
-	query := fmt.Sprintf(s.stmts.cleanup, strings.Repeat(", ?", len(keys))[2:])
-	n, err := execCount(ctx, ex, query, keys...)
+	n, err := execCount(ctx, ex, sqldialect.InList(s.stmts.cleanup, len(keys)), keys...)
 	return n, int64(len(keys)), err
-}
-
-func (s *Storage) expiredKeys(ctx context.Context, ex executor) ([]any, error) {
-	rows, err := ex.QueryContext(ctx, s.stmts.expiredKeys, s.purgeBatchSize)
-	if err != nil {
-		return nil, err
-	}
-	var keys []any
-	for rows.Next() {
-		var key []byte
-		if err := rows.Scan(&key); err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-		keys = append(keys, key)
-	}
-	return keys, errors.Join(rows.Err(), rows.Close())
 }

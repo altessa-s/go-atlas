@@ -43,7 +43,6 @@ func Builder(js jetstream.JetStream) sagafactory.StorageFunc {
 			natsstore.WithBucketTTL(cfg.NATS.MaxAge),
 		}
 		opts = coreslices.AppendIf(opts, cfg.NATS.MigrateBucketTTL, natsstore.WithMigrateBucketTTL())
-		opts = coreslices.AppendIf(opts, cfg.NATS.StrictBucketStorage, natsstore.WithStrictBucketStorage())
 		return natsstore.New(ctx, js, opts...)
 	}
 }

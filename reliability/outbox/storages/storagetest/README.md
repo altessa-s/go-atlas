@@ -15,6 +15,7 @@ and retention sweeps.
 | `Run`                    | Runs every contract below but `Watch` as parallel subtests, each on a fresh store; named contracts can be skipped |
 | `FetchOldestFirst`       | A fetch returns ready events by `CreatedAt`, each with a lock token; locked events are not returned again      |
 | `FetchBatchSize`         | A fetch takes at most the batch size, oldest first                                                             |
+| `FetchInterleavesFailed` | A failed event ready for retry is fetched in creation order among pending ones                                 |
 | `PayloadsRoundTrip`      | A nil payload stays nil, an empty one empty, arbitrary bytes unchanged                                         |
 | `InstantsRoundTrip`      | Caller-supplied `CreatedAt` and `ExpiresAt` come back exactly at millisecond precision; the key survives        |
 | `ConcurrentFetch`        | Concurrent fetches take disjoint batches: every event is handed out exactly once                               |

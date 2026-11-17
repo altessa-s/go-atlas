@@ -51,6 +51,12 @@ func (s *Storage) createIndexes(ctx context.Context) error {
 			},
 			Options: mongoOptions.Index().SetSparse(true),
 		},
+		{
+			Keys: bson.D{
+				{Key: fieldContextTraceID, Value: 1},
+			},
+			Options: mongoOptions.Index().SetSparse(true),
+		},
 	}
 
 	// Add TTL index if configured.

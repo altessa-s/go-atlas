@@ -643,8 +643,8 @@ provider, _ := oidc.NewProvider(ctx, discoveryURL,
 | `WithJWKSMaxStaleness(d)`   | `0` (disabled)           | Maximum age of the local JWKS cache before the failure mode kicks in. Pair with an active refresh path (`WithJWKSRefreshSchedule` or manual `Provider.RefreshJWKS`) |
 | `WithJWKSFailureMode(mode)` | `JWKSFailureModeEnforce` | Reaction when the staleness budget is exceeded: `Enforce` (reject with `ErrJWKSStale`), `Warn` (log and accept), `Disabled` (no check)                              |
 
-The staleness check is not exposed through YAML — leave the threshold at zero to keep the legacy "validate on whatever the cache holds"
-behavior, or opt in via Go options when a freshness guarantee is required.
+The staleness check is not exposed through YAML — leave the threshold at zero to validate on whatever the cache holds, or opt in via Go options when a
+freshness guarantee is required.
 
 #### Discovery validation (Go-only)
 
@@ -734,12 +734,11 @@ a second schedule and are rejected by the factory (`rebuildCron: ""` and `rebuil
 failed initial sync fails provider construction, and a storage error during validation rejects the token with `ErrRevocationCheck`;
 `failOpen: true` logs both, increments `auth_oidc_revocation_check_errors_total`, and continues.
 
-**Breaking default — `maxStaleness`.** With `syncEnabled: true` the provider trusts a "not revoked" answer only while the last successful sync is
-younger than `maxStaleness` (default `3h`, three periods of the default hourly `syncSchedule`). Once the source has been unreachable for longer,
-tokens are rejected with `ErrRevocationCheck` wrapping `ErrRevocationStale` until a sync succeeds again (`failOpen: true` accepts them and
-counts each check). Earlier releases kept the last list in force indefinitely. Keep `maxStaleness` at several sync intervals — a daily
-`syncSchedule` needs a bound of days, and the provider logs a warning at startup when the schedule is sparser than the bound — or set
-`maxStaleness: 0` to restore the previous behavior. The bound does not apply with `syncEnabled: false`.
+**Staleness bound — `maxStaleness`.** With `syncEnabled: true` the provider trusts a "not revoked" answer only while the last successful sync is younger
+than `maxStaleness` (default `3h`, three periods of the default hourly `syncSchedule`). Once the source has been unreachable for longer, tokens are
+rejected with `ErrRevocationCheck` wrapping `ErrRevocationStale` until a sync succeeds again (`failOpen: true` accepts them and counts each check). Keep
+`maxStaleness` at several sync intervals — a daily `syncSchedule` needs a bound of days, and the provider logs a warning at startup when the schedule is
+sparser than the bound — or set `maxStaleness: 0` to keep the last list in force indefinitely. The bound does not apply with `syncEnabled: false`.
 
 **Sync limits.** `syncTimeout` (default `5m`, `0` disables) bounds one scheduled sync, and `maxResponseBytes` (default 256 MiB, must be positive)
 caps the body read from `source.url`; a sync that exceeds either fails and keeps the current revocation set. `maxResponseBytes` does not apply to
@@ -754,8 +753,7 @@ source is trusted to return an empty list only when nothing is revoked.
 
 The factory names the filter `oidc-revocation-<hash>`, where the hash covers `discoveryURL`, `itemType` and `source`; with Redis storage the
 key is that name under the configured `keysPrefix`. Replicas of one provider share the filter; providers with a different issuer, item type
-or source never overwrite each other's revocation set. (Earlier releases used the fixed name `oidc-revocation`; the new key is populated by
-the startup sync and the old one can be deleted.)
+or source never overwrite each other's revocation set.
 
 #### Signature-verification ordering
 

@@ -100,9 +100,10 @@ func (b *Builder[P]) Build(ctx context.Context) (retryqueue.Storage[P], error) {
 	}
 }
 
-// ensureSchemaTimeout bounds the schema creation buildSQLStore runs when the
-// config asks for it, so a lock wait cannot stall startup indefinitely.
-const ensureSchemaTimeout = 30 * time.Second
+// EnsureSchemaTimeout bounds the schema or index creation a storage runs at
+// build when the config asks for it, so a lock wait or a stuck index build
+// cannot stall startup indefinitely.
+const EnsureSchemaTimeout = 30 * time.Second
 
 // buildSQLStore creates the SQL store. With EnsureSchema set it creates the
 // table through the store's idempotent EnsureSchema; otherwise it performs no
@@ -121,10 +122,10 @@ func (b *Builder[P]) buildSQLStore(ctx context.Context, cfg *retryqueueconfig.SQ
 		return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "create retry queue SQL store: %w", err)
 	}
 	if cfg.EnsureSchema {
-		schemaCtx, cancel := corecontext.WithMaxTimeout(ctx, ensureSchemaTimeout)
+		schemaCtx, cancel := corecontext.WithMaxTimeout(ctx, EnsureSchemaTimeout)
 		defer cancel()
 		if err := store.EnsureSchema(schemaCtx); err != nil {
-			return nil, b.WrapError(err, "ensure retry queue schema")
+			return nil, corefactory.Errorf(coreerrs.ErrUnavailable, "ensure retry queue schema: %w", err)
 		}
 	}
 	if cfg.PurgeInterval > 0 {

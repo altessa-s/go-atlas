@@ -44,7 +44,6 @@ func Builder(js jetstream.JetStream) idempotencyfactory.StorageFunc {
 			natsstorage.WithReplicas(nc.Replicas),
 		}
 		opts = coreslices.AppendIf(opts, nc.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())
-		opts = coreslices.AppendIf(opts, nc.StrictBucketStorage, natsstorage.WithStrictBucketStorage())
 		return natsstorage.New(js, opts...)
 	}
 }

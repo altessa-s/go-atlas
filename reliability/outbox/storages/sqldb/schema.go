@@ -27,9 +27,8 @@ var indexes = [...]struct{ suffix, columns string }{
 	{"expires", "status, expires_at"},
 }
 
-// EnsureSchema creates the events table and its indexes if they do not exist,
-// and adds to an existing table the indexes a newer version of the store
-// introduced. It is idempotent and safe to run concurrently from several
+// EnsureSchema creates the events table and its indexes if they do not exist.
+// It is idempotent and safe to run concurrently from several
 // instances; call it once at startup, or apply the same DDL through your
 // migration tool — [New] performs no I/O. ctx bounds the DDL.
 //
@@ -37,10 +36,7 @@ var indexes = [...]struct{ suffix, columns string }{
 // table name, so instances creating the same absent table at once take turns
 // instead of colliding in the catalog. MySQL serializes concurrent CREATE
 // TABLE IF NOT EXISTS itself; it has no CREATE INDEX IF NOT EXISTS, so the
-// indexes a table lacks are read from information_schema and added one by one.
-//
-// Adding an index to a large table blocks writes on PostgreSQL while it
-// builds; create it beforehand with CREATE INDEX CONCURRENTLY to avoid that.
+// indexes are declared inline.
 func (s *Store) EnsureSchema(ctx context.Context) error {
 	if s.dialect.name == DialectPostgres {
 		return coreerrs.WrapOperationWithContext(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.name}, s.ddl()),
@@ -51,14 +47,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 			return coreerrs.WrapOperationWithContext(err, "create outbox schema", "table "+s.table)
 		}
 	}
-	indexesToEnsure := make([]sqldialect.MySQLIndex, 0, len(indexes))
-	for _, ix := range indexes {
-		indexesToEnsure = append(indexesToEnsure, sqldialect.MySQLIndex{
-			Name: s.dialect.IndexName(s.name, ix.suffix), Columns: ix.columns,
-		})
-	}
-	return coreerrs.WrapOperationWithContext(sqldialect.AddMissingMySQLIndexes(ctx, s.db, s.schema, s.name, indexesToEnsure),
-		"create outbox indexes", "table "+s.table)
+	return nil
 }
 
 // ddl returns the statements that create the events table and its indexes.

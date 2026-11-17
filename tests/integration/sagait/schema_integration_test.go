@@ -14,9 +14,10 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/saga/storages/sqldb"
 )
 
-// TestEnsureSchemaRestoresMySQLIndexes simulates an older table without the
-// deadline index, then checks both recovery indexes after startup.
-func TestEnsureSchemaRestoresMySQLIndexes(t *testing.T) {
+// TestEnsureSchemaCreatesMySQLIndexes checks both recovery indexes of the
+// MySQL table, created through a schema-qualified name, and that a second
+// EnsureSchema is a no-op.
+func TestEnsureSchemaCreatesMySQLIndexes(t *testing.T) {
 	t.Parallel()
 	for _, target := range sqlTargets() {
 		if target.dialect != sqldb.DialectMySQL {
@@ -25,24 +26,12 @@ func TestEnsureSchemaRestoresMySQLIndexes(t *testing.T) {
 		t.Run(target.name, func(t *testing.T) {
 			t.Parallel()
 			db, table := target.open(t)
-			store, err := sqldb.New(db, target.dialect, sqldb.WithTableName(table))
-			require.NoError(t, err)
-			require.NoError(t, store.EnsureSchema(t.Context()))
-			index := sqldialect.MySQL.IndexName(table, "deadline")
-			_, err = db.ExecContext(t.Context(), "ALTER TABLE "+sqldialect.MySQL.Ident(table)+" DROP INDEX "+index)
-			require.NoError(t, err)
-			var count int
-			require.NoError(t, db.QueryRowContext(t.Context(),
-				"SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ?",
-				table, strings.Trim(index, "`")).Scan(&count))
-			require.Zero(t, count)
-
 			var schema string
 			require.NoError(t, db.QueryRowContext(t.Context(), "SELECT DATABASE()").Scan(&schema))
-			store, err = sqldb.New(db, target.dialect, sqldb.WithTableName(schema+"."+table))
+			store, err := sqldb.New(db, target.dialect, sqldb.WithTableName(schema+"."+table))
 			require.NoError(t, err)
 			require.NoError(t, store.EnsureSchema(t.Context()))
-			require.NoError(t, store.EnsureSchema(t.Context()), "reconciliation is idempotent")
+			require.NoError(t, store.EnsureSchema(t.Context()), "EnsureSchema is idempotent")
 			for suffix, columns := range map[string]string{"lease": "status, lease_until", "deadline": "status, deadline"} {
 				var got string
 				require.NoError(t, db.QueryRowContext(t.Context(),

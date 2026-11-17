@@ -15,7 +15,7 @@ import (
 )
 
 // bucketTTLMigrationConfig gathers every config section that exposes the NATS
-// bucket flags.
+// bucket TTL migration flag.
 type bucketTTLMigrationConfig struct {
 	DistributionLock lockconfig.DistributionLock `yaml:"distributionLock"`
 	LeaderElector    lockconfig.LeaderElector    `yaml:"leaderElector"`
@@ -24,8 +24,8 @@ type bucketTTLMigrationConfig struct {
 }
 
 // TestMigrateBucketTTL_LoadsFromYAML pins the YAML keys of the NATS bucket
-// flags — TTL migration and strict storage — (their casing follows each
-// section) and that the flags stay off unless set.
+// TTL migration flag (their casing follows each section) and that the flag
+// stays off unless set.
 func TestMigrateBucketTTL_LoadsFromYAML(t *testing.T) {
 	t.Parallel()
 
@@ -34,23 +34,19 @@ distributionLock:
   provider: nats
   nats:
     migrateBucketTTL: true
-    strictBucketStorage: true
 leaderElector:
   provider: nats
   migrateBucketTTL: true
-  strictBucketStorage: true
 idempotency:
   storage:
     type: nats
     nats:
       migrateBucketTTL: true
-      strictBucketStorage: true
 saga:
   storage:
     type: nats
     nats:
       migrateBucketTTL: true
-      strictBucketStorage: true
 `
 	const defaultYAML = `
 distributionLock:
@@ -87,11 +83,6 @@ saga:
 			require.Equal(t, tc.want, cfg.LeaderElector.MigrateBucketTTL, "leaderElector.migrateBucketTTL")
 			require.Equal(t, tc.want, cfg.Idempotency.Storage.NATS.MigrateBucketTTL, "idempotency.storage.nats.migrateBucketTTL")
 			require.Equal(t, tc.want, cfg.Saga.Storage.NATS.MigrateBucketTTL, "saga.storage.nats.migrate_bucket_ttl")
-
-			require.Equal(t, tc.want, cfg.DistributionLock.NATS.StrictBucketStorage, "distributionLock.nats.strictBucketStorage")
-			require.Equal(t, tc.want, cfg.LeaderElector.StrictBucketStorage, "leaderElector.strictBucketStorage")
-			require.Equal(t, tc.want, cfg.Idempotency.Storage.NATS.StrictBucketStorage, "idempotency.storage.nats.strictBucketStorage")
-			require.Equal(t, tc.want, cfg.Saga.Storage.NATS.StrictBucketStorage, "saga.storage.nats.strict_bucket_storage")
 		})
 	}
 }

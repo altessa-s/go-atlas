@@ -324,15 +324,15 @@ Every durable capability can keep its state in PostgreSQL, MySQL or MariaDB: sel
 block. The factory builds the store over a `*sql.DB` the application injects with `UseSQLDB`; the toolkit imports no SQL driver, so the application
 chooses and registers one (`pgx`, `lib/pq`, `go-sql-driver/mysql`).
 
-| Capability  | Schema                         | Store                                                                        | `sqldb` keys besides `dialect` and `ensureSchema`                    |
-|-------------|--------------------------------|------------------------------------------------------------------------------|----------------------------------------------------------------------|
-| Audit       | `config/audit`                 | [`audit/storages/sqldb`](../audit/storages/sqldb)                            | `tableName`, `ttl`, `purgeInterval`, `purgeBatchSize`                |
-| Lock        | `config/lock`                  | [`coord/dlock/providers/sqldb`](../coord/dlock/providers/sqldb)              | `table`, lease keys, `expiredCleanup*`, `purgeInterval`, `purgeBatchSize` |
-| Saga        | `config/saga`                  | [`reliability/saga/storages/sqldb`](../reliability/saga/storages/sqldb)      | `table`                                                              |
-| Outbox      | `config/broker` (`outbox`)     | [`reliability/outbox/storages/sqldb`](../reliability/outbox/storages/sqldb)  | `table`; `outbox.watch` selects the notification mode                |
-| Idempotency | `config/idempotency`           | [`reliability/idempotency/storages/sqldb`](../reliability/idempotency/storages/sqldb) | `table`, `purgeInterval`, `purgeBatchSize`                  |
-| Retry queue | `config/retryqueue`            | [`reliability/retryqueue/storages/sqldb`](../reliability/retryqueue/storages/sqldb) | `table`, `resolvedRetention`, `purgeInterval`, `purgeBatchSize` |
-| Scheduler   | `config/scheduler`             | go-horai `storage/sqldb`                                                     | `tasksTable`, `historyTable`                                         |
+| Capability  | Schema                     | Store                                                                                 | `sqldb` keys besides `dialect` and `ensureSchema`                         |
+|-------------|----------------------------|---------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| Audit       | `config/audit`             | [`audit/storages/sqldb`](../audit/storages/sqldb)                                     | `tableName`, `ttl`, `purgeInterval`, `purgeBatchSize`                     |
+| Lock        | `config/lock`              | [`coord/dlock/providers/sqldb`](../coord/dlock/providers/sqldb)                       | `table`, lease keys, `expiredCleanup*`, `purgeInterval`, `purgeBatchSize` |
+| Saga        | `config/saga`              | [`reliability/saga/storages/sqldb`](../reliability/saga/storages/sqldb)               | `table`                                                                   |
+| Outbox      | `config/broker` (`outbox`) | [`reliability/outbox/storages/sqldb`](../reliability/outbox/storages/sqldb)           | `table`; `outbox.watch` selects the notification mode                     |
+| Idempotency | `config/idempotency`       | [`reliability/idempotency/storages/sqldb`](../reliability/idempotency/storages/sqldb) | `table`, `purgeInterval`, `purgeBatchSize`                                |
+| Retry queue | `config/retryqueue`        | [`reliability/retryqueue/storages/sqldb`](../reliability/retryqueue/storages/sqldb)   | `table`, `resolvedRetention`, `purgeInterval`, `purgeBatchSize`           |
+| Scheduler   | `config/scheduler`         | go-horai `storage/sqldb`                                                              | `tasksTable`, `historyTable`                                              |
 
 The SQL stores share one set of rules:
 
@@ -340,8 +340,10 @@ The SQL stores share one set of rules:
   optionally schema-qualified, at most 63 characters per part.
 - **Schema.** Constructors perform no I/O. `EnsureSchema(ctx)` creates the table and its indexes idempotently and adds indexes a newer version
   introduced; the factories call it only with `ensureSchema: true`, otherwise the schema is expected from migrations.
-- **Clock.** Leases, expiries, backoffs and retention are evaluated against the database clock, never the caller's, so instances with skewed clocks
-  agree on what is due.
+- **Clock.** Leases, expiries and backoffs of the lock, idempotency and outbox stores are evaluated against the database clock, so instances with
+  skewed clocks agree on what is due. The others take the caller's time: the audit retention cutoff (the store's clock), saga recovery (the `now`
+  the orchestrator passes) and the retry queue, whose instants all come from the caller (`ListDue`, `WakeDue` and `Requeue` take a `now`); only
+  its `PurgeExpired` reads the database clock.
 - **Transactions.** The outbox, idempotency and retry-queue stores join a caller transaction passed with their `WithTx(ctx, tx)`, so their writes
   commit together with the business data.
 - **Purging.** Audit, lock, idempotency and retry-queue stores delete what their retention expired with `PurgeExpired(ctx)`, in batches of
@@ -349,8 +351,6 @@ The SQL stores share one set of rules:
   loop starts on the first write and stops with the store's `Close`, which the factories register as a shutdown hook.
 - **Outbox notifications.** `outbox.watch` is `polling` (default), `changeStream` (MongoDB) or `notify` (PostgreSQL `LISTEN`/`NOTIFY`, with a
   listener injected through `UseSQLListener`). The dispatch schedule keeps running in every mode.
-
-Upgrading from the earlier outbox factory methods and purge names: see [Migrating to the SQL-parity APIs](migration/sql-parity.md).
 
 ---
 

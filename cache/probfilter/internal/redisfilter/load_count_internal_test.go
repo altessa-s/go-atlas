@@ -79,14 +79,6 @@ func TestCore_LastRebuildLoaded_UnknownFormats(t *testing.T) {
 		requireReady(t, core, true)
 	})
 
-	t.Run("legacy marker", func(t *testing.T) {
-		t.Parallel()
-		mr, core, _ := newReadyCore(t)
-		commitLoaded(t, mr, core, 7)
-		require.NoError(t, mr.Set(core.readyKey, "1"))
-		requireLoaded(t, core, 0, false)
-	})
-
 	t.Run("live key gone", func(t *testing.T) {
 		t.Parallel()
 		mr, core, _ := newReadyCore(t)

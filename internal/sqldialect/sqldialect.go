@@ -160,12 +160,3 @@ func Unqualified(name string) string {
 	}
 	return name
 }
-
-// Qualifier returns the schema part of a schema-qualified name, or "" for an
-// unqualified one.
-func Qualifier(name string) string {
-	if schema, _, ok := strings.CutLast(name, "."); ok {
-		return schema
-	}
-	return ""
-}

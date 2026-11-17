@@ -23,7 +23,7 @@ storage, err := mongofactory.New(cfg.CursorStorage).
 | `ErrJetStreamRequired`     | Returned when the function has no JetStream context                                      |
 | `ErrConfigRequired`        | Returned when the configuration has no `nats` block                                      |
 | `ErrBucketTTLMismatch`     | Returned when the bucket exists with another or no key TTL and `migrateBucketTTL` is off |
-| `ErrBucketStorageMismatch` | Returned when the bucket has another storage type and `strictBucketStorage` is on        |
+| `ErrBucketStorageMismatch` | Returned when the bucket exists with another storage type                                |
 
 ## Bucket
 
@@ -34,4 +34,4 @@ checked like in every other NATS KV backend:
 
 - a different key TTL — a bucket created without a TTL included — fails with `ErrBucketTTLMismatch` and leaves the bucket untouched, unless
   `nats.migrateBucketTTL: true`, which updates the bucket's TTL in place; entries older than the new TTL then expire.
-- a different storage type is used as is with a warning, unless `nats.strictBucketStorage: true` makes it fail with `ErrBucketStorageMismatch`.
+- a different storage type fails with `ErrBucketStorageMismatch` and leaves the bucket untouched: the server cannot convert it.

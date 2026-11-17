@@ -74,8 +74,7 @@ Keeper without an owner, or a caller it resolves to no owner, keeps the `422` an
 The middleware passes the Keeper the tuple `("transport", "{METHOD}:/{path}", key)` in the length-prefixed v2 format of
 [`reliability/idempotency.ComposeKey`](../../../../../reliability/idempotency#storage-key-format) — `POST /api/v1/users` with key `550e8400-…` becomes
 `idk:v2:9:transport18:POST:/api/v1/users36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage, so a `:` in
-the path or the key cannot make two requests share a record. The format replaced `idk:{METHOD}:/{path}:{key}` with a clean cut: follow the
-[rollout contract](../../../../../reliability/idempotency#rolling-out-the-v2-key-format) when upgrading.
+the path or the key cannot make two requests share a record.
 
 ## Request fingerprints and owners
 

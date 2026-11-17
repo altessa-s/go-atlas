@@ -5,8 +5,8 @@ import "github.com/altessa-s/go-atlas/reliability/idempotency"
 ```
 
 Package `idempotency` provides duplicate request detection using idempotency keys. Supports memory, Redis, NATS, MongoDB and SQL backends for
-single-instance and distributed systems. The [MongoDB](storages/mongo) and [SQL](storages/sqldb) backends join the caller's transaction, so a key commits
-atomically with the business change.
+single-instance and distributed systems. The [MongoDB](storages/mongo) and [SQL](storages/sqldb) backends join the caller's transaction, so a key
+commits atomically with the business change.
 
 ## Tenant isolation (multi-tenant deployments)
 
@@ -45,24 +45,7 @@ whatever bytes their components hold. A composed key nested as a component is fr
 
 The `Keeper` wraps every key it is given, even in the empty namespace, so a transport request with key `550e8400-…` on `POST /api/v1/users` is stored
 under `idk:v2:9:namespace0:78:idk:v2:9:transport18:POST:/api/v1/users36:550e8400-…`. The NATS backend escapes the final key once and refuses one longer
-than 3072 bytes after escaping; nothing is truncated or hashed. The bytes are an external ABI: the v2 layout is frozen, and an incompatible layout needs
-a new version marker and a migration.
-
-## Rolling out the v2 key format
-
-**Breaking change.** The v2 format replaced the `:`-joined layouts (`idk:{service}:{key}`, `ibk:{consumer}:{key}`, `{namespace}:{key}`, bare keys
-without a namespace) that let distinct tuples share a record — and one request or tenant replay another's stored result. The switch is a clean cut: v2
-reads, locks, completes, steals, releases and deletes only v2 records. Nothing falls back to, copies, dual-writes or deletes v1 records.
-
-- **Use a new keyspace.** Point the v2 release at a new Redis key prefix, a new NATS KV bucket, or an equivalent dedicated storage namespace (a new
-  Mongo collection). The `v2` marker alone does not separate the formats: arbitrary v1 namespace and key strings can already produce bytes equal to a v2
-  key.
-- **Duplicates during mixed versions.** Old and new replicas hold independent locks, so the same operation can run concurrently on both versions, and an
-  operation completed by an old replica can run again after the switch. The gap lasts through the remaining v1 retention window — the configured TTL of
-  the old records — not merely the deployment window. Records without a TTL need cleanup later.
-- **Rollback** is another keyspace transition with the same duplicate risk. Drain old handlers before retiring their storage.
-- **When duplicates are unacceptable**, quiesce intake, drain handlers and wait out the old deduplication retention window before resuming, or rely on
-  durable business-level uniqueness. A rolling deployment alone cannot preserve the guarantee.
+than 3072 bytes after escaping; nothing is truncated or hashed. The bytes are an external ABI: the v2 layout is frozen.
 
 ## Request fingerprints
 

@@ -47,7 +47,6 @@ func Builder(js jetstream.JetStream) storagesfactory.StorageFunc {
 			natsstorage.WithReplicas(cfg.NATS.Replicas),
 		}
 		opts = coreslices.AppendIf(opts, cfg.NATS.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())
-		opts = coreslices.AppendIf(opts, cfg.NATS.StrictBucketStorage, natsstorage.WithStrictBucketStorage())
 		if c := contention; c != nil {
 			opts = coreslices.AppendIf(opts, c.MaxCASAttempts > 0, natsstorage.WithMaxCASAttempts(c.MaxCASAttempts))
 			opts = coreslices.AppendIf(opts, c.MaxCASBackoff > 0, natsstorage.WithMaxCASBackoff(c.MaxCASBackoff))

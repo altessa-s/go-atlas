@@ -10,9 +10,8 @@
 // New performs no I/O and starts no goroutine; call Storage.EnsureSchema at startup or use migrations.
 // Expiry uses the database clock. Storage.PurgeExpired provides bounded physical
 // cleanup. WithPurgeInterval enables a lazy background sweep; Close stops it.
-// EnsureSchema adds the composite (expires_at, key) index with suffix
-// expires_key on both dialects, including on existing tables. An older expires
-// index can be dropped after the new index is present.
+// EnsureSchema creates the composite (expires_at, key) index with suffix
+// expires_key on both dialects.
 //
 // # Transactions
 //

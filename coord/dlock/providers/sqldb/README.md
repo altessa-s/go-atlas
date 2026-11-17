@@ -27,7 +27,7 @@ acquisition increments a fencing token. The caller owns the `*sql.DB` and regist
 | `WithoutRenewal`            | off          | Hard leases: never renewed, a lease ends one TTL after its acquisition request; the ratio is ignored     |
 | `WithExpiredCleanup`        | off          | Background sweep deleting rows `grace` after their lease ended, by the database clock                    |
 | `WithPurgeInterval`         | 1 minute     | Time between purge passes; zero disables the loop                                                        |
-| `WithPurgeBatchSize`        | 1000         | Maximum rows per purge statement                                                                         |
+| `WithPurgeBatchSize`        | 1000         | Maximum rows per purge statement; at most 65534 on MySQL                                                 |
 | `WithLogger`                | discard      | Logger for renewal, release and cleanup failures                                                         |
 
 ## Semantics
@@ -44,7 +44,7 @@ acquisition increments a fencing token. The caller owns the `*sql.DB` and regist
 | Release         | Matches holder and fencing token: a stale holder cannot release the new holder's lease                                                                                                             |
 | Close           | Stops all renewals, waits for acquisitions in flight, releases every held lock; a repeated Close retries                                                                                           |
 | Transactions    | The locker uses the `*sql.DB` directly and never joins a caller's transaction                                                                                                                      |
-| Indexes         | `<table>_expires_idx` on `(expires_at)` supports cleanup; MySQL reads keys without locking and deletes through the primary key                                                                                |
+| Indexes         | `<table>_expires_idx` on `(expires_at)` supports cleanup: batches take the oldest rows along it, against a cutoff read once per statement (`statement_timestamp()` on PostgreSQL)                  |
 
 The table keeps one small row per key ever locked, and that row is the key's fencing history: deleting it, or restoring the table from a backup,
 restarts or rewinds the key's tokens, so a stale holder could carry a higher token than the new one. Keep the rows of every key that may be locked
@@ -73,6 +73,6 @@ timed out. Loop failures and recovered panics go to `WithLogger` (discard by def
 - [providers/providertest](../providertest) — the contract suite this provider passes.
 - [providers/mongo](../mongo) — the MongoDB provider it mirrors.
 
-`EnsureSchema` adds the `(expires_at)` index to existing tables as well as new ones: PostgreSQL uses `CREATE INDEX IF NOT EXISTS` under its DDL advisory
-lock; MySQL/MariaDB reconciles missing indexes by name after table creation. Each purge statement is bounded by `WithOperationsTimeout`. Batch limits
-are bound parameters. Background passes use a fresh context without request values or transactions.
+`EnsureSchema` creates the table with its `(expires_at)` index: PostgreSQL uses `CREATE INDEX IF NOT EXISTS` under its DDL advisory lock; MySQL/MariaDB
+declares the index inline. Each purge statement is bounded by `WithOperationsTimeout`. Batch limits are bound parameters. Background passes use a fresh
+context without request values or transactions.

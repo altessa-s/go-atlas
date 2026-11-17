@@ -104,19 +104,19 @@ func volumeMongoQueries(t testing.TB, collection string) []volumeMongoQuery {
 	}}
 	pending := bson.M{"status": outbox.StatusPending}
 	failed := bson.M{"$and": bson.A{bson.M{"status": outbox.StatusFailed}, backoffElapsed}}
-	ready := bson.M{"$or": bson.A{pending, failed}}
 	sort := bson.D{{Key: "created_at", Value: 1}, {Key: "seq", Value: 1}}
-	queries := make([]volumeMongoQuery, 0, 7)
-	// The combined predicate is the actual claim. Explain its two eligibility
-	// branches too, so one indexed branch cannot conceal a scan in the other.
+	queries := make([]volumeMongoQuery, 0, 6)
+	// The store fetches each ready status with its own query, hinted to the
+	// (status, created_at, seq) index that also supplies the sort.
 	for _, branch := range []struct {
 		name   string
-		filter bson.M
-	}{{"fetch_pending", pending}, {"fetch_failed", failed}, {"fetch_combined", ready}} {
+		filter bson.A
+	}{{"fetch_pending", bson.A{pending, notExpired}}, {"fetch_failed", bson.A{failed, notExpired}}} {
 		queries = append(queries, volumeMongoQuery{branch.name, bson.D{
 			{Key: "find", Value: collection},
-			{Key: "filter", Value: bson.M{"$and": bson.A{branch.filter, notExpired}}},
+			{Key: "filter", Value: bson.M{"$and": branch.filter}},
 			{Key: "sort", Value: sort}, {Key: "limit", Value: volumeBatchSize},
+			{Key: "hint", Value: bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: 1}, {Key: "seq", Value: 1}}},
 		}})
 	}
 	unlockFilter := bson.M{
@@ -125,11 +125,11 @@ func volumeMongoQueries(t testing.TB, collection string) []volumeMongoQuery {
 	}
 	expireFilter := bson.M{
 		"status":     bson.M{"$in": bson.A{outbox.StatusPending, outbox.StatusFailed}},
-		"expires_at": bson.M{"$exists": true},
+		"expires_at": bson.M{"$lte": time.Now().Add(time.Hour)},
 		"$expr":      bson.M{"$lte": bson.A{"$expires_at", "$$NOW"}},
 	}
-	// Production has no expires_at index. With most rows pending, this sweep
-	// may choose COLLSCAN; keep that choice visible as a strict test failure.
+	// ExpireEvents bounds expires_at on the client so the (status, expires_at)
+	// index limits the sweep; a COLLSCAN here is a strict test failure.
 	for _, sweep := range []struct {
 		name   string
 		filter bson.M
@@ -148,8 +148,9 @@ func volumeMongoQueries(t testing.TB, collection string) []volumeMongoQuery {
 	queries = append(queries, volumeMongoQuery{"delete_processed", bson.D{
 		{Key: "delete", Value: collection},
 		{Key: "deletes", Value: bson.A{bson.M{"q": bson.M{
-			"status": bson.M{"$in": bson.A{outbox.StatusSent, outbox.StatusSkipped, outbox.StatusExpired}},
-			"$expr":  bson.M{"$lt": bson.A{"$published_at", bson.M{"$subtract": bson.A{"$$NOW", volumeLifetime.Milliseconds()}}}},
+			"status":       bson.M{"$in": bson.A{outbox.StatusSent, outbox.StatusSkipped, outbox.StatusExpired}},
+			"published_at": bson.M{"$lt": time.Now().Add(-volumeLifetime + time.Hour)},
+			"$expr":        bson.M{"$lt": bson.A{"$published_at", bson.M{"$subtract": bson.A{"$$NOW", volumeLifetime.Milliseconds()}}}},
 		}, "limit": 0}}},
 	}})
 	counted := bson.A{outbox.StatusInProgress, outbox.StatusPending, outbox.StatusFailed, outbox.StatusMaxAttemptReached, outbox.StatusRejected}

@@ -20,8 +20,8 @@
 // # Response replay
 //
 // With replay on, a transport stores a [Record] built by [NewRecord] with
-// the completed key; without it, [EntityIDData], the bare entity ID written
-// before replay existed. [DecodeRecord] reads either back, and
+// the completed key; without it, [EntityIDData], the bare entity ID.
+// [DecodeRecord] reads either back, and
 // [Record.HasGRPCResponse] / [Record.HasHTTPResponse] report whether the
 // record holds a response for the request's binding. gRPC storage keys are
 // scoped by service only and HTTP keys by METHOD:path, so a response is

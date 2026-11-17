@@ -41,8 +41,8 @@ type options struct {
 	bucket     string        `optgen:"default=defaultBucket()"`
 	renewRatio float64       `optgen:"default=DefaultRenewRatio"`
 	ttl        time.Duration `optgen:"default=DefaultBucketKeysTTL"`
-	// storage is the storage type of a bucket New creates and the target of
-	// MigrateBucketStorage. An existing bucket keeps its storage type.
+	// storage is the storage type of a bucket New creates. An existing bucket
+	// with another storage type is rejected with [ErrBucketStorageMismatch].
 	storage jetstream.StorageType `optgen:"default=DefaultStorage"`
 	// acquireTimeout bounds the single acquisition attempt. It is deliberately
 	// separate from the context passed to Lock: that context scopes the lock's
@@ -55,11 +55,6 @@ type options struct {
 	// [ErrBucketTTLMismatch]. Off by default: the bucket's TTL governs every
 	// key in it, including keys of other processes sharing the bucket.
 	migrateBucketTTL bool
-
-	// strictBucketStorage rejects a pre-existing bucket whose storage type
-	// differs from the one this backend asks for with
-	// [ErrBucketStorageMismatch] instead of adopting it with a warning.
-	strictBucketStorage bool
 }
 
 func defaultBucket() string {

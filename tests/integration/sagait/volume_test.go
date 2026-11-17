@@ -8,10 +8,8 @@ package sagait_test
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -208,6 +206,7 @@ func sqlRecoverable(table, definition string, limit int) (string, []any) {
 	if definition != "" {
 		q, args = q+" AND definition = ?", append(args, definition)
 	}
+	q += " ORDER BY status, lease_until"
 	if limit > 0 {
 		q, args = q+" LIMIT ?", append(args, limit)
 	}
@@ -237,9 +236,9 @@ func TestVolume_SagaSQL(t *testing.T) {
 						inst.Version, ""}
 				})
 			})
-			analyzeSQL(t, db, target, table)
+			livebackend.Analyze(t, db, string(target.dialect), table)
 
-			keys := []string{mysqlIndex(table, "lease"), mysqlIndex(table, "deadline")}
+			keys := []string{livebackend.MySQLIndexName(table, "lease")}
 			for _, def := range []string{"", volDefA} {
 				for _, limit := range []int{0, volRecoverLimit} {
 					q, args := sqlRecoverable(table, def, limit)
@@ -257,22 +256,6 @@ func TestVolume_SagaSQL(t *testing.T) {
 			checkConcurrentUpdates(t, store, n)
 		})
 	}
-}
-
-func mysqlIndex(table, suffix string) string {
-	return strings.Trim(sqldialect.MySQL.IndexName(table, suffix), "`")
-}
-
-// analyzeSQL refreshes the planner statistics of table after seeding.
-func analyzeSQL(t *testing.T, db *sql.DB, target sqlTarget, table string) {
-	t.Helper()
-	stmt := "ANALYZE TABLE " + table
-	if target.dialect == sqldb.DialectPostgres {
-		stmt = "ANALYZE " + table
-	}
-	rows, err := db.QueryContext(t.Context(), stmt)
-	require.NoError(t, err)
-	require.NoError(t, rows.Close())
 }
 
 // mongoInstance is instance i in the MongoDB store's document format

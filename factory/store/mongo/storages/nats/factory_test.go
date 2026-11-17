@@ -84,21 +84,17 @@ func TestBuilder_MigrateBucketTTL(t *testing.T) {
 	require.Equal(t, 2*time.Hour, natstest.KVBucketTTL(t, js, "cursors"))
 }
 
-// TestBuilder_StrictBucketStorage pins that storage.nats.strictBucketStorage
-// rejects a bucket with another storage type, which is otherwise adopted.
-func TestBuilder_StrictBucketStorage(t *testing.T) {
+// TestBuilder_BucketStorageMismatch pins that a bucket with another storage
+// type is rejected and left untouched: the server cannot convert it.
+func TestBuilder_BucketStorageMismatch(t *testing.T) {
 	t.Parallel()
 
 	ns := natstest.StartNATSServer(t)
 	_, js := natstest.ConnectJetStream(t, ns)
 	natstest.CreateNATSKV(t, js, "memory-cursors", time.Hour) // memory storage
 
-	_, err := newBuilder(natsConfig("memory-cursors", storageconfig.NATSConfig{StrictBucketStorage: true}), js).
-		WithTTL(time.Hour).Build(t.Context())
+	_, err := newBuilder(natsConfig("memory-cursors", storageconfig.NATSConfig{}), js).WithTTL(time.Hour).Build(t.Context())
 	require.ErrorIs(t, err, factory.ErrBucketStorageMismatch)
-
-	_, err = newBuilder(natsConfig("memory-cursors", storageconfig.NATSConfig{}), js).WithTTL(time.Hour).Build(t.Context())
-	require.NoError(t, err)
 	require.Equal(t, jetstream.MemoryStorage, natstest.KVBucketStorage(t, js, "memory-cursors"))
 }
 

@@ -8,7 +8,6 @@ package idempotencyit_test
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"testing"
@@ -43,7 +42,7 @@ func TestVolume_SQLStorage(t *testing.T) {
 			}
 			keyColumn := style.Ident("key")
 			quotedTable := style.Ident(table)
-			// Formats: reliability/idempotency/storages/sqldb/schema.go:23-38.
+			// Formats: reliability/idempotency/storages/sqldb EnsureSchema.
 			livebackend.Measure(t, "seed SQL idempotency rows", n, func() {
 				livebackend.SQLBulkInsert(t, db, string(target.dialect), quotedTable,
 					[]string{keyColumn, "val", "expires_at", "revision"}, n, func(i int) []any {
@@ -61,24 +60,23 @@ func TestVolume_SQLStorage(t *testing.T) {
 						return []any{keyArg, payload("seed"), expiresArg, int64(0)}
 					})
 			})
-			analyze := "ANALYZE " + quotedTable
-			if target.dialect == sqldb.DialectMySQL {
-				analyze = "ANALYZE TABLE " + quotedTable
-			}
-			_, err := db.ExecContext(t.Context(), analyze)
-			require.NoError(t, err)
+			livebackend.Analyze(t, db, string(target.dialect), quotedTable)
 			var key any = "k00000001"
 			if target.dialect == sqldb.DialectMySQL {
 				key = []byte("k00000001")
 			}
-			// Query shapes: reliability/idempotency/storages/sqldb/store.go:70-85;
-			// Clock/TTL expressions: reliability/idempotency/storages/sqldb/dialect.go:49-70.
+			// Query shapes: reliability/idempotency/storages/sqldb buildStatements;
+			// Clock/TTL expressions: reliability/idempotency/storages/sqldb dialectFor, expiresIn and duration.
+			primary := "PRIMARY"
+			if style.Numbered {
+				primary = table + "_pkey"
+			}
 			t.Run("explain_observe", func(t *testing.T) {
-				volumeSQLExplain(t, db, style, table, "PRIMARY", "SELECT val FROM "+quotedTable+
+				livebackend.ExplainSQL(t, db, style, table, primary, "SELECT val FROM "+quotedTable+
 					" WHERE "+keyColumn+" = ? AND expires_at > "+clock+" FOR UPDATE", key)
 			})
 			t.Run("explain_takeover", func(t *testing.T) {
-				volumeSQLExplain(t, db, style, table, "PRIMARY", "UPDATE "+quotedTable+" SET val = ?, expires_at = "+expiry+
+				livebackend.ExplainSQL(t, db, style, table, primary, "UPDATE "+quotedTable+" SET val = ?, expires_at = "+expiry+
 					", revision = revision + 1 WHERE "+keyColumn+" = ? AND expires_at <= "+clock, payload("takeover"), ttl, key)
 			})
 			t.Run("explain_cleanup", func(t *testing.T) {
@@ -86,10 +84,10 @@ func TestVolume_SQLStorage(t *testing.T) {
 				query := "SELECT " + keyColumn + " FROM " + quotedTable + " WHERE expires_at <= " + clock +
 					" ORDER BY expires_at, " + keyColumn + " LIMIT ?"
 				if target.dialect == sqldb.DialectPostgres {
-					volumePostgresPurgeExplain(t, db, table, index, keyColumn, query, n, 1000)
+					livebackend.ExplainPostgresPurge(t, db, table, index, keyColumn, query, n, 1000)
 					return
 				}
-				volumeSQLExplain(t, db, style, table, index, query, 1000)
+				livebackend.ExplainSQL(t, db, style, table, index, query, 1000)
 			})
 
 			volumeStorageContenders(t, storage, n)
@@ -98,17 +96,19 @@ func TestVolume_SQLStorage(t *testing.T) {
 			require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+quotedTable+
 				" WHERE expires_at <= "+clock).Scan(&expired))
 			require.EqualValues(t, expected, expired)
+			var deleted int64
 			livebackend.Measure(t, "purge SQL idempotency rows", expected, func() {
-				deleted, err := storage.PurgeExpired(t.Context())
-				require.NoError(t, err)
-				require.Equal(t, expired, deleted)
-				var remaining int64
-				require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+quotedTable).Scan(&remaining))
-				require.EqualValues(t, n-expected, remaining)
+				var err error
 				deleted, err = storage.PurgeExpired(t.Context())
 				require.NoError(t, err)
-				require.Zero(t, deleted)
 			})
+			require.Equal(t, expired, deleted)
+			var remaining int64
+			require.NoError(t, db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+quotedTable).Scan(&remaining))
+			require.EqualValues(t, n-expected, remaining)
+			deleted, err := storage.PurgeExpired(t.Context())
+			require.NoError(t, err)
+			require.Zero(t, deleted)
 		})
 	}
 }
@@ -118,7 +118,7 @@ func TestVolume_MongoStorage(t *testing.T) {
 	coll := db.Collection(idemmongo.DefaultCollectionName)
 	n := livebackend.VolumeRows(t)
 	now := time.Now().UTC()
-	// Fields: reliability/idempotency/storages/mongo/mongo.go:23-31, :94-96.
+	// Fields: reliability/idempotency/storages/mongo field constants and document.
 	// A seed needs no attempt marker: live rows keep their bytes and expired
 	// rows receive a fresh marker when AttemptLock takes them over (:125-134).
 	livebackend.Measure(t, "seed MongoDB idempotency documents", n, func() {
@@ -130,12 +130,12 @@ func TestVolume_MongoStorage(t *testing.T) {
 			return bson.M{"_id": fmt.Sprintf("k%08d", i), "val": payload("seed"), "expires_at": expires}
 		})
 	})
-	// The _id filter matches mongo.go:139; the expiry index is created at :83-85.
+	// The _id filter matches AttemptLockWithTTL; the expiry index is created in newStorage.
 	t.Run("explain_key", func(t *testing.T) {
-		volumeMongoExplain(t, coll, bson.M{"_id": "k00000001"}, "")
+		livebackend.ExplainMongoFind(t, coll, bson.M{"_id": "k00000001"}, "")
 	})
 	t.Run("explain_expiry", func(t *testing.T) {
-		volumeMongoExplain(t, coll, bson.M{"expires_at": bson.M{"$lte": now}}, "expires_at_1")
+		livebackend.ExplainMongoFind(t, coll, bson.M{"expires_at": bson.M{"$lte": now}}, "expires_at_1")
 	})
 	// The TTL monitor may remove expired seeds; missing and expired keys are
 	// both free. MongoDB has no PurgeExpired: its TTL index performs cleanup.
@@ -196,52 +196,4 @@ func volumeStorageContenders(tb testing.TB, storage storages.Storage, n int) {
 			}
 		}
 	})
-}
-
-// volumeSQLExplain checks the plan of query on the dialect's EXPLAIN helper;
-// index is the MySQL index the query must use.
-func volumeSQLExplain(tb testing.TB, db *sql.DB, style sqldialect.Style, table, index, query string, args ...any) {
-	tb.Helper()
-	if style.Numbered {
-		tb.Logf("%s: indexes %v", query, livebackend.ExplainPostgres(tb, db, table, style.Bind(query, 1), args...))
-		return
-	}
-	access, key := livebackend.ExplainMySQL(tb, db, table, []string{index}, query, args...)
-	tb.Logf("%s: access %s, key %s", query, access, key)
-}
-
-// volumeMongoExplain checks that a find with filter uses an index, and index
-// when it is not empty.
-func volumeMongoExplain(tb testing.TB, coll *mongo.Collection, filter bson.M, index string) {
-	tb.Helper()
-	indexes := livebackend.ExplainMongo(tb, coll.Database(), bson.D{{Key: "find", Value: coll.Name()}, {Key: "filter", Value: filter}})
-	tb.Logf("MongoDB filter %v: indexes %v", filter, indexes)
-	if index != "" {
-		require.Contains(tb, indexes, index)
-	}
-}
-
-// volStrictPurgePlanRows is the size from which the PostgreSQL purge DELETE
-// must not read the table sequentially, as in auditit.
-const volStrictPurgePlanRows = 100_000
-
-// volumePostgresPurgeExplain checks the PostgreSQL purge of the store: the
-// batch select must use index at any size, and the DELETE joining it to the
-// table must not read the table sequentially from volStrictPurgePlanRows on.
-// Over a smaller table PostgreSQL joins the batch with a hash semi join that
-// reads the table whole, cheaper there than one primary-key probe per row, so
-// the plan is only logged.
-func volumePostgresPurgeExplain(tb testing.TB, db *sql.DB, table, index, column, batch string, n int, args ...any) {
-	tb.Helper()
-	inner := batch + " FOR UPDATE SKIP LOCKED"
-	indexes := livebackend.ExplainPostgres(tb, db, table, sqldialect.Postgres.Bind(inner, 1), args...)
-	require.Contains(tb, indexes, index, "the purge batch select must use %s", index)
-	del := sqldialect.Postgres.Bind("DELETE FROM "+sqldialect.Postgres.Ident(table)+" WHERE "+column+" IN ("+inner+")", 1)
-	if n >= volStrictPurgePlanRows {
-		tb.Logf("purge plan indexes: %v", livebackend.ExplainPostgres(tb, db, table, del, args...))
-		return
-	}
-	var plan string
-	require.NoError(tb, db.QueryRowContext(tb.Context(), "EXPLAIN (FORMAT JSON) "+del, args...).Scan(&plan))
-	tb.Logf("purge plan below %d rows, not checked: %s", volStrictPurgePlanRows, strings.Join(strings.Fields(plan), " "))
 }

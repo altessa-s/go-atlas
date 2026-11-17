@@ -13,6 +13,10 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
+// MaxSQLKeyBatch caps the purge batch of the SQL storages whose MySQL sweep
+// deletes selected keys through an IN list; see [sqldialect.MaxKeyBatch].
+const MaxSQLKeyBatch = sqldialect.MaxKeyBatch
+
 // SQLTableName validates a plain SQL identifier, optionally qualified by one
 // schema name. Each part matches [A-Za-z_][A-Za-z0-9_]* and is at most 63
 // characters. Empty strings pass; combine with validation.Required as needed.

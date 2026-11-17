@@ -16,10 +16,7 @@ import (
 	idempnats "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
 )
 
-// TestNew_BucketStorage pins that a new bucket is file-backed, as requested,
-// and that an existing bucket with another storage type (such as the memory
-// buckets earlier releases created by mistake) is adopted as is: the server
-// cannot convert it.
+// TestNew_BucketStorage pins that a new bucket is file-backed, as requested.
 func TestNew_BucketStorage(t *testing.T) {
 	t.Parallel()
 
@@ -35,31 +32,18 @@ func TestNew_BucketStorage(t *testing.T) {
 	status, err := kv.Status(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, time.Hour, status.LimitMarkerTTL(), "a new bucket must support per-key TTL")
-
-	_, err = js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{
-		Bucket:   "legacy",
-		TTL:      time.Hour,
-		Storage:  jetstream.MemoryStorage,
-		Replicas: 1,
-	})
-	require.NoError(t, err)
-
-	_, err = idempnats.New(js, idempnats.WithBucket("legacy"), idempnats.WithMaxAge(time.Hour), idempnats.WithReplicas(1))
-	require.NoError(t, err)
-	require.Equal(t, jetstream.MemoryStorage, natstest.KVBucketStorage(t, js, "legacy"), "the existing storage must be kept")
 }
 
-// TestNew_StrictBucketStorage pins that WithStrictBucketStorage rejects a
-// bucket with another storage type instead of adopting it.
-func TestNew_StrictBucketStorage(t *testing.T) {
+// TestNew_BucketStorageMismatch pins that an existing bucket with another
+// storage type is rejected and left untouched: the server cannot convert it.
+func TestNew_BucketStorageMismatch(t *testing.T) {
 	t.Parallel()
 
 	ns := natstest.StartNATSServer(t)
 	_, js := natstest.ConnectJetStream(t, ns)
-	natstest.CreateNATSKV(t, js, "legacy", time.Hour) // memory storage
+	natstest.CreateNATSKV(t, js, "memory-bucket", time.Hour) // memory storage
 
-	_, err := idempnats.New(js, idempnats.WithBucket("legacy"), idempnats.WithMaxAge(time.Hour), idempnats.WithReplicas(1),
-		idempnats.WithStrictBucketStorage())
+	_, err := idempnats.New(js, idempnats.WithBucket("memory-bucket"), idempnats.WithMaxAge(time.Hour), idempnats.WithReplicas(1))
 	require.ErrorIs(t, err, idempnats.ErrBucketStorageMismatch)
-	require.Equal(t, jetstream.MemoryStorage, natstest.KVBucketStorage(t, js, "legacy"))
+	require.Equal(t, jetstream.MemoryStorage, natstest.KVBucketStorage(t, js, "memory-bucket"))
 }

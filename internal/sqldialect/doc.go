@@ -4,8 +4,8 @@
 
 // Package sqldialect holds the SQL text helpers shared by the database/sql
 // storages (reliability/outbox/storages/sqldb, reliability/saga/storages/sqldb, ...):
-// table-name validation and quoting, index naming, placeholder binding,
-// serialized PostgreSQL schema creation, and MySQL index reconciliation.
+// table-name validation and quoting, index naming, placeholder binding, and
+// serialized PostgreSQL schema creation.
 //
 // # Identifiers
 //
@@ -26,12 +26,11 @@
 // [ExecPostgresDDL] runs a storage's DDL in one PostgreSQL transaction under
 // advisory locks on its table names, so instances creating the same absent
 // tables at once take turns instead of colliding in the catalog.
-// [AddMissingMySQLIndexes] reconciles secondary indexes on existing MySQL and
-// MariaDB tables by name, ignoring duplicate-index errors from concurrent
-// callers. [MySQLIndex] accepts names from [Style.IndexName] and trusted SQL
-// column lists. [MySQLErrorNumber] reads server error numbers without a SQL
+// [MySQLErrorNumber] reads server error numbers without a SQL
 // driver dependency, including joined error trees. [IsDuplicateKey] recognizes
 // PostgreSQL SQLSTATE 23505 and MySQL error number 1062 by driver error shape.
+// [QueryKeys] and [InList] serve the MySQL sweeps that select a batch of
+// keys and then delete them by key.
 //
 // # Errors
 //

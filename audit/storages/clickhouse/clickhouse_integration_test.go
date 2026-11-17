@@ -329,76 +329,6 @@ func TestStorageCheckSchemaDetectsDrift(t *testing.T) {
 	require.ErrorContains(t, err, "idx_trace_id")
 }
 
-// The additive migration must be accepted by a real server: ALTER ... ADD
-// COLUMN / ADD INDEX with IF NOT EXISTS is the whole contract, and only
-// ClickHouse can confirm it parses and applies.
-func TestStorageMigrateSchemaRepairsDrift(t *testing.T) {
-	conn := newTestConn(t)
-	table := tableName(t)
-
-	require.NoError(t, conn.Exec(t.Context(), fmt.Sprintf("DROP TABLE IF EXISTS `%s`", table)))
-	t.Cleanup(func() {
-		_ = conn.Exec(context.WithoutCancel(t.Context()), fmt.Sprintf("DROP TABLE IF EXISTS `%s`", table))
-	})
-
-	s, err := auditclickhouse.New(t.Context(), conn,
-		auditclickhouse.WithTableName(table),
-		auditclickhouse.WithAutoCreateTable(),
-		auditclickhouse.WithSchemaCheck(auditclickhouse.SchemaCheckModeEnforce),
-		auditclickhouse.WithSchemaMigration(auditclickhouse.SchemaMigrationModeAdditive),
-	)
-	require.NoError(t, err)
-
-	// Reproduce a table created before the index existed.
-	require.NoError(t, conn.Exec(t.Context(), fmt.Sprintf("ALTER TABLE `%s` DROP INDEX idx_trace_id", table)))
-	require.Error(t, s.CheckSchema(t.Context()), "the drift must be visible first")
-
-	require.NoError(t, s.MigrateSchema(t.Context()))
-	require.NoError(t, s.CheckSchema(t.Context()), "migration must close the drift")
-
-	// Idempotent: IF NOT EXISTS means a second replica starting up is a
-	// no-op rather than an error.
-	require.NoError(t, s.MigrateSchema(t.Context()))
-	require.NoError(t, s.CheckSchema(t.Context()))
-}
-
-// Writing and reading must still work after the table was altered underneath.
-func TestStorageMigrateSchemaKeepsTableUsable(t *testing.T) {
-	conn := newTestConn(t)
-	table := tableName(t)
-
-	require.NoError(t, conn.Exec(t.Context(), fmt.Sprintf("DROP TABLE IF EXISTS `%s`", table)))
-	t.Cleanup(func() {
-		_ = conn.Exec(context.WithoutCancel(t.Context()), fmt.Sprintf("DROP TABLE IF EXISTS `%s`", table))
-	})
-
-	s, err := auditclickhouse.New(t.Context(), conn,
-		auditclickhouse.WithTableName(table),
-		auditclickhouse.WithAutoCreateTable(),
-		auditclickhouse.WithTimeRangeMode(auditclickhouse.TimeRangeModeDisabled),
-		auditclickhouse.WithSchemaMigration(auditclickhouse.SchemaMigrationModeAdditive),
-	)
-	require.NoError(t, err)
-
-	require.NoError(t, conn.Exec(t.Context(), fmt.Sprintf("ALTER TABLE `%s` DROP INDEX idx_resource_id", table)))
-	require.NoError(t, s.MigrateSchema(t.Context()))
-
-	want := testEvent("evt-migrated", time.Now())
-	require.NoError(t, s.StoreBatch(t.Context(), []*audit.Event{want}))
-
-	got := collect(t, s.Query(t.Context(), &audit.Query{ResourceID: "inv-7"}))
-	require.Len(t, got, 1)
-	auditclickhouse.RequireEventEqual(t, want, got[0])
-}
-
-// MATERIALIZE INDEX is a mutation; the server must at least accept it.
-func TestStorageMaterializeIndexes(t *testing.T) {
-	s := newTestStorage(t)
-
-	require.NoError(t, s.StoreBatch(t.Context(), []*audit.Event{testEvent("evt-1", time.Now())}))
-	require.NoError(t, s.MaterializeIndexes(t.Context()))
-}
-
 // The unmaterialized heuristic rests on one assumption — that an index added
 // over populated parts reports zero compressed bytes — and only a server can
 // confirm it.
@@ -416,7 +346,6 @@ func TestStorageDetectsUnmaterializedIndex(t *testing.T) {
 	s, err := auditclickhouse.New(t.Context(), conn,
 		auditclickhouse.WithTableName(table),
 		auditclickhouse.WithAutoCreateTable(),
-		auditclickhouse.WithSchemaMigration(auditclickhouse.SchemaMigrationModeAdditive),
 		auditclickhouse.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))),
 	)
 	require.NoError(t, err)
@@ -425,14 +354,15 @@ func TestStorageDetectsUnmaterializedIndex(t *testing.T) {
 	// predate it, which is exactly the state the heuristic looks for.
 	require.NoError(t, s.StoreBatch(t.Context(), []*audit.Event{testEvent("evt-1", time.Now())}))
 	require.NoError(t, conn.Exec(t.Context(), fmt.Sprintf("ALTER TABLE `%s` DROP INDEX idx_trace_id", table)))
-	require.NoError(t, s.MigrateSchema(t.Context()))
+	require.NoError(t, conn.Exec(t.Context(), fmt.Sprintf(
+		"ALTER TABLE `%s` ADD INDEX idx_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 4", table)))
 
 	require.NoError(t, s.CheckSchema(t.Context()), "an unmaterialized index must not fail the check")
 	require.Contains(t, logs.String(), "hold no data")
 	require.Contains(t, logs.String(), "idx_trace_id")
 
 	// After materializing, the warning must go away.
-	require.NoError(t, s.MaterializeIndexes(t.Context()))
+	require.NoError(t, conn.Exec(t.Context(), fmt.Sprintf("ALTER TABLE `%s` MATERIALIZE INDEX idx_trace_id", table)))
 
 	require.Eventually(t, func() bool {
 		var fresh bytes.Buffer

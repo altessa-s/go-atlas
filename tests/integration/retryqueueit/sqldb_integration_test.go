@@ -7,6 +7,7 @@ package retryqueueit_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -20,7 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/retryqueue/storages/storagetest"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
@@ -193,6 +194,53 @@ func TestSQLMoveJoinsTransaction(t *testing.T) {
 			require.NoError(t, s.Move(sqldb.WithTx(ctx, tx), "old", "new"), "a refusal leaves the transaction usable")
 			require.NoError(t, tx.Commit())
 			require.Equal(t, []string{"new"}, pendingKeys(t, s))
+		})
+	}
+}
+
+// TestSQLDeleteObsoleteSeesNewerCommit asserts DeleteObsolete inside a
+// caller transaction reports a newer generation committed by another
+// connection after the transaction's snapshot: on MySQL at REPEATABLE READ a
+// plain lookup would read the snapshot's older row and report none.
+func TestSQLDeleteObsoleteSeesNewerCommit(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			s, db, _ := target.store(t)
+			ctx := t.Context()
+			_, err := s.Mark(ctx, storagetest.Pending("k", storagetest.T0))
+			require.NoError(t, err)
+
+			var opts *sql.TxOptions
+			if target.dialect == sqldb.DialectMySQL {
+				opts = &sql.TxOptions{Isolation: sql.LevelRepeatableRead}
+			}
+			tx, err := db.BeginTx(ctx, opts)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback() }()
+			txCtx := sqldb.WithTx(ctx, tx)
+			// A consistent read fixes the transaction's snapshot at generation 1.
+			_, err = s.ListByState(txCtx, retryqueue.StatePending, 10)
+			require.NoError(t, err)
+
+			newer := storagetest.Pending("k", storagetest.T0)
+			newer.Generation = 2
+			_, err = s.Reopen(ctx, newer)
+			require.NoError(t, err)
+
+			found, err := s.DeleteObsolete(txCtx, "k", 1)
+			if target.name == "mariadb" {
+				// MariaDB with innodb_snapshot_isolation refuses the DELETE of
+				// a row changed after the snapshot (error 1020): the caller
+				// restarts the transaction instead of acting on a stale answer.
+				if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok && mysqlErr.Number == 1020 {
+					return
+				}
+			}
+			require.NoError(t, err)
+			require.True(t, found, "the newer generation committed after the snapshot is reported")
+			require.NoError(t, tx.Commit())
 		})
 	}
 }

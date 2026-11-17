@@ -17,8 +17,7 @@
 // sort byte-wise; on MySQL/MariaDB the string columns are binary types, so the
 // schema never depends on the database's default character set. The payload
 // is encoded by the configured codec ([WithCodec], JSON by default).
-// EnsureSchema adds missing secondary indexes to existing tables on both
-// dialects; MySQL reconciles their names after table creation.
+// EnsureSchema creates the secondary indexes with the table.
 //
 // # Concurrency
 //

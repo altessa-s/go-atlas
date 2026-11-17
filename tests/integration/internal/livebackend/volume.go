@@ -52,13 +52,13 @@ func Measure(tb testing.TB, label string, n int, fn func()) time.Duration {
 	start := time.Now()
 	fn()
 	d := time.Since(start)
-	tb.Logf("%s: %d in %s (%.0f/s)", label, n, d.Round(time.Millisecond), float64(n)/max(d.Seconds(), 1e-9))
+	tb.Logf("%s: %d in %s (%.0f/s)", label, n, d.Round(time.Millisecond), float64(n)/max(d, time.Nanosecond).Seconds())
 	return d
 }
 
 // SQLBulkInsert inserts n rows into table with multi-row INSERT statements,
 // each in its own implicit transaction. row returns the values of row i in the
-// order of columns. Placeholders are $n for dialect "postgres" and ? otherwise.
+// order of columns. Placeholders are $n for [SQLDialectPostgres] and ? otherwise.
 // It is a seeding helper: it bypasses the store under test to load volume fast.
 func SQLBulkInsert(tb testing.TB, db *sql.DB, dialect, table string, columns []string, n int, row func(i int) []any) {
 	tb.Helper()
@@ -80,7 +80,7 @@ func SQLBulkInsert(tb testing.TB, db *sql.DB, dialect, table string, columns []s
 				if c > 0 {
 					b.WriteString(", ")
 				}
-				if dialect == "postgres" {
+				if dialect == SQLDialectPostgres {
 					b.WriteString("$" + strconv.Itoa(len(args)+c+1))
 				} else {
 					b.WriteByte('?')

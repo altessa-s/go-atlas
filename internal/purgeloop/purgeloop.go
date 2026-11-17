@@ -118,8 +118,11 @@ func (l *Loop) runPass(ctx context.Context) {
 	}
 }
 
-// Drain runs step until it considers fewer than batch rows, ctx ends, or step
-// fails. It returns completed deletions, including those before an error.
+// Drain runs step until it considers fewer than batch rows, deletes nothing,
+// ctx ends, or step fails. A step that deletes nothing makes no progress: its
+// rows were renewed or removed by another sweeper, or, inside a REPEATABLE READ
+// transaction, stay visible in the snapshot after a concurrent delete.
+// It returns completed deletions, including those before an error.
 // Each step has its own timeout; nonpositive timeout uses DefaultStepTimeout.
 // Context errors are returned unwrapped for callers to annotate.
 func Drain(ctx context.Context, batch int, timeout time.Duration,
@@ -141,7 +144,7 @@ func Drain(ctx context.Context, batch int, timeout time.Duration,
 		if err != nil {
 			return total, err
 		}
-		if considered < int64(batch) {
+		if n == 0 || considered < int64(batch) {
 			return total, nil
 		}
 	}

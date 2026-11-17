@@ -57,9 +57,9 @@ func TestStore_ValidIDIsStoredUnderItself(t *testing.T) {
 	s := newStore(t)
 	ctx := t.Context()
 
-	require.NoError(t, s.Create(ctx, &saga.Instance{ID: natskeytest.LegacyKey, Status: saga.StatusRunning}))
+	require.NoError(t, s.Create(ctx, &saga.Instance{ID: natskeytest.PlainKey, Status: saga.StatusRunning}))
 
-	_, err := s.KV().Get(ctx, natskeytest.LegacyKey)
+	_, err := s.KV().Get(ctx, natskeytest.PlainKey)
 	require.NoError(t, err)
 }
 

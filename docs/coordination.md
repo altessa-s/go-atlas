@@ -53,7 +53,7 @@ cycles (dispatch, unlock, expire, cleanup, stats). This is the crash-safe answer
 the state, it cannot be lost; because it is delivered out-of-band, the transaction never waits on the network. Delivery is **at-least-once**,
 transport-agnostic (the `Handler` decides how to deliver: broker, HTTP, gRPC). Lease and retention windows are evaluated against the **database
 server clock** (MongoDB `$$NOW`), not the worker's wall clock, so a clock-skewed worker can neither prematurely steal a locked event nor leak one;
-timestamps are stored as BSON `Date` (run `MigrateTimestampsToDate` once on a legacy collection).
+timestamps are stored as BSON `Date`.
 
 Five properties are worth knowing before you design against it:
 

@@ -140,7 +140,10 @@ func (s *Store) Watch(ctx context.Context, notify func()) error {
 				notify() // Events committed while nobody listened.
 			}
 			if received := pump(ctx, signals, notify); received && time.Since(started) >= watchRetryMaxDelay {
-				attempt = 0 // Only a stable subscription resets the backoff.
+				// Only a stable subscription that delivered a signal resets the
+				// backoff: a silent one may have been half-open all along. On a
+				// quiet outbox the backoff then stays high, at most watchRetryMaxDelay.
+				attempt = 0
 			}
 			if ctx.Err() != nil {
 				return nil

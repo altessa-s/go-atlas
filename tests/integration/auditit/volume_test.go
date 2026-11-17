@@ -36,9 +36,6 @@ const (
 	volTraceSize = 10
 	volSeedBatch = 5000
 	volPageSize  = 100
-	// volStrictPurgePlanRows is the size from which the PostgreSQL purge
-	// plan must not read the table sequentially.
-	volStrictPurgePlanRows = 100_000
 )
 
 var volBase = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -82,9 +79,9 @@ type volumeCase struct {
 	sqlArgs  []any
 	sqlKeys  []string
 	// mongoFilter is the filter auditmongo.buildFilter renders for query;
-	// mongoIndexed is false for a filter the collection has no index for.
-	mongoFilter  bson.D
-	mongoIndexed bool
+	// mongoIndex the index that must serve it.
+	mongoFilter bson.D
+	mongoIndex  string
 }
 
 // descending returns the indexes below n congruent to rem modulo step, newest
@@ -100,7 +97,7 @@ func descending(n, step, rem int) []int {
 }
 
 func volumeCases(n int, table string) []volumeCase {
-	ix := func(suffix string) string { return mysqlIndex(table, suffix) }
+	ix := func(suffix string) string { return livebackend.MySQLIndexName(table, suffix) }
 	actor, resource := 7%volActors, 42%volResources
 	lo := n / 2
 	hi := lo + max(n/100, 1) - 1
@@ -125,33 +122,33 @@ func volumeCases(n int, table string) []volumeCase {
 		{
 			name: "actor", query: audit.Query{ActorID: actorID}, want: descending(n, volActors, actor),
 			sqlPreds: []string{"actor_id = ?"}, sqlArgs: []any{actorID}, sqlKeys: []string{ix("actor")},
-			mongoFilter: bson.D{{Key: "actor.id", Value: actorID}}, mongoIndexed: true,
+			mongoFilter: bson.D{{Key: "actor.id", Value: actorID}}, mongoIndex: "actor.id_1_timestamp_-1",
 		},
 		{
 			name: "resource", query: audit.Query{ResourceType: "doc", ResourceID: resourceID}, want: descending(n, volResources, resource),
 			sqlPreds: []string{"resource_type = ?", "resource_id = ?"}, sqlArgs: []any{"doc", resourceID}, sqlKeys: []string{ix("resource")},
-			mongoFilter: bson.D{{Key: "resource.type", Value: "doc"}, {Key: "resource.id", Value: resourceID}}, mongoIndexed: true,
+			mongoFilter: bson.D{{Key: "resource.type", Value: "doc"}, {Key: "resource.id", Value: resourceID}},
+			mongoIndex:  "resource.type_1_resource.id_1_timestamp_-1",
 		},
 		{
 			name: "time range", query: audit.Query{StartTime: &start, EndTime: &end, SortOrder: audit.SortOrderAsc}, want: span,
 			sqlPreds: []string{"ts_ms >= ?", "ts_ms <= ?"}, sqlArgs: []any{start.UnixMilli(), end.UnixMilli()}, sqlKeys: []string{ix("ts")},
-			mongoFilter:  bson.D{{Key: "timestamp", Value: bson.D{{Key: "$gte", Value: start}, {Key: "$lte", Value: end}}}},
-			mongoIndexed: true,
+			mongoFilter: bson.D{{Key: "timestamp", Value: bson.D{{Key: "$gte", Value: start}, {Key: "$lte", Value: end}}}},
+			mongoIndex:  "timestamp_-1__id_-1",
 		},
 		{
 			name: "request", query: audit.Query{RequestID: reqID}, want: []int{req},
 			sqlPreds: []string{"request_id = ?"}, sqlArgs: []any{reqID}, sqlKeys: []string{ix("request")},
-			mongoFilter: bson.D{{Key: "context.request_id", Value: reqID}}, mongoIndexed: true,
+			mongoFilter: bson.D{{Key: "context.request_id", Value: reqID}}, mongoIndex: "context.request_id_1",
 		},
 		{
 			name: "trace", query: audit.Query{TraceID: traceID}, want: traced,
 			sqlPreds: []string{"trace_id = ?"}, sqlArgs: []any{traceID}, sqlKeys: []string{ix("trace")},
-			// audit/storages/mongo/indexes.go has no context.trace_id index.
-			mongoFilter: bson.D{{Key: "context.trace_id", Value: traceID}}, mongoIndexed: false,
+			mongoFilter: bson.D{{Key: "context.trace_id", Value: traceID}}, mongoIndex: "context.trace_id_1",
 		},
 		{
 			name: "newest", query: audit.Query{Limit: volPageSize / 2}, want: newest,
-			sqlKeys: []string{ix("ts")}, mongoFilter: bson.D{}, mongoIndexed: true,
+			sqlKeys: []string{ix("ts")}, mongoFilter: bson.D{}, mongoIndex: "timestamp_-1__id_-1",
 		},
 	}
 }
@@ -221,7 +218,7 @@ func TestVolume_AuditSQL(t *testing.T) {
 			now := volBase.Add(time.Duration(expired)*time.Millisecond + time.Hour)
 			st, db, table := target.open(t, sqldb.WithTTL(time.Hour), sqldb.WithClock(clock.NewFake(now)), sqldb.WithPurgeInterval(0))
 			seedEvents(t, st, n)
-			analyze(t, db, target, table)
+			livebackend.Analyze(t, db, string(target.dialect), table)
 
 			cases := volumeCases(n, table)
 			for _, c := range cases {
@@ -232,7 +229,7 @@ func TestVolume_AuditSQL(t *testing.T) {
 			// Copied from sqldb.Storage.PurgeExpired (audit/storages/sqldb/retention.go).
 			cutoff := now.Add(-time.Hour).UnixMilli()
 			switch {
-			case target.dialect == sqldb.DialectPostgres && n < volStrictPurgePlanRows:
+			case target.dialect == sqldb.DialectPostgres && n < livebackend.StrictPurgePlanRows:
 				// Over a small table PostgreSQL joins the batch to the table
 				// with a hash semi join, reading it whole: cheaper than one
 				// primary-key probe per row there. Log the plan instead.
@@ -240,13 +237,13 @@ func TestVolume_AuditSQL(t *testing.T) {
 					" WHERE ts_ms < ? ORDER BY ts_ms, id LIMIT ? FOR UPDATE SKIP LOCKED)", 1)
 				var plan string
 				require.NoError(t, db.QueryRowContext(t.Context(), q, cutoff, sqldb.DefaultPurgeBatchSize).Scan(&plan))
-				t.Logf("purge plan below %d rows, not checked: %s", volStrictPurgePlanRows, strings.Join(strings.Fields(plan), " "))
+				t.Logf("purge plan below %d rows, not checked: %s", livebackend.StrictPurgePlanRows, strings.Join(strings.Fields(plan), " "))
 			case target.dialect == sqldb.DialectPostgres:
 				q := sqldialect.Postgres.Bind("DELETE FROM "+table+" WHERE id IN (SELECT id FROM "+table+
 					" WHERE ts_ms < ? ORDER BY ts_ms, id LIMIT ? FOR UPDATE SKIP LOCKED)", 1)
 				t.Logf("purge plan indexes: %v", livebackend.ExplainPostgres(t, db, table, q, cutoff, sqldb.DefaultPurgeBatchSize))
 			default:
-				access, key := livebackend.ExplainMySQL(t, db, table, []string{mysqlIndex(table, "ts")},
+				access, key := livebackend.ExplainMySQL(t, db, table, []string{livebackend.MySQLIndexName(table, "ts")},
 					"DELETE FROM "+table+" WHERE ts_ms < ? ORDER BY ts_ms, id LIMIT ?", cutoff, sqldb.DefaultPurgeBatchSize)
 				t.Logf("purge plan: type=%s key=%s", access, key)
 			}
@@ -268,22 +265,6 @@ func TestVolume_AuditSQL(t *testing.T) {
 			require.Zero(t, purged)
 		})
 	}
-}
-
-func mysqlIndex(table, suffix string) string {
-	return strings.Trim(sqldialect.MySQL.IndexName(table, suffix), "`")
-}
-
-// analyze refreshes the planner statistics of table after seeding.
-func analyze(t *testing.T, db *sql.DB, target sqlTarget, table string) {
-	t.Helper()
-	stmt := "ANALYZE TABLE " + table
-	if target.dialect == sqldb.DialectPostgres {
-		stmt = "ANALYZE " + table
-	}
-	rows, err := db.QueryContext(t.Context(), stmt)
-	require.NoError(t, err)
-	require.NoError(t, rows.Close())
 }
 
 // explainAuditSQL explains the first page, a cursor page and the count of c,
@@ -365,19 +346,9 @@ func TestVolume_AuditMongo(t *testing.T) {
 			delete(cmds, "count") // an unfiltered count reads the collection metadata
 		}
 		for label, cmd := range cmds {
-			if !c.mongoIndexed {
-				var out struct {
-					QueryPlanner struct {
-						WinningPlan bson.Raw `bson:"winningPlan"`
-					} `bson:"queryPlanner"`
-				}
-				require.NoError(t, db.RunCommand(t.Context(), bson.D{{Key: "explain", Value: cmd}, {Key: "verbosity", Value: "queryPlanner"}}).
-					Decode(&out))
-				t.Logf("FINDING: %s %s has no index in the MongoDB audit storage; winning plan: %s", c.name, label,
-					out.QueryPlanner.WinningPlan)
-				continue
-			}
-			t.Logf("%s %s plan indexes: %v", c.name, label, livebackend.ExplainMongo(t, db, cmd))
+			indexes := livebackend.ExplainMongo(t, db, cmd)
+			require.Contains(t, indexes, c.mongoIndex, "%s %s", c.name, label)
+			t.Logf("%s %s plan indexes: %v", c.name, label, indexes)
 		}
 	}
 	checkCases(t, st, cases)

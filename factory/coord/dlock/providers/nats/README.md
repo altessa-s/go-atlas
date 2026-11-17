@@ -15,8 +15,8 @@ dl, err := dlockfactory.New(cfg.DistributionLock).
     Build(ctx)
 ```
 
-| Symbol              | Description                                                                                                               |
-|---------------------|---------------------------------------------------------------------------------------------------------------------------|
-| `Builder(conn)`     | Provider function for the `nats` type; `bucket`, `storage`, `migrateBucketTTL` and `strictBucketStorage` shape the bucket |
-| `ErrClientRequired` | Returned when the function has no connection                                                                              |
-| `ErrConfigRequired` | Returned when the configuration has no `nats` block                                                                       |
+| Symbol              | Description                                                                                        |
+|---------------------|----------------------------------------------------------------------------------------------------|
+| `Builder(conn)`     | Provider function for the `nats` type; `bucket`, `storage` and `migrateBucketTTL` shape the bucket |
+| `ErrClientRequired` | Returned when the function has no connection                                                       |
+| `ErrConfigRequired` | Returned when the configuration has no `nats` block                                                |

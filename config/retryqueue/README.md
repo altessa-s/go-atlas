@@ -4,14 +4,14 @@
 import retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 ```
 
-Package `retryqueueconfig` defines the retry queue schema: the backend that persists retry items. Schemas are populated by [`go-
-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by
+Package `retryqueueconfig` defines the retry queue schema: the backend that persists retry items. Schemas are populated by
+[`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by
 [`factory/reliability/retryqueue`](../../factory/reliability/retryqueue), which maps them to generated options; runtime packages never import them.
 
 ## Key types
 
 | Type                  | Description                                                                                         |
-|-------------------------|-------------------------------------------------------------------------------------------------------|
+|-----------------------|-----------------------------------------------------------------------------------------------------|
 | `StorageType`         | Selects the backend: `memory`, `mongo` or `sqldb`.                                                  |
 | `MemoryStorageConfig` | Configures the in-process store (reliability/retryqueue/storages/memory).                           |
 | `MongoStorageConfig`  | Collection, flag field names, resolved retention and index creation of the MongoDB store.           |

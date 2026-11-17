@@ -11,38 +11,38 @@ item key, the payload `P` encoded by a codec. The caller owns the `*sql.DB` and 
 ## Dialects
 
 | Dialect           | Servers                   | Typical driver                                                  |
-|---------------------|-----------------------------|-------------------------------------------------------------------|
+|-------------------|---------------------------|-----------------------------------------------------------------|
 | `DialectPostgres` | PostgreSQL 12+            | `github.com/jackc/pgx/v5/stdlib` (`"pgx"`), `github.com/lib/pq` |
 | `DialectMySQL`    | MySQL 8.0+, MariaDB 10.6+ | `github.com/go-sql-driver/mysql` (`"mysql"`)                    |
 
 ## Key types
 
-| Symbol                             | Description                                                                                  |
-|------------------------------------|----------------------------------------------------------------------------------------------|
-| `Store[P]`                         | The storage over a `*sql.DB`                                                                 |
-| `New[P](db, dialect, opts...)`     | Constructs a store; `ErrUnsupportedDialect`, `ErrInvalidTableName`; performs no I/O          |
-| `(*Store[P]).EnsureSchema`         | Creates the table and its indexes; idempotent, safe to run concurrently                      |
-| `(*Store[P]).Move`                 | `retryqueue.Mover`: renames the primary key in one `UPDATE`                                  |
-| `(*Store[P]).PurgeExpired`         | Deletes resolved items past the retention, against the database clock; returns the count     |
-| `(*Store[P]).Close`                | Stops the background purge of `WithPurgeInterval`, waiting within `ctx`; idempotent          |
-| `WithTx(ctx, tx)`                  | Runs every method called with the context on the caller's transaction                        |
-| `ErrValueTooLong`                  | `Mark`, `Reopen` or `Move` with a key longer than `MaxKeyLength` (255) characters            |
+| Symbol                         | Description                                                                              |
+|--------------------------------|------------------------------------------------------------------------------------------|
+| `Store[P]`                     | The storage over a `*sql.DB`                                                             |
+| `New[P](db, dialect, opts...)` | Constructs a store; `ErrUnsupportedDialect`, `ErrInvalidTableName`; performs no I/O      |
+| `(*Store[P]).EnsureSchema`     | Creates the table and its indexes; idempotent, safe to run concurrently                  |
+| `(*Store[P]).Move`             | `retryqueue.Mover`: renames the primary key in one `UPDATE`                              |
+| `(*Store[P]).PurgeExpired`     | Deletes resolved items past the retention, against the database clock; returns the count |
+| `(*Store[P]).Close`            | Stops the background purge of `WithPurgeInterval`, waiting within `ctx`; idempotent      |
+| `WithTx(ctx, tx)`              | Runs every method called with the context on the caller's transaction                    |
+| `ErrValueTooLong`              | `Mark`, `Reopen` or `Move` with a key longer than `MaxKeyLength` (255) characters        |
 
 ## Options
 
-| Option                      | Default           | Description                                                                                |
-|-----------------------------|-------------------|--------------------------------------------------------------------------------------------|
-| `WithTableName`             | `retry_items`     | Items table; may be qualified as `schema.name` (≤ 63 chars per part)                       |
-| `WithCodec`                 | JSON              | go-atlas-core `serializer.Serializer` for the payload column                               |
-| `WithResolvedRetention`     | off               | How long `PurgeExpired` keeps a resolved item; off keeps resolved items until deleted      |
-| `WithPurgeInterval`         | 1 minute          | Runs `PurgeExpired` in the background at this interval (needs a retention)                 |
-| `WithPurgeBatchSize`        | 1000              | Maximum rows per purge statement                                                           |
-| `WithLogger`                | discard           | Receives the background purge's failures and recovered panics                              |
+| Option                  | Default       | Description                                                                           |
+|-------------------------|---------------|---------------------------------------------------------------------------------------|
+| `WithTableName`         | `retry_items` | Items table; may be qualified as `schema.name` (≤ 63 chars per part)                  |
+| `WithCodec`             | JSON          | go-atlas-core `serializer.Serializer` for the payload column                          |
+| `WithResolvedRetention` | off           | How long `PurgeExpired` keeps a resolved item; off keeps resolved items until deleted |
+| `WithPurgeInterval`     | 1 minute      | Runs `PurgeExpired` in the background at this interval (needs a retention)            |
+| `WithPurgeBatchSize`    | 1000          | Maximum rows per purge statement                                                      |
+| `WithLogger`            | discard       | Receives the background purge's failures and recovered panics                         |
 
 ## Table
 
 | Column                                                  | PostgreSQL         | MySQL / MariaDB   | Notes                                         |
-|-----------------------------------------------------------|----------------------|---------------------|-------------------------------------------------|
+|---------------------------------------------------------|--------------------|-------------------|-----------------------------------------------|
 | `id`                                                    | `VARCHAR(255) "C"` | `VARBINARY(1020)` | `Item.Key`; byte-wise order                   |
 | `generation`, `attempts`                                | `BIGINT`           | `BIGINT`          |                                               |
 | `state`                                                 | `VARCHAR(16) "C"`  | `VARBINARY(16)`   | `pending`, `expired`, `resolved`              |
@@ -75,7 +75,9 @@ insert of `to` between the check and the `UPDATE` fails the rename with a duplic
 transaction. `Mark` absorbs a taken key without an error on PostgreSQL at READ COMMITTED (`ON CONFLICT DO NOTHING`) and, on MySQL, rolls back only its
 own statement; its read-back is a locking read on MySQL so a transaction whose snapshot predates the winner still sees it. Inside a caller transaction
 at REPEATABLE READ or SERIALIZABLE on PostgreSQL, a `Mark` whose key was inserted by a transaction that committed after the caller's snapshot fails
-with a serialization error (SQLSTATE 40001); retry the whole transaction.
+with a serialization error (SQLSTATE 40001); retry the whole transaction. `DeleteObsolete` looks for a newer generation with the same locking read
+on MySQL, so a generation committed after the caller's snapshot is reported; MariaDB with `innodb_snapshot_isolation` instead fails its `DELETE` with
+error 1020, after which the whole transaction must be retried too.
 
 `Requeue` lists at most 1000 keys per statement; a longer list runs all its statements in one transaction, the `WithTx` one or its own, so it moves
 all or none of the items.
@@ -97,20 +99,20 @@ UPDATE SKIP LOCKED`; MySQL orders deletions by `resolved_at`. Background context
 
 ## Schema
 
-`EnsureSchema` creates the table and the secondary indexes listed below. PostgreSQL adds missing indexes under its advisory DDL lock. MySQL/MariaDB
-creates indexes inline on new tables, then reconciles missing indexes by name on existing tables. Existing index definitions are left unchanged.
+`EnsureSchema` creates the table and the secondary indexes listed below. PostgreSQL creates them under its advisory DDL lock; MySQL/MariaDB declares
+them inline.
 
 ## Query audit
 
-| Query                                       | Predicate / sort                                       | Index                                 |
-|---------------------------------------------|--------------------------------------------------------|---------------------------------------|
-| `Mark`, `Reopen`, transitions, `Delete`     | `id` (+ `state` / `generation` / `since`)              | primary key                           |
-| `Move`                                      | `id`                                                   | primary key                           |
-| `ListDue`                                   | `state = pending AND next_attempt_at <= ?`, sorted     | `<table>_due_idx`                     |
-| `WakeDue`                                   | `state = pending AND next_attempt_at > ?`              | `<table>_due_idx`                     |
-| `ListByState`                               | `state = ?` sort `since, id`                           | `<table>_state_idx`                   |
-| `Requeue`                                   | `state = expired [AND id IN (…)]`                      | `<table>_state_idx` / primary key     |
-| `PurgeExpired`                              | `state = resolved AND resolved_at <= db now − ret`     | `<table>_resolved_idx`                |
+| Query                                   | Predicate / sort                                   | Index                             |
+|-----------------------------------------|----------------------------------------------------|-----------------------------------|
+| `Mark`, `Reopen`, transitions, `Delete` | `id` (+ `state` / `generation` / `since`)          | primary key                       |
+| `Move`                                  | `id`                                               | primary key                       |
+| `ListDue`                               | `state = pending AND next_attempt_at <= ?`, sorted | `<table>_due_idx`                 |
+| `WakeDue`                               | `state = pending AND next_attempt_at > ?`          | `<table>_due_idx`                 |
+| `ListByState`                           | `state = ?` sort `since, id`                       | `<table>_state_idx`               |
+| `Requeue`                               | `state = expired [AND id IN (…)]`                  | `<table>_state_idx` / primary key |
+| `PurgeExpired`                          | `state = resolved AND resolved_at <= db now − ret` | `<table>_resolved_idx`            |
 
 ## Usage
 

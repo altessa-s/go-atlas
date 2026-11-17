@@ -28,19 +28,6 @@
 // given as ("namespace", namespace, key) — even in the empty namespace a nil
 // [KeyNamespaceFunc] selects — before any storage operation.
 //
-// # Rolling out the v2 key format
-//
-// The v2 format replaced ':'-joined keys that let distinct tuples share a
-// record. The switch is a clean cut: v1 records are never read, copied or
-// deleted. Point the v2 release at a new Redis key prefix, NATS KV bucket
-// or equivalent storage namespace. While old and new replicas run side by
-// side, and until the old records expire, their locks are independent: the
-// same operation can run on both versions, and one completed by an old
-// replica can run again. A rollback is another such transition. Where
-// duplicates are unacceptable, quiesce intake, drain handlers and wait out
-// the old retention window before resuming, or rely on durable
-// business-level uniqueness.
-//
 // # Usage
 //
 //	keeper := idempotency.New(memory.New())

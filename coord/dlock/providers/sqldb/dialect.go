@@ -48,18 +48,23 @@ type dialect struct {
 	// the expression is evaluated rather than at transaction start, so a lease
 	// decision taken after a lock wait compares against the actual time.
 	now string
+	// cutoffNow renders the same time read once per statement, which lets
+	// PostgreSQL bound an index scan with it; the expired-row cleanup uses it.
+	cutoffNow string
 }
 
 func dialectFor(d Dialect) (dialect, error) {
 	switch d {
 	case DialectPostgres:
 		return dialect{Style: sqldialect.Postgres, name: d,
-			now: "CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000 AS BIGINT)"}, nil
+			now:       "CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000000 AS BIGINT)",
+			cutoffNow: "CAST(EXTRACT(EPOCH FROM statement_timestamp()) * 1000000 AS BIGINT)"}, nil
 	case DialectMySQL:
 		// DATETIME arithmetic on UTC values, so neither the session time zone
 		// nor a DST fold can shift the result.
-		return dialect{Style: sqldialect.MySQL, name: d,
-			now: "TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(6))"}, nil
+		// UTC_TIMESTAMP is read once per statement, so it serves the cutoff too.
+		now := "TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(6))"
+		return dialect{Style: sqldialect.MySQL, name: d, now: now, cutoffNow: now}, nil
 	default:
 		return dialect{}, fmt.Errorf("%w: %q", ErrUnsupportedDialect, d)
 	}

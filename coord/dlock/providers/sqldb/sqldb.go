@@ -57,7 +57,6 @@ type store struct {
 	dialect   dialect
 	table     string // quoted
 	tableName string // unqualified, for the DDL lock
-	qualifier string // optional schema, for MySQL index reconciliation
 	stmts     statements
 	ttl       time.Duration
 	// cleanup enables [WithExpiredCleanup]; graceUs is its grace in
@@ -119,11 +118,14 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Locker, error) {
 	if err != nil {
 		return nil, err
 	}
+	if d == DialectMySQL && o.purgeBatchSize > sqldialect.MaxKeyBatch {
+		return nil, coreerrs.Wrapf(coreerrs.ErrInvalidArgument, "sqldb dlock: MySQL purge batch size must be at most %d", sqldialect.MaxKeyBatch)
+	}
 	if o.expiredCleanup && o.expiredCleanupGrace < 0 {
 		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "sqldb dlock: expired cleanup grace must not be negative")
 	}
 	s := &store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), ttl: ttl,
-		qualifier: sqldialect.Qualifier(o.tableName), cleanup: o.expiredCleanup, graceUs: o.expiredCleanupGrace.Microseconds(), purgeBatchSize: o.purgeBatchSize}
+		cleanup: o.expiredCleanup, graceUs: o.expiredCleanupGrace.Microseconds(), purgeBatchSize: o.purgeBatchSize}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}
@@ -164,14 +166,17 @@ func (s *store) buildStatements() statements {
 		release:      b("UPDATE "+t+" SET owner = '', expires_at = "+now+" WHERE lock_key = ? AND owner = ? AND fencing = ?", 1),
 		releaseOwner: b("UPDATE "+t+" SET owner = '', expires_at = "+now+" WHERE lock_key = ? AND owner = ?", 1),
 	}
-	expired := "expires_at <= " + now + " - ?"
+	// The cleanup cutoff reads the clock once per statement: a volatile clock
+	// cannot bound an index scan, so PostgreSQL would read the whole table on
+	// every sweep. Oldest rows go first, along the expires_at index.
+	expired := "expires_at <= " + s.dialect.cutoffNow + " - ?"
 	if s.dialect.name == DialectPostgres {
 		// SKIP LOCKED lets concurrent sweeps take disjoint batches and leaves
 		// rows an acquisition is writing alone; a row changed after the
 		// statement started is rechecked against the condition when locked,
 		// so a lease taken meanwhile is not deleted.
 		st.deleteExpired = b("DELETE FROM "+t+" WHERE lock_key IN (SELECT lock_key FROM "+t+" WHERE "+expired+
-			" LIMIT ? FOR UPDATE SKIP LOCKED)", 1)
+			" ORDER BY expires_at LIMIT ? FOR UPDATE SKIP LOCKED)", 1)
 		// One statement: insert the key's row on first use, or take the lease
 		// over while it is expired. ON CONFLICT waits for a concurrent writer
 		// of the row and re-evaluates the condition after it; no row comes
@@ -197,7 +202,7 @@ func (s *store) buildStatements() statements {
 	// batch of keys without locking and deletes them through the primary key,
 	// which locks only those rows; the condition is repeated because the read
 	// took no lock.
-	st.expiredKeys = "SELECT lock_key FROM " + t + " WHERE " + expired + " LIMIT ?"
+	st.expiredKeys = "SELECT lock_key FROM " + t + " WHERE " + expired + " ORDER BY expires_at LIMIT ?"
 	st.deleteExpired = "DELETE FROM " + t + " WHERE lock_key IN (%s) AND " + expired
 	return st
 }

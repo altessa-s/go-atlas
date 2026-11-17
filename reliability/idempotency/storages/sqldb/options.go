@@ -29,8 +29,9 @@ type options struct {
 	// WithPurgeInterval sets the interval between purge passes. Zero disables
 	// the background loop; manual PurgeExpired calls remain available.
 	purgeInterval time.Duration `optcheck:"min=0" optgen:"default=DefaultPurgeInterval,onfail=skip"`
-	// WithPurgeBatchSize bounds the rows deleted by each statement.
-	// Nonpositive values leave the configured size unchanged.
+	// WithPurgeBatchSize bounds the rows deleted by each statement. On MySQL it
+	// must be at most 65534 (the placeholder limit of the key list), or [New]
+	// fails. Nonpositive values leave the configured size unchanged.
 	purgeBatchSize int `optval:"positive" optgen:"default=DefaultPurgeBatchSize"`
 	// WithLogger sets the logger used for background cleanup errors and panics.
 	logger *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler),notnil"`

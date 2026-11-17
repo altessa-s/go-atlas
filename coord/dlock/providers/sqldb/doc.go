@@ -54,9 +54,12 @@
 // [New] performs no I/O. Call [Locker.EnsureSchema] once at startup — it is
 // idempotent — or apply the same DDL through a migration tool. Keys compare
 // exactly; on MySQL/MariaDB the key and owner are binary columns. EnsureSchema
-// adds an expires_at index named <table>_expires_idx to new and existing tables.
+// creates an expires_at index named <table>_expires_idx with the table.
 // PostgreSQL purges use FOR UPDATE SKIP LOCKED; MySQL selects keys without
-// locking and rechecks expiry when deleting them. Each statement is bounded by
+// locking and rechecks expiry when deleting them. Both take the oldest rows
+// first along that index, against a cutoff read once per statement
+// (statement_timestamp() on PostgreSQL), so a sweep that finds nothing to
+// delete reads no more than the index. Each statement is bounded by
 // WithOperationsTimeout. The background context carries no request values.
 //
 // # Usage

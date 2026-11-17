@@ -16,7 +16,7 @@ leader, err := leadelectfactory.New(cfg.LeaderElector).
     Build(ctx)
 ```
 
-| Symbol              | Description                                                                                                              |
-|---------------------|--------------------------------------------------------------------------------------------------------------------------|
-| `Builder(conn)`     | Provider function for the `nats` type; `storage`, `migrateBucketTTL` and `strictBucketStorage` shape the election bucket |
-| `ErrClientRequired` | Returned when the function has no connection                                                                             |
+| Symbol              | Description                                                                                       |
+|---------------------|---------------------------------------------------------------------------------------------------|
+| `Builder(conn)`     | Provider function for the `nats` type; `storage` and `migrateBucketTTL` shape the election bucket |
+| `ErrClientRequired` | Returned when the function has no connection                                                      |

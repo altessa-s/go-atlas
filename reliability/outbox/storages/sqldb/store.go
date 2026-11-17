@@ -32,8 +32,8 @@ const saveChunk = 500
 // FetchUnprocessedEvents and, on MySQL, of UnlockStuckEvents.
 const lockChunk = 1000
 
-// deleteChunk caps the rows one DELETE of DeleteProcessedEvents removes, so a
-// large retention sweep is a series of short transactions rather than one that
+// deleteChunk caps the rows one DELETE of DeleteProcessedEvents removes, or
+// one UPDATE of ExpireEvents marks, so a large retention or expiry sweep is a series of short transactions rather than one that
 // holds its locks, and its undo, for the whole backlog.
 const deleteChunk = lockChunk
 
@@ -54,7 +54,6 @@ type Store struct {
 	dialect  dialect
 	table    string // quoted
 	name     string // unqualified, for index names
-	schema   string // qualifier of the table name; empty when unqualified
 	stmts    statements
 	notify   bool     // signal channel on save
 	channel  string   // notification channel; empty on MySQL
@@ -110,7 +109,6 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 		dialect:  dl,
 		table:    table,
 		name:     sqldialect.Unqualified(o.tableName),
-		schema:   sqldialect.Qualifier(o.tableName),
 		notify:   o.notify,
 		listener: listener,
 		logger:   o.logger,
@@ -139,6 +137,8 @@ func (s *Store) buildStatements() statements {
 	unlockSet := " SET status = ?, locked_on = NULL, lock_token = NULL, next_attempt_at = NULL"
 	stuck := "status = ? AND locked_on < " + d.shifted("-")
 	processed := "status IN (?, ?, ?) AND published_at < " + d.shifted("-")
+	expiring := "status IN (?, ?) AND expires_at IS NOT NULL AND expires_at <= " + now
+	expireSet := " SET status = ?, published_at = " + now + ", locked_on = NULL, lock_token = NULL, next_attempt_at = NULL"
 	limit := " LIMIT " + strconv.Itoa(deleteChunk)
 
 	st := statements{
@@ -156,8 +156,8 @@ func (s *Store) buildStatements() statements {
 			" published_at = CASE WHEN ? THEN " + now + " ELSE NULL END," +
 			" next_attempt_at = CASE WHEN ? THEN " + d.shifted("+") + " ELSE NULL END," +
 			" lock_token = NULL WHERE id = ? AND lock_token = ?"),
-		expire: d.bind("UPDATE " + t + " SET status = ?, published_at = " + now + ", locked_on = NULL, lock_token = NULL, next_attempt_at = NULL" +
-			" WHERE status IN (?, ?) AND expires_at IS NOT NULL AND expires_at <= " + now),
+		expire: d.bind("UPDATE " + t + expireSet +
+			" WHERE id IN (SELECT id FROM " + t + " WHERE " + expiring + limit + " FOR UPDATE SKIP LOCKED)"),
 		stats: d.bind("SELECT" +
 			" COALESCE(SUM(CASE WHEN status IN (?, ?) THEN 1 ELSE 0 END), 0)," +
 			" COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0)," +
@@ -174,6 +174,7 @@ func (s *Store) buildStatements() statements {
 		st.stuck = "SELECT id FROM " + t + " WHERE " + stuck + " AND id > ? ORDER BY id LIMIT " + strconv.Itoa(lockChunk)
 		st.unlock = "UPDATE " + t + " FORCE INDEX (PRIMARY)" + unlockSet + " WHERE id IN (%s) AND " + stuck
 		st.deleteProcessed = "DELETE FROM " + t + " WHERE " + processed + limit
+		st.expire = "UPDATE " + t + expireSet + " WHERE " + expiring + limit
 	}
 
 	return st
@@ -571,14 +572,28 @@ func (s *Store) DeleteProcessedEvents(ctx context.Context, olderThan time.Durati
 
 // ExpireEvents marks pending and failed events whose ExpiresAt has passed
 // (database clock) as expired and stamps their completion time for retention.
+//
+// Like [Store.DeleteProcessedEvents] it works [deleteChunk] rows at a time,
+// each chunk its own short transaction, until a chunk comes back short, so an
+// expired backlog after an outage is not one long transaction that locks it
+// all. It returns the events expired, including chunks before an error.
 func (s *Store) ExpireEvents(ctx context.Context) (int64, error) {
-	res, err := s.db.ExecContext(ctx, s.stmts.expire,
-		string(outbox.StatusExpired), string(outbox.StatusPending), string(outbox.StatusFailed))
-	if err != nil {
-		return 0, coreerrs.WrapOperation(err, "expire outbox events")
+	var total int64
+	for {
+		res, err := s.db.ExecContext(ctx, s.stmts.expire,
+			string(outbox.StatusExpired), string(outbox.StatusPending), string(outbox.StatusFailed))
+		if err != nil {
+			return total, coreerrs.WrapOperation(err, "expire outbox events")
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return total, coreerrs.WrapOperation(err, "expire outbox events")
+		}
+		total += n
+		if n < deleteChunk {
+			return total, nil
+		}
 	}
-	n, err := res.RowsAffected()
-	return n, coreerrs.WrapOperation(err, "expire outbox events")
 }
 
 // Stats returns the backlog snapshot in one aggregate query; the age of the

@@ -78,8 +78,7 @@ keeps the `FAILED_PRECONDITION` answer.
 The interceptor passes the Keeper the tuple `("transport", "package.Service", key)` in the length-prefixed v2 format of
 [`reliability/idempotency.ComposeKey`](../../../../reliability/idempotency#storage-key-format) — every method of `users.UserService` with key `550e8400-…` shares
 `idk:v2:9:transport17:users.UserService36:550e8400-…` — and the Keeper composes `("namespace", namespace, key)` around it before storage. Keys are
-scoped by service, and the bytes of the key cannot reach another service's record. The format replaced `idk:{service}:{key}` with a clean cut: follow
-the [rollout contract](../../../../reliability/idempotency#rolling-out-the-v2-key-format) when upgrading.
+scoped by service, and the bytes of the key cannot reach another service's record.
 
 ## Request fingerprints and owners
 

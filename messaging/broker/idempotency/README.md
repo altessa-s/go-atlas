@@ -25,11 +25,7 @@ over at-least-once message delivery without altering subscriber handler contract
 
 `BuildStorageKey` composes its tuple with [`reliability/idempotency.ComposeKey`](../../../reliability/idempotency#storage-key-format): every component is
 length-prefixed, so distinct `(consumer, topic, key)` triples never share a record whatever bytes they hold. `topic` is the subject the message
-arrived on (`msg.Message.Topic`), not the subscription pattern. The v2 format replaced the colliding `ibk:{consumer}:{key}` layout with a
-clean cut: v1 records are never read, so follow the [rollout contract](../../../reliability/idempotency#rolling-out-the-v2-key-format) when upgrading.
-
-**Breaking change.** Records are scoped by subject since keys gained the `topic` component, and the former `("ibk", consumer, key)` records are
-never read: during the rollout a message already processed by an old replica can run once more. Keys over `WithMaxKeyLength` bytes (default
+arrived on (`msg.Message.Topic`), not the subscription pattern, so records are scoped by subject. Keys over `WithMaxKeyLength` bytes (default
 `DefaultMaxKeyLength`, 128) are terminated with `ErrKeyTooLong` instead of being stored.
 
 ## Trust model

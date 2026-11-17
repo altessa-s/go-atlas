@@ -4,8 +4,7 @@
 
 // Package factory maps the clickhouse block of the audit storage
 // configuration to a ClickHouse audit storage for factory/audit,
-// applying the configured schema migration and checking the table schema at
-// startup.
+// checking the table schema at startup.
 //
 // The audit factory builds only the memory, mongo and sqldb storages;
 // register this one for the clickhouse type:

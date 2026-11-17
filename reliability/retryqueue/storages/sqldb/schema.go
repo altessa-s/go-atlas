@@ -42,17 +42,8 @@ func (s *Store[P]) EnsureSchema(ctx context.Context) error {
 		return coreerrs.WrapOperationWithContext(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.tableName}, s.postgresSchema()),
 			"create retry queue schema", "table "+s.table)
 	}
-	if _, err := s.db.ExecContext(ctx, s.mysqlSchema()); err != nil {
-		return coreerrs.WrapOperationWithContext(err, "create retry queue schema", "table "+s.table)
-	}
-	indexesToEnsure := make([]sqldialect.MySQLIndex, 0, len(indexes))
-	for _, ix := range indexes {
-		indexesToEnsure = append(indexesToEnsure, sqldialect.MySQLIndex{
-			Name: s.dialect.IndexName(s.tableName, ix.suffix), Columns: ix.columns,
-		})
-	}
-	return coreerrs.WrapOperationWithContext(sqldialect.AddMissingMySQLIndexes(ctx, s.db, s.qualifier,
-		s.tableName, indexesToEnsure), "create retry queue indexes", "table "+s.table)
+	_, err := s.db.ExecContext(ctx, s.mysqlSchema())
+	return coreerrs.WrapOperationWithContext(err, "create retry queue schema", "table "+s.table)
 }
 
 // postgresSchema lists the PostgreSQL DDL. Instants are Unix nanoseconds, 0

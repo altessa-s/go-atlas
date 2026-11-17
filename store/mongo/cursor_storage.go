@@ -115,8 +115,6 @@ var (
 	// ErrCursorCollectionMismatch indicates a stateful or signed cursor issued for one
 	// collection was presented to a ListCursor call on another one. Endpoints that share
 	// a cursor storage or a signing key therefore do not accept each other's tokens.
-	// Records stored before the binding existed carry no collection and are rejected
-	// with this error too: restart pagination.
 	ErrCursorCollectionMismatch = errors.New("cursor was issued for a different collection")
 
 	// ErrInvalidCursorFormat indicates the cursor token format is invalid or unrecognized.

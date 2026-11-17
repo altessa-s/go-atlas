@@ -27,6 +27,7 @@ var contracts = []struct {
 }{
 	{"FetchOldestFirst", FetchOldestFirst},
 	{"FetchBatchSize", FetchBatchSize},
+	{"FetchInterleavesFailed", FetchInterleavesFailed},
 	{"PayloadsRoundTrip", PayloadsRoundTrip},
 	{"InstantsRoundTrip", InstantsRoundTrip},
 	{"ConcurrentFetch", ConcurrentFetch},
@@ -138,6 +139,22 @@ func FetchBatchSize(t *testing.T, store outbox.Storage) {
 	saved := saveAscending(t, store, 5)
 
 	require.Equal(t, ids(saved[:2]), ids(fetch(t, store, 2)))
+	require.Equal(t, ids(saved[2:]), ids(fetch(t, store, 10)))
+}
+
+// FetchInterleavesFailed checks that a failed event ready for retry is fetched
+// in creation order among pending events: before newer pending events, not
+// after them.
+func FetchInterleavesFailed(t *testing.T, store outbox.Storage) {
+	saved := saveAscending(t, store, 3)
+	oldest := fetch(t, store, 1)
+	require.Equal(t, ids(saved[:1]), ids(oldest))
+
+	msg := "destination unavailable"
+	oldest[0].Status, oldest[0].Attempts, oldest[0].LastError = outbox.StatusFailed, 1, &msg
+	require.NoError(t, store.UpdateEvents(t.Context(), oldest...))
+
+	require.Equal(t, ids(saved[:2]), ids(fetch(t, store, 2)), "the failed event comes first, then the oldest pending one")
 	require.Equal(t, ids(saved[2:]), ids(fetch(t, store, 10)))
 }
 

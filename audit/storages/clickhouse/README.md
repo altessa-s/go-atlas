@@ -24,7 +24,6 @@ The connection is injected and stays owned by the caller, so the package pulls i
 | `WithFinal`           | off                  | Add FINAL to reads so they observe the deduplicated view of a `ReplacingMergeTree` table.   |
 | `WithTimeRangeMode`   | `warn`               | Reaction to a query that bounds no time range: `enforce`, `warn`, or `disabled`.            |
 | `WithSchemaCheck`     | `warn`               | Reaction of `CheckSchema` to drift: `enforce`, `warn`, or `disabled` (see Migrations).      |
-| `WithSchemaMigration` | `off`                | What `MigrateSchema` may change: `off` or `additive` (see Migrations).                      |
 | `WithLogger`          | discard              | Logger for the time-range and schema-drift warnings.                                        |
 
 ## Key types
@@ -36,14 +35,12 @@ The connection is injected and stays owned by the caller, so the package pulls i
 | `SchemaDDL(table, engine, cluster, ttl)`                                     | CREATE TABLE statement, so a migration can own the schema. Fails on an unsafe name.                     |
 | `TimeRangeMode`                                                              | `TimeRangeModeEnforce` / `TimeRangeModeWarn` / `TimeRangeModeDisabled`.                                 |
 | `SchemaCheckMode`                                                            | `SchemaCheckModeEnforce` / `SchemaCheckModeWarn` / `SchemaCheckModeDisabled`.                           |
-| `SchemaMigrationMode`                                                        | `SchemaMigrationModeOff` / `SchemaMigrationModeAdditive`.                                               |
-| `Storage.CheckSchema`, `Storage.MigrateSchema`, `Storage.MaterializeIndexes` | Schema drift check, additive repair and index backfill (see Migrations).                                |
+| `Storage.CheckSchema`                                                        | Schema drift check (see Migrations).                                                                    |
 | `ErrNoConn`                                                                  | Returned by `New` when no connection is supplied.                                                       |
 | `ErrInvalidIdentifier`                                                       | Returned by `New` and `SchemaDDL` when the table or cluster name is not a plain identifier.             |
 | `ErrInvalidEngine`                                                           | Returned by `New` and `SchemaDDL` when the engine is not a MergeTree-family engine with literal params. |
 | `ErrTimeRangeRequired`                                                       | Returned by `Query` and `Count` under `TimeRangeModeEnforce`.                                           |
 | `ErrSchemaMismatch`                                                          | Returned by `CheckSchema` under `SchemaCheckModeEnforce` when the live table has drifted.               |
-| `ErrUnsafeMigration`                                                         | Returned by `MigrateSchema` for a `Replicated*` table without a cluster.                                |
 
 ## Schema
 
@@ -70,22 +67,14 @@ Without them those queries read every granule of every partition in range, since
 ## Migrations
 
 There are no versioned migrations, and that is deliberate. MongoDB in this repo gets versioned migrations (`store/mongo/migration.go`) and
-unconditional
-index creation on every `New`, because `createIndexes` is idempotent and cheap. ClickHouse is not analogous: `CREATE TABLE IF NOT EXISTS` does
-**nothing** to a table that already exists, so it silently fails to add a column or an index introduced after the table was created. Running it on
-every
-startup would give a false sense that the schema is current.
+unconditional index creation on every `New`, because `createIndexes` is idempotent and cheap. ClickHouse is not analogous: `CREATE TABLE IF NOT EXISTS`
+does **nothing** to a table that already exists, so running it on every startup would give a false sense that the schema is current.
 
-What the storage offers instead is three explicit steps: a drift check (`CheckSchema`), an opt-in additive repair of what is missing (
-`MigrateSchema`),
-and an operator-run backfill of new indexes over existing parts (`MaterializeIndexes`).
-
-The drift check compares `system.tables`, `system.columns` and `system.data_skipping_indices` against what this package expects and reports the
-difference: missing columns and skip indexes, columns of another type, skip indexes on another expression or of another type or granularity, and
-another
-sorting or partition key. Expressions are compared after removing whitespace and one pair of enclosing parentheses, since ClickHouse renders them its
-own way. TTL is not compared: it is configurable and an existing table may legitimately differ. Additive migration repairs only what is missing; a
-differently defined column, index or key stays reported until it is fixed by hand.
+What the storage offers instead is a drift check (`CheckSchema`). It compares `system.tables`, `system.columns` and `system.data_skipping_indices`
+against what this package expects and reports the difference: missing columns and skip indexes, columns of another type, skip indexes on another
+expression or of another type or granularity, and another sorting or partition key. Expressions are compared after removing whitespace and one pair of
+enclosing parentheses, since ClickHouse renders them its own way. TTL is not compared: it is configurable and an existing table may legitimately differ.
+The check never repairs anything: a drifted table must be recreated from `SchemaDDL` or fixed by hand.
 
 ```go
 if err := storage.CheckSchema(ctx); err != nil {
@@ -103,59 +92,9 @@ if err := storage.CheckSchema(ctx); err != nil {
 [`factory/audit`](../../../factory/audit) calls it when it builds the storage, which is where a startup round trip already happens; wire it
 yourself if you construct the storage directly.
 
-### Repairing the drift
-
-`Storage.MigrateSchema(ctx)` adds what is missing, and `factory/audit` calls it before the check — but only when the configuration opts in:
-
-| `WithSchemaMigration` | Behavior                                                       |
-|-----------------------|----------------------------------------------------------------|
-| `off` (default)       | No-op. Changing a table is an act to opt into.                 |
-| `additive`            | `ADD COLUMN IF NOT EXISTS` and `ADD INDEX IF NOT EXISTS` only. |
-
-What makes `additive` safe is that both statements are **metadata-only**: they change the table definition and do not touch a single existing part.
-Nothing is modified or dropped, so there is nothing to lose and no down direction. `IF NOT EXISTS` means replicas starting together do not fight over
-the same statement.
-
-On a `Replicated*` table the statements must reach every replica, so a cluster is required. Without one, `MigrateSchema` returns `ErrUnsafeMigration`
-rather than adding a column to one replica and not the others — schema skew is worse than the drift it would be fixing.
-
-### Backfilling an index over existing parts
-
-A newly added index covers only parts written after it was added. Older parts stay unindexed, which costs speed and not correctness — and for an audit
-table with a TTL they age out anyway. Backfilling them is `Storage.MaterializeIndexes(ctx)`, and it is deliberately separate from everything above:
-
-```go
-// Explicit, once, by an operator. Nothing calls this on your behalf.
-if err := storage.MaterializeIndexes(ctx); err != nil {
-    return err
-}
-```
-
-`MATERIALIZE INDEX` is a mutation: ClickHouse rebuilds the index over existing parts in the background, at a cost that scales with the column being
-indexed and competes for disk with the inserts the audit trail depends on. Neither `New`, nor the factory, nor `MigrateSchema` will ever issue it. The
-call returns as soon as the statements are accepted; watch `system.mutations` for progress.
-
-The deciding reason it is not automated is not the cost but the shape: there is no `IF NOT MATERIALIZED`. The additive statements are free to repeat
-on
-every startup of every replica; a materialization is not, and would queue one mutation per process.
-
-`CheckSchema` does warn when it looks needed — an index reporting zero `data_compressed_bytes` over a table that holds rows is what an index added
-after
-the fact looks like. That is a heuristic and never an error: ClickHouse exposes no per-part flag for it, and a partially materialized index already
-reports a non-zero size.
-
-**Adding indexes to a table that already exists.** `SchemaDDL` only describes a new table — `CREATE TABLE IF NOT EXISTS` will not alter one that is
-already there, so a table created before these indexes existed keeps none of them. Adding an index is two statements: the first registers it for data
-written from now on, the second backfills the parts already on disk.
-
-```sql
-ALTER TABLE audit_events ADD INDEX idx_resource_id resource_id TYPE bloom_filter(0.01) GRANULARITY 4;
-ALTER TABLE audit_events MATERIALIZE INDEX idx_resource_id;
-```
-
-`MATERIALIZE INDEX` is a mutation: it rewrites every affected part in the background and can take a long time on a large table. Watch
-`system.mutations`
-and expect the disk and CPU cost while it runs. On a cluster, add `ON CLUSTER <name>` to both statements.
+`CheckSchema` also warns when a skip index reports zero `data_compressed_bytes` over a table that holds rows, which is what an index added by hand
+after the data was written looks like until `ALTER TABLE ... MATERIALIZE INDEX` backfills it. That is a heuristic and never an error: ClickHouse
+exposes no per-part flag for it, and a partially materialized index already reports a non-zero size.
 
 Changing `ORDER BY` invalidates existing parts and requires a table rebuild, so pick it against your real query mix before the first deployment. The
 default puts the time bound first because every audit read is expected to carry one.

@@ -11,7 +11,7 @@ Assembles a [`retryqueue.Storage`](../../../reliability/retryqueue/storage.go) f
 ## Builder
 
 | Method        | Description                                                                     |
-|-----------------|-----------------------------------------------------------------------------------|
+|---------------|---------------------------------------------------------------------------------|
 | `New[P](cfg)` | Create a builder for a config (validated at `Build`).                           |
 | `Build(ctx)`  | Validate config and construct the store; `ctx` bounds schema or index creation. |
 
@@ -21,7 +21,7 @@ The backend is chosen by `retryqueueconfig.Config.Storage.Type`. The builder bui
 `UseStorage` from [`storages/mongo`](storages/mongo), and without one `Build` fails with `ErrNotRegistered` naming the package to add.
 
 | Method             | Required for `storage.type` | Description                                                                         |
-|----------------------|-------------------------------|---------------------------------------------------------------------------------------|
+|--------------------|-----------------------------|-------------------------------------------------------------------------------------|
 | `UseStorage`       | `mongo`                     | Registers the `StorageFunc[P]` of a type the builder does not build.                |
 | `UseSQLDB`         | `sqldb`                     | `*sql.DB`; caller registers the driver.                                             |
 | `UseCodec`         | —                           | Payload codec of the sqldb store (default JSON).                                    |
@@ -32,7 +32,7 @@ The backend is chosen by `retryqueueconfig.Config.Storage.Type`. The builder bui
 With `storage.sqldb.resolvedRetention` set, the sqldb store purges resolved items in one of two ways: `storage.sqldb.purgeInterval` runs `PurgeExpired`
 in the background from the first write call, and the builder registers the store's `Close` as a shutdown hook to stop it; with `purgeInterval: "0s"` the
 application asserts `PurgeExpired(ctx) (int64, error)` on the store and calls it itself, e.g. from a scheduler. The MongoDB store purges through a TTL
-index instead.
+index instead. `storage.sqldb.purgeBatchSize` (default 1000) bounds one purge statement. Run shutdown hooks before closing the injected database.
 
 ## Usage
 
@@ -52,7 +52,3 @@ queue, err := retryqueuefactory.New[Valuation](&cfg).
 
 - [retryqueueconfig.Config](../../../config/retryqueue/retryqueue.go) — the configuration this factory consumes.
 - [storages](../../../reliability/retryqueue/storages) — the backends it selects between.
-
-SQL configuration maps purgeInterval and purgeBatchSize to the store options (defaults "1m" and 1000). A zero interval disables background purging. The
-builder registers Close with UseShutdownHooks(group) or the process-wide runtime shutdown registry; run shutdown hooks before closing the injected
-database.

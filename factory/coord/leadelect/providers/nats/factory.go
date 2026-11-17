@@ -41,7 +41,6 @@ func Builder(conn *nats.Conn) leadelectfactory.ProviderFunc {
 			natsprovider.WithStorage(bucketStorage(cfg.Storage)),
 		}
 		opts = coreslices.AppendIf(opts, cfg.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
-		opts = coreslices.AppendIf(opts, cfg.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
 
 		provider, err := natsprovider.New(ctx, conn, opts...)
 		if err != nil {

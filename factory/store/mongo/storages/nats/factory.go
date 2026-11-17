@@ -43,8 +43,8 @@ var (
 var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 
 // ErrBucketStorageMismatch is returned by the storage function when the
-// bucket already exists with another storage type and strictBucketStorage is
-// set. The bucket is left untouched.
+// bucket already exists with another storage type. The bucket is left
+// untouched.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
 // Builder returns the storage function of the nats type, ready for
@@ -57,8 +57,8 @@ var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 // value). The bucket is created with that TTL or, when it exists, checked
 // against it like every other NATS KV backend: a different key TTL — no TTL
 // included — fails with [ErrBucketTTLMismatch] unless migrateBucketTTL is set,
-// which updates the bucket in place, and a different storage type is used as
-// is with a warning unless strictBucketStorage is set.
+// which updates the bucket in place, and a different storage type fails with
+// [ErrBucketStorageMismatch].
 func Builder(js jetstream.JetStream) mongofactory.StorageFunc {
 	return func(ctx context.Context, cfg *storageconfig.BackendConfig, ttl time.Duration, logger *slog.Logger) (mongo.Storage, error) {
 		if js == nil {
@@ -73,12 +73,11 @@ func Builder(js jetstream.JetStream) mongofactory.StorageFunc {
 		}
 
 		kv, err := natskvlease.NewKVHelper(js, logger).GetOrCreateBucket(ctx, natskvlease.BucketSpec{
-			Bucket:        cmp.Or(cfg.NATS.Bucket, DefaultBucket),
-			TTL:           ttl,
-			Storage:       jetstream.FileStorage,
-			Replicas:      cmp.Or(cfg.NATS.Replicas, 1),
-			MigrateTTL:    cfg.NATS.MigrateBucketTTL,
-			StrictStorage: cfg.NATS.StrictBucketStorage,
+			Bucket:     cmp.Or(cfg.NATS.Bucket, DefaultBucket),
+			TTL:        ttl,
+			Storage:    jetstream.FileStorage,
+			Replicas:   cmp.Or(cfg.NATS.Replicas, 1),
+			MigrateTTL: cfg.NATS.MigrateBucketTTL,
 		})
 		if err != nil {
 			return nil, coreerrs.Wrap(err, "failed to create NATS KeyValue bucket")

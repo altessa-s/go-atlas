@@ -46,9 +46,9 @@ func TestStorage_ValidKeyIsStoredUnderItself(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
 
-	require.NoError(t, s.Store(ctx, natskeytest.LegacyKey, mongohelpers.SampleCursorMetadata()))
+	require.NoError(t, s.Store(ctx, natskeytest.PlainKey, mongohelpers.SampleCursorMetadata()))
 
-	_, err := s.KV().Get(ctx, natskeytest.LegacyKey)
+	_, err := s.KV().Get(ctx, natskeytest.PlainKey)
 	require.NoError(t, err)
 }
 

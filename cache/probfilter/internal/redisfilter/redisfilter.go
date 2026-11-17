@@ -379,17 +379,11 @@ if redis.call('EXISTS', KEYS[2]) == 0 then return '' end
 return redis.call('GET', KEYS[1]) or ''
 `)
 
-// legacyReadyValue is the ready marker value written by releases that did not
-// record the commit time.
-const legacyReadyValue = "1"
-
 // LastRebuildCommit returns the server time at which the rebuild that
 // published the live filter committed — by this or any other process — or
 // the zero time when [Core.RebuildCommitted] would report false. The commit
 // script stores the time, taken from the clock of the shard owning the
-// filter, as the value of the ready marker, atomically with the promotion. A
-// marker written by a release that did not record the time reports the zero
-// time until the next commit.
+// filter, as the value of the ready marker, atomically with the promotion.
 func (c *Core) LastRebuildCommit(ctx context.Context) (time.Time, error) {
 	committed, _, err := c.readyMarker(ctx)
 	return committed, err
@@ -399,7 +393,7 @@ func (c *Core) LastRebuildCommit(ctx context.Context) (time.Time, error) {
 // live filter loaded from its data source — the size of the committed list,
 // without the values added to the filter since or replayed onto it. known is
 // false when [Core.RebuildCommitted] would report false, and for a marker
-// written by a release, or a rebuild, that did not record the count.
+// written by a rebuild that did not record the count.
 func (c *Core) LastRebuildLoaded(ctx context.Context) (loaded int64, known bool, err error) {
 	_, loaded, err = c.readyMarker(ctx)
 	if err != nil || loaded < 0 {
@@ -410,8 +404,8 @@ func (c *Core) LastRebuildLoaded(ctx context.Context) (loaded int64, known bool,
 
 // readyMarker reads the ready marker of the live filter: the commit time
 // (zero when unknown) and the loaded count (negative when unknown). The
-// marker holds "1" (no time, no count), "<unix ms>" (no count) or
-// "<unix ms>:<count>", depending on the release that committed.
+// marker holds "<unix ms>" (no count) or "<unix ms>:<count>", depending on
+// whether the rebuild recorded the count.
 func (c *Core) readyMarker(ctx context.Context) (committed time.Time, loaded int64, err error) {
 	if c.keyErr != nil {
 		return time.Time{}, -1, c.keyErr
@@ -430,7 +424,7 @@ func (c *Core) readyMarker(ctx context.Context) (committed time.Time, loaded int
 
 // parseReadyMarker parses a ready marker value (see [Core.readyMarker]).
 func parseReadyMarker(value string) (committed time.Time, loaded int64, err error) {
-	if value == "" || value == legacyReadyValue {
+	if value == "" {
 		return time.Time{}, -1, nil
 	}
 	stamp, count, counted := strings.Cut(value, ":")

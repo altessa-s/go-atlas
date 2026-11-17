@@ -67,12 +67,11 @@ func TestBind(t *testing.T) {
 
 func TestQualifiedParts(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ name, table, schema string }{
-		{"events", "events", ""},
-		{"app.events", "events", "app"},
+	for _, tc := range []struct{ name, table string }{
+		{"events", "events"},
+		{"app.events", "events"},
 	} {
 		require.Equal(t, tc.table, sqldialect.Unqualified(tc.name))
-		require.Equal(t, tc.schema, sqldialect.Qualifier(tc.name))
 	}
 }
 

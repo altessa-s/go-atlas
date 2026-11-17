@@ -89,35 +89,6 @@ func TestBuilder_MigrateBucketTTL(t *testing.T) {
 		})
 	}
 }
-
-// TestBuilder_StrictBucketStorage pins that storage.nats.strictBucketStorage
-// reaches the NATS storage: a bucket with another storage type is rejected
-// instead of being adopted.
-func TestBuilder_StrictBucketStorage(t *testing.T) {
-	t.Parallel()
-
-	for name, build := range limiters {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			ns := natstest.StartNATSServer(t)
-			_, js := natstest.ConnectJetStream(t, ns)
-
-			bucket := "factory-" + name + "-strict"
-			natstest.CreateNATSKV(t, js, bucket, limitnats.DefaultMaxAge) // memory storage
-
-			storage := func(strict bool) *storageconfig.BackendConfig {
-				return &storageconfig.BackendConfig{
-					Type: storageconfig.BackendTypeNATS,
-					NATS: &storageconfig.NATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
-				}
-			}
-
-			require.ErrorIs(t, build(t.Context(), js, storage(true)), limitnats.ErrBucketStorageMismatch)
-			require.NoError(t, build(t.Context(), js, storage(false)), "without the flag the bucket is adopted")
-		})
-	}
-}
-
 func TestBuilder_BudgetEnforcesLimit(t *testing.T) {
 	t.Parallel()
 	ns := natstest.StartNATSServer(t)

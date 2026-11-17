@@ -69,8 +69,7 @@ type CursorMetadata struct {
 	// Collection binds the cursor to the collection it was issued for: a digest
 	// of the database and collection names. ValidateCollection rejects
 	// a continuation request on another collection, so endpoints sharing one
-	// storage do not accept each other's tokens. Empty only in records stored
-	// before the binding existed; those match no collection and are rejected.
+	// storage do not accept each other's tokens.
 	Collection string `json:"collection,omitempty"`
 }
 

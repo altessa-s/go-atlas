@@ -34,6 +34,10 @@ const (
 // those names.
 const maxTableName = 63 - len("_published_idx")
 
+// uniqueNameOverhead is what [uniqueName] adds around the test-name part: two
+// underscores and the 8-character random suffix.
+const uniqueNameOverhead = 2 + 8
+
 // sqlDDLTimeout bounds the ping and the cleanup DROP of a SQL target.
 const sqlDDLTimeout = 3 * time.Second
 
@@ -94,8 +98,8 @@ func (t SQLTarget) Open(tb testing.TB) *sql.DB {
 // server's identifier limit fails the test.
 func SQLTable(tb testing.TB, db *sql.DB, prefix string) string {
 	tb.Helper()
-	// The prefix, two underscores and the 8-character random suffix stay whole.
-	table := uniqueName(tb, prefix, maxTableName-len(prefix)-10)
+	// The prefix, two underscores and the random suffix stay whole.
+	table := uniqueName(tb, prefix, maxTableName-len(prefix)-uniqueNameOverhead)
 	require.LessOrEqual(tb, len(table), maxTableName, "shorten the table prefix %q", prefix)
 	tb.Cleanup(func() {
 		// The test context is canceled before cleanup callbacks run.

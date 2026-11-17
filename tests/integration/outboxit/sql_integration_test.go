@@ -254,8 +254,8 @@ func (b *sqlBackend) catalogIndexes(tb testing.TB) map[string]string {
 
 // EnsureSchema leaves the server with an index for every predicate the store
 // runs — the claim in its ORDER BY order, the unlock, expiry and retention
-// sweeps — and gives a table created before an index existed that index too.
-func TestStore_SQLIndexesExistAndAreAddedToExistingTables(t *testing.T) {
+// sweeps — and is idempotent when several instances run it at once.
+func TestStore_SQLIndexesExist(t *testing.T) {
 	t.Parallel()
 
 	forEachSQL(t, func(t *testing.T, f *fixture) {
@@ -274,16 +274,6 @@ func TestStore_SQLIndexesExistAndAreAddedToExistingTables(t *testing.T) {
 		}
 		requireIndexes()
 
-		// A table from before the expiry index existed.
-		expires := f.sql.events + "_expires_idx"
-		if f.sql.dialect == outboxsql.DialectPostgres {
-			f.sql.exec(t, "DROP INDEX "+expires)
-		} else {
-			f.sql.exec(t, "ALTER TABLE "+f.sql.events+" DROP INDEX "+expires)
-		}
-		require.NotContains(t, f.sql.catalogIndexes(t), expires)
-
-		// Several instances upgrade it at once.
 		store, ok := f.store.(*outboxsql.Store)
 		require.True(t, ok)
 		var wg sync.WaitGroup

@@ -30,10 +30,9 @@ Both need `FOR UPDATE SKIP LOCKED`, which sets the version floors. On MySQL any 
 On MySQL `WithNotify`, `WithNotifyChannel` and `WithListener` fail `New` with `ErrNotifyUnsupported`; an invalid channel fails with
 `ErrInvalidNotifyChannel`.
 
-`New` performs no I/O. `EnsureSchema(ctx)` creates the table and its indexes if they do not exist, and adds to an existing table the indexes a newer
-version introduced; it is idempotent, bounded by `ctx`, and safe to run from several instances at once (on PostgreSQL the DDL runs in one transaction
-under an advisory lock on the table name; on MySQL the missing indexes are read from `information_schema` and added with `ALTER TABLE`). Call it once at
-startup, or apply the same DDL through your migration tool — see [Upgrading](#upgrading) for a table you manage yourself:
+`New` performs no I/O. `EnsureSchema(ctx)` creates the table and its indexes if they do not exist; it is idempotent, bounded by `ctx`, and safe to run
+from several instances at once (on PostgreSQL the DDL runs in one transaction under an advisory lock on the table name; on MySQL the indexes are
+declared inline). Call it once at startup, or apply the same DDL through your migration tool:
 
 ```go
 store, err := outboxsql.New(db, outboxsql.DialectPostgres)
@@ -98,8 +97,8 @@ reports a deadlock or a serialization failure anyway (SQLSTATE `40P01` or `40001
 short jittered backoff. The package imports no driver, so the code is read from the error's `SQLState()` method (pgx, lib/pq) or `Number` field
 (go-sql-driver/mysql).
 
-`DeleteProcessedEvents` deletes 1000 rows at a time, each chunk in its own short transaction, until a chunk comes back short; a sweep whose context ends
-keeps what it already deleted.
+`DeleteProcessedEvents` deletes and `ExpireEvents` marks 1000 rows at a time, each chunk in its own short transaction, until a chunk comes back short;
+a sweep whose context ends keeps what it already did.
 
 ## Schema
 
@@ -125,20 +124,6 @@ character set.
 | `expires`                      | `status, expires_at`      | The expiry sweep                                                          |
 
 `next_attempt_at` has no index of its own: it is only ever a filter on the claim, whose `created_at` order the `fetch` index already supplies.
-
-### Upgrading
-
-The `expires` index was added after the first release. `EnsureSchema` creates it on an existing table; if you manage the schema yourself, run the
-statement for your server once. On PostgreSQL, `EnsureSchema` builds a missing index inside its transaction, which blocks writes to a large table while
-it builds — creating it beforehand with `CONCURRENTLY` avoids that, and `EnsureSchema` then finds it in place.
-
-```sql
--- PostgreSQL
-CREATE INDEX CONCURRENTLY IF NOT EXISTS events_outbox_expires_idx ON events_outbox (status, expires_at);
-
--- MySQL / MariaDB
-ALTER TABLE events_outbox ADD INDEX events_outbox_expires_idx (status, expires_at);
-```
 
 ## Watch
 

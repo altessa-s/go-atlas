@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 
+	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -31,7 +32,8 @@ var (
 // Builder returns the storage function of the mongo type, ready for
 // retryqueuefactory.Builder.UseStorage. The store keeps items in the
 // configured collection of db, with the configured flag fields and resolved
-// retention; with ensureIndexes set, ctx bounds the index creation.
+// retention; with ensureIndexes set, ctx bounds the index creation, for at
+// most [retryqueuefactory.EnsureSchemaTimeout].
 func Builder[P any](db *mongo.Database) retryqueuefactory.StorageFunc[P] {
 	return func(ctx context.Context, cfg *retryqueueconfig.StorageConfig) (retryqueue.Storage[P], error) {
 		if db == nil {
@@ -50,7 +52,9 @@ func Builder[P any](db *mongo.Database) retryqueuefactory.StorageFunc[P] {
 			return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "create retry queue mongo store: %w", err)
 		}
 		if m.EnsureIndexes {
-			if err := store.EnsureIndexes(ctx); err != nil {
+			indexCtx, cancel := corecontext.WithMaxTimeout(ctx, retryqueuefactory.EnsureSchemaTimeout)
+			defer cancel()
+			if err := store.EnsureIndexes(indexCtx); err != nil {
 				return nil, corefactory.Errorf(coreerrs.ErrUnavailable, "ensure retry queue indexes: %w", err)
 			}
 		}

@@ -49,6 +49,10 @@ func TestNewValidation(t *testing.T) {
 	}
 	_, err = sqldb.New(db, sqldb.DialectMySQL, sqldb.WithTableName("app.keys"))
 	require.NoError(t, err)
+	_, err = sqldb.New(db, sqldb.DialectMySQL, sqldb.WithPurgeBatchSize(65_535))
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument, "a MySQL key list holds at most 65534 keys")
+	_, err = sqldb.New(db, sqldb.DialectPostgres, sqldb.WithPurgeBatchSize(65_535))
+	require.NoError(t, err, "PostgreSQL binds no key list")
 	require.Empty(t, fake.Calls(), "construction must perform no I/O")
 }
 
@@ -260,9 +264,7 @@ func TestEnsureSchema(t *testing.T) {
 				require.Equal(t, `CREATE INDEX IF NOT EXISTS "idempotency_keys_expires_key_idx" ON "idempotency_keys" (expires_at, key)`, c[2].Query)
 				require.Equal(t, 1, fake.Commits())
 			} else {
-				require.Len(t, c, 3)
-				require.Equal(t, []any{nil, "idempotency_keys"}, c[1].Args)
-				require.Equal(t, "ALTER TABLE `idempotency_keys` ADD INDEX `idempotency_keys_expires_key_idx` (expires_at, `key`)", c[2].Query)
+				require.Len(t, c, 1)
 				require.Contains(t, c[0].Query, "VARBINARY(1020)")
 				require.Contains(t, c[0].Query, "LONGBLOB")
 				require.Contains(t, c[0].Query, "INDEX `idempotency_keys_expires_key_idx` (expires_at, `key`)")

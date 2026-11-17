@@ -60,39 +60,6 @@ func TestBuilder_MigrateBucketTTL(t *testing.T) {
 	require.NotNil(t, dl)
 	require.Equal(t, locknats.DefaultBucketKeysTTL, natstest.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
 }
-
-// TestBuilder_StrictBucketStorage pins that nats.strictBucketStorage reaches
-// the NATS provider: a bucket with another storage type is rejected instead of
-// being adopted.
-func TestBuilder_StrictBucketStorage(t *testing.T) {
-	t.Parallel()
-
-	ns := natstest.StartNATSServer(t)
-	nc, js := natstest.ConnectJetStream(t, ns)
-
-	const bucket = "factory-dlock-strict"
-	_, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{
-		Bucket:  bucket,
-		TTL:     locknats.DefaultBucketKeysTTL,
-		Storage: jetstream.FileStorage,
-	})
-	require.NoError(t, err)
-
-	cfg := func(strict bool) *lockconfig.DistributionLock {
-		return &lockconfig.DistributionLock{
-			Provider: lockconfig.DistributionLockProviderNATS,
-			NATS:     &lockconfig.DistributionLockNATS{Bucket: bucket, StrictBucketStorage: strict},
-		}
-	}
-
-	_, err = newBuilder(cfg(true), nc).Build(t.Context())
-	require.ErrorIs(t, err, locknats.ErrBucketStorageMismatch)
-
-	dl, err := newBuilder(cfg(false), nc).Build(t.Context())
-	require.NoError(t, err, "without the flag the bucket is adopted")
-	require.NotNil(t, dl)
-}
-
 // TestBuilder_Storage pins that nats.storage selects the storage type of the
 // bucket the provider creates, memory by default.
 func TestBuilder_Storage(t *testing.T) {

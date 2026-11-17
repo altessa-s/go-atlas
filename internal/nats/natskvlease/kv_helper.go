@@ -30,15 +30,14 @@ const (
 var ErrBucketTTLMismatch = errors.New("KeyValue bucket key TTL differs from the configured TTL")
 
 // ErrBucketStorageMismatch reports that a KeyValue bucket already exists with a
-// storage type other than the one requested while [BucketSpec.StrictStorage]
-// is set. The bucket is left untouched: the server cannot convert a bucket's
-// storage type.
+// storage type other than the one requested. The bucket is left untouched: the
+// server cannot convert a bucket's storage type. Align the configuration,
+// recreate the bucket, or use another bucket.
 var ErrBucketStorageMismatch = errors.New("KeyValue bucket storage type differs from the configured storage")
 
 // BucketSpec describes a KeyValue bucket: the desired state that
 // [KVHelper.GetOrCreateBucket] creates or reconciles an existing bucket
-// against, and that [KVHelper.MigrateBucketStorage] migrates a bucket to. It is
-// a plain value record, passed and compared as a whole.
+// against. It is a plain value record, passed and compared as a whole.
 type BucketSpec struct {
 	// Bucket is the name of the KeyValue bucket.
 	Bucket string
@@ -54,14 +53,9 @@ type BucketSpec struct {
 	// Storage is the storage type of a bucket created by GetOrCreateBucket.
 	// The zero value is [jetstream.FileStorage], the JetStream default, so
 	// callers wanting memory storage must ask for [jetstream.MemoryStorage]
-	// explicitly. An existing bucket keeps its storage type: the server
-	// cannot convert it, so a mismatch is logged and the bucket adopted unless
-	// StrictStorage is set.
+	// explicitly. The server cannot convert an existing bucket's storage type,
+	// so a bucket with another one is rejected with [ErrBucketStorageMismatch].
 	Storage jetstream.StorageType
-
-	// StrictStorage rejects a pre-existing bucket whose storage type differs
-	// from Storage with [ErrBucketStorageMismatch] instead of adopting it.
-	StrictStorage bool
 
 	// Compression enables compression for the bucket.
 	Compression bool
@@ -87,14 +81,6 @@ type BucketSpec struct {
 type KVHelper struct {
 	js     jetstream.JetStream
 	logger *slog.Logger
-
-	// failpoint, now and leaseTTL are test seams for the storage migration:
-	// failpoint can fail a named step, now replaces the clock, leaseTTL sets
-	// the TTL of a lease store the migration creates. All are zero in
-	// production.
-	failpoint func(step string) error
-	now       func() time.Time
-	leaseTTL  time.Duration
 }
 
 // NewKVHelper creates a new KVHelper instance.
@@ -112,19 +98,6 @@ func NewKVHelper(js jetstream.JetStream, logger *slog.Logger) *KVHelper {
 // It uses retry logic to handle transient network errors.
 func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketSpec) (jetstream.KeyValue, error) {
 	cfg = cfg.normalized()
-
-	// A bucket in the middle of a storage migration must not be used: it may
-	// be sealed, missing, or not yet restored.
-	if _, err := Retry(ctx, func() (jetstream.Stream, error) {
-		return h.js.Stream(ctx, markerStreamName(cfg.Bucket))
-	}); err == nil {
-		return nil, fmt.Errorf("%w: bucket %q; finish it with MigrateBucketStorage and Resume",
-			ErrBucketMigrationInProgress, cfg.Bucket)
-	} else if !errors.Is(err, jetstream.ErrStreamNotFound) {
-		h.logger.ErrorContext(ctx, "failed to check for a KeyValue bucket migration",
-			slog.String("bucket", cfg.Bucket), slog.Any("error", err))
-		return nil, err
-	}
 
 	// Try to get existing bucket
 	kv, err := Retry(ctx, func() (jetstream.KeyValue, error) {
@@ -200,14 +173,9 @@ func (h *KVHelper) keyValueConfig(cfg BucketSpec) jetstream.KeyValueConfig {
 
 // reconcile checks a pre-existing bucket against cfg.
 //
-// A different storage type is adopted with a warning rather than rejected,
-// unless cfg.StrictStorage asks for [ErrBucketStorageMismatch].
-// The server cannot convert a bucket's storage, it does not change what other
-// processes sharing the bucket rely on (only durability across server
-// restarts), and earlier releases created memory buckets whatever storage was
-// requested, so rejecting it would break every such deployment on upgrade.
-// The existing storage is also kept when the TTL is migrated below, since an
-// update asking for another storage type is refused by the server.
+// A different storage type is rejected with [ErrBucketStorageMismatch]: the
+// server cannot convert a bucket's storage, and adopting the bucket would
+// silently give the caller durability other than the one it configured.
 //
 // The key TTL is not a preference but the expiry mechanism of every key in the
 // bucket — for a lease, what releases the key when its holder dies. A bucket
@@ -228,16 +196,8 @@ func (h *KVHelper) reconcile(ctx context.Context, kv jetstream.KeyValue, cfg Buc
 	}
 
 	if existing := status.Config().Storage; existing != cfg.Storage {
-		if cfg.StrictStorage {
-			return nil, fmt.Errorf("%w: bucket %q has storage %s, configured %s",
-				ErrBucketStorageMismatch, cfg.Bucket, existing, cfg.Storage)
-		}
-		h.logger.WarnContext(ctx, "KeyValue bucket storage differs from the configured storage, using the existing bucket as is; "+
-			"recreate the bucket to change it (see the backend's README)",
-			slog.String("bucket", cfg.Bucket),
-			slog.String("existing_storage", existing.String()),
-			slog.String("configured_storage", cfg.Storage.String()))
-		cfg.Storage = existing
+		return nil, fmt.Errorf("%w: bucket %q has storage %s, configured %s",
+			ErrBucketStorageMismatch, cfg.Bucket, existing, cfg.Storage)
 	}
 
 	if status.TTL() == cfg.TTL {

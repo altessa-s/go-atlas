@@ -25,13 +25,6 @@
 //	.leading.            → =2Eleading=2E
 //	a..b                 → a.=2Eb
 //
-// # Compatibility
-//
-// A key that was already valid and contains no '=' maps to itself, so data
-// stored before the encoding was introduced stays reachable. A key containing
-// '=' maps to a different physical key than the raw one it was stored under
-// before; such data has to be migrated or the store pointed at a fresh bucket.
-//
 // # Length
 //
 // The physical key travels in the protocol control line together with the

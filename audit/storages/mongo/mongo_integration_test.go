@@ -147,8 +147,8 @@ func TestIntegration_New_CreatesIndexes(t *testing.T) {
 	_, db := newIT(t)
 	indexes := listIndexes(t, db.Collection(auditmongo.DefaultCollectionName))
 
-	// _id_ plus the five indexes created by New.
-	require.Len(t, indexes, 6)
+	// _id_ plus the six indexes created by New.
+	require.Len(t, indexes, 7)
 
 	keyset, ok := indexes["timestamp_-1__id_-1"]
 	require.True(t, ok, "the keyset paging index must exist")
@@ -184,6 +184,27 @@ func TestIntegration_New_CreatesIndexes(t *testing.T) {
 	require.Equal(t, bson.D{{Key: "context.request_id", Value: int32(1)}}, request.Key)
 	require.True(t, request.Sparse, "request_id index must be sparse")
 	require.Nil(t, request.ExpireAfterSeconds)
+
+	trace, ok := indexes["context.trace_id_1"]
+	require.True(t, ok, "trace_id index missing: %v", indexes)
+	require.Equal(t, bson.D{{Key: "context.trace_id", Value: int32(1)}}, trace.Key)
+	require.True(t, trace.Sparse, "trace_id index must be sparse")
+	require.Nil(t, trace.ExpireAfterSeconds)
+}
+
+// TestIntegration_New_AddsMissingIndex simulates a collection created before
+// the trace index existed: New adds it to the existing collection.
+func TestIntegration_New_AddsMissingIndex(t *testing.T) {
+	t.Parallel()
+
+	_, db := newIT(t)
+	coll := db.Collection(auditmongo.DefaultCollectionName)
+	require.NoError(t, coll.Indexes().DropOne(t.Context(), "context.trace_id_1"))
+	require.NotContains(t, listIndexes(t, coll), "context.trace_id_1")
+
+	_, err := auditmongo.New(t.Context(), db)
+	require.NoError(t, err)
+	require.Contains(t, listIndexes(t, coll), "context.trace_id_1")
 }
 
 func TestIntegration_New_TTLIndex(t *testing.T) {
@@ -192,7 +213,7 @@ func TestIntegration_New_TTLIndex(t *testing.T) {
 	_, db := newIT(t, auditmongo.WithTTL(24*time.Hour))
 	indexes := listIndexes(t, db.Collection(auditmongo.DefaultCollectionName))
 
-	require.Len(t, indexes, 7)
+	require.Len(t, indexes, 8)
 
 	ttl, ok := indexes["timestamp_1"]
 	require.True(t, ok, "TTL index missing: %v", indexes)

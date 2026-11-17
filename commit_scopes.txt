@@ -44,6 +44,7 @@ factory/store/mongo/kms     # KMS factory
 factory/reliability/outbox  # Outbox factory
 factory/cache/probfilter    # Probfilter factory
 factory/reliability/saga    # Saga factory
+factory/reliability/retryqueue # Retry queue factory
 factory/ext                 # Factories of external modules
 factory/ext/net/httpclient  # Outbound HTTP client factory (go-atlas-net)
 factory/ext/horai           # Scheduler factory (go-horai)

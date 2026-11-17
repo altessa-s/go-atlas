@@ -31,7 +31,7 @@ fail with `ErrValueTooLong` before SQL execution; they are never truncated or ha
 |------------------------|----------------------|----------------------------------------------------------------------------------------------|
 | `WithTableName`        | `idempotency_keys`   | Plain identifier, optionally qualified by one schema name; each part at most 63 characters   |
 | `WithPurgeInterval`    | 1 minute             | Sweep interval; starts on the first write, zero disables                                     |
-| `WithPurgeBatchSize`   | 1000                 | Maximum rows per purge statement                                                             |
+| `WithPurgeBatchSize`   | 1000                 | Maximum rows per purge statement; at most 65534 on MySQL                                     |
 | `WithLogger`           | Discard              | Receives cleanup errors and recovered panics                                                 |
 | `WithTTL`              | 24h                  | Result lifetime and default lock lifetime; non-positive option values keep the default       |
 
@@ -54,9 +54,8 @@ keeper := idempotency.New(store, idempotency.WithMaxLockDuration(time.Minute))
 ```
 
 PostgreSQL schema creation uses the shared advisory-lock DDL helper. Both dialects use `<table>_expires_key_idx` on `(expires_at, key)` for cleanup.
-MySQL declares it inline in `CREATE TABLE IF NOT EXISTS` and reconciles missing indexes by name on existing tables. PostgreSQL uses `CREATE INDEX IF NOT
-EXISTS`. Older `<table>_expires_idx` indexes may remain and can be dropped after the composite index is present. `EnsureSchema` runs directly on the
-database and does not join `WithTx`.
+MySQL declares it inline in `CREATE TABLE IF NOT EXISTS`; PostgreSQL uses `CREATE INDEX IF NOT EXISTS`. `EnsureSchema` runs directly on the database
+and does not join `WithTx`.
 
 ## Acquisition and ownership
 
@@ -103,7 +102,9 @@ observe current bytes. Outside `WithTx`, database errors retain their original b
 Background cleanup defaults to one minute (`sqldb.purgeInterval`, zero disables). It starts on the first key write and uses the database directly,
 independent of request cancellation and WithTx. Errors and recovered panics are logged; future passes continue. Call Close before closing the database.
 Explicit PurgeExpired(ctx) calls join WithTx and drain all expired keys using WithPurgeBatchSize. Acquisition and CAS enforce expiry independently of
-cleanup. PostgreSQL uses FOR UPDATE SKIP LOCKED; MySQL uses a bounded DELETE. Neither deletes a live key.
+cleanup. Each purge statement is bounded by a 30-second timeout. PostgreSQL selects its delete batch with `FOR UPDATE SKIP LOCKED`. MySQL selects an
+ordered batch of keys without locking, then deletes those keys while repeating the expiry condition so renewed keys survive. A full selection continues
+the pass even when concurrent renewals reduce the deleted count; a batch that deletes nothing ends it. Neither dialect deletes a live key.
 
 `PurgeExpired(ctx) (int64, error)` returns completed deletions even if a later batch fails. Close permanently stops the loop and waits within the
 context, including on repeated calls; an exited loop satisfies an ended context.
@@ -118,7 +119,3 @@ go test -C tests/integration -race -count=1 -p 1 -v ./idempotencyit/...
 ```
 
 Inspect verbose output for `--- SKIP`: unreachable backends skip and must not be reported as passed.
-
-Each purge statement is bounded by a 30-second timeout. PostgreSQL selects its delete batch with `FOR UPDATE SKIP LOCKED`. MySQL selects an ordered
-batch of keys without locking, then deletes those keys while repeating the expiry condition so renewed keys survive. A full selection continues the pass
-even when concurrent renewals reduce the deleted count. Background contexts carry no request values or transactions; explicit purges join `WithTx`.

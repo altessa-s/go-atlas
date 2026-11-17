@@ -28,21 +28,6 @@ var numberedParamRE = regexp.MustCompile(`\$\d+`)
 
 func ok(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Affected: 1} }
 
-// existingIndexes answers the MySQL catalog query with every index of the
-// default table, as a table created by the current version has them.
-func existingIndexes(q string, _ []any) testhelpers.FakeSQLReply {
-	if !strings.Contains(q, "information_schema.statistics") {
-		return testhelpers.FakeSQLReply{Affected: 1}
-	}
-	return testhelpers.FakeSQLReply{Columns: []string{"index_name"}, Rows: [][]driver.Value{
-		{"PRIMARY"},
-		{"events_outbox_fetch_idx"},
-		{"events_outbox_locked_idx"},
-		{"events_outbox_published_idx"},
-		{"events_outbox_expires_idx"},
-	}}
-}
-
 // readyRows serves rows to the pending half of the claim query only, so the
 // failed half finds nothing.
 func readyRows(rows [][]driver.Value, affected int64) func(string, []any) testhelpers.FakeSQLReply {
@@ -106,17 +91,13 @@ func TestEnsureSchema(t *testing.T) {
 	} {
 		t.Run(string(tc.dialect), func(t *testing.T) {
 			t.Parallel()
-			store, _, fake := newStore(t, tc.dialect, existingIndexes)
+			store, _, fake := newStore(t, tc.dialect, ok)
 			require.NoError(t, store.EnsureSchema(t.Context()))
 			calls := fake.Calls()
 			if tc.locked {
 				require.Equal(t, "SELECT pg_advisory_xact_lock($1)", calls[0].Query)
 				calls = calls[1:]
 				require.Equal(t, 1, fake.Commits())
-			} else {
-				// MySQL declares the indexes inline and then checks the catalog.
-				require.Contains(t, calls[len(calls)-1].Query, "information_schema.statistics")
-				calls = calls[:len(calls)-1]
 			}
 			require.Len(t, calls, 1+tc.indexes)
 			require.Contains(t, calls[0].Query, "CREATE TABLE IF NOT EXISTS")

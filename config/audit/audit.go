@@ -7,6 +7,8 @@ package auditconfig
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/config/internal/validators"
+
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -133,7 +135,7 @@ type StorageSQL struct {
 func (c *StorageSQL) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Dialect, validation.Required, validation.In(SQLDialectPostgres, SQLDialectMySQL)),
-		validation.Field(&c.TableName, validation.Required),
+		validation.Field(&c.TableName, validation.Required, validators.SQLTableName),
 		validation.Field(&c.MaxBatchRows, validation.Min(0)),
 		validation.Field(&c.PurgeInterval, validation.Min(time.Duration(0))),
 		validation.Field(&c.PurgeBatchSize, validation.Min(1)),
@@ -163,8 +165,8 @@ type StorageClickHouse struct {
 	// MaxBatchSize is the largest number of rows sent in a single INSERT.
 	MaxBatchSize int `yaml:"maxBatchSize" default:"10000"`
 
-	// DDLTimeout bounds each startup schema operation: creating the table,
-	// the additive migration and the schema check.
+	// DDLTimeout bounds each startup schema operation: creating the table
+	// and the schema check.
 	DDLTimeout time.Duration `yaml:"ddlTimeout" default:"30s"`
 
 	// AutoCreateTable creates the table on startup. Off by default: schema
@@ -183,11 +185,6 @@ type StorageClickHouse struct {
 	// expected schema (missing or differently defined columns and indexes,
 	// another sorting or partition key): enforce, warn or disabled.
 	SchemaCheckMode string `yaml:"schemaCheckMode" default:"warn"`
-
-	// SchemaMigrationMode controls whether missing columns and indexes are
-	// added at startup: off or additive. Differently defined ones are never
-	// changed.
-	SchemaMigrationMode string `yaml:"schemaMigrationMode" default:"off"`
 }
 
 // Validate performs validation of the ClickHouse storage configuration.
@@ -199,7 +196,6 @@ func (c *StorageClickHouse) Validate() error {
 		validation.Field(&c.DDLTimeout, validation.Min(time.Duration(0))),
 		validation.Field(&c.TimeRangeMode, validation.In("enforce", "warn", "disabled")),
 		validation.Field(&c.SchemaCheckMode, validation.In("enforce", "warn", "disabled")),
-		validation.Field(&c.SchemaMigrationMode, validation.In("off", "additive")),
 	)
 }
 

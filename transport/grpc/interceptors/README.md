@@ -62,8 +62,7 @@ only for a context update or when it carries no driver yet; every further driver
 every stream message. On a server, pre-send hooks run from the interceptor closest to the handler outwards; on a client, from the outermost interceptor
 inwards.
 
-Earlier releases reused the first wrapper and dropped later drivers, so in the default server chain driven interceptors such as `fieldbehavior`,
-`fieldmask` and `protovalidator` (and client `errstatus`) silently received no stream message hooks. They now apply to every streamed message: streamed
+Driven interceptors such as `fieldbehavior`, `fieldmask` and `protovalidator` (and client `errstatus`) apply to every streamed message: streamed
 requests are validated and sanitized, and streamed responses are sanitized and masked before they are sent.
 
 ## Subpackages

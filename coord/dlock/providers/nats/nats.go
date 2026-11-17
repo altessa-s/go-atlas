@@ -30,8 +30,8 @@ import (
 var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 
 // ErrBucketStorageMismatch is returned by New when the bucket already exists
-// with another storage type and [WithStrictBucketStorage] is set. The bucket is
-// left untouched.
+// with another storage type. The bucket is left untouched:
+// the server cannot convert a bucket's storage type.
 var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
 // ErrKeyTooLong is returned, before any network I/O, for a lock key whose
@@ -160,15 +160,14 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Locker, error
 	return l, nil
 }
 
-// bucketConfig is the bucket New creates and MigrateBucketStorage migrates to.
+// bucketConfig is the bucket New creates or reconciles.
 func bucketConfig(o *options) natskvlease.BucketSpec {
 	return natskvlease.BucketSpec{
-		Bucket:        o.bucket,
-		TTL:           o.ttl,
-		Storage:       o.storage,
-		Compression:   true,
-		MigrateTTL:    o.migrateBucketTTL,
-		StrictStorage: o.strictBucketStorage,
+		Bucket:      o.bucket,
+		TTL:         o.ttl,
+		Storage:     o.storage,
+		Compression: true,
+		MigrateTTL:  o.migrateBucketTTL,
 	}
 }
 

@@ -9,8 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestPurgeDisabledInterval(t *testing.T) {

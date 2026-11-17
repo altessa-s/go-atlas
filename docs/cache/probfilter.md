@@ -345,7 +345,7 @@ step (a pointer swap, or `RENAME`).
 - `RebuildCommitted` (`probfilter.RebuildCommitReporter`) tells every process sharing a Redis filter whether some process committed a rebuild of it.
   The commit script sets a ready marker (`__probfilter__:{<tag>}:ready:…`) as its last step, after the rename, and every probfilter path that creates
   the filter key deletes the marker in the same script, so it exists only while the live key holds a committed rebuild's contents (plus later adds). A
-  deleted or evicted filter key reports false. A filter key recreated by a client other than probfilter (or an older release) is not detected:
+  deleted or evicted filter key reports false. A filter key recreated by a client other than probfilter is not detected:
   delete the filter key together with its `__probfilter__:` metadata keys. The `auth/denylist/negcache` cache uses it to trust a shared filter
   rebuilt by another node.
 - The Cuckoo replacement is sized for the loaded count plus 25% headroom, never below the configured capacity.

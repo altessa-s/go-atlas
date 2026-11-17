@@ -120,8 +120,7 @@ type RebuildCommitTimeReporter interface {
 	// time when no such rebuild is known. For a filter shared through Redis
 	// it is the Redis server time of the commit by any process, read from
 	// Redis on every call — one round trip, so keep it off per-lookup paths —
-	// and it is zero once the filter key was deleted or recreated, or when
-	// the commit was made by a release that did not record the time. It is
+	// and it is zero once the filter key was deleted or recreated. It is
 	// an instant of the Redis clock: comparing it with the local clock is
 	// only as exact as the two clocks agree. For a process-local filter it is
 	// [RebuildableFilter.LastRebuild].
@@ -156,8 +155,8 @@ type RebuildLoadReporter interface {
 	// LastRebuildLoaded returns the number of values the last committed
 	// [RebuildableFilter.Rebuild] loaded from its [DataLoader]. known is false
 	// when no such rebuild is known: the filter was never rebuilt, a filter
-	// shared through Redis was deleted or recreated since, or the commit was
-	// made by a release that did not record the count. For a filter shared
+	// shared through Redis was deleted or recreated since, or the rebuild
+	// did not record the count. For a filter shared
 	// through Redis the count is stored with the commit and read from Redis
 	// on every call; for a process-local filter it is that of the last
 	// rebuild of this filter.
