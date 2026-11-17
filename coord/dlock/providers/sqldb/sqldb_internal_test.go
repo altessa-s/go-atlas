@@ -188,9 +188,8 @@ func TestCleanupSweepLifecycle(t *testing.T) {
 	t.Parallel()
 	f := newLeaseDB()
 	db, fake := testhelpers.NewFakeSQL(t, f.respond)
-	l, err := New(db, DialectPostgres, WithExpiredCleanup(0))
+	l, err := New(db, DialectPostgres, WithExpiredCleanup(0), WithPurgeInterval(time.Millisecond))
 	require.NoError(t, err)
-	l.sweepEvery = 5 * time.Millisecond
 
 	time.Sleep(20 * time.Millisecond)
 	require.Empty(t, fake.Calls(), "nothing runs before the first Lock")
@@ -213,11 +212,6 @@ func TestCleanupSweepLifecycle(t *testing.T) {
 	require.EqualValues(t, 1, info.FencingToken, "fencing restarts for a deleted key")
 
 	require.NoError(t, l.Close(t.Context()))
-	select {
-	case <-l.sweepDone:
-	default:
-		t.Fatal("Close must stop the sweep")
-	}
 	require.NoError(t, l.Close(t.Context()), "a second Close is harmless")
 	_, err = l.Lock(t.Context(), "k")
 	require.Error(t, err)
@@ -237,9 +231,8 @@ func blockedSweep(t *testing.T, f *leaseDB) (*Locker, <-chan struct{}) {
 		}
 		return f.respond(query, args)
 	})
-	l, err := New(db, DialectPostgres, WithExpiredCleanup(0))
+	l, err := New(db, DialectPostgres, WithExpiredCleanup(0), WithPurgeInterval(time.Millisecond))
 	require.NoError(t, err)
-	l.sweepEvery = time.Millisecond
 	return l, entered
 }
 

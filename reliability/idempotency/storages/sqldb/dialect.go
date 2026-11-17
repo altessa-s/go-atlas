@@ -5,7 +5,6 @@
 package sqldb
 
 import (
-	"errors"
 	"time"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
@@ -30,7 +29,7 @@ var (
 	// ErrInvalidTableName reports an invalid or oversized SQL identifier.
 	ErrInvalidTableName = sqldialect.ErrInvalidTableName
 	// ErrValueTooLong reports a key longer than MaxKeyLength characters.
-	ErrValueTooLong = errors.New("sqldb: value exceeds its column length")
+	ErrValueTooLong = sqldialect.ErrValueTooLong
 )
 
 // MaxKeyLength bounds a storage key, including the Keeper's namespace, in characters.

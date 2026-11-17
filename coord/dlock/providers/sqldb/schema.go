@@ -15,7 +15,7 @@ import (
 // EnsureSchema creates the locks table if it does not exist. It is idempotent
 // and safe to run concurrently from several instances; call it once at
 // startup (or apply the same DDL through your migration tool). The table
-// needs no index besides its primary key.
+// has an expires_at index for cleanup.
 //
 // On MySQL/MariaDB the key and owner are binary types, so keys compare exactly
 // — byte-wise, no trailing space padding, no case folding — whatever the
@@ -24,19 +24,20 @@ import (
 // turns instead of colliding in the catalog.
 func (l *Locker) EnsureSchema(ctx context.Context) error {
 	if l.s.dialect.name == DialectPostgres {
-		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, l.s.db, []string{l.s.tableName}, []string{l.postgresSchema()}),
+		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, l.s.db, []string{l.s.tableName}, l.postgresSchema()),
 			"create dlock schema")
 	}
 	if _, err := l.s.db.ExecContext(ctx, l.mysqlSchema()); err != nil {
 		return coreerrs.WrapOperation(err, "create dlock schema")
 	}
-	return nil
+	return coreerrs.WrapOperation(sqldialect.AddMissingMySQLIndexes(ctx, l.s.db, l.s.qualifier, l.s.tableName,
+		[]sqldialect.MySQLIndex{{Name: l.s.dialect.IndexName(l.s.tableName, "expires"), Columns: "expires_at"}}), "create dlock indexes")
 }
 
 // postgresSchema is the PostgreSQL DDL. Times are server-clock Unix
 // microseconds.
-func (l *Locker) postgresSchema() string {
-	return `CREATE TABLE IF NOT EXISTS ` + l.s.table + ` (
+func (l *Locker) postgresSchema() []string {
+	return []string{`CREATE TABLE IF NOT EXISTS ` + l.s.table + ` (
   lock_key    VARCHAR(255) COLLATE "C" PRIMARY KEY,
   owner       TEXT   NOT NULL DEFAULT '',
   fencing     BIGINT NOT NULL DEFAULT 0,
@@ -44,7 +45,9 @@ func (l *Locker) postgresSchema() string {
   renewed_at  BIGINT NOT NULL DEFAULT 0,
   expires_at  BIGINT NOT NULL DEFAULT 0,
   ttl_us      BIGINT NOT NULL DEFAULT 0
-)`
+)`,
+		`CREATE INDEX IF NOT EXISTS ` + l.s.dialect.IndexName(l.s.tableName, "expires") + ` ON ` + l.s.table + ` (expires_at)`,
+	}
 }
 
 // mysqlSchema declares the key and owner as binary types; the key width is in

@@ -29,5 +29,10 @@
 //
 // With watch set to changeStream or notify, [OutboxBuilder.Build] starts
 // outbox.Outbox.Watch and stops it through the shutdown hooks; notify needs the
-// PostgreSQL listener from [OutboxBuilder.UseSQLListener].
+// PostgreSQL listener from [OutboxBuilder.UseSQLListener]. Both push modes
+// require a dispatch schedule and [OutboxBuilder.UseScheduler]. A task
+// registration failure returns a non-nil outbox with its watcher already
+// started; retain that instance to retry RegisterTasks. Shutdown hooks still
+// stop the watcher. The notify channel defaults to the table-derived name;
+// storage.sqldb.notifyChannel overrides it.
 package factory

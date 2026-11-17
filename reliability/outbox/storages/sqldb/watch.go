@@ -28,7 +28,8 @@ import (
 // receives a value per notification on channel — an adapter may coalesce a
 // burst into one value, and should never block on a full channel — and is
 // closed when the subscription ends: ctx done, or the connection lost. An
-// error means no subscription was established.
+// error means no subscription was established. Listen must return a non-nil
+// channel on success; a nil channel is treated as a closed subscription and retried.
 type Listener interface {
 	Listen(ctx context.Context, channel string) (<-chan struct{}, error)
 }
@@ -122,21 +123,24 @@ func (s *Store) Watch(ctx context.Context, notify func()) error {
 	)
 
 	var (
-		attempt    int
-		subscribed bool
+		attempt int
+		gap     bool
 	)
 	for {
 		signals, err := s.listener.Listen(ctx, s.channel)
 		if ctx.Err() != nil {
 			return nil
 		}
+		if err == nil && signals == nil {
+			err = errListenerClosed
+		}
 		if err == nil {
-			if subscribed {
+			started := time.Now()
+			if gap {
 				notify() // Events committed while nobody listened.
 			}
-			subscribed = true
-			if received := pump(ctx, signals, notify); received {
-				attempt = 0 // A subscription that delivered was alive: start the backoff over.
+			if received := pump(ctx, signals, notify); received && time.Since(started) >= watchRetryMaxDelay {
+				attempt = 0 // Only a stable subscription resets the backoff.
 			}
 			if ctx.Err() != nil {
 				return nil
@@ -144,6 +148,7 @@ func (s *Store) Watch(ctx context.Context, notify func()) error {
 			err = errListenerClosed
 		}
 
+		gap = true
 		delay := backoff(attempt, err)
 		attempt++
 		if attempt == 1 || attempt%watchLogEvery == 0 {

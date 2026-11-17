@@ -6,13 +6,13 @@ package factory
 
 import (
 	"database/sql"
-	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
@@ -47,7 +47,7 @@ func (b *OutboxBuilder) UseOutboxOptions(opts ...outbox.Option) *OutboxBuilder {
 // replaces the earlier one; the sqldb store is built in.
 func (b *OutboxBuilder) UseStorage(typ brokerconfig.OutboxStorageType, build StorageFunc) *OutboxBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(corefactory.ErrDependencyRequired, "UseStorage %q: nil function", typ))
 		return b
 	}
 	if b.storages == nil {

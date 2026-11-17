@@ -195,6 +195,12 @@
 #        # Default value: events_outbox
 #        table: events_outbox
 #
+#        # <string> Optional PostgreSQL notification channel for watch: notify.
+#        # Plain identifier, at most 63 characters; case-sensitive. Empty derives
+#        # the lower-case channel from the table name.
+#        # Default value: not set (empty string)
+#        notifyChannel: ""
+#
 #        # <bool> Create the events table and its indexes while building the
 #        # outbox, through the store's idempotent EnsureSchema. Leave false when
 #        # migrations own the schema; the table must then exist before the
@@ -210,8 +216,9 @@
 #    #                  replica set or sharded cluster).
 #    #   notify       — PostgreSQL LISTEN/NOTIFY (storage type sqldb, dialect
 #    #                  postgres): every save signals the channel derived from
-#    #                  the table name inside its transaction, and the listener
-#    #                  injected with UseSQLListener receives it.
+#    #                  the table name unless notifyChannel is set. The signal
+#    #                  shares the insert statement and is delivered on commit;
+#    #                  the listener injected with UseSQLListener receives it.
 #    # Other combinations fail validation.
 #    # Default value: polling
 #    watch: polling

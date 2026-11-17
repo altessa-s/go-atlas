@@ -57,6 +57,7 @@ var contracts = []struct {
 	{"ReopenSameGeneration", ReopenSameGeneration},
 	{"ReopenMissingInserts", ReopenMissingInserts},
 	{"ReopenReplacesPayload", ReopenReplacesPayload},
+	{"ReopenRacingMark", ReopenRacingMark},
 	{"StaleExpireSparesRequeued", StaleExpireSparesRequeued},
 	{"StaleGenerationIsNoOp", StaleGenerationIsNoOp},
 	{"ListByStateOrder", ListByStateOrder},
@@ -534,6 +535,40 @@ func ReopenReplacesPayload(t *testing.T, s Storage) {
 	require.True(t, listed[0].Flagged)
 	require.NoError(t, s.ClearFlag(t.Context(), "rp", 2))
 	require.Equal(t, next.Payload, read(t, s, "rp").Payload)
+}
+
+// ReopenRacingMark asserts a first mark racing a reopen preserves the newer
+// generation and its payload in both the reopen result and the stored item.
+//
+//nolint:mnd // Fixed instants, generations and counts describe the storage contract.
+func ReopenRacingMark(t *testing.T, s Storage) {
+	for i := range 64 {
+		key := fmt.Sprintf("rr-%d", i)
+		next := Pending(key, T0)
+		next.Generation = 2
+		next.Payload.Note = "second"
+		var got Item
+		var reopenErr, markErr error
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			<-start
+			got, reopenErr = s.Reopen(t.Context(), next)
+		})
+		wg.Go(func() {
+			<-start
+			_, markErr = s.Mark(t.Context(), Pending(key, T0))
+		})
+		close(start)
+		wg.Wait()
+		require.NoError(t, reopenErr, "round %d", i)
+		require.NoError(t, markErr, "round %d", i)
+		require.Equal(t, int64(2), got.Generation, "round %d", i)
+		require.Equal(t, "second", got.Payload.Note, "round %d", i)
+		stored := read(t, s, key)
+		require.Equal(t, int64(2), stored.Generation, "round %d", i)
+		require.Equal(t, "second", stored.Payload.Note, "round %d", i)
+	}
 }
 
 // StaleExpireSparesRequeued asserts an attempt that read the item before an

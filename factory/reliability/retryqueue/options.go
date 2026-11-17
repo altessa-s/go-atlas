@@ -6,13 +6,14 @@ package factory
 
 import (
 	"database/sql"
-	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/encoding/serializer"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // UseLogger sets the logger for the builder and the sqldb store's background
@@ -32,7 +33,12 @@ func (b *Builder[P]) UseDefaultLogger() *Builder[P] {
 // and sqldb stores are built in.
 func (b *Builder[P]) UseStorage(typ retryqueueconfig.StorageType, build StorageFunc[P]) *Builder[P] {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseStorage %q: nil builder", typ))
+		return b
+	}
+	if typ != retryqueueconfig.StorageTypeMongo {
+		b.errs = append(b.errs, corefactory.Errorf(corefactory.ErrUnsupported,
+			"UseStorage %q: only the mongo storage is registered; memory and sqldb are built in", typ))
 		return b
 	}
 	if b.storages == nil {

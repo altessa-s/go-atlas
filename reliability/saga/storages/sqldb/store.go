@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -116,7 +115,8 @@ func (s *Store) buildStatements() statements {
 // Create inserts a new instance, returning [saga.ErrInstanceExists] when a
 // row with the same ID already exists. On PostgreSQL the insert is ON CONFLICT
 // DO NOTHING; on MySQL a plain INSERT whose error is a duplicate key (error
-// 1062) is reported as ErrInstanceExists and every other error as is.
+// 1062, read from the driver error's Number field) is reported as
+// ErrInstanceExists and every other error as is.
 func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 	if n := utf8.RuneCountInString(inst.ID); n > MaxIDLength {
 		return fmt.Errorf("%w: %d characters, limit %d", ErrValueTooLong, n, MaxIDLength)
@@ -129,7 +129,7 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 		r.status, int64(inst.Stage), r.pendingSteps, r.data, r.steps, unixNano(inst.CreatedAt), r.updatedAt, r.deadline,
 		r.leaseOwner, r.leaseUntil, inst.Version, r.lastError)
 	if err != nil {
-		if s.dialect.name == DialectMySQL && isDuplicateKey(err) {
+		if s.dialect.name == DialectMySQL && sqldialect.IsDuplicateKey(err) {
 			return saga.ErrInstanceExists
 		}
 		return coreerrs.WrapOperation(err, "create saga instance in SQL")
@@ -236,17 +236,6 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return coreerrs.WrapOperation(err, "delete saga instance from SQL")
 	}
 	return nil
-}
-
-// mysqlDuplicateKey is the text MySQL and MariaDB drivers render for error
-// 1062 (ER_DUP_ENTRY): go-sql-driver/mysql formats a server error as
-// "Error 1062 (23000): Duplicate entry …". database/sql exposes no portable
-// error code, so the code is read from the message.
-const mysqlDuplicateKey = "Error 1062"
-
-// isDuplicateKey reports whether err is a MySQL duplicate-key error.
-func isDuplicateKey(err error) bool {
-	return strings.Contains(err.Error(), mysqlDuplicateKey)
 }
 
 // exists reports whether a row with the given ID is stored.

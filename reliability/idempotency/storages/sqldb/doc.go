@@ -10,6 +10,9 @@
 // New performs no I/O and starts no goroutine; call Storage.EnsureSchema at startup or use migrations.
 // Expiry uses the database clock. Storage.PurgeExpired provides bounded physical
 // cleanup. WithPurgeInterval enables a lazy background sweep; Close stops it.
+// EnsureSchema adds the composite (expires_at, key) index with suffix
+// expires_key on both dialects, including on existing tables. An older expires
+// index can be dropped after the new index is present.
 //
 // # Transactions
 //
@@ -34,5 +37,9 @@
 // background loop while manual purging stays available. WithPurgeBatchSize defaults to 1000. New
 // starts no goroutine; the first write starts the loop for all keys. Close(ctx) permanently stops it
 // and waits within the context, including on repeated calls. A loop that has already exited satisfies
-// an ended context. Background failures and recovered panics go to WithLogger (discard by default).
+// an ended context. Each statement is bounded by a 30-second timeout.
+// PostgreSQL uses FOR UPDATE SKIP LOCKED. MySQL selects keys without locking,
+// then deletes by key while rechecking expiry; draining follows selected rows
+// so concurrent renewals cannot truncate a pass. Explicit purges join WithTx;
+// background contexts carry no request values or transactions. Background failures and recovered panics go to WithLogger (discard by default).
 package sqldb

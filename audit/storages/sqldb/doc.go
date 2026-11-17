@@ -48,7 +48,10 @@
 // disables background work while manual purging remains available. Each pass drains
 // rows older than the application clock minus TTL through the (ts_ms, id)
 // index, committing at most [DefaultPurgeBatchSize] rows per statement by
-// default. [WithClock] injects the cutoff clock; interval timers use real time.
+// default. Each statement is bounded by a 30-second timeout. PostgreSQL uses
+// FOR UPDATE SKIP LOCKED in the ID subselect so concurrent purges skip busy
+// rows. Background contexts carry no request values or transactions.
+// [WithClock] injects the cutoff clock; interval timers use real time.
 // Expiration is asynchronous: rows remain queryable until deleted. Failures
 // and recovered panics are logged through [WithLogger] and retried next pass.
 //

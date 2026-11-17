@@ -133,13 +133,13 @@ const ensureSchemaTimeout = 30 * time.Second
 func (b *KeeperBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 	cfg := b.cfg.Storage.SQL
 	if cfg == nil {
-		return nil, corefactory.ErrConfigRequired
+		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "idempotency storage.sql configuration is required")
 	}
 	store, err := sqlstorage.New(b.sqlDB, sqlstorage.Dialect(cfg.Dialect),
 		sqlstorage.WithTableName(cfg.Table), sqlstorage.WithTTL(b.cfg.TTL),
 		sqlstorage.WithPurgeInterval(cfg.PurgeInterval), sqlstorage.WithPurgeBatchSize(cfg.PurgeBatchSize), sqlstorage.WithLogger(b.Logger()))
 	if err != nil {
-		return nil, err
+		return nil, b.WrapError(err, "create SQL idempotency storage")
 	}
 	if cfg.EnsureSchema {
 		// Build has no context parameter; bound its startup I/O as the Mongo

@@ -155,7 +155,7 @@ func TestPurgeLoopRecoversPanics(t *testing.T) {
 
 	require.NoError(t, store.Delete(t.Context(), "k"))
 	testhelpers.WaitFor(t, 2*time.Second, func() bool { return purges.Load() >= 2 }, "the loop survives a panic")
-	require.True(t, handler.has("resolved retry item purge panicked"))
+	require.True(t, handler.has("resolved retry items purge panicked"))
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	require.NoError(t, store.Close(ctx))

@@ -17,6 +17,8 @@
 // sort byte-wise; on MySQL/MariaDB the string columns are binary types, so the
 // schema never depends on the database's default character set. The payload
 // is encoded by the configured codec ([WithCodec], JSON by default).
+// EnsureSchema adds missing secondary indexes to existing tables on both
+// dialects; MySQL reconciles their names after table creation.
 //
 // # Concurrency
 //
@@ -30,16 +32,20 @@
 //
 // [WithTx] puts a caller transaction on the context; every method then runs
 // on it and commits or rolls back with the caller's other writes.
+// Requeue splits key lists into chunks of at most 1000 keys and runs all
+// chunks in one transaction, starting one when no caller transaction exists.
 //
 // # Time
 //
 // Instants are the caller's, stored as Unix nanoseconds at full precision, 0
 // for the zero time; times outside the years 1678–2262 do not fit. Resolved
 // items are kept until [Store.PurgeExpired], which compares against the
-// database clock, deletes those past the resolved retention
-// ([WithResolvedRetention]); call it periodically, or let the store run it
-// in the background with [WithPurgeInterval] from its first write call
-// until [Store.Close].
+// database clock at whole seconds and deletes those past the resolved
+// retention ([WithResolvedRetention]). ResolvedAt is the instant the caller
+// passed to Resolve (its clock), so application-to-database clock skew shifts
+// the effective retention by that skew. Call PurgeExpired periodically, or
+// let the store run it in the background with [WithPurgeInterval] from its
+// first write call until [Store.Close].
 //
 // # Usage
 //
@@ -60,5 +66,8 @@
 // starts no goroutine; the first write starts the loop when retention is enabled. Close(ctx)
 // permanently stops it and waits within the context, including on repeated calls. A loop that has
 // already exited satisfies an ended context. Background failures and recovered panics go to WithLogger
-// (discard by default).
+// (discard by default). Each statement is bounded by a 30-second timeout.
+// PostgreSQL deletes batches using FOR UPDATE SKIP LOCKED; MySQL orders them
+// by resolved_at. Background contexts carry no request values or transactions;
+// explicit purges still join WithTx.
 package sqldb

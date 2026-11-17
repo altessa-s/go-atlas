@@ -38,7 +38,7 @@ type options struct {
 	// WithPurgeBatchSize bounds the rows deleted by each statement.
 	// Nonpositive values leave the configured size unchanged.
 	purgeBatchSize int `optval:"positive" optgen:"default=DefaultPurgeBatchSize"`
-	// logger receives the background purge's failures, recovered panics and
-	// counts. The default discards them.
+	// logger receives the background purge's failures and recovered panics.
+	// The default discards them.
 	logger *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler),notnil"`
 }

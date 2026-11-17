@@ -71,7 +71,7 @@ func TestUseStorage(t *testing.T) {
 	t.Run("nil_function_fails", func(t *testing.T) {
 		t.Parallel()
 		_, err := New(cfg).UseStorage(brokerconfig.OutboxStorageTypeMongo, nil).Build(t.Context(), noopHandler)
-		require.Error(t, err)
+		require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 	})
 
 	t.Run("function_error_propagates", func(t *testing.T) {
@@ -90,7 +90,7 @@ func TestUseStorage(t *testing.T) {
 		require.NoError(t, err)
 		local := &brokerconfig.Outbox{Enabled: true}
 		build := func(ctx context.Context, got *brokerconfig.Outbox, _ *slog.Logger) (outbox.Storage, error) {
-			require.Same(t, local, got)
+			require.NotSame(t, local, got)
 			require.Equal(t, "events_outbox", got.Storage.Mongo.Collection, "the builder normalizes the storage section")
 			require.NotNil(t, ctx)
 			return want, nil
@@ -105,11 +105,11 @@ func TestUseStorage(t *testing.T) {
 		db, _ := testhelpers.NewFakeSQL(t, nil)
 		store, err := outboxsql.New(db, outboxsql.DialectPostgres) // No listener: Watch is unsupported.
 		require.NoError(t, err)
-		local := &brokerconfig.Outbox{Enabled: true, Watch: brokerconfig.OutboxWatchChangeStream}
+		local := &brokerconfig.Outbox{Enabled: true, Watch: brokerconfig.OutboxWatchChangeStream, DispatchSchedule: "@every 1m"}
 		build := func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) { return store, nil }
 
 		var hooks coreruntime.HookGroup
-		ob, err := New(local).UseStorage(brokerconfig.OutboxStorageTypeMongo, build).UseShutdownHooks(&hooks).Build(t.Context(), noopHandler)
+		ob, err := New(local).UseScheduler(&testhelpers.MockTaskRegistrar{}).UseStorage(brokerconfig.OutboxStorageTypeMongo, build).UseShutdownHooks(&hooks).Build(t.Context(), noopHandler)
 		require.NoError(t, err)
 		require.NotNil(t, ob)
 		require.NoError(t, hooks.Shutdown(t.Context()), "a watcher that reported unsupported has already returned")

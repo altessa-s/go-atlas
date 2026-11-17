@@ -5,7 +5,6 @@
 package sqldb
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
@@ -34,7 +33,7 @@ var (
 	// [MaxIDLength] characters. Rejecting it up front matters because
 	// PostgreSQL silently trims excess trailing spaces, which would make "id"
 	// and "id " (past the limit) the same row.
-	ErrValueTooLong = errors.New("sqldb: value exceeds its column length")
+	ErrValueTooLong = sqldialect.ErrValueTooLong
 )
 
 // MaxIDLength bounds an instance ID, in characters.

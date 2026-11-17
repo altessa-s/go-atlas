@@ -23,6 +23,8 @@ type options struct {
 	// WithNotifyChannel enables notifications like [WithNotify] on the given
 	// channel instead of the one derived from the table name. The channel must
 	// be a plain identifier of at most 63 characters ([ErrInvalidNotifyChannel]).
+	// Names are case-sensitive: pg_notify does not fold case, so psql users
+	// must quote mixed-case names in LISTEN. The derived channel is lower case.
 	notifyChannel string `optgen:"enables=notify"`
 	// WithListener sets the [Listener] [Store.Watch] subscribes through. Without
 	// one — nil, or a typed nil — the store reports [outbox.ErrWatchUnsupported].

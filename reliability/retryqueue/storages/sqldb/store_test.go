@@ -230,6 +230,37 @@ func TestReopenFallsBackToMark(t *testing.T) {
 	require.True(t, strings.HasPrefix(calls[1].Query, "INSERT"))
 }
 
+// TestReopenRacingMark asserts a first mark cannot hide a newer reopen.
+func TestReopenRacingMark(t *testing.T) {
+	t.Parallel()
+	updates := 0
+	db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
+		switch {
+		case strings.HasPrefix(q, "UPDATE"):
+			updates++
+			return testhelpers.FakeSQLReply{Affected: int64(updates - 1)}
+		case strings.HasPrefix(q, "INSERT"):
+			return testhelpers.FakeSQLReply{Affected: 0}
+		default:
+			stored := row("k", retryqueue.StatePending)
+			stored[1] = int64(1)
+			return testhelpers.FakeSQLReply{Columns: columns, Rows: [][]driver.Value{stored}}
+		}
+	})
+	store, err := sqldb.New[payload](db, sqldb.DialectPostgres)
+	require.NoError(t, err)
+	item := retryqueue.Item[payload]{Key: "k", Generation: 2, Payload: payload{Note: "second"}}
+	got, err := store.Reopen(t.Context(), item)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), got.Generation)
+	require.Equal(t, item.Payload, got.Payload)
+	calls := fake.Calls()
+	require.Len(t, calls, 4)
+	for i, prefix := range []string{"UPDATE", "INSERT", "SELECT", "UPDATE"} {
+		require.True(t, strings.HasPrefix(calls[i].Query, prefix), "call %d: %s", i, calls[i].Query)
+	}
+}
+
 // TestMoveOutcomes covers the look-ups and the rename of Move.
 func TestMoveOutcomes(t *testing.T) {
 	t.Parallel()
@@ -342,7 +373,7 @@ func TestPurgeExpired(t *testing.T) {
 }
 
 // TestRequeueChunksKeys asserts a long key list is split across statements
-// and the counts are summed.
+// in one transaction and the counts are summed.
 func TestRequeueChunksKeys(t *testing.T) {
 	t.Parallel()
 	store, fake, _ := newStore(t, sqldb.DialectPostgres, func(_ string, args []any) testhelpers.FakeSQLReply {
@@ -356,12 +387,58 @@ func TestRequeueChunksKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2500, n)
 	require.Len(t, fake.Calls(), 3)
+	for _, call := range fake.Calls() {
+		require.True(t, call.InTx)
+	}
+	require.Equal(t, 1, fake.Commits())
 
 	n, err = store.Requeue(t.Context(), base)
 	require.NoError(t, err)
 	require.Equal(t, 0, n)
 	last := fake.Calls()[3]
 	require.NotContains(t, last.Query, " IN ", "no keys requeue every expired item")
+	require.False(t, last.InTx)
+
+	t.Run("second chunk fails", func(t *testing.T) {
+		t.Parallel()
+		chunks := 0
+		store, fake, _ := newStore(t, sqldb.DialectPostgres, func(_ string, args []any) testhelpers.FakeSQLReply {
+			chunks++
+			if chunks == 2 {
+				return testhelpers.FakeSQLReply{Err: errBoom}
+			}
+			return testhelpers.FakeSQLReply{Affected: int64(len(args) - 2)}
+		})
+		n, err := store.Requeue(t.Context(), base, keys...)
+		require.ErrorIs(t, err, errBoom)
+		require.Zero(t, n)
+		require.Len(t, fake.Calls(), 2)
+		for _, call := range fake.Calls() {
+			require.True(t, call.InTx)
+		}
+		require.Equal(t, 1, fake.Rollbacks())
+		require.Zero(t, fake.Commits())
+	})
+
+	t.Run("caller transaction", func(t *testing.T) {
+		t.Parallel()
+		store, fake, db := newStore(t, sqldb.DialectPostgres, func(_ string, args []any) testhelpers.FakeSQLReply {
+			return testhelpers.FakeSQLReply{Affected: int64(len(args) - 2)}
+		})
+		tx, err := db.BeginTx(t.Context(), nil)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+		n, err := store.Requeue(sqldb.WithTx(t.Context(), tx), base, keys...)
+		require.NoError(t, err)
+		require.Equal(t, 2500, n)
+		require.Len(t, fake.Calls(), 3)
+		for _, call := range fake.Calls() {
+			require.True(t, call.InTx)
+		}
+		require.Zero(t, fake.Commits())
+		require.NoError(t, tx.Commit())
+		require.Equal(t, 1, fake.Commits())
+	})
 }
 
 // TestListDecodesRows asserts list results are decoded and the default limit
@@ -392,7 +469,11 @@ func TestEnsureSchema(t *testing.T) {
 	store, fake, _ := newStore(t, sqldb.DialectMySQL, nil, sqldb.WithTableName("app.queue"))
 	require.NoError(t, store.EnsureSchema(t.Context()))
 	calls := fake.Calls()
-	require.Len(t, calls, 1)
+	require.Len(t, calls, 5)
+	require.Equal(t, []any{"app", "queue"}, calls[1].Args)
+	require.Equal(t, "ALTER TABLE `app`.`queue` ADD INDEX `queue_due_idx` (state, next_attempt_at, id)", calls[2].Query)
+	require.Equal(t, "ALTER TABLE `app`.`queue` ADD INDEX `queue_state_idx` (state, since, id)", calls[3].Query)
+	require.Equal(t, "ALTER TABLE `app`.`queue` ADD INDEX `queue_resolved_idx` (state, resolved_at)", calls[4].Query)
 	ddl := calls[0].Query
 	require.Contains(t, ddl, "CREATE TABLE IF NOT EXISTS `app`.`queue`")
 	require.Contains(t, ddl, "VARBINARY(1020)")

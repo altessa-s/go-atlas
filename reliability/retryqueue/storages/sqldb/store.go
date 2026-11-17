@@ -9,14 +9,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/altessa-s/go-atlas-core/encoding/serializer"
+	"github.com/altessa-s/go-atlas/internal/purgeloop"
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 
@@ -30,6 +29,10 @@ const columns = "id, generation, state, since, attempts, next_attempt_at, expire
 // item only when it was deleted between the two, and the next round inserts
 // it again.
 const markAttempts = 2
+
+// reopenAttempts bounds the update-then-mark rounds of Reopen when a writer
+// inserts an older or closed item between the two statements.
+const reopenAttempts = 2
 
 // keyChunk caps the keys one Requeue statement lists, keeping statements well
 // inside every driver's placeholder limit.
@@ -68,14 +71,8 @@ type Store[P any] struct {
 	purgeBatchSize int
 	stmts          statements
 
-	// The background purge of [WithPurgeInterval]; see purge.go.
-	logger       *slog.Logger
-	purgeEvery   time.Duration
-	purgeMu      sync.Mutex
-	purgeStarted bool
-	purgeStopped bool
-	purgeCancel  context.CancelFunc
-	purgeDone    chan struct{}
+	qualifier string
+	purge     *purgeloop.Loop
 }
 
 // statements are the fixed queries, rendered once for the dialect.
@@ -116,11 +113,13 @@ func New[P any](db *sql.DB, d Dialect, opts ...Option) (*Store[P], error) {
 		codec:          o.codec,
 		retention:      o.resolvedRetention,
 		purgeBatchSize: o.purgeBatchSize,
-		logger:         o.logger,
+		qualifier:      sqldialect.Qualifier(o.tableName),
 	}
-	if o.resolvedRetention > 0 {
-		s.purgeEvery = o.purgeInterval
+	every := o.purgeInterval
+	if o.resolvedRetention <= 0 {
+		every = 0
 	}
+	s.purge = purgeloop.New(every, s.PurgeExpired, o.logger, "resolved retry items")
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}
@@ -134,8 +133,9 @@ func (s *Store[P]) buildStatements() statements {
 	insert := "INSERT INTO " + t + " (" + columns + ") VALUES (?, ?, " + pending + ", ?, 0, ?, 0, 0, FALSE, '', ?)"
 	// The read-back of Mark follows an insert that found the key taken. A
 	// locking read on MySQL sees the latest committed row even inside a caller
-	// transaction whose snapshot predates it; PostgreSQL reads it anyway under
-	// READ COMMITTED.
+	// transaction whose snapshot predates it. PostgreSQL reads it under READ
+	// COMMITTED; at REPEATABLE READ or SERIALIZABLE, an insert committed after
+	// the caller's snapshot causes a serialization error (SQLSTATE 40001).
 	getMark := sel + " WHERE id = ?"
 	if s.dialect.name == DialectPostgres {
 		insert += " ON CONFLICT (id) DO NOTHING"
@@ -148,7 +148,7 @@ func (s *Store[P]) buildStatements() statements {
 	if s.dialect.name == DialectMySQL {
 		// MySQL cannot select from the table a statement modifies.
 		purge = "DELETE FROM " + t + " WHERE state = " + resolved + " AND resolved_at <> 0 AND resolved_at <= " +
-			s.dialect.nowNanos + " - ? LIMIT " + strconv.Itoa(s.purgeBatchSize)
+			s.dialect.nowNanos + " - ? ORDER BY resolved_at LIMIT " + strconv.Itoa(s.purgeBatchSize)
 	}
 	return statements{
 		get:     b(sel + " WHERE id = ?"),
@@ -218,8 +218,11 @@ func (s *Store[P]) q(ctx context.Context) querier {
 // DO NOTHING on PostgreSQL, a plain INSERT whose duplicate-key error is
 // absorbed on MySQL — and, when the key was taken, a read of the stored item.
 // Of concurrent first marks the database lets exactly one insert. Inside a
-// caller transaction on PostgreSQL a taken key leaves the transaction usable;
-// on MySQL a duplicate-key error rolls back only its statement.
+// caller transaction on PostgreSQL at READ COMMITTED a taken key leaves the
+// transaction usable. At REPEATABLE READ or SERIALIZABLE, if the key was
+// inserted by a transaction that committed after the caller's snapshot, Mark
+// fails with a serialization error (SQLSTATE 40001); retry the whole
+// transaction. On MySQL a duplicate-key error rolls back only its statement.
 func (s *Store[P]) Mark(ctx context.Context, item retryqueue.Item[P]) (retryqueue.Item[P], error) {
 	if err := checkKey(item.Key); err != nil {
 		return retryqueue.Item[P]{}, err
@@ -228,7 +231,7 @@ func (s *Store[P]) Mark(ctx context.Context, item retryqueue.Item[P]) (retryqueu
 	if err != nil {
 		return retryqueue.Item[P]{}, err
 	}
-	s.startPurge(ctx)
+	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
 	q := s.q(ctx)
 	for range markAttempts {
 		inserted, err := s.insert(ctx, q, item, payload)
@@ -256,7 +259,7 @@ func (s *Store[P]) insert(ctx context.Context, q querier, item retryqueue.Item[P
 	res, err := q.ExecContext(ctx, s.stmts.insert, s.dialect.textArg(item.Key), item.Generation,
 		unixNano(item.Since), unixNano(item.NextAttemptAt), payload)
 	if err != nil {
-		if s.dialect.name == DialectMySQL && isDuplicateKey(err) {
+		if s.dialect.name == DialectMySQL && sqldialect.IsDuplicateKey(err) {
 			return false, nil
 		}
 		return false, err
@@ -265,10 +268,13 @@ func (s *Store[P]) insert(ctx context.Context, q querier, item retryqueue.Item[P
 	return n > 0, err
 }
 
-// Reopen implements [retryqueue.Storage] with one UPDATE that replaces every
+// Reopen implements [retryqueue.Storage] with an UPDATE that replaces every
 // column of the matched row, so nothing of the previous generation survives.
 // When no row matched (the item is newer, already pending at item's
-// generation, or missing) it falls back to [Store.Mark].
+// generation, or missing) it falls back to [Store.Mark]. If Mark returns an
+// older generation or a closed item at the same generation, it retries the
+// update, for at most two rounds. Persistent contention returns the last
+// stored item; the caller compares generations per the Storage contract.
 func (s *Store[P]) Reopen(ctx context.Context, item retryqueue.Item[P]) (retryqueue.Item[P], error) {
 	if err := checkKey(item.Key); err != nil {
 		return retryqueue.Item[P]{}, err
@@ -277,17 +283,27 @@ func (s *Store[P]) Reopen(ctx context.Context, item retryqueue.Item[P]) (retryqu
 	if err != nil {
 		return retryqueue.Item[P]{}, err
 	}
-	// A matched row always changes (its generation or its state), so the
-	// affected-rows count is exact whatever the MySQL found-rows flag.
-	n, err := s.exec(ctx, s.stmts.reopen, item.Generation, unixNano(item.Since), unixNano(item.NextAttemptAt), payload,
-		s.dialect.textArg(item.Key), item.Generation, item.Generation)
-	if err != nil {
-		return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "reopen retry item")
+	var out retryqueue.Item[P]
+	for range reopenAttempts {
+		// A matched row always changes (its generation or its state), so the
+		// affected-rows count is exact whatever the MySQL found-rows flag.
+		n, err := s.exec(ctx, s.stmts.reopen, item.Generation, unixNano(item.Since), unixNano(item.NextAttemptAt), payload,
+			s.dialect.textArg(item.Key), item.Generation, item.Generation)
+		if err != nil {
+			return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "reopen retry item")
+		}
+		if n > 0 {
+			return s.fresh(item, payload)
+		}
+		out, err = s.Mark(ctx, item)
+		if err != nil {
+			return retryqueue.Item[P]{}, err
+		}
+		if out.Generation > item.Generation || (out.Generation == item.Generation && out.State == retryqueue.StatePending) {
+			return out, nil
+		}
 	}
-	if n > 0 {
-		return s.fresh(item, payload)
-	}
-	return s.Mark(ctx, item)
+	return out, nil
 }
 
 // ListDue implements [retryqueue.Storage].
@@ -378,9 +394,24 @@ func (s *Store[P]) ListByState(ctx context.Context, state retryqueue.State, limi
 }
 
 // Requeue implements [retryqueue.Storage]. Keys are listed at most
-// [keyChunk] per statement; a longer list runs as several statements, each
-// atomic on its own.
+// [keyChunk] per statement; a longer list runs atomically in one transaction,
+// using the caller's transaction when present and starting one otherwise.
 func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (int, error) {
+	if _, inTx := s.q(ctx).(*sql.Tx); !inTx && len(keys) > keyChunk {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return 0, coreerrs.WrapOperation(err, "begin requeue retry items")
+		}
+		defer func() { _ = tx.Rollback() }()
+		n, err := s.Requeue(WithTx(ctx, tx), now, keys...)
+		if err != nil {
+			return 0, err
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, coreerrs.WrapOperation(err, "commit requeue retry items")
+		}
+		return n, nil
+	}
 	at := unixNano(now)
 	if len(keys) == 0 {
 		n, err := s.exec(ctx, s.dialect.bind(s.stmts.requeue), at, at)
@@ -437,7 +468,7 @@ func (s *Store[P]) Move(ctx context.Context, from, to string) error {
 	}
 	n, err := s.exec(ctx, s.stmts.move, s.dialect.textArg(to), s.dialect.textArg(from))
 	switch {
-	case err != nil && isDuplicateKey(err):
+	case err != nil && sqldialect.IsDuplicateKey(err):
 		return fmt.Errorf("move %q to %q: %w: %w", from, to, retryqueue.ErrItemExists, err)
 	case err != nil:
 		return coreerrs.WrapOperation(err, "move retry item")
@@ -456,34 +487,27 @@ func (s *Store[P]) Move(ctx context.Context, from, to string) error {
 // [WithPurgeInterval]. Without a retention it deletes nothing and performs
 // no I/O. An item resolved at the zero time is never purged. It deletes in
 // batches bounded by WithPurgeBatchSize; concurrent purges take disjoint
-// chunks on PostgreSQL.
+// chunks on PostgreSQL. Each statement is bounded by
+// purgeloop.DefaultStepTimeout (30 seconds).
 func (s *Store[P]) PurgeExpired(ctx context.Context) (int64, error) {
 	if s.retention <= 0 {
 		return 0, nil
 	}
-	var total int64
-	for {
-		if err := ctx.Err(); err != nil {
-			return total, coreerrs.WrapOperation(err, "purge resolved retry items")
-		}
-		res, err := s.q(ctx).ExecContext(ctx, s.stmts.purge, s.retention.Nanoseconds())
-		var n int64
-		if err == nil {
-			n, err = res.RowsAffected()
-		}
-		total += n
-		if err != nil {
-			return total, coreerrs.WrapOperation(err, "purge resolved retry items")
-		}
-		if n < int64(s.purgeBatchSize) {
-			return total, nil
-		}
-	}
+	total, err := purgeloop.Drain(ctx, s.purgeBatchSize, purgeloop.DefaultStepTimeout,
+		func(ctx context.Context) (int64, int64, error) {
+			res, err := s.q(ctx).ExecContext(ctx, s.stmts.purge, s.retention.Nanoseconds())
+			if err != nil {
+				return 0, 0, err
+			}
+			n, err := res.RowsAffected()
+			return n, n, err
+		})
+	return total, coreerrs.WrapOperation(err, "purge resolved retry items")
 }
 
 // exec runs a statement and returns its affected-rows count.
 func (s *Store[P]) exec(ctx context.Context, query string, args ...any) (int64, error) {
-	s.startPurge(ctx)
+	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
 	res, err := s.q(ctx).ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err

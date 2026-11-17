@@ -102,7 +102,12 @@ func TestTTLAndCAS(t *testing.T) {
 	for _, d := range dialects {
 		t.Run(string(d), func(t *testing.T) {
 			t.Parallel()
-			db, fake := testhelpers.NewFakeSQL(t, nil)
+			db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
+				if strings.HasPrefix(q, "SELECT `key`") {
+					return testhelpers.FakeSQLReply{Columns: []string{"key"}, Rows: [][]driver.Value{{[]byte("k")}}}
+				}
+				return testhelpers.FakeSQLReply{Affected: 1}
+			})
 			s, err := sqldb.New(db, d, sqldb.WithTTL(time.Hour), sqldb.WithPurgeInterval(0))
 			require.NoError(t, err)
 			_, _, _, err = s.AttemptLockWithTTL(t.Context(), "k", []byte("v"), -time.Second)
@@ -252,14 +257,61 @@ func TestEnsureSchema(t *testing.T) {
 				require.Len(t, c, 3)
 				require.Contains(t, c[0].Query, "pg_advisory_xact_lock")
 				require.Contains(t, c[1].Query, `VARCHAR(255) COLLATE "C" PRIMARY KEY`)
-				require.Contains(t, c[2].Query, "CREATE INDEX IF NOT EXISTS")
+				require.Equal(t, `CREATE INDEX IF NOT EXISTS "idempotency_keys_expires_key_idx" ON "idempotency_keys" (expires_at, key)`, c[2].Query)
 				require.Equal(t, 1, fake.Commits())
 			} else {
-				require.Len(t, c, 1)
+				require.Len(t, c, 3)
+				require.Equal(t, []any{nil, "idempotency_keys"}, c[1].Args)
+				require.Equal(t, "ALTER TABLE `idempotency_keys` ADD INDEX `idempotency_keys_expires_key_idx` (expires_at, `key`)", c[2].Query)
 				require.Contains(t, c[0].Query, "VARBINARY(1020)")
 				require.Contains(t, c[0].Query, "LONGBLOB")
-				require.Contains(t, c[0].Query, "INDEX `idempotency_keys_expires_idx` (expires_at)")
+				require.Contains(t, c[0].Query, "INDEX `idempotency_keys_expires_key_idx` (expires_at, `key`)")
 			}
 		})
 	}
+}
+
+func TestMySQLPurgeRechecksExpiryAndDrainsSelectedBatches(t *testing.T) {
+	t.Parallel()
+	selected := 0
+	db, fake := testhelpers.NewFakeSQL(t, func(q string, args []any) testhelpers.FakeSQLReply {
+		if strings.HasPrefix(q, "SELECT") {
+			selected++
+			if selected == 1 {
+				return testhelpers.FakeSQLReply{Columns: []string{"key"}, Rows: [][]driver.Value{{[]byte("a")}, {[]byte("b")}}}
+			}
+			return testhelpers.FakeSQLReply{Columns: []string{"key"}, Rows: [][]driver.Value{{[]byte("c")}}}
+		}
+		// A renewal raced the first unlocked selection, so only one of its two
+		// selected keys is deleted. A full selection must still continue draining.
+		return testhelpers.FakeSQLReply{Affected: 1}
+	})
+	s, err := sqldb.New(db, sqldb.DialectMySQL, sqldb.WithPurgeBatchSize(2), sqldb.WithPurgeInterval(0))
+	require.NoError(t, err)
+	tx, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	n, err := s.PurgeExpired(sqldb.WithTx(t.Context(), tx))
+	require.NoError(t, err)
+	require.EqualValues(t, 2, n)
+	calls := fake.Calls()
+	require.Len(t, calls, 4)
+	require.Equal(t, "SELECT `key` FROM `idempotency_keys` WHERE expires_at <= UTC_TIMESTAMP(6) ORDER BY expires_at, `key` LIMIT ?", calls[0].Query)
+	require.Equal(t, []any{int64(2)}, calls[0].Args)
+	require.Equal(t, "DELETE FROM `idempotency_keys` WHERE `key` IN (?, ?) AND expires_at <= UTC_TIMESTAMP(6)", calls[1].Query)
+	require.Equal(t, []any{[]byte("a"), []byte("b")}, calls[1].Args)
+	require.Equal(t, []any{[]byte("c")}, calls[3].Args)
+	require.Equal(t, 2, selected)
+	require.Equal(t, 2, fake.RowsClosed())
+	for _, call := range calls {
+		require.True(t, call.InTx, "explicit purging joins WithTx")
+	}
+}
+
+func TestPostgresPurgeSkipsLockedRows(t *testing.T) {
+	t.Parallel()
+	s, fake := newStore(t, sqldb.DialectPostgres, nil)
+	_, err := s.PurgeExpired(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, fake.Calls()[0].Query, "LIMIT $1 FOR UPDATE SKIP LOCKED")
 }

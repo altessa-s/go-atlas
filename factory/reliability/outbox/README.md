@@ -40,35 +40,38 @@ driver. A configured type without its dependency fails at `Build` with `factory/
 
 ### Dependencies
 
-| Method                      | Description                                                                                                                     |
-|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------|
-| `UseLogger`                 | Sets the logger for the builder and all created components                                                                      |
-| `UseDefaultLogger`          | Sets the logger to `slog.Default()`                                                                                             |
-| `UseScheduler`              | Sets the task scheduler for background dispatch, unlock, expire, cleanup, and stats cycles                                      |
-| `UseOutboxOptions(opts...)` | Adds code-supplied `outbox.Option` values applied after the configuration (they win on overlap), e.g. `outbox.WithShouldRetry` |
-| `UseStorage(typ, build)`    | Registers the `StorageFunc` of a storage type (`mongo`); it receives the config and the builder's logger; a nil function fails  |
-| `UseSQLDB(db)`              | Injects the `*sql.DB` of the `sqldb` storage; the caller owns it and registers the driver                                      |
-| `UseSQLListener(l)`         | Injects the `outboxsql.Listener` the `sqldb` store watches through with `watch: notify`                                        |
-| `UseShutdownHooks(g)`       | Scope the started watcher is stopped by; defaults to the process-wide registry (`go-atlas-core/runtime.OnShutdown`)            |
+| Method                      | Description                                                                                |
+|-----------------------------|--------------------------------------------------------------------------------------------|
+| `UseLogger`                 | Sets the logger for the builder and all created components                                 |
+| `UseDefaultLogger`          | Sets the logger to `slog.Default()`                                                        |
+| `UseScheduler`              | Sets the task scheduler for background dispatch, unlock, expire, cleanup, and stats cycles |
+| `UseOutboxOptions(opts...)` | Adds `outbox.Option` values after config, e.g. `outbox.WithShouldRetry`                    |
+| `UseStorage(typ, build)`    | Registers a storage builder (`mongo`); nil functions fail                                  |
+| `UseSQLDB(db)`              | Injects the `*sql.DB` of the `sqldb` storage; the caller owns it and registers the driver  |
+| `UseSQLListener(l)`         | Injects the `outboxsql.Listener` the `sqldb` store watches through with `watch: notify`    |
+| `UseShutdownHooks(g)`       | Sets the watcher shutdown scope; defaults to the process-wide registry                     |
 
 ### Terminal
 
-| Method                | Description                                                                                                                         |
-|-----------------------|-------------------------------------------------------------------------------------------------------------------------------------|
-| `Build(ctx, handler)` | Validates `storage` and `watch`, builds the configured store, creates the outbox and registers its tasks; `nil, nil` when disabled |
+| Method                | Description                                                                                          |
+|-----------------------|------------------------------------------------------------------------------------------------------|
+| `Build(ctx, handler)` | Validates config, builds the store and outbox, and registers tasks; returns `nil, nil` when disabled |
 
 The sqldb store creates the events table only with `storage.sqldb.ensureSchema: true` (otherwise it must exist). `Save` must run on the business
 transaction via `outboxsql.WithTx`.
 
 ## Watch
 
-With `watch: changeStream` (mongo) or `watch: notify` (sqldb, postgres dialect) `Build` starts `outbox.Outbox.Watch` in its own goroutine once the
-tasks are registered, on a context detached from the build context, and registers a shutdown hook that stops it and waits for it to return. `notify`
-also makes the sqldb store signal the channel derived from its table in every saving transaction (`outboxsql.WithNotify`). A store that cannot serve
-the watch — a standalone mongod — is logged at warn level and dispatch stays on the schedule, which runs in every mode.
+With `watch: changeStream` (mongo) or `watch: notify` (sqldb, postgres dialect), a nonempty dispatch schedule and `UseScheduler` are required. `Build`
+starts `outbox.Outbox.Watch` in its own goroutine whenever it returns a non-nil outbox, including when task registration fails. The watcher runs on a
+context detached from the build context; a shutdown hook stops it and waits for it to return. `notify` also makes each SQL insert signal in the same
+statement. The channel is derived from the table unless `storage.sqldb.notifyChannel` overrides it. Custom names are case-sensitive; quote mixed-case
+names in psql `LISTEN`. A store that cannot serve the watch — a standalone mongod — is logged at warn level and dispatch stays on the schedule. Polling
+remains necessary for retry backoffs and unlock sweeps.
 
 ## Outbox startup
 
 The `ctx` passed to `Build` bounds the startup I/O (schema creation, task registration). The builder calls `RegisterTasks` before returning. A scheduler
-registration failure returns both a non-nil outbox and an error, and no watcher is started. Retain that instance to retry `RegisterTasks(ctx)`;
-callbacks already installed remain inactive until all configured tasks are registered. Do not start serving traffic while registration is incomplete.
+registration failure returns both a non-nil outbox and an error; the configured watcher is already started. Retain that instance to retry
+`RegisterTasks(ctx)`; callbacks already installed remain inactive until all configured tasks are registered. Do not start serving traffic while
+registration is incomplete.

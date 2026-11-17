@@ -6,11 +6,18 @@ package sqldb
 
 import (
 	"context"
+	"strings"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
+
+// indexes defines every secondary index for both dialects and schema repair.
+var indexes = [...]struct{ suffix, columns string }{
+	{"lease", "status, lease_until"},
+	{"deadline", "status, deadline"},
+}
 
 // EnsureSchema creates the instances table and its recovery indexes if they do
 // not exist, and adds indexes missing from an existing table. It is
@@ -32,19 +39,22 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, s.mysqlSchema()); err != nil {
 		return coreerrs.WrapOperation(err, "create saga schema")
 	}
-	indexes := []sqldialect.MySQLIndex{
-		{Name: s.dialect.IndexName(s.tableName, "lease"), Columns: "status, lease_until"},
-		{Name: s.dialect.IndexName(s.tableName, "deadline"), Columns: "status, deadline"},
+	indexesToEnsure := make([]sqldialect.MySQLIndex, 0, len(indexes))
+	for _, ix := range indexes {
+		indexesToEnsure = append(indexesToEnsure, sqldialect.MySQLIndex{
+			Name: s.dialect.IndexName(s.tableName, ix.suffix), Columns: ix.columns,
+		})
 	}
-	return coreerrs.WrapOperation(sqldialect.AddMissingMySQLIndexes(ctx, s.db, s.schema, s.tableName, indexes), "create saga indexes")
+	return coreerrs.WrapOperation(sqldialect.AddMissingMySQLIndexes(ctx, s.db, s.schema, s.tableName, indexesToEnsure), "create saga indexes")
 }
 
 // postgresSchema lists the PostgreSQL DDL. Timestamps are Unix nanoseconds, 0
 // for the zero time, so LeaseUntil keeps full precision.
 func (s *Store) postgresSchema() []string {
 	t := s.table
-	return []string{
-		`CREATE TABLE IF NOT EXISTS ` + t + ` (
+	stmts := make([]string, 0, 1+len(indexes))
+	stmts = append(stmts,
+		`CREATE TABLE IF NOT EXISTS `+t+` (
   id            VARCHAR(255) COLLATE "C" PRIMARY KEY,
   definition    TEXT    NOT NULL DEFAULT '',
   status        TEXT    NOT NULL DEFAULT '',
@@ -59,10 +69,11 @@ func (s *Store) postgresSchema() []string {
   lease_until   BIGINT  NOT NULL DEFAULT 0,
   version       BIGINT  NOT NULL DEFAULT 0,
   last_error    TEXT    NOT NULL DEFAULT ''
-)`,
-		`CREATE INDEX IF NOT EXISTS ` + s.dialect.IndexName(s.tableName, "lease") + ` ON ` + t + ` (status, lease_until)`,
-		`CREATE INDEX IF NOT EXISTS ` + s.dialect.IndexName(s.tableName, "deadline") + ` ON ` + t + ` (status, deadline)`,
+)`)
+	for _, ix := range indexes {
+		stmts = append(stmts, `CREATE INDEX IF NOT EXISTS `+s.dialect.IndexName(s.tableName, ix.suffix)+` ON `+t+` (`+ix.columns+`)`)
 	}
+	return stmts
 }
 
 // mysqlSchema declares every string column as a binary type. The ID width is
@@ -70,6 +81,10 @@ func (s *Store) postgresSchema() []string {
 // takes. MySQL has no CREATE INDEX IF NOT EXISTS, so the indexes are declared
 // inline.
 func (s *Store) mysqlSchema() string {
+	var inline strings.Builder
+	for _, ix := range indexes {
+		inline.WriteString(",\n  INDEX " + s.dialect.IndexName(s.tableName, ix.suffix) + " (" + ix.columns + ")")
+	}
 	return `CREATE TABLE IF NOT EXISTS ` + s.table + ` (
   id            VARBINARY(1020) NOT NULL PRIMARY KEY,
   definition    MEDIUMBLOB      NOT NULL,
@@ -84,8 +99,6 @@ func (s *Store) mysqlSchema() string {
   lease_owner   MEDIUMBLOB      NOT NULL,
   lease_until   BIGINT          NOT NULL DEFAULT 0,
   version       BIGINT          NOT NULL DEFAULT 0,
-  last_error    LONGBLOB        NOT NULL,
-  INDEX ` + s.dialect.IndexName(s.tableName, "lease") + ` (status, lease_until),
-  INDEX ` + s.dialect.IndexName(s.tableName, "deadline") + ` (status, deadline)
+  last_error    LONGBLOB        NOT NULL` + inline.String() + `
 ) ENGINE=InnoDB`
 }

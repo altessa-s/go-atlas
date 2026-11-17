@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	retryqueuefactory "github.com/altessa-s/go-atlas/factory/reliability/retryqueue"
@@ -46,11 +47,11 @@ func Builder[P any](db *mongo.Database) retryqueuefactory.StorageFunc[P] {
 			mongostore.WithResolvedRetention(m.ResolvedRetention),
 		)
 		if err != nil {
-			return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "create retry queue mongo store: %w", err)
+			return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "create retry queue mongo store: %w", err)
 		}
 		if m.EnsureIndexes {
 			if err := store.EnsureIndexes(ctx); err != nil {
-				return nil, fmt.Errorf("ensure retry queue indexes: %w", err)
+				return nil, corefactory.Errorf(coreerrs.ErrUnavailable, "ensure retry queue indexes: %w", err)
 			}
 		}
 		return store, nil

@@ -35,8 +35,8 @@ func WithCodec(v serializer.Serializer) Option {
 
 // WithLogger sets the logger option.
 //
-// logger receives the background purge's failures, recovered panics and
-// counts. The default discards them.
+// logger receives the background purge's failures and recovered panics.
+// The default discards them.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
 		if v == nil {

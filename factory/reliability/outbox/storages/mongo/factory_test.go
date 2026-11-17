@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -44,6 +45,8 @@ func TestBuilder_RequiresDependency(t *testing.T) {
 
 	require.ErrorIs(t, build(t.Context(), factory.Builder(nil)), factory.ErrDatabaseRequired)
 	require.ErrorIs(t, build(t.Context(), factory.CollectionBuilder(nil)), factory.ErrCollectionRequired)
+	require.ErrorIs(t, build(t.Context(), factory.Builder(nil)), corefactory.ErrDependencyRequired)
+	require.ErrorIs(t, build(t.Context(), factory.CollectionBuilder(nil)), corefactory.ErrDependencyRequired)
 }
 
 // Index creation runs on the build context, so a canceled startup fails the

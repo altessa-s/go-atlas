@@ -66,7 +66,7 @@ return tx.Commit()
 ```
 
 Only `SaveEvents` uses the context transaction. Without one, a batch is still all-or-nothing: a single `INSERT`, or its own transaction when the batch
-spans several statements or `WithNotify` adds its signal.
+spans several statements. With `WithNotify`, each chunk inserts and signals in one CTE statement, so a single chunk needs no explicit transaction.
 
 ## Server clock
 
@@ -151,14 +151,19 @@ type Listener interface {
 ```
 
 `Listen` returns once the subscription is active; its channel receives a value per notification (a burst may collapse into one) and closes when the
-subscription ends. With `WithListener` the store implements `outbox.Watcher`: `Store.Watch` subscribes to `NotifyChannel()`, wakes the dispatcher per
-signal, and resubscribes with an exponential backoff (1s up to 30s) when the subscription fails or ends, followed by one synthetic wake-up for what it
-missed. Without a listener `Outbox.Watch` returns `outbox.ErrWatchUnsupported` and dispatch runs on the poll schedule, which stays configured in every
-case.
+subscription ends. A successful `Listen` must return a non-nil channel; nil is retried as a closed subscription. With `WithListener` the store
+implements `outbox.Watcher`: `Store.Watch` subscribes to `NotifyChannel()`, wakes the dispatcher per signal, and resubscribes with an exponential
+backoff (1s up to 30s) when the subscription fails or ends, followed by one synthetic wake-up for what it missed. Without a listener `Outbox.Watch`
+returns `outbox.ErrWatchUnsupported` and dispatch runs on the poll schedule, which stays configured in every case.
 
-The sending side is `WithNotify`: every save runs `SELECT pg_notify($1, '')` in the transaction that inserts the events — the caller's from `WithTx`,
-or the store's own — so the signal is delivered on commit and never for a rollback, and every process writing the table signals every listener. The
-channel defaults to the table name, lowered, with a schema qualifier joined by `_` (`app.Events` → `app_events`).
+The sending side is `WithNotify`: each insert chunk uses `WITH ins AS (INSERT ... RETURNING 1) SELECT pg_notify(?, '') FROM ins LIMIT 1`, binding the
+channel last. The insert and signal share one statement, so a single chunk needs no explicit transaction. A caller transaction from `WithTx` still
+controls commit, and larger batches use the store's own transaction. The signal arrives on commit and never for a rollback. Every process writing the
+table signals every listener. The default channel is the lower-case table name with a schema qualifier joined by `_` (`app.Events` → `app_events`).
+`WithNotifyChannel` overrides it; names are case-sensitive because `pg_notify` does not fold case. Quote mixed-case channel names in psql `LISTEN`.
+
+PostgreSQL serializes the commits of all transactions that issued `NOTIFY` on a database-wide notify-queue lock. Under high write rates, notify costs
+commit throughput; polling (`watch: polling`) is the fallback.
 
 An adapter over pgx, one dedicated connection per subscription:
 
@@ -204,5 +209,5 @@ take the listener from `UseSQLListener`, and start the watcher.
 ## Testing
 
 The [`storagetest`](../storagetest) contract suite and the outbox integration scenarios in
-[`tests/integration/outboxit`](../../../../tests/integration/outboxit) run against PostgreSQL, MariaDB and MySQL as well as MongoDB; the `Watch` contract
-runs on PostgreSQL through a pgx listener.
+[`tests/integration/outboxit`](../../../../tests/integration/outboxit) run against PostgreSQL, MariaDB and MySQL as well as MongoDB; the `Watch`
+contract runs on PostgreSQL through a pgx listener.

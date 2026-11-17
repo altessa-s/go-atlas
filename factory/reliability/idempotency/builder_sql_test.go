@@ -71,6 +71,7 @@ func TestSQLDependencies(t *testing.T) {
 	cfg.Storage.SQL = nil
 	_, err = factory.New(cfg).UseSQLDB(db).Build()
 	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
+	require.Contains(t, err.Error(), "idempotency storage.sql")
 }
 
 func TestSQLBuild(t *testing.T) {
@@ -126,8 +127,10 @@ func TestSQLBuildFailures(t *testing.T) {
 	cfg.Storage.SQL.Dialect = "oracle"
 	_, err = factory.New(cfg).UseSQLDB(db).Build()
 	require.ErrorIs(t, err, sqldb.ErrUnsupportedDialect)
+	require.Contains(t, err.Error(), "create SQL idempotency storage")
 	cfg = sqlConfig()
 	cfg.Storage.SQL.Table = "bad;table"
 	_, err = factory.New(cfg).UseSQLDB(db).Build()
 	require.ErrorIs(t, err, sqldb.ErrInvalidTableName)
+	require.Contains(t, err.Error(), "create SQL idempotency storage")
 }

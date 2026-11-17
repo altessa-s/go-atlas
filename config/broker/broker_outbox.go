@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
+	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -84,6 +85,10 @@ const (
 // wrapped with go-atlas-core ErrInvalidArgument.
 var ErrUnsupportedOutboxWatch = errors.New("outbox watch mode is not supported by the storage")
 
+// ErrOutboxWatchNeedsSchedule reports a push watch mode without a dispatch
+// schedule. Retry backoffs and unlock sweeps still require polling.
+var ErrOutboxWatchNeedsSchedule = errors.New("outbox watch requires a dispatch schedule")
+
 // OutboxMongoStorageConfig configures the MongoDB outbox store
 // (reliability/outbox/storages/mongo).
 type OutboxMongoStorageConfig struct {
@@ -108,6 +113,9 @@ type OutboxSQLStorageConfig struct {
 	// Table is the table that stores outbox events, optionally
 	// schema-qualified.
 	Table string `yaml:"table" default:"events_outbox"`
+	// NotifyChannel overrides the PostgreSQL notification channel for watch notify.
+	// Empty derives a lower-case channel from the table name. Names are case-sensitive.
+	NotifyChannel string `yaml:"notifyChannel"`
 	// EnsureSchema makes the factory create the events table and its indexes
 	// while building the outbox, through the store's idempotent EnsureSchema.
 	// Leave it false when the schema is applied through migrations.
@@ -118,7 +126,8 @@ type OutboxSQLStorageConfig struct {
 func (c *OutboxSQLStorageConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
-		validation.Field(&c.Table, validation.Required),
+		validation.Field(&c.Table, validation.Required, validators.SQLTableName),
+		validation.Field(&c.NotifyChannel, validators.SQLIdentifier),
 	)
 }
 
@@ -316,12 +325,16 @@ func (c *Outbox) Normalize() {
 // ValidateStorage validates the storage section and the watch mode alone — the
 // part of [Outbox.Validate] the outbox factories check before building the
 // store. A watch mode the storage cannot serve fails with
-// [ErrUnsupportedOutboxWatch].
+// [ErrUnsupportedOutboxWatch]. A push mode without a dispatch schedule fails
+// with [ErrOutboxWatchNeedsSchedule].
 func (c *Outbox) ValidateStorage() error {
 	err := validationconfig.ValidateStruct(c,
 		validation.Field(&c.Storage, validation.Required),
 		validation.Field(&c.Watch, validation.When(c.Watch != "", ozzo_rules.OneOf(OutboxWatchPolling, OutboxWatchChangeStream, OutboxWatchNotify))),
 	)
+	if (c.Watch == OutboxWatchChangeStream || c.Watch == OutboxWatchNotify) && c.DispatchSchedule == "" {
+		err = errors.Join(err, cfgerrors.Invalidf("outbox watch %q: %w", c.Watch, ErrOutboxWatchNeedsSchedule))
+	}
 	if c.Storage != nil && !c.Storage.supportsWatch(c.Watch) {
 		err = errors.Join(err, cfgerrors.Invalidf("outbox watch %q with storage %q: %w", c.Watch, c.Storage.Type, ErrUnsupportedOutboxWatch))
 	}

@@ -99,7 +99,8 @@ func TestUseStorage(t *testing.T) {
 	var called bool
 	registered := func(ctx context.Context, got *sagaconfig.StorageConfig) (saga.Storage, error) {
 		require.NotNil(t, ctx)
-		require.Same(t, cfg.Storage, got)
+		require.NotSame(t, cfg.Storage, got)
+		require.Equal(t, cfg.Storage, got)
 		called = true
 		return memorystore.New(), nil
 	}
@@ -194,4 +195,16 @@ func TestBuildSQLHonorsContext(t *testing.T) {
 	_, err := sagafactory.New(&cfg, orderDef()).UseSQLDB(db).Build(ctx)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Empty(t, fake.Calls())
+}
+
+func TestBuildDoesNotNormalizeCallerConfig(t *testing.T) {
+	t.Parallel()
+	cfg := sagaconfig.Default()
+	cfg.Storage = &sagaconfig.StorageConfig{Type: sagaconfig.StorageTypeMemory}
+	before, storageBefore := cfg, *cfg.Storage
+	orch, err := sagafactory.New(&cfg, orderDef()).Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, orch)
+	require.Equal(t, before, cfg)
+	require.Equal(t, storageBefore, *cfg.Storage)
 }

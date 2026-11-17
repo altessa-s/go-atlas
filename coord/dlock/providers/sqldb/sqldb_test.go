@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	"github.com/altessa-s/go-atlas/coord/dlock/providers"
 	"github.com/altessa-s/go-atlas/coord/dlock/providers/sqldb"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -160,7 +161,9 @@ func TestEnsureSchema(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, l.EnsureSchema(t.Context()))
 		calls := fake.Calls()
-		require.Len(t, calls, 2)
+		require.Len(t, calls, 3)
+		require.Equal(t, `CREATE INDEX IF NOT EXISTS "dlocks_expires_idx" ON "dlocks" (expires_at)`, calls[2].Query)
+		require.True(t, calls[2].InTx)
 		require.Contains(t, calls[0].Query, "pg_advisory_xact_lock")
 		require.Contains(t, calls[1].Query, `CREATE TABLE IF NOT EXISTS "dlocks"`)
 		require.Contains(t, calls[1].Query, `lock_key    VARCHAR(255) COLLATE "C" PRIMARY KEY`)
@@ -168,10 +171,14 @@ func TestEnsureSchema(t *testing.T) {
 	t.Run("mysql", func(t *testing.T) {
 		t.Parallel()
 		db, fake := testhelpers.NewFakeSQL(t, nil)
-		l, err := sqldb.New(db, sqldb.DialectMySQL)
+		l, err := sqldb.New(db, sqldb.DialectMySQL, sqldb.WithTableName("app.locks"))
 		require.NoError(t, err)
 		require.NoError(t, l.EnsureSchema(t.Context()))
-		q := fake.Calls()[0].Query
+		calls := fake.Calls()
+		require.Len(t, calls, 3)
+		require.Equal(t, []any{"app", "locks"}, calls[1].Args)
+		require.Equal(t, "ALTER TABLE `app`.`locks` ADD INDEX `locks_expires_idx` (expires_at)", calls[2].Query)
+		q := calls[0].Query
 		require.Contains(t, q, "lock_key    VARBINARY(1020) NOT NULL PRIMARY KEY")
 		require.NotRegexp(t, `\b(VARCHAR|TEXT)\b`, q)
 	})
@@ -227,7 +234,7 @@ func TestNew_HardLeaseAndCleanupValidation(t *testing.T) {
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 
 	_, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithExpiredCleanup(-time.Second))
-	require.Error(t, err, "a negative cleanup grace is refused")
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument, "a negative cleanup grace is refused")
 	_, err = sqldb.New(db, sqldb.DialectPostgres, sqldb.WithExpiredCleanup(0))
 	require.NoError(t, err, "a zero grace deletes rows as soon as their lease ended")
 	_, err = sqldb.New(db, sqldb.DialectPostgres, sqldb.WithoutRenewal(), sqldb.WithRenewRatio(1))
@@ -274,8 +281,8 @@ func TestPurgeExpired(t *testing.T) {
 		q := calls[0].Query
 		require.Contains(t, q, `DELETE FROM "dlocks" WHERE lock_key IN (SELECT lock_key FROM "dlocks" WHERE expires_at <= CAST(`)
 		require.Contains(t, q, "clock_timestamp()")
-		require.Contains(t, q, "LIMIT 4 FOR UPDATE SKIP LOCKED")
-		require.Equal(t, []any{int64(1_500_000)}, calls[0].Args)
+		require.Contains(t, q, "LIMIT $2 FOR UPDATE SKIP LOCKED")
+		require.Equal(t, []any{int64(1_500_000), int64(4)}, calls[0].Args)
 	})
 	t.Run("mysql", func(t *testing.T) {
 		t.Parallel()
@@ -293,9 +300,9 @@ func TestPurgeExpired(t *testing.T) {
 		calls := fake.Calls()
 		require.Len(t, calls, 2, "a short batch ends the sweep")
 		require.Contains(t, calls[0].Query, "UTC_TIMESTAMP(6)")
-		require.Contains(t, calls[0].Query, "LIMIT 4")
+		require.Contains(t, calls[0].Query, "LIMIT ?")
 		require.NotContains(t, calls[0].Query, "FOR UPDATE")
-		require.Equal(t, []any{int64(1_500_000)}, calls[0].Args)
+		require.Equal(t, []any{int64(1_500_000), int64(4)}, calls[0].Args)
 		require.Contains(t, calls[1].Query, "DELETE FROM `dlocks` WHERE lock_key IN (?, ?) AND expires_at <= ")
 		require.Equal(t, []any{[]byte("a"), []byte("b"), int64(1_500_000)}, calls[1].Args)
 	})

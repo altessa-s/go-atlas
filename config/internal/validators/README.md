@@ -15,5 +15,15 @@ Internal package `validators` provides custom [ozzo-validation](https://github.c
 Validates that MongoDB `DirectConnect` is not enabled when using multiple hosts or SRV connection strings.
 
 The rule rejects `DirectConnect=true` when:
+
 - Multiple hosts are specified
 - Any host uses the `mongodb+srv://` scheme
+
+### SQL names
+
+| Rule            | Accepted names                                                                        |
+|-----------------|---------------------------------------------------------------------------------------|
+| `SQLTableName`  | Plain identifier, optionally qualified by one schema; each part at most 63 characters |
+| `SQLIdentifier` | Plain identifier without a qualifier, at most 63 characters                           |
+
+Both rules accept `[A-Za-z_][A-Za-z0-9_]*` and let empty strings pass; pair with `validation.Required` when needed.

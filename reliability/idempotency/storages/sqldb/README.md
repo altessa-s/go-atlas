@@ -53,8 +53,10 @@ if err := store.EnsureSchema(ctx); err != nil {
 keeper := idempotency.New(store, idempotency.WithMaxLockDuration(time.Minute))
 ```
 
-PostgreSQL schema creation uses the shared advisory-lock DDL helper. MySQL creates indexes inline with `CREATE TABLE IF NOT EXISTS`; apply migrations to
-repair an existing table's missing index. `EnsureSchema` runs directly on the database and does not join `WithTx`.
+PostgreSQL schema creation uses the shared advisory-lock DDL helper. Both dialects use `<table>_expires_key_idx` on `(expires_at, key)` for cleanup.
+MySQL declares it inline in `CREATE TABLE IF NOT EXISTS` and reconciles missing indexes by name on existing tables. PostgreSQL uses `CREATE INDEX IF NOT
+EXISTS`. Older `<table>_expires_idx` indexes may remain and can be dropped after the composite index is present. `EnsureSchema` runs directly on the
+database and does not join `WithTx`.
 
 ## Acquisition and ownership
 
@@ -116,3 +118,7 @@ go test -C tests/integration -race -count=1 -p 1 -v ./idempotencyit/...
 ```
 
 Inspect verbose output for `--- SKIP`: unreachable backends skip and must not be reported as passed.
+
+Each purge statement is bounded by a 30-second timeout. PostgreSQL selects its delete batch with `FOR UPDATE SKIP LOCKED`. MySQL selects an ordered
+batch of keys without locking, then deletes those keys while repeating the expiry condition so renewed keys survive. A full selection continues the pass
+even when concurrent renewals reduce the deleted count. Background contexts carry no request values or transactions; explicit purges join `WithTx`.

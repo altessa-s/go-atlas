@@ -51,6 +51,10 @@ var ErrInvalidPayload = errors.New("retryqueue mongo: invalid payload type")
 // once, and the repeated upsert then returns the winner's item.
 const markAttempts = 2
 
+// reopenAttempts bounds the replace-then-mark rounds of Reopen when a writer
+// inserts an older or closed item between the two statements.
+const reopenAttempts = 2
+
 // Query and update operators the store reuses.
 const (
 	opOr    = "$or"    // Logical disjunction.
@@ -180,24 +184,36 @@ func (s *Store[P]) Mark(ctx context.Context, item retryqueue.Item[P]) (retryqueu
 // Reopen implements [retryqueue.Storage] by replacing the matched document
 // with a fresh one in a single write, so every stored payload field is
 // replaced (a field the new payload's encoding omits is gone) and nothing of
-// the previous generation survives.
+// the previous generation survives. When no document matches, it falls back
+// to [Store.Mark]. If Mark returns an older generation or a closed item at
+// the same generation, it retries the replacement, for at most two rounds.
+// Persistent contention returns the last stored item; the caller compares
+// generations per the Storage contract.
 func (s *Store[P]) Reopen(ctx context.Context, item retryqueue.Item[P]) (retryqueue.Item[P], error) {
 	filter := bson.M{fID: item.Key, opOr: bson.A{
 		bson.M{fGeneration: bson.M{"$lt": item.Generation}},
 		bson.M{fGeneration: bson.M{"$exists": false}},
 		bson.M{fGeneration: item.Generation, fState: bson.M{opNe: string(retryqueue.StatePending)}},
 	}}
-	out, err := s.decodeOne(s.coll.FindOneAndReplace(ctx, filter, freshDoc(item),
-		mongoOptions.FindOneAndReplace().SetReturnDocument(mongoOptions.After)))
-	switch {
-	case err == nil:
-		return out, nil
-	case !errors.Is(err, mongo.ErrNoDocuments):
-		return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "reopen retry item")
+	var out retryqueue.Item[P]
+	for range reopenAttempts {
+		got, err := s.decodeOne(s.coll.FindOneAndReplace(ctx, filter, freshDoc(item),
+			mongoOptions.FindOneAndReplace().SetReturnDocument(mongoOptions.After)))
+		switch {
+		case err == nil:
+			return got, nil
+		case !errors.Is(err, mongo.ErrNoDocuments):
+			return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "reopen retry item")
+		}
+		out, err = s.Mark(ctx, item)
+		if err != nil {
+			return retryqueue.Item[P]{}, err
+		}
+		if out.Generation > item.Generation || (out.Generation == item.Generation && out.State == retryqueue.StatePending) {
+			return out, nil
+		}
 	}
-	// Nothing to move: the item is newer or already pending at item's
-	// generation, or missing (Mark inserts it, or returns the current one).
-	return s.Mark(ctx, item)
+	return out, nil
 }
 
 // ListDue implements [retryqueue.Storage].

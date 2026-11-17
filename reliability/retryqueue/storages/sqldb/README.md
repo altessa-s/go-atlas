@@ -37,7 +37,7 @@ item key, the payload `P` encoded by a codec. The caller owns the `*sql.DB` and 
 | `WithResolvedRetention`     | off               | How long `PurgeExpired` keeps a resolved item; off keeps resolved items until deleted      |
 | `WithPurgeInterval`         | 1 minute          | Runs `PurgeExpired` in the background at this interval (needs a retention)                 |
 | `WithPurgeBatchSize`        | 1000              | Maximum rows per purge statement                                                           |
-| `WithLogger`                | discard           | Receives the background purge's failures, recovered panics and counts                      |
+| `WithLogger`                | discard           | Receives the background purge's failures and recovered panics                              |
 
 ## Table
 
@@ -72,8 +72,13 @@ return tx.Commit()
 
 `Move` looks up `from` (`ErrItemNotFound`) and `to` (`ErrItemExists`) before writing, so a refusal leaves the transaction usable; only a concurrent
 insert of `to` between the check and the `UPDATE` fails the rename with a duplicate key, reported as `ErrItemExists`, which aborts a PostgreSQL
-transaction. `Mark` absorbs a taken key without an error on PostgreSQL (`ON CONFLICT DO NOTHING`) and, on MySQL, rolls back only its own statement; its
-read-back is a locking read on MySQL so a transaction whose snapshot predates the winner still sees it.
+transaction. `Mark` absorbs a taken key without an error on PostgreSQL at READ COMMITTED (`ON CONFLICT DO NOTHING`) and, on MySQL, rolls back only its
+own statement; its read-back is a locking read on MySQL so a transaction whose snapshot predates the winner still sees it. Inside a caller transaction
+at REPEATABLE READ or SERIALIZABLE on PostgreSQL, a `Mark` whose key was inserted by a transaction that committed after the caller's snapshot fails
+with a serialization error (SQLSTATE 40001); retry the whole transaction.
+
+`Requeue` lists at most 1000 keys per statement; a longer list runs all its statements in one transaction, the `WithTx` one or its own, so it moves
+all or none of the items.
 
 ## Retention
 
@@ -81,12 +86,19 @@ MongoDB purges resolved items with a TTL index; SQL has none. With `WithResolved
 sweep, or from your scheduler), or add `WithPurgeInterval(d)` and let the store run it: the loop starts with the first write call (`New` starts no
 goroutine), logs failures to `WithLogger`, recovers a panicking purge and keeps going, and stops on `Close(ctx)`, which waits for a purge in progress
 within `ctx` and is idempotent. Each purge deletes, in batches bounded by `WithPurgeBatchSize` (default 1000 rows), the resolved items whose
-`ResolvedAt` is older than the retention, compared against the database clock at whole seconds, so replicas with skewed clocks agree. An item resolved
-at the zero time is never purged. Without a retention it does nothing.
+`ResolvedAt` is older than the retention. The cutoff uses the database clock at whole seconds, while `ResolvedAt` is the instant the caller passed to
+`Resolve` (its clock), so application-to-database clock skew shifts the effective retention by that skew. An item resolved at the zero time is never
+purged. Without a retention it does nothing.
 
 `WithPurgeInterval(0)` disables automatic purging while manual calls stay available. `PurgeExpired(ctx) (int64, error)` returns completed deletions even
 if a later batch fails. Background passes use the database outside any caller transaction. Close permanently stops the loop and waits within the
-context, including on repeated calls; an exited loop satisfies an ended context.
+context, including on repeated calls; an exited loop satisfies an ended context. Each statement is bounded by a 30-second timeout. PostgreSQL uses `FOR
+UPDATE SKIP LOCKED`; MySQL orders deletions by `resolved_at`. Background contexts carry no request values or transactions.
+
+## Schema
+
+`EnsureSchema` creates the table and the secondary indexes listed below. PostgreSQL adds missing indexes under its advisory DDL lock. MySQL/MariaDB
+creates indexes inline on new tables, then reconciles missing indexes by name on existing tables. Existing index definitions are left unchanged.
 
 ## Query audit
 

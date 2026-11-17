@@ -3,11 +3,12 @@
 // the LICENSE file.
 
 // Package validators provides custom validation rules for configuration fields.
-// Extends ozzo-validation with domain-specific validators for MongoDB, network addresses,
-// file paths, and certificates. Internal package; API may change without notice.
+// SQLTableName and SQLIdentifier validate SQL names through the shared dialect
+// parser. MongoDirectionConnect checks MongoDB connection settings.
+// Internal package; API may change without notice.
 //
-// Example:
+// # Usage
 //
-//	validation.Validate(mongoUri, validators.MongoURI())
-//	validation.Validate(path, validators.FileExists())
+//	validation.Validate(table, validators.SQLTableName)
+//	validation.Validate(channel, validators.SQLIdentifier)
 package validators

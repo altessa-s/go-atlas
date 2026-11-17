@@ -172,7 +172,7 @@ func TestCreateOutbox_RegisteredStorage(t *testing.T) {
 	}
 
 	_, err := factory.New(mongoConfig()).UseOutboxStorage(brokerconfig.OutboxStorageTypeMongo, nil).CreateOutbox(t.Context(), stubPublisher{})
-	require.Error(t, err)
+	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 
 	_, err = factory.New(mongoConfig()).CreateOutbox(t.Context(), stubPublisher{})
 	require.ErrorIs(t, err, corefactory.ErrNotRegistered)

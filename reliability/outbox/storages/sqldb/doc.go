@@ -57,8 +57,9 @@
 // pgx connection (see the README). With one, [Store.Watch] implements
 // [outbox.Watcher]; without one it reports [outbox.ErrWatchUnsupported] and
 // dispatch runs on the poll schedule. [WithNotify] makes every save signal
-// the channel with pg_notify inside the inserting transaction, so listeners
-// hear of an event when it commits. MySQL has neither: the options fail [New]
+// the channel with pg_notify in the same CTE statement as each insert chunk.
+// A single chunk needs no explicit transaction; listeners hear of an event
+// when it commits, never on rollback. MySQL has neither: the options fail [New]
 // with [ErrNotifyUnsupported].
 //
 // # Usage

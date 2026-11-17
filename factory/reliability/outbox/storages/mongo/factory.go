@@ -6,7 +6,7 @@ package factory
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log/slog"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 	outboxmongo "github.com/altessa-s/go-atlas/reliability/outbox/storages/mongo"
 )
@@ -21,10 +22,10 @@ import (
 var (
 	// ErrDatabaseRequired is returned when the MongoDB outbox storage is built
 	// without a database.
-	ErrDatabaseRequired = errors.New("outbox: mongo database is required")
+	ErrDatabaseRequired = fmt.Errorf("%w: outbox: mongo database is required", corefactory.ErrDependencyRequired)
 	// ErrCollectionRequired is returned when the MongoDB outbox storage is
 	// built without a collection.
-	ErrCollectionRequired = errors.New("outbox: mongo collection is required")
+	ErrCollectionRequired = fmt.Errorf("%w: outbox: mongo collection is required", corefactory.ErrDependencyRequired)
 )
 
 // Builder returns the storage function of the MongoDB outbox, ready for

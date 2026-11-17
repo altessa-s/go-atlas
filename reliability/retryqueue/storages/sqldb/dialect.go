@@ -5,9 +5,7 @@
 package sqldb
 
 import (
-	"errors"
 	"fmt"
-	"reflect"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 )
@@ -35,19 +33,11 @@ var (
 	// than [MaxKeyLength] characters. Rejecting it up front matters because
 	// PostgreSQL silently trims excess trailing spaces, which would make "k"
 	// and "k " (past the limit) the same row.
-	ErrValueTooLong = errors.New("sqldb: value exceeds its column length")
+	ErrValueTooLong = sqldialect.ErrValueTooLong
 )
 
 // MaxKeyLength bounds an item key, in characters.
 const MaxKeyLength = 255
-
-// Server error codes the store recognizes: a unique-key violation.
-const (
-	// sqlStateUniqueViolation is PostgreSQL's unique_violation SQLSTATE.
-	sqlStateUniqueViolation = "23505"
-	// mysqlDuplicateKey is MySQL's ER_DUP_ENTRY error number.
-	mysqlDuplicateKey = 1062
-)
 
 // dialect holds the per-flavor differences: identifier quoting, placeholder
 // style, how strings are bound, and the database clock.
@@ -87,36 +77,4 @@ func (d dialect) textArg(s string) any {
 		return s
 	}
 	return []byte(s)
-}
-
-// sqlStateError is the shape of the PostgreSQL drivers' server error.
-type sqlStateError interface {
-	error
-	SQLState() string
-}
-
-// isDuplicateKey reports whether err is a unique-key violation. The package
-// imports no SQL driver, so the code is read by shape: pgx and lib/pq expose
-// the SQLSTATE through a SQLState method, go-sql-driver/mysql exposes the
-// server error number only as the Number field of its error type.
-func isDuplicateKey(err error) bool {
-	if e, ok := errors.AsType[sqlStateError](err); ok {
-		return e.SQLState() == sqlStateUniqueViolation
-	}
-	return mysqlErrorNumber(err) == mysqlDuplicateKey
-}
-
-// mysqlErrorNumber returns the Number field of the first error in err's chain
-// that has one, as go-sql-driver/mysql's MySQLError does; 0 when none does.
-func mysqlErrorNumber(err error) uint16 {
-	for ; err != nil; err = errors.Unwrap(err) {
-		v := reflect.Indirect(reflect.ValueOf(err))
-		if v.Kind() != reflect.Struct {
-			continue
-		}
-		if f := v.FieldByName("Number"); f.IsValid() && f.Kind() == reflect.Uint16 {
-			return uint16(f.Uint()) //nolint:gosec // read from a uint16
-		}
-	}
-	return 0
 }

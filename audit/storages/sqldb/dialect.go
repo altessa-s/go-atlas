@@ -5,7 +5,6 @@
 package sqldb
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
@@ -37,7 +36,7 @@ var (
 	// ID, an oversized value would exceed a B-tree index entry, and MySQL
 	// without strict mode would truncate it, so a query by the original value
 	// would miss the event.
-	ErrValueTooLong = errors.New("sqldb: value exceeds its column length")
+	ErrValueTooLong = sqldialect.ErrValueTooLong
 )
 
 // MaxIDLength bounds an event ID, in characters.

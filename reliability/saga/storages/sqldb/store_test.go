@@ -176,7 +176,8 @@ func TestCreateConflictPostgres(t *testing.T) {
 
 func TestCreateFailureMySQL(t *testing.T) {
 	t.Parallel()
-	errDup := errors.New("Error 1062 (23000): Duplicate entry 'order' for key 'PRIMARY'")
+	errDup := &mysqlError{Number: 1062}
+	messageOnly := errors.New("Error 1062 (23000): Duplicate entry")
 	for _, tc := range []struct {
 		name string
 		err  error
@@ -184,6 +185,7 @@ func TestCreateFailureMySQL(t *testing.T) {
 	}{
 		{name: "duplicate", err: errDup, want: saga.ErrInstanceExists},
 		{name: "other error", err: errBoom, want: errBoom},
+		{name: "message only", err: messageOnly, want: messageOnly},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -355,3 +357,7 @@ func TestEnsureSchemaMySQLBinaryTypes(t *testing.T) {
 		require.Contains(t, q, want)
 	}
 }
+
+type mysqlError struct{ Number uint16 }
+
+func (*mysqlError) Error() string { return "MySQL server error" }

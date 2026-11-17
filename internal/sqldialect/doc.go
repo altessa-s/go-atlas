@@ -30,12 +30,13 @@
 // MariaDB tables by name, ignoring duplicate-index errors from concurrent
 // callers. [MySQLIndex] accepts names from [Style.IndexName] and trusted SQL
 // column lists. [MySQLErrorNumber] reads server error numbers without a SQL
-// driver dependency.
+// driver dependency, including joined error trees. [IsDuplicateKey] recognizes
+// PostgreSQL SQLSTATE 23505 and MySQL error number 1062 by driver error shape.
 //
 // # Errors
 //
-// [ErrUnsupportedDialect] and [ErrInvalidTableName] are re-exported by each
-// storage package, so errors.Is matches across them.
+// [ErrUnsupportedDialect], [ErrInvalidTableName] and [ErrValueTooLong] are
+// re-exported by the applicable storage packages, so errors.Is matches across them.
 //
 // # Usage
 //

@@ -68,10 +68,6 @@ var (
 	_ outbox.Watcher           = (*Store)(nil)
 )
 
-// notifyStatement signals the notification channel; inside a transaction
-// PostgreSQL delivers it on commit, once however often it ran.
-const notifyStatement = "SELECT pg_notify($1, '')"
-
 // statements are the fixed queries, rendered once for the dialect.
 type statements struct {
 	fetchPending, fetchFailed, unlock, stuck, deleteProcessed, update, expire, stats string
@@ -218,8 +214,9 @@ type execer interface {
 
 // SaveEvents inserts new events on the transaction carried by ctx (see
 // [WithTx]), or on the database otherwise. A batch larger than one INSERT is
-// still all-or-nothing: without a caller transaction it runs in its own, as
-// does every save with [WithNotify], whose signal shares the transaction.
+// still all-or-nothing: without a caller transaction it runs in its own.
+// With [WithNotify], each INSERT signals in the same statement; a single
+// chunk needs no explicit transaction.
 //
 // An event without a CreatedAt is stamped with the database clock; see
 // [Store.SaveEventsWithTTL] for the expiry counterpart.
@@ -240,7 +237,7 @@ func (s *Store) SaveEventsWithTTL(ctx context.Context, ttl time.Duration, events
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
 		return s.insert(ctx, tx, ttl, events)
 	}
-	if len(events) <= saveChunk && !s.notify {
+	if len(events) <= saveChunk {
 		return s.insert(ctx, s.db, ttl, events)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -293,18 +290,17 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 			}
 			rows.WriteString(")")
 		}
-		query := d.bind("INSERT INTO " + s.table + " (id, topic, payload, status, created_at, attempts, error, expires_at) VALUES " + rows.String())
+		query := "INSERT INTO " + s.table + " (id, topic, payload, status, created_at, attempts, error, expires_at) VALUES " + rows.String()
+		if s.notify {
+			query = "WITH ins AS (" + query + " RETURNING 1) SELECT pg_notify(?, '') FROM ins LIMIT 1"
+			args = append(args, s.channel)
+		}
+		query = d.bind(query)
 		if _, err := ex.ExecContext(ctx, query, args...); err != nil {
 			return coreerrs.WrapOperation(err, "insert outbox events")
 		}
 	}
-	if !s.notify {
-		return nil
-	}
-	// In the inserting transaction: the signal is delivered on commit, and
-	// never for a rollback.
-	_, err := ex.ExecContext(ctx, notifyStatement, s.channel)
-	return coreerrs.WrapOperation(err, "notify outbox channel")
+	return nil
 }
 
 // FetchUnprocessedEvents locks and returns up to batchSize events that are

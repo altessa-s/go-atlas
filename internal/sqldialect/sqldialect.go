@@ -21,6 +21,8 @@ var (
 	// identifier, optionally qualified by one schema name, or whose parts
 	// exceed [MaxIdentLen].
 	ErrInvalidTableName = errors.New("sqldb: invalid table name")
+	// ErrValueTooLong reports a value exceeding its column length.
+	ErrValueTooLong = errors.New("sqldb: value exceeds its column length")
 )
 
 // MaxIdentLen is the shorter of PostgreSQL's (63) and MySQL's (64) identifier

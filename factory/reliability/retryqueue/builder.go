@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -69,12 +70,17 @@ func (b *Builder[P]) Build(ctx context.Context) (retryqueue.Storage[P], error) {
 	if b.cfg == nil {
 		return nil, corefactory.ErrConfigRequired
 	}
-	b.cfg.Normalize()
-	if err := b.cfg.Validate(); err != nil {
+	cfg := *b.cfg
+	if cfg.Storage != nil {
+		st := *cfg.Storage
+		cfg.Storage = &st
+	}
+	cfg.Normalize()
+	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate retry queue config: %w", err)
 	}
 
-	storage := b.cfg.Storage
+	storage := cfg.Storage
 	switch storage.Type {
 	case retryqueueconfig.StorageTypeMemory:
 		return memorystore.New[P](), nil
@@ -112,7 +118,7 @@ func (b *Builder[P]) buildSQLStore(ctx context.Context, cfg *retryqueueconfig.SQ
 		sqlstore.WithLogger(b.Logger()),
 	)
 	if err != nil {
-		return nil, b.WrapError(err, "create retry queue SQL store")
+		return nil, corefactory.Errorf(coreerrs.ErrInvalidArgument, "create retry queue SQL store: %w", err)
 	}
 	if cfg.EnsureSchema {
 		schemaCtx, cancel := corecontext.WithMaxTimeout(ctx, ensureSchemaTimeout)

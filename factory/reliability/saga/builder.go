@@ -81,7 +81,16 @@ func (b *Builder[T]) Build(ctx context.Context) (*saga.Orchestrator[T], error) {
 		return nil, corefactory.Errorf(corefactory.ErrDependencyRequired, "definition is required")
 	}
 
-	b.cfg.Normalize()
+	cfg := *b.cfg
+	if cfg.Storage != nil {
+		storage := *cfg.Storage
+		cfg.Storage = &storage
+	}
+	cfg.Normalize()
+	// Keep the normalized configuration local to this build.
+	builder := *b
+	builder.cfg = &cfg
+	b = &builder
 	if err := b.cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate saga config: %w", err)
 	}

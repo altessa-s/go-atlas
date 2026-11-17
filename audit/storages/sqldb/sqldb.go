@@ -12,11 +12,11 @@ import (
 	"fmt"
 	"iter"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/internal/purgeloop"
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -45,13 +45,7 @@ type Storage struct {
 	// lastInsert caches the most recently rendered INSERT: dispatcher
 	// batches repeat their size, and rendering binds every placeholder.
 	lastInsert atomic.Pointer[insertStatement]
-	// purgeMu guards the background retention loop's lifecycle: with TTL > 0
-	// it starts with the first StoreBatch and stops for good at Close.
-	purgeMu      sync.Mutex
-	purgeStarted bool
-	purgeStopped bool
-	purgeCancel  context.CancelFunc
-	purgeDone    chan struct{}
+	purge      *purgeloop.Loop
 }
 
 // insertStatement is a rendered INSERT for a fixed number of rows.
@@ -90,6 +84,11 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Storage, error) {
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}
+	every := o.purgeInterval
+	if o.ttl <= 0 {
+		every = 0
+	}
+	s.purge = purgeloop.New(every, s.PurgeExpired, o.logger, "audit events")
 	return s, nil
 }
 
@@ -107,7 +106,7 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
-	s.startPurge(ctx)
+	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
 	args := make([]any, 0, len(events)*columnsPerRow)
 	for _, e := range events {
 		var err error
@@ -266,7 +265,7 @@ func (s *Storage) Count(ctx context.Context, query *audit.Query) (int64, error) 
 // returns ctx's error when the wait ends first. It is safe to call repeatedly
 // or concurrently. The caller still manages the *sql.DB lifecycle.
 func (s *Storage) Close(ctx context.Context) error {
-	return s.awaitPurge(ctx, s.stopPurge())
+	return s.purge.Close(ctx)
 }
 
 // where renders the filter of q as predicates with ? placeholders. Time bounds

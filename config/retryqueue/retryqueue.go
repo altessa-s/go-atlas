@@ -7,6 +7,8 @@ package retryqueueconfig
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/config/internal/validators"
+
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -102,7 +104,7 @@ type SQLStorageConfig struct {
 func (c *SQLStorageConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
-		validation.Field(&c.Table, validation.Required),
+		validation.Field(&c.Table, validation.Required, validators.SQLTableName),
 		validation.Field(&c.ResolvedRetention, validation.When(c.ResolvedRetention != 0, validationconfig.PositiveDuration())),
 		validation.Field(&c.PurgeInterval, validation.Min(time.Duration(0))),
 		validation.Field(&c.PurgeBatchSize, validation.Min(1)),

@@ -22,4 +22,4 @@ nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and co
 The template is [`templates/retryqueue.yaml`](../templates/retryqueue.yaml). See the [config index](../README.md) for the other schema packages.
 
 The sqldb block exposes purgeInterval (default "1m", "0s" disables the background loop) and purgeBatchSize (default 1000). Manual PurgeExpired remains
-available with a zero interval. Purging runs only when retention is enabled; idempotency keys always have their own expiry.
+available with a zero interval. Purging runs only when retention is enabled.

@@ -49,7 +49,6 @@ func TestPurgeExpiredDisabled(t *testing.T) {
 	db, fake := testhelpers.NewFakeSQL(t, nil)
 	s, err := New(db, DialectPostgres)
 	require.NoError(t, err)
-	require.Nil(t, s.purgeDone, "TTL zero starts no goroutine")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	n, err := s.PurgeExpired(ctx)
@@ -84,7 +83,7 @@ func TestPurgeExpiredBatches(t *testing.T) {
 			want := "DELETE FROM `app`.`events` WHERE ts_ms < ? ORDER BY ts_ms, id LIMIT ?"
 			if d == DialectPostgres {
 				want = `DELETE FROM "app"."events" WHERE id IN (SELECT id FROM "app"."events"` +
-					` WHERE ts_ms < $1 ORDER BY ts_ms, id LIMIT $2)`
+					` WHERE ts_ms < $1 ORDER BY ts_ms, id LIMIT $2 FOR UPDATE SKIP LOCKED)`
 			}
 			for _, c := range statements {
 				require.Equal(t, want, c.Query)
@@ -157,13 +156,8 @@ func TestPurgeLoopRecoversAndCloseWaits(t *testing.T) {
 		wg.Go(func() { _ = s.Close(t.Context()) })
 	}
 	wg.Wait()
-	select {
-	case <-s.purgeDone:
-	default:
-		t.Fatal("Close returned before the retention goroutine exited")
-	}
-	require.Contains(t, logs.String(), "audit retention pass panicked")
-	require.Contains(t, logs.String(), "purge expired audit events failed")
+	require.Contains(t, logs.String(), "audit events purge panicked")
+	require.Contains(t, logs.String(), "failed to purge audit events")
 	// Closing retention leaves the caller's database usable.
 	require.NoError(t, db.PingContext(t.Context()))
 	before := len(fake.Calls())
@@ -189,15 +183,17 @@ func TestCloseCancelsPendingPurge(t *testing.T) {
 	t.Parallel()
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 	db.SetMaxOpenConns(1)
-	s, err := New(db, DialectMySQL, WithTTL(time.Hour), WithPurgeInterval(time.Hour))
+	s, err := New(db, DialectMySQL, WithTTL(time.Hour), WithPurgeInterval(time.Millisecond))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close(context.WithoutCancel(t.Context()))) })
 	conn, err := db.Conn(t.Context())
 	require.NoError(t, err)
 	defer conn.Close()
-	// Start the loop without touching the one connection the test holds.
-	s.opts.purgeInterval = time.Millisecond
-	s.startPurge(t.Context())
+	// The first write starts retention even when its own context is canceled;
+	// it cannot use the connection this test holds.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, s.Store(ctx, retentionEvent("canceled")), context.Canceled)
 	testhelpers.WaitFor(t, time.Second, func() bool { return db.Stats().WaitCount > 0 }, "purge waiting for connection")
 	closed := make(chan struct{})
 	go func() {
@@ -233,35 +229,24 @@ func TestPurgeLoopLifecycle(t *testing.T) {
 	})
 	s, err := New(db, DialectPostgres, WithTTL(time.Hour), WithPurgeInterval(time.Millisecond))
 	require.NoError(t, err)
-	require.Nil(t, s.purgeDone, "New starts no goroutine")
 	_, err = s.Count(t.Context(), &audit.Query{})
 	require.NoError(t, err)
 	require.NoError(t, s.StoreBatch(t.Context(), nil))
-	time.Sleep(20 * time.Millisecond)
-	require.Nil(t, s.purgeDone, "reads and empty batches do not start retention")
 	require.Zero(t, deletes.Load())
 
 	require.NoError(t, s.Store(t.Context(), retentionEvent("e1")))
-	done := s.purgeDone
-	require.NotNil(t, done)
 	require.NoError(t, s.Store(t.Context(), retentionEvent("e2")))
-	require.Equal(t, done, s.purgeDone, "a second store starts no second loop")
 	testhelpers.WaitFor(t, time.Second, func() bool { return deletes.Load() > 0 }, "retention runs once started")
 
 	require.NoError(t, s.Close(t.Context()))
-	select {
-	case <-done:
-	default:
-		t.Fatal("Close returned before the retention goroutine exited")
-	}
+	before := deletes.Load()
 	require.NoError(t, s.Store(t.Context(), retentionEvent("e3")))
-	require.Equal(t, done, s.purgeDone, "Store after Close does not restart retention")
+	require.Equal(t, before, deletes.Load())
 	require.NoError(t, s.Close(t.Context()), "Close is idempotent")
 
 	noTTL, err := New(db, DialectPostgres)
 	require.NoError(t, err)
 	require.NoError(t, noTTL.Store(t.Context(), retentionEvent("e4")))
-	require.Nil(t, noTTL.purgeDone, "without TTL nothing starts")
 	require.NoError(t, noTTL.Close(t.Context()))
 }
 
@@ -289,9 +274,4 @@ func TestCloseWaitIsBoundedByContext(t *testing.T) {
 	require.ErrorIs(t, s.Close(ctx), context.DeadlineExceeded)
 	close(unblock)
 	require.NoError(t, s.Close(t.Context()), "a later Close waits for the loop to exit")
-	select {
-	case <-s.purgeDone:
-	default:
-		t.Fatal("the retention goroutine did not exit")
-	}
 }

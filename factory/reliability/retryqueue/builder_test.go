@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -87,10 +88,14 @@ func TestUseStorage(t *testing.T) {
 	cfg := retryqueueconfig.Config{Storage: mongoStorage()}
 
 	_, err := retryqueuefactory.New[payload](&cfg).UseStorage(retryqueueconfig.StorageTypeMongo, nil).Build(t.Context())
-	require.Error(t, err)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 
 	failing := func(context.Context, *retryqueueconfig.StorageConfig) (retryqueue.Storage[payload], error) {
 		return nil, errBuild
+	}
+	for _, typ := range []retryqueueconfig.StorageType{retryqueueconfig.StorageTypeMemory, retryqueueconfig.StorageTypeSQL, "etcd"} {
+		_, err := retryqueuefactory.New[payload](&cfg).UseStorage(typ, failing).Build(t.Context())
+		require.ErrorIs(t, err, corefactory.ErrUnsupported)
 	}
 	_, err = retryqueuefactory.New[payload](&cfg).UseStorage(retryqueueconfig.StorageTypeMongo, failing).Build(t.Context())
 	require.ErrorIs(t, err, errBuild)
@@ -99,7 +104,8 @@ func TestUseStorage(t *testing.T) {
 	want := memorystore.New[payload]()
 	registered := func(ctx context.Context, got *retryqueueconfig.StorageConfig) (retryqueue.Storage[payload], error) {
 		require.NotNil(t, ctx)
-		require.Same(t, cfg.Storage, got)
+		require.Equal(t, cfg.Storage, got)
+		require.NotSame(t, cfg.Storage, got)
 		called = true
 		return want, nil
 	}
@@ -119,6 +125,14 @@ func TestBuildSQLRequiresDatabase(t *testing.T) {
 	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 }
 
+func TestBuildDoesNotMutateConfig(t *testing.T) {
+	t.Parallel()
+	cfg := retryqueueconfig.Config{Storage: &retryqueueconfig.StorageConfig{Type: retryqueueconfig.StorageTypeSQL}}
+	_, err := retryqueuefactory.New[payload](&cfg).Build(t.Context())
+	require.Error(t, err)
+	require.Nil(t, cfg.Storage.SQL)
+}
+
 func TestBuildSQLRejectsUnknownDialect(t *testing.T) {
 	t.Parallel()
 	db, _ := testhelpers.NewFakeSQL(t, nil)
@@ -131,8 +145,9 @@ func TestBuildSQLRejectsInvalidTable(t *testing.T) {
 	t.Parallel()
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 	cfg := sqlConfig(retryqueueconfig.SQLDialectPostgres, false)
-	cfg.Storage.SQL.Table = "a.b.c"
+	cfg.Storage.SQL.Table = "bad name;"
 	_, err := retryqueuefactory.New[payload](&cfg).UseSQLDB(db).Build(t.Context())
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 	require.ErrorIs(t, err, sqlstore.ErrInvalidTableName)
 }
 

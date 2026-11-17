@@ -13,10 +13,11 @@ import (
 )
 
 // EnsureSchema creates the table and expiry index. PostgreSQL DDL is serialized
-// under an advisory lock; MySQL declares its index inline. Run at startup or
+// under an advisory lock; MySQL declares its index inline and reconciles missing
+// indexes on existing tables. Run at startup or
 // apply equivalent DDL through migrations. It does not join WithTx.
 func (s *Storage) EnsureSchema(ctx context.Context) error {
-	index := s.dialect.IndexName(s.name, "expires")
+	index := s.dialect.IndexName(s.name, "expires_key")
 	if s.dialect.name == DialectPostgres {
 		ddl := []string{
 			`CREATE TABLE IF NOT EXISTS ` + s.table + ` (
@@ -25,7 +26,7 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
   expires_at TIMESTAMPTZ NOT NULL,
   revision   BIGINT NOT NULL DEFAULT 0
 )`,
-			`CREATE INDEX IF NOT EXISTS ` + index + ` ON ` + s.table + ` (expires_at)`,
+			`CREATE INDEX IF NOT EXISTS ` + index + ` ON ` + s.table + ` (expires_at, key)`,
 		}
 		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.name}, ddl), "create idempotency schema")
 	}
@@ -34,7 +35,11 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
   val        LONGBLOB NOT NULL,
   expires_at DATETIME(6) NOT NULL,
   revision   BIGINT NOT NULL DEFAULT 0,
-  INDEX `+index+` (expires_at)
+  INDEX `+index+` (expires_at, `+s.dialect.Ident("key")+`)
 ) ENGINE=InnoDB`)
-	return coreerrs.WrapOperation(err, "create idempotency schema")
+	if err != nil {
+		return coreerrs.WrapOperation(err, "create idempotency schema")
+	}
+	return coreerrs.WrapOperation(sqldialect.AddMissingMySQLIndexes(ctx, s.db, s.qualifier, s.name,
+		[]sqldialect.MySQLIndex{{Name: index, Columns: "expires_at, " + s.dialect.Ident("key")}}), "create idempotency indexes")
 }

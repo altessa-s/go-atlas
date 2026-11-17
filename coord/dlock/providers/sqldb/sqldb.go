@@ -9,15 +9,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
-	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
 	"github.com/altessa-s/go-atlas/coord/dlock/providers"
 	"github.com/altessa-s/go-atlas/coord/dlock/providers/internal/leasing"
+	"github.com/altessa-s/go-atlas/internal/purgeloop"
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -47,19 +45,10 @@ type Locker struct {
 	s            *store
 	engine       *leasing.Engine
 	engineClosed atomic.Bool
-	logger       *slog.Logger
 	// opTimeout bounds one cleanup statement.
 	opTimeout time.Duration
 
-	// sweepMu guards the background sweep's lifecycle: it starts with the
-	// first Lock and stops for good at Close.
-	sweepMu      sync.Mutex
-	sweepStarted bool
-	sweepStopped bool
-	cancelSweep  context.CancelFunc
-	sweepDone    chan struct{}
-	// sweepEvery is the sweep period; a field so tests can shorten it.
-	sweepEvery time.Duration
+	sweep *purgeloop.Loop
 }
 
 // store implements [leasing.Store] on the locks table.
@@ -68,6 +57,7 @@ type store struct {
 	dialect   dialect
 	table     string // quoted
 	tableName string // unqualified, for the DDL lock
+	qualifier string // optional schema, for MySQL index reconciliation
 	stmts     statements
 	ttl       time.Duration
 	// cleanup enables [WithExpiredCleanup]; graceUs is its grace in
@@ -130,24 +120,28 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Locker, error) {
 		return nil, err
 	}
 	if o.expiredCleanup && o.expiredCleanupGrace < 0 {
-		return nil, errors.New("sqldb dlock: expired cleanup grace must not be negative")
+		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "sqldb dlock: expired cleanup grace must not be negative")
 	}
 	s := &store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), ttl: ttl,
-		cleanup: o.expiredCleanup, graceUs: o.expiredCleanupGrace.Microseconds(), purgeBatchSize: o.purgeBatchSize}
+		qualifier: sqldialect.Qualifier(o.tableName), cleanup: o.expiredCleanup, graceUs: o.expiredCleanupGrace.Microseconds(), purgeBatchSize: o.purgeBatchSize}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}
 	s.stmts = s.buildStatements()
-	return &Locker{
+	l := &Locker{
 		s: s,
 		engine: leasing.New(s, leasing.Settings{
 			Logger: o.logger, TTL: ttl, Interval: interval, OperationsTimeout: o.operationsTimeout,
 			NoRenewal: o.withoutRenewal,
 		}),
-		logger:     o.logger,
-		opTimeout:  o.operationsTimeout,
-		sweepEvery: o.purgeInterval,
-	}, nil
+		opTimeout: o.operationsTimeout,
+	}
+	every := o.purgeInterval
+	if !o.expiredCleanup {
+		every = 0
+	}
+	l.sweep = purgeloop.New(every, l.PurgeExpired, o.logger, "expired locks")
+	return l, nil
 }
 
 func (s *store) buildStatements() statements {
@@ -177,7 +171,7 @@ func (s *store) buildStatements() statements {
 		// statement started is rechecked against the condition when locked,
 		// so a lease taken meanwhile is not deleted.
 		st.deleteExpired = b("DELETE FROM "+t+" WHERE lock_key IN (SELECT lock_key FROM "+t+" WHERE "+expired+
-			" LIMIT "+strconv.Itoa(s.purgeBatchSize)+" FOR UPDATE SKIP LOCKED)", 1)
+			" LIMIT ? FOR UPDATE SKIP LOCKED)", 1)
 		// One statement: insert the key's row on first use, or take the lease
 		// over while it is expired. ON CONFLICT waits for a concurrent writer
 		// of the row and re-evaluates the condition after it; no row comes
@@ -203,7 +197,7 @@ func (s *store) buildStatements() statements {
 	// batch of keys without locking and deletes them through the primary key,
 	// which locks only those rows; the condition is repeated because the read
 	// took no lock.
-	st.expiredKeys = "SELECT lock_key FROM " + t + " WHERE " + expired + " LIMIT " + strconv.Itoa(s.purgeBatchSize)
+	st.expiredKeys = "SELECT lock_key FROM " + t + " WHERE " + expired + " LIMIT ?"
 	st.deleteExpired = "DELETE FROM " + t + " WHERE lock_key IN (%s) AND " + expired
 	return st
 }
@@ -221,7 +215,7 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	if n := utf8.RuneCountInString(key); n > MaxKeyLength {
 		return nil, fmt.Errorf("%w: %d characters, limit %d", ErrValueTooLong, n, MaxKeyLength)
 	}
-	l.startSweep(ctx)
+	l.sweep.Start() //nolint:contextcheck // Background purging carries no request context.
 	return l.engine.Lock(ctx, key)
 }
 
@@ -240,7 +234,7 @@ func (l *Locker) GetLockInfo(ctx context.Context, key string) (*providers.LockIn
 func (l *Locker) Close(ctx context.Context) error {
 	// The sweep is told to stop first, but waited for last, so a sweep that
 	// is slow to return never keeps held locks from being released.
-	done := l.stopSweep()
+	done := l.sweep.Stop()
 	var engineErr error
 	if !l.engineClosed.Load() {
 		engineErr = l.engine.Close(ctx)
@@ -248,7 +242,7 @@ func (l *Locker) Close(ctx context.Context) error {
 			l.engineClosed.Store(true)
 		}
 	}
-	return errors.Join(l.awaitSweep(ctx, done), engineErr)
+	return errors.Join(l.sweep.Wait(ctx, done), engineErr)
 }
 
 // Probe implements [providers.Prober]: it fails when the provider is closed

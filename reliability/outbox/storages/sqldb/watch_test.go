@@ -6,6 +6,8 @@ package sqldb_test
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -98,7 +100,7 @@ func TestNewNotifyValidation(t *testing.T) {
 func TestSaveEventsNotifies(t *testing.T) {
 	t.Parallel()
 
-	t.Run("own transaction", func(t *testing.T) {
+	t.Run("single statement without transaction", func(t *testing.T) {
 		t.Parallel()
 		db, fake := testhelpers.NewFakeSQL(t, ok)
 		store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithNotify())
@@ -107,12 +109,13 @@ func TestSaveEventsNotifies(t *testing.T) {
 		require.NoError(t, store.SaveEvents(t.Context(), pending("e1")))
 
 		calls := fake.Calls()
-		require.Len(t, calls, 2)
-		require.True(t, strings.HasPrefix(calls[0].Query, "INSERT"))
-		require.Equal(t, "SELECT pg_notify($1, '')", calls[1].Query)
-		require.Equal(t, []any{"events_outbox"}, calls[1].Args)
-		require.True(t, calls[0].InTx && calls[1].InTx, "the signal shares the insert's transaction")
-		require.Equal(t, 1, fake.Commits())
+		require.Len(t, calls, 1)
+		require.True(t, strings.HasPrefix(calls[0].Query, "WITH ins AS (INSERT INTO "))
+		require.Contains(t, calls[0].Query, " RETURNING 1) SELECT pg_notify($9, '') FROM ins LIMIT 1")
+		require.Equal(t, "events_outbox", calls[0].Args[len(calls[0].Args)-1])
+		require.False(t, calls[0].InTx, "no BEGIN for a single chunk")
+		require.Zero(t, fake.Commits())
+		require.Zero(t, fake.Rollbacks())
 	})
 
 	t.Run("caller transaction", func(t *testing.T) {
@@ -128,15 +131,17 @@ func TestSaveEventsNotifies(t *testing.T) {
 		require.NoError(t, tx.Rollback())
 
 		calls := fake.Calls()
-		require.Len(t, calls, 2)
-		require.Equal(t, []any{"wake"}, calls[1].Args)
-		require.True(t, calls[1].InTx)
+		require.Len(t, calls, 1)
+		require.True(t, strings.HasPrefix(calls[0].Query, "WITH ins AS (INSERT INTO "))
+		require.Contains(t, calls[0].Query, " RETURNING 1) SELECT pg_notify($9, '') FROM ins LIMIT 1")
+		require.Equal(t, "wake", calls[0].Args[len(calls[0].Args)-1])
+		require.True(t, calls[0].InTx)
 	})
 
 	t.Run("insert failure sends nothing", func(t *testing.T) {
 		t.Parallel()
 		db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
-			if strings.HasPrefix(q, "INSERT") {
+			if strings.HasPrefix(q, "WITH ins AS (INSERT") {
 				return testhelpers.FakeSQLReply{Err: errBoom}
 			}
 			return testhelpers.FakeSQLReply{Affected: 1}
@@ -146,7 +151,7 @@ func TestSaveEventsNotifies(t *testing.T) {
 
 		require.ErrorIs(t, store.SaveEvents(t.Context(), pending("e1")), errBoom)
 		require.Len(t, fake.Calls(), 1)
-		require.Equal(t, 1, fake.Rollbacks())
+		require.Zero(t, fake.Rollbacks())
 	})
 
 	t.Run("disabled", func(t *testing.T) {
@@ -159,6 +164,27 @@ func TestSaveEventsNotifies(t *testing.T) {
 		require.Len(t, fake.Calls(), 1)
 		require.Zero(t, fake.Commits(), "a single INSERT needs no transaction")
 	})
+}
+
+func TestSaveEventsNotifiesAcrossChunks(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, ok)
+	store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithNotify())
+	require.NoError(t, err)
+	events := make([]outbox.Event, 501) // One more than the INSERT chunk size.
+	for i := range events {
+		events[i] = pending(fmt.Sprint(i))
+	}
+	require.NoError(t, store.SaveEvents(t.Context(), events...))
+	calls := fake.Calls()
+	require.Len(t, calls, 2)
+	for _, call := range calls {
+		require.True(t, strings.HasPrefix(call.Query, "WITH ins AS (INSERT INTO "))
+		require.Contains(t, call.Query, fmt.Sprintf("SELECT pg_notify($%d, '') FROM ins LIMIT 1", len(call.Args)))
+		require.Equal(t, "events_outbox", call.Args[len(call.Args)-1])
+		require.True(t, call.InTx, "all chunks share one transaction")
+	}
+	require.Equal(t, 1, fake.Commits())
 }
 
 func TestWatchWithoutListenerIsUnsupported(t *testing.T) {
@@ -225,4 +251,155 @@ func TestWatchStopsOnCancelWhileRetrying(t *testing.T) {
 		require.NoError(t, <-done)
 		require.Len(t, listener.calls(), 1, "the failed attempt backs off before retrying")
 	})
+}
+
+// listenFunc scripts subscription edge cases without a live PostgreSQL server.
+type listenFunc func(context.Context, string) (<-chan struct{}, error)
+
+func (f listenFunc) Listen(ctx context.Context, channel string) (<-chan struct{}, error) {
+	return f(ctx, channel)
+}
+
+func TestWatchWakesAfterInitialListenFailures(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		listener := &fakeListener{subs: []chan struct{}{nil, nil, make(chan struct{})}}
+		db, _ := testhelpers.NewFakeSQL(t, ok)
+		store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithListener(listener))
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		var notified atomic.Int64
+		done := make(chan error, 1)
+		go func() { done <- store.Watch(ctx, func() { notified.Add(1) }) }()
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		require.Len(t, listener.calls(), 3)
+		require.Equal(t, int64(1), notified.Load(), "the first successful subscription covers the initial gap")
+		cancel()
+		require.NoError(t, <-done)
+	})
+}
+
+func TestWatchNilSubscriptionRetries(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		var calls atomic.Int64
+		listener := listenFunc(func(context.Context, string) (<-chan struct{}, error) {
+			if calls.Add(1) == 1 {
+				return nil, nil
+			}
+			return make(chan struct{}), nil
+		})
+		db, _ := testhelpers.NewFakeSQL(t, ok)
+		store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithListener(listener))
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		var notified atomic.Int64
+		done := make(chan error, 1)
+		go func() { done <- store.Watch(ctx, func() { notified.Add(1) }) }()
+		synctest.Wait()
+		require.Equal(t, int64(1), calls.Load(), "a nil subscription must back off")
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		require.Equal(t, int64(2), calls.Load())
+		require.Equal(t, int64(1), notified.Load())
+		cancel()
+		require.NoError(t, <-done)
+	})
+}
+
+func TestWatchBriefSignalingSubscriptionsKeepBackingOff(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		calls := make(chan time.Time, 9)
+		attempt := 0
+		listener := listenFunc(func(context.Context, string) (<-chan struct{}, error) {
+			attempt++
+			calls <- time.Now()
+			signals := make(chan struct{}, 1)
+			if attempt <= 8 {
+				signals <- struct{}{}
+				close(signals)
+			}
+			return signals, nil
+		})
+		db, _ := testhelpers.NewFakeSQL(t, ok)
+		store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithListener(listener))
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { done <- store.Watch(ctx, func() {}) }()
+		previous := <-calls
+		for i := range 8 {
+			next := <-calls
+			delay := next.Sub(previous)
+			base := time.Duration(float64(time.Second) * math.Pow(1.5, float64(i)))
+			require.GreaterOrEqual(t, delay, base)
+			require.LessOrEqual(t, delay, base+base/5)
+			previous = next
+		}
+		cancel()
+		require.NoError(t, <-done)
+	})
+}
+
+func TestWatchBackoffResetsOnlyAfterStableSignalingSubscription(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		deliver  bool
+		lifetime time.Duration
+		reset    bool
+	}{
+		{true, 29 * time.Second, false},
+		{true, 30 * time.Second, true},
+		{false, 30 * time.Second, false},
+	} {
+		t.Run(fmt.Sprintf("deliver=%v/lifetime=%s", tc.deliver, tc.lifetime), func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				calls := make(chan time.Time, 5)
+				signals := make(chan struct{}, 1)
+				attempt := 0
+				listener := listenFunc(func(context.Context, string) (<-chan struct{}, error) {
+					attempt++
+					calls <- time.Now()
+					if attempt <= 3 {
+						return nil, errBoom
+					}
+					if attempt == 4 {
+						return signals, nil
+					}
+					return make(chan struct{}), nil
+				})
+				db, _ := testhelpers.NewFakeSQL(t, ok)
+				store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithListener(listener))
+				require.NoError(t, err)
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				done := make(chan error, 1)
+				go func() { done <- store.Watch(ctx, func() {}) }()
+				for range 4 {
+					<-calls
+				}
+				if tc.deliver {
+					signals <- struct{}{}
+				}
+				time.Sleep(tc.lifetime)
+				closedAt := time.Now()
+				close(signals)
+				delay := (<-calls).Sub(closedAt)
+				base := 3375 * time.Millisecond // The fourth failure, unless reset.
+				if tc.reset {
+					base = time.Second
+				}
+				require.GreaterOrEqual(t, delay, base)
+				require.LessOrEqual(t, delay, base+base/5)
+				cancel()
+				require.NoError(t, <-done)
+			})
+		})
+	}
 }

@@ -268,7 +268,7 @@ func TestCreateOutbox_NotifyWatch(t *testing.T) {
 		return ch, nil
 	})
 	var hooks coreruntime.HookGroup
-	ob, err := factory.New(cfg).UseSQLDB(db).UseSQLListener(listener).UseShutdownHooks(&hooks).CreateOutbox(t.Context(), stubPublisher{})
+	ob, err := factory.New(cfg).UseScheduler(&testhelpers.MockTaskRegistrar{}).UseSQLDB(db).UseSQLListener(listener).UseShutdownHooks(&hooks).CreateOutbox(t.Context(), stubPublisher{})
 	require.NoError(t, err)
 	require.NotNil(t, ob)
 	require.Equal(t, "events_outbox", <-subscribed)

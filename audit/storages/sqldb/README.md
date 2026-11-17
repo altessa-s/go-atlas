@@ -49,8 +49,9 @@ written, so an index entry always fits and MySQL never truncates a value. `WithM
 
 `WithTTL(d)` expires events by their stored `ts_ms`, using the application clock minus `d`, consistent with the caller-supplied event timestamps. Rows
 exactly at the cutoff are retained. Each pass fixes one cutoff and drains expired rows through the existing `(ts_ms, id)` index: MySQL/MariaDB use
-`DELETE ... ORDER BY ts_ms, id LIMIT n`; PostgreSQL deletes IDs selected in timestamp order with `LIMIT n`. Each batch commits independently.
-`PurgeExpired(ctx)` returns completed deletions even if a later batch fails or the context ends; with TTL zero it returns `0, nil` without SQL.
+`DELETE ... ORDER BY ts_ms, id LIMIT n`; PostgreSQL deletes IDs selected in timestamp order with `LIMIT n FOR UPDATE SKIP LOCKED` so concurrent purges
+skip busy rows. Each batch commits independently, and each statement has a 30-second timeout. `PurgeExpired(ctx)` returns completed deletions even if a
+later batch fails or the context ends; with TTL zero it returns `0, nil` without SQL.
 
 Unlike [mongo](../mongo), which delegates expiration to a server TTL index, SQL cleanup runs only while a TTL-enabled storage is open. `New` starts no
 goroutine: the loop starts with the first `Store` or `StoreBatch` (reads and empty batches do not start it) and runs until `Close`. The default one-
@@ -58,7 +59,7 @@ minute interval limits polling overhead; expiration is asynchronous, so old rows
 logged and retried on the next pass. Create the schema before the first pass runs. Call `Close(ctx)` to stop the loop for good, cancel its in-flight SQL
 and wait within `ctx` for the goroutine to exit; it returns `ctx`'s error if the wait ends first, and a later Close waits again. Explicit `PurgeExpired`
 calls remain available after Close for external schedulers, and use their caller's context. Close does not wait for those explicit calls or close the
-database.
+database. Background passes carry no request values or transactions.
 
 ```go
 storage, err := auditsql.New(db, auditsql.DialectPostgres,

@@ -21,8 +21,8 @@
 // # Concurrency
 //
 // Create is insert-if-absent: ON CONFLICT DO NOTHING on PostgreSQL, a plain
-// INSERT on MySQL whose duplicate-key error (1062, read from the message as
-// go-sql-driver/mysql renders it) is reported as [saga.ErrInstanceExists];
+// INSERT on MySQL whose duplicate-key error (1062, read from the driver error's
+// Number field) is reported as [saga.ErrInstanceExists];
 // any other error is returned as is. Update is one UPDATE conditional on the
 // stored version,
 // so the database row lock serializes concurrent coordinators and exactly one

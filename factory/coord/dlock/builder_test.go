@@ -172,7 +172,7 @@ func TestBuild_SQLPurgeShutdownAndBatch(t *testing.T) {
 	require.Len(t, fake.Calls(), before, "purging cannot restart")
 	for _, call := range fake.Calls() {
 		if strings.HasPrefix(call.Query, "DELETE") {
-			require.Contains(t, call.Query, "LIMIT 7 FOR UPDATE SKIP LOCKED")
+			require.Equal(t, []any{int64(0), int64(7)}, call.Args, "configured batch size is bound")
 		}
 	}
 }

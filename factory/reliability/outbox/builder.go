@@ -71,12 +71,13 @@ func New(cfg *brokerconfig.Outbox) *OutboxBuilder {
 // registered with [OutboxBuilder.UseStorage].
 //
 // With watch set to changeStream or notify, the builder starts
-// [outbox.Outbox.Watch] in its own goroutine once the tasks are registered,
-// and stops it through the shutdown hook group (the process registry unless
+// [outbox.Outbox.Watch] in its own goroutine whenever a non-nil outbox is returned,
+// including when task registration fails, and stops it through the shutdown
+// hook group (the process registry unless
 // [OutboxBuilder.UseShutdownHooks] says otherwise). The notify mode makes the
 // sqldb store signal PostgreSQL on every save and listen through the
 // [outboxsql.Listener] given to [OutboxBuilder.UseSQLListener]. The poll
-// schedule keeps running in every mode.
+// schedule and an injected scheduler are required for both push watch modes.
 func (b *OutboxBuilder) Build(ctx context.Context, handler outbox.Handler) (*outbox.Outbox, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -88,9 +89,23 @@ func (b *OutboxBuilder) Build(ctx context.Context, handler outbox.Handler) (*out
 		return nil, nil //nolint:nilnil // a disabled outbox is not an error
 	}
 
-	b.cfg.Normalize()
+	cfg := *b.cfg
+	if cfg.Storage != nil {
+		storage := *cfg.Storage
+		cfg.Storage = &storage
+	}
+	cfg.Normalize()
+	// Keep the normalized configuration local to this build.
+	builder := *b
+	builder.cfg = &cfg
+	b = &builder
 	if err := b.cfg.ValidateStorage(); err != nil {
 		return nil, fmt.Errorf("validate outbox storage config: %w", err)
+	}
+
+	watch := cfg.Watch == brokerconfig.OutboxWatchChangeStream || cfg.Watch == brokerconfig.OutboxWatchNotify
+	if watch && b.scheduler == nil {
+		return nil, corefactory.Errorf(corefactory.ErrDependencyRequired, "scheduler is required when watch is %q", cfg.Watch)
 	}
 
 	store, err := b.buildStore(ctx)
@@ -99,13 +114,10 @@ func (b *OutboxBuilder) Build(ctx context.Context, handler outbox.Handler) (*out
 	}
 
 	ob, err := b.createOutboxWithStore(ctx, store, handler)
-	if err != nil {
-		return ob, err
-	}
-	if b.cfg.Watch == brokerconfig.OutboxWatchChangeStream || b.cfg.Watch == brokerconfig.OutboxWatchNotify {
+	if ob != nil && watch {
 		b.startWatch(ctx, ob)
 	}
-	return ob, nil
+	return ob, err
 }
 
 // buildStore constructs the [outbox.Storage] named by the storage type: the
@@ -146,6 +158,7 @@ func (b *OutboxBuilder) buildSQLStore(ctx context.Context, cfg *brokerconfig.Out
 
 	opts := []outboxsql.Option{outboxsql.WithTableName(cfg.Table), outboxsql.WithLogger(b.Logger())}
 	opts = slices.AppendIf(opts, notify, outboxsql.WithNotify(), outboxsql.WithListener(b.sqlListener))
+	opts = slices.AppendIf(opts, notify && cfg.NotifyChannel != "", outboxsql.WithNotifyChannel(cfg.NotifyChannel))
 	store, err := outboxsql.New(b.sqlDB, outboxsql.Dialect(cfg.Dialect), opts...)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create outbox store")

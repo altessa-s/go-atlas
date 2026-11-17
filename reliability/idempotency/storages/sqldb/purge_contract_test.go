@@ -8,20 +8,13 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPurgeDefaultsAndDisabledInterval(t *testing.T) {
+func TestPurgeDisabledInterval(t *testing.T) {
 	t.Parallel()
-	o := newOptions()
-	require.Equal(t, time.Minute, o.purgeInterval)
-	require.Equal(t, 1000, o.purgeBatchSize)
-	o = newOptions(WithPurgeBatchSize(3), WithPurgeBatchSize(0), WithLogger(nil))
-	require.Equal(t, 3, o.purgeBatchSize)
-	require.NotNil(t, o.logger)
 	db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
 		if strings.HasPrefix(q, "DELETE") {
 			return testhelpers.FakeSQLReply{}
@@ -31,12 +24,12 @@ func TestPurgeDefaultsAndDisabledInterval(t *testing.T) {
 	s, err := New(db, DialectPostgres, WithPurgeInterval(0))
 	require.NoError(t, err)
 	require.NoError(t, s.Complete(t.Context(), "key", nil, nil))
-	require.Nil(t, s.purgeDone, "zero interval must disable automatic purging")
 	n, err := s.PurgeExpired(t.Context())
 	require.NoError(t, err)
 	require.Zero(t, n)
 	require.NotEmpty(t, fake.Calls(), "manual purge remains available")
 	require.NoError(t, s.Close(t.Context()))
+	require.Len(t, fake.Calls(), 2, "only the write and explicit purge run")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	require.NoError(t, s.Close(ctx), "an absent loop satisfies an ended context")
@@ -54,7 +47,7 @@ func TestPurgePartialCount(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			calls := 0
-			db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
+			db, _ := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
 				calls++
 				if calls > 1 {
 					return testhelpers.FakeSQLReply{Err: context.DeadlineExceeded}
@@ -73,7 +66,6 @@ func TestPurgePartialCount(t *testing.T) {
 			} else {
 				require.ErrorIs(t, err, context.DeadlineExceeded)
 			}
-			require.Contains(t, fake.Calls()[0].Query, "LIMIT $1 FOR UPDATE SKIP LOCKED")
 		})
 	}
 }

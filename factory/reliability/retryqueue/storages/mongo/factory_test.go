@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/factory/reliability/retryqueue/storages/mongo"
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	retryqueuefactory "github.com/altessa-s/go-atlas/factory/reliability/retryqueue"
@@ -61,7 +62,7 @@ func TestBuilder_Errors(t *testing.T) {
 	bad.Storage.Mongo.FlagField = "state"
 	_, err = factory.Builder[payload](unreachable(t))(t.Context(), bad.Storage)
 	require.ErrorIs(t, err, retrymongo.ErrInvalidFlagField)
-	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }
 
 // Without ensureIndexes the build performs no I/O, so it succeeds against an
@@ -89,4 +90,5 @@ func TestBuilder_IndexCreationFailure(t *testing.T) {
 		UseStorage(retryqueueconfig.StorageTypeMongo, factory.Builder[payload](unreachable(t))).
 		Build(ctx)
 	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, coreerrs.ErrUnavailable)
 }

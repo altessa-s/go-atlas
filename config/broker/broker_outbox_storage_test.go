@@ -5,6 +5,7 @@
 package brokerconfig_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -97,4 +98,53 @@ func TestOutbox_RequiresStorage(t *testing.T) {
 	cfg := brokerconfig.Default().Outbox
 	cfg.Storage = nil
 	require.Error(t, cfg.Validate())
+}
+
+func TestOutbox_WatchNeedsSchedule(t *testing.T) {
+	t.Parallel()
+	for _, watch := range []brokerconfig.OutboxWatch{brokerconfig.OutboxWatchChangeStream, brokerconfig.OutboxWatchNotify} {
+		t.Run(string(watch), func(t *testing.T) {
+			t.Parallel()
+			cfg := brokerconfig.Default().Outbox
+			cfg.Watch = watch
+			if watch == brokerconfig.OutboxWatchNotify {
+				cfg.Storage = sqlStorage(brokerconfig.SQLDialectPostgres)
+			}
+			cfg.DispatchSchedule = ""
+			err := cfg.ValidateStorage()
+			require.ErrorIs(t, err, brokerconfig.ErrOutboxWatchNeedsSchedule)
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+			cfg.DispatchSchedule = "@every 2s"
+			require.NoError(t, cfg.ValidateStorage())
+		})
+	}
+	cfg := brokerconfig.Default().Outbox
+	cfg.DispatchSchedule = ""
+	require.NoError(t, cfg.ValidateStorage(), "polling keeps the existing optional schedule behavior")
+}
+
+func TestOutboxSQLStorageConfig_Names(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, table, channel string
+		valid                bool
+	}{
+		{"qualified table", "app.Events", "", true},
+		{"custom channel", "events", "Wake_1", true},
+		{"invalid table", "bad-table", "", false},
+		{"long table", strings.Repeat("t", 64), "", false},
+		{"qualified channel", "events", "app.wake", false},
+		{"invalid channel", "events", "bad-channel", false},
+		{"long channel", "events", strings.Repeat("c", 64), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &brokerconfig.OutboxSQLStorageConfig{Dialect: brokerconfig.SQLDialectPostgres, Table: tc.table, NotifyChannel: tc.channel}
+			if tc.valid {
+				require.NoError(t, cfg.Validate())
+			} else {
+				require.ErrorIs(t, cfg.Validate(), coreerrs.ErrInvalidArgument)
+			}
+		})
+	}
 }

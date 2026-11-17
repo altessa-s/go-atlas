@@ -6,90 +6,46 @@ package sqldb
 
 import (
 	"context"
-	"time"
-
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
-
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	"errors"
+	"fmt"
+	"strings"
 )
 
 // Close permanently stops background purging and waits for it within ctx.
 // Explicit PurgeExpired calls remain available. It does not close the database.
-func (s *Storage) Close(ctx context.Context) error {
-	return s.awaitPurge(ctx, s.stopPurge())
+func (s *Storage) Close(ctx context.Context) error { return s.purge.Close(ctx) }
+
+// deleteExpiredBatch uses the caller's transaction for explicit purges. MySQL
+// selects keys without locking, then rechecks expiry while deleting by key so
+// a key renewed between the statements survives.
+func (s *Storage) deleteExpiredBatch(ctx context.Context) (int64, int64, error) {
+	ex := s.executor(ctx)
+	if s.dialect.name == DialectPostgres {
+		n, err := execCount(ctx, ex, s.stmts.cleanup, s.purgeBatchSize)
+		return n, n, err
+	}
+	keys, err := s.expiredKeys(ctx, ex)
+	if err != nil || len(keys) == 0 {
+		return 0, 0, err
+	}
+	query := fmt.Sprintf(s.stmts.cleanup, strings.Repeat(", ?", len(keys))[2:])
+	n, err := execCount(ctx, ex, query, keys...)
+	return n, int64(len(keys)), err
 }
 
-// startPurge starts the background retention loop once when purging is enabled, unless
-// the storage was closed. The loop keeps ctx's values but not its
-// cancellation or business transaction: it runs until Close.
-func (s *Storage) startPurge(ctx context.Context) {
-	if s.purgeInterval <= 0 {
-		return
+func (s *Storage) expiredKeys(ctx context.Context, ex executor) ([]any, error) {
+	rows, err := ex.QueryContext(ctx, s.stmts.expiredKeys, s.purgeBatchSize)
+	if err != nil {
+		return nil, err
 	}
-	s.purgeMu.Lock()
-	defer s.purgeMu.Unlock()
-	if s.purgeStarted || s.purgeStopped {
-		return
-	}
-	s.purgeStarted = true
-	ctx, cancel := context.WithCancel(WithTx(context.WithoutCancel(ctx), nil))
-	s.purgeCancel, s.purgeDone = cancel, make(chan struct{})
-	go s.purgeLoop(ctx)
-}
-
-// stopPurge stops the background retention loop for good and returns a
-// channel closed once it exited, or nil when it never started.
-func (s *Storage) stopPurge() <-chan struct{} {
-	s.purgeMu.Lock()
-	defer s.purgeMu.Unlock()
-	s.purgeStopped = true
-	if !s.purgeStarted {
-		return nil
-	}
-	s.purgeCancel()
-	return s.purgeDone
-}
-
-// awaitPurge waits, within ctx, for done from [Storage.stopPurge].
-func (s *Storage) awaitPurge(ctx context.Context, done <-chan struct{}) error {
-	if done == nil {
-		return nil
-	}
-	// A loop that already exited satisfies even an ended ctx.
-	select {
-	case <-done:
-		return nil
-	default:
-	}
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return coreerrs.Wrap(ctx.Err(), "wait for SQL purge to stop")
-	}
-}
-
-func (s *Storage) purgeLoop(ctx context.Context) {
-	defer close(s.purgeDone)
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false))
-	ticker := time.NewTicker(s.purgeInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.runPurge(ctx)
+	var keys []any
+	for rows.Next() {
+		var key []byte
+		if err := rows.Scan(&key); err != nil {
+			_ = rows.Close()
+			return nil, err
 		}
+		keys = append(keys, key)
 	}
-}
-
-// Recover each pass separately so a panic does not terminate retention.
-func (s *Storage) runPurge(ctx context.Context) {
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(ctx context.Context, _ any) {
-		s.logger.ErrorContext(ctx, "expired idempotency purge panicked")
-	})
-	if _, err := s.PurgeExpired(ctx); err != nil && ctx.Err() == nil {
-		s.logger.ErrorContext(ctx, "failed to purge expired idempotency keys", "error", err)
-	}
+	return keys, errors.Join(rows.Err(), rows.Close())
 }

@@ -95,6 +95,7 @@ messaging/eventbus          # Event bus abstractions
 
 # Internal (module-wide internals and test helpers)
 internal                    # Internal utilities
+internal/purgeloop          # Shared purge lifecycle and batch draining
 internal/testhelpers        # Shared test helpers
 internal/nats               # Shared NATS bases
 internal/redis              # Shared Redis bases

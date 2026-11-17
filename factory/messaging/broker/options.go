@@ -14,6 +14,7 @@ import (
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -71,7 +72,7 @@ func (b *BrokerBuilder) UsePublishConverter(v broker.PublishConverter) *BrokerBu
 // store is built in.
 func (b *BrokerBuilder) UseOutboxStorage(typ brokerconfig.OutboxStorageType, build outboxfactory.StorageFunc) *BrokerBuilder {
 	if build == nil {
-		b.errs = append(b.errs, fmt.Errorf("UseOutboxStorage %q: nil function", typ))
+		b.errs = append(b.errs, corefactory.Errorf(corefactory.ErrDependencyRequired, "UseOutboxStorage %q: nil function", typ))
 		return b
 	}
 	if b.outboxStorages == nil {

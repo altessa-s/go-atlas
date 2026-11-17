@@ -5,7 +5,6 @@
 package sqldb
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
@@ -34,7 +33,7 @@ var (
 	// characters. Rejecting it up front matters because PostgreSQL silently
 	// trims excess trailing spaces, which would make "k" and "k " (past the
 	// limit) the same lock.
-	ErrValueTooLong = errors.New("sqldb: value exceeds its column length")
+	ErrValueTooLong = sqldialect.ErrValueTooLong
 )
 
 // MaxKeyLength bounds a lock key, in characters.

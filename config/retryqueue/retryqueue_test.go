@@ -60,6 +60,9 @@ func TestConfig_Validate(t *testing.T) {
 		{"sqldb empty table", &retryqueueconfig.StorageConfig{Type: retryqueueconfig.StorageTypeSQL, SQL: &retryqueueconfig.SQLStorageConfig{
 			Dialect: retryqueueconfig.SQLDialectPostgres,
 		}}, false},
+		{"sqldb invalid table", &retryqueueconfig.StorageConfig{Type: retryqueueconfig.StorageTypeSQL, SQL: &retryqueueconfig.SQLStorageConfig{
+			Dialect: retryqueueconfig.SQLDialectPostgres, Table: "retry-items",
+		}}, false},
 		{"sqldb purge loop", &retryqueueconfig.StorageConfig{Type: retryqueueconfig.StorageTypeSQL, SQL: &retryqueueconfig.SQLStorageConfig{
 			Dialect: retryqueueconfig.SQLDialectPostgres, Table: "retry_items", ResolvedRetention: time.Hour, PurgeInterval: time.Minute,
 		}}, true},

@@ -20,7 +20,7 @@ caller's constructor, which must return an empty store isolated from every other
 
 | Group     | Contracts                                                                                                                                                 |
 |-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Marking   | `MarkIsInsertOnly`, `MarkStoresFreshItem`, `ConcurrentMark`                                                                                               |
+| Marking   | `MarkIsInsertOnly`, `MarkStoresFreshItem`, `ConcurrentMark`, `ReopenRacingMark`                                                                           |
 | Due list  | `ListDueOrderAndReschedule`, `ListDueLimit`, `WakeDueMakesPendingDue`                                                                                     |
 | Closing   | `ExpireKeepsItemButStopsListing`, `ResolveKeepsPinnedPayload`, `ResolveIsIdempotentAndClearsExpiry`, `DeleteIsIdempotent`, `ConcurrentExpire`             |
 | Flags     | `FlagOnce`, `FlagReasonChangeAndClear`, `FlagOnlyPending`, `ConcurrentFlag`                                                                               |

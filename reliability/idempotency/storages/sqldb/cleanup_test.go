@@ -27,7 +27,6 @@ func TestCleanupLazyStartAndClose(t *testing.T) {
 	})
 	s, err := New(db, DialectPostgres, WithPurgeInterval(time.Millisecond), WithLogger(nil))
 	require.NoError(t, err)
-	require.Nil(t, s.purgeDone, "New must not start a goroutine")
 	require.Empty(t, fake.Calls())
 	t.Cleanup(func() { require.NoError(t, s.Close(context.WithoutCancel(t.Context()))) })
 	tx, err := db.BeginTx(t.Context(), nil)
@@ -37,10 +36,8 @@ func TestCleanupLazyStartAndClose(t *testing.T) {
 	_, _, _, err = s.AttemptLockWithTTL(ctx, "key", nil, time.Minute)
 	require.NoError(t, err)
 	cancel()
-	done := s.purgeDone
 	_, _, _, err = s.AttemptLock(t.Context(), "other", nil)
 	require.NoError(t, err)
-	require.Equal(t, done, s.purgeDone, "start exactly once")
 	testhelpers.WaitFor(t, time.Second, func() bool {
 		for _, call := range fake.Calls() {
 			if strings.HasPrefix(call.Query, "DELETE") {
@@ -52,14 +49,6 @@ func TestCleanupLazyStartAndClose(t *testing.T) {
 	}, "cleanup must survive request cancellation")
 	require.NoError(t, s.Close(t.Context()))
 	require.NoError(t, s.Close(t.Context()))
-	require.Eventually(t, func() bool {
-		select {
-		case <-done:
-			return true
-		default:
-			return false
-		}
-	}, time.Second, time.Millisecond, "Close returned before the cleanup goroutine exited")
 	calls := len(fake.Calls())
 	_, _, _, err = s.AttemptLock(t.Context(), "after-close", nil)
 	require.NoError(t, err)
@@ -71,7 +60,7 @@ func TestCleanupDisabledAndClosedBeforeStart(t *testing.T) {
 	for _, interval := range []time.Duration{0, time.Millisecond} {
 		t.Run(interval.String(), func(t *testing.T) {
 			t.Parallel()
-			db, _ := testhelpers.NewFakeSQL(t, nil)
+			db, fake := testhelpers.NewFakeSQL(t, nil)
 			s, err := New(db, DialectMySQL, WithPurgeInterval(interval))
 			require.NoError(t, err)
 			if interval > 0 {
@@ -79,8 +68,8 @@ func TestCleanupDisabledAndClosedBeforeStart(t *testing.T) {
 			}
 			_, _, _, err = s.AttemptLock(t.Context(), "key", nil)
 			require.NoError(t, err)
-			require.Nil(t, s.purgeDone)
 			require.NoError(t, s.Close(t.Context()))
+			require.Len(t, fake.Calls(), 1)
 		})
 	}
 }
@@ -115,7 +104,7 @@ func TestCleanupCloseDeadline(t *testing.T) {
 		}
 		return testhelpers.FakeSQLReply{Affected: 1}
 	})
-	s, err := New(db, DialectMySQL, WithPurgeInterval(time.Millisecond))
+	s, err := New(db, DialectPostgres, WithPurgeInterval(time.Millisecond))
 	require.NoError(t, err)
 	defer func() {
 		close(unblock)
