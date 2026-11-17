@@ -9,7 +9,11 @@
 // servers it lists the targets of the docker stack ([SQLTargets]) with their
 // DSN overrides, opens one with a skip when it is unreachable
 // ([SQLTarget.Open]), and names a throwaway table dropped on cleanup
-// ([SQLTable]).
+// ([SQLTable]). Volume tests (build tag volume, make test-volume) size their
+// data with [VolumeRows], seed it with [SQLBulkInsert] or [MongoBulkInsert]
+// and report rates with [Measure]; [ExplainPostgres], [ExplainMySQL] and
+// [ExplainMongo] fail a test whose hot query scans the whole table, and
+// [MongoDatabase] gives a test a throwaway MongoDB database.
 //
 // Several suites, and several test processes, share one Redis server. Every
 // test therefore works under a key prefix of its own, derived from its name

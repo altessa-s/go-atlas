@@ -54,6 +54,14 @@ STRESS_DURATION ?= 30s
 STRESS_TIMEOUT ?= 30m
 STRESS_PKG ?= $(sort $(dir $(shell find . -name '*_stress_test.go' -not -path './tests/*' -not -path '*/.*')))
 
+# Volume configuration (integration tests behind the `volume` build tag)
+# - VOLUME_ROWS: rows seeded per backend (ATLAS_VOLUME_ROWS).
+# - VOLUME_TIMEOUT: go test -timeout for the whole run.
+# - VOLUME_RUN: -run filter, e.g. VOLUME_RUN=TestVolume_Outbox
+VOLUME_ROWS ?= 1000000
+VOLUME_TIMEOUT ?= 120m
+VOLUME_RUN ?= ^TestVolume
+
 .PHONY: all
 all: help
 
@@ -192,6 +200,11 @@ fuzz: ## Fuzz every target for FUZZTIME each (FUZZTIME=30s FUZZPKG=./...)
 .PHONY: test-integration
 test-integration: ## Run the integration suite against live backends (see tests/integration/README.md)
 	@go test -C tests/integration -race -count=1 -p 1 ./...
+
+.PHONY: test-volume
+test-volume: ## Run the volume tests (VOLUME_ROWS rows per backend) against the integration backends
+	@ATLAS_VOLUME_ROWS=$(VOLUME_ROWS) go test -C tests/integration -tags volume -count=1 -p 1 -v \
+	    -timeout $(VOLUME_TIMEOUT) -run '$(VOLUME_RUN)' ./...
 
 .PHONY: test-stress
 test-stress: ## Run the stress tests under -race, STRESS_DURATION each (needs NATS from integration-up for dlock)
