@@ -14,12 +14,12 @@ import (
 // the escaped one: the decoded path is canonical ([IsCanonical]) and the
 // escaped path carries no encoded slash (%2F, either case).
 //
-// [net/http.ServeMux], and gorilla/mux with UseEncodedPath, match segments of
-// the escaped path, so "/v1%2Fhealthz" is one segment for the router and two
-// for the decoded path. Without an encoded slash both forms split into the
-// same segments, and an encoded dot segment ("%2E%2E") shows up as a dot
-// segment of the decoded path. Any other escape, an encoded backslash
-// included, is an ordinary character to both. The check does not allocate;
+// [net/http.ServeMux] matches segments of the escaped path, so
+// "/v1%2Fhealthz" is one segment for the router and two for the decoded path.
+// Without an encoded slash both forms split into the same segments, and an
+// encoded dot segment ("%2E%2E") shows up as a dot segment of the decoded
+// path. Any other escape, an encoded backslash included, is an ordinary
+// character to both. The check does not allocate;
 // a path that needed no special encoding (empty RawPath) costs no second scan.
 func IsCanonicalURL(u *url.URL) bool {
 	return IsCanonical(u.Path) && (u.RawPath == "" || !hasEncodedSlash(u.RawPath))

@@ -17,7 +17,7 @@ decouples the server from any specific routing library, so implementations can b
 | [handlers](./handlers)             | Common HTTP handlers (ping, healthz, pprof, metrics)                    |
 | [middlewares](./middlewares)        | Middleware interfaces, chain, and dependency-based ordering              |
 | [responder](./responder)           | Structured error response interception                                   |
-| [router](./router)                 | Router interfaces and implementations (gorilla, std)                    |
+| [router](./router)                 | Router interfaces and the `http.ServeMux` implementation (std)          |
 | [writer](./writer)                 | Content-negotiated response writing with builder pattern                |
 
 ## Lifecycle observation

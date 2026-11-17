@@ -84,14 +84,14 @@ func (b *ServerBuilder) UseGeoResolver(v geoacl.GeoResolver) *ServerBuilder {
 
 // --- Router methods ---
 
-// WithRouter sets a custom router. If not called, a Gorilla router is created.
+// WithRouter sets a custom router. If not called, a router/std router is created.
 func (b *ServerBuilder) WithRouter(r router.Router) *ServerBuilder {
 	b.router = r
 	b.routerSet = true
 	return b
 }
 
-// WithRouterPrefix sets a path prefix for the default Gorilla router.
+// WithRouterPrefix sets a path prefix for the default router/std router.
 // Ignored when a custom router is set via [ServerBuilder.WithRouter].
 func (b *ServerBuilder) WithRouterPrefix(prefix string) *ServerBuilder {
 	// Prefix is applied in buildRouter; store in config.

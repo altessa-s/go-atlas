@@ -180,7 +180,7 @@ func TestRoute_MissingHandler_Panics(t *testing.T) {
 
 	// Add route with no handler - should panic during initialization
 	rt := &route{router: r, pattern: "/no-handler"}
-	r.routes = append(r.routes, rt)
+	r.tree.routes = append(r.tree.routes, rt)
 
 	defer func() {
 		r := recover()
@@ -192,7 +192,7 @@ func TestRoute_MissingHandler_Panics(t *testing.T) {
 func TestRoute_MissingPath_Panics(t *testing.T) {
 	r := New()
 	rt := &route{router: r, handler: http.NotFoundHandler()}
-	r.routes = append(r.routes, rt)
+	r.tree.routes = append(r.tree.routes, rt)
 
 	defer func() {
 		r := recover()

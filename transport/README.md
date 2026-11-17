@@ -5,7 +5,7 @@ observability, security, and configuration-driven creation of all transport comp
 
 ## Design principles
 
-- **Provider pattern** — transport-specific implementations (NATS, gorilla/mux, http.ServeMux) are pluggable behind stable interfaces
+- **Provider pattern** — transport-specific implementations (NATS, http.ServeMux) are pluggable behind stable interfaces
 - **Driven interceptor/middleware** — separates lifecycle hooks from protocol-specific signatures for reusable cross-cutting concerns
 - **Dependency ordering** — interceptor and middleware chains resolve execution order automatically via topological sort
 - **Configuration-driven** — factory packages create fully wired components from structured config objects

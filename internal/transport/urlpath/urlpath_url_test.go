@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
@@ -83,27 +82,6 @@ func depthRouters() map[string]func(w *dispatch) http.Handler {
 					d.depth = depth
 					for _, n := range names[:depth] {
 						d.segments = append(d.segments, r.PathValue(n))
-					}
-				})
-			}
-			return m
-		},
-		"gorilla/mux UseEncodedPath": func(d *dispatch) http.Handler {
-			m := mux.NewRouter().UseEncodedPath()
-			for depth := 1; depth <= maxDepth; depth++ {
-				pattern := "/{" + strings.Join(names[:depth], "}/{") + "}"
-				m.HandleFunc(pattern, func(http.ResponseWriter, *http.Request) { d.depth = depth })
-			}
-			return m
-		},
-		"gorilla/mux": func(d *dispatch) http.Handler {
-			m := mux.NewRouter()
-			for depth := 1; depth <= maxDepth; depth++ {
-				pattern := "/{" + strings.Join(names[:depth], "}/{") + "}"
-				m.HandleFunc(pattern, func(_ http.ResponseWriter, r *http.Request) {
-					d.depth = depth
-					for _, n := range names[:depth] {
-						d.segments = append(d.segments, mux.Vars(r)[n])
 					}
 				})
 			}

@@ -20,7 +20,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/recovery"
-	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
+	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
 	"github.com/altessa-s/go-atlas/transport/policy/geoacl"
 
@@ -140,15 +140,14 @@ func (b *ServerBuilder) Build() (*server.Server, error) {
 }
 
 // buildRouter creates the router. Returns (rootRouter, routerInterface) where
-// rootRouter is the top-level Gorilla router (used for pprof/metrics subrouters)
+// rootRouter is the top-level [std.Router] (used for pprof/metrics subrouters)
 // and routerInterface is the router used by the server (possibly a subrouter).
-func (b *ServerBuilder) buildRouter() (*gorilla.Router, router.Router) {
+func (b *ServerBuilder) buildRouter() (*std.Router, router.Router) {
 	if b.routerSet {
 		return nil, b.router
 	}
 
-	rt := gorilla.New()
-	rt.Underlying().StrictSlash(true)
+	rt := std.New()
 
 	var routerInterface router.Router = rt
 	if b.cfg.RouterPrefix != "" {
@@ -350,7 +349,7 @@ func (b *ServerBuilder) registerMiddleware(srv *server.Server) error {
 }
 
 // registerBuiltinHandlers registers built-in HTTP handlers (ping, healthz, readyz, pprof, metrics).
-func (b *ServerBuilder) registerBuiltinHandlers(srv *server.Server, rootRouter *gorilla.Router) {
+func (b *ServerBuilder) registerBuiltinHandlers(srv *server.Server, rootRouter *std.Router) {
 	if b.builtinEnabled {
 		srv.Handle(b.internalPrefix+"/ping", pingh.Handler).Methods(http.MethodGet)
 		srv.Handle(b.internalPrefix+"/healthz", healthh.K8sHealtz).Methods(http.MethodGet)

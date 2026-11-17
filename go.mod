@@ -42,7 +42,6 @@ require (
 	github.com/coocood/freecache v1.2.7
 	github.com/go-ozzo/ozzo-validation/v4 v4.5.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/gorilla/mux v1.8.1
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/hashicorp/vault/api/auth/approle v0.12.0

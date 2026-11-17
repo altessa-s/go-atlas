@@ -404,7 +404,7 @@ func domainOffTranslators(e edge) bool {
 // domainTransport lists the transport stacks no domain package may import
 // directly. Domain packages reach observability, whose metrics adapters
 // interface mentions net/http, so the check is on direct edges only.
-var domainTransport = []string{"net/http", "google.golang.org/grpc", "github.com/gorilla/mux", module + "transport", module + "net/http", module + "net/grpc"}
+var domainTransport = []string{"net/http", "google.golang.org/grpc", module + "transport", module + "net/http", module + "net/grpc"}
 
 func domainOffTransport(e edge) bool {
 	return hasPathPrefix(e.pkg, []string{"domain", "mapping"}) && hasPathPrefix(e.dependency, domainTransport)
@@ -758,7 +758,6 @@ func TestBoundaryRules(t *testing.T) {
 		{"domain grpc root", "mapping/behavior", "google.golang.org/grpc", true},
 		{"domain net/http", "domain/money", "net/http", true},
 		{"domain net/http subpackage", "domain/money", "net/http/httptest", true},
-		{"domain gorilla mux", "domain/money", "github.com/gorilla/mux", true},
 		{"domain protobuf", "mapping/behavior", "google.golang.org/protobuf/proto", false},
 		{"domain genproto", "domain/money/moneypb", "google.golang.org/genproto/googleapis/type/money", false},
 		{"domain net/url", "mapping/behavior/translators/mongo", "net/url", false},

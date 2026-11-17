@@ -13,8 +13,8 @@ import (
 type Middleware func(http.Handler) http.Handler
 
 // Router abstracts HTTP routing functionality, hiding the underlying router
-// implementation details. Available implementations include gorilla/mux
-// (package gorilla) and Go 1.22+ [http.ServeMux] (package std).
+// implementation details. The bundled implementation is package std, over a
+// Go 1.22+ [http.ServeMux].
 type Router interface {
 	// Handle registers a handler for the given pattern.
 	Handle(pattern string, handler http.Handler) Route

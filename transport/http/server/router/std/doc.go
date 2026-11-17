@@ -10,6 +10,12 @@
 // middleware panics. This design enables a single initialization of the
 // middleware chain and route table, avoiding synchronization on the hot path.
 //
+// # Subrouters
+//
+// A subrouter shares its parent's mux and registers its routes under its full
+// path prefix, so subrouters of one prefix coexist. Root middleware wraps every
+// request; a subrouter's middleware wraps only its own routes.
+//
 // # Usage
 //
 //	r := std.New()

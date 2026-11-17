@@ -14,7 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
 )
 
-// routerClean is the canonicalization net/http.ServeMux and gorilla/mux apply
+// routerClean is the canonicalization net/http.ServeMux applies
 // before dispatch: path.Clean on a rooted path, trailing slash kept.
 func routerClean(p string) string {
 	if p == "" {

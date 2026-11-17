@@ -20,5 +20,4 @@ path-prefix matching, and subrouter creation.
 
 | Package                | Description                                                                    |
 |------------------------|--------------------------------------------------------------------------------|
-| [gorilla](./gorilla)   | Router implementation using `gorilla/mux` with regex patterns                  |
 | [std](./std)           | Router implementation using Go 1.22+ `http.ServeMux` enhanced patterns         |

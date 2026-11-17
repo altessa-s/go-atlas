@@ -15,22 +15,14 @@ import (
 
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
-	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/policy/geoacl"
 )
 
-// encodedPathRouters are the built-in routers in every matching mode:
-// gorilla/mux on the decoded path (default) and on the escaped path,
-// net/http.ServeMux on the escaped path.
+// encodedPathRouters are the built-in routers: net/http.ServeMux, which
+// matches the escaped path.
 func encodedPathRouters() map[string]func() router.Router {
 	return map[string]func() router.Router{
-		"gorilla": func() router.Router { return gorilla.New() },
-		"gorilla encoded": func() router.Router {
-			rt := gorilla.New()
-			rt.Underlying().UseEncodedPath()
-			return rt
-		},
 		"std": func() router.Router { return std.New() },
 	}
 }

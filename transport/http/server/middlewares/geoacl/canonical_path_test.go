@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
-	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/policy/geoacl"
 )
@@ -81,15 +80,14 @@ func TestMiddleware_NonCanonicalPathIsNotIgnored(t *testing.T) {
 	require.False(t, called)
 }
 
-// Behind either built-in router the handler of /admin is never reached through
-// another spelling of its path: gorilla/mux redirects before the middleware
-// runs, net/http.ServeMux is wrapped by the middleware, which refuses.
+// Behind the built-in router the handler of /admin is never reached through
+// another spelling of its path: net/http.ServeMux is wrapped by the
+// middleware, which refuses.
 func TestMiddleware_BuiltInRoutersNeverServeNonCanonicalPath(t *testing.T) {
 	t.Parallel()
 
 	routers := map[string]func() router.Router{
-		"gorilla": func() router.Router { return gorilla.New() },
-		"std":     func() router.Router { return std.New() },
+		"std": func() router.Router { return std.New() },
 	}
 	for name, newRouter := range routers {
 		for _, path := range []string{"//admin", "/./admin", "/public/../admin"} {

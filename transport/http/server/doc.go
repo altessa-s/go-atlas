@@ -27,19 +27,19 @@
 //   - handler: Common HTTP handlers (ping, healthz, pprof, metrics)
 //   - middlewares: Middleware interfaces, chain, and dependency-based ordering
 //   - responder: Structured error response interception
-//   - router: Router interfaces and implementations (gorilla, std)
+//   - router: Router interfaces and the http.ServeMux implementation (std)
 //   - writer: Content-negotiated response writing with builder pattern
 //
 // # Example
 //
 //	import (
 //	    "github.com/altessa-s/go-atlas/transport/http/server"
-//	    "github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
+//	    "github.com/altessa-s/go-atlas/transport/http/server/router/std"
 //	    baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 //	)
 //
 //	srv, err := server.New(
-//	    server.WithRouter(gorilla.New()),
+//	    server.WithRouter(std.New()),
 //	    server.WithBaseOptions(baseserver.WithAddress(":8080")),
 //	)
 //	if err != nil {

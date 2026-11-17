@@ -12,16 +12,15 @@
 //
 // # Available Implementations
 //
-//   - gorilla: Uses gorilla/mux (feature-rich, regex patterns)
-//   - std: Uses Go 1.22+ [http.ServeMux] (no external dependencies)
+//   - std: Uses Go 1.22+ [http.ServeMux] patterns (no external dependencies)
 //
 // # Example
 //
 //	import (
 //	    "github.com/altessa-s/go-atlas/transport/http/server/router"
-//	    "github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
+//	    "github.com/altessa-s/go-atlas/transport/http/server/router/std"
 //	)
 //
-//	var r router.Router = gorilla.New()
+//	var r router.Router = std.New()
 //	r.HandleFunc("/hello", helloHandler)
 package router

@@ -13,24 +13,36 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
-
-	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
-	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 )
 
-// Router implements [router.Router] using [http.ServeMux] (Go 1.22+).
-// Create instances with [New]. Routes and middleware must be registered before
-// the first call to [Router.ServeHTTP] or [Router.Initialize]; the router is
-// sealed after initialization and panics on late registration.
+// Router implements [router.Router] on one [http.ServeMux] with Go 1.22+
+// patterns. Create instances with [New]. A subrouter shares its parent's
+// mux: its routes are registered under its full path prefix, and the
+// middleware added to it with [Router.Use] wraps only those routes (and its
+// own subrouters' routes), while the root router's middleware wraps every
+// request, unmatched ones included.
 //
-// After initialization, [Router.ServeHTTP] is safe for concurrent use.
-// Registration methods ([Router.Handle], [Router.Use], etc.) are protected
-// by a mutex but must not be called after sealing.
+// Routes and middleware must be registered before the first call to
+// [Router.ServeHTTP] or [Router.Initialize] on any router of the tree; the
+// tree is sealed after initialization and panics on late registration. After
+// initialization [Router.ServeHTTP] is safe for concurrent use and serves the
+// whole tree from any of its routers.
 type Router struct {
+	tree       *tree
+	parent     *Router
+	prefix     string
+	middleware []router.Middleware
+	// routes are the routes registered on this router, kept for
+	// white-box tests; the tree holds every route of every router.
+	routes []*route
+}
+
+// tree is the state a router shares with all its subrouters.
+type tree struct {
 	mu           sync.Mutex
 	mux          *http.ServeMux
+	root         *Router
 	routes       []*route
-	middleware   []router.Middleware
 	initOnce     sync.Once
 	finalHandler http.Handler
 	sealed       atomic.Bool
@@ -39,27 +51,17 @@ type Router struct {
 // Ensure Router implements router.Router interface.
 var _ router.Router = (*Router)(nil)
 
-// New creates a new Router based on standard library http.ServeMux.
+// New creates a root Router over a new [http.ServeMux].
 func New() *Router {
-	return &Router{
-		mux: http.NewServeMux(),
-	}
+	t := &tree{mux: http.NewServeMux()}
+	t.root = &Router{tree: t}
+	return t.root
 }
 
-// Handle registers a handler for the given pattern.
+// Handle registers a handler for the given pattern, relative to the router's
+// prefix.
 func (r *Router) Handle(pattern string, handler http.Handler) router.Route {
-	r.ensureMutable()
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	rt := &route{
-		router:  r,
-		pattern: pattern,
-		handler: handler,
-	}
-	r.routes = append(r.routes, rt)
-	return rt
+	return r.add(&route{pattern: pattern, handler: handler})
 }
 
 // HandleFunc registers a handler function for the given pattern.
@@ -67,91 +69,90 @@ func (r *Router) HandleFunc(pattern string, handler func(http.ResponseWriter, *h
 	return r.Handle(pattern, http.HandlerFunc(handler))
 }
 
-// Methods sets allowed HTTP methods for the route (not applicable at router level directly, but strictly part of interface).
-// For Router, this creates a new route? No, interface says Router has Methods().
-// But router.Router interface in router.go:
-// Methods(methods ...string) Route
-// This seems to imply creating a route that matches these methods?
-// The gorilla implementation: return &route{route: r.router.Methods(methods...)}
-// Which creates a new empty route with method matcher.
-// For std router, we can't create an "empty" route easily.
-// We will return a placeholder route.
+// Methods starts a route restricted to methods; set its path with
+// [router.Route.Path] or [router.Route.PathPrefix] and its handler before
+// the router is initialized.
 func (r *Router) Methods(methods ...string) router.Route {
-	r.ensureMutable()
-
-	// This pattern is rarely used at Router level in pure form without a path,
-	// except for "Not Found" handlers maybe?
-	// For now, we return a dummy route to satisfy interface, but it might not work as expected
-	// if attached to nothing.
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	rt := &route{
-		router:  r,
-		methods: methods,
-	}
-	r.routes = append(r.routes, rt)
-	return rt
+	return r.add(&route{methods: slices.Clone(methods)})
 }
 
-// PathPrefix registers a route matching a path prefix.
+// PathPrefix starts a route matching prefix and every path below it. Set its
+// handler, or call Subrouter on it to register routes under the prefix.
 func (r *Router) PathPrefix(prefix string) router.Route {
-	r.ensureMutable()
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Ensure prefix ends with / for ServeMux behavior if it's meant to be a directory-like prefix
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
-
-	rt := &route{
-		router:   r,
-		pattern:  prefix,
-		isPrefix: true,
-	}
-	r.routes = append(r.routes, rt)
-	return rt
+	return r.add(&route{pattern: prefix, isPrefix: true})
 }
 
-// Use appends middleware to the router.
+// Use appends middleware to the router. On the root router it wraps every
+// request; on a subrouter it wraps the subrouter's routes.
 func (r *Router) Use(middleware ...router.Middleware) {
 	r.ensureMutable()
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.tree.mu.Lock()
+	defer r.tree.mu.Unlock()
 	r.middleware = append(r.middleware, middleware...)
 }
 
-// Initialize eagerly builds the middleware chain and registers routes with
-// the underlying [http.ServeMux]. After this call the router is sealed;
-// further route or middleware registration panics. This implements the
-// [server.InitializableRouter] interface.
+// Subrouter creates a router with the same prefix whose middleware applies to
+// its own routes only.
+func (r *Router) Subrouter() router.Router {
+	r.ensureMutable()
+	return &Router{tree: r.tree, parent: r, prefix: r.prefix}
+}
+
+// Initialize eagerly registers every route of the tree with the underlying
+// [http.ServeMux] and builds the root middleware chain. After this call the
+// tree is sealed; further registration panics. It implements
+// server.InitializableRouter.
 func (r *Router) Initialize() {
-	r.initOnce.Do(r.initialize)
+	r.tree.initOnce.Do(r.tree.initialize)
 }
 
-// ServeHTTP implements http.Handler.
+// ServeHTTP implements http.Handler for the whole tree.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	r.initOnce.Do(r.initialize)
-	r.finalHandler.ServeHTTP(w, req)
+	r.tree.initOnce.Do(r.tree.initialize)
+	r.tree.finalHandler.ServeHTTP(w, req)
 }
 
-func (r *Router) initialize() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *Router) add(rt *route) *route {
+	r.ensureMutable()
+	rt.router = r
+	r.tree.mu.Lock()
+	defer r.tree.mu.Unlock()
+	r.routes = append(r.routes, rt)
+	r.tree.routes = append(r.tree.routes, rt)
+	return rt
+}
 
-	for _, rt := range r.routes {
-		rt.register(r.mux)
+func (r *Router) ensureMutable() {
+	if r.tree.sealed.Load() {
+		panic("router/std: router already initialized; register routes and middleware before ServeHTTP")
 	}
+}
 
-	// Apply middleware chain
-	var handler http.Handler = r.mux
-	for _, mw := range slices.Backward(r.middleware) {
+// chain wraps h in the middleware of r and its ancestors up to, but not
+// including, the root, whose middleware wraps the whole mux instead. Outer
+// routers' middleware runs first.
+func (r *Router) chain(h http.Handler) http.Handler {
+	for cur := r; cur != nil && cur.parent != nil; cur = cur.parent {
+		for _, mw := range slices.Backward(cur.middleware) {
+			h = mw(h)
+		}
+	}
+	return h
+}
+
+func (t *tree) initialize() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for _, rt := range t.routes {
+		rt.register(t.mux)
+	}
+	var handler http.Handler = t.mux
+	for _, mw := range slices.Backward(t.root.middleware) {
 		handler = mw(handler)
 	}
-	r.finalHandler = handler
-	r.sealed.Store(true)
+	t.finalHandler = handler
+	t.sealed.Store(true)
 }
 
 // route implements router.Route interface.
@@ -189,75 +190,61 @@ func (rt *route) Path(path string) router.Route {
 }
 
 func (rt *route) PathPrefix(prefix string) router.Route {
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
 	rt.pattern = prefix
 	rt.isPrefix = true
 	return rt
 }
 
+// Subrouter returns a router whose routes are registered under this route's
+// full path; the route itself then registers nothing. Repeated calls return
+// the same subrouter.
 func (rt *route) Subrouter() router.Router {
 	rt.router.ensureMutable()
-
 	if rt.subRouter == nil {
-		rt.subRouter = New()
-		// If we have a subrouter, the handler becomes the subrouter
-		// wrapped in StripPrefix if it is a prefix route
-		if rt.isPrefix {
-			// Strip the prefix from the path before passing to subrouter
-			prefix := rt.pattern
-			rt.handler = http.StripPrefix(prefix, rt.subRouter)
-		} else {
-			rt.handler = rt.subRouter
-		}
+		rt.subRouter = &Router{tree: rt.router.tree, parent: rt.router, prefix: joinPath(rt.router.prefix, rt.pattern)}
 	}
 	return rt.subRouter
 }
 
-// Subrouter creates a new router that inherits the parent's middleware.
-func (r *Router) Subrouter() router.Router {
-	r.ensureMutable()
-	return New()
-}
-
+// register adds the route to mux under its full path, one pattern per method.
 func (rt *route) register(mux *http.ServeMux) {
+	if rt.subRouter != nil {
+		return
+	}
 	if nilcheck.IsNil(rt.handler) {
 		panic("router/std: route missing handler; set Handler/HandlerFunc before ServeHTTP")
 	}
-
 	if rt.pattern == "" {
 		panic("router/std: route missing path; call Path or PathPrefix")
 	}
-
-	// Construct Go 1.22 pattern
-	// Format: [METHOD ][HOST]/[PATH]
-
-	var patterns []string
-	if len(rt.methods) > 0 {
-		patterns = slices.Collect(coreslices.Map(rt.methods, func(m string) string {
-			// Use BuildString for efficient string concatenation
-			return corestrings.BuildString(func(b *strings.Builder) {
-				b.WriteString(m)
-				b.WriteString(" ")
-				b.WriteString(rt.pattern)
-			})
-		}))
-	} else {
-		patterns = []string{rt.pattern}
+	methods := rt.methods
+	pattern := rt.pattern
+	// A Go pattern may carry its method ("GET /users/{id}"); the prefix goes
+	// before the path, not before the method.
+	if method, rest, ok := strings.Cut(pattern, " "); ok && !strings.HasPrefix(method, "/") {
+		methods = append(slices.Clone(methods), method)
+		pattern = strings.TrimLeft(rest, " ")
 	}
-
-	for _, p := range patterns {
-		// Handle edge case where pattern is empty
-		if len(p) == 0 || p == " " {
-			continue
-		}
-		mux.Handle(p, rt.handler)
+	path := joinPath(rt.router.prefix, pattern)
+	if rt.isPrefix && !strings.HasSuffix(path, "/") {
+		path += "/"
+	}
+	handler := rt.router.chain(rt.handler)
+	if len(methods) == 0 {
+		mux.Handle(path, handler)
+		return
+	}
+	for _, m := range methods {
+		mux.Handle(m+" "+path, handler)
 	}
 }
 
-func (r *Router) ensureMutable() {
-	if r.sealed.Load() {
-		panic("router/std: router already initialized; register routes and middleware before ServeHTTP")
+// joinPath appends pattern to prefix with exactly one slash between them; a
+// root pattern ("/") under a prefix keeps the prefix's trailing slash, so it
+// matches the prefix's subtree as ServeMux does.
+func joinPath(prefix, pattern string) string {
+	if prefix == "" {
+		return pattern
 	}
+	return strings.TrimSuffix(prefix, "/") + "/" + strings.TrimPrefix(pattern, "/")
 }

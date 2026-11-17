@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
+	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
 
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
@@ -188,7 +188,7 @@ func TestBuild_WriterBodyLimit(t *testing.T) {
 				cfg.Middlewares = withBodyLimitConfig(t, false).Middlewares
 				cfg.Middlewares.BodyLimit.MaxSize = 8 << 20
 			}
-			router := gorilla.New()
+			router := std.New()
 			b := New(&cfg).WithRouter(router)
 			if tc.install {
 				b.WithBodyLimitMiddleware()

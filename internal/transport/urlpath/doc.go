@@ -10,12 +10,12 @@
 //
 // A path is canonical when a router dispatches on it as is: it starts with a
 // slash and has no empty, "." or ".." segment. This is the form
-// [net/http.ServeMux] and gorilla/mux clean a path to; both answer any other
-// path with a redirect instead of a handler. A trailing slash is significant
+// [net/http.ServeMux] cleans a path to; it answers any other path with a
+// redirect instead of a handler. A trailing slash is significant
 // and stays: "/admin" and "/admin/" are two canonical paths.
 //
 // A router may match the escaped path while a policy reads the decoded one
-// ([net/http.ServeMux] does, gorilla/mux with UseEncodedPath does). The two
+// ([net/http.ServeMux] does). The two
 // agree on the segments unless the escaped path holds an encoded slash, so a
 // request path with "%2F" in it is not canonical either: "/v1%2Fhealthz" is
 // "/v1/healthz" decoded and the single segment "v1/healthz" to the router.

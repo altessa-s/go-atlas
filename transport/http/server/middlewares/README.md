@@ -12,10 +12,10 @@ before sorting. `ConditionalMiddleware` applies a middleware only to requests ac
 
 ## Key types
 
-| Type / Interface        | Description                                                                    |
-|-------------------------|--------------------------------------------------------------------------------|
-| `Middleware`            | Interface: `Name() string` + `Handler(http.Handler) http.Handler`              |
-| `BaseMiddleware`        | Embeddable struct with path filtering, logging, and response-writer wrapping   |
+| Type / Interface        | Description                                                                     |
+|-------------------------|---------------------------------------------------------------------------------|
+| `Middleware`            | Interface: `Name() string` + `Handler(http.Handler) http.Handler`               |
+| `BaseMiddleware`        | Embeddable struct with path filtering, logging, and response-writer wrapping    |
 | `Chain`                 | Middleware collection with dependency ordering, deduplication, and clone/extend |
 | `ConditionalMiddleware` | Function wrapping a middleware with a `Matcher` evaluated on every request      |
 
@@ -33,13 +33,13 @@ or an unanchored ignore pattern cannot be borrowed to skip authentication, acces
 
 The second condition exists because policies read the decoded path while a router may match the escaped one:
 
-| Request            | gorilla/mux (default)              | gorilla/mux `UseEncodedPath`, `net/http.ServeMux` (`router/std`) |
-|--------------------|------------------------------------|------------------------------------------------------------------|
-| `/v1%2Fhealthz`    | serves `/v1/healthz`               | serves `/{tenant}` with the single segment `v1/healthz`          |
-| `/users/a%2Fb`     | 404 (three segments)               | serves `/users/{id}`                                             |
-| `/a/%2E%2E/admin`  | 301 to `/admin`                    | 404; `/users/%2E%2E` is served by `/users/{id}`                  |
-| `//admin`, `/a/..` | 301 to the cleaned path            | 301 (`ServeMux`), after the middlewares ran                      |
-| `/users/a%5Cb`     | serves `/users/{id}`               | serves `/users/{id}`: a backslash is an ordinary character       |
+| Request            | `net/http.ServeMux` (`router/std`)                         |
+|--------------------|------------------------------------------------------------|
+| `/v1%2Fhealthz`    | serves `/{tenant}` with the single segment `v1/healthz`    |
+| `/users/a%2Fb`     | serves `/users/{id}`                                       |
+| `/a/%2E%2E/admin`  | 404; `/users/%2E%2E` is served by `/users/{id}`            |
+| `//admin`, `/a/..` | 301 to the cleaned path, after the middlewares ran         |
+| `/users/a%5Cb`     | serves `/users/{id}`: a backslash is an ordinary character |
 
 Without an encoded slash the escaped and the decoded path split into the same segments, so every router dispatches on the path the policy saw. A
 `RawPath` that does not encode `Path` is ignored by the routers and by the rule alike, except that an encoded slash in it still refuses the request.
@@ -49,34 +49,34 @@ Without an encoded slash the escaped and the decoded path split into the same se
 
 Every chainable middleware sub-package exports two package-level identification helpers, and its middleware type declares ordering through methods:
 
-| Export                           | Type                | Purpose                                                                              |
-|----------------------------------|---------------------|--------------------------------------------------------------------------------------|
-| `Name()`                         | `func() string`     | Returns the middleware name as a plain string                                        |
-| `ID`                             | `Middleware`        | Lightweight typed reference for factory exclusion lists (`cors.ID`)                  |
-| `Dependencies()` method          | `[]string`          | Optional predecessors, built from sibling `Name()` calls instead of string literals  |
-| `RequiredDependencies()` method  | `[]string`          | Predecessors that must be present in the chain                                       |
+| Export                          | Type            | Purpose                                                                             |
+|---------------------------------|-----------------|-------------------------------------------------------------------------------------|
+| `Name()`                        | `func() string` | Returns the middleware name as a plain string                                       |
+| `ID`                            | `Middleware`    | Lightweight typed reference for factory exclusion lists (`cors.ID`)                 |
+| `Dependencies()` method         | `[]string`      | Optional predecessors, built from sibling `Name()` calls instead of string literals |
+| `RequiredDependencies()` method | `[]string`      | Predecessors that must be present in the chain                                      |
 
 ## Subpackages
 
-| Package                                    | Description                                                    |
-|--------------------------------------------|----------------------------------------------------------------|
-| [audit](./audit)                           | Automatic request auditing via the `EventEmitter` contract            |
-| [auth](./auth)                             | Authentication with Bearer tokens, API keys, and custom schemes |
-| [bodylimit](./bodylimit)                   | Request body size enforcement (Content-Length + streaming)      |
-| [cors](./cors)                             | Cross-Origin Resource Sharing header management                |
-| [defaults](./defaults)                     | Shared default configurations and constants                    |
-| [driver](./driver)                         | Driven Middleware pattern with pre/post request hooks           |
-| [geoacl](./geoacl)                         | Country/region-based access control on caller IP                |
-| [idempotency](./idempotency)              | Idempotent request handling via Idempotency-Key header         |
-| [ipacl](./ipacl)                           | IP/CIDR allow- and deny-list enforcement                        |
-| [limiter](./limiter)                       | Per-request rate limiting with standard headers                |
-| [logger](./logger)                         | Structured request/response logging                            |
-| [metrics](./metrics)                       | Prometheus metrics collection for HTTP requests                |
-| [realip](./realip)                         | Real client IP extraction from request headers                 |
-| [recovery](./recovery)                     | Panic recovery with stack trace logging                        |
-| [requestid](./requestid)                   | UUID v4 request ID extraction or generation                    |
-| [securityheaders](./securityheaders)       | Security-related HTTP response headers                         |
-| [tracing](./tracing)                       | Distributed tracing with W3C Trace Context propagation         |
+| Package                              | Description                                                     |
+|--------------------------------------|-----------------------------------------------------------------|
+| [audit](./audit)                     | Automatic request auditing via the `EventEmitter` contract      |
+| [auth](./auth)                       | Authentication with Bearer tokens, API keys, and custom schemes |
+| [bodylimit](./bodylimit)             | Request body size enforcement (Content-Length + streaming)      |
+| [cors](./cors)                       | Cross-Origin Resource Sharing header management                 |
+| [defaults](./defaults)               | Shared default configurations and constants                     |
+| [driver](./driver)                   | Driven Middleware pattern with pre/post request hooks           |
+| [geoacl](./geoacl)                   | Country/region-based access control on caller IP                |
+| [idempotency](./idempotency)         | Idempotent request handling via Idempotency-Key header          |
+| [ipacl](./ipacl)                     | IP/CIDR allow- and deny-list enforcement                        |
+| [limiter](./limiter)                 | Per-request rate limiting with standard headers                 |
+| [logger](./logger)                   | Structured request/response logging                             |
+| [metrics](./metrics)                 | Prometheus metrics collection for HTTP requests                 |
+| [realip](./realip)                   | Real client IP extraction from request headers                  |
+| [recovery](./recovery)               | Panic recovery with stack trace logging                         |
+| [requestid](./requestid)             | UUID v4 request ID extraction or generation                     |
+| [securityheaders](./securityheaders) | Security-related HTTP response headers                          |
+| [tracing](./tracing)                 | Distributed tracing with W3C Trace Context propagation          |
 
 ## Response capture
 

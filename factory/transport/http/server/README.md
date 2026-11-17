@@ -99,8 +99,8 @@ factory.New(cfg.Http).
 
 | Method | Description |
 |--------|-------------|
-| `WithRouter` | Sets a custom router (default: Gorilla) |
-| `WithRouterPrefix` | Sets a path prefix for the default Gorilla router |
+| `WithRouter` | Sets a custom router (default: `router/std` over `http.ServeMux`) |
+| `WithRouterPrefix` | Sets a path prefix for the default router |
 
 ### Timeouts
 
