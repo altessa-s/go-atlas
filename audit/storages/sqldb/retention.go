@@ -28,12 +28,7 @@ func (s *Storage) PurgeExpired(ctx context.Context) (int64, error) {
 		return 0, nil
 	}
 	cutoff := s.opts.clock.Now().Add(-s.opts.ttl).UnixMilli()
-	query := "DELETE FROM " + s.table + " WHERE ts_ms < ? ORDER BY ts_ms, id LIMIT ?"
-	if s.dialect.name == DialectPostgres {
-		query = "DELETE FROM " + s.table + " WHERE id IN (SELECT id FROM " + s.table +
-			" WHERE ts_ms < ? ORDER BY ts_ms, id LIMIT ? FOR UPDATE SKIP LOCKED)"
-		query = s.dialect.Bind(query, 1)
-	}
+	query := s.purgeStatement()
 	total, err := purgeloop.Drain(ctx, s.opts.purgeBatchSize, purgeloop.DefaultStepTimeout,
 		func(ctx context.Context) (int64, int64, error) {
 			result, err := s.db.ExecContext(ctx, query, cutoff, s.opts.purgeBatchSize)
@@ -44,4 +39,14 @@ func (s *Storage) PurgeExpired(ctx context.Context) (int64, error) {
 			return n, n, coreerrs.WrapOperation(err, "count purged audit events")
 		})
 	return total, coreerrs.WrapOperation(err, "purge expired audit events")
+}
+
+// purgeStatement renders one purge batch for the dialect. The table name is
+// validated and quoted by New; the cutoff and the batch size are bound.
+func (s *Storage) purgeStatement() string {
+	if s.dialect.name == DialectPostgres {
+		return s.dialect.Bind("DELETE FROM "+s.table+" WHERE id IN (SELECT id FROM "+s.table+
+			" WHERE ts_ms < ? ORDER BY ts_ms, id LIMIT ? FOR UPDATE SKIP LOCKED)", 1)
+	}
+	return "DELETE FROM " + s.table + " WHERE ts_ms < ? ORDER BY ts_ms, id LIMIT ?"
 }

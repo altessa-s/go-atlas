@@ -51,4 +51,13 @@ regexes = [
     # ULID page-token samples (the canonical ULID spec example and variants)
     # in store/mongo cursor tests.
     '''(?i)01ARZ3NDEKTSV4RRFFQ69G5FA[IUV]''',
+    # HS256 JWT fixture in auth/oauth2client redaction tests: header
+    # {"alg":"HS256"}, payload {}, signature "signature". The tests assert it
+    # is redacted.
+    '''eyJhbGciOiJIUzI1NiJ9\.e30\.c2lnbmF0dXJl''',
+    # SHA-256 of "test", the example policy digest in config/templates/opa.yaml.
+    '''9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08''',
+    # Password fixture in config/loader env-spelling tests; the tests assert
+    # it never appears in error messages.
+    '''s3cr3t-Pa55w0rd''',
 ]

@@ -35,9 +35,9 @@ func TestMeter_ForwardsInstruments(t *testing.T) {
 
 	m.Counter(aipmetrics.MetricOpts{Name: "a_total"}).Inc()
 	m.MustCounter(aipmetrics.MetricOpts{Name: "b_total"}).Add(2)
-	stop := m.Timer(aipmetrics.HistogramOpts{MetricOpts: aipmetrics.MetricOpts{Name: "a_seconds"}}).Start()
+	stop := m.Timer(aipmetrics.HistogramOpts{Name: "a_seconds"}).Start()
 	stop()
-	m.MustTimer(aipmetrics.HistogramOpts{MetricOpts: aipmetrics.MetricOpts{Name: "b_seconds"}}).ObserveDuration(time.Millisecond)
+	m.MustTimer(aipmetrics.HistogramOpts{Name: "b_seconds"}).ObserveDuration(time.Millisecond)
 
 	require.InDelta(t, 1.0, metricstest.GetCounterValue(t, tc, "test_filter_a_total"), 0)
 	require.InDelta(t, 2.0, metricstest.GetCounterValue(t, tc, "test_filter_b_total"), 0)

@@ -117,8 +117,7 @@ func TestMalformedHTTPResponseRedaction(t *testing.T) {
 					require.NotContains(t, logs.String(), secret)
 					var original error
 					cause := errors.Unwrap(err)
-					var requestError *url.Error
-					if errors.As(err, &requestError) {
+					if requestError, ok := errors.AsType[*url.Error](err); ok {
 						cause = requestError
 					}
 					for ; cause != nil; cause = errors.Unwrap(cause) {

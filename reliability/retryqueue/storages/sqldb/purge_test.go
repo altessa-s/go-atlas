@@ -7,6 +7,7 @@ package sqldb_test
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,12 +50,7 @@ func (h *recordingHandler) Handle(_ context.Context, r slog.Record) error {
 func (h *recordingHandler) has(msg string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, m := range h.msgs {
-		if m == msg {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(h.msgs, msg)
 }
 
 // The loop starts with the first Storage call, not in New, purges on its

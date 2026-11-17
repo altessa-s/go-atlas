@@ -21,6 +21,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/coord/dlock/providers"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	locknats "github.com/altessa-s/go-atlas/coord/dlock/providers/nats"
@@ -55,9 +56,9 @@ func stressConnect(tb testing.TB) *nats.Conn {
 // provider must stop tracking locks once the churn ends.
 func TestStressLocker(t *testing.T) {
 	const (
-		providers = 3
-		workers   = 12
-		keys      = 4
+		lockerCount = 3
+		workers     = 12
+		keys        = 4
 	)
 	deadline := time.Now().Add(testhelpers.StressDuration(t))
 	bucket := "stress-" + strconv.FormatInt(time.Now().UnixNano(), 36)
@@ -67,7 +68,7 @@ func TestStressLocker(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = js.DeleteKeyValue(context.Background(), bucket) })
 
-	lockers := make([]*locknats.Locker, providers)
+	lockers := make([]*locknats.Locker, lockerCount)
 	for i := range lockers {
 		l, err := locknats.New(t.Context(), stressConnect(t), locknats.WithBucket(bucket), locknats.WithTTL(2*time.Second))
 		require.NoError(t, err)
@@ -86,7 +87,7 @@ func TestStressLocker(t *testing.T) {
 			for time.Now().Before(deadline) && !t.Failed() {
 				k := rand.IntN(keys) //nolint:gosec // test chaos
 				key := "key-" + strconv.Itoa(k)
-				l := lockers[rand.IntN(providers)] //nolint:gosec // test chaos
+				l := lockers[rand.IntN(lockerCount)] //nolint:gosec // test chaos
 				ctx, cancel := context.WithCancel(t.Context())
 
 				if rand.IntN(10) == 0 { //nolint:gosec // test chaos
