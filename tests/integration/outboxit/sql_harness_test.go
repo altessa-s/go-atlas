@@ -6,9 +6,7 @@ package outboxit_test
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -16,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 	"github.com/altessa-s/go-atlas/tests/integration/outboxit"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -27,30 +26,28 @@ import (
 // mysqlTimeLayout matches the DATE_FORMAT used to read DATETIME(6) columns.
 const mysqlTimeLayout = "2006-01-02 15:04:05.000000"
 
-// sqlSpec names one SQL backend the scenarios run against.
+// sqlSpec names one SQL backend the scenarios run against, with its dialect
+// in the store's own type.
 type sqlSpec struct {
+	livebackend.SQLTarget
 	name    string
-	driver  string
-	dsn     string
 	dialect outboxsql.Dialect
 }
 
-// sqlSpecs are the SQL backends from tests/integration/docker-compose.yml. The
-// MySQL DSN deliberately sets a non-UTC loc with parseTime: the store must not
-// let the driver shift any instant.
-func sqlSpecs() []sqlSpec {
-	return []sqlSpec{
-		{"postgres", "pgx", envOr("POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable"), outboxsql.DialectPostgres},
-		{"mariadb", "mysql", envOr("MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas"), outboxsql.DialectMySQL},
-		{"mysql", "mysql", envOr("MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas?parseTime=true&loc=Asia%2FTokyo"), outboxsql.DialectMySQL},
-	}
-}
+// mysqlTimeParams makes the default MySQL DSN deliberately set a non-UTC loc
+// with parseTime: the store must not let the driver shift any instant.
+const mysqlTimeParams = "?parseTime=true&loc=Asia%2FTokyo"
 
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+// sqlSpecs are the SQL backends from tests/integration/docker-compose.yml.
+func sqlSpecs() []sqlSpec {
+	var out []sqlSpec
+	for _, t := range livebackend.SQLTargets() {
+		if t.Name == "mysql" {
+			t.DefaultDSN += mysqlTimeParams
+		}
+		out = append(out, sqlSpec{SQLTarget: t, name: t.Name, dialect: outboxsql.Dialect(t.Dialect)})
 	}
-	return fallback
+	return out
 }
 
 // forEachBackend runs a scenario against MongoDB and every SQL backend, each in
@@ -103,26 +100,11 @@ func newSQLFixture(tb testing.TB, spec sqlSpec) *fixture {
 func newSQLFixtureWithoutSchema(tb testing.TB, spec sqlSpec) *sqlBackend {
 	tb.Helper()
 
-	db, err := sql.Open(spec.driver, spec.dsn)
-	require.NoError(tb, err)
-	ctx, cancel := context.WithTimeout(tb.Context(), 3*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		tb.Skipf("%s unreachable (%v) — start it with: make integration-up", spec.name, err)
-	}
+	db := spec.Open(tb)
+	b := &sqlBackend{db: db, dialect: spec.dialect,
+		events: livebackend.SQLTable(tb, db, "obit_events"), orders: livebackend.SQLTable(tb, db, "obit_orders")}
 
-	// Lower case and short: the DROP below is unquoted (PostgreSQL folds it),
-	// and the random part keeps parallel processes apart.
-	base := "obit_" + strings.ToLower(rand.Text()[:10])
-	b := &sqlBackend{db: db, dialect: spec.dialect, events: base + "_events", orders: base + "_orders"}
-	tb.Cleanup(func() {
-		_, _ = db.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+b.events)
-		_, _ = db.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+b.orders)
-		_ = db.Close()
-	})
-
-	_, err = db.ExecContext(tb.Context(), "CREATE TABLE "+b.orders+" (id VARCHAR(64) PRIMARY KEY, total INT NOT NULL)")
+	_, err := db.ExecContext(tb.Context(), "CREATE TABLE "+b.orders+" (id VARCHAR(64) PRIMARY KEY, total INT NOT NULL)")
 	require.NoError(tb, err)
 	return b
 }

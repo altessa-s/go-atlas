@@ -19,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/saga"
 	"github.com/altessa-s/go-atlas/reliability/saga/storages/sqldb"
 	"github.com/altessa-s/go-atlas/reliability/saga/storages/storagetest"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -40,38 +41,28 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// sqlTarget is one database/sql server of the docker stack.
+// sqlTarget is one database/sql server of the docker stack, with its dialect
+// in the storage's own type.
 type sqlTarget struct {
-	name, driver, dsn string
-	dialect           sqldb.Dialect
+	livebackend.SQLTarget
+	name    string
+	dialect sqldb.Dialect
 }
 
 func sqlTargets() []sqlTarget {
-	return []sqlTarget{
-		{"postgres", "pgx", envOr("POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable"), sqldb.DialectPostgres},
-		{"mariadb", "mysql", envOr("MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas"), sqldb.DialectMySQL},
-		{"mysql", "mysql", envOr("MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas"), sqldb.DialectMySQL},
+	var out []sqlTarget
+	for _, t := range livebackend.SQLTargets() {
+		out = append(out, sqlTarget{SQLTarget: t, name: t.Name, dialect: sqldb.Dialect(t.Dialect)})
 	}
+	return out
 }
 
 // open connects to the server and returns a throwaway table name, dropped on
 // cleanup. It skips when the server is unreachable.
 func (s sqlTarget) open(tb testing.TB) (*sql.DB, string) {
 	tb.Helper()
-	db, err := sql.Open(s.driver, s.dsn)
-	require.NoError(tb, err)
-	ctx, cancel := context.WithTimeout(tb.Context(), 3*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		// The DSN is not printed: an override may carry a password.
-		tb.Skipf("%s unreachable (%v) — start it with: make integration-up", s.name, err)
-	}
-	table := tableName(tb)
-	tb.Cleanup(func() {
-		_, _ = db.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+table)
-		_ = db.Close()
-	})
+	db := s.Open(tb)
+	table := livebackend.SQLTable(tb, db, "saga")
 	return db, table
 }
 

@@ -7,7 +7,6 @@ package idempotencyit_test
 import (
 	"context"
 	"database/sql"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -29,17 +28,20 @@ import (
 	idemfactory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 )
 
+// sqlTarget is one database/sql server of the docker stack, with its dialect
+// in the storage's own type.
 type sqlTarget struct {
-	name, driver, env, dsn string
-	dialect                sqldb.Dialect
+	livebackend.SQLTarget
+	name    string
+	dialect sqldb.Dialect
 }
 
 func sqlTargets() []sqlTarget {
-	return []sqlTarget{
-		{"postgres", "pgx", "POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable", sqldb.DialectPostgres},
-		{"mariadb", "mysql", "MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas", sqldb.DialectMySQL},
-		{"mysql", "mysql", "MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas", sqldb.DialectMySQL},
+	var out []sqlTarget
+	for _, t := range livebackend.SQLTargets() {
+		out = append(out, sqlTarget{SQLTarget: t, name: t.Name, dialect: sqldb.Dialect(t.Dialect)})
 	}
+	return out
 }
 
 func sqlBackends() []backend {
@@ -58,27 +60,8 @@ func sqlBackends() []backend {
 // idempotence, and a skip if the local backend is unavailable.
 func (target sqlTarget) open(tb testing.TB, ttl time.Duration, opts ...sqldb.Option) (*sql.DB, string, *sqldb.Storage) {
 	tb.Helper()
-	dsn := target.dsn
-	if override := os.Getenv(target.env); override != "" {
-		dsn = override
-	}
-	db, err := sql.Open(target.driver, dsn)
-	require.NoError(tb, err)
-	tb.Cleanup(func() { _ = db.Close() })
-	ctx, cancel := context.WithTimeout(tb.Context(), 3*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		tb.Skipf("%s unreachable — start it with: make integration-up", target.name)
-	}
-	table := strings.ToLower(livebackend.UniqueName(tb, "idemsql"))
-	table = table[:min(len(table), 63)]
-	tb.Cleanup(func() {
-		// Test contexts are canceled before cleanup callbacks run.
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(tb.Context()), 3*time.Second)
-		defer cancel()
-		_, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table)
-		require.NoError(tb, err)
-	})
+	db := target.Open(tb)
+	table := livebackend.SQLTable(tb, db, "idemsql")
 	opts = append(opts, sqldb.WithTableName(table), sqldb.WithTTL(ttl))
 	s, err := sqldb.New(db, target.dialect, opts...)
 	require.NoError(tb, err)

@@ -6,11 +6,8 @@ package auditit_test
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,23 +16,26 @@ import (
 	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/audit/storages/sqldb"
 	"github.com/altessa-s/go-atlas/audit/storages/storagetest"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// sqlTarget is one database/sql server of the docker stack.
+// sqlTarget is one database/sql server of the docker stack, with its dialect
+// in the storage's own type.
 type sqlTarget struct {
-	name, driver, envKey, dsn string
-	dialect                   sqldb.Dialect
+	livebackend.SQLTarget
+	name    string
+	dialect sqldb.Dialect
 }
 
 func sqlTargets() []sqlTarget {
-	return []sqlTarget{
-		{"postgres", "pgx", "POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable", sqldb.DialectPostgres},
-		{"mariadb", "mysql", "MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas", sqldb.DialectMySQL},
-		{"mysql", "mysql", "MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas", sqldb.DialectMySQL},
+	var out []sqlTarget
+	for _, t := range livebackend.SQLTargets() {
+		out = append(out, sqlTarget{SQLTarget: t, name: t.Name, dialect: sqldb.Dialect(t.Dialect)})
 	}
+	return out
 }
 
 // storage opens the server and returns a storage over a throwaway table,
@@ -50,24 +50,8 @@ func (s sqlTarget) storage(t *testing.T, opts ...sqldb.Option) *sqldb.Storage {
 // open is storage that also returns the database handle and table name.
 func (s sqlTarget) open(t *testing.T, opts ...sqldb.Option) (*sqldb.Storage, *sql.DB, string) {
 	t.Helper()
-	dsn := s.dsn
-	if v := os.Getenv(s.envKey); v != "" {
-		dsn = v
-	}
-	db, err := sql.Open(s.driver, dsn)
-	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		// The DSN is not printed: an override may carry a password.
-		t.Skipf("%s unreachable (%v) — start it with: make integration-up", s.name, err)
-	}
-	table := "audit_" + strings.ToLower(rand.Text()[:12])
-	t.Cleanup(func() {
-		_, _ = db.ExecContext(context.WithoutCancel(t.Context()), "DROP TABLE IF EXISTS "+table)
-		_ = db.Close()
-	})
+	db := s.Open(t)
+	table := livebackend.SQLTable(t, db, "audit")
 	st, err := sqldb.New(db, s.dialect, append(opts, sqldb.WithTableName(table))...)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, st.Close(context.WithoutCancel(t.Context()))) })

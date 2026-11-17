@@ -8,7 +8,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -28,50 +27,28 @@ import (
 	retryqueuefactory "github.com/altessa-s/go-atlas/factory/reliability/retryqueue"
 )
 
-// sqlTarget is one database/sql server of the docker stack.
+// sqlTarget is one database/sql server of the docker stack, with its dialect
+// in the storage's own type.
 type sqlTarget struct {
-	name, driver, env, dsn string
-	dialect                sqldb.Dialect
+	livebackend.SQLTarget
+	name    string
+	dialect sqldb.Dialect
 }
 
 func sqlTargets() []sqlTarget {
-	return []sqlTarget{
-		{"postgres", "pgx", "POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable", sqldb.DialectPostgres},
-		{"mariadb", "mysql", "MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas", sqldb.DialectMySQL},
-		{"mysql", "mysql", "MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas", sqldb.DialectMySQL},
+	var out []sqlTarget
+	for _, t := range livebackend.SQLTargets() {
+		out = append(out, sqlTarget{SQLTarget: t, name: t.Name, dialect: sqldb.Dialect(t.Dialect)})
 	}
-}
-
-// connect opens a connection pool to the server, closed on cleanup. It skips
-// when the server is unreachable.
-func (s sqlTarget) connect(tb testing.TB) *sql.DB {
-	tb.Helper()
-	dsn := s.dsn
-	if v := os.Getenv(s.env); v != "" {
-		dsn = v
-	}
-	db, err := sql.Open(s.driver, dsn)
-	require.NoError(tb, err)
-	ctx, cancel := context.WithTimeout(tb.Context(), 3*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		// The DSN is not printed: an override may carry a password.
-		tb.Skipf("%s unreachable (%v) — start it with: make integration-up", s.name, err)
-	}
-	tb.Cleanup(func() { _ = db.Close() })
-	return db
+	return out
 }
 
 // open connects to the server and returns a throwaway table name, dropped on
 // cleanup.
 func (s sqlTarget) open(tb testing.TB) (*sql.DB, string) {
 	tb.Helper()
-	db := s.connect(tb)
-	// Lower case: the cleanup DROP is unquoted and PostgreSQL folds an
-	// unquoted name to lower case.
-	table := livebackend.UniqueName(tb, "rq")
-	tb.Cleanup(func() { _, _ = db.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+table) })
+	db := s.Open(tb)
+	table := livebackend.SQLTable(tb, db, "rq")
 	return db, table
 }
 
@@ -232,7 +209,7 @@ func TestSQLConcurrentFirstMarkAcrossReplicas(t *testing.T) {
 			first, _, table := target.store(t)
 			stores := make([]*sqldb.Store[storagetest.Payload], replicas)
 			for i := range replicas {
-				s, err := sqldb.New[storagetest.Payload](target.connect(t), target.dialect, sqldb.WithTableName(table))
+				s, err := sqldb.New[storagetest.Payload](target.Open(t), target.dialect, sqldb.WithTableName(table))
 				require.NoError(t, err)
 				stores[i] = s
 			}

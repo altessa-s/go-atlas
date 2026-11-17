@@ -60,6 +60,12 @@ func ConnectRedis(tb testing.TB) *goredis.Client {
 // test against the same server — never get the same name.
 func UniqueName(tb testing.TB, prefix string) string {
 	tb.Helper()
+	return uniqueName(tb, prefix, maxNamePart)
+}
+
+// uniqueName is [UniqueName] with the test-name part capped at maxPart.
+func uniqueName(tb testing.TB, prefix string, maxPart int) string {
+	tb.Helper()
 
 	safe := strings.Map(func(r rune) rune {
 		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
@@ -68,7 +74,7 @@ func UniqueName(tb testing.TB, prefix string) string {
 		return '_'
 	}, strings.ToLower(tb.Name()))
 
-	return prefix + "_" + safe[:min(len(safe), maxNamePart)] + "_" + strings.ToLower(rand.Text()[:8])
+	return prefix + "_" + safe[:max(0, min(len(safe), maxPart))] + "_" + strings.ToLower(rand.Text()[:8])
 }
 
 // RedisPrefix returns a key prefix unique to the test, ending in ":", and

@@ -6,11 +6,9 @@ package dlockit_test
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -23,47 +21,34 @@ import (
 	"github.com/altessa-s/go-atlas/coord/dlock/providers/providertest"
 	"github.com/altessa-s/go-atlas/coord/dlock/providers/sqldb"
 	"github.com/altessa-s/go-atlas/tests/integration/dlockit"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// sqlTarget is one database/sql server of the docker stack.
+// sqlTarget is one database/sql server of the docker stack, with its dialect
+// in the storage's own type.
 type sqlTarget struct {
-	name, driver, envKey, dsn string
-	dialect                   sqldb.Dialect
+	livebackend.SQLTarget
+	name    string
+	dialect sqldb.Dialect
 }
 
 func sqlTargets() []sqlTarget {
-	return []sqlTarget{
-		{"postgres", "pgx", "POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable", sqldb.DialectPostgres},
-		{"mariadb", "mysql", "MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas", sqldb.DialectMySQL},
-		{"mysql", "mysql", "MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas", sqldb.DialectMySQL},
+	var out []sqlTarget
+	for _, t := range livebackend.SQLTargets() {
+		out = append(out, sqlTarget{SQLTarget: t, name: t.Name, dialect: sqldb.Dialect(t.Dialect)})
 	}
+	return out
 }
 
 // namespace opens the server and creates a throwaway locks table, dropped on
 // cleanup. It skips when the server is unreachable.
 func (s sqlTarget) namespace(tb testing.TB) (*sql.DB, string) {
 	tb.Helper()
-	dsn := s.dsn
-	if v := os.Getenv(s.envKey); v != "" {
-		dsn = v
-	}
-	db, err := sql.Open(s.driver, dsn)
-	require.NoError(tb, err)
-	ctx, cancel := context.WithTimeout(tb.Context(), 3*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		// The DSN is not printed: an override may carry a password.
-		tb.Skipf("%s unreachable (%v) — start it with: make integration-up", s.name, err)
-	}
-	table := "dlock_" + strings.ToLower(rand.Text()[:12])
-	tb.Cleanup(func() {
-		_, _ = db.ExecContext(context.WithoutCancel(tb.Context()), "DROP TABLE IF EXISTS "+table)
-		_ = db.Close()
-	})
+	db := s.Open(tb)
+	table := livebackend.SQLTable(tb, db, "dlock")
 	l, err := sqldb.New(db, s.dialect, sqldb.WithTableName(table))
 	require.NoError(tb, err)
 	require.NoError(tb, l.EnsureSchema(tb.Context()))
