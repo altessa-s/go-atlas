@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/factory/coord/dlock"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	noopprovider "github.com/altessa-s/go-atlas/coord/dlock/providers/noop"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -106,5 +108,71 @@ func TestBuild_SQL(t *testing.T) {
 			}
 			require.Equal(t, map[bool]int{false: 0, true: 1}[ensure], ddl)
 		})
+	}
+}
+
+// TestBuild_SQLOptionsFromConfig pins that the lease settings of the sqldb
+// block reach the provider.
+func TestBuild_SQLOptionsFromConfig(t *testing.T) {
+	t.Parallel()
+	build := func(c lockconfig.DistributionLockSQL) error {
+		db, _ := testhelpers.NewFakeSQL(t, nil)
+		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderSQL, SQL: &c}).
+			UseSQLDB(db).Build(t.Context())
+		return err
+	}
+	base := func() lockconfig.DistributionLockSQL {
+		return lockconfig.DistributionLockSQL{Dialect: lockconfig.SQLDialectPostgres, Table: "dlocks", TTL: 10 * time.Second}
+	}
+
+	hard := base()
+	hard.WithoutRenewal, hard.ExpiredCleanup, hard.ExpiredCleanupGrace = true, true, time.Minute
+	require.NoError(t, build(hard), "a hard lease with cleanup builds without I/O")
+
+	tooShort := base()
+	tooShort.TTL = 500 * time.Microsecond
+	require.Error(t, build(tooShort), "the TTL reaches the provider")
+
+	badRatio := base()
+	badRatio.TTL, badRatio.RenewRatio = 2*time.Millisecond, 0.1
+	require.Error(t, build(badRatio), "the renew ratio reaches the provider")
+	badRatio.WithoutRenewal = true
+	require.NoError(t, build(badRatio), "a hard lease ignores the renew ratio")
+
+	negative := base()
+	negative.ExpiredCleanup, negative.ExpiredCleanupGrace = true, -time.Second
+	require.Error(t, build(negative), "the cleanup grace reaches the provider")
+}
+
+func TestBuild_SQLPurgeShutdownAndBatch(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	var hooks coreruntime.HookGroup
+	cfg := &lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderSQL,
+		SQL: &lockconfig.DistributionLockSQL{Dialect: "postgres", Table: "locks", ExpiredCleanup: true,
+			PurgeInterval: time.Millisecond, PurgeBatchSize: 7}}
+	dl, err := factory.New(cfg).UseSQLDB(db).UseShutdownHooks(&hooks).Build(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, hooks.Shutdown(context.WithoutCancel(t.Context()))) })
+	require.Empty(t, fake.Calls(), "Build starts no goroutine")
+	_, _ = dl.Lock(t.Context(), "key") // The fake refuses acquisition; this is still a write-path call.
+	testhelpers.WaitFor(t, time.Second, func() bool {
+		for _, call := range fake.Calls() {
+			if strings.HasPrefix(call.Query, "DELETE") {
+				return true
+			}
+		}
+		return false
+	}, "configured purge interval reaches the provider")
+	require.NoError(t, hooks.Shutdown(t.Context()))
+	before := len(fake.Calls())
+	_, err = dl.Lock(t.Context(), "after-shutdown")
+	require.Error(t, err, "shutdown closes the lease engine")
+	time.Sleep(10 * time.Millisecond)
+	require.Len(t, fake.Calls(), before, "purging cannot restart")
+	for _, call := range fake.Calls() {
+		if strings.HasPrefix(call.Query, "DELETE") {
+			require.Contains(t, call.Query, "LIMIT 7 FOR UPDATE SKIP LOCKED")
+		}
 	}
 }

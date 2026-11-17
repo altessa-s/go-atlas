@@ -11,5 +11,10 @@
 // to generated options.
 //
 // Key types: [Provider], [Config], [InProgressMetrics], [InProgress],
-// [Outbox].
+// [Outbox], [OutboxStorageConfig], [OutboxWatch].
+//
+// The outbox block selects its storage (mongo or sqldb) and how the
+// dispatcher is woken beyond its schedule (polling, changeStream or notify);
+// [Outbox.Validate] rejects a watch mode the storage cannot serve with
+// [ErrUnsupportedOutboxWatch].
 package brokerconfig

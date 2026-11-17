@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/messaging/broker/outbox"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
@@ -55,6 +56,10 @@ type BrokerBuilder struct {
 	scheduler        schedtask.Registrar
 	collector        metrics.Meter
 	providers        map[brokerconfig.Provider]ProviderFunc
+	outboxStorages   map[brokerconfig.OutboxStorageType]outboxfactory.StorageFunc
+	sqlDB            *sql.DB
+	sqlListener      outboxsql.Listener
+	shutdownHooks    *coreruntime.HookGroup
 }
 
 // New creates a new [BrokerBuilder] for the given broker config.
@@ -112,35 +117,24 @@ func (b *BrokerBuilder) CreateInProgressManager() (*inprogress.Manager, error) {
 	return inprogress.New(opts...), nil
 }
 
-// CreateOutboxWithStorage creates an outbox over the storage build creates,
-// for example the MongoDB one from factory/reliability/outbox/storages/mongo, using
-// the builder's broker configuration. ctx bounds the storage's startup I/O and
-// the task registration.
-func (b *BrokerBuilder) CreateOutboxWithStorage(
-	ctx context.Context, build outboxfactory.StorageFunc, publisher outbox.Publisher,
-) (*outbox.Outbox, error) {
+// CreateOutbox creates the outbox over the storage selected by
+// outbox.storage.type, using the builder's broker configuration: the sqldb
+// store over the handle given to [BrokerBuilder.UseSQLDB], or the one whose
+// function was registered with [BrokerBuilder.UseOutboxStorage], for example
+// the MongoDB one from factory/reliability/outbox/storages/mongo. With
+// outbox.watch set to changeStream or notify the watcher is started as
+// described for the reliability/outbox factory. ctx bounds the storage's
+// startup I/O and the task registration. Returns (nil, nil) when the outbox is
+// disabled.
+func (b *BrokerBuilder) CreateOutbox(ctx context.Context, publisher outbox.Publisher) (*outbox.Outbox, error) {
+	if err := corefactory.JoinErrors(b.errs); err != nil {
+		return nil, err
+	}
 	ob, err := b.outboxBuilder(publisher)
 	if ob == nil {
 		return nil, err
 	}
-	return wrapOutbox(ob.BuildWithStorage(ctx, build, outbox.NewHandler(publisher)))
-}
-
-// CreateOutboxWithSQLDB creates a SQL-backed outbox (PostgreSQL, MySQL or
-// MariaDB, selected by dialect) for reliable message delivery using the
-// builder's broker configuration. With the outbox config's EnsureSchema set,
-// the events table is created if it does not exist; otherwise it must already
-// exist (the store's EnsureSchema or migrations). Save must run on the
-// business transaction via outboxsql.WithTx. ctx bounds the startup schema
-// creation and task registration.
-func (b *BrokerBuilder) CreateOutboxWithSQLDB(
-	ctx context.Context, db *sql.DB, dialect outboxsql.Dialect, publisher outbox.Publisher,
-) (*outbox.Outbox, error) {
-	ob, err := b.outboxBuilder(publisher)
-	if ob == nil {
-		return nil, err
-	}
-	return wrapOutbox(ob.BuildWithSQLDB(ctx, db, dialect, outbox.NewHandler(publisher)))
+	return wrapOutbox(ob.Build(ctx, outbox.NewHandler(publisher)))
 }
 
 // CreateProvider creates the broker provider of the configured provider type
@@ -179,10 +173,17 @@ func (b *BrokerBuilder) outboxBuilder(publisher outbox.Publisher) (*outboxfactor
 		}
 	}
 
-	return outboxfactory.New(cfg).
+	ob := outboxfactory.New(cfg).
 		UseLogger(b.Logger()).
 		UseScheduler(b.scheduler).
-		UseOutboxOptions(dataoutbox.WithShouldRetry(outbox.ShouldRetry)), nil
+		UseSQLDB(b.sqlDB).
+		UseSQLListener(b.sqlListener).
+		UseShutdownHooks(b.shutdownHooks).
+		UseOutboxOptions(dataoutbox.WithShouldRetry(outbox.ShouldRetry))
+	for typ, build := range b.outboxStorages {
+		ob.UseStorage(typ, build)
+	}
+	return ob, nil
 }
 
 // wrapOutbox adapts a reliability/outbox factory result to the broker adapter. A nil

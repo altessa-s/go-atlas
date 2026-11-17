@@ -3,7 +3,10 @@
 // the LICENSE file.
 
 // Package idempotency provides duplicate request detection using idempotency keys.
-// It supports memory, Redis, and NATS storage backends.
+// It supports memory, Redis, NATS, MongoDB and SQL storage backends. MongoDB
+// and SQL can commit keys with business writes in the caller's transaction.
+// SQL storage purges expired keys lazily in the background; PurgeExpired(ctx)
+// also drains expired rows manually and returns an int64 count.
 //
 // # Ownership
 //

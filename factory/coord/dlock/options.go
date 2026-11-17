@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 )
 
@@ -64,5 +65,12 @@ func (b *DLockBuilder) UseHealthCoordinator(v *health.Coordinator) *DLockBuilder
 // is also called.
 func (b *DLockBuilder) UseHealthServiceName(v string) *DLockBuilder {
 	b.healthServiceName = v
+	return b
+}
+
+// UseShutdownHooks sets the hook group that closes the built-in SQL provider.
+// Without it, Close is registered in the process-wide runtime registry.
+func (b *DLockBuilder) UseShutdownHooks(v *coreruntime.HookGroup) *DLockBuilder {
+	b.shutdownHooks = v
 	return b
 }

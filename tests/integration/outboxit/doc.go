@@ -4,7 +4,10 @@
 
 // Package outboxit exercises reliability/outbox against a live MongoDB replica set and,
 // for every scenario that does not depend on change streams, against the SQL
-// store on live PostgreSQL, MariaDB and MySQL servers.
+// store on live PostgreSQL, MariaDB and MySQL servers. The storage contract
+// suite (reliability/outbox/storages/storagetest) runs on all four, and its
+// Watch contract on MongoDB change streams and on PostgreSQL LISTEN/NOTIFY
+// through [PGListener], the pgx adapter of the SQL store's Listener.
 //
 // The unit tests for reliability/outbox run against in-memory stores and assert on the
 // state the outbox decided to write. What they cannot assert is whether that
@@ -28,10 +31,11 @@
 //     backoff has elapsed on the server's clock, and a dead-lettered one is
 //     retained rather than swept up with the successfully published events.
 //
-//   - Change-stream notifications. Outbox.Watch dispatches without any poll
-//     cycle at all, and only at commit — an uncommitted insert is invisible to
-//     the stream, which is what makes it safe to drive delivery from. Neither
-//     the notification nor its commit boundary exists without an oplog.
+//   - Change notifications. Outbox.Watch dispatches without any poll cycle at
+//     all, and only at commit — an uncommitted insert is invisible to a change
+//     stream, and pg_notify inside the saving transaction is delivered on
+//     commit, which is what makes them safe to drive delivery from. Neither
+//     exists without the real server (an oplog, a LISTEN connection).
 //
 // For MongoDB a replica set is required — transactions do not exist on a
 // standalone mongod.

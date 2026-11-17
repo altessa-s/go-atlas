@@ -6,8 +6,9 @@ package sqldb
 
 import (
 	"errors"
-	"reflect"
 	"time"
+
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
 )
@@ -37,9 +38,8 @@ const (
 	sqlStateDeadlock      = "40P01"
 	sqlStateSerialization = "40001"
 
-	// MySQL error numbers: ER_LOCK_DEADLOCK and ER_DUP_KEYNAME.
-	mysqlDeadlock     = 1213
-	mysqlDupIndexName = 1061
+	// MySQL error number: ER_LOCK_DEADLOCK.
+	mysqlDeadlock = 1213
 )
 
 // deadlockRetry re-runs a statement or transaction the database aborted to
@@ -71,20 +71,5 @@ func isDeadlock(err error) bool {
 		state := e.SQLState()
 		return state == sqlStateDeadlock || state == sqlStateSerialization
 	}
-	return mysqlErrorNumber(err) == mysqlDeadlock
-}
-
-// mysqlErrorNumber returns the Number field of the first error in err's chain
-// that has one, as go-sql-driver/mysql's MySQLError does; 0 when none does.
-func mysqlErrorNumber(err error) uint16 {
-	for ; err != nil; err = errors.Unwrap(err) {
-		v := reflect.Indirect(reflect.ValueOf(err))
-		if v.Kind() != reflect.Struct {
-			continue
-		}
-		if f := v.FieldByName("Number"); f.IsValid() && f.Kind() == reflect.Uint16 {
-			return uint16(f.Uint()) //nolint:gosec // read from a uint16
-		}
-	}
-	return 0
+	return sqldialect.MySQLErrorNumber(err) == mysqlDeadlock
 }

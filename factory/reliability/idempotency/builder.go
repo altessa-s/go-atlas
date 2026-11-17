@@ -5,7 +5,10 @@
 package factory
 
 import (
+	"context"
+	"database/sql"
 	"log/slog"
+	"time"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
@@ -13,9 +16,12 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	memorystorage "github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
+	sqlstorage "github.com/altessa-s/go-atlas/reliability/idempotency/storages/sqldb"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
@@ -27,7 +33,7 @@ type StorageFunc func(cfg *idempotencyconfig.Config) (storages.Storage, error)
 // Create instances with [New]. Errors are accumulated and reported at [KeeperBuilder.Build] time.
 // The builder is not safe for concurrent use.
 //
-// The builder builds only the in-memory storage. The Redis, NATS and MongoDB
+// The builder builds memory and, with UseSQLDB, SQL storage. The Redis, NATS and MongoDB
 // ones register their [StorageFunc] with [KeeperBuilder.UseStorage] from
 // reliability/idempotency/storages/<backend>/factory; a configured type without one
 // fails at Build naming the package to add.
@@ -36,7 +42,9 @@ type KeeperBuilder struct {
 	cfg  *idempotencyconfig.Config
 	errs []error
 
-	storages map[idempotencyconfig.StorageType]StorageFunc
+	storages      map[idempotencyconfig.StorageType]StorageFunc
+	sqlDB         *sql.DB
+	shutdownHooks *coreruntime.HookGroup
 
 	// Dependencies
 	scheduler schedtask.Registrar
@@ -103,6 +111,11 @@ func (b *KeeperBuilder) createStorage() (storages.Storage, error) {
 	switch b.cfg.Storage.Type {
 	case idempotencyconfig.StorageTypeMemory:
 		return b.createMemoryStorage()
+	case idempotencyconfig.StorageTypeSQL:
+		if err := b.RequireDependency(b.sqlDB, "SQL database"); err != nil {
+			return nil, err
+		}
+		return b.createSQLStorage()
 	case idempotencyconfig.StorageTypeRedis:
 		return b.createRegisteredStorage("client")
 	case idempotencyconfig.StorageTypeNATS:
@@ -112,6 +125,37 @@ func (b *KeeperBuilder) createStorage() (storages.Storage, error) {
 	default:
 		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported storage type: %s", b.cfg.Storage.Type)
 	}
+}
+
+// ensureSchemaTimeout bounds optional startup DDL and advisory-lock waits.
+const ensureSchemaTimeout = 30 * time.Second
+
+func (b *KeeperBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
+	cfg := b.cfg.Storage.SQL
+	if cfg == nil {
+		return nil, corefactory.ErrConfigRequired
+	}
+	store, err := sqlstorage.New(b.sqlDB, sqlstorage.Dialect(cfg.Dialect),
+		sqlstorage.WithTableName(cfg.Table), sqlstorage.WithTTL(b.cfg.TTL),
+		sqlstorage.WithPurgeInterval(cfg.PurgeInterval), sqlstorage.WithPurgeBatchSize(cfg.PurgeBatchSize), sqlstorage.WithLogger(b.Logger()))
+	if err != nil {
+		return nil, err
+	}
+	if cfg.EnsureSchema {
+		// Build has no context parameter; bound its startup I/O as the Mongo
+		// factory does for index creation.
+		ctx, cancel := corecontext.WithMaxTimeout(context.Background(), ensureSchemaTimeout)
+		defer cancel()
+		if err := store.EnsureSchema(ctx); err != nil {
+			return nil, b.WrapError(err, "ensure idempotency schema")
+		}
+	}
+	if b.shutdownHooks != nil {
+		b.shutdownHooks.OnShutdown(store.Close)
+	} else {
+		coreruntime.OnShutdown(store.Close)
+	}
+	return store, nil
 }
 
 // createRegisteredStorage runs the [StorageFunc] registered for the configured

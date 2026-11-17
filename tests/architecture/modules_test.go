@@ -160,6 +160,7 @@ var backendFactories = map[string]string{
 	"store/mongo/storages/nats":              "factory/store/mongo/storages/nats",
 	"store/mongo/storages/redis":             "factory/store/mongo/storages/redis",
 	"reliability/outbox/storages/mongo":      "factory/reliability/outbox/storages/mongo",
+	"reliability/retryqueue/storages/mongo":  "factory/reliability/retryqueue/storages/mongo",
 	"cache/probfilter/bloom/storages/redis":  "factory/cache/probfilter/bloom/storages/redis",
 	"cache/probfilter/cuckoo/storages/redis": "factory/cache/probfilter/cuckoo/storages/redis",
 	"reliability/saga/storages/mongo":        "factory/reliability/saga/storages/mongo",

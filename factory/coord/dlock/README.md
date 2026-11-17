@@ -16,38 +16,44 @@ lock, err := factory.New(cfg.DistributionLock).
     Build(ctx)
 ```
 
-The builder builds only the `sqldb` provider. `nats` and `mongo` use the function registered with `UseProvider`; without one `Build` fails
-naming the package to add.
+The builder builds only the `sqldb` provider. `nats` and `mongo` use the function registered with `UseProvider`; without one `Build` fails naming the
+package to add.
 
 ## Supported Providers
 
-| Provider | Requires                                                                                                                                                                                          |
-|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `nats`   | `UseProvider("nats", natsfactory.Builder(conn))` from [`factory/coord/dlock/providers/nats`](providers/nats)                                                                                 |
-| `mongo`  | `UseProvider("mongo", mongofactory.Builder(db))` from [`factory/coord/dlock/providers/mongo`](providers/mongo) (`mongo.ensureIndexes: true` reconciles the cleanup TTL index during `Build`) |
-| `sqldb`  | `UseSQLDB`                                                                                                                                                                                        |
+| Provider                                                                                                                                                  | Requires                                                                                                                                                                                              |                                                                                                   |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| `nats`                                                                                                                                                    | `UseProvider("nats", natsfactory.Builder(conn))` from [`factory/coord/dlock/providers/nats`](providers/nats)                                                                                          |                                                                                                   |
+| `mongo`                                                                                                                                                   | `UseProvider("mongo", mongofactory.Builder(db))` from [`factory/coord/dlock/providers/mongo`](providers/mongo) (`mongo.ensureIndexes: true` reconciles the cleanup TTL index during `Build`)          |                                                                                                   |
+| `sqldb`                                                                                                                                                   | `UseShutdownHooks`                                                                                                                                                                                    | Sets the hook group that closes the SQL provider; defaults to the process-wide runtime registry   |
+| `UseSQLDB` (`sqldb.ensureSchema: true` creates the table during `Build`; `ttl`, `renewRatio`, `withoutRenewal` and `expiredCleanup` map as for `mongo`)   |                                                                                                                                                                                                       |                                                                                                   |
 
 ## Methods
 
 ### Constructor
 
-| Method     | Description                                                     |
-|------------|-----------------------------------------------------------------|
+| Method       | Description                                |
+|--------------|-------------------------------------------------------------------|
 | `New(cfg)` | Creates a `DLockBuilder` for the given distribution lock config |
 
 ### Dependencies
 
-| Method                 | Description                                                                                                            |
-|------------------------|------------------------------------------------------------------------------------------------------------------------|
-| `UseLogger`            | Sets the logger for the builder, the `DLock` and the `mongo`/`sqldb` providers (the `nats` provider keeps its default) |
-| `UseDefaultLogger`     | Sets the logger to `slog.Default()`                                                                                    |
-| `UseProvider`          | Registers the `ProviderFunc` of a provider type the builder does not build (`nats`, `mongo`)                           |
-| `UseSQLDB`             | Sets the `*sql.DB` for the `sqldb` provider                                                                            |
-| `UseHealthCoordinator` | Registers the lock with a `health.Coordinator`                                                                         |
-| `UseHealthServiceName` | Overrides the health service name (default `dlock`)                                                                    |
+| Method                     | Description                                                                                                                |
+|----------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `UseLogger`                | Sets the logger for the builder, the `DLock` and the `mongo`/`sqldb` providers (the `nats` provider keeps its default)     |
+| `UseDefaultLogger`         | Sets the logger to `slog.Default()`                                                                                        |
+| `UseProvider`              | Registers the `ProviderFunc` of a provider type the builder does not build (`nats`, `mongo`)                               |
+| `UseShutdownHooks`         | Sets the hook group that closes the SQL provider; defaults to the process-wide runtime registry                            |
+| `UseSQLDB`                 | Sets the `*sql.DB` for the `sqldb` provider                                                                                |
+| `UseHealthCoordinator`     | Registers the lock with a `health.Coordinator`                                                                             |
+| `UseHealthServiceName`     | Overrides the health service name (default `dlock`)                                                                        |
 
 ### Terminal
 
 | Method       | Description                                |
-|--------------|--------------------------------------------|
+|----------------|----------------------------------------------|
 | `Build(ctx)` | Assembles and returns the distributed lock |
+
+SQL configuration maps purgeInterval and purgeBatchSize to the store options (defaults "1m" and 1000). A zero interval disables background purging. The
+builder registers Close with UseShutdownHooks(group) or the process-wide runtime shutdown registry; run shutdown hooks before closing the injected
+database.

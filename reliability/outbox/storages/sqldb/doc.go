@@ -52,8 +52,14 @@
 //
 // # Watch
 //
-// database/sql has no notification API, so the store does not implement
-// [outbox.Watcher]; dispatch runs on the poll schedule.
+// database/sql has no notification API, so PostgreSQL LISTEN comes from the
+// caller as a [Listener] ([WithListener]), typically a small adapter over a
+// pgx connection (see the README). With one, [Store.Watch] implements
+// [outbox.Watcher]; without one it reports [outbox.ErrWatchUnsupported] and
+// dispatch runs on the poll schedule. [WithNotify] makes every save signal
+// the channel with pg_notify inside the inserting transaction, so listeners
+// hear of an event when it commits. MySQL has neither: the options fail [New]
+// with [ErrNotifyUnsupported].
 //
 // # Usage
 //

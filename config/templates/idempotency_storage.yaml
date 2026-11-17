@@ -1,5 +1,5 @@
 # Idempotency storage configuration template.
-# Storage backend for idempotency keys: memory, redis, nats or mongo.
+# Storage backend for idempotency keys: memory, redis, nats, mongo or sqldb.
 # This file is included via !include directive in idempotency.yaml.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
@@ -7,7 +7,7 @@
 #storage:
 #  # <string> Type of storage backend.
 #  # Determines which storage system to use for persistence.
-#  # Supported values: memory, redis, nats, mongo
+#  # Supported values: memory, redis, nats, mongo, sqldb
 #  # Default value: not set (required)
 #  type: redis
 #
@@ -67,3 +67,28 @@
 #    # <string> Collection that stores the idempotency keys.
 #    # Default value: idempotency_keys
 #    collection: "idempotency_keys"
+#
+#  # <object> SQL storage configuration (PostgreSQL, MySQL or MariaDB).
+#  # Required when type is set to 'sqldb'. Inject *sql.DB with UseSQLDB.
+#  sqldb:
+#    # <string> SQL dialect: postgres or mysql (includes MariaDB).
+#    # Default value: postgres
+#    dialect: postgres
+#
+#    # <string> Table name, optionally schema-qualified.
+#    # Default value: idempotency_keys
+#    table: idempotency_keys
+#
+#    # <bool> Create the table and expiry index at startup (30-second timeout).
+#    # Leave false when applying the schema through migrations.
+#    # Default value: false
+#    ensureSchema: false
+#
+#    # <duration> Time between background purge passes; "0s" disables the loop.
+#    # Starts on the first write and stops through factory shutdown hooks.
+#    # Default value: 1m
+#    purgeInterval: "1m"
+#
+#    # <int> Maximum rows deleted by one purge statement.
+#    # Default value: 1000
+#    purgeBatchSize: 1000

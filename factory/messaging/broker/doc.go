@@ -15,14 +15,16 @@
 //   - [broker.Broker] via [BrokerBuilder.Build]
 //   - [broker.Provider] via [BrokerBuilder.CreateProvider]
 //   - [inprogress.Manager] via [BrokerBuilder.CreateInProgressManager]
-//   - [outbox.Outbox] via [BrokerBuilder.CreateOutboxWithStorage] and
-//     [BrokerBuilder.CreateOutboxWithSQLDB]
+//   - [outbox.Outbox] via [BrokerBuilder.CreateOutbox], over the storage named
+//     by outbox.storage.type
 //
 // The builder builds no broker provider itself: the NATS one registers with
 // [BrokerBuilder.UseProvider] from factory/messaging/broker/providers/nats,
 // which also builds the NATS stream recovery manager, and a configured
 // provider without one fails naming the package to add. The MongoDB outbox
-// storage comes from factory/reliability/outbox/storages/mongo.
+// storage registers with [BrokerBuilder.UseOutboxStorage] from
+// factory/reliability/outbox/storages/mongo; the SQL one is built over
+// [BrokerBuilder.UseSQLDB].
 //
 // # Scheduler Integration
 //
@@ -36,13 +38,14 @@
 //	    UseLogger(logger).
 //	    UseScheduler(scheduler).
 //	    UsePublishConverter(publishConverter).
-//	    UseProvider(brokerconfig.ProviderNATS, natsfactory.Builder(natsConn))
+//	    UseProvider(brokerconfig.ProviderNATS, natsfactory.Builder(natsConn)).
+//	    UseOutboxStorage(brokerconfig.OutboxStorageTypeMongo, outboxmongofactory.Builder(mongoDB))
 //
 //	provider, err := b.CreateProvider()
 //	if err != nil {
 //	    return err
 //	}
 //
-//	outbox, err := b.CreateOutboxWithStorage(ctx, outboxmongofactory.Builder(mongoDB), provider)
+//	outbox, err := b.CreateOutbox(ctx, provider)
 //	brk, err := b.Build(provider)
 package factory

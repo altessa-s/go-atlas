@@ -119,8 +119,9 @@ with `ErrTaskIDCollision`.
 ## Change notifications
 
 A saved event otherwise waits up to one dispatch interval. When the store implements the optional `Watcher` interface, `Outbox.Watch` blocks on its
-notifications and runs a dispatch cycle as soon as events land — the MongoDB store implements it with a change stream over the outbox collection, so an
-event becomes visible the instant its transaction commits:
+notifications and runs a dispatch cycle as soon as events land — the MongoDB store implements it with a change stream over the outbox collection, and
+the [SQL store](storages/sqldb#watch) with PostgreSQL `LISTEN`/`NOTIFY` when given a listener, so an event becomes visible the instant its transaction
+commits. The [factory](../../factory/reliability/outbox) starts the watcher for `outbox.watch: changeStream` or `notify`; by hand:
 
 ```go
 go func() {
@@ -140,7 +141,8 @@ a bulk insert drains without waiting for the next tick. A full cycle that advanc
 next one, 100ms growing to 5s and back to none as soon as an event is sent, skipped or dead-lettered, so a handler failing fast over a large backlog
 does not spin against the store. Shutdown interrupts the wait.
 
-`ErrWatchUnsupported` is a capability report, not a failure — it is what a store without the interface, or a standalone mongod with no oplog, returns.
+`ErrWatchUnsupported` is a capability report, not a failure — it is what a store without the interface, a standalone mongod with no oplog, or a SQL
+store without a listener returns.
 `outbox_watch_notifications_total` going flat while `outbox_events_saved_total` climbs means the watcher died and dispatch silently fell back to the
 poll interval.
 
@@ -165,6 +167,7 @@ is stored as given by every store.
 | [factory](../../factory/reliability/outbox) | Configuration-based creation                                |
 | [storages/mongo](./storages/mongo)   | MongoDB-backed event storage                                |
 | [storages/sqldb](./storages/sqldb)   | PostgreSQL / MySQL / MariaDB storage through `database/sql` |
+| [storages/storagetest](./storages/storagetest) | Contract suite every `Storage` backend runs           |
 
 ## Registration failures
 

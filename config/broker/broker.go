@@ -83,8 +83,16 @@ func Default() Config {
 			ExpireTaskID:            defaultOutboxExpireTaskID,
 			CleanupTaskID:           defaultOutboxCleanupTaskID,
 			StatsTaskID:             defaultOutboxStatsTaskID,
+			Storage:                 DefaultOutboxStorage(),
+			Watch:                   OutboxWatchPolling,
 		},
 	}
+}
+
+// Normalize prepares nested config for validation by allocating the outbox
+// storage sub-config implied by its type. Call before [Config.Validate].
+func (b *Config) Normalize() {
+	b.Outbox.Normalize()
 }
 
 // Validate performs validation of the Broker configuration.

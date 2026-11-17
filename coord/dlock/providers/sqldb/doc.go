@@ -31,6 +31,24 @@
 // or that fails ambiguously is released by its unique owner id, exactly as the
 // MongoDB provider does.
 //
+// [WithoutRenewal] makes every lease a hard lease of one TTL that is never
+// renewed: work guarded by the lock must finish within the TTL.
+//
+// # Expired cleanup
+//
+// Rows are kept after release, one per key ever locked. [WithExpiredCleanup]
+// bounds the table: from the first Lock until [Locker.Close] the locker sweeps
+// at [WithPurgeInterval] (one minute by default) and deletes, in batches
+// bounded by [WithPurgeBatchSize] (default 1000) on the database clock, every
+// row whose lease ended more than the grace ago; [Locker.PurgeExpired] runs
+// one sweep on demand. A deleted key starts again at fencing token 1, so
+// tokens are monotonic only while a key is locked again within the grace.
+// A zero interval disables the loop; manual PurgeExpired remains available
+// and returns an int64 total including completed batches before an error.
+// Close stops the loop permanently and waits within ctx, including on repeated
+// calls. Once the loop and lease engine are closed, even an ended context
+// succeeds. Failures and recovered panics go to [WithLogger] (discard default).
+//
 // # Schema
 //
 // [New] performs no I/O. Call [Locker.EnsureSchema] once at startup — it is

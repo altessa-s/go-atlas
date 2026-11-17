@@ -100,8 +100,10 @@ distributionLock:
     migrateBucketTTL: false   # true updates an existing bucket whose key TTL differs (see "TTL, renew, fencing")
 ```
 
-The factory picks a provider from `cfg.Provider`. Only `nats` is wired today; new providers go through extending the `DistributionLockProvider`
-enum in `config/lock/dlock.go` and adding a branch to `factory/builder.go::Build`.
+The factory picks a provider from `cfg.Provider`: `nats`, `mongo` or `sqldb`. It builds the sqldb provider itself over the `*sql.DB` given to
+`UseSQLDB`; the NATS and MongoDB providers register with `UseProvider`. The SQL provider (PostgreSQL, MySQL, MariaDB) leases rows on the database
+clock; with `expiredCleanup` it deletes expired lock rows through `PurgeExpired`, in batches of `purgeBatchSize`, every `purgeInterval` — see
+[`providers/sqldb`](../../coord/dlock/providers/sqldb/README.md) and [SQL backends](../configuration.md#sql-backends).
 
 ---
 

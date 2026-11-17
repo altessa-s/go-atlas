@@ -16,10 +16,10 @@ import (
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 )
 
-// TestBuildWithStorage_HandsTheLoggerToTheStorage pins that the storage
+// TestBuild_HandsTheLoggerToTheStorage pins that the storage
 // function receives the builder's logger: the one set with UseLogger, and the
 // discarding default otherwise — never nil.
-func TestBuildWithStorage_HandsTheLoggerToTheStorage(t *testing.T) {
+func TestBuild_HandsTheLoggerToTheStorage(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewTextHandler(t.Output(), nil))
@@ -40,11 +40,11 @@ func TestBuildWithStorage_HandsTheLoggerToTheStorage(t *testing.T) {
 				return nil, errStorage
 			}
 
-			b := New(&brokerconfig.Outbox{Enabled: true})
+			b := New(&brokerconfig.Outbox{Enabled: true}).UseStorage(brokerconfig.OutboxStorageTypeMongo, capture)
 			if tc.logger != nil {
 				b.UseLogger(tc.logger)
 			}
-			_, err := b.BuildWithStorage(t.Context(), capture, noopHandler)
+			_, err := b.Build(t.Context(), noopHandler)
 			require.ErrorIs(t, err, errStorage)
 
 			require.NotNil(t, got)

@@ -79,11 +79,11 @@ func (r *benchRows) Next(dest []driver.Value) error {
 	return nil
 }
 
-func benchStore(b *testing.B, d sqldb.Dialect, rows [][]driver.Value) *sqldb.Store {
+func benchStore(b *testing.B, d sqldb.Dialect, rows [][]driver.Value, opts ...sqldb.Option) *sqldb.Store {
 	b.Helper()
 	db := sql.OpenDB(benchConn{rows: rows})
 	b.Cleanup(func() { _ = db.Close() })
-	store, err := sqldb.New(db, d)
+	store, err := sqldb.New(db, d, opts...)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -99,6 +99,20 @@ func BenchmarkSaveEvents(b *testing.B) {
 		events[i] = outbox.Event{Id: strconv.Itoa(i), Key: "orders.created", Payload: []byte(`{"n":1}`),
 			Status: outbox.StatusPending, CreatedAt: time.Now()}
 	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := store.SaveEvents(b.Context(), events...); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkSaveEventsNotify measures a save with WithNotify: the INSERT and
+// the pg_notify signal in a transaction of their own.
+func BenchmarkSaveEventsNotify(b *testing.B) {
+	store := benchStore(b, sqldb.DialectPostgres, nil, sqldb.WithNotify())
+	events := []outbox.Event{{Id: "1", Key: "orders.created", Payload: []byte(`{"n":1}`), Status: outbox.StatusPending}}
 
 	b.ReportAllocs()
 	for b.Loop() {

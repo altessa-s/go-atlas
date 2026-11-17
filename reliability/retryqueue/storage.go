@@ -90,7 +90,7 @@ type Storage[P any] interface {
 }
 
 // Mover is implemented by a [Storage] that can rename an item's key
-// atomically (both bundled backends do). It is a separate interface so a
+// atomically (every bundled backend does). It is a separate interface so a
 // Storage implementation outside this module keeps compiling; callers assert
 // it, or depend on a backend's concrete type.
 type Mover interface {

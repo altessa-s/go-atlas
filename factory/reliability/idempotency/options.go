@@ -5,15 +5,32 @@
 package factory
 
 import (
+	"database/sql"
 	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
+
+// UseShutdownHooks sets the scope for closing SQL storage owned by the builder.
+// Without it, Close is registered in the process-wide runtime shutdown registry.
+// The caller owns the injected database and must close it after these hooks run.
+func (b *KeeperBuilder) UseShutdownHooks(v *coreruntime.HookGroup) *KeeperBuilder {
+	b.shutdownHooks = v
+	return b
+}
+
+// UseSQLDB sets the database for the built-in sqldb storage. The caller owns
+// its lifetime and registers the SQL driver.
+func (b *KeeperBuilder) UseSQLDB(db *sql.DB) *KeeperBuilder {
+	b.sqlDB = db
+	return b
+}
 
 // UseLogger sets the logger for the builder and all created components.
 func (b *KeeperBuilder) UseLogger(v *slog.Logger) *KeeperBuilder {

@@ -28,9 +28,21 @@ const DefaultRenewRatio = 1.0 / 3.0
 // one release.
 const DefaultOperationsTimeout = 5 * time.Second
 
+// DefaultPurgeInterval is the interval between background purge passes.
+const DefaultPurgeInterval = time.Minute
+
+// DefaultPurgeBatchSize bounds the rows deleted by one purge statement.
+const DefaultPurgeBatchSize = 1000
+
 // options contains SQL locker configuration.
 type options struct {
-	logger *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler),notnil"`
+	// WithPurgeInterval sets the interval between purge passes. Zero disables
+	// the background loop; manual PurgeExpired calls remain available.
+	purgeInterval time.Duration `optcheck:"min=0" optgen:"default=DefaultPurgeInterval,onfail=skip"`
+	// WithPurgeBatchSize bounds the rows deleted by each statement.
+	// Nonpositive values leave the configured size unchanged.
+	purgeBatchSize int          `optval:"positive" optgen:"default=DefaultPurgeBatchSize"`
+	logger         *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler),notnil"`
 	// tableName holds the lock rows, optionally schema-qualified.
 	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// ttl is the lease of a lock.
@@ -40,4 +52,21 @@ type options struct {
 	renewRatio float64 `optgen:"default=DefaultRenewRatio"`
 	// operationsTimeout bounds one acquisition attempt, renewal or release.
 	operationsTimeout time.Duration `optgen:"default=DefaultOperationsTimeout" optval:"positive"`
+	// withoutRenewal makes every lease a hard lease that is never renewed:
+	// it ends one ttl after the acquisition request (or earlier, on release
+	// or when the lock's context ends); renewRatio is then ignored.
+	withoutRenewal bool `opt:"Renewal" optval:"invert"`
+	// Enabled by generated WithExpiredCleanup.
+	expiredCleanup bool `opt:"-"`
+	// WithExpiredCleanup makes the locker delete a lock row grace after its
+	// lease expired or was released, judged by the database clock. A
+	// background sweep starts on the first Lock and stops at [Locker.Close];
+	// [WithPurgeInterval] and [WithPurgeBatchSize] control its schedule and batches;
+	// [Locker.PurgeExpired] runs one sweep on demand. Without it the table
+	// keeps one row per key ever locked. A deleted key starts again at fencing
+	// token 1, so fencing tokens are monotonic only while a key is locked again
+	// within grace of its last lease; choose grace longer than any holder may
+	// act on a token. A row may outlive grace by up to one sweep interval. A
+	// negative grace makes [New] fail.
+	expiredCleanupGrace time.Duration `opt:"ExpiredCleanup" optgen:"enables=expiredCleanup" optval:"nonpositive"`
 }

@@ -15,13 +15,19 @@
 //	ob, err := factory.New(cfg).
 //	    UseLogger(logger).
 //	    UseScheduler(scheduler).
-//	    BuildWithStorage(ctx, outboxmongofactory.Builder(db), handler)
+//	    UseStorage(brokerconfig.OutboxStorageTypeMongo, outboxmongofactory.Builder(db)).
+//	    UseSQLDB(sqlDB).
+//	    Build(ctx, handler)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //
-// The builder builds only the SQL storage ([OutboxBuilder.BuildWithSQLDB]).
-// The MongoDB storage comes from factory/reliability/outbox/storages/mongo through
-// [OutboxBuilder.BuildWithStorage], so this package does not import the
-// MongoDB driver.
+// The storage is selected by the config's storage.type. The builder builds the
+// sqldb store over [OutboxBuilder.UseSQLDB]; the MongoDB storage comes from
+// factory/reliability/outbox/storages/mongo through [OutboxBuilder.UseStorage],
+// so this package does not import the MongoDB driver.
+//
+// With watch set to changeStream or notify, [OutboxBuilder.Build] starts
+// outbox.Outbox.Watch and stops it through the shutdown hooks; notify needs the
+// PostgreSQL listener from [OutboxBuilder.UseSQLListener].
 package factory

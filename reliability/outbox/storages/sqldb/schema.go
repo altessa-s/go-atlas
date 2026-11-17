@@ -6,7 +6,6 @@ package sqldb
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
@@ -52,47 +51,14 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 			return coreerrs.WrapOperationWithContext(err, "create outbox schema", "table "+s.table)
 		}
 	}
-	return coreerrs.WrapOperationWithContext(s.addMissingIndexes(ctx), "create outbox indexes", "table "+s.table)
-}
-
-// addMissingIndexes brings a MySQL table created by an earlier version of the
-// store up to the current index set.
-func (s *Store) addMissingIndexes(ctx context.Context) error {
-	var schema any // NULL selects the connection's default database.
-	if s.schema != "" {
-		schema = s.schema
-	}
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT DISTINCT index_name FROM information_schema.statistics WHERE table_schema = COALESCE(?, DATABASE()) AND table_name = ?",
-		schema, s.name)
-	if err != nil {
-		return err
-	}
-	existing := map[string]struct{}{}
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		existing[name] = struct{}{}
-	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return err
-	}
-
+	indexesToEnsure := make([]sqldialect.MySQLIndex, 0, len(indexes))
 	for _, ix := range indexes {
-		name := s.dialect.IndexName(s.name, ix.suffix)
-		if _, ok := existing[strings.Trim(name, string(s.dialect.Quote))]; ok {
-			continue
-		}
-		_, err := s.db.ExecContext(ctx, "ALTER TABLE "+s.table+" ADD INDEX "+name+" ("+ix.columns+")")
-		// Another instance adding the same index at the same time wins the race.
-		if err != nil && mysqlErrorNumber(err) != mysqlDupIndexName {
-			return err
-		}
+		indexesToEnsure = append(indexesToEnsure, sqldialect.MySQLIndex{
+			Name: s.dialect.IndexName(s.name, ix.suffix), Columns: ix.columns,
+		})
 	}
-	return nil
+	return coreerrs.WrapOperationWithContext(sqldialect.AddMissingMySQLIndexes(ctx, s.db, s.schema, s.name, indexesToEnsure),
+		"create outbox indexes", "table "+s.table)
 }
 
 // ddl returns the statements that create the events table and its indexes.

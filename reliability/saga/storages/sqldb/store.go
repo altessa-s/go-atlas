@@ -34,6 +34,7 @@ type Store struct {
 	dialect   dialect
 	table     string // quoted
 	tableName string // unqualified, for index names and the DDL lock
+	schema    string // qualifier of the table name; empty when unqualified
 	stmts     statements
 }
 
@@ -70,7 +71,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	}
 	o := newOptions(opts...)
 
-	s := &Store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName)}
+	s := &Store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), schema: sqldialect.Qualifier(o.tableName)}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}

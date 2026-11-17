@@ -162,13 +162,24 @@ func TestCreateProvider(t *testing.T) {
 	})
 }
 
-func TestCreateOutboxWithStorage(t *testing.T) {
+func TestCreateOutbox_RegisteredStorage(t *testing.T) {
 	t.Parallel()
 
-	_, err := factory.New(outboxConfig()).CreateOutboxWithStorage(t.Context(), nil, stubPublisher{})
+	mongoConfig := func() *brokerconfig.Config {
+		cfg := outboxConfig()
+		cfg.Outbox.Storage = brokerconfig.DefaultOutboxStorage()
+		return cfg
+	}
+
+	_, err := factory.New(mongoConfig()).UseOutboxStorage(brokerconfig.OutboxStorageTypeMongo, nil).CreateOutbox(t.Context(), stubPublisher{})
 	require.Error(t, err)
 
-	failing := func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) { return nil, errBuild }
-	_, err = factory.New(outboxConfig()).CreateOutboxWithStorage(t.Context(), failing, stubPublisher{})
+	_, err = factory.New(mongoConfig()).CreateOutbox(t.Context(), stubPublisher{})
+	require.ErrorIs(t, err, corefactory.ErrNotRegistered)
+
+	failing := func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) {
+		return nil, errBuild
+	}
+	_, err = factory.New(mongoConfig()).UseOutboxStorage(brokerconfig.OutboxStorageTypeMongo, failing).CreateOutbox(t.Context(), stubPublisher{})
 	require.ErrorIs(t, err, errBuild)
 }

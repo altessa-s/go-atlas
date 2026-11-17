@@ -41,6 +41,10 @@ stream recovery manager come from [`factory/messaging/broker/providers/nats`](pr
 | `UseMeter`            | Sets the `metrics.Meter` of the broker, the provider and the in-progress manager (see Metrics)    |
 | `UsePublishConverter` | Sets the converter applied to publish operations                                                  |
 | `UseProvider`         | Registers the `ProviderFunc` of a provider type (`nats`) for `CreateProvider`                     |
+| `UseOutboxStorage`    | Registers the outbox `StorageFunc` of a storage type (`mongo`) for `CreateOutbox`                  |
+| `UseSQLDB`            | Injects the `*sql.DB` of the outbox `sqldb` storage                                               |
+| `UseSQLListener`      | Injects the `outboxsql.Listener` the `sqldb` outbox store watches through with `outbox.watch: notify` |
+| `UseShutdownHooks`    | Scope the outbox watcher is stopped by; defaults to the process-wide registry                     |
 
 ### Terminal
 
@@ -54,8 +58,7 @@ stream recovery manager come from [`factory/messaging/broker/providers/nats`](pr
 |------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `CreateInProgressManager()`                          | Creates an in-progress heartbeat manager from the builder's broker config; registers background tick task when a scheduler is set; returns `nil, nil` when `inProgress.enabled` is false |
 | `CreateProvider()`                                   | Creates the broker provider of the configured type with the registered `ProviderFunc`                                                                                                    |
-| `CreateOutboxWithStorage(ctx, build, publisher)`     | Creates a broker outbox over the storage `build` creates, e.g. `outboxmongofactory.Builder(db)` from [`factory/reliability/outbox/storages/mongo`](../../reliability/outbox/storages/mongo)            |
-| `CreateOutboxWithSQLDB(ctx, db, dialect, publisher)` | Creates a SQL-backed broker outbox (PostgreSQL, MySQL or MariaDB) using a `*sql.DB`; creates the events table only with `outbox.ensureSchema: true` (otherwise it must exist)            |
+| `CreateOutbox(ctx, publisher)`                       | Creates a broker outbox over the storage named by `outbox.storage.type`: `sqldb` over `UseSQLDB` (the table is created only with `storage.sqldb.ensureSchema: true`), `mongo` over the function from [`factory/reliability/outbox/storages/mongo`](../../reliability/outbox/storages/mongo); starts the watcher for `outbox.watch: changeStream` or `notify` |
 
 ## Types
 
@@ -72,9 +75,8 @@ the broker and the provider record whenever a meter is set. Without a meter all 
 
 ## Outbox startup
 
-The `CreateOutboxWith*` helpers delegate to [`factory/reliability/outbox`](../../reliability/outbox) with the broker adapter's handler and retry
-predicate, so both factories read the `outbox` config identically. Their `ctx` bounds the startup I/O (schema creation, task registration).
-The `CreateOutboxWith*` helpers return `nil, nil` when `outbox.enabled` is false, but only after dependency validation and storage construction (MongoDB
-index creation included) succeed — check `outbox.enabled` first to skip them. Outbox builders call `RegisterTasks` before returning. A scheduler
-registration failure returns both a non-nil outbox and an error. Retain that instance to retry `RegisterTasks(ctx)`; callbacks already installed remain
-inactive until all configured tasks are registered. Do not start serving traffic while registration is incomplete.
+`CreateOutbox` delegates to [`factory/reliability/outbox`](../../reliability/outbox) with the broker adapter's handler and retry predicate, so both
+factories read the `outbox` config identically. Its `ctx` bounds the startup I/O (schema creation, task registration). It returns `nil, nil` when
+`outbox.enabled` is false, before any storage is built; an enabled outbox requires a publisher. Outbox builders call `RegisterTasks` before returning.
+A scheduler registration failure returns both a non-nil outbox and an error. Retain that instance to retry `RegisterTasks(ctx)`; callbacks already
+installed remain inactive until all configured tasks are registered. Do not start serving traffic while registration is incomplete.

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/audit/storages/memory"
+	"github.com/altessa-s/go-atlas/audit/storages/sqldb"
 	"github.com/altessa-s/go-atlas/factory/audit"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
@@ -334,4 +336,100 @@ func TestBuildStorage_SQLHonorsContext(t *testing.T) {
 	_, err := factory.New(sqlConfig(true)).UseSQLDB(db).BuildStorage(ctx)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Empty(t, fake.Calls())
+}
+
+func TestBuildStorage_SQLMapsTTL(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply {
+		return testhelpers.FakeSQLReply{}
+	})
+	cfg := sqlConfig(false)
+	cfg.Storage.SQL.TTL = time.Hour
+	cfg.Storage.SQL.PurgeInterval = 0
+	cfg.Storage.SQL.PurgeBatchSize = 7
+	storage, err := factory.New(cfg).UseSQLDB(db).BuildStorage(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, storage.Close(context.WithoutCancel(t.Context()))) })
+	s, ok := storage.(*sqldb.Storage)
+	require.True(t, ok)
+	before := time.Now().Add(-time.Hour).UnixMilli()
+	n, err := s.PurgeExpired(t.Context())
+	after := time.Now().Add(-time.Hour).UnixMilli()
+	require.NoError(t, err)
+	require.Zero(t, n)
+	calls := fake.Calls()
+	require.Len(t, calls, 1)
+	require.Contains(t, calls[0].Query, "DELETE FROM `app`.`audit`")
+	require.GreaterOrEqual(t, calls[0].Args[0].(int64), before)
+	require.LessOrEqual(t, calls[0].Args[0].(int64), after)
+	require.Equal(t, int64(7), calls[0].Args[1])
+}
+
+type closeTrackingStorage struct {
+	audit.Storage
+	closed bool
+}
+
+func (s *closeTrackingStorage) Close(context.Context) error {
+	s.closed = true
+	return nil
+}
+
+func TestBuildClosesOwnedStorage(t *testing.T) {
+	t.Parallel()
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "shutdown", true: "failed engine startup"}[fail], func(t *testing.T) {
+			t.Parallel()
+			cfg := memoryConfig()
+			cfg.Storage.Type = auditconfig.StorageTypeMongo
+			if fail {
+				// A file cannot serve as a WAL directory, so startup fails after
+				// creating the storage, without any filesystem permission reliance.
+				path := filepath.Join(t.TempDir(), "file")
+				require.NoError(t, os.WriteFile(path, nil, 0o600))
+				cfg.Dispatch.WAL = &dispatchconfig.WAL{Enabled: true, Dir: path}
+			}
+			storage := &closeTrackingStorage{Storage: memory.New()}
+			var hooks coreruntime.HookGroup
+			builder := factory.New(cfg).UseShutdownHooks(&hooks).UseStorage(auditconfig.StorageTypeMongo,
+				func(context.Context, *auditconfig.Config, *slog.Logger) (audit.Storage, error) { return storage, nil })
+			_, err := builder.Build(t.Context())
+			if fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.False(t, storage.closed)
+				require.NoError(t, hooks.Shutdown(t.Context()))
+			}
+			require.True(t, storage.closed)
+		})
+	}
+}
+
+func TestBuildStorage_SQLPurgeShutdown(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	var hooks coreruntime.HookGroup
+	cfg := sqlConfig(false)
+	cfg.Storage.SQL.TTL = time.Hour
+	cfg.Storage.SQL.PurgeInterval = time.Millisecond
+	cfg.Storage.SQL.PurgeBatchSize = 7
+	storage, err := factory.New(cfg).UseSQLDB(db).UseShutdownHooks(&hooks).BuildStorage(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, hooks.Shutdown(context.WithoutCancel(t.Context()))) })
+	require.NoError(t, storage.Store(t.Context(), &audit.Event{ID: "event", Timestamp: time.Now()}))
+	testhelpers.WaitFor(t, time.Second, func() bool {
+		for _, call := range fake.Calls() {
+			if strings.HasPrefix(call.Query, "DELETE") {
+				require.Equal(t, int64(7), call.Args[1])
+				return true
+			}
+		}
+		return false
+	}, "configured interval starts retention")
+	require.NoError(t, hooks.Shutdown(t.Context()))
+	before := len(fake.Calls())
+	time.Sleep(10 * time.Millisecond)
+	require.Len(t, fake.Calls(), before, "shutdown stops the BuildStorage loop")
+	require.NoError(t, db.PingContext(t.Context()))
 }

@@ -1,0 +1,311 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package retryqueueit_test
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/reliability/retryqueue"
+	"github.com/altessa-s/go-atlas/reliability/retryqueue/storages/sqldb"
+	"github.com/altessa-s/go-atlas/reliability/retryqueue/storages/storagetest"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
+
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
+
+	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
+	retryqueuefactory "github.com/altessa-s/go-atlas/factory/reliability/retryqueue"
+)
+
+// sqlTarget is one database/sql server of the docker stack.
+type sqlTarget struct {
+	name, driver, env, dsn string
+	dialect                sqldb.Dialect
+}
+
+func sqlTargets() []sqlTarget {
+	return []sqlTarget{
+		{"postgres", "pgx", "POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable", sqldb.DialectPostgres},
+		{"mariadb", "mysql", "MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas", sqldb.DialectMySQL},
+		{"mysql", "mysql", "MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas", sqldb.DialectMySQL},
+	}
+}
+
+// connect opens a connection pool to the server, closed on cleanup. It skips
+// when the server is unreachable.
+func (s sqlTarget) connect(tb testing.TB) *sql.DB {
+	tb.Helper()
+	dsn := s.dsn
+	if v := os.Getenv(s.env); v != "" {
+		dsn = v
+	}
+	db, err := sql.Open(s.driver, dsn)
+	require.NoError(tb, err)
+	ctx, cancel := context.WithTimeout(tb.Context(), 3*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		// The DSN is not printed: an override may carry a password.
+		tb.Skipf("%s unreachable (%v) — start it with: make integration-up", s.name, err)
+	}
+	tb.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+// open connects to the server and returns a throwaway table name, dropped on
+// cleanup.
+func (s sqlTarget) open(tb testing.TB) (*sql.DB, string) {
+	tb.Helper()
+	db := s.connect(tb)
+	// Lower case: the cleanup DROP is unquoted and PostgreSQL folds an
+	// unquoted name to lower case.
+	table := livebackend.UniqueName(tb, "rq")
+	tb.Cleanup(func() { _, _ = db.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+table) })
+	return db, table
+}
+
+// store builds a store over a throwaway table, created with EnsureSchema
+// (twice, to prove idempotence), and returns it with its database and table.
+func (s sqlTarget) store(tb testing.TB, opts ...sqldb.Option) (*sqldb.Store[storagetest.Payload], *sql.DB, string) {
+	tb.Helper()
+	db, table := s.open(tb)
+	store, err := sqldb.New[storagetest.Payload](db, s.dialect, append([]sqldb.Option{sqldb.WithTableName(table)}, opts...)...)
+	require.NoError(tb, err)
+	require.NoError(tb, store.EnsureSchema(tb.Context()))
+	require.NoError(tb, store.EnsureSchema(tb.Context()))
+	return store, db, table
+}
+
+// TestSQLStorageContract runs the storage contract suite on every SQL server,
+// each contract over its own table.
+func TestSQLStorageContract(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			storagetest.Run(t, func(tb testing.TB) storagetest.Storage {
+				s, _, _ := target.store(tb, sqldb.WithResolvedRetention(7*24*time.Hour))
+				return s
+			})
+		})
+	}
+}
+
+// TestSQLPurgeExpired asserts PurgeExpired deletes only resolved items past
+// the retention, measured against the database clock, and nothing without a
+// retention.
+func TestSQLPurgeExpired(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			s, db, table := target.store(t, sqldb.WithResolvedRetention(time.Hour))
+			ctx, t0 := t.Context(), storagetest.T0
+			for _, key := range []string{"old", "recent", "pending", "expired", "zero"} {
+				_, err := s.Mark(ctx, storagetest.Pending(key, t0))
+				require.NoError(t, err)
+			}
+			require.NoError(t, s.Resolve(ctx, "old", 1, t0.Add(-2*time.Hour)))
+			require.NoError(t, s.Resolve(ctx, "recent", 1, t0.Add(-time.Minute)))
+			require.NoError(t, s.Resolve(ctx, "zero", 1, time.Time{}))
+			expired, err := s.Expire(ctx, "expired", 1, t0, t0.Add(-48*time.Hour))
+			require.NoError(t, err)
+			require.True(t, expired)
+
+			n, err := s.PurgeExpired(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n)
+			resolvedItems, err := s.ListByState(ctx, retryqueue.StateResolved, 0)
+			require.NoError(t, err)
+			require.Equal(t, []string{"recent", "zero"}, itemKeys(resolvedItems), "an item resolved at the zero time is kept")
+
+			keep, err := sqldb.New[storagetest.Payload](db, target.dialect, sqldb.WithTableName(table))
+			require.NoError(t, err)
+			n, err = keep.PurgeExpired(ctx)
+			require.NoError(t, err)
+			require.Zero(t, n, "without a retention nothing is purged")
+		})
+	}
+}
+
+// TestSQLPurgeExpiredChunks purges a backlog larger than one DELETE.
+func TestSQLPurgeExpiredChunks(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			s, _, _ := target.store(t, sqldb.WithResolvedRetention(time.Second))
+			ctx, t0 := t.Context(), storagetest.T0
+			const backlog = 2100
+			for i := range backlog {
+				key := fmt.Sprintf("k%05d", i)
+				_, err := s.Mark(ctx, storagetest.Pending(key, t0))
+				require.NoError(t, err)
+				require.NoError(t, s.Resolve(ctx, key, 1, t0.Add(-time.Hour)))
+			}
+			n, err := s.PurgeExpired(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(backlog), n)
+		})
+	}
+}
+
+// TestSQLBackgroundPurge asserts the purge loop of WithPurgeInterval deletes
+// a resolved item past the retention without a PurgeExpired call, keeps one
+// within it, and stops on Close.
+func TestSQLBackgroundPurge(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			s, _, _ := target.store(t, sqldb.WithResolvedRetention(time.Hour), sqldb.WithPurgeInterval(20*time.Millisecond))
+			ctx, t0 := t.Context(), storagetest.T0
+			for _, key := range []string{"old", "recent"} {
+				_, err := s.Mark(ctx, storagetest.Pending(key, t0))
+				require.NoError(t, err)
+			}
+			require.NoError(t, s.Resolve(ctx, "old", 1, t0.Add(-2*time.Hour)))
+			require.NoError(t, s.Resolve(ctx, "recent", 1, t0))
+
+			require.Eventually(t, func() bool {
+				items, err := s.ListByState(ctx, retryqueue.StateResolved, 0)
+				return err == nil && slices.Equal(itemKeys(items), []string{"recent"})
+			}, 5*time.Second, 20*time.Millisecond, "the background purge deletes the item past the retention")
+
+			closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			require.NoError(t, s.Close(closeCtx))
+			require.NoError(t, s.Close(closeCtx), "Close is idempotent")
+		})
+	}
+}
+
+// TestSQLMoveJoinsTransaction asserts Move runs on the transaction WithTx
+// carries: rolled back, the item stays under its old key; committed, it reads
+// under the new one.
+func TestSQLMoveJoinsTransaction(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			s, db, _ := target.store(t)
+			ctx := t.Context()
+			_, err := s.Mark(ctx, storagetest.Pending("old", storagetest.T0))
+			require.NoError(t, err)
+
+			tx, err := db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			require.NoError(t, s.Move(sqldb.WithTx(ctx, tx), "old", "new"))
+			require.NoError(t, tx.Rollback())
+			require.Equal(t, []string{"old"}, pendingKeys(t, s))
+
+			tx, err = db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			require.ErrorIs(t, s.Move(sqldb.WithTx(ctx, tx), "missing", "new"), retryqueue.ErrItemNotFound)
+			require.NoError(t, s.Move(sqldb.WithTx(ctx, tx), "old", "new"), "a refusal leaves the transaction usable")
+			require.NoError(t, tx.Commit())
+			require.Equal(t, []string{"new"}, pendingKeys(t, s))
+		})
+	}
+}
+
+// TestSQLConcurrentFirstMarkAcrossReplicas races the first Mark of one key
+// from several stores over one table, each on its own connection pool, as
+// service replicas do: exactly one row is inserted and every replica gets it.
+func TestSQLConcurrentFirstMarkAcrossReplicas(t *testing.T) {
+	t.Parallel()
+	const replicas = 8
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			first, _, table := target.store(t)
+			stores := make([]*sqldb.Store[storagetest.Payload], replicas)
+			for i := range replicas {
+				s, err := sqldb.New[storagetest.Payload](target.connect(t), target.dialect, sqldb.WithTableName(table))
+				require.NoError(t, err)
+				stores[i] = s
+			}
+
+			results := make([]storagetest.Item, replicas)
+			errs := make([]error, replicas)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			for i, s := range stores {
+				wg.Go(func() {
+					<-start
+					in := storagetest.Pending("race", storagetest.T0)
+					in.Payload.Note = fmt.Sprintf("replica-%d", i)
+					results[i], errs[i] = s.Mark(t.Context(), in)
+				})
+			}
+			close(start)
+			wg.Wait()
+			for i := range replicas {
+				require.NoError(t, errs[i], "replica %d", i)
+				require.Equal(t, results[0], results[i], "replica %d", i)
+			}
+			require.Equal(t, []string{"race"}, pendingKeys(t, first))
+		})
+	}
+}
+
+// TestSQLFactory builds the queue through the factory on each SQL server, with
+// the factory creating the schema, and runs one item through its lifecycle.
+func TestSQLFactory(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			db, table := target.open(t)
+			cfg := retryqueueconfig.Default()
+			cfg.Storage = &retryqueueconfig.StorageConfig{
+				Type: retryqueueconfig.StorageTypeSQL,
+				SQL: &retryqueueconfig.SQLStorageConfig{
+					Dialect: string(target.dialect), Table: table, EnsureSchema: true, ResolvedRetention: time.Hour,
+				},
+			}
+			queue, err := retryqueuefactory.New[storagetest.Payload](&cfg).UseSQLDB(db).Build(t.Context())
+			require.NoError(t, err)
+
+			ctx, t0 := t.Context(), storagetest.T0
+			_, err = queue.Mark(ctx, storagetest.Pending("k", t0))
+			require.NoError(t, err)
+			require.NoError(t, queue.Resolve(ctx, "k", 1, t0.Add(-2*time.Hour)))
+			purger, ok := queue.(interface {
+				PurgeExpired(ctx context.Context) (int64, error)
+			})
+			require.True(t, ok, "the factory returns the sqldb store")
+			n, err := purger.PurgeExpired(ctx)
+			require.NoError(t, err)
+			require.Equal(t, int64(1), n, "the configured retention reaches the store")
+		})
+	}
+}
+
+// pendingKeys lists the keys of the pending items of s.
+func pendingKeys(t *testing.T, s *sqldb.Store[storagetest.Payload]) []string {
+	t.Helper()
+	items, err := s.ListByState(t.Context(), retryqueue.StatePending, 0)
+	require.NoError(t, err)
+	return itemKeys(items)
+}
+
+// itemKeys returns the keys of items in order.
+func itemKeys(items []storagetest.Item) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Key)
+	}
+	return out
+}

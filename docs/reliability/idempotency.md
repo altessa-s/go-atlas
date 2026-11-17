@@ -101,6 +101,18 @@ keeper := idempotency.New(storage)
 Called inside `mongo.Session.WithTransaction`, the lock and the result commit or abort together with the caller's own writes; see
 [`storages/mongo`](../../reliability/idempotency/storages/mongo/README.md).
 
+### SQL (transactional)
+
+```go
+storage, err := sqlstorage.New(db, sqlstorage.DialectPostgres) // PostgreSQL, or DialectMySQL for MySQL and MariaDB
+if err != nil { return err }
+defer storage.Close(ctx) // stops the purge loop
+keeper := idempotency.New(storage)
+```
+
+Passed a transaction through `sqlstorage.WithTx(ctx, tx)`, the lock and the result commit or abort with the caller's writes. Expired keys are deleted
+by `PurgeExpired`, from a background loop every `WithPurgeInterval`; see [`storages/sqldb`](../../reliability/idempotency/storages/sqldb/README.md).
+
 ### Factory from YAML
 
 ```go
@@ -118,9 +130,9 @@ keeper, err := idempfactory.New(cfg.Idempotency).
     Build()
 ```
 
-The factory builds only the memory storage. The `redis`, `nats` and `mongo` storages register with `UseStorage` from
-`reliability/idempotency/storages/<backend>/factory` (`redisfactory.Builder(client)`, `natsfactory.Builder(js)`, `mongofactory.Builder(db)`); a
-configured type without one fails `Build` naming the package to add.
+The factory builds the memory storage and, over the `*sql.DB` given to `UseSQLDB`, the `sqldb` one. The `redis`, `nats` and `mongo` storages register
+with `UseStorage` from `reliability/idempotency/storages/<backend>/factory` (`redisfactory.Builder(client)`, `natsfactory.Builder(js)`,
+`mongofactory.Builder(db)`); a configured type without one fails `Build` naming the package to add.
 
 YAML:
 

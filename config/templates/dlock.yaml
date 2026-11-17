@@ -93,3 +93,39 @@
 #    # Leave false when the schema is applied through migrations.
 #    # Default value: false
 #    ensureSchema: false
+#
+#    # <duration> Lease of a lock: a holder that stops renewing loses the lock this long
+#    # after its last renewal (with withoutRenewal: the whole lease). At least 1ms.
+#    # Default value: 10s
+#    ttl: "10s"
+#
+#    # <float64> Fraction of the TTL after which a lease is renewed, in (0, 1).
+#    # 0 keeps the provider default (1/3). Ignored with withoutRenewal.
+#    # Default value: 0
+#    renewRatio: 0
+#
+#    # <bool> Hard leases: a lease is never renewed and ends one TTL after it was taken,
+#    # so the work it guards must finish within the TTL.
+#    # Default value: false
+#    withoutRenewal: false
+#
+#    # <bool> Delete a lock row expiredCleanupGrace after its lease ended (a background
+#    # sweep on the database clock, once a minute), so the table does not keep one row
+#    # per key ever locked. Fencing tokens are then monotonic only while a key is locked
+#    # again within the grace.
+#    # Default value: false
+#    expiredCleanup: false
+#
+#    # <duration> How long a lock row outlives its lease with expiredCleanup
+#    # (the configured purgeInterval adds to the grace).
+#    # Default value: 0s
+#    expiredCleanupGrace: "0s"
+#
+#    # <duration> Time between background purge passes; "0s" disables the loop.
+#    # Inactive until retention is enabled.
+#    # Default value: 1m
+#    purgeInterval: "1m"
+#
+#    # <int> Maximum rows deleted by one purge statement.
+#    # Default value: 1000
+#    purgeBatchSize: 1000

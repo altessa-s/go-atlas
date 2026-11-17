@@ -5,13 +5,17 @@
 package factory
 
 import (
+	"database/sql"
 	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/messaging/broker"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
+	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
@@ -58,5 +62,42 @@ func (b *BrokerBuilder) UseProvider(typ brokerconfig.Provider, build ProviderFun
 // UsePublishConverter sets the converter for publish operations.
 func (b *BrokerBuilder) UsePublishConverter(v broker.PublishConverter) *BrokerBuilder {
 	b.publishConverter = v
+	return b
+}
+
+// UseOutboxStorage registers the storage function of one outbox storage type
+// (brokerconfig.OutboxStorageTypeMongo) for [BrokerBuilder.CreateOutbox]. A
+// later registration of the same type replaces the earlier one; the sqldb
+// store is built in.
+func (b *BrokerBuilder) UseOutboxStorage(typ brokerconfig.OutboxStorageType, build outboxfactory.StorageFunc) *BrokerBuilder {
+	if build == nil {
+		b.errs = append(b.errs, fmt.Errorf("UseOutboxStorage %q: nil function", typ))
+		return b
+	}
+	if b.outboxStorages == nil {
+		b.outboxStorages = map[brokerconfig.OutboxStorageType]outboxfactory.StorageFunc{}
+	}
+	b.outboxStorages[typ] = build
+	return b
+}
+
+// UseSQLDB injects the database handle the outbox uses when its storage type
+// is "sqldb". The caller owns the handle and registers the driver.
+func (b *BrokerBuilder) UseSQLDB(v *sql.DB) *BrokerBuilder {
+	b.sqlDB = v
+	return b
+}
+
+// UseSQLListener injects the PostgreSQL notification listener the sqldb outbox
+// store watches through when outbox.watch is "notify".
+func (b *BrokerBuilder) UseSQLListener(v outboxsql.Listener) *BrokerBuilder {
+	b.sqlListener = v
+	return b
+}
+
+// UseShutdownHooks sets the scope the outbox watcher the builder starts is
+// stopped by. Without it the process-wide registry stops it.
+func (b *BrokerBuilder) UseShutdownHooks(v *coreruntime.HookGroup) *BrokerBuilder {
+	b.shutdownHooks = v
 	return b
 }

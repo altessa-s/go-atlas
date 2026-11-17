@@ -121,6 +121,7 @@ func (b *AuditorBuilder) createEngine(ctx context.Context) (*dispatch.Engine[*au
 		WithLogger(b.Logger()).
 		Build()
 	if err != nil {
+		_ = storage.Close(ctx)
 		return nil, coreerrs.WrapOperation(err, "create audit dispatch engine")
 	}
 
@@ -130,7 +131,7 @@ func (b *AuditorBuilder) createEngine(ctx context.Context) (*dispatch.Engine[*au
 		ctx, cancel := b.shutdownContext(ctx)
 		defer cancel()
 
-		return engine.Shutdown(ctx)
+		return errors.Join(engine.Shutdown(ctx), storage.Close(ctx))
 	})
 
 	return engine, nil
@@ -209,8 +210,10 @@ func (b *AuditorBuilder) createSQLStorage(ctx context.Context) (audit.Storage, e
 	if cfg == nil {
 		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "sql storage configuration is required")
 	}
-	opts := []auditsql.Option{auditsql.WithTableName(cfg.TableName)}
+	opts := []auditsql.Option{auditsql.WithTableName(cfg.TableName), auditsql.WithTTL(cfg.TTL), auditsql.WithLogger(b.Logger()),
+		auditsql.WithPurgeInterval(cfg.PurgeInterval), auditsql.WithPurgeBatchSize(cfg.PurgeBatchSize)}
 	opts = coreslices.AppendIf(opts, cfg.MaxBatchRows > 0, auditsql.WithMaxBatchRows(cfg.MaxBatchRows))
+	// Retention runs until Close; ctx only bounds schema startup.
 	storage, err := auditsql.New(b.sqlDB, auditsql.Dialect(cfg.Dialect), opts...)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create audit sql storage")
@@ -219,6 +222,7 @@ func (b *AuditorBuilder) createSQLStorage(ctx context.Context) (audit.Storage, e
 		schemaCtx, cancel := corecontext.WithMaxTimeout(ctx, ensureSchemaTimeout)
 		defer cancel()
 		if err := storage.EnsureSchema(schemaCtx); err != nil {
+			_ = storage.Close(ctx)
 			return nil, coreerrs.WrapOperation(err, "create audit sql schema")
 		}
 	}
@@ -227,8 +231,8 @@ func (b *AuditorBuilder) createSQLStorage(ctx context.Context) (audit.Storage, e
 
 // BuildStorage returns the configured [audit.Storage] for reading events,
 // for example with [audit.FetchPage]. It does not start a dispatcher; the
-// caller owns the storage and closes it. ctx bounds the startup I/O of the
-// storage (schema creation and checks).
+// caller may close it directly; SQL storage is also registered for shutdown.
+// ctx bounds the storage startup I/O (schema creation and checks).
 func (b *AuditorBuilder) BuildStorage(ctx context.Context) (audit.Storage, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -236,7 +240,16 @@ func (b *AuditorBuilder) BuildStorage(ctx context.Context) (audit.Storage, error
 	if b.cfg == nil {
 		return nil, corefactory.ErrConfigRequired
 	}
-	return b.createStorage(ctx)
+	storage, err := b.createStorage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// BuildStorage can also return a writable SQL storage. Cover its lazy loop
+	// even when no dispatch engine owns the storage's shutdown.
+	if b.cfg.Storage.Type == auditconfig.StorageTypeSQL {
+		b.onShutdown(storage.Close)
+	}
+	return storage, nil
 }
 
 // BuildPageTokens returns the page tokens for [audit.FetchPage] from the

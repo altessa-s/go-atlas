@@ -24,7 +24,7 @@
 // That atomicity is the whole point: without it, the write can commit while the event
 // is lost, or the event can be published for a write that rolled back. With the MongoDB
 // store this means passing the session context into Save — see [Outbox.Save]; with the
-// SQL store (store/sqldb), passing the transaction through sqldb.WithTx.
+// SQL store (storages/sqldb), passing the transaction through sqldb.WithTx.
 //
 // # Delivery semantics
 //
@@ -44,7 +44,9 @@
 // notifications and runs a cycle the moment events land. It is an optimization layered
 // on the poll cycle, never a replacement — retries becoming due and stuck leases being
 // reclaimed are time-driven and produce no notification. The MongoDB store implements it
-// with a change stream, and reports [ErrWatchUnsupported] on a standalone mongod.
+// with a change stream, and reports [ErrWatchUnsupported] on a standalone mongod; the SQL
+// store implements it with PostgreSQL LISTEN/NOTIFY when given a listener. The config-driven
+// factory (factory/reliability/outbox) starts the watcher when outbox.watch asks for it.
 //
 // # Retries and dead-lettering
 //

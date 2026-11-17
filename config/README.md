@@ -47,6 +47,7 @@ The root package declares no types.
 | [`config/idempotency`](idempotency)     | `idempotencyconfig`   | The idempotency key storage schema                                                                                              |
 | [`config/limiter`](limiter)             | `limiterconfig`       | Rate limiter schemas: token bucket, request budget and request limiter                                                          |
 | [`config/lock`](lock)                   | `lockconfig`          | Distributed lock and leader election schemas                                                                                    |
+| [`config/retryqueue`](retryqueue)       | `retryqueueconfig`    | The retry queue storage schema                                                                                                  |
 | [`config/saga`](saga)                   | `sagaconfig`          | The saga orchestration schema                                                                                                   |
 | [`config/scheduler`](scheduler)         | `schedulerconfig`     | The distributed scheduler schema                                                                                                |
 | [`config/dispatch`](dispatch)           | `dispatchconfig`      | The async dispatch engine schema and its write-ahead log                                                                        |

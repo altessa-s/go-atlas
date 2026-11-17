@@ -113,6 +113,16 @@ type StorageSQL struct {
 	// larger batch is split into INSERTs of one transaction.
 	MaxBatchRows int `yaml:"maxBatchRows" default:"500"`
 
+	// TTL is the time-to-live for audit events. Zero means no expiration.
+	// Positive values enable the storage's background retention loop.
+	TTL time.Duration `yaml:"ttl"`
+
+	// PurgeInterval is the time between background purge passes. Zero disables
+	// the loop; explicit PurgeExpired calls remain available.
+	PurgeInterval time.Duration `yaml:"purgeInterval" default:"1m"`
+	// PurgeBatchSize bounds the rows deleted by one purge statement.
+	PurgeBatchSize int `yaml:"purgeBatchSize" default:"1000"`
+
 	// EnsureSchema creates the table and its indexes on startup through the
 	// storage's idempotent EnsureSchema. Off by default: schema changes
 	// belong in a migration.
@@ -125,6 +135,8 @@ func (c *StorageSQL) Validate() error {
 		validation.Field(&c.Dialect, validation.Required, validation.In(SQLDialectPostgres, SQLDialectMySQL)),
 		validation.Field(&c.TableName, validation.Required),
 		validation.Field(&c.MaxBatchRows, validation.Min(0)),
+		validation.Field(&c.PurgeInterval, validation.Min(time.Duration(0))),
+		validation.Field(&c.PurgeBatchSize, validation.Min(1)),
 	)
 }
 

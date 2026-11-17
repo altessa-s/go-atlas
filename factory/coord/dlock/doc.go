@@ -20,5 +20,14 @@
 // The builder builds only the sqldb provider; the NATS and MongoDB ones
 // register from factory/coord/dlock/providers/nats and
 // factory/coord/dlock/providers/mongo, and a configured provider without
-// one fails at Build naming the package to add.
+// one fails at Build naming the package to add. The sqldb block's ttl,
+// renewRatio, withoutRenewal and expiredCleanup settings map to the provider
+// options exactly as the mongo block's do.
+//
+// # Purging
+//
+// SQL configuration maps purgeInterval and purgeBatchSize to the store options (defaults "1m" and
+// 1000). A zero interval disables background purging. The builder registers Close with
+// UseShutdownHooks(group) or the process-wide runtime shutdown registry; run shutdown hooks before
+// closing the injected database.
 package factory

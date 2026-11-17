@@ -345,7 +345,7 @@ func TestEnsureSchemaMySQLBinaryTypes(t *testing.T) {
 	require.NoError(t, store.EnsureSchema(t.Context()))
 
 	calls := fake.Calls()
-	require.Len(t, calls, 1)
+	require.Len(t, calls, 4, "table, catalog query, and two missing indexes")
 	q := calls[0].Query
 	require.NotRegexp(t, `\b(VARCHAR|TEXT|MEDIUMTEXT|LONGTEXT)\b`, q)
 	require.NotContains(t, q, "COLLATE")

@@ -19,9 +19,16 @@ Both need `FOR UPDATE SKIP LOCKED`, which sets the version floors. On MySQL any 
 
 ## Options
 
-| Option          | Default         | Description                                                           |
-|-----------------|-----------------|-----------------------------------------------------------------------|
-| `WithTableName` | `events_outbox` | Events table; may be qualified as `schema.name` (≤ 63 chars per part) |
+| Option              | Default                | Description                                                                                  |
+|---------------------|------------------------|----------------------------------------------------------------------------------------------|
+| `WithTableName`     | `events_outbox`        | Events table; may be qualified as `schema.name` (≤ 63 chars per part)                        |
+| `WithNotify`        | off                    | Every save runs `pg_notify` on the notification channel in its transaction (PostgreSQL only) |
+| `WithNotifyChannel` | derived from the table | Enables `WithNotify` on the given channel: a plain identifier of at most 63 characters       |
+| `WithListener`      | none                   | `Listener` that `Watch` subscribes through (PostgreSQL only); nil or a typed nil is none     |
+| `WithLogger`        | discard                | Logger `Watch` reports failed subscriptions on                                               |
+
+On MySQL `WithNotify`, `WithNotifyChannel` and `WithListener` fail `New` with `ErrNotifyUnsupported`; an invalid channel fails with
+`ErrInvalidNotifyChannel`.
 
 `New` performs no I/O. `EnsureSchema(ctx)` creates the table and its indexes if they do not exist, and adds to an existing table the indexes a newer
 version introduced; it is idempotent, bounded by `ctx`, and safe to run from several instances at once (on PostgreSQL the DDL runs in one transaction
@@ -59,7 +66,7 @@ return tx.Commit()
 ```
 
 Only `SaveEvents` uses the context transaction. Without one, a batch is still all-or-nothing: a single `INSERT`, or its own transaction when the batch
-spans several statements.
+spans several statements or `WithNotify` adds its signal.
 
 ## Server clock
 
@@ -135,16 +142,67 @@ ALTER TABLE events_outbox ADD INDEX events_outbox_expires_idx (status, expires_a
 
 ## Watch
 
-`database/sql` has no notification API, so the store does not implement `outbox.Watcher`; `Outbox.Watch` returns `outbox.ErrWatchUnsupported` and
-dispatch runs on the poll schedule.
+`database/sql` has no notification API, so the store takes PostgreSQL `LISTEN` from the caller through a `Listener`:
+
+```go
+type Listener interface {
+	Listen(ctx context.Context, channel string) (<-chan struct{}, error)
+}
+```
+
+`Listen` returns once the subscription is active; its channel receives a value per notification (a burst may collapse into one) and closes when the
+subscription ends. With `WithListener` the store implements `outbox.Watcher`: `Store.Watch` subscribes to `NotifyChannel()`, wakes the dispatcher per
+signal, and resubscribes with an exponential backoff (1s up to 30s) when the subscription fails or ends, followed by one synthetic wake-up for what it
+missed. Without a listener `Outbox.Watch` returns `outbox.ErrWatchUnsupported` and dispatch runs on the poll schedule, which stays configured in every
+case.
+
+The sending side is `WithNotify`: every save runs `SELECT pg_notify($1, '')` in the transaction that inserts the events — the caller's from `WithTx`,
+or the store's own — so the signal is delivered on commit and never for a rollback, and every process writing the table signals every listener. The
+channel defaults to the table name, lowered, with a schema qualifier joined by `_` (`app.Events` → `app_events`).
+
+An adapter over pgx, one dedicated connection per subscription:
+
+```go
+type PGListener struct{ DSN string }
+
+func (l PGListener) Listen(ctx context.Context, channel string) (<-chan struct{}, error) {
+	conn, err := pgx.Connect(ctx, l.DSN)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.Exec(ctx, "LISTEN "+pgx.Identifier{channel}.Sanitize()); err != nil {
+		_ = conn.Close(context.WithoutCancel(ctx))
+		return nil, err
+	}
+	signals := make(chan struct{}, 1)
+	go func() {
+		defer close(signals)
+		defer conn.Close(context.WithoutCancel(ctx))
+		for {
+			if _, err := conn.WaitForNotification(ctx); err != nil {
+				return // ctx ended or the connection broke: Store.Watch resubscribes.
+			}
+			select {
+			case signals <- struct{}{}:
+			default: // A signal is already pending.
+			}
+		}
+	}()
+	return signals, nil
+}
+
+store, err := outboxsql.New(db, outboxsql.DialectPostgres, outboxsql.WithNotify(), outboxsql.WithListener(PGListener{DSN: dsn}))
+```
 
 ## Factories
 
-`factory/reliability/outbox.OutboxBuilder.BuildWithSQLDB(ctx, db, dialect, handler)` and
-`factory/messaging/broker.BrokerBuilder.CreateOutboxWithSQLDB(ctx, db, dialect, publisher)` build an outbox over this store. They run `EnsureSchema`
-only when the outbox config sets `ensureSchema: true` (default `false`); otherwise the table must already exist.
+[`factory/reliability/outbox`](../../../../factory/reliability/outbox) and [`factory/messaging/broker`](../../../../factory/messaging/broker) build an
+outbox over this store when `outbox.storage.type` is `sqldb`, over the handle given to `UseSQLDB`. They run `EnsureSchema` only with
+`storage.sqldb.ensureSchema: true` (default `false`); otherwise the table must already exist. With `outbox.watch: notify` they enable `WithNotify`,
+take the listener from `UseSQLListener`, and start the watcher.
 
 ## Testing
 
-The outbox integration scenarios in [`tests/integration/outboxit`](../../../../tests/integration/outboxit) run against PostgreSQL, MariaDB and MySQL as
-well as MongoDB.
+The [`storagetest`](../storagetest) contract suite and the outbox integration scenarios in
+[`tests/integration/outboxit`](../../../../tests/integration/outboxit) run against PostgreSQL, MariaDB and MySQL as well as MongoDB; the `Watch` contract
+runs on PostgreSQL through a pgx listener.

@@ -265,6 +265,7 @@ failure, 5xx = error).
 | Memory     | `audit/storages/memory`     | Dev and tests                              |
 | MongoDB    | `audit/storages/mongo`      | Production                                 |
 | ClickHouse | `audit/storages/clickhouse` | High-volume production, analytical queries |
+| SQL        | `audit/storages/sqldb`      | Production on PostgreSQL, MySQL or MariaDB |
 
 All implement:
 
@@ -281,6 +282,10 @@ type Storage interface {
 The ClickHouse storage takes a connection from `factory/infrastructure/clickhouse`, writes column-wise batches, and checks the table against
 its expected schema at startup (missing or differently defined columns, skip indexes, sorting and partition keys). See the
 [package README](../../audit/storages/clickhouse/README.md).
+
+The SQL storage runs over a caller-owned `*sql.DB` (`UseSQLDB` in the factory) and keeps rows past `ttl` until `PurgeExpired` deletes them, in
+batches of `purgeBatchSize`, from a background loop every `purgeInterval` that starts on the first write and stops with `Close`. See the
+[package README](../../audit/storages/sqldb/README.md) and [SQL backends](../configuration.md#sql-backends).
 
 ### Paging
 

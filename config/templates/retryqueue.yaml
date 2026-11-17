@@ -1,0 +1,80 @@
+# Retry queue configuration.
+# Defines the backend that persists retry items (reliability/retryqueue): one record of
+# retryable work per key, swept by a periodic job until it completes, expires or is dropped.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#retryQueue:
+#  # <object> Backend that persists retry items.
+#  # Each backend has its own nested section; only the one named by 'type' is used.
+#  storage:
+#    # <string> Storage backend type.
+#    # Supported values: memory, mongo, sqldb
+#    # Default value: memory
+#    type: memory
+#
+#    # <object> In-process storage configuration (reliability/retryqueue/storages/memory).
+#    # The backend has no tunables; the section exists for symmetry.
+#    # Used when type is set to 'memory'.
+#    memory: {}
+#
+#    # <object> MongoDB storage configuration (reliability/retryqueue/storages/mongo).
+#    # The *mongo.Database is passed to the storage factory (storages/mongo).
+#    # Used when type is set to 'mongo'.
+#    mongo:
+#      # <string> Collection that stores retry items.
+#      # Default value: retry_items
+#      collection: retry_items
+#
+#      # <string> Document field of the attention flag, so a collection written by an
+#      # earlier store keeps its wire format.
+#      # Default value: flagged
+#      flagField: flagged
+#
+#      # <string> Document field of the flag's reason.
+#      # Default value: flagReason
+#      flagReasonField: flagReason
+#
+#      # <duration> How long a resolved item is kept before MongoDB's TTL monitor purges it,
+#      # rounded up to whole seconds. Zero keeps resolved items until they are deleted.
+#      # Changing it for an existing TTL index needs the index dropped first.
+#      # Default value: 0s (keep)
+#      resolvedRetention: "0s"
+#
+#      # <bool> Create the collection's indexes while building the queue.
+#      # Leave false when the indexes are managed elsewhere.
+#      # Default value: false
+#      ensureIndexes: false
+#
+#    # <object> SQL storage configuration (reliability/retryqueue/storages/sqldb).
+#    # The *sql.DB is injected into the factory (UseSQLDB); the application
+#    # chooses and registers the driver.
+#    # Used when type is set to 'sqldb'.
+#    sqldb:
+#      # <string> SQL flavor.
+#      # Supported values: postgres (PostgreSQL 12+), mysql (MySQL 8.0+ and MariaDB 10.6+)
+#      # Default value: postgres
+#      dialect: postgres
+#
+#      # <string> Table that stores retry items, optionally schema-qualified.
+#      # Default value: retry_items
+#      table: retry_items
+#
+#      # <bool> Create the table and its indexes while building the queue.
+#      # Leave false when the schema is applied through migrations.
+#      # Default value: false
+#      ensureSchema: false
+#
+#      # <duration> How long the store's PurgeExpired keeps a resolved item, measured
+#      # against the database clock. Zero keeps resolved items until they are deleted.
+#      # Default value: 0s (keep)
+#      resolvedRetention: "0s"
+#
+#      # <duration> Time between background purge passes; "0s" disables the loop.
+#      # Inactive until retention is enabled.
+#      # Default value: 1m
+#      purgeInterval: "1m"
+#
+#      # <int> Maximum rows deleted by one purge statement.
+#      # Default value: 1000
+#      purgeBatchSize: 1000

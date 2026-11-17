@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -181,6 +182,199 @@ func TestSQLRenewalAfterLockWaitDoesNotRevive(t *testing.T) {
 
 			_, err = l.GetLockInfo(t.Context(), "k")
 			require.Error(t, err, "the expired lease must stay lost, not be revived by the waiting renewal")
+		})
+	}
+}
+
+// bind rewrites ? placeholders to $n for PostgreSQL.
+func (s sqlTarget) bind(query string) string {
+	if s.dialect != sqldb.DialectPostgres {
+		return query
+	}
+	var b strings.Builder
+	n := 0
+	for _, r := range query {
+		if r == '?' {
+			n++
+			fmt.Fprintf(&b, "$%d", n)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// rowCount returns the number of rows in table.
+func rowCount(tb testing.TB, db *sql.DB, table string) int {
+	tb.Helper()
+	var n int
+	require.NoError(tb, db.QueryRowContext(tb.Context(), "SELECT COUNT(*) FROM "+table).Scan(&n))
+	return n
+}
+
+// TestSQLHardLeaseEndsWhileHeld asserts a lease taken WithoutRenewal is not
+// extended: another locker takes the key one TTL later although the first
+// holder never released it, and the first holder then sees its lock lost.
+func TestSQLHardLeaseEndsWhileHeld(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			db, table := target.namespace(t)
+			const ttl = time.Second
+			a := target.provider(t, db, table, sqldb.WithoutRenewal(), sqldb.WithTTL(ttl))
+			b := target.provider(t, db, table, sqldb.WithoutRenewal(), sqldb.WithTTL(ttl))
+
+			held, err := a.Lock(t.Context(), "k")
+			require.NoError(t, err)
+			first, err := held.GetLockInfo(t.Context())
+			require.NoError(t, err)
+			_, err = b.Lock(t.Context(), "k")
+			require.ErrorIs(t, err, providers.ErrLockNotHeld)
+
+			var taken providers.Lock
+			require.Eventually(t, func() bool {
+				taken, err = b.Lock(t.Context(), "k")
+				return err == nil
+			}, 5*ttl, 50*time.Millisecond, "the hard lease must end one TTL after it was taken")
+			t.Cleanup(func() { _ = taken.Release(context.WithoutCancel(t.Context())) })
+
+			info, err := taken.GetLockInfo(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, first.FencingToken+1, info.FencingToken)
+			// PostgreSQL reads clock_timestamp() per column, so the two may
+			// differ by microseconds; a renewal would move LastRenewed by a
+			// third of the TTL or more.
+			require.WithinDuration(t, info.AcquiredAt, info.LastRenewed, 10*time.Millisecond, "a hard lease is never renewed")
+			_, err = held.GetLockInfo(t.Context())
+			require.ErrorIs(t, err, providers.ErrLockNotHeld, "the first holder's lease has ended")
+			require.NoError(t, held.Release(t.Context()))
+			_, err = taken.GetLockInfo(t.Context())
+			require.NoError(t, err, "the ended holder's release must not end the new lease")
+		})
+	}
+}
+
+// TestSQLExpiredCleanup asserts PurgeExpired keeps rows within the grace and
+// held leases, deletes rows whose lease ended longer ago — in batches, however
+// many there are — and that a deleted key starts again at fencing token 1.
+func TestSQLExpiredCleanup(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			db, table := target.namespace(t)
+
+			off := target.provider(t, db, table)
+			n, err := off.PurgeExpired(t.Context())
+			require.NoError(t, err)
+			require.Zero(t, n, "without WithExpiredCleanup nothing is deleted")
+
+			patient := target.provider(t, db, table, sqldb.WithExpiredCleanup(time.Hour))
+			eager := target.provider(t, db, table, sqldb.WithExpiredCleanup(0))
+
+			held, err := patient.Lock(t.Context(), "held")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = held.Release(context.WithoutCancel(t.Context())) })
+			for range 2 {
+				lk, err := patient.Lock(t.Context(), "released")
+				require.NoError(t, err)
+				require.NoError(t, lk.Release(t.Context()))
+			}
+
+			n, err = patient.PurgeExpired(t.Context())
+			require.NoError(t, err)
+			require.Zero(t, n, "a lease that ended within the grace is kept")
+			require.Equal(t, 2, rowCount(t, db, table))
+
+			// Stale rows from long ago, more than one cleanup batch of them.
+			const stale = 1200
+			const chunk = 400
+			for start := 0; start < stale; start += chunk {
+				args := make([]any, 0, chunk)
+				values := make([]string, 0, chunk)
+				for i := start; i < start+chunk; i++ {
+					values = append(values, "(?, 'gone', 3, 1, 1, 1, 1)")
+					args = append(args, fmt.Sprintf("stale-%04d", i))
+				}
+				_, err := db.ExecContext(t.Context(), target.bind("INSERT INTO "+table+
+					" (lock_key, owner, fencing, acquired_at, renewed_at, expires_at, ttl_us) VALUES "+strings.Join(values, ", ")), args...)
+				require.NoError(t, err)
+			}
+			n, err = patient.PurgeExpired(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, stale, n, "rows past the grace are deleted across batches")
+			require.Equal(t, 2, rowCount(t, db, table))
+
+			n, err = eager.PurgeExpired(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, 1, n, "with no grace the released row goes, the held one stays")
+			info, err := held.GetLockInfo(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, 1, info.FencingToken)
+
+			lk, err := eager.Lock(t.Context(), "released")
+			require.NoError(t, err)
+			info, err = lk.GetLockInfo(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, 1, info.FencingToken, "fencing is monotonic only within the grace")
+			require.NoError(t, lk.Release(t.Context()))
+		})
+	}
+}
+
+// TestSQLCleanupRacesAcquisitions runs a cleanup with no grace in a loop while
+// contenders take and release one key, so rows are deleted between and during
+// acquisitions; mutual exclusion must hold throughout.
+func TestSQLCleanupRacesAcquisitions(t *testing.T) {
+	t.Parallel()
+	const contenders, rounds = 4, 8
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			db, table := target.namespace(t)
+			sweeper := target.provider(t, db, table, sqldb.WithExpiredCleanup(0))
+			sweepCtx, stopSweep := context.WithCancel(t.Context())
+			var (
+				section dlockit.Critical
+				wg      sync.WaitGroup
+				sweeps  sync.WaitGroup
+				deleted int64
+			)
+			sweeps.Go(func() {
+				for sweepCtx.Err() == nil {
+					n, err := sweeper.PurgeExpired(sweepCtx)
+					if sweepCtx.Err() == nil {
+						require.NoError(t, err)
+					}
+					deleted += n
+				}
+			})
+			for i := range contenders {
+				l := target.provider(t, db, table, sqldb.WithExpiredCleanup(0))
+				holder := fmt.Sprintf("holder-%d", i)
+				wg.Go(func() {
+					for range rounds {
+						lk, err := l.Lock(t.Context(), "resource")
+						for deadline := time.Now().Add(30 * time.Second); errors.Is(err, providers.ErrLockNotHeld) && time.Now().Before(deadline); {
+							time.Sleep(2 * time.Millisecond)
+							lk, err = l.Lock(t.Context(), "resource")
+						}
+						require.NoError(t, err)
+						leave := section.Enter(holder)
+						time.Sleep(10 * time.Millisecond)
+						leave()
+						require.NoError(t, lk.Release(t.Context()))
+					}
+				})
+			}
+			wg.Wait()
+			stopSweep()
+			sweeps.Wait()
+			require.Equal(t, 1, section.Peak(), "more than one holder was inside the critical section\n%s", section.Timeline())
+			require.Empty(t, section.Breaches(), "critical sections overlapped\n%s", section.Timeline())
+			require.Len(t, section.Visits(), contenders*rounds)
+			require.Positive(t, deleted, "the sweep deleted released rows")
 		})
 	}
 }

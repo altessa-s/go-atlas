@@ -57,10 +57,10 @@
 #    # <string> Cron schedule for the dispatcher.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
 #    # This interval is the delivery latency of a saved event, and it stays
-#    # mandatory even when the application runs a change-stream watcher
-#    # (outbox.Outbox.Watch): a notification only ever reports that an event was
-#    # saved. Retry backoffs expiring and the unlock task freeing a stuck lease
-#    # are time-driven, produce no change event, and are picked up here only.
+#    # mandatory even when a watcher runs (watch: changeStream or notify): a
+#    # notification only ever reports that an event was saved. Retry backoffs
+#    # expiring and the unlock task freeing a stuck lease are time-driven,
+#    # produce no notification, and are picked up here only.
 #    # Example: "*/2 * * * * *" (every 2 seconds)
 #    # Default value: @every 2s
 #    dispatchSchedule: "@every 2s"
@@ -166,13 +166,55 @@
 #    # Default value: false
 #    topicCompaction: false
 #
-#    # <bool> Create the events table and its indexes while building a
-#    # SQL-backed outbox (BuildWithSQLDB, CreateOutboxWithSQLDB), through the
-#    # store's idempotent EnsureSchema. Leave false when migrations own the
-#    # schema; the table must then exist before the outbox runs. The MongoDB
-#    # store ignores this: it always ensures its indexes on construction.
-#    # Default value: false
-#    ensureSchema: false
+#    # <object> Events storage backend. The factory builds the store named by
+#    # type; the client is injected in code (UseStorage for mongo, UseSQLDB
+#    # for sqldb).
+#    storage:
+#      # <string> Storage backend type.
+#      # Supported values: mongo, sqldb
+#      # Default value: mongo
+#      type: mongo
+#
+#      # <object> MongoDB storage (reliability/outbox/storages/mongo).
+#      # Used when type is set to 'mongo'. The store always ensures its indexes
+#      # on construction.
+#      mongo:
+#        # <string> Collection that stores outbox events.
+#        # Default value: events_outbox
+#        collection: events_outbox
+#
+#      # <object> SQL storage (reliability/outbox/storages/sqldb) over the
+#      # *sql.DB given to the factory. Used when type is set to 'sqldb'.
+#      sqldb:
+#        # <string> SQL dialect: postgres (PostgreSQL 12+) or mysql (MySQL 8.0+,
+#        # MariaDB 10.6+).
+#        # Default value: postgres
+#        dialect: postgres
+#
+#        # <string> Events table, optionally schema-qualified.
+#        # Default value: events_outbox
+#        table: events_outbox
+#
+#        # <bool> Create the events table and its indexes while building the
+#        # outbox, through the store's idempotent EnsureSchema. Leave false when
+#        # migrations own the schema; the table must then exist before the
+#        # outbox runs.
+#        # Default value: false
+#        ensureSchema: false
+#
+#    # <string> How the dispatcher learns of new events beyond dispatchSchedule,
+#    # which keeps running in every mode. The factory starts the watcher and
+#    # stops it on shutdown.
+#    #   polling      — the schedule alone.
+#    #   changeStream — a MongoDB change stream (storage type mongo; needs a
+#    #                  replica set or sharded cluster).
+#    #   notify       — PostgreSQL LISTEN/NOTIFY (storage type sqldb, dialect
+#    #                  postgres): every save signals the channel derived from
+#    #                  the table name inside its transaction, and the listener
+#    #                  injected with UseSQLListener receives it.
+#    # Other combinations fail validation.
+#    # Default value: polling
+#    watch: polling
 #
 #    # Scheduler task IDs (the five keys below). Override the defaults only when
 #    # running multiple Outbox instances against the SAME scheduler — the

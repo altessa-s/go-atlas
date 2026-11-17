@@ -9,15 +9,15 @@ generation, and every transition is fenced by it, so a worker holding a stale sn
 
 ## Key types
 
-| Symbol             | Description                                                                                         |
-|--------------------|-----------------------------------------------------------------------------------------------------|
-| `Item[P]`          | One record: key, generation, state, age (`Since`), attempts, next attempt, flag, caller payload `P` |
-| `State`            | `pending`, `expired` or `resolved`                                                                  |
-| `Storage[P]`       | Persistence port implemented by the backends below                                                  |
-| `Mover`            | Optional atomic `Move(ctx, from, to)` of an item to another key; both bundled backends implement it |
-| `ErrItemNotFound`  | `Move` from a key without an item; wraps go-atlas-core `errors.ErrNotFound`                         |
-| `ErrItemExists`    | `Move` onto a key that has an item; wraps go-atlas-core `errors.ErrAlreadyExists`                   |
-| `DefaultListLimit` | 200, used when a list limit is not positive                                                         |
+| Symbol             | Description                                                                                          |
+|--------------------|------------------------------------------------------------------------------------------------------|
+| `Item[P]`          | One record: key, generation, state, age (`Since`), attempts, next attempt, flag, caller payload `P`  |
+| `State`            | `pending`, `expired` or `resolved`                                                                   |
+| `Storage[P]`       | Persistence port implemented by the backends below                                                   |
+| `Mover`            | Optional atomic `Move(ctx, from, to)` of an item to another key; every bundled backend implements it |
+| `ErrItemNotFound`  | `Move` from a key without an item; wraps go-atlas-core `errors.ErrNotFound`                          |
+| `ErrItemExists`    | `Move` onto a key that has an item; wraps go-atlas-core `errors.ErrAlreadyExists`                    |
+| `DefaultListLimit` | 200, used when a list limit is not positive                                                          |
 
 ## Lifecycle
 
@@ -65,11 +65,15 @@ inserting winner, and of racing `Expire` or `Flag` calls exactly one reports `tr
 
 ## Backends
 
-| Package                                        | Description                                                             |
-|------------------------------------------------|-------------------------------------------------------------------------|
-| [storages/memory](./storages/memory)           | In-process reference implementation                                     |
-| [storages/mongo](./storages/mongo)             | One document per item, payload inlined, partial due index, optional TTL |
-| [storages/storagetest](./storages/storagetest) | Conformance kit every backend passes                                    |
+| Package                                          | Description                                                                         |
+|--------------------------------------------------|-------------------------------------------------------------------------------------|
+| [storages/memory](./storages/memory)             | In-process reference implementation                                                 |
+| [storages/mongo](./storages/mongo)               | One document per item, payload inlined, partial due index, optional TTL             |
+| [storages/sqldb](./storages/sqldb)               | PostgreSQL, MySQL and MariaDB: one row per item, `PurgeExpired(ctx) (int64, error)` |
+| [storages/storagetest](./storages/storagetest)   | Conformance kit every backend passes                                                |
+
+[`factory/reliability/retryqueue`](../../factory/reliability/retryqueue) builds a store from [`config/retryqueue`](../../config/retryqueue)
+(`storage.type: memory | mongo | sqldb`); the mongo store registers from its `storages/mongo` subpackage.
 
 ## Usage
 

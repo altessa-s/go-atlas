@@ -9,5 +9,14 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
-// Key types: [Config], [StorageConfig], [MongoStorageConfig].
+// Key types: [Config], [StorageConfig], [MongoStorageConfig], [SQLStorageConfig].
+// SQL storage selects postgres or mysql (including MariaDB); its sqldb block
+// configures the table, optional startup schema creation and expired-row sweep
+// interval (default one minute, zero disables).
+//
+// # Purging
+//
+// The sqldb block exposes purgeInterval (default "1m", "0s" disables the background loop) and
+// purgeBatchSize (default 1000). Manual PurgeExpired remains available with a zero interval. Purging
+// runs only when retention is enabled; idempotency keys always have their own expiry.
 package idempotencyconfig

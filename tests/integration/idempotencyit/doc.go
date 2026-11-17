@@ -3,7 +3,8 @@
 // the LICENSE file.
 
 // Package idempotencyit runs reliability/idempotency against live backends: one
-// storage contract suite over the Redis, MongoDB and NATS JetStream storages,
+// storage contract suite over Redis, MongoDB, NATS JetStream, PostgreSQL,
+// MySQL and MariaDB storages,
 // then the Keeper and the HTTP idempotency middleware on top of each.
 //
 // The unit tests of the storages run against miniredis, an embedded NATS
@@ -25,4 +26,10 @@
 // backend runs only when MONGO_URI is set, so the suite never writes to an
 // unrelated server listening on the compose port. See
 // tests/integration/README.md.
+//
+// # Purging
+//
+// SQL PurgeExpired(ctx) returns an int64 total across bounded batches, including completed batches
+// before an error. Retention options enable purging; a zero purge interval disables only background
+// work.
 package idempotencyit

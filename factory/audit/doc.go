@@ -20,4 +20,17 @@
 //	auditor, err := factory.New(cfg.Audit).
 //	    UseStorage(auditconfig.StorageTypeMongo, auditmongofactory.Builder(db)).
 //	    Build(ctx)
+//
+// SQL storage maps storage.sqldb.ttl to WithTTL and uses the builder's logger
+// for retention failures. Zero keeps events forever; positive TTL starts
+// background batched purges while open, unlike MongoDB's server TTL index.
+// BuildStorage registers SQL storage shutdown; Build closes its storage after
+// draining the owned dispatcher on shutdown and on failed engine startup.
+//
+// # Purging
+//
+// SQL configuration maps purgeInterval and purgeBatchSize to the store options (defaults "1m" and
+// 1000). A zero interval disables background purging. Build registers shutdown through
+// UseShutdownHooks(group) or the process-wide runtime registry and closes storage after draining
+// dispatch. BuildStorage callers own the returned storage and must close it before the database.
 package factory

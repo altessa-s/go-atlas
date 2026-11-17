@@ -14,7 +14,7 @@
 // Each event is one row: the ID, the timestamp in Unix milliseconds, the
 // queryable fields (type, action, actor, resource, status, request and trace
 // IDs) as columns, and the whole event as a JSON payload, which Query decodes
-// — the timestamp at full precision. [New] performs no I/O: call
+// — the timestamp at full precision. [New] leaves schema creation to the caller: call
 // [Storage.EnsureSchema] once at startup, or apply the same DDL through a
 // migration tool. IDs and filters compare byte-wise: COLLATE "C" on
 // PostgreSQL, binary columns on MySQL/MariaDB. A queryable field longer than
@@ -39,8 +39,27 @@
 //
 // # Retention
 //
-// Rows are never expired by the storage; delete old events, or partition the
-// table by time, through the database.
+// [WithTTL] enables retention; zero (the default) keeps events forever, as in
+// mongo. SQL has no TTL index: from the first [Storage.Store] or
+// [Storage.StoreBatch] until [Storage.Close], the storage runs background
+// deletes every [DefaultPurgeInterval] (one minute), starting after the first
+// interval; [New] starts no goroutine, and reads do not start the loop.
+// [WithPurgeInterval] and [WithPurgeBatchSize] tune this loop; a zero interval
+// disables background work while manual purging remains available. Each pass drains
+// rows older than the application clock minus TTL through the (ts_ms, id)
+// index, committing at most [DefaultPurgeBatchSize] rows per statement by
+// default. [WithClock] injects the cutoff clock; interval timers use real time.
+// Expiration is asynchronous: rows remain queryable until deleted. Failures
+// and recovered panics are logged through [WithLogger] and retried next pass.
+//
+// [Storage.PurgeExpired] also supports explicit retention calls and returns
+// completed deletions even when a later batch fails. [Storage.Close] stops
+// the background loop for good, cancels its in-flight delete and waits within
+// its context for the loop to exit, without closing the caller's database.
+// Repeated Close calls wait again; an exited loop satisfies an ended context.
+// Explicit retention
+// calls use their own contexts and remain available after Close. Unlike a
+// MongoDB TTL index, the SQL background loop cannot expire rows while closed.
 //
 // # Usage
 //
@@ -49,6 +68,7 @@
 //	if err != nil {
 //		return err
 //	}
+//	defer storage.Close(ctx)
 //	if err := storage.EnsureSchema(ctx); err != nil { // or apply the DDL via migrations
 //		return err
 //	}

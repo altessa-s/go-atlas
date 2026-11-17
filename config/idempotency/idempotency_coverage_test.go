@@ -69,7 +69,7 @@ func TestStorageConfig_Normalize(t *testing.T) {
 
 	for _, typ := range []idempotencyconfig.StorageType{
 		idempotencyconfig.StorageTypeMemory, idempotencyconfig.StorageTypeNATS,
-		idempotencyconfig.StorageTypeRedis, idempotencyconfig.StorageTypeMongo,
+		idempotencyconfig.StorageTypeRedis, idempotencyconfig.StorageTypeMongo, idempotencyconfig.StorageTypeSQL,
 	} {
 		c := idempotencyconfig.StorageConfig{Type: typ}
 		c.Normalize()
@@ -77,6 +77,7 @@ func TestStorageConfig_Normalize(t *testing.T) {
 		require.Equal(t, typ == idempotencyconfig.StorageTypeNATS, c.NATS != nil, typ)
 		require.Equal(t, typ == idempotencyconfig.StorageTypeRedis, c.Redis != nil, typ)
 		require.Equal(t, typ == idempotencyconfig.StorageTypeMongo, c.Mongo != nil, typ)
+		require.Equal(t, typ == idempotencyconfig.StorageTypeSQL, c.SQL != nil, typ)
 	}
 
 	mongo := &idempotencyconfig.MongoStorageConfig{Collection: "c"}
@@ -95,4 +96,46 @@ func TestMongoStorageConfig_Validate(t *testing.T) {
 		Type: idempotencyconfig.StorageTypeMongo, Mongo: &idempotencyconfig.MongoStorageConfig{},
 	}
 	require.Contains(t, fieldErrors(t, bad.Validate()), "Mongo")
+}
+
+func TestSQLStorageConfig(t *testing.T) {
+	t.Parallel()
+	for _, dialect := range []string{idempotencyconfig.SQLDialectPostgres, idempotencyconfig.SQLDialectMySQL} {
+		t.Run(dialect, func(t *testing.T) {
+			t.Parallel()
+			sql := &idempotencyconfig.SQLStorageConfig{Dialect: dialect, Table: "keys", EnsureSchema: true}
+			c := idempotencyconfig.StorageConfig{Type: idempotencyconfig.StorageTypeSQL, SQL: sql}
+			c.Normalize()
+			require.Same(t, sql, c.SQL)
+			require.NoError(t, c.Validate())
+		})
+	}
+	for _, tc := range []struct{ name, dialect, table, field string }{
+		{"empty dialect", "", "keys", "Dialect"},
+		{"unsupported dialect", "mariadb", "keys", "Dialect"},
+		{"missing table", "postgres", "", "Table"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sql := &idempotencyconfig.SQLStorageConfig{Dialect: tc.dialect, Table: tc.table}
+			require.Contains(t, fieldErrors(t, sql.Validate()), tc.field)
+			c := idempotencyconfig.StorageConfig{Type: idempotencyconfig.StorageTypeSQL, SQL: sql}
+			require.Contains(t, fieldErrors(t, c.Validate()), "SQL")
+		})
+	}
+}
+
+func TestSQLCleanupInterval(t *testing.T) {
+	t.Parallel()
+	for _, interval := range []time.Duration{0, time.Minute, -time.Second} {
+		t.Run(interval.String(), func(t *testing.T) {
+			t.Parallel()
+			cfg := &idempotencyconfig.SQLStorageConfig{Dialect: "postgres", Table: "keys", PurgeInterval: interval}
+			if interval < 0 {
+				require.Contains(t, fieldErrors(t, cfg.Validate()), "PurgeInterval")
+			} else {
+				require.NoError(t, cfg.Validate())
+			}
+		})
+	}
 }

@@ -19,7 +19,10 @@
 //
 // # Storages
 //
-// The builder builds only the in-memory storage. The Redis, NATS and MongoDB
+// The builder builds memory and SQL storage (with [KeeperBuilder.UseSQLDB]).
+// SQL cleanup starts lazily and is closed through UseShutdownHooks or the process
+// shutdown registry; the caller closes the database after the hooks run.
+// SQL schema creation is optional and bounded by a 30-second timeout. Redis, NATS and MongoDB
 // ones register from reliability/idempotency/storages/<backend>/factory with
 // [KeeperBuilder.UseStorage]; a configured type without one fails at Build
 // naming the package to add.
@@ -30,4 +33,11 @@
 //	    UseLogger(logger).
 //	    UseStorage(idempotencyconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
 //	    Build()
+//
+// # Purging
+//
+// SQL configuration maps purgeInterval and purgeBatchSize to the store options (defaults "1m" and
+// 1000). A zero interval disables background purging. The builder registers Close with
+// UseShutdownHooks(group) or the process-wide runtime shutdown registry; run shutdown hooks before
+// closing the injected database.
 package factory

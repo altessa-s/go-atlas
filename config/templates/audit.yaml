@@ -100,6 +100,20 @@
 #      # Default value: 500
 #      maxBatchRows: 500
 #
+#      # <duration> Event retention. Zero keeps events forever, as with mongo.ttl.
+#      # Positive values enable batched background purges every minute while open.
+#      # Default value: 0s
+#      ttl: "0s"
+#
+#      # <duration> Time between background purge passes; "0s" disables the loop.
+#      # Inactive until retention is enabled.
+#      # Default value: 1m
+#      purgeInterval: "1m"
+#
+#      # <int> Maximum rows deleted by one purge statement.
+#      # Default value: 1000
+#      purgeBatchSize: 1000
+#
 #      # <bool> Create the table and its indexes on startup.
 #      # Off by default: schema changes belong in a migration.
 #      # Default value: false

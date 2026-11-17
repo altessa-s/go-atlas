@@ -36,8 +36,12 @@
 // # Backends
 //
 // The storages/memory backend is an in-process reference implementation; the
-// storages/mongo backend persists records in a MongoDB collection. Both
-// implement [Mover] and pass the storages/storagetest conformance kit.
+// storages/mongo backend persists records in a MongoDB collection and the
+// storages/sqldb backend in a PostgreSQL, MySQL or MariaDB table. Each
+// implements [Mover] and passes the storages/storagetest conformance kit.
+// factory/reliability/retryqueue builds a backend from config/retryqueue.
+// SQL PurgeExpired(ctx) (int64, error) drains resolved rows past retention;
+// a lazy background loop runs at WithPurgeInterval until Close.
 //
 // # Usage
 //

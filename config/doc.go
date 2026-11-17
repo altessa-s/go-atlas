@@ -61,6 +61,7 @@
 //   - config/limiter (limiterconfig): rate limiter schemas: token bucket,
 //     request budget and request limiter.
 //   - config/lock (lockconfig): distributed lock and leader election schemas.
+//   - config/retryqueue (retryqueueconfig): the retry queue storage schema.
 //   - config/saga (sagaconfig): the saga orchestration schema.
 //   - config/scheduler (schedulerconfig): the distributed scheduler schema.
 //   - config/dispatch (dispatchconfig): the async dispatch engine schema and

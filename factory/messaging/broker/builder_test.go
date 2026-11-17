@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/messaging/broker"
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	dataoutbox "github.com/altessa-s/go-atlas/reliability/outbox"
@@ -84,6 +85,10 @@ func outboxConfig() *brokerconfig.Config {
 			ExpireTaskID:            "svc-a-expire",
 			CleanupTaskID:           "svc-a-cleanup",
 			StatsTaskID:             "svc-a-stats",
+			Storage: &brokerconfig.OutboxStorageConfig{
+				Type: brokerconfig.OutboxStorageTypeSQL,
+				SQL:  &brokerconfig.OutboxSQLStorageConfig{Dialect: brokerconfig.SQLDialectPostgres, Table: "events_outbox"},
+			},
 		},
 	}
 }
@@ -98,7 +103,7 @@ func TestCreateOutbox_RegistersEveryCycleUnderItsConfiguredID(t *testing.T) {
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 	ob, err := factory.New(outboxConfig()).
 		UseScheduler(reg).
-		CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectPostgres, stubPublisher{})
+		UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 	require.NoError(t, err)
 	require.NotNil(t, ob)
 
@@ -114,7 +119,7 @@ func TestCreateOutbox_AppliesThePayloadLimitFromConfig(t *testing.T) {
 	t.Parallel()
 
 	db, _ := testhelpers.NewFakeSQL(t, nil)
-	ob, err := factory.New(outboxConfig()).CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectPostgres, stubPublisher{})
+	ob, err := factory.New(outboxConfig()).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 	require.NoError(t, err)
 
 	oversized := make([]byte, 64) // The config allows 32.
@@ -131,7 +136,7 @@ func TestCreateOutbox_DisabledReturnsNothing(t *testing.T) {
 	cfg.Outbox.Enabled = false
 
 	db, _ := testhelpers.NewFakeSQL(t, nil)
-	ob, err := factory.New(cfg).CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectPostgres, stubPublisher{})
+	ob, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 	require.NoError(t, err)
 	require.Nil(t, ob)
 }
@@ -141,7 +146,7 @@ func TestCreateOutbox_RequiresAPublisher(t *testing.T) {
 	t.Parallel()
 
 	db, _ := testhelpers.NewFakeSQL(t, nil)
-	_, err := factory.New(outboxConfig()).CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectPostgres, nil)
+	_, err := factory.New(outboxConfig()).UseSQLDB(db).CreateOutbox(t.Context(), nil)
 	require.Error(t, err)
 }
 
@@ -166,7 +171,7 @@ func TestCreateOutbox_ClosedConnectionIsRejected(t *testing.T) {
 	})
 
 	ob, err := factory.New(outboxConfig()).
-		CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectPostgres, stubPublisher{err: broker.ErrConnectionClosed})
+		UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{err: broker.ErrConnectionClosed})
 	require.NoError(t, err)
 	require.NoError(t, ob.RunDispatchCycle(t.Context()))
 
@@ -180,28 +185,29 @@ func TestCreateOutbox_ClosedConnectionIsRejected(t *testing.T) {
 		"a closed connection must dead-letter the event, got statuses %v", statuses)
 }
 
-func TestCreateOutboxWithSQLDB(t *testing.T) {
+func TestCreateOutbox_SQLDB(t *testing.T) {
 	t.Parallel()
 
-	_, err := factory.New(outboxConfig()).CreateOutboxWithSQLDB(t.Context(), nil, outboxsql.DialectPostgres, stubPublisher{})
+	_, err := factory.New(outboxConfig()).CreateOutbox(t.Context(), stubPublisher{})
 	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 
 	db, fake := testhelpers.NewFakeSQL(t, nil)
-	ob, err := factory.New(outboxConfig()).CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectPostgres, stubPublisher{})
+	ob, err := factory.New(outboxConfig()).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 	require.NoError(t, err)
 	require.NotNil(t, ob)
 	require.Empty(t, fake.Calls(), "without ensureSchema the build performs no I/O")
 }
 
-func TestCreateOutboxWithSQLDBEnsureSchema(t *testing.T) {
+func TestCreateOutbox_SQLDBEnsureSchema(t *testing.T) {
 	t.Parallel()
 
 	t.Run("creates_schema", func(t *testing.T) {
 		t.Parallel()
 		cfg := outboxConfig()
-		cfg.Outbox.EnsureSchema = true
+		cfg.Outbox.Storage.SQL.EnsureSchema = true
+		cfg.Outbox.Storage.SQL.Dialect = brokerconfig.SQLDialectMySQL
 		db, fake := testhelpers.NewFakeSQL(t, nil)
-		ob, err := factory.New(cfg).CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectMySQL, stubPublisher{})
+		ob, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 		require.NoError(t, err)
 		require.NotNil(t, ob)
 		calls := fake.Calls()
@@ -212,9 +218,9 @@ func TestCreateOutboxWithSQLDBEnsureSchema(t *testing.T) {
 	t.Run("disabled_outbox_runs_no_ddl", func(t *testing.T) {
 		t.Parallel()
 		cfg := outboxConfig()
-		cfg.Outbox.Enabled, cfg.Outbox.EnsureSchema = false, true
+		cfg.Outbox.Enabled, cfg.Outbox.Storage.SQL.EnsureSchema = false, true
 		db, fake := testhelpers.NewFakeSQL(t, nil)
-		ob, err := factory.New(cfg).CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectMySQL, stubPublisher{})
+		ob, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 		require.NoError(t, err)
 		require.Nil(t, ob)
 		require.Empty(t, fake.Calls())
@@ -223,10 +229,48 @@ func TestCreateOutboxWithSQLDBEnsureSchema(t *testing.T) {
 	t.Run("propagates_failure", func(t *testing.T) {
 		t.Parallel()
 		cfg := outboxConfig()
-		cfg.Outbox.EnsureSchema = true
+		cfg.Outbox.Storage.SQL.EnsureSchema = true
 		boom := errors.New("ddl denied")
 		db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: boom} })
-		_, err := factory.New(cfg).CreateOutboxWithSQLDB(t.Context(), db, outboxsql.DialectPostgres, stubPublisher{})
+		_, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 		require.ErrorIs(t, err, boom)
 	})
+}
+
+// listenFunc adapts a function to outboxsql.Listener.
+type listenFunc func(ctx context.Context, channel string) (<-chan struct{}, error)
+
+func (f listenFunc) Listen(ctx context.Context, channel string) (<-chan struct{}, error) {
+	return f(ctx, channel)
+}
+
+var _ outboxsql.Listener = listenFunc(nil)
+
+// watch: notify needs the listener; with one the builder subscribes on the
+// channel derived from the table and stops through the given hook group.
+func TestCreateOutbox_NotifyWatch(t *testing.T) {
+	t.Parallel()
+
+	cfg := outboxConfig()
+	cfg.Outbox.Watch = brokerconfig.OutboxWatchNotify
+	db, _ := testhelpers.NewFakeSQL(t, nil)
+	_, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
+	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
+
+	subscribed := make(chan string, 1)
+	listener := listenFunc(func(ctx context.Context, channel string) (<-chan struct{}, error) {
+		subscribed <- channel
+		ch := make(chan struct{})
+		go func() {
+			<-ctx.Done()
+			close(ch)
+		}()
+		return ch, nil
+	})
+	var hooks coreruntime.HookGroup
+	ob, err := factory.New(cfg).UseSQLDB(db).UseSQLListener(listener).UseShutdownHooks(&hooks).CreateOutbox(t.Context(), stubPublisher{})
+	require.NoError(t, err)
+	require.NotNil(t, ob)
+	require.Equal(t, "events_outbox", <-subscribed)
+	require.NoError(t, hooks.Shutdown(t.Context()))
 }

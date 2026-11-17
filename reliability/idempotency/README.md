@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/reliability/idempotency"
 ```
 
-Package `idempotency` provides duplicate request detection using idempotency keys. Supports multiple storage backends (memory, Redis, NATS, MongoDB) for
-single-instance and distributed systems; the [MongoDB backend](storages/mongo) joins the caller's transaction, so a key commits atomically with the
-business change.
+Package `idempotency` provides duplicate request detection using idempotency keys. Supports memory, Redis, NATS, MongoDB and SQL backends for
+single-instance and distributed systems. The [MongoDB](storages/mongo) and [SQL](storages/sqldb) backends join the caller's transaction, so a key commits
+atomically with the business change.
 
 ## Tenant isolation (multi-tenant deployments)
 
@@ -109,6 +109,7 @@ Backend-specific CAS primitives:
 | redis | Lua script: `GET == lockToken ? SET : ErrLockStolen` |
 | nats | `kv.Update(key, val, revision)` — server rejects on revision mismatch |
 | mongo | `UpdateOne` filtered on the stored bytes; a lock is one atomic upsert |
+| sqldb | Conditional SQL writes compare live stored bytes; database-clock expiry |
 
 Pass the `*State` from AttemptLock straight back to Complete:
 
@@ -203,13 +204,14 @@ the race" path and skip writing.
 
 ## Subpackages
 
-| Package                                   | Description                         |
-|-------------------------------------------|-------------------------------------|
-| [factory](../../factory/reliability/idempotency) | Configuration-based creation        |
-| [storages/memory](./storages/memory)      | In-memory backend with TTL          |
-| [storages/redis](./storages/redis)        | Distributed Redis storage           |
-| [storages/nats](./storages/nats)          | NATS JetStream storage              |
-| [storages/mongo](./storages/mongo)        | MongoDB storage, joins transactions |
+| Package                                          | Description                                                                                   |
+|--------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| [factory](../../factory/reliability/idempotency) | Configuration-based creation                                                                  |
+| [storages/memory](./storages/memory)             | In-memory backend with TTL                                                                    |
+| [storages/redis](./storages/redis)               | Distributed Redis storage                                                                     |
+| [storages/nats](./storages/nats)                 | NATS JetStream storage                                                                        |
+| [storages/mongo](./storages/mongo)               | MongoDB storage, joins transactions                                                           |
+| [storages/sqldb](./storages/sqldb)               | PostgreSQL, MySQL and MariaDB; joins transactions, automatic or manual `PurgeExpired` cleanup |
 
 ## Ownership-safe release
 

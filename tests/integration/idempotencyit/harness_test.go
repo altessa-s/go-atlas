@@ -56,11 +56,11 @@ type backend struct {
 
 // backends lists every networked idempotency storage.
 func backends() []backend {
-	return []backend{
+	return append([]backend{
 		{name: "redis", open: openRedis},
 		{name: "mongo", open: openMongo},
 		{name: "nats", open: openNATS},
-	}
+	}, sqlBackends()...)
 }
 
 // forEachBackend runs fn as a parallel subtest per backend.

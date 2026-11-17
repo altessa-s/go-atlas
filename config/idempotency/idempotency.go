@@ -9,6 +9,7 @@ import (
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
+	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -61,9 +62,45 @@ const (
 	// StorageTypeMongo stores keys in a MongoDB collection; operations join
 	// the caller's transaction, so a key commits with the business change.
 	StorageTypeMongo StorageType = "mongo"
+	// StorageTypeSQL stores keys in PostgreSQL, MySQL or MariaDB through an injected *sql.DB.
+	StorageTypeSQL StorageType = "sqldb"
 )
 
-var storageAllowedTypes = []StorageType{StorageTypeMemory, StorageTypeRedis, StorageTypeNATS, StorageTypeMongo}
+var storageAllowedTypes = []StorageType{StorageTypeMemory, StorageTypeRedis, StorageTypeNATS, StorageTypeMongo, StorageTypeSQL}
+
+// SQL dialects accepted by SQLStorageConfig.Dialect.
+const (
+	// SQLDialectPostgres targets PostgreSQL 12+.
+	SQLDialectPostgres = "postgres"
+	// SQLDialectMySQL targets MySQL 8.0+ and MariaDB 10.6+.
+	SQLDialectMySQL = "mysql"
+)
+
+// SQLStorageConfig configures reliability/idempotency/storages/sqldb.
+// The caller injects *sql.DB into the factory and registers its driver.
+type SQLStorageConfig struct {
+	// Dialect selects postgres or mysql (including MariaDB).
+	Dialect string `yaml:"dialect" default:"postgres"`
+	// Table stores the keys, optionally qualified by a schema name.
+	Table string `yaml:"table" default:"idempotency_keys"`
+	// EnsureSchema creates the table and index at startup. Leave false for migrations.
+	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
+	// PurgeInterval is the time between background purge passes. Zero disables
+	// the loop; explicit PurgeExpired calls remain available.
+	PurgeInterval time.Duration `yaml:"purgeInterval" default:"1m"`
+	// PurgeBatchSize bounds the rows deleted by one purge statement.
+	PurgeBatchSize int `yaml:"purgeBatchSize" default:"1000"`
+}
+
+// Validate performs validation of the SQL storage configuration.
+func (c *SQLStorageConfig) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
+		validation.Field(&c.Table, validation.Required),
+		validation.Field(&c.PurgeInterval, validation.Min(time.Duration(0))),
+		validation.Field(&c.PurgeBatchSize, validation.Min(1)),
+	)
+}
 
 // MongoStorageConfig configures the MongoDB key store
 // (reliability/idempotency/storages/mongo).
@@ -82,7 +119,7 @@ func (c *MongoStorageConfig) Validate() error {
 // StorageConfig selects and configures the idempotency key store. Each
 // backend has its own nested section; only the one named by Type is used.
 type StorageConfig struct {
-	// Type defines the storage backend type (memory, redis, nats or mongo).
+	// Type defines the storage backend type (memory, redis, nats, mongo or sqldb).
 	Type StorageType `yaml:"type"`
 
 	// Memory defines the in-memory configuration.
@@ -100,6 +137,9 @@ type StorageConfig struct {
 	// Mongo defines the MongoDB configuration.
 	// Required when Type is StorageTypeMongo, ignored otherwise.
 	Mongo *MongoStorageConfig `yaml:"mongo" default:"-"`
+
+	// SQL defines the SQL configuration, required when Type is StorageTypeSQL.
+	SQL *SQLStorageConfig `yaml:"sqldb" default:"-"`
 }
 
 // Normalize allocates the provider-specific sub-config implied by
@@ -123,6 +163,10 @@ func (c *StorageConfig) Normalize() {
 		if c.Mongo == nil {
 			c.Mongo = &MongoStorageConfig{}
 		}
+	case StorageTypeSQL:
+		if c.SQL == nil {
+			c.SQL = &SQLStorageConfig{}
+		}
 	}
 }
 
@@ -132,6 +176,7 @@ func (c *StorageConfig) storageCases() []validationconfig.StorageCase[StorageTyp
 		{When: StorageTypeNATS, Field: &c.NATS},
 		{When: StorageTypeRedis, Field: &c.Redis},
 		{When: StorageTypeMongo, Field: &c.Mongo},
+		{When: StorageTypeSQL, Field: &c.SQL},
 	}
 }
 

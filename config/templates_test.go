@@ -45,6 +45,7 @@ import (
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 	retryconfig "github.com/altessa-s/go-atlas/config/retry"
+	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 	s3config "github.com/altessa-s/go-atlas/config/s3"
 	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
@@ -123,6 +124,7 @@ var templateCases = map[string][]templateRoot{
 	"redis.yaml":                             {root[redisconfig.Config]("redis")},
 	"requests_limiter.yaml":                  {root[limiterconfig.RequestRate]("requestsLimiter")},
 	"retry.yaml":                             {root[retryconfig.Config]("retry")},
+	"retryqueue.yaml":                        {root[retryqueueconfig.Config]("retryQueue")},
 	"s3.yaml":                                {root[s3config.Config]("s3")},
 	"saga.yaml":                              {root[sagaconfig.Config]("saga")},
 	"scheduler.yaml":                         {root[schedulerconfig.Config]("scheduler")},

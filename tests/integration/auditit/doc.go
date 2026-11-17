@@ -14,4 +14,10 @@
 //
 // Tests skip rather than fail when a server is unreachable. See
 // tests/integration/README.md.
+//
+// # Purging
+//
+// SQL PurgeExpired(ctx) returns an int64 total across bounded batches, including completed batches
+// before an error. Retention options enable purging; a zero purge interval disables only background
+// work.
 package auditit

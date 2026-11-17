@@ -32,14 +32,18 @@ func offlineMongo(t *testing.T) *mongo.Client {
 	return client
 }
 
+// build builds an outbox over the MongoDB storage function.
+func build(ctx context.Context, fn outboxfactory.StorageFunc) error {
+	cfg := &brokerconfig.Outbox{Enabled: true}
+	_, err := outboxfactory.New(cfg).UseStorage(brokerconfig.OutboxStorageTypeMongo, fn).Build(ctx, noopHandler)
+	return err
+}
+
 func TestBuilder_RequiresDependency(t *testing.T) {
 	t.Parallel()
-	cfg := &brokerconfig.Outbox{Enabled: true}
 
-	_, err := outboxfactory.New(cfg).BuildWithStorage(t.Context(), factory.Builder(nil), noopHandler)
-	require.ErrorIs(t, err, factory.ErrDatabaseRequired)
-	_, err = outboxfactory.New(cfg).BuildWithStorage(t.Context(), factory.CollectionBuilder(nil), noopHandler)
-	require.ErrorIs(t, err, factory.ErrCollectionRequired)
+	require.ErrorIs(t, build(t.Context(), factory.Builder(nil)), factory.ErrDatabaseRequired)
+	require.ErrorIs(t, build(t.Context(), factory.CollectionBuilder(nil)), factory.ErrCollectionRequired)
 }
 
 // Index creation runs on the build context, so a canceled startup fails the
@@ -49,10 +53,7 @@ func TestBuilder_IndexCreationRunsOnBuildContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	db := offlineMongo(t).Database("outbox")
-	cfg := &brokerconfig.Outbox{Enabled: true}
 
-	_, err := outboxfactory.New(cfg).BuildWithStorage(ctx, factory.Builder(db), noopHandler)
-	require.ErrorIs(t, err, context.Canceled)
-	_, err = outboxfactory.New(cfg).BuildWithStorage(ctx, factory.CollectionBuilder(db.Collection("events")), noopHandler)
-	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, build(ctx, factory.Builder(db)), context.Canceled)
+	require.ErrorIs(t, build(ctx, factory.CollectionBuilder(db.Collection("events"))), context.Canceled)
 }

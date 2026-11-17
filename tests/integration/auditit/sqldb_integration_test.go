@@ -65,11 +65,12 @@ func (s sqlTarget) open(t *testing.T, opts ...sqldb.Option) (*sqldb.Storage, *sq
 	}
 	table := "audit_" + strings.ToLower(rand.Text()[:12])
 	t.Cleanup(func() {
-		_, _ = db.ExecContext(context.Background(), "DROP TABLE IF EXISTS "+table)
+		_, _ = db.ExecContext(context.WithoutCancel(t.Context()), "DROP TABLE IF EXISTS "+table)
 		_ = db.Close()
 	})
 	st, err := sqldb.New(db, s.dialect, append(opts, sqldb.WithTableName(table))...)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, st.Close(context.WithoutCancel(t.Context()))) })
 	require.NoError(t, st.EnsureSchema(t.Context()))
 	require.NoError(t, st.EnsureSchema(t.Context()))
 	return st, db, table

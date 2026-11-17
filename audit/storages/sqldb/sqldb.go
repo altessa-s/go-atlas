@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"unicode/utf8"
 
@@ -44,6 +45,13 @@ type Storage struct {
 	// lastInsert caches the most recently rendered INSERT: dispatcher
 	// batches repeat their size, and rendering binds every placeholder.
 	lastInsert atomic.Pointer[insertStatement]
+	// purgeMu guards the background retention loop's lifecycle: with TTL > 0
+	// it starts with the first StoreBatch and stops for good at Close.
+	purgeMu      sync.Mutex
+	purgeStarted bool
+	purgeStopped bool
+	purgeCancel  context.CancelFunc
+	purgeDone    chan struct{}
 }
 
 // insertStatement is a rendered INSERT for a fixed number of rows.
@@ -52,8 +60,10 @@ type insertStatement struct {
 	sql  string
 }
 
-// New creates a [Storage] over db for the given dialect. It performs no I/O;
-// call [Storage.EnsureSchema] once at startup to create the table, or apply
+// New creates a [Storage] over db for the given dialect. It performs no I/O
+// and starts no goroutine: with [WithTTL], the background retention loop
+// starts with the first [Storage.Store] or [Storage.StoreBatch] call.
+// Call [Storage.EnsureSchema] once at startup to create the table, or apply
 // the equivalent DDL through a migration tool.
 //
 // Example:
@@ -97,6 +107,7 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
+	s.startPurge(ctx)
 	args := make([]any, 0, len(events)*columnsPerRow)
 	for _, e := range events {
 		var err error
@@ -250,9 +261,12 @@ func (s *Storage) Count(ctx context.Context, query *audit.Query) (int64, error) 
 	return n, nil
 }
 
-// Close is a no-op; the caller manages the *sql.DB lifecycle.
-func (s *Storage) Close(context.Context) error {
-	return nil
+// Close stops background retention for good, canceling any in-flight
+// delete, and waits within ctx for the retention goroutine to exit; it
+// returns ctx's error when the wait ends first. It is safe to call repeatedly
+// or concurrently. The caller still manages the *sql.DB lifecycle.
+func (s *Storage) Close(ctx context.Context) error {
+	return s.awaitPurge(ctx, s.stopPurge())
 }
 
 // where renders the filter of q as predicates with ? placeholders. Time bounds

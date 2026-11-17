@@ -4,11 +4,70 @@
 package sqldb
 
 import (
+	"log/slog"
 	"strings"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithListener sets the [Listener] [Store.Watch] subscribes through. Without
+// one — nil, or a typed nil — the store reports [outbox.ErrWatchUnsupported].
+// PostgreSQL only: [New] rejects it on MySQL with [ErrNotifyUnsupported].
+func WithListener(v Listener) Option {
+	return func(o *options) {
+		o.listener = v
+	}
+}
+
+// WithLogger sets the logger [Store.Watch] reports failed subscriptions on.
+// Nothing is logged by default.
+func WithLogger(v *slog.Logger) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.logger = v
+	}
+}
+
+// WithNotify makes every save signal the notification channel with
+// pg_notify in the transaction that inserts the events, so a [Listener]
+// learns of them the moment they commit. The channel is derived from the
+// table name unless [WithNotifyChannel] names it. PostgreSQL only: [New]
+// rejects it on MySQL with [ErrNotifyUnsupported].
+func WithNotify() Option {
+	return func(o *options) {
+		value := true
+		o.notify = value
+	}
+}
+
+// WithNotifyChannel enables notifications like [WithNotify] on the given
+// channel instead of the one derived from the table name. The channel must
+// be a plain identifier of at most 63 characters ([ErrInvalidNotifyChannel]).
+func WithNotifyChannel[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.notifyChannel = transformedValue
+		o.notify = true
+
+	}
+}
 
 // WithTableName sets the tableName option.
 func WithTableName[T interface{ string | *string }](v T) Option {
@@ -38,6 +97,7 @@ func WithTableName[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		logger:    slog.New(slog.DiscardHandler),
 		tableName: DefaultTableName,
 	}
 }

@@ -9,6 +9,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -21,7 +25,9 @@ import (
 
 // ensureAttempts bounds the attempts of the MySQL statement that creates a
 // key's row: InnoDB may resolve concurrent first uses of one key as a
-// deadlock, which a retry settles.
+// deadlock, which a retry settles. It also bounds the MySQL acquisitions
+// restarted because the expired-row cleanup deleted the key's row between
+// creating and taking it.
 const ensureAttempts = 3
 
 // Locker is a [providers.Provider] keeping each lock as a leased row in a SQL
@@ -32,12 +38,28 @@ const ensureAttempts = 3
 // grows by one with every acquisition of a key.
 //
 // Rows are kept after release (one per key ever locked) so fencing tokens
-// stay monotonic; deleting rows, or restoring the table from a backup, can
-// reissue tokens. The caller owns the *sql.DB; the locker never joins a
-// caller's transaction.
+// stay monotonic, unless [WithExpiredCleanup] lets the locker delete them a
+// grace period after their lease ended; deleting rows otherwise, or restoring
+// the table from a backup, can reissue tokens. [WithoutRenewal] turns every
+// lease into a hard lease of one TTL that is never renewed. The caller owns
+// the *sql.DB; the locker never joins a caller's transaction.
 type Locker struct {
-	s      *store
-	engine *leasing.Engine
+	s            *store
+	engine       *leasing.Engine
+	engineClosed atomic.Bool
+	logger       *slog.Logger
+	// opTimeout bounds one cleanup statement.
+	opTimeout time.Duration
+
+	// sweepMu guards the background sweep's lifecycle: it starts with the
+	// first Lock and stops for good at Close.
+	sweepMu      sync.Mutex
+	sweepStarted bool
+	sweepStopped bool
+	cancelSweep  context.CancelFunc
+	sweepDone    chan struct{}
+	// sweepEvery is the sweep period; a field so tests can shorten it.
+	sweepEvery time.Duration
 }
 
 // store implements [leasing.Store] on the locks table.
@@ -48,6 +70,11 @@ type store struct {
 	tableName string // unqualified, for the DDL lock
 	stmts     statements
 	ttl       time.Duration
+	// cleanup enables [WithExpiredCleanup]; graceUs is its grace in
+	// microseconds.
+	cleanup        bool
+	graceUs        int64
+	purgeBatchSize int
 }
 
 // statements are the fixed queries, rendered once for the dialect.
@@ -55,6 +82,12 @@ type statements struct {
 	acquire, ensure, take, fencing, lockRow string
 	read, readOwned                         string
 	renew, release, releaseOwner            string
+	// exists checks a MySQL key's row inside the acquisition transaction.
+	exists string
+	// deleteExpired deletes one batch of rows whose lease ended more than the
+	// cleanup grace ago; on MySQL expiredKeys selects the batch first and
+	// deleteExpired takes the key list through %s.
+	expiredKeys, deleteExpired string
 }
 
 var (
@@ -86,18 +119,35 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Locker, error) {
 		return nil, err
 	}
 	o := newOptions(opts...)
-	ttl, interval, err := leasing.Timing("sqldb dlock", o.ttl, o.renewRatio)
+	// A hard lease has no renewal, so its ratio plays no part.
+	var ttl, interval time.Duration
+	if o.withoutRenewal {
+		ttl, err = leasing.HardTTL("sqldb dlock", o.ttl)
+	} else {
+		ttl, interval, err = leasing.Timing("sqldb dlock", o.ttl, o.renewRatio)
+	}
 	if err != nil {
 		return nil, err
 	}
-	s := &store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), ttl: ttl}
+	if o.expiredCleanup && o.expiredCleanupGrace < 0 {
+		return nil, errors.New("sqldb dlock: expired cleanup grace must not be negative")
+	}
+	s := &store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), ttl: ttl,
+		cleanup: o.expiredCleanup, graceUs: o.expiredCleanupGrace.Microseconds(), purgeBatchSize: o.purgeBatchSize}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}
 	s.stmts = s.buildStatements()
-	return &Locker{s: s, engine: leasing.New(s, leasing.Settings{
-		Logger: o.logger, TTL: ttl, Interval: interval, OperationsTimeout: o.operationsTimeout,
-	})}, nil
+	return &Locker{
+		s: s,
+		engine: leasing.New(s, leasing.Settings{
+			Logger: o.logger, TTL: ttl, Interval: interval, OperationsTimeout: o.operationsTimeout,
+			NoRenewal: o.withoutRenewal,
+		}),
+		logger:     o.logger,
+		opTimeout:  o.operationsTimeout,
+		sweepEvery: o.purgeInterval,
+	}, nil
 }
 
 func (s *store) buildStatements() statements {
@@ -120,7 +170,14 @@ func (s *store) buildStatements() statements {
 		release:      b("UPDATE "+t+" SET owner = '', expires_at = "+now+" WHERE lock_key = ? AND owner = ? AND fencing = ?", 1),
 		releaseOwner: b("UPDATE "+t+" SET owner = '', expires_at = "+now+" WHERE lock_key = ? AND owner = ?", 1),
 	}
+	expired := "expires_at <= " + now + " - ?"
 	if s.dialect.name == DialectPostgres {
+		// SKIP LOCKED lets concurrent sweeps take disjoint batches and leaves
+		// rows an acquisition is writing alone; a row changed after the
+		// statement started is rechecked against the condition when locked,
+		// so a lease taken meanwhile is not deleted.
+		st.deleteExpired = b("DELETE FROM "+t+" WHERE lock_key IN (SELECT lock_key FROM "+t+" WHERE "+expired+
+			" LIMIT "+strconv.Itoa(s.purgeBatchSize)+" FOR UPDATE SKIP LOCKED)", 1)
 		// One statement: insert the key's row on first use, or take the lease
 		// over while it is expired. ON CONFLICT waits for a concurrent writer
 		// of the row and re-evaluates the condition after it; no row comes
@@ -140,6 +197,14 @@ func (s *store) buildStatements() statements {
 	st.take = "UPDATE " + t + " SET owner = ?, fencing = fencing + 1, acquired_at = " + now + ", renewed_at = " + now +
 		", expires_at = " + now + " + ?, ttl_us = ? WHERE lock_key = ? AND expires_at <= " + now
 	st.fencing = "SELECT fencing FROM " + t + " WHERE lock_key = ?"
+	st.exists = "SELECT 1 FROM " + t + " WHERE lock_key = ?"
+	// MySQL cannot select from the table a DELETE modifies, and a DELETE that
+	// scans for its condition locks every row it reads. So the sweep reads a
+	// batch of keys without locking and deletes them through the primary key,
+	// which locks only those rows; the condition is repeated because the read
+	// took no lock.
+	st.expiredKeys = "SELECT lock_key FROM " + t + " WHERE " + expired + " LIMIT " + strconv.Itoa(s.purgeBatchSize)
+	st.deleteExpired = "DELETE FROM " + t + " WHERE lock_key IN (%s) AND " + expired
 	return st
 }
 
@@ -156,6 +221,7 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	if n := utf8.RuneCountInString(key); n > MaxKeyLength {
 		return nil, fmt.Errorf("%w: %d characters, limit %d", ErrValueTooLong, n, MaxKeyLength)
 	}
+	l.startSweep(ctx)
 	return l.engine.Lock(ctx, key)
 }
 
@@ -167,11 +233,22 @@ func (l *Locker) GetLockInfo(ctx context.Context, key string) (*providers.LockIn
 
 // Close stops renewing every lock held through this provider, rejects
 // further Lock calls, waits for acquisitions already in flight and releases
-// every held lock. It returns the release failures; calling Close again
-// retries the cleanup of what is still held (as does each lock's Release).
-// The *sql.DB is managed by the caller.
+// every held lock. It also stops the background sweep of
+// [WithExpiredCleanup], waiting for a sweep in progress after the releases.
+// It returns the release failures and a failed wait for the sweep; calling Close again retries the cleanup of what is still
+// held (as does each lock's Release). The *sql.DB is managed by the caller.
 func (l *Locker) Close(ctx context.Context) error {
-	return l.engine.Close(ctx)
+	// The sweep is told to stop first, but waited for last, so a sweep that
+	// is slow to return never keeps held locks from being released.
+	done := l.stopSweep()
+	var engineErr error
+	if !l.engineClosed.Load() {
+		engineErr = l.engine.Close(ctx)
+		if engineErr == nil {
+			l.engineClosed.Store(true)
+		}
+	}
+	return errors.Join(l.awaitSweep(ctx, done), engineErr)
 }
 
 // Probe implements [providers.Prober]: it fails when the provider is closed
@@ -203,35 +280,61 @@ func (s *store) acquire(ctx context.Context, key, owner string) (int64, bool, er
 		return fencing, err == nil, err
 	}
 
-	var err error
+	for range ensureAttempts {
+		fencing, acquired, missing, err := s.acquireMySQL(ctx, k, o, ttl)
+		if !missing {
+			return fencing, acquired, err
+		}
+	}
+	// The cleanup kept deleting the key's idle row; report it held, as a lost
+	// race, rather than retry without bound.
+	return 0, false, nil
+}
+
+// acquireMySQL makes one MySQL acquisition: it creates the key's row on first
+// use, then takes it over in a transaction. missing reports that the take
+// found no row because the expired-row cleanup deleted it after it was
+// created, so the acquisition must start over.
+func (s *store) acquireMySQL(ctx context.Context, k, o any, ttl int64) (fencing int64, acquired, missing bool, err error) {
 	for range ensureAttempts {
 		if _, err = s.db.ExecContext(ctx, s.stmts.ensure, k); err == nil || ctx.Err() != nil {
 			break
 		}
 	}
 	if err != nil {
-		return 0, false, err
+		return 0, false, false, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, false, err
+		return 0, false, false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	res, err := tx.ExecContext(ctx, s.stmts.take, o, ttl, ttl, k)
 	if err != nil {
-		return 0, false, err
+		return 0, false, false, err
 	}
-	if n, err := res.RowsAffected(); err != nil || n == 0 {
-		return 0, false, err
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, false, false, err
 	}
-	var fencing int64
+	if n == 0 {
+		if !s.cleanup {
+			return 0, false, false, nil
+		}
+		var one int
+		err = tx.QueryRowContext(ctx, s.stmts.exists, k).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, false, true, nil
+		}
+		return 0, false, false, err
+	}
 	if err := tx.QueryRowContext(ctx, s.stmts.fencing, k).Scan(&fencing); err != nil {
-		return 0, false, err
+		return 0, false, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, false, err
+		return 0, false, false, err
 	}
-	return fencing, true, nil
+	return fencing, true, false, nil
 }
 
 // Read implements [leasing.Store].

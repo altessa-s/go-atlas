@@ -22,31 +22,6 @@ import (
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 )
 
-// Payload nil-ness survives the store on every backend: nil stays nil, an empty
-// payload stays empty, and bytes come back unchanged.
-func TestStore_PayloadsRoundTrip(t *testing.T) {
-	t.Parallel()
-
-	forEachBackend(t, func(t *testing.T, f *fixture) {
-		ob := f.newOutbox(t)
-		saved := f.save(t, ob,
-			outbox.Event{Key: "k.nil"},
-			outbox.Event{Key: "k.empty", Payload: []byte{}},
-			outbox.Event{Key: "k.bytes", Payload: []byte{0, 1, 0xff}},
-		)
-
-		events, err := f.store.FetchUnprocessedEvents(t.Context(), 10)
-		require.NoError(t, err)
-		got := map[string][]byte{}
-		for _, ev := range events {
-			got[ev.Id] = ev.Payload
-		}
-		require.Nil(t, got[saved[0].Id])
-		require.Empty(t, got[saved[1].Id])
-		require.Equal(t, []byte{0, 1, 0xff}, got[saved[2].Id])
-	})
-}
-
 // Unbounded values fit: a key and a handler error larger than 64 KB (a MySQL
 // BLOB/TEXT limit) are stored, and a huge error on one event does not roll back
 // the result of a successful event updated in the same batch.
@@ -106,35 +81,8 @@ func TestStore_ErrorsWithNULPersist(t *testing.T) {
 	})
 }
 
-// Client-supplied instants survive the round trip exactly (to the millisecond,
-// MongoDB's BSON date precision) regardless of the driver's time zone settings
-// — the MySQL backend runs with loc=Asia/Tokyo — and the backlog age is
-// measured on the database clock.
-func TestStore_InstantsAreNotShifted(t *testing.T) {
-	t.Parallel()
-
-	forEachBackend(t, func(t *testing.T, f *fixture) {
-		created := time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)
-		ob := f.newOutbox(t)
-		saved := f.save(t, ob, outbox.Event{Key: "k.time", Payload: []byte("x"), CreatedAt: created, ExpiresAt: created.Add(time.Hour)})
-
-		require.Equal(t, created, f.load(t, saved[0].Id).CreatedAt)
-
-		events, err := f.store.FetchUnprocessedEvents(t.Context(), 10)
-		require.NoError(t, err)
-		require.Len(t, events, 1, "an event expiring in an hour must still be due")
-		require.Equal(t, created, events[0].CreatedAt)
-		require.Equal(t, created.Add(time.Hour), events[0].ExpiresAt)
-		require.NoError(t, f.store.UnlockStuckEvents(t.Context(), 0))
-
-		stats, err := f.store.Stats(t.Context())
-		require.NoError(t, err)
-		require.InDelta(t, time.Minute.Seconds(), stats.OldestPendingAge.Seconds(), 30, "age is a minute, not hours off")
-	})
-}
-
-// database/sql has no notification API, so a SQL store reports Watch as
-// unsupported and dispatch stays on the poll schedule.
+// Without a Listener a SQL store reports Watch as unsupported and dispatch
+// stays on the poll schedule.
 func TestStore_SQLWatchIsUnsupported(t *testing.T) {
 	t.Parallel()
 

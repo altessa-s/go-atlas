@@ -12,6 +12,24 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithExpiredCleanup makes the locker delete a lock row grace after its
+// lease expired or was released, judged by the database clock. A
+// background sweep starts on the first Lock and stops at [Locker.Close];
+// [WithPurgeInterval] and [WithPurgeBatchSize] control its schedule and batches;
+// [Locker.PurgeExpired] runs one sweep on demand. Without it the table
+// keeps one row per key ever locked. A deleted key starts again at fencing
+// token 1, so fencing tokens are monotonic only while a key is locked again
+// within grace of its last lease; choose grace longer than any holder may
+// act on a token. A row may outlive grace by up to one sweep interval. A
+// negative grace makes [New] fail.
+func WithExpiredCleanup(v time.Duration) Option {
+	return func(o *options) {
+		o.expiredCleanupGrace = v
+		o.expiredCleanup = true
+
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -34,6 +52,28 @@ func WithOperationsTimeout(v time.Duration) Option {
 	}
 }
 
+// WithPurgeBatchSize bounds the rows deleted by each statement.
+// Nonpositive values leave the configured size unchanged.
+func WithPurgeBatchSize(v int) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.purgeBatchSize = v
+	}
+}
+
+// WithPurgeInterval sets the interval between purge passes. Zero disables
+// the background loop; manual PurgeExpired calls remain available.
+func WithPurgeInterval(v time.Duration) Option {
+	return func(o *options) {
+		if v < (0) {
+			return
+		}
+		o.purgeInterval = v
+	}
+}
+
 // WithRenewRatio sets the renewRatio option.
 //
 // renewRatio is the fraction of ttl after which the lease is renewed;
@@ -41,6 +81,18 @@ func WithOperationsTimeout(v time.Duration) Option {
 func WithRenewRatio(v float64) Option {
 	return func(o *options) {
 		o.renewRatio = v
+	}
+}
+
+// WithoutRenewal disables the withoutRenewal option.
+//
+// withoutRenewal makes every lease a hard lease that is never renewed:
+// it ends one ttl after the acquisition request (or earlier, on release
+// or when the lock's context ends); renewRatio is then ignored.
+func WithoutRenewal() Option {
+	return func(o *options) {
+		value := true
+		o.withoutRenewal = value
 	}
 }
 
@@ -88,6 +140,8 @@ func defaultOptions() *options {
 	return &options{
 		logger:            slog.New(slog.DiscardHandler),
 		operationsTimeout: DefaultOperationsTimeout,
+		purgeBatchSize:    DefaultPurgeBatchSize,
+		purgeInterval:     DefaultPurgeInterval,
 		renewRatio:        DefaultRenewRatio,
 		ttl:               DefaultTTL,
 		tableName:         DefaultTableName,

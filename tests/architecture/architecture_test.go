@@ -264,6 +264,7 @@ var driverNeutralFactories = []string{
 	"factory/coord/limiters/tokenbucket",
 	"factory/coord/dlock",
 	"factory/reliability/outbox",
+	"factory/reliability/retryqueue",
 	"factory/cache/probfilter",
 	"factory/reliability/saga",
 	"factory/ext/horai",

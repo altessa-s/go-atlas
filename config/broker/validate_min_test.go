@@ -83,5 +83,6 @@ func validOutbox() Outbox {
 		ExpireTaskID:      "outbox-expire",
 		CleanupTaskID:     "outbox-cleanup",
 		StatsTaskID:       "outbox-stats",
+		Storage:           DefaultOutboxStorage(),
 	}
 }

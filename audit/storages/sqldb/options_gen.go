@@ -4,11 +4,43 @@
 package sqldb
 
 import (
+	"log/slog"
+	"reflect"
 	"strings"
+	"time"
+
+	"github.com/altessa-s/go-atlas-core/time/clock"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithClock sets the application clock used for retention cutoffs. The
+// background interval uses a real timer independently of this clock.
+func WithClock(v clock.Clock) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.clock = v
+	}
+}
+
+// WithLogger sets the logger for background retention failures and panics.
+// Logging is discarded by default; nil leaves the configured logger unchanged.
+func WithLogger(v *slog.Logger) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.logger = v
+	}
+}
 
 // WithMaxBatchRows sets the maxBatchRows option.
 //
@@ -21,6 +53,39 @@ func WithMaxBatchRows(v int) Option {
 			return
 		}
 		o.maxBatchRows = v
+	}
+}
+
+// WithPurgeBatchSize bounds the rows deleted by each statement. A retention
+// pass continues until fewer rows are deleted. Nonpositive values are ignored.
+func WithPurgeBatchSize(v int) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.purgeBatchSize = v
+	}
+}
+
+// WithPurgeInterval sets the interval between retention passes. The first
+// pass runs after this interval. Zero disables the background loop.
+func WithPurgeInterval(v time.Duration) Option {
+	return func(o *options) {
+		if v < (0) {
+			return
+		}
+		o.purgeInterval = v
+	}
+}
+
+// WithTTL sets the event retention period. Zero (the default) keeps events
+// forever. Nonpositive values leave the configured TTL unchanged, as in mongo.
+func WithTTL(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.ttl = v
 	}
 }
 
@@ -52,8 +117,12 @@ func WithTableName[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		maxBatchRows: DefaultMaxBatchRows,
-		tableName:    DefaultTableName,
+		clock:          clock.Real(),
+		logger:         slog.New(slog.DiscardHandler),
+		maxBatchRows:   DefaultMaxBatchRows,
+		purgeBatchSize: DefaultPurgeBatchSize,
+		purgeInterval:  DefaultPurgeInterval,
+		tableName:      DefaultTableName,
 	}
 }
 

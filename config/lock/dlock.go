@@ -55,6 +55,36 @@ type DistributionLockSQL struct {
 	// lock, through the provider's idempotent EnsureSchema. Leave it false
 	// when the schema is applied through migrations.
 	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
+
+	// PurgeInterval is the time between background purge passes. Zero disables
+	// the loop; explicit PurgeExpired calls remain available.
+	PurgeInterval time.Duration `yaml:"purgeInterval" default:"1m"`
+	// PurgeBatchSize bounds the rows deleted by one purge statement.
+	PurgeBatchSize int `yaml:"purgeBatchSize" default:"1000"`
+
+	// TTL is the lease of a lock: a holder that stops renewing loses the lock
+	// this long after its last renewal. Defaults to 10s; zero keeps the
+	// provider default (also 10s).
+	TTL time.Duration `yaml:"ttl" default:"10s"`
+
+	// RenewRatio is the fraction of TTL after which a lease is renewed; it
+	// must lie in (0, 1). Zero keeps the provider default (1/3). Ignored with
+	// WithoutRenewal.
+	RenewRatio float64 `yaml:"renewRatio"`
+
+	// WithoutRenewal makes every lease a hard lease of one TTL that is never
+	// renewed: work guarded by the lock must finish within TTL.
+	WithoutRenewal bool `yaml:"withoutRenewal"`
+
+	// ExpiredCleanup lets the provider delete a lock row ExpiredCleanupGrace
+	// after its lease ended, through a background sweep on the database clock,
+	// so the table does not keep one row per key ever locked. Fencing tokens
+	// are then monotonic only within the grace.
+	ExpiredCleanup bool `yaml:"expiredCleanup"`
+
+	// ExpiredCleanupGrace is how long a lock row outlives its lease with
+	// ExpiredCleanup.
+	ExpiredCleanupGrace time.Duration `yaml:"expiredCleanupGrace"`
 }
 
 // Validate performs validation of the SQL distributed lock configuration.
@@ -62,6 +92,12 @@ func (c *DistributionLockSQL) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SQLDialectPostgres, SQLDialectMySQL)),
 		validation.Field(&c.Table, validation.Required),
+		validation.Field(&c.PurgeInterval, validation.Min(time.Duration(0))),
+		validation.Field(&c.PurgeBatchSize, validation.Min(1)),
+		// Zero keeps the provider default; ozzo rules skip zero values.
+		validation.Field(&c.TTL, validation.Min(time.Millisecond)),
+		validation.Field(&c.RenewRatio, validation.Min(0.0), validation.Max(1.0).Exclusive()),
+		validation.Field(&c.ExpiredCleanupGrace, validation.Min(time.Duration(0))),
 	)
 }
 
@@ -154,7 +190,7 @@ type DistributionLockNATS struct {
 //	}
 type DistributionLock struct {
 	// Provider defines the type of distributed locking implementation to use.
-	// Must be one of the supported providers: "nats" or "mongo".
+	// Must be one of the supported providers: "nats", "mongo", or "sqldb".
 	Provider DistributionLockProvider `yaml:"provider"`
 
 	// Nats defines the NATS configuration for distributed locking.

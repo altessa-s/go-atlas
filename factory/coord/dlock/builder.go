@@ -16,6 +16,7 @@ import (
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	sqlprovider "github.com/altessa-s/go-atlas/coord/dlock/providers/sqldb"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -42,6 +43,7 @@ type DLockBuilder struct {
 	errs []error
 
 	// Dependencies
+	shutdownHooks     *coreruntime.HookGroup
 	sqlDB             *sql.DB
 	healthCoordinator *health.Coordinator
 	healthServiceName string
@@ -101,17 +103,28 @@ func (b *DLockBuilder) createSQLDLock(ctx context.Context) (*dlock.DLock, error)
 	if err := b.RequireDependency(b.sqlDB, "sql database"); err != nil {
 		return nil, err
 	}
-	prov, err := sqlprovider.New(b.sqlDB, sqlprovider.Dialect(b.cfg.SQL.Dialect),
-		sqlprovider.WithLogger(b.Logger()), sqlprovider.WithTableName(b.cfg.SQL.Table))
+	cfg := b.cfg.SQL
+	provOpts := []sqlprovider.Option{sqlprovider.WithLogger(b.Logger()), sqlprovider.WithTableName(cfg.Table),
+		sqlprovider.WithPurgeInterval(cfg.PurgeInterval), sqlprovider.WithPurgeBatchSize(cfg.PurgeBatchSize)}
+	provOpts = coreslices.AppendIf(provOpts, cfg.TTL > 0, sqlprovider.WithTTL(cfg.TTL))
+	provOpts = coreslices.AppendIf(provOpts, cfg.RenewRatio > 0, sqlprovider.WithRenewRatio(cfg.RenewRatio))
+	provOpts = coreslices.AppendIf(provOpts, cfg.WithoutRenewal, sqlprovider.WithoutRenewal())
+	provOpts = coreslices.AppendIf(provOpts, cfg.ExpiredCleanup, sqlprovider.WithExpiredCleanup(cfg.ExpiredCleanupGrace))
+	prov, err := sqlprovider.New(b.sqlDB, sqlprovider.Dialect(cfg.Dialect), provOpts...)
 	if err != nil {
 		return nil, coreerrs.Provider("sql distributed lock", err)
 	}
-	if b.cfg.SQL.EnsureSchema {
+	if cfg.EnsureSchema {
 		schemaCtx, cancel := context.WithTimeout(ctx, ensureSchemaTimeout)
 		defer cancel()
 		if err := prov.EnsureSchema(schemaCtx); err != nil {
 			return nil, coreerrs.Provider("sql distributed lock", err)
 		}
+	}
+	if b.shutdownHooks != nil {
+		b.shutdownHooks.OnShutdown(prov.Close)
+	} else {
+		coreruntime.OnShutdown(prov.Close)
 	}
 	return dlock.New(prov, b.applyDefaults()...), nil
 }

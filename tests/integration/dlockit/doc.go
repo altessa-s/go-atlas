@@ -34,4 +34,10 @@
 //
 // Timestamps come from one process and one clock, so comparing them is sound here. The same
 // recording taken across machines would not be.
+//
+// # Purging
+//
+// SQL PurgeExpired(ctx) returns an int64 total across bounded batches, including completed batches
+// before an error. Retention options enable purging; a zero purge interval disables only background
+// work.
 package dlockit

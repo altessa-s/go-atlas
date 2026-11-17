@@ -10,12 +10,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"uuid"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
@@ -43,22 +45,32 @@ const deleteChunk = lockChunk
 // an instant the caller sets explicitly ([outbox.Event.CreatedAt],
 // [outbox.Event.ExpiresAt]), which is stored as given.
 //
-// Store is safe for concurrent use. It does not implement [outbox.Watcher]:
-// database/sql has no notification API, so dispatch runs on the poll schedule
-// and [outbox.Outbox.Watch] reports [outbox.ErrWatchUnsupported].
+// Store is safe for concurrent use. It implements [outbox.Watcher] through
+// PostgreSQL LISTEN/NOTIFY when a [Listener] is set (see [Store.Watch]);
+// without one [outbox.Outbox.Watch] reports [outbox.ErrWatchUnsupported] and
+// dispatch runs on the poll schedule.
 type Store struct {
-	db      *sql.DB
-	dialect dialect
-	table   string // quoted
-	name    string // unqualified, for index names
-	schema  string // qualifier of the table name; empty when unqualified
-	stmts   statements
+	db       *sql.DB
+	dialect  dialect
+	table    string // quoted
+	name     string // unqualified, for index names
+	schema   string // qualifier of the table name; empty when unqualified
+	stmts    statements
+	notify   bool     // signal channel on save
+	channel  string   // notification channel; empty on MySQL
+	listener Listener // nil: Watch is unsupported
+	logger   *slog.Logger
 }
 
 var (
 	_ outbox.Storage           = (*Store)(nil)
 	_ outbox.BackendClockSaver = (*Store)(nil)
+	_ outbox.Watcher           = (*Store)(nil)
 )
+
+// notifyStatement signals the notification channel; inside a transaction
+// PostgreSQL delivers it on commit, once however often it ran.
+const notifyStatement = "SELECT pg_notify($1, '')"
 
 // statements are the fixed queries, rendered once for the dialect.
 type statements struct {
@@ -92,13 +104,27 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	listener := o.listener
+	if nilcheck.IsNil(listener) {
+		listener = nil
+	}
 
 	s := &Store{
-		db:      db,
-		dialect: dl,
-		table:   table,
-		name:    sqldialect.Unqualified(o.tableName),
-		schema:  sqldialect.Qualifier(o.tableName),
+		db:       db,
+		dialect:  dl,
+		table:    table,
+		name:     sqldialect.Unqualified(o.tableName),
+		schema:   sqldialect.Qualifier(o.tableName),
+		notify:   o.notify,
+		listener: listener,
+		logger:   o.logger,
+	}
+	if d != DialectPostgres {
+		if s.notify || s.listener != nil {
+			return nil, fmt.Errorf("%w: %q", ErrNotifyUnsupported, d)
+		}
+	} else if s.channel, err = notifyChannel(o.notifyChannel, o.tableName); err != nil && (s.notify || s.listener != nil) {
+		return nil, err
 	}
 	s.stmts = s.buildStatements()
 	return s, nil
@@ -192,7 +218,8 @@ type execer interface {
 
 // SaveEvents inserts new events on the transaction carried by ctx (see
 // [WithTx]), or on the database otherwise. A batch larger than one INSERT is
-// still all-or-nothing: without a caller transaction it runs in its own.
+// still all-or-nothing: without a caller transaction it runs in its own, as
+// does every save with [WithNotify], whose signal shares the transaction.
 //
 // An event without a CreatedAt is stamped with the database clock; see
 // [Store.SaveEventsWithTTL] for the expiry counterpart.
@@ -213,7 +240,7 @@ func (s *Store) SaveEventsWithTTL(ctx context.Context, ttl time.Duration, events
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
 		return s.insert(ctx, tx, ttl, events)
 	}
-	if len(events) <= saveChunk {
+	if len(events) <= saveChunk && !s.notify {
 		return s.insert(ctx, s.db, ttl, events)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -271,7 +298,13 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 			return coreerrs.WrapOperation(err, "insert outbox events")
 		}
 	}
-	return nil
+	if !s.notify {
+		return nil
+	}
+	// In the inserting transaction: the signal is delivered on commit, and
+	// never for a rollback.
+	_, err := ex.ExecContext(ctx, notifyStatement, s.channel)
+	return coreerrs.WrapOperation(err, "notify outbox channel")
 }
 
 // FetchUnprocessedEvents locks and returns up to batchSize events that are

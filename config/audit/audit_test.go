@@ -108,3 +108,21 @@ func TestConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestSQLTTLMatchesMongo(t *testing.T) {
+	t.Parallel()
+	for _, ttl := range []time.Duration{0, time.Hour, -time.Second} {
+		t.Run(ttl.String(), func(t *testing.T) {
+			t.Parallel()
+			mongo := auditconfig.StorageMongo{TTL: ttl}
+			sql := auditconfig.StorageSQL{Dialect: auditconfig.SQLDialectPostgres, TableName: "audit_events", TTL: ttl}
+			// Mongo has no TTL validation; nonpositive values leave retention disabled.
+			mongoCfg := validConfig()
+			mongoCfg.Storage = auditconfig.Storage{Type: auditconfig.StorageTypeMongo, Mongo: &mongo}
+			sqlCfg := validConfig()
+			sqlCfg.Storage = auditconfig.Storage{Type: auditconfig.StorageTypeSQL, SQL: &sql}
+			require.NoError(t, mongoCfg.Validate())
+			require.NoError(t, sqlCfg.Validate())
+		})
+	}
+}

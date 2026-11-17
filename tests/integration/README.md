@@ -13,7 +13,7 @@ tests/integration/
 ├── auditit/               # audit: storage conformance, atomic and idempotent batches on SQL servers
 ├── brokerit/              # messaging/broker: JetStream redelivery, restarts, shutdown, idempotency middleware over Redis
 ├── outboxit/              # reliability/outbox: transactional delivery against MongoDB, PostgreSQL, MariaDB and MySQL
-├── retryqueueit/          # reliability/retryqueue: the MongoDB storage — contracts, indexes, query plans, racing replicas
+├── retryqueueit/          # reliability/retryqueue: MongoDB and SQL storages — contracts, indexes, query plans, racing replicas, purge
 ├── mongoit/               # store/mongo: transactions abort on panic, migration failure and rollback, keyset paging with FindPage, ListCursor projections
 ├── sagait/                # reliability/saga: storage contracts on SQL, Mongo and Redis + orchestrator over SQL
 ├── idempotencyit/         # reliability/idempotency: storage contracts on Redis, Mongo and NATS + Keeper and HTTP middleware
@@ -23,10 +23,10 @@ tests/integration/
 
 ## Why a separate module
 
-Exercising the SQL storages (audit, outbox, saga, dlock) needs `pgx` and `go-sql-driver/mysql` (`clickhouse-go` is already a root dependency of the
-ClickHouse audit storage). Those are test dependencies of a *library*, so putting them in the root `go.mod` would push both into the dependency graph and `go.sum` of
-every project that imports go-atlas. A separate module with `replace github.com/altessa-s/go-atlas => ../..` keeps the toolkit's own graph clean, the
-same way `devtools/` does.
+Exercising the SQL storages (audit, outbox, saga, retryqueue, dlock) needs `pgx` and `go-sql-driver/mysql` (`clickhouse-go` is already a root dependency
+of the ClickHouse audit storage). Those are test dependencies of a *library*, so putting them in the root `go.mod` would push both into the dependency
+graph and `go.sum` of every project that imports go-atlas. A separate module with `replace github.com/altessa-s/go-atlas => ../..` keeps the toolkit's
+own graph clean, the same way `devtools/` does.
 
 The cost: these tests are not part of the root module's `go test ./...`. Run them explicitly.
 
@@ -199,7 +199,9 @@ fenced by a lock token. None of those mechanisms exists until a real MongoDB is 
 The `Dispatch_*`, `Retry_*`, `Concurrency_*`, `Lifecycle_*` and `Store_*` scenarios run on every outbox store — MongoDB and the SQL store on PostgreSQL,
 MariaDB and MySQL — each in its own subtest over its own tables (`forEachBackend`). The MySQL DSN deliberately sets `loc=Asia/Tokyo` with
 `parseTime=true`: the SQL store must not let the driver shift an instant. The `Watch_*` and `Dedup_*` scenarios are MongoDB-only (change streams; NATS
-de-duplication through the broker adapter).
+de-duplication through the broker adapter), except `Watch_SQLNotify*`, which run on PostgreSQL through `outboxit.PGListener`, a pgx adapter of the SQL
+store's `Listener`. `StorageContract` runs the [`storagetest`](../../reliability/outbox/storages/storagetest) suite on all four stores, and
+`StorageContract_Watch` its `Watch` contract on MongoDB and on PostgreSQL with `WithNotify` and the pgx listener.
 
 | Scenario                                                  | Asserts                                                                                          |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -221,11 +223,9 @@ de-duplication through the broker adapter).
 | `Lifecycle_ExpiredEventsAreNeverDispatched`               | A deadline that has passed suppresses delivery and is recorded                                   |
 | `Lifecycle_CleanupKeepsDeadLetteredEvents`                | Retention sweeps successes and keeps what an operator still has to look at                       |
 | `Lifecycle_StatsReportBacklogDeadLettersAndLag`           | The gauges alerting depends on, computed against the server clock                                |
-| `Store_PayloadsRoundTrip`                                 | `nil`, empty and binary payloads come back exactly as saved                                      |
 | `Store_LargeKeysAndErrors`                                | Keys and handler errors over 64 KB persist; a huge error does not roll back a sibling result     |
 | `Store_ErrorsWithNULPersist`                              | A handler error containing NUL persists without rolling back a sibling result                    |
-| `Store_InstantsAreNotShifted`                             | Client instants round-trip unshifted under any driver time zone; backlog age on the server clock |
-| `Store_SQLWatchIsUnsupported`                             | A SQL store reports `ErrWatchUnsupported`; dispatch stays on the poll schedule                   |
+| `Store_SQLWatchIsUnsupported`                             | A SQL store without a listener reports `ErrWatchUnsupported`; dispatch stays on the schedule     |
 | `Store_SQLCleanupSweepsABacklogLargerThanOneChunk`        | Retention deletes 2500 old successes in chunks of 1000; fresh ones and dead letters stay         |
 | `Store_SQLUnsetInstantsComeFromTheDatabaseClock`          | Undated events are created and expire by the database clock; explicit instants are kept          |
 | `Store_SQLIndexesExistAndAreAddedToExistingTables`        | The catalog holds every index; `EnsureSchema` restores a missing one, also when racing           |
@@ -236,6 +236,9 @@ de-duplication through the broker adapter).
 | `Watch_DeliversNothingUntilTheTransactionCommits`         | The stream reports an insert at commit, so a notification can never publish an aborted write     |
 | `Watch_DrainsBacklogLargerThanOneBatch`                   | A full batch re-arms the drain; the remainder does not wait for the next tick                    |
 | `Watch_CoexistsWithPollingDispatchers`                    | A watcher and a poller racing one collection still deliver each event once                       |
+| `Watch_SQLNotifyDeliversWithoutAPollCycle`                | On PostgreSQL, `pg_notify` alone carries a saved event to its handler                            |
+| `Watch_SQLNotifyDeliversNothingUntilTheTransactionCommits` | The signal is delivered at commit; a rolled-back save produces none                             |
+| `StorageContract`, `StorageContract_Watch`                | The `storagetest` contracts on every store; `Watch` on change streams and LISTEN/NOTIFY          |
 
 **The recorder proves duplicates, it does not sample for them.** `Recorder` captures every handler invocation with its event ID, so a duplicate is two
 entries naming the same event rather than a count that came out high. `Duplicates()` names them and `Timeline()` prints the whole recording into the
@@ -260,7 +263,7 @@ until one comes back through the handler, then clears the recording; the driver 
 The third surfaced only because the Docker VM's clock sat ~40 ms behind the host's. That is the ordinary condition on a developer machine, and a badly
 synced production host is off by far more; the store now stamps `published_at` with `$$NOW`, the same clock the sweep compares against.
 
-## retryqueueit — the retry queue's MongoDB storage
+## retryqueueit — the retry queue's MongoDB and SQL storages
 
 The storage contract suite from [`reliability/retryqueue/storages/storagetest`](../../reliability/retryqueue/storages/storagetest) runs against the
 MongoDB storage
@@ -270,6 +273,12 @@ resolved items respectively, and refuses a changed retention instead of dropping
 explained over a queue holding items in every state and must be index scans with no collection scan and no in-memory sort; and eight stores on their
 own clients, as service replicas, race the first `Mark` of one key and agree on the single item inserted. MongoDB's TTL monitor runs about once a
 minute, so the purge itself is not waited for — the index specification is asserted instead.
+
+The same suite runs against the SQL storage on PostgreSQL, MariaDB and MySQL, each contract over its own table created by `EnsureSchema` (twice, for
+idempotence). `PurgeExpired` deletes only resolved items past the retention against the database clock, keeps one resolved at the zero time, and drains
+a backlog larger than one DELETE, and the background loop of `WithPurgeInterval` does the same unprompted and stops on `Close`; `Move` under `WithTx`
+rolls back and commits with the caller's transaction and a refusal leaves it usable; eight stores on their own connection pools race the first `Mark` of
+one key and agree on the single row; and the factory builds the store with the schema and the configured retention.
 
 ## mongoit — store/mongo against a live replica set
 
