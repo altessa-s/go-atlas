@@ -14,6 +14,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/altessa-s/go-convert/reflectx"
+
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -137,7 +139,7 @@ func (m *Engine) isStructPointerField(fieldValue reflect.Value, fieldType reflec
 	if fieldValue.Type().Kind() != reflect.Pointer || fieldValue.IsNil() {
 		return false
 	}
-	elem := indirectType(fieldType.Type)
+	elem := reflectx.IndirectType(fieldType.Type)
 	return elem.Kind() == reflect.Struct && recurseIntoStruct(elem)
 }
 

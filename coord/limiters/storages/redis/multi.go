@@ -11,6 +11,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas-core/id"
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 
@@ -55,10 +56,7 @@ func (p *Provider) AllowAll(ctx context.Context, limits []storages.Limit) ([]sto
 	args := make([]any, 0, 1+3*len(limits))
 	args = append(args, p.clock.Now().UnixMilli())
 	for _, l := range limits {
-		member, err := newMember()
-		if err != nil {
-			return nil, coreerrs.Wrap(err, "redis rate limit member generation")
-		}
+		member := id.NewHex(memberBytes)
 		args = append(args, max(l.Period.Milliseconds(), 1), l.Limit, member)
 	}
 

@@ -10,6 +10,13 @@ Internal package `validators` provides custom [ozzo-validation](https://github.c
 
 ## Rules
 
+### Network addresses
+
+| Rule                                     | Accepted values                                                                                     |
+|------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| `CIDRPrefix`                             | IPv4 or IPv6 CIDR prefix with an explicit prefix length                                             |
+| `HTTPSURL(allowHTTP, allowLoopbackHTTP)` | Empty string or absolute HTTPS URL. HTTP can be enabled for all hosts or only for loopback hosts. |
+
 ### MongoDirectionConnect
 
 Validates that MongoDB `DirectConnect` is not enabled when using multiple hosts or SRV connection strings.

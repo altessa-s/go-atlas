@@ -7,11 +7,11 @@ package authconfig
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"regexp"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -230,29 +230,10 @@ type OPAS3 struct {
 func (c *OPAS3) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Bucket, validation.Required),
-		validation.Field(&c.Endpoint, validation.By(func(any) error {
-			return validateS3Endpoint(c.Endpoint, c.AllowInsecureHTTP)
-		})),
+		validation.Field(&c.Endpoint, validators.HTTPSURL(c.AllowInsecureHTTP, false)),
 		validation.Field(&c.Proxy),
 		validation.Field(&c.Checksums, validation.By(validateChecksums)),
 	)
-}
-
-// validateS3Endpoint accepts an empty endpoint (the AWS default), an
-// https:// URL with a host, and an http:// one only when allowHTTP is set.
-func validateS3Endpoint(endpoint string, allowHTTP bool) error {
-	if endpoint == "" {
-		return nil
-	}
-	u, err := url.Parse(endpoint)
-	switch {
-	case err != nil || u.Host == "":
-		return errors.New("must be an absolute https:// URL")
-	case u.Scheme == "https", u.Scheme == "http" && allowHTTP:
-		return nil
-	default:
-		return errors.New("must use https:// (set allowInsecureHTTP to permit http://)")
-	}
 }
 
 // OPA represents Open Policy Agent configuration for authorization.

@@ -8,11 +8,13 @@ import (
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 
 	"google.golang.org/grpc/codes"
+
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
 // Pre-computed interned strings for all gRPC status codes.
 // These are used to avoid repeated string allocations when logging.
-var internedCodes = func() map[codes.Code]string {
+var internedCodes = func() *coremaps.ImmutableMap[codes.Code, string] {
 	m := make(map[codes.Code]string, 18) //nolint:mnd // 17 standard codes + 1 extra
 	for _, code := range []codes.Code{
 		codes.OK,
@@ -35,7 +37,7 @@ var internedCodes = func() map[codes.Code]string {
 	} {
 		m[code] = intern.String(code.String())
 	}
-	return m
+	return coremaps.NewImmutableMap(m)
 }()
 
 // DefaultLogCodes contains all standard gRPC status codes that should be logged by default.
@@ -63,7 +65,7 @@ var DefaultLogCodes = []codes.Code{
 // InternedCodeString returns the interned string representation of a gRPC code.
 // If the code is not pre-computed, it falls back to intern the string dynamically.
 func InternedCodeString(code codes.Code) string {
-	if s, ok := internedCodes[code]; ok {
+	if s, ok := internedCodes.Get(code); ok {
 		return s
 	}
 	return intern.String(code.String())

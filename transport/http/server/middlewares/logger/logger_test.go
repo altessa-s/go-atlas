@@ -135,8 +135,8 @@ func TestHttpStatusToLevel(t *testing.T) {
 }
 
 func TestShouldLogStatusCode(t *testing.T) {
-	logSet := map[int]struct{}{200: {}, 404: {}}
-	ignoreSet := map[int]struct{}{200: {}}
+	logSet := newStatusCodeSet([]int{200, 404})
+	ignoreSet := newStatusCodeSet([]int{200})
 
 	require.False(t, shouldLogStatusCode(200, logSet, ignoreSet), "200 should be ignored")
 	require.True(t, shouldLogStatusCode(404, logSet, ignoreSet), "404 should be logged")

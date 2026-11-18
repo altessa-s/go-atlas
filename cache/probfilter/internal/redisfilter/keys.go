@@ -5,7 +5,6 @@
 package redisfilter
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"strconv"
@@ -50,15 +49,6 @@ func slotTagFor(live string) string {
 		return live
 	}
 	return slotTag(keySlot(live))
-}
-
-// randomID returns a random hex id.
-func randomID() (string, error) {
-	var b [randomBytes]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b[:]), nil
 }
 
 // clusterSlots is the number of Redis Cluster hash slots.

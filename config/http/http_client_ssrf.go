@@ -5,10 +5,8 @@
 package httpconfig
 
 import (
-	"fmt"
-	"net/netip"
-
 	"github.com/altessa-s/go-atlas-net/egressrule"
+	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -78,7 +76,7 @@ func (s *ClientSSRF) Validate() error {
 	}
 
 	return validationconfig.ValidateStruct(s,
-		validation.Field(&s.AllowedCIDRs, validation.Each(validation.By(validateCIDRPrefix))),
+		validation.Field(&s.AllowedCIDRs, validation.Each(validators.CIDRPrefix)),
 		validation.Field(&s.Allow, validation.By(validateEgressRules(egressrule.Allow))),
 		validation.Field(&s.Deny, validation.By(validateEgressRules(egressrule.Deny))),
 	)
@@ -95,13 +93,4 @@ func validateEgressRules(list egressrule.List) validation.RuleFunc {
 		}
 		return nil
 	}
-}
-
-// validateCIDRPrefix reports whether value is a parseable CIDR prefix.
-func validateCIDRPrefix(value any) error {
-	raw, _ := value.(string)
-	if _, err := netip.ParsePrefix(raw); err != nil {
-		return fmt.Errorf("must be a valid CIDR prefix (e.g. 10.0.0.0/8): %w", err)
-	}
-	return nil
 }

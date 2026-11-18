@@ -39,8 +39,6 @@ func TestDefaultLogStatusCodes(t *testing.T) {
 }
 
 func TestDefaultLogStatusCodesSet(t *testing.T) {
-	_, ok := DefaultLogStatusCodesSet[http.StatusOK]
-	require.True(t, ok, "should contain 200")
-	_, ok = DefaultLogStatusCodesSet[999]
-	require.False(t, ok, "should not contain 999")
+	require.True(t, DefaultLogStatusCodesSet.Contains(http.StatusOK))
+	require.False(t, DefaultLogStatusCodesSet.Contains(999))
 }

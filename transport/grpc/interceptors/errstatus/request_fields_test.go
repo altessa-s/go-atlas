@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-aip/apierror"
 	"github.com/altessa-s/go-aip/fieldmask"
 	"github.com/altessa-s/go-aip/fieldmask/extract"
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
@@ -134,10 +135,10 @@ func TestEtagMismatchIsAConflict(t *testing.T) {
 	st, ok := status.FromError(got)
 	require.True(t, ok)
 	require.Equal(t, codes.Aborted, st.Code())
-	require.Equal(t, MessageConflict, st.Message())
+	require.Equal(t, apierror.MessageConflict, st.Message())
 	require.Len(t, st.Details(), 1)
 	ei, ok := st.Details()[0].(*errdetails.ErrorInfo)
 	require.True(t, ok)
-	require.Equal(t, ReasonVersionConflict, ei.GetReason())
+	require.Equal(t, apierror.ReasonVersionConflict, ei.GetReason())
 	require.Equal(t, "svc", ei.GetDomain())
 }

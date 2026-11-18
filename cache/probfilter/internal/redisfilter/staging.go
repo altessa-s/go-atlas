@@ -13,6 +13,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas-core/id"
 	"github.com/altessa-s/go-atlas/cache/probfilter"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -179,11 +180,8 @@ func (c *Core) Stage(ctx context.Context, reserveArgs ...any) (*Staging, error) 
 	if c.keyErr != nil {
 		return nil, c.keyErr
 	}
-	id, err := randomID()
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, c.opCreate)
-	}
-	key := metaKey(c.filterKey, "staging", id)
+	stageID := id.NewHex(randomBytes)
+	key := metaKey(c.filterKey, "staging", stageID)
 
 	staged := newCore(c.client, key, c.cmds, reserveArgs...)
 	staged.autoCreate = false
@@ -202,11 +200,11 @@ func (c *Core) Stage(ctx context.Context, reserveArgs ...any) (*Staging, error) 
 	deadline := now.Add(stageRequestWindow).UnixMilli()
 
 	keys := []string{key, c.stagingsKey, c.stagingDeadlinesKey}
-	argv := append([]any{StagingTTL.Milliseconds(), deadline, id, deletePruneBatch, c.cmds.Reserve}, reserveArgs...)
+	argv := append([]any{StagingTTL.Milliseconds(), deadline, stageID, deletePruneBatch, c.cmds.Reserve}, reserveArgs...)
 	if err := stageScript.Run(ctx, c.client, keys, argv...).Err(); err != nil {
 		return nil, coreerrs.WrapOperation(err, c.opCreate)
 	}
-	return &Staging{live: c, core: staged, id: id, loaded: -1, commit: commitScript}, nil
+	return &Staging{live: c, core: staged, id: stageID, loaded: -1, commit: commitScript}, nil
 }
 
 // Key returns the staging key.

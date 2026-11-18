@@ -126,9 +126,9 @@ errstatus.ServerInterceptor(
 The messages never carry the wrapped text, except a plain `ErrInvalidArgument`, whose text describes the client's own input — wrap it only with
 client-safe context. A `FieldError` path goes through `WithFieldPathMapper` (as written when unset); a handler re-roots a domain path under its
 request with `Rooted` ([`go-atlas-core/errors.MapFieldPath`](https://github.com/altessa-s/go-atlas-core/tree/develop/errors) with `Prefixed`).
-`WithCanonicalAPIRules()` installs the rules with `CamelPath` as the mapper, which leaves a rooted path unchanged. The messages and reasons are exported
-constants (`MessageConflict`, `ReasonVersionConflict`, ...). Service-specific rules go after `WithCanonicalRules`; a rule registered before it overrides
-a canonical one.
+`WithCanonicalAPIRules()` installs the rules with `CamelPath` as the mapper, which leaves a rooted path unchanged. The canonical constants live in
+`github.com/altessa-s/go-aip/apierror` (for example, `apierror.MessageConflict` and `apierror.ReasonVersionConflict`). Service-specific rules go after
+`WithCanonicalRules`. A rule registered before it overrides a canonical one.
 
 ```go
 builder.UseErrStatusOptions(

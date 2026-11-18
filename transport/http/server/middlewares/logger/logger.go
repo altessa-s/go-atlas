@@ -57,8 +57,8 @@ type middleware struct {
 	logHandler       LogHandler
 	opts             *options
 	ignoreMethodsMap map[string]struct{}
-	logCodesSet      map[int]struct{}
-	ignoreCodesSet   map[int]struct{}
+	logCodesSet      *coremaps.ImmutableMap[int, struct{}]
+	ignoreCodesSet   *coremaps.ImmutableMap[int, struct{}]
 	redactQuery      *coremaps.ImmutableMap[string, struct{}]
 }
 
@@ -292,20 +292,9 @@ func New(logHandler LogHandler, opt ...Option) *middleware {
 	}
 
 	// Build log codes set for O(1) lookup (custom codes or default)
-	var logCodesSet map[int]struct{}
+	logCodesSet := DefaultLogStatusCodesSet
 	if len(opts.logResponseCodes) > 0 {
-		logCodesSet = make(map[int]struct{}, len(opts.logResponseCodes))
-		for _, code := range opts.logResponseCodes {
-			logCodesSet[code] = struct{}{}
-		}
-	} else {
-		logCodesSet = DefaultLogStatusCodesSet
-	}
-
-	// Build ignore codes set for O(1) lookup
-	ignoreCodesSet := make(map[int]struct{}, len(opts.ignoreResponseCodes))
-	for _, code := range opts.ignoreResponseCodes {
-		ignoreCodesSet[code] = struct{}{}
+		logCodesSet = newStatusCodeSet(opts.logResponseCodes)
 	}
 
 	redactQuery := make(map[string]struct{}, len(opts.redactQueryParams))
@@ -324,7 +313,7 @@ func New(logHandler LogHandler, opt ...Option) *middleware {
 		opts:             opts,
 		ignoreMethodsMap: ignoreMethodsMap,
 		logCodesSet:      logCodesSet,
-		ignoreCodesSet:   ignoreCodesSet,
+		ignoreCodesSet:   newStatusCodeSet(opts.ignoreResponseCodes),
 		redactQuery:      coremaps.NewImmutableMap(redactQuery),
 	}
 }
@@ -421,13 +410,6 @@ func (m *middleware) redactedQuery(raw string) string {
 
 // shouldLogStatusCode determines if a status code should be logged based on pre-computed sets.
 // Both lookups are O(1) for optimal performance in the hot path.
-func shouldLogStatusCode(status int, logCodesSet, ignoreCodesSet map[int]struct{}) bool {
-	// Check ignored codes first (takes precedence) - O(1) lookup
-	if _, ignored := ignoreCodesSet[status]; ignored {
-		return false
-	}
-
-	// Check if in log codes - O(1) lookup
-	_, shouldLog := logCodesSet[status]
-	return shouldLog
+func shouldLogStatusCode(status int, logCodesSet, ignoreCodesSet *coremaps.ImmutableMap[int, struct{}]) bool {
+	return !ignoreCodesSet.Contains(status) && logCodesSet.Contains(status)
 }

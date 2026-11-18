@@ -6,10 +6,11 @@ package middlewareconfig
 
 import (
 	"fmt"
-	"net/netip"
 	"regexp"
+	"strings"
 
 	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
+	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -52,9 +53,6 @@ var validContinentCodes = coremaps.NewImmutableMap(map[string]struct{}{
 // regionCodePattern matches XX-YY format for region codes.
 var regionCodePattern = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
 
-// countryCodePattern matches 2-letter uppercase country codes.
-var countryCodePattern = regexp.MustCompile(`^[A-Z]{2}$`)
-
 // ValidateGeoACLRule validates a single Geo ACL rule entry.
 func ValidateGeoACLRule(value any) error {
 	rule, ok := value.(GeoACLRule)
@@ -84,13 +82,13 @@ func validateContinentCode(value any) error {
 	return nil
 }
 
-// validateCountryCode validates a 2-letter uppercase country code.
+// validateCountryCode requires an uppercase ISO 3166-1 alpha-2 country code.
 func validateCountryCode(value any) error {
 	s, ok := value.(string)
 	if !ok {
 		return nil
 	}
-	if !countryCodePattern.MatchString(s) {
+	if s != strings.ToUpper(s) || ozzo_rules.CountryCode2().Validate(s) != nil {
 		return fmt.Errorf("invalid country code %q; must be 2 uppercase letters (ISO 3166-1 alpha-2)", s)
 	}
 	return nil
@@ -136,7 +134,7 @@ func ValidateIPACLRule(value any) error {
 	)
 }
 
-// ValidateIP validates that a value is a valid IP address or CIDR prefix.
+// ValidateIP validates that a value is a CIDR prefix.
 // This function ensures that trusted proxy and peer entries are properly formatted.
 func ValidateIP(value any) error {
 	str, ok := value.(string)
@@ -144,7 +142,7 @@ func ValidateIP(value any) error {
 		// Should not happen with struct validation
 		return cfgerrors.Invalidf("invalid type for IP validation")
 	}
-	if _, err := netip.ParsePrefix(str); err != nil {
+	if err := validators.CIDRPrefix.Validate(str); err != nil {
 		return cfgerrors.Invalidf("invalid IP: '%s'", str)
 	}
 	return nil

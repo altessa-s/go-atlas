@@ -55,6 +55,18 @@ func TestValidateGeoACLRule(t *testing.T) {
 	}
 }
 
+func TestGeoACLRuleCountryCodes(t *testing.T) {
+	t.Parallel()
+
+	rule := middlewareconfig.GeoACLRule{AllowCountries: []string{"DE"}}
+	require.NoError(t, middlewareconfig.ValidateGeoACLRule(rule))
+
+	for _, code := range []string{"ZZ", "de"} {
+		rule.AllowCountries = []string{code}
+		require.Contains(t, fieldErrors(t, middlewareconfig.ValidateGeoACLRule(rule)), "AllowCountries", code)
+	}
+}
+
 func TestValidateIPACLRule(t *testing.T) {
 	t.Parallel()
 

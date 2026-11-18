@@ -13,6 +13,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas-core/id"
+
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -114,12 +116,9 @@ func (c *Core) Delete(ctx context.Context, cmd, value string) (any, error) {
 	}
 	deadline := now.Add(deleteRequestWindow).UnixMilli()
 
-	id, err := randomID()
-	if err != nil {
-		return nil, err
-	}
+	requestID := id.NewHex(randomBytes)
 	keys := []string{c.filterKey, c.genKey, c.deletesKey, c.deadlinesKey}
-	reply, err := deleteScript.Run(ctx, c.client, keys, token, cmd, value, deadline, id, deletePruneBatch).Result()
+	reply, err := deleteScript.Run(ctx, c.client, keys, token, cmd, value, deadline, requestID, deletePruneBatch).Result()
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "PFPENDING") || strings.HasPrefix(err.Error(), "PFEXPIRED") {
 			return nil, errors.Join(ErrDeleteIndeterminate, err)

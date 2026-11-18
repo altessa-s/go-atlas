@@ -5,12 +5,11 @@
 package opa
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas/cache/lru"
 )
 
@@ -103,15 +102,5 @@ func decisionCacheKey(revision string, input any) (string, bool) {
 		return "", false
 	}
 
-	h := sha256.New()
-
-	// Length-prefix the revision so that it cannot run into the payload: without
-	// it, revisions "a" + input `bc` and "ab" + input `c` would hash alike.
-	var length [8]byte
-	binary.BigEndian.PutUint64(length[:], uint64(len(revision)))
-	h.Write(length[:])
-	h.Write([]byte(revision))
-	h.Write(encoded)
-
-	return hex.EncodeToString(h.Sum(nil)), true
+	return hex.EncodeToString(keys.Digest([]byte(revision), encoded)), true
 }

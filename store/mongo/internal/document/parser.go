@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/altessa-s/go-convert/reflectx"
+
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
@@ -419,8 +421,8 @@ func (p *Parser) describeFields(root, typ reflect.Type, prefix []int, ancestors 
 			continue
 		}
 		index := append(slices.Clone(prefix), sf.Index...)
-		if sf.Anonymous && indirectType(sf.Type).Kind() == reflect.Struct {
-			fields = append(fields, p.describeFields(root, indirectType(sf.Type), index, ancestors)...)
+		if sf.Anonymous && reflectx.IndirectType(sf.Type).Kind() == reflect.Struct {
+			fields = append(fields, p.describeFields(root, reflectx.IndirectType(sf.Type), index, ancestors)...)
 			continue
 		}
 		algorithm, key, encrypt := p.encryptionInfo(root, sf)
@@ -447,7 +449,7 @@ func (p *Parser) encryptionInfo(typ reflect.Type, sf reflect.StructField) (strin
 func nestedStructType(typ reflect.Type) reflect.Type {
 	switch typ.Kind() { //nolint:exhaustive // Only container kinds can wrap nested structs.
 	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
-		elem := indirectType(typ.Elem())
+		elem := reflectx.IndirectType(typ.Elem())
 		if elem.Kind() == reflect.Struct {
 			return elem
 		}

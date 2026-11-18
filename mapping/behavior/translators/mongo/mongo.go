@@ -14,6 +14,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/altessa-s/go-convert/reflectx"
+
 	"github.com/altessa-s/go-atlas/mapping/behavior"
 )
 
@@ -608,9 +610,7 @@ func isRemoval(fv reflect.Value) bool {
 // anything inside a replaced collection element, [ErrProtectedUnset] for a
 // subdocument.
 func removalError(t reflect.Type, ec encCtx) error {
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
+	t = reflectx.IndirectType(t)
 	switch {
 	case ec.inColl:
 		return ErrProtectedInCollection

@@ -6,13 +6,12 @@ package redis
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas-core/id"
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas-core/text/strings"
 	"github.com/altessa-s/go-atlas-core/time/clock"
@@ -22,6 +21,9 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	limiters "github.com/altessa-s/go-atlas/coord/limiters"
 )
+
+// memberBytes is the number of random bytes in a sliding-window ZSET member.
+const memberBytes = 8
 
 // Provider implements a Redis-based rate limiting provider using sliding window algorithm.
 type Provider struct {
@@ -57,10 +59,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	// member=score collapse into one entry and let bursts bypass the limit.
 	// 64 bits of crypto/rand entropy is enough — collision over a single
 	// window is far below any meaningful failure rate.
-	member, err := newMember()
-	if err != nil {
-		return nil, coreerrs.Wrap(err, "redis rate limit member generation")
-	}
+	member := id.NewHex(memberBytes)
 
 	result, err := luaScript.Run(ctx, p.Client(), []string{redisKey}, windowMs, limit, now, member).Result()
 	if err != nil {
@@ -104,18 +103,6 @@ func toInt64(v any) int64 {
 	default:
 		return 0
 	}
-}
-
-// newMember returns a 16-character hex string used as a unique ZSET member
-// for each [Provider.Allow] call. Uniqueness is what stops concurrent
-// same-millisecond requests from collapsing into a single ZSET entry; the
-// content of the member is otherwise opaque to the Lua script.
-func newMember() (string, error) {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b[:]), nil
 }
 
 var _ storages.Storage = (*Provider)(nil)

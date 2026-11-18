@@ -5,15 +5,12 @@
 package authconfig
 
 import (
-	"errors"
-	"net"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -95,10 +92,7 @@ func DefaultOAuth2Client() OAuth2Client {
 // AuthStyle must be one of the supported styles. The URL must use https://;
 // http:// is accepted on a loopback host, or on any host with AllowInsecureHTTP.
 func (c *OAuth2Client) Validate() error {
-	secureURL := validation.By(func(value any) error {
-		raw, _ := value.(string)
-		return validateOAuth2ClientURL(raw, c.AllowInsecureHTTP)
-	})
+	secureURL := validators.HTTPSURL(c.AllowInsecureHTTP, true)
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.TokenUrl,
 			validation.When(c.DiscoveryUrl == "", validation.Required),
@@ -115,23 +109,6 @@ func (c *OAuth2Client) Validate() error {
 		validation.Field(&c.Retry, validation.NilOrNotEmpty),
 		validation.Field(&c.ClientAuth, validation.NilOrNotEmpty),
 	)
-}
-
-// validateOAuth2ClientURL accepts an https:// URL, an http:// URL on a loopback
-// host ("localhost" or a loopback IP literal), and any http:// URL when
-// allowHTTP is set.
-func validateOAuth2ClientURL(raw string, allowHTTP bool) error {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
-		return errors.New("must be an absolute https:// URL")
-	}
-	host := u.Hostname()
-	ip := net.ParseIP(host)
-	loopback := strings.EqualFold(host, "localhost") || (ip != nil && ip.IsLoopback())
-	if u.Scheme == "https" || (u.Scheme == "http" && (allowHTTP || loopback)) {
-		return nil
-	}
-	return errors.New("must use https:// (set allowInsecureHTTP to permit http://)")
 }
 
 // IsClientAuthConfigured reports whether JWT-assertion client auth is present.

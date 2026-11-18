@@ -5,27 +5,11 @@
 package errstatus
 
 import (
+	"github.com/altessa-s/go-aip/apierror"
+
 	"google.golang.org/grpc/codes"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
-)
-
-// Messages and ErrorInfo reasons of the canonical rules ([WithCanonicalRules]).
-// They are part of the API contract: clients may match the reasons.
-const (
-	MessageNotFound           = "not found"
-	MessageAlreadyExists      = "already exists"
-	MessageConflict           = "changed concurrently, re-read and retry"
-	MessageFailedPrecondition = "failed precondition"
-	MessageUnavailable        = "temporarily unavailable, retry later"
-	MessageBusy               = "the same work is in progress, retry later"
-
-	ReasonNotFound           = "NOT_FOUND"
-	ReasonAlreadyExists      = "ALREADY_EXISTS"
-	ReasonVersionConflict    = "VERSION_CONFLICT"
-	ReasonFailedPrecondition = "FAILED_PRECONDITION"
-	ReasonUnavailable        = "TEMPORARY_UNAVAILABLE"
-	ReasonBusy               = "BUSY"
 )
 
 // WithCanonicalRules adds converters for the canonical domain sentinels of
@@ -64,19 +48,32 @@ func WithCanonicalRules() Option {
 			return o.fieldPathMapper(fe.Field), fe.Reason
 		}
 		o.errorConverters = append(o.errorConverters,
-			ErrorRule{Target: coreerrs.ErrNotFound, Code: codes.NotFound, Message: MessageNotFound, Reason: ReasonNotFound}.converter(),
 			ErrorRule{
-				Target: coreerrs.ErrAlreadyExists, Code: codes.AlreadyExists, Message: MessageAlreadyExists, Reason: ReasonAlreadyExists,
+				Target: coreerrs.ErrNotFound, Code: codes.NotFound,
+				Message: apierror.MessageNotFound, Reason: apierror.ReasonNotFound,
 			}.converter(),
-			ErrorRule{Target: coreerrs.ErrConflict, Code: codes.Aborted, Message: MessageConflict, Reason: ReasonVersionConflict}.converter(),
+			ErrorRule{
+				Target: coreerrs.ErrAlreadyExists, Code: codes.AlreadyExists,
+				Message: apierror.MessageAlreadyExists, Reason: apierror.ReasonAlreadyExists,
+			}.converter(),
+			ErrorRule{
+				Target: coreerrs.ErrConflict, Code: codes.Aborted,
+				Message: apierror.MessageConflict, Reason: apierror.ReasonVersionConflict,
+			}.converter(),
 			fieldErrorConverter(mapField),
 			ErrorRule{Target: coreerrs.ErrInvalidArgument, Code: codes.InvalidArgument, Expose: true}.converter(),
 			ErrorRule{
-				Target: coreerrs.ErrFailedPrecondition, Code: codes.FailedPrecondition, Message: MessageFailedPrecondition,
-				Reason: ReasonFailedPrecondition,
+				Target: coreerrs.ErrFailedPrecondition, Code: codes.FailedPrecondition,
+				Message: apierror.MessageFailedPrecondition, Reason: apierror.ReasonFailedPrecondition,
 			}.converter(),
-			ErrorRule{Target: coreerrs.ErrUnavailable, Code: codes.Unavailable, Message: MessageUnavailable, Reason: ReasonUnavailable}.converter(),
-			ErrorRule{Target: coreerrs.ErrBusy, Code: codes.Aborted, Message: MessageBusy, Reason: ReasonBusy}.converter(),
+			ErrorRule{
+				Target: coreerrs.ErrUnavailable, Code: codes.Unavailable,
+				Message: apierror.MessageUnavailable, Reason: apierror.ReasonUnavailable,
+			}.converter(),
+			ErrorRule{
+				Target: coreerrs.ErrBusy, Code: codes.Aborted,
+				Message: apierror.MessageBusy, Reason: apierror.ReasonBusy,
+			}.converter(),
 		)
 	}
 }

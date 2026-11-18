@@ -5,6 +5,7 @@
 // Package validators provides custom validation rules for configuration fields.
 // SQLTableName and SQLIdentifier validate SQL names through the shared dialect
 // parser. MongoDirectionConnect checks MongoDB connection settings.
+// CIDRPrefix and HTTPSURL validate network prefixes and endpoint URLs.
 // Internal package; API may change without notice.
 //
 // # Usage

@@ -69,7 +69,7 @@ func TestSeeOtherLoggedByDefault(t *testing.T) {
 	t.Parallel()
 
 	for _, code := range []int{http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
-		require.True(t, shouldLogStatusCode(code, DefaultLogStatusCodesSet, nil), code)
+		require.True(t, DefaultLogStatusCodesSet.Contains(code), code)
 	}
 }
 

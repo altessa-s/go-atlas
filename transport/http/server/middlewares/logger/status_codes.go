@@ -9,17 +9,21 @@ import (
 	"strconv"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+
+	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
 
-// Pre-computed interned strings for common HTTP status codes.
+// Keep the default response status on a direct path for successful requests.
+var internedStatusOK = intern.String(strconv.Itoa(http.StatusOK))
+
+// Pre-computed interned strings for other common HTTP status codes.
 // These are used to avoid repeated string allocations when logging.
-var internedStatusCodes = func() map[int]string {
+var internedStatusCodes = func() *coremaps.ImmutableMap[int, string] {
 	codes := []int{
 		http.StatusContinue,
 		http.StatusSwitchingProtocols,
 		http.StatusProcessing,
 		http.StatusEarlyHints,
-		http.StatusOK,
 		http.StatusCreated,
 		http.StatusAccepted,
 		http.StatusNonAuthoritativeInfo,
@@ -83,7 +87,7 @@ var internedStatusCodes = func() map[int]string {
 	for _, code := range codes {
 		m[code] = intern.String(strconv.Itoa(code))
 	}
-	return m
+	return coremaps.NewImmutableMap(m)
 }()
 
 // DefaultLogStatusCodes contains common HTTP status codes that should be logged
@@ -119,19 +123,24 @@ var DefaultLogStatusCodes = []int{
 // DefaultLogStatusCodesSet is a pre-computed set for O(1) lookup of
 // [DefaultLogStatusCodes]. Used by the middleware's shouldLogStatusCode
 // hot path.
-var DefaultLogStatusCodesSet = func() map[int]struct{} {
-	m := make(map[int]struct{}, len(DefaultLogStatusCodes))
-	for _, code := range DefaultLogStatusCodes {
+var DefaultLogStatusCodesSet = newStatusCodeSet(DefaultLogStatusCodes)
+
+func newStatusCodeSet(codes []int) *coremaps.ImmutableMap[int, struct{}] {
+	m := make(map[int]struct{}, len(codes))
+	for _, code := range codes {
 		m[code] = struct{}{}
 	}
-	return m
-}()
+	return coremaps.NewImmutableMap(m)
+}
 
 // InternedStatusString returns the interned string representation of an HTTP
 // status code. Common codes are pre-computed at init time; unknown codes
 // are interned on first use via [intern.String].
 func InternedStatusString(code int) string {
-	if s, ok := internedStatusCodes[code]; ok {
+	if code == http.StatusOK {
+		return internedStatusOK
+	}
+	if s, ok := internedStatusCodes.Get(code); ok {
 		return s
 	}
 	return intern.String(strconv.Itoa(code))
