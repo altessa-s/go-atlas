@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas-net/clientip"
@@ -147,12 +146,8 @@ func (m *middleware) rateLimit(w http.ResponseWriter, r *http.Request) error {
 }
 
 func extractBearerToken(r *http.Request) string {
-	authHeader := r.Header.Get("Authorization")
-	const bearerPrefix = "Bearer "
-	if len(authHeader) >= len(bearerPrefix) && strings.EqualFold(authHeader[:len(bearerPrefix)], bearerPrefix) {
-		return strings.TrimSpace(authHeader[len(bearerPrefix):])
-	}
-	return ""
+	token, _ := httpx.ParseBearer(r.Header.Values("Authorization"))
+	return token
 }
 
 // retryAfterSeconds converts a Unix reset time into the delay-seconds form

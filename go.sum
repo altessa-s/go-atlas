@@ -70,10 +70,10 @@ github.com/altessa-s/go-aip v0.1.8 h1:ev2aCy3HJLqZD+tASEzV251z/P/x09KIA2DjcmIu1l
 github.com/altessa-s/go-aip v0.1.8/go.mod h1:zg7TUbRCkWX0UjkMJaaHKoSJfAomQhRI20Hu06TVwcE=
 github.com/altessa-s/go-aip/backend/mongo v0.1.8 h1:X2LyLFjNOtwdNGcwRJMfS9ShhCqW4Lo7JabsZyF8ZDE=
 github.com/altessa-s/go-aip/backend/mongo v0.1.8/go.mod h1:hhjzlxnHtraspH5hVwMqx0c5IbKOV3S8PM8Upibd/rs=
-github.com/altessa-s/go-atlas-core v0.3.3 h1:reB/LuzTRNRgq/yfIGTjkJ5xAgJHn38AMuafRAdbsco=
-github.com/altessa-s/go-atlas-core v0.3.3/go.mod h1:xOKuQewGd1wO3llziO2K6CUUtr3FHGnJHUMRUIOCaHw=
-github.com/altessa-s/go-atlas-net v0.3.2 h1:B0N/t74kztIlVK/cHUkyRfkDjJzRYV92pBPDpXX7SHo=
-github.com/altessa-s/go-atlas-net v0.3.2/go.mod h1:mt1R+xw/tR33lKzQCssuj3zeqkmb/A4dvOFYy0BynTU=
+github.com/altessa-s/go-atlas-core v0.3.5 h1:DNnmNkYdEgPnhQun9kN/3F4Qgw+uvsqTFmK/VMZWVjM=
+github.com/altessa-s/go-atlas-core v0.3.5/go.mod h1:lDhYlaxQK66YpjRyyZHJUzQsgQkhEhzBZ3SXSaXuHQM=
+github.com/altessa-s/go-atlas-net v0.3.3 h1:tf8DBdht13LyDI/Bo3xmRHzceJ08Q9ZfRcPxd06u038=
+github.com/altessa-s/go-atlas-net v0.3.3/go.mod h1:mt1R+xw/tR33lKzQCssuj3zeqkmb/A4dvOFYy0BynTU=
 github.com/altessa-s/go-convert v0.1.0 h1:dzXEOOKAauqMFOISLDPNc0b1gMPbP0gXQbP1at2J4LQ=
 github.com/altessa-s/go-convert v0.1.0/go.mod h1:7N4Ck5mhaqvn4SQRa5yQ8FisK4Tn57lGxWS0UQvoZSY=
 github.com/altessa-s/go-horai v0.1.2 h1:bc1oOwELsr3VeO8UBtZ4YjzTzsrG3q68QNEap/O+iBg=

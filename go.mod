@@ -13,8 +13,8 @@ require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/altessa-s/go-aip v0.1.8
 	github.com/altessa-s/go-aip/backend/mongo v0.1.8
-	github.com/altessa-s/go-atlas-core v0.3.3
-	github.com/altessa-s/go-atlas-net v0.3.2
+	github.com/altessa-s/go-atlas-core v0.3.5
+	github.com/altessa-s/go-atlas-net v0.3.3
 	github.com/altessa-s/go-convert v0.1.0
 	github.com/altessa-s/go-horai v0.1.2
 	github.com/altessa-s/go-horai/storage/clickhouse v0.1.2

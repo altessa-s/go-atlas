@@ -7,10 +7,12 @@ package limiter
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/coord/limiters"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 
@@ -144,29 +146,26 @@ func TestServerStreamInterceptor_LimitExceeded(t *testing.T) {
 func TestExtractBearerToken(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name   string
-		header string
-		want   string
+	cases := []struct {
+		name    string
+		headers []string
+		want    string
 	}{
-		{"empty", "", ""},
-		{"bearer mixed case", "Bearer abc123", "abc123"},
-		{"bearer lowercase", "bearer xyz789", "xyz789"},
-		{"non bearer scheme", "Basic dXNlcjpwYXNz", ""},
+		{"valid", []string{"Bearer abc.def=="}, "abc.def=="},
+		{"lowercase", []string{"bearer xyz"}, "xyz"},
+		{"missing", nil, ""},
+		{"empty", []string{""}, ""},
+		{"wrong scheme", []string{"Basic abc"}, ""},
+		{"two spaces", []string{"Bearer  abc"}, ""},
+		{"invalid character", []string{"Bearer a:b"}, ""},
+		{"duplicate", []string{"Bearer abc", "Bearer abc"}, ""},
+		{"too long", []string{"Bearer " + strings.Repeat("a", httpx.MaxBearerLength+1)}, ""},
 	}
-
-	for _, tc := range tests {
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-
-			ctx := t.Context()
-			if tc.header != "" {
-				md := metadata.New(map[string]string{"authorization": tc.header})
-				ctx = metadata.NewIncomingContext(ctx, md)
-			}
-
-			got := extractBearerToken(ctx)
-			require.Equal(t, tc.want, got)
+			ctx := metadata.NewIncomingContext(t.Context(), metadata.MD{"authorization": tc.headers})
+			require.Equal(t, tc.want, extractBearerToken(ctx))
 		})
 	}
 }

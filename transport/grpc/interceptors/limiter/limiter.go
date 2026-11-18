@@ -9,10 +9,10 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
-	"strings"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
@@ -178,16 +178,6 @@ func (i *interceptor) rateLimit(ctx context.Context, method string) (metadata.MD
 }
 
 func extractBearerToken(ctx context.Context) string {
-	authHeaders := metadata.ValueFromIncomingContext(ctx, "authorization")
-	if len(authHeaders) == 0 {
-		return ""
-	}
-
-	authHeader := strings.TrimSpace(authHeaders[0])
-	const bearerPrefix = "bearer "
-	if len(authHeader) >= len(bearerPrefix) && strings.EqualFold(authHeader[:len(bearerPrefix)], bearerPrefix) {
-		return strings.TrimSpace(authHeader[len(bearerPrefix):])
-	}
-
-	return ""
+	token, _ := httpx.ParseBearer(metadata.ValueFromIncomingContext(ctx, "authorization"))
+	return token
 }

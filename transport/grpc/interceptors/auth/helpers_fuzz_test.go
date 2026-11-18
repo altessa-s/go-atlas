@@ -5,10 +5,13 @@
 package auth
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas-net/httpx"
 
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
@@ -37,6 +40,7 @@ func FuzzExtractBearerTokenMatchesTheSchemeExactly(f *testing.F) {
 	f.Add("Bearer ")
 	f.Add(" Bearer leading-space")
 
+	token68 := regexp.MustCompile(`^[A-Za-z0-9._~+/-]+=*$`)
 	extractor := ExtractBearerToken()
 
 	f.Fuzz(func(t *testing.T, header string) {
@@ -45,11 +49,8 @@ func FuzzExtractBearerTokenMatchesTheSchemeExactly(f *testing.F) {
 
 		token, err := extractor.ExtractToken(ctx)
 
-		// gRPC metadata is transported lowercase and the extractor trims the
-		// value before matching, so the comparison is against the same shape.
-		value := strings.TrimSpace(header)
-		const prefix = "bearer "
-		accepted := len(value) >= len(prefix) && strings.EqualFold(value[:len(prefix)], prefix)
+		scheme, credential, ok := strings.Cut(header, " ")
+		accepted := ok && strings.EqualFold(scheme, "Bearer") && len(credential) <= httpx.MaxBearerLength && token68.MatchString(credential)
 
 		if !accepted {
 			require.Error(t, err, "a header outside the bearer scheme produced a token: %q", header)
@@ -58,7 +59,7 @@ func FuzzExtractBearerTokenMatchesTheSchemeExactly(f *testing.F) {
 		}
 
 		require.NoError(t, err, "a well-formed bearer header was rejected: %q", header)
-		require.Equal(t, strings.TrimSpace(value[len(prefix):]), token,
+		require.Equal(t, credential, token,
 			"the token is not the bytes after the scheme: %q", header)
 	})
 }

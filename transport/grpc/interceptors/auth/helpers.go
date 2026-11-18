@@ -6,48 +6,31 @@ package auth
 
 import (
 	"context"
+	"errors"
+	"strings"
 
-	"github.com/altessa-s/go-atlas-core/text/strings/secure"
+	"github.com/altessa-s/go-atlas-net/httpx"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	grpcmetadata "google.golang.org/grpc/metadata"
-	strings "strings"
 )
 
 // ExtractBearerToken creates a TokenExtractor that extracts and validates Bearer tokens
-// from the Authorization header of incoming gRPC requests. It performs timing-safe
-// prefix matching to prevent timing attacks and validates the token format.
-//
-// The extractor expects the Authorization header to contain a Bearer token in the format:
-//
-//	Authorization: Bearer <token>
-//
-// The Bearer prefix is case-insensitive and any leading/trailing whitespace in the token
-// value is automatically trimmed.
-//
-// Returns a TokenExtractor that can be used with WithTokenExtractor option.
-//
-// Example:
-//
-//	extractor := auth.ExtractBearerToken()
-//	interceptor := auth.ServerInterceptor(
-//	    auth.WithTokenExtractor(extractor),
-//	    auth.WithAuthFn(authFunc),
-//	)
-//
-// Security notes:
-//   - Uses timing-safe comparison to prevent timing attacks on the Bearer prefix
-//   - Returns Unauthenticated error for missing or malformed tokens
-//   - Does not validate the token itself - validation is done by the auth function
+// from incoming gRPC metadata. It requires exactly one Authorization value
+// containing a case-insensitive Bearer scheme, one space, and a token68 credential.
+// Missing or malformed credentials return codes.Unauthenticated.
 func ExtractBearerToken() TokenExtractor {
-	return ExtractTokenFromHeader("authorization", func(t string) (string, error) {
-		const bearerPrefix = "bearer "
-		if secure.PrefixMatch(t, bearerPrefix) {
-			return strings.TrimSpace(t[len(bearerPrefix):]), nil
+	return TokenExtractorFunc(func(ctx context.Context) (string, error) {
+		token, err := httpx.ParseBearer(grpcmetadata.ValueFromIncomingContext(ctx, "authorization"))
+		if errors.Is(err, httpx.ErrBearerMissing) {
+			return "", status.Error(codes.Unauthenticated, "missing or invalid token")
 		}
-		return "", status.Error(codes.Unauthenticated, "missing or invalid bearer token")
+		if err != nil {
+			return "", status.Error(codes.Unauthenticated, "missing or invalid bearer token")
+		}
+		return token, nil
 	})
 }
 

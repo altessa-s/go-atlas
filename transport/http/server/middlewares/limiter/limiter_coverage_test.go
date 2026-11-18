@@ -13,11 +13,13 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/coord/limiters"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/limiter"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
@@ -58,30 +60,51 @@ func TestHandler_PassesClientIdentityToLimiter(t *testing.T) {
 	h := limiter.Middleware(spy, limiter.WithLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))))(okHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/orders", nil)
-	req.Header.Set("Authorization", "bearer  abc.def ")
+	req.Header.Set("Authorization", "bearer abc.def")
 	req = req.WithContext(clientip.NewContext(req.Context(), netip.MustParseAddr("192.0.2.5")))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "192.0.2.5", spy.ip)
-	require.Equal(t, "abc.def", spy.token, "Bearer scheme matched case-insensitively and trimmed")
+	require.Equal(t, "abc.def", spy.token, "Bearer scheme matched case-insensitively")
 	require.Equal(t, "10", rec.Header().Get("X-RateLimit-Limit"))
 	require.Equal(t, "9", rec.Header().Get("X-RateLimit-Remaining"))
 	require.Equal(t, "1700000000", rec.Header().Get("X-RateLimit-Reset"))
 	require.Contains(t, logs.String(), "rate limit check passed")
 }
 
-func TestHandler_NonBearerAuthorizationIgnored(t *testing.T) {
+func TestHandler_BearerToken(t *testing.T) {
 	t.Parallel()
 
-	spy := &spyLimiter{}
-	h := limiter.New(spy).Handler(okHandler())
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
-	h.ServeHTTP(httptest.NewRecorder(), req)
-	require.Empty(t, spy.token)
-	require.Empty(t, spy.ip, "no realip context")
+	cases := []struct {
+		name    string
+		headers []string
+		want    string
+	}{
+		{"valid", []string{"Bearer abc.def=="}, "abc.def=="},
+		{"lowercase", []string{"bearer xyz"}, "xyz"},
+		{"missing", nil, ""},
+		{"empty", []string{""}, ""},
+		{"wrong scheme", []string{"Basic abc"}, ""},
+		{"two spaces", []string{"Bearer  abc"}, ""},
+		{"invalid character", []string{"Bearer a:b"}, ""},
+		{"duplicate", []string{"Bearer abc", "Bearer abc"}, ""},
+		{"too long", []string{"Bearer " + strings.Repeat("a", httpx.MaxBearerLength+1)}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			for _, value := range tc.headers {
+				req.Header.Add("Authorization", value)
+			}
+			spy := &spyLimiter{}
+			limiter.New(spy).Handler(okHandler()).ServeHTTP(httptest.NewRecorder(), req)
+			require.Equal(t, 1, spy.calls)
+			require.Equal(t, tc.want, spy.token)
+		})
+	}
 }
 
 func TestHandler_IgnoredPathsSkipLimiter(t *testing.T) {

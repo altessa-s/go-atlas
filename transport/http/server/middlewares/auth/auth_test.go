@@ -9,10 +9,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
@@ -201,32 +203,31 @@ func TestExtractBearerToken(t *testing.T) {
 	extractor := ExtractBearerToken()
 
 	cases := []struct {
-		name       string
-		authHeader string
-		wantToken  string
-		wantErr    bool
+		name    string
+		headers []string
+		want    string
+		wantErr error
 	}{
-		{"valid bearer token", "Bearer abc123", "abc123", false},
-		{"case insensitive bearer", "bearer xyz789", "xyz789", false},
-		{"missing bearer prefix", "Token abc123", "", true},
-		{"empty header", "", "", true},
-		{"bearer with extra spaces", "Bearer   token123  ", "token123", false},
+		{"valid", []string{"Bearer abc.def=="}, "abc.def==", nil},
+		{"lowercase", []string{"bearer xyz"}, "xyz", nil},
+		{"missing", nil, "", ErrMissingToken},
+		{"empty", []string{""}, "", ErrInvalidToken},
+		{"wrong scheme", []string{"Basic abc"}, "", ErrInvalidToken},
+		{"two spaces", []string{"Bearer  abc"}, "", ErrInvalidToken},
+		{"invalid character", []string{"Bearer a:b"}, "", ErrInvalidToken},
+		{"duplicate", []string{"Bearer abc", "Bearer abc"}, "", ErrInvalidToken},
+		{"too long", []string{"Bearer " + strings.Repeat("a", httpx.MaxBearerLength+1)}, "", ErrInvalidToken},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			if tc.authHeader != "" {
-				req.Header.Set("Authorization", tc.authHeader)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			for _, value := range tc.headers {
+				req.Header.Add("Authorization", value)
 			}
 			token, err := extractor.ExtractToken(req)
-			if tc.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tc.wantToken, token)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.want, token)
 		})
 	}
 }

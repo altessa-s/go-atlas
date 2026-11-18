@@ -5,9 +5,12 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas-net/httpx"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,48 +19,33 @@ import (
 )
 
 func TestExtractBearerToken(t *testing.T) {
+	t.Parallel()
 	extractor := ExtractBearerToken()
+	invalidToken := status.Error(codes.Unauthenticated, "missing or invalid bearer token")
 
-	tests := []struct {
+	cases := []struct {
 		name    string
-		md      grpcmetadata.MD
-		wantTok string
-		wantErr bool
+		headers []string
+		want    string
+		wantErr error
 	}{
-		{
-			name:    "valid_bearer",
-			md:      grpcmetadata.Pairs("authorization", "Bearer my-token"),
-			wantTok: "my-token",
-		},
-		{
-			name:    "case_insensitive",
-			md:      grpcmetadata.Pairs("authorization", "bearer my-token"),
-			wantTok: "my-token",
-		},
-		{
-			name:    "missing_header",
-			md:      grpcmetadata.MD{},
-			wantErr: true,
-		},
-		{
-			name:    "wrong_scheme",
-			md:      grpcmetadata.Pairs("authorization", "Basic abc"),
-			wantErr: true,
-		},
+		{"valid", []string{"Bearer abc.def=="}, "abc.def==", nil},
+		{"lowercase", []string{"bearer xyz"}, "xyz", nil},
+		{"missing", nil, "", status.Error(codes.Unauthenticated, "missing or invalid token")},
+		{"empty", []string{""}, "", invalidToken},
+		{"wrong scheme", []string{"Basic abc"}, "", invalidToken},
+		{"two spaces", []string{"Bearer  abc"}, "", invalidToken},
+		{"invalid character", []string{"Bearer a:b"}, "", invalidToken},
+		{"duplicate", []string{"Bearer abc", "Bearer abc"}, "", invalidToken},
+		{"too long", []string{"Bearer " + strings.Repeat("a", httpx.MaxBearerLength+1)}, "", invalidToken},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := grpcmetadata.NewIncomingContext(t.Context(), tt.md)
-			tok, err := extractor.ExtractToken(ctx)
-			if tt.wantErr {
-				require.NotNil(t, err, "expected error")
-				st, ok := status.FromError(err)
-				require.True(t, ok, "expected Unauthenticated, got %v", err)
-				require.Equal(t, codes.Unauthenticated, st.Code())
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tt.wantTok, tok)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := grpcmetadata.NewIncomingContext(t.Context(), grpcmetadata.MD{"authorization": tc.headers})
+			token, err := extractor.ExtractToken(ctx)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.Equal(t, tc.want, token)
 		})
 	}
 }

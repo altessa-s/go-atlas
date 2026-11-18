@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/altessa-s/go-atlas-core/text/strings/secure"
+	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/internal/transport/authprincipal"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 )
@@ -172,12 +172,15 @@ func MustFromContext(ctx context.Context) any {
 // ExtractBearerToken creates a TokenExtractor that extracts Bearer tokens
 // from the Authorization header. This is the default token extractor.
 func ExtractBearerToken() TokenExtractor {
-	return ExtractTokenFromHeader("Authorization", func(value string) (string, error) {
-		const bearerPrefix = "bearer "
-		if secure.PrefixMatch(value, bearerPrefix) {
-			return strings.TrimSpace(value[len(bearerPrefix):]), nil
+	return TokenExtractorFunc(func(r *http.Request) (string, error) {
+		token, err := httpx.ParseBearer(r.Header.Values("Authorization"))
+		if errors.Is(err, httpx.ErrBearerMissing) {
+			return "", ErrMissingToken
 		}
-		return "", ErrInvalidToken
+		if err != nil {
+			return "", ErrInvalidToken
+		}
+		return token, nil
 	})
 }
 
