@@ -8,6 +8,12 @@ Package `idempotency` provides duplicate request detection using idempotency key
 single-instance and distributed systems. The [MongoDB](storages/mongo) and [SQL](storages/sqldb) backends join the caller's transaction, so a key
 commits atomically with the business change.
 
+## Choosing between Idempotency-Key and AIP-155
+
+Use the idempotency middleware when clients send an `Idempotency-Key` header. For a protobuf RPC that exposes the AIP-155 `request_id` field,
+use the go-aip `requestid.Guard` with `requestid.Do` and a `requestid.Store`. Enable only one mechanism per endpoint so a single reservation
+controls execution and replay. See the [go-aip requestid package](https://pkg.go.dev/github.com/altessa-s/go-aip@v0.1.8/requestid).
+
 ## Tenant isolation (multi-tenant deployments)
 
 The idempotency key is global unless you scope it. Two tenants that submit the **same** bare key collide in one keyspace, so a tenant that knows or
