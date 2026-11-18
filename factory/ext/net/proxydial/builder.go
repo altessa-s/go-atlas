@@ -6,12 +6,8 @@ package factory
 
 import (
 	"crypto/tls"
-	"errors"
-	"fmt"
 	"log/slog"
 	"net"
-	"net/url"
-	"strconv"
 
 	"github.com/altessa-s/go-atlas-net/proxydial"
 
@@ -49,7 +45,7 @@ func New(cfg *proxyconfig.Config) *DialerBuilder {
 // [proxydial.DialContextFunc].
 //
 // Returns (nil, nil) when proxying is disabled (nil receiver, nil
-// cfg, empty Mode, or [proxyconfig.ModeNone]). Caller treats
+// cfg, empty Mode, or explicit none mode). Caller treats
 // that as "use a direct dial" and skips wiring a custom dialer.
 //
 // The configuration is validated first ([proxyconfig.Config.Validate]),
@@ -61,43 +57,12 @@ func (b *DialerBuilder) Build() (proxydial.DialContextFunc, error) {
 	if b == nil || b.cfg == nil {
 		return nil, nil //nolint:nilnil
 	}
-	if err := b.cfg.Validate(); err != nil {
-		return nil, err
-	}
-
-	u, err := b.proxyURL()
+	u, err := b.cfg.URLValue()
 	if err != nil || u == nil {
 		return nil, err
 	}
 
 	return proxydial.FromURL(u, b.dialOptions()...)
-}
-
-// proxyURL folds Mode/URL/Host/Port/Auth into a canonical *url.URL.
-// Returns (nil, nil) for the passthrough modes.
-func (b *DialerBuilder) proxyURL() (*url.URL, error) {
-	switch b.cfg.Mode {
-	case "", proxyconfig.ModeNone:
-		return nil, nil //nolint:nilnil
-
-	case proxyconfig.ModeURL:
-		u, err := url.Parse(b.cfg.URL.Expose())
-		if err != nil {
-			// url.Parse errors quote the URL, credentials included.
-			return nil, errors.New("config.Proxy: url is not a valid URL")
-		}
-		return u, nil
-
-	case proxyconfig.ModeHost:
-		return &url.URL{
-			Scheme: "http",
-			Host:   net.JoinHostPort(b.cfg.Host, strconv.Itoa(b.cfg.Port)),
-			User:   userinfo(b.cfg.Auth),
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("config.Proxy: unknown mode %q", b.cfg.Mode)
-	}
 }
 
 // dialOptions assembles the [proxydial.Option] slice from the
@@ -109,17 +74,4 @@ func (b *DialerBuilder) dialOptions() []proxydial.Option {
 	opts = coreslices.AppendIf(opts, b.dialer != nil, proxydial.WithDialer(b.dialer))
 	opts = coreslices.AppendIf(opts, b.proxyTLSConfig != nil, proxydial.WithProxyTLSConfig(b.proxyTLSConfig))
 	return opts
-}
-
-// userinfo builds a *url.Userinfo from an Auth block, returning nil
-// for anonymous proxies. The plain-text password has to be exposed
-// here — the underlying URL needs it on the wire.
-func userinfo(a *proxyconfig.Auth) *url.Userinfo {
-	if a == nil || a.Username == "" {
-		return nil
-	}
-	if a.Password.IsEmpty() {
-		return url.User(a.Username)
-	}
-	return url.UserPassword(a.Username, a.Password.Expose())
 }

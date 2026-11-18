@@ -9,7 +9,7 @@ Package `factory` provides a fluent builder that materializes a [`proxyconfig.Co
 raw-TCP-through-proxy: SMTP (go-mail's `WithDialContextFunc`), SOAP, gRPC's `WithContextDialer`, or any custom protocol that does not go through
 `net/http`.
 
-HTTP and gRPC clients should instead use this package's `HTTPClientOptions(cfg.Proxy)` / `GRPCClientOptions(cfg.Proxy)`, which map the config to client
+HTTP and gRPC clients should instead use their respective factories' `ProxyOptions(cfg.Proxy)` functions, which map the config to client
 options; the `DialerBuilder` targets consumers without an httpclient/grpcclient in the picture. Explicit proxy modes on the HTTP client work with its
 SSRF protection on: the dial to the proxy is guarded (allow a private proxy network with `httpclient.WithSSRFAllowedCIDRs`) and the proxy resolves
 targets.
@@ -28,10 +28,10 @@ if dial != nil {
 }
 ```
 
-A nil `cfg`, an empty `Mode`, or `proxyconfig.ModeNone` yields `(nil, nil)` — caller treats that as "use a direct dial" and skips wiring a custom dialer
+A nil `cfg`, an empty `Mode`, or mode `none` yields `(nil, nil)` — caller treats that as "use a direct dial" and skips wiring a custom dialer
 entirely.
 
-`Build`, `HTTPClientOptions` and `GRPCClientOptions` validate the config first (`proxyconfig.Config.Validate`). A malformed URL, or one whose
+`Build` and the client factories resolve and validate the config with `Config.URLValue`. A malformed URL, or one whose
 credentials spill into the host or path (an unencoded `/` or `@` in the password, see `redacted.URL.HasAmbiguousUserInfo`), is rejected with an error
 that quotes no part of the URL, before any DNS lookup or dial. A validated URL's host cannot carry credentials, so proxydial dial errors may name the
 proxy `host:port`.
@@ -55,8 +55,8 @@ proxy `host:port`.
 
 | Function                 | Description                                                                         |
 |--------------------------|-------------------------------------------------------------------------------------|
-| `HTTPClientOptions(cfg)` | Maps the config to [`go-atlas-net/http/client`](https://github.com/altessa-s/go-atlas-net/tree/develop/http/client) options; nil or empty `Mode` yields none |
-| `GRPCClientOptions(cfg)` | Maps the config to `transport/grpc/client` options; nil or empty `Mode` yields none |
+| `factory/ext/net/httpclient.ProxyOptions(cfg)` | Maps the config to [`go-atlas-net/http/client`](https://github.com/altessa-s/go-atlas-net/tree/develop/http/client) options; nil or empty `Mode` yields none |
+| `factory/transport/grpc/client.ProxyOptions(cfg)` | Maps the config to `transport/grpc/client` options; nil or empty `Mode` yields none |
 
 ### Terminal
 

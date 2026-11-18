@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/factory/ext/net/proxydial"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	httpclientfactory "github.com/altessa-s/go-atlas/factory/ext/net/httpclient"
 	grpcclientfactory "github.com/altessa-s/go-atlas/factory/transport/grpc/client"
@@ -53,7 +54,7 @@ func TestBuild_RejectsAmbiguousUserInfo(t *testing.T) {
 					return net.ErrClosed
 				},
 			}
-			cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: redacted.URL(raw)}
+			cfg := &proxyconfig.Config{Mode: netproxy.ModeURL, URL: redacted.RedactedString(raw)}
 
 			dial, err := factory.New(cfg).UseDialer(dialer).Build()
 			require.Error(t, err)

@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
@@ -167,7 +168,7 @@ func TestResolveS3Client_RejectsProxy(t *testing.T) {
 	b := New(&authconfig.OPA{})
 	_, err := b.resolveS3Client(t.Context(), &authconfig.OPAS3{
 		Bucket: "bucket",
-		Proxy:  &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy.example:8080"},
+		Proxy:  &proxyconfig.Config{Mode: netproxy.ModeURL, URL: "http://proxy.example:8080"},
 	})
 	require.ErrorIs(t, err, httpclient.ErrSSRFUnsafeTransport)
 }

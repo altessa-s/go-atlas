@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
 
@@ -29,7 +30,7 @@ func TestTracingOTLP_Validate_ValidProxy(t *testing.T) {
 		Endpoint: "localhost:4317",
 		Protocol: OTLPProtocolGRPC,
 		Proxy: &proxyconfig.Config{
-			Mode: proxyconfig.ModeURL,
+			Mode: netproxy.ModeURL,
 			URL:  "http://proxy.corp:3128",
 		},
 	}
@@ -43,7 +44,7 @@ func TestTracingOTLP_Validate_InvalidProxyPropagates(t *testing.T) {
 		Endpoint: "localhost:4317",
 		Protocol: OTLPProtocolGRPC,
 		Proxy: &proxyconfig.Config{
-			Mode: proxyconfig.ModeURL,
+			Mode: netproxy.ModeURL,
 			// URL missing — Mode=url requires URL.
 		},
 	}
@@ -59,9 +60,9 @@ func TestTracingOTLP_Validate_AcceptsProxyWithHTTPProtocol(t *testing.T) {
 		name  string
 		proxy proxyconfig.Config
 	}{
-		{"mode_none", proxyconfig.Config{Mode: proxyconfig.ModeNone}},
-		{"mode_url", proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy.corp:3128"}},
-		{"mode_host", proxyconfig.Config{Mode: proxyconfig.ModeHost, Host: "proxy.corp", Port: 3128}},
+		{"mode_none", proxyconfig.Config{Mode: netproxy.ModeNone}},
+		{"mode_url", proxyconfig.Config{Mode: netproxy.ModeURL, URL: "http://proxy.corp:3128"}},
+		{"mode_host", proxyconfig.Config{Mode: netproxy.ModeHost, Host: "proxy.corp", Port: 3128}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

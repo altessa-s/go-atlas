@@ -21,10 +21,10 @@ import (
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	embedsrc "github.com/altessa-s/go-atlas/auth/opa/sources/embed"
 	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
-	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	httpclientfactory "github.com/altessa-s/go-atlas/factory/ext/net/httpclient"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -152,7 +152,7 @@ func (b *ManagerBuilder) gitLabOptions() ([]gitlab.Option, error) {
 
 	opts = slices.AppendIf(opts, gl.Dir != "", gitlab.WithDir(gl.Dir))
 
-	if gl.Proxy != nil && gl.Proxy.Mode != "" && gl.Proxy.Mode != proxyconfig.ModeNone {
+	if gl.Proxy != nil && gl.Proxy.Mode != "" && gl.Proxy.Mode != netproxy.ModeNone {
 		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
 	}
 	proxyOpts, err := httpclientfactory.ProxyOptions(gl.Proxy)
@@ -252,7 +252,7 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *authconfig.
 	// own HTTP client (which already honors HTTP_PROXY/HTTPS_PROXY/
 	// NO_PROXY env vars) and its own retry layer, avoiding double-retry
 	// with our breaker / retry middleware.
-	if s3Cfg.Proxy != nil && s3Cfg.Proxy.Mode != "" && s3Cfg.Proxy.Mode != proxyconfig.ModeNone {
+	if s3Cfg.Proxy != nil && s3Cfg.Proxy.Mode != "" && s3Cfg.Proxy.Mode != netproxy.ModeNone {
 		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
 	}
 	proxyOpts, err := httpclientfactory.ProxyOptions(s3Cfg.Proxy)

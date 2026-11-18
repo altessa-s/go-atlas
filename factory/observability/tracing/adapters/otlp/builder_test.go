@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/factory/observability/tracing/adapters/otlp"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	tracingfactory "github.com/altessa-s/go-atlas/factory/observability/tracing"
@@ -109,7 +110,7 @@ func TestBuild_OTLPProxyAppliesToBothProtocols(t *testing.T) {
 				Endpoint: tc.endpoint,
 				Protocol: tc.protocol,
 				Insecure: true,
-				Proxy:    &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: redacted.URL(proxy.URL)},
+				Proxy:    &proxyconfig.Config{Mode: netproxy.ModeURL, URL: redacted.RedactedString(proxy.URL)},
 			}}
 
 			tracer, err := tracingfactory.New(&cfg).UseAdapter(observabilityconfig.TracingTypeOTLP, factory.Builder()).Build(t.Context())

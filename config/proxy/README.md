@@ -8,20 +8,17 @@ Package `proxyconfig` defines the outbound HTTP proxy schema used by OIDC, OPA a
 [`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories, which map them to generated
 options; runtime packages never import them.
 
-## Key types
+## Modes
 
-| Type     | Description                                                                                                |
-|----------|------------------------------------------------------------------------------------------------------------|
-| `Mode`   | Selects the proxy-resolution strategy for the go-atlas-net/http/client and transport/grpc/client packages. |
-| `Config` | Is the shared outbound proxy configuration.                                                                |
-| `Auth`   | Carries proxy credentials.                                                                                 |
+| Mode  | Effect |
+|-------|--------|
+| Empty | Keep the transport's configured proxy policy. |
+| none  | Disable proxy resolution. |
+| url   | Use an HTTP, HTTPS, SOCKS5 or SOCKS5H proxy URL with an explicit port. |
+| host  | Use an HTTP proxy with a host, port and optional `auth.username` and `auth.password`. |
 
-## Credentials
-
-`Config.URL` is a [`redacted.URL`](https://github.com/altessa-s/go-atlas-core/tree/develop/types/redacted): `fmt`, `log/slog`, JSON and YAML render it with the user-info password replaced by
-`xxxxx` (an unparsable URL renders as `<redacted>`), and `Validate` errors never quote it or any part of it. `Validate` also rejects a URL whose
-credentials spill into the host or path (more than one `@`, or an `@` outside the user info): percent-encode `@` and `/` in credentials. Factories read
-the plain URL with `URL.Expose()`. `Auth.Password` is a `redacted.RedactedString` and is always rendered as `<redacted>`, which is why `mode: host` with
-an `auth` block remains the preferred place for proxy secrets.
+The fields come from `go-atlas-net/proxyconfig.Config`. URL mode accepts credentials, an empty or root path, and empty query and fragment components. Percent-encode `@` and `/` in
+credentials. Host mode accepts resolver-specific names and scoped IPv6 addresses. The URL and password are redacted in diagnostic output. Validation
+errors match `go-atlas-core/errors.ErrInvalidArgument`.
 
 See the [config index](../README.md) for the other schema packages.

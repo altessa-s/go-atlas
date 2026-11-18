@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
@@ -79,7 +80,7 @@ func TestNewOTLPHTTPClient_AllowsTheConfiguredProxy(t *testing.T) {
 		Endpoint: "collector.invalid:4318",
 		Protocol: observabilityconfig.OTLPProtocolHTTP,
 		Insecure: true,
-		Proxy:    &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: redacted.URL(proxy.URL)},
+		Proxy:    &proxyconfig.Config{Mode: netproxy.ModeURL, URL: redacted.RedactedString(proxy.URL)},
 	})
 	require.NoError(t, err)
 

@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/factory/ext/net/proxydial"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
 
@@ -37,7 +38,7 @@ func TestBuild_PassthroughReturnsNil(t *testing.T) {
 	t.Parallel()
 	for name, cfg := range map[string]proxyconfig.Config{
 		"empty_mode":    {},
-		"explicit_none": {Mode: proxyconfig.ModeNone},
+		"explicit_none": {Mode: netproxy.ModeNone},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -58,7 +59,7 @@ func TestBuild_URL(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: redacted.URL(scheme + "://proxy.example.com:8443")}
+			cfg := &proxyconfig.Config{Mode: netproxy.ModeURL, URL: redacted.RedactedString(scheme + "://proxy.example.com:8443")}
 			dial, err := factory.New(cfg).Build()
 			require.NoError(t, err)
 			require.NotNil(t, dial, "%s scheme must produce a dialer", scheme)
@@ -68,7 +69,7 @@ func TestBuild_URL(t *testing.T) {
 
 func TestBuild_Host(t *testing.T) {
 	t.Parallel()
-	cfg := &proxyconfig.Config{Mode: proxyconfig.ModeHost, Host: "proxy.example.com", Port: 8443}
+	cfg := &proxyconfig.Config{Mode: netproxy.ModeHost, Host: "proxy.example.com", Port: 8443}
 	dial, err := factory.New(cfg).Build()
 	require.NoError(t, err)
 	require.NotNil(t, dial)
@@ -77,10 +78,10 @@ func TestBuild_Host(t *testing.T) {
 func TestBuild_HostWithAuth(t *testing.T) {
 	t.Parallel()
 	cfg := &proxyconfig.Config{
-		Mode: proxyconfig.ModeHost,
+		Mode: netproxy.ModeHost,
 		Host: "proxy.example.com",
 		Port: 8443,
-		Auth: &proxyconfig.Auth{Username: "svc", Password: redacted.RedactedString("hunter2")},
+		Auth: &netproxy.Auth{Username: "svc", Password: redacted.RedactedString("hunter2")},
 	}
 	dial, err := factory.New(cfg).Build()
 	require.NoError(t, err)
@@ -97,7 +98,7 @@ func TestBuild_UnknownMode(t *testing.T) {
 
 func TestBuild_URLParseError(t *testing.T) {
 	t.Parallel()
-	cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "::bad"}
+	cfg := &proxyconfig.Config{Mode: netproxy.ModeURL, URL: "::bad"}
 	dial, err := factory.New(cfg).Build()
 	require.Error(t, err)
 	require.Nil(t, dial)
@@ -105,7 +106,7 @@ func TestBuild_URLParseError(t *testing.T) {
 
 func TestBuild_FluentDependenciesApply(t *testing.T) {
 	t.Parallel()
-	cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "https://proxy.example.com:8443"}
+	cfg := &proxyconfig.Config{Mode: netproxy.ModeURL, URL: "https://proxy.example.com:8443"}
 	dial, err := factory.New(cfg).
 		UseDialer(&net.Dialer{Timeout: 1 * time.Millisecond}).
 		UseProxyTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}).

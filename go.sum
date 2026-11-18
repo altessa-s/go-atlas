@@ -72,8 +72,8 @@ github.com/altessa-s/go-aip/backend/mongo v0.1.8 h1:X2LyLFjNOtwdNGcwRJMfS9ShhCqW
 github.com/altessa-s/go-aip/backend/mongo v0.1.8/go.mod h1:hhjzlxnHtraspH5hVwMqx0c5IbKOV3S8PM8Upibd/rs=
 github.com/altessa-s/go-atlas-core v0.3.5 h1:DNnmNkYdEgPnhQun9kN/3F4Qgw+uvsqTFmK/VMZWVjM=
 github.com/altessa-s/go-atlas-core v0.3.5/go.mod h1:lDhYlaxQK66YpjRyyZHJUzQsgQkhEhzBZ3SXSaXuHQM=
-github.com/altessa-s/go-atlas-net v0.3.3 h1:tf8DBdht13LyDI/Bo3xmRHzceJ08Q9ZfRcPxd06u038=
-github.com/altessa-s/go-atlas-net v0.3.3/go.mod h1:mt1R+xw/tR33lKzQCssuj3zeqkmb/A4dvOFYy0BynTU=
+github.com/altessa-s/go-atlas-net v0.3.5 h1:3UGI9vMxJL1kc1J1zqnWES4e7jZJXMf1HXSI2W3QMJo=
+github.com/altessa-s/go-atlas-net v0.3.5/go.mod h1:wJqY0YfQWMmaX5/B6gSjFzxYFBtiRGuguGClHknF1zI=
 github.com/altessa-s/go-convert v0.1.0 h1:dzXEOOKAauqMFOISLDPNc0b1gMPbP0gXQbP1at2J4LQ=
 github.com/altessa-s/go-convert v0.1.0/go.mod h1:7N4Ck5mhaqvn4SQRa5yQ8FisK4Tn57lGxWS0UQvoZSY=
 github.com/altessa-s/go-horai v0.1.2 h1:bc1oOwELsr3VeO8UBtZ4YjzTzsrG3q68QNEap/O+iBg=

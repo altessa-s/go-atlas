@@ -15,9 +15,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas-net/oauth2/jwtbearer"
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
-	"github.com/stretchr/testify/require"
+
 	"golang.org/x/oauth2"
 )
 
@@ -122,7 +125,11 @@ func TestMalformedSuccessResponseRedaction(t *testing.T) {
 				require.NotContains(t, err.Error(), clientSecret)
 				require.Contains(t, err.Error(), "status 200")
 				require.Contains(t, err.Error(), fmt.Sprintf("response body of %d bytes", len(body)))
-				require.NotNil(t, errors.Unwrap(err))
+				if name == "jwt bearer" {
+					require.ErrorIs(t, err, jwtbearer.ErrResponse)
+				} else {
+					require.NotNil(t, errors.Unwrap(err))
+				}
 			}
 			require.NotContains(t, logs.String(), clientSecret)
 		})

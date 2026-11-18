@@ -49,8 +49,8 @@ An explicit configuration overrides the env-based default — including the `Mod
 | Type                 | Purpose                                                                                                                                                   |
 |----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `proxyconfig.Config` | Shared YAML-driven proxy schema; `factory/ext/net/proxydial.HTTPClientOptions(p)` → `[]httpclient.Option`, `GRPCClientOptions(p)` → `[]grpcclient.Option` |
-| `proxyconfig.Auth`   | Username + secret-redacted password                                                                                                                       |
-| `proxyconfig.Mode`   | Mode enum: `none` / `url` / `host` (or empty = passthrough)                                                                                               |
+| `go-atlas-net/proxyconfig.Auth`   | Username + secret-redacted password                                                                                                                       |
+| `go-atlas-net/proxyconfig.Mode`   | Mode enum: `none` / `url` / `host` (or empty = passthrough)                                                                                               |
 
 ### HTTP client options
 
@@ -129,7 +129,7 @@ The `Validate()` method enforces:
 
 - `Mode` ∈ `{"", "none", "url", "host"}`;
 - URL mode requires a non-empty `url` with an explicit port and a supported
-  scheme (`http` / `https` / `socks5` / `socks5h`);
+  scheme (`http` / `https` / `socks5` / `socks5h`). The path must be empty or `/`, and both query and fragment must be empty.
 - Host mode requires non-empty `host` and a port in `[1, 65535]`;
 - **Mutual exclusion**: fields irrelevant to the current mode must be empty
   (e.g. setting `url` while `mode: host` fails validation — this catches YAML typos that would otherwise be silently dropped).

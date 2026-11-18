@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	httpclientfactory "github.com/altessa-s/go-atlas/factory/ext/net/httpclient"
 	grpcclientfactory "github.com/altessa-s/go-atlas/factory/transport/grpc/client"
@@ -66,7 +67,7 @@ func TestProxy_ClientOptions_UnknownMode(t *testing.T) {
 
 func TestProxy_ClientOptions_URLParseError(t *testing.T) {
 	t.Parallel()
-	cfg := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "::bad"}
+	cfg := proxyconfig.Config{Mode: netproxy.ModeURL, URL: "::bad"}
 
 	httpOpts, err := httpclientfactory.ProxyOptions(&cfg)
 	require.Error(t, err)
@@ -84,12 +85,12 @@ func TestProxy_GrpcClientOptions_NonEnvReturnsOption(t *testing.T) {
 		name string
 		cfg  proxyconfig.Config
 	}{
-		{"none", proxyconfig.Config{Mode: proxyconfig.ModeNone}},
-		{"url", proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy:3128"}},
-		{"host_no_auth", proxyconfig.Config{Mode: proxyconfig.ModeHost, Host: "proxy", Port: 3128}},
+		{"none", proxyconfig.Config{Mode: netproxy.ModeNone}},
+		{"url", proxyconfig.Config{Mode: netproxy.ModeURL, URL: "http://proxy:3128"}},
+		{"host_no_auth", proxyconfig.Config{Mode: netproxy.ModeHost, Host: "proxy", Port: 3128}},
 		{"host_with_auth", proxyconfig.Config{
-			Mode: proxyconfig.ModeHost, Host: "proxy", Port: 3128,
-			Auth: &proxyconfig.Auth{Username: "svc", Password: "secret"},
+			Mode: netproxy.ModeHost, Host: "proxy", Port: 3128,
+			Auth: &netproxy.Auth{Username: "svc", Password: "secret"},
 		}},
 	}
 	for _, tc := range cases {
@@ -112,7 +113,7 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 	t.Run("mode_url", func(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, _ := newProxyServer(t)
-		cfg := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: redacted.URL(proxy.URL)}
+		cfg := proxyconfig.Config{Mode: netproxy.ModeURL, URL: redacted.RedactedString(proxy.URL)}
 		runProxiedGet(t, cfg)
 		require.Equal(t, "example.invalid", lastHost.Load())
 	})
@@ -121,7 +122,7 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
-		cfg := proxyconfig.Config{Mode: proxyconfig.ModeHost, Host: host, Port: port}
+		cfg := proxyconfig.Config{Mode: netproxy.ModeHost, Host: host, Port: port}
 		runProxiedGet(t, cfg)
 		require.Equal(t, "example.invalid", lastHost.Load())
 		require.Empty(t, lastAuth.Load())
@@ -132,8 +133,8 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		proxy, lastHost, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
 		cfg := proxyconfig.Config{
-			Mode: proxyconfig.ModeHost, Host: host, Port: port,
-			Auth: &proxyconfig.Auth{Username: "svc", Password: "secret"},
+			Mode: netproxy.ModeHost, Host: host, Port: port,
+			Auth: &netproxy.Auth{Username: "svc", Password: "secret"},
 		}
 		runProxiedGet(t, cfg)
 		require.Equal(t, "example.invalid", lastHost.Load())
@@ -146,8 +147,8 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		proxy, _, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
 		cfg := proxyconfig.Config{
-			Mode: proxyconfig.ModeHost, Host: host, Port: port,
-			Auth: &proxyconfig.Auth{Username: "svc"},
+			Mode: netproxy.ModeHost, Host: host, Port: port,
+			Auth: &netproxy.Auth{Username: "svc"},
 		}
 		runProxiedGet(t, cfg)
 		// "Basic c3ZjOg==" == base64("svc:")
@@ -165,7 +166,7 @@ func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 		}))
 		t.Cleanup(target.Close)
 
-		cfg := proxyconfig.Config{Mode: proxyconfig.ModeNone}
+		cfg := proxyconfig.Config{Mode: netproxy.ModeNone}
 		opts, err := httpclientfactory.ProxyOptions(&cfg)
 		require.NoError(t, err)
 		require.Len(t, opts, 1)

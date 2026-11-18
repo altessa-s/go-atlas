@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -400,4 +401,25 @@ func readLimited(r io.Reader) ([]byte, error) {
 func drainAndClose(resp *http.Response) {
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxExchangeResponseSize))
 	_ = resp.Body.Close()
+}
+
+// retrieveError describes a non-2xx token response as an
+// [*oauth2.RetrieveError], the error currency of the x/oauth2-backed grants.
+// The body and RFC 6749 error fields remain available through errors.As.
+func retrieveError(status int, body []byte) *oauth2.RetrieveError {
+	re := &oauth2.RetrieveError{
+		Response: &http.Response{StatusCode: status, Status: fmt.Sprintf("%d %s", status, http.StatusText(status))},
+		Body:     body,
+	}
+	var e struct {
+		Code        string `json:"error"`
+		Description string `json:"error_description"`
+		URI         string `json:"error_uri"`
+	}
+	if json.Unmarshal(body, &e) == nil {
+		re.ErrorCode = e.Code
+		re.ErrorDescription = e.Description
+		re.ErrorURI = e.URI
+	}
+	return re
 }

@@ -13,7 +13,8 @@ import (
 // ProxyOptions materializes the proxy configuration into net/http/client
 // options ready to be passed to httpclient.New.
 //
-// A nil receiver or empty Mode returns (nil, nil) so the client keeps
+// The shared proxy schema resolves host and URL modes, including Atlas URL credentials.
+// A nil config or empty Mode returns (nil, nil) so the client keeps
 // its default policy: SSRF protection disables environment proxies. Explicit
 // proxy modes work with SSRF protection on: the dial to the proxy is guarded
 // (allow a private proxy network with httpclient.WithSSRFAllowedCIDRs) and the

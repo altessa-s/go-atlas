@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
 
@@ -33,7 +34,7 @@ func TestOPAGitLab_Validate_ValidProxy(t *testing.T) {
 		Token:     "tok",
 		ProjectID: 42,
 		Proxy: &proxyconfig.Config{
-			Mode: proxyconfig.ModeURL,
+			Mode: netproxy.ModeURL,
 			URL:  "http://proxy.corp:3128",
 		},
 	}
@@ -48,7 +49,7 @@ func TestOPAGitLab_Validate_InvalidProxyPropagates(t *testing.T) {
 		Token:     "tok",
 		ProjectID: 42,
 		Proxy: &proxyconfig.Config{
-			Mode: proxyconfig.ModeURL,
+			Mode: netproxy.ModeURL,
 			// URL missing — Mode=url requires URL.
 		},
 	}
@@ -68,7 +69,7 @@ func TestOPAS3_Validate_ValidProxy(t *testing.T) {
 	cfg := OPAS3{
 		Bucket: "policies",
 		Proxy: &proxyconfig.Config{
-			Mode: proxyconfig.ModeURL,
+			Mode: netproxy.ModeURL,
 			URL:  "http://proxy.corp:3128",
 		},
 	}
@@ -81,7 +82,7 @@ func TestOPAS3_Validate_InvalidProxyPropagates(t *testing.T) {
 	cfg := OPAS3{
 		Bucket: "policies",
 		Proxy: &proxyconfig.Config{
-			Mode: proxyconfig.ModeURL,
+			Mode: netproxy.ModeURL,
 			// URL missing — Mode=url requires URL.
 		},
 	}

@@ -7,6 +7,7 @@ package factory_test
 import (
 	"testing"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	httpclientfactory "github.com/altessa-s/go-atlas/factory/ext/net/httpclient"
 	grpcclientfactory "github.com/altessa-s/go-atlas/factory/transport/grpc/client"
@@ -20,14 +21,14 @@ func BenchmarkProxy_HTTPClientOptions_Passthrough(b *testing.B) {
 }
 
 func BenchmarkProxy_HTTPClientOptions_None(b *testing.B) {
-	cfg := proxyconfig.Config{Mode: proxyconfig.ModeNone}
+	cfg := proxyconfig.Config{Mode: netproxy.ModeNone}
 	for b.Loop() {
 		_, _ = httpclientfactory.ProxyOptions(&cfg)
 	}
 }
 
 func BenchmarkProxy_HTTPClientOptions_URL(b *testing.B) {
-	cfg := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy.local:3128"}
+	cfg := proxyconfig.Config{Mode: netproxy.ModeURL, URL: "http://proxy.local:3128"}
 	for b.Loop() {
 		_, _ = httpclientfactory.ProxyOptions(&cfg)
 	}
@@ -35,8 +36,8 @@ func BenchmarkProxy_HTTPClientOptions_URL(b *testing.B) {
 
 func BenchmarkProxy_HTTPClientOptions_Host(b *testing.B) {
 	cfg := proxyconfig.Config{
-		Mode: proxyconfig.ModeHost, Host: "proxy.local", Port: 3128,
-		Auth: &proxyconfig.Auth{Username: "svc", Password: "secret"},
+		Mode: netproxy.ModeHost, Host: "proxy.local", Port: 3128,
+		Auth: &netproxy.Auth{Username: "svc", Password: "secret"},
 	}
 	for b.Loop() {
 		_, _ = httpclientfactory.ProxyOptions(&cfg)
@@ -51,14 +52,14 @@ func BenchmarkProxy_GrpcClientOptions_Passthrough(b *testing.B) {
 }
 
 func BenchmarkProxy_GrpcClientOptions_None(b *testing.B) {
-	cfg := proxyconfig.Config{Mode: proxyconfig.ModeNone}
+	cfg := proxyconfig.Config{Mode: netproxy.ModeNone}
 	for b.Loop() {
 		_, _ = grpcclientfactory.ProxyOptions(&cfg)
 	}
 }
 
 func BenchmarkProxy_GrpcClientOptions_URL(b *testing.B) {
-	cfg := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy.local:3128"}
+	cfg := proxyconfig.Config{Mode: netproxy.ModeURL, URL: "http://proxy.local:3128"}
 	for b.Loop() {
 		_, _ = grpcclientfactory.ProxyOptions(&cfg)
 	}
@@ -66,8 +67,8 @@ func BenchmarkProxy_GrpcClientOptions_URL(b *testing.B) {
 
 func BenchmarkProxy_GrpcClientOptions_Host(b *testing.B) {
 	cfg := proxyconfig.Config{
-		Mode: proxyconfig.ModeHost, Host: "proxy.local", Port: 3128,
-		Auth: &proxyconfig.Auth{Username: "svc", Password: "secret"},
+		Mode: netproxy.ModeHost, Host: "proxy.local", Port: 3128,
+		Auth: &netproxy.Auth{Username: "svc", Password: "secret"},
 	}
 	for b.Loop() {
 		_, _ = grpcclientfactory.ProxyOptions(&cfg)
