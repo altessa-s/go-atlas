@@ -15,10 +15,10 @@ import (
 
 	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	probfilter "github.com/altessa-s/go-atlas/cache/probfilter"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
-	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	probfilterfactory "github.com/altessa-s/go-atlas/factory/cache/probfilter"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	httpclientfactory "github.com/altessa-s/go-atlas/factory/ext/net/httpclient"
@@ -118,7 +118,7 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	}
 	opts = append(opts, revOpts...)
 
-	if cfg.Proxy != nil && cfg.Proxy.Mode != "" && cfg.Proxy.Mode != proxyconfig.ModeNone {
+	if cfg.Proxy != nil && cfg.Proxy.Mode != "" && cfg.Proxy.Mode != netproxy.ModeNone {
 		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
 	}
 	proxyOpts, err := httpclientfactory.ProxyOptions(cfg.Proxy)

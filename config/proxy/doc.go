@@ -10,5 +10,8 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
-// Key types: [Mode], [Config], [Auth].
+// # Usage
+//
+//	proxy := Config{Mode: "host", Host: "proxy.example", Port: 3128}
+//	u, err := proxy.URLValue()
 package proxyconfig

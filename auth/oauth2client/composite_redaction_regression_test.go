@@ -20,10 +20,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/jwt"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	"golang.org/x/oauth2"
 )
 
 func TestRedactErrorWrappedAndJoinedDescendants(t *testing.T) {
@@ -103,7 +104,9 @@ func TestCompositeTransportFailureRedaction(t *testing.T) {
 					require.NotContains(t, err.Error(), "previous-response-secret")
 					if kind == "connection refused" {
 						require.ErrorIs(t, err, syscall.ECONNREFUSED)
-						require.Contains(t, err.Error(), syscall.ECONNREFUSED.Error())
+						if flow != "jwt bearer" {
+							require.Contains(t, err.Error(), syscall.ECONNREFUSED.Error())
+						}
 						return
 					}
 					require.ErrorIs(t, err, context.DeadlineExceeded)

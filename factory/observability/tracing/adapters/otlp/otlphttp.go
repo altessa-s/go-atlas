@@ -5,9 +5,7 @@
 package factory
 
 import (
-	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -118,19 +116,7 @@ func otlpProxyURL(p *proxyconfig.Config, collector *url.URL) (*url.URL, error) {
 	if p == nil || p.Mode == "" {
 		return http.ProxyFromEnvironment(&http.Request{URL: collector})
 	}
-	switch p.Mode {
-	case proxyconfig.ModeURL:
-		u, err := url.Parse(p.URL.Expose())
-		if err != nil {
-			// url.Parse errors quote the URL, credentials included.
-			return nil, errors.New("OTLP proxy: url is not a valid URL")
-		}
-		return u, nil
-	case proxyconfig.ModeHost:
-		return &url.URL{Scheme: "http", Host: net.JoinHostPort(p.Host, strconv.Itoa(p.Port))}, nil
-	default: // ModeNone; other modes were rejected by HTTPClientOptions
-		return nil, nil //nolint:nilnil // nil URL: no proxy
-	}
+	return p.URLValue()
 }
 
 // endpointAllowRules returns the egress allow rules admitting exactly the

@@ -10,13 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
 
 func TestRejectsProxyWithSSRFProtection(t *testing.T) {
 	t.Parallel()
-	proxy := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy.example:8080"}
+	proxy := &proxyconfig.Config{Mode: netproxy.ModeURL, URL: "http://proxy.example:8080"}
 	b := New(&authconfig.OPA{GitLab: &authconfig.OPAGitLab{Proxy: proxy}})
 	_, err := b.buildGitLabSource()
 	require.ErrorIs(t, err, httpclient.ErrSSRFUnsafeTransport)

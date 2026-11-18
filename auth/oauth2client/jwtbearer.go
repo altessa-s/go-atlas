@@ -6,18 +6,17 @@ package oauth2client
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/time/clock"
+	"github.com/altessa-s/go-atlas-net/httpx"
+	"github.com/altessa-s/go-atlas-net/oauth2/jwtbearer"
 	"github.com/altessa-s/go-atlas/auth/jwt"
 
 	"golang.org/x/oauth2"
@@ -27,7 +26,7 @@ import (
 
 // GrantTypeJWTBearer is the RFC 7523 §2.1 grant_type value of the JWT bearer
 // authorization grant.
-const GrantTypeJWTBearer = "urn:ietf:params:oauth:grant-type:jwt-bearer" // #nosec G101 -- RFC 7523 grant_type URI, not a credential
+const GrantTypeJWTBearer = jwtbearer.GrantType
 
 // grantJWTBearer is the metrics label of the JWT bearer grant.
 const grantJWTBearer = "jwt_bearer"
@@ -62,17 +61,18 @@ var ErrJWTBearerConfig = errors.New("auth/oauth2client: invalid jwt-bearer grant
 // A JWTBearer is safe for concurrent use. Build one per credential and keep it
 // for the credential's lifetime.
 type JWTBearer struct {
-	tokenURL string
-	issuer   string
-	scope    string
-	key      jwt.SigningKey
-	signer   *jwt.Signer
-	client   *http.Client
-	retry    retryPolicy
-	early    time.Duration
-	clock    clock.Clock
-	metrics  *Metrics
-	logger   *slog.Logger
+	tokenURL     string
+	issuer       string
+	scope        string
+	key          jwt.SigningKey
+	signer       *jwt.Signer
+	doer         httpx.Doer
+	exchangeOpts []jwtbearer.Option
+	retry        retryPolicy
+	early        time.Duration
+	clock        clock.Clock
+	metrics      *Metrics
+	logger       *slog.Logger
 
 	// refresh is a one-slot semaphore serializing exchanges. A channel rather
 	// than a mutex lets a waiter give up when its context ends.
@@ -128,19 +128,32 @@ func NewJWTBearer(tokenURL, issuer string, key jwt.SigningKey, opts ...Option) (
 	if key.KeyID == "" {
 		signerOpts = append(signerOpts, jwt.WithAllowEmptyKeyID())
 	}
+	client := *o.client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return ErrRedirectNotAllowed }
+	exchangeOpts := []jwtbearer.Option{
+		jwtbearer.WithClock(o.clock),
+		jwtbearer.WithMaxResponseBytes(maxExchangeResponseSize),
+		jwtbearer.WithMaxLifetime(time.Duration(maxExpiresInSeconds) * time.Second),
+	}
+	// The constructor already applied the Atlas endpoint policy, including loopback HTTP.
+	scheme, _, _ := strings.Cut(tokenURL, ":")
+	if strings.EqualFold(scheme, schemeHTTP) {
+		exchangeOpts = append(exchangeOpts, jwtbearer.WithInsecureHTTP())
+	}
 	b := &JWTBearer{
-		tokenURL: tokenURL,
-		issuer:   issuer,
-		scope:    strings.Join(o.scopes, " "),
-		key:      key,
-		signer:   jwt.NewSigner(signerOpts...),
-		client:   o.client(),
-		retry:    o.retryPolicy(),
-		early:    o.earlyExpiry,
-		clock:    o.clock,
-		metrics:  o.metrics,
-		logger:   o.logger,
-		refresh:  make(chan struct{}, 1),
+		tokenURL:     tokenURL,
+		issuer:       issuer,
+		scope:        strings.Join(o.scopes, " "),
+		key:          key,
+		signer:       jwt.NewSigner(signerOpts...),
+		doer:         httpx.DoerFunc(client.Do),
+		exchangeOpts: exchangeOpts,
+		retry:        o.retryPolicy(),
+		early:        o.earlyExpiry,
+		clock:        o.clock,
+		metrics:      o.metrics,
+		logger:       o.logger,
+		refresh:      make(chan struct{}, 1),
 	}
 	if b.early <= 0 {
 		b.early = defaultJWTBearerEarlyExpiry
@@ -219,36 +232,53 @@ func (b *JWTBearer) fresh() *oauth2.Token {
 // fetch performs one token request with a freshly minted assertion. Transport
 // errors, 429 and 5xx are retryable [*exchangeError] values.
 func (b *JWTBearer) fetch(ctx context.Context) (*oauth2.Token, error) {
-	now := b.clock.Now()
-	assertion, err := b.assertion(now)
+	assertion, err := b.assertion(b.clock.Now())
 	if err != nil {
 		return nil, &exchangeError{cause: coreerrs.Wrap(errors.Join(ErrTokenRequest, err), "sign jwt-bearer assertion")}
 	}
-	form := url.Values{}
-	form.Set("grant_type", GrantTypeJWTBearer)
-	form.Set("assertion", assertion)
+	result, err := jwtbearer.Exchange(ctx, b.doer, b.tokenURL, assertion, b.exchangeOpts...)
+	if err != nil {
+		return nil, jwtBearerExchangeError(err)
+	}
+	tok := &oauth2.Token{
+		AccessToken:  result.AccessToken.Expose(),
+		RefreshToken: result.RefreshToken.Expose(),
+		TokenType:    result.TokenType,
+		Expiry:       result.Expiry,
+	}
+	extra := map[string]any{}
+	if result.Scope != "" {
+		extra["scope"] = result.Scope
+	}
+	if result.IssuedTokenType != "" {
+		extra["issued_token_type"] = result.IssuedTokenType
+	}
+	if result.IDToken != "" {
+		extra["id_token"] = result.IDToken.Expose()
+	}
+	return tok.WithExtra(extra), nil
+}
 
-	status, body, err := doForm(ctx, b.client, b.tokenURL, form, "", "")
-	if err != nil {
-		return nil, &exchangeError{
+func jwtBearerExchangeError(err error) error {
+	re, received := errors.AsType[*jwtbearer.ResponseError](err)
+	// A rejected status wraps ErrRequest directly. A body-read failure also wraps its transport cause.
+	if received && !httpx.IsSuccess(re.Status) && re.Unwrap() == jwtbearer.ErrRequest {
+		retrieved := &oauth2.RetrieveError{Response: &http.Response{StatusCode: re.Status}, ErrorCode: re.ErrorCode.Expose()}
+		return &exchangeError{
+			retryable: re.Status == http.StatusTooManyRequests || re.Status >= 500,
+			cause:     coreerrs.JoinWrap(ErrTokenRequest, responseError(retrieved, re.Status, re.Bytes)),
+		}
+	}
+	if received {
+		err = responseError(err, re.Status, re.Bytes)
+	}
+	if errors.Is(err, jwtbearer.ErrRequest) {
+		return &exchangeError{
 			retryable: !permanentRequestError(err),
-			cause:     coreerrs.Wrap(errors.Join(ErrTokenRequest, err), "jwt-bearer token request"),
+			cause:     coreerrs.JoinWrap(ErrTokenRequest, err),
 		}
 	}
-	if status < 200 || status >= 300 {
-		return nil, &exchangeError{
-			retryable: status == http.StatusTooManyRequests || status >= 500,
-			cause:     coreerrs.JoinWrap(ErrTokenRequest, responseError(retrieveError(status, body), status, len(body))),
-		}
-	}
-	tok, err := parseTokenResponse(status, body, now)
-	if err != nil {
-		return nil, err
-	}
-	if tok.Expiry.IsZero() {
-		return nil, coreerrs.Wrap(ErrTokenExchange, "response missing a positive expires_in")
-	}
-	return tok, nil
+	return coreerrs.JoinWrap(ErrTokenExchange, err)
 }
 
 // assertion signs the grant assertion valid from now.
@@ -263,27 +293,6 @@ func (b *JWTBearer) assertion(now time.Time) (string, error) {
 		claims["scope"] = b.scope
 	}
 	return b.signer.Sign(b.key, claims)
-}
-
-// retrieveError describes a non-2xx token response as an
-// [*oauth2.RetrieveError], the error currency of the x/oauth2-backed grants.
-// The body and RFC 6749 error fields remain available through errors.As.
-func retrieveError(status int, body []byte) *oauth2.RetrieveError {
-	re := &oauth2.RetrieveError{
-		Response: &http.Response{StatusCode: status, Status: fmt.Sprintf("%d %s", status, http.StatusText(status))},
-		Body:     body,
-	}
-	var e struct {
-		Code        string `json:"error"`
-		Description string `json:"error_description"`
-		URI         string `json:"error_uri"`
-	}
-	if json.Unmarshal(body, &e) == nil {
-		re.ErrorCode = e.Code
-		re.ErrorDescription = e.Description
-		re.ErrorURI = e.URI
-	}
-	return re
 }
 
 // jwtBearerSource adapts a [JWTBearer] to [oauth2.TokenSource] with a pinned

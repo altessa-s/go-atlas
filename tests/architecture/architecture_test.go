@@ -311,6 +311,7 @@ func schemasDescribeSettings(e edge) bool {
 		return e.thirdParty && !allowedSchemaExternal(e.dependency)
 	}
 	return !strings.HasPrefix(e.dep, "core/") && !isSchema(e.dep) && e.dep != "config/internal" && !strings.HasPrefix(e.dep, "config/internal/") &&
+		!(e.pkg == "config/proxy" && e.dep == "net/proxyconfig") &&
 		e.dep != "net/egressrule" && e.dep != "service/scheduler/task" && e.dep != "service/scheduler/schedule"
 }
 
@@ -746,6 +747,7 @@ func TestBoundaryRules(t *testing.T) {
 		{"keyset uses infrastructure factory", "store/mongo/keyset", module + "factory/infrastructure/mongo", true},
 		{"schema uses net primitive beyond egress grammar", "config/proxy", module + "net/urlx", true},
 		{"domain net/http client", "domain/money", module + "net/http/client", true},
+		{"proxy schema uses shared wire schema", "config/proxy", netModule + "proxyconfig", false},
 		{"schema uses egress rule grammar", "config/http", module + "net/egressrule", false},
 		{"schema transport", "config", module + "net/http/client", true},
 		{"schema service", "config", module + "service/scheduler", true},

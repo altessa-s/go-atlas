@@ -12,13 +12,15 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
+
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -172,7 +174,11 @@ func runRedactionResponses(t *testing.T, responses []redactionResponse) {
 				err := run(t, srv.URL, logger)
 
 				require.Error(t, err)
-				if re, ok := errors.AsType[*oauth2.RetrieveError](err); ok {
+				if re, ok := errors.AsType[*oauth2.RetrieveError](err); ok && name == "jwt bearer" {
+					require.Empty(t, re.Body)
+					require.Empty(t, re.ErrorDescription)
+					require.Empty(t, re.ErrorURI)
+				} else if ok {
 					require.Equal(t, resp.body, string(re.Body))
 					var fields struct {
 						Description string `json:"error_description"`
@@ -190,7 +196,11 @@ func runRedactionResponses(t *testing.T, responses []redactionResponse) {
 				}
 				require.Contains(t, err.Error(), fmt.Sprintf("status %d", resp.status))
 				if resp.wantInError != "" {
-					require.Contains(t, err.Error(), resp.wantInError)
+					want := resp.wantInError
+					if name == "jwt bearer" {
+						want, _, _ = strings.Cut(want, " (description:")
+					}
+					require.Contains(t, err.Error(), want)
 				} else {
 					require.Contains(t, err.Error(), fmt.Sprintf("response body of %d bytes", len(resp.body)))
 				}

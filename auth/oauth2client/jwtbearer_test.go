@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -530,7 +531,7 @@ func TestNewJWTBearerValidation(t *testing.T) {
 func TestJWTBearerHugeExpiresInIsClamped(t *testing.T) {
 	t.Parallel()
 	srv := newBearerServer(t, func(w http.ResponseWriter, _ *http.Request, _ int32) {
-		_, _ = w.Write([]byte(`{"access_token":"x","expires_in":9223372036854775807}`))
+		_, _ = w.Write([]byte(`{"access_token":"x","expires_in":"9223372036854775808","id_token":"id","scope":"read","issued_token_type":"access","refresh_token":"refresh"}`))
 	})
 	key, _ := rsaKey(t, "k")
 	clk := clock.NewFake(time.Now())
@@ -539,7 +540,11 @@ func TestJWTBearerHugeExpiresInIsClamped(t *testing.T) {
 
 	tok, err := b.Token(t.Context())
 	require.NoError(t, err)
-	require.True(t, tok.Expiry.After(clk.Now().Add(100*365*24*time.Hour)))
+	require.Equal(t, clk.Now().Add(time.Duration(math.MaxInt64/int64(time.Second))*time.Second), tok.Expiry)
+	require.Equal(t, "id", tok.Extra("id_token"))
+	require.Equal(t, "read", tok.Extra("scope"))
+	require.Equal(t, "access", tok.Extra("issued_token_type"))
+	require.Equal(t, "refresh", tok.RefreshToken)
 }
 
 // TestJWTBearerBoundsErrorFields pins that the RFC 6749 error fields of a

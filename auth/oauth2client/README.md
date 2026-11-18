@@ -50,7 +50,7 @@ equivalent and is implemented here as a spec-compliant client.
   reported as a failed request.
 - **Injected client** — a `WithHTTPClient` client keeps its timeout and transport and is copied, never modified. Without a `CheckRedirect` the
   copy follows no redirect, like the built-in client. With one, a redirect to another origin (scheme, host, port) fails with
-  `ErrRedirectNotAllowed` before the client's own policy is consulted; hops within the origin are left to that policy. This holds with
+  `ErrRedirectNotAllowed` before the client's own policy is consulted; hops within the origin are left to that policy except for JWT bearer, which refuses every redirect. This holds with
   `WithInsecureHTTP()` too.
 - **Construction** — every constructor (`ClientCredentials`, `Refresh`, `NewAuthCode`, `NewDeviceFlow`, `NewExchanger`, `NewRevoker`,
   `NewJWTBearer` and the `*FromDiscovery` variants) checks all its endpoint URLs with the https rule above and returns an error wrapping
@@ -124,8 +124,7 @@ exchange signs a fresh assertion with the asymmetric `jwt.SigningKey` (`iss` = i
 hour later; an empty `KeyID` omits the `kid` header) and posts `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` with the `assertion`. The
 constructor signs a probe assertion, so an unusable key fails with `ErrJWTBearerConfig` up front.
 
-It is hand-rolled rather than built on `x/oauth2/jwt`, whose token request ignores the caller's context and which accepts a token without
-`expires_in`:
+The signed assertion is exchanged through `go-atlas-net/oauth2/jwtbearer.Exchange`. The response limit is 64 KiB and redirects are refused.
 
 - **Context-bound** — `Token(ctx)` runs the exchange on `ctx`, so a deadline or cancellation bounds the token request. A cached token is served even
   on
@@ -137,7 +136,7 @@ It is hand-rolled rather than built on `x/oauth2/jwt`, whose token request ignor
   its token; a waiter whose `ctx` ends gives up alone, and if the in-flight exchange fails (for example because its caller was canceled), the next
   waiter runs its own exchange on its own `ctx`. Failures are never cached.
 - **Errors** — a signing or transport failure and a non-2xx response wrap `ErrTokenRequest`; a non-2xx response also carries an
-  `*oauth2.RetrieveError` (status, RFC 6749 `error` code, the original description and body) reachable via `errors.As`. A malformed body wraps
+  `*oauth2.RetrieveError` (status and RFC 6749 `error` code) reachable via `errors.As`. A malformed body wraps
   `ErrTokenExchange`.
   `WithRetryAttempts` retries transport errors, 429, and 5xx with a fresh assertion per attempt.
 

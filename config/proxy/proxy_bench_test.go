@@ -7,11 +7,12 @@ package proxyconfig_test
 import (
 	"testing"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
 
 func BenchmarkProxyValidate(b *testing.B) {
-	p := proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "http://proxy:3128"}
+	p := proxyconfig.Config{Mode: netproxy.ModeURL, URL: "http://proxy:3128"}
 	for b.Loop() {
 		_ = p.Validate()
 	}

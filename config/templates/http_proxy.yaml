@@ -1,7 +1,7 @@
 # HTTP outbound proxy configuration for go-atlas-net/http/client.
-# Loads into proxyconfig.Config; materialized via proxyfactory.HTTPClientOptions.
-# Default SSRF protection disables environment proxies. Explicit proxy modes
-# require WithoutSSRFProtection() on the HTTP client; OIDC/OPA factories reject them.
+# Loads into proxyconfig.Config; materialized via httpclientfactory.ProxyOptions.
+# Default SSRF protection disables environment proxies and guards explicit proxy dials.
+# OIDC/OPA factories reject explicit proxies.
 # With protection disabled, an omitted section retains environment lookup.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
@@ -25,7 +25,7 @@
 #  # golang.org/x/net/proxy.SOCKS5 always sends ATYP=DomainName, i.e.
 #  # DNS resolves on the proxy side regardless of scheme).
 #  # Credentials may be embedded as http://user:pass@proxy:port;
-#  # the password is masked wherever the config is printed or logged
+#  # the full URL is masked wherever the config is printed or logged
 #  # and validation errors never quote the URL, but for secrets prefer
 #  # mode=host with the auth block below.
 #  # Default value: not set

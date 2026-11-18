@@ -15,6 +15,9 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 )
 
 func TestProxy_Validate_ValidCases(t *testing.T) {
@@ -25,15 +28,15 @@ func TestProxy_Validate_ValidCases(t *testing.T) {
 		cfg  Config
 	}{
 		{"empty_passthrough", Config{}},
-		{"none", Config{Mode: ModeNone}},
-		{"url_http", Config{Mode: ModeURL, URL: "http://proxy:3128"}},
-		{"url_https", Config{Mode: ModeURL, URL: "https://proxy:3128"}},
-		{"url_socks5", Config{Mode: ModeURL, URL: "socks5://proxy:1080"}},
-		{"url_socks5h", Config{Mode: ModeURL, URL: "socks5h://proxy:1080"}},
-		{"host_no_auth", Config{Mode: ModeHost, Host: "proxy", Port: 3128}},
+		{"none", Config{Mode: netproxy.ModeNone}},
+		{"url_http", Config{Mode: netproxy.ModeURL, URL: "http://proxy:3128"}},
+		{"url_https", Config{Mode: netproxy.ModeURL, URL: "https://proxy:3128"}},
+		{"url_socks5", Config{Mode: netproxy.ModeURL, URL: "socks5://proxy:1080"}},
+		{"url_socks5h", Config{Mode: netproxy.ModeURL, URL: "socks5h://proxy:1080"}},
+		{"host_no_auth", Config{Mode: netproxy.ModeHost, Host: "proxy", Port: 3128}},
 		{"host_with_auth", Config{
-			Mode: ModeHost, Host: "proxy", Port: 3128,
-			Auth: &Auth{Username: "svc", Password: "secret"},
+			Mode: netproxy.ModeHost, Host: "proxy", Port: 3128,
+			Auth: &netproxy.Auth{Username: "svc", Password: "secret"},
 		}},
 	}
 
@@ -54,27 +57,28 @@ func TestProxy_Validate_InvalidCases(t *testing.T) {
 	}{
 		{"unknown_mode", Config{Mode: "bogus"}},
 		{"env_mode_no_longer_valid", Config{Mode: "env"}},
-		{"url_mode_missing_url", Config{Mode: ModeURL}},
-		{"url_mode_invalid_url", Config{Mode: ModeURL, URL: "::not-a-url"}},
-		{"url_mode_no_port", Config{Mode: ModeURL, URL: "http://proxy.corp"}},
-		{"host_mode_missing_host", Config{Mode: ModeHost, Port: 3128}},
-		{"host_mode_missing_port", Config{Mode: ModeHost, Host: "proxy"}},
-		{"host_mode_port_zero", Config{Mode: ModeHost, Host: "proxy", Port: 0}},
-		{"host_mode_port_negative", Config{Mode: ModeHost, Host: "proxy", Port: -1}},
-		{"host_mode_port_too_large", Config{Mode: ModeHost, Host: "proxy", Port: 70000}},
-		{"url_mode_with_host_field", Config{Mode: ModeURL, URL: "http://p:1", Host: "x"}},
+		{"url_mode_missing_url", Config{Mode: netproxy.ModeURL}},
+		{"url_mode_invalid_url", Config{Mode: netproxy.ModeURL, URL: "::not-a-url"}},
+		{"url_mode_with_path_query_fragment", Config{Mode: netproxy.ModeURL, URL: "http://proxy:8080/path?key=value#tag"}},
+		{"url_mode_no_port", Config{Mode: netproxy.ModeURL, URL: "http://proxy.corp"}},
+		{"host_mode_missing_host", Config{Mode: netproxy.ModeHost, Port: 3128}},
+		{"host_mode_missing_port", Config{Mode: netproxy.ModeHost, Host: "proxy"}},
+		{"host_mode_port_zero", Config{Mode: netproxy.ModeHost, Host: "proxy", Port: 0}},
+		{"host_mode_port_negative", Config{Mode: netproxy.ModeHost, Host: "proxy", Port: -1}},
+		{"host_mode_port_too_large", Config{Mode: netproxy.ModeHost, Host: "proxy", Port: 70000}},
+		{"url_mode_with_host_field", Config{Mode: netproxy.ModeURL, URL: "http://p:1", Host: "x"}},
 		{"empty_mode_with_url_field", Config{URL: "http://p:1"}},
-		{"none_mode_with_host_field", Config{Mode: ModeNone, Host: "x"}},
+		{"none_mode_with_host_field", Config{Mode: netproxy.ModeNone, Host: "x"}},
 		{"host_mode_auth_without_username", Config{
-			Mode: ModeHost, Host: "p", Port: 1,
-			Auth: &Auth{Password: "x"},
+			Mode: netproxy.ModeHost, Host: "p", Port: 1,
+			Auth: &netproxy.Auth{Password: "x"},
 		}},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			require.Error(t, tc.cfg.Validate())
+			require.ErrorIs(t, tc.cfg.Validate(), coreerrs.ErrInvalidArgument)
 		})
 	}
 }
@@ -89,7 +93,7 @@ func TestProxy_PasswordRedaction(t *testing.T) {
 	t.Parallel()
 
 	password := "topsecret-do-not-leak"
-	auth := &Auth{Username: "svc", Password: redacted.RedactedString(password)}
+	auth := &netproxy.Auth{Username: "svc", Password: redacted.RedactedString(password)}
 
 	// Cover every common output sink: fmt %+v on the dereferenced struct
 	// (the pointer-print path shows an address, not the fields), and the
@@ -127,7 +131,7 @@ func TestProxy_URLCredentialsNeverLeak(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := Config{Mode: ModeURL, URL: redacted.URL(tc.url)}
+			cfg := Config{Mode: netproxy.ModeURL, URL: redacted.RedactedString(tc.url)}
 			require.Equal(t, tc.url, cfg.URL.Expose())
 
 			err := cfg.Validate()
@@ -181,7 +185,7 @@ func TestProxy_ValidateErrorsOmitURLParts(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
 
-			err := (&Config{Mode: ModeURL, URL: redacted.URL(raw)}).Validate()
+			err := (&Config{Mode: netproxy.ModeURL, URL: redacted.RedactedString(raw)}).Validate()
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), secret)
 		})
@@ -205,4 +209,24 @@ func TestDefaultProxy(t *testing.T) {
 	require.Empty(t, string(got.Mode), "default Mode is the empty zero value (passthrough)")
 	require.NoError(t, got.Validate())
 
+}
+
+func TestProxyURLValuePreservesAtlasEndpoints(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{"https credentials", Config{Mode: netproxy.ModeURL, URL: "https://svc:p%40ss@proxy:8443"}, "https://svc:p%40ss@proxy:8443"},
+		{"SOCKS credentials", Config{Mode: netproxy.ModeURL, URL: "socks5h://svc:p%2Fss@proxy:1080"}, "socks5h://svc:p%2Fss@proxy:1080"},
+		{"scoped IPv6", Config{Mode: netproxy.ModeHost, Host: "fe80::1%lo0", Port: 3128, Auth: &netproxy.Auth{Username: "svc"}}, "http://svc@[fe80::1%25lo0]:3128"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			u, err := tc.cfg.URLValue()
+			require.NoError(t, err)
+			require.Equal(t, tc.want, u.String())
+		})
+	}
 }

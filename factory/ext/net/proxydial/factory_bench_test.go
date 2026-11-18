@@ -9,18 +9,19 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
 
 func BenchmarkDialerBuilder_New(b *testing.B) {
-	cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "https://proxy.example.com:8443"}
+	cfg := &proxyconfig.Config{Mode: netproxy.ModeURL, URL: "https://proxy.example.com:8443"}
 	for b.Loop() {
 		New(cfg)
 	}
 }
 
 func BenchmarkDialerBuilder_Build_URL(b *testing.B) {
-	cfg := &proxyconfig.Config{Mode: proxyconfig.ModeURL, URL: "https://proxy.example.com:8443"}
+	cfg := &proxyconfig.Config{Mode: netproxy.ModeURL, URL: "https://proxy.example.com:8443"}
 	builder := New(cfg)
 	b.ResetTimer()
 	for b.Loop() {
@@ -30,10 +31,10 @@ func BenchmarkDialerBuilder_Build_URL(b *testing.B) {
 
 func BenchmarkDialerBuilder_Build_Host(b *testing.B) {
 	cfg := &proxyconfig.Config{
-		Mode: proxyconfig.ModeHost,
+		Mode: netproxy.ModeHost,
 		Host: "proxy.example.com",
 		Port: 8443,
-		Auth: &proxyconfig.Auth{Username: "svc", Password: redacted.RedactedString("hunter2")},
+		Auth: &netproxy.Auth{Username: "svc", Password: redacted.RedactedString("hunter2")},
 	}
 	builder := New(cfg)
 	b.ResetTimer()

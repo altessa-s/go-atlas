@@ -5,10 +5,9 @@
 package factory
 
 import (
-	"errors"
-	"fmt"
 	"net/url"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
 
@@ -25,27 +24,18 @@ func ClientOptions[O any](
 	withProxyURL func(*url.URL) O,
 	withProxy func(string, int, *url.Userinfo) O,
 ) ([]O, error) {
-	if p == nil {
-		return nil, nil
-	}
-	if err := p.Validate(); err != nil {
+	u, err := p.URLValue()
+	if err != nil {
 		return nil, err
 	}
-	switch p.Mode {
-	case "":
-		return nil, nil
-	case proxyconfig.ModeNone:
-		return []O{withoutProxy()}, nil
-	case proxyconfig.ModeURL:
-		u, err := url.Parse(p.URL.Expose())
-		if err != nil {
-			// url.Parse errors quote the URL, credentials included.
-			return nil, errors.New("proxy: url is not a valid URL")
-		}
-		return []O{withProxyURL(u)}, nil
-	case proxyconfig.ModeHost:
-		return []O{withProxy(p.Host, p.Port, userinfo(p.Auth))}, nil
-	default:
-		return nil, fmt.Errorf("proxy: unknown mode %q", p.Mode)
+	if u != nil && p.Mode == netproxy.ModeHost {
+		return []O{withProxy(p.Host, p.Port, u.User)}, nil
 	}
+	if u != nil {
+		return []O{withProxyURL(u)}, nil
+	}
+	if p != nil && p.Mode == netproxy.ModeNone {
+		return []O{withoutProxy()}, nil
+	}
+	return nil, nil
 }

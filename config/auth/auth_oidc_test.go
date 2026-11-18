@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 )
 
@@ -27,7 +28,7 @@ func TestOIDC_Validate_ValidProxy(t *testing.T) {
 	cfg := OIDC{
 		DiscoveryUrl: "https://example.com/.well-known/openid-configuration",
 		Proxy: &proxyconfig.Config{
-			Mode: proxyconfig.ModeURL,
+			Mode: netproxy.ModeURL,
 			URL:  "http://proxy.corp:3128",
 		},
 	}
@@ -40,7 +41,7 @@ func TestOIDC_Validate_InvalidProxyPropagates(t *testing.T) {
 	cfg := OIDC{
 		DiscoveryUrl: "https://example.com/.well-known/openid-configuration",
 		Proxy: &proxyconfig.Config{
-			Mode: proxyconfig.ModeURL,
+			Mode: netproxy.ModeURL,
 			// URL missing — Mode=url requires URL.
 		},
 	}
