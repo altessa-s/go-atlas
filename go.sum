@@ -66,10 +66,8 @@ github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRF
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
 github.com/alicebob/miniredis/v2 v2.40.0 h1:6IgTQbvm2JiMYZ8yur/acNJzVjtSOWCelxXbk/LUBXc=
 github.com/alicebob/miniredis/v2 v2.40.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
-github.com/altessa-s/go-aip v0.1.8 h1:ev2aCy3HJLqZD+tASEzV251z/P/x09KIA2DjcmIu1lI=
-github.com/altessa-s/go-aip v0.1.8/go.mod h1:zg7TUbRCkWX0UjkMJaaHKoSJfAomQhRI20Hu06TVwcE=
-github.com/altessa-s/go-aip/backend/mongo v0.1.8 h1:X2LyLFjNOtwdNGcwRJMfS9ShhCqW4Lo7JabsZyF8ZDE=
-github.com/altessa-s/go-aip/backend/mongo v0.1.8/go.mod h1:hhjzlxnHtraspH5hVwMqx0c5IbKOV3S8PM8Upibd/rs=
+github.com/altessa-s/go-aip v0.1.9 h1:TuwGjGZgYrMO27UpPpuWSDasqy8RJ8nmkNHaKEfIOMs=
+github.com/altessa-s/go-aip v0.1.9/go.mod h1:zg7TUbRCkWX0UjkMJaaHKoSJfAomQhRI20Hu06TVwcE=
 github.com/altessa-s/go-atlas-core v0.3.5 h1:DNnmNkYdEgPnhQun9kN/3F4Qgw+uvsqTFmK/VMZWVjM=
 github.com/altessa-s/go-atlas-core v0.3.5/go.mod h1:lDhYlaxQK66YpjRyyZHJUzQsgQkhEhzBZ3SXSaXuHQM=
 github.com/altessa-s/go-atlas-net v0.3.6 h1:H9skPiJs/vM4O/kxI7d1dsVo2mJlmPc6D8qdQWK9HZ4=
@@ -92,6 +90,8 @@ github.com/altessa-s/go-kryptos/providers/lockbox v0.1.4 h1:/QkqL5Lww1m3/QkA6e4e
 github.com/altessa-s/go-kryptos/providers/lockbox v0.1.4/go.mod h1:Koa+SLXPOjaNNjHfnq7U7U/7lqXBkC+13Mi79g/q1w4=
 github.com/altessa-s/go-kryptos/providers/vault v0.1.4 h1:k67igN8KeaQkOUMGl4FVCLFkz1l0lv8Z2Lyh7sLaOeI=
 github.com/altessa-s/go-kryptos/providers/vault v0.1.4/go.mod h1:NN9CmfqEU6l6psNN3Foyl4wQsTv4kehJFvPq3ZNhl6k=
+github.com/altessa-s/go-mongox v0.1.2 h1:zwK/ud0GK4B9g5N1jO7xGZuBR5mhwSY3nnksqJ3g8Pc=
+github.com/altessa-s/go-mongox v0.1.2/go.mod h1:t7CYy6cfNd6tdEnQUHg+31z71/z1xrTzq9Y1rQd8RGE=
 github.com/altessa-s/go-nomos v0.2.3 h1:xpxRDE5aMIxCU3At1hCN3rgLRSIG6i0Hy4E1UTwrPw8=
 github.com/altessa-s/go-nomos v0.2.3/go.mod h1:nD8n+Rj+9cKUZb5vdKZ60fM0nAyJs5Ghp3tC1rX5VVU=
 github.com/altessa-s/go-optgen v0.4.0 h1:evR48aSZms4+SR563SDsxrW6Av5FAS+bvMmwZIM4OVs=

@@ -15,7 +15,8 @@
 // cannot distinguish these states. Inner values use the caller's registry.
 //
 // Decimals are stored as exact Decimal128 values or rejected with
-// ErrDecimalOutOfRange. The decimal128.Fits function from
+// [ErrDecimalOutOfRange]. The encoder rejects coefficients larger than 4096
+// bits before folding trailing zeros. The decimal128.Fits function from
 // github.com/altessa-s/go-aip/decimal128 reports the same verdict up front,
 // so input validation rejects exactly what the encoder would:
 //

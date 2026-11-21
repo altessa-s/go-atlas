@@ -201,25 +201,22 @@ document limit that the `ListCursor` aggregation has.
 | `Limit`       | Page size, `DefaultPageSize` (100) when not positive, at most `MaxPageSize`                                                |
 | `After`       | Token of the page to read; empty for the first page                                                                        |
 | `Subject`     | Principal the token is bound to                                                                                            |
-| `Registry`    | Registry encoding `Filter`; nil uses the one `Mongo.Connect` installs (`bsoncodec.NewRegistry`: decimal, dates, Optional)  |
-| `BSONOptions` | Encoder settings of the collection (`options.BSONOptions`); nil uses the defaults                                          |
+| `Registry`    | Filter registry, inherited from an Atlas-created client or defaulting to `bsoncodec.NewRegistry()` for an external client |
+| `BSONOptions` | Filter encoder options, inherited from an Atlas-created client or defaulting to driver defaults for an external client     |
 
 A token replayed under another filter, sort or subject fails with the `pagetoken` errors. Every document needs a comparable scalar of one BSON type in
 each
-sort field. Only the last document of a page is checked, when its `Next` token is issued: a missing, null or array value there (an excluded sort field
-included) fails with `ErrMissingKey` rather than skipping documents. A sort direction other than `1`/`-1`, or an empty or repeated field, fails
+sort field. When issuing `Next`, a missing, null or array sort value in the last document fails with `ErrMissingKey`. A projection that drops
+or rewrites a sort field fails with `ErrProjection` before the find. A sort direction other than `1`/`-1`, or an empty or repeated field, fails
 with `ErrSort`. A nil codec reads a single page with no `Next` token, and a non-empty `After` then fails with `keyset.ErrTokensRequired`
 (it wraps `pagetoken.ErrCodecRequired`, so `pagetoken.Classify` reports a malformed token). Index the sort fields (plus `_id`) so each page is a range
 scan. Paging is keyset-based, not a snapshot.
 
-The filter is marshaled once; the token binds those bytes and `find` executes them, so a token can never resolve against a different filter. Build
-the filter deterministically — `bson.D` documents, not multi-key `bson.M` maps, whose iteration order varies between calls — or a token issued for one
-request fails with `pagetoken.ErrFilterChanged` on the identical next one. A filter from the go-aip [`backend/mongo`](https://github.com/altessa-s/go-aip/tree/develop/backend/mongo) filter translator
-qualifies through
-`TranslateD`, which returns it with sorted keys. An embedded-document literal keeps the key order it was written with, which MongoDB compares.
-The filter is encoded with `Registry` and `BSONOptions`, not with the collection's registry, which the driver does not expose: set them when the
-client, database or collection was configured with another registry or encoder settings, or a custom-typed value encodes differently than in a plain
-`Find`.
+The token binds the validated BSON bytes that `find` executes. Within the filter, maps encode in sorted key order.
+Use `bson.D` or pre-built `bson.Raw` for embedded documents whose field order matters. For a custom scalar struct codec,
+call `bsonfilter.AdmitScalar` on the registry that encodes the filter. Pass `Registry` and `BSONOptions` explicitly for
+external clients with custom settings and for database or collection overrides. See the
+[upgrade notes](keyset/README.md) for existing tokens and struct filters.
 
 ```go
 page, err := keyset.FindPage[Order](ctx, coll, codec, keyset.Query{

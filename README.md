@@ -55,6 +55,11 @@ The AIP request contracts — filtering, ordering, projection, listing, page tok
 [`store/mongo/keyset`](store/mongo/keyset/) and the scheduler handler. Production code imports only the root go-aip module; an application adds
 the go-aip storage backends it uses (`github.com/altessa-s/go-aip/backend/<name>`).
 
+**MongoDB upgrade.** In keyset filters, replace arbitrary Go structs and custom BSON marshalers with `bson.D` or
+pre-built `bson.Raw`. For a scalar struct codec, call `bsonfilter.AdmitScalar` on the registry that encodes it.
+Older tokens issued with a different map key order return `pagetoken.ErrFilterChanged`. Restart those reads from the first page.
+The decimal codec now rejects coefficients over 4096 bits. See the [keyset migration notes](store/mongo/keyset/README.md#migrating-keyset-filters).
+
 ## Package Overview
 
 | Package                                                                             | Description                                                                                                                                                         |

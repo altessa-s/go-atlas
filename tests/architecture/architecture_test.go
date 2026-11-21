@@ -39,6 +39,8 @@ const nomosModule = "github.com/altessa-s/go-nomos/"
 // imports, so an application requires only the backends it uses.
 const aipModule = "github.com/altessa-s/go-aip"
 
+const mongoxModule = "github.com/altessa-s/go-mongox"
+
 // tlsModule is the go-tlsutils module, split out of security/tlsutils. The
 // rules see its packages as security/tlsutils/<path>.
 const tlsModule = "github.com/altessa-s/go-tlsutils/"
@@ -173,6 +175,7 @@ var rules = []rule{
 	{"domain and mapping reach backend translators only from translators", domainOffTranslators},
 	{"base observability stays backend-neutral", observabilityNeutral},
 	{"production code imports only the root go-aip module", aipRootOnly},
+	{"only store/mongo imports go-mongox", mongoxFromMongo},
 	{"transport limiters use the limiter contract", limiterOffTokenBucket},
 	{"gRPC cache interceptor uses cache contract sentinels", cacheInterceptorOffStorages},
 	{"scheduler handler uses injected filter parser", schedulerOffFilterParser},
@@ -416,6 +419,10 @@ func domainOffTransport(e edge) bool {
 // modules of their own, required by go-atlas tests at most.
 func aipRootOnly(e edge) bool {
 	return hasPathPrefix(e.dependency, []string{aipModule + "/backend", aipModule + "/integration", aipModule + "/devtools"})
+}
+
+func mongoxFromMongo(e edge) bool {
+	return hasPathPrefix(e.dependency, []string{mongoxModule}) && !hasPathPrefix(e.pkg, []string{"store/mongo"})
 }
 
 // hasPathPrefix reports whether path is one of prefixes or lies below one.
@@ -801,6 +808,10 @@ func TestBoundaryRules(t *testing.T) {
 		{"codec uses go-aip SQL kit", "store/mongo/bsoncodec", aipModule + "/backend/sqlbase/sqltype", true},
 		{"audit uses go-aip test module", "audit", aipModule + "/integration/docker", true},
 		{"go-aip lookalike", "audit", aipModule + "/backendx", false},
+		{"mongo adapter uses mongox", "store/mongo/keyset", mongoxModule + "/keyset", false},
+		{"other storage uses mongox", "audit/storages/mongo", mongoxModule + "/indexes", true},
+		{"mongo path lookalike", "store/mongodb", mongoxModule, true},
+		{"mongox module lookalike", "audit", mongoxModule + "-other", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) { t.Parallel(); require.Equal(t, tc.rejected, violation(tc.pkg, tc.dep) != "") })
 	}

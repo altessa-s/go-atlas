@@ -10,8 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -22,6 +20,7 @@ import (
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	mongoxindexes "github.com/altessa-s/go-mongox/indexes"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -37,8 +36,8 @@ const (
 const idIndexName = "_id_"
 
 // ErrInvalidIndexModels is returned by [Ensure] for models whose names collide, an obsolete name that is also a model's or
-// empty, an attempt to drop the _id index, or keys a name cannot be derived from.
-var ErrInvalidIndexModels = errors.New("mongo: invalid index models")
+// empty, an attempt to drop all indexes or the _id index, or keys a name cannot be derived from.
+var ErrInvalidIndexModels = mongoxindexes.ErrInvalidIndexModels
 
 // Ensure makes the indexes of coll match models; it is idempotent and safe to run at every start. Without options it is one
 // createIndexes command: an index that already exists with the same specification is a no-op, and one that conflicts (same name with
@@ -51,15 +50,27 @@ var ErrInvalidIndexModels = errors.New("mongo: invalid index models")
 // opens a window without the constraint until the new one is built, and a rebuild fails if the data violates the new specification.
 //
 // A model without a name gets the name the driver would give it (keys joined as "field_1_other_-1"). Models must have distinct names,
-// and an obsolete name may not be a model's, empty, or "_id_" ([ErrInvalidIndexModels]).
+// and an obsolete name may not be a model's, empty, "*", or "_id_" ([ErrInvalidIndexModels]).
 func Ensure(ctx context.Context, coll *mongo.Collection, models []mongo.IndexModel, opts ...Option) error {
 	o := newOptions(opts...)
-	names, err := indexModelNames(models)
+	if len(o.dropObsolete) == 0 && !o.dropOnSpecMismatch {
+		return mongoxindexes.Ensure(ctx, coll, models)
+	}
+
+	// Reconciliation resolves names, compares specifications and may create a model more than once. Freeze
+	// keys and option setters so every step uses the model validated before the first drop.
+	models, err := freezeModels(models)
+	if err != nil {
+		return err
+	}
+	names, err := mongoxindexes.Names(models)
 	if err != nil {
 		return err
 	}
 	for _, name := range o.dropObsolete {
 		switch {
+		case name == "*":
+			return errors.Join(ErrInvalidIndexModels, mongo.ErrMultipleIndexDrop)
 		case name == "" || name == idIndexName:
 			return fmt.Errorf("%w: cannot drop index %q", ErrInvalidIndexModels, name)
 		case slices.Contains(names, name):
@@ -72,17 +83,9 @@ func Ensure(ctx context.Context, coll *mongo.Collection, models []mongo.IndexMod
 			return dropErr
 		}
 	}
-	if len(models) == 0 {
-		return nil
-	}
-
-	models = namedModels(models, names)
-	_, err = coll.Indexes().CreateMany(ctx, models)
-	switch {
-	case err == nil:
-		return nil
-	case !o.dropOnSpecMismatch || !isIndexConflict(err):
-		return coreerrs.WrapOperationWithContext(err, "create indexes", coll.Name())
+	err = mongoxindexes.Ensure(ctx, coll, models)
+	if err == nil || !o.dropOnSpecMismatch || !isIndexConflict(err) {
+		return err
 	}
 	return recreateMismatched(ctx, coll, models, names)
 }
@@ -127,7 +130,7 @@ func recreateMismatched(ctx context.Context, coll *mongo.Collection, models []mo
 
 // reconcileIndex creates model (named name), replacing an existing index of that name whose specification differs.
 func reconcileIndex(ctx context.Context, coll *mongo.Collection, model mongo.IndexModel, name string) error {
-	_, err := coll.Indexes().CreateOne(ctx, model)
+	err := mongoxindexes.Ensure(ctx, coll, []mongo.IndexModel{model})
 	if err == nil {
 		return nil
 	}
@@ -145,7 +148,7 @@ func reconcileIndex(ctx context.Context, coll *mongo.Collection, model mongo.Ind
 	if err := dropIndexIfExists(ctx, coll, name); err != nil {
 		return err
 	}
-	if _, err := coll.Indexes().CreateOne(ctx, model); err != nil {
+	if err := mongoxindexes.Ensure(ctx, coll, []mongo.IndexModel{model}); err != nil {
 		return coreerrs.WrapOperationWithContext(err, "recreate mismatched index", coll.Name()+"."+name)
 	}
 	return nil
@@ -289,18 +292,26 @@ func sameKeys(stored bson.RawValue, model []byte) bool {
 	return true
 }
 
-// namedModels returns copies of models carrying their resolved names in options of their own: the driver writes the name into a
-// model's options builder, which would race when callers share one model slice across goroutines (a package-level var).
-func namedModels(models []mongo.IndexModel, names []string) []mongo.IndexModel {
+// freezeModels snapshots keys and option setters for destructive reconciliation.
+func freezeModels(models []mongo.IndexModel) ([]mongo.IndexModel, error) {
 	out := make([]mongo.IndexModel, len(models))
 	for i, model := range models {
-		opts := mongoOptions.Index()
-		if model.Options != nil {
-			opts.Opts = slices.Clone(model.Options.Opts)
+		keys, err := bson.Marshal(model.Keys)
+		if err != nil {
+			return nil, errors.Join(ErrInvalidIndexModels, err)
 		}
-		out[i] = mongo.IndexModel{Keys: model.Keys, Options: opts.SetName(names[i])}
+		args, err := resolveIndexOptions(model)
+		if err != nil {
+			return nil, errors.Join(ErrInvalidIndexModels, err)
+		}
+		opts := mongoOptions.Index()
+		opts.Opts = append(opts.Opts, func(o *mongoOptions.IndexOptions) error {
+			*o = args
+			return nil
+		})
+		out[i] = mongo.IndexModel{Keys: bson.Raw(keys), Options: opts}
 	}
-	return out
+	return out, nil
 }
 
 // isIndexConflict reports whether err is IndexOptionsConflict or IndexKeySpecsConflict.
@@ -316,62 +327,6 @@ func dropIndexIfExists(ctx context.Context, coll *mongo.Collection, name string)
 		return nil
 	}
 	return coreerrs.WrapOperationWithContext(err, "drop index", coll.Name()+"."+name)
-}
-
-// indexModelNames resolves the name of every model and checks they are distinct.
-func indexModelNames(models []mongo.IndexModel) ([]string, error) {
-	names := make([]string, len(models))
-	for i, model := range models {
-		name, err := indexModelName(model)
-		if err != nil {
-			return nil, err
-		}
-		if slices.Contains(names[:i], name) {
-			return nil, fmt.Errorf("%w: duplicate index name %q", ErrInvalidIndexModels, name)
-		}
-		names[i] = name
-	}
-	return names, nil
-}
-
-// indexModelName is the model's explicit name, or the one the driver generates: every key and its value (an integer or a string)
-// joined by "_".
-func indexModelName(model mongo.IndexModel) (string, error) {
-	args, err := resolveIndexOptions(model)
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrInvalidIndexModels, err)
-	}
-	if args.Name != nil {
-		if *args.Name == "" {
-			return "", fmt.Errorf("%w: empty index name", ErrInvalidIndexModels)
-		}
-		return *args.Name, nil
-	}
-	keys, err := bson.Marshal(model.Keys)
-	if err != nil {
-		return "", fmt.Errorf("%w: keys: %w", ErrInvalidIndexModels, err)
-	}
-	elems, err := bson.Raw(keys).Elements()
-	if err != nil || len(elems) == 0 {
-		return "", fmt.Errorf("%w: index keys must be a non-empty document", ErrInvalidIndexModels)
-	}
-	parts := make([]string, 0, 2*len(elems))
-	for _, e := range elems {
-		v := e.Value()
-		var s string
-		switch v.Type {
-		case bson.TypeInt32:
-			s = strconv.FormatInt(int64(v.Int32()), 10)
-		case bson.TypeInt64:
-			s = strconv.FormatInt(v.Int64(), 10)
-		case bson.TypeString:
-			s = v.StringValue()
-		default:
-			return "", fmt.Errorf("%w: key %q has a %v value", ErrInvalidIndexModels, e.Key(), v.Type)
-		}
-		parts = append(parts, e.Key(), s)
-	}
-	return strings.Join(parts, "_"), nil
 }
 
 const (

@@ -53,7 +53,7 @@ A calendar date without time or zone is stored as its `YYYY-MM-DD` string: nothi
 date order, so range queries and indexes work on them. `NewRegistry` registers the codec for `civil.Date` (`cloud.google.com/go/civil`) and for go-atlas
 [`go-atlas-core/time/civil.Date`](https://github.com/altessa-s/go-atlas-core/tree/develop/time/civil) (zero stored as `""`, matching its text form);
 `RegisterDateType[T](reg, opts...)` registers it for any struct with the fields `Year int`, `Month time.Month` and `Day int` — a service's own date type
-— and fails with `ErrNotADateType` for any other.
+— and admits that type as a scalar in keyset filters encoded with the same registry. Other shapes fail with `ErrNotADateType`.
 
 | Stored BSON        | Encoded from / decoded to                                                                       |
 |--------------------|-------------------------------------------------------------------------------------------------|
@@ -73,8 +73,9 @@ if err := bsoncodec.RegisterDateType[civil.Date](reg, bsoncodec.WithDateZeroAsEm
 ## Decimal
 
 `decimal.Decimal`, `*decimal.Decimal`, `decimal.NullDecimal` and `*decimal.NullDecimal` use the strict decimal codecs. Valid values are stored as BSON
-`Decimal128`, exactly: trailing zeros fold into the exponent, and a value that still needs more than 34 significant digits, or an exponent outside the
-Decimal128 range, fails with `ErrDecimalOutOfRange` instead of being rounded or panicking. `decimal128.Fits(d)` reports
+`Decimal128` exactly. The codec checks the 4096-bit coefficient limit before folding trailing zeros. A larger coefficient fails with
+`ErrDecimalOutOfRange` even when its normalized value would fit. The same limit applies when encoding decimals in keyset filters.
+Values outside the Decimal128 precision or exponent range also fail with `ErrDecimalOutOfRange`. `decimal128.Fits(d)` reports
 whether it succeeds, so a validator rejects exactly the values the encoder would. Nil decimal pointers encode as BSON null and decode from null as nil.
 
 | Stored BSON | Decoded as |

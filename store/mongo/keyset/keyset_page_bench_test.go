@@ -2,34 +2,29 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package keyset
+package keyset_test
 
 import (
+	"errors"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/altessa-s/go-atlas/store/mongo/keyset"
 )
 
-func BenchmarkPosition(b *testing.B) {
-	keys := []sortKey{{"rank", true}, {"_id", false}}
-	doc, err := bson.Marshal(bson.D{{Key: "_id", Value: bson.NewObjectID()}, {Key: "rank", Value: 42}})
-	if err != nil {
-		b.Fatal(err)
+func BenchmarkFindPageBindings(b *testing.B) {
+	probe := new(bindingProbe)
+	q := keyset.Query{
+		Filter: bson.D{{Key: "group", Value: "a"}},
+		Sort:   bson.D{{Key: "rank", Value: -1}}, After: "probe",
 	}
-	filter, err := marshalFilter(bson.D{{Key: "group", Value: "a"}}, nil, nil)
-	if err != nil {
-		b.Fatal(err)
-	}
+	ctx := b.Context()
 	b.ReportAllocs()
 	for b.Loop() {
-		payload, err := encodePosition(doc, keys)
-		if err != nil {
+		_, err := keyset.FindPage[bson.M](ctx, nil, probe, q)
+		if !errors.Is(err, errBound) {
 			b.Fatal(err)
 		}
-		values, err := decodePosition(payload, len(keys))
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = withSeek(filter, keys, values)
 	}
 }
