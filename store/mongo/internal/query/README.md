@@ -10,13 +10,13 @@ Internal query primitives shared by MongoDB pagination and repository reads.
 
 | API | Purpose |
 |-----|---------|
-| `ValidateFilter` | Reject server-side JavaScript operators in filters |
+| `ValidateFilter` | Prepare and validate the exact BSON document used by ordinary reads |
 | `ParseSortString`, `ParseSortStringStrict` | Parse legacy comma-separated fields, optionally with an allowlist |
 | `ParseSortOption` | Normalize string, pointer and BSON sort options |
 | `Registry` | Shared default BSON encoding registry |
-| `FilterEncoding` | Resolve keyset filter encoding from explicit settings, client settings, and Atlas defaults |
+| `FilterEncoding` | Resolve read filter encoding from explicit settings, client settings, and Atlas defaults |
 | `DefaultTimeout`, `CloseTimeout` | Read and cursor cleanup time limits |
 
 The sort syntax is `name,-age`, not AIP `order_by`. Named string and pointer types are accepted by sort options. The [root package](../../README.md) uses this parser through its list sort options.
 
-`List`, `ListCursor`, and the entity readers still use `ValidateFilter` so existing struct-valued filters keep their encoding behavior.
+See the [read filter contract](../../README.md#read-filters) for supported documents and scalar codecs.

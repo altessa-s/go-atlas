@@ -36,7 +36,7 @@ misaligned to the requested precision yields `ErrMissingKey`.
 
 ## Migrating keyset filters
 
-**Breaking change.** `Query.Filter` remains a `bson.D`; nil matches every document. For embedded documents use
+**Breaking change.** These embedded-value rules also apply to the [entity and list readers](../README.md#read-filters). For keyset, `Query.Filter` remains a `bson.D`; nil matches every document. For embedded documents use
 `bson.D`, `bson.M`, `map[string]any`, or pre-built `bson.Raw`. Arbitrary structs and custom BSON marshalers
 are rejected. Replace document-shaped values with `bson.D` or encode them to `bson.Raw` in trusted code.
 For a trusted scalar struct, register its encoder and call

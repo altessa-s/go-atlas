@@ -18,7 +18,7 @@ func BenchmarkValidateStatelessCursor(b *testing.B) {
 		b.Fatal(err)
 	}
 	for b.Loop() {
-		if err := validateStatelessCursor(c, sort, DefaultCursorIdField, filter, true); err != nil {
+		if err := validateStatelessCursor(b.Context(), c, sort, DefaultCursorIdField, cursorFilter{original: filter}, true); err != nil {
 			b.Fatal(err)
 		}
 		if err := validateCursorSortValue(c, sort, DefaultCursorIdField); err != nil {

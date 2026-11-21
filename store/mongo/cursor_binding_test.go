@@ -16,7 +16,7 @@ import (
 // of collection and returns its storage key.
 func mintStoredCursor(t testing.TB, storage Storage, collection *mongo.Collection, sort bson.D, filter bson.M) string {
 	t.Helper()
-	token, err := generateNextCursorToken(t.Context(), bson.NewObjectID().Hex(), sort, DefaultCursorIdField, filter, storage,
+	token, err := generateNextCursorToken(t.Context(), bson.NewObjectID().Hex(), sort, DefaultCursorIdField, cursorFilter{original: filter}, storage,
 		"alice", "tenant-A", cursorCollectionDigest(collection))
 	require.NoError(t, err)
 	return token

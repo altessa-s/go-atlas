@@ -36,13 +36,15 @@ import (
 //
 // Use case: Logging filter fields helps correlate queries with indexes during performance
 // analysis. This is particularly useful when debugging query plans or identifying missing indexes.
-func getFilterFields(filter bson.M) []string {
+func getFilterFields(filter bson.Raw) []string {
 	if len(filter) == 0 {
 		return nil
 	}
 
-	fields := make([]string, 0, len(filter))
-	for field := range filter {
+	elements, _ := filter.Elements() // Already validated by Prepare.
+	fields := make([]string, 0, len(elements))
+	for _, elem := range elements {
+		field := elem.Key()
 		// Skip MongoDB operators that start with $
 		fields = slices.AppendIf(fields, !strings.HasPrefix(field, "$"), field)
 	}

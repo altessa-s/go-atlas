@@ -13,7 +13,7 @@ import (
 func BenchmarkValidateFilter(b *testing.B) {
 	filter := bson.M{"$or": []bson.D{{{Key: "name", Value: "a"}}, {{Key: "name", Value: "b"}}}}
 	for b.Loop() {
-		if err := ValidateFilter(filter); err != nil {
+		if _, err := ValidateFilter(b.Context(), filter, Registry(), nil); err != nil {
 			b.Fatal(err)
 		}
 	}

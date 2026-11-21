@@ -52,12 +52,16 @@ type listOptions struct {
 	// The filter follows MongoDB query syntax for matching documents.
 	//
 	// Parameters:
-	//   - filter: MongoDB query filter using bson.M syntax
+	//   - filter: bson.D, bson.M, map[string]any, bson.Raw, or nil
 	//
 	// Example:
 	//   - WithListFilter(bson.M{"active": true})
 	//   - WithListFilter(bson.M{"age": bson.M{"$gte": 18}})
-	filter bson.M `optgen:"allownull"`
+	filter any `optgen:"allownull"`
+	// WithListFilterEncoding overrides inherited filter encoding settings.
+	filterEncoding FilterEncoding
+	// prepared is the validated filter sent to MongoDB.
+	prepared bson.Raw `opt:"-"`
 	// WithListProjection configures field projection for list operations.
 	// This controls which fields are included or excluded from the results.
 	//
@@ -218,7 +222,7 @@ func buildPipeline(opts *listOptions) bson.A {
 	if len(sort) == 0 {
 		sort = DefaultListSort
 	}
-	return pipeline.Offset(opts.filter, sort, opts.projection, opts.limit, opts.offset, opts.includeTotal)
+	return pipeline.Offset(opts.prepared, sort, opts.projection, opts.limit, opts.offset, opts.includeTotal)
 }
 
 // List performs a paginated query on the collection and returns items with total count.
@@ -290,9 +294,11 @@ func List[T any](ctx context.Context, collection *mongo.Collection, o ...ListOpt
 	for _, opt := range o {
 		opt(opts)
 	}
-	if err := validateFilter(opts.filter); err != nil {
+	raw, err := prepareFilter(ctx, collection, opts.filter, opts.filterEncoding)
+	if err != nil {
 		return nil, err
 	}
+	opts.prepared = raw
 	queryCtx, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
 	defer cancel()
 
@@ -300,7 +306,7 @@ func List[T any](ctx context.Context, collection *mongo.Collection, o ...ListOpt
 	opts.offset = capListOffset(opts.offset, opts.logger)
 
 	// Log index hint usage for monitoring and debugging
-	logHintUsage(opts.logger, opts.hint, collection.Name(), opts.filter)
+	logHintUsage(opts.logger, opts.hint, collection.Name(), opts.prepared)
 
 	// Build optimized pipeline with proper stage ordering
 	pipeline := buildPipeline(opts)

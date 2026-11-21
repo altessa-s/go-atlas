@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-aip/pagination/pagetoken"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/altessa-s/go-aip/pagination/pagetoken"
 )
 
 // newCursorSigner returns a page-token codec over a fixed test key.
@@ -186,7 +187,7 @@ func TestSignedCursor_ExpiredTokenIsInvalidCursor(t *testing.T) {
 	token := mintSignedCursor(t, coll, signedRequest(newCursorSigner(t, 1), "tenant-A")...)
 	late := newCursorSigner(t, 1, pagetoken.WithClock(func() time.Time { return time.Now().Add(2 * pagetoken.DefaultTTL) }))
 
-	_, err := resolveSignedCursor(late, token, bson.M{"status": "active"}, "tenant-A", cursorCollectionDigest(coll))
+	_, err := resolveSignedCursor(t.Context(), late, token, cursorFilter{original: bson.M{"status": "active"}}, "tenant-A", cursorCollectionDigest(coll))
 	require.ErrorIs(t, err, ErrInvalidCursor)
 	require.ErrorIs(t, err, pagetoken.ErrExpiredToken)
 	require.Equal(t, pagetoken.FailureExpired, pagetoken.Classify(err))

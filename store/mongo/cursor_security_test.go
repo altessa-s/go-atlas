@@ -55,7 +55,7 @@ func TestParseCursorToken_StorageRejectsStatelessToken(t *testing.T) {
 	cursor, err := NewCursorWithMetadata(bson.NewObjectID().Hex(), DefaultListSort, DefaultCursorIdField, filter, int64(1))
 	require.NoError(t, err)
 
-	_, err = parseCursorToken(t.Context(), cursor.String(), newFakeCursorStorage(), filter, "tenant-A", "")
+	_, err = parseCursorToken(t.Context(), cursor.String(), newFakeCursorStorage(), cursorFilter{original: filter}, "tenant-A", "")
 	require.ErrorIs(t, err, ErrInvalidCursorFormat)
 }
 
@@ -296,10 +296,10 @@ func TestStatefulCursor_SortValueRoundTrip(t *testing.T) {
 	oid := bson.NewObjectID()
 	sortValue := bson.DateTime(1_700_000_000_000)
 
-	token, err := generateNextCursorToken(t.Context(), oid.Hex(), sort, DefaultCursorIdField, filter, storage, sortValue, "tenant-A", "")
+	token, err := generateNextCursorToken(t.Context(), oid.Hex(), sort, DefaultCursorIdField, cursorFilter{original: filter}, storage, sortValue, "tenant-A", "")
 	require.NoError(t, err)
 
-	cursor, err := parseCursorToken(t.Context(), token, storage, filter, "tenant-A", "")
+	cursor, err := parseCursorToken(t.Context(), token, storage, cursorFilter{original: filter}, "tenant-A", "")
 	require.NoError(t, err)
 	require.NoError(t, validateCursorSortValue(cursor, sort, DefaultCursorIdField))
 

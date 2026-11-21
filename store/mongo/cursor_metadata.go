@@ -5,8 +5,10 @@
 package mongo
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -87,6 +89,10 @@ type CursorMetadata struct {
 //   - *CursorMetadata: Ready to store in Storage
 //   - error: If encoding fails
 func NewCursorMetadata(cursorId string, sort bson.D, cursorIdField string, filter bson.M, sortValue any) (*CursorMetadata, error) {
+	return newCursorMetadata(cursorId, sort, cursorIdField, cursorFilter{original: filter}, sortValue)
+}
+
+func newCursorMetadata(cursorId string, sort bson.D, cursorIdField string, filter cursorFilter, sortValue any) (*CursorMetadata, error) {
 	// Encode sort to base64 BSON
 	encodedSort, err := encodeSortToString(sort)
 	if err != nil {
@@ -94,7 +100,7 @@ func NewCursorMetadata(cursorId string, sort bson.D, cursorIdField string, filte
 	}
 
 	// Compute filter hash for validation
-	filterHash, err := computeFilterHash(filter)
+	filterHash, err := filter.hash()
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "compute filter hash")
 	}
@@ -141,7 +147,11 @@ func (m *CursorMetadata) GetSort() (bson.D, error) {
 // Returns:
 //   - error: ErrCursorFilterMismatch if filter has changed, nil if valid
 func (m *CursorMetadata) ValidateFilter(filter bson.M) error {
-	currentHash, err := computeFilterHash(filter)
+	return m.validateFilter(context.Background(), cursorFilter{original: filter})
+}
+
+func (m *CursorMetadata) validateFilter(ctx context.Context, filter cursorFilter) error {
+	currentHash, err := filter.matchingHash(ctx, m.FilterHash)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "compute filter hash")
 	}
@@ -233,6 +243,68 @@ func (m *CursorMetadata) ToCursor() (*Cursor, error) {
 // nil or empty filters. The empty-filter branch is hot — list endpoints without
 // a filter take it on every cursor write and ValidateFilter call.
 var emptyFilterHash = corehash.SHA256HexString("")
+
+// A prepared cursor filter binds new cursors to BSON. Legacy tokens carry
+// only the historical JSON hash of the original bson.M.
+type cursorFilter struct {
+	raw      bson.Raw
+	original any
+}
+
+const bsonHashPrefix = "bson:"
+
+func (f cursorFilter) hash() (string, error) {
+	if f.raw != nil {
+		return bsonHashPrefix + corehash.SHA256HexString(string(f.raw)), nil
+	}
+	return f.legacyHash()
+}
+
+func (f cursorFilter) matchingHash(ctx context.Context, stored string) (string, error) {
+	if !strings.HasPrefix(stored, bsonHashPrefix) {
+		return f.legacyHash()
+	}
+	if f.raw == nil {
+		// The public cursor validation helpers use Atlas defaults.
+		raw, err := prepareFilter(ctx, nil, f.original)
+		if err != nil {
+			return "", err
+		}
+		f.raw = raw
+	}
+	return f.hash()
+}
+
+func (f cursorFilter) legacyHash() (string, error) {
+	switch original := f.original.(type) {
+	case nil:
+		return emptyFilterHash, nil
+	case bson.M:
+		return computeFilterHash(original)
+	case map[string]any:
+		return computeFilterHash(original)
+	case bson.D:
+		return legacyDocumentHash(original)
+	default:
+		var doc bson.D
+		if err := bson.Unmarshal(f.raw, &doc); err != nil {
+			return "", err
+		}
+		return legacyDocumentHash(doc)
+	}
+}
+
+// Legacy filters were maps. A repeated top-level key has no equivalent map.
+func legacyDocumentHash(doc bson.D) (string, error) {
+	legacy := make(bson.M, len(doc))
+	for _, e := range doc {
+		if _, exists := legacy[e.Key]; exists {
+			return "", ErrCursorFilterMismatch
+		}
+		legacy[e.Key] = e.Value
+	}
+	return computeFilterHash(legacy)
+}
 
 // computeFilterHash creates a deterministic SHA-256 hash from a MongoDB filter.
 // This is used for validating that filters haven't changed between pagination requests.

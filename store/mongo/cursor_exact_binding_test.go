@@ -37,7 +37,7 @@ func TestStatefulCursor_SubjectMatchIsExact(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			storage := newFakeCursorStorage()
-			token, err := generateNextCursorToken(t.Context(), bson.NewObjectID().Hex(), sort, DefaultCursorIdField, filter, storage,
+			token, err := generateNextCursorToken(t.Context(), bson.NewObjectID().Hex(), sort, DefaultCursorIdField, cursorFilter{original: filter}, storage,
 				"alice", tc.minted, cursorCollectionDigest(coll))
 			require.NoError(t, err)
 
@@ -66,11 +66,11 @@ func TestStatefulCursor_SameSubjectResolves(t *testing.T) {
 		t.Run("subject="+subject, func(t *testing.T) {
 			t.Parallel()
 			storage := newFakeCursorStorage()
-			token, err := generateNextCursorToken(t.Context(), bson.NewObjectID().Hex(), sort, DefaultCursorIdField, filter, storage,
+			token, err := generateNextCursorToken(t.Context(), bson.NewObjectID().Hex(), sort, DefaultCursorIdField, cursorFilter{original: filter}, storage,
 				"alice", subject, cursorCollectionDigest(coll))
 			require.NoError(t, err)
 
-			cursor, err := parseCursorToken(t.Context(), token, storage, filter, subject, cursorCollectionDigest(coll))
+			cursor, err := parseCursorToken(t.Context(), token, storage, cursorFilter{original: filter}, subject, cursorCollectionDigest(coll))
 			require.NoError(t, err)
 			require.NotNil(t, cursor)
 		})

@@ -13,7 +13,7 @@ import (
 )
 
 // TestValidateFilter_RejectsDangerousOperators is the regression guard:
-// every operator in [dangerousFilterOperators] must be blocked at any
+// every server-side JavaScript operator must be blocked at any
 // depth of the filter — including nested inside $expr, $or, $and, and
 // $nor arrays.
 func TestValidateFilter_RejectsDangerousOperators(t *testing.T) {
@@ -95,7 +95,7 @@ func TestValidateFilter_RejectsDangerousOperators(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := ValidateFilter(tc.filter)
+			_, err := ValidateFilter(t.Context(), tc.filter, Registry(), nil)
 			require.ErrorIs(t, err, ErrDangerousOperator,
 				"validateFilter must surface ErrDangerousOperator")
 			require.Contains(t, err.Error(), tc.op,
@@ -124,7 +124,8 @@ func TestValidateFilter_AllowsLegitimateOperators(t *testing.T) {
 	for i, filter := range cases {
 		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
 			t.Parallel()
-			require.NoError(t, ValidateFilter(filter),
+			_, err := ValidateFilter(t.Context(), filter, Registry(), nil)
+			require.NoError(t, err,
 				"filter %v must pass — only RCE-grade operators are blocked", filter)
 		})
 	}
@@ -133,6 +134,8 @@ func TestValidateFilter_AllowsLegitimateOperators(t *testing.T) {
 // TestValidateFilter_EmptyAndNil pins the edge cases.
 func TestValidateFilter_EmptyAndNil(t *testing.T) {
 	t.Parallel()
-	require.NoError(t, ValidateFilter(nil))
-	require.NoError(t, ValidateFilter(bson.M{}))
+	_, err := ValidateFilter(t.Context(), nil, Registry(), nil)
+	require.NoError(t, err)
+	_, err = ValidateFilter(t.Context(), bson.M{}, Registry(), nil)
+	require.NoError(t, err)
 }

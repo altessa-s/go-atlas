@@ -516,15 +516,12 @@ func (m *Mongo) Client() *mongo.Client {
 //	type UserEntity struct { ID string }
 //
 //	user, err := mongotools.GetEntity[UserModel, UserEntity](ctx, mongo, collection, bson.M{"_id": "123"})
-func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) (E, error) {
+func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter any, settings ...FilterEncoding) (E, error) {
 	var zero E
 
-	// Reject filters that smuggle server-side JavaScript operators
-	// ($where / $function / $accumulator) at any depth. The public
-	// signature accepts bson.M from untrusted callers, so this is the
-	// last common chokepoint before the filter reaches the driver.
-	if err := validateFilter(filter); err != nil {
-		return zero, err
+	raw, prepareErr := prepareFilter(ctx, col, filter, settings...)
+	if prepareErr != nil {
+		return zero, prepareErr
 	}
 
 	op := m.metrics.operation("find_one", col.Name())
@@ -535,7 +532,7 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 	// Generate a deduplication key from filter for singleflight request deduplication.
 	// Include database name to prevent cross-database data leakage, and the optional
 	// per-context identity so identical filters from different callers never collapse.
-	deduplicationKey := m.deduplicationKey(ctx, col.Database().Name()+":"+col.Name(), filter)
+	deduplicationKey := m.deduplicationKey(ctx, col.Database().Name()+":"+col.Name(), raw)
 
 	// Use singleflight to prevent duplicate concurrent requests
 	data, err := m.deduplicate(ctx, deduplicationKey, func(workCtx context.Context) (any, error) {
@@ -545,7 +542,7 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 
 		// Find the document in MongoDB
 		var model T
-		result := col.FindOne(ctxWithTimeout, filter)
+		result := col.FindOne(ctxWithTimeout, raw)
 		if err := result.Decode(&model); err != nil {
 			if errors.Is(err, mongo.ErrNoDocuments) {
 				return zero, mongo.ErrNoDocuments
@@ -600,11 +597,10 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 //	type UserEntity struct { ID string }
 //
 //	users, err := mongotools.GetEntities[UserModel, UserEntity](ctx, mongo, collection, bson.M{"active": true})
-func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) ([]E, error) {
-	// Same chokepoint as GetEntity — reject server-side JS operators
-	// before any work is done.
-	if err := validateFilter(filter); err != nil {
-		return nil, err
+func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter any, settings ...FilterEncoding) ([]E, error) {
+	raw, prepareErr := prepareFilter(ctx, col, filter, settings...)
+	if prepareErr != nil {
+		return nil, prepareErr
 	}
 
 	op := m.metrics.operation("find", col.Name())
@@ -615,7 +611,7 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 	// Generate a deduplication key from filter for singleflight request deduplication.
 	// Include database name to prevent cross-database data leakage, and the optional
 	// per-context identity so identical filters from different callers never collapse.
-	deduplicationKey := m.deduplicationKey(ctx, col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, filter)
+	deduplicationKey := m.deduplicationKey(ctx, col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, raw)
 
 	// Use singleflight to prevent duplicate concurrent requests
 	data, err := m.deduplicate(ctx, deduplicationKey, func(workCtx context.Context) (any, error) {
@@ -624,7 +620,7 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 		defer cancel()
 
 		// Execute a query to find matching documents
-		cursor, err := col.Find(ctxWithTimeout, filter)
+		cursor, err := col.Find(ctxWithTimeout, raw)
 		if err != nil {
 			return []E{}, coreerrs.WrapOperation(err, "execute query")
 		}
@@ -675,10 +671,11 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 // conversion error; after an error the sequence stops. Unlike GetEntities,
 // this sequence is not deduplicated because each consumer controls its own
 // iteration and cancellation.
-func GetEntitiesSeq[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) iter.Seq2[E, error] {
+func GetEntitiesSeq[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter any, settings ...FilterEncoding) iter.Seq2[E, error] {
 	return func(yield func(E, error) bool) {
 		var zero E
-		if err := validateFilter(filter); err != nil {
+		raw, err := prepareFilter(ctx, col, filter, settings...)
+		if err != nil {
 			yield(zero, err)
 			return
 		}
@@ -688,7 +685,7 @@ func GetEntitiesSeq[T any, E any](ctx context.Context, m *Mongo, col *mongo.Coll
 		defer stopOp()
 		queryCtx, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
 		defer cancel()
-		cursor, err := col.Find(queryCtx, filter)
+		cursor, err := col.Find(queryCtx, raw)
 		if err != nil {
 			yield(zero, coreerrs.WrapOperation(err, "execute query"))
 			return

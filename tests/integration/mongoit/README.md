@@ -14,6 +14,7 @@ cursor security and unit-of-work behavior; fixtures create randomly named databa
 | Transactions | Panics and failed units of work cannot commit partial writes   |
 | Migrations   | Concurrent fixtures use distinct databases; rollback is opt-in |
 | Pagination   | Keyset and cursor queries preserve query and identity bindings |
+| Read filters | Monitored find, match and count predicates match the prepared BSON under inherited encoding settings |
 | Projections  | Cursor pages under a projection keep the cursor sort key       |
 
 ## Running

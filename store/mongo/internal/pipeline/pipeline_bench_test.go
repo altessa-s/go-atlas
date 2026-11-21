@@ -13,7 +13,7 @@ import (
 )
 
 func BenchmarkOffset(b *testing.B) {
-	filter := bson.M{"status": "active"}
+	filter := rawFilter(b, bson.M{"status": "active"})
 	sort := bson.D{{Key: "created_at", Value: -1}}
 	for b.Loop() {
 		pipeline.Offset(filter, sort, nil, 20, 40, true)
@@ -21,7 +21,7 @@ func BenchmarkOffset(b *testing.B) {
 }
 
 func BenchmarkCursorResult(b *testing.B) {
-	filter := bson.M{"status": "active"}
+	filter := rawFilter(b, bson.M{"status": "active"})
 	for b.Loop() {
 		pipeline.CursorResult("items", filter, true)
 	}

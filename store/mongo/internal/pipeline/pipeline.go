@@ -53,11 +53,11 @@ const countReference = "$count"
 
 // Offset builds an offset pagination pipeline with an optional total count.
 // The caller supplies the effective sort and validated pagination bounds.
-func Offset(filter bson.M, sort bson.D, projection bson.M, limit, offset int64, includeTotal bool) bson.A {
+func Offset(filter bson.Raw, sort bson.D, projection bson.M, limit, offset int64, includeTotal bool) bson.A {
 	pipeline := bson.A{}
 
 	// 1. MATCH FIRST - Filter early to reduce the dataset size
-	pipeline = slices.AppendIf[any](pipeline, len(filter) > 0, bson.M{"$match": filter})
+	pipeline = slices.AppendIf[any](pipeline, len(filter) > EmptyDocumentSize, bson.M{"$match": filter})
 
 	// 2. SORT AFTER FILTERING - Better index utilization when combined with match
 	pipeline = append(pipeline, bson.M{"$sort": sort})
@@ -119,7 +119,7 @@ func CursorItems(limit int64, projection bson.M, decorationStages bson.A) bson.A
 //
 // Returns:
 //   - bson.A: Stages that shape the result into {items, total}
-func CursorResult(collectionName string, userFilter bson.M, includeTotal bool) bson.A {
+func CursorResult(collectionName string, userFilter bson.Raw, includeTotal bool) bson.A {
 	if !includeTotal {
 		// No counting: collapse items into {items, total: -1}.
 		return bson.A{
@@ -143,7 +143,7 @@ func CursorResult(collectionName string, userFilter bson.M, includeTotal bool) b
 
 	// Count sub-pipeline: independent query scoped to userFilter only.
 	countSubPipeline := bson.A{}
-	countSubPipeline = slices.AppendIf[any](countSubPipeline, len(userFilter) > 0, bson.M{"$match": userFilter})
+	countSubPipeline = slices.AppendIf[any](countSubPipeline, len(userFilter) > EmptyDocumentSize, bson.M{"$match": userFilter})
 	countSubPipeline = append(countSubPipeline,
 		bson.M{countStageOperator: totalField},
 		bson.M{"$replaceRoot": bson.M{"newRoot": bson.M{
@@ -228,3 +228,6 @@ func appendFacetResultTransform(pipeline bson.A, includeTotal bool) bson.A {
 		}},
 	)
 }
+
+// EmptyDocumentSize is the BSON length prefix plus the terminating zero.
+const EmptyDocumentSize = 5
