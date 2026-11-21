@@ -51,12 +51,16 @@ type listCursorOptions struct {
 	// The filter follows MongoDB query syntax for matching documents.
 	//
 	// Parameters:
-	//   - filter: MongoDB query filter using bson.M syntax
+	//   - filter: bson.D, bson.M, map[string]any, bson.Raw, or nil
 	//
 	// Example:
 	//   - WithListCursorFilter(bson.M{"active": true})
 	//   - WithListCursorFilter(bson.M{"age": bson.M{"$gte": 18}})
-	filter bson.M `optgen:"allownull"`
+	filter any `optgen:"allownull"`
+	// WithListCursorFilterEncoding overrides inherited filter encoding settings.
+	filterEncoding FilterEncoding
+	// prepared is the validated filter sent to MongoDB.
+	prepared bson.Raw `opt:"-"`
 	// WithListCursorProjection configures field projection for cursor-based list operations.
 	// This controls which fields are included or excluded from the results.
 	//
@@ -206,9 +210,9 @@ func (o *listCursorOptions) signsCursors() bool {
 // and sortValue, in the format the configuration selects.
 func (o *listCursorOptions) nextCursorToken(ctx context.Context, cursorId string, sortValue any, collection string) (string, error) {
 	if !o.signsCursors() {
-		return generateNextCursorToken(ctx, cursorId, o.sort, o.cursorIdField, o.filter, o.storage, sortValue, o.subject, collection)
+		return generateNextCursorToken(ctx, cursorId, o.sort, o.cursorIdField, o.binding(), o.storage, sortValue, o.subject, collection)
 	}
-	cursor, err := NewCursorWithMetadata(cursorId, o.sort, o.cursorIdField, o.filter, sortValue)
+	cursor, err := newCursorWithMetadata(cursorId, o.sort, o.cursorIdField, o.binding(), sortValue)
 	if err != nil {
 		return "", coreerrs.WrapOperation(err, "create cursor")
 	}
@@ -477,13 +481,28 @@ type ListCursorResult[T any] struct {
 //	    WithListCursorHint("status_1_created_at_-1__id_-1"),
 //	)
 func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...ListCursorOption) (*ListCursorResult[T], error) {
+	opts, err := prepareListCursorOptions(ctx, collection, o)
+	if err != nil {
+		return nil, err
+	}
+	return listCursorPage[T](ctx, collection, opts)
+}
+
+func prepareListCursorOptions(ctx context.Context, collection *mongo.Collection, o []ListCursorOption) (*listCursorOptions, error) {
 	opts := defaultListCursorOptions()
 	for _, opt := range o {
 		opt(opts)
 	}
-	if err := validateFilter(opts.filter); err != nil {
+	raw, err := prepareFilter(ctx, collection, opts.filter, opts.filterEncoding)
+	if err != nil {
 		return nil, err
 	}
+	opts.prepared = raw
+	return opts, nil
+}
+
+// Each page resolves its own continuation against the same prepared filter.
+func listCursorPage[T any](ctx context.Context, collection *mongo.Collection, opts *listCursorOptions) (*ListCursorResult[T], error) {
 	queryCtx, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
 	defer cancel()
 
@@ -495,7 +514,7 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 	}
 
 	// Log index hint usage
-	logHintUsage(opts.logger, opts.hint, collection.Name(), opts.filter,
+	logHintUsage(opts.logger, opts.hint, collection.Name(), opts.prepared,
 		"cursor_provided", opts.cursor != nil)
 
 	// Build optimized pipeline
@@ -616,9 +635,9 @@ func resolveCursorOptions(ctx context.Context, opts *listCursorOptions, collecti
 		var cursor *Cursor
 		var err error
 		if signed {
-			cursor, err = resolveSignedCursor(opts.signer, opts.cursorToken, opts.filter, opts.subject, collection)
+			cursor, err = resolveSignedCursor(ctx, opts.signer, opts.cursorToken, opts.binding(), opts.subject, collection)
 		} else {
-			cursor, err = parseCursorToken(ctx, opts.cursorToken, opts.storage, opts.filter, opts.subject, collection)
+			cursor, err = parseCursorToken(ctx, opts.cursorToken, opts.storage, opts.binding(), opts.subject, collection)
 		}
 		if err != nil {
 			return err
@@ -631,7 +650,7 @@ func resolveCursorOptions(ctx context.Context, opts *listCursorOptions, collecti
 	if opts.cursor != nil && !opts.cursor.IsZero() {
 		// Stateless cursors (no storage) are client-supplied: validate every field
 		if opts.storage == nil {
-			if err := validateStatelessCursor(opts.cursor, opts.sort, opts.cursorIdField, opts.filter, directCursor); err != nil {
+			if err := validateStatelessCursor(ctx, opts.cursor, opts.sort, opts.cursorIdField, opts.binding(), directCursor); err != nil {
 				return coreerrs.WrapOperation(err, "validate cursor")
 			}
 		} else if err := opts.cursor.ValidateChecksum(opts.sort, opts.cursorIdField); err != nil {
@@ -682,13 +701,15 @@ func resolveCursorOptions(ctx context.Context, opts *listCursorOptions, collecti
 //	}
 func ListCursorSeq[T any](ctx context.Context, collection *mongo.Collection, o ...ListCursorOption) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
-		// Pre-allocate options slice with room for the cursor option.
-		// On subsequent pages append reuses the backing array (cap = len+1).
-		pageOpts := make([]ListCursorOption, len(o), len(o)+1)
-		copy(pageOpts, o)
-
+		opts, err := prepareListCursorOptions(ctx, collection, o)
+		if err != nil {
+			var zero T
+			yield(zero, err)
+			return
+		}
 		for {
-			result, err := ListCursor[T](ctx, collection, pageOpts...)
+			page := *opts
+			result, err := listCursorPage[T](ctx, collection, &page)
 			if err != nil {
 				var zero T
 				yield(zero, err)
@@ -707,8 +728,12 @@ func ListCursorSeq[T any](ctx context.Context, collection *mongo.Collection, o .
 				return
 			}
 
-			// Set cursor for next page, reusing the pre-allocated slice.
-			pageOpts = append(pageOpts[:len(o)], WithListCursorCursor(*result.NextCursor))
+			opts.cursor = nil
+			opts.cursorToken = *result.NextCursor
 		}
 	}
+}
+
+func (o *listCursorOptions) binding() cursorFilter {
+	return cursorFilter{raw: o.prepared, original: o.filter}
 }

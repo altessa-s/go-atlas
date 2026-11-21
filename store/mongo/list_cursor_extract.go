@@ -146,7 +146,7 @@ func isBase32Char(c rune) bool {
 // Returns:
 //   - *Cursor: Loaded cursor with metadata
 //   - error: If parsing/loading fails
-func parseCursorToken(ctx context.Context, token string, storage Storage, filter bson.M, subject, collection string) (*Cursor, error) {
+func parseCursorToken(ctx context.Context, token string, storage Storage, filter cursorFilter, subject, collection string) (*Cursor, error) {
 	if token == "" {
 		// Empty token is valid - means no cursor provided, start from beginning
 		return nil, nil //nolint:nilnil // nil cursor with nil error is semantically correct here
@@ -170,7 +170,7 @@ func parseCursorToken(ctx context.Context, token string, storage Storage, filter
 		}
 
 		// Validate filter hasn't changed
-		if validationErr := metadata.ValidateFilter(filter); validationErr != nil {
+		if validationErr := metadata.validateFilter(ctx, filter); validationErr != nil {
 			return nil, validationErr
 		}
 
@@ -200,7 +200,7 @@ func parseCursorToken(ctx context.Context, token string, storage Storage, filter
 	}
 
 	// Validate filter hasn't changed (stateless mode)
-	if validationErr := cursor.ValidateFilter(filter); validationErr != nil {
+	if validationErr := cursor.validateFilter(ctx, filter); validationErr != nil {
 		return nil, validationErr
 	}
 
@@ -219,7 +219,7 @@ func cursorCollectionDigest(collection *mongo.Collection) string {
 // and embedded sort/ID-field metadata must match sort and cursorIdField, and —
 // for a direct *Cursor, which skipped parseCursorToken — its filter hash must
 // match filter.
-func validateStatelessCursor(c *Cursor, sort bson.D, cursorIdField string, filter bson.M, direct bool) error {
+func validateStatelessCursor(ctx context.Context, c *Cursor, sort bson.D, cursorIdField string, filter cursorFilter, direct bool) error {
 	if !isValidCursorId(c.CursorId) {
 		return coreerrs.Wrap(ErrInvalidCursor, "cursor_id must be a MongoDB ObjectID (24 hex characters)")
 	}
@@ -227,7 +227,7 @@ func validateStatelessCursor(c *Cursor, sort bson.D, cursorIdField string, filte
 		return err
 	}
 	if direct {
-		return c.ValidateFilter(filter)
+		return c.validateFilter(ctx, filter)
 	}
 	return nil
 }
@@ -270,7 +270,7 @@ func generateNextCursorToken(
 	cursorId string,
 	sort bson.D,
 	cursorIdField string,
-	filter bson.M,
+	filter cursorFilter,
 	storage Storage,
 	sortValue any,
 	subject string,
@@ -278,7 +278,7 @@ func generateNextCursorToken(
 ) (string, error) {
 	if storage != nil {
 		// Server-side storage mode: create metadata and store
-		metadata, err := NewCursorMetadata(cursorId, sort, cursorIdField, filter, sortValue)
+		metadata, err := newCursorMetadata(cursorId, sort, cursorIdField, filter, sortValue)
 		if err != nil {
 			return "", coreerrs.WrapOperation(err, "create cursor metadata")
 		}
@@ -305,7 +305,7 @@ func generateNextCursorToken(
 	}
 
 	// Stateless mode: encode cursor as base64 JSON
-	cursor, err := NewCursorWithMetadata(cursorId, sort, cursorIdField, filter, sortValue)
+	cursor, err := newCursorWithMetadata(cursorId, sort, cursorIdField, filter, sortValue)
 	if err != nil {
 		return "", coreerrs.WrapOperation(err, "create cursor")
 	}

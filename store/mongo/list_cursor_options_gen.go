@@ -41,14 +41,21 @@ func WithListCursorExplain() ListCursorOption {
 // The filter follows MongoDB query syntax for matching documents.
 //
 // Parameters:
-//   - filter: MongoDB query filter using bson.M syntax
+//   - filter: bson.D, bson.M, map[string]any, bson.Raw, or nil
 //
 // Example:
 //   - WithListCursorFilter(bson.M{"active": true})
 //   - WithListCursorFilter(bson.M{"age": bson.M{"$gte": 18}})
-func WithListCursorFilter(v bson.M) ListCursorOption {
+func WithListCursorFilter(v any) ListCursorOption {
 	return func(o *listCursorOptions) {
 		o.filter = v
+	}
+}
+
+// WithListCursorFilterEncoding overrides inherited filter encoding settings.
+func WithListCursorFilterEncoding(v FilterEncoding) ListCursorOption {
+	return func(o *listCursorOptions) {
+		o.filterEncoding = v
 	}
 }
 

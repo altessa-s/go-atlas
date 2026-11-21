@@ -6,7 +6,6 @@ package mongo
 
 import (
 	"fmt"
-	"maps"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
@@ -204,23 +203,18 @@ func ensureCursorIdInSort(sort bson.D, cursorIdField string) bson.D {
 //
 // Returns:
 //   - bson.A: Pipeline stages (empty if no filters)
-func buildMatchStage(filter bson.M, cursor *Cursor, cursorIdField string, sort bson.D) bson.A {
-	combinedFilter := bson.M{}
-
-	// Add user-provided filter
-	maps.Copy(combinedFilter, filter)
-
+func buildMatchStage(filter bson.Raw, cursor *Cursor, cursorIdField string, sort bson.D) bson.A {
 	// Add cursor filter if cursor is provided
 	if cursor != nil && !cursor.IsZero() {
 		cursorFilter := buildCursorFilter(cursor, cursorIdField, sort)
 
 		// Merge cursor filter with existing filter using $and
-		if len(combinedFilter) > 0 {
+		if len(filter) > pipeline.EmptyDocumentSize {
 			// Wrap both filters in $and
 			return bson.A{
 				bson.M{
 					opMatch: bson.M{
-						opAnd: bson.A{combinedFilter, cursorFilter},
+						opAnd: bson.A{filter, cursorFilter},
 					},
 				},
 			}
@@ -228,8 +222,8 @@ func buildMatchStage(filter bson.M, cursor *Cursor, cursorIdField string, sort b
 		return bson.A{bson.M{opMatch: cursorFilter}}
 	}
 
-	if len(combinedFilter) > 0 {
-		return bson.A{bson.M{opMatch: combinedFilter}}
+	if len(filter) > pipeline.EmptyDocumentSize {
+		return bson.A{bson.M{opMatch: filter}}
 	}
 
 	return bson.A{}
@@ -287,7 +281,7 @@ func buildCursorPipeline(opts *listCursorOptions, collectionName string) bson.A 
 
 	// 1. MATCH - Combine user filter with cursor filter
 	match := buildMatchStage(
-		opts.filter,
+		opts.prepared,
 		opts.cursor,
 		opts.cursorIdField,
 		sort, // local sort with tiebreaker
@@ -309,7 +303,7 @@ func buildCursorPipeline(opts *listCursorOptions, collectionName string) bson.A 
 	// 5. COUNT + FINAL SHAPE - tag items, join independent count, collapse into {items, total}
 	count := pipeline.CursorResult(
 		collectionName,
-		opts.filter,
+		opts.prepared,
 		opts.includeTotal,
 	)
 

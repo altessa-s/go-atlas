@@ -35,14 +35,21 @@ func WithListExplain() ListOption {
 // The filter follows MongoDB query syntax for matching documents.
 //
 // Parameters:
-//   - filter: MongoDB query filter using bson.M syntax
+//   - filter: bson.D, bson.M, map[string]any, bson.Raw, or nil
 //
 // Example:
 //   - WithListFilter(bson.M{"active": true})
 //   - WithListFilter(bson.M{"age": bson.M{"$gte": 18}})
-func WithListFilter(v bson.M) ListOption {
+func WithListFilter(v any) ListOption {
 	return func(o *listOptions) {
 		o.filter = v
+	}
+}
+
+// WithListFilterEncoding overrides inherited filter encoding settings.
+func WithListFilterEncoding(v FilterEncoding) ListOption {
+	return func(o *listOptions) {
+		o.filterEncoding = v
 	}
 }
 

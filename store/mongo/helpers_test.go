@@ -130,8 +130,8 @@ func TestGenerateDeduplicationKey_DistinguishesTypeSiblings(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ka := generateDeduplicationKey("db:coll", tc.a)
-			kb := generateDeduplicationKey("db:coll", tc.b)
+			ka := generateDeduplicationKey("db:coll", mustPrepareFilter(t, tc.a))
+			kb := generateDeduplicationKey("db:coll", mustPrepareFilter(t, tc.b))
 			require.NotEqual(t, ka, kb,
 				"distinct BSON types must yield distinct singleflight keys — otherwise queries get incorrectly coalesced (a=%v b=%v)", tc.a, tc.b)
 		})
@@ -145,9 +145,9 @@ func TestGenerateDeduplicationKey_DistinguishesTypeSiblings(t *testing.T) {
 func TestGenerateDeduplicationKey_StableAcrossMapIteration(t *testing.T) {
 	filter := bson.M{"a": 1, "b": "two", "c": int64(3), "d": []byte("four")}
 
-	first := generateDeduplicationKey("p", filter)
+	first := generateDeduplicationKey("p", mustPrepareFilter(t, filter))
 	for range 100 {
-		require.Equal(t, first, generateDeduplicationKey("p", filter),
+		require.Equal(t, first, generateDeduplicationKey("p", mustPrepareFilter(t, filter)),
 			"same filter must produce the same key regardless of map iteration order")
 	}
 }
@@ -156,20 +156,14 @@ func TestGenerateDeduplicationKey_StableAcrossMapIteration(t *testing.T) {
 // basic correctness path: changing any key or value MUST produce a
 // different key.
 func TestGenerateDeduplicationKey_DistinctFiltersDiverge(t *testing.T) {
-	base := generateDeduplicationKey("p", bson.M{"a": 1, "b": 2})
+	base := generateDeduplicationKey("p", mustPrepareFilter(t, bson.M{"a": 1, "b": 2}))
 
-	require.NotEqual(t, base, generateDeduplicationKey("p", bson.M{"a": 1, "b": 3}),
+	require.NotEqual(t, base, generateDeduplicationKey("p", mustPrepareFilter(t, bson.M{"a": 1, "b": 3})),
 		"different values must diverge")
-	require.NotEqual(t, base, generateDeduplicationKey("p", bson.M{"a": 1, "b": 2, "c": 3}),
+	require.NotEqual(t, base, generateDeduplicationKey("p", mustPrepareFilter(t, bson.M{"a": 1, "b": 2, "c": 3})),
 		"extra key must diverge")
-	require.NotEqual(t, base, generateDeduplicationKey("q", bson.M{"a": 1, "b": 2}),
+	require.NotEqual(t, base, generateDeduplicationKey("q", mustPrepareFilter(t, bson.M{"a": 1, "b": 2})),
 		"different prefix must diverge")
-}
-
-// TestGenerateDeduplicationKey_EmptyFilter pins the early-return path.
-func TestGenerateDeduplicationKey_EmptyFilter(t *testing.T) {
-	require.Equal(t, "p", generateDeduplicationKey("p", nil))
-	require.Equal(t, "p", generateDeduplicationKey("p", bson.M{}))
 }
 
 func TestQueryHelpersRejectDangerousFilters(t *testing.T) {
@@ -192,4 +186,11 @@ func TestQueryHelpersRejectDangerousFilters(t *testing.T) {
 		break
 	}
 	require.ErrorIs(t, sequenceErr, ErrFilterContainsDangerousOperator)
+}
+
+func mustPrepareFilter(t testing.TB, doc any) bson.Raw {
+	t.Helper()
+	raw, err := prepareFilter(t.Context(), nil, doc)
+	require.NoError(t, err)
+	return raw
 }

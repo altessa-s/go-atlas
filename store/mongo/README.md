@@ -50,6 +50,25 @@ a later non-nil instance of the same type is parsed fully. The cache retains no 
 Returned metadata belongs to the caller. `NestedStructs` contains type descriptions, without instance values. Encryption models are copied at
 construction. The unused `WithParserUpdate` and `WithParserEncryption` options were removed; operation modes belong to document processing.
 
+## Read filters
+
+**Breaking change.** Entity readers, offset lists and cursor lists now use the same strict BSON filter contract as keyset pagination.
+Pass `bson.D`, `bson.M`, `map[string]any`, `bson.Raw`, or nil. See the [filter migration notes](keyset/README.md#migrating-keyset-filters)
+for struct replacements, ordered embedded documents and scalar codec registration.
+
+Each read prepares the filter with the Atlas client's effective registry and BSON options. For an external client the defaults are the
+Atlas registry and driver BSON defaults. Supply database or collection overrides explicitly. Entity readers accept a trailing
+`FilterEncoding` (the last settings value wins). For lists use `WithListFilterEncoding` or `WithListCursorFilterEncoding`.
+
+```go
+encoding := mongo.FilterEncoding{Registry: registry, BSONOptions: bsonOptions}
+user, err := mongo.GetEntity[UserDocument, User](ctx, client, collection, filter, encoding)
+```
+
+A new `ListCursor` continuation binds the prepared BSON bytes, including numeric types and field order. Older signed tokens and stored
+records still use their original JSON filter hash and the same collection, subject and sort checks. Older releases cannot resume new
+BSON-bound cursors. `ListCursorSeq` captures the prepared filter when iteration begins and reuses it across pages.
+
 ## Read deduplication and tenant isolation
 
 `GetEntity` and `GetEntities` collapse concurrent identical reads through a `singleflight` group keyed by `db:collection:hash(filter)`. Two callers

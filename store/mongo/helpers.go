@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"log/slog"
 	"math/bits"
-	"slices"
 	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 
@@ -99,39 +99,23 @@ const (
 	DefaultTxTimeout = 30 * time.Second
 )
 
-// errDeduplicationKeyEncode is recorded when bson.Marshal fails inside
-// generateDeduplicationKey. Marshal errors here mean we cannot safely
-// dedupe the request — the function falls back to a per-key sentinel so
-// the singleflight slot stays unique and we never coalesce two
-// potentially-different queries.
-const deduplicationKeyMarshalSentinel = "\x00bson-marshal-error\x00"
+// FilterEncoding supplies database or collection overrides for a read.
+// Nil fields inherit the Atlas client's settings. External clients default to
+// the Atlas registry and driver BSON options.
+type FilterEncoding struct {
+	Registry    *bson.Registry
+	BSONOptions *options.BSONOptions
+}
 
-// validateFilter delegates validation shared with pagination.
-func validateFilter(filter any) error { return query.ValidateFilter(filter) }
+func prepareFilter(ctx context.Context, coll *mongo.Collection, filter any, settings ...FilterEncoding) (bson.Raw, error) {
+	var encoding FilterEncoding
+	if len(settings) > 0 {
+		encoding = settings[len(settings)-1]
+	}
+	reg, opts := query.FilterEncoding(coll, encoding.Registry, encoding.BSONOptions)
+	return query.ValidateFilter(ctx, filter, reg, opts)
+}
 
-// generateDeduplicationKey creates a deterministic SHA-256 hash key from filter parameters.
-// This function is used for query deduplication in singleflight patterns to ensure that
-// identical queries (same prefix and filter) map to the same deduplication key.
-//
-// The function ensures deterministic key generation by:
-//  1. Sorting filter keys alphabetically (maps have random iteration order in Go)
-//  2. Creating a consistent string representation of key-value pairs
-//  3. Hashing with SHA-256 to produce collision-resistant keys
-//
-// Parameters:
-//   - prefix: A string prefix to namespace different query types (e.g., "list", "count")
-//   - filter: MongoDB filter using bson.M syntax
-//
-// Returns:
-//   - string: SHA-256 hex-encoded hash of "prefix:key1=val1;key2=val2;..."
-//   - If filter is empty, returns prefix unchanged
-//
-// Example:
-//   - generateDeduplicationKey("list", bson.M{"age": 25, "name": "John"})
-//     → "a1b2c3..." (SHA-256 hash of "list:age=25;name=John")
-//
-// Use case: In distributed systems with concurrent identical queries, this key enables
-// deduplication to ensure only one query executes while others wait for the result.
 // deduplicate runs fn through the singleflight group under key, unless ctx
 // carries a session: a read inside a transaction must see that transaction's
 // snapshot, and a read outside it must never see its uncommitted writes, so
@@ -149,7 +133,7 @@ func (m *Mongo) deduplicate(ctx context.Context, key string, fn func(context.Con
 // key is identical to the un-prefixed form so existing callers are unaffected.
 // The identity segment ensures two callers issuing the same filter concurrently
 // are only collapsed when they share an identity — never across tenants.
-func (m *Mongo) deduplicationKey(ctx context.Context, base string, filter bson.M) string {
+func (m *Mongo) deduplicationKey(ctx context.Context, base string, filter bson.Raw) string {
 	if m.config.dedupIdentity != nil {
 		if id := m.config.dedupIdentity(ctx); id != "" {
 			base = id + ":" + base
@@ -158,54 +142,8 @@ func (m *Mongo) deduplicationKey(ctx context.Context, base string, filter bson.M
 	return generateDeduplicationKey(base, filter)
 }
 
-func generateDeduplicationKey(prefix string, filter bson.M) string {
-	if len(filter) == 0 {
-		return prefix
-	}
-
-	// Sort keys so the same filter always produces the same key regardless
-	// of map iteration order.
-	keys := make([]string, 0, len(filter))
-	for k := range filter {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-
-	// Build a sorted bson.D and marshal it: BSON is a typed, canonical
-	// wire format so distinct values that share a Go fmt.Sprint
-	// representation (int32(1) vs int64(1), []byte("1") vs "1", two
-	// structs with identical String()) end up with different bytes and
-	// therefore different SHA-256 hashes. Using fmt.Fprint here would
-	// silently coalesce those distinct queries through singleflight and
-	// the second caller would receive the first caller's result.
-	d := make(bson.D, len(keys))
-	for i, key := range keys {
-		d[i] = bson.E{Key: key, Value: filter[key]}
-	}
-
-	var sb strings.Builder
-	sb.WriteString(prefix)
-	sb.WriteByte(':')
-
-	if encoded, err := bson.Marshal(d); err == nil {
-		sb.Write(encoded)
-	} else {
-		// Marshal failed (unsupported type, cycle, etc.). Avoid collapsing
-		// every failed-to-encode filter onto the same key — encode the
-		// error site into the dedupe key so distinct filters that both
-		// fail still get distinct singleflight slots, accepting a single
-		// missed-dedup over a wrong-result coalescence.
-		sb.WriteString(deduplicationKeyMarshalSentinel)
-		for _, key := range keys {
-			sb.WriteString(key)
-			sb.WriteByte('=')
-			fmt.Fprintf(&sb, "%#v", filter[key])
-			sb.WriteByte(';')
-		}
-	}
-
-	// Use SHA-256 for collision-resistant hashing (essential for correct singleflight deduplication)
-	return corehash.SHA256HexString(sb.String())
+func generateDeduplicationKey(prefix string, filter bson.Raw) string {
+	return corehash.SHA256HexString(prefix + ":" + string(filter))
 }
 
 // capListOffset enforces the [MaxListOffset] cap on offset-based pagination.
@@ -293,7 +231,7 @@ func capListLimit(limit int64, logger *slog.Logger) int64 {
 //
 // Use case: Debugging slow queries, performance regression analysis, and ensuring
 // index hints are being applied correctly in production.
-func logHintUsage(logger *slog.Logger, hint any, collectionName string, filter bson.M, extraFields ...any) {
+func logHintUsage(logger *slog.Logger, hint any, collectionName string, filter bson.Raw, extraFields ...any) {
 	if hint == nil {
 		return
 	}

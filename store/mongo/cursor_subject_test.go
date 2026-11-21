@@ -76,18 +76,18 @@ func TestStatefulCursor_SubjectBinding(t *testing.T) {
 	cursorID := bson.NewObjectID().Hex()
 
 	// Tenant A mints a "next" token bound to its identity.
-	token, err := generateNextCursorToken(t.Context(), cursorID, sort, "_id", filter, storage, nil, "tenant-A", "")
+	token, err := generateNextCursorToken(t.Context(), cursorID, sort, "_id", cursorFilter{original: filter}, storage, nil, "tenant-A", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
 	require.Equal(t, "tenant-A", storage.entries[token].Subject)
 
 	// Tenant A can continue paging with the same filter.
-	cur, err := parseCursorToken(t.Context(), token, storage, filter, "tenant-A", "")
+	cur, err := parseCursorToken(t.Context(), token, storage, cursorFilter{original: filter}, "tenant-A", "")
 	require.NoError(t, err)
 	require.NotNil(t, cur)
 
 	// Tenant B replaying A's leaked token is rejected.
-	_, err = parseCursorToken(t.Context(), token, storage, filter, "tenant-B", "")
+	_, err = parseCursorToken(t.Context(), token, storage, cursorFilter{original: filter}, "tenant-B", "")
 	require.ErrorIs(t, err, ErrCursorSubjectMismatch)
 }
 
@@ -101,10 +101,10 @@ func TestStatefulCursor_UnboundContinuesWithoutSubject(t *testing.T) {
 	filter := bson.M{}
 	cursorID := bson.NewObjectID().Hex()
 
-	token, err := generateNextCursorToken(t.Context(), cursorID, sort, "_id", filter, storage, nil, "", "")
+	token, err := generateNextCursorToken(t.Context(), cursorID, sort, "_id", cursorFilter{original: filter}, storage, nil, "", "")
 	require.NoError(t, err)
 	require.Empty(t, storage.entries[token].Subject)
 
-	_, err = parseCursorToken(t.Context(), token, storage, filter, "", "")
+	_, err = parseCursorToken(t.Context(), token, storage, cursorFilter{original: filter}, "", "")
 	require.NoError(t, err)
 }

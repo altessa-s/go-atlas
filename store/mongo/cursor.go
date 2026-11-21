@@ -6,6 +6,7 @@ package mongo
 
 import (
 	"cmp"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -79,7 +80,7 @@ var ErrCursorChecksumMismatch = errors.New("cursor checksum mismatch")
 // field carrying raw bytes comes back from [ParseCursor] silently altered, and
 // the cursor then fails to decode on the request after next, far from the
 // assignment that caused it. Nothing in this package can produce such a value:
-// Sort and SortValue are base64, Checksum and FilterHash are hex, and
+// Sort and SortValue are base64, Checksum is hex and FilterHash is a versioned digest, and
 // CursorIdField is a MongoDB field name. Callers that build a Cursor by hand
 // must keep to the same encodings.
 //
@@ -579,6 +580,10 @@ func computeCursorChecksum(sort bson.D, cursorIdField string) (string, error) {
 //	    // Handle invalid parameters
 //	}
 func NewCursorWithMetadata(cursorId string, sort bson.D, cursorIdField string, filter bson.M, sortValue any) (*Cursor, error) {
+	return newCursorWithMetadata(cursorId, sort, cursorIdField, cursorFilter{original: filter}, sortValue)
+}
+
+func newCursorWithMetadata(cursorId string, sort bson.D, cursorIdField string, filter cursorFilter, sortValue any) (*Cursor, error) {
 	// Validate cursor ID format
 	if !isValidCursorId(cursorId) {
 		return nil, fmt.Errorf("invalid cursor id: must be a MongoDB ObjectID (24 hex characters)")
@@ -621,7 +626,7 @@ func NewCursorWithMetadata(cursorId string, sort bson.D, cursorIdField string, f
 	}
 
 	// Compute filter hash for validation (always, even for empty filter)
-	filterHash, err := computeFilterHash(filter)
+	filterHash, err := filter.hash()
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "compute filter hash")
 	}
@@ -739,6 +744,10 @@ func (c *Cursor) ValidateChecksum(sort bson.D, cursorIdField string) error {
 //	    // Filter has changed mid-pagination
 //	}
 func (c *Cursor) ValidateFilter(filter bson.M) error {
+	return c.validateFilter(context.Background(), cursorFilter{original: filter})
+}
+
+func (c *Cursor) validateFilter(ctx context.Context, filter cursorFilter) error {
 	if c == nil {
 		return fmt.Errorf("cannot validate nil cursor")
 	}
@@ -749,7 +758,7 @@ func (c *Cursor) ValidateFilter(filter bson.M) error {
 	}
 
 	// Compute current filter hash
-	currentHash, err := computeFilterHash(filter)
+	currentHash, err := filter.matchingHash(ctx, c.FilterHash)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "compute filter hash")
 	}

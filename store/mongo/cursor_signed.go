@@ -5,11 +5,10 @@
 package mongo
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
 
@@ -77,7 +76,7 @@ func issueSignedCursor(signer CursorSigner, cursor *Cursor, subject, collection 
 // cursor. The checks follow the stateful path: after the signature, the
 // collection, the filter and the subject must equal the request's. An
 // unsigned token does not verify and fails with [ErrInvalidCursor].
-func resolveSignedCursor(signer CursorSigner, token string, filter bson.M, subject, collection string) (*Cursor, error) {
+func resolveSignedCursor(ctx context.Context, signer CursorSigner, token string, filter cursorFilter, subject, collection string) (*Cursor, error) {
 	if len(token) > MaxCursorTokenLength {
 		return nil, coreerrs.Wrapf(ErrInvalidCursor, "token longer than %d bytes", MaxCursorTokenLength)
 	}
@@ -94,7 +93,7 @@ func resolveSignedCursor(signer CursorSigner, token string, filter bson.M, subje
 	if signed.Collection != collection {
 		return nil, ErrCursorCollectionMismatch
 	}
-	if err = cursor.ValidateFilter(filter); err != nil {
+	if err = cursor.validateFilter(ctx, filter); err != nil {
 		return nil, err
 	}
 	if signed.Subject != cursorSubjectDigest(subject) {

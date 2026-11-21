@@ -16,6 +16,7 @@ require (
 	github.com/altessa-s/go-aip/backend/mongo v0.1.9
 	github.com/altessa-s/go-atlas v0.0.0
 	github.com/altessa-s/go-atlas-core v0.3.5
+	github.com/altessa-s/go-mongox v0.1.2
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/nats-io/nats.go v1.56.0
@@ -34,7 +35,6 @@ require (
 	github.com/altessa-s/go-convert v0.1.0 // indirect
 	github.com/altessa-s/go-horai v0.1.2 // indirect
 	github.com/altessa-s/go-kryptos v0.1.4 // indirect
-	github.com/altessa-s/go-mongox v0.1.2 // indirect
 	github.com/altessa-s/go-nomos v0.2.3 // indirect
 	github.com/altessa-s/go-slogx v0.1.4 // indirect
 	github.com/altessa-s/ozzo-rules v1.17.0 // indirect

@@ -58,7 +58,7 @@ func TestBuildCountUnionStages(t *testing.T) {
 	t.Parallel()
 	t.Run("includeTotal=false: only $group + $project total=-1", func(t *testing.T) {
 		t.Parallel()
-		got := pipeline.CursorResult("test_collection", bson.M{"status": "active"}, false)
+		got := pipeline.CursorResult("test_collection", rawFilter(t, bson.M{"status": "active"}), false)
 		require.Len(t, got, 2)
 		assertBsonDStageKey(t, got[0], "$group")
 		assertBsonDStageKey(t, got[1], "$project")
@@ -70,7 +70,7 @@ func TestBuildCountUnionStages(t *testing.T) {
 
 	t.Run("includeTotal=true: $replaceRoot + $unionWith + $group + $project", func(t *testing.T) {
 		t.Parallel()
-		got := pipeline.CursorResult("test_collection", bson.M{"status": "active"}, true)
+		got := pipeline.CursorResult("test_collection", rawFilter(t, bson.M{"status": "active"}), true)
 		require.Len(t, got, 4)
 		assertBsonDStageKey(t, got[0], "$replaceRoot")
 		assertBsonDStageKey(t, got[1], "$unionWith")
@@ -80,30 +80,30 @@ func TestBuildCountUnionStages(t *testing.T) {
 
 	t.Run("$unionWith targets the same collection", func(t *testing.T) {
 		t.Parallel()
-		got := pipeline.CursorResult("test_collection", bson.M{"status": "active"}, true)
+		got := pipeline.CursorResult("test_collection", rawFilter(t, bson.M{"status": "active"}), true)
 		union := got[1].(bson.M)["$unionWith"].(bson.M)
 		require.Equal(t, "test_collection", union["coll"], "$unionWith should target the originating collection")
 	})
 
 	t.Run("count sub-pipeline contains user filter but never cursor filter", func(t *testing.T) {
 		t.Parallel()
-		userFilter := bson.M{"status": "active"}
+		userFilter := rawFilter(t, bson.M{"status": "active"})
 		got := pipeline.CursorResult("test_collection", userFilter, true)
 		subPipeline := got[1].(bson.M)["$unionWith"].(bson.M)["pipeline"].(bson.A)
 
 		// Expected: $match (userFilter), $count, $replaceRoot (tag as "count").
 		require.Len(t, subPipeline, 3)
-		matchStage := subPipeline[0].(bson.M)["$match"].(bson.M)
-		require.Equal(t, "active", matchStage["status"], "$match should carry the user filter")
-		require.NotContains(t, matchStage, "$and", "user filter should not be wrapped in $and (no cursor_filter expected)")
-		require.NotContains(t, matchStage, "cursor_id", "cursor filter must not leak into count sub-pipeline")
+		matchStage := subPipeline[0].(bson.M)["$match"].(bson.Raw)
+		require.Equal(t, "active", matchStage.Lookup("status").StringValue(), "$match should carry the user filter")
+		require.Zero(t, matchStage.Lookup("$and").Type, "user filter should not be wrapped in $and (no cursor_filter expected)")
+		require.Zero(t, matchStage.Lookup("cursor_id").Type, "cursor filter must not leak into count sub-pipeline")
 		assertBsonDStageKey(t, subPipeline[1], "$count")
 		assertBsonDStageKey(t, subPipeline[2], "$replaceRoot")
 	})
 
 	t.Run("empty user filter omits $match in count sub-pipeline", func(t *testing.T) {
 		t.Parallel()
-		got := pipeline.CursorResult("test_collection", bson.M{}, true)
+		got := pipeline.CursorResult("test_collection", nil, true)
 		subPipeline := got[1].(bson.M)["$unionWith"].(bson.M)["pipeline"].(bson.A)
 
 		// Expected: $count, $replaceRoot — no $match when filter is empty.
@@ -142,14 +142,14 @@ func TestOffset(t *testing.T) {
 	sort := bson.D{{Key: "created_at", Value: -1}}
 	for _, tc := range []struct {
 		name       string
-		filter     bson.M
+		filter     bson.Raw
 		projection bson.M
 		offset     int64
 		total      bool
 	}{
 		{name: "minimal"},
 		{name: "with total", total: true},
-		{name: "filtered projected page", filter: bson.M{"status": "active"}, projection: bson.M{"name": 1}, offset: 40, total: true},
+		{name: "filtered projected page", filter: rawFilter(t, bson.M{"status": "active"}), projection: bson.M{"name": 1}, offset: 40, total: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -183,4 +183,11 @@ func TestOffset(t *testing.T) {
 			}
 		})
 	}
+}
+
+func rawFilter(t testing.TB, doc bson.M) bson.Raw {
+	t.Helper()
+	raw, err := bson.Marshal(doc)
+	require.NoError(t, err)
+	return raw
 }
