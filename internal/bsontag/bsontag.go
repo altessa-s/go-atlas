@@ -10,9 +10,14 @@ import (
 	"sync"
 )
 
+// Key is the driver's default struct-tag key, the only one with the bare-tag form.
+const Key = "bson"
+
 // Info describes the document key and the encoding and update options used by Atlas.
 type Info struct {
-	Name         string
+	// Name is the document key. As in the driver, a tag such as "-,omitempty" yields the key "-".
+	Name string
+	// Skip is set only by the complete tag "-"; the other fields are then zero.
 	Skip         bool
 	OmitEmpty    bool
 	OmitOnUpdate bool
@@ -20,10 +25,10 @@ type Info struct {
 	Inline       bool
 }
 
-// Lookup reads key from tag. The default bson key also accepts a bare tag without a colon.
+// Lookup reads key from tag. The default [Key] also accepts a bare tag without a colon.
 func Lookup(tag reflect.StructTag, key string) string {
 	value, ok := tag.Lookup(key)
-	if !ok && key == "bson" && !strings.Contains(string(tag), ":") {
+	if !ok && key == Key && !strings.Contains(string(tag), ":") {
 		return string(tag)
 	}
 	return value

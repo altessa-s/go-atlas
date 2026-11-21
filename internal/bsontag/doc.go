@@ -6,5 +6,5 @@
 //
 // # Usage
 //
-//	info := bsontag.Parse(bsontag.Lookup(field.Tag, "bson"), field.Name)
+//	info := bsontag.Parse(bsontag.Lookup(field.Tag, bsontag.Key), field.Name)
 package bsontag

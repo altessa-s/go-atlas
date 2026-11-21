@@ -121,7 +121,7 @@ func payloadFields(t reflect.Type) (fields []string, ok bool) {
 		if !sf.IsExported() {
 			continue
 		}
-		info := bsontag.Parse(bsontag.Lookup(sf.Tag, "bson"), sf.Name)
+		info := bsontag.Parse(bsontag.Lookup(sf.Tag, bsontag.Key), sf.Name)
 		switch {
 		case info.Skip:
 		case info.Inline:

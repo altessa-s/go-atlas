@@ -96,6 +96,7 @@ messaging/eventbus          # Event bus abstractions
 
 # Internal (module-wide internals and test helpers)
 internal                    # Internal utilities
+internal/bsontag            # Shared bson struct-tag parser
 internal/purgeloop          # Shared purge lifecycle and batch draining
 internal/testhelpers        # Shared test helpers
 internal/nats               # Shared NATS bases
