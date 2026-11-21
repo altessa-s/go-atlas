@@ -2,5 +2,5 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package query shares MongoDB filter validation, sort parsing, encoding defaults and read timeouts.
+// Package query shares MongoDB sort parsing, filter encoding defaults and read timeouts.
 package query

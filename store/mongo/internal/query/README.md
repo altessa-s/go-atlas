@@ -10,7 +10,6 @@ Internal query primitives shared by MongoDB pagination and repository reads.
 
 | API | Purpose |
 |-----|---------|
-| `ValidateFilter` | Prepare and validate the exact BSON document used by ordinary reads |
 | `ParseSortString`, `ParseSortStringStrict` | Parse legacy comma-separated fields, optionally with an allowlist |
 | `ParseSortOption` | Normalize string, pointer and BSON sort options |
 | `Registry` | Shared default BSON encoding registry |
@@ -19,4 +18,5 @@ Internal query primitives shared by MongoDB pagination and repository reads.
 
 The sort syntax is `name,-age`, not AIP `order_by`. Named string and pointer types are accepted by sort options. The [root package](../../README.md) uses this parser through its list sort options.
 
-See the [read filter contract](../../README.md#read-filters) for supported documents and scalar codecs.
+Read filters are prepared by `go-mongox/bsonfilter.Prepare` in the root package; see the [read filter contract](../../README.md#read-filters)
+for supported documents and scalar codecs.

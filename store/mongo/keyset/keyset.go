@@ -14,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
+	"github.com/altessa-s/go-mongox/bsonfilter"
 
 	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 
@@ -30,7 +31,7 @@ const (
 
 var (
 	// ErrFilterContainsDangerousOperator identifies a filter containing a server-side JavaScript operator.
-	ErrFilterContainsDangerousOperator = query.ErrDangerousOperator
+	ErrFilterContainsDangerousOperator = bsonfilter.ErrDangerousOperator
 	// ErrSort is returned by [FindPage] for a sort it cannot page: a
 	// direction other than 1 or -1, an empty or repeated field.
 	ErrSort = mongokeyset.ErrSort
