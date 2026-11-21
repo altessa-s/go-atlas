@@ -9,8 +9,9 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-mongox/bsonfilter"
+
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
-	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -183,5 +184,5 @@ var (
 	// expose the application to RCE through any endpoint that builds a
 	// filter from request data. The check fires at any depth — including
 	// inside BSON documents, typed slices, and nested arrays.
-	ErrFilterContainsDangerousOperator = query.ErrDangerousOperator
+	ErrFilterContainsDangerousOperator = bsonfilter.ErrDangerousOperator
 )

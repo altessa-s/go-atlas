@@ -16,6 +16,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/altessa-s/go-mongox/bsonfilter"
+
 	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 
 	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
@@ -113,7 +115,7 @@ func prepareFilter(ctx context.Context, coll *mongo.Collection, filter any, sett
 		encoding = settings[len(settings)-1]
 	}
 	reg, opts := query.FilterEncoding(coll, encoding.Registry, encoding.BSONOptions)
-	return query.ValidateFilter(ctx, filter, reg, opts)
+	return bsonfilter.Prepare(ctx, filter, reg, opts)
 }
 
 // deduplicate runs fn through the singleflight group under key, unless ctx
