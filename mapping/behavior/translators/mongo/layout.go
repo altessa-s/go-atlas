@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/altessa-s/go-atlas/internal/bsontag"
 	"github.com/altessa-s/go-atlas/mapping/behavior"
 )
 
@@ -94,15 +95,14 @@ func describe(t reflect.Type, tag string, visiting []reflect.Type) (*docLayout, 
 		if !sf.IsExported() {
 			continue
 		}
-		raw := (&options{bsonTagName: tag}).fieldTag(sf.Tag)
-		name, omitEmpty, omitOnUpdate := parseBSONTag(raw, sf.Name)
-		if name == "" {
+		info := bsontag.Parse(bsontag.Lookup(sf.Tag, tag), sf.Name)
+		if info.Skip {
 			continue
 		}
-		if !hasInline(raw) {
+		if !info.Inline {
 			fields = append(fields, docField{
-				name: name, index: []int{i}, goName: sf.Name, tag: sf.Tag,
-				omitEmpty: omitEmpty, omitOnUpdate: omitOnUpdate, minSize: bsonTag(raw, sf.Name).minSize,
+				name: info.Name, index: []int{i}, goName: sf.Name, tag: sf.Tag,
+				omitEmpty: info.OmitEmpty, omitOnUpdate: info.OmitOnUpdate, minSize: info.MinSize,
 			})
 			continue
 		}
@@ -127,7 +127,7 @@ func describe(t reflect.Type, tag string, visiting []reflect.Type) (*docLayout, 
 		}
 		for _, fd := range inner.fields {
 			fd.index = append([]int{i}, fd.index...)
-			fd.omitOnUpdate = fd.omitOnUpdate || omitOnUpdate
+			fd.omitOnUpdate = fd.omitOnUpdate || info.OmitOnUpdate
 			fields = append(fields, fd)
 		}
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/altessa-s/go-convert/reflectx"
 
+	"github.com/altessa-s/go-atlas/internal/bsontag"
 	"github.com/altessa-s/go-atlas/mapping/behavior"
 )
 
@@ -339,7 +340,7 @@ func foldInlineMap(obj behavior.Object, layout *docLayout, o *options, m mode, e
 	if !ok || !exact || (m == modeUpdate && f.Strip) {
 		return nil
 	}
-	omit := m == modeUpdate && hasOmitOnUpdate(o.fieldTag(f.Tag))
+	omit := m == modeUpdate && o.omitOnUpdate(f.Tag)
 	// A replaced collection element loses the stored entries of an empty or
 	// omitted inline map with it.
 	if m == modeUpdate && ec.inColl && (omit || f.Value.Len() == 0) && o.protectedType(f.Value.Type(), true, ec.noAddr, o.policy) {
@@ -368,10 +369,8 @@ func foldInlineMap(obj behavior.Object, layout *docLayout, o *options, m mode, e
 	return nil
 }
 
-// hasOmitOnUpdate reports whether a bson tag carries the omitonupdate option.
-func hasOmitOnUpdate(tag string) bool {
-	_, _, omitOnUpdate := parseBSONTag(tag, "x")
-	return omitOnUpdate
+func (o *options) omitOnUpdate(tag reflect.StructTag) bool {
+	return bsontag.Parse(bsontag.Lookup(tag, o.bsonTagName), "").OmitOnUpdate
 }
 
 // foldField writes a single field into set/unset.

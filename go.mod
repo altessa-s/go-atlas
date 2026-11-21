@@ -4,17 +4,17 @@ go 1.27.0
 
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
-	buf.build/go/protovalidate v1.4.0
-	cel.dev/cel-go v0.33.2
+	buf.build/go/protovalidate v1.4.1
+	cel.dev/cel-go v0.33.4
 	cloud.google.com/go v0.123.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.51.0
-	github.com/MicahParks/jwkset v0.11.4
+	github.com/MicahParks/jwkset v0.12.0
 	github.com/MicahParks/keyfunc/v3 v3.9.2
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/altessa-s/go-aip v0.1.8
 	github.com/altessa-s/go-aip/backend/mongo v0.1.8
 	github.com/altessa-s/go-atlas-core v0.3.5
-	github.com/altessa-s/go-atlas-net v0.3.5
+	github.com/altessa-s/go-atlas-net v0.3.6
 	github.com/altessa-s/go-convert v0.1.0
 	github.com/altessa-s/go-horai v0.1.2
 	github.com/altessa-s/go-horai/storage/clickhouse v0.1.2
@@ -34,10 +34,10 @@ require (
 	github.com/altessa-s/proto-gen-go v0.3.0
 	github.com/aohorodnyk/mimeheader v0.0.6
 	github.com/aws/aws-sdk-go-v2 v1.48.0
-	github.com/aws/aws-sdk-go-v2/config v1.33.18
-	github.com/aws/aws-sdk-go-v2/credentials v1.21.0
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.10
-	github.com/bits-and-blooms/bloom/v3 v3.7.1
+	github.com/aws/aws-sdk-go-v2/config v1.33.21
+	github.com/aws/aws-sdk-go-v2/credentials v1.21.3
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.116.0
+	github.com/bits-and-blooms/bloom/v3 v3.7.2
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/coocood/freecache v1.2.7
 	github.com/go-ozzo/ozzo-validation/v4 v4.5.0
@@ -48,7 +48,7 @@ require (
 	github.com/hashicorp/vault/api/auth/userpass v0.12.0
 	github.com/meilisearch/meilisearch-go v0.37.0
 	github.com/nats-io/nats-server/v2 v2.15.3
-	github.com/nats-io/nats.go v1.55.0
+	github.com/nats-io/nats.go v1.56.0
 	github.com/nats-io/nkeys v0.4.17
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/open-policy-agent/opa v1.22.4
@@ -62,15 +62,15 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/xakep666/mongo-migrate v0.4.1
 	gitlab.com/gitlab-org/api/client-go v1.46.0
-	go.mongodb.org/mongo-driver/v2 v2.10.0
+	go.mongodb.org/mongo-driver/v2 v2.10.1
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.47.0
 	go.opentelemetry.io/proto/otlp v1.11.1
 	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
-	google.golang.org/genproto v0.0.0-20261110000943-09e21b237f2c
-	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c
+	google.golang.org/genproto v0.0.0-20261118221215-c8830f628b3f
+	google.golang.org/genproto/googleapis/api v0.0.0-20261118221215-c8830f628b3f
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261118221215-c8830f628b3f
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
@@ -102,13 +102,13 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.13 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.12 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.13.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.14.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.39.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.52.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.53.0 // indirect
 	github.com/aws/smithy-go v1.28.9 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.24.2 // indirect
+	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/containerd/continuity v0.4.5 // indirect
