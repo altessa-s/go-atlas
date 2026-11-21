@@ -16,6 +16,7 @@ go test ./tests/architecture
 | Check | Scope |
 |-------|-------|
 | Production imports | Parses all platform files, including files excluded by the current build tags |
+| MongoDB adapters | Only `store/mongo` and its subpackages may import `go-mongox`. Production imports of go-aip remain limited to its root module. |
 | Dependency boundaries | Core, configuration schemas, factories, domain, backend-neutral listing, transport implementation imports and consumer-side seams |
 | Concrete-type seams | AST check rejects listed implementation selectors in production consumers, including aliased imports and build-tagged files |
 | Driver-free contracts | Full `go list` dependency set of the backend-neutral contracts on `linux`, `darwin` and `windows` |

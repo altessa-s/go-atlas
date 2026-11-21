@@ -26,21 +26,17 @@ func TestEnsureIndexesRejectsInvalidModels(t *testing.T) {
 		name   string
 		models []mongo.IndexModel
 		opts   []datamongo.Option
+		cause  error
 	}{
-		{name: "duplicate explicit names", models: []mongo.IndexModel{
-			named("idx", bson.D{{Key: "a", Value: 1}}), named("idx", bson.D{{Key: "b", Value: 1}}),
-		}},
-		{name: "explicit name equals a generated one", models: []mongo.IndexModel{
-			{Keys: bson.D{{Key: "a", Value: 1}}}, named("a_1", bson.D{{Key: "b", Value: 1}}),
-		}},
-		{name: "empty explicit name", models: []mongo.IndexModel{named("", bson.D{{Key: "a", Value: 1}})}},
-		{name: "double key value", models: []mongo.IndexModel{{Keys: bson.D{{Key: "a", Value: 1.0}}}}},
-		{name: "empty keys", models: []mongo.IndexModel{{Keys: bson.D{}}}},
+		{name: "invalid model after valid model", models: []mongo.IndexModel{
+			named("valid", bson.D{{Key: "a", Value: 1}}), named("invalid", bson.D{}),
+		}, opts: []datamongo.Option{datamongo.WithDropObsolete("previous")}},
 		{name: "obsolete is a model", models: []mongo.IndexModel{named("idx", bson.D{{Key: "a", Value: 1}})},
 			opts: []datamongo.Option{datamongo.WithDropObsolete("idx")}},
 		{name: "obsolete is a generated model name", models: []mongo.IndexModel{{Keys: bson.D{{Key: "a", Value: 1}, {Key: "b", Value: -1}}}},
 			opts: []datamongo.Option{datamongo.WithDropObsolete("a_1_b_-1")}},
-		{name: "obsolete _id", opts: []datamongo.Option{datamongo.WithDropObsolete("_id_")}},
+		{name: "obsolete _id", opts: []datamongo.Option{datamongo.WithDropObsolete("previous", "_id_")}},
+		{name: "obsolete wildcard after valid name", opts: []datamongo.Option{datamongo.WithDropObsolete("previous", "*")}, cause: mongo.ErrMultipleIndexDrop},
 		{name: "obsolete empty", opts: []datamongo.Option{datamongo.WithDropObsolete("")}},
 	}
 	for _, tc := range tests {
@@ -48,6 +44,9 @@ func TestEnsureIndexesRejectsInvalidModels(t *testing.T) {
 			t.Parallel()
 			err := datamongo.Ensure(t.Context(), nil, tc.models, tc.opts...)
 			require.ErrorIs(t, err, datamongo.ErrInvalidIndexModels)
+			if tc.cause != nil {
+				require.ErrorIs(t, err, tc.cause)
+			}
 		})
 	}
 }

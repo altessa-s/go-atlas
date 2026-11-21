@@ -8,6 +8,10 @@
 // carries filter, sort, projection, size, bindings, registry, and BSON options. Import this package directly; pagination types are not
 // re-exported from store/mongo.
 //
+// Query.Filter is an ordered BSON document. Supply nested document values as BSON documents or raw BSON
+// and register custom scalar structs through go-mongox/bsonfilter.AdmitScalar. A legacy token whose
+// map keys were encoded in a different order returns pagetoken.ErrFilterChanged.
+//
 // # Usage
 //
 //	codec, err := pagetoken.New(key /*, options */)

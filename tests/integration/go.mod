@@ -11,36 +11,37 @@ go 1.27.0
 replace github.com/altessa-s/go-atlas => ../..
 
 require (
-	github.com/altessa-s/go-aip v0.1.8
-	github.com/altessa-s/go-aip/backend/mongo v0.1.8
+	cloud.google.com/go v0.123.0
+	github.com/altessa-s/go-aip v0.1.9
+	github.com/altessa-s/go-aip/backend/mongo v0.1.9
 	github.com/altessa-s/go-atlas v0.0.0
-	github.com/altessa-s/go-atlas-core v0.3.3
+	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/nats-io/nats.go v1.55.0
+	github.com/nats-io/nats.go v1.56.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/shopspring/decimal v1.6.0
 	github.com/stretchr/testify v1.12.1
 	github.com/xakep666/mongo-migrate v0.4.1
-	go.mongodb.org/mongo-driver/v2 v2.10.0
+	go.mongodb.org/mongo-driver/v2 v2.10.1
 )
 
 require (
-	cel.dev/cel-go v0.33.2 // indirect
+	cel.dev/cel-go v0.33.4 // indirect
 	cel.dev/expr v0.25.3 // indirect
-	cloud.google.com/go v0.123.0 // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/adrg/postcode v0.1.0 // indirect
 	github.com/altessa-s/go-convert v0.1.0 // indirect
 	github.com/altessa-s/go-horai v0.1.2 // indirect
 	github.com/altessa-s/go-kryptos v0.1.4 // indirect
+	github.com/altessa-s/go-mongox v0.1.2 // indirect
 	github.com/altessa-s/go-nomos v0.2.3 // indirect
 	github.com/altessa-s/go-slogx v0.1.4 // indirect
 	github.com/altessa-s/ozzo-rules v1.17.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
-	github.com/bits-and-blooms/bitset v1.24.2 // indirect
-	github.com/bits-and-blooms/bloom/v3 v3.7.1 // indirect
+	github.com/bits-and-blooms/bitset v1.24.4 // indirect
+	github.com/bits-and-blooms/bloom/v3 v3.7.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.5.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
@@ -63,7 +64,7 @@ require (
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261110000943-09e21b237f2c // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20261118221215-c8830f628b3f // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261118221215-c8830f628b3f // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )

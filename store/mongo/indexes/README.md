@@ -21,4 +21,8 @@ Creates and reconciles collection indexes using the MongoDB driver. Import this 
 | `WithDropObsolete` | None | Drop the explicitly named indexes first |
 | `WithDropOnSpecMismatch` | Disabled | Reconcile conflicts by name under a per-collection lease |
 
-Dropping a unique index removes its constraint until the replacement finishes. A conflict with an index of another name is returned without dropping that index. Migration and reconciliation leases share an internal implementation and collection, using different document IDs.
+Before dropping the first index, `Ensure` checks every model for a nonempty key document and a distinct name. Each obsolete name must be nonempty and
+must differ from every model name, `_id_` and `*`.
+
+Dropping a unique index removes its constraint until the replacement finishes. A conflict with an index of another name is returned without dropping
+that index. Migration and reconciliation leases share an internal implementation and collection, using different document IDs.

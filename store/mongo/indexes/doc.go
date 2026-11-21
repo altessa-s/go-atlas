@@ -10,6 +10,7 @@
 //
 // # Reconciliation
 //
+// Ensure validates model names, key documents and obsolete names before dropping any index.
 // Existing equal specifications are left in place. Destructive replacement
 // requires WithDropOnSpecMismatch; it uses a per-collection database lease.
 package indexes

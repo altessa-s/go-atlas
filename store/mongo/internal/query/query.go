@@ -5,13 +5,14 @@
 package query
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/altessa-s/go-mongox/bsonfilter"
 
 	"github.com/altessa-s/go-atlas/store/mongo/bsoncodec"
 
@@ -31,7 +32,7 @@ const maxFilterDepth = 1000
 var Registry = sync.OnceValue(bsoncodec.NewRegistry)
 
 // ErrDangerousOperator identifies a filter containing a server-side JavaScript operator.
-var ErrDangerousOperator = errors.New("filter contains a dangerous MongoDB operator")
+var ErrDangerousOperator = bsonfilter.ErrDangerousOperator
 
 // dangerousFilterOperators is the deny-list of MongoDB query operators
 // that execute server-side JavaScript (or otherwise have a well-known

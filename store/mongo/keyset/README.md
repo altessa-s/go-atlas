@@ -7,86 +7,51 @@ import "github.com/altessa-s/go-atlas/store/mongo/keyset"
 Reads MongoDB pages with a find query and bound continuation tokens. Uses the backend-neutral token contract from
 go-aip [pagination/pagetoken](https://github.com/altessa-s/go-aip/tree/develop/pagination/pagetoken).
 
-## Contract
+## Reading a page
 
-`FindPage[T]` reads a MongoDB page through the Collection port and optionally issues a continuation token through TokenCodec. Query carries
-filter, sort, projection, size, bindings, registry, and BSON options. Import this package directly; pagination types are not re-exported from
-store/mongo.
+```go
+codec, err := pagetoken.New(key)
+if err != nil {
+    return err
+}
+page, err := keyset.FindPage[User](ctx, collection, codec, keyset.Query{
+    Filter: bson.D{{Key: "group", Value: "staff"}},
+    Limit:  100,
+})
+```
 
-Sort keys must have comparable, consistent BSON scalar types and survive projection. TiebreakPath defaults to `_id`; it must be unique, non-null, and
-included in the projection. The pager stops at an existing identity sort key or appends it ascending. Native BSON identity types, including integer
-and
-ObjectID, remain typed.
+Pass `page.Next` in `Query.After` to read the next page with the same filter, sort, precision, and subject.
+An empty token marks the last page. A nil codec reads one page. The caller's context controls the query deadline.
+Concurrent writes can change which documents appear on later pages.
 
-TimestampPrecision zero selects BSON milliseconds; positive multiples of a millisecond are supported. Stored cursor dates must align or FindPage returns
-ErrMissingKey. Precision participates in bindings. Filter serialization uses the configured registry and BSON options for both execution and
-bindings; use deterministic ordered documents.
+| Query field          | Contract |
+| -------------------- | -------- |
+| `Limit`              | Defaults to 100 and is capped at 10,000. |
+| `TiebreakPath`       | Unique final sort path. Defaults to `_id` and is appended ascending when absent. |
+| `Projection`         | Must retain every sort field with its stored value. Dropping or rewriting one fails with `ErrProjection` before the find. |
+| `TimestampPrecision` | Defaults to milliseconds. Positive whole multiples of one millisecond are supported. |
 
-FindPage uses the caller context for the entire query and adds no deadline. The listing MongoDB engine owns its WithMaxTime cap. A nil codec returns one
-page without a token. Continuation tokens do not provide snapshot isolation.
+Each sort path must hold a non-null scalar of a consistent BSON type. A missing key or a stored date
+misaligned to the requested precision yields `ErrMissingKey`.
 
-Sort fields must contain comparable scalars of consistent BSON types and survive the projection. `TiebreakPath` selects the unique tie-breaker; its
-default is `_id`. Filter bytes are encoded with the requested registry and BSON options, used both in the query and token binding; use deterministic
-ordered documents. A nil codec reads a single page without issuing a token. Pagination is not a snapshot.
+## Migrating keyset filters
 
-Import this package directly; the root does not re-export keyset types or functions.
+**Breaking change.** `Query.Filter` remains a `bson.D`; nil matches every document. For embedded documents use
+`bson.D`, `bson.M`, `map[string]any`, or pre-built `bson.Raw`. Arbitrary structs and custom BSON marshalers
+are rejected. Replace document-shaped values with `bson.D` or encode them to `bson.Raw` in trusted code.
+For a trusted scalar struct, register its encoder and call
+`bsonfilter.AdmitScalar(reg, reflect.TypeFor[MyScalar]())` from `github.com/altessa-s/go-mongox/bsonfilter`
+on that same registry. Atlas date and decimal codecs already work with the default registry.
 
-## Identity path
+Atlas clients supply their registry and BSON options. For external clients and database or collection overrides,
+pass the effective `Query.Registry` and `Query.BSONOptions`. The prepared bytes bind the token and execute the find.
 
-| Query field                | Contract                                         |
-| -------------------------- | ------------------------------------------------ |
-| `Query.TiebreakPath` | Unique final BSON sort path; empty selects `_id` |
-
-The pager stops the sort at the configured identity or appends it ascending when absent. The identity must be a non-null scalar,
-unique in the result set, and included in the projection. Listing engines may append it with their requested direction before calling the pager.
-
-## Cursor timestamp precision
-
-| Setting                          | Behavior                                                                              |
-| -------------------------------- | ------------------------------------------------------------------------------------- |
-| `Query.TimestampPrecision` | Zero defaults to BSON milliseconds; positive multiples of a millisecond are supported |
-
-Stored cursor dates must align to this precision. A misaligned date fails with `ErrMissingKey`, so a lossy cursor cannot repeat rows.
-Precision is part of token bindings. The unique tie-breaker retains its native BSON scalar type, including integer and ObjectID.
-
-`FindPage` uses the caller context for the entire query and adds no deadline. Direct callers should supply a context deadline when needed.
-
-## Defaults and limits
-
-| Constant                | Value |
-| ----------------------- | ----- |
-| `DefaultPageSize` | `100` |
-
-## Named values
-
-| Constant            | Meaning                                                |
-| ------------------- | ------------------------------------------------------ |
-| `MaxPageSize` | MaxPageSize caps the page size [FindPage] reads. |
-
-## API
-
-| Symbol        | Purpose                                                                                                                                                                                                                                                                                                                                                   |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Query` | Query describes one page of a `FindPage` read.                                                                                                                                                                                                                                                                                                      |
-| `Page`  | Page is one page of a `FindPage` read.                                                                                                                                                                                                                                                                                                              |
-| `TokenCodec`  | TokenCodec issues and resolves bound page tokens.                                                                                                                                                                                                                                                                                                         |
-| `FindPage`    | FindPage reads one page of coll with a plain find, positioned by a signed page token rather than an offset. Unlike mongo.ListCursor it works with any "_id" type (ObjectID, string, UUID), needs no created_at field, and streams documents instead of collecting them into one aggregation result, so the 16 MB document limit does not apply to a page. |
-
-| Symbol          | Purpose                                                 |
-| --------------- | ------------------------------------------------------- |
-| `FindPage[T]`   | Read a page and optionally issue its continuation token |
-| `Query`   | Filter, sort, projection, size and token bindings       |
-| `Page[T]` | Items and next token                                    |
-| `TokenCodec`    | Token issuing and resolution port                       |
+Maps are sorted by key at every depth. Ordered documents and raw BSON preserve field order, which matters for
+MongoDB embedded-document equality. Tokens issued with the same ordered filter continue to resolve. An existing
+token whose map encoded in a different order fails with `pagetoken.ErrFilterChanged`; restart pagination with
+an empty `After`. The standard token TTL is 24 hours.
 
 ## Related packages
 
 - [store/mongo](../README.md)
 - [go-aip pagination guide](https://github.com/altessa-s/go-aip/tree/develop/docs/pagination.md)
-
-## MongoDB page tokens
-
-```go
-codec, err := pagetoken.New(key /*, options */)
-page, err := keyset.FindPage[User](ctx, collection, codec, keyset.Query{Limit: 100})
-```

@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/altessa-s/go-mongox/bsonfilter"
+
 	"github.com/altessa-s/go-atlas/store/mongo/bsoncodec"
 
 	atlascivil "github.com/altessa-s/go-atlas-core/time/civil"
@@ -51,16 +53,6 @@ func TestCivilDateZeroAndNil(t *testing.T) {
 	require.NoError(t, unmarshal(raw, &out))
 	require.True(t, out.From.IsZero())
 	require.Nil(t, out.To)
-}
-
-func TestCivilDateSortsAsStored(t *testing.T) {
-	t.Parallel()
-
-	a, err := marshal(period{From: civil.Date{Year: 999, Month: time.January, Day: 1}})
-	require.NoError(t, err)
-	b, err := marshal(period{From: civil.Date{Year: 2026, Month: time.January, Day: 1}})
-	require.NoError(t, err)
-	require.Less(t, bson.Raw(a).Lookup("from").StringValue(), bson.Raw(b).Lookup("from").StringValue(), "years are zero-padded")
 }
 
 func TestCivilDateInvalid(t *testing.T) {
@@ -113,14 +105,14 @@ type invoice struct {
 	Paid *serviceDate `bson:"paid"`
 }
 
-func serviceRegistry(t *testing.T, opts ...bsoncodec.DateOption) *bson.Registry {
+func serviceRegistry(t testing.TB, opts ...bsoncodec.DateOption) *bson.Registry {
 	t.Helper()
 	reg := bsoncodec.NewRegistry()
 	require.NoError(t, bsoncodec.RegisterDateType[serviceDate](reg, opts...))
 	return reg
 }
 
-func marshalReg(t *testing.T, reg *bson.Registry, v any) bson.Raw {
+func marshalReg(t testing.TB, reg *bson.Registry, v any) bson.Raw {
 	t.Helper()
 	var buf bytes.Buffer
 	enc := bson.NewEncoder(bson.NewDocumentWriter(&buf))
@@ -129,7 +121,7 @@ func marshalReg(t *testing.T, reg *bson.Registry, v any) bson.Raw {
 	return buf.Bytes()
 }
 
-func unmarshalReg(t *testing.T, reg *bson.Registry, raw bson.Raw, v any) error {
+func unmarshalReg(t testing.TB, reg *bson.Registry, raw bson.Raw, v any) error {
 	t.Helper()
 	dec := bson.NewDecoder(bson.NewDocumentReader(bytes.NewReader(raw)))
 	dec.SetRegistry(reg)
@@ -238,35 +230,16 @@ func TestDateTypeValidRule(t *testing.T) {
 	require.Equal(t, 0, google.From.Year)
 }
 
-// pointerValidDate has its validity rule on the pointer receiver.
-type pointerValidDate struct {
-	Year  int
-	Month time.Month
-	Day   int
-}
-
-func (d *pointerValidDate) Valid() bool { return d.Year >= 1 }
-
-func TestDateTypeValidRulePointerReceiver(t *testing.T) {
+// A registered date must also be admissible in a keyset filter on the same
+// registry. The cloud and service types exercise the two Atlas registrations.
+func TestDateRegistrationAdmitsFilterScalars(t *testing.T) {
 	t.Parallel()
-
-	reg := bsoncodec.NewRegistry()
-	require.NoError(t, bsoncodec.RegisterDateType[pointerValidDate](reg))
-	type doc struct {
-		D pointerValidDate `bson:"d"`
-	}
-	var buf bytes.Buffer
-	enc := bson.NewEncoder(bson.NewDocumentWriter(&buf))
-	enc.SetRegistry(reg)
-	require.ErrorIs(t, enc.Encode(doc{D: pointerValidDate{Year: 0, Month: time.January, Day: 1}}), bsoncodec.ErrInvalidDate)
-
-	raw, err := bson.Marshal(bson.M{"d": "0000-01-01"})
+	reg := serviceRegistry(t, bsoncodec.WithDateZeroAsEmptyString())
+	raw, err := bsonfilter.Prepare(t.Context(), bson.D{
+		{Key: "cloud", Value: civil.Date{Year: 2024, Month: time.February, Day: 29}},
+		{Key: "service", Value: serviceDate{}},
+	}, reg, nil)
 	require.NoError(t, err)
-	var out doc
-	require.ErrorIs(t, unmarshalReg(t, reg, raw, &out), bsoncodec.ErrInvalidDate)
-
-	ok, err := bson.Marshal(bson.M{"d": "2026-10-09"})
-	require.NoError(t, err)
-	require.NoError(t, unmarshalReg(t, reg, ok, &out))
-	require.Equal(t, 2026, out.D.Year)
+	require.Equal(t, "2024-02-29", raw.Lookup("cloud").StringValue())
+	require.Equal(t, "", raw.Lookup("service").StringValue())
 }

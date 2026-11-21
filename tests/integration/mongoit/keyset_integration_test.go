@@ -8,10 +8,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -23,8 +26,10 @@ import (
 
 	"github.com/altessa-s/go-atlas/store/mongo/keyset"
 
+	cloudcivil "cloud.google.com/go/civil"
 	aipmongo "github.com/altessa-s/go-aip/backend/mongo"
 	filterparser "github.com/altessa-s/go-aip/filter/parser"
+	corecivil "github.com/altessa-s/go-atlas-core/time/civil"
 )
 
 type keysetDoc struct {
@@ -224,7 +229,7 @@ func TestFindPage_Projection(t *testing.T) {
 
 	q.Projection = bson.D{{Key: "rank", Value: 0}}
 	_, err = keyset.FindPage[keysetDoc](t.Context(), coll, codec, q)
-	require.ErrorIs(t, err, keyset.ErrMissingKey, "the projection must keep the sort fields")
+	require.ErrorIs(t, err, keyset.ErrProjection, "the projection must keep the sort fields")
 
 	q.Projection = bson.D{{Key: "rank", Value: bson.D{{Key: "$literal", Value: 0}}}}
 	_, err = keyset.FindPage[keysetDoc](t.Context(), coll, codec, q)
@@ -256,4 +261,67 @@ func TestFindPage_DecimalFilter(t *testing.T) {
 	require.Len(t, got, 6, "the decimal bound selects ranks 4..9")
 	require.Equal(t, 3, pages)
 	require.Equal(t, 4, got[0].Rank)
+}
+
+func TestFindPage_LegacyTokens(t *testing.T) {
+	t.Parallel()
+	coll := keysetColl(t)
+	pair := bson.D{{Key: "a", Value: int32(1)}, {Key: "b", Value: int32(2)}}
+	_, err := coll.InsertMany(t.Context(), []any{
+		bson.D{{Key: "_id", Value: int32(1)}, {Key: "pair", Value: pair}},
+		bson.D{{Key: "_id", Value: int32(2)}, {Key: "pair", Value: pair}},
+	})
+	require.NoError(t, err)
+	data, err := os.ReadFile("../../../store/mongo/keyset/testdata/atlas_tokens.json")
+	require.NoError(t, err)
+	var tokens map[string]string
+	require.NoError(t, json.Unmarshal(data, &tokens))
+	codec, err := pagetoken.New(bytes.Repeat([]byte{3}, pagetoken.MinKeyLength),
+		pagetoken.WithClock(func() time.Time { return time.Unix(1700000000, 0) }))
+	require.NoError(t, err)
+
+	q := keyset.Query{Filter: bson.D{{Key: "pair", Value: pair}}, Limit: 1, Subject: "alice"}
+	first, err := keyset.FindPage[keysetDoc](t.Context(), coll, codec, q)
+	require.NoError(t, err)
+	require.Equal(t, tokens["ordered"], first.Next, "the new issuer reproduces the token the old code resolved")
+	for _, name := range []string{"ordered", "map_ab", "map_ba"} {
+		q.After = tokens[name]
+		if name != "ordered" {
+			q.Filter = bson.D{{Key: "pair", Value: bson.M{"b": int32(2), "a": int32(1)}}}
+		}
+		page, err := keyset.FindPage[keysetDoc](t.Context(), coll, codec, q)
+		if name == "map_ba" {
+			require.ErrorIs(t, err, pagetoken.ErrFilterChanged)
+			continue
+		}
+		require.NoError(t, err)
+		require.Len(t, page.Items, 1)
+		require.Equal(t, int32(2), page.Items[0].ID)
+		require.Empty(t, page.Next)
+	}
+}
+
+func TestFindPage_AtlasDates(t *testing.T) {
+	t.Parallel()
+	coll := keysetColl(t)
+	_, err := coll.InsertOne(t.Context(), bson.D{{Key: "_id", Value: 1}, {Key: "date", Value: "2025-07-24"}})
+	require.NoError(t, err)
+	for _, date := range []any{corecivil.MustNew(2025, time.July, 24), cloudcivil.Date{Year: 2025, Month: time.July, Day: 24}} {
+		q := keyset.Query{Filter: bson.D{{Key: "date", Value: date}}}
+		page, err := keyset.FindPage[bson.Raw](t.Context(), coll, nil, q)
+		require.NoError(t, err)
+		require.Len(t, page.Items, 1)
+		require.Equal(t, int32(1), page.Items[0].Lookup("_id").Int32())
+	}
+}
+
+func TestFindPage_DecoderError(t *testing.T) {
+	t.Parallel()
+	coll := keysetColl(t)
+	_, err := coll.InsertOne(t.Context(), bson.D{{Key: "_id", Value: 1}, {Key: "rank", Value: "not an integer"}})
+	require.NoError(t, err)
+	_, err = keyset.FindPage[keysetDoc](t.Context(), coll, nil, keyset.Query{})
+	var decodeErr *bson.DecodeError
+	require.ErrorAs(t, err, &decodeErr)
+	require.Equal(t, []string{"rank"}, decodeErr.Keys())
 }

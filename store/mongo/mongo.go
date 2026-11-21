@@ -24,6 +24,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
 	"github.com/altessa-s/go-atlas/store/mongo/bsoncodec"
+	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 	"github.com/altessa-s/go-atlas/store/mongo/kms"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
@@ -258,6 +259,7 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 		}
 
 		m.ownsClient = true
+		query.RegisterClientEncoding(m.client, opts)
 	}
 
 	if err = m.ping(ctx, m.client); err != nil {
@@ -453,6 +455,7 @@ func (m *Mongo) Close() {
 		}
 
 		if m.ownsClient {
+			query.ForgetClientEncoding(m.client)
 			if disconnectErr := m.client.Disconnect(ctx); disconnectErr != nil && !errors.Is(disconnectErr, mongo.ErrClientDisconnected) {
 				if m.config.Logger != nil {
 					m.config.Logger.Warn("failed to disconnect mongo client", "error", disconnectErr)

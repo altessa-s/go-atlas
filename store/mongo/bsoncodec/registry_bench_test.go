@@ -5,61 +5,10 @@
 package bsoncodec_test
 
 import (
-	"bytes"
 	"testing"
 
 	"cloud.google.com/go/civil"
-	"github.com/shopspring/decimal"
-	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/v2/bson"
-
-	"github.com/altessa-s/go-aip/decimal128"
-
-	"github.com/altessa-s/go-atlas-core/types/optional"
-	"github.com/altessa-s/go-atlas/store/mongo/bsoncodec"
 )
-
-func BenchmarkOptionalEncode(b *testing.B) {
-	var out bytes.Buffer
-	enc := bson.NewEncoder(bson.NewDocumentWriter(&out))
-	enc.SetRegistry(bsoncodec.NewRegistry())
-	value := struct {
-		Value optional.Optional[int] `bson:"value"`
-	}{optional.Some(42)}
-	for b.Loop() {
-		out.Reset()
-		require.NoError(b, enc.Encode(value))
-	}
-}
-
-func BenchmarkDecimalRoundTrip(b *testing.B) {
-	in := struct {
-		Amount decimal.Decimal `bson:"amount"`
-	}{Amount: decimal.RequireFromString("12345.6789")}
-	b.ReportAllocs()
-	for b.Loop() {
-		raw, err := marshal(in)
-		if err != nil {
-			b.Fatal(err)
-		}
-		var out struct {
-			Amount decimal.Decimal `bson:"amount"`
-		}
-		if err := unmarshal(raw, &out); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkFitsDecimal128(b *testing.B) {
-	d := decimal.RequireFromString("12345.678900")
-	b.ReportAllocs()
-	for b.Loop() {
-		if !decimal128.Fits(d) {
-			b.Fatal("must fit")
-		}
-	}
-}
 
 func BenchmarkCivilDateRoundTrip(b *testing.B) {
 	in := struct {
@@ -76,16 +25,6 @@ func BenchmarkCivilDateRoundTrip(b *testing.B) {
 		}
 		if err := unmarshal(raw, &out); err != nil {
 			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkCanonicalDecimal128(b *testing.B) {
-	d := decimal.RequireFromString("12345.678900")
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, ok := decimal128.Canonical(d); !ok {
-			b.Fatal("must fit")
 		}
 	}
 }

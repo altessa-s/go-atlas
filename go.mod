@@ -11,8 +11,7 @@ require (
 	github.com/MicahParks/jwkset v0.12.0
 	github.com/MicahParks/keyfunc/v3 v3.9.2
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/altessa-s/go-aip v0.1.8
-	github.com/altessa-s/go-aip/backend/mongo v0.1.8
+	github.com/altessa-s/go-aip v0.1.9
 	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/altessa-s/go-atlas-net v0.3.6
 	github.com/altessa-s/go-convert v0.1.0
@@ -24,6 +23,7 @@ require (
 	github.com/altessa-s/go-kryptos/providers/gcp v0.1.4
 	github.com/altessa-s/go-kryptos/providers/lockbox v0.1.4
 	github.com/altessa-s/go-kryptos/providers/vault v0.1.4
+	github.com/altessa-s/go-mongox v0.1.2
 	github.com/altessa-s/go-nomos v0.2.3
 	github.com/altessa-s/go-slogx v0.1.4
 	github.com/altessa-s/go-tlsutils v0.2.2
