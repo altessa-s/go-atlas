@@ -36,6 +36,7 @@ factory/auth                # Auth factories (oidc, opa, mtls, scope, oauth2clie
 factory/audit               # Audit factory
 factory/cache               # Cache factory
 factory/reliability/idempotency# Idempotency factory
+factory/reliability/requestidstore # AIP-155 request ID store factories
 factory/coord/leadelect     # Leader election factory
 factory/coord/limiters      # Limiter factories (budget, tokenbucket, storages)
 factory/coord/dlock         # Lock factory
@@ -66,6 +67,7 @@ cache                       # Caching abstractions
 reliability                 # Delivery and execution guarantees
 reliability/idempotency     # Idempotency key management
 reliability/idempotency/storages# Idempotency storage implementations
+reliability/requestidstore  # AIP-155 request ID stores
 coord                       # Distributed coordination
 coord/leadelect             # Leader election
 coord/leadelect/providers   # Leader election providers

@@ -45,6 +45,7 @@ The root package declares no types.
 | [`config/http`](http)                   | `httpconfig`          | The HTTP server schema, its middlewares, pprof, TLS and outbound SSRF protection                                                |
 | [`config/broker`](broker)               | `brokerconfig`        | The message broker schema with its outbox and in-progress tracking blocks                                                       |
 | [`config/idempotency`](idempotency)     | `idempotencyconfig`   | The idempotency key storage schema                                                                                              |
+| [`config/requestidstore`](requestidstore) | `requestidstoreconfig` | Storage selection and backend settings for AIP-155 request IDs |
 | [`config/limiter`](limiter)             | `limiterconfig`       | Rate limiter schemas: token bucket, request budget and request limiter                                                          |
 | [`config/lock`](lock)                   | `lockconfig`          | Distributed lock and leader election schemas                                                                                    |
 | [`config/retryqueue`](retryqueue)       | `retryqueueconfig`    | The retry queue storage schema                                                                                                  |

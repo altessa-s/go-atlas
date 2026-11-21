@@ -44,6 +44,7 @@ import (
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
+	requestidstoreconfig "github.com/altessa-s/go-atlas/config/requestidstore"
 	retryconfig "github.com/altessa-s/go-atlas/config/retry"
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 	s3config "github.com/altessa-s/go-atlas/config/s3"
@@ -105,6 +106,7 @@ var templateCases = map[string][]templateRoot{
 	"http.yaml":                              {root[httpconfig.Config]("http")},
 	"http_client_ssrf.yaml":                  {root[httpconfig.ClientSSRF]("ssrf")},
 	"http_proxy.yaml":                        {root[proxyconfig.Config]("proxy")},
+	"requestidstore.yaml":                    {root[requestidstoreconfig.Config]("requestIDStore")},
 	"idempotency.yaml":                       {root[idempotencyconfig.Config]("idempotency")},
 	"leaderelect.yaml":                       {root[lockconfig.LeaderElector]("leaderElector")},
 	"limiter_budget.yaml":                    {root[limiterconfig.Budget]("budgetLimiter")},
