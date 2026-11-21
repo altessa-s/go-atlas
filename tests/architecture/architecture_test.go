@@ -262,6 +262,7 @@ var driverNeutralFactories = []string{
 	"factory/audit",
 	"factory/cache",
 	"factory/reliability/idempotency",
+	"factory/reliability/requestidstore",
 	"factory/coord/leadelect",
 	"factory/coord/limiters/budget",
 	"factory/coord/limiters/tokenbucket",

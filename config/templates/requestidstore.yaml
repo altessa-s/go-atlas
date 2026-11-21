@@ -1,0 +1,50 @@
+# AIP-155 request ID storage configuration.
+# All parameters are commented out by default (template mode).
+# Uncomment the selected backend and configure its client in the application.
+
+#requestIDStore:
+#  # <string> Storage backend. Supported values: redis, mongo, sqldb, nats.
+#  # Default value: not set (required)
+#  type: redis
+#
+#  # <object> Redis storage configuration.
+#  redis:
+#    # <string> Key namespace. An empty value uses the storage default "requestid:".
+#    # Default value: not set (empty string)
+#    keysPrefix: ""
+#
+#  # <object> MongoDB storage configuration.
+#  mongo:
+#    # <string> Collection for reservations and completed outcomes.
+#    # Default value: request_ids
+#    collection: request_ids
+#
+#  # <object> SQL storage configuration.
+#  sqldb:
+#    # <string> SQL dialect: postgres or mysql (including MariaDB).
+#    # Default value: postgres
+#    dialect: postgres
+#    # <string> Table name, optionally schema-qualified.
+#    # Default value: request_id_entries
+#    table: request_id_entries
+#    # <bool> Create the table and expiry index during construction.
+#    # Default value: false
+#    ensureSchema: false
+#    # <duration> Time between background purge passes. Zero disables the loop.
+#    # Default value: 1m
+#    purgeInterval: "1m"
+#    # <int> Maximum rows deleted by a purge statement.
+#    # Default value: 1000
+#    purgeBatchSize: 1000
+#
+#  # <object> NATS JetStream KV storage configuration.
+#  nats:
+#    # <string> Dedicated bucket with no bucket-wide TTL.
+#    # Default value: requestid
+#    bucket: requestid
+#    # <int> Replicas used when creating the bucket.
+#    # Default value: 1
+#    replicas: 1
+#    # <duration> Time between expiry scans. Zero disables the loop.
+#    # Default value: 1m
+#    purgeInterval: "1m"

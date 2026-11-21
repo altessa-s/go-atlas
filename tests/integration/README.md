@@ -324,6 +324,12 @@ orchestrator built through the factory, which creates the schema, then runs a co
 with `MONGO_URI` set (`mongodb://127.0.0.1:27019/?directConnection=true` for the compose stack), so the suite never touches another project's MongoDB on
 that port.
 
+## AIP-155 request ID store conformance
+
+Run `go test -p 1 -count=1 -v -run TestRequestID ./mongoit ./idempotencyit` from this module. Each backend runs the go-aip
+`requestidtest` scenarios with its own collection, key prefix, bucket or table. Use `MONGO_PORT`, `REDIS_ADDR` and the backend addresses above
+to select the integration instances. SQL covers PostgreSQL, MariaDB and MySQL when reachable.
+
 ## idempotencyit — idempotency storages against live servers
 
 One contract suite runs on the Redis, MongoDB and NATS JetStream storages, each test over its own key prefix, database or bucket. The MongoDB backend

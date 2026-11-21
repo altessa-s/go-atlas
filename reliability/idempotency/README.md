@@ -12,7 +12,8 @@ commits atomically with the business change.
 
 Use the idempotency middleware when clients send an `Idempotency-Key` header. For a protobuf RPC that exposes the AIP-155 `request_id` field,
 use the go-aip `requestid.Guard` with `requestid.Do` and a `requestid.Store`. Enable only one mechanism per endpoint so a single reservation
-controls execution and replay. See the [go-aip requestid package](https://pkg.go.dev/github.com/altessa-s/go-aip@v0.1.8/requestid).
+controls execution and replay. Choose a [distributed request ID store](../requestidstore) for Redis, MongoDB, SQL or NATS KV.
+See the [go-aip requestid package](https://pkg.go.dev/github.com/altessa-s/go-aip@v0.1.9/requestid).
 
 ## Tenant isolation (multi-tenant deployments)
 
