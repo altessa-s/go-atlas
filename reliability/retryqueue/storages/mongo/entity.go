@@ -5,13 +5,12 @@
 package mongo
 
 import (
-	"cmp"
 	"reflect"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/altessa-s/go-atlas/internal/bsontag"
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 )
 
@@ -122,37 +121,18 @@ func payloadFields(t reflect.Type) (fields []string, ok bool) {
 		if !sf.IsExported() {
 			continue
 		}
-		name, inline, skip := parseTag(sf)
+		info := bsontag.Parse(bsontag.Lookup(sf.Tag, "bson"), sf.Name)
 		switch {
-		case skip:
-		case inline:
+		case info.Skip:
+		case info.Inline:
 			inner, ok := payloadFields(sf.Type)
 			if !ok {
 				return nil, false
 			}
 			fields = append(fields, inner...)
 		default:
-			fields = append(fields, name)
+			fields = append(fields, info.Name)
 		}
 	}
 	return fields, true
-}
-
-// parseTag reads the document key and the inline and skip options of sf as the
-// driver's default struct tag parser does.
-func parseTag(sf reflect.StructField) (name string, inline, skip bool) {
-	tag, ok := sf.Tag.Lookup("bson")
-	if !ok && !strings.Contains(string(sf.Tag), ":") && len(sf.Tag) > 0 {
-		tag = string(sf.Tag)
-	}
-	if tag == "-" {
-		return "", false, true
-	}
-	key, rest, _ := strings.Cut(tag, ",")
-	name = cmp.Or(key, strings.ToLower(sf.Name))
-	inline = key == "inline" // the driver matches options against the key too
-	for part := range strings.SplitSeq(rest, ",") {
-		inline = inline || part == "inline"
-	}
-	return name, inline, false
 }

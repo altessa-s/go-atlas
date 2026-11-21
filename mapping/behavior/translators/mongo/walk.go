@@ -229,9 +229,3 @@ func hasMapLayer(v reflect.Value) bool {
 
 // maxCollectionLayers bounds the type unwrapping in [hasMapLayer].
 const maxCollectionLayers = 32
-
-// hasInline reports whether a bson tag carries the inline option, in any
-// token as the codec reads it.
-func hasInline(tag string) bool {
-	return bsonTag(tag, "x").inline
-}

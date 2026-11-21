@@ -34,6 +34,7 @@ var baseModules = []targetModule{
 	{root: "internal/testhelpers", deps: []string{"core", "service/scheduler/task"}},
 	{root: "internal/testhelpers/servers", deps: []string{"core"}, drivers: true},
 	{root: "internal/sqldialect"},
+	{root: "internal/bsontag"},
 	{root: "internal/purgeloop", deps: []string{"core"}},
 	{root: "auth/principal"},
 	{root: "service/scheduler/task", deps: []string{"core"}},
@@ -107,7 +108,7 @@ var sdkModules = []targetModule{
 
 // driverBases are the modules shared by the backends of one driver.
 var driverBases = []targetModule{
-	{root: "store/mongo", deps: []string{"core", "observability", "internal/memcleanup"}},
+	{root: "store/mongo", deps: []string{"core", "observability", "internal/memcleanup", "internal/bsontag"}},
 	{root: "factory/store/mongo", deps: []string{"store/mongo", "factory"}},
 	{root: "store/meilisearch", deps: []string{"core"}},
 	{root: "internal/redis", deps: []string{"core"}},

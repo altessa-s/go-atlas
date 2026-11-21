@@ -55,7 +55,7 @@ func (o *options) holdsProtected(obj behavior.Object, ec encCtx) bool {
 	}
 	if layout.inlineMap >= 0 {
 		loc := locate(obj, []int{layout.inlineMap})
-		if f := loc.field; f != nil && (f.Strip || isIdentifier(f) || hasOmitOnUpdate(o.fieldTag(f.Tag))) {
+		if f := loc.field; f != nil && (f.Strip || isIdentifier(f) || o.omitOnUpdate(f.Tag)) {
 			return true
 		}
 	}
@@ -168,7 +168,7 @@ func (o *options) protectedStruct(t reflect.Type, inColl, noAddr bool, pol behav
 	}
 	sf := t.Field(layout.inlineMap)
 	// A map is compound: no element-identifier exemption.
-	if o.protectedKinds(sf, inColl, true, pol) || (!inColl && hasOmitOnUpdate(o.fieldTag(sf.Tag))) {
+	if o.protectedKinds(sf, inColl, true, pol) || (!inColl && o.omitOnUpdate(sf.Tag)) {
 		return true
 	}
 	return o.protectedWalk(sf.Type, inColl, noAddr, pol, seen)

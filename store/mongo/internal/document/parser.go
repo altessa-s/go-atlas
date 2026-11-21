@@ -8,7 +8,6 @@
 package document
 
 import (
-	"cmp"
 	"reflect"
 	"slices"
 	"strings"
@@ -18,7 +17,7 @@ import (
 
 	"github.com/altessa-s/go-convert/reflectx"
 
-	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/internal/bsontag"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 )
@@ -270,37 +269,8 @@ func (shard *parserCacheShard) evictLRUEntries() {
 	}
 }
 
-// tagParser handles BSON tag parsing logic
-type tagParser struct{}
-
-// parseBSONTag extracts field information from BSON tags. skip reports the
-// exclusion tag "-", which the driver treats the same way: the field is never
-// encoded.
-func (tp *tagParser) parseBSONTag(tag string) (fieldName string, omitEmpty, omitOnUpdate, skip bool) {
-	if tag == "-" {
-		return "", false, false, true
-	}
-
-	parts := strings.Split(tag, ",")
-	if len(parts) == 0 {
-		return "", false, false, false
-	}
-
-	// Extract field name
-	fieldName = parts[0]
-	if fieldName == "" || fieldName == "-" {
-		fieldName = ""
-	}
-
-	// Check for modifiers
-	omitEmpty = slices.Contains(parts, "omitempty")
-	omitOnUpdate = slices.Contains(parts, "omitonupdate")
-
-	return
-}
-
 // parseEncryptionTag extracts encryption information from tags
-func (tp *tagParser) parseEncryptionTag(tag string) (algorithm, keyAltName string, shouldEncrypt bool) {
+func parseEncryptionTag(tag string) (algorithm, keyAltName string, shouldEncrypt bool) {
 	parts := strings.Split(tag, ",")
 	if len(parts) < MinEncryptionTagParts || parts[AlgorithmIndex] == "" || parts[KeyAltNameIndex] == "" {
 		return "", "", false
@@ -416,19 +386,24 @@ func (p *Parser) describeFields(root, typ reflect.Type, prefix []int, ancestors 
 		if !sf.IsExported() {
 			continue
 		}
-		name, omitEmpty, omitUpdate, skip := (&tagParser{}).parseBSONTag(sf.Tag.Get(p.bsonTagName))
-		if skip {
+		// Preserve stored keys: only keyed tags participate, and "-,..." uses the Go name.
+		info := bsontag.Parse(sf.Tag.Get(p.bsonTagName), sf.Name)
+		if info.Skip {
 			continue
 		}
+		if info.Name == "-" {
+			info.Name = strings.ToLower(sf.Name)
+		}
 		index := append(slices.Clone(prefix), sf.Index...)
+		// Historically only anonymous structs are flattened, regardless of the inline option.
 		if sf.Anonymous && reflectx.IndirectType(sf.Type).Kind() == reflect.Struct {
 			fields = append(fields, p.describeFields(root, reflectx.IndirectType(sf.Type), index, ancestors)...)
 			continue
 		}
 		algorithm, key, encrypt := p.encryptionInfo(root, sf)
 		fields = append(fields, fieldMetadata{
-			fieldType: sf, fieldIndex: index, fieldName: cmp.Or(name, intern.LowerString(sf.Name)),
-			fieldKind: sf.Type.Kind(), isOmitEmpty: omitEmpty, isOmitOnUpdate: omitUpdate,
+			fieldType: sf, fieldIndex: index, fieldName: info.Name,
+			fieldKind: sf.Type.Kind(), isOmitEmpty: info.OmitEmpty, isOmitOnUpdate: info.OmitOnUpdate,
 			algorithmString: algorithm, keyAltName: key, shouldEncrypt: encrypt, nestedType: nestingKind(sf.Type),
 		})
 	}
@@ -443,7 +418,7 @@ func (p *Parser) encryptionInfo(typ reflect.Type, sf reflect.StructField) (strin
 			}
 		}
 	}
-	return (&tagParser{}).parseEncryptionTag(sf.Tag.Get(p.encryptionTagName))
+	return parseEncryptionTag(sf.Tag.Get(p.encryptionTagName))
 }
 
 func nestedStructType(typ reflect.Type) reflect.Type {
