@@ -5,10 +5,21 @@ package redis
 
 import (
 	"strings"
+	"time"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithCleanupGrace sets the retention margin for clock skew. Values below one millisecond are ignored.
+func WithCleanupGrace(v time.Duration) Option {
+	return func(o *options) {
+		if v < (time.Millisecond) {
+			return
+		}
+		o.cleanupGrace = v
+	}
+}
 
 // WithKeyPrefix sets the keyPrefix option.
 func WithKeyPrefix[T interface{ string | *string }](v T) Option {
@@ -35,7 +46,8 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		keyPrefix: DefaultKeyPrefix,
+		cleanupGrace: DefaultCleanupGrace,
+		keyPrefix:    DefaultKeyPrefix,
 	}
 }
 

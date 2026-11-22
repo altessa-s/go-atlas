@@ -19,15 +19,18 @@ caller owns the pool and should call `Close(ctx)` on the storage before closing 
 | Complete  | Update the row only when the state is pending, the token matches byte for byte and the caller's time precedes expiry. The update writes the result and its new expiry together. |
 | Release   | Delete with the same state, token and expiry predicate. |
 
-Expiry is stored as Unix milliseconds. The background collector removes rows in indexed batches up to the latest caller time observed by the instance.
+Expiry is stored as Unix milliseconds. The background collector removes rows in indexed batches. A row is eligible once the latest observed caller time reaches
+its expiry plus the cleanup grace.
+Set the grace above the maximum skew between callers sharing the table.
 In an idle deployment, expired rows can remain until calls resume. Logical expiry is checked on every operation. Automatic collection starts on first
 use. Call `PurgeExpired(ctx)` to drain manually.
 
 ## Options
 
-| Option               | Default              | Purpose |
-|----------------------|----------------------|---------|
-| `WithTableName`      | `request_id_entries` | Select a table, optionally schema-qualified. |
-| `WithPurgeInterval`  | One minute           | Set zero to disable periodic cleanup. |
-| `WithPurgeBatchSize` | 1000                 | Bound the rows removed per statement. |
-| `WithLogger`         | Discard              | Report background collection errors. |
+| Option               | Default              | Purpose                                        |
+|----------------------|----------------------|------------------------------------------------|
+| `WithCleanupGrace`   | `1h`                 | Extra retention for clock skew (minimum 1 ms). |
+| `WithTableName`      | `request_id_entries` | Select a table, optionally schema-qualified.   |
+| `WithPurgeInterval`  | One minute           | Set zero to disable periodic cleanup.          |
+| `WithPurgeBatchSize` | 1000                 | Bound the rows removed per statement.          |
+| `WithLogger`         | Discard              | Report background collection errors.           |

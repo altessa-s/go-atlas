@@ -39,7 +39,17 @@ func TestPurgeKeepsReplacement(t *testing.T) {
 	_, won, err := s.Reserve(t.Context(), key, first, now)
 	require.NoError(t, err)
 	require.True(t, won)
-	now = first.ExpiresAt
+	// A leading caller observes another key as the original lease expires.
+	leading := first.ExpiresAt.Add(time.Minute)
+	require.ErrorIs(t, s.Release(t.Context(), requestidtest.Key("other"), "owner", leading), requestid.ErrReservationLost)
+	count, err := s.purgeExpired(t.Context())
+	require.NoError(t, err)
+	require.Zero(t, count)
+	got, won, err := s.Reserve(t.Context(), key, first, now)
+	require.NoError(t, err)
+	require.False(t, won)
+	require.Equal(t, first.Token, got.Token)
+	now = first.ExpiresAt.Add(DefaultCleanupGrace)
 	s.clock.Observe(now)
 	replacement := requestid.Entry{State: requestid.StatePending, Token: "replacement", ExpiresAt: now.Add(time.Hour)}
 	s.stream = beforePurge{Stream: s.stream, replace: func() {
@@ -47,10 +57,10 @@ func TestPurgeKeepsReplacement(t *testing.T) {
 		require.NoError(t, reserveErr)
 		require.True(t, reserved)
 	}}
-	count, err := s.purgeExpired(t.Context())
+	count, err = s.purgeExpired(t.Context())
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	got, won, err := s.Reserve(t.Context(), key, first, now)
+	got, won, err = s.Reserve(t.Context(), key, first, now)
 	require.NoError(t, err)
 	require.False(t, won)
 	require.Equal(t, replacement.Token, got.Token)

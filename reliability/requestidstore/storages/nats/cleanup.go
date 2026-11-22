@@ -15,7 +15,7 @@ import (
 // purgeExpired reclaims both expired records and tombstones. Limiting the
 // stream purge to the observed revision preserves concurrent replacements.
 func (s *Storage) purgeExpired(ctx context.Context) (int64, error) {
-	cutoff := s.clock.Now()
+	cutoff := s.clock.Now().Add(-s.cleanupGrace)
 	w, err := s.KV().WatchAll(ctx)
 	if err != nil {
 		return 0, coreerrs.WrapOperation(err, "scan request IDs")

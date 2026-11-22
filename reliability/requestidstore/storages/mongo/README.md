@@ -8,8 +8,9 @@ Stores [AIP-155 request IDs](../..) in a dedicated MongoDB collection. Pass the 
 
 ## Options
 
-| Option               | Default       | Purpose                                       |
-|----------------------|---------------|-----------------------------------------------|
+| Option               | Default       | Purpose                                            |
+|----------------------|---------------|----------------------------------------------------|
+| `WithCleanupGrace`   | `1h`          | Extra retention for clock skew (minimum 1 ms).     |
 | `WithCollectionName` | `request_ids` | Select the collection holding one document per key |
 
 ## Atomic operations
@@ -23,6 +24,7 @@ new outcome with its own deadline. MongoDB stores dates with millisecond precisi
 ## Deployment
 
 Use MongoDB 4.2 or later, acknowledged writes, and a dedicated, uncapped collection with the default simple collation. Startup ensures a TTL index on
-`purge_at`. Its timestamp follows the server clock plus the lease or retention remaining on the caller's clock and a one-minute grace period. The caller
-clock must advance at wall-clock speed for background reclamation. Logical takeover and replay work while expired documents await the TTL monitor.
+`purge_at`. Its timestamp follows the server clock plus the remaining caller-supplied duration and the configured cleanup grace.
+Set the grace above the maximum amount by which elapsed server time can exceed elapsed caller time, including a change of caller replica.
+Logical takeover and replay work while expired documents await the TTL monitor.
 MongoDB's 16 MiB document limit applies to each encoded entry.

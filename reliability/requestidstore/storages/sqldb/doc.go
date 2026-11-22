@@ -4,6 +4,9 @@
 
 // Package sqldb stores go-aip requestid reservations in PostgreSQL, MySQL or MariaDB.
 //
+// Each operation checks ExpiresAt against the caller's now. Configure [WithCleanupGrace]
+// above the maximum skew between callers so a leading clock cannot reclaim a live entry.
+//
 // # Usage
 //
 //	store, err := sqldb.New(db, sqldb.DialectPostgres)

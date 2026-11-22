@@ -176,10 +176,15 @@ func New(database string, opts ...Option) (*Mongo, error) {
 		return nil, errors.New("WithClient and WithClientOptions are mutually exclusive")
 	}
 
-	registry := query.ClientRegistry(cfg.Client)
+	var registry *bson.Registry
+	if cfg.ClientOptions != nil {
+		registry = cfg.ClientOptions.Registry
+	}
+	if registry == nil {
+		registry = query.ClientRegistry(cfg.Client)
+	}
 	if cfg.Client == nil {
 		cfg.ClientOptions = mongoOptions.MergeClientOptions(mongoOptions.Client().SetRegistry(registry), cfg.ClientOptions)
-		registry = cfg.ClientOptions.Registry
 	}
 	builderOptions := []mongotranslator.Option{mongotranslator.WithRegistry(registry), mongotranslator.WithBsonTagName(cfg.BSONTagName)}
 	m := &Mongo{

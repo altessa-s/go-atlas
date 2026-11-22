@@ -95,6 +95,24 @@ func TestReserveRacesRelease(t *testing.T) {
 	require.Equal(t, now.UnixMilli(), calls[2].Args[8])
 }
 
+func TestPurgeSkew(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	s, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithPurgeInterval(0))
+	require.NoError(t, err)
+
+	// A release on an unrelated key advances this replica's cleanup clock.
+	now := requestidtest.Base
+	leading := now.Add(5 * time.Minute)
+	require.NoError(t, s.Release(t.Context(), "other", "token", leading))
+	_, err = s.PurgeExpired(t.Context())
+	require.NoError(t, err)
+	calls := fake.Calls()
+	require.Len(t, calls, 2)
+	require.Contains(t, calls[1].Query, "expires_at <= $1")
+	require.Equal(t, leading.Add(-sqldb.DefaultCleanupGrace).UnixMilli(), calls[1].Args[0])
+}
+
 func TestCanceledOrFailedWrite(t *testing.T) {
 	t.Parallel()
 	serverErr := errors.New("unavailable")

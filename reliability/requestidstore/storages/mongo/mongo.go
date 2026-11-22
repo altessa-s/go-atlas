@@ -26,7 +26,8 @@ const fieldID = "_id"
 
 // Storage persists AIP-155 request IDs in a MongoDB collection.
 type Storage struct {
-	collection *mongo.Collection
+	collection   *mongo.Collection
+	cleanupGrace time.Duration
 }
 
 var _ requestid.Store = (*Storage)(nil)
@@ -36,14 +37,15 @@ func New(ctx context.Context, db *mongo.Database, opts ...Option) (*Storage, err
 	if db == nil {
 		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "MongoDB database is required")
 	}
-	coll := db.Collection(newOptions(opts...).collectionName)
+	o := newOptions(opts...)
+	coll := db.Collection(o.collectionName)
 	if err := indexes.Ensure(ctx, coll, []mongo.IndexModel{{
 		Keys:    bson.D{{Key: "purge_at", Value: 1}},
 		Options: mongoopts.Index().SetExpireAfterSeconds(0),
 	}}); err != nil {
 		return nil, coreerrs.WrapOperation(err, "ensure request ID TTL index")
 	}
-	return &Storage{collection: coll}, nil
+	return &Storage{collection: coll, cleanupGrace: o.cleanupGrace}, nil
 }
 
 // record keeps the token as BSON binary so even a collection with a non-simple
@@ -71,9 +73,8 @@ func (r record) entry() requestid.Entry {
 // replacement uses the server clock only to schedule physical deletion. The
 // TTL monitor sees a full relative retention period even if the caller's clock
 // is behind the MongoDB server. The margin absorbs small changes in skew.
-func replacement(key string, entry requestid.Entry, now time.Time) bson.M {
-	const grace = time.Minute
-	retainMillis := max(int64(0), entry.ExpiresAt.UnixMilli()-now.UnixMilli()) + grace.Milliseconds()
+func (s *Storage) replacement(key string, entry requestid.Entry, now time.Time) bson.M {
+	retainMillis := max(int64(0), entry.ExpiresAt.UnixMilli()-now.UnixMilli()) + (s.cleanupGrace - 1).Milliseconds() + 1
 	return bson.M{
 		fieldID:    key,
 		"entry":    bson.M{"$literal": stored(entry)},
@@ -93,7 +94,7 @@ func (s *Storage) Reserve(ctx context.Context, key string, pending requestid.Ent
 		bson.M{"$lte": bson.A{expiry, now}},
 	}}
 	update := mongo.Pipeline{{{Key: "$replaceWith", Value: bson.M{
-		"$cond": bson.A{available, replacement(key, pending, now), "$$ROOT"},
+		"$cond": bson.A{available, s.replacement(key, pending, now), "$$ROOT"},
 	}}}}
 	filter := bson.M{fieldID: key}
 	opts := mongoopts.FindOneAndUpdate().SetUpsert(true).SetReturnDocument(mongoopts.Before)
@@ -131,7 +132,7 @@ func (s *Storage) Complete(ctx context.Context, key, token string, done requesti
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	update := mongo.Pipeline{{{Key: "$replaceWith", Value: replacement(key, done, now)}}}
+	update := mongo.Pipeline{{{Key: "$replaceWith", Value: s.replacement(key, done, now)}}}
 	opts := mongoopts.FindOneAndUpdate().SetProjection(bson.M{fieldID: 1})
 	err := s.collection.FindOneAndUpdate(ctx, owned(key, token, now), update, opts).Err()
 	if errors.Is(err, mongo.ErrNoDocuments) {

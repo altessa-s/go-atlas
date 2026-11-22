@@ -17,5 +17,5 @@ const DefaultTimeout = 5 * time.Second
 // CloseTimeout bounds cursor cleanup independently of caller cancellation.
 const CloseTimeout = 5 * time.Second
 
-// Registry is the shared default document encoding registry. Treat it as read-only.
+// Registry is the read-only default for operations without a client registry.
 var Registry = sync.OnceValue(bsoncodec.NewRegistry)

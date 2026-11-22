@@ -48,6 +48,7 @@ type Storage struct {
 	complete       string
 	release        string
 	cleanup        string
+	cleanupGrace   time.Duration
 	purgeBatchSize int
 	purge          *purgeloop.Loop
 	clock          watermark.Clock
@@ -74,7 +75,10 @@ func New(db *sql.DB, dialect Dialect, opts ...Option) (*Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Storage{db: db, style: style, table: table, name: sqldialect.Unqualified(o.tableName), purgeBatchSize: o.purgeBatchSize}
+	s := &Storage{
+		db: db, style: style, table: table, name: sqldialect.Unqualified(o.tableName),
+		purgeBatchSize: o.purgeBatchSize, cleanupGrace: o.cleanupGrace,
+	}
 	s.buildStatements()
 	s.purge = purgeloop.New(o.purgeInterval, s.PurgeExpired, o.logger, "expired request IDs")
 	return s, nil
@@ -190,13 +194,13 @@ func owned(n int64, err error) error {
 	return nil
 }
 
-// PurgeExpired removes rows expired as of the latest observed caller time, in bounded batches.
+// PurgeExpired removes rows whose expiry plus the cleanup grace has passed at the latest observed caller time.
 func (s *Storage) PurgeExpired(ctx context.Context) (int64, error) {
 	now := s.clock.Now()
 	if now.IsZero() {
 		return 0, nil
 	}
-	cutoff := now.UnixMilli()
+	cutoff := now.Add(-s.cleanupGrace).UnixMilli()
 	total, err := purgeloop.Drain(ctx, s.purgeBatchSize, purgeloop.DefaultStepTimeout, func(stepCtx context.Context) (int64, int64, error) {
 		n, err := s.exec(stepCtx, s.cleanup, cutoff, s.purgeBatchSize)
 		return n, n, err

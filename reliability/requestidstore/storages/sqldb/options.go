@@ -20,8 +20,13 @@ const DefaultPurgeInterval = time.Minute
 // DefaultPurgeBatchSize bounds the rows removed by one statement.
 const DefaultPurgeBatchSize = 1000
 
+// DefaultCleanupGrace retains expired entries for an extra hour before physical cleanup.
+const DefaultCleanupGrace = time.Hour
+
 type options struct {
-	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
+	// WithCleanupGrace sets the retention margin for clock skew. Values below one millisecond are ignored.
+	cleanupGrace time.Duration `optgen:"default=DefaultCleanupGrace,onfail=skip" optcheck:"min=time.Millisecond"`
+	tableName    string        `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// WithPurgeInterval sets the interval between background passes. Zero disables them.
 	purgeInterval  time.Duration `optcheck:"min=0" optgen:"default=DefaultPurgeInterval,onfail=skip"`
 	purgeBatchSize int           `optval:"positive" optgen:"default=DefaultPurgeBatchSize"`

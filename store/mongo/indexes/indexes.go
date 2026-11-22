@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"time"
 
@@ -50,8 +51,15 @@ var ErrInvalidIndexModels = mongoxindexes.ErrInvalidIndexModels
 // opens a window without the constraint until the new one is built, and a rebuild fails if the data violates the new specification.
 //
 // A model without a name gets the name the driver would give it (keys joined as "field_1_other_-1"). Models must have distinct names,
+// compound keys must use an ordered document such as bson.D,
 // and an obsolete name may not be a model's, empty, "*", or "_id_" ([ErrInvalidIndexModels]).
 func Ensure(ctx context.Context, coll *mongo.Collection, models []mongo.IndexModel, opts ...Option) error {
+	for i, model := range models {
+		keys := reflect.ValueOf(model.Keys)
+		if keys.Kind() == reflect.Map && keys.Len() > 1 {
+			return fmt.Errorf("%w: model %d has unordered compound index keys", ErrInvalidIndexModels, i)
+		}
+	}
 	o := newOptions(opts...)
 	if len(o.dropObsolete) == 0 && !o.dropOnSpecMismatch {
 		return mongoxindexes.Ensure(ctx, coll, models)

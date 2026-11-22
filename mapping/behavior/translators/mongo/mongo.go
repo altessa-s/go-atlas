@@ -79,6 +79,9 @@ func (ec *encCtx) elementDoc() {
 // objects (struct pointers, slice elements, map values) all come from the
 // engine's walk and carry their own Strip marks.
 func foldObject(obj behavior.Object, o *options, m mode, ec encCtx) (bson.M, bson.M, error) {
+	if ec.transforms != nil && ec.transforms.selection(obj.Value.Type()) == bsonfield.OverlappingFields {
+		return nil, nil, fmt.Errorf("%w: overlapping rules in %s", bsonfield.ErrFieldTransform, obj.Value.Type())
+	}
 	layout, err := o.objectLayout(obj)
 	if err != nil {
 		return nil, nil, err
@@ -484,7 +487,7 @@ func foldValue(fv reflect.Value, nested *behavior.Object, coll *behavior.Collect
 	}
 	// Unselected subtrees in a transformed standard insert retain their exact
 	// driver encoding, including ordered documents and registry-specific types.
-	if m == modeInsert && ec.transforms != nil && o.bsonTagName == DefaultBSONTagName && !ec.transforms.required(fv, 0) {
+	if m == modeInsert && ec.transforms != nil && o.bsonTagName == DefaultBSONTagName && !ec.transforms.required(fv, 0, false) {
 		return encodeTransformValue(fv, ec)
 	}
 	if m == modeUpdate && isRemoval(fv) && o.protectedType(fv.Type(), ec.inColl, ec.noAddr || !fv.CanAddr(), o.policy) {
@@ -730,8 +733,8 @@ func (t *docTranslator) Translate(ctx context.Context, root behavior.Object) (bs
 		if nilcheck.IsNil(transformer) {
 			return nil, fmt.Errorf("%w: nil transformer", bsonfield.ErrFieldTransform)
 		}
-		ft := &fieldTransforms{ctx: ctx, Transformer: transformer, types: make(map[reflect.Type]selection)}
-		if ft.required(root.Value, 0) {
+		ft := &fieldTransforms{ctx: ctx, Transformer: transformer, types: make(map[reflect.Type]bsonfield.Selection)}
+		if ft.required(root.Value, 0, false) {
 			ec.transforms = ft
 			doc, err := t.translate(root, ec)
 			if err != nil && !errors.Is(err, bsonfield.ErrFieldTransform) {

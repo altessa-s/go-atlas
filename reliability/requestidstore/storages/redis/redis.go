@@ -19,13 +19,17 @@ import (
 )
 
 // Storage keeps request ID entries in Redis hashes.
-type Storage struct{ base redisbase.Base }
+type Storage struct {
+	base         redisbase.Base
+	cleanupGrace time.Duration
+}
 
 var _ requestid.Store = (*Storage)(nil)
 
 // New uses client to store request IDs under the configured prefix.
 func New(client redis.UniversalClient, opts ...Option) *Storage {
-	return &Storage{base: redisbase.NewBase(client, newOptions(opts...).keyPrefix)}
+	o := newOptions(opts...)
+	return &Storage{base: redisbase.NewBase(client, o.keyPrefix), cleanupGrace: o.cleanupGrace}
 }
 
 // Both writers replace every field and its physical expiry together.
@@ -54,11 +58,10 @@ end
 var complete = redis.NewScript(checkOwner + writeEntry + `return 1`)
 var release = redis.NewScript(checkOwner + `return redis.call('DEL', KEYS[1])`)
 
-func entryArgs(e requestid.Entry, now time.Time) []any {
+func (s *Storage) entryArgs(e requestid.Entry, now time.Time) []any {
 	expiry := e.ExpiresAt.UnixMilli()
 	// Relative TTL keeps data available even when caller and server epochs differ.
-	const grace = time.Minute
-	ttl := max(int64(0), expiry-now.UnixMilli()) + grace.Milliseconds()
+	ttl := max(int64(0), expiry-now.UnixMilli()) + (s.cleanupGrace - 1).Milliseconds() + 1
 	return []any{now.UnixMilli(), int(e.State), e.Token, expiry, e.Fingerprint, e.Response, e.Failure, e.ResponseOmitted, ttl}
 }
 
@@ -67,7 +70,7 @@ func (s *Storage) Reserve(ctx context.Context, key string, pending requestid.Ent
 	if err := ctx.Err(); err != nil {
 		return requestid.Entry{}, false, err
 	}
-	fields, err := reserve.Run(ctx, s.base.Client(), []string{s.base.Key(key)}, entryArgs(pending, now)...).StringSlice()
+	fields, err := reserve.Run(ctx, s.base.Client(), []string{s.base.Key(key)}, s.entryArgs(pending, now)...).StringSlice()
 	if err != nil {
 		return requestid.Entry{}, false, coreerrs.WrapOperation(err, "reserve Redis request ID")
 	}
@@ -105,7 +108,7 @@ func (s *Storage) Reserve(ctx context.Context, key string, pending requestid.Ent
 
 // Complete replaces the owned pending entry and renews its physical TTL.
 func (s *Storage) Complete(ctx context.Context, key, token string, done requestid.Entry, now time.Time) error {
-	return s.owned(ctx, complete, key, token, entryArgs(done, now))
+	return s.owned(ctx, complete, key, token, s.entryArgs(done, now))
 }
 
 // Release deletes the owned pending entry.

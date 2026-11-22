@@ -24,12 +24,16 @@ func TestEnsureChecksModelsBeforeDropping(t *testing.T) {
 	t.Parallel()
 
 	coll := livebackend.MongoDatabase(t, "index_preflight").Collection("items")
-	model := mongo.IndexModel{Keys: bson.D{{Key: "code", Value: 1}}, Options: mongooptions.Index().SetUnique(true)}
-	name, err := coll.Indexes().CreateOne(t.Context(), model)
-	require.NoError(t, err)
+	model := mongo.IndexModel{Keys: bson.M{"code": 1}, Options: mongooptions.Index().SetUnique(true)}
+	name := "code_1"
+	require.NoError(t, indexes.Ensure(t.Context(), coll, []mongo.IndexModel{model}))
 
 	invalid := mongo.IndexModel{Keys: bson.D{}, Options: mongooptions.Index().SetName("invalid")}
-	err = indexes.Ensure(t.Context(), coll, []mongo.IndexModel{invalid}, indexes.WithDropObsolete(name))
+	err := indexes.Ensure(t.Context(), coll, []mongo.IndexModel{invalid}, indexes.WithDropObsolete(name))
+	require.ErrorIs(t, err, indexes.ErrInvalidIndexModels)
+
+	compound := mongo.IndexModel{Keys: bson.M{"a": 1, "b": -1}, Options: mongooptions.Index().SetName(name)}
+	err = indexes.Ensure(t.Context(), coll, []mongo.IndexModel{compound}, indexes.WithDropOnSpecMismatch())
 	require.ErrorIs(t, err, indexes.ErrInvalidIndexModels)
 
 	specs, err := coll.Indexes().ListSpecifications(t.Context())
