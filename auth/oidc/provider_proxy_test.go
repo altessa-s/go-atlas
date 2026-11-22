@@ -59,7 +59,8 @@ func TestNewProvider_UsesInjectedClient(t *testing.T) {
 	t.Cleanup(p.Close)
 
 	require.NotSame(t, client, p.client)
-	require.Same(t, client.Transport, p.client.Transport)
+	// The httpclient transport is a value wrapper (go-atlas-net v0.3.6), so compare it by value, not by pointer identity.
+	require.Equal(t, client.Transport, p.client.Transport)
 	require.Nil(t, client.CheckRedirect)
 }
 
