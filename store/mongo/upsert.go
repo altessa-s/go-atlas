@@ -19,12 +19,9 @@ import (
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
 )
 
-// documentRegistry is the registry [SetOnInsertFrom] encodes with: the one [Mongo.Connect] installs on the clients it creates.
-var documentRegistry = query.Registry
-
 // SetOnInsertFrom returns the "$setOnInsert" document of an upsert keyed on filterKeys: every top-level field of doc except the
-// filter's equality fields, which the upsert copies from the filter. doc is encoded once, with the go-atlas codec registry that
-// [Mongo.Connect] installs and the default encoder settings, so struct tags (names, omitempty, inline) and the decimal and date codecs
+// filter's equality fields, which the upsert copies from the filter. doc is encoded once, with the default go-atlas codecs
+// and encoder settings, so struct tags (names, omitempty, inline) and the decimal and date codecs
 // apply exactly as for an InsertOne of the same doc; the fields keep doc's order and are returned as encoded bson.RawValue, which any
 // registry writes unchanged. A filter key doc does not produce (an omitted zero value) is ignored. doc must encode as a document.
 //
@@ -33,7 +30,7 @@ var documentRegistry = query.Registry
 func SetOnInsertFrom(doc any, filterKeys ...string) (bson.D, error) {
 	var buf bytes.Buffer
 	enc := bson.NewEncoder(bson.NewDocumentWriter(&buf))
-	enc.SetRegistry(documentRegistry())
+	enc.SetRegistry(query.Registry())
 	if err := enc.Encode(doc); err != nil {
 		return nil, coreerrs.WrapOperation(err, "encode $setOnInsert document")
 	}

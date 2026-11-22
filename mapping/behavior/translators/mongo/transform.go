@@ -22,57 +22,31 @@ import (
 type fieldTransforms struct {
 	ctx context.Context
 	bsonfield.Transformer
-	types map[reflect.Type]selection
+	types map[reflect.Type]bsonfield.Selection
 }
 
-type selection uint8
-
-const (
-	noFields selection = iota
-	dynamicFields
-	selectedFields
-)
-
-func (ft *fieldTransforms) selection(t reflect.Type, visited map[reflect.Type]struct{}) selection {
-	if _, seen := visited[t]; seen {
-		return noFields // the first visit checks all outgoing edges
+func (ft *fieldTransforms) selection(t reflect.Type) bsonfield.Selection {
+	s, ok := ft.types[t]
+	if !ok {
+		s = bsonfield.Inspect(t, ft.Matches)
+		ft.types[t] = s
 	}
-	visited[t] = struct{}{}
-	switch t.Kind() {
-	case reflect.Interface:
-		return dynamicFields
-	case reflect.Array, reflect.Slice, reflect.Pointer:
-		return ft.selection(t.Elem(), visited)
-	case reflect.Map:
-		return max(ft.selection(t.Key(), visited), ft.selection(t.Elem(), visited))
-	case reflect.Struct:
-		var result selection
-		for field := range t.Fields() {
-			if ft.Matches(t, field) {
-				return selectedFields
-			}
-			result = max(result, ft.selection(field.Type, visited))
-		}
-		return result
-	default:
-		return noFields
-	}
+	return s
 }
 
 // required checks concrete values only where interfaces leave the static type
 // inconclusive. Only reflection on structure and types is needed, including
 // for private values. Never invoke a user marshaler to discover its shape.
-func (ft *fieldTransforms) required(v reflect.Value, depth int) bool {
+func (ft *fieldTransforms) required(v reflect.Value, depth int, insideSelected bool) bool {
 	if !v.IsValid() {
 		return false
 	}
 	t := v.Type()
-	s, ok := ft.types[t]
-	if !ok {
-		s = ft.selection(t, make(map[reflect.Type]struct{}))
-		ft.types[t] = s
+	s := ft.selection(t)
+	if insideSelected && s >= bsonfield.SelectedFields {
+		return true // A nil or absent value still has its declared rules.
 	}
-	if s == noFields || (v.Kind() == reflect.Pointer && v.IsNil()) {
+	if s == bsonfield.NoFields || (v.Kind() == reflect.Pointer && v.IsNil()) {
 		return false
 	}
 	if depth >= maxValidateDepth {
@@ -80,29 +54,29 @@ func (ft *fieldTransforms) required(v reflect.Value, depth int) bool {
 	}
 	if v.CanInterface() && optional.IsOptionalType(t) {
 		inner, present := optional.GetReflect(v)
-		return present && ft.required(inner, depth+1)
+		return present && ft.required(inner, depth+1, insideSelected)
 	}
-	if s == selectedFields {
+	if s >= bsonfield.SelectedFields {
 		return true
 	}
 	switch v.Kind() {
 	case reflect.Interface, reflect.Pointer:
-		return ft.required(v.Elem(), depth+1)
+		return ft.required(v.Elem(), depth+1, insideSelected)
 	case reflect.Map:
 		for iter := v.MapRange(); iter.Next(); {
-			if ft.required(iter.Key(), depth+1) || ft.required(iter.Value(), depth+1) {
+			if ft.required(iter.Key(), depth+1, insideSelected) || ft.required(iter.Value(), depth+1, insideSelected) {
 				return true
 			}
 		}
 	case reflect.Array, reflect.Slice:
 		for i := range v.Len() {
-			if ft.required(v.Index(i), depth+1) {
+			if ft.required(v.Index(i), depth+1, insideSelected) {
 				return true
 			}
 		}
 	case reflect.Struct:
 		for i := range t.NumField() {
-			if ft.required(v.Field(i), depth+1) {
+			if ft.required(v.Field(i), depth+1, insideSelected) {
 				return true
 			}
 		}
@@ -112,7 +86,7 @@ func (ft *fieldTransforms) required(v reflect.Value, depth int) bool {
 }
 
 func (ft *fieldTransforms) opaque(v reflect.Value) error {
-	if ft != nil && ft.required(v, 0) {
+	if ft != nil && ft.required(v, 0, false) {
 		return fmt.Errorf("%w: %s is encoded as a unit", bsonfield.ErrFieldTransform, v.Type())
 	}
 	return nil
@@ -141,6 +115,9 @@ func (ft *fieldTransforms) selected(owner reflect.Type, df docField) (bool, erro
 func (ft *fieldTransforms) replace(df docField, v reflect.Value, ec encCtx) (any, error) {
 	if (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) && v.IsNil() {
 		return nil, nil //nolint:nilnil // BSON null has no value to transform.
+	}
+	if ft.required(v, 0, true) {
+		return nil, fmt.Errorf("%w: selected field %s.%s contains another selected field", bsonfield.ErrFieldTransform, ec.owner, df.name)
 	}
 	return ft.Transform(ft.ctx, ec.owner, df.index, df.name, v, ec.reg, func() (bson.RawValue, error) {
 		return encodeTransformValue(v, ec)

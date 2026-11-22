@@ -64,6 +64,13 @@ func New(tag string, models map[reflect.Type]*EncryptionModel, encrypt EncryptFu
 			fields.models[key] = rule
 		}
 	}
+	// Inspect after loading every model so cross-model references are independent
+	// of map iteration order. Reachable tagged fields also participate.
+	for typ := range models {
+		if bsonfield.Inspect(typ, fields.Matches) == bsonfield.OverlappingFields {
+			return nil, fmt.Errorf("%w: overlapping encryption rules in %s", bsonfield.ErrFieldTransform, typ)
+		}
+	}
 	return fields, nil
 }
 

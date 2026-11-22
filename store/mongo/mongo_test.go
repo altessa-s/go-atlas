@@ -5,10 +5,14 @@
 package mongo
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/event"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/drivertest"
 
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -44,4 +48,44 @@ func TestNew_WithoutClient_BackwardCompatible(t *testing.T) {
 	m, err := New("testdb")
 	require.NoError(t, err)
 	require.Nil(t, m.config.Client, "expected config.Client to be nil by default")
+}
+
+func TestNew_ClientRegistryIsolatesStructTags(t *testing.T) {
+	t.Parallel()
+	type document struct {
+		FieldName string `json:"json_name"`
+	}
+	for _, tc := range []struct {
+		name      string
+		jsonFirst bool
+	}{{"json first", true}, {"bson first", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			for _, useJSON := range []bool{tc.jsonFirst, !tc.jsonFirst} {
+				var written bson.Raw
+				opts := mongoOptions.Client().SetBSONOptions(&mongoOptions.BSONOptions{UseJSONStructTags: useJSON}).
+					SetMonitor(&event.CommandMonitor{Started: func(_ context.Context, evt *event.CommandStartedEvent) {
+						if evt.CommandName == "insert" {
+							written = append(bson.Raw(nil), evt.Command.Lookup("documents").Array().Index(0).Document()...)
+						}
+					}})
+				opts.Deployment = drivertest.NewMockDeployment(bson.D{{Key: "ok", Value: 1}, {Key: "n", Value: 1}})
+				m, err := New("test", WithClientOptions(opts))
+				require.NoError(t, err)
+				require.Same(t, m.registry, m.config.ClientOptions.Registry)
+				client, err := mongo.Connect(m.config.ClientOptions)
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, client.Disconnect(context.WithoutCancel(t.Context()))) })
+				_, err = client.Database("test").Collection("docs").InsertOne(t.Context(), document{FieldName: "value"})
+				require.NoError(t, err)
+				want := "fieldname"
+				if useJSON {
+					want = "json_name"
+				}
+				v, err := written.LookupErr(want)
+				require.NoError(t, err)
+				require.Equal(t, "value", v.StringValue())
+			}
+		})
+	}
 }

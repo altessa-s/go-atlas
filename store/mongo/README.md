@@ -71,12 +71,13 @@ engine validates kind names and enforces its depth limit on both operations.
 Encryption declarations use Go field names in `WithEncryptionModel` or field tags such as `encryption:"deterministic,user_email"`. The model takes
 precedence. Register rules for promoted fields on the embedded type that declares them. The builder encrypts selected values before returning the
 document, including fields inside a replacement subdocument or collection. If a codec hides an encrypted descendant or encryption fails, the error
-matches `ErrFieldEncryption`. Document encoding and CSFLE plaintext encoding use the same client registry. Atlas-created clients use their merged
-registry. An external client with no recorded registry uses the Atlas fallback.
+matches `ErrFieldEncryption`. Document encoding and CSFLE plaintext encoding use the same client registry. Each Atlas-created client gets a private
+registry unless its client options specify one. A wrapper around an external client with no recorded registry uses private Atlas defaults.
 
 `New` validates model rules at construction. Unknown, unexported and promoted field names, duplicate rules, and missing keys or algorithms are
-errors. Use `deterministic` or `random` on the field to encrypt. To encrypt a descendant, declare the rule on that descendant. The former
-`nested` algorithm marker is unnecessary and fails algorithm validation when applied.
+errors. A selected field containing another selected field also fails with `ErrFieldEncryption`. The constructor checks registered model types, and
+the insert and update builders check types discovered at conversion. Use `deterministic` or `random` on the field to encrypt. To encrypt a
+descendant, declare the rule on that descendant. The former `nested` algorithm marker is unnecessary and fails algorithm validation when applied.
 
 ## Read filters
 
@@ -294,7 +295,7 @@ page, err := keyset.FindPage[Order](ctx, coll, codec, keyset.Query{
 A joined `WithTransaction` runs its handler on the enclosing session: its writes commit or abort with the enclosing transaction, its error goes to the
 enclosing handler, and it applies no timeout, metric or log of its own. A transaction of another client is never joined.
 
-`SetOnInsertFrom` encodes `doc` with the registry `Connect` installs (decimal, dates, `Optional`) and default encoder settings, so struct tags apply as
+`SetOnInsertFrom` encodes `doc` with the default Atlas codecs (decimal, dates, `Optional`) and encoder settings, so struct tags apply as
 for `InsertOne`; the fields keep `doc`'s order and are `bson.RawValue`s that any registry writes unchanged. A filter key the document omits is ignored.
 
 `UpsertRetryingDuplicate` retries only `mongo.IsDuplicateKeyError`; another error, or the last duplicate, is returned as is. Inside a transaction a
@@ -423,7 +424,7 @@ Internal packages keep implementation details out of the public API:
 | Package                 | Responsibility                                                                         |
 |-------------------------|----------------------------------------------------------------------------------------|
 | `internal/document`     | CSFLE field selection and encryption for the shared BSON builder |
-| `internal/query`        | Filter validation, legacy sort syntax and read defaults                                |
+| `internal/query`        | Legacy sort syntax and read defaults. Filters use go-mongox `bsonfilter.Prepare`.      |
 | `internal/pipeline`     | Offset/cursor aggregation stages and independent total counts                          |
 | `internal/databaselock` | Database leases shared by migrations and index reconciliation                          |
 

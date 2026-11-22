@@ -11,6 +11,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+
+	"github.com/altessa-s/go-atlas/store/mongo/bsoncodec"
 )
 
 type encoding struct {
@@ -38,23 +40,24 @@ func FilterEncoding(coll *mongo.Collection, registry *bson.Registry, opts *optio
 	if coll != nil && coll.Database() != nil {
 		client = coll.Database().Client()
 	}
-	return clientEncoding(client, registry, opts)
-}
-
-// ClientRegistry returns the registered client registry or the Atlas default.
-func ClientRegistry(client *mongo.Client) *bson.Registry {
-	reg, _ := clientEncoding(client, nil, nil)
-	return reg
-}
-
-func clientEncoding(client *mongo.Client, registry *bson.Registry, opts *options.BSONOptions) (*bson.Registry, *options.BSONOptions) {
-	if value, ok := clientEncodings.Load(client); ok {
-		settings := value.(encoding) //nolint:errcheck // RegisterClientEncoding stores only encoding.
-		registry = cmp.Or(registry, settings.registry)
-		opts = cmp.Or(opts, settings.opts)
-	}
-	if registry == nil {
+	settings := clientEncoding(client)
+	if registry = cmp.Or(registry, settings.registry); registry == nil {
 		registry = Registry()
 	}
-	return registry, opts
+	return registry, cmp.Or(opts, settings.opts)
+}
+
+// ClientRegistry reuses the registry of an Atlas-created driver client.
+// A new client or an unregistered external client receives a private Atlas registry.
+func ClientRegistry(client *mongo.Client) *bson.Registry {
+	if reg := clientEncoding(client).registry; reg != nil {
+		return reg
+	}
+	return bsoncodec.NewRegistry()
+}
+
+func clientEncoding(client *mongo.Client) encoding {
+	value, _ := clientEncodings.Load(client)
+	settings, _ := value.(encoding)
+	return settings
 }

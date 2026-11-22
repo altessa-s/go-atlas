@@ -564,3 +564,66 @@ func TestConvert_ValidatesValueBeforeFieldEncoding(t *testing.T) {
 		require.Nil(t, doc)
 	}
 }
+
+func TestNewRejectsOverlappingEncryptionModels(t *testing.T) {
+	t.Parallel()
+	type child struct{ Secret string }
+	type middle struct{ Children map[string][]*child }
+	type parent struct{ Outer middle }
+	type tagged struct {
+		Outer middle `encryption:"random,outer"`
+	}
+	model := func(value any, field, key string) *EncryptionModel {
+		return &EncryptionModel{Type: value, Fields: []EncryptionField{{FieldName: field, Algorithm: "random", KeyAltName: key}}}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		outer *EncryptionModel
+	}{
+		{"model and model", model(parent{}, "Outer", "outer")},
+		{"tag and model", &EncryptionModel{Type: tagged{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m, err := New("testdb", WithEncryptionModel(tc.outer, model(child{}, "Secret", "inner")))
+			require.ErrorIs(t, err, ErrFieldEncryption)
+			require.Nil(t, m)
+		})
+	}
+}
+
+func TestConvertRejectsOverlappingEncryptionRules(t *testing.T) {
+	t.Parallel()
+	type child struct {
+		Secret string `encryption:"unknown,inner"`
+	}
+	type static struct {
+		Outer *child `bson:",omitempty" encryption:"random,outer"`
+	}
+	type dynamic struct {
+		Outer any `encryption:"random,outer"`
+	}
+
+	for _, tc := range []struct {
+		name  string
+		value any
+	}{
+		{"static tags", static{&child{"secret"}}},
+		{"omitted field", static{}},
+		{"dynamic collection", dynamic{map[string][]any{"k": {&child{"secret"}}}}},
+		{"dynamic typed nil", dynamic{(*child)(nil)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ce := &fakeClientEncryption{}
+			m := newEncryptingMongo(t, ce)
+			for _, convert := range []func(context.Context, any) (bson.M, error){m.ConvertToNewDocument, m.ConvertToUpdateDocument} {
+				doc, err := convert(t.Context(), tc.value)
+				require.ErrorIs(t, err, ErrFieldEncryption)
+				require.Nil(t, doc)
+				require.Empty(t, ce.encrypted)
+			}
+		})
+	}
+}
