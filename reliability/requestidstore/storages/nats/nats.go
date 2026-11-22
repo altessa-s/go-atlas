@@ -31,9 +31,10 @@ var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 // Storage keeps one entry per request ID in a dedicated JetStream KV bucket.
 type Storage struct {
 	natsbase.Base
-	stream jetstream.Stream
-	clock  watermark.Clock
-	purge  *purgeloop.Loop
+	cleanupGrace time.Duration
+	stream       jetstream.Stream
+	clock        watermark.Clock
+	purge        *purgeloop.Loop
 }
 
 var _ requestid.Store = (*Storage)(nil)
@@ -58,7 +59,7 @@ func New(ctx context.Context, js jetstream.JetStream, opts ...Option) (*Storage,
 	if cfg.Discard == jetstream.DiscardOld && (cfg.MaxBytes > 0 || cfg.MaxMsgs > 0) {
 		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "request ID bucket may evict live entries")
 	}
-	s := &Storage{Base: base, stream: stream}
+	s := &Storage{Base: base, stream: stream, cleanupGrace: o.cleanupGrace}
 	s.purge = purgeloop.New(o.purgeInterval, s.purgeExpired, o.logger, "request IDs")
 	return s, nil
 }

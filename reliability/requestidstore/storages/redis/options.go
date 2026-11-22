@@ -4,11 +4,18 @@
 
 package redis
 
+import "time"
+
 //go:generate go tool optgen generate
 
 // DefaultKeyPrefix isolates request IDs from other Redis data.
 const DefaultKeyPrefix = "requestid:"
 
+// DefaultCleanupGrace retains expired entries for an extra hour before physical cleanup.
+const DefaultCleanupGrace = time.Hour
+
 type options struct {
-	keyPrefix string `optgen:"default=DefaultKeyPrefix"`
+	// WithCleanupGrace sets the retention margin for clock skew. Values below one millisecond are ignored.
+	cleanupGrace time.Duration `optgen:"default=DefaultCleanupGrace,onfail=skip" optcheck:"min=time.Millisecond"`
+	keyPrefix    string        `optgen:"default=DefaultKeyPrefix"`
 }

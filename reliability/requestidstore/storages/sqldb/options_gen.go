@@ -12,6 +12,16 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithCleanupGrace sets the retention margin for clock skew. Values below one millisecond are ignored.
+func WithCleanupGrace(v time.Duration) Option {
+	return func(o *options) {
+		if v < (time.Millisecond) {
+			return
+		}
+		o.cleanupGrace = v
+	}
+}
+
 // WithLogger sets the logger for background purge errors.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -70,6 +80,7 @@ func WithTableName[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		cleanupGrace:   DefaultCleanupGrace,
 		logger:         slog.New(slog.DiscardHandler),
 		purgeBatchSize: DefaultPurgeBatchSize,
 		purgeInterval:  DefaultPurgeInterval,

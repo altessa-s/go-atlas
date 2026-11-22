@@ -37,7 +37,7 @@ func TestConformance(t *testing.T) {
 func TestPurgeUsesCallerTime(t *testing.T) {
 	t.Parallel()
 	_, js := natstest.ConnectJetStream(t, natstest.StartNATSServer(t))
-	s := open(t, js, nats.WithPurgeInterval(time.Millisecond))
+	s := open(t, js, nats.WithPurgeInterval(time.Millisecond), nats.WithCleanupGrace(time.Minute))
 	now := requestidtest.Base
 	key := requestidtest.Key(t.Name())
 	entry := requestid.Entry{State: requestid.StatePending, Token: string([]byte{0xff}), ExpiresAt: now.Add(time.Hour)}
@@ -49,7 +49,7 @@ func TestPurgeUsesCallerTime(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, won)
 	require.Equal(t, entry.Token, seen.Token)
-	err = s.Release(t.Context(), requestidtest.Key("absent"), "other", entry.ExpiresAt)
+	err = s.Release(t.Context(), requestidtest.Key("absent"), "other", entry.ExpiresAt.Add(time.Minute))
 	require.ErrorIs(t, err, requestid.ErrReservationLost)
 	require.Eventually(t, func() bool {
 		_, getErr := s.KV().Get(t.Context(), key)

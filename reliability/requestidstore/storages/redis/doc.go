@@ -4,6 +4,10 @@
 
 // Package redis stores AIP-155 request ID entries in Redis.
 //
+// Each operation checks ExpiresAt against the caller's now. The physical TTL assumes that
+// elapsed backend time can exceed elapsed caller time by less than [DefaultCleanupGrace]
+// or the margin configured with [WithCleanupGrace].
+//
 // # Usage
 //
 //	store := redis.New(client, redis.WithKeyPrefix("orders:requestid:"))

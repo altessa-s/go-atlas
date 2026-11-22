@@ -25,16 +25,26 @@ func TestConformance(t *testing.T) {
 func TestPhysicalTTL(t *testing.T) {
 	t.Parallel()
 	client, server := redistest.RedisClient(t)
-	store := redis.New(client)
+	const grace = 5 * time.Minute
+	store := redis.New(client, redis.WithCleanupGrace(grace))
 	now := requestidtest.Base
 	entry := requestid.Entry{State: requestid.StatePending, Token: "first", ExpiresAt: now.Add(time.Second)}
 	key := requestidtest.Key(t.Name())
 	_, ok, err := store.Reserve(t.Context(), key, entry, now)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Greater(t, server.TTL(redis.DefaultKeyPrefix+key), time.Second)
+	require.Equal(t, time.Second+grace, server.TTL(redis.DefaultKeyPrefix+key))
 	entry.State = requestid.StateCompleted
 	entry.ExpiresAt = now.Add(time.Hour)
 	require.NoError(t, store.Complete(t.Context(), key, entry.Token, entry, now))
-	require.Greater(t, server.TTL(redis.DefaultKeyPrefix+key), time.Hour)
+	require.Equal(t, time.Hour+grace, server.TTL(redis.DefaultKeyPrefix+key))
+	// Redis has passed the original TTL plus one minute, while the caller still sees a live result.
+	server.FastForward(time.Hour + 2*time.Minute)
+	got, won, err := store.Reserve(t.Context(), key, entry, entry.ExpiresAt.Add(-time.Second))
+	require.NoError(t, err)
+	require.False(t, won)
+	require.Equal(t, requestid.StateCompleted, got.State)
+	_, won, err = store.Reserve(t.Context(), key, entry, entry.ExpiresAt)
+	require.NoError(t, err)
+	require.True(t, won)
 }

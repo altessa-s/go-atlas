@@ -34,6 +34,16 @@ func WithBucket[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithCleanupGrace sets the retention margin for clock skew. Values below one millisecond are ignored.
+func WithCleanupGrace(v time.Duration) Option {
+	return func(o *options) {
+		if v < (time.Millisecond) {
+			return
+		}
+		o.cleanupGrace = v
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -65,6 +75,7 @@ func WithReplicas(v int) Option {
 func defaultOptions() *options {
 	return &options{
 		bucket:        DefaultBucket,
+		cleanupGrace:  DefaultCleanupGrace,
 		logger:        slog.New(slog.DiscardHandler),
 		purgeInterval: DefaultPurgeInterval,
 		replicas:      DefaultReplicas,

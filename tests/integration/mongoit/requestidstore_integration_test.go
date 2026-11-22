@@ -36,7 +36,8 @@ func TestRequestIDStoreGarbageCollection(t *testing.T) {
 
 	db := client(t).Database("requestid_" + rand.Text())
 	t.Cleanup(func() { require.NoError(t, db.Drop(context.WithoutCancel(t.Context()))) })
-	s, err := mongostore.New(t.Context(), db)
+	const grace = 5 * time.Minute
+	s, err := mongostore.New(t.Context(), db, mongostore.WithCleanupGrace(grace))
 	require.NoError(t, err)
 	coll := db.Collection(mongostore.DefaultCollectionName)
 	indexes, err := coll.Indexes().ListSpecifications(t.Context())
@@ -67,5 +68,13 @@ func TestRequestIDStoreGarbageCollection(t *testing.T) {
 		PurgeAt time.Time `bson:"purge_at"`
 	}
 	require.NoError(t, coll.FindOne(t.Context(), bson.M{"_id": key}).Decode(&result))
-	require.WithinDuration(t, time.Now().Add(time.Hour+time.Minute), result.PurgeAt, 30*time.Second)
+	require.WithinDuration(t, time.Now().Add(time.Hour+grace), result.PurgeAt, 30*time.Second)
+	// Model a TTL monitor pass after the old one-minute margin, while the caller lags behind.
+	resultDelete, err := coll.DeleteOne(t.Context(), bson.M{"_id": key, "purge_at": bson.M{"$lte": time.Now().Add(time.Hour + 2*time.Minute)}})
+	require.NoError(t, err)
+	require.Zero(t, resultDelete.DeletedCount)
+	got, won, err := s.Reserve(t.Context(), key, entry, entry.ExpiresAt.Add(-time.Second))
+	require.NoError(t, err)
+	require.False(t, won)
+	require.Equal(t, requestid.StateCompleted, got.State)
 }

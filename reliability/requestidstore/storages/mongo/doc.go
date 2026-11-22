@@ -4,6 +4,10 @@
 
 // Package mongo persists AIP-155 reservations and replay outcomes for a requestid.Guard.
 //
+// Each operation checks ExpiresAt against the caller's now. The physical TTL assumes that
+// elapsed backend time can exceed elapsed caller time by less than [DefaultCleanupGrace]
+// or the margin configured with [WithCleanupGrace].
+//
 // # Usage
 //
 //	store, err := mongo.New(ctx, db, mongo.WithCollectionName("request_ids"))

@@ -5,10 +5,21 @@ package mongo
 
 import (
 	"strings"
+	"time"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithCleanupGrace sets the retention margin for clock skew. Values below one millisecond are ignored.
+func WithCleanupGrace(v time.Duration) Option {
+	return func(o *options) {
+		if v < (time.Millisecond) {
+			return
+		}
+		o.cleanupGrace = v
+	}
+}
 
 // WithCollectionName sets the collectionName option.
 func WithCollectionName[T interface{ string | *string }](v T) Option {
@@ -38,6 +49,7 @@ func WithCollectionName[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		cleanupGrace:   DefaultCleanupGrace,
 		collectionName: DefaultCollectionName,
 	}
 }
