@@ -5,12 +5,13 @@ import "github.com/altessa-s/go-atlas/mapping/behavior/translators/mongo"
 ```
 
 Package `mongo` provides [`behavior.Translator`](../../README.md) implementations that fold behavior-tagged Go structs into MongoDB BSON documents from
-a single [`mapping/behavior`](../../README.md) reflection walk. It is self-contained: it depends only on the behavior core and the BSON driver, performs
-no encryption, and has no dependency on `store/mongo`.
+the objects resolved by the behavior engine. [`store/mongo`](../../../../store/mongo/README.md#write-documents) uses the insert and update translators
+for its document-conversion methods and supplies CSFLE field handling through an internal interface. Standalone translators apply their configured BSON
+registry and behavior policy.
 
 The package exposes **only translators** — drive them through `behavior.New`. Configuration that belongs to the core (the behavior tag name, traversal
 depth, and the strip-kind policy) is set on the engine via `behavior.WithTagName` / `behavior.WithMaxDepth` / `behavior.WithKinds`, never duplicated
-here. The translators own only the bson tag.
+here. The document translators own BSON tag and registry selection.
 
 ## Translators
 

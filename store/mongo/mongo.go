@@ -23,13 +23,14 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
-	"github.com/altessa-s/go-atlas/store/mongo/bsoncodec"
+	"github.com/altessa-s/go-atlas/mapping/behavior"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 	"github.com/altessa-s/go-atlas/store/mongo/kms"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
+	mongotranslator "github.com/altessa-s/go-atlas/mapping/behavior/translators/mongo"
 	mongodocument "github.com/altessa-s/go-atlas/store/mongo/internal/document"
 	mongomigrations "github.com/altessa-s/go-atlas/store/mongo/migrations"
 	converter "github.com/altessa-s/go-convert"
@@ -121,10 +122,10 @@ type Mongo struct {
 	// singleFlight is the request deduplication group for this client
 	singleFlight *singleflight.Group[string, any]
 
-	// structParser is a reusable mongodocument.Parser instance for document conversion.
-	// Created once per Mongo instance; its sharded cache is shared across
-	// all document conversions.
-	structParser *mongodocument.Parser
+	registry        *bson.Registry
+	encryptedFields *mongodocument.Fields
+	insertDocument  *behavior.Engine[bson.M]
+	updateDocument  *behavior.Engine[bson.M]
 
 	// converterOpts is the converter option set fixed at construction,
 	// shared by every GetEntity/GetEntities call.
@@ -175,24 +176,31 @@ func New(database string, opts ...Option) (*Mongo, error) {
 		return nil, errors.New("WithClient and WithClientOptions are mutually exclusive")
 	}
 
-	// Create a Mongo instance with config
+	registry := query.ClientRegistry(cfg.Client)
+	if cfg.Client == nil {
+		cfg.ClientOptions = mongoOptions.MergeClientOptions(mongoOptions.Client().SetRegistry(registry), cfg.ClientOptions)
+		registry = cfg.ClientOptions.Registry
+	}
+	builderOptions := []mongotranslator.Option{mongotranslator.WithRegistry(registry), mongotranslator.WithBsonTagName(cfg.BSONTagName)}
 	m := &Mongo{
-		config:   cfg,
-		database: database,
-		// Create a single reusable parser for document conversion.
-		// The parser's sharded cache persists across calls, making it effective.
-		structParser: mongodocument.NewParser(
-			mongodocument.WithParserEncryptionModels(cfg.EncryptionModels),
-			mongodocument.WithParserBSONTagName(cfg.BSONTagName),
-			mongodocument.WithParserEncryptionTagName(cfg.EncryptionTagName),
-		),
-		singleFlight: singleflight.New[string, any](),
-		metrics:      newMongoMetrics(cfg.Meter),
+		config:         cfg,
+		database:       database,
+		registry:       registry,
+		insertDocument: behavior.New(mongotranslator.NewInsertTranslator(builderOptions...)),
+		updateDocument: behavior.New(mongotranslator.NewUpdateTranslator(builderOptions...)),
+		singleFlight:   singleflight.New[string, any](),
+		metrics:        newMongoMetrics(cfg.Meter),
 		converterOpts: append(
 			[]converter.Option{converter.WithEmbeddedStructs(converter.EmbeddedFillAlways)},
 			cfg.ConverterOptions...,
 		),
 	}
+
+	fields, err := mongodocument.New(cfg.EncryptionTagName, cfg.EncryptionModels, m.encryptDocumentField)
+	if err != nil {
+		return nil, err
+	}
+	m.encryptedFields = fields
 
 	// Setup encryption if the KMS provider is configured and encryption is enabled
 	if m.config.EncryptionEnabled {
@@ -251,7 +259,7 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 	if m.config.Client != nil {
 		m.client = m.config.Client
 	} else {
-		opts := mongoOptions.MergeClientOptions(mongoOptions.Client().SetRegistry(bsoncodec.NewRegistry()), m.config.ClientOptions)
+		opts := m.config.ClientOptions
 
 		m.client, err = mongo.Connect(opts)
 		if err != nil {

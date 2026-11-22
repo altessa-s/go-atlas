@@ -34,12 +34,24 @@ func ForgetClientEncoding(client *mongo.Client) {
 // FilterEncoding resolves explicit database or collection overrides, then
 // client settings. External clients default to the Atlas registry.
 func FilterEncoding(coll *mongo.Collection, registry *bson.Registry, opts *options.BSONOptions) (*bson.Registry, *options.BSONOptions) {
+	var client *mongo.Client
 	if coll != nil && coll.Database() != nil {
-		if value, ok := clientEncodings.Load(coll.Database().Client()); ok {
-			client := value.(encoding) //nolint:errcheck // RegisterClientEncoding stores only encoding.
-			registry = cmp.Or(registry, client.registry)
-			opts = cmp.Or(opts, client.opts)
-		}
+		client = coll.Database().Client()
+	}
+	return clientEncoding(client, registry, opts)
+}
+
+// ClientRegistry returns the registered client registry or the Atlas default.
+func ClientRegistry(client *mongo.Client) *bson.Registry {
+	reg, _ := clientEncoding(client, nil, nil)
+	return reg
+}
+
+func clientEncoding(client *mongo.Client, registry *bson.Registry, opts *options.BSONOptions) (*bson.Registry, *options.BSONOptions) {
+	if value, ok := clientEncodings.Load(client); ok {
+		settings := value.(encoding) //nolint:errcheck // RegisterClientEncoding stores only encoding.
+		registry = cmp.Or(registry, settings.registry)
+		opts = cmp.Or(opts, settings.opts)
 	}
 	if registry == nil {
 		registry = Registry()

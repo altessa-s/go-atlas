@@ -4,26 +4,32 @@
 
 package document
 
-// Field processing constants
-const (
-	// NestedEncryptionKey is used in encryption tag values to indicate nested field encryption
-	NestedEncryptionKey = "nested"
+import (
+	"errors"
+	"fmt"
+	"strings"
 )
 
-// NestedStructType represents the type of nested structure in a field
-type NestedStructType int
-
-// Constants for nested structure types
+// CSFLE algorithm identifiers accepted by libmongocrypt.
 const (
-	// NoNesting indicates the field does not contain a nested struct.
-	NoNesting NestedStructType = iota
-	// PointerStruct indicates the field is a pointer to a struct.
-	PointerStruct
-	// SliceStruct indicates the field is a slice of structs.
-	SliceStruct
-	// MapStruct indicates the field is a map with struct values.
-	MapStruct
+	Deterministic = "AEAD_AES_256_CBC_HMAC_SHA_512-Deterministic"
+	Random        = "AEAD_AES_256_CBC_HMAC_SHA_512-Random"
 )
+
+// ErrUnknownAlgorithm reports an unrecognized encryption algorithm.
+var ErrUnknownAlgorithm = errors.New("unknown encryption algorithm")
+
+// Algorithm resolves a CSFLE algorithm or its case-insensitive short alias.
+func Algorithm(name string) (string, error) {
+	switch {
+	case name == Deterministic, strings.EqualFold(name, "deterministic"):
+		return Deterministic, nil
+	case name == Random, strings.EqualFold(name, "random"):
+		return Random, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported encryption algorithm %q", ErrUnknownAlgorithm, name)
+	}
+}
 
 // EncryptionField defines how a specific struct field should be encrypted.
 type EncryptionField struct {

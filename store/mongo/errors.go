@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-mongox/bsonfilter"
 
+	"github.com/altessa-s/go-atlas/internal/bsonfield"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -152,8 +153,10 @@ func IsTransientTransaction(err error) bool {
 var (
 	// ErrEncryptionNotEnabled is returned when encryption operations are attempted without encryption configured
 	ErrEncryptionNotEnabled = document.ErrEncryptionNotEnabled
+	// ErrFieldEncryption reports a field the builder could not place as CSFLE ciphertext.
+	ErrFieldEncryption = bsonfield.ErrFieldTransform
 	// ErrEncryptionUnknownAlg is returned when an unsupported encryption algorithm is specified
-	ErrEncryptionUnknownAlg = errors.New("unknown encryption algorithm")
+	ErrEncryptionUnknownAlg = document.ErrUnknownAlgorithm
 	// ErrUnsupportedVersion is returned when the MongoDB version is below the minimum required
 	ErrUnsupportedVersion = errors.New("unsupported mongo version")
 	// ErrDataKeyNotFound is returned when a requested data encryption key is not found

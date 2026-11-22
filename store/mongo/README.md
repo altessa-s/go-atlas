@@ -41,14 +41,42 @@ structured logging.
 | `WithDeduplicationIdentity`       | nil               | Per-context identity segment for the read singleflight key (see below) |
 | `WithRollbackMigrationsOnFailure` | off               | Roll back every applied migration when one fails (see Migrations)      |
 
-## Parser metadata
+## Write documents
 
-The internal document parser caches type descriptions and binds field values for each `ParseStruct` call. Nil embedded pointers omit promoted fields
-only for that instance;
-a later non-nil instance of the same type is parsed fully. The cache retains no entity values.
+**BREAKING CHANGE.** `Mongo.ConvertToNewDocument` and `Mongo.ConvertToUpdateDocument` now use the same BSON layout as the
+[MongoDB behavior translators](../../mapping/behavior/translators/mongo/README.md). Both accept a struct or a non-nil pointer chain to one.
 
-Returned metadata belongs to the caller. `NestedStructs` contains type descriptions, without instance values. Encryption models are copied at
-construction. The unused `WithParserUpdate` and `WithParserEncryption` options were removed; operation modes belong to document processing.
+| Input | Insert | Update |
+|-------|--------|--------|
+| Anonymous struct field | Nested under its BSON name by default | Same nesting |
+| Explicit `inline` | Promotes struct fields or string-map entries. A nil inline pointer contributes no keys. | Same promotion. An empty inline map contributes no operator. |
+| Field names | A bare tag names the BSON key under the default tag key. Only the complete `bson:"-"` skips a field. `bson:"-,omitempty"` names the key `-`. | Same names. A dotted name or a leading `$` in an addressed path is an error. |
+| Duplicate names | The shallowest inline candidate wins. Equal-depth duplicates, invalid inline declarations and colliding inline-map entries fail. | Same layout checks |
+| `omitempty` | Uses driver emptiness, including `IsZero`. Scalar zero is omitted. A non-nil pointer to an ordinary zero scalar is present. | Scalar zeros are set. Nil pointers and empty collections become `$unset`. |
+| Collections without `omitempty` | Nil maps and slices become BSON null. Empty collections retain their BSON type, including empty binary for `[]byte{}`. | Replaces nonempty collections. Embedded element identifiers are written with the elements. |
+| Codecs and `minsize` | Uses BSON types from the effective registry, including across pointers and collections. `bson.D` stays an ordered document, and small `int64` values tagged `minsize` can become BSON int32. | Honors codecs, addressability of pointer-receiver marshalers and inherited `minsize`. |
+| Empty struct or all fields excluded | Empty document | Empty `$set` |
+| `_id`, `behavior:"identifier"`, `omitonupdate` | Written under the normal insert rules | Excluded from record updates. Neither operator targets the root `_id` or its descendants. |
+
+Standard inserts use the driver's root encoder, including a root `MarshalBSON`, when no field needs encryption. The result contains BSON values such as
+`bson.DateTime`, `bson.D`, `bson.A` and `bson.Binary`. The driver can stringify supported non-string map keys on insert. The standard insert
+checks the encoded document recursively for keys beginning with `$`. A custom BSON tag key selects field-by-field construction, including nested
+struct values. Folded maps require string keys and reject keys beginning with `$`.
+
+Updates replace ordinary subdocuments in full. For example, a nil child pointer disappears from its parent's replacement. If replacing a parent would
+remove a protected field, the builder uses dotted paths for the writable siblings. Unsetting the entire protected parent fails with
+`ErrProtectedUnset` from the translator. Store uses an empty behavior strip set, so `immutable` and `output_only` alone allow writes. The behavior
+engine validates kind names and enforces its depth limit on both operations.
+
+Encryption declarations use Go field names in `WithEncryptionModel` or field tags such as `encryption:"deterministic,user_email"`. The model takes
+precedence. Register rules for promoted fields on the embedded type that declares them. The builder encrypts selected values before returning the
+document, including fields inside a replacement subdocument or collection. If a codec hides an encrypted descendant or encryption fails, the error
+matches `ErrFieldEncryption`. Document encoding and CSFLE plaintext encoding use the same client registry. Atlas-created clients use their merged
+registry. An external client with no recorded registry uses the Atlas fallback.
+
+`New` validates model rules at construction. Unknown, unexported and promoted field names, duplicate rules, and missing keys or algorithms are
+errors. Use `deterministic` or `random` on the field to encrypt. To encrypt a descendant, declare the rule on that descendant. The former
+`nested` algorithm marker is unnecessary and fails algorithm validation when applied.
 
 ## Read filters
 
@@ -394,12 +422,12 @@ Internal packages keep implementation details out of the public API:
 
 | Package                 | Responsibility                                                                         |
 |-------------------------|----------------------------------------------------------------------------------------|
-| `internal/document`     | Struct metadata, parser cache and document conversion; encryption supplied by the root |
+| `internal/document`     | CSFLE field selection and encryption for the shared BSON builder |
 | `internal/query`        | Filter validation, legacy sort syntax and read defaults                                |
 | `internal/pipeline`     | Offset/cursor aggregation stages and independent total counts                          |
 | `internal/databaselock` | Database leases shared by migrations and index reconciliation                          |
 
 The root retains connection lifecycle, transactions, key management and the legacy pagination API. These share client state or public cursor defaults.
-Extracted APIs are available only from their owning subpackages; the root has no compatibility wrappers. Struct parsing is internal.
+Extracted APIs are available only from their owning subpackages; the root has no compatibility wrappers. The BSON translators own document layout.
 
 The legacy sort syntax (`name,-age`) is distinct from AIP `order_by`. Both pagination APIs use the shared parser.

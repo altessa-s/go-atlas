@@ -4,19 +4,21 @@
 import "github.com/altessa-s/go-atlas/store/mongo/internal/document"
 ```
 
-Internal struct parsing and BSON document conversion. MongoDB client lifecycle and key management remain in the [root package](../../README.md).
+Package `document` implements the [store](../../README.md#write-documents) field-encryption policy. The
+[MongoDB translator](../../../../mapping/behavior/translators/mongo/README.md) owns the BSON layout and update operators.
 
 ## Key types
 
 | Type | Responsibility |
 |------|----------------|
-| `Parser` | Cached type metadata, BSON tags and encryption schemas |
-| `Engine` | Insert fields and update set/unset documents |
-| `EncryptFunc` | Caller-supplied field encryption |
-| `EncryptionModel` | Schema values shared with the public root aliases |
+| `Fields` | Resolves an encryption declaration by its Go field and transforms selected values into ciphertext |
+| `EncryptionModel`, `EncryptionField` | Per-type rules configured through the store's public aliases |
+| `EncryptFunc` | Applies the selected algorithm and key to a registry-encoded BSON value |
 
-## Contract
+## Field selection
 
-A nil encryptor rejects non-nil fields marked for encryption. Nested updates replace whole subdocuments. Custom BSON marshalers remain scalar values. Returned parser metadata belongs to the caller; cached descriptions retain no entity instances.
+Register each model for the type that declares its exported fields. A model rule takes precedence over the field's encryption tag. The default tag
+key is `encryption`, and a tag such as `encryption:"deterministic,user_email"` identifies the algorithm and key alternative name.
 
-Parser options are generated from `parser_options.go`. Parser types and options are internal. The root uses this package directly; encryption schema values remain part of its client configuration.
+The builder supplies the Go type and field path, stored BSON name, value and effective registry. An encryption or encoding failure aborts the
+conversion. An unsupported placement, such as a codec-owned parent containing a separately encrypted field, also fails the conversion.

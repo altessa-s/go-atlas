@@ -8,14 +8,16 @@
 package mongo
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"reflect"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas/internal/bsonfield"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -39,28 +41,18 @@ func (e EncryptionAlg) IsValid() bool {
 // Supported aliases are "deterministic" and "random" (case-insensitive).
 // Returns an error if the alias is not recognized.
 func EncryptionAlgFromAlias(alias string) (EncryptionAlg, error) {
-	if EncryptionAlg(alias).IsValid() {
-		return EncryptionAlg(alias), nil
-	}
-
-	switch {
-	case strings.EqualFold(alias, "deterministic"):
-		return EncryptionAlgDeterministic, nil
-	case strings.EqualFold(alias, "random"):
-		return EncryptionAlgRandom, nil
-	}
-
-	return "", coreerrs.Wrapf(ErrEncryptionUnknownAlg, "encryption algorithm alias: %s not supported", alias)
+	alg, err := document.Algorithm(alias)
+	return EncryptionAlg(alg), err
 }
 
 // Encryption algorithms supported by MongoDB Client-Side Field Level Encryption (CSFLE)
 const (
 	// EncryptionAlgDeterministic provides deterministic encryption (same input = same output)
 	// Use for fields that need to be queried (indexed, searched, sorted)
-	EncryptionAlgDeterministic EncryptionAlg = "AEAD_AES_256_CBC_HMAC_SHA_512-Deterministic"
+	EncryptionAlgDeterministic EncryptionAlg = document.Deterministic
 	// EncryptionAlgRandom provides randomized encryption (same input = different output)
 	// Use for fields that don't need to be queried but need maximum security
-	EncryptionAlgRandom EncryptionAlg = "AEAD_AES_256_CBC_HMAC_SHA_512-Random"
+	EncryptionAlgRandom EncryptionAlg = document.Random
 )
 
 // DataKeyId represents a MongoDB data encryption key identifier.
@@ -233,142 +225,18 @@ func (m *Mongo) InvalidateAllDataKeys() {
 	})
 }
 
-// ConvertToNewDocument converts a Go struct to a BSON document for insertion operations.
-// It handles field encryption using explicit encryption, removes nil/empty fields,
-// and processes nested structures.
-//
-// Field encryption can be configured in two ways:
-//  1. WithEncryptionModel() option (recommended) - configures encryption programmatically
-//  2. Struct tags - `encrypted:"algorithm,keyAltName"` - encrypts the field with specified algorithm and key
-//
-// Other supported tags:
-//   - `bson:"omitempty"` - omits empty fields from the document
-//
-// Supported encryption algorithms:
-//   - "deterministic" - same input produces same encrypted output (allows querying)
-//   - "random" - same input produces different encrypted output (maximum security)
-//
-// Parameters:
-//   - ctx: Context for controlling encryption operations
-//   - entity: Go struct or pointer to struct to convert
-//
-// Returns:
-//   - bson.M: BSON document ready for insertion
-//   - error: Error if conversion or encryption fails
-//
-// Example with WithEncryptionModel (recommended):
-//
-//	type User struct {
-//		ID    string `bson:"_id"`
-//		Name  string `bson:"name"`
-//		Email string `bson:"email"`
-//	}
-//
-//	model := &EncryptionModel{
-//		Fields: []EncryptionField{
-//			{FieldName: "Email", Algorithm: "deterministic", KeyAltName: "user_email_key"},
-//		},
-//	}
-//
-//	mongo, err := mongotools.New(
-//		mongotools.WithHosts("localhost:27017"),
-//		mongotools.WithKMSProvider(localKMS),
-//		mongotools.WithEncryption(true),
-//		mongotools.WithEncryptionModel((*User)(nil), model),
-//	)
-//
-//	user := &User{ID: "123", Name: "John", Email: "john@example.com"}
-//	doc, err := mongo.ConvertToNewDocument(ctx, user)
-//	// Result: {"_id": "123", "name": "John", "email": BinaryData(encrypted)}
-//
-// Example with struct tags (legacy):
-//
-//	type User struct {
-//		Email string `bson:"email" encrypted:"deterministic,user_email_key"`
-//	}
+// ConvertToNewDocument builds an insert document using the client's registry and BSON layout.
+// Encryption rules select fields by Go name in an [EncryptionModel] or by a struct tag
+// such as encryption:"deterministic,email_key". Encryption failures return no document.
 func (m *Mongo) ConvertToNewDocument(ctx context.Context, entity any) (bson.M, error) {
-	set, _, err := m.convertToDocument(ctx, entity, false)
-	return set, err
+	return m.insertDocument.Translate(bsonfield.WithTransformer(ctx, m.encryptedFields), entity)
 }
 
-// ConvertToUpdateDocument converts a Go struct to a BSON update document with $set and $unset operators.
-// It handles field encryption using explicit encryption, manages nil and empty fields,
-// and processes nested structures for update operations.
-//
-// Field behavior:
-//   - Non-nil, non-empty fields -> added to $set
-//   - Nil pointer fields -> added to $unset (field will be removed from document)
-//   - Empty arrays/slices/maps -> added to $unset
-//   - Fields with `omitonupdate` tag -> ignored completely
-//   - `_id` field -> automatically excluded from $set
-//
-// Nested structures (pointer-to-struct fields and struct values inside maps) use
-// whole-object replacement: the nested struct is emitted as a single $set
-// subdocument that fully replaces the stored one. A nested nil/zero field is
-// therefore simply absent from the replacement (effectively removed); no
-// per-field nested $unset such as {"parent.child": nil} is generated. If you
-// need dotted-path partial updates that preserve untouched nested fields already
-// in the database, see PLAN_B_mongo_nested_partial_update.md at the repo root.
-//
-// Field encryption can be configured in two ways:
-//  1. WithEncryptionModel() option (recommended) - configures encryption programmatically
-//  2. Struct tags - `encrypted:"algorithm,keyAltName"` - encrypts the field
-//
-// Other struct tags:
-//   - `bson:"fieldname,omitonupdate"` - excludes field from updates
-//   - `bson:"fieldname,omitempty"` - standard MongoDB omitempty behavior
-//
-// Parameters:
-//   - ctx: Context for controlling encryption operations
-//   - entity: Go struct or pointer to struct to convert
-//
-// Returns:
-//   - bson.M: BSON update document with $set and $unset operators
-//   - error: Error if conversion or encryption fails
-//
-// Example with WithEncryptionModel (recommended):
-//
-//	type User struct {
-//		ID       string  `bson:"_id"`
-//		Name     string  `bson:"name"`
-//		LastName *string `bson:"last_name"`
-//		Email    string  `bson:"email"`
-//	}
-//
-//	model := &EncryptionModel{
-//		Fields: []EncryptionField{
-//			{FieldName: "Email", Algorithm: "deterministic", KeyAltName: "user_email_key"},
-//		},
-//	}
-//
-//	mongo, err := mongotools.New(
-//		mongotools.WithKMSProvider(localKMS),
-//		mongotools.WithEncryption(true),
-//		mongotools.WithEncryptionModel((*User)(nil), model),
-//	)
-//
-//	user := &User{
-//		ID:       "123",      // excluded from $set
-//		Name:     "John",     // goes to $set
-//		LastName: nil,        // goes to $unset
-//		Email:    "john@example.com", // encrypted and goes to $set
-//	}
-//
-//	doc, err := mongo.ConvertToUpdateDocument(ctx, user)
-//	// Result: {"$set": {"name": "John", "email": BinaryData}, "$unset": {"last_name": nil}}
+// ConvertToUpdateDocument builds $set and $unset using the same field layout and encryption
+// rules as [Mongo.ConvertToNewDocument]. Updates skip the root _id, identifiers and
+// omitonupdate fields. A subdocument with protected descendants uses dotted update paths.
 func (m *Mongo) ConvertToUpdateDocument(ctx context.Context, entity any) (bson.M, error) {
-	set, unset, err := m.convertToDocument(ctx, entity, true)
-	if err != nil {
-		return nil, err
-	}
-
-	delete(set, "_id")
-
-	result := bson.M{opSet: set}
-	if len(unset) > 0 {
-		result["$unset"] = unset
-	}
-	return result, nil
+	return m.updateDocument.Translate(bsonfield.WithTransformer(ctx, m.encryptedFields), entity)
 }
 
 // Encrypt explicitly encrypts a value using the specified algorithm and data key.
@@ -403,48 +271,49 @@ func (m *Mongo) Encrypt(ctx context.Context, data any, alg EncryptionAlg, altNam
 	if err != nil {
 		return nil, err
 	}
-	return m.encryptField(ctx, data, alg, dkid)
-}
-
-// encryptField encrypts a field value using the specified algorithm and data key.
-func (m *Mongo) encryptField(ctx context.Context, data any, alg EncryptionAlg, dke any) (*bson.Binary, error) {
-	rawValueType, rawValueData, err := bson.MarshalValue(data)
+	raw, err := m.encodePlaintext(data)
 	if err != nil {
 		return nil, err
 	}
-	rawValue := bson.RawValue{Type: rawValueType, Value: rawValueData}
-
-	encryptionOpts := mongoOptions.Encrypt().SetAlgorithm(alg.String())
-
-	if altName, ok := dke.(string); ok {
-		encryptionOpts.SetKeyAltName(altName)
-	} else if dkeId, ok := dke.(*DataKeyId); ok {
-		encryptionOpts.SetKeyID(bson.Binary(*dkeId))
-	} else if dkeId, ok := dke.(DataKeyId); ok {
-		encryptionOpts.SetKeyID(bson.Binary(dkeId))
-	}
-
-	encryptedField, err := m.encryptionClient.Encrypt(ctx, rawValue, encryptionOpts)
+	ciphertext, err := m.encryptionClient.Encrypt(ctx, raw, mongoOptions.Encrypt().SetAlgorithm(alg.String()).SetKeyID(bson.Binary(*dkid)))
 	if err != nil {
 		return nil, err
 	}
-
-	return &encryptedField, nil
+	return &ciphertext, nil
 }
 
-// convertToDocument binds database encryption to the standalone document engine.
-func (m *Mongo) convertToDocument(ctx context.Context, entity any, update bool) (bson.M, bson.M, error) {
-	var encrypt document.EncryptFunc
-	if m.IsEncryptionConfigured() {
-		encrypt = m.encryptDocumentField
+// encodePlaintext is the registry-aware equivalent of bson.MarshalValue.
+// The enclosing document gives the public driver writer a place to flush one value.
+func (m *Mongo) encodePlaintext(data any) (bson.RawValue, error) {
+	var buf bytes.Buffer
+	doc, err := bson.NewDocumentWriter(&buf).WriteDocument()
+	if err != nil {
+		return bson.RawValue{}, err
 	}
-	return document.New(m.structParser, encrypt).Convert(ctx, entity, update)
+	writer, err := doc.WriteDocumentElement("v")
+	if err != nil {
+		return bson.RawValue{}, err
+	}
+	enc, err := m.registry.LookupEncoder(reflect.TypeOf(data))
+	if err != nil {
+		return bson.RawValue{}, err
+	}
+	if err = enc.EncodeValue(bson.EncodeContext{Registry: m.registry}, writer, reflect.ValueOf(data)); err != nil {
+		return bson.RawValue{}, err
+	}
+	if err = doc.WriteDocumentEnd(); err != nil {
+		return bson.RawValue{}, err
+	}
+	return bson.Raw(buf.Bytes()).LookupErr("v")
 }
 
-func (m *Mongo) encryptDocumentField(ctx context.Context, value any, algorithm, key string) (*bson.Binary, error) {
+func (m *Mongo) encryptDocumentField(ctx context.Context, raw bson.RawValue, algorithm, key string) (bson.Binary, error) {
+	if !m.IsEncryptionConfigured() || m.encryptionClient == nil {
+		return bson.Binary{}, ErrEncryptionNotEnabled
+	}
 	alg, err := EncryptionAlgFromAlias(algorithm)
 	if err != nil {
-		return nil, err
+		return bson.Binary{}, err
 	}
-	return m.encryptField(ctx, value, alg, key)
+	return m.encryptionClient.Encrypt(ctx, raw, mongoOptions.Encrypt().SetAlgorithm(alg.String()).SetKeyAltName(key))
 }

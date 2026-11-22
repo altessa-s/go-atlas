@@ -59,9 +59,9 @@
 // # Package layout
 //
 // Independent APIs live in explain, indexes, migrations and keyset.
-// Use these packages directly. Internal document conversion accepts
-// an encryption function; query validation and aggregation rendering are shared
-// by the pagination APIs without importing the root package.
+// ConvertToNewDocument and ConvertToUpdateDocument use the MongoDB behavior
+// translators for BSON layout and supply the store's CSFLE field transformer.
+// The pagination APIs share query validation and aggregation rendering.
 //
 // # Usage
 //

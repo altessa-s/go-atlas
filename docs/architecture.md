@@ -109,6 +109,10 @@ schemas and materialize options. Nil optional telemetry dependencies use no-ops;
 Outbound proxy mapping lives in `factory/ext/net/proxydial`: `HTTPClientOptions(cfg.Proxy)` and `GRPCClientOptions(cfg.Proxy)`. Client health and HTTP
 SSRF mapping live in `factory/ext/net/httpclient` and `factory/transport/grpc/client`. See the [proxy guide](proxy.md).
 
+The `store/mongo` write-document converters use `mapping/behavior` and its MongoDB translator for BSON layout and update operators. The translator
+calls an internal field-transformation interface. The store supplies its CSFLE implementation and owns the client, KMS provider and key vault.
+See the [write document contract](../store/mongo/README.md#write-documents).
+
 BSON encoding of `optional.Optional[T]` uses `store/mongo/bsoncodec.NewRegistry()`. `store/mongo` installs this registry for clients it constructs
 unless
 an explicit registry overrides it. Supplied clients and standalone BSON encoders/decoders must be configured by their owners. An unconfigured codec

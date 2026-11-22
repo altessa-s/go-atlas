@@ -35,6 +35,7 @@ var baseModules = []targetModule{
 	{root: "internal/testhelpers/servers", deps: []string{"core"}, drivers: true},
 	{root: "internal/sqldialect"},
 	{root: "internal/bsontag"},
+	{root: "internal/bsonfield", drivers: true},
 	{root: "internal/purgeloop", deps: []string{"core"}},
 	{root: "auth/principal"},
 	{root: "service/scheduler/task", deps: []string{"core"}},
@@ -108,7 +109,8 @@ var sdkModules = []targetModule{
 
 // driverBases are the modules shared by the backends of one driver.
 var driverBases = []targetModule{
-	{root: "store/mongo", deps: []string{"core", "observability", "internal/memcleanup", "internal/bsontag"}},
+	{root: "mapping/behavior/translators/mongo", deps: []string{"mapping", "internal/bsontag", "internal/bsonfield"}},
+	{root: "store/mongo", deps: []string{"core", "observability", "internal/memcleanup", "mapping/behavior/translators/mongo"}},
 	{root: "factory/store/mongo", deps: []string{"store/mongo", "factory"}},
 	{root: "store/meilisearch", deps: []string{"core"}},
 	{root: "internal/redis", deps: []string{"core"}},
@@ -128,7 +130,7 @@ var driverBackends = map[string][]string{
 	"store/mongo": {
 		"audit/storages/mongo", "reliability/idempotency/storages/mongo", "coord/dlock/providers/mongo", "reliability/outbox/storages/mongo", "reliability/retryqueue/storages/mongo",
 		"reliability/requestidstore/storages/mongo",
-		"reliability/saga/storages/mongo", "mapping/behavior/translators/mongo", "service/scheduler/storages/mongo",
+		"reliability/saga/storages/mongo", "service/scheduler/storages/mongo",
 	},
 	"internal/redis": {
 		"auth/denylist/storages/redis", "cache/storages/redis", "cache/generation/storages/redis",
@@ -399,6 +401,8 @@ func TestCheckModuleEdge(t *testing.T) {
 	}{
 		{"same module", "cache", module + "cache/storages/freecache", false},
 		{"declared dependency", "cache", module + "core/errors", false},
+		{"store builds documents through the translator", "store/mongo", module + "mapping/behavior/translators/mongo", false},
+		{"translator stays independent of the store", "mapping/behavior/translators/mongo", module + "store/mongo", true},
 		{"transitive dependency", "transport/http/server", module + "config/http", false},
 		{"upward dependency", "core/errors", module + "cache", true},
 		{"api reaches backend", "factory/cache", module + "cache/storages/redis", true},
