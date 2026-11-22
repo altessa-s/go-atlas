@@ -21,6 +21,8 @@ Creates and reconciles collection indexes using the MongoDB driver. Import this 
 | `WithDropObsolete` | None | Drop the explicitly named indexes first |
 | `WithDropOnSpecMismatch` | Disabled | Reconcile conflicts by name under a per-collection lease |
 
+Use an ordered document such as `bson.D` for compound keys. A single-key map is accepted.
+
 Before dropping the first index, `Ensure` checks every model for a nonempty key document and a distinct name. Each obsolete name must be nonempty and
 must differ from every model name, `_id_` and `*`.
 

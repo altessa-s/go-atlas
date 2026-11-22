@@ -28,6 +28,10 @@ func TestEnsureIndexesRejectsInvalidModels(t *testing.T) {
 		opts   []datamongo.Option
 		cause  error
 	}{
+		{name: "unordered bson keys", models: []mongo.IndexModel{{Keys: bson.M{"a": 1, "b": -1}}}},
+		{name: "unordered map before reconciliation", models: []mongo.IndexModel{
+			named("valid", bson.M{"code": 1}), named("invalid", map[string]int{"a": 1, "b": -1}),
+		}, opts: []datamongo.Option{datamongo.WithDropOnSpecMismatch(), datamongo.WithDropObsolete("previous")}},
 		{name: "invalid model after valid model", models: []mongo.IndexModel{
 			named("valid", bson.D{{Key: "a", Value: 1}}), named("invalid", bson.D{}),
 		}, opts: []datamongo.Option{datamongo.WithDropObsolete("previous")}},
