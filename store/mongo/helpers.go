@@ -55,7 +55,6 @@ const (
 	opMatch   = "$match"
 	opProject = "$project"
 	opCount   = "$count"
-	opSet     = "$set"
 )
 
 // BuildFilter creates a MongoDB filter with optimized memory allocation.

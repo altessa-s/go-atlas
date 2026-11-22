@@ -5,6 +5,7 @@
 package mongo
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -67,8 +68,7 @@ func TestConvertToNewDocument_OpaqueStructPointer_StoredAsScalar(t *testing.T) {
 	doc, err := m.ConvertToNewDocument(t.Context(), entity)
 	require.NoError(t, err,
 		"non-nil *time.Time must be treated as a scalar leaf, not recursed into")
-	require.Equal(t, &ts, doc["updated_at"],
-		"expected the *time.Time pointer to be stored as-is for the BSON driver")
+	require.Equal(t, bson.NewDateTimeFromTime(ts), doc["updated_at"])
 	require.Equal(t, "pending", doc["name"])
 }
 
@@ -83,6 +83,8 @@ func TestConvertToNewDocument_NilOpaqueStructPointer(t *testing.T) {
 	doc, err := m.ConvertToNewDocument(t.Context(), entity)
 	require.NoError(t, err)
 	require.Equal(t, "active", doc["name"])
+	require.Contains(t, doc, "updated_at")
+	require.Nil(t, doc["updated_at"])
 }
 
 func TestConvertToUpdateDocument_OpaqueStructPointer_GoesToSet(t *testing.T) {
@@ -99,7 +101,9 @@ func TestConvertToUpdateDocument_OpaqueStructPointer_GoesToSet(t *testing.T) {
 
 	set, ok := doc["$set"].(bson.M)
 	require.True(t, ok, "expected $set document")
-	require.Equal(t, &ts, set["updated_at"])
+	raw, err := bson.Marshal(set)
+	require.NoError(t, err)
+	require.Equal(t, ts.UnixMilli(), bson.Raw(raw).Lookup("updated_at").DateTime())
 }
 
 func TestConvertToUpdateDocument_NilOpaqueStructPointer_GoesToUnset(t *testing.T) {
@@ -129,9 +133,7 @@ func TestConvertToNewDocument_StructPointerWithExportedFields_StillRecursed(t *t
 	doc, err := m.ConvertToNewDocument(t.Context(), entity)
 	require.NoError(t, err)
 
-	child, ok := doc["child"].(bson.M)
-	require.True(t, ok, "pointer to a regular struct must still be converted recursively")
-	require.Equal(t, "v", child["value"])
+	require.Equal(t, bson.D{{Key: "value", Value: "v"}}, doc["child"])
 }
 
 func TestConvertToNewDocument_OpaqueStructsInSliceAndMap(t *testing.T) {
@@ -151,8 +153,8 @@ func TestConvertToNewDocument_OpaqueStructsInSliceAndMap(t *testing.T) {
 	doc, err := m.ConvertToNewDocument(t.Context(), entity)
 	require.NoError(t, err,
 		"time.Time elements of slices and maps must not be recursed into")
-	require.Equal(t, bson.A{t1, t2}, doc["times"])
-	require.Equal(t, bson.M{"created": t1}, doc["by_key"])
+	require.Equal(t, bson.A{bson.NewDateTimeFromTime(t1), bson.NewDateTimeFromTime(t2)}, doc["times"])
+	require.Equal(t, bson.D{{Key: "created", Value: bson.NewDateTimeFromTime(t1)}}, doc["by_key"])
 }
 
 func TestConvertToNewDocument_CustomMarshalerStructStoredAsScalar(t *testing.T) {
@@ -171,15 +173,79 @@ func TestConvertToNewDocument_CustomMarshalerStructStoredAsScalar(t *testing.T) 
 	}
 
 	doc, err := m.ConvertToNewDocument(t.Context(), entity)
-	require.NoError(t, err,
-		"a struct implementing bson.ValueMarshaler must be stored as-is, not walked")
+	require.NoError(t, err)
+	require.Equal(t, int64(100), doc["price"])
+	require.Equal(t, int64(200), doc["price_ptr"])
+	require.Equal(t, bson.A{int64(1), int64(2)}, doc["prices"])
+	require.Equal(t, bson.D{{Key: "eur", Value: int64(9)}}, doc["by_key"])
+}
 
-	require.Equal(t, price, doc["price"],
-		"value field must keep the custom-marshaler struct, not a recursed bson.M")
-	require.Equal(t, &customMoney{Amount: 200}, doc["price_ptr"],
-		"pointer field must keep the custom-marshaler struct pointer")
-	require.Equal(t, bson.A{customMoney{Amount: 1}, customMoney{Amount: 2}}, doc["prices"],
-		"slice elements must not be recursed into")
-	require.Equal(t, bson.M{"eur": customMoney{Amount: 9}}, doc["by_key"],
-		"map values must not be recursed into")
+func TestConvertToNewDocument_DriverLayout(t *testing.T) {
+	t.Parallel()
+
+	type Embedded struct {
+		Name string `bson:"name"`
+	}
+	type layout struct {
+		Embedded
+		Fields   Embedded       `bson:",inline"`
+		Extra    map[string]int `bson:",inline"`
+		Dash     string         `bson:"-,omitempty"`
+		Hidden   string         `bson:"-"`
+		Number   int64          `bson:"small,minsize"`
+		Zero     *int           `bson:"zero,omitempty"`
+		Omitted  bool           `bson:"omitted,omitempty"`
+		Empty    []int
+		Null     map[string]int
+		Document bson.D
+	}
+
+	// Build the historical bare-tag spelling at runtime so vet can still
+	// check every statically declared struct tag in this package.
+	bare := reflect.New(reflect.StructOf([]reflect.StructField{{
+		Name: "Secret", Type: reflect.TypeFor[string](), Tag: "private",
+	}}))
+	bare.Elem().Field(0).SetString("s")
+
+	for _, tc := range []struct {
+		name   string
+		entity any
+	}{
+		{"value", layout{Embedded: Embedded{"nested"}, Fields: Embedded{"inline"}, Extra: map[string]int{"extra": 1}, Dash: "literal",
+			Hidden: "ignored", Number: 10, Zero: new(0), Empty: []int{}, Document: bson.D{{Key: "z", Value: 1}, {Key: "a", Value: 2}}}},
+		{"zero pointer", new(layout)},
+		{"empty struct", struct{}{}},
+		{"bare tag", bare.Interface()},
+		{"integer map keys", struct{ Keys map[int]string }{map[int]string{3: "three"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m, err := New("testdb")
+			require.NoError(t, err)
+			raw, err := bson.Marshal(tc.entity)
+			require.NoError(t, err)
+			var want bson.M
+			require.NoError(t, bson.Unmarshal(raw, &want))
+			got, err := m.ConvertToNewDocument(t.Context(), tc.entity)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
+	}
+}
+
+func TestConvertToUpdateDocument_ImmutableID(t *testing.T) {
+	t.Parallel()
+	type ID struct {
+		Key *string
+	}
+	m, err := New("testdb")
+	require.NoError(t, err)
+	for _, id := range []*ID{nil, {Key: nil}} {
+		got, err := m.ConvertToUpdateDocument(t.Context(), struct {
+			ID   *ID `bson:"_id"`
+			Name *string
+		}{ID: id})
+		require.NoError(t, err)
+		require.Equal(t, bson.M{"$set": bson.M{}, "$unset": bson.M{"name": nil}}, got)
+	}
 }

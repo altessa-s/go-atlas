@@ -6,9 +6,9 @@
 // implementations that fold behavior-tagged Go structs into MongoDB BSON
 // documents from a single behavior reflection walk.
 //
-// It is a self-contained consumer of the behavior core: it depends only on that
-// package and the BSON driver, performs no encryption, and has no dependency on
-// store/mongo. The package exposes only translators — drive them through
+// The store uses these translators for document conversion. The writer can bind
+// a field transformation that runs before BSON encoding, including for inserts.
+// The encryption implementation stays in store/mongo. The package exposes only translators — drive them through
 // [github.com/altessa-s/go-atlas/mapping/behavior.New]; configuration that belongs
 // to the core (the behavior tag name, traversal depth, and the strip-kind policy)
 // is set on the engine, never duplicated here. The translators own only the bson
@@ -27,7 +27,7 @@
 //   - [NewUpdateTranslator] builds an update document of the form
 //     {"$set": …, "$unset": …}. Nil pointers and empty collections of a
 //     non-stripped field go to $unset, nested values are full-replaced in $set,
-//     "_id" is removed from $set, and any field the engine marked Strip is
+//     "_id" is removed from both operators, and any field the engine marked Strip is
 //     excluded from both operators. A nested struct holding such a protected
 //     field (stripped, identifier or omitonupdate) is written by descendant
 //     paths ("profile.name") so the stored value survives; a replaced

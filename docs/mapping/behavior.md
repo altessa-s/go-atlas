@@ -185,7 +185,7 @@ import (
     mongotr "github.com/altessa-s/go-atlas/mapping/behavior/translators/mongo"
 )
 
-// Update document: {"$set": …, "$unset": …}, _id removed from $set, fields whose
+// Update document: {"$set": …, "$unset": …}, _id removed from both, fields whose
 // kinds hit the strip set excluded. Identifier fields are always excluded by the
 // translator itself; a nil or empty value whose type holds a field the engine
 // strips fails (ErrProtectedUnset / ErrProtectedInCollection) instead of
@@ -205,9 +205,9 @@ proj := behavior.New[bson.M](mongotr.NewProjectionTranslator(),
 projection, err := proj.Translate(ctx, Entity{})
 ```
 
-This is independent of the legacy [`store/mongo`](../../store/mongo) converter, which keeps its own CSFLE-aware parser. Reach for the translator when
-you want a
-behavior-tag-driven document or projection without the encryption machinery.
+The [store document converters](../../store/mongo/README.md#write-documents) use these insert and update translators with the effective client
+registry. Store updates use an empty strip set and still preserve identifiers and fields tagged `omitonupdate`. The store supplies the CSFLE field
+transformer for both operations. Standalone users choose their own behavior policy and registry.
 
 ---
 

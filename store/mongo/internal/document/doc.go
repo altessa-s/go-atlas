@@ -2,17 +2,14 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package document parses struct metadata and builds MongoDB documents.
-// It does not own a MongoDB client; callers supply field encryption when needed.
+// Package document applies MongoDB client-side field level encryption to
+// fields selected by a store encryption model or a struct tag.
 //
 // # Usage
 //
-//	engine := document.New(document.NewParser(), encryptField)
-//	set, unset, err := engine.Convert(ctx, entity, true)
+//	fields, err := document.New(tagName, models, encrypt)
 //
-// # Ownership
-//
-// Parsers cache type descriptions without retaining entity values. Metadata
-// returned by ParseStruct belongs to the caller. Nested updates replace whole
-// subdocuments; their unset fields are omitted from the replacement value.
+// The store binds fields to the BSON builder. The builder resolves field
+// names and encodes the selected plaintext with the effective registry.
+// The store encryptor receives the raw BSON value and owns key management.
 package document

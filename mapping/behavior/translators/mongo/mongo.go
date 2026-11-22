@@ -16,6 +16,8 @@ import (
 
 	"github.com/altessa-s/go-convert/reflectx"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/internal/bsonfield"
 	"github.com/altessa-s/go-atlas/internal/bsontag"
 	"github.com/altessa-s/go-atlas/mapping/behavior"
 )
@@ -31,6 +33,8 @@ const (
 // encCtx is the encoding context folding passes down, mirroring what the
 // codec passes to nested encoders.
 type encCtx struct {
+	transforms *fieldTransforms
+	owner      reflect.Type // enclosing document type for a field index path
 	// minSize is the inherited minsize option (struct_codec.go: a field's own
 	// option or its parent's).
 	minSize bool
@@ -133,6 +137,7 @@ func foldLayoutField(obj behavior.Object, df docField, o *options, m mode, ec en
 		return checkOmittedInCollection(obj, df, f, o, ec)
 	}
 	fieldCtx := ec
+	fieldCtx.owner = obj.Value.Type()
 	if crossesPointer(obj.Value.Type(), df.index) {
 		// Reached through an inline pointer: addressable to the codec.
 		fieldCtx.noAddr = false
@@ -351,6 +356,9 @@ func foldInlineMap(obj behavior.Object, layout *docLayout, o *options, m mode, e
 	}
 	// The codec encodes an inline map under the enclosing context: the map
 	// field's own minsize tag has no effect.
+	if ec.transforms != nil && ec.transforms.Matches(obj.Value.Type(), obj.Value.Type().Field(layout.inlineMap)) {
+		return fmt.Errorf("%w: inline map %s has no BSON key", bsonfield.ErrFieldTransform, f.Name)
+	}
 	sub, err := foldMap(f, f.Name, o, m, ec)
 	if err != nil {
 		return err
@@ -405,10 +413,29 @@ func foldField(f *behavior.Field, df docField, o *options, m mode, parent encCtx
 		unset[name] = nil
 		return nil
 	}
-	if m == modeUpdate && ec.addressed && !ec.inColl {
+	var selected bool
+	if ec.transforms != nil {
+		var err error
+		selected, err = ec.transforms.selected(ec.owner, df)
+		if err != nil {
+			return err
+		}
+	}
+	if m == modeUpdate && (selected || (ec.addressed && !ec.inColl)) {
 		if obj, objCtx := pathObject(fv, f.Nested, ec); obj != nil && o.holdsProtected(*obj, objCtx) {
+			if selected {
+				return fmt.Errorf("%w: %s requires descendant update paths", bsonfield.ErrFieldTransform, name)
+			}
 			return foldPaths(*obj, name, o, objCtx, set, unset)
 		}
+	}
+	if selected {
+		v, err := ec.transforms.replace(df, fv, ec)
+		if err != nil {
+			return err
+		}
+		set[name] = v
+		return nil
 	}
 
 	ec.addressed = false
@@ -455,6 +482,11 @@ func foldValue(fv reflect.Value, nested *behavior.Object, coll *behavior.Collect
 	if !fv.IsValid() {
 		return nil, nil //nolint:nilnil // a nil interface element is stored as null
 	}
+	// Unselected subtrees in a transformed standard insert retain their exact
+	// driver encoding, including ordered documents and registry-specific types.
+	if m == modeInsert && ec.transforms != nil && o.bsonTagName == DefaultBSONTagName && !ec.transforms.required(fv, 0) {
+		return encodeTransformValue(fv, ec)
+	}
 	if m == modeUpdate && isRemoval(fv) && o.protectedType(fv.Type(), ec.inColl, ec.noAddr || !fv.CanAddr(), o.policy) {
 		// A null or an empty collection in place of a stored value that may
 		// hold protected fields: a nil element, a nil or empty nested
@@ -462,7 +494,7 @@ func foldValue(fv reflect.Value, nested *behavior.Object, coll *behavior.Collect
 		return nil, fmt.Errorf("%w: %s", removalError(fv.Type(), ec), fv.Type())
 	}
 	if isCodecLeaf(fv, ec) {
-		return encodeLeaf(fv, ec)
+		return guardedLeaf(fv, ec)
 	}
 	switch fv.Kind() {
 	case reflect.Pointer:
@@ -477,6 +509,9 @@ func foldValue(fv reflect.Value, nested *behavior.Object, coll *behavior.Collect
 		// isCodecLeaf) is encoded field by field and folded like any other.
 		if nested != nil && (recurseIntoStruct(fv.Type()) || (pointerOnlyMarshaler(fv.Type()) && hasExportedField(fv.Type()))) {
 			sub, _, err := foldObject(*nested, o, m, ec)
+			if err == nil && m == modeInsert && o.bsonTagName == DefaultBSONTagName && ec.transforms != nil {
+				return o.orderedDocument(*nested, sub)
+			}
 			return sub, err
 		}
 	case reflect.Slice, reflect.Array:
@@ -490,6 +525,13 @@ func foldValue(fv reflect.Value, nested *behavior.Object, coll *behavior.Collect
 			return foldMapValue(fv, coll, o, m, ec)
 		}
 	default:
+	}
+	return guardedLeaf(fv, ec)
+}
+
+func guardedLeaf(fv reflect.Value, ec encCtx) (any, error) {
+	if err := ec.transforms.opaque(fv); err != nil {
+		return nil, err
 	}
 	return encodeLeaf(fv, ec)
 }
@@ -682,13 +724,33 @@ func NewUpdateTranslator(opts ...Option) behavior.Translator[bson.M] {
 }
 
 // Translate folds root into a BSON document for the translator's mode.
-func (t *docTranslator) Translate(_ context.Context, root behavior.Object) (bson.M, error) {
+func (t *docTranslator) Translate(ctx context.Context, root behavior.Object) (bson.M, error) {
+	ec := encCtx{reg: t.o.registry}
+	if transformer := bsonfield.FromContext(ctx); transformer != nil {
+		if nilcheck.IsNil(transformer) {
+			return nil, fmt.Errorf("%w: nil transformer", bsonfield.ErrFieldTransform)
+		}
+		ft := &fieldTransforms{ctx: ctx, Transformer: transformer, types: make(map[reflect.Type]selection)}
+		if ft.required(root.Value, 0) {
+			ec.transforms = ft
+			doc, err := t.translate(root, ec)
+			if err != nil && !errors.Is(err, bsonfield.ErrFieldTransform) {
+				return nil, fmt.Errorf("%w: %w", bsonfield.ErrFieldTransform, err)
+			}
+			return doc, err
+		}
+	}
+	return t.translate(root, ec)
+}
+
+func (t *docTranslator) translate(root behavior.Object, ec encCtx) (bson.M, error) {
 	if t.mode == modeUpdate {
 		// The root's keys are operator paths: a field whose stored name holds
 		// a dot (bson:"a.b", a literal key to the codec) would address another
 		// field, and a "$" prefix is not a field at all, so folding checks
 		// each one (see encCtx.addressed).
-		set, unset, err := foldObject(root, t.o, modeUpdate, encCtx{reg: t.o.registry, addressed: true, root: true})
+		ec.addressed, ec.root = true, true
+		set, unset, err := foldObject(root, t.o, modeUpdate, ec)
 		if err != nil {
 			return nil, err
 		}
@@ -705,11 +767,20 @@ func (t *docTranslator) Translate(_ context.Context, root behavior.Object) (bson
 	}
 
 	if t.o.bsonTagName == DefaultBSONTagName && root.Value.IsValid() {
-		return encodeInsert(root.Value, t.o.registry)
+		if ec.transforms == nil {
+			return encodeInsert(root.Value, t.o.registry)
+		}
+		// A root codec can choose arbitrary names or duplicate plaintext.
+		if isCodecLeaf(root.Value, ec) || (root.Value.CanAddr() && isCodecLeaf(root.Value.Addr(), ec)) {
+			return nil, ec.transforms.opaque(root.Value)
+		}
 	}
-	set, _, err := foldObject(root, t.o, modeInsert, encCtx{reg: t.o.registry})
+	set, _, err := foldObject(root, t.o, modeInsert, ec)
 	if err != nil {
 		return nil, err
+	}
+	if t.o.bsonTagName == DefaultBSONTagName && ec.transforms != nil {
+		return encodeInsert(reflect.ValueOf(set), nil)
 	}
 	return set, nil
 }
@@ -752,10 +823,8 @@ var ErrProtectedUnset = errors.New("protected field inside a removed subdocument
 func encodeInsert(v reflect.Value, reg *bson.Registry) (bson.M, error) {
 	// The codec recurses forever on a struct inlined into itself; reject what
 	// layoutOf rejects before handing the value over.
-	if !staticallySafe(v.Type()) {
-		if err := validateValue(v, 0); err != nil {
-			return nil, err
-		}
+	if err := validateCodecInput(v); err != nil {
+		return nil, err
 	}
 	target := v.Interface()
 	if v.CanAddr() {
@@ -775,4 +844,13 @@ func encodeInsert(v reflect.Value, reg *bson.Registry) (bson.M, error) {
 		return nil, fmt.Errorf("behavior/mongo: decode insert document: %w", err)
 	}
 	return out, nil
+}
+
+// validateCodecInput checks values whose declared type alone cannot rule
+// out recursive inline layouts or excessive nesting.
+func validateCodecInput(v reflect.Value) error {
+	if staticallySafe(v.Type()) {
+		return nil
+	}
+	return validateValue(v, 0)
 }

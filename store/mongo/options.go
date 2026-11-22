@@ -182,13 +182,8 @@ func WithTransactionOptions(txOpts TransactionOptions) Option {
 }
 
 // WithEncryptionModel configures field-level encryption for a specific struct type.
-// This allows specifying encryption configuration programmatically instead of using struct tags.
-// The modelType parameter should be passed as (*YourStruct)(nil) to get the type.
-//
-// Parameters:
-//   - model: The encryption model defining which fields to encrypt and how
-//
-// Note: This uses custom handling because it updates a map rather than replacing it.
+// Set each model's Type to (*YourStruct)(nil) or a struct value, and use the
+// declared Go field names. Register embedded fields on their declaring type.
 func WithEncryptionModel(model ...*EncryptionModel) Option {
 	return func(c *config) {
 		if c.EncryptionModels == nil {
@@ -197,6 +192,8 @@ func WithEncryptionModel(model ...*EncryptionModel) Option {
 
 		for _, m := range model {
 			if m == nil || m.Type == nil {
+				// Preserve invalid declarations for New's validation.
+				c.EncryptionModels[nil] = m
 				continue
 			}
 			typ := reflect.TypeOf(m.Type)
