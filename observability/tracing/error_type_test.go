@@ -24,6 +24,7 @@ func TestRecordErrorConcreteType(t *testing.T) {
 	require.Error(t, err)
 	span.RecordError(err)
 	span.End()
+	require.NoError(t, tr.Shutdown(t.Context()))
 	require.Len(t, a.spans, 1)
 	require.Len(t, a.spans[0].Events, 1)
 	require.Contains(t, a.spans[0].Events[0].Attributes, adapters.Attribute{Key: "exception.type", Value: "*strconv.NumError"})

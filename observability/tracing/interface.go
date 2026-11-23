@@ -47,7 +47,8 @@ type Recorder interface {
 // Use [Recorder.Start] to begin a new span.
 // After [Span.End] is called, the span must not be modified.
 type Span interface {
-	// End completes the span, recording its end time.
+	// End completes the span, recording its end time. The default tracer
+	// enqueues sampled spans for batch export and drops them if the queue is full.
 	// After End is called, the span should not be modified.
 	End(opts ...SpanEndOption)
 

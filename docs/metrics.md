@@ -7,7 +7,7 @@ Components and factory builders receive a `metrics.Meter` (instrument creation o
 the application holds the `metrics.Collector`, which adds `Shutdown` / `ForceFlush`, and passes it or a `WithSubsystem` scope down. See
 [observability/metrics](../observability/metrics/README.md#meter-vs-collector).
 
-**38 subsystems, 224 metrics.**
+**39 subsystems, 228 metrics.**
 
 ---
 
@@ -569,6 +569,21 @@ Package: `factory/ext/horai` (go-horai `Metrics` port)
 | `scheduler_tasks_registered`            | Gauge     | --                    | Registered tasks                    |
 | `scheduler_dispatch_lag_seconds`        | Histogram | `task_id`             | Scheduled vs actual execution delay |
 | `scheduler_storage_errors_total`        | Counter   | `op`                  | Storage operation failures          |
+
+---
+
+## tracing
+
+Package `observability/tracing`. Enable these instruments with `tracing.WithMeter` or the tracing factory's `UseMeter`.
+
+| Name | Type | Labels | Description |
+|------|------|--------|-------------|
+| `tracing_spans_exported_total` | Counter | -- | Spans in batches successfully exported by the adapter |
+| `tracing_spans_dropped_total` | Counter | -- | Sampled spans dropped because the queue was full |
+| `tracing_export_failures_total` | Counter | -- | Batch export calls that returned an error, including timeouts |
+| `tracing_queue_length` | Gauge | -- | Spans waiting in the queue, excluding the in-flight batch |
+
+The tracer publishes queue length and queue-full drops once per second and on flush or shutdown. Shutdown discards are excluded from the drop counter.
 
 ---
 

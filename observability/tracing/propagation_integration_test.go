@@ -24,6 +24,7 @@ func TestExtractStartPreservesRemoteParent(t *testing.T) {
 	remote := propagation.RemoteSpanContextFromContext(ctx)
 	require.NotNil(t, remote)
 	tr := tracing.New(tracing.WithAdapter(adapters.NewMultiAdapter()), tracing.WithSampler(sampler.AlwaysOn()))
+	defer func() { require.NoError(t, tr.Shutdown(t.Context())) }()
 	_, span := tr.Recorder("audit").Start(ctx, "request")
 	defer span.End()
 	require.Equal(t, remote.TraceID(), span.SpanContext().TraceID())
@@ -32,10 +33,12 @@ func TestExtractStartPreservesRemoteParent(t *testing.T) {
 func TestDropPreservesPropagationContext(t *testing.T) {
 	t.Parallel()
 	on := tracing.New(tracing.WithAdapter(adapters.NewMultiAdapter()), tracing.WithSampler(sampler.AlwaysOn()))
+	defer func() { require.NoError(t, on.Shutdown(t.Context())) }()
 	ctx, parent := on.Recorder("audit").Start(t.Context(), "parent")
 	defer parent.End()
 	require.True(t, parent.SpanContext().IsValid())
 	off := tracing.New(tracing.WithAdapter(adapters.NewMultiAdapter()), tracing.WithSampler(sampler.AlwaysOff()))
+	defer func() { require.NoError(t, off.Shutdown(t.Context())) }()
 	ctx, child := off.Recorder("audit").Start(ctx, "child")
 	defer child.End()
 	out := propagation.MapCarrier{}
@@ -71,6 +74,7 @@ func TestRecordOnlyDoesNotExport(t *testing.T) {
 	require.True(t, span.SpanContext().IsValid())
 	require.False(t, span.SpanContext().IsSampled())
 	span.End()
+	require.NoError(t, tr.Shutdown(t.Context()))
 	require.Zero(t, a.count)
 }
 func TestDefaultSamplerPropagatesUnsampledRemoteTrace(t *testing.T) {
@@ -79,6 +83,7 @@ func TestDefaultSamplerPropagatesUnsampledRemoteTrace(t *testing.T) {
 	in := propagation.MapCarrier{"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00", "tracestate": "vendor=value"}
 	ctx := p.Extract(t.Context(), in)
 	tr := tracing.New(tracing.WithAdapter(adapters.NewMultiAdapter()))
+	defer func() { require.NoError(t, tr.Shutdown(t.Context())) }()
 	ctx, span := tr.Recorder("test").Start(ctx, "child")
 	defer span.End()
 	out := propagation.MapCarrier{}

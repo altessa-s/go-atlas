@@ -10,7 +10,7 @@ import (
 )
 
 func BenchmarkRecordError(b *testing.B) {
-	recorder := newBenchRecorder()
+	recorder := newBenchRecorder(b)
 	failure := errors.New("failure")
 	b.ReportAllocs()
 	for b.Loop() {

@@ -7,10 +7,21 @@
 package tracing
 
 import (
+	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 
 	_ "github.com/altessa-s/go-atlas-core/runtime/appinfo"
+)
+
+// Default batch export settings.
+const (
+	DefaultMaxQueueSize       = 2048
+	DefaultMaxExportBatchSize = 512
+	DefaultScheduledDelay     = time.Second
+	DefaultExportTimeout      = 10 * time.Second
 )
 
 // options contains configuration for Tracer.
@@ -30,4 +41,19 @@ type options struct {
 
 	// sampler determines which spans are recorded.
 	sampler sampler.Sampler
+
+	// maxQueueSize limits sampled spans waiting for export. A full queue drops new spans.
+	maxQueueSize int `optgen:"default=DefaultMaxQueueSize" optval:"positive"`
+
+	// maxExportBatchSize limits spans per adapter call, capped at maxQueueSize.
+	maxExportBatchSize int `optgen:"default=DefaultMaxExportBatchSize" optval:"positive"`
+
+	// scheduledDelay is the interval for exporting partial batches.
+	scheduledDelay time.Duration `optgen:"default=DefaultScheduledDelay" optval:"positive"`
+
+	// exportTimeout is the deadline for each batch export.
+	exportTimeout time.Duration `optgen:"default=DefaultExportTimeout" optval:"positive"`
+
+	// meter records exporter metrics under the tracing subsystem.
+	meter metrics.Meter `optgen:"notnil"`
 }

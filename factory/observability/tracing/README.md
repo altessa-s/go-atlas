@@ -39,6 +39,7 @@ Console and noop adapters are built in. Any other backend registers its builder 
 
 | Method | Description |
 |--------|-------------|
+| `UseMeter` | Records batch exporter metrics through the application meter |
 | `UseLogger` | Sets the logger for the builder and all created components |
 | `UseDefaultLogger` | Uses `slog.Default()` as the logger |
 
@@ -47,6 +48,11 @@ Console and noop adapters are built in. Any other backend registers its builder 
 | Method | Description |
 |--------|-------------|
 | `Build(ctx)` | Assembles and returns the tracer; returns `tracing.Noop` if disabled |
+
+## Batch export settings
+
+Existing configurations use a queue of 2048 spans, batches of up to 512, a 1s scheduled delay and a 10s export timeout.
+Set any of these under `tracing.batch`. A full queue drops new spans. See [batch options and shutdown](../../../observability/tracing/README.md#batch-export).
 
 ## Proxy wiring
 

@@ -126,3 +126,11 @@ func TestIDOf_FallsBackToHex(t *testing.T) {
 	child := newSpanContextImpl(foreign)
 	require.Equal(t, raw.traceID, child.traceID)
 }
+
+// newSpanContextImpl creates a new SpanContext.
+// If parent is valid, the trace ID is inherited.
+func newSpanContextImpl(parent SpanContext) *spanContextImpl {
+	parentInfo, state := snapshotParent(parent)
+	sc := makeSpanContext(parentInfo, state)
+	return &sc
+}
