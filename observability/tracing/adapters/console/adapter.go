@@ -55,6 +55,9 @@ func (a *Adapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) er
 	defer a.mu.Unlock()
 
 	for _, span := range spans {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := a.writeSpan(&span); err != nil {
 			return err
 		}

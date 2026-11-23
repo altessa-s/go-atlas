@@ -133,45 +133,96 @@ func (a *Adapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) er
 	return a.client.UploadTraces(ctx, resourceSpans)
 }
 
-// convertToResourceSpans converts spans to OTLP protobuf format.
+// convertToResourceSpans converts spans to OTLP protobuf format, one
+// ResourceSpans per producing resource. A span carries the resource of the
+// tracer that recorded it; the adapter's own resource fills the attributes the
+// span's resource leaves unset and covers spans without one.
 func (a *Adapter) convertToResourceSpans(spans []adapters.SpanData) []*tracepb.ResourceSpans {
-	// Group spans by instrumentation scope
-	scopeSpans := make(map[string]*tracepb.ScopeSpans)
+	type scopeKey struct {
+		scope   adapters.InstrumentationScope
+		present bool
+	}
+	type group struct {
+		resource *resourcepb.Resource
+		scopes   map[scopeKey]*tracepb.ScopeSpans
+		order    []*tracepb.ScopeSpans
+	}
+
+	groups := make(map[*adapters.Resource]*group)
+	var resources []*adapters.Resource
 
 	for i := range spans {
 		span := &spans[i]
-		scopeKey := ""
-		if span.InstrumentationScope != nil {
-			scopeKey = span.InstrumentationScope.Name + "@" + span.InstrumentationScope.Version
+
+		g, ok := groups[span.Resource]
+		if !ok {
+			g = &group{resource: a.resourceFor(span.Resource), scopes: make(map[scopeKey]*tracepb.ScopeSpans)}
+			groups[span.Resource] = g
+			resources = append(resources, span.Resource)
 		}
 
-		ss, ok := scopeSpans[scopeKey]
+		var key scopeKey
+		if span.InstrumentationScope != nil {
+			key = scopeKey{scope: *span.InstrumentationScope, present: true}
+		}
+
+		ss, ok := g.scopes[key]
 		if !ok {
 			ss = &tracepb.ScopeSpans{}
 			if span.InstrumentationScope != nil {
+				ss.SchemaUrl = span.InstrumentationScope.SchemaURL
 				ss.Scope = &commonpb.InstrumentationScope{
 					Name:    span.InstrumentationScope.Name,
 					Version: span.InstrumentationScope.Version,
 				}
 			}
-			scopeSpans[scopeKey] = ss
+			g.scopes[key] = ss
+			g.order = append(g.order, ss)
 		}
 
 		ss.Spans = append(ss.Spans, convertSpanToPB(span))
 	}
 
-	// Build ScopeSpans slice
-	scopeSpansList := make([]*tracepb.ScopeSpans, 0, len(scopeSpans))
-	for _, ss := range scopeSpans {
-		scopeSpansList = append(scopeSpansList, ss)
+	result := make([]*tracepb.ResourceSpans, 0, len(resources))
+	for _, r := range resources {
+		g := groups[r]
+		rs := &tracepb.ResourceSpans{Resource: g.resource, ScopeSpans: g.order}
+		if r != nil {
+			rs.SchemaUrl = r.SchemaURL
+		}
+		result = append(result, rs)
 	}
 
-	return []*tracepb.ResourceSpans{
-		{
-			Resource:   a.resource,
-			ScopeSpans: scopeSpansList,
-		},
+	return result
+}
+
+// resourceFor merges a span's resource over the adapter's resource. Attributes
+// of the span's resource with an empty string value do not override.
+func (a *Adapter) resourceFor(r *adapters.Resource) *resourcepb.Resource {
+	if r == nil || len(r.Attributes) == 0 {
+		return a.resource
 	}
+
+	attrs := make([]*commonpb.KeyValue, 0, len(a.resource.GetAttributes())+len(r.Attributes))
+	index := make(map[string]int, cap(attrs))
+	for _, kv := range a.resource.GetAttributes() {
+		index[kv.GetKey()] = len(attrs)
+		attrs = append(attrs, kv)
+	}
+	for _, attr := range r.Attributes {
+		if v, isString := attr.Value.(string); isString && v == "" {
+			continue
+		}
+		kv := convertAttributeToPB(attr)
+		if i, ok := index[attr.Key]; ok {
+			attrs[i] = kv
+			continue
+		}
+		index[attr.Key] = len(attrs)
+		attrs = append(attrs, kv)
+	}
+
+	return &resourcepb.Resource{Attributes: attrs}
 }
 
 // convertSpanToPB converts a SpanData to OTLP Span protobuf.
