@@ -5,6 +5,8 @@
 package outboxit_test
 
 import (
+	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -57,4 +59,45 @@ func TestPostgresAsynchronousDispatchCommit(t *testing.T) {
 	var restored string
 	require.NoError(t, b.db.QueryRowContext(ctx, "SHOW synchronous_commit").Scan(&restored))
 	require.Equal(t, "on", restored)
+}
+
+func TestPostgresAsyncDispatchPreservesCallerTransaction(t *testing.T) {
+	t.Parallel()
+	f := newSQLFixture(t, sqlSpecs()[0])
+	b, ctx := f.sql, t.Context()
+	resolve := func(ctx context.Context) (*sql.Tx, bool) {
+		tx, ok := ctx.Value(sqlTxKey{}).(*sql.Tx)
+		return tx, ok
+	}
+	store, err := outboxsql.New(b.db, b.dialect, outboxsql.WithTableName(b.events),
+		outboxsql.WithAsynchronousCommit(), outboxsql.WithTxResolver(resolve))
+	require.NoError(t, err)
+	event := outbox.Event{Id: "dispatch", Key: "orders", Status: outbox.StatusPending}
+	require.NoError(t, store.SaveEvents(ctx, event))
+
+	tx, err := b.db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	txCtx := context.WithValue(ctx, sqlTxKey{}, tx)
+	_, err = tx.ExecContext(txCtx, "SET LOCAL synchronous_commit = local")
+	require.NoError(t, err)
+	check := func(want outbox.Status) {
+		t.Helper()
+		var status, durability string
+		row := tx.QueryRowContext(txCtx, "SELECT status, current_setting('synchronous_commit') FROM "+b.events+" WHERE id = $1", event.Id)
+		require.NoError(t, row.Scan(&status, &durability))
+		require.Equal(t, string(want), status)
+		require.Equal(t, "local", durability)
+	}
+
+	claimed, err := store.FetchUnprocessedEvents(txCtx, 1)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	check(outbox.StatusInProgress)
+	claimed[0].Status = outbox.StatusSent
+	require.NoError(t, store.UpdateEvents(txCtx, claimed...))
+	check(outbox.StatusSent)
+
+	require.NoError(t, tx.Rollback())
+	require.Equal(t, string(outbox.StatusPending), f.load(t, event.Id).Status)
 }
