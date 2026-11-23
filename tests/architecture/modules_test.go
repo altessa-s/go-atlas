@@ -107,6 +107,8 @@ var sdkModules = []targetModule{
 
 // driverBases are the modules shared by the backends of one driver.
 var driverBases = []targetModule{
+	{root: "store/postgres", deps: []string{"core", "observability", "internal/sqldialect"}},
+	{root: "factory/store/postgres", deps: []string{"store/postgres", "factory"}},
 	{root: "store/mongo", deps: []string{"core", "observability", "internal/memcleanup"}},
 	{root: "factory/store/mongo", deps: []string{"store/mongo", "factory"}},
 	{root: "store/meilisearch", deps: []string{"core"}},
@@ -292,6 +294,7 @@ func (p *modulePlan) isDriverModule(root string) bool {
 // driverLibraries are the third-party driver and heavy SDK libraries only
 // driver modules import.
 var driverLibraries = []string{
+	"github.com/jackc/pgx",
 	"go.mongodb.org/mongo-driver",
 	"github.com/redis/go-redis",
 	"github.com/nats-io/nats.go",

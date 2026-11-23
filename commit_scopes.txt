@@ -39,6 +39,7 @@ factory/reliability/idempotency# Idempotency factory
 factory/coord/leadelect     # Leader election factory
 factory/coord/limiters      # Limiter factories (budget, tokenbucket, storages)
 factory/coord/dlock         # Lock factory
+factory/store/postgres      # PostgreSQL pool factory
 factory/store/mongo         # MongoDB factory
 factory/store/mongo/kms     # KMS factory
 factory/reliability/outbox  # Outbox factory
@@ -75,6 +76,7 @@ coord/dlock                 # Distributed lock implementation
 coord/dlock/providers       # Lock providers
 store                       # Storage clients
 store/meilisearch           # Meilisearch client wrapper
+store/postgres              # PostgreSQL connection and transaction infrastructure
 store/mongo                 # MongoDB repository layer
 store/mongo/kms             # MongoDB CSFLE/KMS
 store/mongo/storages        # Cursor storage implementations
