@@ -22,10 +22,10 @@ func TestEvent_NextAttempt(t *testing.T) {
 
 func TestEvent_SetErrorStatus(t *testing.T) {
 	e := &Event{}
-	e.setErrorStatus(errors.New("some error"))
+	e.setErrorStatus(errors.New("send to nats://publisher:private@broker.example failed"))
 	require.Equal(t, StatusFailed, e.Status)
 	require.NotNil(t, e.LastError)
-	require.Equal(t, "some error", *e.LastError)
+	require.Equal(t, "send to nats://broker.example failed", *e.LastError)
 }
 
 func TestEvent_SetErrorStatus_ContextCanceled(t *testing.T) {
