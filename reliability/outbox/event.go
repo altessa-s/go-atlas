@@ -67,6 +67,18 @@ type Event struct {
 	// lock to the unlock sweeper cannot overwrite the state of the worker
 	// that picked the event up afterwards.
 	LockToken string
+
+	dispatching bool
+}
+
+// DispatchAttempt is the one-based number of the current send. On a stored
+// event Attempts counts completed attempts. Inside a Handler it already
+// includes the send in progress.
+func (e Event) DispatchAttempt() int64 {
+	if e.dispatching {
+		return int64(e.Attempts)
+	}
+	return int64(e.Attempts) + 1
 }
 
 // nextAttempt increments attempts counter and updates LastAttemptOn timestamp.

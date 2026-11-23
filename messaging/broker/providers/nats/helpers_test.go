@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 )
 
 func TestIsValidSubject(t *testing.T) {
@@ -90,4 +92,17 @@ func TestCheckSubjectAllowed(t *testing.T) {
 		require.NotNil(t, err, "expected error for disallowed subject")
 		require.True(t, errors.Is(err, ErrSubjectNotAllowed), "expected ErrSubjectNotAllowed, got: %v", err)
 	})
+}
+
+func TestTraceHeadersRoundTrip(t *testing.T) {
+	input := msg.Meta{
+		{Key: "traceparent", Value: "00-11111111111111111111111111111111-2222222222222222-00"},
+		{Key: "tracestate", Value: "vendor=blue"},
+	}
+	wire, _ := buildNatsMsg(msg.Message{Metadata: input})
+	require.Equal(t, input.Map(), messageMetadata(wire.Header).Map())
+	require.Len(t, wire.Header, len(input))
+	for _, header := range input {
+		require.Equal(t, []string{header.Value}, wire.Header[header.Key])
+	}
 }

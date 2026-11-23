@@ -116,6 +116,9 @@ func (n *NATS) Subscribers() iter.Seq[broker.Subscriber] {
 	}
 }
 
+// MessagingSystem identifies this transport on broker consumer spans.
+func (*NATS) MessagingSystem() string { return "nats" }
+
 // NATSConn returns the underlying NATS connection.
 // Useful for advanced use cases that need direct access to the connection.
 func (n *NATS) NATSConn() *nats.Conn {

@@ -215,6 +215,7 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 	o.metrics.eventsInFlight.Inc()
 	defer o.metrics.eventsInFlight.Dec()
 
+	event.dispatching = true
 	if err := o.handler(ctx, event); err != nil {
 		o.metrics.eventsDispatchFail.Inc()
 		return err
