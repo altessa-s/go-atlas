@@ -14,7 +14,7 @@ require (
 	github.com/altessa-s/go-aip v0.1.8
 	github.com/altessa-s/go-aip/backend/mongo v0.1.8
 	github.com/altessa-s/go-atlas v0.0.0
-	github.com/altessa-s/go-atlas-core v0.3.3
+	github.com/altessa-s/go-atlas-core v0.3.5
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/nats-io/nats.go v1.55.0
