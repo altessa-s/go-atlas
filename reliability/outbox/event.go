@@ -43,6 +43,7 @@ const (
 type Event struct {
 	Id            string    // Unique identifier (UUID).
 	Key           string    // Generic grouping/routing key (e.g., topic, entity ID).
+	OrderKey      string    // Ordering group for stores with key ordering enabled. Empty uses Key.
 	Payload       []byte    // Event payload (caller-serialized).
 	Status        Status    // Current processing status.
 	CreatedAt     time.Time // When the event was created.

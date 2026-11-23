@@ -11,6 +11,14 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithKeyOrder restricts claims to the earliest undelivered event for each ordering group, in insertion order.
+func WithKeyOrder() Option {
+	return func(o *options) {
+		value := true
+		o.keyOrder = value
+	}
+}
+
 // WithListener sets the [Listener] [Store.Watch] subscribes through. Without
 // one — nil, or a typed nil — the store reports [outbox.ErrWatchUnsupported].
 // PostgreSQL only: [New] rejects it on MySQL with [ErrNotifyUnsupported].

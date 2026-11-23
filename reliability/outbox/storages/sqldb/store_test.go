@@ -35,7 +35,7 @@ func readyRows(rows [][]driver.Value, affected int64) func(string, []any) testhe
 		if !strings.HasPrefix(q, "SELECT") {
 			return testhelpers.FakeSQLReply{Affected: affected}
 		}
-		reply := testhelpers.FakeSQLReply{Columns: []string{"id", "topic", "payload", "attempts", "error", "c", "p", "l", "e", "seq"}}
+		reply := testhelpers.FakeSQLReply{Columns: []string{"id", "topic", "order_key", "payload", "attempts", "error", "c", "p", "l", "e", "seq"}}
 		if args[0] == string(outbox.StatusPending) {
 			reply.Rows = rows
 		}
@@ -104,6 +104,7 @@ func TestEnsureSchema(t *testing.T) {
 			require.Regexp(t, `payload\s+\w+\s+NULL`, calls[0].Query, "nil payloads are valid")
 			for _, c := range calls {
 				require.Equal(t, tc.locked, c.InTx, c.Query)
+				require.NotContains(t, c.Query, "_order_key_idx")
 			}
 			for _, c := range calls[1:] {
 				require.Contains(t, c.Query, "CREATE INDEX IF NOT EXISTS")
@@ -186,8 +187,8 @@ func TestFetchLocksInOneTransaction(t *testing.T) {
 	t.Parallel()
 	created := time.Date(2026, 1, 2, 3, 4, 5, 600000000, time.UTC)
 	store, _, fake := newStore(t, sqldb.DialectMySQL, readyRows([][]driver.Value{
-		{[]byte("e1"), []byte("k1"), nil, int64(2), []byte("prev"), "2026-01-02 03:04:05.600000", nil, nil, nil, int64(1)},
-		{[]byte("e2"), []byte("k2"), []byte{}, int64(0), nil, "2026-01-02 03:04:06.000000", nil, nil, nil, int64(2)},
+		{[]byte("e1"), []byte("k1"), []byte("k1"), nil, int64(2), []byte("prev"), "2026-01-02 03:04:05.600000", nil, nil, nil, int64(1)},
+		{[]byte("e2"), []byte("k2"), []byte("k2"), []byte{}, int64(0), nil, "2026-01-02 03:04:06.000000", nil, nil, nil, int64(2)},
 	}, 2))
 
 	events, err := store.FetchUnprocessedEvents(t.Context(), 10)
@@ -276,7 +277,7 @@ func TestFetchLocksLargeBatchesInChunks(t *testing.T) {
 	t.Parallel()
 	rows := make([][]driver.Value, 2500)
 	for i := range rows {
-		rows[i] = []driver.Value{"e" + strconv.Itoa(i), []byte("k"), nil, int64(0), nil, time.Now(), nil, nil, nil, int64(i)}
+		rows[i] = []driver.Value{"e" + strconv.Itoa(i), []byte("k"), []byte("k"), nil, int64(0), nil, time.Now(), nil, nil, nil, int64(i)}
 	}
 	store, _, fake := newStore(t, sqldb.DialectPostgres, readyRows(rows, 1000))
 
@@ -298,4 +299,68 @@ func TestFetchLocksLargeBatchesInChunks(t *testing.T) {
 		total += len(c.Args) - 2
 	}
 	require.Equal(t, 2500, total)
+}
+
+func TestClaimSQL(t *testing.T) {
+	t.Parallel()
+
+	const pgTimes = "created_at, published_at, last_attempt_on, expires_at"
+	const myTimes = "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f'), DATE_FORMAT(published_at, '%Y-%m-%d %H:%i:%s.%f'), " +
+		"DATE_FORMAT(last_attempt_on, '%Y-%m-%d %H:%i:%s.%f'), DATE_FORMAT(expires_at, '%Y-%m-%d %H:%i:%s.%f')"
+	for _, tc := range []struct {
+		dialect                          sqldb.Dialect
+		table, times, now, status, limit string
+		sameKey                          string
+	}{
+		{sqldb.DialectPostgres, `"app"."events"`, pgTimes, "now()", "$1", "$2", "COALESCE(earlier.order_key, earlier.topic) = COALESCE(candidate.order_key, candidate.topic) AND substr(COALESCE(earlier.order_key, earlier.topic), 1, 255) = substr(COALESCE(candidate.order_key, candidate.topic), 1, 255)"},
+		{sqldb.DialectMySQL, "`app`.`events`", myTimes, "UTC_TIMESTAMP(6)", "?", "?", "(earlier.order_key = COALESCE(candidate.order_key, candidate.topic) OR (earlier.order_key IS NULL AND earlier.topic = COALESCE(candidate.order_key, candidate.topic)))"},
+	} {
+		for _, ordered := range []bool{false, true} {
+			t.Run(string(tc.dialect)+"/ordered="+strconv.FormatBool(ordered), func(t *testing.T) {
+				opts := []sqldb.Option{sqldb.WithTableName("app.events")}
+				from, guard := tc.table, ""
+				if ordered {
+					opts = append(opts, sqldb.WithKeyOrder())
+					from += " AS candidate"
+					guard = " AND NOT EXISTS (SELECT 1 FROM " + tc.table + " AS earlier WHERE " +
+						tc.sameKey + " AND earlier.seq < candidate.seq AND earlier.status IN ('pending', 'in-progress', 'failed'))"
+				}
+				db, fake := testhelpers.NewFakeSQL(t, readyRows(nil, 0))
+				store, err := sqldb.New(db, tc.dialect, opts...)
+				require.NoError(t, err)
+				_, err = store.FetchUnprocessedEvents(t.Context(), 17)
+				require.NoError(t, err)
+				calls := fake.Calls()
+				require.Len(t, calls, 2)
+				for i, status := range []outbox.Status{outbox.StatusPending, outbox.StatusFailed} {
+					query := "SELECT id, topic, COALESCE(order_key, topic), payload, attempts, error, " + tc.times + ", seq FROM " + from + " WHERE status = " + tc.status
+					if status == outbox.StatusFailed {
+						query += " AND (next_attempt_at IS NULL OR next_attempt_at <= " + tc.now + ")"
+					}
+					query += " AND (expires_at IS NULL OR expires_at > " + tc.now + ")" + guard + " ORDER BY created_at, seq LIMIT " + tc.limit + " FOR UPDATE SKIP LOCKED"
+					require.Equal(t, query, calls[i].Query)
+					require.Equal(t, []any{string(status), int64(17)}, calls[i].Args)
+				}
+			})
+		}
+	}
+}
+
+func TestEnsureSchemaKeyOrder(t *testing.T) {
+	t.Parallel()
+	for _, dialect := range []sqldb.Dialect{sqldb.DialectPostgres, sqldb.DialectMySQL} {
+		t.Run(string(dialect), func(t *testing.T) {
+			db, fake := testhelpers.NewFakeSQL(t, ok)
+			store, err := sqldb.New(db, dialect, sqldb.WithKeyOrder())
+			require.NoError(t, err)
+			require.NoError(t, store.EnsureSchema(t.Context()))
+			calls := fake.Calls()
+			if dialect == sqldb.DialectPostgres {
+				require.Equal(t, `CREATE INDEX IF NOT EXISTS "events_outbox_order_key_idx" ON "events_outbox" (substr(COALESCE(order_key, topic), 1, 255), seq) WHERE status IN ('pending', 'in-progress', 'failed')`, calls[len(calls)-1].Query)
+			} else {
+				require.Len(t, calls, 1)
+				require.Contains(t, calls[0].Query, "INDEX `events_outbox_order_key_idx` (order_key(255), status, seq)")
+			}
+		})
+	}
 }

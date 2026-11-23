@@ -25,7 +25,7 @@ import (
 )
 
 // saveChunk caps the rows of one multi-row INSERT, keeping statements well
-// inside every driver's placeholder limit (8 columns per row).
+// inside every driver's placeholder limit (up to 9 parameters per row).
 const saveChunk = 500
 
 // lockChunk caps the IDs one statement locks: the UPDATEs of
@@ -55,6 +55,7 @@ type Store struct {
 	table    string // quoted
 	name     string // unqualified, for index names
 	stmts    statements
+	keyOrder bool
 	notify   bool     // signal channel on save
 	channel  string   // notification channel; empty on MySQL
 	listener Listener // nil: Watch is unsupported
@@ -109,6 +110,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 		dialect:  dl,
 		table:    table,
 		name:     sqldialect.Unqualified(o.tableName),
+		keyOrder: o.keyOrder,
 		notify:   o.notify,
 		listener: listener,
 		logger:   o.logger,
@@ -127,13 +129,28 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 func (s *Store) buildStatements() statements {
 	t, d := s.table, s.dialect
 	now := d.now
-	cols := "id, topic, payload, attempts, error, " + d.timeCol("created_at") + ", " + d.timeCol("published_at") + ", " +
+	cols := "id, topic, COALESCE(order_key, topic), payload, attempts, error, " + d.timeCol("created_at") + ", " + d.timeCol("published_at") + ", " +
 		d.timeCol("last_attempt_on") + ", " + d.timeCol("expires_at") + ", seq"
 	// One statement per status: with the status fixed, the fetch index
 	// (status, created_at, seq) returns rows already in ORDER BY order, so each
 	// stops at its LIMIT. A single statement over both statuses has to sort
 	// the whole backlog first — and on MySQL locks every row it sorted.
-	ready := " AND (expires_at IS NULL OR expires_at > " + now + ") ORDER BY created_at, seq LIMIT ? FOR UPDATE SKIP LOCKED"
+	from := t
+	ready := " AND (expires_at IS NULL OR expires_at > " + now + ")"
+	if s.keyOrder {
+		from += " AS candidate"
+		const candidateKey = "COALESCE(candidate.order_key, candidate.topic)"
+		// Older writers omit order_key. Keep the MySQL indexed column bare.
+		sameKey := "(earlier.order_key = " + candidateKey + " OR (earlier.order_key IS NULL AND earlier.topic = " + candidateKey + "))"
+		if d.name == DialectPostgres {
+			// Match the bounded index expression while comparing the complete binary keys.
+			const earlierKey = "COALESCE(earlier.order_key, earlier.topic)"
+			sameKey = earlierKey + " = " + candidateKey + " AND substr(" + earlierKey + ", 1, 255) = substr(" + candidateKey + ", 1, 255)"
+		}
+		ready += " AND NOT EXISTS (SELECT 1 FROM " + t + " AS earlier WHERE " + sameKey +
+			" AND earlier.seq < candidate.seq AND earlier.status IN " + undeliveredStatuses + ")"
+	}
+	ready += " ORDER BY created_at, seq LIMIT ? FOR UPDATE SKIP LOCKED"
 	unlockSet := " SET status = ?, locked_on = NULL, lock_token = NULL, next_attempt_at = NULL"
 	stuck := "status = ? AND locked_on < " + d.shifted("-")
 	processed := "status IN (?, ?, ?) AND published_at < " + d.shifted("-")
@@ -142,8 +159,8 @@ func (s *Store) buildStatements() statements {
 	limit := " LIMIT " + strconv.Itoa(deleteChunk)
 
 	st := statements{
-		fetchPending: d.bind("SELECT " + cols + " FROM " + t + " WHERE status = ?" + ready),
-		fetchFailed: d.bind("SELECT " + cols + " FROM " + t +
+		fetchPending: d.bind("SELECT " + cols + " FROM " + from + " WHERE status = ?" + ready),
+		fetchFailed: d.bind("SELECT " + cols + " FROM " + from +
 			" WHERE status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= " + now + ")" + ready),
 		// The locking subselect takes the row locks in primary-key order, the
 		// order UpdateEvents takes them in, so the two cannot deadlock.
@@ -256,14 +273,14 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 	d := s.dialect
 	for start := 0; start < len(events); start += saveChunk {
 		chunk := events[start:min(start+saveChunk, len(events))]
-		args := make([]any, 0, len(chunk)*8) //nolint:mnd // columns per row
+		args := make([]any, 0, len(chunk)*9) //nolint:mnd // columns per row
 		var rows strings.Builder
 		for i, ev := range chunk {
 			if i > 0 {
 				rows.WriteString(", ")
 			}
-			rows.WriteString("(?, ?, ?, ?, ")
-			args = append(args, d.textArg(ev.Id), []byte(ev.Key), ev.Payload, string(ev.Status))
+			rows.WriteString("(?, ?, ?, ?, ?, ")
+			args = append(args, d.textArg(ev.Id), []byte(ev.Key), []byte(cmp.Or(ev.OrderKey, ev.Key)), ev.Payload, string(ev.Status))
 
 			// A zero CreatedAt is stamped by the database; so is the expiry
 			// derived from it. An explicit CreatedAt anchors the default expiry
@@ -291,7 +308,7 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 			}
 			rows.WriteString(")")
 		}
-		query := "INSERT INTO " + s.table + " (id, topic, payload, status, created_at, attempts, error, expires_at) VALUES " + rows.String()
+		query := "INSERT INTO " + s.table + " (id, topic, order_key, payload, status, created_at, attempts, error, expires_at) VALUES " + rows.String()
 		if s.notify {
 			query = "WITH ins AS (" + query + " RETURNING 1) SELECT pg_notify(?, '') FROM ins LIMIT 1"
 			args = append(args, s.channel)
@@ -309,6 +326,8 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 // oldest first, events saved together in insertion order. The rows are
 // selected FOR UPDATE SKIP LOCKED and marked in-progress in one transaction,
 // so concurrent dispatchers take disjoint batches without blocking each other.
+// With [WithKeyOrder], an earlier undelivered sequence blocks the same key
+// even while its lease is held or its retry is backing off.
 // Every returned event carries the lock token this call minted.
 func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([]outbox.Event, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -410,16 +429,17 @@ func (s *Store) scanEvent(rows *sql.Rows) (readyEvent, error) {
 		ev       readyEvent
 		id       []byte
 		topic    []byte
+		orderKey []byte
 		attempts int64
 		lastErr  []byte
 	)
 	var ts [4]timeScan // created_at, published_at, last_attempt_on, expires_at
 	d := s.dialect
-	if err := rows.Scan(&id, &topic, &ev.Payload, &attempts, &lastErr,
+	if err := rows.Scan(&id, &topic, &orderKey, &ev.Payload, &attempts, &lastErr,
 		d.timeDest(&ts[0]), d.timeDest(&ts[1]), d.timeDest(&ts[2]), d.timeDest(&ts[3]), &ev.seq); err != nil {
 		return readyEvent{}, coreerrs.WrapOperation(err, "scan outbox event")
 	}
-	ev.Id, ev.Key = string(id), string(topic)
+	ev.Id, ev.Key, ev.OrderKey = string(id), string(topic), string(orderKey)
 	ev.Attempts = uint32(attempts) //nolint:gosec // stored from a uint32
 	if lastErr != nil {
 		msg := string(lastErr)
