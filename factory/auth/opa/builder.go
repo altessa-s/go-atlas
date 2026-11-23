@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/gitlab"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
@@ -40,6 +41,7 @@ type ManagerBuilder struct {
 	errs []error
 
 	// Dependencies (set via Use*).
+	meter             metrics.Meter
 	scheduler         schedtask.Registrar
 	healthCoordinator *health.Coordinator
 	embedFS           fs.FS
@@ -317,6 +319,7 @@ func (b *ManagerBuilder) managerOptions() []opa.Option {
 		opa.WithLogger(b.Logger()),
 		opa.WithHealthCoordinator(b.healthCoordinator),
 	}
+	managerOpts = slices.AppendIf(managerOpts, b.meter != nil, opa.WithMeter(b.meter))
 	managerOpts = slices.AppendIf(managerOpts, cfg.DecisionLogging, opa.WithDecisionLogging())
 
 	managerOpts = slices.AppendIf(managerOpts, cfg.PollInterval > 0, opa.WithPollInterval(cfg.PollInterval))
