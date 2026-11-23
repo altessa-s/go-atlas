@@ -17,6 +17,8 @@ import (
 const DefaultTableName = "events_outbox"
 
 type options struct {
+	// WithAsynchronousCommit disables synchronous WAL flush for PostgreSQL dispatch bookkeeping. MySQL ignores it.
+	asynchronousCommit bool
 	// WithTxResolver finds the application transaction for a call.
 	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
 	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`

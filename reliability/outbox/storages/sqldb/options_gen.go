@@ -13,6 +13,14 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithAsynchronousCommit disables synchronous WAL flush for PostgreSQL dispatch bookkeeping. MySQL ignores it.
+func WithAsynchronousCommit() Option {
+	return func(o *options) {
+		value := true
+		o.asynchronousCommit = value
+	}
+}
+
 // WithListener sets the [Listener] [Store.Watch] subscribes through. Without
 // one — nil, or a typed nil — the store reports [outbox.ErrWatchUnsupported].
 // PostgreSQL only: [New] rejects it on MySQL with [ErrNotifyUnsupported].
