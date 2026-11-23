@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -46,7 +47,12 @@ func (b *Builder[T]) UseStorage(typ sagaconfig.StorageType, build StorageFunc) *
 // UseSQLDB injects the database handle used when the storage type is "sqldb".
 // The caller owns the handle and registers the driver.
 func (b *Builder[T]) UseSQLDB(v *sql.DB) *Builder[T] {
-	b.sqlDB = v
+	return b.UseSQLPool(v, nil)
+}
+
+// UseSQLPool injects a database and its per-call transaction resolver.
+func (b *Builder[T]) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *Builder[T] {
+	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }
 

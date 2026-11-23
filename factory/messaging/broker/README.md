@@ -43,6 +43,7 @@ stream recovery manager come from [`factory/messaging/broker/providers/nats`](pr
 | `UseProvider`         | Registers the `ProviderFunc` of a provider type (`nats`) for `CreateProvider`                     |
 | `UseOutboxStorage`    | Registers the outbox `StorageFunc` of a storage type (`mongo`) for `CreateOutbox`                  |
 | `UseSQLDB`            | Injects the `*sql.DB` of the outbox `sqldb` storage                                               |
+| `UseSQLPool`          | Supplies the pool and transaction resolver for atomic business writes and outbox publication |
 | `UseSQLListener`      | Injects the `outboxsql.Listener` the `sqldb` outbox store watches through with `outbox.watch: notify` |
 | `UseShutdownHooks`    | Scope the outbox watcher is stopped by; defaults to the process-wide registry                     |
 

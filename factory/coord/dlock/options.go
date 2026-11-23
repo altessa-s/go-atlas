@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -31,7 +32,12 @@ func (b *DLockBuilder) UseDefaultLogger() *DLockBuilder {
 // UseSQLDB sets the database handle used by the sqldb provider. The caller
 // owns the handle and registers the driver.
 func (b *DLockBuilder) UseSQLDB(v *sql.DB) *DLockBuilder {
-	b.sqlDB = v
+	return b.UseSQLPool(v, nil)
+}
+
+// UseSQLPool injects a database and its per-call transaction resolver.
+func (b *DLockBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *DLockBuilder {
+	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }
 

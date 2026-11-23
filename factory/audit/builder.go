@@ -52,6 +52,7 @@ type AuditorBuilder struct {
 	// Dependencies
 	dispatcher    audit.Dispatcher
 	sqlDB         *sql.DB
+	resolveTx     func(context.Context) (*sql.Tx, bool)
 	shutdownHooks *coreruntime.HookGroup
 	storages      map[auditconfig.StorageType]StorageBuilder
 }
@@ -210,7 +211,9 @@ func (b *AuditorBuilder) createSQLStorage(ctx context.Context) (audit.Storage, e
 	if cfg == nil {
 		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "sql storage configuration is required")
 	}
-	opts := []auditsql.Option{auditsql.WithTableName(cfg.TableName), auditsql.WithTTL(cfg.TTL), auditsql.WithLogger(b.Logger()),
+	opts := []auditsql.Option{
+		auditsql.WithTxResolver(b.resolveTx),
+		auditsql.WithTableName(cfg.TableName), auditsql.WithTTL(cfg.TTL), auditsql.WithLogger(b.Logger()),
 		auditsql.WithPurgeInterval(cfg.PurgeInterval), auditsql.WithPurgeBatchSize(cfg.PurgeBatchSize)}
 	opts = coreslices.AppendIf(opts, cfg.MaxBatchRows > 0, auditsql.WithMaxBatchRows(cfg.MaxBatchRows))
 	// Retention runs until Close; ctx only bounds schema startup.
