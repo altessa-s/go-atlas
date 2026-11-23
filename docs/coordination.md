@@ -63,8 +63,9 @@ Five properties are worth knowing before you design against it:
 - **Two terminal failure states, and neither is cleaned up.** An event that exhausts `RetryMaxAttempts` becomes `max-attempt-reached`; one whose error
   the `ShouldRetry` predicate calls permanent becomes `rejected` on the first attempt, because repeating a malformed payload cannot fix it. Together
   they are the dead-letter queue: retention sweeps the successes and leaves these for an operator.
-- **Ordering is not preserved.** A batch is fetched oldest-first but dispatched concurrently, and a failed event is rescheduled behind events created
-  after it. Do not assume order, even within one key.
+- **SQL dispatchers can claim events in sequence per key.** Concurrent dispatch is the default. With `sqldb.WithKeyOrder()` on every dispatcher,
+  only the earliest committed, undelivered sequence for an `Event.OrderKey` (the topic by default) can be claimed. A failed head blocks its key through retry backoff.
+  A terminal outcome releases the next event, and other keys remain independent.
 - **The backlog is only visible if you schedule the stats cycle.** Counters cannot distinguish a stalled outbox from an idle one — both report zero.
   `outbox_events_pending`, `outbox_events_dead_lettered`, and `outbox_events_oldest_pending_age_seconds` are what an alert can be written against; see
   [metrics.md](metrics.md#outbox).

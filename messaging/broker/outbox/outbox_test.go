@@ -109,6 +109,23 @@ func storedEvent(t *testing.T, m msg.Message, id string) dataoutbox.Event {
 	return ev
 }
 
+func TestPublish_SeparatesOrderKeyFromBrokerMetadata(t *testing.T) {
+	t.Parallel()
+	event := storedEvent(t, msg.Message{Topic: "orders.updated", Metadata: msg.Meta{
+		{Key: msg.MetaKeyOrderKey, Value: "order-5"},
+		{Key: "region", Value: "west"},
+	}}, "revision")
+	require.Equal(t, "order-5", event.OrderKey)
+	require.Equal(t, "orders.updated", event.Key)
+	require.NotContains(t, string(event.Payload), msg.MetaKeyOrderKey)
+	publisher := &capturingPublisher{}
+	require.NoError(t, outbox.NewHandler(publisher)(t.Context(), event))
+	messages := publisher.published()
+	require.Len(t, messages, 1)
+	require.Equal(t, "west", messages[0].Metadata.Map()["region"])
+	require.NotContains(t, messages[0].Metadata.Map(), msg.MetaKeyOrderKey)
+}
+
 // The outbox publishes at-least-once, so the broker needs a stable identity to
 // collapse repeats. Without a default, every republish after a timeout looks
 // like a brand-new message to JetStream and the duplicate reaches consumers.

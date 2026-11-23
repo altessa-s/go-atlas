@@ -120,6 +120,8 @@ type OutboxSQLStorageConfig struct {
 	// while building the outbox, through the store's idempotent EnsureSchema.
 	// Leave it false when the schema is applied through migrations.
 	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
+	// KeyOrder claims one event at a time per ordering key, in insertion order.
+	KeyOrder bool `yaml:"keyOrder" default:"false"`
 }
 
 // Validate performs validation of the SQL outbox storage configuration.

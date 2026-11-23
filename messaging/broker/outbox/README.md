@@ -26,6 +26,18 @@ key to the outbox `Event.Id` — assigned once at save time and unchanged across
 caller-supplied `deduplicate_id` always wins: it is usually derived from the business entity, which dedupes across producers and not only across one
 event's own retries.
 
+## Ordering
+
+To order several subjects for one aggregate, put the same `msg.MetaKeyOrderKey` in their message metadata. The adapter moves it into
+`Event.OrderKey` and removes it from the envelope. Enable `sqldb.WithKeyOrder()` on dispatchers using the SQL store.
+
+```go
+m := msg.NewMessageWithMeta("events.updated."+id, payload, msg.Meta{
+    {Key: msg.MetaKeyOrderKey, Value: "entity."+id},
+})
+err := b.Publish(sqldb.WithTx(ctx, tx), *m)
+```
+
 ## Error classification
 
 A stored payload this adapter cannot decode is wrapped in `ErrUndeliverable`, and the retry predicate reports it as permanent so the event goes straight

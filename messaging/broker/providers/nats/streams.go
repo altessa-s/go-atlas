@@ -124,7 +124,7 @@ func buildNatsMsg(pmsg msg.Message) (*nats.Msg, []jetstream.PublishOpt) {
 
 	if len(pmsg.Metadata) > 0 {
 		for _, m := range pmsg.Metadata {
-			if strings.HasPrefix(m.Key, "Nats-") || m.Key == msg.MetaKeyDeduplicateId {
+			if strings.HasPrefix(m.Key, "Nats-") || m.Key == msg.MetaKeyDeduplicateId || m.Key == msg.MetaKeyOrderKey {
 				continue
 			}
 			natsMsg.Header.Set(m.Key, m.Value)

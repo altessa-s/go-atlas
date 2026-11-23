@@ -79,6 +79,7 @@ func TestBuildSQLDBEnsureSchema(t *testing.T) {
 		require.NotNil(t, ob)
 		calls := fake.Calls()
 		require.Len(t, calls, 6, "advisory lock, table, four indexes")
+		require.Contains(t, calls[0].Query, "pg_advisory_xact_lock")
 		require.Contains(t, calls[1].Query, "CREATE TABLE IF NOT EXISTS")
 	})
 

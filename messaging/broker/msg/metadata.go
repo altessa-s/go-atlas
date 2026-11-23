@@ -15,6 +15,9 @@ const (
 	// MetaKeyDeduplicateId is the metadata key for deduplication ID.
 	MetaKeyDeduplicateId = "deduplicate_id"
 
+	// MetaKeyOrderKey groups events for ordered outbox delivery across topics. It is local to the outbox.
+	MetaKeyOrderKey = "outbox_order_key"
+
 	// MetaKeyMessageId is the metadata key for unique message identifier.
 	MetaKeyMessageId = "message_id"
 
