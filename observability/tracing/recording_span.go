@@ -119,6 +119,10 @@ func (s *recordingSpan) RecordError(err error, opts ...EventOption) {
 		{Key: "exception.message", Value: err.Error()},
 	}
 	for _, attr := range cfg.Attributes() {
+		if attr.Key == "exception.message" {
+			errorAttrs[1].Value = attr.Value
+			continue
+		}
 		errorAttrs = append(errorAttrs, adapters.Attribute{
 			Key:   attr.Key,
 			Value: attr.Value,

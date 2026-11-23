@@ -71,7 +71,7 @@ type Span interface {
 	SetAttributes(attrs ...Attribute)
 
 	// RecordError records an error as a span event.
-	// It also sets appropriate attributes for the error.
+	// An explicit exception.message event attribute replaces the default err.Error() text.
 	RecordError(err error, opts ...EventOption)
 
 	// AddEvent adds an event to the span.
