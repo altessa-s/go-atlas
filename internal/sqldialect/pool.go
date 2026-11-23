@@ -17,14 +17,68 @@ import (
 type Pool struct {
 	*sql.DB
 	postgres bool
+	resolve  func(context.Context) (*sql.Tx, bool)
 }
 
 // WrapPool uses the application pool for this SQL dialect.
 func (s Style) WrapPool(db *sql.DB) Pool { return Pool{DB: db, postgres: s == Postgres} }
 
+// WithResolver returns a pool routing statements through the transaction supplied per call.
+func (p Pool) WithResolver(resolve func(context.Context) (*sql.Tx, bool)) Pool {
+	p.resolve = resolve
+	return p
+}
+
+// Tx resolves a caller-owned transaction, if configured.
+func (p Pool) Tx(ctx context.Context) (*sql.Tx, bool) {
+	if p.resolve != nil {
+		if tx, ok := p.resolve(ctx); ok && tx != nil {
+			return tx, true
+		}
+	}
+	return nil, false
+}
+
+// Scope represents a local or caller-owned transaction for a multi-statement store operation.
+type Scope struct {
+	*sql.Tx
+	owned bool
+}
+
+// BeginScope joins the caller's transaction or begins a new one.
+func (p Pool) BeginScope(ctx context.Context, opts *sql.TxOptions) (Scope, error) {
+	if tx, ok := p.Tx(ctx); ok {
+		return Scope{Tx: tx}, nil
+	}
+	tx, err := p.BeginTx(ctx, opts)
+	return Scope{Tx: tx, owned: true}, err
+}
+
+// Owned reports whether this store operation started the transaction.
+func (t Scope) Owned() bool { return t.owned }
+
+// Commit commits a locally owned transaction.
+func (t Scope) Commit() error {
+	if t.owned {
+		return t.Tx.Commit()
+	}
+	return nil
+}
+
+// Rollback rolls back a locally owned transaction.
+func (t Scope) Rollback() error {
+	if t.owned {
+		return t.Tx.Rollback()
+	}
+	return nil
+}
+
 // ExecContext runs a standalone statement. Explicit transactions execute
 // their own statements on *sql.Tx.
 func (p Pool) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if tx, ok := p.Tx(ctx); ok {
+		return tx.ExecContext(ctx, query, args...)
+	}
 	if !p.postgres {
 		return p.DB.ExecContext(ctx, query, args...)
 	}
@@ -54,6 +108,10 @@ func (r Rows) Close() error {
 
 // QueryContext returns rows for the caller to consume and close.
 func (p Pool) QueryContext(ctx context.Context, query string, args ...any) (Rows, error) {
+	if tx, ok := p.Tx(ctx); ok {
+		rows, err := tx.QueryContext(ctx, query, args...)
+		return Rows{Rows: rows}, err
+	}
 	if !p.postgres {
 		rows, err := p.DB.QueryContext(ctx, query, args...)
 		return Rows{Rows: rows}, err
@@ -85,6 +143,9 @@ func (r Row) Scan(dest ...any) error {
 // QueryRowContext examines only the query startup error. Scan retains
 // database/sql's single-row, type conversion and no-rows semantics.
 func (p Pool) QueryRowContext(ctx context.Context, query string, args ...any) Row {
+	if tx, ok := p.Tx(ctx); ok {
+		return Row{row: tx.QueryRowContext(ctx, query, args...)}
+	}
 	if !p.postgres {
 		return Row{row: p.DB.QueryRowContext(ctx, query, args...)}
 	}

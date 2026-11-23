@@ -50,7 +50,7 @@ const deleteChunk = lockChunk
 // without one [outbox.Outbox.Watch] reports [outbox.ErrWatchUnsupported] and
 // dispatch runs on the poll schedule.
 type Store struct {
-	db       *sql.DB
+	db       sqldialect.Pool
 	dialect  dialect
 	table    string // quoted
 	name     string // unqualified, for index names
@@ -105,7 +105,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	}
 
 	s := &Store{
-		db:       db,
+		db:       dl.WrapPool(db).WithResolver(o.txResolver),
 		dialect:  dl,
 		table:    table,
 		name:     sqldialect.Unqualified(o.tableName),
@@ -238,6 +238,9 @@ func (s *Store) SaveEventsWithTTL(ctx context.Context, ttl time.Duration, events
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
 		return s.insert(ctx, tx, ttl, events)
 	}
+	if tx, ok := s.db.Tx(ctx); ok {
+		return s.insert(ctx, tx, ttl, events)
+	}
 	if len(events) <= saveChunk {
 		return s.insert(ctx, s.db, ttl, events)
 	}
@@ -304,6 +307,11 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 	return nil
 }
 
+// beginDispatchTx joins the application transaction or opens a bookkeeping transaction.
+func (s *Store) beginDispatchTx(ctx context.Context, opts *sql.TxOptions) (sqldialect.Scope, error) {
+	return s.db.BeginScope(ctx, opts)
+}
+
 // FetchUnprocessedEvents locks and returns up to batchSize events that are
 // ready to dispatch — pending ones, plus failed ones whose backoff elapsed —
 // oldest first, events saved together in insertion order. The rows are
@@ -311,13 +319,13 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 // so concurrent dispatchers take disjoint batches without blocking each other.
 // Every returned event carries the lock token this call minted.
 func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([]outbox.Event, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := s.beginDispatchTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "begin outbox fetch transaction")
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	events, err := s.selectReady(ctx, tx, batchSize)
+	events, err := s.selectReady(ctx, tx.Tx, batchSize)
 	if err != nil || len(events) == 0 {
 		return events, err
 	}
@@ -454,11 +462,14 @@ func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error 
 		return nil
 	}
 	ordered := slices.SortedFunc(slices.Values(events), func(a, b outbox.Event) int { return cmp.Compare(a.Id, b.Id) })
+	if _, ok := s.db.Tx(ctx); ok {
+		return s.updateEvents(ctx, ordered)
+	}
 	return deadlockRetry.Do(ctx, func(ctx context.Context) error { return s.updateEvents(ctx, ordered) })
 }
 
 func (s *Store) updateEvents(ctx context.Context, events []outbox.Event) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDispatchTx(ctx, nil)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "begin outbox update transaction")
 	}
@@ -495,9 +506,13 @@ func (s *Store) UnlockStuckEvents(ctx context.Context, lockExpiry time.Duration)
 	if s.dialect.name == DialectMySQL {
 		unlock = s.unlockStuckByID
 	}
-	err := deadlockRetry.Do(ctx, func(ctx context.Context) error {
+	sweep := func(ctx context.Context) error {
 		return unlock(ctx, string(outbox.StatusPending), string(outbox.StatusInProgress), s.dialect.duration(lockExpiry))
-	})
+	}
+	if _, ok := s.db.Tx(ctx); ok {
+		return sweep(ctx)
+	}
+	err := deadlockRetry.Do(ctx, sweep)
 	return coreerrs.WrapOperation(err, "unlock stuck outbox events")
 }
 

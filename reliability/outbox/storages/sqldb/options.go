@@ -6,14 +6,20 @@ package sqldb
 
 //go:generate go tool optgen generate
 
-import "log/slog"
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+)
 
 // DefaultTableName is the default table name for outbox events; it matches the
 // MongoDB store's default collection name.
 const DefaultTableName = "events_outbox"
 
 type options struct {
-	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
+	// WithTxResolver finds the application transaction for a call.
+	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
+	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// WithNotify makes every save signal the notification channel with
 	// pg_notify in the transaction that inserts the events, so a [Listener]
 	// learns of them the moment they commit. The channel is derived from the

@@ -39,11 +39,11 @@ var indexes = [...]struct{ suffix, columns string }{
 // indexes are declared inline.
 func (s *Store) EnsureSchema(ctx context.Context) error {
 	if s.dialect.name == DialectPostgres {
-		return coreerrs.WrapOperationWithContext(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.name}, s.ddl()),
+		return coreerrs.WrapOperationWithContext(sqldialect.ExecPostgresDDL(ctx, s.db.DB, []string{s.name}, s.ddl()),
 			"create outbox schema", "table "+s.table)
 	}
 	for _, stmt := range s.ddl() {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		if _, err := s.db.DB.ExecContext(ctx, stmt); err != nil {
 			return coreerrs.WrapOperationWithContext(err, "create outbox schema", "table "+s.table)
 		}
 	}
