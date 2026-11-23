@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
@@ -93,6 +95,10 @@ type options struct {
 	logger   *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler)"`
 	appName  string
 	pool     *pool.ConnectionPool
+	// WithMeter enables outgoing gRPC metrics.
+	meter metrics.Meter
+	// WithTracer enables outgoing gRPC spans and W3C trace context propagation.
+	tracer tracing.Tracer
 	// Enabled by generated WithRetry through its enables directive.
 	enableRetry bool `opt:"-"`
 	// WithRetry enables automatic retry. Without retry options it uses exponential
@@ -137,14 +143,9 @@ type options struct {
 	// is rejected by the option; the helper falls back to
 	// [pool.DefaultStateMapper] when the field is unset.
 	healthStateMapper pool.StateMapper `optgen:"notnil,default=pool.DefaultStateMapper"`
-	// withoutHealthCheck drops the client-side healthCheckConfig
-	// ("health.v1.HealthService") from the default service config. Set it
-	// with the generated WithoutHealthCheck when the server does not
-	// implement that health service: with round-robin load balancing
-	// (selected by WithRetry) gRPC health-checks every
-	// subchannel, and a server without the service never becomes ready for
-	// calls. Independent of WithHealthCoordinator, which only reports the
-	// connection state.
+	// WithoutHealthCheck disables the client-side watch of the server's overall health (service name "").
+	// The watch takes subchannels reporting NOT_SERVING out of rotation.
+	// WithHealthCoordinator separately reports the local connection state.
 	withoutHealthCheck bool `opt:"HealthCheck" optval:"invert"`
 }
 

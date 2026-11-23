@@ -53,10 +53,10 @@
 //		client.WithQueryTimeout(10*time.Second),
 //	)
 //
-// The default service config carries a client-side healthCheckConfig for the
-// health.v1.HealthService service; with the round-robin balancing that
-// [WithRetry] selects, gRPC health-checks every subchannel. Pass
-// [WithoutHealthCheck] when the server does not implement that service.
+// By default, the client uses round-robin balancing and watches the server's
+// overall health through grpc.health.v1.Health/Watch (service name "").
+// A subchannel reporting NOT_SERVING stops receiving calls until it reports
+// SERVING again. [WithoutHealthCheck] disables this watch.
 //
 // # Connection Pooling
 //

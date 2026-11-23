@@ -61,7 +61,7 @@ func BenchmarkShouldSampleMessage(b *testing.B) {
 		WithStreamSamplingRate(0.5),
 		WithStreamSamplingStrategy(PerMessageSampling),
 	)}
-	s := &streamWrapper{interceptor: i, fullMethod: "/bench.Service/Stream"}
+	s := &streamMetrics{interceptor: i, fullMethod: "/bench.Service/Stream"}
 	s.initializeSampling()
 
 	var n int64

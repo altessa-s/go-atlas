@@ -28,9 +28,11 @@ logging, and rich error parsing with field-level validation details.
 | `WithInsecure`        | false     | Disables TLS and uses plaintext (dev/test only)                              |
 | `WithTLSConfig`       | TLS 1.2+  | Custom `*tls.Config` for the connection                                     |
 | `WithLogger`          | discard   | Structured logger for call logging and connection events                     |
+| `WithMeter`           | nil       | Records outgoing unary and streaming RPC metrics                            |
+| `WithTracer`          | nil       | Creates client spans and propagates W3C trace context                        |
 | `WithAppName`         | --        | Application name sent in the gRPC User-Agent header                          |
 | `WithRetry`           | disabled  | Enables retry (5 attempts, 1s-10s exponential backoff); `RetryOption` values override it |
-| `WithoutHealthCheck`  | enabled   | Drops the client-side `healthCheckConfig` (`health.v1.HealthService`) from the service config |
+| `WithoutHealthCheck`  | enabled   | Disables the client-side watch of overall server health |
 | `WithPool`  | nil       | Enables pool mode backed by a `pool.ConnectionPool`                          |
 | `WithDialOptions`     | --        | Appends custom `grpc.DialOption` values (auth credentials, call options)     |
 | `WithProxy`           | env       | Route via `http://host:port` with optional `*url.Userinfo`                    |
@@ -45,11 +47,18 @@ logging, and rich error parsing with field-level validation details.
 | `WithHealthServiceName`  | `grpc_client` | Service name registered with the coordinator                                          |
 | `WithHealthStateMapper`  | default       | Override the `connectivity.State` → `health.ServingStatus` mapping                    |
 
+## Observability
+
+`WithMeter` enables the default [client RPC metrics](../interceptors/metrics) under the `grpc` subsystem.
+`WithTracer` injects the client span's W3C trace context into outgoing metadata. Tracing runs first in the client interceptor chain,
+and its span covers all native gRPC retry attempts. gRPC runs interceptors set with `grpc.WithUnaryInterceptor` or
+`grpc.WithStreamInterceptor` before the chain.
+
 ## Client-side health checking
 
-The default service config the client installs carries a `healthCheckConfig` for the `health.v1.HealthService` service, and `WithRetry` adds
-round-robin load balancing, under which gRPC health-checks every subchannel. For a server that does not implement that health service, pass
-`WithoutHealthCheck()` to leave the entry out; this is independent of `WithHealthCoordinator` below, which only reports the connection state.
+The client uses round-robin balancing and calls `grpc.health.v1.Health/Watch` with the empty service name to watch overall server health.
+A subchannel reporting `NOT_SERVING` stops receiving calls until it reports `SERVING` again. With no serving subchannel, a fail-fast RPC
+returns `Unavailable`. Pass `WithoutHealthCheck()` to disable the watch. `WithHealthCoordinator` reports the local connection state separately.
 
 ## Retry options
 

@@ -24,12 +24,17 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
+	// Register grpc-go's client-side Health/Watch implementation.
+	_ "google.golang.org/grpc/health"
+
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	grpcinterceptors "github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	grpcerrstatus "github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	grpclogger "github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
+	grpcmetrics "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
+	grpctracing "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 )
 
 // Client is a generic gRPC client with connection management, retry, and health checking.
@@ -226,14 +231,17 @@ func (c *Client) ApplyQueryTimeout(ctx context.Context) (context.Context, contex
 // default gRPC service configuration. [WithoutHealthCheck] leaves it out.
 const healthCheckServiceConfig = `
   "healthCheckConfig": {
-    "serviceName": "health.v1.HealthService"
+    "serviceName": ""
   }`
+
+// Round robin enables grpc-go's health listener on each subchannel.
+const roundRobinConfig = `"loadBalancingConfig": [ { "round_robin": {} } ]`
 
 // retryConfigTemplate is the gRPC service configuration template with
 // round-robin load balancing and a retry policy. The leading verb takes the
 // health checking entry (with its trailing comma) or nothing.
-var retryConfigTemplate = `{%s
-  "loadBalancingConfig": [ { "round_robin": {} } ],
+const retryConfigTemplate = `{%s
+  ` + roundRobinConfig + `,
   "methodConfig": [{
     "waitForReady": false,
     "name": [{}],
@@ -249,8 +257,8 @@ var retryConfigTemplate = `{%s
 }`
 
 // buildServiceConfig builds the gRPC service configuration: client-side
-// health checking unless [WithoutHealthCheck] is set, plus round-robin load
-// balancing and the retry policy when retry is enabled.
+// round-robin balancing for the overall health watch or retries, plus the
+// retry policy when retry is enabled.
 func (c *Client) buildServiceConfig() string {
 	healthCheck := ""
 	if !c.options.withoutHealthCheck {
@@ -258,7 +266,10 @@ func (c *Client) buildServiceConfig() string {
 	}
 
 	if !c.options.enableRetry || c.options.retryOptions == nil {
-		return "{" + healthCheck + "\n}"
+		if healthCheck == "" {
+			return "{}"
+		}
+		return "{" + healthCheck + ",\n  " + roundRobinConfig + "\n}"
 	}
 
 	if healthCheck != "" {
@@ -305,17 +316,7 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 		}),
 	}
 
-	chain := grpcinterceptors.NewChain(
-		grpclogger.ClientInterceptor(
-			grpclogger.Slog(c.options.logger),
-			grpclogger.WithTimeFormat(timeformat.RFC3339),
-		),
-		grpcerrstatus.ClientInterceptor(
-			grpcerrstatus.WithStatusConverterFunc(c.convertError),
-		),
-	)
-
-	clientOptions, err := chain.ClientOptions()
+	clientOptions, err := c.interceptorOptions()
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "build interceptor chain")
 	}
@@ -341,6 +342,38 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 	grpcOptions = append(grpcOptions, c.options.extraDialOptions...)
 
 	return grpcOptions, nil
+}
+
+func (c *Client) interceptorOptions() ([]grpc.DialOption, error) {
+	var opts []grpc.DialOption
+	if c.options.tracer != nil {
+		trace := grpctracing.ClientInterceptor(c.options.tracer)
+		opts = append(opts, grpc.WithChainUnaryInterceptor(trace.ClientUnaryInterceptor()),
+			grpc.WithChainStreamInterceptor(trace.ClientStreamInterceptor()))
+	}
+
+	chain := grpcinterceptors.NewChain(
+		grpclogger.ClientInterceptor(
+			grpclogger.Slog(c.options.logger),
+			grpclogger.WithTimeFormat(timeformat.RFC3339),
+		),
+		grpcerrstatus.ClientInterceptor(
+			grpcerrstatus.WithStatusConverterFunc(c.convertError),
+		),
+	)
+	clientOptions, err := chain.ClientOptions()
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, clientOptions...)
+
+	// Keep metrics inside error conversion so they see the original gRPC status.
+	if c.options.meter != nil {
+		metrics := grpcmetrics.ClientInterceptor(grpcmetrics.WithMeter(c.options.meter))
+		opts = append(opts, grpc.WithChainUnaryInterceptor(metrics.ClientUnaryInterceptor()),
+			grpc.WithChainStreamInterceptor(metrics.ClientStreamInterceptor()))
+	}
+	return opts, nil
 }
 
 // convertError converts a gRPC status to an error using the configured error converter.

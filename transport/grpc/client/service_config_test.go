@@ -39,12 +39,15 @@ func TestBuildServiceConfig_HealthCheck(t *testing.T) {
 			var cfg map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal([]byte(raw), &cfg), "service config must be valid JSON: %s", raw)
 
-			_, hasHealth := cfg["healthCheckConfig"]
+			health, hasHealth := cfg["healthCheckConfig"]
 			require.Equal(t, tc.wantHealthCheck, hasHealth, raw)
+			if hasHealth {
+				require.JSONEq(t, `{"serviceName":""}`, string(health))
+			}
 			_, hasMethods := cfg["methodConfig"]
 			require.Equal(t, tc.wantRetry, hasMethods, raw)
 			_, hasLB := cfg["loadBalancingConfig"]
-			require.Equal(t, tc.wantRetry, hasLB, raw)
+			require.Equal(t, tc.wantRetry || tc.wantHealthCheck, hasLB, raw)
 		})
 	}
 }

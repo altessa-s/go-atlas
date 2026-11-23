@@ -118,11 +118,10 @@ func (i *interceptor) statusFor(mh *methodHandles, statusCode string) *statusHan
 }
 
 // recordMetrics records metrics for a completed request.
-func (i *interceptor) recordMetrics(mh *methodHandles, startTime time.Time, req, resp any, err error) {
+func (i *interceptor) recordMetrics(mh *methodHandles, startTime time.Time, req, resp any, code codes.Code) {
 	duration := time.Since(startTime)
-	statusCode := getStatusCode(err)
 
-	h := i.statusFor(mh, intern.String(statusCode.String()))
+	h := i.statusFor(mh, intern.String(code.String()))
 
 	h.total.Inc()
 	h.duration.Observe(duration.Seconds())
