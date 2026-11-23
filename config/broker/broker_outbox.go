@@ -120,6 +120,8 @@ type OutboxSQLStorageConfig struct {
 	// while building the outbox, through the store's idempotent EnsureSchema.
 	// Leave it false when the schema is applied through migrations.
 	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
+	// AsynchronousCommit allows PostgreSQL to flush dispatcher bookkeeping after commit.
+	AsynchronousCommit bool `yaml:"asynchronousCommit" default:"false"`
 }
 
 // Validate performs validation of the SQL outbox storage configuration.
