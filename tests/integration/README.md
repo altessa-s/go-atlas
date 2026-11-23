@@ -23,12 +23,8 @@ tests/integration/
 
 ## Why a separate module
 
-Exercising the SQL storages (audit, outbox, saga, retryqueue, dlock, idempotency) needs `pgx` and `go-sql-driver/mysql` (`clickhouse-go` is already a
-root dependency of the ClickHouse audit storage). Those are test dependencies of a *library*, so putting them in the root `go.mod` would push both into
-the dependency graph and `go.sum` of every project that imports go-atlas. A separate module with `replace github.com/altessa-s/go-atlas => ../..` keeps
-the toolkit's own graph clean, the same way `devtools/` does.
-
-The cost: these tests are not part of the root module's `go test ./...`. Run them explicitly.
+The integration module depends on the root through `replace github.com/altessa-s/go-atlas => ../..`. It owns the MySQL test driver and live
+backend fixtures. The PostgreSQL runtime and PostgreSQL integration tests both use pgx. Run these suites separately from the root's unit tests.
 
 ## Running
 
@@ -50,6 +46,7 @@ containers, and running them together can delay requests beyond the one-second l
 | MariaDB     | `127.0.0.1:13306`                     | `MARIADB_DSN`                                                                |
 | MySQL       | `127.0.0.1:13307`                     | `MYSQL_DSN`                                                                  |
 | PostgreSQL  | `127.0.0.1:15432`                     | `POSTGRES_DSN`                                                               |
+| PgBouncer   | `127.0.0.1:16432`                     | `PGBOUNCER_DSN`                                                              |
 | MongoDB     | `127.0.0.1:27019` (replica set `rs0`) | `MONGO_PORT`, `MONGO_URI`                                                    |
 | Redis Stack | `127.0.0.1:16379`                     | `REDIS_ADDR`                                                                 |
 | NATS        | `nats://127.0.0.1:14222`              | `NATS_URL`                                                                   |
@@ -394,3 +391,21 @@ every event reaches a consumer. The broker wrapper composes `("ibk", consumer, t
 
 The broker outbox's own NATS path — the event ID reused as `Nats-Msg-Id`, a republish collapsed by JetStream — is covered by `outboxit` (`Dedup_*`); its
 storages are MongoDB and SQL, so it has no NATS-only path to exercise here.
+
+## PostgreSQL pools
+
+The `postgresit` suite exercises PostgreSQL 17 directly on port 15432 and PgBouncer transaction pooling on port 16432.
+Start both with `docker compose -f tests/integration/docker-compose.yml up -d --wait postgres pgbouncer`. Run
+`go test -C tests/integration -race -count=1 ./postgresit`. Override the endpoints with `POSTGRES_DSN` and `PGBOUNCER_DSN`.
+When running `outboxit` with `POSTGRES_DSN` pointing to PgBouncer, set `POSTGRES_CONTROL_DSN` to a direct connection to the same database.
+The server-termination test and LISTEN consumers need a session-affine endpoint.
+
+Run the six subsystem suites with `POSTGRES_DSN` set to the endpoint under test. For example, with the compose services running:
+
+```sh
+export POSTGRES_CONTROL_DSN='postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable'
+for port in 15432 16432; do
+    POSTGRES_DSN="postgres://atlas:atlas@127.0.0.1:${port}/atlas?sslmode=disable" \
+        go test -C tests/integration -race -count=1 -p 1 ./auditit ./dlockit ./idempotencyit ./outboxit ./sagait ./retryqueueit || exit 1
+done
+```
