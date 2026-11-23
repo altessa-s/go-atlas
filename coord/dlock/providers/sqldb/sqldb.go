@@ -53,7 +53,7 @@ type Locker struct {
 
 // store implements [leasing.Store] on the locks table.
 type store struct {
-	db        *sql.DB
+	db        sqldialect.Pool
 	dialect   dialect
 	table     string // quoted
 	tableName string // unqualified, for the DDL lock
@@ -124,7 +124,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Locker, error) {
 	if o.expiredCleanup && o.expiredCleanupGrace < 0 {
 		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "sqldb dlock: expired cleanup grace must not be negative")
 	}
-	s := &store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), ttl: ttl,
+	s := &store{db: dl.WrapPool(db), dialect: dl, tableName: sqldialect.Unqualified(o.tableName), ttl: ttl,
 		cleanup: o.expiredCleanup, graceUs: o.expiredCleanupGrace.Microseconds(), purgeBatchSize: o.purgeBatchSize}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err

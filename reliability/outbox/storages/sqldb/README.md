@@ -17,6 +17,25 @@ same lifecycle.
 
 Both need `FOR UPDATE SKIP LOCKED`, which sets the version floors. On MySQL any `parseTime`/`loc` DSN setting works — see [Server clock](#server-clock).
 
+### PostgreSQL connection loss
+
+The store uses the application's `*sql.DB`. For a standalone PostgreSQL statement it leases a connection until the result is consumed.
+If the driver returns `driver.ErrBadConn` or marks a failure as `SafeToRetry` before returning any rows, the store discards that connection
+and attempts the statement once more on a different connection. This also covers pgx stdlib errors while preloading the first row of a cached
+query. A canceled context, an ambiguous write, a scan or iteration error, and an error inside an explicit transaction go back to the caller.
+Audit, saga and distributed-lock SQL stores use the same policy for their standalone PostgreSQL statements.
+
+By default pgx stdlib pings on reuse when more than a second has elapsed since the last session reset. The application that opens the pool can
+choose a threshold with `stdlib.OpenDB`.
+
+```go
+db := stdlib.OpenDB(*config, stdlib.OptionShouldPing(func(_ context.Context, p stdlib.ShouldPingParams) bool {
+    return p.IdleDuration > idlePingThreshold
+}))
+```
+
+A zero threshold checks every reused connection and adds a round trip per checkout.
+
 ## Options
 
 | Option              | Default                | Description                                                                                  |

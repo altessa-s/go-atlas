@@ -50,7 +50,7 @@ const deleteChunk = lockChunk
 // without one [outbox.Outbox.Watch] reports [outbox.ErrWatchUnsupported] and
 // dispatch runs on the poll schedule.
 type Store struct {
-	db       *sql.DB
+	db       sqldialect.Pool
 	dialect  dialect
 	table    string // quoted
 	name     string // unqualified, for index names
@@ -105,7 +105,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	}
 
 	s := &Store{
-		db:       db,
+		db:       dl.WrapPool(db),
 		dialect:  dl,
 		table:    table,
 		name:     sqldialect.Unqualified(o.tableName),

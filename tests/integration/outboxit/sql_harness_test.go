@@ -5,8 +5,10 @@
 package outboxit_test
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -238,3 +240,6 @@ func (b *sqlBackend) loadAll(tb testing.TB) []storedEvent {
 	require.NoError(tb, rows.Err())
 	return out
 }
+
+// directDSN selects a session-affine endpoint for LISTEN and backend termination.
+func directDSN(s sqlSpec) string { return cmp.Or(os.Getenv("POSTGRES_CONTROL_DSN"), s.DSN()) }

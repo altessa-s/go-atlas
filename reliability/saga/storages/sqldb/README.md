@@ -59,6 +59,9 @@ if err := store.EnsureSchema(ctx); err != nil { // or apply the DDL via migratio
 orch := saga.New(store, def)
 ```
 
+Standalone PostgreSQL statements retry once on a driver-confirmed pre-send failure. Transactions keep their connection and surface the error.
+See the [PostgreSQL connection loss policy](../../../outbox/storages/sqldb/README.md#postgresql-connection-loss) for checkout settings and retry limits.
+
 ## See also
 
 - [storages/storagetest](../storagetest) — the contract suite this backend passes.
