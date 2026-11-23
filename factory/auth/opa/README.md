@@ -31,6 +31,7 @@ manager, err := factory.New(cfg.OPA).
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
 | `UseDefaultLogger` | Uses `slog.Default()` as the logger |
+| `UseMeter` | Sets the meter the manager records its metrics with |
 | `UseScheduler` | Sets the task registrar for periodic policy update cycles |
 | `UseHealthCoordinator` | Sets the health coordinator for manager health reporting |
 | `UseEmbedFS` | Sets the `fs.FS` and directory for the embed policy source |
@@ -70,20 +71,27 @@ An empty or absent `checksums` map disables verification. Digests are lower-case
 without a manifest loads whatever the remote serves and logs a warning once at construction (`... policy source has no checksums manifest`) through
 the builder's logger — the default logger discards it, so wire `UseLogger`.
 
-## Proxy wiring
+## Outbound HTTP policy
 
-For network-backed policy sources, `Build(ctx)` materializes the per-source proxy block into client options:
+For network-backed policy sources, `Build(ctx)` translates the per-source `proxy` and `ssrf` blocks into client options.
 
-| Source | Config field | Materialized as |
-|--------|--------------|-----------------|
-| GitLab | `cfg.GitLab.Proxy` ([`proxyconfig.Config`](../../../config/proxy/proxy.go)) | `gitlab.WithHTTPClient(httpclient.New(...))` — always injects the resilient HTTP client |
-| S3     | `cfg.S3.Proxy` ([`proxyconfig.Config`](../../../config/proxy/proxy.go))     | `awsconfig.WithHTTPClient(httpclient.New(...))` — injected **only** when `Mode` is non-empty, so the AWS SDK keeps its own retry layer otherwise |
+| Source | YAML blocks | Client selection |
+|--------|-------------|------------------|
+| GitLab | `opa.gitlab.proxy`, `opa.gitlab.ssrf` | Always uses the Atlas HTTP client via `gitlab.WithHTTPClient(...)`. |
+| S3     | `opa.s3.proxy`, `opa.s3.ssrf`         | Uses the Atlas HTTP client via `awsconfig.WithHTTPClient(...)` when `proxy.mode: none` or an `ssrf` block is set. Otherwise uses the AWS SDK client. |
 
-A nil/empty `Proxy` block disables environment proxies for GitLab; S3 retains the AWS SDK defaults. See the [Proxy guide](../../../docs/proxy.md) for
-YAML modes and the conditional-injection rationale for S3.
+```yaml
+opa:
+  gitlab:
+    ssrf:
+      allowedCIDRs:
+        - 10.0.2.0/24
+  s3:
+    ssrf:
+      allowedCIDRs:
+        - 10.0.3.0/24
+```
 
-## Protected outbound clients
-
-Factory-created Atlas HTTP clients use SSRF protection, disable environment proxies and reject explicit proxy modes `url` and `host` with
-`httpclient.ErrSSRFUnsafeTransport`. Mode `none` is supported. For a trusted proxy, construct the provider/source directly with an explicitly supplied
-client using `httpclient.WithoutSSRFProtection()`; enforce destination restrictions at the proxy.
+Atlas clients use SSRF protection by default. Use `allowedCIDRs` or `allow` rules for a private endpoint. A matching `deny` rule takes precedence.
+Set `disabled: true` to turn protection off. Mode `none` always connects directly, and explicit proxy modes `url` and `host` return
+`httpclient.ErrSSRFUnsafeTransport`. See the [OPA configuration guide](../../../docs/auth/opa.md#factory) and the [Proxy guide](../../../docs/proxy.md).

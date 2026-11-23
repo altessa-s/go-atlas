@@ -126,13 +126,18 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	if cfg.Proxy != nil && cfg.Proxy.Mode != "" && cfg.Proxy.Mode != netproxy.ModeNone {
 		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
 	}
-	proxyOpts, err := httpclientfactory.ProxyOptions(cfg.Proxy)
+	clientOpts, err := httpclientfactory.ProxyOptions(cfg.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize oidc proxy options")
 	}
+	ssrfOpts, err := httpclientfactory.SSRFOptions(cfg.SSRF)
+	if err != nil {
+		return nil, b.WrapError(err, "failed to materialize oidc SSRF options")
+	}
+	clientOpts = append(clientOpts, ssrfOpts...)
 	// The client is built for this provider alone, so the provider owns it
 	// and closes its idle connections on Close.
-	opts = append(opts, oidc.WithHTTPClient(httpclient.New(proxyOpts...)), oidc.WithOwnedHTTPClient())
+	opts = append(opts, oidc.WithHTTPClient(httpclient.New(clientOpts...)), oidc.WithOwnedHTTPClient())
 
 	opts = append(opts, b.buildRefreshOptions()...)
 

@@ -139,7 +139,7 @@ func (b *ManagerBuilder) buildGitLabSource() (opa.PolicySource, error) {
 }
 
 // gitLabOptions maps the GitLab source configuration to [gitlab.Option]
-// values, including the SSRF-protected HTTP client.
+// values, including the HTTP client's SSRF policy.
 func (b *ManagerBuilder) gitLabOptions() ([]gitlab.Option, error) {
 	gl := b.cfg.GitLab
 
@@ -161,7 +161,12 @@ func (b *ManagerBuilder) gitLabOptions() ([]gitlab.Option, error) {
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize gitlab proxy options")
 	}
+	ssrfOpts, err := httpclientfactory.SSRFOptions(gl.SSRF)
+	if err != nil {
+		return nil, b.WrapError(err, "failed to materialize gitlab SSRF options")
+	}
 	clientOpts := append([]httpclient.Option{httpclient.WithLogger(b.Logger())}, proxyOpts...)
+	clientOpts = append(clientOpts, ssrfOpts...)
 	opts = append(opts, gitlab.WithHTTPClient(httpclient.New(clientOpts...)))
 
 	opts = slices.AppendIf(opts, b.cfg.IncludeData, gitlab.WithIncludeData())
@@ -249,21 +254,23 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *authconfig.
 			)}
 		})
 
-	// Wire go-atlas's resilient HTTP client only when proxy is
-	// explicitly configured. Without an override the AWS SDK keeps its
-	// own HTTP client (which already honors HTTP_PROXY/HTTPS_PROXY/
-	// NO_PROXY env vars) and its own retry layer, avoiding double-retry
-	// with our breaker / retry middleware.
+	// With neither a proxy mode nor an SSRF block, the AWS SDK keeps its
+	// default HTTP client and retry behavior.
 	if s3Cfg.Proxy != nil && s3Cfg.Proxy.Mode != "" && s3Cfg.Proxy.Mode != netproxy.ModeNone {
 		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
 	}
-	proxyOpts, err := httpclientfactory.ProxyOptions(s3Cfg.Proxy)
+	clientOpts, err := httpclientfactory.ProxyOptions(s3Cfg.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize s3 proxy options")
 	}
-	awsCfgOpts = slices.AppendIfFunc(awsCfgOpts, len(proxyOpts) > 0, func() []func(*awsconfig.LoadOptions) error {
-		return []func(*awsconfig.LoadOptions) error{awsconfig.WithHTTPClient(httpclient.New(proxyOpts...))}
-	})
+	ssrfOpts, err := httpclientfactory.SSRFOptions(s3Cfg.SSRF)
+	if err != nil {
+		return nil, b.WrapError(err, "failed to materialize s3 SSRF options")
+	}
+	if len(clientOpts) > 0 || s3Cfg.SSRF != nil {
+		clientOpts = append(clientOpts, ssrfOpts...)
+		awsCfgOpts = append(awsCfgOpts, awsconfig.WithHTTPClient(httpclient.New(clientOpts...)))
+	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsCfgOpts...)
 	if err != nil {

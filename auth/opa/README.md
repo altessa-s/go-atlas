@@ -107,9 +107,6 @@ A direct call to a scheduler-managed entry point returns `cycle.ErrManaged` from
 
 ## Outbound HTTP
 
-The GitLab and S3 sources reach external services and accept proxy / retry / breaker configuration through the resilient
-[`go-atlas-net/http/client`](https://github.com/altessa-s/go-atlas-net/tree/develop/http/client). The factory injects the GitLab client via
-`gitlab.WithHTTPClient(httpclient.New(...))`; S3 swaps the AWS SDK transport via `awsconfig.WithHTTPClient(httpclient.New(...))` only when `s3.proxy`
-is
-explicitly configured (otherwise the SDK keeps its own transport and retry layer). See the [Proxy guide](../../docs/proxy.md) for YAML modes and the
-[factory README](../../factory/auth/opa/) for wiring details.
+The factory always injects the resilient Atlas HTTP client for GitLab. For S3 it uses the Atlas client when `s3.proxy.mode: none` or `s3.ssrf` is set.
+With both settings omitted, the AWS SDK handles HTTP transport and retries. Set `opa.gitlab.ssrf` or `opa.s3.ssrf` to configure egress policy for a
+source. See the [Proxy guide](../../docs/proxy.md) and [factory README](../../factory/auth/opa/README.md#outbound-http-policy).

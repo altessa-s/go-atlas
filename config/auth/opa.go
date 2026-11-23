@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/config/internal/validators"
 
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -123,12 +124,15 @@ type OPAGitLab struct {
 	Dir string `yaml:"dir"`
 
 	// Proxy configures the outbound HTTP proxy for GitLab API requests.
-	// The factory disables environment proxies and rejects url/host modes
-	// under its default SSRF protection. To tune
-	// retry behavior, inject a client with the programmatic
-	// gitlab.WithHTTPClient — there is no YAML knob for retry (the factory
-	// uses httpclient.New defaults).
+	// SSRF protection disables environment proxies. The factory rejects
+	// explicit url/host modes and uses httpclient.New retry defaults.
+	// Use gitlab.WithHTTPClient to supply a client with a custom retry policy.
 	Proxy *proxyconfig.Config `yaml:"proxy" default:"-"`
+
+	// SSRF configures outbound protection for GitLab API requests. The zero
+	// value keeps protection enabled. AllowedCIDRs or Allow rules exempt the
+	// GitLab server's network.
+	SSRF *httpconfig.ClientSSRF `yaml:"ssrf" default:"-"`
 
 	// AllowInsecureHTTP permits a plain http:// endpoint. Off by default: the
 	// access token and the policies would cross the network unprotected.
@@ -148,6 +152,7 @@ func (c *OPAGitLab) Validate() error {
 		validation.Field(&c.Token, validation.Required),
 		validation.Field(&c.ProjectID, validation.Required),
 		validation.Field(&c.Proxy),
+		validation.Field(&c.SSRF),
 		validation.Field(&c.Checksums, validation.By(validateChecksums)),
 	)
 }
@@ -213,11 +218,15 @@ type OPAS3 struct {
 	PathStyle bool `yaml:"pathStyle"`
 
 	// Proxy configures the outbound HTTP proxy for S3 API requests.
-	// When omitted, the AWS SDK's default transport applies, which
-	// already honors the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY
-	// environment variables. Mode none uses the protected Atlas client
-	// without a proxy; url/host modes return ErrSSRFUnsafeTransport.
+	// An empty mode with no SSRF block uses the AWS SDK's default transport,
+	// which honors HTTP_PROXY/HTTPS_PROXY/NO_PROXY. Mode none uses the Atlas
+	// client without a proxy. Explicit url/host modes return ErrSSRFUnsafeTransport.
 	Proxy *proxyconfig.Config `yaml:"proxy" default:"-"`
+
+	// SSRF configures outbound protection for S3 API requests. A provided
+	// block selects the Atlas client, and its zero value keeps protection
+	// enabled. AllowedCIDRs or Allow rules exempt the S3 endpoint's network.
+	SSRF *httpconfig.ClientSSRF `yaml:"ssrf" default:"-"`
 
 	// Checksums pins the policy and data objects: object keys relative to
 	// Prefix mapped to their lower-case SHA-256 hex digests. When set, every
@@ -232,6 +241,7 @@ func (c *OPAS3) Validate() error {
 		validation.Field(&c.Bucket, validation.Required),
 		validation.Field(&c.Endpoint, validators.HTTPSURL(c.AllowInsecureHTTP, false)),
 		validation.Field(&c.Proxy),
+		validation.Field(&c.SSRF),
 		validation.Field(&c.Checksums, validation.By(validateChecksums)),
 	)
 }

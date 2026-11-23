@@ -658,12 +658,10 @@ issuer's host. The provider exposes them as `AuthorizationEndpoint()`, `TokenEnd
 | `WithDiscoveryValidationMode(mode)` | `DiscoveryValidationModeEnforce` | `Enforce` (fail with `ErrDiscoveryValidation`), `Warn` (log and accept), `Disabled` (no check)                                                  |
 | `WithDiscoveryAllowLoopbackHTTP()`  | off                              | Accept plain-http issuer and endpoints when the issuer host is loopback (`localhost`, `127.0.0.0/8`, `::1`); endpoints stay pinned to that host |
 
-The factory's SSRF-protected HTTP client may still refuse loopback addresses, so a local IdP also needs a client that allows them.
+The factory's HTTP client blocks loopback addresses by default. An HTTPS identity provider on loopback also needs an SSRF exemption.
 
-The HTTP client used for JWKS refresh, OIDC discovery, introspection, userinfo, and URL-based revocation honors `oidc.proxy` (
-see [Proxy](../proxy.md))
-— so a single proxy block applies to every outbound OIDC call. Sub-components (e.g. URL revocation loaders) inherit the Provider's HTTP client via
-the `httpclient.HTTPClientSetter` interface.
+The provider shares its HTTP client across OIDC discovery, JWKS refresh, introspection, userinfo, and URL-based revocation loaders. Sub-components
+inherit `oidc.proxy` and `oidc.ssrf` through the `httpclient.HTTPClientSetter` interface.
 
 ### Proxy
 
@@ -672,21 +670,25 @@ Outbound HTTP proxy for every OIDC call (discovery, JWKS, introspection, userinf
 ```yaml
 oidc:
   proxy:
-    mode: url
-    url: http://proxy.corp.example:3128
+    mode: none
 ```
 
-| Field           | Type     | Default            | Description                                                                                      |
-|-----------------|----------|--------------------|--------------------------------------------------------------------------------------------------|
-| `mode`          | `string` | `""` (passthrough) | One of `none` / `url` / `host`. Empty = honor `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` env vars |
-| `url`           | `string` | —                  | Proxy URL when `mode: url`. Schemes: `http`, `https`, `socks5`, `socks5h`. Port required         |
-| `host`          | `string` | —                  | Proxy hostname when `mode: host`                                                                 |
-| `port`          | `int`    | —                  | Proxy port (1–65535) when `mode: host`                                                           |
-| `auth.username` | `string` | —                  | Proxy auth username (optional)                                                                   |
-| `auth.password` | `secret` | —                  | Proxy auth password — supports `$__secret{...}` expansion                                        |
+An omitted or empty mode connects directly with SSRF protection enabled. It honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` when protection is
+disabled. Mode `none` always connects directly. The factory rejects `url` and `host` modes with `ErrSSRFUnsafeTransport`. See the [Proxy guide](../proxy.md).
 
-Omit the `proxy` block entirely to keep the env-var passthrough default. Use `mode: none` to disable proxy resolution explicitly. See the [Proxy
-guide](../proxy.md) for full mode semantics, TLS-to-proxy options, and operator guidance.
+### SSRF protection
+
+An omitted or empty `ssrf` block keeps protection enabled. Use `allowedCIDRs` to exempt a private identity provider's network or an `allow` rule
+to limit the exemption by host or port. A matching `deny` rule takes precedence. The `disabled` field turns protection off and ignores the exemption
+and rule lists. See the [SSRF configuration template](../../config/templates/http_client_ssrf.yaml) for all fields.
+
+```yaml
+oidc:
+  discoveryURL: https://idp.internal.example/.well-known/openid-configuration
+  ssrf:
+    allowedCIDRs:
+      - 10.0.1.0/24
+```
 
 ### Revocation
 

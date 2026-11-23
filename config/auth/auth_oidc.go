@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 
+	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -81,9 +82,15 @@ type OIDC struct {
 
 	// Proxy configures the outbound HTTP proxy for every OIDC call:
 	// discovery, JWKS refresh, introspection, userinfo, and URL-based
-	// revocation loaders. The factory uses SSRF protection: empty/none modes
-	// connect directly; explicit url/host modes return ErrSSRFUnsafeTransport.
+	// revocation loaders. With SSRF protection enabled, empty/none modes
+	// connect directly. Explicit url/host modes return ErrSSRFUnsafeTransport.
 	Proxy *proxyconfig.Config `yaml:"proxy" default:"-"`
+
+	// SSRF configures outbound protection for discovery, JWKS, introspection,
+	// userinfo, and URL-based revocation loaders. The zero value keeps
+	// protection enabled. AllowedCIDRs or Allow rules exempt the identity
+	// provider's network.
+	SSRF *httpconfig.ClientSSRF `yaml:"ssrf" default:"-"`
 }
 
 // DefaultOIDC returns an OIDC configuration with default values.
@@ -120,6 +127,7 @@ func (a *OIDC) Validate() error {
 		validation.Field(&a.Presets, validation.NilOrNotEmpty),
 		validation.Field(&a.Revocation, validation.NilOrNotEmpty),
 		validation.Field(&a.Proxy),
+		validation.Field(&a.SSRF),
 	)
 }
 
