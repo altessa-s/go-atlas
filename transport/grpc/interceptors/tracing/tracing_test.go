@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/grpc/metadata"
+
+	obstracing "github.com/altessa-s/go-atlas/observability/tracing"
 )
 
 func TestParseMethod(t *testing.T) {
@@ -75,4 +77,11 @@ func TestInterceptor_Dependencies(t *testing.T) {
 	deps := i.Dependencies()
 	require.Len(t, deps, 1)
 	require.Equal(t, "metadata", deps[0])
+}
+
+func TestTypedNilTracerUsesNoop(t *testing.T) {
+	type optionalTracer struct{ obstracing.Tracer }
+	var tr *optionalTracer
+	require.True(t, obstracing.IsNoop(ServerInterceptor(tr).tracer))
+	require.True(t, obstracing.IsNoop(ClientInterceptor(tr).tracer))
 }

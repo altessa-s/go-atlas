@@ -80,11 +80,16 @@ func (e *echoService) Register(gs *grpc.Server, _ <-chan struct{}) {
 // client connection and the echo service.
 func startBuilt(t *testing.T, b *factory.ServerBuilder) (*grpc.ClientConn, *echoService) {
 	t.Helper()
+	svc := &echoService{}
+	return startBuiltService(t, b, svc), svc
+}
+
+func startBuiltService(t *testing.T, b *factory.ServerBuilder, svc grpcserver.Handler) *grpc.ClientConn {
+	t.Helper()
 	lis := bufconn.Listen(1 << 20)
 	srv, err := b.UseServerOptions(grpcserver.WithListener(lis), grpcserver.WithStartupVerification(0)).Build()
 	require.NoError(t, err)
 
-	svc := &echoService{}
 	srv.RegisterHandlers(svc)
 	require.NoError(t, srv.Start())
 	t.Cleanup(func() {
@@ -98,7 +103,7 @@ func startBuilt(t *testing.T, b *factory.ServerBuilder) (*grpc.ClientConn, *echo
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	return conn, svc
+	return conn
 }
 
 func echo(ctx context.Context, conn *grpc.ClientConn, v string) (string, error) {

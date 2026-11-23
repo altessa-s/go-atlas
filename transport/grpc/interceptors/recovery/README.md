@@ -24,3 +24,6 @@ capture with goroutine ID, and request ID correlation. Returns `codes.Internal` 
 | `WithIgnorePatterns` | --                 | Regex patterns for methods to skip                |
 
 Recovery covers every method by default, including the gRPC health and reflection services.
+
+The call-specific panic handler receives the original value. When a panic contains URL user information or an oversized diagnostic,
+process-wide panic handlers receive the sanitized text used for logging.

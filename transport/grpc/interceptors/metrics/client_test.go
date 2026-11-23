@@ -8,6 +8,7 @@ import (
 	"context"
 	"io"
 	"regexp"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -226,4 +227,27 @@ func assertClientRequest(t *testing.T, tc *metricstest.TestCollector, method str
 		"test_grpc_client_requests_total", "method", method, "status", code.String()))
 	require.EqualValues(t, count, metricstest.GetHistogramCount(t, tc,
 		"test_grpc_client_request_duration_seconds", "method", method, "status", code.String()))
+}
+
+func TestConcurrentFirstCallsShareMethodLabel(t *testing.T) {
+	const method = "/test.Service/Call"
+	const calls = 32
+	meter := metricstest.NewTestCollector()
+	intercept := ClientUnaryInterceptor(WithMeter(meter), WithMaxMethods(1))
+	start := make(chan struct{})
+	var group sync.WaitGroup
+	for range calls {
+		group.Go(func() {
+			<-start
+			err := intercept(t.Context(), method, nil, nil, nil,
+				func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error { return nil })
+			if err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	close(start)
+	group.Wait()
+	assertClientRequest(t, meter, method, codes.OK, calls)
+	assertClientRequest(t, meter, OverflowMethod, codes.OK, 0)
 }

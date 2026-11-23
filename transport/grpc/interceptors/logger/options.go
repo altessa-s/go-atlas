@@ -11,6 +11,7 @@ import (
 	"regexp"
 
 	"github.com/altessa-s/go-atlas-core/time/timeformat"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 
 	"google.golang.org/protobuf/proto"
@@ -82,7 +83,7 @@ const (
 	DefaultMaxUserAgentLength = 512
 	// DefaultMaxMessageLength is the default cap, in bytes, of the logged gRPC
 	// status message, error reason and error text.
-	DefaultMaxMessageLength = 1024
+	DefaultMaxMessageLength = diagnostics.DefaultMaxErrorLength
 )
 
 // TruncationSuffix marks a logged value that was cut to its length cap; it

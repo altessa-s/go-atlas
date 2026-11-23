@@ -13,10 +13,14 @@ import (
 
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/internal/callstatus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -68,9 +72,13 @@ func (i *interceptor) debugEnabled(ctx context.Context) bool {
 
 // Dependencies declares that errstatus must run after requestid so that
 // DefaultFinalizer can read the request ID from the context, and after
-// logger so that its PostCall observes the converted gRPC status.
+// the observers so that they see the finalized status.
 func (i *interceptor) Dependencies() []string {
-	return []string{requestid.Name(), logger.Name()}
+	return []string{requestid.Name(), tracing.Name(), logger.Name(), metrics.Name()}
+}
+
+func errorAttr(err error) slog.Attr {
+	return slog.Any("error", diagnostics.LogError(err))
 }
 
 const convertOperation = "convert"
@@ -160,7 +168,7 @@ func (i *interceptor) tryCustomConverters(ctx context.Context, err error) *statu
 			continue
 		}
 		if i.debugEnabled(ctx) {
-			i.LogDebug(ctx, "matched custom converter", convertOperation, slog.Any("error", err))
+			i.LogDebug(ctx, "matched custom converter", convertOperation, errorAttr(err))
 		}
 		cached := converter.Static && idx < len(i.cache)
 		if cached {
@@ -232,7 +240,7 @@ func (i *interceptor) tryBuiltInErrors(ctx context.Context, err error) *status.S
 	}
 	if i.debugEnabled(ctx) {
 		i.LogDebug(ctx, "matched built-in error type", convertOperation,
-			slog.Any("error", err), slog.String("code", st.Code().String()))
+			errorAttr(err), slog.String("code", st.Code().String()))
 	}
 	return st
 }
@@ -250,17 +258,18 @@ func (i *interceptor) convertError(ctx context.Context, err error, debug bool) e
 	}
 	if debug {
 		i.LogDebug(ctx, "no specific error conversion found, using default Internal error", convertOperation,
-			slog.Any("error", err),
+			errorAttr(err),
 			slog.String("error_type", errorTypeString(err)))
 	}
 	return interceptors.NewError(statusInternal, err)
 }
 
 func (i *interceptor) handleServerError(ctx context.Context, srv any, err error) error {
+	callstatus.Save(ctx, err)
 	debug := i.debugEnabled(ctx)
 	if debug {
 		i.LogDebug(ctx, "handling error conversion", convertOperation,
-			slog.Any("error", err),
+			errorAttr(err),
 			slog.String("error_type", errorTypeString(err)))
 	}
 
@@ -294,7 +303,7 @@ func (i *interceptor) handleServerError(ctx context.Context, srv any, err error)
 
 	if debug {
 		i.LogDebug(ctx, "error already has gRPC status", convertOperation,
-			slog.Any("error", err),
+			errorAttr(err),
 			slog.String("code", st.Code().String()))
 	}
 

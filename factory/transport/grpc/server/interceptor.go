@@ -69,13 +69,13 @@ func (b *ServerBuilder) WithInterceptors(exclude ...interceptors.Interceptor) *S
 	}
 
 	interceptors := []entry{
-		{errstatus.Name(), b.WithErrStatusInterceptor},
 		{realip.Name(), b.WithRealIPInterceptor},
 		{requestid.Name(), b.WithRequestIDInterceptor},
-		{recovery.Name(), b.WithRecoveryInterceptor},
 		{tracinginter.Name(), b.WithTracingInterceptor},
 		{logger.Name(), b.WithLoggerInterceptor},
 		{metricsint.Name(), b.WithMetricsInterceptor},
+		{errstatus.Name(), b.WithErrStatusInterceptor},
+		{recovery.Name(), b.WithRecoveryInterceptor},
 		{ipaclinter.Name(), b.WithIpAclInterceptor},
 		{geoaclinter.Name(), b.WithGeoAclInterceptor},
 		{limiter.Name(), b.WithLimiterInterceptor},
@@ -259,7 +259,7 @@ func (b *ServerBuilder) WithRequestIDInterceptor() *ServerBuilder {
 		sharedreqid.WithGenerateIfMissing(cfg.RequestId.GenerateIfMissing),
 	)
 
-	b.interceptors = append(b.interceptors, requestid.ServerInterceptor(gen))
+	b.interceptors = append(b.interceptors, requestid.ServerInterceptors(gen)...)
 	return b
 }
 

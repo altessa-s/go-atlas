@@ -10,11 +10,9 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/internal/callstatus"
 
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // methodHandles caches the bound label handles for a single gRPC method so
@@ -43,39 +41,33 @@ type statusHandles struct {
 // Once [WithMaxMethods] distinct methods are tracked, any further method
 // shares the handles of [OverflowMethod].
 func (i *interceptor) methodFor(method string) *methodHandles {
-	if v, ok := i.byMethod.Load(method); ok {
-		return v.(*methodHandles) //nolint:errcheck // only *methodHandles is stored
+	i.methodMu.RLock()
+	mh := i.byMethod[method]
+	if mh == nil {
+		mh = i.overflow
 	}
-	if !i.reserveMethod() {
-		return i.bindMethod(OverflowMethod, false)
+	i.methodMu.RUnlock()
+	if mh != nil {
+		return mh
 	}
-	return i.bindMethod(method, true)
+
+	i.methodMu.Lock()
+	defer i.methodMu.Unlock()
+	if mh = i.byMethod[method]; mh != nil {
+		return mh
+	}
+	if len(i.byMethod) >= i.opts.maxMethods {
+		if i.overflow == nil {
+			i.overflow = i.bindMethod(OverflowMethod)
+		}
+		return i.overflow
+	}
+	mh = i.bindMethod(method)
+	i.byMethod[method] = mh
+	return mh
 }
 
-// reserveMethod claims one of the [WithMaxMethods] slots for a new method.
-func (i *interceptor) reserveMethod() bool {
-	limit := int64(i.opts.maxMethods)
-	for {
-		n := i.methodCount.Load()
-		if n >= limit {
-			return false
-		}
-		if i.methodCount.CompareAndSwap(n, n+1) {
-			return true
-		}
-	}
-}
-
-// bindMethod stores the handles for method unless a concurrent caller already
-// did. reserved reports that the caller holds a slot from reserveMethod, which
-// is returned when the method turns out to be tracked already.
-func (i *interceptor) bindMethod(method string, reserved bool) *methodHandles {
-	if v, ok := i.byMethod.Load(method); ok {
-		if reserved {
-			i.methodCount.Add(-1)
-		}
-		return v.(*methodHandles) //nolint:errcheck // only *methodHandles is stored
-	}
+func (i *interceptor) bindMethod(method string) *methodHandles {
 	mh := &methodHandles{
 		method:   method,
 		inFlight: i.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: method}),
@@ -84,11 +76,7 @@ func (i *interceptor) bindMethod(method string, reserved bool) *methodHandles {
 		mh.msgSizeSent = i.streamMessageSize.WithLabels(metrics.Labels{methodLabel: method, directionLabel: directionSent})
 		mh.msgSizeRecv = i.streamMessageSize.WithLabels(metrics.Labels{methodLabel: method, directionLabel: directionReceived})
 	}
-	v, loaded := i.byMethod.LoadOrStore(method, mh)
-	if loaded && reserved {
-		i.methodCount.Add(-1)
-	}
-	return v.(*methodHandles) //nolint:errcheck // only *methodHandles is stored
+	return mh
 }
 
 // statusFor returns the cached handles for (method, status), binding on first use.
@@ -142,17 +130,5 @@ func (i *interceptor) recordMetrics(mh *methodHandles, startTime time.Time, req,
 
 // getStatusCode extracts the gRPC status code from an error.
 func getStatusCode(err error) codes.Code {
-	if err == nil {
-		return codes.OK
-	}
-
-	if coreerrs.IsContextCanceledOrDeadlineExceeded(err) {
-		return codes.DeadlineExceeded
-	}
-
-	if st, ok := status.FromError(err); ok {
-		return st.Code()
-	}
-
-	return codes.Internal
+	return callstatus.Status(err).Code()
 }

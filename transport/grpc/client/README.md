@@ -50,8 +50,9 @@ logging, and rich error parsing with field-level validation details.
 ## Observability
 
 `WithMeter` enables the default [client RPC metrics](../interceptors/metrics) under the `grpc` subsystem.
-`WithTracer` injects the client span's W3C trace context into outgoing metadata. Tracing runs first in the client interceptor chain,
-and its span covers all native gRPC retry attempts. gRPC runs interceptors set with `grpc.WithUnaryInterceptor` or
+`WithTracer` injects the client span's W3C trace context into outgoing metadata. The built-in chain runs metadata, error conversion, tracing, logging and metrics
+in that order. On completion the observers see the wire status before conversion to a domain error. Call timing covers native retry attempts
+and, for streams, ends when gRPC reports the final status. gRPC runs interceptors set with `grpc.WithUnaryInterceptor` or
 `grpc.WithStreamInterceptor` before the chain.
 
 ## Client-side health checking

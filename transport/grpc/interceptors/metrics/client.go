@@ -6,7 +6,6 @@ package metrics
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"sync"
 	"time"
@@ -65,7 +64,7 @@ func (i *clientInterceptor) ClientUnaryInterceptor() grpc.UnaryClientInterceptor
 		if err != nil {
 			reply = nil
 		}
-		i.metrics.recordMetrics(mh, start, req, reply, getClientStatusCode(err))
+		i.metrics.recordMetrics(mh, start, req, reply, getStatusCode(err))
 		return err
 	}
 }
@@ -155,7 +154,7 @@ func (s *clientStream) finish(err error) {
 		return
 	}
 	s.finished = true
-	s.code = getClientStatusCode(err)
+	s.code = getStatusCode(err)
 
 	s.interceptor.requestsInFlight.Dec()
 	s.handles.inFlight.Dec()
@@ -166,11 +165,4 @@ func (s *clientStream) finish(err error) {
 	if s.activeMessages == 0 {
 		s.finalizeStreamMetrics(s.code)
 	}
-}
-
-func getClientStatusCode(err error) codes.Code {
-	if errors.Is(err, context.Canceled) {
-		return codes.Canceled
-	}
-	return getStatusCode(err)
 }

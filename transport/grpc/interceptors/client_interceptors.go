@@ -70,10 +70,20 @@ func (i *DrivenClientInterceptor) Interceptor() any {
 	return i.i
 }
 
+// callContext starts a fresh metadata scope at the chain entrance, even
+// when another call to the same method supplied the parent context.
+func (i *DrivenClientInterceptor) callContext(ctx context.Context, method string, desc *grpc.StreamDesc) context.Context {
+	if i.Name() == metadata.Name() {
+		return metadata.NewContext(ctx, metadata.NewCallMetadata(ctx, method, desc))
+	}
+	ctx, _ = metadata.EnsureInContext(ctx, method, desc)
+	return ctx
+}
+
 // ClientUnaryInterceptor returns a unary client interceptor.
 func (i *DrivenClientInterceptor) ClientUnaryInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		ctx, _ = metadata.EnsureInContextFromMethod(ctx, method)
+		ctx = i.callContext(ctx, method, nil)
 		h, newCtx := i.i.DrivenInterceptor(ctx)
 
 		_, err := h.PreCall(newCtx, req)
@@ -97,7 +107,7 @@ func (i *DrivenClientInterceptor) ClientStreamInterceptor() grpc.StreamClientInt
 		streamer grpc.Streamer,
 		opts ...grpc.CallOption,
 	) (grpc.ClientStream, error) {
-		ctx, _ = metadata.EnsureInContextFromMethod(ctx, method)
+		ctx = i.callContext(ctx, method, desc)
 		h, newCtx := i.i.DrivenInterceptor(ctx)
 		if _, err := h.PreCall(newCtx, nil); err != nil {
 			return nil, err
@@ -108,7 +118,7 @@ func (i *DrivenClientInterceptor) ClientStreamInterceptor() grpc.StreamClientInt
 			return nil, err
 		}
 
-		return NewClientStreamWrapper(newCtx, stream, h), nil
+		return ClientStreamWithDriver(newCtx, stream, h), nil
 	}
 }
 

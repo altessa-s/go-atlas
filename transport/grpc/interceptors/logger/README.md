@@ -39,7 +39,9 @@ payloads, request IDs, trace correlation, and client IP with structured logging 
 
 The method names, the User-Agent, the status message, the `ErrorInfo` reason and the error text are peer-controlled or echo request values. Each is
 truncated to its cap and marked with `TruncationSuffix` (`...`), and its control characters (CR, LF, the rest of C0, DEL and C1) are removed, so
-one call can neither forge a log line nor bloat the record. The caller still receives the full status.
+one call can neither forge a log line nor bloat the record. Error text and status messages also have URL user information removed before truncation.
+With server error conversion enabled, `grpc.code` and `grpc.message` describe the finalized status, and `error` carries the cause from before
+conversion. Unary and streaming completion records measure elapsed time from the start of their own RPC.
 
 ## Redacting payloads
 

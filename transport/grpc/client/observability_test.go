@@ -5,8 +5,11 @@
 package client_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"testing"
 	"time"
@@ -82,8 +85,12 @@ func TestClientObservability(t *testing.T) {
 				traceparentCount = 1
 			}
 			var unaryCalls, streamCalls int
+			var logs bytes.Buffer
+			domainErr := errors.New("application error")
 			opts := []client.Option{
 				client.WithInsecure(), client.WithoutHealthCheck(),
+				client.WithLogger(slog.New(slog.NewJSONHandler(&logs, nil))),
+				client.WithErrorConverter(func(context.Context, *status.Status) error { return domainErr }),
 				client.WithRetry(client.WithRetryMaxAttempts(2)),
 				client.WithDialOptions(
 					grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
@@ -124,8 +131,16 @@ func TestClientObservability(t *testing.T) {
 			require.NoError(t, err)
 			_, err = stream.Recv()
 			require.ErrorIs(t, err, io.EOF)
+			require.ErrorIs(t, stream.Context().Err(), context.Canceled)
+			require.NoError(t, ctx.Err())
 			require.Equal(t, 1, streamCalls)
 
+			_, err = rpc.EmptyCall(ctx, &grpc_testing.Empty{})
+			require.ErrorIs(t, err, domainErr)
+			require.Contains(t, logs.String(), `"code":"Unimplemented"`)
+			require.NotContains(t, logs.String(), "0001-01-01")
+
+			require.NoError(t, tracer.Shutdown(t.Context()))
 			require.Len(t, backend.unary, 2)
 			require.Len(t, backend.stream, 1)
 			const counter = "test_grpc_client_requests_total"
@@ -138,11 +153,15 @@ func TestClientObservability(t *testing.T) {
 				return
 			}
 
-			require.Len(t, capture.spans, 2)
+			require.Len(t, capture.spans, 3)
 			unarySpan, streamSpan := <-capture.spans, <-capture.spans
 			require.Equal(t, traceparent(unarySpan), <-backend.unary)
 			require.Equal(t, traceparent(unarySpan), <-backend.unary)
 			require.Equal(t, traceparent(streamSpan), <-backend.stream)
+			errorSpan := <-capture.spans
+			require.Equal(t, adapters.StatusError, errorSpan.Status)
+			require.Contains(t, errorSpan.Attributes, adapters.Attribute{Key: "rpc.grpc.status_code", Value: int(codes.Unimplemented)})
+			require.Equal(t, 1.0, metricstest.GetCounterValue(t, tc, counter, "method", grpc_testing.TestService_EmptyCall_FullMethodName, "status", "Unimplemented"))
 			for _, method := range []string{grpc_testing.TestService_UnaryCall_FullMethodName, grpc_testing.TestService_StreamingOutputCall_FullMethodName} {
 				require.Equal(t, 1.0, metricstest.GetCounterValue(t, tc, counter, "method", method, "status", "OK"))
 			}

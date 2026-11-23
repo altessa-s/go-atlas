@@ -6,16 +6,21 @@ package tracing
 
 import (
 	"context"
+	"slices"
+	"sync"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/internal/callstatus"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/status"
 
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
@@ -41,7 +46,7 @@ type Interceptor struct {
 
 // ServerInterceptor creates a new server tracing interceptor.
 func ServerInterceptor(tracer tracing.Tracer, opts ...Option) *Interceptor {
-	if tracer == nil {
+	if nilcheck.IsNil(tracer) {
 		tracer = tracing.Noop()
 	}
 	cfg := newOptions(opts...)
@@ -61,7 +66,7 @@ func ServerInterceptor(tracer tracing.Tracer, opts ...Option) *Interceptor {
 
 // ClientInterceptor creates a new client tracing interceptor.
 func ClientInterceptor(tracer tracing.Tracer, opts ...Option) *Interceptor {
-	if tracer == nil {
+	if nilcheck.IsNil(tracer) {
 		tracer = tracing.Noop()
 	}
 	cfg := newOptions(opts...)
@@ -113,7 +118,7 @@ func (i *Interceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
 		}
 
 		// Extract trace context from incoming metadata
-		ctx = i.extractTraceContext(ctx)
+		ctx = callstatus.Observe(i.extractTraceContext(ctx))
 
 		// Start server span
 		spanName := i.opts.spanNameFunc(info.FullMethod)
@@ -132,7 +137,7 @@ func (i *Interceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 
 		// Record status
-		i.recordStatus(span, err)
+		recordStatus(span, err, callstatus.Cause(ctx), true)
 
 		return resp, err
 	}
@@ -149,7 +154,7 @@ func (i *Interceptor) ServerStreamInterceptor() grpc.StreamServerInterceptor {
 		ctx := ss.Context()
 
 		// Extract trace context from incoming metadata
-		ctx = i.extractTraceContext(ctx)
+		ctx = callstatus.Observe(i.extractTraceContext(ctx))
 
 		// Start server span
 		spanName := i.opts.spanNameFunc(info.FullMethod)
@@ -168,7 +173,7 @@ func (i *Interceptor) ServerStreamInterceptor() grpc.StreamServerInterceptor {
 		err := handler(srv, interceptors.NewServerWrappedStream(ctx, ss, nil))
 
 		// Record status
-		i.recordStatus(span, err)
+		recordStatus(span, err, callstatus.Cause(ctx), true)
 
 		return err
 	}
@@ -202,7 +207,7 @@ func (i *Interceptor) ClientUnaryInterceptor() grpc.UnaryClientInterceptor {
 		err := invoker(ctx, method, req, reply, cc, opts...)
 
 		// Record status
-		i.recordStatus(span, err)
+		recordStatus(span, err, nil, false)
 
 		return err
 	}
@@ -234,19 +239,21 @@ func (i *Interceptor) ClientStreamInterceptor() grpc.StreamClientInterceptor {
 			span.SetAttributes(tracing.String(NetPeerNameKey, cc.Target()))
 		}
 
-		// Call streamer
+		// gRPC reports completion even when the application never calls
+		// RecvMsg again or only closes the sending side.
+		var once sync.Once
+		finish := func(err error) {
+			once.Do(func() {
+				recordStatus(span, err, nil, false)
+				span.End()
+			})
+		}
+		opts = append(slices.Clip(opts), grpc.OnFinish(finish))
 		stream, err := streamer(ctx, desc, cc, method, opts...)
 		if err != nil {
-			i.recordStatus(span, err)
-			span.End()
-			return nil, err
+			finish(err)
 		}
-
-		// Wrap stream to end span when stream closes
-		return &tracingClientStream{
-			ClientStream: stream,
-			span:         span,
-		}, nil
+		return stream, err
 	}
 }
 
@@ -277,41 +284,31 @@ func (i *Interceptor) injectTraceContext(ctx context.Context) context.Context {
 }
 
 // recordStatus records the gRPC status on the span.
-func (i *Interceptor) recordStatus(span tracing.Span, err error) {
-	if err == nil {
-		span.SetAttributes(tracing.Int(RPCGRPCStatusCodeKey, 0)) // OK
+func recordStatus(span tracing.Span, err, cause error, server bool) {
+	st := callstatus.Status(err)
+	code := st.Code()
+	span.SetAttributes(tracing.Int(RPCGRPCStatusCodeKey, int(code)))
+	if cause == nil {
+		cause = err
+	}
+	if cause != nil && span.IsRecording() {
+		message := diagnostics.ErrorText(cause.Error(), diagnostics.DefaultMaxErrorLength)
+		span.RecordError(cause, tracing.WithEventAttributes(tracing.String("exception.message", message)))
+	}
+	if code == codes.OK {
 		span.SetStatus(tracing.StatusOK, "")
-		return
+	} else if !server || serverError(code) {
+		span.SetStatus(tracing.StatusError, diagnostics.ErrorText(st.Message(), diagnostics.DefaultMaxErrorLength))
 	}
-
-	st, _ := status.FromError(err)
-	span.SetAttributes(tracing.Int(RPCGRPCStatusCodeKey, int(st.Code())))
-	span.RecordError(err)
-	span.SetStatus(tracing.StatusError, st.Message())
 }
 
-// tracingClientStream wraps grpc.ClientStream to end the span on stream close.
-type tracingClientStream struct {
-	grpc.ClientStream
-	span tracing.Span
-}
-
-// RecvMsg receives a message and ends the span on EOF or error.
-func (s *tracingClientStream) RecvMsg(m any) error {
-	err := s.ClientStream.RecvMsg(m)
-	if err != nil {
-		// Record status code on final error (including EOF)
-		st, _ := status.FromError(err)
-		s.span.SetAttributes(tracing.Int(RPCGRPCStatusCodeKey, int(st.Code())))
-		if err.Error() != "EOF" {
-			s.span.RecordError(err)
-			s.span.SetStatus(tracing.StatusError, st.Message())
-		} else {
-			s.span.SetStatus(tracing.StatusOK, "")
-		}
-		s.span.End()
+func serverError(code codes.Code) bool {
+	switch code {
+	case codes.Unknown, codes.DeadlineExceeded, codes.Unimplemented, codes.Internal, codes.Unavailable, codes.DataLoss:
+		return true
+	default:
+		return false
 	}
-	return err
 }
 
 // incomingCarrier reads single keys of the incoming gRPC metadata without

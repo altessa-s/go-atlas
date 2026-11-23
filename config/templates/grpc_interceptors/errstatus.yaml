@@ -1,7 +1,7 @@
 # Error status configuration for error-to-gRPC-status conversion.
 # Converts application errors to gRPC status errors and enriches error
 # responses with ErrorInfo (reason code, domain) and RequestInfo (request ID).
-# Runs first in the chain so all downstream errors are properly converted.
+# Runs inside tracing, logging and metrics, and outside recovery and request rejection.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 

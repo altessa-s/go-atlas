@@ -9,7 +9,6 @@ import (
 	"hash/fnv"
 	"math/rand/v2"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
@@ -43,7 +42,6 @@ var _ stdGrpc.ServerStream = (*streamWrapper)(nil)
 type serverInterceptorWrapper struct {
 	interceptors.BaseInterceptor
 	*interceptor
-	opts *options
 }
 
 // ServerUnaryInterceptor returns a new unary server interceptor that collects metrics.
@@ -137,10 +135,9 @@ type interceptor struct {
 	streamMessageSize        metrics.Histogram
 	// byMethod caches bound label handles per method (see metrics_helper.go)
 	// so the request path never rebuilds label maps.
-	byMethod sync.Map
-	// methodCount is the number of methods tracked in byMethod, not counting
-	// [OverflowMethod]; it enforces [WithMaxMethods].
-	methodCount atomic.Int64
+	methodMu sync.RWMutex
+	byMethod map[string]*methodHandles
+	overflow *methodHandles
 }
 
 // streamWrapper wraps a grpc.ServerStream to intercept SendMsg and RecvMsg calls
@@ -193,7 +190,6 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 			opts.logger,
 		),
 		interceptor: i,
-		opts:        opts,
 	}
 }
 
@@ -266,9 +262,11 @@ func (s *streamMetrics) initializeSampling() {
 
 // SendMsg intercepts the stream's SendMsg calls to track sent messages.
 func (s *streamWrapper) SendMsg(m any) error {
-	err := s.ServerStream.SendMsg(m)
+	if err := s.ServerStream.SendMsg(m); err != nil {
+		return err
+	}
 	s.recordMessage(m, true)
-	return err
+	return nil
 }
 
 // RecvMsg intercepts the stream's RecvMsg calls to track received messages.
@@ -407,6 +405,7 @@ func (s *streamMetrics) finalizeStreamMetrics(code codes.Code) {
 }
 
 func (i *interceptor) initializeMetrics(side string) {
+	i.byMethod = make(map[string]*methodHandles)
 	scoped := i.opts.meter.WithSubsystem(i.opts.metricsSubsystem)
 
 	i.requestsTotal = scoped.MustCounter(metrics.MetricOpts{

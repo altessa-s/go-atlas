@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/time/timeformat"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
@@ -345,35 +346,17 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 }
 
 func (c *Client) interceptorOptions() ([]grpc.DialOption, error) {
-	var opts []grpc.DialOption
-	if c.options.tracer != nil {
-		trace := grpctracing.ClientInterceptor(c.options.tracer)
-		opts = append(opts, grpc.WithChainUnaryInterceptor(trace.ClientUnaryInterceptor()),
-			grpc.WithChainStreamInterceptor(trace.ClientStreamInterceptor()))
+	// All observers run inside client-side status conversion so a custom
+	// converter can return a domain error without changing the recorded RPC.
+	list := []any{grpcerrstatus.ClientInterceptor(grpcerrstatus.WithStatusConverterFunc(c.convertError))}
+	if nilcheck.IsNotNil(c.options.tracer) {
+		list = append(list, grpctracing.ClientInterceptor(c.options.tracer))
 	}
-
-	chain := grpcinterceptors.NewChain(
-		grpclogger.ClientInterceptor(
-			grpclogger.Slog(c.options.logger),
-			grpclogger.WithTimeFormat(timeformat.RFC3339),
-		),
-		grpcerrstatus.ClientInterceptor(
-			grpcerrstatus.WithStatusConverterFunc(c.convertError),
-		),
-	)
-	clientOptions, err := chain.ClientOptions()
-	if err != nil {
-		return nil, err
+	list = append(list, grpclogger.ClientInterceptor(grpclogger.Slog(c.options.logger), grpclogger.WithTimeFormat(timeformat.RFC3339)))
+	if nilcheck.IsNotNil(c.options.meter) {
+		list = append(list, grpcmetrics.ClientInterceptor(grpcmetrics.WithMeter(c.options.meter)))
 	}
-	opts = append(opts, clientOptions...)
-
-	// Keep metrics inside error conversion so they see the original gRPC status.
-	if c.options.meter != nil {
-		metrics := grpcmetrics.ClientInterceptor(grpcmetrics.WithMeter(c.options.meter))
-		opts = append(opts, grpc.WithChainUnaryInterceptor(metrics.ClientUnaryInterceptor()),
-			grpc.WithChainStreamInterceptor(metrics.ClientStreamInterceptor()))
-	}
-	return opts, nil
+	return grpcinterceptors.NewChain(list...).ClientOptions()
 }
 
 // convertError converts a gRPC status to an error using the configured error converter.
