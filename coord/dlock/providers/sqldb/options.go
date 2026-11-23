@@ -7,6 +7,8 @@ package sqldb
 //go:generate go tool optgen generate
 
 import (
+	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 )
@@ -36,6 +38,8 @@ const DefaultPurgeBatchSize = 1000
 
 // options contains SQL locker configuration.
 type options struct {
+	// WithTxResolver finds the application transaction for a call.
+	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
 	// WithPurgeInterval sets the interval between purge passes. Zero disables
 	// the background loop; manual PurgeExpired calls remain available.
 	purgeInterval time.Duration `optcheck:"min=0" optgen:"default=DefaultPurgeInterval,onfail=skip"`

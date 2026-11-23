@@ -62,7 +62,7 @@ var (
 // is safe for concurrent use. With [WithPurgeInterval] it also purges resolved
 // items in the background from its first write call until [Store.Close].
 type Store[P any] struct {
-	db             *sql.DB
+	db             sqldialect.Pool
 	dialect        dialect
 	table          string // quoted
 	tableName      string // unqualified, for index names and the DDL lock
@@ -106,7 +106,7 @@ func New[P any](db *sql.DB, d Dialect, opts ...Option) (*Store[P], error) {
 	}
 	o := newOptions(opts...)
 	s := &Store[P]{
-		db:             db,
+		db:             dl.WrapPool(db).WithResolver(o.resolveTx),
 		dialect:        dl,
 		tableName:      sqldialect.Unqualified(o.tableName),
 		codec:          o.codec,
@@ -201,19 +201,14 @@ func WithTx(ctx context.Context, tx *sql.Tx) context.Context {
 	return context.WithValue(ctx, txKey{}, tx)
 }
 
-// querier is the part of *sql.DB and *sql.Tx the store uses.
-type querier interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-// q returns the transaction ctx carries, or the database.
-func (s *Store[P]) q(ctx context.Context) querier {
+func (o *options) resolveTx(ctx context.Context) (*sql.Tx, bool) {
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
-		return tx
+		return tx, true
 	}
-	return s.db
+	if o.txResolver != nil {
+		return o.txResolver(ctx)
+	}
+	return nil, false
 }
 
 // Mark implements [retryqueue.Storage] with an insert-if-absent — ON CONFLICT
@@ -239,16 +234,15 @@ func (s *Store[P]) Mark(ctx context.Context, item retryqueue.Item[P]) (retryqueu
 // mark is [Store.Mark] after the key check and with the payload encoded.
 func (s *Store[P]) mark(ctx context.Context, item retryqueue.Item[P], payload []byte) (retryqueue.Item[P], error) {
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
-	q := s.q(ctx)
 	for range markAttempts {
-		inserted, err := s.insert(ctx, q, item, payload)
+		inserted, err := s.insert(ctx, item, payload)
 		if err != nil {
 			return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "mark retry item")
 		}
 		if inserted {
 			return s.fresh(item, payload)
 		}
-		got, err := s.scanItem(q.QueryRowContext(ctx, s.stmts.getMark, s.dialect.textArg(item.Key)))
+		got, err := s.scanItem(s.db.QueryRowContext(ctx, s.stmts.getMark, s.dialect.textArg(item.Key)))
 		switch {
 		case err == nil:
 			return got, nil
@@ -262,8 +256,8 @@ func (s *Store[P]) mark(ctx context.Context, item retryqueue.Item[P], payload []
 
 // insert inserts item as a fresh pending row and reports whether it did; a
 // taken key is not an error.
-func (s *Store[P]) insert(ctx context.Context, q querier, item retryqueue.Item[P], payload []byte) (bool, error) {
-	res, err := q.ExecContext(ctx, s.stmts.insert, s.dialect.textArg(item.Key), item.Generation,
+func (s *Store[P]) insert(ctx context.Context, item retryqueue.Item[P], payload []byte) (bool, error) {
+	res, err := s.db.ExecContext(ctx, s.stmts.insert, s.dialect.textArg(item.Key), item.Generation,
 		unixNano(item.Since), unixNano(item.NextAttemptAt), payload)
 	if err != nil {
 		if s.dialect.name == DialectMySQL && sqldialect.IsDuplicateKey(err) {
@@ -404,7 +398,7 @@ func (s *Store[P]) ListByState(ctx context.Context, state retryqueue.State, limi
 // [keyChunk] per statement; a longer list runs atomically in one transaction,
 // using the caller's transaction when present and starting one otherwise.
 func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (int, error) {
-	if _, inTx := s.q(ctx).(*sql.Tx); !inTx && len(keys) > keyChunk {
+	if _, inTx := s.db.Tx(ctx); !inTx && len(keys) > keyChunk {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return 0, coreerrs.WrapOperation(err, "begin requeue retry items")
@@ -502,7 +496,7 @@ func (s *Store[P]) PurgeExpired(ctx context.Context) (int64, error) {
 	}
 	total, err := purgeloop.Drain(ctx, s.purgeBatchSize, purgeloop.DefaultStepTimeout,
 		func(ctx context.Context) (int64, int64, error) {
-			res, err := s.q(ctx).ExecContext(ctx, s.stmts.purge, s.retention.Nanoseconds())
+			res, err := s.db.ExecContext(ctx, s.stmts.purge, s.retention.Nanoseconds())
 			if err != nil {
 				return 0, 0, err
 			}
@@ -515,7 +509,7 @@ func (s *Store[P]) PurgeExpired(ctx context.Context) (int64, error) {
 // exec runs a statement and returns its affected-rows count.
 func (s *Store[P]) exec(ctx context.Context, query string, args ...any) (int64, error) {
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
-	res, err := s.q(ctx).ExecContext(ctx, query, args...)
+	res, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -525,7 +519,7 @@ func (s *Store[P]) exec(ctx context.Context, query string, args ...any) (int64, 
 // found reports whether query returns a row.
 func (s *Store[P]) found(ctx context.Context, query string, args ...any) (bool, error) {
 	var one int
-	err := s.q(ctx).QueryRowContext(ctx, query, args...).Scan(&one)
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -535,7 +529,7 @@ func (s *Store[P]) found(ctx context.Context, query string, args ...any) (bool, 
 // list runs a sorted, limited query and scans its rows; op names the
 // operation in errors.
 func (s *Store[P]) list(ctx context.Context, op, query string, args ...any) ([]retryqueue.Item[P], error) {
-	rows, err := s.q(ctx).QueryContext(ctx, query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, op)
 	}

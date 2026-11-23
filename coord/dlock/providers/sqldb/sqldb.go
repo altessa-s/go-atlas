@@ -40,7 +40,7 @@ const ensureAttempts = 3
 // grace period after their lease ended; deleting rows otherwise, or restoring
 // the table from a backup, can reissue tokens. [WithoutRenewal] turns every
 // lease into a hard lease of one TTL that is never renewed. The caller owns
-// the *sql.DB; the locker never joins a caller's transaction.
+// the *sql.DB. WithTxResolver can enlist lock operations in a caller transaction.
 type Locker struct {
 	s            *store
 	engine       *leasing.Engine
@@ -53,7 +53,7 @@ type Locker struct {
 
 // store implements [leasing.Store] on the locks table.
 type store struct {
-	db        *sql.DB
+	db        sqldialect.Pool
 	dialect   dialect
 	table     string // quoted
 	tableName string // unqualified, for the DDL lock
@@ -124,7 +124,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Locker, error) {
 	if o.expiredCleanup && o.expiredCleanupGrace < 0 {
 		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "sqldb dlock: expired cleanup grace must not be negative")
 	}
-	s := &store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), ttl: ttl,
+	s := &store{db: dl.WrapPool(db).WithResolver(o.txResolver), dialect: dl, tableName: sqldialect.Unqualified(o.tableName), ttl: ttl,
 		cleanup: o.expiredCleanup, graceUs: o.expiredCleanupGrace.Microseconds(), purgeBatchSize: o.purgeBatchSize}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
@@ -295,7 +295,11 @@ func (s *store) acquire(ctx context.Context, key, owner string) (int64, bool, er
 // found no row because the expired-row cleanup deleted it after it was
 // created, so the acquisition must start over.
 func (s *store) acquireMySQL(ctx context.Context, k, o any, ttl int64) (fencing int64, acquired, missing bool, err error) {
-	for range ensureAttempts {
+	attempts := ensureAttempts
+	if _, ok := s.db.Tx(ctx); ok {
+		attempts = 1
+	}
+	for range attempts {
 		if _, err = s.db.ExecContext(ctx, s.stmts.ensure, k); err == nil || ctx.Err() != nil {
 			break
 		}
@@ -303,7 +307,7 @@ func (s *store) acquireMySQL(ctx context.Context, k, o any, ttl int64) (fencing 
 	if err != nil {
 		return 0, false, false, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.BeginScope(ctx, nil)
 	if err != nil {
 		return 0, false, false, err
 	}
@@ -373,7 +377,7 @@ func (s *store) readLease(ctx context.Context, query string, args ...any) (*prov
 // clock it compares against is read after any lock wait.
 func (s *store) Renew(ctx context.Context, key, owner string, fencing uint64) (bool, error) {
 	args := []any{s.ttl.Microseconds(), s.dialect.textArg(key), s.dialect.textArg(owner), int64(fencing)} //nolint:gosec // see Acquire
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.BeginScope(ctx, nil)
 	if err != nil {
 		return false, err
 	}

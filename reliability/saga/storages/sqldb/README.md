@@ -59,8 +59,16 @@ if err := store.EnsureSchema(ctx); err != nil { // or apply the DDL via migratio
 orch := saga.New(store, def)
 ```
 
+Standalone PostgreSQL statements retry once on a driver-confirmed pre-send failure. Transactions keep their connection and surface the error.
+See the [PostgreSQL connection loss policy](../../../outbox/storages/sqldb/README.md#postgresql-connection-loss) for checkout settings and retry limits.
+
 ## See also
 
 - [storages/storagetest](../storagetest) — the contract suite this backend passes.
 - [storages/mongo](../mongo) — the MongoDB backend with the same default collection name.
 - [reliability/outbox/storages/sqldb](../../../outbox/storages/sqldb) — another SQL backend.
+
+## Caller transactions
+
+Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in each operation's context. The caller owns completion and rollback.
+The factory wires the resolver with `UseSQLPool(pools.Binding(name))`.

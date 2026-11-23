@@ -39,10 +39,10 @@ var indexes = [...]struct{ suffix, columns string }{
 // catalog.
 func (s *Store[P]) EnsureSchema(ctx context.Context) error {
 	if s.dialect.name == DialectPostgres {
-		return coreerrs.WrapOperationWithContext(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.tableName}, s.postgresSchema()),
+		return coreerrs.WrapOperationWithContext(sqldialect.ExecPostgresDDL(ctx, s.db.DB, []string{s.tableName}, s.postgresSchema()),
 			"create retry queue schema", "table "+s.table)
 	}
-	_, err := s.db.ExecContext(ctx, s.mysqlSchema())
+	_, err := s.db.DB.ExecContext(ctx, s.mysqlSchema())
 	return coreerrs.WrapOperationWithContext(err, "create retry queue schema", "table "+s.table)
 }
 

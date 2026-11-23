@@ -43,12 +43,15 @@ acquisition increments a fencing token. The caller owns the `*sql.DB` and regist
 | Ambiguous error | An acquisition that errored (including a failed commit) may still have applied: it is released by its unique owner id                                                                              |
 | Release         | Matches holder and fencing token: a stale holder cannot release the new holder's lease                                                                                                             |
 | Close           | Stops all renewals, waits for acquisitions in flight, releases every held lock; a repeated Close retries                                                                                           |
-| Transactions    | The locker uses the `*sql.DB` directly and never joins a caller's transaction                                                                                                                      |
+| Transactions    | The locker uses the pool by default. WithTxResolver enlists operations in a caller transaction                                                                                                                      |
 | Indexes         | `<table>_expires_idx` on `(expires_at)` supports cleanup: batches take the oldest rows along it, against a cutoff read once per statement (`statement_timestamp()` on PostgreSQL)                  |
 
 The table keeps one small row per key ever locked, and that row is the key's fencing history: deleting it, or restoring the table from a backup,
 restarts or rewinds the key's tokens, so a stale holder could carry a higher token than the new one. Keep the rows of every key that may be locked
 again.
+
+Standalone PostgreSQL statements retry once on a driver-confirmed pre-send failure. Transactions keep their connection and surface the error.
+See the [PostgreSQL connection loss policy](../../../../reliability/outbox/storages/sqldb/README.md#postgresql-connection-loss) for checkout settings and retry limits.
 
 ## Expired cleanup and hard leases
 
@@ -76,3 +79,11 @@ timed out. Loop failures and recovered panics go to `WithLogger` (discard by def
 `EnsureSchema` creates the table with its `(expires_at)` index: PostgreSQL uses `CREATE INDEX IF NOT EXISTS` under its DDL advisory lock; MySQL/MariaDB
 declares the index inline. Each purge statement is bounded by `WithOperationsTimeout`. Batch limits are bound parameters. Background passes use a fresh
 context without request values or transactions.
+
+## Caller transactions
+
+Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in each operation's context. The caller owns completion and rollback.
+The factory wires the resolver with `UseSQLPool(pools.Binding(name))`.
+
+Release a lease acquired inside a transaction before returning from the transaction handler. Its renewal and release share that transaction.
+For a lease that spans several transactions, acquire it using the outer request context.

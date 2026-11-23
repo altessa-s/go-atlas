@@ -21,7 +21,7 @@ backend](../mongo/README.md).
 | `PurgeExpired(ctx) (int64, error)`                   | Drains expired rows in bounded batches and returns the total                       |
 | `MaxKeyLength`                                       | 255 characters, including the Keeper's composed namespace                          |
 
-The caller opens and closes `*sql.DB` and registers its driver. No SQL driver is imported by this package or required by the root module. Oversized keys
+The caller opens and closes `*sql.DB` and registers its driver. This adapter imports `database/sql` and accepts the application’s driver. Oversized keys
 fail with `ErrValueTooLong` before SQL execution; they are never truncated or hashed. PostgreSQL keys are text; MySQL uses `VARBINARY(1020)` for up to
 255 UTF-8 characters, preserving case and trailing spaces. Values use `BYTEA` or `LONGBLOB` for binary-safe CAS and replay.
 
@@ -119,3 +119,6 @@ go test -C tests/integration -race -count=1 -p 1 -v ./idempotencyit/...
 ```
 
 Inspect verbose output for `--- SKIP`: unreachable backends skip and must not be reported as passed.
+
+The optional `WithTxResolver` joins a transaction supplied by the application. Use `UseSQLPool(pools.Binding(name))` on the factory.
+The existing `WithTx` context remains supported. Deadlocks and serialization failures in either kind of transaction carry `ErrRestartTransaction`.

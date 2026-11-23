@@ -94,8 +94,7 @@ flowchart TD
 have a `sqldb` backend beside their MongoDB (and NATS or Redis) ones. The backends take a caller-owned `*sql.DB` and a dialect — `postgres`, or `mysql`
 for MySQL and MariaDB — through `internal/sqldialect`, so no SQL driver enters the root module; drivers appear only in `tests/integration`, which runs
 each backend's conformance suite against PostgreSQL, MariaDB and MySQL. They follow the same contract: `New` performs no I/O and `EnsureSchema` is a
-separate idempotent call; the lock, idempotency and outbox stores evaluate time predicates against the database clock; the outbox, idempotency and
-retry-queue stores join a caller transaction through `WithTx`; and the stores whose MongoDB counterpart relies on a TTL index purge expired rows with
+separate idempotent call; the lock, idempotency and outbox stores evaluate time predicates against the database clock; the six go-atlas SQL backends accept an injected transaction resolver; and the stores whose MongoDB counterpart relies on a TTL index purge expired rows with
 `PurgeExpired`, from a background loop that starts on the first write and stops with `Close`. The outbox store implements `outbox.Watcher` with
 PostgreSQL `LISTEN`/`NOTIFY` through an injected `Listener`, the SQL counterpart of the MongoDB change stream. Configuration keys and the shared rules
 are in [configuration](configuration.md#sql-backends).

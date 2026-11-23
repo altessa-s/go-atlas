@@ -22,7 +22,7 @@ import (
 // Storage persists idempotency bytes with database-clock expiry and byte CAS.
 // It is safe for concurrent use. The caller owns the database and its lifetime.
 type Storage struct {
-	db             *sql.DB
+	db             sqldialect.Pool
 	dialect        dialect
 	table          string
 	name           string
@@ -55,7 +55,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Storage{db: db, dialect: dl, table: table, name: sqldialect.Unqualified(o.tableName), ttl: o.ttl,
+	s := &Storage{db: dl.WrapPool(db).WithResolver(o.resolveTx), dialect: dl, table: table, name: sqldialect.Unqualified(o.tableName), ttl: o.ttl,
 		purgeBatchSize: o.purgeBatchSize}
 	s.stmts = s.buildStatements()
 	s.purge = purgeloop.New(o.purgeInterval, s.PurgeExpired, o.logger, "expired idempotency keys")
@@ -103,19 +103,6 @@ func WithTx(ctx context.Context, tx *sql.Tx) context.Context {
 	return context.WithValue(ctx, txKey{}, tx)
 }
 
-type executor interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-}
-
-func (s *Storage) executor(ctx context.Context) executor {
-	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
-		return tx
-	}
-	return s.db
-}
-
 func validateKey(key string) error {
 	if key == "" {
 		return storages.ErrEmptyKey
@@ -143,7 +130,7 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 		lockTTL = s.ttl
 	}
 	val = nonNilBytes(val)
-	ex := s.executor(ctx)
+	ex := s.db
 	arg, ttl := s.dialect.keyArg(key), s.dialect.duration(lockTTL)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -151,12 +138,12 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 		}
 		n, err := execCount(ctx, ex, s.stmts.insert, arg, val, ttl)
 		if err != nil {
-			return false, nil, nil, operationError(ctx, err, "insert idempotency lock in SQL")
+			return false, nil, nil, s.operationError(ctx, err, "insert idempotency lock in SQL")
 		}
 		if n == 0 {
 			n, err = execCount(ctx, ex, s.stmts.takeover, val, ttl, arg)
 			if err != nil {
-				return false, nil, nil, operationError(ctx, err, "take expired idempotency lock in SQL")
+				return false, nil, nil, s.operationError(ctx, err, "take expired idempotency lock in SQL")
 			}
 		}
 		if n > 0 {
@@ -170,7 +157,7 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 			// when this operation joins a REPEATABLE READ business transaction.
 			continue
 		}
-		return false, existing, nil, operationError(ctx, err, "read idempotency lock in SQL")
+		return false, existing, nil, s.operationError(ctx, err, "read idempotency lock in SQL")
 	}
 }
 
@@ -182,8 +169,8 @@ func (s *Storage) Complete(ctx context.Context, key string, val, lockToken []byt
 	}
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
 	if lockToken == nil {
-		_, err := s.executor(ctx).ExecContext(ctx, s.stmts.upsert, s.dialect.keyArg(key), nonNilBytes(val), s.dialect.duration(s.ttl))
-		return operationError(ctx, err, "complete idempotency key in SQL")
+		_, err := s.db.ExecContext(ctx, s.stmts.upsert, s.dialect.keyArg(key), nonNilBytes(val), s.dialect.duration(s.ttl))
+		return s.operationError(ctx, err, "complete idempotency key in SQL")
 	}
 	return s.compareAndSet(ctx, key, lockToken, val)
 }
@@ -204,9 +191,9 @@ func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []b
 func (s *Storage) compareAndSet(ctx context.Context, key string, expected, val []byte) error {
 	// Incrementing revision guarantees a changed row on MySQL even when
 	// value and expiry are unchanged at the database's timestamp precision.
-	n, err := execCount(ctx, s.executor(ctx), s.stmts.complete, nonNilBytes(val), s.dialect.duration(s.ttl),
+	n, err := execCount(ctx, s.db, s.stmts.complete, nonNilBytes(val), s.dialect.duration(s.ttl),
 		s.dialect.keyArg(key), nonNilBytes(expected))
-	return casResult(n, operationError(ctx, err, "compare and set idempotency key in SQL"))
+	return casResult(n, s.operationError(ctx, err, "compare and set idempotency key in SQL"))
 }
 
 // Release deletes only a live key whose bytes match lockToken.
@@ -218,8 +205,8 @@ func (s *Storage) Release(ctx context.Context, key string, lockToken []byte) err
 	if len(lockToken) == 0 {
 		return storages.ErrMissingLockState
 	}
-	n, err := execCount(ctx, s.executor(ctx), s.stmts.release, s.dialect.keyArg(key), lockToken)
-	return casResult(n, operationError(ctx, err, "release idempotency key in SQL"))
+	n, err := execCount(ctx, s.db, s.stmts.release, s.dialect.keyArg(key), lockToken)
+	return casResult(n, s.operationError(ctx, err, "release idempotency key in SQL"))
 }
 
 // Delete unconditionally removes key for administrative invalidation.
@@ -228,8 +215,8 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
-	_, err := s.executor(ctx).ExecContext(ctx, s.stmts.remove, s.dialect.keyArg(key))
-	return operationError(ctx, err, "delete idempotency key from SQL")
+	_, err := s.db.ExecContext(ctx, s.stmts.remove, s.dialect.keyArg(key))
+	return s.operationError(ctx, err, "delete idempotency key from SQL")
 }
 
 // PurgeExpired deletes all currently expired keys in bounded batches using
@@ -238,10 +225,10 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 // Explicit calls join WithTx; background passes use the database.
 func (s *Storage) PurgeExpired(ctx context.Context) (int64, error) {
 	total, err := purgeloop.Drain(ctx, s.purgeBatchSize, purgeloop.DefaultStepTimeout, s.deleteExpiredBatch)
-	return total, operationError(ctx, err, "purge expired idempotency keys from SQL")
+	return total, s.operationError(ctx, err, "purge expired idempotency keys from SQL")
 }
 
-func execCount(ctx context.Context, ex executor, query string, args ...any) (int64, error) {
+func execCount(ctx context.Context, ex sqldialect.Pool, query string, args ...any) (int64, error) {
 	res, err := ex.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err

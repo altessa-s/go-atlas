@@ -7,6 +7,8 @@ package sqldb
 //go:generate go tool optgen generate
 
 import (
+	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 
@@ -23,6 +25,8 @@ const DefaultPurgeInterval = time.Minute
 const DefaultPurgeBatchSize = 1000
 
 type options struct {
+	// WithTxResolver finds the application transaction for a call. WithTx takes precedence.
+	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
 	// tableName is the items table, optionally qualified as schema.name.
 	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// codec encodes the payload into the payload column and decodes it back.

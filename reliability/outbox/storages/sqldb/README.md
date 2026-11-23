@@ -196,3 +196,8 @@ take the listener from `UseSQLListener`, and start the watcher.
 The [`storagetest`](../storagetest) contract suite and the outbox integration scenarios in
 [`tests/integration/outboxit`](../../../../tests/integration/outboxit) run against PostgreSQL, MariaDB and MySQL as well as MongoDB; the `Watch`
 contract runs on PostgreSQL through a pgx listener.
+
+## Caller transactions
+
+Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in each operation's context. The caller owns completion and rollback.
+The factory wires the resolver with `UseSQLPool(pools.Binding(name))`.

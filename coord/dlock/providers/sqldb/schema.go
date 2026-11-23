@@ -24,10 +24,10 @@ import (
 // turns instead of colliding in the catalog.
 func (l *Locker) EnsureSchema(ctx context.Context) error {
 	if l.s.dialect.name == DialectPostgres {
-		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, l.s.db, []string{l.s.tableName}, l.postgresSchema()),
+		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, l.s.db.DB, []string{l.s.tableName}, l.postgresSchema()),
 			"create dlock schema")
 	}
-	_, err := l.s.db.ExecContext(ctx, l.mysqlSchema())
+	_, err := l.s.db.DB.ExecContext(ctx, l.mysqlSchema())
 	return coreerrs.WrapOperation(err, "create dlock schema")
 }
 

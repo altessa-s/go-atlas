@@ -32,10 +32,10 @@ var indexes = [...]struct{ suffix, columns string }{
 // colliding in the catalog.
 func (s *Store) EnsureSchema(ctx context.Context) error {
 	if s.dialect.name == DialectPostgres {
-		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.tableName}, s.postgresSchema()),
+		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db.DB, []string{s.tableName}, s.postgresSchema()),
 			"create saga schema")
 	}
-	_, err := s.db.ExecContext(ctx, s.mysqlSchema())
+	_, err := s.db.DB.ExecContext(ctx, s.mysqlSchema())
 	return coreerrs.WrapOperation(err, "create saga schema")
 }
 

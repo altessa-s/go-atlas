@@ -54,10 +54,10 @@ var indexes = []index{
 // runs in one transaction under an advisory lock on the table name.
 func (s *Storage) EnsureSchema(ctx context.Context) error {
 	if s.dialect.name == DialectPostgres {
-		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.tableName}, s.postgresSchema()),
+		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db.DB, []string{s.tableName}, s.postgresSchema()),
 			"create audit schema")
 	}
-	_, err := s.db.ExecContext(ctx, s.mysqlSchema())
+	_, err := s.db.DB.ExecContext(ctx, s.mysqlSchema())
 	return coreerrs.WrapOperation(err, "create audit schema")
 }
 
