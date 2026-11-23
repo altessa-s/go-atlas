@@ -2,10 +2,11 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package sqldialect holds the SQL text helpers shared by the database/sql
+// Package sqldialect holds SQL execution and text helpers shared by the database/sql
 // storages (reliability/outbox/storages/sqldb, reliability/saga/storages/sqldb, ...):
 // table-name validation and quoting, index naming, placeholder binding, and
-// serialized PostgreSQL schema creation.
+// serialized PostgreSQL schema creation. [Pool] executes standalone PostgreSQL
+// statements with one retry for a driver-confirmed pre-send connection failure.
 //
 // # Identifiers
 //
