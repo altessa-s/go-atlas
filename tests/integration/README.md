@@ -407,6 +407,21 @@ databases on the direct endpoint and trace the pooler rejection before advisory 
 When running `outboxit` with `POSTGRES_DSN` pointing to PgBouncer, set `POSTGRES_CONTROL_DSN` to a direct connection to the same database.
 LISTEN consumers need a session-affine endpoint. The connection-loss test closes its own client socket.
 
+The optional `postgres-tls` Compose service reuses the PostgreSQL image and binds only to loopback on port 15433. From the repository root,
+generate a two-day CA and server certificate with local OpenSSL, then run the trusted-CA test. With the image cached this works offline.
+
+```sh
+POSTGRES_TLS_DIR=$(sh tests/integration/postgres-tls/certificates.sh)
+export POSTGRES_TLS_DIR
+docker compose -f tests/integration/docker-compose.yml up --pull never -d --wait postgres-tls
+POSTGRES_TLS_DSN='postgres://atlas:atlas@127.0.0.1:15433/atlas' POSTGRES_TLS_CA="$POSTGRES_TLS_DIR/ca.crt" \
+    go -C tests/integration test -count=1 -run '^TestFactory_TLSWithATrustedCA$' ./postgresit
+docker compose -f tests/integration/docker-compose.yml rm --stop --force --volumes postgres-tls
+```
+
+Remove the temporary certificate directory after stopping the service. With an external server, set both environment variables to its DSN and CA.
+The test skips only when both variables are unset.
+
 Run the six subsystem suites with `POSTGRES_DSN` set to the endpoint under test. For example, with the compose services running:
 
 ```sh

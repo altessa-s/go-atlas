@@ -82,6 +82,33 @@ services:
       timeout: 5s
       retries: 30
 
+  postgres-tls:
+    image: postgres:17-alpine
+    profiles: ["postgres-tls"]
+    ports:
+      - "127.0.0.1:15433:5432"
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+      POSTGRES_DB: atlas
+    volumes:
+      - ${POSTGRES_TLS_DIR:-./postgres-tls}:/fixture:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        cp /fixture/server.key /tmp/server.key
+        chmod 600 /tmp/server.key
+        chown postgres:postgres /tmp/server.key
+        cp /fixture/server.crt /tmp/server.crt
+        chmod 644 /tmp/server.crt
+        exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server.crt -c ssl_key_file=/tmp/server.key
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "atlas", "-d", "atlas"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   pgbouncer:
     image: ghcr.io/cloudnative-pg/pgbouncer:1.24.1
     entrypoint: ["/usr/sbin/pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
