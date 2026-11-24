@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestClientUnaryMetrics(t *testing.T) {
@@ -84,7 +85,7 @@ func TestClientUnarySizeMetrics(t *testing.T) {
 	intercept := ClientUnaryInterceptor(WithMeter(tc), WithEnableSizeMetrics())
 	for _, code := range []codes.Code{codes.OK, codes.Unavailable} {
 		failure := status.Error(code, "call status")
-		msg := clientSizedMessage{}
+		msg := wrapperspb.String("payload")
 		err := intercept(t.Context(), method, msg, msg, nil,
 			func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error { return failure })
 		require.ErrorIs(t, err, failure)

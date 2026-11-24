@@ -7,6 +7,7 @@ package callstatus
 
 import (
 	"context"
+	"sync"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
@@ -15,30 +16,39 @@ import (
 
 type causeKey struct{}
 
+type causeSlot struct {
+	mu  sync.Mutex
+	err error
+}
+
 // Observe opens a slot for the original error on this server call. The
 // interceptor that converts the error writes it as the handler returns,
-// before the synchronous completion hooks read it.
+// and a timeout interceptor may complete the call concurrently.
 func Observe(ctx context.Context) context.Context {
-	if _, ok := ctx.Value(causeKey{}).(*error); ok {
+	if _, ok := ctx.Value(causeKey{}).(*causeSlot); ok {
 		return ctx
 	}
-	return context.WithValue(ctx, causeKey{}, new(error))
+	return context.WithValue(ctx, causeKey{}, new(causeSlot))
 }
 
 // Save records err before the service converter or finalizer can replace it.
 func Save(ctx context.Context, err error) {
-	if slot, ok := ctx.Value(causeKey{}).(*error); ok {
+	if slot, ok := ctx.Value(causeKey{}).(*causeSlot); ok {
 		if ie, ok := err.(*interceptors.Error); ok {
 			err = ie.Unwrap()
 		}
-		*slot = err
+		slot.mu.Lock()
+		slot.err = err
+		slot.mu.Unlock()
 	}
 }
 
 // Cause returns the error recorded on this call, if any.
 func Cause(ctx context.Context) error {
-	if slot, ok := ctx.Value(causeKey{}).(*error); ok {
-		return *slot
+	if slot, ok := ctx.Value(causeKey{}).(*causeSlot); ok {
+		slot.mu.Lock()
+		defer slot.mu.Unlock()
+		return slot.err
 	}
 	return nil
 }

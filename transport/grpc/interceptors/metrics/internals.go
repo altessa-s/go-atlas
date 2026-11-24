@@ -4,6 +4,8 @@
 
 package metrics
 
+import "google.golang.org/protobuf/proto"
+
 // Metric label names used by the interceptor. Compile-time constants;
 // the Go runtime points all references at the same backing string so no
 // runtime interning is required for these short keys.
@@ -40,8 +42,9 @@ var (
 // known sizing interfaces:
 //
 //  1. ProtoSize() int -- gogoproto-generated messages
-//  2. Size() int      -- standard google.golang.org/protobuf or custom
+//  2. Size() int      -- custom sizing implementations
 //  3. XXX_Size() int  -- legacy proto2/proto3 generated code
+//  4. proto.Size for standard generated and dynamic messages
 //
 // Returns (0, false) when msg is nil or implements none of these.
 func getMessageSize(msg any) (int, bool) {
@@ -56,6 +59,9 @@ func getMessageSize(msg any) (int, bool) {
 	}
 	if legacyMsg, ok := msg.(interface{ XXX_Size() int }); ok {
 		return legacyMsg.XXX_Size(), true
+	}
+	if m, ok := msg.(proto.Message); ok {
+		return proto.Size(m), true
 	}
 	return 0, false
 }
