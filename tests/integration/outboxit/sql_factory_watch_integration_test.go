@@ -36,7 +36,7 @@ func TestWatch_SQLFactoryNotifyDeliversWithoutAPollCycle(t *testing.T) {
 	var hooks coreruntime.HookGroup
 	t.Cleanup(func() { require.NoError(t, hooks.Shutdown(context.WithoutCancel(t.Context()))) })
 	ob, err := outboxfactory.New(&cfg).UseSQLDB(f.sql.db).
-		UseSQLListener(outboxit.PGListener{DSN: sqlSpecs()[0].DSN()}).
+		UseSQLListener(outboxit.PGListener{DSN: directDSN(sqlSpecs()[0])}).
 		UseScheduler(reg).UseShutdownHooks(&hooks).Build(t.Context(), f.recorder.Handler())
 	require.NoError(t, err)
 	require.NotNil(t, ob)

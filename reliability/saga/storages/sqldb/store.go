@@ -29,7 +29,7 @@ const columns = "id, definition, status, stage, pending_steps, data, steps, crea
 // cannot advance the same instance — the loser's Update fails with
 // [saga.ErrVersionConflict]. Methods are safe for concurrent use.
 type Store struct {
-	db        *sql.DB
+	db        sqldialect.Pool
 	dialect   dialect
 	table     string // quoted
 	tableName string // unqualified, for index names and the DDL lock
@@ -69,7 +69,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	}
 	o := newOptions(opts...)
 
-	s := &Store{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName)}
+	s := &Store{db: dl.WrapPool(db), dialect: dl, tableName: sqldialect.Unqualified(o.tableName)}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}

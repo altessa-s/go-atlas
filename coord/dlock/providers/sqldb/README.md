@@ -50,6 +50,9 @@ The table keeps one small row per key ever locked, and that row is the key's fen
 restarts or rewinds the key's tokens, so a stale holder could carry a higher token than the new one. Keep the rows of every key that may be locked
 again.
 
+Standalone PostgreSQL statements retry once on a driver-confirmed pre-send failure. Transactions keep their connection and surface the error.
+See the [PostgreSQL connection loss policy](../../../../reliability/outbox/storages/sqldb/README.md#postgresql-connection-loss) for checkout settings and retry limits.
+
 ## Expired cleanup and hard leases
 
 For many short-lived keys (one per work item), `WithExpiredCleanup(grace)` bounds the table: from the first `Lock` until `Close`, the locker sweeps at

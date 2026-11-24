@@ -6,7 +6,6 @@ package sqldialect
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -17,16 +16,23 @@ import (
 // statement binds one more argument.
 const MaxKeyBatch = 65_534
 
-// Querier runs a query; *sql.DB, *sql.Conn and *sql.Tx implement it.
-type Querier interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+type keyRows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+	Close() error
+}
+
+// Querier reads keys from either a pool lease or a standard database/sql result set.
+type Querier[R keyRows] interface {
+	QueryContext(context.Context, string, ...any) (R, error)
 }
 
 // QueryKeys runs query and returns its single binary column, one []byte per
 // row, as bind arguments for a statement built with [InList]. The result has
 // room for limit keys and one more argument, so a caller that appends one
 // does not reallocate.
-func QueryKeys(ctx context.Context, q Querier, limit int, query string, args ...any) ([]any, error) {
+func QueryKeys[R keyRows](ctx context.Context, q Querier[R], limit int, query string, args ...any) ([]any, error) {
 	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

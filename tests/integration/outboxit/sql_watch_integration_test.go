@@ -25,7 +25,7 @@ func newNotifySQLFixture(tb testing.TB) *fixture {
 	require.Equal(tb, outboxsql.DialectPostgres, spec.dialect)
 	b := newSQLFixtureWithoutSchema(tb, spec)
 	store, err := outboxsql.New(b.db, spec.dialect, outboxsql.WithTableName(b.events),
-		outboxsql.WithNotify(), outboxsql.WithListener(outboxit.PGListener{DSN: spec.DSN()}))
+		outboxsql.WithNotify(), outboxsql.WithListener(outboxit.PGListener{DSN: directDSN(spec)}))
 	require.NoError(tb, err)
 	require.NoError(tb, store.EnsureSchema(tb.Context()))
 
