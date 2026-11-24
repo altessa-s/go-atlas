@@ -43,6 +43,24 @@ func NewClientStreamWrapper(ctx context.Context, stream grpc.ClientStream, d dri
 	return &ClientStreamWrapper{ClientStream: stream, ctx: ctx, d: d}
 }
 
+// ClientStreamWithDriver applies message and close hooks with the interceptor's
+// request context. The returned stream exposes gRPC's own Context, including
+// the peer, deadline and cancellation of the active transport attempt.
+func ClientStreamWithDriver(ctx context.Context, stream grpc.ClientStream, d driver.Driver) grpc.ClientStream {
+	if d == nil || d == driver.NoopDriver() {
+		return stream
+	}
+	return &drivenClientStream{ClientStreamWrapper{ClientStream: stream, ctx: ctx, d: d}}
+}
+
+type drivenClientStream struct{ ClientStreamWrapper }
+
+func (w *drivenClientStream) Context() context.Context {
+	// grpc-go commits the retry attempt when Context is called. Defer reading
+	// it until the caller asks, so wrapping a stream preserves retries.
+	return w.ClientStream.Context()
+}
+
 // Context returns the wrapped context.
 func (w *ClientStreamWrapper) Context() context.Context {
 	return w.ctx

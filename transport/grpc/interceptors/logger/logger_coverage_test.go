@@ -18,11 +18,13 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/time/timeformat"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/internal/transport/observability"
 	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -223,14 +225,14 @@ func TestServer_CodeFiltering(t *testing.T) {
 	}
 }
 
-func TestServer_EOFIsOK(t *testing.T) {
+func TestServer_HandlerEOF(t *testing.T) {
 	t.Parallel()
 
 	rec := &recorder{}
 	_, err := runUnary(t, logger.ServerInterceptor(rec.logger()), t.Context(), testMethod, nil,
 		func(context.Context, any) (any, error) { return nil, io.EOF })
 	require.ErrorIs(t, err, io.EOF, "the handler error is returned unchanged")
-	require.Equal(t, codes.OK, rec.all()[0].code, "io.EOF is logged as a clean end of call")
+	require.Equal(t, codes.Unknown, rec.all()[0].code, "a handler returning EOF sends Unknown on the wire")
 }
 
 func TestServer_TimeFormat(t *testing.T) {
@@ -281,4 +283,32 @@ func TestInternedCodeString(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, "NotFound", logger.InternedCodeString(codes.NotFound))
 	require.Equal(t, codes.Code(99).String(), logger.InternedCodeString(codes.Code(99)))
+}
+
+func TestClientCallTimes(t *testing.T) {
+	t.Parallel()
+	rec := &recorder{}
+	ic := logger.ClientInterceptor(rec.logger(), logger.WithTimeFormat(timeformat.UnixNano))
+	// A proxy can call the same method using its incoming server context.
+	ctx := metadata.NewContext(t.Context(), &metadata.CallMetadata{FullyMethodName: testMethod, StartTime: time.Now().Add(-time.Hour)})
+	before := time.Now()
+	var entered, returned time.Time
+	err := ic.ClientUnaryInterceptor()(ctx, testMethod, nil, nil, nil, func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
+		entered = time.Now()
+		time.Sleep(5 * time.Millisecond)
+		returned = time.Now()
+		return nil
+	})
+	after := time.Now()
+	require.NoError(t, err)
+	e := rec.all()[0]
+	start := time.Unix(0, e.fields[observability.FieldKeyRequestStartTime].(int64))
+	end := time.Unix(0, e.fields[observability.FieldKeyRequestEndTime].(int64))
+	duration := time.Duration(e.fields[observability.FieldKeyRequestDuration].(int64))
+	require.False(t, start.Before(before))
+	require.False(t, start.After(entered))
+	require.False(t, end.Before(returned))
+	require.False(t, end.After(after))
+	require.GreaterOrEqual(t, duration, returned.Sub(entered))
+	require.LessOrEqual(t, duration, after.Sub(before))
 }

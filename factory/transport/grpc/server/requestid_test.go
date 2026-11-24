@@ -5,22 +5,19 @@
 package factory
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
-
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
 	stdGrpc "google.golang.org/grpc"
 )
 
-// White-box access is needed to exercise the configured interceptor without starting a server.
 func TestRequestIDInterceptorGenerateIfMissing(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -37,11 +34,8 @@ func TestRequestIDInterceptorGenerateIfMissing(t *testing.T) {
 			cfg.Enabled = true
 			cfg.GenerateIfMissing = tc.generate
 			b := New(&grpcconfig.Config{Interceptors: &grpcconfig.Interceptors{RequestId: &cfg}}).WithRequestIDInterceptor()
-			require.Len(t, b.interceptors, 1)
-
-			unary := b.interceptors[0].ServerUnaryInterceptor()
-			_, err := unary(t.Context(), nil, &stdGrpc.UnaryServerInfo{FullMethod: "/svc.v1.S/M"},
-				func(context.Context, any) (any, error) { return nil, nil })
+			conn := serveChain(t, b, &echoHandler{})
+			err := conn.Invoke(t.Context(), echoMethod, wrapperspb.String(""), new(wrapperspb.StringValue))
 			require.Equal(t, tc.want, status.Code(err))
 		})
 	}
@@ -72,19 +66,13 @@ func TestRequestIDInterceptorHeaderName(t *testing.T) {
 				cfg.HeaderName = tc.headerName
 			}
 			b := New(&grpcconfig.Config{Interceptors: &grpcconfig.Interceptors{RequestId: &cfg}}).WithRequestIDInterceptor()
-			require.Len(t, b.interceptors, 1)
-
-			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs(tc.sentKey, id))
-			var got string
-			unary := b.interceptors[0].ServerUnaryInterceptor()
-			_, err := unary(ctx, nil, &stdGrpc.UnaryServerInfo{FullMethod: "/svc.v1.S/M"},
-				func(ctx context.Context, _ any) (any, error) {
-					got = requestid.FromContext(ctx)
-					return nil, nil
-				})
+			conn := serveChain(t, b, &echoHandler{})
+			ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(tc.sentKey, id))
+			var headers metadata.MD
+			err := conn.Invoke(ctx, echoMethod, wrapperspb.String(""), new(wrapperspb.StringValue), stdGrpc.Header(&headers))
 			require.Equal(t, tc.want, status.Code(err))
 			if tc.want == codes.OK {
-				require.Equal(t, id, got)
+				require.Equal(t, []string{id}, headers.Get(tc.sentKey))
 			}
 		})
 	}

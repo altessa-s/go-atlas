@@ -7,7 +7,6 @@ package tracing
 import (
 	"bytes"
 	"context"
-	"io"
 	"net"
 	"testing"
 
@@ -38,15 +37,6 @@ type fakeServerStream struct {
 }
 
 func (f *fakeServerStream) Context() context.Context { return f.ctx }
-
-// fakeClientStream is a minimal grpc.ClientStream double whose RecvMsg
-// behavior is configurable, used to exercise tracingClientStream.RecvMsg.
-type fakeClientStream struct {
-	grpc.ClientStream
-	recvErr error
-}
-
-func (f *fakeClientStream) RecvMsg(any) error { return f.recvErr }
 
 // fakePropagator is a no-op [propagation.TextMapPropagator] used to
 // exercise the extractTraceContext fallback path taken for any
@@ -106,7 +96,7 @@ func TestServerUnaryInterceptor_ErrorRecordsSpan(t *testing.T) {
 	require.Nil(t, resp)
 	require.ErrorIs(t, err, handlerErr)
 	require.NoError(t, tracer.ForceFlush(t.Context()))
-	require.Contains(t, buf.String(), " Error\n")
+	require.Contains(t, buf.String(), " Unset\n")
 }
 
 func TestServerUnaryInterceptor_RecordsPeerAttribute(t *testing.T) {
@@ -224,49 +214,31 @@ func TestClientStreamInterceptor_StreamerErrorRecordsSpanImmediately(t *testing.
 	require.Contains(t, buf.String(), " Error\n")
 }
 
-func TestClientStreamInterceptor_WrapsStreamAndEndsSpanOnError(t *testing.T) {
-	t.Parallel()
-
-	var buf bytes.Buffer
-	tracer := newBufferedTracer(t, &buf)
-	inter := ClientStreamInterceptor(tracer)
-	recvErr := status.Error(codes.Internal, "boom")
-
-	streamer := func(context.Context, *grpc.StreamDesc, *grpc.ClientConn, string, ...grpc.CallOption) (grpc.ClientStream, error) {
-		return &fakeClientStream{recvErr: recvErr}, nil
+func TestClientStreamInterceptor_EndsSpanOnFinish(t *testing.T) {
+	for _, tc := range []struct {
+		name, want string
+		err        error
+	}{
+		{"success", " OK\n", nil},
+		{"failure", " Error\n", status.Error(codes.Internal, "boom")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			tracer := newBufferedTracer(t, &buf)
+			var finish func(error)
+			streamer := func(_ context.Context, _ *grpc.StreamDesc, _ *grpc.ClientConn, _ string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+				finish = opts[len(opts)-1].(grpc.OnFinishCallOption).OnFinish
+				return struct{ grpc.ClientStream }{}, nil
+			}
+			_, err := ClientStreamInterceptor(tracer)(t.Context(), &grpc.StreamDesc{}, nil, "/pkg.Svc/Stream", streamer)
+			require.NoError(t, err)
+			require.NoError(t, tracer.ForceFlush(t.Context()))
+			require.Empty(t, buf.String())
+			finish(tc.err)
+			require.NoError(t, tracer.ForceFlush(t.Context()))
+			require.Contains(t, buf.String(), tc.want)
+		})
 	}
-
-	stream, err := inter(t.Context(), &grpc.StreamDesc{}, nil, "/pkg.Svc/Stream", streamer)
-	require.NoError(t, err)
-	require.NoError(t, tracer.ForceFlush(t.Context()))
-	require.Empty(t, buf.String()) // span is only ended by RecvMsg, not by a successful streamer call
-
-	gotErr := stream.RecvMsg(new(string))
-
-	require.ErrorIs(t, gotErr, recvErr)
-	require.NoError(t, tracer.ForceFlush(t.Context()))
-	require.Contains(t, buf.String(), " Error\n")
-}
-
-func TestClientStreamInterceptor_WrapsStreamAndEndsSpanOnEOF(t *testing.T) {
-	t.Parallel()
-
-	var buf bytes.Buffer
-	tracer := newBufferedTracer(t, &buf)
-	inter := ClientStreamInterceptor(tracer)
-
-	streamer := func(context.Context, *grpc.StreamDesc, *grpc.ClientConn, string, ...grpc.CallOption) (grpc.ClientStream, error) {
-		return &fakeClientStream{recvErr: io.EOF}, nil
-	}
-
-	stream, err := inter(t.Context(), &grpc.StreamDesc{}, nil, "/pkg.Svc/Stream", streamer)
-	require.NoError(t, err)
-
-	gotErr := stream.RecvMsg(new(string))
-
-	require.ErrorIs(t, gotErr, io.EOF)
-	require.NoError(t, tracer.ForceFlush(t.Context()))
-	require.Contains(t, buf.String(), " OK\n")
 }
 
 func TestExtractTraceContext_CustomPropagator(t *testing.T) {

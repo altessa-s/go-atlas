@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
@@ -69,16 +71,9 @@ func WithErrorConverter(v ErrorConverter) Option {
 	}
 }
 
-// WithoutHealthCheck disables the withoutHealthCheck option.
-//
-// withoutHealthCheck drops the client-side healthCheckConfig
-// ("health.v1.HealthService") from the default service config. Set it
-// with the generated WithoutHealthCheck when the server does not
-// implement that health service: with round-robin load balancing
-// (selected by WithRetry) gRPC health-checks every
-// subchannel, and a server without the service never becomes ready for
-// calls. Independent of WithHealthCoordinator, which only reports the
-// connection state.
+// WithoutHealthCheck disables the client-side watch of the server's overall health (service name "").
+// The watch takes subchannels reporting NOT_SERVING out of rotation.
+// WithHealthCoordinator separately reports the local connection state.
 func WithoutHealthCheck() Option {
 	return func(o *options) {
 		value := true
@@ -154,6 +149,13 @@ func WithLogger(v *slog.Logger) Option {
 			return
 		}
 		o.logger = v
+	}
+}
+
+// WithMeter enables outgoing gRPC metrics.
+func WithMeter(v metrics.Meter) Option {
+	return func(o *options) {
+		o.meter = v
 	}
 }
 
@@ -242,6 +244,13 @@ func WithTLSConfig(v *tls.Config) Option {
 			return
 		}
 		o.tlsConfig = v
+	}
+}
+
+// WithTracer enables outgoing gRPC spans and W3C trace context propagation.
+func WithTracer(v tracing.Tracer) Option {
+	return func(o *options) {
+		o.tracer = v
 	}
 }
 

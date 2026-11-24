@@ -64,13 +64,10 @@ var methodCache sync.Map // Map[string]parsedMethod
 // NewCallMetadata creates a new CallMetadata instance from gRPC call information.
 // It performs high-performance parsing and string interning.
 func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string, c T) *CallMetadata {
-	if meta, ok := FromContext(ctx); ok && meta.FullyMethodName == fullMethod {
-		return meta
-	}
-
 	callMetadata := &CallMetadata{
 		FullyMethodName: fullMethod,
 		IsClient:        true,
+		StartTime:       time.Now(),
 	}
 
 	// Use cache for parsed method names to avoid string manipulations in hot path
@@ -100,14 +97,11 @@ func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string,
 			callMetadata.IsStream = true
 			callMetadata.StreamType = streamType(ct)
 			callMetadata.IsClient = false
-			callMetadata.StartTime = time.Now()
 		case *grpc.UnaryServerInfo:
 			callMetadata.IsClient = false
-			callMetadata.StartTime = time.Now()
 		case *grpc.StreamDesc:
 			callMetadata.IsStream = true
 			callMetadata.StreamType = streamType(ct)
-			callMetadata.StartTime = time.Now()
 		}
 	}
 
@@ -219,7 +213,8 @@ func NewContext(ctx context.Context, c *CallMetadata) context.Context {
 // If not, it creates new metadata, injects it into a new context, and returns them.
 // This helper simplifies the "get or create" pattern in interceptors.
 func EnsureInContext[T callerConstraint](ctx context.Context, fullMethod string, c T) (context.Context, *CallMetadata) {
-	if meta, ok := FromContext(ctx); ok && meta.FullyMethodName == fullMethod {
+	_, client := any(c).(*grpc.StreamDesc)
+	if meta, ok := FromContext(ctx); ok && meta.FullyMethodName == fullMethod && meta.IsClient == client && !meta.StartTime.IsZero() {
 		return ctx, meta
 	}
 	meta := NewCallMetadata(ctx, fullMethod, c)
@@ -228,9 +223,5 @@ func EnsureInContext[T callerConstraint](ctx context.Context, fullMethod string,
 
 // EnsureInContextFromMethod is a version of EnsureInContext for client interceptors.
 func EnsureInContextFromMethod(ctx context.Context, fullMethod string) (context.Context, *CallMetadata) {
-	if meta, ok := FromContext(ctx); ok && meta.FullyMethodName == fullMethod {
-		return ctx, meta
-	}
-	meta := NewCallMetadataFromMethod(ctx, fullMethod)
-	return NewContext(ctx, meta), meta
+	return EnsureInContext[*grpc.StreamDesc](ctx, fullMethod, nil)
 }

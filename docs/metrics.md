@@ -7,7 +7,7 @@ Components and factory builders receive a `metrics.Meter` (instrument creation o
 the application holds the `metrics.Collector`, which adds `Shutdown` / `ForceFlush`, and passes it or a `WithSubsystem` scope down. See
 [observability/metrics](../observability/metrics/README.md#meter-vs-collector).
 
-**39 subsystems, 228 metrics.**
+**39 subsystems, 237 metrics.**
 
 ---
 
@@ -220,7 +220,8 @@ A parser or translator records only when it is given a collector (`parser.WithCo
 
 Package: `transport/grpc/interceptors/metrics`
 
-The subsystem defaults to `DefaultMetricsSubsystem` (`grpc`) and can be changed through the interceptor options or config.
+The subsystem defaults to `DefaultMetricsSubsystem` (`grpc`) and can be changed through the interceptor options or config. The
+`client_*` metrics come from the client interceptors, which `transport/grpc/client` installs with `WithMeter`.
 
 | Name                                         | Type      | Labels                | Description                                           |
 |----------------------------------------------|-----------|-----------------------|-------------------------------------------------------|
@@ -233,6 +234,15 @@ The subsystem defaults to `DefaultMetricsSubsystem` (`grpc`) and can be changed 
 | `grpc_server_stream_messages_sent_total`     | Counter   | `method`, `status`    | Stream messages sent (stream metrics enabled)         |
 | `grpc_server_stream_messages_received_total` | Counter   | `method`, `status`    | Stream messages received (stream metrics enabled)     |
 | `grpc_server_stream_message_size_bytes`      | Histogram | `method`, `direction` | Stream message size (stream and size metrics enabled) |
+| `grpc_client_requests_total`                 | Counter   | `method`, `status`    | Client requests                                       |
+| `grpc_client_request_duration_seconds`       | Histogram | `method`, `status`    | Client request duration                               |
+| `grpc_client_requests_in_flight`             | Gauge     | --                    | Client requests in flight                             |
+| `grpc_client_requests_in_flight_by_method`   | Gauge     | `method`              | Client requests in flight per method                  |
+| `grpc_client_request_size_bytes`             | Histogram | `method`, `status`    | Request size (size metrics enabled)                   |
+| `grpc_client_response_size_bytes`            | Histogram | `method`, `status`    | Response size (size metrics enabled)                  |
+| `grpc_client_stream_messages_sent_total`     | Counter   | `method`, `status`    | Stream messages sent (stream metrics enabled)         |
+| `grpc_client_stream_messages_received_total` | Counter   | `method`, `status`    | Stream messages received (stream metrics enabled)     |
+| `grpc_client_stream_message_size_bytes`      | Histogram | `method`, `direction` | Stream message size (stream and size metrics enabled) |
 
 ---
 

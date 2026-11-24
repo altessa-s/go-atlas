@@ -44,7 +44,7 @@ var baseModules = []targetModule{
 	{root: "security/secrets/sealbox", deps: []string{"core"}},
 
 	{root: "config", deps: []string{"core", "net", "service/scheduler/task", "service/scheduler/schedule", "internal/sqldialect"}},
-	{root: "observability", deps: []string{"core", "config", "service/scheduler/task"}},
+	{root: "observability", extra: []string{"internal/diagnostics"}, deps: []string{"core", "config", "service/scheduler/task"}},
 	{root: "observability/metrics/adapters/prometheus", deps: []string{"observability"}},
 	{root: "observability/tracing/adapters/otlp", deps: []string{"observability", "net/http", "net/grpc", "transport/grpc/client"}},
 	{root: "domain", extra: []string{"proto/gen"}, deps: []string{"core", "observability"}},

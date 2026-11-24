@@ -9,7 +9,6 @@ import (
 	"hash/fnv"
 	"math/rand/v2"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
@@ -43,7 +42,6 @@ var _ stdGrpc.ServerStream = (*streamWrapper)(nil)
 type serverInterceptorWrapper struct {
 	interceptors.BaseInterceptor
 	*interceptor
-	opts *options
 }
 
 // ServerUnaryInterceptor returns a new unary server interceptor that collects metrics.
@@ -64,7 +62,7 @@ func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerI
 		defer func() {
 			w.requestsInFlight.Dec()
 			mh.inFlight.Dec()
-			w.recordMetrics(mh, meta.StartTime, req, resp, err)
+			w.recordMetrics(mh, meta.StartTime, req, resp, getStatusCode(err))
 		}()
 
 		return handler(ctx, req)
@@ -97,7 +95,6 @@ func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServe
 			interceptor:  w.interceptor,
 			handles:      mh,
 			fullMethod:   meta.FullyMethodName,
-			statusCode:   codes.OK,
 		}
 
 		// Initialize sampling for the stream
@@ -106,10 +103,10 @@ func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServe
 		err := handler(srv, wrappedStream)
 
 		// Update status code for streaming metrics
-		wrappedStream.statusCode = getStatusCode(err)
-		wrappedStream.finalizeStreamMetrics()
+		code := getStatusCode(err)
+		wrappedStream.finalizeStreamMetrics(code)
 
-		w.recordMetrics(mh, meta.StartTime, nil, nil, err)
+		w.recordMetrics(mh, meta.StartTime, nil, nil, code)
 		return err
 	}
 }
@@ -138,16 +135,20 @@ type interceptor struct {
 	streamMessageSize        metrics.Histogram
 	// byMethod caches bound label handles per method (see metrics_helper.go)
 	// so the request path never rebuilds label maps.
-	byMethod sync.Map
-	// methodCount is the number of methods tracked in byMethod, not counting
-	// [OverflowMethod]; it enforces [WithMaxMethods].
-	methodCount atomic.Int64
+	methodMu sync.RWMutex
+	byMethod map[string]*methodHandles
+	overflow *methodHandles
 }
 
 // streamWrapper wraps a grpc.ServerStream to intercept SendMsg and RecvMsg calls
 // for collecting per-message streaming metrics.
 type streamWrapper struct {
 	stdGrpc.ServerStream
+	streamMetrics
+}
+
+// streamMetrics samples messages and records the totals for the final RPC status.
+type streamMetrics struct {
 	interceptor         *interceptor
 	handles             *methodHandles
 	fullMethod          string
@@ -158,7 +159,6 @@ type streamWrapper struct {
 	streamSeed          uint64
 	methodHashSent      uint64 // Pre-computed hash seed for "sent" messages
 	methodHashRecv      uint64 // Pre-computed hash seed for "recv" messages
-	statusCode          codes.Code
 	streamSampled       bool
 }
 
@@ -180,7 +180,7 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	i := &interceptor{opts: opts}
-	i.initializeMetrics()
+	i.initializeMetrics("server")
 
 	return &serverInterceptorWrapper{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
@@ -190,7 +190,6 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 			opts.logger,
 		),
 		interceptor: i,
-		opts:        opts,
 	}
 }
 
@@ -210,7 +209,7 @@ func (i *interceptor) Name() string {
 }
 
 // initializeSampling sets up sampling configuration for the stream.
-func (s *streamWrapper) initializeSampling() {
+func (s *streamMetrics) initializeSampling() {
 	// If streaming metrics are disabled, skip all sampling setup
 	if !s.interceptor.opts.enableStreamMetrics {
 		s.streamSampled = false
@@ -263,65 +262,45 @@ func (s *streamWrapper) initializeSampling() {
 
 // SendMsg intercepts the stream's SendMsg calls to track sent messages.
 func (s *streamWrapper) SendMsg(m any) error {
-	err := s.ServerStream.SendMsg(m)
-
-	// Only track messages if streaming metrics are enabled
-	if !s.interceptor.opts.enableStreamMetrics {
+	if err := s.ServerStream.SendMsg(m); err != nil {
 		return err
 	}
-
-	s.messagesSent++
-
-	// Check if we should record this message based on sampling configuration
-	shouldRecord := s.shouldSampleMessage(s.messagesSent, true)
-
-	if shouldRecord {
-		s.sampledMessagesSent++
-
-		// Record message size if both stream and size metrics are enabled
-		if s.interceptor.opts.enableSizeMetrics && s.handles.msgSizeSent != nil {
-			if size, ok := getMessageSize(m); ok {
-				s.handles.msgSizeSent.Observe(float64(size))
-			}
-		}
-	}
-
-	return err
+	s.recordMessage(m, true)
+	return nil
 }
 
 // RecvMsg intercepts the stream's RecvMsg calls to track received messages.
 func (s *streamWrapper) RecvMsg(m any) error {
 	err := s.ServerStream.RecvMsg(m)
-	if err != nil {
-		return err
+	if err == nil {
+		s.recordMessage(m, false)
 	}
+	return err
+}
 
-	// Only track messages if streaming metrics are enabled
+func (s *streamMetrics) recordMessage(m any, sent bool) {
 	if !s.interceptor.opts.enableStreamMetrics {
-		return err
+		return
 	}
 
-	s.messagesReceived++
-
-	// Check if we should record this message based on sampling configuration
-	shouldRecord := s.shouldSampleMessage(s.messagesReceived, false)
-
-	if shouldRecord {
-		s.sampledMessagesRecv++
-
-		// Record message size if both stream and size metrics are enabled
-		if s.interceptor.opts.enableSizeMetrics && s.handles.msgSizeRecv != nil {
-			if size, ok := getMessageSize(m); ok {
-				s.handles.msgSizeRecv.Observe(float64(size))
-			}
+	count, sampled, sizeMetric := &s.messagesReceived, &s.sampledMessagesRecv, s.handles.msgSizeRecv
+	if sent {
+		count, sampled, sizeMetric = &s.messagesSent, &s.sampledMessagesSent, s.handles.msgSizeSent
+	}
+	*count++
+	if !s.shouldSampleMessage(*count, sent) {
+		return
+	}
+	*sampled++
+	if sizeMetric != nil {
+		if size, ok := getMessageSize(m); ok {
+			sizeMetric.Observe(float64(size))
 		}
 	}
-
-	return nil
 }
 
 // shouldSampleMessage determines if a message should be sampled based on the configured strategy.
-func (s *streamWrapper) shouldSampleMessage(messageCount int64, isSent bool) bool {
+func (s *streamMetrics) shouldSampleMessage(messageCount int64, isSent bool) bool {
 	// If streaming metrics are disabled, never sample
 	if !s.interceptor.opts.enableStreamMetrics {
 		return false
@@ -386,14 +365,14 @@ func splitmix64(x uint64) uint64 {
 }
 
 // finalizeStreamMetrics records the final stream metrics when the stream completes.
-func (s *streamWrapper) finalizeStreamMetrics() {
+func (s *streamMetrics) finalizeStreamMetrics(code codes.Code) {
 	// If streaming metrics are disabled, don't record any metrics
 	if !s.interceptor.opts.enableStreamMetrics {
 		return
 	}
 
 	samplingRate := s.interceptor.opts.streamSamplingRate
-	internedStatus := intern.String(s.statusCode.String())
+	internedStatus := intern.String(code.String())
 
 	// If sampling is disabled, don't record any metrics
 	if samplingRate <= MinStreamSamplingRate {
@@ -425,66 +404,73 @@ func (s *streamWrapper) finalizeStreamMetrics() {
 	}
 }
 
-func (i *interceptor) initializeMetrics() {
+func (i *interceptor) initializeMetrics(side string) {
+	i.byMethod = make(map[string]*methodHandles)
 	scoped := i.opts.meter.WithSubsystem(i.opts.metricsSubsystem)
 
 	i.requestsTotal = scoped.MustCounter(metrics.MetricOpts{
-		Name:       "server_requests_total",
-		Help:       "Total number of gRPC server requests with method and status labels",
+		Name:       side + "_requests_total",
+		Help:       "Total number of gRPC " + side + " requests with method and status labels",
 		LabelNames: []string{methodLabel, statusLabel},
 	})
 
 	i.requestDuration = scoped.MustHistogram(metrics.HistogramOpts{
-		Name:       "server_request_duration_seconds",
-		Help:       "Duration of gRPC server requests in seconds",
+		Name:       side + "_request_duration_seconds",
+		Help:       "Duration of gRPC " + side + " requests in seconds",
 		LabelNames: []string{methodLabel, statusLabel},
 		Buckets:    i.opts.durationBuckets,
 	})
 
 	i.requestsInFlight = scoped.MustGauge(metrics.MetricOpts{
-		Name: "server_requests_in_flight",
-		Help: "Current number of concurrent gRPC server requests being processed",
+		Name: side + "_requests_in_flight",
+		Help: "Current number of concurrent gRPC " + side + " requests being processed",
 	})
 
 	i.requestsInFlightByMethod = scoped.MustGauge(metrics.MetricOpts{
-		Name:       "server_requests_in_flight_by_method",
-		Help:       "Current number of concurrent gRPC server requests being processed by method",
+		Name:       side + "_requests_in_flight_by_method",
+		Help:       "Current number of concurrent gRPC " + side + " requests being processed by method",
 		LabelNames: []string{methodLabel},
 	})
 
 	if i.opts.enableSizeMetrics {
 		i.requestSize = scoped.MustHistogram(metrics.HistogramOpts{
-			Name:       "server_request_size_bytes",
-			Help:       "Size of gRPC server request messages in bytes",
+			Name:       side + "_request_size_bytes",
+			Help:       "Size of gRPC " + side + " request messages in bytes",
 			LabelNames: []string{methodLabel, statusLabel},
 			Buckets:    i.opts.sizeBuckets,
 		})
 
 		i.responseSize = scoped.MustHistogram(metrics.HistogramOpts{
-			Name:       "server_response_size_bytes",
-			Help:       "Size of gRPC server response messages in bytes",
+			Name:       side + "_response_size_bytes",
+			Help:       "Size of gRPC " + side + " response messages in bytes",
 			LabelNames: []string{methodLabel, statusLabel},
 			Buckets:    i.opts.sizeBuckets,
 		})
 	}
 
 	if i.opts.enableStreamMetrics {
+		sentHelp := "Total number of messages sent by server in streaming responses"
+		recvHelp := "Total number of messages received from client in streaming requests"
+		if side == "client" {
+			sentHelp = "Total number of messages sent by client in streaming requests"
+			recvHelp = "Total number of messages received from server in streaming responses"
+		}
 		i.streamMessagesSent = scoped.MustCounter(metrics.MetricOpts{
-			Name:       "server_stream_messages_sent_total",
-			Help:       "Total number of messages sent by server in streaming responses",
+			Name:       side + "_stream_messages_sent_total",
+			Help:       sentHelp,
 			LabelNames: []string{methodLabel, statusLabel},
 		})
 
 		i.streamMessagesReceived = scoped.MustCounter(metrics.MetricOpts{
-			Name:       "server_stream_messages_received_total",
-			Help:       "Total number of messages received from client in streaming requests",
+			Name:       side + "_stream_messages_received_total",
+			Help:       recvHelp,
 			LabelNames: []string{methodLabel, statusLabel},
 		})
 
 		// Stream message size metric (only if both stream and size metrics are enabled)
 		if i.opts.enableSizeMetrics {
 			i.streamMessageSize = scoped.MustHistogram(metrics.HistogramOpts{
-				Name:       "server_stream_message_size_bytes",
+				Name:       side + "_stream_message_size_bytes",
 				Help:       "Size of individual gRPC stream messages in bytes",
 				LabelNames: []string{methodLabel, directionLabel},
 				Buckets:    i.opts.sizeBuckets,

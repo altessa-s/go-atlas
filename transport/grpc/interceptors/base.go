@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"regexp"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/base"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
@@ -72,4 +73,14 @@ func (b *BaseInterceptor) ShouldIgnoreFromContext(ctx context.Context) (*metadat
 		return nil, false
 	}
 	return meta, b.ShouldIgnore(meta.FullyMethodName)
+}
+
+// LogWarn logs a warning with a bounded, credential-redacted error field.
+func (b *BaseInterceptor) LogWarn(ctx context.Context, msg, method string, err error, attrs ...slog.Attr) {
+	b.Base.LogWarn(ctx, msg, method, diagnostics.LogError(err), attrs...)
+}
+
+// LogError logs a failure with a bounded, credential-redacted error field.
+func (b *BaseInterceptor) LogError(ctx context.Context, msg, method string, err error, attrs ...slog.Attr) {
+	b.Base.LogError(ctx, msg, method, diagnostics.LogError(err), attrs...)
 }

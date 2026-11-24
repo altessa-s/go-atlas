@@ -9,8 +9,8 @@ import (
 	"errors"
 
 	"github.com/altessa-s/go-atlas/internal/transport/requestid"
-	"github.com/altessa-s/go-atlas/internal/transport/validation"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -91,7 +91,8 @@ var _ interceptors.ClientInterceptor = (*interceptor)(nil)
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	gen *requestid.Generator
+	gen            *requestid.Generator
+	deferRejection bool
 }
 
 // Dependencies returns interceptors that requestid requires to run before it.
@@ -192,17 +193,50 @@ func (i *interceptor) contextWithRequestID(ctx context.Context) (context.Context
 		raw = vals[0]
 	}
 
-	if !i.gen.GenerateIfMissing() {
-		if raw == "" || !validation.IsValidUUIDv4(raw) {
-			return ctx, status.Error(codes.InvalidArgument, ErrInvalidRequestId.Error())
-		}
-	}
-
 	reqID := i.gen.Extract(headerValue(raw))
 	if reqID == "" {
-		return ctx, nil // No valid request ID, return original context
+		if i.gen.GenerateIfMissing() {
+			return ctx, nil
+		}
+		err := status.Error(codes.InvalidArgument, ErrInvalidRequestId.Error())
+		if i.deferRejection {
+			return context.WithValue(ctx, rejectionKey{}, err), nil
+		}
+		return ctx, err
 	}
 
 	_ = stdGrpc.SetHeader(ctx, metadata.Pairs(i.gen.HeaderName(), reqID)) //nolint:errcheck
 	return requestid.NewContext(ctx, reqID), nil
 }
+
+// ServerInterceptors separates request ID propagation from strict validation.
+// The first interceptor populates context for logs and status finalizers. The
+// second, present only in strict mode, rejects the call inside error conversion.
+func ServerInterceptors(gen *requestid.Generator) []interceptors.ServerInterceptor {
+	enrich := &interceptor{BaseInterceptor: interceptors.NewBaseInterceptor(interceptorName, nil), gen: gen, deferRejection: true}
+	list := []interceptors.ServerInterceptor{enrich}
+	if !gen.GenerateIfMissing() {
+		list = append(list, interceptors.ServerDrivenInterceptor(validationInterceptor{}))
+	}
+	return list
+}
+
+type rejectionKey struct{}
+type validationInterceptor struct{}
+
+func (validationInterceptor) Name() string { return "requestid_validation" }
+
+func (validationInterceptor) Dependencies() []string {
+	return []string{Name(), "errstatus", "recovery", "tracing", "logger", "metrics"}
+}
+
+func (v validationInterceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, context.Context) {
+	return v, ctx
+}
+
+func (validationInterceptor) PreCall(ctx context.Context, _ any) (any, error) {
+	err, _ := ctx.Value(rejectionKey{}).(error)
+	return nil, err
+}
+
+func (validationInterceptor) PostCall(_ context.Context, _ any, err error) error { return err }

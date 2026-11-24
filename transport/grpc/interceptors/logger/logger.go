@@ -7,31 +7,32 @@ package logger
 import (
 	"context"
 	"errors"
-	"io"
-	"strings"
+	"fmt"
+	"sync"
 	"time"
-	"unicode"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas-core/time/timeformat"
 	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/endpointfilter"
 	"github.com/altessa-s/go-atlas/internal/transport/observability"
 	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/internal/callstatus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	slogx "github.com/altessa-s/go-slogx"
 	stdSlices "slices"
@@ -105,7 +106,33 @@ func ClientInterceptor(logger Logger, opt ...Option) interceptors.ClientIntercep
 
 	i.init()
 
-	return interceptors.ClientDrivenInterceptor(i)
+	return &clientInterceptor{interceptor: i}
+}
+
+type clientInterceptor struct{ *interceptor }
+
+func (i *clientInterceptor) ClientUnaryInterceptor() grpc.UnaryClientInterceptor {
+	return interceptors.ClientDrivenInterceptor(i.interceptor).ClientUnaryInterceptor()
+}
+
+// A client can half-close its send side before the server sends its status.
+// Complete the log record when gRPC finishes the call.
+func (i *clientInterceptor) ClientStreamInterceptor() grpc.StreamClientInterceptor {
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string,
+		streamer grpc.Streamer, opts ...grpc.CallOption,
+	) (grpc.ClientStream, error) {
+		ctx, _ = metadata.EnsureInContext(ctx, method, desc)
+		d, ctx := i.DrivenInterceptor(ctx)
+		var once sync.Once
+		finish := func(err error) { once.Do(func() { _ = d.PostCall(ctx, nil, err) }) }
+		opts = append(stdSlices.Clip(opts), grpc.OnFinish(finish))
+		stream, err := streamer(ctx, desc, cc, method, opts...)
+		if err != nil {
+			finish(err)
+			return stream, err
+		}
+		return stream, nil
+	}
 }
 
 func (i *interceptor) init() {
@@ -146,6 +173,10 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 		return driver.NoopDriver(), ctx
 	}
 
+	if !meta.IsClient {
+		ctx = callstatus.Observe(ctx)
+	}
+
 	ri := &requestInterceptor{
 		interceptor: i,
 		meta:        meta,
@@ -154,14 +185,14 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 	// Pre-allocate with expected capacity
 	fields := make(slogx.Fields, 0, 15) //nolint:mnd
 	fields = append(fields,
-		slogx.Field{Key: FieldKeyGrpcMethod, Value: intern.String(sanitizeLogValue(meta.FullyMethodName, i.opts.maxMethodLength))},
+		slogx.Field{Key: FieldKeyGrpcMethod, Value: intern.String(diagnostics.SanitizeText(meta.FullyMethodName, i.opts.maxMethodLength))},
 		slogx.Field{Key: FieldKeyGrpcStream, Value: meta.IsStream},
-		slogx.Field{Key: FieldKeyGrpcService, Value: intern.String(sanitizeLogValue(meta.ServiceName, i.opts.maxMethodLength))},
+		slogx.Field{Key: FieldKeyGrpcService, Value: intern.String(diagnostics.SanitizeText(meta.ServiceName, i.opts.maxMethodLength))},
 	)
 
 	fields = slices.AppendIf(fields, !meta.IsClient,
 		slogx.Field{Key: observability.FieldKeyClientPeerIP, Value: meta.ClientPerIP},
-		slogx.Field{Key: observability.FieldKeyClientUserAgent, Value: sanitizeLogValue(meta.ClientUserAgent, i.opts.maxUserAgentLength)},
+		slogx.Field{Key: observability.FieldKeyClientUserAgent, Value: diagnostics.SanitizeText(meta.ClientUserAgent, i.opts.maxUserAgentLength)},
 	)
 
 	if d, ok := ctx.Deadline(); ok {
@@ -207,11 +238,7 @@ func (i *interceptor) Dependencies() []string {
 }
 
 func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error) error {
-	if err == io.EOF {
-		err = nil
-	}
-
-	st := status.Convert(err)
+	st := callstatus.Status(err)
 	code := st.Code()
 
 	// Use pre-computed set for O(1) lookup instead of O(n) slice search
@@ -236,7 +263,7 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 		slogx.Field{Key: observability.FieldKeyRequestStartTime, Value: timeformat.FormatTime(ri.meta.StartTime, ri.opts.timeFormat)},
 		slogx.Field{Key: observability.FieldKeyRequestEndTime, Value: timeformat.FormatTime(now, ri.opts.timeFormat)},
 		slogx.Field{Key: observability.FieldKeyRequestDuration, Value: timeformat.FormatDuration(now.Sub(ri.meta.StartTime), ri.opts.timeFormat)},
-		slogx.Field{Key: FieldKeyGrpcMessage, Value: sanitizeLogValue(st.Message(), ri.opts.maxMessageLength)},
+		slogx.Field{Key: FieldKeyGrpcMessage, Value: diagnostics.ErrorText(st.Message(), ri.opts.maxMessageLength)},
 	)
 
 	// Add trace correlation fields if available
@@ -250,20 +277,18 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 	if st.Code() != codes.OK {
 		for _, detail := range st.Details() {
 			if t, ok := detail.(*errdetails.ErrorInfo); ok {
-				fields = append(fields, slogx.Field{Key: FieldKeyGrpcErrorReason, Value: sanitizeLogValue(t.GetReason(), ri.opts.maxMessageLength)})
+				fields = append(fields, slogx.Field{Key: FieldKeyGrpcErrorReason, Value: diagnostics.SanitizeText(t.GetReason(), ri.opts.maxMessageLength)})
 			}
 		}
+	}
 
-		if perr, ok := errors.AsType[*recovery.PanicError](err); ok {
+	if cause := ri.errorCause(ctx, err); cause != nil {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: diagnostics.ErrorText(cause.Error(), ri.opts.maxMessageLength)})
+		if perr, ok := errors.AsType[*recovery.PanicError](cause); ok {
 			fields = append(fields,
-				slogx.Field{Key: observability.FieldKeyError, Value: sanitizeLogValue(perr.Error(), ri.opts.maxMessageLength)},
-				slogx.Field{Key: observability.FieldKeyPanic, Value: perr.Panic},
+				slogx.Field{Key: observability.FieldKeyPanic, Value: diagnostics.ErrorText(fmt.Sprint(perr.Panic), ri.opts.maxMessageLength)},
 				slogx.Field{Key: observability.FieldKeyPanicStacktrace, Value: perr.Frames},
 			)
-		} else if ie, ok := errors.AsType[*interceptors.Error](err); ok {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: sanitizeLogValue(ie.Error(), ri.opts.maxMessageLength)})
-		} else if _, ok := status.FromError(err); !ok {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: sanitizeLogValue(err.Error(), ri.opts.maxMessageLength)})
 		}
 	}
 
@@ -278,21 +303,19 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 	return err
 }
 
-// sanitizeLogValue prepares a peer-controlled string for a log record: it is
-// cut to maxLen bytes and its control characters (CR, LF, the rest of C0, DEL
-// and C1) are removed, so a user-agent or an echoed request value cannot forge
-// a log line and an oversized value cannot bloat the record.
-func sanitizeLogValue(s string, maxLen int) string {
-	s = corestrings.TruncateBytes(s, maxLen, TruncationSuffix)
-	if !strings.ContainsFunc(s, unicode.IsControl) {
-		return s
-	}
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return -1
+func (ri *requestInterceptor) errorCause(ctx context.Context, err error) error {
+	if !ri.meta.IsClient {
+		if raw := callstatus.Cause(ctx); raw != nil {
+			return raw
 		}
-		return r
-	}, s)
+	}
+	if e, ok := err.(*interceptors.Error); ok {
+		return e.Unwrap()
+	}
+	if _, ok := status.FromError(err); ok {
+		return nil
+	}
+	return err
 }
 
 func (ri *requestInterceptor) PreCall(ctx context.Context, req any) (any, error) {

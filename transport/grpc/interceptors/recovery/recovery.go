@@ -6,12 +6,15 @@ package recovery
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/runtime/helpers"
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 
@@ -37,6 +40,7 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	return &interceptor{
+		server: true,
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
 			interceptorName,
 			opts.ignoreMethods,
@@ -89,13 +93,17 @@ var _ interceptors.ClientInterceptor = (*interceptor)(nil)
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	opts *options
+	opts   *options
+	server bool
 }
 
 // Dependencies returns interceptors that recovery reads from context.
 // All dependencies are optional for ordering - recovery gracefully degrades
 // if requestid is not available in context.
 func (i *interceptor) Dependencies() []string {
+	if i.server {
+		return []string{metadata.Name(), requestid.Name(), errstatus.Name()}
+	}
 	return []string{metadata.Name(), requestid.Name()}
 }
 
@@ -105,9 +113,6 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 		if i.ShouldIgnore(info.FullMethod) {
 			return handler(ctx, req)
 		}
-
-		// If using panics package integration
-		opts := panics.NewHandleOpts().SetReallyPanic(false)
 
 		// Create a panicHandler that converts panic to gRPC error
 		grpcHandler := func(ctx context.Context, r any) {
@@ -119,7 +124,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 			}
 		}
 
-		defer panics.HandleWithOpts(ctx, opts, grpcHandler)
+		defer recoverCall(ctx, grpcHandler)
 
 		return handler(ctx, req)
 	}
@@ -132,9 +137,6 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 			return handler(srv, stream)
 		}
 
-		// If using panics package integration
-		opts := panics.NewHandleOpts().SetReallyPanic(false)
-
 		// Create a panicHandler that converts panic to gRPC error
 		grpcHandler := func(ctx context.Context, r any) {
 			_, meta := metadata.EnsureInContext(stream.Context(), info.FullMethod, info)
@@ -145,7 +147,7 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 			}
 		}
 
-		defer panics.HandleWithOpts(stream.Context(), opts, grpcHandler)
+		defer recoverCall(stream.Context(), grpcHandler)
 
 		return handler(srv, stream)
 	}
@@ -163,7 +165,7 @@ func panicHandler(ctx context.Context, p any, logger *slog.Logger, method string
 	logger.Error("panic recovered",
 		slog.String("method", method),
 		slog.String("request_id", requestID),
-		slog.Any("panic", p),
+		slog.String("panic", diagnostics.ErrorText(fmt.Sprint(p), diagnostics.DefaultMaxErrorLength)),
 		slog.Any("stack_trace", frames),
 		slog.Int("goroutine_id", helpers.GoroutineID()),
 	)
@@ -188,9 +190,6 @@ func (i *interceptor) ClientUnaryInterceptor() stdGrpc.UnaryClientInterceptor {
 			return invoker(ctx, method, req, reply, cc, opts...)
 		}
 
-		// If using panics package integration
-		panicOpts := panics.NewHandleOpts().SetReallyPanic(false)
-
 		// Create a panicHandler that converts panic to error
 		grpcHandler := func(ctx context.Context, r any) {
 			_, meta := metadata.EnsureInContextFromMethod(ctx, method)
@@ -201,7 +200,7 @@ func (i *interceptor) ClientUnaryInterceptor() stdGrpc.UnaryClientInterceptor {
 			}
 		}
 
-		defer panics.HandleWithOpts(ctx, panicOpts, grpcHandler)
+		defer recoverCall(ctx, grpcHandler)
 
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
@@ -222,9 +221,6 @@ func (i *interceptor) ClientStreamInterceptor() stdGrpc.StreamClientInterceptor 
 			return streamer(ctx, desc, cc, method, opts...)
 		}
 
-		// If using panics package integration
-		panicOpts := panics.NewHandleOpts().SetReallyPanic(false)
-
 		// Create a panicHandler that converts panic to error
 		grpcHandler := func(ctx context.Context, r any) {
 			_, meta := metadata.EnsureInContextFromMethod(ctx, method)
@@ -235,8 +231,29 @@ func (i *interceptor) ClientStreamInterceptor() stdGrpc.StreamClientInterceptor 
 			}
 		}
 
-		defer panics.HandleWithOpts(ctx, panicOpts, grpcHandler)
+		defer recoverCall(ctx, grpcHandler)
 
 		return streamer(ctx, desc, cc, method, opts...)
 	}
+}
+
+// recoverCall lets the RPC handler inspect the original panic. Process-wide
+// hooks also run, but their default logger prints the panic value directly,
+// so replace it there if its diagnostic representation needs redaction.
+func recoverCall(ctx context.Context, handle panics.PanicHandler) {
+	raw := recover()
+	if raw == nil {
+		return
+	}
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(ctx context.Context, _ any) {
+		handle(ctx, raw)
+	})
+	text, ok := raw.(string)
+	if !ok {
+		text = fmt.Sprintf("%#v", raw)
+	}
+	if safe := diagnostics.ErrorText(text, diagnostics.DefaultMaxErrorLength); safe != text {
+		panic(safe)
+	}
+	panic(raw)
 }

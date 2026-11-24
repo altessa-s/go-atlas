@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
@@ -29,19 +30,19 @@ func (c *clientInterceptor) convertError(ctx context.Context, err error) error {
 	}
 
 	c.LogDebug(ctx, "handling client error conversion", convertOperation,
-		slog.Any("error", err),
+		errorAttr(err),
 		slog.String("error_type", errorTypeString(err)))
 
 	st, ok := status.FromError(err)
 	if !ok {
 		c.LogDebug(ctx, "error is not a gRPC status, returning as-is", convertOperation,
-			slog.Any("error", err))
+			errorAttr(err))
 		return err
 	}
 
 	c.LogDebug(ctx, "extracted gRPC status from error", convertOperation,
 		slog.String("code", st.Code().String()),
-		slog.String("message", st.Message()))
+		slog.String("message", diagnostics.ErrorText(st.Message(), diagnostics.DefaultMaxErrorLength)))
 
 	// Try optimized index first (if available)
 	if c.options.statusConverterIndex != nil {
@@ -118,8 +119,8 @@ func (c *clientInterceptor) ClientUnaryInterceptor() stdGrpc.UnaryClientIntercep
 
 // ClientStreamInterceptor returns a [stdGrpc.StreamClientInterceptor] that
 // converts gRPC status errors on streaming RPCs. Connection-level errors are
-// converted immediately; per-message errors are converted through a
-// [ClientStreamWrapper] that intercepts SendMsg and RecvMsg.
+// converted immediately; per-message errors are converted through the
+// [interceptors.ClientStreamWithDriver] wrapper that intercepts SendMsg and RecvMsg.
 func (c *clientInterceptor) ClientStreamInterceptor() stdGrpc.StreamClientInterceptor {
 	return func(
 		ctx context.Context,
@@ -134,7 +135,7 @@ func (c *clientInterceptor) ClientStreamInterceptor() stdGrpc.StreamClientInterc
 			return nil, c.convertError(ctx, err)
 		}
 
-		return interceptors.NewClientStreamWrapper(ctx, stream, c), nil
+		return interceptors.ClientStreamWithDriver(ctx, stream, c), nil
 	}
 }
 

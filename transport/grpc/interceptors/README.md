@@ -44,6 +44,12 @@ include Chain, BaseInterceptor, ServerInterceptor/ClientInterceptor interfaces, 
 | `DependencyGraph`  | Returns map of interceptor names to declared dependencies                     |
 | `WithLogger`       | Sets logger for dependency resolution debug output                            |
 
+For custom server chains, place tracing, logging and metrics outside `errstatus`, then place recovery and every interceptor that can reject
+or short-circuit an RPC inside `errstatus`. Place custom handlers that can panic inside recovery. A rejection outside these boundaries can
+bypass conversion, completion records or both. Enable `errstatus` for services that return domain errors. Without a converter grpc-go
+sends a plain Go error as `Unknown` with its original message. For strict request IDs use `requestid.ServerInterceptors` to separate ID propagation from
+validation. A standalone strict `requestid.ServerInterceptor` placed before the observers can return early.
+
 ## Interceptor Identity
 
 Every interceptor sub-package exports three identification helpers:

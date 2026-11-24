@@ -32,13 +32,14 @@ type fakeServerStream struct {
 	sendMsgs []any
 	recvMsgs []any
 	recvErr  error
+	sendErr  error
 }
 
 func (f *fakeServerStream) Context() context.Context { return f.ctx }
 
 func (f *fakeServerStream) SendMsg(m any) error {
 	f.sendMsgs = append(f.sendMsgs, m)
-	return nil
+	return f.sendErr
 }
 
 func (f *fakeServerStream) RecvMsg(m any) error {
@@ -164,6 +165,20 @@ func TestServerStreamInterceptor_StreamMetricsFullSampling(t *testing.T) {
 		"method", "/test.Service/Stream", "status", "OK"))
 	require.Equal(t, float64(2), metricstest.GetCounterValue(t, tc, "test_grpc_server_stream_messages_received_total",
 		"method", "/test.Service/Stream", "status", "OK"))
+}
+
+func TestServerStreamMetricsExcludeFailedSend(t *testing.T) {
+	t.Parallel()
+	const method = "/test.Service/Stream"
+	meter := metricstest.NewTestCollector()
+	intercept := ServerStreamInterceptor(WithMeter(meter), WithEnableStreamMetrics(), WithEnableSizeMetrics())
+	stream := &fakeServerStream{ctx: t.Context(), sendErr: status.Error(codes.Unavailable, "connection closed")}
+	err := intercept(nil, stream, &grpc.StreamServerInfo{FullMethod: method}, func(_ any, s grpc.ServerStream) error {
+		return s.SendMsg(sizedMessage{n: 42})
+	})
+	require.ErrorIs(t, err, stream.sendErr)
+	require.Zero(t, metricstest.GetCounterValue(t, meter, "test_grpc_server_stream_messages_sent_total", "method", method, "status", "Unavailable"))
+	require.Zero(t, metricstest.GetHistogramCount(t, meter, "test_grpc_server_stream_message_size_bytes", "method", method, "direction", "sent"))
 }
 
 // TestServerStreamInterceptor_StreamMetricsZeroSampling confirms that a
@@ -303,6 +318,6 @@ func TestGetStatusCode_ContextErrors(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, codes.DeadlineExceeded, getStatusCode(context.DeadlineExceeded))
-	require.Equal(t, codes.DeadlineExceeded, getStatusCode(context.Canceled))
-	require.Equal(t, codes.Internal, getStatusCode(errors.New("boom")))
+	require.Equal(t, codes.Canceled, getStatusCode(context.Canceled))
+	require.Equal(t, codes.Unknown, getStatusCode(errors.New("boom")))
 }

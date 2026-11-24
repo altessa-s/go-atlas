@@ -2,13 +2,13 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package metrics provides metrics collection for gRPC servers
+// Package metrics provides metrics collection for gRPC servers and clients
 // via the [observability/metrics.Meter] abstraction. It implements both
 // unary and streaming interceptors that automatically collect detailed
 // metrics about request counts, durations, status codes, and optionally
 // message sizes.
 //
-// The interceptor collects the following metrics by default (names shown
+// The server interceptor collects the following metrics by default (names shown
 // after [github.com/altessa-s/go-atlas/observability/metrics.Meter.WithSubsystem] is applied; default subsystem is "grpc"):
 //
 //   - {service}_grpc_server_requests_total — total request count, labels: method, status
@@ -27,9 +27,12 @@
 //   - {service}_grpc_server_stream_messages_received_total
 //   - {service}_grpc_server_stream_message_size_bytes (when both stream and size metrics are enabled)
 //
-// The interceptor is thread-safe and designed for production use with
+// [ClientInterceptor] collects the corresponding metrics with a client prefix.
+// [ClientUnaryInterceptor] and [ClientStreamInterceptor] register either RPC kind.
+//
+// The interceptors are thread-safe and support
 // configurable metric subsystems, custom histogram buckets, method ignoring,
-// and pluggable [metrics.Meter] backends. Each call to [ServerInterceptor]
+// and pluggable [metrics.Meter] backends. Each call to [ServerInterceptor] or [ClientInterceptor]
 // creates a fresh interceptor; the underlying adapter deduplicates metric
 // registrations by name, so reusing the same collector across multiple calls
 // with the same subsystem shares the same metric vectors.

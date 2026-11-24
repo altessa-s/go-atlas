@@ -18,9 +18,7 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 	i, ok := ServerInterceptor().(*interceptor) //nolint:errcheck
 	require.True(t, ok, "unexpected type")
 	deps := i.Dependencies()
-	require.Len(t, deps, 2)
-	require.Equal(t, "metadata", deps[0])
-	require.Equal(t, "requestid", deps[1])
+	require.ElementsMatch(t, []string{"metadata", "requestid", "errstatus"}, deps)
 }
 
 func TestServerInterceptor_Name(t *testing.T) {

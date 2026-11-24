@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/time/timeformat"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
@@ -24,12 +25,17 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
+	// Register grpc-go's client-side Health/Watch implementation.
+	_ "google.golang.org/grpc/health"
+
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	grpcinterceptors "github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	grpcerrstatus "github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	grpclogger "github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
+	grpcmetrics "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
+	grpctracing "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 )
 
 // Client is a generic gRPC client with connection management, retry, and health checking.
@@ -226,14 +232,17 @@ func (c *Client) ApplyQueryTimeout(ctx context.Context) (context.Context, contex
 // default gRPC service configuration. [WithoutHealthCheck] leaves it out.
 const healthCheckServiceConfig = `
   "healthCheckConfig": {
-    "serviceName": "health.v1.HealthService"
+    "serviceName": ""
   }`
+
+// Round robin enables grpc-go's health listener on each subchannel.
+const roundRobinConfig = `"loadBalancingConfig": [ { "round_robin": {} } ]`
 
 // retryConfigTemplate is the gRPC service configuration template with
 // round-robin load balancing and a retry policy. The leading verb takes the
 // health checking entry (with its trailing comma) or nothing.
-var retryConfigTemplate = `{%s
-  "loadBalancingConfig": [ { "round_robin": {} } ],
+const retryConfigTemplate = `{%s
+  ` + roundRobinConfig + `,
   "methodConfig": [{
     "waitForReady": false,
     "name": [{}],
@@ -249,8 +258,8 @@ var retryConfigTemplate = `{%s
 }`
 
 // buildServiceConfig builds the gRPC service configuration: client-side
-// health checking unless [WithoutHealthCheck] is set, plus round-robin load
-// balancing and the retry policy when retry is enabled.
+// round-robin balancing for the overall health watch or retries, plus the
+// retry policy when retry is enabled.
 func (c *Client) buildServiceConfig() string {
 	healthCheck := ""
 	if !c.options.withoutHealthCheck {
@@ -258,7 +267,10 @@ func (c *Client) buildServiceConfig() string {
 	}
 
 	if !c.options.enableRetry || c.options.retryOptions == nil {
-		return "{" + healthCheck + "\n}"
+		if healthCheck == "" {
+			return "{}"
+		}
+		return "{" + healthCheck + ",\n  " + roundRobinConfig + "\n}"
 	}
 
 	if healthCheck != "" {
@@ -305,17 +317,7 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 		}),
 	}
 
-	chain := grpcinterceptors.NewChain(
-		grpclogger.ClientInterceptor(
-			grpclogger.Slog(c.options.logger),
-			grpclogger.WithTimeFormat(timeformat.RFC3339),
-		),
-		grpcerrstatus.ClientInterceptor(
-			grpcerrstatus.WithStatusConverterFunc(c.convertError),
-		),
-	)
-
-	clientOptions, err := chain.ClientOptions()
+	clientOptions, err := c.interceptorOptions()
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "build interceptor chain")
 	}
@@ -341,6 +343,20 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 	grpcOptions = append(grpcOptions, c.options.extraDialOptions...)
 
 	return grpcOptions, nil
+}
+
+func (c *Client) interceptorOptions() ([]grpc.DialOption, error) {
+	// All observers run inside client-side status conversion so a custom
+	// converter can return a domain error without changing the recorded RPC.
+	list := []any{grpcerrstatus.ClientInterceptor(grpcerrstatus.WithStatusConverterFunc(c.convertError))}
+	if nilcheck.IsNotNil(c.options.tracer) {
+		list = append(list, grpctracing.ClientInterceptor(c.options.tracer))
+	}
+	list = append(list, grpclogger.ClientInterceptor(grpclogger.Slog(c.options.logger), grpclogger.WithTimeFormat(timeformat.RFC3339)))
+	if nilcheck.IsNotNil(c.options.meter) {
+		list = append(list, grpcmetrics.ClientInterceptor(grpcmetrics.WithMeter(c.options.meter)))
+	}
+	return grpcinterceptors.NewChain(list...).ClientOptions()
 }
 
 // convertError converts a gRPC status to an error using the configured error converter.

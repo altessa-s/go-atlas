@@ -29,6 +29,20 @@ srv, err := factory.New(cfg.Grpc).
     Build()
 ```
 
+## Server interceptor order
+
+With all components enabled, `WithInterceptors` resolves the following order from the incoming call to the handler.
+
+```text
+metadata → realip → requestid → tracing → logger → metrics → errstatus → recovery
+         → requestid_validation (strict mode) → ipacl → geoacl → cache → auth
+         → limiter → idempotency → fieldbehavior → fieldmask → protovalidator → health → handler
+```
+
+Request ID propagation makes the ID available to logs and finalizers. Strict mode rejects a missing or malformed ID inside recovery.
+On the return path, recovery turns a panic into an error, `errstatus` converts and finalizes it, and each observer reads the outgoing status.
+The same ordering covers early returns from access control, authentication, limits and validation.
+
 ## Methods
 
 `WithAuthInterceptor` exempts only explicitly configured `ignoreMethods` or `ignorePatterns`. `WithRealIPInterceptor` honors forwarding headers from

@@ -35,6 +35,10 @@ with optional `Finalizer` and a per-converter status cache. Client-side: `Status
 | `WithCacheDisabled`        | false                 | Completely disable error conversion caching        |
 | `WithLogger`               | discard               | Structured logger                                  |
 
+Server logging and tracing can read the error received by `errstatus` before `StatusErrorConvert`, registered converters and the finalizer run.
+The completion log's `error` and the span's `exception.message` omit URL user information. The client receives the finalized status and details.
+A service converter that logs its input can therefore emit a second record for the same failure.
+
 ## Errors that already carry a status
 
 An error that already carries a gRPC status skips the converters. A status the handler returned directly (`status.Error(codes.NotFound, "user

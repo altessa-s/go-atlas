@@ -17,6 +17,15 @@ attributes for method, service, status code, and peer address. Server and client
 | `rpc.grpc.status_code` | gRPC status code (0 = OK)                          |
 | `net.peer.name`        | Peer address (server: client IP, client: target)    |
 
+## RPC status and exceptions
+
+Every completed RPC records its final numeric code in `rpc.grpc.status_code`. On a server span, `Unknown`, `DeadlineExceeded`,
+`Unimplemented`, `Internal`, `Unavailable` and `DataLoss` set the span status to Error. Other non-OK server codes leave it Unset.
+On a client span every non-OK code sets Error. Successful RPCs retain the toolkit's OK status.
+
+Server exception events record the pre-conversion Go error type and message, including for a domain rejection that leaves the span Unset.
+The message omits URL user information and is capped at 1024 bytes. An Error span's status description comes from the final gRPC message.
+
 ## Options
 
 | Option               | Default              | Description                                         |

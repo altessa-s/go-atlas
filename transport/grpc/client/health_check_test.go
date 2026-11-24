@@ -7,43 +7,89 @@ package client_test
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/observability/health"
+
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 
 	client "github.com/altessa-s/go-atlas/transport/grpc/client"
-	grpchealth "google.golang.org/grpc/health"
+	healthhandler "github.com/altessa-s/go-atlas/transport/grpc/handlers/health"
+	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-// TestWithoutHealthCheck_RetryAgainstServerWithoutHealthService dials, with
-// round-robin retry, a server that does not implement health.v1.HealthService
-// (it serves only the standard grpc.health.v1.Health, used here as the
-// application service) and asserts calls succeed.
-func TestWithoutHealthCheck_RetryAgainstServerWithoutHealthService(t *testing.T) {
+func TestOverallHealthWatch(t *testing.T) {
 	t.Parallel()
+	coord := health.New()
+	t.Cleanup(coord.Close)
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener := bufconn.Listen(1 << 20)
+	var calls atomic.Int32
+	server, err := grpcserver.New(grpcserver.WithListener(listener), grpcserver.WithStartupVerification(0),
+		grpcserver.WithGrpcOptions(grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handle grpc.UnaryHandler) (any, error) {
+			calls.Add(1)
+			return handle(ctx, req)
+		})))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-	server := grpc.NewServer()
-	healthpb.RegisterHealthServer(server, grpchealth.NewServer())
-	t.Cleanup(server.Stop)
-	go func() { _ = server.Serve(listener) }()
+	server.RegisterHandlers(healthhandler.New(coord))
+	require.NoError(t, server.Start())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		defer cancel()
+		require.NoError(t, server.Shutdown(ctx))
+	})
 
-	c, err := client.New(t.Context(), listener.Addr().String(),
-		client.WithInsecure(), client.WithRetry(), client.WithoutHealthCheck())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = c.Close(t.Context()) })
+	connect := func(opts ...client.Option) *grpc.ClientConn {
+		dial := grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return listener.DialContext(ctx) })
+		c, err := client.New(t.Context(), "passthrough:///bufnet", append(opts, client.WithInsecure(), client.WithDialOptions(dial))...)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close(context.WithoutCancel(t.Context()))) })
+		conn, err := c.GetConnection(t.Context())
+		require.NoError(t, err)
+		return conn
+	}
+	conn := connect()
+	check := func(conn *grpc.ClientConn) (*healthpb.HealthCheckResponse, error) {
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		defer cancel()
+		return healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{})
+	}
+	waitFor := func(want connectivity.State) {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		for state := conn.GetState(); state != want; state = conn.GetState() {
+			require.True(t, conn.WaitForStateChange(ctx, state), "state %v, want %v", state, want)
+		}
+	}
 
-	conn, err := c.GetConnection(t.Context())
-	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	resp, err := healthpb.NewHealthClient(conn).Check(ctx, &healthpb.HealthCheckRequest{})
+	resp, err := check(conn)
 	require.NoError(t, err)
 	require.Equal(t, healthpb.HealthCheckResponse_SERVING, resp.GetStatus())
+	coord.SetOverallStatus(health.StatusNotServing)
+	coord.BroadcastStatus(health.StatusNotServing)
+	waitFor(connectivity.TransientFailure)
+	_, err = check(conn)
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	require.EqualValues(t, 1, calls.Load())
+
+	resp, err = check(connect(client.WithoutHealthCheck(), client.WithRetry()))
+	require.NoError(t, err)
+	require.Equal(t, healthpb.HealthCheckResponse_NOT_SERVING, resp.GetStatus())
+
+	coord.SetOverallStatus(health.StatusServing)
+	coord.BroadcastStatus(health.StatusServing)
+	waitFor(connectivity.Ready)
+	resp, err = check(conn)
+	require.NoError(t, err)
+	require.Equal(t, healthpb.HealthCheckResponse_SERVING, resp.GetStatus())
+	require.EqualValues(t, 3, calls.Load())
 }
