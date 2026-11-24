@@ -398,7 +398,7 @@ func (s *Store[P]) ListByState(ctx context.Context, state retryqueue.State, limi
 // [keyChunk] per statement; a longer list runs atomically in one transaction,
 // using the caller's transaction when present and starting one otherwise.
 func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (int, error) {
-	if _, inTx := s.db.Tx(ctx); !inTx && len(keys) > keyChunk {
+	if bound, _ := s.db.Tx(ctx); bound == nil && len(keys) > keyChunk {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return 0, coreerrs.WrapOperation(err, "begin requeue retry items")

@@ -11,6 +11,9 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"sync/atomic"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
 )
@@ -27,20 +30,29 @@ type DBTX interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// Tx returns the transaction that [WithTransaction] or [WithSnapshot] attached to ctx.
+// Tx returns the attached transaction and whether it is still open. A finished transaction
+// returns its handle with false so statement resolvers can fail closed. Only the owner may end it.
 func Tx(ctx context.Context) (*sql.Tx, bool) {
-	t, ok := ctx.Value(transactionKey{}).(*transaction)
-
-	if !ok {
+	t := attached(ctx)
+	if t == nil {
 		return nil, false
 	}
-	return t.tx, true
+	return t.tx, t.open()
 }
 
-// InWriteTransaction reports whether ctx belongs to a writable transaction.
+func attached(ctx context.Context) *transaction {
+	t, _ := ctx.Value(transactionKey{}).(*transaction)
+	return t
+}
+
+func (t *transaction) open() bool {
+	return !t.life.done.Load() && t.ownerContext.Err() == nil
+}
+
+// InWriteTransaction reports whether ctx belongs to an open writable transaction.
 func InWriteTransaction(ctx context.Context) bool {
-	t, ok := ctx.Value(transactionKey{}).(*transaction)
-	return ok && !t.readOnly
+	t := attached(ctx)
+	return t != nil && !t.readOnly && t.open()
 }
 
 // NotifyAfterCommit sends a coalescing wake-up once the enclosing transaction commits.
@@ -79,17 +91,19 @@ func WithPool(ctx context.Context, db, pool *sql.DB) context.Context {
 // CheckDatabase ensures that a transaction-bound operation uses its own connection pool.
 func CheckDatabase(ctx context.Context, db *sql.DB) error {
 	if current, ok := ctx.Value(transactionKey{}).(*transaction); ok && current.db != selectedPool(ctx, db) {
-		return errors.New("transaction belongs to a different database")
+		return ErrDifferentDatabase
 	}
 	return nil
 }
 
 // Queryer returns the transaction attached to ctx, or db outside a transaction.
 func Queryer(ctx context.Context, db *sql.DB) DBTX {
-	if tx, ok := Tx(ctx); ok {
-		return tx
+	if t := attached(ctx); t != nil {
+		if t.open() {
+			return t.tx
+		}
+		return Executor{bound: t}
 	}
-
 	return Executor{db: selectedPool(ctx, db)}
 }
 
@@ -119,8 +133,19 @@ func WithSnapshot(ctx context.Context, db *sql.DB, handler func(context.Context)
 // target resolves a call before opening its result set. Only a standalone
 // statement receives a connection replacement budget.
 func (q Executor) target(ctx context.Context) (context.Context, DBTX) {
-	if tx, ok := Tx(ctx); ok {
-		return ctx, tx
+	t := q.bound
+	if t == nil {
+		t = attached(ctx)
+	}
+	if t != nil {
+		if !t.open() {
+			// database/sql checks the statement context before checking ErrTxDone.
+			if t.ownerContext.Err() != nil {
+				_ = t.tx.Rollback()
+			}
+			return context.WithoutCancel(ctx), t.tx
+		}
+		return ctx, t.tx
 	}
 	return sqldialect.StatementContext(ctx), selectedPool(ctx, q.db)
 }
@@ -161,7 +186,14 @@ func selectedPool(ctx context.Context, db *sql.DB) *sql.DB {
 
 type transactionKey struct{}
 
+type transactionLife struct {
+	done     atomic.Bool
+	poisoned atomic.Bool
+	replay   bool
+}
+
 type transaction struct {
+	life          *transactionLife
 	db            *sql.DB
 	tx            *sql.Tx
 	readOnly      bool
@@ -173,7 +205,8 @@ type transaction struct {
 
 // Executor routes database/sql calls through the transaction attached to each context. Construct it with [Querier].
 type Executor struct {
-	db *sql.DB
+	bound *transaction
+	db    *sql.DB
 }
 
 func withTransaction(
@@ -182,35 +215,63 @@ func withTransaction(
 	options *sql.TxOptions,
 	handler func(context.Context) error,
 ) (err error) {
-	if _, ok := Tx(ctx); ok {
+	if current := attached(ctx); current != nil {
+		if !current.open() {
+			return sql.ErrTxDone
+		}
 		if err = CheckDatabase(ctx, db); err != nil {
 			return err
 		}
-
-		return handler(ctx)
+		defer func() {
+			if r := recover(); r != nil {
+				current.life.poisoned.Store(true)
+				panic(r)
+			}
+		}()
+		return diagnostic("joined transaction body", handler(ctx))
 	}
 
 	db = selectedPool(ctx, db)
 	tx, err := db.BeginTx(ctx, options)
 	if err != nil {
-		return err
+		return diagnostic("begin transaction", err)
 	}
-
+	current := &transaction{life: new(transactionLife), db: db, tx: tx, ownerContext: ctx, readOnly: options != nil && options.ReadOnly}
 	defer func() {
+		defer current.life.done.Store(true)
+		if err != nil && ctx.Err() != nil && !errors.Is(err, ctx.Err()) {
+			err = errors.Join(err, ctx.Err())
+		}
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
-			err = errors.Join(err, rollbackErr)
+			err = errors.Join(err, diagnostic("rollback transaction", rollbackErr))
 		}
 	}()
 
-	current := &transaction{db: db, tx: tx, ownerContext: ctx, readOnly: options != nil && options.ReadOnly}
 	ctx = context.WithValue(ctx, transactionKey{}, current)
 
-	if err = handler(ctx); err != nil {
+	err = diagnostic("transaction body", handler(ctx))
+	if current.life.poisoned.Load() {
+		return errors.Join(ErrTransactionPanicked, err)
+	}
+	if err != nil {
 		return err
 	}
-
-	if err = tx.Commit(); err != nil {
+	if current.life.done.Load() {
+		return sql.ErrTxDone
+	}
+	if err = ctx.Err(); err != nil {
 		return err
+	}
+	err = tx.Commit()
+	current.life.done.Store(true)
+	if err != nil {
+		kind, _ := Classify(err)
+		safe := diagnostic("commit transaction", err)
+		state := sqldialect.SQLState(err)
+		if errors.Is(err, pgx.ErrTxCommitRollback) || (state != "" && state != "40003" && kind != ConnectionLost) || sqldialect.SafeToRetry(err) {
+			return safe
+		}
+		return &uncertainCommit{safe}
 	}
 	observers, notifications := current.takeHooks()
 	// Every hook belongs to an already committed write. Defers preserve delivery
@@ -252,9 +313,17 @@ func AfterCommitContext(ctx context.Context, fn func(context.Context)) {
 // WithSavepoint isolates a nested operation and its commit hooks. Without a transaction
 // it starts one. Only the handler and its nested calls may use the transaction during the scope.
 func WithSavepoint(ctx context.Context, db *sql.DB, handler func(context.Context) error) (err error) {
+	defer func() {
+		if err != nil {
+			err = diagnostic("savepoint", err)
+		}
+	}()
 	parent, ok := ctx.Value(transactionKey{}).(*transaction)
 	if !ok {
 		return WithTransaction(ctx, db, handler)
+	}
+	if !parent.open() {
+		return sql.ErrTxDone
 	}
 	if err = CheckDatabase(ctx, db); err != nil {
 		return err
@@ -270,12 +339,13 @@ func WithSavepoint(ctx context.Context, db *sql.DB, handler func(context.Context
 		}
 		if _, rollbackErr := parent.tx.ExecContext(parent.ownerContext, "ROLLBACK TO SAVEPOINT "+name); rollbackErr != nil {
 			err = errors.Join(err, rollbackErr, parent.tx.Rollback())
+			parent.life.done.Store(true)
 			return
 		}
 		_, releaseErr := parent.tx.ExecContext(parent.ownerContext, "RELEASE SAVEPOINT "+name)
 		err = errors.Join(err, releaseErr)
 	}()
-	child := &transaction{db: parent.db, ownerContext: parent.ownerContext, tx: parent.tx, readOnly: parent.readOnly}
+	child := &transaction{life: parent.life, db: parent.db, ownerContext: parent.ownerContext, tx: parent.tx, readOnly: parent.readOnly}
 	if err = handler(context.WithValue(ctx, transactionKey{}, child)); err != nil {
 		return err
 	}

@@ -281,7 +281,10 @@ func (s *Store) SaveEventsWithTTL(ctx context.Context, ttl time.Duration, events
 		return s.insert(ctx, tx, ttl, events)
 	}
 	if s.resolveTx != nil {
-		if tx, ok := s.resolveTx(ctx); ok && tx != nil {
+		if tx, open := s.resolveTx(ctx); tx != nil {
+			if !open {
+				return sql.ErrTxDone
+			}
 			return s.insert(ctx, tx, ttl, events)
 		}
 	}

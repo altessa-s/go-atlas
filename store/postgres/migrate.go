@@ -68,7 +68,7 @@ func Migrate(ctx context.Context, db *sql.DB, source fs.FS, schema string) error
 	quotedSchema := pgx.Identifier{schema}.Sanitize()
 	ledger := pgx.Identifier{schema, migrationLedger}.Sanitize()
 
-	if _, ok := Tx(ctx); ok {
+	if attached(ctx) != nil {
 		return errors.New("migrations require an independent transaction")
 	}
 	return withTransaction(ctx, db, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(ctx context.Context) error {

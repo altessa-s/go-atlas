@@ -92,7 +92,8 @@ flowchart TD
 
 `audit`, `coord/dlock`, `reliability/saga`, `reliability/outbox`, `reliability/idempotency`, `reliability/retryqueue` and the go-horai scheduler each
 have a `sqldb` backend beside their MongoDB (and NATS or Redis) ones. The backends take a caller-owned `*sql.DB` and a dialect — `postgres`, or `mysql`
-for MySQL and MariaDB — through `internal/sqldialect`. The optional `store/postgres` package supplies a pgx pool.
+for MySQL and MariaDB — through `internal/sqldialect`. The optional `store/postgres` package supplies a pgx pool and implements the eventbus unit-of-work
+committer and detector contracts using the same transaction binding as the SQL stores.
 Its `postgrestest` subpackage creates isolated databases on a direct test endpoint. Backend constructors perform no I/O,
 and `EnsureSchema` is a separate idempotent call. The lock, idempotency and
 outbox stores evaluate time predicates against the database clock. Lock operations use the pool. Audit, saga, idempotency and retry queue operations

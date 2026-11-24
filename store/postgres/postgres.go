@@ -112,6 +112,6 @@ func (p Pools) Binding(name string) (*sql.DB, func(context.Context) (*sql.Tx, bo
 		if _, member := members[t.db]; !member {
 			return nil, false
 		}
-		return t.tx, true
+		return t.tx, t.open()
 	}
 }

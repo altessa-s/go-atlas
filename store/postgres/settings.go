@@ -32,6 +32,9 @@ type TransactionSettings struct {
 // BeginAsyncCommit starts an independent transaction on a pool opened by Open.
 // The connector sends BEGIN and the transaction-local setting in the same query.
 func BeginAsyncCommit(ctx context.Context, db *sql.DB) (*sql.Tx, error) {
+	if t := attached(ctx); t != nil && t.life.replay {
+		return nil, ErrUnsafeReplay
+	}
 	ctx = context.WithValue(ctx, settingsKey{}, transactionSettingsSQL(ctx)+"; SET LOCAL synchronous_commit = off")
 	return selectedPool(ctx, db).BeginTx(ctx, nil)
 }
@@ -69,7 +72,10 @@ func WithTransactionSettings(ctx context.Context, db *sql.DB, settings Transacti
 		return ctx, nil
 	}
 	query := strings.Join(local, "; ")
-	if tx, ok := Tx(ctx); ok {
+	if tx, open := Tx(ctx); tx != nil {
+		if !open {
+			return nil, sql.ErrTxDone
+		}
 		if err := CheckDatabase(ctx, db); err != nil {
 			return nil, err
 		}
