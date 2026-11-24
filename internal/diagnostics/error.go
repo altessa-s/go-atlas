@@ -22,7 +22,7 @@ var urlUserinfo = regexp.MustCompile(`(://)[^/?#\s]*@`)
 // ErrorText removes URL user information before truncating the message, so
 // even a password longer than the limit cannot leave a partial credential.
 func ErrorText(s string, limit int) string {
-	return SanitizeText(RedactURLUserinfo(s), limit)
+	return corestrings.TruncateBytes(RedactURLUserinfo(stripControls(s)), limit, "...")
 }
 
 // RedactURLUserinfo removes credentials from URLs while preserving the surrounding bytes.
@@ -35,7 +35,11 @@ func RedactURLUserinfo(s string) string {
 
 // SanitizeText bounds a diagnostic field and removes control characters.
 func SanitizeText(s string, limit int) string {
-	s = corestrings.TruncateBytes(s, limit, "...")
+	return stripControls(corestrings.TruncateBytes(s, limit, "..."))
+}
+
+func stripControls(s string) string {
+	s = strings.ToValidUTF8(s, "")
 	if !strings.ContainsFunc(s, unicode.IsControl) {
 		return s
 	}
