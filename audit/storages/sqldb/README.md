@@ -33,7 +33,7 @@ driver.
 | Aspect       | Behavior                                                                                                                       |
 |----------------|----------------------------------------------------------------------------------------------------------------------------------|
 | Row          | ID, `ts_ms`, the queryable fields as columns, the whole event as a JSON `payload`                                              |
-| StoreBatch   | Atomic: one INSERT, or chunked INSERTs in one transaction                                                                      |
+| StoreBatch   | One INSERT or chunked INSERTs. Storage-owned transactions guarantee batch atomicity. |
 | Replay       | Idempotent: an already stored ID is skipped (`ON CONFLICT DO NOTHING` / no-op `ON DUPLICATE KEY UPDATE`), so retries succeed   |
 | Order        | `(ts_ms, id)` with the ID compared byte-wise, as the page tokens of `audit.FetchPage` require                                  |
 | Time range   | `StartTime`/`EndTime` bound whole milliseconds; returned events keep their full-precision timestamp                            |
@@ -88,3 +88,6 @@ See the [PostgreSQL connection loss policy](../../../reliability/outbox/storages
 
 Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in each operation's context. The caller owns completion and rollback.
 The factory wires the resolver with `UseSQLPool(pools.Binding(name))`.
+
+If `StoreBatch` returns an error in a caller-owned transaction, the caller must roll back that transaction. Earlier chunks may already
+have been written.

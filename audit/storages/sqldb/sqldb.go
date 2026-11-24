@@ -98,8 +98,10 @@ func (s *Storage) Store(ctx context.Context, event *audit.Event) error {
 	return s.StoreBatch(ctx, []*audit.Event{event})
 }
 
-// StoreBatch persists the events atomically: in one transaction of INSERTs of
-// at most the configured rows each. Events whose ID is already stored —
+// StoreBatch inserts events in chunks of at most the configured row count.
+// A storage-owned transaction makes the batch atomic. In a caller-owned transaction,
+// earlier chunks can remain after an error. The caller must roll back the transaction.
+// Events whose ID is already stored —
 // earlier, or earlier in the same batch — are skipped, so a batch retried
 // after a lost commit acknowledgment succeeds instead of failing forever.
 func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
