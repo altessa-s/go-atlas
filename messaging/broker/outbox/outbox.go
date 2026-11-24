@@ -96,11 +96,9 @@ func NewHandler(publisher Publisher, opts ...outbox.Option) outbox.Handler {
 			return coreerrs.WrapOperation(errors.Join(ErrUndeliverable, err), "unmarshal broker payload")
 		}
 
-		if recorder == nil {
-			return bp.publish(ctx, publisher, event)
-		}
+		// Dispatch inherits cancellation from the worker and trace identity from the event.
 		ctx = propagation.NewTraceContext().Extract(tracing.ContextWithSpan(ctx, nil), propagation.MapCarrier(bp.Metadata))
-		if parent := propagation.RemoteSpanContextFromContext(ctx); parent == nil || !parent.IsSampled() {
+		if parent := propagation.RemoteSpanContextFromContext(ctx); recorder == nil || parent == nil || !parent.IsSampled() {
 			return bp.publish(ctx, publisher, event)
 		}
 		return bp.tracedPublish(ctx, publisher, event, recorder, cfg.system)

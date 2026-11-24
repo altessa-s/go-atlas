@@ -38,7 +38,7 @@ func (s *tracedSubscriber) Subscribe(ctx context.Context, h SubscriberHandler) e
 //	handler := broker.TraceHandler(h, tracer, durable, "nats")
 //	sub, err := provider.Recovery.Subscribe(ctx, stream, durable, handler, factory)
 func TraceHandler(h SubscriberHandler, tracer tracing.Tracer, name, system string) SubscriberHandler {
-	if nilcheck.IsNil(tracer) {
+	if nilcheck.IsNil(tracer) || nilcheck.IsNil(h) {
 		return h
 	}
 	return &tracedHandler{SubscriberHandler: h, recorder: tracer.Recorder("messaging/broker"), name: name, system: system}

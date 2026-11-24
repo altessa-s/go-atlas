@@ -317,7 +317,11 @@ func messageMetadata(headers nats.Header) msg.Meta {
 		if strings.HasPrefix(k, "Nats-") {
 			continue
 		}
-		metaData = append(metaData, msg.MetaData{Key: k, Value: strings.Join(vals, ";")})
+		separator := ";"
+		if k == "tracestate" {
+			separator = ","
+		}
+		metaData = append(metaData, msg.MetaData{Key: k, Value: strings.Join(vals, separator)})
 	}
 	return appendDeduplicateID(metaData, headers)
 }

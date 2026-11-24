@@ -116,3 +116,8 @@ func TestTraceHeadersRoundTrip(t *testing.T) {
 		require.Equal(t, []string{header.Value}, wire.Header[header.Key])
 	}
 }
+
+func TestMessageMetadataRepeatedTracestate(t *testing.T) {
+	headers := map[string][]string{"tracestate": {"one=a", "two=b"}, "custom": {"x", "y"}}
+	require.Equal(t, map[string]string{"tracestate": "one=a,two=b", "custom": "x;y"}, messageMetadata(headers).Map())
+}

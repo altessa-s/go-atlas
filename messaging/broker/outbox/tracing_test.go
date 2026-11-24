@@ -46,6 +46,10 @@ func (s *spanSink) recorded() []adapters.SpanData {
 	return slices.Clone(s.spans)
 }
 
+type publishFunc func(context.Context, msg.Message) error
+
+func (f publishFunc) Publish(ctx context.Context, m msg.Message) error { return f(ctx, m) }
+
 type handlerFunc func(context.Context, *msg.Message)
 
 func (h handlerFunc) Topic() string                              { return "events.>" }
@@ -149,6 +153,27 @@ func TestPublishOutboxJetStreamConsumerTrace(t *testing.T) {
 	require.Equal(t, event.Id, d.meta.Map()[msg.MetaKeyDeduplicateId])
 }
 
+func TestDispatchContextWithoutTracer(t *testing.T) {
+	poll := propagation.NewTraceContext().Extract(t.Context(), propagation.MapCarrier{"traceparent": sampledParent})
+	ctx, cancel := context.WithCancel(poll)
+	cancel()
+	for _, parent := range []string{"", unsampledParent} {
+		var traceMeta msg.Meta
+		if parent != "" {
+			traceMeta = msg.Meta{{Key: "traceparent", Value: parent}}
+		}
+		event := storedEvent(t, msg.Message{Topic: "events", Metadata: traceMeta}, "event")
+		pub := publishFunc(func(ctx context.Context, _ msg.Message) error {
+			headers := propagation.MapCarrier{}
+			propagation.NewTraceContext().Inject(ctx, headers)
+			require.Equal(t, parent, headers["traceparent"])
+			require.ErrorIs(t, ctx.Err(), context.Canceled)
+			return nil
+		})
+		require.NoError(t, outbox.NewHandler(pub)(ctx, event))
+	}
+}
+
 func TestDispatchParentAndFailure(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -191,7 +216,13 @@ func TestDispatchParentAndFailure(t *testing.T) {
 			require.Equal(t, "publish to nats://broker.example failed", s.StatusDesc)
 			require.Len(t, s.Events, 1)
 			require.Equal(t, "exception", s.Events[0].Name)
-			require.Contains(t, s.Events[0].Attributes, adapters.Attribute{Key: "exception.message", Value: s.StatusDesc})
+			var messages []any
+			for _, attr := range s.Events[0].Attributes {
+				if attr.Key == "exception.message" {
+					messages = append(messages, attr.Value)
+				}
+			}
+			require.Equal(t, []any{s.StatusDesc}, messages)
 			require.ElementsMatch(t, []adapters.Attribute{
 				{Key: "messaging.destination.name", Value: "topic"}, {Key: "messaging.message.id", Value: "event"},
 				{Key: "outbox.attempt", Value: int64(3)}, {Key: "outbox.queue_wait_ms", Value: int64(0)},

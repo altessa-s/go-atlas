@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/messaging/broker"
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
+	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
 )
 
@@ -477,4 +478,10 @@ func TestPublishPropagatesContextWithoutChangingInputs(t *testing.T) {
 			require.Equal(t, map[string]string{"tracestate": "stale=old", "user": "keep"}, input[0].Metadata.Map())
 		})
 	}
+}
+
+func TestTracingPreservesNilSubscription(t *testing.T) {
+	b := broker.New(&recordingProvider{}, broker.WithTracer(tracing.Noop()))
+	require.Nil(t, b.Subscriber(func(any) broker.Subscriber { return nil }))
+	require.Nil(t, broker.TraceHandler(nil, tracing.Noop(), "worker", "nats"))
 }

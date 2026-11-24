@@ -157,7 +157,7 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 //	sub.Subscribe(ctx, handler)
 func (b *Broker) Subscriber(factory SubscriberFactory) Subscriber {
 	sub := b.provider.Subscriber(factory)
-	if b.tracer == nil {
+	if b.tracer == nil || sub == nil {
 		return sub
 	}
 	return &tracedSubscriber{Subscriber: sub, broker: b}
