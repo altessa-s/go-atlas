@@ -92,6 +92,68 @@ func TestSQLOrderKeyConcurrentClaims(t *testing.T) {
 	})
 }
 
+func TestSQLOrderKeyReverseCommit(t *testing.T) {
+	t.Parallel()
+	forEachSQL(t, func(t *testing.T, f *fixture) {
+		ctx := t.Context()
+		store, err := outboxsql.New(f.sql.db, f.sql.dialect, outboxsql.WithTableName(f.sql.events), outboxsql.WithKeyOrder())
+		require.NoError(t, err)
+		low := outbox.Event{Id: "low", Key: "created", OrderKey: "order", Status: outbox.StatusPending}
+		high := outbox.Event{Id: "high", Key: "updated", OrderKey: "order", Status: outbox.StatusPending}
+		tx, err := f.sql.db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+		require.NoError(t, store.SaveEvents(outboxsql.WithTx(ctx, tx), low))
+		require.NoError(t, store.SaveEvents(ctx, high))
+		claimed, err := store.FetchUnprocessedEvents(ctx, 2)
+		require.NoError(t, err)
+		require.Len(t, claimed, 1)
+		require.Equal(t, high.Id, claimed[0].Id)
+		require.NoError(t, tx.Commit())
+		blocked, err := store.FetchUnprocessedEvents(ctx, 2)
+		require.NoError(t, err)
+		require.Empty(t, blocked)
+		claimed[0].Status = outbox.StatusSent
+		require.NoError(t, store.UpdateEvents(ctx, claimed...))
+		claimed, err = store.FetchUnprocessedEvents(ctx, 2)
+		require.NoError(t, err)
+		require.Len(t, claimed, 1)
+		require.Equal(t, low.Id, claimed[0].Id)
+	})
+}
+
+// Pause a competing claim after it locks the higher row and before it commits
+// its status change. A plain snapshot would still see that row as pending.
+func TestSQLOrderKeyUncommittedClaim(t *testing.T) {
+	t.Parallel()
+	forEachSQL(t, func(t *testing.T, f *fixture) {
+		b, ctx := f.sql, t.Context()
+		store, err := outboxsql.New(b.db, b.dialect, outboxsql.WithTableName(b.events), outboxsql.WithKeyOrder())
+		require.NoError(t, err)
+		producer, err := b.db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer func() { _ = producer.Rollback() }()
+		low := outbox.Event{Id: "low", Key: "order", Status: outbox.StatusPending}
+		high := outbox.Event{Id: "high", Key: "order", Status: outbox.StatusPending}
+		require.NoError(t, store.SaveEvents(outboxsql.WithTx(ctx, producer), low))
+		require.NoError(t, store.SaveEvents(ctx, high))
+		claim, err := b.db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer func() { _ = claim.Rollback() }()
+		_, err = claim.ExecContext(ctx, b.bind("UPDATE "+b.events+" SET status = 'in-progress' WHERE id = ?"), high.Id)
+		require.NoError(t, err)
+		require.NoError(t, producer.Commit())
+		events, err := store.FetchUnprocessedEvents(ctx, 2)
+		require.NoError(t, err)
+		require.Empty(t, events)
+		require.NoError(t, claim.Rollback())
+		events, err = store.FetchUnprocessedEvents(ctx, 2)
+		require.NoError(t, err)
+		require.Len(t, events, 1)
+		require.Equal(t, low.Id, events[0].Id)
+	})
+}
+
 func TestSQLOrderKeySchemaUpgrade(t *testing.T) {
 	t.Parallel()
 	forEachSQL(t, func(t *testing.T, f *fixture) {

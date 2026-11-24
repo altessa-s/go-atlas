@@ -61,43 +61,29 @@ func TestPostgresAsynchronousDispatchCommit(t *testing.T) {
 	require.Equal(t, "on", restored)
 }
 
-func TestPostgresAsyncDispatchPreservesCallerTransaction(t *testing.T) {
+func TestSQLDispatchIgnoresBusinessTransaction(t *testing.T) {
 	t.Parallel()
-	f := newSQLFixture(t, sqlSpecs()[0])
-	b, ctx := f.sql, t.Context()
-	resolve := func(ctx context.Context) (*sql.Tx, bool) {
-		tx, ok := ctx.Value(sqlTxKey{}).(*sql.Tx)
-		return tx, ok
-	}
-	store, err := outboxsql.New(b.db, b.dialect, outboxsql.WithTableName(b.events),
-		outboxsql.WithAsynchronousCommit(), outboxsql.WithTxResolver(resolve))
-	require.NoError(t, err)
-	event := outbox.Event{Id: "dispatch", Key: "orders", Status: outbox.StatusPending}
-	require.NoError(t, store.SaveEvents(ctx, event))
-
-	tx, err := b.db.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback() }()
-	txCtx := context.WithValue(ctx, sqlTxKey{}, tx)
-	_, err = tx.ExecContext(txCtx, "SET LOCAL synchronous_commit = local")
-	require.NoError(t, err)
-	check := func(want outbox.Status) {
-		t.Helper()
-		var status, durability string
-		row := tx.QueryRowContext(txCtx, "SELECT status, current_setting('synchronous_commit') FROM "+b.events+" WHERE id = $1", event.Id)
-		require.NoError(t, row.Scan(&status, &durability))
-		require.Equal(t, string(want), status)
-		require.Equal(t, "local", durability)
-	}
-
-	claimed, err := store.FetchUnprocessedEvents(txCtx, 1)
-	require.NoError(t, err)
-	require.Len(t, claimed, 1)
-	check(outbox.StatusInProgress)
-	claimed[0].Status = outbox.StatusSent
-	require.NoError(t, store.UpdateEvents(txCtx, claimed...))
-	check(outbox.StatusSent)
-
-	require.NoError(t, tx.Rollback())
-	require.Equal(t, string(outbox.StatusPending), f.load(t, event.Id).Status)
+	forEachSQL(t, func(t *testing.T, f *fixture) {
+		ctx := t.Context()
+		resolve := func(ctx context.Context) (*sql.Tx, bool) {
+			tx, ok := ctx.Value(sqlTxKey{}).(*sql.Tx)
+			return tx, ok
+		}
+		store, err := outboxsql.New(f.sql.db, f.sql.dialect, outboxsql.WithTableName(f.sql.events),
+			outboxsql.WithAsynchronousCommit(), outboxsql.WithTxResolver(resolve))
+		require.NoError(t, err)
+		f.store = store
+		ob := f.newOutbox(t)
+		tx, err := f.sql.db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+		txCtx := context.WithValue(ctx, sqlTxKey{}, tx)
+		require.NoError(t, ob.Save(txCtx, event("orders", "dispatch")))
+		require.NoError(t, ob.RunDispatchCycle(txCtx))
+		require.Zero(t, f.recorder.Count())
+		require.NoError(t, tx.Rollback())
+		require.NoError(t, ob.RunDispatchCycle(ctx))
+		require.Zero(t, f.recorder.Count())
+		require.Zero(t, f.countEvents(t))
+	})
 }

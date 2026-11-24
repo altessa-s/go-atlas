@@ -61,7 +61,7 @@ func TestStoreRollback(t *testing.T) {
 	s, err := sagasql.New(db, sagasql.DialectPostgres, sagasql.WithTxResolver(resolve), sagasql.WithTableName(schema+".sagas"))
 	require.NoError(t, err)
 	require.NoError(t, s.EnsureSchema(ctx))
-	locks, err := locksql.New(db, locksql.DialectPostgres, locksql.WithTxResolver(resolve), locksql.WithTableName(schema+".locks"))
+	locks, err := locksql.New(db, locksql.DialectPostgres, locksql.WithTableName(schema+".locks"))
 	require.NoError(t, err)
 	require.NoError(t, locks.EnsureSchema(ctx))
 	t.Cleanup(func() { require.NoError(t, locks.Close(context.Background())) })
@@ -97,13 +97,22 @@ func TestStoreRollback(t *testing.T) {
 	require.NoError(t, err)
 	_, err = lock.GetLockInfo(txCtx)
 	require.NoError(t, err)
-	require.NoError(t, lock.Release(txCtx))
-	tables := map[string]int{"sagas": 1, "audit": 2, "locks": 1, "keys": 1, "retries": 1, "events": 1}
+
+	tables := map[string]int{"sagas": 1, "audit": 2, "keys": 1, "retries": 1, "events": 1}
 	for table, want := range tables {
 		require.Equal(t, want, count(t, txCtx, tx, schema+"."+table), table)
 		require.Zero(t, count(t, ctx, db, schema+"."+table))
 	}
+	claimed, err := events.FetchUnprocessedEvents(txCtx, 1)
+	require.NoError(t, err)
+	require.Empty(t, claimed)
 	require.NoError(t, tx.Rollback())
+	claimed, err = events.FetchUnprocessedEvents(ctx, 1)
+	require.NoError(t, err)
+	require.Empty(t, claimed)
+	_, err = lock.GetLockInfo(ctx)
+	require.NoError(t, err)
+	require.NoError(t, lock.Release(ctx))
 	for table := range tables {
 		require.Zero(t, count(t, ctx, db, schema+"."+table))
 	}
