@@ -242,7 +242,7 @@ func TestPools(t *testing.T) {
 	}
 }
 
-func count(t *testing.T, ctx context.Context, q interface {
+func count(t testing.TB, ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, table string) int {
 	t.Helper()
