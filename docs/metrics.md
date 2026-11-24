@@ -7,7 +7,7 @@ Components and factory builders receive a `metrics.Meter` (instrument creation o
 the application holds the `metrics.Collector`, which adds `Shutdown` / `ForceFlush`, and passes it or a `WithSubsystem` scope down. See
 [observability/metrics](../observability/metrics/README.md#meter-vs-collector).
 
-**39 subsystems, 238 metrics.**
+**40 subsystems, 243 metrics.**
 
 ---
 
@@ -473,6 +473,21 @@ to be scheduled (`statsSchedule`).
 `outbox_watch_notifications_total` only moves when a watcher is running (`Outbox.Watch` against a store that supports change notifications). A
 flat line while `outbox_events_saved_total` climbs means the watcher died or was never started and dispatch quietly fell back to the poll
 interval — correct, but at the latency the schedule dictates.
+
+---
+
+## postgres
+
+Emitted by [store/postgres](../store/postgres) under the `postgres` subsystem. The `pool` label is a configured pool name, defaulting to
+`foreground`. Gauges sample database/sql statistics at open, every second and at close. Counters accumulate changes since the previous sample.
+
+| Metric | Type | Labels | Description |
+| --- | --- | --- | --- |
+| `postgres_open_connections` | Gauge | `pool` | Total open connections |
+| `postgres_in_use_connections` | Gauge | `pool` | Connections in use |
+| `postgres_idle_connections` | Gauge | `pool` | Idle connections |
+| `postgres_wait_total` | Counter | `pool` | Waits for a connection |
+| `postgres_wait_seconds_total` | Counter | `pool` | Cumulative seconds spent waiting |
 
 ---
 

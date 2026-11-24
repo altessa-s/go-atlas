@@ -1,0 +1,87 @@
+# PostgreSQL connection pools, timeouts and migrations.
+# All parameters are commented out by default (template mode).
+
+#postgres:
+#  # <string> PostgreSQL URL or libpq connection string.
+#  # Default value: not set
+#  dsn: host=localhost dbname=atlas
+#
+#  # <string> Use direct for PostgreSQL or transaction for PgBouncer transaction pooling.
+#  # Default value: direct
+#  pooling: direct
+#
+#  # <int> Maximum number of connections in the primary pool.
+#  # Default value: 64
+#  maxOpenConnections: 64
+#
+#  # <int> Maximum idle connections in the primary pool. Zero disables retention.
+#  # Default value: 64
+#  maxIdleConnections: 64
+#
+#  # <duration> Maximum age of a pooled connection.
+#  # Default value: 30m
+#  connectionMaxLifetime: "30m"
+#
+#  # <duration> Maximum time a connection can remain idle.
+#  # Default value: 5m
+#  connectionMaxIdleTime: "5m"
+#
+#  # <duration> Time budget for establishing a connection.
+#  # Default value: 5s
+#  connectTimeout: "5s"
+#
+#  # <duration> Server-side statement timeout.
+#  # Default value: 10s
+#  statementTimeout: "10s"
+#
+#  # <duration> Server-side lock acquisition timeout.
+#  # Default value: 3s
+#  lockTimeout: "3s"
+#
+#  # <duration> Maximum idle time in an open transaction.
+#  # Default value: 30s
+#  idleTransactionTimeout: "30s"
+#
+#  # <duration> Application budget for list queries.
+#  # Default value: 3s
+#  listingTimeout: "3s"
+#
+#  # <duration> Budget for an exact count. Zero disables probing.
+#  # Default value: 50ms
+#  countBudget: "50ms"
+#
+#  # <bool> Apply the migrations supplied to the pool builder at startup.
+#  # Default value: false
+#  migrations: false
+#
+#  # <duration> Time budget for migrations, including lock acquisition.
+#  # Default value: 30s
+#  migrationTimeout: "30s"
+#
+#  # <map[string]object> Additional named pools connected to the same logical database.
+#  # Default value: not set
+#  pools:
+#    worker:
+#      # <string> Alternate database endpoint. Omit to use the primary DSN.
+#      # Default value: not set
+#      dsn: host=localhost dbname=atlas
+#
+#      # <string> Override the primary pooling mode.
+#      # Default value: not set
+#      pooling: direct
+#
+#      # <int> Required connection reservation for this pool.
+#      # Default value: not set
+#      maxOpenConnections: 4
+#
+#      # <int> Idle connection limit. Omit to inherit the bounded primary limit.
+#      # Default value: not set
+#      maxIdleConnections: 2
+#
+#      # <duration> Override the primary lock timeout.
+#      # Default value: not set
+#      lockTimeout: "2s"
+#
+#      # <duration> Override the primary statement timeout.
+#      # Default value: not set
+#      statementTimeout: "6s"

@@ -41,6 +41,7 @@ import (
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
 	pluginsconfig "github.com/altessa-s/go-atlas/config/plugins"
+	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
@@ -92,6 +93,7 @@ var templateCases = map[string][]templateRoot{
 	"auth_oidc.yaml":                         {root[authconfig.OIDC]("oidc")},
 	"auth_scope.yaml":                        {root[authconfig.ScopeRegistry]("scope")},
 	"broker.yaml":                            {root[brokerconfig.Config]("broker")},
+	"postgres.yaml":                          {root[postgresconfig.Config]("postgres")},
 	"cache_storage.yaml":                     {root[storageconfig.CacheStorageConfig]("storage")},
 	"storage_backend.yaml":                   {root[storageconfig.BackendConfig]("storage")},
 	"idempotency_storage.yaml":               {root[idempotencyconfig.StorageConfig]("storage")},

@@ -111,6 +111,8 @@ var sdkModules = []targetModule{
 var driverBases = []targetModule{
 	{root: "mapping/behavior/translators/mongo", deps: []string{"mapping", "internal/bsontag", "internal/bsonfield"}},
 	{root: "store/mongo", deps: []string{"core", "observability", "internal/memcleanup", "mapping/behavior/translators/mongo"}},
+	{root: "store/postgres", deps: []string{"core", "observability", "internal/sqldialect"}},
+	{root: "factory/store/postgres", deps: []string{"store/postgres", "factory"}},
 	{root: "factory/store/mongo", deps: []string{"store/mongo", "factory"}},
 	{root: "store/meilisearch", deps: []string{"core"}},
 	{root: "internal/redis", deps: []string{"core"}},
@@ -301,6 +303,7 @@ func (p *modulePlan) isDriverModule(root string) bool {
 // driverLibraries are the third-party driver and heavy SDK libraries only
 // driver modules import.
 var driverLibraries = []string{
+	"github.com/jackc/pgx",
 	"go.mongodb.org/mongo-driver",
 	"github.com/redis/go-redis",
 	"github.com/nats-io/nats.go",

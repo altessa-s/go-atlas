@@ -1,9 +1,5 @@
 // Integration suite for github.com/altessa-s/go-atlas.
-//
-// A separate module so the SQL drivers it needs to exercise the SQL
-// storages — pgx, go-sql-driver/mysql — stay out of the toolkit's own
-// dependency graph. Consumers of go-atlas never resolve them. clickhouse-go
-// is a root dependency of the ClickHouse audit storage.
+// The MySQL driver is a test-only dependency.
 module github.com/altessa-s/go-atlas/tests/integration
 
 go 1.27.0

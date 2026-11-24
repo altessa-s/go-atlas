@@ -68,7 +68,8 @@ services:
       retries: 30
 
   postgres:
-    image: postgres:16
+    image: postgres:17-alpine
+    command: ["postgres", "-c", "statement_timeout=30s", "-c", "lock_timeout=10s", "-c", "idle_in_transaction_session_timeout=30s"]
     ports:
       - "15432:5432"
     environment:
@@ -77,6 +78,23 @@ services:
       POSTGRES_DB: atlas
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U atlas -d atlas"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  pgbouncer:
+    image: ghcr.io/cloudnative-pg/pgbouncer:1.24.1
+    entrypoint: ["/usr/sbin/pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    ports:
+      - "16432:6432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432", "-U", "atlas", "-d", "atlas"]
       interval: 5s
       timeout: 5s
       retries: 30

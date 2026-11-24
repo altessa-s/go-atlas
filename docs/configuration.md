@@ -321,8 +321,8 @@ When enabled via `WithStrict()`, the loader returns errors instead of silently i
 ## SQL backends
 
 Every durable capability can keep its state in PostgreSQL, MySQL or MariaDB: select `type: sqldb` (dlock: `provider: sqldb`) and fill the `sqldb`
-block. The factory builds the store over a `*sql.DB` the application injects with `UseSQLDB`; the toolkit imports no SQL driver, so the application
-chooses and registers one (`pgx`, `lib/pq`, `go-sql-driver/mysql`).
+block. The factory builds the store over a `*sql.DB` the application injects with `UseSQLDB`; the application
+chooses and registers the driver. The optional [PostgreSQL configuration](../config/postgres) describes pgx pools, reservations and migrations.
 
 | Capability  | Schema                     | Store                                                                                 | `sqldb` keys besides `dialect` and `ensureSchema`                         |
 |-------------|----------------------------|---------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
@@ -363,7 +363,7 @@ The `config/templates` package provides 30+ pre-built YAML templates for common 
 | Transport      | `http.yaml`, `grpc.yaml`, `broker.yaml` + middleware/interceptor dirs                         |
 | Proxy          | `http_proxy.yaml`, `grpc_proxy.yaml` (reusable via `!include`)                                |
 | HTTP egress    | `http_client_ssrf.yaml` (reusable via `!include`)                                            |
-| Data           | `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`, `storage_backend.yaml`         |
+| Data           | `postgres.yaml`, `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`, `storage_backend.yaml`         |
 | Security       | `auth.yaml`, `auth_oidc.yaml`, `opa.yaml`, `vault.yaml`, `secrets.yaml`, `tls-*.yaml`         |
 | Observability  | `observability.yaml`, `health.yaml`, `logger.yaml` (pprof is configured in `http.yaml`)       |
 | Services       | `scheduler.yaml`, `probabilistic_filter.yaml`, `idempotency.yaml`, `idempotency_storage.yaml` |
