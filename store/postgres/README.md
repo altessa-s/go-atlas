@@ -59,7 +59,8 @@ return postgres.WithTransaction(ctx, db, func(ctx context.Context) error {
 })
 ```
 
-Call `UseSQLPool(pools.Binding(name))` on the subsystem factory. Standalone operations use the named pool, and operations in a transaction use
+Use `UseSQLDB` for distributed locks. For stores that enlist, call `UseSQLPool(pools.Binding(name))` on the subsystem factory.
+Only outbox saves enlist. Standalone operations use the named pool, and operations in a transaction use
 the caller’s connection from any pool in the group. Configure one group per logical database. When constructing a store directly, pass its
 `WithTxResolver(postgres.Tx)` option for stores that use that same logical database. With a plain `UseSQLDB` injection, attach the transaction to each outbox save with the outbox SQL store’s `WithTx` helper. A transaction belongs to one call. Its owner commits on
 success and rolls back on error or panic. Nested `WithTransaction` and `WithSnapshot` join the outer transaction and inherit its isolation and
@@ -98,7 +99,8 @@ different lock key, finish its startup migrations before enabling the new runner
 3. Replace the local transaction, savepoint, snapshot, commit-hook and settings helpers with their same-named functions here. Pass
    `postgres.Querier(db)` to repositories constructed once, or `postgres.Queryer(ctx, db)` when constructing a query object per call.
    For example, a client that uses sqlc with `database/sql` can call `queries := generated.New(postgres.Querier(db))`.
-4. Pass `pools.Binding(name)` to each subsystem builder’s `UseSQLPool`, or inject `WithTxResolver(postgres.Tx)` directly. Remove per-call outbox transaction attachment.
+4. Pass `pools.Binding(name)` to builders that support `UseSQLPool`, or inject `WithTxResolver(postgres.Tx)` directly.
+   Remove per-call outbox transaction attachment.
    Use `Classify` or `UniqueViolation` to map constraints to application errors. Column encryption, domain error policy and listing logic stay
    with the application.
 

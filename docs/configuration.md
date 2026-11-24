@@ -344,8 +344,9 @@ The SQL stores share one set of rules:
   skewed clocks agree on what is due. The others take the caller's time: the audit retention cutoff (the store's clock), saga recovery (the `now`
   the orchestrator passes) and the retry queue, whose instants all come from the caller (`ListDue`, `WakeDue` and `Requeue` take a `now`); only
   its `PurgeExpired` reads the database clock.
-- **Transactions.** Audit, lock, saga, outbox, idempotency and retry queue accept `WithTxResolver` for per-call enlistment. The outbox, idempotency
-  and retry queue also support their existing `WithTx(ctx, tx)` helpers. Schema initialization uses the pool.
+- **Transactions.** Audit, saga, outbox, idempotency and retry queue accept `WithTxResolver` for per-call enlistment. The outbox, idempotency
+  and retry queue also support their existing `WithTx(ctx, tx)` helpers. Only outbox saves enlist. Lock operations and schema
+  initialization use the pool.
 - **Purging.** Audit, lock, idempotency and retry-queue stores delete what their retention expired with `PurgeExpired(ctx)`, in batches of
   `purgeBatchSize` (default 1000), and in the background every `purgeInterval` (default `1m`; `"0s"` disables the loop) once retention is set. The
   loop starts on the first write and stops with the store's `Close`, which the factories register as a shutdown hook.
