@@ -92,7 +92,7 @@ services:
       - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
       - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
     ports:
-      - "16432:6432"
+      - "127.0.0.1:16432:6432"
     healthcheck:
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432", "-U", "atlas", "-d", "atlas"]
       interval: 5s

@@ -404,7 +404,7 @@ The `postgresit` suite exercises PostgreSQL 17 directly on port 15432 and PgBoun
 Start both with `docker compose -f tests/integration/docker-compose.yml up -d --wait postgres pgbouncer`. Run
 `go test -C tests/integration -race -count=1 ./postgresit`. Override the endpoints with `POSTGRES_DSN` and `PGBOUNCER_DSN`.
 When running `outboxit` with `POSTGRES_DSN` pointing to PgBouncer, set `POSTGRES_CONTROL_DSN` to a direct connection to the same database.
-The server-termination test and LISTEN consumers need a session-affine endpoint.
+LISTEN consumers need a session-affine endpoint. The connection-loss test closes its own client socket.
 
 Run the six subsystem suites with `POSTGRES_DSN` set to the endpoint under test. For example, with the compose services running:
 

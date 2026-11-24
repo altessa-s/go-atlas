@@ -7,29 +7,34 @@ package outboxit_test
 import (
 	"context"
 	"crypto/tls"
+	"database/sql/driver"
 	"net"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 )
 
-// Backend termination runs before parallel scenarios can borrow the victim's
-// backend through a transaction pooler.
 func TestPostgresConnectionLoss(t *testing.T) {
+	t.Parallel()
 	spec := sqlSpecs()[0]
 	f := newSQLFixture(t, spec)
 	cfg, err := pgx.ParseConfig(spec.DSN())
 	require.NoError(t, err)
-	db := stdlib.OpenDB(*cfg, stdlib.OptionShouldPing(func(_ context.Context, p stdlib.ShouldPingParams) bool {
-		return p.IdleDuration > 0
-	}))
+	var current atomic.Pointer[pgx.Conn]
+	db := stdlib.OpenDB(*cfg,
+		stdlib.OptionShouldPing(func(context.Context, stdlib.ShouldPingParams) bool { return true }),
+		stdlib.OptionAfterConnect(func(_ context.Context, session *pgx.Conn) error {
+			current.Store(session)
+			return nil
+		}),
+	)
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	store, err := outboxsql.New(db, spec.dialect, outboxsql.WithTableName(f.sql.events))
@@ -37,37 +42,20 @@ func TestPostgresConnectionLoss(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	// A direct control session cannot be assigned the backend it is terminating.
-	controlConfig, err := pgx.ParseConfig(directDSN(spec))
-	require.NoError(t, err)
-	control := stdlib.OpenDB(*controlConfig)
-	t.Cleanup(func() { _ = control.Close() })
-
-	killBackend := func(pid int) {
-		var killed bool
-		require.NoError(t, control.QueryRowContext(ctx, "SELECT pg_terminate_backend($1)", pid).Scan(&killed))
-		require.True(t, killed)
-		require.EventuallyWithT(t, func(check *assert.CollectT) {
-			var gone bool
-			require.NoError(check, control.QueryRowContext(ctx, "SELECT NOT EXISTS (SELECT FROM pg_stat_activity WHERE pid = $1)", pid).Scan(&gone))
-			require.True(check, gone)
-		}, 5*time.Second, 10*time.Millisecond)
-	}
-	var before, after int
-	require.NoError(t, db.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&before))
-	killBackend(before)
+	// Close only this client's socket. A transaction pooler can immediately
+	// assign the server PID from a completed query to a different client.
+	require.NoError(t, db.PingContext(ctx))
+	before := current.Load()
+	require.NoError(t, before.PgConn().Conn().Close())
 	stats, err := store.Stats(ctx)
 	require.NoError(t, err)
 	require.Zero(t, stats.Pending)
-	require.NoError(t, db.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&after))
-	require.NotEqual(t, before, after)
+	require.NotSame(t, before, current.Load())
 
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
-	var txPID int
-	require.NoError(t, tx.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&txPID))
-	killBackend(txPID)
+	require.NoError(t, current.Load().PgConn().Conn().Close())
 	err = store.SaveEvents(outboxsql.WithTx(ctx, tx), event("lost transaction", "body"))
 	require.Error(t, err)
 	require.Error(t, tx.Commit())
@@ -97,6 +85,8 @@ func TestPostgresRetryBeforeSend(t *testing.T) {
 	require.NoError(t, err)
 	var current atomic.Pointer[dropWriteConn]
 	var connections atomic.Int32
+	cfg.DefaultQueryExecMode = pgx.QueryExecModeCacheStatement
+	cfg.StatementCacheCapacity = 16
 	dial := cfg.DialFunc
 	cfg.DialFunc = func(ctx context.Context, network, address string) (net.Conn, error) {
 		conn, err := dial(ctx, network, address)
@@ -124,14 +114,25 @@ func TestPostgresRetryBeforeSend(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	// Warm the statement cache so the failure occurs in the stdlib first-row preload.
+	// First verify that the same failure on plain database/sql reaches the
+	// caller from pgx's first-row preload, bypassing its ErrBadConn retry.
+	const query = "SELECT $1::integer"
+	var value int
+	require.NoError(t, db.QueryRowContext(ctx, query, 1).Scan(&value))
+	current.Load().drop.Store(true)
+	err = db.QueryRowContext(ctx, query, 1).Scan(&value)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, driver.ErrBadConn)
+	require.True(t, pgconn.SafeToRetry(err))
+
+	// Warm the store's query on the replacement, then inject the same fault.
 	_, err = store.Stats(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, 1, connections.Load())
+	warm := connections.Load()
 	current.Load().drop.Store(true)
 	_, err = store.Stats(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, connections.Load())
+	require.Equal(t, warm+1, connections.Load())
 
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -140,6 +141,6 @@ func TestPostgresRetryBeforeSend(t *testing.T) {
 	err = store.SaveEvents(outboxsql.WithTx(ctx, tx), event("failed before send", "body"))
 	require.Error(t, err)
 	require.Error(t, tx.Commit())
-	require.EqualValues(t, 2, connections.Load())
+	require.Equal(t, warm+1, connections.Load())
 	require.Zero(t, f.sql.count(t, f.sql.events))
 }

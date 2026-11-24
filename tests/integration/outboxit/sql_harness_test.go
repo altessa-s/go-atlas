@@ -241,5 +241,5 @@ func (b *sqlBackend) loadAll(tb testing.TB) []storedEvent {
 	return out
 }
 
-// directDSN selects a session-affine endpoint for LISTEN and backend termination.
+// directDSN selects a session-affine endpoint for LISTEN.
 func directDSN(s sqlSpec) string { return cmp.Or(os.Getenv("POSTGRES_CONTROL_DSN"), s.DSN()) }

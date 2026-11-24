@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/reliability/outbox"
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 	"github.com/altessa-s/go-atlas/reliability/saga"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
@@ -24,6 +25,7 @@ import (
 	auditsql "github.com/altessa-s/go-atlas/audit/storages/sqldb"
 	locksql "github.com/altessa-s/go-atlas/coord/dlock/providers/sqldb"
 	idemsql "github.com/altessa-s/go-atlas/reliability/idempotency/storages/sqldb"
+	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
 	retrysql "github.com/altessa-s/go-atlas/reliability/retryqueue/storages/sqldb"
 	sagasql "github.com/altessa-s/go-atlas/reliability/saga/storages/sqldb"
 )
@@ -43,7 +45,10 @@ func TestStoreRollback(t *testing.T) {
 		tx, ok := ctx.Value(transactionKey{}).(*sql.Tx)
 		return tx, ok
 	}
-	count := func(t *testing.T, ctx context.Context, db *sql.DB, table string) int {
+	type querier interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	}
+	count := func(t *testing.T, ctx context.Context, db querier, table string) int {
 		t.Helper()
 		var n int
 		require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n))
@@ -68,10 +73,14 @@ func TestStoreRollback(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, retry.EnsureSchema(ctx))
 	t.Cleanup(func() { require.NoError(t, retry.Close(context.Background())) })
+	events, err := outboxsql.New(db, outboxsql.DialectPostgres, outboxsql.WithTxResolver(resolve), outboxsql.WithTableName(schema+".events"))
+	require.NoError(t, err)
+	require.NoError(t, events.EnsureSchema(ctx))
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
 	txCtx := context.WithValue(ctx, transactionKey{}, tx)
+	require.NoError(t, events.SaveEvents(txCtx, outbox.Event{Id: "one", Key: "order.created", Payload: []byte("payload"), Status: outbox.StatusPending}))
 	_, err = retry.Mark(txCtx, retryqueue.Item[string]{Key: "one", Generation: 1, Payload: "retry"})
 	require.NoError(t, err)
 	acquired, _, _, err := idem.AttemptLock(txCtx, "once", []byte("holder"))
@@ -89,11 +98,13 @@ func TestStoreRollback(t *testing.T) {
 	_, err = lock.GetLockInfo(txCtx)
 	require.NoError(t, err)
 	require.NoError(t, lock.Release(txCtx))
-	for _, table := range []string{"sagas", "audit", "locks", "keys", "retries"} {
+	tables := map[string]int{"sagas": 1, "audit": 2, "locks": 1, "keys": 1, "retries": 1, "events": 1}
+	for table, want := range tables {
+		require.Equal(t, want, count(t, txCtx, tx, schema+"."+table), table)
 		require.Zero(t, count(t, ctx, db, schema+"."+table))
 	}
 	require.NoError(t, tx.Rollback())
-	for _, table := range []string{"sagas", "audit", "locks", "keys", "retries"} {
+	for table := range tables {
 		require.Zero(t, count(t, ctx, db, schema+"."+table))
 	}
 }

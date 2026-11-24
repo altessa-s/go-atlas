@@ -11,8 +11,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -77,7 +79,7 @@ func TestPools(t *testing.T) {
 			err = probe.PingContext(probeCtx)
 			cancel()
 			_ = probe.Close()
-			if err != nil && os.Getenv(tc.env) == "" {
+			if skipEndpoint(err, os.Getenv(tc.env)) {
 				t.Skip("compose endpoint unavailable")
 			}
 			require.NoError(t, err)
@@ -366,4 +368,18 @@ func testMigrationLockWait(t *testing.T, db *sql.DB, schema string, source fstes
 	require.NoError(t, lock.Commit())
 	require.NoError(t, <-done)
 	require.Equal(t, 1, count(t, ctx, db, schema+".schema_migrations"))
+}
+
+func skipEndpoint(err error, configuredDSN string) bool {
+	dial, ok := errors.AsType[*net.OpError](err)
+	return configuredDSN == "" && ok && dial.Op == "dial" &&
+		(errors.Is(dial.Err, syscall.ECONNREFUSED) || errors.Is(dial.Err, os.ErrPermission) || dial.Timeout())
+}
+
+func TestSkipEndpoint(t *testing.T) {
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
+	require.True(t, skipEndpoint(fmt.Errorf("connect: %w", refused), ""))
+	require.False(t, skipEndpoint(refused, "explicit"))
+	require.False(t, skipEndpoint(errors.New("authentication failed"), ""))
+	require.False(t, skipEndpoint(nil, ""))
 }
