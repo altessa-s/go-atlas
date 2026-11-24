@@ -59,9 +59,15 @@
 #      authz.rego: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 #
 #    # <object> Outbound HTTP proxy for GitLab API requests.
-#    # When unset the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env variables apply.
+#    # With SSRF protection enabled, empty/none modes connect directly.
+#    # The factory rejects explicit url/host modes.
 #    # See http_proxy.yaml for the full field list.
 #    !include http_proxy.yaml
+#
+#    # <object> SSRF policy for GitLab API requests.
+#    # Protection is enabled by default. Use allowedCIDRs or allow rules for
+#    # a private GitLab server. See http_client_ssrf.yaml for the full field list.
+#    !include http_client_ssrf.yaml
 #
 #  # <object> S3-specific configuration for loading policies from an S3-compatible bucket.
 #  # Required when source is "s3".
@@ -111,10 +117,16 @@
 #      authz.rego: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 #
 #    # <object> Outbound HTTP proxy for S3 API requests.
-#    # When unset the AWS SDK's default transport applies (which already
-#    # honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars).
+#    # An empty mode and an omitted ssrf block select the AWS SDK transport,
+#    # which honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars.
 #    # See http_proxy.yaml for the full field list.
 #    !include http_proxy.yaml
+#
+#    # <object> SSRF policy for S3 API requests.
+#    # Setting this block selects the Atlas HTTP client with protection enabled
+#    # by default. Use allowedCIDRs or allow rules for a private S3 endpoint.
+#    # See http_client_ssrf.yaml for the full field list.
+#    !include http_client_ssrf.yaml
 #
 #  # <string> Rego query to evaluate for authorization decisions.
 #  # The query determines what policy rule to evaluate.

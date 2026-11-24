@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
@@ -116,6 +117,17 @@ func TestManagerOptions_MapsScheduler(t *testing.T) {
 
 	require.Equal(t, withoutScheduler+2, withScheduler,
 		"a scheduler must contribute both WithScheduler and WithUpdateSchedule")
+}
+
+func TestManagerOptions_MapsMeter(t *testing.T) {
+	t.Parallel()
+
+	cfg := filesystemConfig(t)
+
+	withoutMeter := len(New(cfg).managerOptions())
+	withMeter := len(New(cfg).UseMeter(metrics.Noop()).managerOptions())
+
+	require.Equal(t, withoutMeter+1, withMeter, "a meter must reach the manager through WithMeter")
 }
 
 // A schedule without a scheduler has nothing to run it, so it must not look

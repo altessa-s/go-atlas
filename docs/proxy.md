@@ -147,12 +147,16 @@ opa:
     projectID: 42
     # Outbound HTTP proxy for GitLab API requests.
     !include http_proxy.yaml
+    # SSRF policy for GitLab API requests.
+    !include http_client_ssrf.yaml
 
   s3:
     bucket: my-policies-bucket
     region: us-east-1
     # Outbound HTTP proxy for S3 API requests.
     !include http_proxy.yaml
+    # SSRF policy for S3 API requests.
+    !include http_client_ssrf.yaml
 ```
 
 With no override, protected Atlas clients connect directly; gRPC and the default AWS SDK client retain their environment behavior.
@@ -282,8 +286,7 @@ custom dialer hook accepts a `DialContextFunc` produced by `proxydial`.
 
 ## Wiring patterns
 
-Every consumer that supports proxy configuration follows the same pattern: materialize the config via `proxyfactory.HTTPClientOptions(cfg.Proxy)` /
-`GRPCClientOptions(cfg.Proxy)` (package `factory/ext/net/proxydial`) and pass the options to the target client's constructor.
+Factories translate proxy settings into client options through `httpclientfactory.ProxyOptions` for HTTP or `proxyfactory.GRPCClientOptions` for gRPC.
 
 ### OIDC
 
@@ -292,17 +295,22 @@ The factory rejects explicit proxy modes before the wiring below; only empty/`no
 `factory/auth/oidc/builder.go`:
 
 ```go
-proxyOpts, err := proxyfactory.HTTPClientOptions(cfg.Proxy)
+clientOpts, err := httpclientfactory.ProxyOptions(cfg.Proxy)
 if err != nil {
     return nil, b.WrapError(err, "failed to materialize oidc proxy options")
 }
-opts = append(opts, oidc.WithHTTPClient(httpclient.New(proxyOpts...)))
+ssrfOpts, err := httpclientfactory.SSRFOptions(cfg.SSRF)
+if err != nil {
+    return nil, b.WrapError(err, "failed to materialize oidc SSRF options")
+}
+clientOpts = append(clientOpts, ssrfOpts...)
+opts = append(opts, oidc.WithHTTPClient(httpclient.New(clientOpts...)), oidc.WithOwnedHTTPClient())
 ```
 
 The Provider's HTTP client is shared with a revocation loader passed via `oidc.WithRevocationLoader` that implements
 `SetHTTPClient(*http.Client)`, so discovery, JWKS refresh, introspection, userinfo, and URL-based revocation use the same connection pool and
-proxy. The same client also reaches a loader wrapped in a ready-made storage (`WithRevocationStorage`), which is how the YAML factory wires a
-`revocation.source.url` — see [OIDC revocation](auth/oidc.md#revocation).
+outbound policy. The same client also reaches a loader wrapped in a ready-made storage (`WithRevocationStorage`), which is how the YAML factory wires a
+`revocation.source.url`. See [OIDC revocation](auth/oidc.md#revocation).
 
 ### OPA — GitLab source
 
@@ -311,29 +319,37 @@ Explicit proxy modes are rejected before this wiring.
 `factory/auth/opa/builder.go`:
 
 ```go
-proxyOpts, err := proxyfactory.HTTPClientOptions(gl.Proxy)
+proxyOpts, err := httpclientfactory.ProxyOptions(gl.Proxy)
 if err != nil {
     return nil, b.WrapError(err, "failed to materialize gitlab proxy options")
 }
+ssrfOpts, err := httpclientfactory.SSRFOptions(gl.SSRF)
+if err != nil {
+    return nil, b.WrapError(err, "failed to materialize gitlab SSRF options")
+}
 clientOpts := append([]httpclient.Option{httpclient.WithLogger(b.Logger())}, proxyOpts...)
+clientOpts = append(clientOpts, ssrfOpts...)
 opts = append(opts, gitlab.WithHTTPClient(httpclient.New(clientOpts...)))
 ```
 
 ### OPA — S3 source
 
-S3 is the one consumer that **conditionally injects** the resilient HTTP client — only for explicit mode `none`; modes `url` and `host` are rejected.
-Without an override the
-AWS SDK keeps its own HTTP client (which already honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) and its own retry layer, avoiding double-retry with
-go-atlas's breaker:
+The factory injects the Atlas HTTP client for S3 when `proxy.mode: none` or an `ssrf` block is set. With neither setting, the AWS SDK uses its own
+HTTP client and retry layer and honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. An injected S3 client takes precedence over both settings.
 
 ```go
-proxyOpts, err := proxyfactory.HTTPClientOptions(s3Cfg.Proxy)
+clientOpts, err := httpclientfactory.ProxyOptions(s3Cfg.Proxy)
 if err != nil {
     return nil, b.WrapError(err, "failed to materialize s3 proxy options")
 }
-awsCfgOpts = slices.AppendIfFunc(awsCfgOpts, len(proxyOpts) > 0, func() []func(*awsconfig.LoadOptions) error {
-    return []func(*awsconfig.LoadOptions) error{awsconfig.WithHTTPClient(httpclient.New(proxyOpts...))}
-})
+ssrfOpts, err := httpclientfactory.SSRFOptions(s3Cfg.SSRF)
+if err != nil {
+    return nil, b.WrapError(err, "failed to materialize s3 SSRF options")
+}
+if len(clientOpts) > 0 || s3Cfg.SSRF != nil {
+    clientOpts = append(clientOpts, ssrfOpts...)
+    awsCfgOpts = append(awsCfgOpts, awsconfig.WithHTTPClient(httpclient.New(clientOpts...)))
+}
 ```
 
 ### OTLP — gRPC and HTTP exporters
@@ -416,7 +432,8 @@ httpclient.New(httpclient.WithoutSSRFProtection(), httpclient.WithProxyURL(corpo
 
 OIDC and OPA factories return `ErrSSRFUnsafeTransport` for explicit proxy modes `url` and `host`.
 Construct providers/sources directly with an explicitly configured client when this opt-out is needed.
-OPA S3 retains the AWS SDK client when no proxy mode is configured; that client has its own environment proxy behavior.
+For private endpoints, configure `oidc.ssrf`, `opa.gitlab.ssrf`, or `opa.s3.ssrf`. The `allowedCIDRs` list and `allow` rules keep protection enabled
+while exempting known destinations. See the [SSRF configuration template](../config/templates/http_client_ssrf.yaml).
 
 ---
 
@@ -449,9 +466,6 @@ URL. The `host` / `port` / `auth` form with `password: $__secret{...}` keeps the
 
 ## Known limitations
 
-- **OPA — S3**: the AWS SDK has its own retry layer, so go-atlas's resilient
-  client is injected only for explicit mode `none`; modes `url` and `host` are rejected.
-  Inject a separately constructed S3 client for custom HTTP behavior.
 - **Client-side DNS for SOCKS5**: not available — see
   [SOCKS5 vs SOCKS5h](#socks5-vs-socks5h).
 
@@ -459,6 +473,7 @@ URL. The `host` / `port` / `auth` form with `password: $__secret{...}` keeps the
 
 - [Configuration guide](configuration.md) — loader, env vars, templates
 - [Architecture](architecture.md) — package layout, layering
-- [OIDC](auth/oidc.md) — `oidc.proxy` field, JWKS / introspection clients
+- [OIDC](auth/oidc.md) — `oidc.proxy` and `oidc.ssrf` for discovery, JWKS, and introspection
+- [OPA](auth/opa.md#factory) — `proxy` and `ssrf` blocks for GitLab and S3
 - `net/http/client` — HTTP client API reference
 - `transport/grpc/client` — gRPC client API reference

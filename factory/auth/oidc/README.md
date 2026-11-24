@@ -45,11 +45,18 @@ provider, err := factory.New(cfg.OIDC).
 |------------------------------|--------------------------------------------------------------------------------------------|
 | `UseLogger`                  | Sets the logger for the builder and all created components                                 |
 | `UseDefaultLogger`           | Uses `slog.Default()` as the logger                                                        |
+| `UseMeter`                   | Records provider metrics through `oidc.WithMeter` under the `auth_oidc` subsystem          |
 | `UseTokenCache`              | Sets the cache for validated token caching                                                 |
 | `UseRevocationBloomStorage`  | Registers the probfilter `BloomStorageFunc` of a revocation filter storage type (`redis`)  |
 | `UseRevocationCuckooStorage` | Registers the probfilter `CuckooStorageFunc` of a revocation filter storage type (`redis`) |
 | `UseRevocationStorage`       | Sets a custom revocation storage, bypassing auto-creation                                  |
 | `UseRevocationAuthoritative` | Sets the exact store that confirms probabilistic filter hits                               |
+
+With a meter configured, `Build` records the duration of its OIDC discovery attempt.
+
+| Metric                       | Type      | Labels | Description                   |
+|------------------------------|-----------|--------|-------------------------------|
+| `discovery_duration_seconds` | Histogram | --     | Discovery duration in seconds |
 
 JWKS refresh (`jwks.refreshSchedule`) and revocation sync (`revocation.syncSchedule`) run on the provider's own process-local cron, on every replica;
 the builder needs no scheduler. The provider owns the revocation filter's rebuilds (the initial sync plus `syncSchedule`), so the filter is built
@@ -76,15 +83,18 @@ call `provider.Close()` on shutdown, for example from a `runtime.OnShutdown` hoo
 |---------|-----------------------------------------|
 | `Build` | Assembles and returns the OIDC provider |
 
-## Proxy wiring
+## Outbound HTTP policy
 
-`Build(ctx)` materializes `cfg.Proxy` (a [`proxyconfig.Config`](../../../config/proxy/proxy.go)) into `httpclient.Option` values via
-`proxyfactory.HTTPClientOptions(cfg.Proxy)`, builds the resilient client with `httpclient.New` and injects it through `oidc.WithHTTPClient(...)`. A
-nil/empty `Proxy` block keeps SSRF protection enabled and environment proxies disabled. See the [Proxy guide](../../../docs/proxy.md) for YAML modes and
-operator guidance.
+`Build(ctx)` translates `oidc.proxy` and `oidc.ssrf` into options for the HTTP client shared by discovery, JWKS, introspection, userinfo, and
+URL-based revocation. An omitted or empty `ssrf` block keeps protection enabled and the client connects directly.
 
-## Protected outbound clients
+```yaml
+oidc:
+  ssrf:
+    allowedCIDRs:
+      - 10.0.1.0/24
+```
 
-Factory-created Atlas HTTP clients use SSRF protection, disable environment proxies and reject explicit proxy modes `url` and `host` with
-`httpclient.ErrSSRFUnsafeTransport`. Mode `none` is supported. For a trusted proxy, construct the provider/source directly with an explicitly supplied
-client using `httpclient.WithoutSSRFProtection()`; enforce destination restrictions at the proxy.
+Use `allowedCIDRs` or `allow` rules to exempt a private identity provider. A matching `deny` rule takes precedence. Set `disabled: true` to turn
+protection off. Mode `none` always connects directly, and explicit proxy modes `url` and `host` return `httpclient.ErrSSRFUnsafeTransport`.
+See the [OIDC configuration guide](../../../docs/auth/oidc.md#ssrf-protection) and the [Proxy guide](../../../docs/proxy.md).

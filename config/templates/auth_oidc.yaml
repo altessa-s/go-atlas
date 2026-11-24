@@ -439,6 +439,12 @@
 #
 #  # <object> Outbound HTTP proxy for ALL OIDC API requests:
 #  # discovery, JWKS refresh, introspection, userinfo, and the URL-based
-#  # revocation loader. When unset the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY
-#  # env variables apply. See http_proxy.yaml for the full field list.
+#  # revocation loader. With SSRF protection enabled, empty/none modes connect
+#  # directly. The factory rejects explicit url/host modes.
+#  # See http_proxy.yaml for the full field list.
 #  !include http_proxy.yaml
+#
+#  # <object> SSRF policy for the shared OIDC HTTP client.
+#  # Protection is enabled by default. Use allowedCIDRs or allow rules for
+#  # a private identity provider. See http_client_ssrf.yaml for the full field list.
+#  !include http_client_ssrf.yaml

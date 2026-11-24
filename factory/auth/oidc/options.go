@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
 	probfilterfactory "github.com/altessa-s/go-atlas/factory/cache/probfilter"
@@ -23,6 +24,12 @@ func (b *ProviderBuilder) UseLogger(v *slog.Logger) *ProviderBuilder {
 // UseDefaultLogger sets the logger to [slog.Default].
 func (b *ProviderBuilder) UseDefaultLogger() *ProviderBuilder {
 	return b.UseLogger(slog.Default())
+}
+
+// UseMeter sets the meter used to record metrics for the OIDC provider.
+func (b *ProviderBuilder) UseMeter(v metrics.Meter) *ProviderBuilder {
+	b.meter = v
+	return b
 }
 
 // UseTokenCache sets the cache used for validated token caching.

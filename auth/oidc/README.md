@@ -80,7 +80,7 @@ introspection (RFC 7662), validation presets with matchers (native and CEL-based
 
 Each returns `""` when the IdP does not advertise the endpoint. In the default `enforce` discovery validation mode every advertised endpoint is HTTPS
 on the issuer's host, or plain http on a loopback issuer host with `WithDiscoveryAllowLoopbackHTTP`; `warn` only logs violations and `disabled` skips
-the check. The factory's SSRF-protected HTTP client may still refuse loopback addresses; a local IdP needs a client that allows them.
+the check. The factory defaults to blocking loopback addresses. Use `oidc.ssrf` to exempt the address of an HTTPS identity provider on loopback.
 
 ## Revocation accuracy
 
@@ -177,7 +177,8 @@ always chosen explicitly. [`factory`](../../factory/auth/oidc/) injects the resi
 same
 client (e.g. URL-based revocation loaders) opt in by implementing `SetHTTPClient(*http.Client)` — the Provider injects its own client at construction.
 
-For YAML-driven proxy configuration via `oidc.proxy`, see the [Proxy guide](../../docs/proxy.md).
+For YAML settings, see the [Proxy guide](../../docs/proxy.md) for `oidc.proxy` and the [OIDC configuration guide](../../docs/auth/oidc.md#ssrf-protection)
+for `oidc.ssrf`.
 
 ## Validation options
 

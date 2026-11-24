@@ -266,8 +266,10 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	discoveryCtx, cancelFunc := corectx.ApplyTimeout(ctx, discoveryTimeout)
 	defer cancelFunc()
 
-	var err error
-	if err = p.getDiscoveryInfo(discoveryCtx); err != nil {
+	stopDiscoveryTimer := p.metrics.discoveryDuration.Start()
+	err := p.getDiscoveryInfo(discoveryCtx)
+	stopDiscoveryTimer()
+	if err != nil {
 		return nil, err
 	}
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas/auth/oidc"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
@@ -37,6 +38,7 @@ type ProviderBuilder struct {
 	errs []error
 
 	// Dependencies (set via Use*).
+	meter                   metrics.Meter
 	bloomStorages           map[probfilterconfig.StorageType]probfilterfactory.BloomStorageFunc
 	cuckooStorages          map[probfilterconfig.StorageType]probfilterfactory.CuckooStorageFunc
 	tokenCache              oidc.Cacher
@@ -78,6 +80,9 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 
 	opts := make([]oidc.Option, 0, estimatedOptionsCount)
 	opts = append(opts, oidc.WithLogger(b.Logger()))
+	if b.meter != nil {
+		opts = append(opts, oidc.WithMeter(b.meter))
+	}
 
 	opts = slices.AppendIfFunc(opts, cfg.IsJWKSConfigured(), func() []oidc.Option {
 		return []oidc.Option{oidc.WithJwksHTTPTimeout(cfg.JWKS.HTTPTimeout)}
@@ -121,13 +126,18 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	if cfg.Proxy != nil && cfg.Proxy.Mode != "" && cfg.Proxy.Mode != netproxy.ModeNone {
 		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
 	}
-	proxyOpts, err := httpclientfactory.ProxyOptions(cfg.Proxy)
+	clientOpts, err := httpclientfactory.ProxyOptions(cfg.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize oidc proxy options")
 	}
+	ssrfOpts, err := httpclientfactory.SSRFOptions(cfg.SSRF)
+	if err != nil {
+		return nil, b.WrapError(err, "failed to materialize oidc SSRF options")
+	}
+	clientOpts = append(clientOpts, ssrfOpts...)
 	// The client is built for this provider alone, so the provider owns it
 	// and closes its idle connections on Close.
-	opts = append(opts, oidc.WithHTTPClient(httpclient.New(proxyOpts...)), oidc.WithOwnedHTTPClient())
+	opts = append(opts, oidc.WithHTTPClient(httpclient.New(clientOpts...)), oidc.WithOwnedHTTPClient())
 
 	opts = append(opts, b.buildRefreshOptions()...)
 

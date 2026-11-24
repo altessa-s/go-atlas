@@ -7,7 +7,7 @@ Components and factory builders receive a `metrics.Meter` (instrument creation o
 the application holds the `metrics.Collector`, which adds `Shutdown` / `ForceFlush`, and passes it or a `WithSubsystem` scope down. See
 [observability/metrics](../observability/metrics/README.md#meter-vs-collector).
 
-**39 subsystems, 237 metrics.**
+**39 subsystems, 238 metrics.**
 
 ---
 
@@ -397,6 +397,7 @@ Package: `auth/oidc`
 
 | Name                                      | Type      | Labels   | Description                                                           |
 |-------------------------------------------|-----------|----------|-----------------------------------------------------------------------|
+| `auth_oidc_discovery_duration_seconds`    | Histogram | --       | Discovery duration                                                    |
 | `auth_oidc_token_validations_total`       | Counter   | `issuer` | Token validation attempts                                             |
 | `auth_oidc_validation_errors_total`       | Counter   | `issuer` | Token validation errors                                               |
 | `auth_oidc_revocation_check_errors_total` | Counter   | --       | Token revocation check failures                                       |

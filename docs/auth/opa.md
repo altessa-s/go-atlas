@@ -165,7 +165,7 @@ empty query, or a policy set that fails to compile surfaces immediately rather t
 | Embed      | `sources/embed`      | `fs.FS` compiled into the binary | Immutable; revision is fixed at build time                                  |
 | Filesystem | `sources/filesystem` | Local directory                  | No `fsnotify`; changes are detected by the `Manager` poll loop or scheduler |
 | GitLab     | `sources/gitlab`     | Repository via GitLab API        | Network-backed; supports resilient HTTP client                              |
-| S3         | `sources/s3`         | S3-compatible object store       | Network-backed; AWS SDK transport, optional proxy                           |
+| S3         | `sources/s3`         | S3-compatible object store       | Network-backed; AWS SDK or Atlas HTTP client                               |
 
 Each source is a passive fetcher. The `Manager` drives polling at `pollInterval` (default 30s) when watching, or runs cycles on the
 scheduler when one is wired.
@@ -190,8 +190,8 @@ The GitLab and S3 sources reach external services and accept proxy / retry / bre
 [`net/http/client`](https://github.com/altessa-s/go-atlas-net/tree/develop/http/client):
 
 - **GitLab** receives a client via `gitlab.WithHTTPClient(...)`; the factory always injects the resilient client.
-- **S3** swaps the AWS SDK transport via `awsconfig.WithHTTPClient(httpclient.New(...))` only when `s3.proxy` is explicitly configured;
-  otherwise the SDK keeps its own transport and retry layer.
+- **S3** receives the resilient client when `s3.proxy.mode: none` or `s3.ssrf` is set. With both settings omitted, the AWS SDK handles HTTP
+  transport and retries.
 
 See the [Proxy guide](../proxy.md) for YAML modes and the [factory README](../../factory/auth/opa/) for wiring details.
 
@@ -315,14 +315,32 @@ deferred-error builder: every step accumulates errors and `Build(ctx)` returns t
 ```go
 manager, err := factory.New(cfg.OPA).
     UseLogger(logger).
+    UseMeter(meter).
     UseScheduler(scheduler).
     UseHealthCoordinator(hc).
     Build(ctx)
 ```
 
-`Build` also materializes each network source's proxy block into client options: GitLab always wires the resilient HTTP client; S3 injects
-a custom transport only when its proxy `Mode` is non-empty (otherwise the AWS SDK keeps its own retry layer). A nil/empty proxy block keeps
-env-based passthrough (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`).
+`Build` applies the selected source's `proxy` and `ssrf` blocks. Atlas clients have SSRF protection enabled by default and connect directly while
+protection is on. Mode `none` always connects directly, and the factory rejects explicit `url` and `host` modes.
+
+Configure `opa.gitlab.ssrf` or `opa.s3.ssrf` for private endpoints. The `allowedCIDRs` list and `allow` rules exempt trusted networks, a matching
+`deny` rule takes precedence, and `disabled: true` turns protection off. An empty `s3.ssrf` block selects the Atlas client with protection enabled.
+See the [SSRF configuration template](../../config/templates/http_client_ssrf.yaml) for all fields.
+
+```yaml
+opa:
+  gitlab:
+    ssrf:
+      allowedCIDRs:
+        - 10.0.2.0/24
+  s3:
+    ssrf:
+      allow:
+        - cidr: 10.0.3.0/24
+          host: s3.internal.example
+          port: 443
+```
 
 ## Configuration
 

@@ -22,6 +22,7 @@ const labelIssuer = "issuer"
 // When no [metrics.Meter] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type oidcMetrics struct {
+	discoveryDuration     metrics.Timer
 	tokenValidations      metrics.Counter
 	validationErrors      metrics.Counter
 	validationDuration    metrics.Timer
@@ -72,6 +73,10 @@ func newOIDCMetrics(c metrics.Meter) *oidcMetrics {
 	scoped := c.WithSubsystem(DefaultMetricsSubsystem)
 
 	return &oidcMetrics{
+		discoveryDuration: scoped.MustTimer(metrics.HistogramOpts{
+			Name: "discovery_duration_seconds",
+			Help: "Duration of OIDC discovery operations in seconds.",
+		}),
 		tokenValidations: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "token_validations_total",
 			Help:       "Total number of token validation attempts.",

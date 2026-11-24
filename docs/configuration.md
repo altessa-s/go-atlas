@@ -362,6 +362,7 @@ The `config/templates` package provides 30+ pre-built YAML templates for common 
 |----------------|-----------------------------------------------------------------------------------------------|
 | Transport      | `http.yaml`, `grpc.yaml`, `broker.yaml` + middleware/interceptor dirs                         |
 | Proxy          | `http_proxy.yaml`, `grpc_proxy.yaml` (reusable via `!include`)                                |
+| HTTP egress    | `http_client_ssrf.yaml` (reusable via `!include`)                                            |
 | Data           | `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`, `storage_backend.yaml`         |
 | Security       | `auth.yaml`, `auth_oidc.yaml`, `opa.yaml`, `vault.yaml`, `secrets.yaml`, `tls-*.yaml`         |
 | Observability  | `observability.yaml`, `health.yaml`, `logger.yaml` (pprof is configured in `http.yaml`)       |
@@ -372,3 +373,6 @@ The `config/templates` package provides 30+ pre-built YAML templates for common 
 
 `http_proxy.yaml` and `grpc_proxy.yaml` are shared across consumers (OIDC, OPA GitLab/S3 sources, OTLP tracing) via the `!include` directive. See the
 [Proxy guide](proxy.md) for modes, wiring, and TLS-to-proxy semantics.
+
+The OIDC and OPA GitLab/S3 templates include `http_client_ssrf.yaml` for their outbound HTTP policies. See the [OIDC guide](auth/oidc.md#ssrf-protection)
+and the [OPA guide](auth/opa.md#factory) for examples.

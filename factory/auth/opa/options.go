@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -23,6 +24,12 @@ func (b *ManagerBuilder) UseLogger(v *slog.Logger) *ManagerBuilder {
 // UseDefaultLogger sets the logger to [slog.Default].
 func (b *ManagerBuilder) UseDefaultLogger() *ManagerBuilder {
 	return b.UseLogger(slog.Default())
+}
+
+// UseMeter sets the meter the created manager records its metrics with.
+func (b *ManagerBuilder) UseMeter(v metrics.Meter) *ManagerBuilder {
+	b.meter = v
+	return b
 }
 
 // UseScheduler sets the task registrar used for periodic policy update cycles.
