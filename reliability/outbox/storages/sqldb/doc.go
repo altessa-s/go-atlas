@@ -29,6 +29,9 @@
 //	}
 //	return tx.Commit()
 //
+// [WithTxResolver] can supply the business transaction for saves. Claims, outcome updates
+// and sweeps use store-owned transactions and see committed events.
+//
 // # Server clock
 //
 // Every time-based predicate — retry backoff, lock expiry, retention,
@@ -52,7 +55,7 @@
 //
 // [WithKeyOrder] claims only the earliest undelivered seq per [outbox.Event.OrderKey],
 // falling back to [outbox.Event.Key] when it is empty. A pending, in-progress, or failed predecessor blocks its successors,
-// including during retry backoff. Every terminal status releases the key.
+// including during retry backoff. An in-progress event blocks its key at every sequence. Every terminal status releases the key.
 // Use this option on every dispatcher and serialize inserts for each key
 // when application revision order must match insertion order.
 //

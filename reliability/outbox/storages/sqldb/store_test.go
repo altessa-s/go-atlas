@@ -323,7 +323,7 @@ func TestClaimSQL(t *testing.T) {
 					opts = append(opts, sqldb.WithKeyOrder())
 					from += " AS candidate"
 					guard = " AND NOT EXISTS (SELECT 1 FROM " + tc.table + " AS earlier WHERE " +
-						tc.sameKey + " AND earlier.seq < candidate.seq AND earlier.status IN ('pending', 'in-progress', 'failed'))"
+						tc.sameKey + " AND earlier.status IN ('pending', 'in-progress', 'failed') AND (earlier.seq < candidate.seq OR earlier.status = 'in-progress'))"
 				}
 				db, fake := testhelpers.NewFakeSQL(t, readyRows(nil, 0))
 				store, err := sqldb.New(db, tc.dialect, opts...)
@@ -333,17 +333,56 @@ func TestClaimSQL(t *testing.T) {
 				calls := fake.Calls()
 				require.Len(t, calls, 2)
 				for i, status := range []outbox.Status{outbox.StatusPending, outbox.StatusFailed} {
-					query := "SELECT id, topic, COALESCE(order_key, topic), payload, attempts, error, " + tc.times + ", seq FROM " + from + " WHERE status = " + tc.status
+					cols := "id, topic, COALESCE(order_key, topic), payload, attempts, error, " + tc.times + ", seq"
+					backoff := ""
 					if status == outbox.StatusFailed {
-						query += " AND (next_attempt_at IS NULL OR next_attempt_at <= " + tc.now + ")"
+						backoff = " AND (next_attempt_at IS NULL OR next_attempt_at <= " + tc.now + ")"
 					}
-					query += " AND (expires_at IS NULL OR expires_at > " + tc.now + ")" + guard + " ORDER BY created_at, seq LIMIT " + tc.limit + " FOR UPDATE SKIP LOCKED"
+					unexpired := " AND (expires_at IS NULL OR expires_at > " + tc.now + ")"
+					scan := " FROM " + from + " WHERE status = " + tc.status + backoff + unexpired + guard + " ORDER BY created_at, seq LIMIT " + tc.limit
+					query := "SELECT " + cols + scan + " FOR UPDATE SKIP LOCKED"
+					if ordered && tc.dialect == sqldb.DialectMySQL {
+						query = "SELECT " + cols + " FROM (SELECT id AS head_id, status AS head_status" + scan +
+							") AS heads STRAIGHT_JOIN " + tc.table + " FORCE INDEX (PRIMARY) ON id = heads.head_id" +
+							" WHERE status = heads.head_status" + backoff + unexpired + " FOR UPDATE SKIP LOCKED"
+					}
 					require.Equal(t, query, calls[i].Query)
 					require.Equal(t, []any{string(status), int64(17)}, calls[i].Args)
 				}
 			})
 		}
 	}
+}
+
+func TestOrderedClaimAcrossStatusReads(t *testing.T) {
+	t.Parallel()
+	created := time.Now()
+	db, _ := testhelpers.NewFakeSQL(t, func(query string, args []any) testhelpers.FakeSQLReply {
+		if !strings.HasPrefix(query, "SELECT") {
+			return testhelpers.FakeSQLReply{Affected: 1}
+		}
+		if strings.HasPrefix(query, "SELECT candidate.id") {
+			require.ElementsMatch(t, []any{"high", "low"}, args)
+			require.Contains(t, query, "COALESCE((SELECT peer.status")
+			require.Contains(t, query, "peer.id = earlier.id FOR UPDATE SKIP LOCKED), 'in-progress') = 'in-progress'")
+			return testhelpers.FakeSQLReply{Columns: []string{"id"}, Rows: [][]driver.Value{{"low"}}}
+		}
+		// The lower sequence becomes visible only to the second SELECT.
+		id, seq, stamp := "high", int64(11), created
+		if args[0] == string(outbox.StatusFailed) {
+			id, seq, stamp = "low", 10, created.Add(time.Minute)
+		}
+		return testhelpers.FakeSQLReply{
+			Columns: []string{"id", "topic", "order_key", "payload", "attempts", "error", "c", "p", "l", "e", "seq"},
+			Rows:    [][]driver.Value{{[]byte(id), []byte("orders"), []byte("key"), nil, int64(0), nil, stamp, nil, nil, nil, seq}},
+		}
+	})
+	store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithKeyOrder())
+	require.NoError(t, err)
+	claimed, err := store.FetchUnprocessedEvents(t.Context(), 2)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	require.Equal(t, "low", claimed[0].Id)
 }
 
 func TestEnsureSchemaKeyOrder(t *testing.T) {
@@ -371,7 +410,10 @@ func TestAsynchronousCommitIsScopedToDispatch(t *testing.T) {
 	for _, d := range []sqldb.Dialect{sqldb.DialectPostgres, sqldb.DialectMySQL} {
 		t.Run(string(d), func(t *testing.T) {
 			db, fake := testhelpers.NewFakeSQL(t, readyRows(nil, 1))
-			store, err := sqldb.New(db, d, sqldb.WithAsynchronousCommit())
+			var business *sql.Tx
+			store, err := sqldb.New(db, d, sqldb.WithAsynchronousCommit(), sqldb.WithTxResolver(func(context.Context) (*sql.Tx, bool) {
+				return business, business != nil
+			}))
 			require.NoError(t, err)
 			tx, err := db.BeginTx(ctx, nil)
 			require.NoError(t, err)
@@ -383,12 +425,18 @@ func TestAsynchronousCommitIsScopedToDispatch(t *testing.T) {
 				require.True(t, strings.HasPrefix(c.Query, "INSERT INTO"), c.Query)
 			}
 
+			business, err = db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer func() { _ = business.Rollback() }()
+			commits := fake.Commits()
 			_, err = store.FetchUnprocessedEvents(ctx, 1)
 			require.NoError(t, err)
 			require.NoError(t, store.UpdateEvents(ctx, pending("claimed")))
 			require.NoError(t, store.UnlockStuckEvents(ctx, time.Minute))
 			_, err = store.ExpireEvents(ctx)
 			require.NoError(t, err)
+			require.NoError(t, store.DeleteProcessedEvents(ctx, time.Hour))
+			require.NoError(t, business.Rollback())
 			settings := 0
 			for _, c := range fake.Calls() {
 				if c.Query == "SET LOCAL synchronous_commit = off" {
@@ -397,8 +445,10 @@ func TestAsynchronousCommitIsScopedToDispatch(t *testing.T) {
 				}
 			}
 			if d == sqldb.DialectPostgres {
-				require.Equal(t, 4, settings)
+				require.Equal(t, commits+5, fake.Commits())
+				require.Equal(t, 5, settings)
 			} else {
+				require.Equal(t, commits+3, fake.Commits(), "claim, update and paged unlock use transactions")
 				require.Zero(t, settings)
 			}
 		})

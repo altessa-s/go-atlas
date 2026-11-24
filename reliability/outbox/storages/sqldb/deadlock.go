@@ -38,12 +38,13 @@ const (
 	sqlStateDeadlock      = "40P01"
 	sqlStateSerialization = "40001"
 
-	// MySQL error number: ER_LOCK_DEADLOCK.
-	mysqlDeadlock = 1213
+	// ER_CHECKREAD signals a stale read view on MariaDB.
+	mysqlRecordChanged = 1020
+	mysqlDeadlock      = 1213 // ER_LOCK_DEADLOCK
 )
 
-// deadlockRetry re-runs a statement or transaction the database aborted to
-// break a deadlock. Both dialects roll the victim back, so a retry starts clean.
+// deadlockRetry re-runs a statement or transaction after a deadlock or
+// serialization conflict.
 var deadlockRetry = coreretry.NewPolicy(
 	coreretry.WithMaxAttempts(deadlockRetries),
 	coreretry.WithShouldRetry(isDeadlock),
@@ -71,5 +72,6 @@ func isDeadlock(err error) bool {
 		state := e.SQLState()
 		return state == sqlStateDeadlock || state == sqlStateSerialization
 	}
-	return sqldialect.MySQLErrorNumber(err) == mysqlDeadlock
+	number := sqldialect.MySQLErrorNumber(err)
+	return number == mysqlDeadlock || number == mysqlRecordChanged
 }

@@ -43,7 +43,7 @@ A zero threshold checks every reused connection and adds a round trip per checko
 | `WithTableName`     | `events_outbox`        | Events table; may be qualified as `schema.name` (≤ 63 chars per part)                        |
 | `WithKeyOrder`      | off                    | Claim only the earliest undelivered sequence for each ordering group                              |
 | `WithAsynchronousCommit` | off           | PostgreSQL can acknowledge dispatch bookkeeping before flushing its WAL                      |
-| `WithTxResolver`    | none                   | Looks up a caller-owned SQL transaction for store operations other than schema creation      |
+| `WithTxResolver`    | none                   | Looks up a caller-owned SQL transaction for event saves      |
 | `WithNotify`        | off                    | Every save runs `pg_notify` on the notification channel in its transaction (PostgreSQL only) |
 | `WithNotifyChannel` | derived from the table | Enables `WithNotify` on the given channel: a plain identifier of at most 63 characters       |
 | `WithListener`      | none                   | `Listener` that `Watch` subscribes through (PostgreSQL only); nil or a typed nil is none     |
@@ -89,17 +89,15 @@ return tx.Commit()
 The transaction passed to `WithTx` applies only to saves. A standalone batch is also atomic. It uses one `INSERT` or, when it spans several
 statements, its own transaction. With `WithNotify`, each chunk inserts and signals in one CTE statement, so a single chunk needs no explicit transaction.
 
-A store configured with `WithTxResolver` also uses the resolved transaction for claims, outcome updates, sweeps, and stats. The caller owns its
-commit or rollback. Its isolation and durability settings apply throughout, including across sweep chunks. The caller handles deadlock retries.
-Run dispatch cycles on a context without a resolved business transaction. A dispatcher sharing that transaction can see and
-publish an event whose business write later rolls back.
+Only saves enlist in the caller's transaction. An explicit `WithTx` takes precedence over `WithTxResolver`. Claims, outcome updates and sweeps
+use store-owned transactions with deadlock retry. Dispatch sees events after the business transaction commits. Stats read from the pool.
 
 ### PostgreSQL asynchronous commit
 
-`WithAsynchronousCommit()` runs `SET LOCAL synchronous_commit = off` only in store-owned claim, outcome update, unlock and expiration transactions.
-PostgreSQL can acknowledge those commits before their WAL reaches durable storage. The setting ends with the transaction. All save paths,
-including a standalone multi-statement batch and a save on the business transaction, keep the caller's durability settings. Retention uses the
-database's normal commit policy. MySQL and MariaDB ignore the option.
+`WithAsynchronousCommit()` runs `SET LOCAL synchronous_commit = off` only in store-owned claim, outcome update, unlock, retention and expiration
+transactions. PostgreSQL can acknowledge those commits before their WAL reaches durable storage. The setting ends with the transaction. All save paths,
+including a standalone multi-statement batch and a save on the business transaction, keep the caller's durability settings. MySQL and MariaDB
+ignore the option.
 
 A database crash can roll back a recent claim, retry count, backoff deadline, acknowledgment, unlock or expiry. The durable business event
 survives when its business transaction committed synchronously. Polling can claim it again, stale leases can be reclaimed and expiry is checked
@@ -132,14 +130,14 @@ each statement stops at its limit, where a single statement over both statuses w
 sorted. A statement may lock up to one batch more than is taken; those rows are released when the fetch transaction ends. `UpdateEvents` writes an event
 only while its stored token still matches; a dispatcher whose lease the unlock sweeper reclaimed writes nothing. Unlocking and expiring clear the token.
 
-Enable `WithKeyOrder()` on every dispatcher that claims from the table. For one-at-a-time delivery, serialize producers for each
-`Event.OrderKey` (or `Event.Key` when empty) from before the insert through transaction commit. For example, lock the aggregate's
-business row before saving its event in the same transaction. Sequence numbers are assigned at insert time. If a higher sequence commits
-first, a dispatcher can claim it while the lower sequence is invisible. Once the lower sequence commits, a second dispatcher can claim it
-while the first handler is still running.
+Enable `WithKeyOrder()` on every dispatcher to allow only one in-flight event per ordering key (`Event.OrderKey`, falling back to `Event.Key`).
+Sequence numbers are assigned at insert time. If a higher sequence commits first, it can be claimed first. The lower sequence then waits until
+the in-progress claim ends. To guarantee delivery order across concurrent producer transactions, serialize producers for each key from before the
+insert through commit, for example by locking the aggregate's business row before saving its event.
 
 A pending, in-progress or failed head blocks later events in its group, including during retry backoff. Other groups can be claimed
-independently. When using event deadlines, run the expiry cycle so an overdue pending or failed head becomes terminal and releases its key.
+independently. During an ordered claim the store also locks visible undelivered successors by primary key. These locks last until the claim
+transaction ends. When using event deadlines, run the expiry cycle so an overdue pending or failed head becomes terminal and releases its key.
 If you set individual `ExpiresAt` values with the default TTL disabled, arrange to call `RunExpireCycle` or schedule the callback from
 `RegisterExpireSchedulerFunc`. Automatic task registration enables expiry only with a positive default TTL.
 
@@ -147,8 +145,9 @@ For broker messages, set `msg.MetaKeyOrderKey` to a stable aggregate identifier 
 the value separately from the routing topic. A dispatcher still publishes each event to its original topic.
 
 `UpdateEvents` and `UnlockStuckEvents` take their row locks in primary-key order, so they cannot deadlock on the rows they share. If the database
-reports a deadlock or a serialization failure anyway (SQLSTATE `40P01` or `40001`, MySQL error 1213), the statement is retried up to three times with a
-short jittered backoff. The package imports no driver, so the code is read from the error's `SQLState()` method (pgx, lib/pq) or `Number` field
+reports a deadlock or a serialization conflict (SQLSTATE `40P01` or `40001`, MySQL error 1213, or MariaDB stale-read error 1020), the store retries
+the transaction or autocommit statement up to three times with a short jittered backoff. Each claim retry reads candidates again.
+The package imports no driver, so the code is read from the error's `SQLState()` method (pgx, lib/pq) or `Number` field
 (go-sql-driver/mysql).
 
 `DeleteProcessedEvents` deletes and `ExpireEvents` marks 1000 rows at a time, each chunk in its own short transaction, until a chunk comes back short;
@@ -285,5 +284,5 @@ contract runs on PostgreSQL through a pgx listener.
 
 ## Caller transactions
 
-Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in each operation's context. The caller owns completion and rollback.
+Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in the save context. The caller owns completion and rollback.
 The factory wires the resolver with `UseSQLPool(pools.Binding(name))`.

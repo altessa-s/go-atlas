@@ -21,7 +21,7 @@ type options struct {
 	keyOrder bool
 	// WithAsynchronousCommit disables synchronous WAL flush for PostgreSQL dispatch bookkeeping. MySQL ignores it.
 	asynchronousCommit bool
-	// WithTxResolver finds the application transaction for a call.
+	// WithTxResolver finds the business transaction for an event save.
 	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
 	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// WithNotify makes every save signal the notification channel with

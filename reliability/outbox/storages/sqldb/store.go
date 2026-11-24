@@ -51,6 +51,7 @@ const deleteChunk = lockChunk
 // dispatch runs on the poll schedule.
 type Store struct {
 	db                 sqldialect.Pool
+	resolveTx          func(context.Context) (*sql.Tx, bool)
 	dialect            dialect
 	table              string // quoted
 	name               string // unqualified, for index names
@@ -71,6 +72,7 @@ var (
 
 // statements are the fixed queries, rendered once for the dialect.
 type statements struct {
+	confirmHeads                                                                     string
 	fetchPending, fetchFailed, unlock, stuck, deleteProcessed, update, expire, stats string
 }
 
@@ -107,7 +109,8 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	}
 
 	s := &Store{
-		db:                 dl.WrapPool(db).WithResolver(o.txResolver),
+		db:                 dl.WrapPool(db),
+		resolveTx:          o.txResolver,
 		dialect:            dl,
 		table:              table,
 		name:               sqldialect.Unqualified(o.tableName),
@@ -137,8 +140,10 @@ func (s *Store) buildStatements() statements {
 	// (status, created_at, seq) returns rows already in ORDER BY order, so each
 	// stops at its LIMIT. A single statement over both statuses has to sort
 	// the whole backlog first — and on MySQL locks every row it sorted.
+	var confirmHeads string
 	from := t
-	ready := " AND (expires_at IS NULL OR expires_at > " + now + ")"
+	unexpired := " AND (expires_at IS NULL OR expires_at > " + now + ")"
+	ready := unexpired
 	if s.keyOrder {
 		from += " AS candidate"
 		const candidateKey = "COALESCE(candidate.order_key, candidate.topic)"
@@ -149,10 +154,28 @@ func (s *Store) buildStatements() statements {
 			const earlierKey = "COALESCE(earlier.order_key, earlier.topic)"
 			sameKey = earlierKey + " = " + candidateKey + " AND substr(" + earlierKey + ", 1, 255) = substr(" + candidateKey + ", 1, 255)"
 		}
-		ready += " AND NOT EXISTS (SELECT 1 FROM " + t + " AS earlier WHERE " + sameKey +
-			" AND earlier.seq < candidate.seq AND earlier.status IN " + undeliveredStatuses + ")"
+		blockers := " AND NOT EXISTS (SELECT 1 FROM " + t + " AS earlier WHERE " + sameKey +
+			" AND earlier.status IN " + undeliveredStatuses + " AND (earlier.seq < candidate.seq OR earlier.status = 'in-progress'"
+		ready += blockers + "))"
+		// A competing claim may hold a successor whose status change hasn't
+		// committed. Probe visible successors by primary key after locking the
+		// candidates. A skipped lock or a newly committed claim blocks the key.
+		confirmHeads = "SELECT candidate.id FROM " + from + " WHERE candidate.id IN (%s)" + blockers +
+			" OR (earlier.seq > candidate.seq AND COALESCE((SELECT peer.status FROM " + t + " AS peer WHERE peer.id = earlier.id" +
+			" FOR UPDATE SKIP LOCKED), 'in-progress') = 'in-progress')))"
 	}
-	ready += " ORDER BY created_at, seq LIMIT ? FOR UPDATE SKIP LOCKED"
+	fetch := func(backoff string) string {
+		candidates := " FROM " + from + " WHERE status = ?" + backoff + ready + " ORDER BY created_at, seq LIMIT ?"
+		if s.keyOrder && d.name == DialectMySQL {
+			// A locking status scan can briefly lock a successor it will discard.
+			// LIMIT materializes the nonlocking head selection. Drive primary-key
+			// locking reads from those IDs, checking readiness on the current row.
+			return "SELECT " + cols + " FROM (SELECT id AS head_id, status AS head_status" + candidates +
+				") AS heads STRAIGHT_JOIN " + t + " FORCE INDEX (PRIMARY) ON id = heads.head_id" +
+				" WHERE status = heads.head_status" + backoff + unexpired + " FOR UPDATE SKIP LOCKED"
+		}
+		return d.bind("SELECT " + cols + candidates + " FOR UPDATE SKIP LOCKED")
+	}
 	unlockSet := " SET status = ?, locked_on = NULL, lock_token = NULL, next_attempt_at = NULL"
 	stuck := "status = ? AND locked_on < " + d.shifted("-")
 	processed := "status IN (?, ?, ?) AND published_at < " + d.shifted("-")
@@ -161,9 +184,9 @@ func (s *Store) buildStatements() statements {
 	limit := " LIMIT " + strconv.Itoa(deleteChunk)
 
 	st := statements{
-		fetchPending: d.bind("SELECT " + cols + " FROM " + from + " WHERE status = ?" + ready),
-		fetchFailed: d.bind("SELECT " + cols + " FROM " + from +
-			" WHERE status = ? AND (next_attempt_at IS NULL OR next_attempt_at <= " + now + ")" + ready),
+		confirmHeads: confirmHeads,
+		fetchPending: fetch(""),
+		fetchFailed:  fetch(" AND (next_attempt_at IS NULL OR next_attempt_at <= " + now + ")"),
 		// The locking subselect takes the row locks in primary-key order, the
 		// order UpdateEvents takes them in, so the two cannot deadlock.
 		unlock: d.bind("UPDATE " + t + unlockSet +
@@ -257,8 +280,10 @@ func (s *Store) SaveEventsWithTTL(ctx context.Context, ttl time.Duration, events
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
 		return s.insert(ctx, tx, ttl, events)
 	}
-	if tx, ok := s.db.Tx(ctx); ok {
-		return s.insert(ctx, tx, ttl, events)
+	if s.resolveTx != nil {
+		if tx, ok := s.resolveTx(ctx); ok && tx != nil {
+			return s.insert(ctx, tx, ttl, events)
+		}
 	}
 	if len(events) <= saveChunk {
 		return s.insert(ctx, s.db, ttl, events)
@@ -326,35 +351,51 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 	return nil
 }
 
-// beginDispatchTx configures only store-owned bookkeeping transactions.
-func (s *Store) beginDispatchTx(ctx context.Context, opts *sql.TxOptions) (sqldialect.Scope, error) {
-	tx, err := s.db.BeginScope(ctx, opts)
-	if err != nil || !tx.Owned() || !s.asynchronousCommit {
-		return tx, err
+// dispatchTx retries the entire transaction when the database aborts it.
+func dispatchTx[T any](ctx context.Context, s *Store, opts *sql.TxOptions, run func(*sql.Tx) (T, error)) (T, error) {
+	var result T
+	err := deadlockRetry.Do(ctx, func(ctx context.Context) error {
+		tx, err := s.db.BeginTx(ctx, opts)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		if s.asynchronousCommit {
+			if _, err = tx.ExecContext(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+				return coreerrs.WrapOperation(err, "set outbox transaction durability")
+			}
+		}
+		value, err := run(tx)
+		if err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		result = value
+		return nil
+	})
+	// database/sql may finish rolling back a canceled transaction before a
+	// statement or Commit can report the context error.
+	if err != nil && ctx.Err() != nil {
+		return result, ctx.Err()
 	}
-	if _, err := tx.ExecContext(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
-		_ = tx.Rollback()
-		return sqldialect.Scope{}, coreerrs.WrapOperation(err, "set outbox transaction durability")
-	}
-	return tx, nil
+	return result, err
 }
 
-// execDispatch runs a single bookkeeping statement in autocommit mode unless
-// transaction-local settings require an explicit transaction.
 func (s *Store) execDispatch(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	if !s.asynchronousCommit {
-		return s.db.ExecContext(ctx, query, args...)
+		var result sql.Result
+		err := deadlockRetry.Do(ctx, func(ctx context.Context) error {
+			var err error
+			result, err = s.db.ExecContext(ctx, query, args...)
+			return err
+		})
+		return result, err
 	}
-	tx, err := s.beginDispatchTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	res, err := tx.ExecContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	return res, tx.Commit()
+	return dispatchTx(ctx, s, nil, func(tx *sql.Tx) (sql.Result, error) {
+		return tx.ExecContext(ctx, query, args...)
+	})
 }
 
 // FetchUnprocessedEvents locks and returns up to batchSize events that are
@@ -363,16 +404,17 @@ func (s *Store) execDispatch(ctx context.Context, query string, args ...any) (sq
 // selected FOR UPDATE SKIP LOCKED and marked in-progress in one transaction,
 // so concurrent dispatchers take disjoint batches without blocking each other.
 // With [WithKeyOrder], an earlier undelivered sequence blocks the same key
-// even while its lease is held or its retry is backing off.
+// even during retry backoff. An in-progress event blocks its key at any sequence.
 // Every returned event carries the lock token this call minted.
 func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([]outbox.Event, error) {
-	tx, err := s.beginDispatchTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "begin outbox fetch transaction")
-	}
-	defer func() { _ = tx.Rollback() }()
+	events, err := dispatchTx(ctx, s, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) ([]outbox.Event, error) {
+		return s.claim(ctx, tx, batchSize)
+	})
+	return events, coreerrs.WrapOperation(err, "claim outbox events")
+}
 
-	events, err := s.selectReady(ctx, tx.Tx, batchSize)
+func (s *Store) claim(ctx context.Context, tx *sql.Tx, batchSize uint32) ([]outbox.Event, error) {
+	events, err := s.selectReady(ctx, tx, batchSize)
 	if err != nil || len(events) == 0 {
 		return events, err
 	}
@@ -392,9 +434,6 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([
 		if _, err := tx.ExecContext(ctx, lock, args...); err != nil {
 			return nil, coreerrs.WrapOperation(err, "lock outbox events")
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, coreerrs.WrapOperation(err, "commit outbox fetch transaction")
 	}
 
 	// LockedOn is informational (the dispatcher clears it); the authoritative
@@ -433,6 +472,20 @@ func (s *Store) selectReady(ctx context.Context, tx *sql.Tx, batchSize uint32) (
 		}
 	}
 
+	if s.keyOrder {
+		// The candidate locks are held now. A fresh read also sees a lower
+		// sequence that committed between the pending and failed reads.
+		heads := ready[:0]
+		for chunk := range slices.Chunk(ready, lockChunk) {
+			confirmed, err := s.confirmHeads(ctx, tx, chunk)
+			if err != nil {
+				return nil, err
+			}
+			heads = append(heads, confirmed...)
+		}
+		ready = heads
+	}
+
 	slices.SortFunc(ready, func(a, b readyEvent) int {
 		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.seq, b.seq))
 	})
@@ -441,6 +494,28 @@ func (s *Store) selectReady(ctx context.Context, tx *sql.Tx, batchSize uint32) (
 		events[i] = ready[i].Event
 	}
 	return events, nil
+}
+
+func (s *Store) confirmHeads(ctx context.Context, tx *sql.Tx, candidates []readyEvent) ([]readyEvent, error) {
+	ids := make([]any, 0, len(candidates))
+	for _, ev := range candidates {
+		ids = append(ids, s.dialect.textArg(ev.Id))
+	}
+	query := s.dialect.bind(sqldialect.InList(s.stmts.confirmHeads, len(ids)))
+	rows, err := tx.QueryContext(ctx, query, ids...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	heads := make(map[string]bool, len(candidates))
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		heads[id] = true
+	}
+	return slices.DeleteFunc(candidates, func(ev readyEvent) bool { return !heads[ev.Id] }), rows.Err()
 }
 
 func (s *Store) appendReady(ctx context.Context, tx *sql.Tx, ready []readyEvent, stmt string, args ...any) ([]readyEvent, error) {
@@ -510,19 +585,13 @@ func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error 
 		return nil
 	}
 	ordered := slices.SortedFunc(slices.Values(events), func(a, b outbox.Event) int { return cmp.Compare(a.Id, b.Id) })
-	if _, ok := s.db.Tx(ctx); ok {
-		return s.updateEvents(ctx, ordered)
-	}
-	return deadlockRetry.Do(ctx, func(ctx context.Context) error { return s.updateEvents(ctx, ordered) })
+	_, err := dispatchTx(ctx, s, nil, func(tx *sql.Tx) (struct{}, error) {
+		return struct{}{}, s.updateEvents(ctx, tx, ordered)
+	})
+	return coreerrs.WrapOperation(err, "update outbox events")
 }
 
-func (s *Store) updateEvents(ctx context.Context, events []outbox.Event) error {
-	tx, err := s.beginDispatchTx(ctx, nil)
-	if err != nil {
-		return coreerrs.WrapOperation(err, "begin outbox update transaction")
-	}
-	defer func() { _ = tx.Rollback() }()
-
+func (s *Store) updateEvents(ctx context.Context, tx *sql.Tx, events []outbox.Event) error {
 	stmt, err := tx.PrepareContext(ctx, s.stmts.update)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "prepare outbox update")
@@ -539,7 +608,7 @@ func (s *Store) updateEvents(ctx context.Context, events []outbox.Event) error {
 			return coreerrs.WrapOperation(err, "update outbox event")
 		}
 	}
-	return coreerrs.WrapOperation(tx.Commit(), "commit outbox update transaction")
+	return nil
 }
 
 // UnlockStuckEvents returns in-progress events locked longer than lockExpiry
@@ -554,13 +623,7 @@ func (s *Store) UnlockStuckEvents(ctx context.Context, lockExpiry time.Duration)
 	if s.dialect.name == DialectMySQL {
 		unlock = s.unlockStuckByID
 	}
-	sweep := func(ctx context.Context) error {
-		return unlock(ctx, string(outbox.StatusPending), string(outbox.StatusInProgress), s.dialect.duration(lockExpiry))
-	}
-	if _, ok := s.db.Tx(ctx); ok {
-		return sweep(ctx)
-	}
-	err := deadlockRetry.Do(ctx, sweep)
+	err := unlock(ctx, string(outbox.StatusPending), string(outbox.StatusInProgress), s.dialect.duration(lockExpiry))
 	return coreerrs.WrapOperation(err, "unlock stuck outbox events")
 }
 
@@ -574,15 +637,18 @@ func (s *Store) unlockStuck(ctx context.Context, pending, inProgress string, age
 func (s *Store) unlockStuckByID(ctx context.Context, pending, inProgress string, age any) error {
 	after := []byte{}
 	for {
-		ids, err := s.stuckIDs(ctx, inProgress, age, after)
-		if err != nil || len(ids) == 0 {
-			return err
-		}
-
-		args := make([]any, 0, len(ids)+3) //nolint:mnd // both statuses and the lock age
-		args = append(append(append(args, pending), ids...), inProgress, age)
-		query := fmt.Sprintf(s.stmts.unlock, "?"+strings.Repeat(", ?", len(ids)-1))
-		if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+		ids, err := dispatchTx(ctx, s, nil, func(tx *sql.Tx) ([]any, error) {
+			ids, err := s.stuckIDs(ctx, tx, inProgress, age, after)
+			if err != nil || len(ids) == 0 {
+				return nil, err
+			}
+			args := make([]any, 0, len(ids)+3) //nolint:mnd // both statuses and the lock age
+			args = append(append(append(args, pending), ids...), inProgress, age)
+			query := fmt.Sprintf(s.stmts.unlock, "?"+strings.Repeat(", ?", len(ids)-1))
+			_, err = tx.ExecContext(ctx, query, args...)
+			return ids, err
+		})
+		if err != nil {
 			return err
 		}
 		if len(ids) < lockChunk {
@@ -592,8 +658,8 @@ func (s *Store) unlockStuckByID(ctx context.Context, pending, inProgress string,
 	}
 }
 
-func (s *Store) stuckIDs(ctx context.Context, inProgress string, age any, after []byte) ([]any, error) {
-	rows, err := s.db.QueryContext(ctx, s.stmts.stuck, inProgress, age, after)
+func (s *Store) stuckIDs(ctx context.Context, tx *sql.Tx, inProgress string, age any, after []byte) ([]any, error) {
+	rows, err := tx.QueryContext(ctx, s.stmts.stuck, inProgress, age, after)
 	if err != nil {
 		return nil, err
 	}
@@ -618,7 +684,7 @@ func (s *Store) stuckIDs(ctx context.Context, inProgress string, age any, after 
 // A sweep cut short keeps what it already deleted.
 func (s *Store) DeleteProcessedEvents(ctx context.Context, olderThan time.Duration) error {
 	for {
-		res, err := s.db.ExecContext(ctx, s.stmts.deleteProcessed,
+		res, err := s.execDispatch(ctx, s.stmts.deleteProcessed,
 			string(outbox.StatusSent), string(outbox.StatusSkipped), string(outbox.StatusExpired), s.dialect.duration(olderThan))
 		if err != nil {
 			return coreerrs.WrapOperation(err, "delete processed outbox events")

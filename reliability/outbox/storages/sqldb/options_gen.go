@@ -114,7 +114,7 @@ func WithTableName[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithTxResolver finds the application transaction for a call.
+// WithTxResolver finds the business transaction for an event save.
 func WithTxResolver(v func(context.Context) (*sql.Tx, bool)) Option {
 	return func(o *options) {
 		if v == nil {

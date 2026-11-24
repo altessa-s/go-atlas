@@ -6,6 +6,7 @@ package sqldb_test
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"strconv"
 	"strings"
@@ -146,7 +147,7 @@ func TestDeleteProcessedEventsInChunks(t *testing.T) {
 		calls := fake.Calls()
 		require.Len(t, calls, len(affected), "a short chunk ends the sweep")
 		for _, c := range calls {
-			require.False(t, c.InTx, "each chunk commits on its own")
+			require.False(t, c.InTx, "each chunk runs in autocommit")
 			require.Contains(t, c.Query, "LIMIT 1000")
 			require.Equal(t, []any{"sent", "skipped", "expired"}, c.Args[:3])
 			if d == sqldb.DialectPostgres {
@@ -174,7 +175,7 @@ func TestExpireEventsInChunks(t *testing.T) {
 		calls := fake.Calls()
 		require.Len(t, calls, len(affected), "a short chunk ends the sweep")
 		for _, c := range calls {
-			require.False(t, c.InTx, "each chunk commits on its own")
+			require.False(t, c.InTx, "each chunk runs in autocommit")
 			require.Contains(t, c.Query, "LIMIT 1000")
 			require.Equal(t, []any{"expired", "pending", "failed"}, c.Args)
 			if d == sqldb.DialectPostgres {
@@ -195,6 +196,18 @@ func TestDeleteProcessedEventsStopsWhenContextEnds(t *testing.T) {
 	})
 	require.ErrorIs(t, store.DeleteProcessedEvents(ctx, time.Hour), context.Canceled)
 	require.Len(t, fake.Calls(), 1)
+}
+
+// Model database/sql returning ErrTxDone after cancellation wins the rollback race.
+func TestUpdateEventsReportsCancellationAfterRollback(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	store, _, _ := newStore(t, sqldb.DialectPostgres, func(string, []any) testhelpers.FakeSQLReply {
+		cancel()
+		return testhelpers.FakeSQLReply{Err: sql.ErrTxDone}
+	})
+	require.ErrorIs(t, store.UpdateEvents(ctx, pending("e1")), context.Canceled)
 }
 
 // UpdateEvents and the unlock sweep take row locks in one order — the primary
@@ -291,6 +304,15 @@ func TestDeadlocksAreRetried(t *testing.T) {
 		name string
 		run  func(context.Context, *sqldb.Store) error
 	}{
+		{"claim", func(ctx context.Context, s *sqldb.Store) error {
+			_, err := s.FetchUnprocessedEvents(ctx, 1)
+			return err
+		}},
+		{"retention", func(ctx context.Context, s *sqldb.Store) error { return s.DeleteProcessedEvents(ctx, time.Hour) }},
+		{"expire", func(ctx context.Context, s *sqldb.Store) error {
+			_, err := s.ExpireEvents(ctx)
+			return err
+		}},
 		{"update", func(ctx context.Context, s *sqldb.Store) error {
 			return s.UpdateEvents(ctx, outbox.Event{Id: "a", Status: outbox.StatusSent, LockToken: "t"})
 		}},
@@ -340,6 +362,45 @@ func TestDeadlocksAreRetried(t *testing.T) {
 			require.Len(t, fake.Calls(), 1)
 		})
 	}
+}
+
+func TestOrderedClaimRetriesChangedRecord(t *testing.T) {
+	t.Parallel()
+	var pendingReads int
+	db, fake := testhelpers.NewFakeSQL(t, func(query string, args []any) testhelpers.FakeSQLReply {
+		switch {
+		case strings.HasPrefix(query, "UPDATE"):
+			require.Equal(t, []any{[]byte("fresh")}, args[2:])
+			return testhelpers.FakeSQLReply{Affected: 1}
+		case strings.HasPrefix(query, "SELECT candidate.id"):
+			require.Equal(t, []any{[]byte("fresh")}, args)
+			return testhelpers.FakeSQLReply{Columns: []string{"id"}, Rows: [][]driver.Value{{"fresh"}}}
+		case args[0] == string(outbox.StatusPending):
+			pendingReads++
+			id := "fresh"
+			if pendingReads == 1 {
+				id = "stale"
+			}
+			return readyRows([][]driver.Value{
+				{[]byte(id), []byte("topic"), []byte("key"), nil, int64(0), nil, "2026-01-02 03:04:05.000000", nil, nil, nil, int64(1)},
+			}, 1)(query, args)
+		default:
+			require.Equal(t, string(outbox.StatusFailed), args[0])
+			if pendingReads == 1 {
+				return testhelpers.FakeSQLReply{Err: &mysqlError{Number: 1020}}
+			}
+			return readyRows(nil, 0)(query, args)
+		}
+	})
+	store, err := sqldb.New(db, sqldb.DialectMySQL, sqldb.WithKeyOrder())
+	require.NoError(t, err)
+	events, err := store.FetchUnprocessedEvents(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.Equal(t, "fresh", events[0].Id)
+	require.Equal(t, 2, pendingReads)
+	require.Equal(t, 1, fake.Rollbacks())
+	require.Equal(t, 1, fake.Commits())
 }
 
 // The expiry sweep has its own index on both dialects.

@@ -55,9 +55,6 @@ func (p Pool) BeginScope(ctx context.Context, opts *sql.TxOptions) (Scope, error
 	return Scope{Tx: tx, owned: true}, err
 }
 
-// Owned reports whether this store operation started the transaction.
-func (t Scope) Owned() bool { return t.owned }
-
 // Commit commits a locally owned transaction.
 func (t Scope) Commit() error {
 	if t.owned {
