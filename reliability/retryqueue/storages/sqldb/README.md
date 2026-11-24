@@ -125,3 +125,6 @@ if err := queue.EnsureSchema(ctx); err != nil {
     return err
 }
 ```
+
+Use `WithTxResolver(resolve)` to enlist queue operations in the application transaction. The SQL factory accepts a pool and resolver through
+`UseSQLPool(pools.Binding(name))`. An explicit `WithTx` takes precedence.

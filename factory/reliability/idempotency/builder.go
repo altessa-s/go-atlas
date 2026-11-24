@@ -44,6 +44,7 @@ type KeeperBuilder struct {
 
 	storages      map[idempotencyconfig.StorageType]StorageFunc
 	sqlDB         *sql.DB
+	resolveTx     func(context.Context) (*sql.Tx, bool)
 	shutdownHooks *coreruntime.HookGroup
 
 	// Dependencies
@@ -136,6 +137,7 @@ func (b *KeeperBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "idempotency storage.sql configuration is required")
 	}
 	store, err := sqlstorage.New(b.sqlDB, sqlstorage.Dialect(cfg.Dialect),
+		sqlstorage.WithTxResolver(b.resolveTx),
 		sqlstorage.WithTableName(cfg.Table), sqlstorage.WithTTL(b.cfg.TTL),
 		sqlstorage.WithPurgeInterval(cfg.PurgeInterval), sqlstorage.WithPurgeBatchSize(cfg.PurgeBatchSize), sqlstorage.WithLogger(b.Logger()))
 	if err != nil {

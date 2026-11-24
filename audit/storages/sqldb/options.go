@@ -4,14 +4,16 @@
 
 package sqldb
 
+//go:generate go tool optgen generate
+
 import (
+	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/time/clock"
 )
-
-//go:generate go tool optgen generate
 
 // DefaultTableName is the default table holding audit events; it matches the
 // MongoDB and ClickHouse storages' default.
@@ -29,7 +31,9 @@ const DefaultPurgeInterval = time.Minute
 const DefaultPurgeBatchSize = 1000
 
 type options struct {
-	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
+	// WithTxResolver finds the application transaction for a call.
+	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
+	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// maxBatchRows bounds the rows of one INSERT; a larger batch is split
 	// into several INSERTs of one transaction. It is capped so one INSERT
 	// stays within PostgreSQL's 65535 bind parameters.

@@ -6,6 +6,7 @@ package factory_test
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"slices"
@@ -264,6 +265,30 @@ func TestCreateOutbox_SQLDBEnsureSchema(t *testing.T) {
 		_, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
 		require.ErrorIs(t, err, boom)
 	})
+}
+
+func TestCreateOutbox_SQLPool(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	cfg := outboxConfig()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	owner, writes := testhelpers.NewFakeSQL(t, nil)
+	tx, err := owner.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	type txKey struct{}
+	ob, err := factory.New(cfg).UseSQLPool(db, func(ctx context.Context) (*sql.Tx, bool) {
+		tx, ok := ctx.Value(txKey{}).(*sql.Tx)
+		return tx, ok
+	}).CreateOutbox(ctx, stubPublisher{})
+	require.NoError(t, err)
+	require.NoError(t, ob.Publish(context.WithValue(ctx, txKey{}, tx), msg.Message{Topic: "orders"}))
+	require.Empty(t, fake.Calls())
+	require.Len(t, writes.Calls(), 1)
+	require.True(t, writes.Calls()[0].InTx)
+	require.NoError(t, tx.Rollback())
+
 }
 
 // listenFunc adapts a function to outboxsql.Listener.

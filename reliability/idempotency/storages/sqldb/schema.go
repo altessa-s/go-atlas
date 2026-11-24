@@ -28,9 +28,9 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
 )`,
 			`CREATE INDEX IF NOT EXISTS ` + index + ` ON ` + s.table + ` (expires_at, key)`,
 		}
-		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.name}, ddl), "create idempotency schema")
+		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db.DB, []string{s.name}, ddl), "create idempotency schema")
 	}
-	_, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS `+s.table+` (
+	_, err := s.db.DB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS `+s.table+` (
   `+s.dialect.Ident("key")+` VARBINARY(1020) NOT NULL PRIMARY KEY,
   val        LONGBLOB NOT NULL,
   expires_at DATETIME(6) NOT NULL,

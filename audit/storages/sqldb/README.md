@@ -83,3 +83,8 @@ See the [PostgreSQL connection loss policy](../../../reliability/outbox/storages
 ## See also
 
 - [storages/storagetest](../storagetest) — the conformance suite this storage passes.
+
+## Caller transactions
+
+Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in each operation's context. The caller owns completion and rollback.
+The factory wires the resolver with `UseSQLPool(pools.Binding(name))`.

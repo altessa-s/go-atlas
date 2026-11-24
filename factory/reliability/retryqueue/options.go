@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 
@@ -51,7 +52,12 @@ func (b *Builder[P]) UseStorage(typ retryqueueconfig.StorageType, build StorageF
 // UseSQLDB injects the database handle used when the storage type is "sqldb".
 // The caller owns the handle and registers the driver.
 func (b *Builder[P]) UseSQLDB(v *sql.DB) *Builder[P] {
-	b.sqlDB = v
+	return b.UseSQLPool(v, nil)
+}
+
+// UseSQLPool injects a database and its per-call transaction resolver.
+func (b *Builder[P]) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *Builder[P] {
+	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }
 

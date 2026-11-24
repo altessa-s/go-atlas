@@ -69,7 +69,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	}
 	o := newOptions(opts...)
 
-	s := &Store{db: dl.WrapPool(db), dialect: dl, tableName: sqldialect.Unqualified(o.tableName)}
+	s := &Store{db: dl.WrapPool(db).WithResolver(o.txResolver), dialect: dl, tableName: sqldialect.Unqualified(o.tableName)}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}

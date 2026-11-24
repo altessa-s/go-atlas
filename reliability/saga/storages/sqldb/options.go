@@ -6,10 +6,17 @@ package sqldb
 
 //go:generate go tool optgen generate
 
+import (
+	"context"
+	"database/sql"
+)
+
 // DefaultTableName is the default table name for saga instances; it matches the
 // MongoDB store's default collection name.
 const DefaultTableName = "saga_instances"
 
 type options struct {
-	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
+	// WithTxResolver finds the application transaction for a call.
+	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
+	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`
 }

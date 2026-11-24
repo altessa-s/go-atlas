@@ -60,6 +60,7 @@ type BrokerBuilder struct {
 	providers        map[brokerconfig.Provider]ProviderFunc
 	outboxStorages   map[brokerconfig.OutboxStorageType]outboxfactory.StorageFunc
 	sqlDB            *sql.DB
+	resolveTx        func(context.Context) (*sql.Tx, bool)
 	sqlListener      outboxsql.Listener
 	shutdownHooks    *coreruntime.HookGroup
 }
@@ -183,7 +184,7 @@ func (b *BrokerBuilder) outboxBuilder(publisher outbox.Publisher) (*outboxfactor
 	ob := outboxfactory.New(cfg).
 		UseLogger(b.Logger()).
 		UseScheduler(b.scheduler).
-		UseSQLDB(b.sqlDB).
+		UseSQLPool(b.sqlDB, b.resolveTx).
 		UseSQLListener(b.sqlListener).
 		UseShutdownHooks(b.shutdownHooks).
 		UseOutboxOptions(dataoutbox.WithShouldRetry(outbox.ShouldRetry))

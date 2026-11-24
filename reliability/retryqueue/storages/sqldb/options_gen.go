@@ -4,6 +4,8 @@
 package sqldb
 
 import (
+	"context"
+	"database/sql"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -106,6 +108,16 @@ func WithTableName[T interface{ string | *string }](v T) Option {
 			return
 		}
 		o.tableName = transformedValue
+	}
+}
+
+// WithTxResolver finds the application transaction for a call. WithTx takes precedence.
+func WithTxResolver(v func(context.Context) (*sql.Tx, bool)) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.txResolver = v
 	}
 }
 

@@ -18,7 +18,7 @@ func (s *Storage) Close(ctx context.Context) error { return s.purge.Close(ctx) }
 // selects keys without locking, then rechecks expiry while deleting by key so
 // a key renewed between the statements survives.
 func (s *Storage) deleteExpiredBatch(ctx context.Context) (int64, int64, error) {
-	ex := s.executor(ctx)
+	ex := s.db
 	if s.dialect.name == DialectPostgres {
 		n, err := execCount(ctx, ex, s.stmts.cleanup, s.purgeBatchSize)
 		return n, n, err

@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -28,7 +29,12 @@ func (b *KeeperBuilder) UseShutdownHooks(v *coreruntime.HookGroup) *KeeperBuilde
 // UseSQLDB sets the database for the built-in sqldb storage. The caller owns
 // its lifetime and registers the SQL driver.
 func (b *KeeperBuilder) UseSQLDB(db *sql.DB) *KeeperBuilder {
-	b.sqlDB = db
+	return b.UseSQLPool(db, nil)
+}
+
+// UseSQLPool injects a database and its per-call transaction resolver.
+func (b *KeeperBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *KeeperBuilder {
+	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }
 

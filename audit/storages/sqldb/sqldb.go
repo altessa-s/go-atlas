@@ -80,7 +80,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Storage, error) {
 	}
 	o := newOptions(opts...)
 	o.maxBatchRows = min(o.maxBatchRows, maxParams/columnsPerRow)
-	s := &Storage{db: dl.WrapPool(db), dialect: dl, tableName: sqldialect.Unqualified(o.tableName), opts: o}
+	s := &Storage{db: dl.WrapPool(db).WithResolver(o.txResolver), dialect: dl, tableName: sqldialect.Unqualified(o.tableName), opts: o}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 		return coreerrs.WrapOperation(err, "store audit events")
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.db.BeginScope(ctx, nil)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "store audit events")
 	}

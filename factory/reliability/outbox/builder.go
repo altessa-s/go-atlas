@@ -47,6 +47,7 @@ type OutboxBuilder struct {
 	outboxOpts    []outbox.Option
 	storages      map[brokerconfig.OutboxStorageType]StorageFunc
 	sqlDB         *sql.DB
+	resolveTx     func(context.Context) (*sql.Tx, bool)
 	sqlListener   outboxsql.Listener
 	shutdownHooks *coreruntime.HookGroup
 }
@@ -156,7 +157,9 @@ func (b *OutboxBuilder) buildSQLStore(ctx context.Context, cfg *brokerconfig.Out
 		}
 	}
 
-	opts := []outboxsql.Option{outboxsql.WithTableName(cfg.Table), outboxsql.WithLogger(b.Logger())}
+	opts := []outboxsql.Option{
+		outboxsql.WithTxResolver(b.resolveTx),
+		outboxsql.WithTableName(cfg.Table), outboxsql.WithLogger(b.Logger())}
 	opts = slices.AppendIf(opts, cfg.KeyOrder, outboxsql.WithKeyOrder())
 	opts = slices.AppendIf(opts, cfg.AsynchronousCommit, outboxsql.WithAsynchronousCommit())
 	opts = slices.AppendIf(opts, notify, outboxsql.WithNotify(), outboxsql.WithListener(b.sqlListener))

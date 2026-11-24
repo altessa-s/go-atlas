@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 
@@ -60,7 +61,12 @@ func (b *OutboxBuilder) UseStorage(typ brokerconfig.OutboxStorageType, build Sto
 // UseSQLDB injects the database handle used when the storage type is "sqldb".
 // The caller owns the handle and registers the driver.
 func (b *OutboxBuilder) UseSQLDB(v *sql.DB) *OutboxBuilder {
-	b.sqlDB = v
+	return b.UseSQLPool(v, nil)
+}
+
+// UseSQLPool injects a database and its per-call transaction resolver.
+func (b *OutboxBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *OutboxBuilder {
+	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }
 

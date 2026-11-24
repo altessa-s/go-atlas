@@ -45,8 +45,9 @@ type Builder[T any] struct {
 	def  *saga.Definition[T]
 	errs []error
 
-	storages map[sagaconfig.StorageType]StorageFunc
-	sqlDB    *sql.DB
+	storages  map[sagaconfig.StorageType]StorageFunc
+	sqlDB     *sql.DB
+	resolveTx func(context.Context) (*sql.Tx, bool)
 
 	// Optional orchestrator dependencies.
 	collector     metrics.Meter
@@ -148,7 +149,8 @@ const ensureSchemaTimeout = 30 * time.Second
 // table through the store's idempotent EnsureSchema; otherwise it performs no
 // I/O and the schema is expected to exist.
 func (b *Builder[T]) buildSQLStore(ctx context.Context, cfg *sagaconfig.SQLStorageConfig) (*sqlstore.Store, error) {
-	store, err := sqlstore.New(b.sqlDB, sqlstore.Dialect(cfg.Dialect), sqlstore.WithTableName(cfg.Table))
+	store, err := sqlstore.New(b.sqlDB, sqlstore.Dialect(cfg.Dialect),
+		sqlstore.WithTableName(cfg.Table), sqlstore.WithTxResolver(b.resolveTx))
 	if err != nil || !cfg.EnsureSchema {
 		return store, err
 	}

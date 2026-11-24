@@ -27,7 +27,7 @@ func (l *Locker) EnsureSchema(ctx context.Context) error {
 		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, l.s.db.DB, []string{l.s.tableName}, l.postgresSchema()),
 			"create dlock schema")
 	}
-	_, err := l.s.db.ExecContext(ctx, l.mysqlSchema())
+	_, err := l.s.db.DB.ExecContext(ctx, l.mysqlSchema())
 	return coreerrs.WrapOperation(err, "create dlock schema")
 }
 

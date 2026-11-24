@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 
@@ -42,7 +43,12 @@ func (b *AuditorBuilder) UseDispatcher(v audit.Dispatcher) *AuditorBuilder {
 // `storage.type` is "sqldb", ignored otherwise. The caller owns it and
 // registers the driver.
 func (b *AuditorBuilder) UseSQLDB(v *sql.DB) *AuditorBuilder {
-	b.sqlDB = v
+	return b.UseSQLPool(v, nil)
+}
+
+// UseSQLPool injects a database and its per-call transaction resolver.
+func (b *AuditorBuilder) UseSQLPool(db *sql.DB, resolve func(context.Context) (*sql.Tx, bool)) *AuditorBuilder {
+	b.sqlDB, b.resolveTx = db, resolve
 	return b
 }
 

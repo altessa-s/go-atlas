@@ -48,6 +48,7 @@ driver. A configured type without its dependency fails at `Build` with `factory/
 | `UseOutboxOptions(opts...)` | Adds `outbox.Option` values after config, e.g. `outbox.WithShouldRetry`                    |
 | `UseStorage(typ, build)`    | Registers a storage builder (`mongo`); nil functions fail                                  |
 | `UseSQLDB(db)`              | Injects the `*sql.DB` of the `sqldb` storage; the caller owns it and registers the driver  |
+| `UseSQLPool(db, resolve)`   | Supplies the pool and resolves the caller's transaction from each operation's context |
 | `UseSQLListener(l)`         | Injects the `outboxsql.Listener` the `sqldb` store watches through with `watch: notify`    |
 | `UseShutdownHooks(g)`       | Sets the watcher shutdown scope; defaults to the process-wide registry                     |
 
@@ -58,7 +59,7 @@ driver. A configured type without its dependency fails at `Build` with `factory/
 | `Build(ctx, handler)` | Validates config, builds the store and outbox, and registers tasks; returns `nil, nil` when disabled |
 
 The sqldb store creates the events table only with `storage.sqldb.ensureSchema: true` (otherwise it must exist). `Save` must run on the business
-transaction via `outboxsql.WithTx`. Set `storage.sqldb.keyOrder` on all dispatchers for per-key delivery.
+transaction via an injected resolver or `outboxsql.WithTx`. Set `storage.sqldb.keyOrder` on all dispatchers for per-key delivery.
 Enable `storage.sqldb.asynchronousCommit` to allow PostgreSQL to acknowledge bookkeeping before flushing its WAL.
 
 ## Watch

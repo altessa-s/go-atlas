@@ -5,6 +5,8 @@
 package sqldb
 
 import (
+	"context"
+	"database/sql"
 	"log/slog"
 	"time"
 )
@@ -24,8 +26,10 @@ const DefaultPurgeInterval = time.Minute
 const DefaultPurgeBatchSize = 1000
 
 type options struct {
-	tableName string        `optval:"nonempty" optgen:"default=DefaultTableName"`
-	ttl       time.Duration `optgen:"default=DefaultTTL"`
+	// WithTxResolver finds the application transaction for a call.
+	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
+	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`
+	ttl        time.Duration                         `optgen:"default=DefaultTTL"`
 	// WithPurgeInterval sets the interval between purge passes. Zero disables
 	// the background loop; manual PurgeExpired calls remain available.
 	purgeInterval time.Duration `optcheck:"min=0" optgen:"default=DefaultPurgeInterval,onfail=skip"`

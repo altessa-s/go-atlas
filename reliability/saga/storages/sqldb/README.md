@@ -67,3 +67,8 @@ See the [PostgreSQL connection loss policy](../../../outbox/storages/sqldb/READM
 - [storages/storagetest](../storagetest) — the contract suite this backend passes.
 - [storages/mongo](../mongo) — the MongoDB backend with the same default collection name.
 - [reliability/outbox/storages/sqldb](../../../outbox/storages/sqldb) — another SQL backend.
+
+## Caller transactions
+
+Pass `WithTxResolver` a function that finds the caller's `*sql.Tx` in each operation's context. The caller owns completion and rollback.
+The factory wires the resolver with `UseSQLPool(pools.Binding(name))`.

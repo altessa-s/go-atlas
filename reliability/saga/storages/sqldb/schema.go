@@ -35,7 +35,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db.DB, []string{s.tableName}, s.postgresSchema()),
 			"create saga schema")
 	}
-	_, err := s.db.ExecContext(ctx, s.mysqlSchema())
+	_, err := s.db.DB.ExecContext(ctx, s.mysqlSchema())
 	return coreerrs.WrapOperation(err, "create saga schema")
 }
 

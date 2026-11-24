@@ -57,7 +57,7 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
 		return coreerrs.WrapOperation(sqldialect.ExecPostgresDDL(ctx, s.db.DB, []string{s.tableName}, s.postgresSchema()),
 			"create audit schema")
 	}
-	_, err := s.db.ExecContext(ctx, s.mysqlSchema())
+	_, err := s.db.DB.ExecContext(ctx, s.mysqlSchema())
 	return coreerrs.WrapOperation(err, "create audit schema")
 }
 

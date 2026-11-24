@@ -94,7 +94,7 @@ flowchart TD
 have a `sqldb` backend beside their MongoDB (and NATS or Redis) ones. The backends take a caller-owned `*sql.DB` and a dialect — `postgres`, or `mysql`
 for MySQL and MariaDB — through `internal/sqldialect`. The optional `store/postgres` package supplies a pgx pool. Backend constructors perform no I/O,
 and `EnsureSchema` is a separate idempotent call. The lock, idempotency and
-outbox stores evaluate time predicates against the database clock. Stores whose MongoDB counterpart relies on a TTL index purge expired rows with
+outbox stores evaluate time predicates against the database clock. All six SQL backends accept an injected transaction resolver. Stores whose MongoDB counterpart relies on a TTL index purge expired rows with
 `PurgeExpired`, from a background loop that starts on the first write and stops with `Close`. The outbox store implements `outbox.Watcher` with
 PostgreSQL `LISTEN`/`NOTIFY` through an injected `Listener`, the SQL counterpart of the MongoDB change stream. Configuration keys and the shared rules
 are in [configuration](configuration.md#sql-backends).

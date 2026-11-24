@@ -44,9 +44,10 @@ type Builder[P any] struct {
 	cfg  *retryqueueconfig.Config
 	errs []error
 
-	storages map[retryqueueconfig.StorageType]StorageFunc[P]
-	sqlDB    *sql.DB
-	codec    serializer.Serializer
+	storages  map[retryqueueconfig.StorageType]StorageFunc[P]
+	sqlDB     *sql.DB
+	resolveTx func(context.Context) (*sql.Tx, bool)
+	codec     serializer.Serializer
 
 	shutdownHooks *coreruntime.HookGroup
 }
@@ -112,6 +113,7 @@ const EnsureSchemaTimeout = 30 * time.Second
 func (b *Builder[P]) buildSQLStore(ctx context.Context, cfg *retryqueueconfig.SQLStorageConfig) (*sqlstore.Store[P], error) {
 	store, err := sqlstore.New[P](b.sqlDB, sqlstore.Dialect(cfg.Dialect),
 		sqlstore.WithTableName(cfg.Table),
+		sqlstore.WithTxResolver(b.resolveTx),
 		sqlstore.WithResolvedRetention(cfg.ResolvedRetention),
 		sqlstore.WithCodec(b.codec),
 		sqlstore.WithPurgeInterval(cfg.PurgeInterval),
