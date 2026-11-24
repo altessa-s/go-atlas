@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -65,3 +66,21 @@ func BatchSize(n int) (int32, error) {
 	}
 	return int32(n), nil
 }
+
+// textArrayTypes pools the pgx type maps [TextArray] scans with: a map caches its scan plans and is not safe for concurrent use.
+var textArrayTypes = sync.Pool{New: func() any { return pgtype.NewMap() }}
+
+// textArray is the scan destination returned by [TextArray].
+type textArray struct{ dst *[]string }
+
+// Scan implements [sql.Scanner].
+func (a textArray) Scan(src any) error {
+	types := textArrayTypes.Get().(*pgtype.Map) //nolint:errcheck,forcetypeassert // the pool holds only *pgtype.Map
+	defer textArrayTypes.Put(types)
+	return types.SQLScanner((*pgtype.FlatArray[string])(a.dst)).Scan(src)
+}
+
+// TextArray returns the scan destination of a text[] column: a scan replaces *dst with the elements of the array, in order. A NULL
+// array yields a nil slice and a NULL element is a scan error; declare the column NOT NULL without NULL elements. Pass a []string
+// directly as a statement argument: the driver encodes it.
+func TextArray(dst *[]string) sql.Scanner { return textArray{dst: dst} }
