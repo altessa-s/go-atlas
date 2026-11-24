@@ -43,6 +43,7 @@ A zero threshold checks every reused connection and adds a round trip per checko
 | `WithTableName`     | `events_outbox`        | Events table; may be qualified as `schema.name` (≤ 63 chars per part)                        |
 | `WithKeyOrder`      | off                    | Claim only the earliest undelivered sequence for each ordering group                              |
 | `WithAsynchronousCommit` | off           | PostgreSQL can acknowledge dispatch bookkeeping before flushing its WAL                      |
+| `WithTxResolver`    | none                   | Looks up a caller-owned SQL transaction for store operations other than schema creation      |
 | `WithNotify`        | off                    | Every save runs `pg_notify` on the notification channel in its transaction (PostgreSQL only) |
 | `WithNotifyChannel` | derived from the table | Enables `WithNotify` on the given channel: a plain identifier of at most 63 characters       |
 | `WithListener`      | none                   | `Listener` that `Watch` subscribes through (PostgreSQL only); nil or a typed nil is none     |
@@ -85,19 +86,24 @@ if err := ob.Save(outboxsql.WithTx(ctx, tx), outbox.Event{Key: "orders.created",
 return tx.Commit()
 ```
 
-Only `SaveEvents` uses the context transaction. Without one, a batch is still all-or-nothing: a single `INSERT`, or its own transaction when the batch
-spans several statements. With `WithNotify`, each chunk inserts and signals in one CTE statement, so a single chunk needs no explicit transaction.
+The transaction passed to `WithTx` applies only to saves. A standalone batch is also atomic. It uses one `INSERT` or, when it spans several
+statements, its own transaction. With `WithNotify`, each chunk inserts and signals in one CTE statement, so a single chunk needs no explicit transaction.
+
+A store configured with `WithTxResolver` also uses the resolved transaction for claims, outcome updates, sweeps, and stats. The caller owns its
+commit or rollback. Its isolation and durability settings apply throughout, including across sweep chunks. The caller handles deadlock retries.
+Run dispatch cycles on a context without a resolved business transaction. A dispatcher sharing that transaction can see and
+publish an event whose business write later rolls back.
 
 ### PostgreSQL asynchronous commit
 
-`WithAsynchronousCommit()` runs `SET LOCAL synchronous_commit = off` in the store's claim, outcome update, unlock and expiration transactions.
+`WithAsynchronousCommit()` runs `SET LOCAL synchronous_commit = off` only in store-owned claim, outcome update, unlock and expiration transactions.
 PostgreSQL can acknowledge those commits before their WAL reaches durable storage. The setting ends with the transaction. All save paths,
 including a standalone multi-statement batch and a save on the business transaction, keep the caller's durability settings. Retention uses the
 database's normal commit policy. MySQL and MariaDB ignore the option.
 
-A database crash can roll back a recent claim, retry count, backoff deadline, acknowledgement, unlock or expiry. The durable business event
+A database crash can roll back a recent claim, retry count, backoff deadline, acknowledgment, unlock or expiry. The durable business event
 survives when its business transaction committed synchronously. Polling can claim it again, stale leases can be reclaimed and expiry is checked
-again. A send that reached the broker before its acknowledgement was lost can therefore repeat. This preserves at-least-once delivery. JetStream
+again. A send that reached the broker before its acknowledgment was lost can therefore repeat. This preserves at-least-once delivery. JetStream
 can suppress a repeated publish with the same `Nats-Msg-Id` inside its duplicate window. Consumers that require deduplication beyond that window
 need idempotent processing.
 
@@ -126,11 +132,16 @@ each statement stops at its limit, where a single statement over both statuses w
 sorted. A statement may lock up to one batch more than is taken; those rows are released when the fetch transaction ends. `UpdateEvents` writes an event
 only while its stored token still matches; a dispatcher whose lease the unlock sweeper reclaimed writes nothing. Unlocking and expiring clear the token.
 
-Enable `WithKeyOrder()` on every dispatcher that claims from the table. Events with distinct topics but one `Event.OrderKey` are delivered one at a
-time in insertion order (`seq`). An empty `OrderKey` uses `Event.Key`, preserving per-topic ordering. A pending, in-progress or failed head blocks
-later events in the group, including while the head waits for retry. Other groups can be claimed independently. As with per-topic ordering, the
-dispatcher orders committed, visible rows. Producers that need a business-defined order across concurrent transactions must serialize writes for
-that aggregate.
+Enable `WithKeyOrder()` on every dispatcher that claims from the table. For one-at-a-time delivery, serialize producers for each
+`Event.OrderKey` (or `Event.Key` when empty) from before the insert through transaction commit. For example, lock the aggregate's
+business row before saving its event in the same transaction. Sequence numbers are assigned at insert time. If a higher sequence commits
+first, a dispatcher can claim it while the lower sequence is invisible. Once the lower sequence commits, a second dispatcher can claim it
+while the first handler is still running.
+
+A pending, in-progress or failed head blocks later events in its group, including during retry backoff. Other groups can be claimed
+independently. When using event deadlines, run the expiry cycle so an overdue pending or failed head becomes terminal and releases its key.
+If you set individual `ExpiresAt` values with the default TTL disabled, arrange to call `RunExpireCycle` or schedule the callback from
+`RegisterExpireSchedulerFunc`. Automatic task registration enables expiry only with a positive default TTL.
 
 For broker messages, set `msg.MetaKeyOrderKey` to a stable aggregate identifier on each creation, update and deletion. The broker outbox stores
 the value separately from the routing topic. A dispatcher still publishes each event to its original topic.

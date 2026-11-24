@@ -199,42 +199,33 @@ func InstantsRoundTrip(t *testing.T, store outbox.Storage) {
 func ConcurrentFetch(t *testing.T, store outbox.Storage) {
 	saved := saveAscending(t, store, 120)
 
-	var (
-		mu   sync.Mutex
-		seen = map[string]int{}
-		wg   sync.WaitGroup
-	)
-	for range concurrency {
-		wg.Go(func() {
-			for {
-				events, err := store.FetchUnprocessedEvents(t.Context(), 7)
-				if !assertNoError(t, err) || len(events) == 0 {
-					return
-				}
-				mu.Lock()
-				for _, ev := range events {
-					seen[ev.Id]++
-				}
-				mu.Unlock()
-			}
-		})
+	const batchSize = 7
+	var claimed []string
+	for len(claimed) < len(saved) {
+		var wg sync.WaitGroup
+		var batches [concurrency][]outbox.Event
+		var errs [concurrency]error
+		for i := range batches {
+			wg.Go(func() {
+				batches[i], errs[i] = store.FetchUnprocessedEvents(t.Context(), batchSize)
+			})
+		}
+		wg.Wait()
+		before := len(claimed)
+		for i, events := range batches {
+			require.NoError(t, errs[i])
+			claimed = append(claimed, ids(events)...)
+		}
+		if len(claimed) == before {
+			// SKIP LOCKED can return empty while competing scans hold locks.
+			// After the wave finishes, a lone fetch must make progress.
+			events := fetch(t, store, batchSize)
+			require.NotEmpty(t, events, "saved events remain unclaimed")
+			claimed = append(claimed, ids(events)...)
+		}
 	}
-	wg.Wait()
-
-	require.Len(t, seen, len(saved))
-	for id, n := range seen {
-		require.Equal(t, 1, n, "event %s fetched %d times", id, n)
-	}
-}
-
-// assertNoError reports err on t from a non-test goroutine.
-func assertNoError(t *testing.T, err error) bool {
-	t.Helper()
-	if err != nil {
-		t.Errorf("fetch: %v", err)
-		return false
-	}
-	return true
+	require.ElementsMatch(t, ids(saved), claimed)
+	require.Empty(t, fetch(t, store, batchSize))
 }
 
 // UpdateFencing checks the lock-token fence: once the unlock sweep reclaimed an
