@@ -603,7 +603,13 @@ func TestForbiddenConcreteReferencesRegression(t *testing.T) {
 // walkProductionImports calls visit for every import of every non-test Go
 // file in the repository, whatever its build constraints, with the file path,
 // its package directory relative to the module and the imported path.
-func walkProductionImports(t *testing.T, visit func(file, pkg, dependency string)) {
+func walkProductionImports(t testing.TB, visit func(file, pkg, dependency string)) {
+	t.Helper()
+	walkImports(t, false, visit)
+}
+
+// walkImports can include test binaries and tooling for repository-wide ownership rules.
+func walkImports(t testing.TB, includeTests bool, visit func(file, pkg, dependency string)) {
 	t.Helper()
 	root := filepath.Join("..", "..")
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -615,12 +621,16 @@ func walkProductionImports(t *testing.T, visit func(file, pkg, dependency string
 				return filepath.SkipDir
 			}
 			switch entry.Name() {
-			case "vendor", "tests", "devtools", "graphify-out":
+			case "tests", "devtools":
+				if !includeTests {
+					return filepath.SkipDir
+				}
+			case "vendor", "graphify-out":
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+		if !strings.HasSuffix(path, ".go") || (!includeTests && strings.HasSuffix(path, "_test.go")) {
 			return nil
 		}
 		rel, err := filepath.Rel(root, filepath.Dir(path))

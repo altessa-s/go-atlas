@@ -41,6 +41,7 @@ factory/coord/leadelect     # Leader election factory
 factory/coord/limiters      # Limiter factories (budget, tokenbucket, storages)
 factory/coord/dlock         # Lock factory
 factory/store/postgres      # PostgreSQL pool factory
+store/postgres/migrations   # Goose PostgreSQL migration module
 store/postgres/postgrestest # Isolated PostgreSQL test databases
 factory/store/mongo         # MongoDB factory
 factory/store/mongo/kms     # KMS factory

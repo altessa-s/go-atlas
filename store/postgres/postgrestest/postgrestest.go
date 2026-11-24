@@ -70,7 +70,7 @@ func New(tb testing.TB, opts ...Option) *sql.DB {
 		check(tb, "connect to maintenance database", err)
 	}
 	cleanup(tb, "close maintenance connection", admin.Close)
-	check(tb, "verify direct maintenance connection", checkDirect(ready, admin, "postgres"))
+	check(tb, "verify direct maintenance connection", postgres.CheckDirect(ready, admin, "postgres"))
 	cancel()
 	var now time.Time
 	check(tb, "read server clock", admin.QueryRow(ctx, "SELECT clock_timestamp()").Scan(&now))
@@ -94,7 +94,7 @@ func New(tb testing.TB, opts ...Option) *sql.DB {
 		check(tb, "open target lease", err)
 	}
 	cleanup(tb, "close target lease", lease.Close)
-	check(tb, "verify target lease connection", checkDirect(ctx, lease, name))
+	check(tb, "verify target lease connection", postgres.CheckDirect(ctx, lease, name))
 
 	// The target session is independent of both the name lock and the working pool.
 	_, err = lease.Exec(ctx, "SELECT pg_advisory_lock(736291)")
@@ -132,7 +132,7 @@ func checkWorking(ctx context.Context, db *sql.DB, name string) error {
 		if !ok {
 			return errors.New("unexpected PostgreSQL connection type")
 		}
-		return checkDirect(ctx, c.Conn(), name)
+		return postgres.CheckDirect(ctx, c.Conn(), name)
 	})
 }
 
@@ -158,21 +158,7 @@ func probeEndpoint(ctx context.Context, cfg *pgx.ConnConfig, database string) (e
 		defer cancel()
 		err = errors.Join(err, c.Close(closeCtx))
 	}()
-	return checkDirect(ctx, c, database)
-}
-
-// PostgreSQL sends its backend PID at startup. PgBouncer supplies a virtual cancellation key.
-// Verify the session before acquiring any session-level lock.
-func checkDirect(ctx context.Context, c *pgx.Conn, database string) error {
-	var pid uint32
-	var current string
-	if err := c.QueryRow(ctx, "SELECT pg_backend_pid(),current_database()").Scan(&pid, &current); err != nil {
-		return err
-	}
-	if pid != c.PgConn().PID() || current != database {
-		return errors.New("direct PostgreSQL connection required")
-	}
-	return nil
+	return postgres.CheckDirect(ctx, c, database)
 }
 
 func check(tb testing.TB, op string, err error) {

@@ -91,6 +91,7 @@ var baseModules = []targetModule{
 // sdkModules are the leaves carrying a heavy SDK (OPA, Vault, cloud
 // secret managers, S3), each factory of one its own leaf next to it.
 var sdkModules = []targetModule{
+	{root: "store/postgres/migrations", deps: []string{"store/postgres", "internal/sqldialect"}},
 	{root: "auth/opa", deps: []string{"auth", "net/http"}},
 	{root: "factory/auth/opa", deps: []string{"auth/opa", "factory"}},
 	{root: "security/vault", deps: []string{"security"}},
@@ -339,10 +340,26 @@ func (p *modulePlan) checkModuleEdge(pkg, dependency string) (string, moduleEdge
 		}
 		return "", moduleEdge{}
 	}
+	if foreignGooseImport(pkg, dependency) {
+		return "goose belongs to store/postgres/migrations", moduleEdge{from: from, to: dependency}
+	}
 	if !p.isDriverModule(from) && hasPathPrefix(dependency, driverLibraries) {
 		return "module " + from + " imports a driver library", moduleEdge{from: from, to: dependency}
 	}
 	return "", moduleEdge{}
+}
+
+func foreignGooseImport(pkg, dependency string) bool {
+	return hasPathPrefix(dependency, []string{"github.com/pressly/goose"}) && !hasPathPrefix(pkg, []string{"store/postgres/migrations"})
+}
+
+func TestGooseOwnership(t *testing.T) {
+	t.Parallel()
+	walkImports(t, true, func(file, pkg, dep string) {
+		if foreignGooseImport(pkg, dep) {
+			t.Errorf("%s imports %s outside store/postgres/migrations", file, dep)
+		}
+	})
 }
 
 func TestModulePlanIsDAG(t *testing.T) {
@@ -403,6 +420,8 @@ func TestCheckModuleEdge(t *testing.T) {
 		name, pkg, dep string
 		rejected       bool
 	}{
+		{"mongo cannot import goose", "store/mongo", "github.com/pressly/goose/v3/lock", true},
+		{"migrations own goose", "store/postgres/migrations", "github.com/pressly/goose/v3", false},
 		{"same module", "cache", module + "cache/storages/freecache", false},
 		{"declared dependency", "cache", module + "core/errors", false},
 		{"store builds documents through the translator", "store/mongo", module + "mapping/behavior/translators/mongo", false},

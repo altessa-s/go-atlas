@@ -6,7 +6,7 @@ the test. A configured endpoint that fails readiness verification fails the test
 
 ```go
 db := postgrestest.New(t, postgrestest.WithDatabasePrefix("orders_it_"))
-err := postgres.Migrate(t.Context(), db, migrations, "orders")
+err := migrations.Run(t.Context(), db)
 ```
 
 | Option | Default | Purpose |
