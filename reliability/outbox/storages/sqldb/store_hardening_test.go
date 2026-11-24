@@ -63,13 +63,13 @@ func TestSaveStampsUnsetInstantsWithTheDatabaseClock(t *testing.T) {
 		call := fake.Calls()[0]
 		require.Contains(t, call.Query, ", "+now+", ", "created_at comes from the database clock")
 		require.Contains(t, call.Query, shifted, "expires_at is the database clock plus the TTL")
-		// id, topic, payload, status, attempts, error, ttl — no instant.
-		require.Len(t, call.Args, 7)
+		// id, topic, order_key, payload, status, attempts, error, ttl — no instant.
+		require.Len(t, call.Args, 8)
 		ttl := any(90.0)
 		if d == sqldb.DialectMySQL {
 			ttl = (90 * time.Second).Microseconds()
 		}
-		require.Equal(t, ttl, call.Args[6])
+		require.Equal(t, ttl, call.Args[7])
 	})
 }
 
@@ -84,8 +84,8 @@ func TestSaveWithoutTTLLeavesExpiryNull(t *testing.T) {
 		require.Contains(t, call.Query, ", "+now+", ")
 		require.NotContains(t, call.Query, "INTERVAL")
 		require.NotContains(t, call.Query, "make_interval")
-		require.Len(t, call.Args, 7)
-		require.Nil(t, call.Args[6], "expires_at is NULL")
+		require.Len(t, call.Args, 8)
+		require.Nil(t, call.Args[7], "expires_at is NULL")
 	})
 }
 
@@ -112,9 +112,9 @@ func TestSaveKeepsExplicitInstants(t *testing.T) {
 
 			call := fake.Calls()[0]
 			require.NotContains(t, call.Query, "now()")
-			require.Len(t, call.Args, 8)
-			require.Equal(t, created, call.Args[4])
-			require.Equal(t, tc.want, call.Args[7])
+			require.Len(t, call.Args, 9)
+			require.Equal(t, created, call.Args[5])
+			require.Equal(t, tc.want, call.Args[8])
 		})
 	}
 
@@ -127,7 +127,7 @@ func TestSaveKeepsExplicitInstants(t *testing.T) {
 		call := fake.Calls()[0]
 		require.Contains(t, call.Query, ", now(), ")
 		require.NotContains(t, call.Query, "make_interval", "an explicit expiry overrides the TTL")
-		require.Equal(t, expires, call.Args[6])
+		require.Equal(t, expires, call.Args[7])
 	})
 }
 

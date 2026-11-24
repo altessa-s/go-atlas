@@ -193,14 +193,18 @@ func msgToEvent(m msg.Message) outbox.Event {
 		createdTime = created
 	}
 
+	metadata := m.Metadata.Map()
+	orderKey := metadata[msg.MetaKeyOrderKey]
+	delete(metadata, msg.MetaKeyOrderKey)
 	payload, _ := json.Marshal(brokerPayload{ //nolint:errcheck // brokerPayload contains only JSON-encodable fields
 		Data:     m.Data,
 		TTL:      m.TTL,
-		Metadata: m.Metadata.Map(),
+		Metadata: metadata,
 	})
 
 	return outbox.Event{
 		Key:       m.Topic,
+		OrderKey:  orderKey,
 		Payload:   payload,
 		CreatedAt: createdTime,
 	}

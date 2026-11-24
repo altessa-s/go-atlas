@@ -13,6 +13,8 @@ import "log/slog"
 const DefaultTableName = "events_outbox"
 
 type options struct {
+	// WithKeyOrder restricts claims to the earliest undelivered event for each ordering group, in insertion order.
+	keyOrder  bool
 	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// WithNotify makes every save signal the notification channel with
 	// pg_notify in the transaction that inserts the events, so a [Listener]

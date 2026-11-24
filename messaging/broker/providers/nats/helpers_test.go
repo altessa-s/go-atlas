@@ -13,6 +13,16 @@ import (
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 )
 
+func TestPublishOmitsOutboxOrderKeyHeader(t *testing.T) {
+	t.Parallel()
+	wire, _ := buildNatsMsg(msg.Message{Metadata: msg.Meta{
+		{Key: msg.MetaKeyOrderKey, Value: "order-5"},
+		{Key: "region", Value: "west"},
+	}})
+	require.NotContains(t, wire.Header, msg.MetaKeyOrderKey)
+	require.Equal(t, "west", wire.Header.Get("region"))
+}
+
 func TestIsValidSubject(t *testing.T) {
 	tests := []struct {
 		subject string

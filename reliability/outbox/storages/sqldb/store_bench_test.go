@@ -67,7 +67,7 @@ type benchRows struct {
 }
 
 func (*benchRows) Columns() []string {
-	return []string{"id", "topic", "payload", "attempts", "error", "c", "p", "l", "e", "seq"}
+	return []string{"id", "topic", "order_key", "payload", "attempts", "error", "c", "p", "l", "e", "seq"}
 }
 func (*benchRows) Close() error { return nil }
 func (r *benchRows) Next(dest []driver.Value) error {
@@ -136,7 +136,7 @@ func BenchmarkFetchUnprocessedEvents(b *testing.B) {
 	} {
 		rows := make([][]driver.Value, 100)
 		for i := range rows {
-			rows[i] = []driver.Value{[]byte(strconv.Itoa(i)), []byte("orders.created"), []byte(`{"n":1}`), int64(0), nil, tc.ts, nil, nil, tc.ts,
+			rows[i] = []driver.Value{[]byte(strconv.Itoa(i)), []byte("orders.created"), []byte("orders.created"), []byte(`{"n":1}`), int64(0), nil, tc.ts, nil, nil, tc.ts,
 				int64(i)}
 		}
 		b.Run(string(tc.dialect), func(b *testing.B) {

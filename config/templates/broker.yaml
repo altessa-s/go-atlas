@@ -208,6 +208,10 @@
 #        # Default value: false
 #        ensureSchema: false
 #
+#        # <bool> Claim the oldest undelivered event per ordering key. Enable on every dispatcher.
+#        # Default value: false
+#        keyOrder: false
+#
 #    # <string> How the dispatcher learns of new events beyond dispatchSchedule,
 #    # which keeps running in every mode. The factory starts the watcher and
 #    # stops it on shutdown.

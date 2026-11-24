@@ -462,7 +462,7 @@ func volumeSQLQueries(t testing.TB, b *sqlBackend) []volumeQuery {
 		cutoff = "(UTC_TIMESTAMP(6) - INTERVAL 86400000000 MICROSECOND)"
 		lockCutoff = "(UTC_TIMESTAMP(6) - INTERVAL 300000000 MICROSECOND)"
 	}
-	cols := "id, topic, payload, attempts, error, " + b.timeCol("created_at") + ", " + b.timeCol("published_at") + ", " +
+	cols := "id, topic, COALESCE(order_key, topic), payload, attempts, error, " + b.timeCol("created_at") + ", " + b.timeCol("published_at") + ", " +
 		b.timeCol("last_attempt_on") + ", " + b.timeCol("expires_at") + ", seq"
 	ready := " AND (expires_at IS NULL OR expires_at > " + now + ") ORDER BY created_at, seq LIMIT 1000 FOR UPDATE SKIP LOCKED"
 	stuck := "status = 'in-progress' AND locked_on < " + lockCutoff

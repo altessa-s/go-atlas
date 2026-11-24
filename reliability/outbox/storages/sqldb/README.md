@@ -41,6 +41,7 @@ A zero threshold checks every reused connection and adds a round trip per checko
 | Option              | Default                | Description                                                                                  |
 |---------------------|------------------------|----------------------------------------------------------------------------------------------|
 | `WithTableName`     | `events_outbox`        | Events table; may be qualified as `schema.name` (≤ 63 chars per part)                        |
+| `WithKeyOrder`      | off                    | Claim only the earliest undelivered sequence for each ordering group                              |
 | `WithNotify`        | off                    | Every save runs `pg_notify` on the notification channel in its transaction (PostgreSQL only) |
 | `WithNotifyChannel` | derived from the table | Enables `WithNotify` on the given channel: a plain identifier of at most 63 characters       |
 | `WithListener`      | none                   | `Listener` that `Watch` subscribes through (PostgreSQL only); nil or a typed nil is none     |
@@ -111,6 +112,15 @@ each statement stops at its limit, where a single statement over both statuses w
 sorted. A statement may lock up to one batch more than is taken; those rows are released when the fetch transaction ends. `UpdateEvents` writes an event
 only while its stored token still matches; a dispatcher whose lease the unlock sweeper reclaimed writes nothing. Unlocking and expiring clear the token.
 
+Enable `WithKeyOrder()` on every dispatcher that claims from the table. Events with distinct topics but one `Event.OrderKey` are delivered one at a
+time in insertion order (`seq`). An empty `OrderKey` uses `Event.Key`, preserving per-topic ordering. A pending, in-progress or failed head blocks
+later events in the group, including while the head waits for retry. Other groups can be claimed independently. As with per-topic ordering, the
+dispatcher orders committed, visible rows. Producers that need a business-defined order across concurrent transactions must serialize writes for
+that aggregate.
+
+For broker messages, set `msg.MetaKeyOrderKey` to a stable aggregate identifier on each creation, update and deletion. The broker outbox stores
+the value separately from the routing topic. A dispatcher still publishes each event to its original topic.
+
 `UpdateEvents` and `UnlockStuckEvents` take their row locks in primary-key order, so they cannot deadlock on the rows they share. If the database
 reports a deadlock or a serialization failure anyway (SQLSTATE `40P01` or `40001`, MySQL error 1213), the statement is retried up to three times with a
 short jittered backoff. The package imports no driver, so the code is read from the error's `SQLState()` method (pgx, lib/pq) or `Number` field
@@ -126,6 +136,7 @@ a sweep whose context ends keeps what it already did.
 | `id`         | `VARCHAR(255)` | `VARBINARY(255)` | Primary key                                                                                   |
 | `seq`        | identity       | `AUTO_INCREMENT` | Insertion order; breaks `created_at` ties (a batch saved together shares one `CreatedAt`)     |
 | `topic`      | `BYTEA`        | `LONGBLOB`       | `Event.Key`                                                                                   |
+| `order_key`  | `BYTEA NULL`   | `LONGBLOB NULL`  | Effective ordering key. Older writers leave it NULL, which uses the topic.                    |
 | `payload`    | `BYTEA NULL`   | `LONGBLOB NULL`  | `nil` round-trips as `nil`, empty as empty                                                    |
 | `status`     | `VARCHAR(32)`  | `VARCHAR(32)`    |                                                                                               |
 | `error`      | `BYTEA NULL`   | `LONGBLOB NULL`  | Unbounded handler errors, NUL bytes included                                                  |
@@ -143,6 +154,37 @@ character set.
 | `expires`                      | `status, expires_at`      | The expiry sweep                                                          |
 
 `next_attempt_at` has no index of its own: it is only ever a filter on the claim, whose `created_at` order the `fetch` index already supplies.
+
+### Existing tables
+
+Add the nullable column before deploying the new store against an existing table, including when ordering is disabled.
+`EnsureSchema` creates new tables with this column. Older writers can continue to omit it. Their rows use `topic` as the ordering key.
+The statements below use the default table name.
+
+```sql
+-- PostgreSQL
+ALTER TABLE events_outbox ADD COLUMN order_key BYTEA;
+
+-- MySQL and MariaDB
+ALTER TABLE events_outbox ADD COLUMN order_key LONGBLOB NULL;
+```
+
+With `WithKeyOrder()`, `EnsureSchema` creates the ordering index on PostgreSQL and declares it inline on a new MySQL or MariaDB table.
+The index bounds the key prefix at 255 bytes. Claims compare the full keys, so groups sharing a prefix can proceed independently.
+For migration-managed indexes or to enable ordering on an existing MySQL or MariaDB table, use the matching statement below.
+
+```sql
+-- PostgreSQL (run outside a transaction)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS events_outbox_order_key_idx
+    ON events_outbox (substr(COALESCE(order_key, topic), 1, 255), seq)
+    WHERE status IN ('pending', 'in-progress', 'failed');
+
+-- MySQL and MariaDB
+ALTER TABLE events_outbox ADD INDEX events_outbox_order_key_idx (order_key(255), status, seq);
+```
+
+Upgrade all ordered dispatchers before producers start using aggregate keys. Drain any topic-keyed events that must precede the first
+aggregate-keyed events. An older `key_order` index on `topic` can be removed once its dispatchers have stopped.
 
 ## Watch
 

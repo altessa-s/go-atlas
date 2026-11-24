@@ -160,9 +160,9 @@ func TestCreateOutbox_ClosedConnectionIsRejected(t *testing.T) {
 	db, fake := testhelpers.NewFakeSQL(t, func(query string, _ []any) testhelpers.FakeSQLReply {
 		if strings.HasPrefix(strings.TrimSpace(query), "SELECT") {
 			return testhelpers.FakeSQLReply{
-				Columns: []string{"id", "topic", "payload", "attempts", "last_error", "created_at", "locked_on", "published_at", "expires_at", "seq"},
+				Columns: []string{"id", "topic", "order_key", "payload", "attempts", "last_error", "created_at", "locked_on", "published_at", "expires_at", "seq"},
 				Rows: [][]driver.Value{{
-					[]byte("event-1"), []byte("billing.invoice.paid"), []byte(`{"d":"e30="}`),
+					[]byte("event-1"), []byte("billing.invoice.paid"), []byte("billing.invoice.paid"), []byte(`{"d":"e30="}`),
 					int64(0), nil, created, nil, nil, created, int64(1),
 				}},
 			}
@@ -183,6 +183,20 @@ func TestCreateOutbox_ClosedConnectionIsRejected(t *testing.T) {
 	}
 	require.True(t, slices.Contains(statuses, any(string(dataoutbox.StatusRejected))),
 		"a closed connection must dead-letter the event, got statuses %v", statuses)
+}
+
+func TestCreateOutbox_OrdersSQLClaimsByKey(t *testing.T) {
+	t.Parallel()
+	cfg := outboxConfig()
+	cfg.Outbox.Storage.SQL.KeyOrder = true
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	ob, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.RunDispatchCycle(t.Context()))
+	calls := fake.Calls()
+	require.NotEmpty(t, calls)
+	require.Contains(t, calls[0].Query, "NOT EXISTS")
 }
 
 func TestCreateOutbox_SQLDB(t *testing.T) {

@@ -85,8 +85,9 @@ At-least-once. Duplicates are expected — a handler can publish successfully an
 idempotent. Where the transport supports deduplication, key it off `Event.Id`: it is assigned once at save time and never changes across retries. The
 `messaging/broker/outbox` adapter does this automatically.
 
-**Ordering is not preserved.** Batches are fetched oldest-first but dispatched concurrently, and a failed event is rescheduled behind events created
-after it. Do not assume ordering, even within a single `Key`.
+Dispatch is concurrent by default. With `sqldb.WithKeyOrder()` on every SQL dispatcher, only the earliest committed, undelivered sequence for each
+event `OrderKey` (or `Key` when empty) can be claimed. A failed event blocks its key during backoff. Any terminal status, including rejection or exhausted attempts,
+releases the next event. Other keys can dispatch concurrently. Serialize writes for a key when dispatch must follow application revision order.
 
 ## Retries and dead-lettering
 

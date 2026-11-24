@@ -58,7 +58,7 @@ driver. A configured type without its dependency fails at `Build` with `factory/
 | `Build(ctx, handler)` | Validates config, builds the store and outbox, and registers tasks; returns `nil, nil` when disabled |
 
 The sqldb store creates the events table only with `storage.sqldb.ensureSchema: true` (otherwise it must exist). `Save` must run on the business
-transaction via `outboxsql.WithTx`.
+transaction via `outboxsql.WithTx`. Set `storage.sqldb.keyOrder` on all dispatchers for per-key delivery.
 
 ## Watch
 

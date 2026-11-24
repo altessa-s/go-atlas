@@ -39,6 +39,18 @@ the send context into the outgoing metadata. Its attributes include the destinat
 event creation. A failed publish records an exception and error status. Unsampled parents pass through unchanged. Events without a valid parent
 produce no dispatcher span.
 
+## Ordering
+
+To order several subjects for one aggregate, put the same `msg.MetaKeyOrderKey` in their message metadata. The adapter moves it into
+`Event.OrderKey` and removes it from the envelope. Enable `sqldb.WithKeyOrder()` on dispatchers using the SQL store.
+
+```go
+m := msg.NewMessageWithMeta("events.updated."+id, payload, msg.Meta{
+    {Key: msg.MetaKeyOrderKey, Value: "entity."+id},
+})
+err := b.Publish(sqldb.WithTx(ctx, tx), *m)
+```
+
 ## Error classification
 
 A stored payload this adapter cannot decode is wrapped in `ErrUndeliverable`, and the retry predicate reports it as permanent so the event goes straight

@@ -9,11 +9,17 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
-// indexes are the events table's secondary indexes: the suffix of each name
+// The predecessor query and its partial index use the same fixed predicate so
+// PostgreSQL can match the index even with a generic prepared plan.
+const undeliveredStatuses = "('" + string(outbox.StatusPending) + "', '" +
+	string(outbox.StatusInProgress) + "', '" + string(outbox.StatusFailed) + "')"
+
+// indexes are the events table's default secondary indexes: the suffix of each name
 // (see [sqldialect.Style.IndexName]) and its columns. Every one leads with
 // status, the column every statement of the store filters on.
 var indexes = [...]struct{ suffix, columns string }{
@@ -60,6 +66,7 @@ func (s *Store) ddl() []string {
   id              VARCHAR(255) COLLATE "C" PRIMARY KEY,
   seq             BIGINT       GENERATED ALWAYS AS IDENTITY,
   topic           BYTEA        NOT NULL,
+  order_key       BYTEA        NULL,
   payload         BYTEA        NULL,
   status          VARCHAR(32)  NOT NULL,
   created_at      TIMESTAMPTZ  NOT NULL,
@@ -74,6 +81,10 @@ func (s *Store) ddl() []string {
 )`)
 		for _, ix := range indexes {
 			stmts = append(stmts, `CREATE INDEX IF NOT EXISTS `+d.IndexName(s.name, ix.suffix)+` ON `+t+` (`+ix.columns+`)`)
+		}
+		if s.keyOrder {
+			stmts = append(stmts, "CREATE INDEX IF NOT EXISTS "+d.IndexName(s.name, "order_key")+
+				" ON "+t+" (substr(COALESCE(order_key, topic), 1, 255), seq) WHERE status IN "+undeliveredStatuses)
 		}
 		return stmts
 	}
@@ -91,11 +102,15 @@ func (s *Store) ddl() []string {
 	for _, ix := range indexes {
 		inline.WriteString(",\n  INDEX " + d.IndexName(s.name, ix.suffix) + " (" + ix.columns + ")")
 	}
+	if s.keyOrder {
+		inline.WriteString(",\n  INDEX " + d.IndexName(s.name, "order_key") + " (order_key(255), status, seq)")
+	}
 	return []string{
 		`CREATE TABLE IF NOT EXISTS ` + t + ` (
   id              VARBINARY(255) NOT NULL PRIMARY KEY,
   seq             BIGINT         NOT NULL AUTO_INCREMENT UNIQUE,
   topic           LONGBLOB       NOT NULL,
+  order_key       LONGBLOB       NULL,
   payload         LONGBLOB       NULL,
   status          VARCHAR(32)    NOT NULL,
   created_at      DATETIME(6)    NOT NULL,

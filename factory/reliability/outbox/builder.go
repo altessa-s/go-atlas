@@ -157,6 +157,7 @@ func (b *OutboxBuilder) buildSQLStore(ctx context.Context, cfg *brokerconfig.Out
 	}
 
 	opts := []outboxsql.Option{outboxsql.WithTableName(cfg.Table), outboxsql.WithLogger(b.Logger())}
+	opts = slices.AppendIf(opts, cfg.KeyOrder, outboxsql.WithKeyOrder())
 	opts = slices.AppendIf(opts, notify, outboxsql.WithNotify(), outboxsql.WithListener(b.sqlListener))
 	opts = slices.AppendIf(opts, notify && cfg.NotifyChannel != "", outboxsql.WithNotifyChannel(cfg.NotifyChannel))
 	store, err := outboxsql.New(b.sqlDB, outboxsql.Dialect(cfg.Dialect), opts...)

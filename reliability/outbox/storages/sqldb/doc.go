@@ -50,6 +50,29 @@
 // retried a bounded number of times if the database reports a deadlock.
 // DeleteProcessedEvents deletes in chunks, each in its own short transaction.
 //
+// [WithKeyOrder] claims only the earliest undelivered seq per [outbox.Event.OrderKey],
+// falling back to [outbox.Event.Key] when it is empty. A pending, in-progress, or failed predecessor blocks its successors,
+// including during retry backoff. Every terminal status releases the key.
+// Use this option on every dispatcher and serialize inserts for each key
+// when application revision order must match insertion order.
+//
+// For existing tables, add the nullable order_key column before deploying this
+// store (BYTEA on PostgreSQL, LONGBLOB on MySQL and MariaDB). Legacy rows
+// with a NULL order_key use their topic.
+//
+// [Store.EnsureSchema] creates the ordering index with this option. MySQL
+// and MariaDB declare it inline for a new table. To enable it on an existing
+// table, apply the ALTER TABLE below. The default table uses the following DDL.
+//
+// PostgreSQL:
+//
+//	CREATE INDEX IF NOT EXISTS events_outbox_order_key_idx ON events_outbox (substr(COALESCE(order_key, topic), 1, 255), seq)
+//	    WHERE status IN ('pending', 'in-progress', 'failed');
+//
+// MySQL and MariaDB:
+//
+//	ALTER TABLE events_outbox ADD INDEX events_outbox_order_key_idx (order_key(255), status, seq);
+//
 // # Watch
 //
 // database/sql has no notification API, so PostgreSQL LISTEN comes from the

@@ -33,9 +33,11 @@
 // be idempotent. Where the transport supports deduplication, key it off [Event.Id], which is
 // assigned once at Save and stays constant across every retry.
 //
-// Ordering is NOT preserved. A batch is fetched oldest-first but dispatched concurrently,
-// and a failed event is rescheduled behind events created after it. Do not rely on the
-// order in which the Handler is called, even for a single Key.
+// By default, a batch is fetched oldest-first and dispatched concurrently.
+// The SQL store's sqldb.WithKeyOrder option restricts claims to the earliest
+// undelivered sequence for each Event.OrderKey (Event.Key when empty).
+// A failed event blocks its key through
+// retry backoff. A terminal status releases the next event.
 //
 // # Dispatch latency
 //

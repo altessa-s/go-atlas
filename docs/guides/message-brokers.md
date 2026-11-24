@@ -387,7 +387,9 @@ than on the next poller tick. It requires a replica set or a sharded cluster —
 stream **cannot** replace the poller, however: retry-backoff expiry and stale-lock release are time-driven, produce no insert, and are invisible to
 the
 stream. The change stream therefore runs on top of the poller, not instead of it — the stream shortens the typical case, and the poller remains the
-guarantee. In Postgres, the poller role is played by a regular `SKIP LOCKED` query on the table.
+guarantee. In Postgres, the poller claims rows with `SKIP LOCKED`. To dispatch revisions in order across subjects, give them a common `msg.MetaKeyOrderKey`,
+serialize writes for that key and enable `sqldb.WithKeyOrder()` on every SQL dispatcher. The subject is the default ordering key.
+Only the earliest undelivered row per key can be claimed. Other keys can publish while the first waits for a retry.
 
 The counterpart is the **inbox**: the consumer writes the identifier of the processed message into a table with a unique index, in the same
 transaction
