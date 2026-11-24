@@ -45,7 +45,6 @@ type DLockBuilder struct {
 	// Dependencies
 	shutdownHooks     *coreruntime.HookGroup
 	sqlDB             *sql.DB
-	resolveTx         func(context.Context) (*sql.Tx, bool)
 	healthCoordinator *health.Coordinator
 	healthServiceName string
 
@@ -106,7 +105,6 @@ func (b *DLockBuilder) createSQLDLock(ctx context.Context) (*dlock.DLock, error)
 	}
 	cfg := b.cfg.SQL
 	provOpts := []sqlprovider.Option{
-		sqlprovider.WithTxResolver(b.resolveTx),
 		sqlprovider.WithLogger(b.Logger()), sqlprovider.WithTableName(cfg.Table),
 		sqlprovider.WithPurgeInterval(cfg.PurgeInterval), sqlprovider.WithPurgeBatchSize(cfg.PurgeBatchSize)}
 	provOpts = coreslices.AppendIf(provOpts, cfg.TTL > 0, sqlprovider.WithTTL(cfg.TTL))
