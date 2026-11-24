@@ -6,7 +6,9 @@ package console_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"regexp"
 	"strings"
 	"testing"
@@ -136,4 +138,30 @@ func TestShutdownAndForceFlush_AreNoops(t *testing.T) {
 	require.NoError(t, a.Shutdown(t.Context()))
 	require.NoError(t, a.ForceFlush(t.Context()))
 	require.Zero(t, out.Len(), "shutdown and flush write nothing")
+}
+
+func TestExportSpans_CancelWhileAnotherExportWrites(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	a := console.New(console.WithWriter(writer), console.WithPrettyPrint(false))
+	spans := []adapters.SpanData{testSpan()}
+	first := make(chan error, 1)
+	go func() { first <- a.ExportSpans(t.Context(), spans) }()
+	// Read only the first byte so the writer still owns the adapter.
+	var firstByte [1]byte
+	_, err := io.ReadFull(reader, firstByte[:])
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	second := make(chan error, 1)
+	go func() { second <- a.ExportSpans(ctx, spans) }()
+	cancel()
+	select {
+	case err := <-second:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Error("canceled export still waiting for the writer")
+	}
+	require.NoError(t, reader.Close())
+	require.ErrorIs(t, <-first, io.ErrClosedPipe)
 }

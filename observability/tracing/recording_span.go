@@ -18,7 +18,7 @@ type recordingSpan struct {
 	mu          sync.RWMutex
 	recorder    *recorder
 	name        string
-	spanContext spanContextImpl
+	spanContext *spanContextImpl
 	parentID    [8]byte
 	kind        SpanKind
 	startTime   time.Time
@@ -56,7 +56,7 @@ func (s *recordingSpan) End(opts ...SpanEndOption) {
 
 // SpanContext implements Span.
 func (s *recordingSpan) SpanContext() SpanContext {
-	return &s.spanContext
+	return s.spanContext
 }
 
 // IsRecording implements Span.
@@ -203,7 +203,7 @@ func (s *recordingSpan) export() {
 		Status:               adapters.StatusCode(s.status),
 		StatusDesc:           s.statusDesc,
 		Resource:             s.recorder.tracer.resource,
-		InstrumentationScope: &s.recorder.scope,
+		InstrumentationScope: s.recorder.scope,
 	}
 
 	s.recorder.tracer.processor.enqueue(spanData)

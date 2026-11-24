@@ -22,10 +22,13 @@ func TestRecordErrorConcreteType(t *testing.T) {
 	_, span := tr.Recorder("test").Start(t.Context(), "parse")
 	_, err := strconv.Atoi("invalid")
 	require.Error(t, err)
-	span.RecordError(err)
+	span.RecordError(err, tracing.WithEventAttributes(tracing.String("exception.message", "invalid integer")))
 	span.End()
 	require.NoError(t, tr.Shutdown(t.Context()))
 	require.Len(t, a.spans, 1)
 	require.Len(t, a.spans[0].Events, 1)
-	require.Contains(t, a.spans[0].Events[0].Attributes, adapters.Attribute{Key: "exception.type", Value: "*strconv.NumError"})
+	require.ElementsMatch(t, []adapters.Attribute{
+		{Key: "exception.type", Value: "*strconv.NumError"},
+		{Key: "exception.message", Value: "invalid integer"},
+	}, a.spans[0].Events[0].Attributes)
 }

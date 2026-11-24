@@ -98,9 +98,21 @@ func createResource(cfg *options) *resourcepb.Resource {
 		}}
 	})
 
-	// Add custom attributes
-	for _, attr := range cfg.resourceAttrs {
-		attrs = append(attrs, convertAttributeToPB(attr))
+	// Custom attributes override defaults with the same key.
+	if len(cfg.resourceAttrs) > 0 {
+		index := make(map[string]int, len(attrs)+len(cfg.resourceAttrs))
+		for i, kv := range attrs {
+			index[kv.Key] = i
+		}
+		for _, attr := range cfg.resourceAttrs {
+			kv := convertAttributeToPB(attr)
+			if i, ok := index[kv.Key]; ok {
+				attrs[i] = kv
+			} else {
+				index[kv.Key] = len(attrs)
+				attrs = append(attrs, kv)
+			}
+		}
 	}
 
 	return &resourcepb.Resource{

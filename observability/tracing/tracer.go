@@ -84,14 +84,14 @@ func (t *tracer) getOrCreateRecorder(scope, name string, opts ...RecorderOption)
 		id.SchemaURL = cfg.SchemaURL()
 	}
 	return shared.GetOrCreate(&t.recorders, id, func() *recorder {
-		return &recorder{tracer: t, scope: id}
+		return &recorder{tracer: t, scope: &id}
 	})
 }
 
 // recorder is the default implementation of Recorder.
 type recorder struct {
 	tracer *tracer
-	scope  adapters.InstrumentationScope
+	scope  *adapters.InstrumentationScope
 }
 
 // Start implements Recorder.
@@ -130,8 +130,7 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 		spanCtx.traceState = shouldSample.Tracestate
 	}
 	if !shouldSample.Decision.IsRecording() {
-		contextCopy := spanCtx
-		span := nonRecordingSpan{spanContext: &contextCopy}
+		span := nonRecordingSpan{spanContext: &spanCtx}
 		return ContextWithSpan(ctx, span), span
 	}
 
@@ -140,7 +139,7 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 		recorder:    r,
 		parentID:    parentID,
 		name:        spanName,
-		spanContext: spanCtx,
+		spanContext: &spanCtx,
 		kind:        cfg.Kind(),
 		startTime:   cfg.Timestamp(),
 		attributes:  cfg.Attributes(),

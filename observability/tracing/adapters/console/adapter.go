@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
@@ -19,7 +18,7 @@ import (
 // Adapter implements adapters.Adapter for console output.
 // It outputs spans to a writer in a human-readable or JSON format.
 type Adapter struct {
-	mu          sync.Mutex
+	writing     chan struct{}
 	writer      io.Writer
 	prettyPrint bool
 	timestamps  bool
@@ -38,6 +37,7 @@ func New(opts ...Option) *Adapter {
 	}
 
 	return &Adapter{
+		writing:     make(chan struct{}, 1),
 		writer:      writer,
 		prettyPrint: cfg.prettyPrint,
 		timestamps:  cfg.timestamps,
@@ -51,8 +51,15 @@ func (a *Adapter) Name() string {
 
 // ExportSpans implements adapters.Adapter.
 func (a *Adapter) ExportSpans(ctx context.Context, spans []adapters.SpanData) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	if len(spans) == 0 {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case a.writing <- struct{}{}:
+	}
+	defer func() { <-a.writing }()
 
 	for _, span := range spans {
 		if err := ctx.Err(); err != nil {

@@ -320,3 +320,15 @@ func TestForceFlushRetainsItsAdmissionPrefix(t *testing.T) {
 		}
 	})
 }
+
+func TestCompletedShutdownWithCanceledContext(t *testing.T) {
+	tr := tracing.New(tracing.WithAdapter(adapters.NewMultiAdapter()))
+	require.NoError(t, tr.Shutdown(t.Context()))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	// Both the worker and the caller are done. A repeated shutdown must
+	// consistently return the completed operation's result.
+	for range 100 {
+		require.NoError(t, tr.Shutdown(ctx))
+	}
+}

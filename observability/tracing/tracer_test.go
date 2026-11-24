@@ -7,8 +7,10 @@ package tracing_test
 import (
 	"context"
 	"encoding/hex"
+	"runtime"
 	"sync"
 	"testing"
+	"weak"
 
 	"github.com/stretchr/testify/require"
 
@@ -100,4 +102,33 @@ func TestRecorderKeepsDistinctInstrumentationScopes(t *testing.T) {
 	for i, span := range a.spans {
 		require.Equal(t, scopes[i], *span.InstrumentationScope)
 	}
+}
+
+func TestRetainedExportMetadataReleasesSpanAndTracer(t *testing.T) {
+	type samplingPolicy struct{ sampler.Sampler }
+	a := &captureAdapter{MultiAdapter: adapters.NewMultiAdapter()}
+	policy := &samplingPolicy{sampler.AlwaysOn()}
+	policyRef := weak.Make(policy)
+	tr := tracing.New(tracing.WithAdapter(a), tracing.WithSampler(policy))
+	rec := tr.Recorder("test")
+
+	payload := new([1024]byte)
+	payloadRef := weak.Make(payload)
+	_, span := rec.Start(t.Context(), "request", tracing.WithAttributes(tracing.Attribute{Key: "payload", Value: payload}))
+	sc := span.SpanContext()
+	span.End()
+	require.NoError(t, tr.Shutdown(t.Context()))
+	require.Len(t, a.spans, 1)
+	scope := a.spans[0].InstrumentationScope
+	a.spans = nil
+
+	runtime.GC()
+	if payloadRef.Value() != nil {
+		t.Error("retaining SpanContext kept the ended span's payload alive")
+	}
+	if policyRef.Value() != nil {
+		t.Error("retaining metadata kept the tracer's sampler alive")
+	}
+	runtime.KeepAlive(sc)
+	runtime.KeepAlive(scope)
 }

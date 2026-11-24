@@ -220,6 +220,11 @@ func (p *batchProcessor) forceFlush(ctx context.Context) error {
 }
 
 func (p *batchProcessor) shutdown(ctx context.Context) error {
+	select {
+	case <-p.done:
+		return p.shutdownErr
+	default:
+	}
 	p.mu.Lock()
 	if !p.stopped() {
 		p.shutdownCtx = ctx

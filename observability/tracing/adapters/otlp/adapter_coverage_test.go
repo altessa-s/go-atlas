@@ -392,7 +392,8 @@ func TestExportSpans_UsesTheTracerResourceOfEachSpan(t *testing.T) {
 	col, conn := startRequestCollector(t, nil)
 
 	a, err := otlp.New(t.Context(), otlp.WithGRPCConn(conn), otlp.WithEnvironment("test"),
-		otlp.WithResourceAttrs(adapters.Attribute{Key: "host.name", Value: "node-1"}))
+		otlp.WithResourceAttrs(adapters.Attribute{Key: "host.name", Value: "node-1"},
+			adapters.Attribute{Key: "service.name", Value: "fallback"}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
 
@@ -417,13 +418,14 @@ func TestExportSpans_UsesTheTracerResourceOfEachSpan(t *testing.T) {
 	counts := map[string]int{}
 	for _, rs := range req.GetResourceSpans() {
 		attrs := attrMap(rs.GetResource().GetAttributes())
+		require.Len(t, rs.GetResource().GetAttributes(), len(attrs), "resource attribute keys must be unique")
 		name := attrs["service.name"].GetStringValue()
 		byService[name] = attrs
 		for _, ss := range rs.GetScopeSpans() {
 			counts[name] += len(ss.GetSpans())
 		}
 	}
-	require.Equal(t, map[string]int{"first": 2, "second": 1, "unknown-service": 1}, counts)
+	require.Equal(t, map[string]int{"first": 2, "second": 1, "fallback": 1}, counts)
 	require.Equal(t, "v1.2.3", byService["first"]["service.version"].GetStringValue())
 	require.Equal(t, "test", byService["first"]["deployment.environment"].GetStringValue(),
 		"an empty span attribute keeps the adapter value")
