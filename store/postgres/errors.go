@@ -41,6 +41,12 @@ func diagnostic(op string, err error) error {
 	return &driverDiagnostic{error: sqldialect.SafeError(nil, op, err), cause: err}
 }
 
+// Diagnostic wraps the driver error of a storage statement for return across a storage boundary. Its text is
+// "<op> failed (<Go type of err>)", with ", SQLSTATE <code>" when err carries a well-formed one: driver text, which may quote
+// statement values or the connection string, is never formatted. The cause stays available to errors.Is, errors.AsType and
+// [Classify]. A nil err returns nil.
+func Diagnostic(op string, err error) error { return diagnostic(op, err) }
+
 // ErrorKind identifies PostgreSQL diagnostics useful at a storage boundary.
 type ErrorKind string
 

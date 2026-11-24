@@ -110,7 +110,8 @@ or scan error is final. Use an executor with contexts for the same logical datab
 transaction context and a separately supplied pool. Call `CheckDirect(ctx, conn, database)` before session-level work to verify backend identity and
 reject a transaction pooler with `ErrDirectConnectionRequired`. Code using `*sql.DB` directly receives Go's native bad-connection retry policy.
 Diagnostics format only the operation, Go error type and validated SQLSTATE, omitting raw driver and DSN text while keeping the underlying cause
-available to `errors.Is` and `errors.As`. `Classify` identifies integrity violations (with the constraint name), retryable transaction failures,
+available to `errors.Is` and `errors.As`. A storage built on this package gives its own statement errors the same form with
+`Diagnostic(op, err)` before returning them. `Classify` identifies integrity violations (with the constraint name), retryable transaction failures,
 connection failures, statement timeouts and cancellations. Use `kind.RetryableTransaction()` to identify failures eligible for whole-transaction
 replay. An ambiguous connection failure can represent a committed write. PostgreSQL reports both server-side timeout and cancellation as SQLSTATE
 57014. Use English server messages for that distinction. An unrecognized 57014 diagnostic returns `Unknown`.
