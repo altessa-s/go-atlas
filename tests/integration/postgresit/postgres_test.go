@@ -16,7 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -72,9 +71,6 @@ func TestPools(t *testing.T) {
 			tr := tracing.New(tracing.WithAdapter(sink))
 			t.Cleanup(func() { _ = tr.Shutdown(context.Background()) })
 			schema := "pgit_" + strings.ToLower(rand.Text()[:12])
-			source := fstest.MapFS{"001_items.up.sql": {Data: []byte("CREATE TABLE items (id integer PRIMARY KEY)")}}
-			c.Migrations = true
-			builder := func() *factory.Builder { return factory.New(&c).UseMigrations(source, schema) }
 			probe, err := sql.Open("pgx", dsn)
 			require.NoError(t, sqldialect.SafeError(nil, "open PostgreSQL preflight", err))
 			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -93,23 +89,9 @@ func TestPools(t *testing.T) {
 				_ = cleanup.Close()
 			})
 
-			// Both builders open independent pools and race to create the same ledger.
-			ready := make(chan struct{})
-			done := make(chan error, 1)
-			go func() {
-				<-ready
-				other, err := builder().Build(ctx)
-				if err == nil {
-					err = other.Close()
-				}
-				done <- err
-			}()
-			close(ready)
-			pools, err := builder().UseHealthCoordinator(healths).UseMeter(meter).UseTracer(tr).Build(ctx)
-			otherErr := <-done
+			pools, err := factory.New(&c).UseHealthCoordinator(healths).UseMeter(meter).UseTracer(tr).Build(ctx)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = pools.Close() })
-			require.NoError(t, otherErr)
 			db := pools[postgres.DefaultPool]
 			require.Equal(t, 2, pools["worker"].Stats().MaxOpenConnections)
 			require.Len(t, healths, 2)
@@ -118,11 +100,11 @@ func TestPools(t *testing.T) {
 			var version int
 			require.NoError(t, db.QueryRowContext(ctx, "SHOW server_version_num").Scan(&version))
 			require.Equal(t, 17, version/10000)
-			require.Equal(t, 1, count(t, ctx, db, schema+".schema_migrations"))
-			var unlocked bool
-			require.NoError(t, db.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock(hashtextextended($1,0))", "go-atlas/migrations/"+schema).Scan(&unlocked))
-			require.True(t, unlocked)
 			table := schema + ".items"
+			_, err = db.ExecContext(ctx, "CREATE SCHEMA "+schema)
+			require.NoError(t, err)
+			_, err = db.ExecContext(ctx, "CREATE TABLE "+table+" (id integer PRIMARY KEY)")
+			require.NoError(t, err)
 			events := schema + ".events_outbox"
 			obConfig := &brokerconfig.Outbox{Enabled: true, Storage: &brokerconfig.OutboxStorageConfig{
 				Type: brokerconfig.OutboxStorageTypeSQL, SQL: &brokerconfig.OutboxSQLStorageConfig{Dialect: brokerconfig.SQLDialectPostgres, Table: events, EnsureSchema: true},
@@ -223,21 +205,7 @@ func TestPools(t *testing.T) {
 			t.Run("savepoint_cancel", func(t *testing.T) { testCanceledSavepoint(t, db, table) })
 			t.Run("commit_failure", func(t *testing.T) { testFailedCommit(t, db, schema) })
 			t.Run("timeouts", func(t *testing.T) { testTimeouts(t, db) })
-			t.Run("migration_lock_wait", func(t *testing.T) { testMigrationLockWait(t, db, schema, source) })
-			failedHealth := healthChecks{}
-			failedSource := fstest.MapFS{"002_partial.up.sql": {Data: []byte("CREATE TABLE extra(id integer)")},
-				"003_invalid.up.sql": {Data: []byte("SELECT * FROM missing_relation")}}
-			failedMeter := memory.New()
-			failed, err := factory.New(&c).UseMigrations(failedSource, schema).UseHealthCoordinator(failedHealth).
-				UseMeter(metrics.New(metrics.WithAdapter(failedMeter), metrics.WithServiceName("failed"))).Build(ctx)
-			require.Error(t, err)
-			require.Nil(t, failed)
-			require.Empty(t, failedHealth)
-			require.Zero(t, failedMeter.GaugeValue("failed_postgres_open_connections", metrics.Labels{"pool": "worker"}))
-			require.Equal(t, 1, count(t, ctx, db, schema+".schema_migrations"))
-			var absent bool
-			require.NoError(t, db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NULL", schema+".extra").Scan(&absent))
-			require.True(t, absent)
+
 		})
 	}
 }
@@ -341,35 +309,6 @@ func testTimeouts(t *testing.T, db *sql.DB) {
 	_, err = db.ExecContext(expired, "SELECT 1")
 	kind, _ = postgres.Classify(err)
 	require.Equal(t, postgres.Canceled, kind)
-}
-
-// A replica waiting for the startup lock must see the committed ledger before
-// deciding which migrations to run, even with a shorter foreground lock budget.
-func testMigrationLockWait(t *testing.T, db *sql.DB, schema string, source fstest.MapFS) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	lock, err := db.BeginTx(ctx, nil)
-	require.NoError(t, err)
-	defer func() { _ = lock.Rollback() }()
-	key := "go-atlas/migrations/" + schema
-	_, err = lock.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", key)
-	require.NoError(t, err)
-	startup, err := postgres.WithTransactionSettings(ctx, db, postgres.TransactionSettings{LockTimeout: time.Millisecond})
-	require.NoError(t, err)
-	done := make(chan error, 1)
-	go func() { done <- postgres.Migrate(startup, db, source, schema) }()
-	const waiting = `SELECT EXISTS (SELECT FROM pg_locks
-        WHERE locktype='advisory' AND NOT granted AND objsubid=1
-        AND (classid::bigint << 32 | objid::bigint) = hashtextextended($1,0))`
-	require.Eventually(t, func() bool {
-		var blocked bool
-		err := db.QueryRowContext(ctx, waiting, key).Scan(&blocked)
-		return err == nil && blocked
-	}, 3*time.Second, 10*time.Millisecond)
-	require.NoError(t, lock.Commit())
-	require.NoError(t, <-done)
-	require.Equal(t, 1, count(t, ctx, db, schema+".schema_migrations"))
 }
 
 func TestSkipEndpoint(t *testing.T) {

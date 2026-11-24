@@ -402,7 +402,8 @@ storages are MongoDB and SQL, so it has no NATS-only path to exercise here.
 
 The `postgresit` suite exercises PostgreSQL 17 directly on port 15432 and PgBouncer transaction pooling on port 16432.
 Start both with `docker compose -f tests/integration/docker-compose.yml up -d --wait postgres pgbouncer`. Run
-`go test -C tests/integration -race -count=1 ./postgresit`. Override the endpoints with `POSTGRES_DSN` and `PGBOUNCER_DSN`.
+`go test -C tests/integration -race -count=3 ./postgresit/...` with both `POSTGRES_DSN` and `PGBOUNCER_DSN` set. The goose suites use isolated
+databases on the direct endpoint and trace the pooler rejection before advisory lock acquisition.
 When running `outboxit` with `POSTGRES_DSN` pointing to PgBouncer, set `POSTGRES_CONTROL_DSN` to a direct connection to the same database.
 LISTEN consumers need a session-affine endpoint. The connection-loss test closes its own client socket.
 
