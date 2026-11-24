@@ -5,15 +5,20 @@
 package postgresconfig
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
 	"net/url"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
 
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -22,6 +27,8 @@ import (
 type Config struct {
 	// DSN accepts a PostgreSQL URL or a libpq keyword/value connection string.
 	DSN redacted.RedactedString `yaml:"dsn"`
+	// TLS configures verified TLS for the primary pool and is inherited by reserved pools.
+	TLS *tlsconfig.Client `yaml:"tls" default:"-"`
 	// Pooling selects direct or transaction pooling.
 	Pooling string `yaml:"pooling" default:"direct"`
 	// MaxOpenConnections caps the primary pool.
@@ -55,6 +62,8 @@ type Config struct {
 type Pool struct {
 	// DSN optionally points to a separate PostgreSQL or PgBouncer entry.
 	DSN redacted.RedactedString `yaml:"dsn"`
+	// TLS replaces the entire primary TLS block for this endpoint.
+	TLS *tlsconfig.Client `yaml:"tls" default:"-"`
 	// Pooling overrides the primary pool's mode.
 	Pooling string `yaml:"pooling"`
 	// MaxOpenConnections is the required reservation size.
@@ -114,6 +123,9 @@ func (c *Config) Validate() error {
 	if !validDSN(c.DSN) {
 		return errors.New("invalid PostgreSQL DSN")
 	}
+	if err := validateTLS(c.DSN, c.TLS); err != nil {
+		return err
+	}
 	const maxServerTimeout = math.MaxInt32 * time.Millisecond
 	if err := validationconfig.ValidateStruct(c,
 		validation.Field(&c.Pooling, validation.Required, validation.In(direct, transaction)),
@@ -134,6 +146,9 @@ func (c *Config) Validate() error {
 	for name, p := range c.Pools {
 		if name == "" || name == "foreground" || strings.TrimSpace(name) != name {
 			return fmt.Errorf("invalid reserved pool name %q", name)
+		}
+		if err := validateTLS(cmp.Or(p.DSN, c.DSN), cmp.Or(p.TLS, c.TLS)); err != nil {
+			return fmt.Errorf("pool %q: %w", name, err)
 		}
 		if err := p.validate(); err != nil {
 			return fmt.Errorf("pool %q: %w", name, err)
@@ -163,4 +178,59 @@ func validDSN(d redacted.RedactedString) bool {
 	}
 	key, _, ok := strings.Cut(s, "=")
 	return ok && key != "" && !strings.ContainsAny(strings.TrimSpace(key), " \t\n:/")
+}
+
+// Match one libpq assignment at a time so quoted passwords and escaped spaces
+// cannot be mistaken for connection settings. Never include a token in an error.
+const (
+	libpqWhitespace = " \t\n\r\v\f"
+	keyword         = `^([^[:space:]=]+)[[:space:]]*=[[:space:]]*`
+	quotedValue     = `'((?:[^'\\]|\\.)*)'`
+	// A single quote starts a quoted value only at its first byte.
+	bareValue = `((?:(?:[^[:space:]\\']|\\.)(?:[^[:space:]\\]|\\.)*)?)`
+)
+
+var keywordValue = regexp.MustCompile("(?s)" + keyword + "(?:" + quotedValue + "|" + bareValue + ")")
+
+func validateTLS(dsn redacted.RedactedString, cfg *tlsconfig.Client) error {
+	if cfg == nil {
+		return nil
+	}
+	if err := cfg.Validate(); err != nil {
+		return cfgerrors.Invalidf("invalid PostgreSQL TLS certificate settings")
+	}
+	if !tlsCompatibleDSN(strings.TrimLeft(dsn.Expose(), libpqWhitespace)) {
+		return cfgerrors.Invalidf("TLS requires a valid PostgreSQL DSN without sslmode=disable, allow or prefer")
+	}
+	return nil
+}
+
+func weakSSLMode(mode string) bool {
+	switch mode {
+	case "disable", "allow", "prefer":
+		return true
+	}
+	return false
+}
+
+func tlsCompatibleDSN(s string) bool {
+	if strings.HasPrefix(s, "postgres://") || strings.HasPrefix(s, "postgresql://") {
+		u, err := url.Parse(s)
+		if err != nil {
+			return false
+		}
+		q, err := url.ParseQuery(u.RawQuery)
+		if err != nil {
+			return false
+		}
+		return !slices.ContainsFunc(q["sslmode"], weakSSLMode)
+	}
+	for s != "" {
+		field := keywordValue.FindStringSubmatch(s)
+		if field == nil || field[1] == "sslmode" && weakSSLMode(field[2]+field[3]) {
+			return false
+		}
+		s = strings.TrimLeft(s[len(field[0]):], libpqWhitespace)
+	}
+	return true
 }

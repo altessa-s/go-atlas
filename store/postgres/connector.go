@@ -5,12 +5,15 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -54,6 +57,12 @@ func newConnector(dsn redacted.RedactedString, o *options) (driver.Connector, er
 	}
 	if o.pooling != PoolingDirect && o.pooling != PoolingTransaction {
 		return nil, fmt.Errorf("unknown PostgreSQL pooling mode %q", o.pooling)
+	}
+	if o.tlsConfig != nil {
+		if o.tlsConfig.InsecureSkipVerify && !o.allowInsecureSkipVerify {
+			return nil, errors.New("PostgreSQL TLS certificate verification is disabled")
+		}
+		applyTLS(cc, o.tlsConfig)
 	}
 	cc.ConnectTimeout = o.connectTimeout
 	if o.tracer != nil {
@@ -99,6 +108,31 @@ func newConnector(dsn redacted.RedactedString, o *options) (driver.Connector, er
 	return &connector{
 		Connector: stdlib.GetConnector(*cc), settings: settings.String(), retireOnPrepareError: transactionPooling,
 	}, nil
+}
+
+// pgx can list each endpoint twice (TLS and plaintext), in either order.
+func applyTLS(cc *pgx.ConnConfig, cfg *tls.Config) {
+	forHost := func(host string) *tls.Config {
+		c := cfg.Clone()
+		c.ServerName = cmp.Or(c.ServerName, host)
+		if cc.SSLNegotiation == "direct" && !slices.Contains(c.NextProtos, "postgresql") {
+			c.NextProtos = append(slices.Clone(c.NextProtos), "postgresql")
+		}
+		return c
+	}
+	cc.TLSConfig = forHost(cc.Host)
+	host, port := cc.Host, cc.Port
+	fallbacks := cc.Fallbacks[:0]
+	for _, f := range cc.Fallbacks {
+		if f.Host == host && f.Port == port {
+			continue
+		}
+		host, port = f.Host, f.Port
+		f.TLSConfig = forHost(host)
+		fallbacks = append(fallbacks, f)
+	}
+	clear(cc.Fallbacks[len(fallbacks):])
+	cc.Fallbacks = fallbacks
 }
 
 type connector struct {

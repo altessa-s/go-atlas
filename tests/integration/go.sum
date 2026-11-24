@@ -28,6 +28,8 @@ github.com/altessa-s/go-nomos v0.2.3 h1:xpxRDE5aMIxCU3At1hCN3rgLRSIG6i0Hy4E1UTwr
 github.com/altessa-s/go-nomos v0.2.3/go.mod h1:nD8n+Rj+9cKUZb5vdKZ60fM0nAyJs5Ghp3tC1rX5VVU=
 github.com/altessa-s/go-slogx v0.1.4 h1:RLO5fojvABI86X5OkE5GxABqeVeJcbW5Bu06WCl7QaI=
 github.com/altessa-s/go-slogx v0.1.4/go.mod h1:Z3AFAPpux+9lB5nO1Hu6QdmUXV1tZSf+EI8Mw3X9qpw=
+github.com/altessa-s/go-tlsutils v0.2.2 h1:tzQSD24LDcLBNqmJexZ6dFdf34nGJ+emeGakAWdLWts=
+github.com/altessa-s/go-tlsutils v0.2.2/go.mod h1:aCEZkB0EoM+46l5Y9o3MK8QObrmEKr559C9z0EBoVUg=
 github.com/altessa-s/ozzo-rules v1.17.0 h1:NaSouNw9ITwnBViSurqYSXbfO3SQWzQecsJr0lsfBpo=
 github.com/altessa-s/ozzo-rules v1.17.0/go.mod h1:aPGlyfaTaoJsOMitbdf5Dd408bvGe9/TP4hB5CmtPAs=
 github.com/antithesishq/antithesis-sdk-go v0.9.0-default-no-op h1:TfLnk/It42eZEgaWL/e+xBKBAhX9ru4mRn2+0Xeukmc=
@@ -53,6 +55,8 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=
 github.com/dustin/go-humanize v1.1.0/go.mod h1:hc1CvRkJMsgxqjmjMQF3QNRAZBwY8AXBAzKYoSX9sFI=
+github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
+github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
 github.com/go-ozzo/ozzo-validation/v4 v4.5.0 h1:ay87N+5vSsdBVMtEAUtP76cJL/I6Yjmhvz+ekAlBTV0=
 github.com/go-ozzo/ozzo-validation/v4 v4.5.0/go.mod h1:zGDObjgC33S3GGdAiAVanGqqA3MH5HdlxH9wPeCL88E=
 github.com/go-sql-driver/mysql v1.10.1 h1:arlSnNLq6a5yxGxV7qg9lF4j0C+KwD6NbQyKr9QL6ME=

@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/rand"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -34,6 +35,7 @@ import (
 
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	cfg "github.com/altessa-s/go-atlas/config/postgres"
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
 	factory "github.com/altessa-s/go-atlas/factory/store/postgres"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
@@ -317,4 +319,28 @@ func TestSkipEndpoint(t *testing.T) {
 	require.False(t, livebackend.SkipEndpoint(refused, "explicit"))
 	require.False(t, livebackend.SkipEndpoint(errors.New("authentication failed"), ""))
 	require.False(t, livebackend.SkipEndpoint(nil, ""))
+}
+
+func TestFactory_TLSWithATrustedCA(t *testing.T) {
+	t.Parallel()
+	dsn, haveDSN := os.LookupEnv("POSTGRES_TLS_DSN")
+	ca, haveCA := os.LookupEnv("POSTGRES_TLS_CA")
+	if !haveDSN && !haveCA {
+		t.Skip("POSTGRES_TLS_DSN and POSTGRES_TLS_CA are unset")
+	}
+	require.True(t, dsn != "" && ca != "", "both POSTGRES_TLS_DSN and POSTGRES_TLS_CA must be nonempty")
+	c := cfg.Default()
+	c.DSN = redacted.RedactedString(dsn)
+	c.TLS = &tlsconfig.Client{CACerts: []string{ca}}
+	pools, err := factory.New(&c).Build(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, pools.Close()) })
+	var encrypted bool
+	require.NoError(t, pools[postgres.DefaultPool].QueryRowContext(t.Context(),
+		"SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()").Scan(&encrypted))
+	require.True(t, encrypted)
+	c.TLS.ServerName = "wrong-name.invalid"
+	_, err = factory.New(&c).Build(t.Context())
+	var mismatch x509.HostnameError
+	require.ErrorAs(t, err, &mismatch)
 }

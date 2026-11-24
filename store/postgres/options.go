@@ -8,6 +8,7 @@ package postgres
 //go:generate go tool optgen generate --type=committerOptions --option-type=CommitterOption --output=committer_options_gen.go --no-default-modifiers
 
 import (
+	"crypto/tls"
 	"log/slog"
 	"time"
 
@@ -32,6 +33,10 @@ const (
 func (m PoolingMode) String() string { return string(m) }
 
 type options struct {
+	// WithTLSConfig requires TLS on every endpoint. An empty ServerName follows the endpoint host.
+	tlsConfig *tls.Config
+	// WithAllowInsecureSkipVerify permits an explicitly unverified TLS configuration.
+	allowInsecureSkipVerify bool
 	// Logger receives pool lifecycle messages.
 	logger *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler),notnil"`
 	// Meter records database/sql pool statistics.

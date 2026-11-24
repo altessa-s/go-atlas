@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"log/slog"
 
@@ -47,5 +48,11 @@ func (b *Builder) UseHealthCoordinator(r health.Registrar) *Builder {
 // MigrationTimeout (YAML migrationTimeout, default 30s) bounds the hook unless the caller has an earlier deadline.
 func (b *Builder) UseMigrator(fn func(context.Context, *sql.DB) error) *Builder {
 	b.migrator = fn
+	return b
+}
+
+// UseTlsConfig supplies verified TLS for every pool, overriding all schema TLS blocks.
+func (b *Builder) UseTlsConfig(cfg *tls.Config) *Builder {
+	b.tlsConfig = cfg
 	return b
 }

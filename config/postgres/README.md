@@ -19,6 +19,7 @@ postgres:
 | Field | Default | Meaning |
 | --- | --- | --- |
 | dsn | required | PostgreSQL URI or libpq keyword/value string |
+| tls | absent | Shared TLS client settings, inherited by named pools unless they supply their own block |
 | pooling | direct | direct or transaction |
 | maxOpenConnections / maxIdleConnections | 64 / 64 | Primary pool limits |
 | connectionMaxLifetime / connectionMaxIdleTime | 30m / 5m | Connection recycling |
@@ -27,6 +28,12 @@ postgres:
 | migrationTimeout | 30s | Total budget for a supplied startup migration hook (minimum 1ms). An earlier caller deadline wins |
 | listingTimeout / countBudget | 3s / 50ms | Query-layer budgets. Zero count budget disables exact-count probing |
 | pools | empty | Additional named connection reservations |
+
+An empty `tls: {}` requires a trusted certificate for each target hostname. Set `tls.caCerts` for a private CA or `tls.serverName` to pin the
+expected name across hosts. A pool's `tls` block replaces the whole primary block. The effective DSN must omit `sslmode` or select `require`,
+`verify-ca` or `verify-full`. Invalid certificate settings and DSNs incompatible with an explicit TLS block return errors matching
+`coreerrs.ErrInvalidArgument`. Without a TLS block or injected config, pgx follows the DSN and environment. Its default `sslmode=prefer` tries
+unverified TLS and permits a plaintext retry.
 
 When the hook runs goose migrations, `WithLockTimeout` bounds lock acquisition within the hook's overall budget.
 
