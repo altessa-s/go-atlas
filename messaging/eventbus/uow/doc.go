@@ -67,7 +67,8 @@
 //
 // When the Committer fails after the last body attempt returned nil, the
 // commit may or may not have happened: Run returns an [*UnknownOutcomeError]
-// (matching [ErrUnknownOutcome] and the Committer error). A body that returned
+// (matching [ErrUnknownOutcome] and the Committer error), unless the committer reports
+// a definitive abort through CommitOutcomeUnknown(error) bool. A body that returned
 // an error, or that panicked and was recovered by the Committer (as
 // store/mongo does, with ErrTransactionPanicked), is a known abort and its error
 // is returned as is. WithDetector also checks that a successful root body
