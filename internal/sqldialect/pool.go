@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"sync/atomic"
 )
 
 // Pool holds the application pool. PostgreSQL statements may retry once when
@@ -91,17 +92,42 @@ func (p Pool) ExecContext(ctx context.Context, query string, args ...any) (sql.R
 	return result, err
 }
 
-// Rows owns the lease until Close. Iteration and scanning errors are final.
+// Rows owns the lease until exhaustion, cancellation, or Close. Iteration and scanning errors are final.
 type Rows struct {
 	*sql.Rows
-	conn *sql.Conn
+	release func()
+}
+
+// Next releases the lease when database/sql closes the final result set.
+func (r Rows) Next() bool {
+	if r.Rows.Next() {
+		return true
+	}
+	if r.release != nil {
+		// Between result sets Next also returns false, but Columns still succeeds.
+		if _, err := r.Columns(); err != nil {
+			r.release()
+		}
+	}
+	return false
+}
+
+// NextResultSet releases the lease when no further result set is available.
+func (r Rows) NextResultSet() bool {
+	if r.Rows.NextResultSet() {
+		return true
+	}
+	if r.release != nil {
+		r.release()
+	}
+	return false
 }
 
 // Close releases the rows and their connection.
 func (r Rows) Close() error {
 	err := r.Rows.Close()
-	if r.conn != nil {
-		_ = r.conn.Close()
+	if r.release != nil {
+		r.release()
 	}
 	return err
 }
@@ -119,14 +145,14 @@ func (p Pool) QueryContext(ctx context.Context, query string, args ...any) (Rows
 	rows, conn, err := start(ctx, p.DB, func(c *sql.Conn) (*sql.Rows, error) {
 		return c.QueryContext(ctx, query, args...)
 	})
-	return Rows{Rows: rows, conn: conn}, err
+	return Rows{Rows: rows, release: releaseOnCancel(ctx, conn)}, err
 }
 
 // Row owns the lease until Scan.
 type Row struct {
-	row  *sql.Row
-	conn *sql.Conn
-	err  error
+	row     *sql.Row
+	release func()
+	err     error
 }
 
 // Scan reads the result and releases its connection.
@@ -134,8 +160,8 @@ func (r Row) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
 	}
-	if r.conn != nil {
-		defer func() { _ = r.conn.Close() }()
+	if r.release != nil {
+		defer r.release()
 	}
 	return r.row.Scan(dest...)
 }
@@ -153,7 +179,21 @@ func (p Pool) QueryRowContext(ctx context.Context, query string, args ...any) Ro
 		row := c.QueryRowContext(ctx, query, args...)
 		return row, row.Err()
 	})
-	return Row{row: row, conn: conn, err: err}
+	return Row{row: row, release: releaseOnCancel(ctx, conn), err: err}
+}
+
+// database/sql closes the result on cancellation. Return its separate pool
+// lease as well, even if the caller has not reached Close or Scan yet.
+func releaseOnCancel(ctx context.Context, conn *sql.Conn) func() {
+	if conn == nil {
+		return nil
+	}
+	closeConn := func() { _ = conn.Close() }
+	stop := context.AfterFunc(ctx, closeConn)
+	return func() {
+		stop()
+		closeConn()
+	}
 }
 
 type retryableError interface {
@@ -163,23 +203,34 @@ type retryableError interface {
 
 // SafeToRetry reports whether the driver guarantees the statement was never sent.
 func SafeToRetry(err error) bool {
-	if errors.Is(err, driver.ErrBadConn) {
-		return true
+	for err != nil {
+		switch cause := err.(type) {
+		case retryableError:
+			return cause.SafeToRetry()
+		case interface{ Unwrap() []error }:
+			// One pre-send diagnostic cannot vouch for the other failures.
+			causes := cause.Unwrap()
+			for _, e := range causes {
+				if !SafeToRetry(e) {
+					return false
+				}
+			}
+			return len(causes) > 0
+		case interface{ Unwrap() error }:
+			err = cause.Unwrap()
+		default:
+			return errors.Is(err, driver.ErrBadConn)
+		}
 	}
-	report, ok := errors.AsType[retryableError](err)
-	return ok && report.SafeToRetry()
+	return false
 }
 
 // A statement can consume one replacement connection before returning the
 // error to its caller. Explicit transactions never use a replacement.
-type retryBudget struct{ used bool }
+type retryBudget struct{ used atomic.Bool }
 
 func (b *retryBudget) take(ctx context.Context, err error) bool {
-	if b.used || ctx.Err() != nil || !SafeToRetry(err) {
-		return false
-	}
-	b.used = true
-	return true
+	return ctx.Err() == nil && SafeToRetry(err) && b.used.CompareAndSwap(false, true)
 }
 
 type budgetKey struct{}
@@ -192,15 +243,35 @@ func StatementContext(ctx context.Context) context.Context {
 // DriverError translates a safe statement startup failure to database/sql's
 // connection-discard signal. Without a statement budget database/sql governs retries.
 func DriverError(ctx context.Context, err error) error {
-	if err == nil || ctx.Err() != nil || !SafeToRetry(err) {
+	if !SafeToRetry(err) {
+		if errors.Is(err, driver.ErrBadConn) {
+			// database/sql would otherwise replay a mixed failure on its own.
+			return ambiguous{err}
+		}
+		return err
+	}
+	if ctx.Err() != nil {
 		return err
 	}
 	if b, ok := ctx.Value(budgetKey{}).(*retryBudget); ok && !b.take(ctx, err) {
-		// ErrBadConn would start another attempt, so expose the classification separately.
-		return exhausted{err}
+		// Only ErrBadConn needs masking to stop database/sql from retrying.
+		if errors.Is(err, driver.ErrBadConn) {
+			return exhausted{err}
+		}
+		return err
 	}
 	return driver.ErrBadConn
 }
+
+// Hide only the replay signal while retaining unrelated diagnostics.
+type ambiguous struct{ error }
+
+func (e ambiguous) Is(target error) bool {
+	return target != driver.ErrBadConn && errors.Is(e.error, target)
+}
+
+func (e ambiguous) As(target any) bool { return errors.As(e.error, target) }
+func (ambiguous) SafeToRetry() bool    { return false }
 
 type exhausted struct{ error }
 
@@ -210,8 +281,7 @@ func (exhausted) SafeToRetry() bool { return true }
 // or reported a failure starting the statement. pgx can return a SafeToRetry
 // error from its first-row preload without translating it to driver.ErrBadConn.
 func start[T any](ctx context.Context, db *sql.DB, statement func(*sql.Conn) (T, error)) (T, *sql.Conn, error) {
-	var budget retryBudget
-	for {
+	for attempt := 0; ; attempt++ {
 		conn, err := db.Conn(ctx)
 		if err != nil {
 			var zero T
@@ -221,12 +291,16 @@ func start[T any](ctx context.Context, db *sql.DB, statement func(*sql.Conn) (T,
 		if err == nil {
 			return result, conn, nil
 		}
-		if !errors.Is(err, driver.ErrBadConn) && SafeToRetry(err) {
+		safe := SafeToRetry(err)
+		if safe && !errors.Is(err, driver.ErrBadConn) {
 			// Returning ErrBadConn through Raw discards this exact lease.
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 		}
 		_ = conn.Close()
-		if !budget.take(ctx, err) {
+		if ctxErr := ctx.Err(); safe && ctxErr != nil {
+			return result, nil, ctxErr
+		}
+		if !safe || attempt > 0 {
 			return result, nil, err
 		}
 	}
