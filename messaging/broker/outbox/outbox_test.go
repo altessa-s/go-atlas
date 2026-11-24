@@ -152,6 +152,16 @@ func TestDispatch_KeepsCallerSuppliedDeduplicationId(t *testing.T) {
 	require.Equal(t, "invoice-777", did)
 }
 
+func TestDispatch_PreservesMessageTTL(t *testing.T) {
+	t.Parallel()
+	for _, ttl := range []time.Duration{0, time.Minute, -1} {
+		event := storedEvent(t, msg.Message{Topic: "events", TTL: ttl}, "event")
+		pub := &capturingPublisher{}
+		require.NoError(t, outbox.NewHandler(pub)(t.Context(), event))
+		require.Equal(t, ttl, pub.published()[0].TTL)
+	}
+}
+
 // A stored payload this adapter cannot decode will not decode next time either.
 // Retrying it only delays the operator seeing it.
 func TestDispatch_RejectsUndecodablePayloadWithoutRetrying(t *testing.T) {

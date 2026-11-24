@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/messaging/broker"
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
+	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
 )
 
 var errPublish = errors.New("publish failed")
@@ -447,4 +448,33 @@ func TestPublish_Metrics_SubjectLabelLimit_ConcurrentFirstPublish(t *testing.T) 
 
 	require.Equal(t, float64(n), metricstest.GetCounterValue(t, tc, "test_broker_messages_published_total", "subject", "orders"))
 	require.Zero(t, metricstest.GetCounterValue(t, tc, "test_broker_messages_published_total", "subject", broker.OtherSubjectLabel))
+}
+
+func TestPublishPropagatesContextWithoutChangingInputs(t *testing.T) {
+	t.Parallel()
+	const parent = "00-11111111111111111111111111111111-2222222222222222-"
+	for _, flags := range []string{"00", "01"} {
+		t.Run(flags, func(t *testing.T) {
+			provider := &recordingProvider{}
+			b := broker.New(provider, broker.WithPublishConverter(func(v any) (msg.Message, error) { return v.(msg.Message), nil }))
+			input := []msg.Message{
+				{Topic: "first", Metadata: msg.Meta{{Key: "tracestate", Value: "stale=old"}, {Key: "user", Value: "keep"}}},
+				{Topic: "second", Metadata: msg.Meta{{Key: "traceparent", Value: "explicit"}, {Key: "tracestate", Value: "caller=state"}}},
+			}
+			ctx := propagation.NewTraceContext().Extract(t.Context(), propagation.MapCarrier{"traceparent": parent + flags, "tracestate": "vendor=state"})
+			require.NoError(t, b.Publish(ctx, input[0]))
+			require.NoError(t, b.PublishBatch(ctx, input...))
+			require.NoError(t, b.PublishAny(ctx, input[0], input[1]))
+			want := map[string]string{"user": "keep", "traceparent": parent + flags, "tracestate": "vendor=state"}
+			for _, m := range provider.messages() {
+				if m.Topic == "second" {
+					require.Equal(t, input[1].Metadata.Map(), m.Metadata.Map())
+					continue
+				}
+				require.Len(t, m.Metadata, 3)
+				require.Equal(t, want, m.Metadata.Map())
+			}
+			require.Equal(t, map[string]string{"tracestate": "stale=old", "user": "keep"}, input[0].Metadata.Map())
+		})
+	}
 }

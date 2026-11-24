@@ -5,6 +5,7 @@
 package natsprovider
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -116,6 +117,14 @@ func SubscriberWithConsumerName(consumerName string, opt ...jetstream.PullConsum
 		ss.consumerName = consumerName
 		return ss
 	}
+}
+
+// ConsumerName returns the configured, stable name used for consumer tracing.
+func (ss *streamSubscriber) ConsumerName() string {
+	if ss.consumerConfig != nil {
+		return cmp.Or(ss.consumerConfig.Durable, ss.consumerConfig.Name)
+	}
+	return ss.consumerName
 }
 
 // Unsubscribe drains buffered messages, waits for their handlers for up to
@@ -273,20 +282,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	onFail := failures.Inc
 
 	consumeContext, err := consumer.Consume(func(jsMsg jetstream.Msg) {
-		// Fused filter+transform: single pass over headers, no intermediate map.
-		headers := jsMsg.Headers()
-		metaData := make([]msg.MetaData, 0, len(headers))
-		for k, vals := range headers {
-			if strings.HasPrefix(k, "Nats-") {
-				continue
-			}
-			value := vals[0]
-			if len(vals) > 1 {
-				value = strings.Join(vals, ";")
-			}
-			metaData = append(metaData, msg.MetaData{Key: k, Value: value})
-		}
-		metaData = appendDeduplicateID(metaData, headers)
+		metaData := messageMetadata(jsMsg.Headers())
 
 		// Prepare message options, including the Acker and AckTimeout.
 		msgOpts := make([]msg.Option, 0, 2)
@@ -313,6 +309,17 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	ss.consumeContext, ss.handlerCtxCancel = consumeContext, handlerCtxCancel
 
 	return nil
+}
+
+func messageMetadata(headers nats.Header) msg.Meta {
+	metaData := make([]msg.MetaData, 0, len(headers))
+	for k, vals := range headers {
+		if strings.HasPrefix(k, "Nats-") {
+			continue
+		}
+		metaData = append(metaData, msg.MetaData{Key: k, Value: strings.Join(vals, ";")})
+	}
+	return appendDeduplicateID(metaData, headers)
 }
 
 // appendDeduplicateID restores the [msg.MetaKeyDeduplicateId] metadata the

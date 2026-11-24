@@ -41,6 +41,27 @@ implements the Transactional Outbox pattern for at-least-once delivery in distri
 | `WithPublishConverter`  | Set the `PublishConverter` function for `PublishAny`                                                 |
 | `WithSubjectLabelLimit` | Max distinct `subject` label values on publish metrics; extra subjects go to `_other` (default: 256) |
 
+## Distributed tracing
+
+`Publish`, `PublishBatch` and `PublishAny` copy a valid W3C context from the request to lowercase `traceparent` and optional `tracestate` metadata.
+This includes unsampled requests. An explicit message `traceparent` takes precedence. Publishing adds no span and requires no broker tracer.
+
+Configure `broker.WithTracer(tracer)` to trace handlers registered through `Broker.Subscriber`. A CONSUMER span named `process <name>` lasts
+for the call to `Handle`. NATS supplies the configured durable or consumer name. Other subscribers may implement `ConsumerName() string`.
+`broker.WithConsumerName(name)` sets an explicit name for this broker. The fallback is `subscriber`. Use a low-cardinality name.
+`broker.WithMessagingSystem("nats")` overrides the system reported by the provider. NATS reports `nats`. The span carries the destination topic, consumer group
+and deduplication ID when available. A Nak, NakWithBackOff or Term during the call marks the span as an error.
+
+A valid sampled remote context parents the consumer span. An unsampled remote context reaches the handler unchanged, so subsequent publishes and
+outgoing calls propagate its sampling flag. A message with absent or invalid context starts a new root subject to the local sampler.
+
+Subscriptions made directly through a provider bypass `Broker.Subscriber`. Pass the wrapped handler to the NATS recovery manager.
+
+```go
+handler := broker.TraceHandler(eventHandler, tracer, durable, "nats")
+sub, err := provider.Recovery.Subscribe(ctx, stream, durable, handler, factory)
+```
+
 ## Errors
 
 | Error                      | Description                                                              |

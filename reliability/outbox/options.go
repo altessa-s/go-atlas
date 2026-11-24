@@ -99,6 +99,8 @@ const (
 
 // options contains configuration fields for Outbox that can be set via Option functions.
 type options struct {
+	// ConfigureHandler supplies the adapter configuration consumed by WithHandlerOptions.
+	handlerConfig any `opt:"-"`
 	// Timeouts
 	fetchTimeout  time.Duration `optval:"positive" optgen:"default=DefaultFetchTimeout"`
 	handleTimeout time.Duration `optval:"positive" optgen:"default=DefaultHandleTimeout"`

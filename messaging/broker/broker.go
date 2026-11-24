@@ -8,8 +8,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 
+	"github.com/altessa-s/go-atlas/messaging/broker/internal/traceheaders"
 	"github.com/altessa-s/go-atlas/messaging/broker/msg"
+	"github.com/altessa-s/go-atlas/observability/tracing"
 )
 
 // ErrPublishConverterNotSet is returned by [Broker.PublishAny] when no
@@ -30,6 +33,9 @@ var ErrConnectionClosed = errors.New("broker connection closed")
 //
 // All exported methods are safe for concurrent use.
 type Broker struct {
+	tracer           tracing.Tracer
+	messagingSystem  string
+	consumerName     string
 	provider         Provider     // Underlying message broker provider.
 	logger           *slog.Logger // Logger instance for logging within the broker.
 	outbox           Outboxer     // Outbox instance for reliable message publishing.
@@ -53,7 +59,17 @@ func New(provider Provider, opt ...Option) *Broker {
 		outbox = &nopOutbox{provider: provider}
 	}
 
+	system := cfg.messagingSystem
+	if system == "" && cfg.tracer != nil {
+		if named, ok := provider.(interface{ MessagingSystem() string }); ok {
+			system = named.MessagingSystem()
+		}
+	}
+
 	return &Broker{
+		tracer:           cfg.tracer,
+		messagingSystem:  system,
+		consumerName:     cfg.consumerName,
 		provider:         provider,
 		logger:           cfg.logger,
 		outbox:           outbox,
@@ -70,6 +86,7 @@ func New(provider Provider, opt ...Option) *Broker {
 //	err := b.Publish(ctx, msg.Message{Topic: "events", Data: payload})
 func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
 	stop := b.metrics.publishDuration.Start()
+	msg.Metadata = traceheaders.Inject(msg.Metadata, traceheaders.FromContext(ctx))
 	err := b.outbox.Publish(ctx, msg)
 	stop()
 	if err != nil {
@@ -87,6 +104,12 @@ func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
 //
 //	err := b.PublishBatch(ctx, msg1, msg2, msg3)
 func (b *Broker) PublishBatch(ctx context.Context, msgs ...msg.Message) error {
+	if headers := traceheaders.FromContext(ctx); headers != nil {
+		msgs = slices.Clone(msgs)
+		for i := range msgs {
+			msgs[i].Metadata = traceheaders.Inject(msgs[i].Metadata, headers)
+		}
+	}
 	stop := b.metrics.publishDuration.Start()
 	err := b.outbox.PublishBatch(ctx, msgs...)
 	stop()
@@ -122,17 +145,7 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 		msgs = append(msgs, convertedMsg)
 	}
 
-	stop := b.metrics.publishDuration.Start()
-	err := b.outbox.PublishBatch(ctx, msgs...)
-	stop()
-	if err != nil {
-		b.recordPublishError(err, msgs...)
-		return err
-	}
-	for _, m := range msgs {
-		b.metrics.publishedFor(m.Topic).Inc()
-	}
-	return nil
+	return b.PublishBatch(ctx, msgs...)
 }
 
 // Subscriber creates a new message Subscriber using the underlying Provider and factory.
@@ -143,7 +156,11 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 //	sub := b.Subscriber(nats.SubscriberFactory)
 //	sub.Subscribe(ctx, handler)
 func (b *Broker) Subscriber(factory SubscriberFactory) Subscriber {
-	return b.provider.Subscriber(factory)
+	sub := b.provider.Subscriber(factory)
+	if b.tracer == nil {
+		return sub
+	}
+	return &tracedSubscriber{Subscriber: sub, broker: b}
 }
 
 // recordPublishError records a failed publish attempt for every message in mm:

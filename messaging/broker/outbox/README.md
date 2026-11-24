@@ -23,8 +23,21 @@ the broker retry classification, implementing the `broker.Outboxer` interface. I
 
 Outbox delivery is at-least-once, so the broker needs a stable identity to collapse repeats. On publish this adapter sets the `deduplicate_id` metadata
 key to the outbox `Event.Id` — assigned once at save time and unchanged across every retry — which the NATS provider forwards as `Nats-Msg-Id`. A
-caller-supplied `deduplicate_id` always wins: it is usually derived from the business entity, which dedupes across producers and not only across one
+nonempty caller-supplied `deduplicate_id` takes precedence. It is usually derived from the business entity, which dedupes across producers and not only across one
 event's own retries.
+
+The envelope retains the broker message TTL for each publish attempt. The outbox event's own expiry governs how long dispatch may be retried.
+
+## Tracing
+
+Supply `outbox.WithTracer(tracer)` to `New(store, publisher, opts...)` or `NewHandler(publisher, opts...)` to trace dispatch. Both accept
+`outbox.WithMessagingSystem("nats")` for the optional system attribute. The broker factory's `UseTracer(tracer)` configures both its subscriber
+and its outbox handlers, using the configured provider as the messaging system.
+
+The envelope preserves a publishing request's W3C headers. For a sampled parent, the handler starts a PRODUCER span named `outbox send` and injects
+the send context into the outgoing metadata. Its attributes include the destination topic, event ID, one-based attempt number and milliseconds since
+event creation. A failed publish records an exception and error status. Unsampled parents pass through unchanged. Events without a valid parent
+produce no dispatcher span.
 
 ## Error classification
 

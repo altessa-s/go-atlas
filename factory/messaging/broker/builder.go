@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/messaging/broker/inprogress"
 	"github.com/altessa-s/go-atlas/messaging/broker/outbox"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/tracing"
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
@@ -55,6 +56,7 @@ type BrokerBuilder struct {
 	publishConverter broker.PublishConverter
 	scheduler        schedtask.Registrar
 	collector        metrics.Meter
+	tracer           tracing.Tracer
 	providers        map[brokerconfig.Provider]ProviderFunc
 	outboxStorages   map[brokerconfig.OutboxStorageType]outboxfactory.StorageFunc
 	sqlDB            *sql.DB
@@ -134,7 +136,12 @@ func (b *BrokerBuilder) CreateOutbox(ctx context.Context, publisher outbox.Publi
 	if ob == nil {
 		return nil, err
 	}
-	return wrapOutbox(ob.Build(ctx, outbox.NewHandler(publisher)))
+	var system string
+	if b.cfg != nil {
+		system = string(b.cfg.Provider)
+	}
+	handler := outbox.NewHandler(publisher, outbox.WithTracer(b.tracer), outbox.WithMessagingSystem(system))
+	return wrapOutbox(ob.Build(ctx, handler))
 }
 
 // CreateProvider creates the broker provider of the configured provider type
@@ -198,7 +205,7 @@ func wrapOutbox(ob *dataoutbox.Outbox, err error) (*outbox.Outbox, error) {
 
 // applyBrokerDefaults returns factory default broker options.
 func (b *BrokerBuilder) applyBrokerDefaults() []broker.Option {
-	opts := []broker.Option{broker.WithLogger(b.Logger())}
+	opts := []broker.Option{broker.WithLogger(b.Logger()), broker.WithTracer(b.tracer), broker.WithMessagingSystem(string(b.cfg.Provider))}
 	opts = slices.AppendIf(opts, b.publishConverter != nil, broker.WithPublishConverter(b.publishConverter))
 	opts = slices.AppendIf(opts, b.collector != nil, broker.WithMeter(b.collector))
 	return opts

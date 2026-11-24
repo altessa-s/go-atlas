@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/messaging/broker"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/tracing"
 
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
@@ -42,6 +43,12 @@ func (b *BrokerBuilder) UseScheduler(v schedtask.Registrar) *BrokerBuilder {
 // on. Without one they record nothing.
 func (b *BrokerBuilder) UseMeter(v metrics.Meter) *BrokerBuilder {
 	b.collector = v
+	return b
+}
+
+// UseTracer enables consumer spans on the broker and producer spans on its outbox handlers.
+func (b *BrokerBuilder) UseTracer(v tracing.Tracer) *BrokerBuilder {
+	b.tracer = v
 	return b
 }
 

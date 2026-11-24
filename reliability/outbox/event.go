@@ -7,6 +7,8 @@ package outbox
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
+
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -65,6 +67,18 @@ type Event struct {
 	// lock to the unlock sweeper cannot overwrite the state of the worker
 	// that picked the event up afterwards.
 	LockToken string
+
+	dispatching bool
+}
+
+// DispatchAttempt is the one-based number of the current send. On a stored
+// event Attempts counts completed attempts. Inside a Handler it already
+// includes the send in progress.
+func (e Event) DispatchAttempt() int64 {
+	if e.dispatching {
+		return int64(e.Attempts)
+	}
+	return int64(e.Attempts) + 1
 }
 
 // nextAttempt increments attempts counter and updates LastAttemptOn timestamp.
@@ -79,7 +93,7 @@ func (e *Event) setErrorStatus(err error) {
 	e.Status = StatusFailed
 	// Avoid overwriting a more specific previous error with a generic "context canceled".
 	if err != nil && !coreerrs.IsContextCanceled(err) {
-		e.LastError = new(err.Error())
+		e.LastError = new(diagnostics.RedactURLUserinfo(err.Error()))
 	}
 }
 

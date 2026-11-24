@@ -6,12 +6,36 @@ package broker
 import (
 	"log/slog"
 	"reflect"
+	"strings"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/tracing"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithConsumerName supplies the low-cardinality group name for consumer spans.
+func WithConsumerName[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.consumerName = transformedValue
+	}
+}
 
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
@@ -20,6 +44,28 @@ func WithLogger(v *slog.Logger) Option {
 			return
 		}
 		o.logger = v
+	}
+}
+
+// WithMessagingSystem sets the messaging.system attribute on consumer spans.
+func WithMessagingSystem[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.messagingSystem = transformedValue
 	}
 }
 
@@ -67,6 +113,21 @@ func WithPublishConverter(v PublishConverter) Option {
 func WithSubjectLabelLimit(v int) Option {
 	return func(o *options) {
 		o.subjectLabelLimit = v
+	}
+}
+
+// WithTracer enables consumer spans on subscribers created by the broker.
+func WithTracer(v tracing.Tracer) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.tracer = v
 	}
 }
 

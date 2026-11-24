@@ -16,6 +16,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
@@ -214,6 +215,7 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 	o.metrics.eventsInFlight.Inc()
 	defer o.metrics.eventsInFlight.Dec()
 
+	event.dispatching = true
 	if err := o.handler(ctx, event); err != nil {
 		o.metrics.eventsDispatchFail.Inc()
 		return err
@@ -361,12 +363,12 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) bool {
 				// instead of spending the remaining attempt budget.
 				event.setRejectedStatus()
 				o.metrics.eventsRejected.Inc()
-				logger.ErrorContext(ctx, "event rejected as permanently undeliverable", slog.Any("error", err))
+				logger.ErrorContext(ctx, "event rejected as permanently undeliverable", slog.Any("error", diagnostics.LogError(err)))
 
 			case !event.isReadyForRetry(o.retryMaxAttempts):
 				event.setStatusMaxAttemptReached()
 				o.metrics.maxRetriesExhausted.Inc()
-				logger.ErrorContext(ctx, "event dead-lettered after exhausting the retry budget", slog.Any("error", err))
+				logger.ErrorContext(ctx, "event dead-lettered after exhausting the retry budget", slog.Any("error", diagnostics.LogError(err)))
 
 			default:
 				// Exponential backoff with jitter, keyed off the attempt
@@ -375,7 +377,7 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) bool {
 				event.RetryAfter = o.retryBackoff(int(event.Attempts)-1, err)
 				o.metrics.dispatchRetries.Inc()
 				logger.WarnContext(ctx, "failed to dispatch event, scheduling retry",
-					slog.Any("error", err),
+					slog.Any("error", diagnostics.LogError(err)),
 					slog.Duration("next_try_in", event.RetryAfter),
 				)
 			}
