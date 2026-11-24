@@ -110,7 +110,7 @@ type connector struct {
 func (c *connector) Connect(ctx context.Context) (driver.Conn, error) {
 	raw, err := c.Connector.Connect(ctx)
 	if err != nil {
-		return nil, err
+		return nil, diagnostic("connect PostgreSQL", err)
 	}
 	conn, ok := raw.(*stdlib.Conn)
 	if !ok {

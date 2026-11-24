@@ -18,7 +18,7 @@ import (
 )
 
 // Open creates a bounded pool and verifies connectivity and transaction-pool role defaults.
-func Open(ctx context.Context, dsn redacted.RedactedString, opts ...Option) (*sql.DB, error) {
+func Open(ctx context.Context, dsn redacted.RedactedString, opts ...Option) (pool *sql.DB, openErr error) {
 	o := newOptions(opts...)
 	if o.maxOpenConnections < 1 || o.maxIdleConnections < 0 || o.connectionMaxLifetime <= 0 || o.connectionMaxIdleTime <= 0 {
 		return nil, errors.New("invalid PostgreSQL pool limits")
@@ -29,6 +29,11 @@ func Open(ctx context.Context, dsn redacted.RedactedString, opts ...Option) (*sq
 	}
 	owner := &poolConnector{Connector: c}
 	db := sql.OpenDB(owner)
+	defer func() {
+		if pool == nil {
+			openErr = errors.Join(openErr, diagnostic("close PostgreSQL", db.Close()))
+		}
+	}()
 	db.SetMaxOpenConns(o.maxOpenConnections)
 	db.SetMaxIdleConns(o.maxIdleConnections)
 	db.SetConnMaxLifetime(o.connectionMaxLifetime)
@@ -37,10 +42,10 @@ func Open(ctx context.Context, dsn redacted.RedactedString, opts ...Option) (*sq
 	if o.pooling == PoolingTransaction {
 		err = checkPooledDefaults(ctx, db)
 	} else {
-		err = db.PingContext(ctx)
+		err = diagnostic("ping PostgreSQL", db.PingContext(ctx))
 	}
 	if err != nil {
-		return nil, errors.Join(err, db.Close())
+		return nil, err
 	}
 
 	if o.meter != nil && !metrics.IsNoop(o.meter) {
@@ -66,7 +71,7 @@ func checkPooledDefaults(ctx context.Context, db *sql.DB) error {
 	err := db.QueryRowContext(ctx, `SELECT current_setting('statement_timeout'), current_setting('lock_timeout'),
 		current_setting('idle_in_transaction_session_timeout')`).Scan(&statement, &lock, &idle)
 	if err != nil {
-		return err
+		return diagnostic("read PostgreSQL role defaults", err)
 	}
 	for name, value := range map[string]string{
 		statementTimeoutSetting: statement, lockTimeoutSetting: lock, idleTimeoutSetting: idle,
@@ -86,7 +91,7 @@ func (p Pools) Close() error {
 	var errs []error
 	for _, db := range p {
 		if err := db.Close(); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, diagnostic("close PostgreSQL", err))
 		}
 	}
 	return errors.Join(errs...)

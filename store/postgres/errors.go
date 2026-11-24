@@ -24,6 +24,23 @@ var ErrPooledTimeoutDefaults = errors.New("database role needs nonzero timeout d
 
 var errInvalidDSN = errors.New("invalid PostgreSQL DSN")
 
+// driverDiagnostic keeps the public error chain available for programmatic inspection while
+// formatting only the operation, error type and validated SQLSTATE.
+type driverDiagnostic struct {
+	error
+	cause error
+}
+
+func (e *driverDiagnostic) Unwrap() error    { return e.cause }
+func (e *driverDiagnostic) GoString() string { return e.Error() }
+
+func diagnostic(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &driverDiagnostic{error: sqldialect.SafeError(nil, op, err), cause: err}
+}
+
 // ErrorKind identifies PostgreSQL diagnostics useful at a storage boundary.
 type ErrorKind string
 
@@ -63,33 +80,36 @@ func Classify(err error) (ErrorKind, string) {
 	if _, ok := errors.AsType[*pgconn.ConnectError](err); ok {
 		return ConnectionBeforeSend, ""
 	}
-	if e, ok := errors.AsType[*pgconn.PgError](err); ok {
-		switch e.Code {
-		case "23505":
-			return Unique, e.ConstraintName
-		case "23503":
-			return ForeignKey, e.ConstraintName
-		case "23514":
-			return Check, e.ConstraintName
-		case "40001":
-			return Serialization, ""
-		case "40P01":
-			return Deadlock, ""
-		case "57014":
-			if strings.Contains(e.Message, "statement timeout") {
-				return StatementTimeout, ""
-			}
-			if strings.Contains(e.Message, "user request") {
-				return Canceled, ""
-			}
-			return Unknown, ""
-		case "57P01", "57P02", "57P03":
-			return ConnectionLost, ""
+	e, ok := errors.AsType[*pgconn.PgError](err)
+	if !ok {
+		e = &pgconn.PgError{Code: sqldialect.SQLState(err)}
+	}
+
+	switch e.Code {
+	case "23505":
+		return Unique, e.ConstraintName
+	case "23503":
+		return ForeignKey, e.ConstraintName
+	case "23514":
+		return Check, e.ConstraintName
+	case "40001":
+		return Serialization, ""
+	case "40P01":
+		return Deadlock, ""
+	case "57014":
+		if strings.Contains(e.Message, "statement timeout") {
+			return StatementTimeout, ""
 		}
-		severity := cmp.Or(e.SeverityUnlocalized, e.Severity)
-		if strings.HasPrefix(e.Code, "08") || severity == "FATAL" || severity == "PANIC" {
-			return ConnectionLost, ""
+		if strings.Contains(e.Message, "user request") {
+			return Canceled, ""
 		}
+		return Unknown, ""
+	case "57P01", "57P02", "57P03":
+		return ConnectionLost, ""
+	}
+	severity := cmp.Or(e.SeverityUnlocalized, e.Severity)
+	if strings.HasPrefix(e.Code, "08") || severity == "FATAL" || severity == "PANIC" {
+		return ConnectionLost, ""
 	}
 	if sqldialect.SafeToRetry(err) {
 		return ConnectionBeforeSend, ""
