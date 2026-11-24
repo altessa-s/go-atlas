@@ -42,6 +42,8 @@ type Config struct {
 	LockTimeout time.Duration `yaml:"lockTimeout" default:"3s"`
 	// IdleTransactionTimeout bounds idle time inside a transaction.
 	IdleTransactionTimeout time.Duration `yaml:"idleTransactionTimeout" default:"30s"`
+	// MigrationTimeout bounds the optional startup migration hook.
+	MigrationTimeout time.Duration `yaml:"migrationTimeout" default:"30s"`
 	// ListingTimeout is the application budget for listing queries.
 	ListingTimeout time.Duration `yaml:"listingTimeout" default:"3s"`
 	// CountBudget is the application budget for exact counts. Zero disables probing.
@@ -75,6 +77,7 @@ const (
 	defaultStatement       = 10 * time.Second
 	defaultLock            = 3 * time.Second
 	defaultIdleTransaction = 30 * time.Second
+	defaultMigration       = 30 * time.Second
 	minimumListing         = 100 * time.Millisecond
 	defaultListing         = 3 * time.Second
 	defaultCount           = 50 * time.Millisecond
@@ -92,6 +95,7 @@ func Default() Config {
 		StatementTimeout:       defaultStatement,
 		LockTimeout:            defaultLock,
 		IdleTransactionTimeout: defaultIdleTransaction,
+		MigrationTimeout:       defaultMigration,
 		ListingTimeout:         defaultListing,
 		CountBudget:            defaultCount,
 	}
@@ -121,6 +125,7 @@ func (c *Config) Validate() error {
 		validation.Field(&c.StatementTimeout, validation.Required, validation.Min(time.Millisecond), validation.Max(maxServerTimeout)),
 		validation.Field(&c.LockTimeout, validation.Required, validation.Min(time.Millisecond), validation.Max(maxServerTimeout)),
 		validation.Field(&c.IdleTransactionTimeout, validation.Required, validation.Min(time.Millisecond), validation.Max(maxServerTimeout)),
+		validation.Field(&c.MigrationTimeout, validation.Required, validation.Min(time.Millisecond)),
 		validation.Field(&c.ListingTimeout, validation.Required, validation.Min(minimumListing)),
 		validation.Field(&c.CountBudget, validationconfig.NonNegativeDuration()),
 	); err != nil {

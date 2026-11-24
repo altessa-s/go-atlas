@@ -156,6 +156,38 @@ func TestBuildNamedPools(t *testing.T) {
 	require.True(t, seen)
 }
 
+func TestMigrationDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		callerBudget time.Duration
+	}{{"configured", 3 * time.Minute}, {"earlier caller", time.Minute}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := postgresconfig.Default()
+			cfg.DSN, _, _ = poolEndpoint(t, nil)
+			cfg.MigrationTimeout = 2 * time.Minute
+			ctx, cancel := context.WithTimeout(t.Context(), tc.callerBudget)
+			defer cancel()
+			var deadline time.Time
+			start := time.Now()
+			pools, err := New(&cfg).UseMigrator(func(ctx context.Context, _ *sql.DB) error {
+				var ok bool
+				deadline, ok = ctx.Deadline()
+				require.True(t, ok)
+				return nil
+			}).Build(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, pools.Close()) })
+			if tc.callerBudget < cfg.MigrationTimeout {
+				want, _ := ctx.Deadline()
+				require.Equal(t, want, deadline)
+			} else {
+				require.WithinRange(t, deadline, start.Add(cfg.MigrationTimeout), time.Now().Add(cfg.MigrationTimeout))
+			}
+		})
+	}
+}
+
 func TestMigrationFailureClosesPoolsAndPreservesCause(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

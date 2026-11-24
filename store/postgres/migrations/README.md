@@ -53,6 +53,8 @@ Each run builds its own `goose.Provider` with the global registry disabled.
 A pending migration below the highest applied version fails the run (no out-of-order application).
 
 Supply a direct pgx-backed pool. The runner compares the startup backend PID with the session’s reported PID before taking the advisory lock.
-A pooler mismatch matches `ErrDirectConnectionRequired`. The lock budget covers checkout and acquisition. Migration work uses the caller’s context.
+A pooler mismatch matches `ErrDirectConnectionRequired`. The lock budget covers checkout and acquisition.
+When the pool factory supplies the context, `postgres.migrationTimeout` (default `30s`) bounds both acquisition and migration work.
+An earlier caller deadline takes precedence.
 `Down` succeeds when nothing is applied. `Status` reads the ledger in one ordered query and reports a zero time for a missing timestamp.
 Ledger names use one or two lowercase identifier components of at most 63 bytes each. Invalid names match `ErrInvalidTableName`.

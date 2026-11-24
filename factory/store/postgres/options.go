@@ -43,7 +43,8 @@ func (b *Builder) UseHealthCoordinator(r health.Registrar) *Builder {
 	return b
 }
 
-// UseMigrator runs fn on the direct primary pool during startup, with a thirty-second budget.
+// UseMigrator runs fn on the direct primary pool during startup.
+// MigrationTimeout (YAML migrationTimeout, default 30s) bounds the hook unless the caller has an earlier deadline.
 func (b *Builder) UseMigrator(fn func(context.Context, *sql.DB) error) *Builder {
 	b.migrator = fn
 	return b

@@ -11,7 +11,6 @@ import (
 	"errors"
 	"maps"
 	"slices"
-	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -24,8 +23,6 @@ import (
 	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
-
-const startupMigrationTimeout = 30 * time.Second
 
 // Builder constructs application pools and registers their health checks after successful startup.
 type Builder struct {
@@ -93,7 +90,7 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 		pools[name] = db
 	}
 	if b.migrator != nil {
-		migrationCtx, cancel := corecontext.WithMaxTimeout(ctx, startupMigrationTimeout)
+		migrationCtx, cancel := corecontext.WithMaxTimeout(ctx, c.MigrationTimeout)
 		defer cancel()
 		err := b.migrator(migrationCtx, pools[postgres.DefaultPool])
 		if err != nil {

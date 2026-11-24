@@ -15,8 +15,11 @@ defer pools.Close()
 db := pools[postgres.DefaultPool]
 ```
 
-Build verifies every pool, calls the application hook on the direct primary pool, then registers each pool as `postgres.<name>`. The hook inherits the
-caller’s deadline with a maximum of 30 seconds. A transaction-pooled primary rejects the hook during validation. A startup failure closes already-opened
-pools. On a SQL subsystem factory, call `UseSQLPool(pools.Binding("worker"))` to use the reserved pool for standalone calls and join a transaction
+Build verifies every pool, calls the application hook on the direct primary pool, then registers each pool as `postgres.<name>`.
+The optional hook runs with the earlier of the caller’s deadline and `postgres.migrationTimeout` (default `30s`, minimum `1ms`).
+For goose migrations, `WithLockTimeout` limits lock acquisition within that overall budget.
+A transaction-pooled primary rejects the hook during validation. A startup failure closes already-opened pools.
+
+On a SQL subsystem factory, call `UseSQLPool(pools.Binding("worker"))` to use the reserved pool for standalone calls and join a transaction
 started on any pool in this group. Alternatively, use `UseSQLDB` with the outbox SQL store’s per-save `WithTx` helper. Configure one group per logical
 database. [Runtime](../../../store/postgres) · [Configuration](../../../config/postgres)

@@ -24,8 +24,11 @@ postgres:
 | connectionMaxLifetime / connectionMaxIdleTime | 30m / 5m | Connection recycling |
 | connectTimeout | 5s | Connection establishment |
 | statementTimeout / lockTimeout / idleTransactionTimeout | 10s / 3s / 30s | Server limits |
+| migrationTimeout | 30s | Total budget for a supplied startup migration hook (minimum 1ms). An earlier caller deadline wins |
 | listingTimeout / countBudget | 3s / 50ms | Query-layer budgets. Zero count budget disables exact-count probing |
 | pools | empty | Additional named connection reservations |
+
+When the hook runs goose migrations, `WithLockTimeout` bounds lock acquisition within the hook's overall budget.
 
 Each named pool requires a positive open limit. Its idle limit defaults to the smaller of this limit and the primary idle limit. An explicit zero
 disables retained idle connections. The DSN, pooling mode, statement and lock timeouts inherit from the primary configuration unless overridden.
