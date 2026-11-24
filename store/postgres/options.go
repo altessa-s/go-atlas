@@ -4,7 +4,8 @@
 
 package postgres
 
-//go:generate go tool optgen generate --no-default-modifiers
+//go:generate go tool optgen generate --type=options --no-default-modifiers
+//go:generate go tool optgen generate --type=committerOptions --option-type=CommitterOption --output=committer_options_gen.go --no-default-modifiers
 
 import (
 	"log/slog"
@@ -57,4 +58,13 @@ type options struct {
 	lockTimeout time.Duration `optgen:"default=3*time.Second"`
 	// WithIdleTransactionTimeout bounds idle time in an open transaction.
 	idleTransactionTimeout time.Duration `optgen:"default=30*time.Second"`
+}
+
+type committerOptions struct {
+	// WithTxRetries sets the maximum additional attempts after serialization failures or deadlocks.
+	txRetries int
+	// WithTxRetryDelay sets the initial exponential backoff between transaction attempts.
+	txRetryDelay time.Duration `optgen:"default=10*time.Millisecond"`
+	// WithTxTimeout caps the total time for the transaction and all retries. Zero uses the caller's deadline.
+	txTimeout time.Duration
 }

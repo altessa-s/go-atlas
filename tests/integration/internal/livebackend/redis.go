@@ -38,20 +38,20 @@ func RedisAddr() string {
 	return DefaultRedisAddr
 }
 
-// ConnectRedis returns a client for [RedisAddr], closed on cleanup. It skips
-// the test, rather than failing it, when the server does not answer a PING.
+// ConnectRedis returns a client for [RedisAddr], closed on cleanup. Only an unreachable default endpoint skips the test.
 func ConnectRedis(tb testing.TB) *goredis.Client {
 	tb.Helper()
 
 	client := goredis.NewClient(&goredis.Options{Addr: RedisAddr()})
+	tb.Cleanup(func() { _ = client.Close() })
 	ctx, cancel := context.WithTimeout(tb.Context(), pingTimeout)
 	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {
-		_ = client.Close()
-		tb.Skipf("Redis unreachable at %s (%v) — start it with: make integration-up", RedisAddr(), err)
+		if SkipEndpoint(err, os.Getenv("REDIS_ADDR")) {
+			tb.Skip("Redis unreachable — start it with: make integration-up")
+		}
+		tb.Fatalf("Redis ping failed (%T)", err)
 	}
-	tb.Cleanup(func() { _ = client.Close() })
-
 	return client
 }
 

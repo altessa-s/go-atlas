@@ -30,12 +30,12 @@ func (p Pool) WithResolver(resolve func(context.Context) (*sql.Tx, bool)) Pool {
 	return p
 }
 
-// Tx resolves a caller-owned transaction, if configured.
+// Tx resolves a caller-owned transaction. A non-nil handle with false is a closed
+// binding: operations must fail with sql.ErrTxDone before touching the pool.
 func (p Pool) Tx(ctx context.Context) (*sql.Tx, bool) {
 	if p.resolve != nil {
-		if tx, ok := p.resolve(ctx); ok && tx != nil {
-			return tx, true
-		}
+		tx, open := p.resolve(ctx)
+		return tx, tx != nil && open
 	}
 	return nil, false
 }
@@ -48,7 +48,10 @@ type Scope struct {
 
 // BeginScope joins the caller's transaction or begins a new one.
 func (p Pool) BeginScope(ctx context.Context, opts *sql.TxOptions) (Scope, error) {
-	if tx, ok := p.Tx(ctx); ok {
+	if tx, open := p.Tx(ctx); tx != nil {
+		if !open {
+			return Scope{}, sql.ErrTxDone
+		}
 		return Scope{Tx: tx}, nil
 	}
 	tx, err := p.BeginTx(ctx, opts)
@@ -74,7 +77,10 @@ func (t Scope) Rollback() error {
 // ExecContext runs a standalone statement. Explicit transactions execute
 // their own statements on *sql.Tx.
 func (p Pool) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	if tx, ok := p.Tx(ctx); ok {
+	if tx, open := p.Tx(ctx); tx != nil {
+		if !open {
+			return nil, sql.ErrTxDone
+		}
 		return tx.ExecContext(ctx, query, args...)
 	}
 	if !p.postgres {
@@ -131,7 +137,10 @@ func (r Rows) Close() error {
 
 // QueryContext returns rows for the caller to consume and close.
 func (p Pool) QueryContext(ctx context.Context, query string, args ...any) (Rows, error) {
-	if tx, ok := p.Tx(ctx); ok {
+	if tx, open := p.Tx(ctx); tx != nil {
+		if !open {
+			return Rows{}, sql.ErrTxDone
+		}
 		rows, err := tx.QueryContext(ctx, query, args...)
 		return Rows{Rows: rows}, err
 	}
@@ -166,7 +175,10 @@ func (r Row) Scan(dest ...any) error {
 // QueryRowContext examines only the query startup error. Scan retains
 // database/sql's single-row, type conversion and no-rows semantics.
 func (p Pool) QueryRowContext(ctx context.Context, query string, args ...any) Row {
-	if tx, ok := p.Tx(ctx); ok {
+	if tx, open := p.Tx(ctx); tx != nil {
+		if !open {
+			return Row{err: sql.ErrTxDone}
+		}
 		return Row{row: tx.QueryRowContext(ctx, query, args...)}
 	}
 	if !p.postgres {

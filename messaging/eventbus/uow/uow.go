@@ -47,9 +47,10 @@ var (
 )
 
 // Committer runs fn inside a transaction, passing a transaction-scoped context
-// to the body. It is satisfied by *store/mongo.Mongo (its WithTransaction);
-// future backends supply their own. The passed context should derive from the
-// one given so the body keeps its values and cancellation.
+// to the body. Both *store/mongo.Mongo and *store/postgres.Committer implement it. The passed context should derive from the
+// one given so the body keeps its values and cancellation. A committer may implement
+// CommitOutcomeUnknown(error) bool to distinguish an ambiguous commit from a definitive
+// abort, including failure to start a subsequent attempt.
 type Committer interface {
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
@@ -199,7 +200,7 @@ func New(committer Committer, logger *slog.Logger, opts ...Option) *Runner {
 // if the last attempt returned an error, or never returned (it panicked and
 // the Committer recovered the panic), the Committer error is returned as is;
 // if the last attempt returned nil, the failure happened at or after commit
-// and Run returns an [*UnknownOutcomeError]. With a detector, Run first
+// and Run returns an [*UnknownOutcomeError] unless the committer reports a definitive abort. With a detector, Run first
 // returns [ErrForeignTransaction] when ctx is inside a transaction r did not
 // start. After a successful root body, the detector must still report the
 // captured transaction as running; otherwise ErrForeignTransaction is returned
@@ -209,7 +210,8 @@ func New(committer Committer, logger *slog.Logger, opts ...Option) *Runner {
 // Nested (ctx carries an open unit of r): Run calls body directly and returns
 // its error as is. Registrations join the enclosing unit and apply only after
 // the outermost commit; the root decides the abort. A nested Run never
-// commits, so it never returns an [*UnknownOutcomeError] itself.
+// commits. A panic closes the unit and propagates. If recovered inside the root body,
+// the root refuses commit with [ErrScopeClosed].
 //
 // Closed (ctx carries a closed unit of r): [ErrScopeClosed]; body is not called.
 func (r *Runner) Run(ctx context.Context, body func(ctx context.Context) error) error {
@@ -220,6 +222,13 @@ func (r *Runner) Run(ctx context.Context, body func(ctx context.Context) error) 
 		if active, _ := ctx.Value(activeKey{}).(*unit); active != u {
 			ctx = context.WithValue(ctx, activeKey{}, u)
 		}
+		// Closing during unwind also rejects a root whose caller recovers this panic.
+		defer func() {
+			if r := recover(); r != nil {
+				u.close()
+				panic(r)
+			}
+		}()
 		return body(ctx)
 	}
 	if r.inForeignTransaction(ctx) {
@@ -265,6 +274,11 @@ func (r *Runner) runRoot(ctx context.Context, body func(ctx context.Context) err
 	case err == nil:
 		return r.apply(ctx, entries)
 	case returned && bodyErr == nil:
+		// Some backends can distinguish a definitive rollback or a failed retry BEGIN
+		// from loss of the reply to COMMIT.
+		if reporter, ok := r.committer.(interface{ CommitOutcomeUnknown(error) bool }); ok && !reporter.CommitOutcomeUnknown(err) {
+			return err
+		}
 		return &UnknownOutcomeError{Err: err}
 	default:
 		return err

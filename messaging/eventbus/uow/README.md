@@ -29,7 +29,7 @@ compensation). Compensation covers the one remaining case — an effect that fai
 | `Runner.Run(ctx, body) error`                                           | Root: one transaction; nested (ctx carries an open unit of the Runner): joins it                      |
 | `Runner.AfterCommit(ctx, hook) error`                                   | Registers a hook on the open unit; outside one, runs it at once or returns `ErrNoUnitOfWork`          |
 | `OnCommit(ctx, Effect) error`                                           | Registers an effect on the innermost unit; `ErrNoUnitOfWork` if none, `ErrScopeClosed` if it ended   |
-| `Committer`                                                             | `WithTransaction(ctx, fn)`; satisfied by `store/mongo.Mongo`                                           |
+| `Committer`                                                             | `WithTransaction(ctx, fn)`; implemented by `store/mongo.Mongo` and `store/postgres.Committer`                                           |
 | `Detector`                                                              | `func(ctx) (tx any, ok bool)`: the innermost running transaction of any client and its identity; `store/mongo.Transaction` has this shape|
 | `Effect`                                                                | `Label`, `Apply` (post-commit), `Compensate` (nil = best-effort / irreversible)                      |
 | `UnknownOutcomeError`                                                   | The body returned nil but the commit did not report success; `Err` is the Committer error             |
@@ -52,14 +52,15 @@ compensation). Compensation covers the one remaining case — an effect that fai
 | Body returns an error                            | The Committer error is returned as is; nothing is applied                                                   |
 | Body panics, the Committer recovers it           | Known abort (`store/mongo.ErrTransactionPanicked`): returned as is, never `ErrUnknownOutcome`                |
 | Body panics, the Committer propagates it         | The unit is closed and the panic propagates                                                                 |
-| Body returns nil, the Committer fails            | `*UnknownOutcomeError`; nothing is applied                                                                  |
+| Body returns nil, the Committer fails            | `*UnknownOutcomeError` unless the committer reports a definitive abort; nothing is applied                                                                  |
 | Nested `Run` of the same Runner                  | Calls the body directly; registrations join the root unit and apply after the outermost commit            |
 | Hook after the root commit                       | Runs on `context.WithoutCancel(ctx)`; runs even when an earlier effect failed; a panic is recovered       |
 
 With `WithDetector`, a successful root body must leave its captured transaction running. If it ended (including an explicit abort) or changed
 identity (`store/mongo.Transaction` also tells apart a transaction restarted on the same session), `Run` rejects the attempt with
 `ErrForeignTransaction`, discards its registrations, and does not report `ErrUnknownOutcome`. Without a detector, the `Committer` must report an
-explicit abort as an error. Bodies must leave transaction completion to the `Committer`.
+explicit abort as an error. Bodies must leave transaction completion to the `Committer`. A panic in a joined `Run` closes the unit. If a caller
+recovers inside the root body and returns nil, the root rolls back with `ErrScopeClosed`.
 
 ## Cancellation
 

@@ -9,4 +9,4 @@ The packages here provide backend clients and application transaction infrastruc
 |------------------------------|--------------------------------------------------------------------------------------|
 | [mongo](./mongo)             | MongoDB client wrapper with CSFLE, migrations, transactions and cursor paging        |
 | [meilisearch](./meilisearch) | Context-aware Meilisearch client with idempotent index setup                         |
-| [postgres](./postgres)       | PostgreSQL pools, transactions, migrations and observability over database/sql       |
+| [postgres](./postgres)       | PostgreSQL pools, transactions and observability over database/sql       |

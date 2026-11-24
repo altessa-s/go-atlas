@@ -6,15 +6,14 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 )
 
@@ -75,8 +74,8 @@ func (*QueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, data pgx.Tra
 	}
 	if data.Err != nil {
 		const message = "PostgreSQL query failed"
-		if pgErr, ok := errors.AsType[*pgconn.PgError](data.Err); ok {
-			span.SetAttributes(tracing.String("db.response.status_code", pgErr.Code))
+		if state := sqldialect.SQLState(data.Err); state != "" {
+			span.SetAttributes(tracing.String("db.response.status_code", state))
 		}
 		// Server and driver error messages can echo bound parameter values.
 		span.AddEvent("exception", tracing.WithEventAttributes(

@@ -3,6 +3,6 @@
 // the LICENSE file.
 
 // Package factory builds named PostgreSQL pools from configuration.
-// [Builder.Build] verifies connectivity, applies enabled migrations and registers
+// [Builder.Build] verifies connectivity, runs the application migration hook and registers
 // health checks. The application owns the returned pools and closes them at shutdown.
 package factory

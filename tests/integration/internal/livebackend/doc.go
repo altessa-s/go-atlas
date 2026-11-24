@@ -7,7 +7,7 @@
 // override, a client that skips the test when the server is unreachable, and
 // per-test names and key prefixes that are cleaned up afterwards. For the SQL
 // servers it lists the targets of the docker stack ([SQLTargets]) with their
-// DSN overrides, opens one with a skip when it is unreachable
+// DSN overrides, fails configured endpoints and skips unreachable defaults
 // ([SQLTarget.Open]), and names a throwaway table dropped on cleanup
 // ([SQLTable]). Volume tests (build tag volume, make test-volume) size their
 // data with [VolumeRows], seed it with [SQLBulkInsert] or [MongoBulkInsert]

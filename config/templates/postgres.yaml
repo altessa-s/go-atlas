@@ -1,4 +1,4 @@
-# PostgreSQL connection pools, timeouts and migrations.
+# PostgreSQL connection pools and timeouts.
 # All parameters are commented out by default (template mode).
 
 #postgres:
@@ -42,6 +42,10 @@
 #  # Default value: 30s
 #  idleTransactionTimeout: "30s"
 #
+#  # <duration> Budget for the startup hook supplied through UseMigrator.
+#  # Default value: 30s
+#  migrationTimeout: "30s"
+#
 #  # <duration> Application budget for list queries.
 #  # Default value: 3s
 #  listingTimeout: "3s"
@@ -49,14 +53,6 @@
 #  # <duration> Budget for an exact count. Zero disables probing.
 #  # Default value: 50ms
 #  countBudget: "50ms"
-#
-#  # <bool> Apply the migrations supplied to the pool builder at startup.
-#  # Default value: false
-#  migrations: false
-#
-#  # <duration> Time budget for migrations, including lock acquisition.
-#  # Default value: 30s
-#  migrationTimeout: "30s"
 #
 #  # <map[string]object> Additional named pools connected to the same logical database.
 #  # Default value: not set

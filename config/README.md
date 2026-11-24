@@ -34,7 +34,7 @@ The root package declares no types.
 | [`config/redis`](redis)                 | `redisconfig`         | The Redis connection schema                                                                                                     |
 | [`config/nats`](nats)                   | `natsconfig`          | The NATS connection, JetStream consumer and recovery schemas                                                                    |
 | [`config/mongo`](mongo)                 | `mongoconfig`         | The MongoDB connection, credential and client-side field level encryption schemas                                               |
-| [`config/postgres`](postgres) | `postgresconfig` | PostgreSQL pool, timeout and migration settings |
+| [`config/postgres`](postgres) | `postgresconfig` | PostgreSQL pool and timeout settings |
 | [`config/clickhouse`](clickhouse)       | `clickhouseconfig`    | The ClickHouse connection schema                                                                                                |
 | [`config/meilisearch`](meilisearch)     | `meilisearchconfig`   | The Meilisearch connection schema                                                                                               |
 | [`config/vault`](vault)                 | `vaultconfig`         | The HashiCorp Vault client schema                                                                                               |

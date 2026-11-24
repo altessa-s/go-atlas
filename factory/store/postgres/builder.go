@@ -7,8 +7,8 @@ package factory
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
-	"io/fs"
 	"maps"
 	"slices"
 
@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/store/postgres"
 
+	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -26,12 +27,11 @@ import (
 // Builder constructs application pools and registers their health checks after successful startup.
 type Builder struct {
 	corefactory.Base
-	cfg    *postgresconfig.Config
-	meter  metrics.Meter
-	tracer tracing.Tracer
-	health health.Registrar
-	source fs.FS
-	schema string
+	cfg      *postgresconfig.Config
+	meter    metrics.Meter
+	tracer   tracing.Tracer
+	health   health.Registrar
+	migrator func(context.Context, *sql.DB) error
 }
 
 // New creates a builder. Configuration errors surface at Build.
@@ -41,7 +41,7 @@ func New(cfg *postgresconfig.Config) *Builder {
 
 // Build opens all pools, optionally migrates the primary database and registers health checks.
 // The caller owns the returned pools. A failed build closes every pool that it opened.
-func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
+func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) {
 	c := b.cfg
 	if c == nil {
 		return nil, corefactory.ErrConfigRequired
@@ -49,10 +49,16 @@ func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	if c.Migrations && (nilcheck.IsNil(b.source) || b.schema == "") {
-		return nil, corefactory.Errorf(corefactory.ErrDependencyRequired, "enabled migrations require a source and ledger schema")
+	if b.migrator != nil && c.Pooling == string(postgres.PoolingTransaction) {
+		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "startup migrations require a direct primary pool")
 	}
 	pools := make(postgres.Pools, len(c.Pools)+1)
+	complete := false
+	defer func() {
+		if !complete {
+			buildErr = errors.Join(buildErr, pools.Close())
+		}
+	}()
 	for _, name := range append([]string{postgres.DefaultPool}, slices.Sorted(maps.Keys(c.Pools))...) {
 		p := c.Pools[name]
 		size, idle := c.MaxOpenConnections, c.MaxIdleConnections
@@ -79,16 +85,16 @@ func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
 			postgres.WithLogger(b.Logger()),
 		)
 		if err != nil {
-			return nil, errors.Join(coreerrs.WrapOperationWithContext(err, "open PostgreSQL pool", name), pools.Close())
+			return nil, coreerrs.WrapOperationWithContext(err, "open PostgreSQL pool", name)
 		}
 		pools[name] = db
 	}
-	if c.Migrations {
-		migrationCtx, cancel := context.WithTimeout(ctx, c.MigrationTimeout)
-		err := postgres.Migrate(migrationCtx, pools[postgres.DefaultPool], b.source, b.schema)
-		cancel()
+	if b.migrator != nil {
+		migrationCtx, cancel := corecontext.WithMaxTimeout(ctx, c.MigrationTimeout)
+		defer cancel()
+		err := b.migrator(migrationCtx, pools[postgres.DefaultPool])
 		if err != nil {
-			return nil, errors.Join(err, pools.Close())
+			return nil, err
 		}
 	}
 	if !nilcheck.IsNil(b.health) {
@@ -96,5 +102,6 @@ func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
 			b.health.RegisterService("postgres."+name, postgres.Checker(db))
 		}
 	}
+	complete = true
 	return pools, nil
 }

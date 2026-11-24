@@ -8,6 +8,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -148,18 +151,40 @@ func ExplainMongo(tb testing.TB, db *mongo.Database, cmd bson.D) []string {
 func MongoDatabase(tb testing.TB, prefix string) *mongo.Database {
 	tb.Helper()
 	client, err := mongo.Connect(mongoopts.Client().ApplyURI(MongoURI()).SetServerSelectionTimeout(mongoConnectTimeout))
-	require.NoError(tb, err)
+	if err != nil {
+		tb.Fatalf("MongoDB configuration failed (%T)", err)
+	}
+	tb.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(tb.Context()), mongoConnectTimeout)
+		defer cancel()
+		_ = client.Disconnect(ctx)
+	})
 	ctx, cancel := context.WithTimeout(tb.Context(), mongoConnectTimeout)
 	defer cancel()
 	if err := client.Ping(ctx, nil); err != nil {
-		_ = client.Disconnect(context.WithoutCancel(tb.Context()))
-		tb.Skipf("MongoDB unreachable (%v) — start it with: make integration-up", err)
+		if os.Getenv("MONGO_URI") == "" && os.Getenv("MONGO_PORT") == "" && mongoUnreachable(err) {
+			tb.Skip("MongoDB unreachable — start it with: make integration-up")
+		}
+		tb.Fatalf("MongoDB ping failed (%T)", err)
 	}
 	db := client.Database(UniqueName(tb, prefix))
 	tb.Cleanup(func() {
 		ctx := context.WithoutCancel(tb.Context())
 		_ = db.Drop(ctx)
-		_ = client.Disconnect(ctx)
 	})
 	return db
+}
+
+// Mongo reports the individual dial failures in the topology attached to its selection timeout.
+func mongoUnreachable(err error) bool {
+	selection, ok := errors.AsType[topology.ServerSelectionError](err)
+	if !ok || len(selection.Desc.Servers) == 0 {
+		return SkipEndpoint(err, "")
+	}
+	for _, s := range selection.Desc.Servers {
+		if !SkipEndpoint(s.LastError, "") {
+			return false
+		}
+	}
+	return true
 }
