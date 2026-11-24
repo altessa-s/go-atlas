@@ -5,7 +5,9 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -19,6 +21,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestBeginQuery(t *testing.T) {
@@ -242,4 +247,46 @@ func TestMixedStatementFailureSuppressesDriverRetry(t *testing.T) {
 	if err == nil || errors.Is(err, driver.ErrBadConn) {
 		t.Fatalf("ambiguous failure permits database/sql replay: %v", err)
 	}
+}
+
+func TestTLSEndpoints(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"allow", "prefer", "disable", "require"} {
+		for _, name := range []string{"", "service.internal"} {
+			t.Run(mode+"/"+name, func(t *testing.T) {
+				t.Parallel()
+				cc, err := pgx.ParseConfig("host=first,second,second port=5432,5433,5434 sslmode=" + mode)
+				require.NoError(t, err)
+				cfg := &tls.Config{RootCAs: testhelpers.NewCA(t).Pool, ServerName: name, MinVersion: tls.VersionTLS13}
+				applyTLS(cc, cfg)
+				require.Len(t, cc.Fallbacks, 2)
+				require.Equal(t, name, cfg.ServerName)
+				check := func(host string, target *tls.Config) {
+					t.Helper()
+					require.NotNil(t, target)
+					require.NotSame(t, cfg, target)
+					require.Equal(t, cmp.Or(name, host), target.ServerName)
+					require.False(t, target.InsecureSkipVerify)
+					require.Same(t, cfg.RootCAs, target.RootCAs)
+				}
+				check("first", cc.TLSConfig)
+				for i, f := range cc.Fallbacks {
+					require.Equal(t, "second", f.Host)
+					require.Equal(t, []uint16{5433, 5434}[i], f.Port)
+					check("second", f.TLSConfig)
+					require.NotSame(t, cc.TLSConfig, f.TLSConfig)
+				}
+				require.NotSame(t, cc.Fallbacks[0].TLSConfig, cc.Fallbacks[1].TLSConfig)
+			})
+		}
+	}
+}
+
+func TestInsecureTLSRequiresOptIn(t *testing.T) {
+	t.Parallel()
+	config := WithTLSConfig(&tls.Config{InsecureSkipVerify: true}) //nolint:gosec // exercise the explicit opt-in
+	_, err := NewConnector("host=db", config)
+	require.Error(t, err)
+	_, err = NewConnector("host=db", config, WithAllowInsecureSkipVerify())
+	require.NoError(t, err)
 }

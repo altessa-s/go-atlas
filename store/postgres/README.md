@@ -27,6 +27,11 @@ defer db.Close()
 The configuration factory opens several named pools, each with its own connection reservation and optional DSN. The primary pool is `DefaultPool`.
 Pass a reserved pool to a repository directly or use `WithPool(ctx, primary, reserved)` to route one operation to a pool for the same database.
 
+`WithTLSConfig(*tls.Config)` requires TLS in both pooling modes. Each host and port keeps its place in failover order and receives a clone.
+An empty `ServerName` defaults to that host. Plaintext retries are removed. A config with `InsecureSkipVerify` requires the explicit
+`WithAllowInsecureSkipVerify()` opt-in. Without a TLS option, pgx honors its DSN and environment settings. The default `sslmode=prefer`
+tries unverified TLS and permits plaintext fallback.
+
 | Setting | Default | Effect |
 | --- | --- | --- |
 | Pooling | direct | Session lifetime or transaction lifetime |

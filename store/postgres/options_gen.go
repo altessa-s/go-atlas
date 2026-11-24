@@ -4,6 +4,7 @@
 package postgres
 
 import (
+	"crypto/tls"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -15,6 +16,14 @@ import (
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithAllowInsecureSkipVerify permits an explicitly unverified TLS configuration.
+func WithAllowInsecureSkipVerify() Option {
+	return func(o *options) {
+		value := true
+		o.allowInsecureSkipVerify = value
+	}
+}
 
 // WithConnectTimeout bounds connection establishment.
 func WithConnectTimeout(v time.Duration) Option {
@@ -132,6 +141,13 @@ func WithPooling(v PoolingMode) Option {
 func WithStatementTimeout(v time.Duration) Option {
 	return func(o *options) {
 		o.statementTimeout = v
+	}
+}
+
+// WithTLSConfig requires TLS on every endpoint. An empty ServerName follows the endpoint host.
+func WithTLSConfig(v *tls.Config) Option {
+	return func(o *options) {
+		o.tlsConfig = v
 	}
 }
 
