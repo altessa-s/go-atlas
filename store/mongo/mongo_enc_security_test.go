@@ -138,7 +138,7 @@ func TestConvert_BSONExcludedEmbeddedStructNotPersisted(t *testing.T) {
 
 	entity := &excludedEmbeddedEntity{
 		ID:               "x2",
-		ExcludedEmbedded: ExcludedEmbedded{Internal: "hidden"},
+		Internal:         "hidden",
 		IncludedEmbedded: &IncludedEmbedded{Shared: "hidden-too"},
 		Name:             "visible",
 	}
