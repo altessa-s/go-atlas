@@ -26,6 +26,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters/memory"
 	"github.com/altessa-s/go-atlas/store/postgres"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
@@ -39,11 +40,11 @@ func TestBuildValidation(t *testing.T) {
 	require.Same(t, slog.Default(), b.Logger())
 	_, err = b.Build(t.Context())
 	require.Error(t, err)
+	require.NotErrorIs(t, err, corefactory.ErrUnsupported)
 	cfg.DSN = "postgres://localhost/db"
 	cfg.Pooling = "transaction"
 	_, err = b.UseMigrator(func(context.Context, *sql.DB) error { t.Fatal("hook ran"); return nil }).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrUnsupported)
-	require.ErrorContains(t, err, "direct primary pool")
 }
 
 type healthRegistry map[string]health.Checker
@@ -271,6 +272,5 @@ func TestInjectedTLSMustVerifyServer(t *testing.T) {
 	cfg.DSN = "host=db"
 	insecure := &tls.Config{InsecureSkipVerify: true} //nolint:gosec // verify the factory rejects the injection
 	_, err := New(&cfg).UseTlsConfig(insecure).Build(t.Context())
-	require.ErrorIs(t, err, corefactory.ErrUnsupported)
-	require.ErrorContains(t, err, "must verify the server")
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }

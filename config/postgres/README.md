@@ -31,7 +31,8 @@ postgres:
 
 An empty `tls: {}` requires a trusted certificate for each target hostname. Set `tls.caCerts` for a private CA or `tls.serverName` to pin the
 expected name across hosts. A pool's `tls` block replaces the whole primary block. The effective DSN must omit `sslmode` or select `require`,
-`verify-ca` or `verify-full`. Without a TLS block or injected config, pgx follows the DSN and environment. Its default `sslmode=prefer` tries
+`verify-ca` or `verify-full`. Invalid certificate settings and DSNs incompatible with an explicit TLS block return errors matching
+`coreerrs.ErrInvalidArgument`. Without a TLS block or injected config, pgx follows the DSN and environment. Its default `sslmode=prefer` tries
 unverified TLS and permits a plaintext retry.
 
 When the hook runs goose migrations, `WithLockTimeout` bounds lock acquisition within the hook's overall budget.

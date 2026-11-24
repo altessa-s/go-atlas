@@ -45,6 +45,9 @@ func New(cfg *postgresconfig.Config) *Builder {
 }
 
 // Build opens all pools, optionally migrates the primary database and registers health checks.
+// Build returns schema validation errors unchanged. Invalid injected TLS settings and failures
+// to build a pool’s TLS config match [coreerrs.ErrInvalidArgument]. Startup migrations on a
+// transaction-pooled primary match [corefactory.ErrUnsupported].
 // The caller owns the returned pools. A failed build closes every pool that it opened.
 func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) {
 	c := b.cfg
@@ -52,7 +55,7 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 		return nil, corefactory.ErrConfigRequired
 	}
 	if err := b.validate(); err != nil {
-		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "invalid PostgreSQL configuration: %w", err)
+		return nil, err
 	}
 	if b.migrator != nil && c.Pooling == string(postgres.PoolingTransaction) {
 		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "startup migrations require a direct primary pool")
@@ -126,7 +129,7 @@ func (b *Builder) validate() error {
 		return b.cfg.Validate()
 	}
 	if b.tlsConfig.InsecureSkipVerify {
-		return errors.New("injected PostgreSQL TLS configuration must verify the server")
+		return corefactory.Errorf(coreerrs.ErrInvalidArgument, "injected PostgreSQL TLS configuration must verify the server")
 	}
 	c := *b.cfg
 	if c.TLS != nil {
@@ -153,7 +156,7 @@ func (b *Builder) poolTLSConfigs() (map[string]*tls.Config, error) {
 		cfg, err := builder.CreateClientConfig(block)
 		if err != nil {
 			// File errors can contain arbitrary user-supplied paths.
-			return corefactory.Errorf(corefactory.ErrUnsupported, "cannot build PostgreSQL TLS configuration for pool %q", name)
+			return corefactory.Errorf(coreerrs.ErrInvalidArgument, "cannot build PostgreSQL TLS configuration for pool %q", name)
 		}
 		configs[name] = cfg
 		return nil

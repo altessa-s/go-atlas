@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-nomos/loader"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 )
 
@@ -108,7 +109,7 @@ func TestTLSValidation(t *testing.T) {
 			cfg.DSN, cfg.TLS = tc.dsn, tc.primaryTLS
 			cfg.Pools = map[string]Pool{"worker": {MaxOpenConnections: 1, DSN: tc.reserved, TLS: tc.poolTLS}}
 			if tc.wantErr {
-				require.Error(t, cfg.Validate())
+				require.ErrorIs(t, cfg.Validate(), coreerrs.ErrInvalidArgument)
 			} else {
 				require.NoError(t, cfg.Validate())
 			}

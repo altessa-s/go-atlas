@@ -25,9 +25,9 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters/memory"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
-	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 func TestBuild_DriverTextNeverReachesErrorsOrLogs(t *testing.T) {
@@ -149,7 +149,7 @@ func TestTLSBuildAndDiagnostics(t *testing.T) {
 				require.NotContains(t, err.Error(), secret)
 				require.NotContains(t, err.Error(), endpoint.Expose())
 				if tc == "bad CA" {
-					require.ErrorIs(t, err, corefactory.ErrUnsupported)
+					require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 					require.Empty(t, startup, "a reserved pool's bad CA must fail before opening the primary")
 				} else {
 					var certErr *tls.CertificateVerificationError

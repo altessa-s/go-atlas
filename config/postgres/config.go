@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
 
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -196,10 +197,10 @@ func validateTLS(dsn redacted.RedactedString, cfg *tlsconfig.Client) error {
 		return nil
 	}
 	if err := cfg.Validate(); err != nil {
-		return errors.New("invalid PostgreSQL TLS certificate settings")
+		return cfgerrors.Invalidf("invalid PostgreSQL TLS certificate settings")
 	}
 	if !tlsCompatibleDSN(strings.TrimLeft(dsn.Expose(), libpqWhitespace)) {
-		return errors.New("TLS requires a valid PostgreSQL DSN without sslmode=disable, allow or prefer")
+		return cfgerrors.Invalidf("TLS requires a valid PostgreSQL DSN without sslmode=disable, allow or prefer")
 	}
 	return nil
 }
