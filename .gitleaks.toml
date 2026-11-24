@@ -51,6 +51,8 @@ regexes = [
     # ULID page-token samples (the canonical ULID spec example and variants)
     # in store/mongo cursor tests.
     '''(?i)01ARZ3NDEKTSV4RRFFQ69G5FA[IUV]''',
+    # Legacy cursor-storage ULID used by TestLegacyListCursorFixtures in store/mongo/read_filter_test.go.
+    '''^01M7ZBG6HYBK7KEAJZNWQD8PAZ$''',
     # HS256 JWT fixture in auth/oauth2client redaction tests: header
     # {"alg":"HS256"}, payload {}, signature "signature". The tests assert it
     # is redacted.
