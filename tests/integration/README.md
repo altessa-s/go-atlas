@@ -15,6 +15,7 @@ tests/integration/
 ├── outboxit/              # reliability/outbox: transactional delivery against MongoDB, PostgreSQL, MariaDB and MySQL
 ├── retryqueueit/          # reliability/retryqueue: MongoDB and SQL storages — contracts, indexes, query plans, racing replicas, purge
 ├── mongoit/               # store/mongo: transactions abort on panic, migration failure and rollback, keyset paging with FindPage, ListCursor projections
+├── postgresit/            # store/postgres: direct PostgreSQL 17 and PgBouncer transaction pooling, goose migrations, postgrestest, TLS
 ├── sagait/                # reliability/saga: storage contracts on SQL, Mongo and Redis + orchestrator over SQL
 ├── idempotencyit/         # reliability/idempotency: storage contracts on Redis, Mongo, NATS and SQL + Keeper and HTTP middleware
 ├── cacheit/               # cache: the Redis storage and the Cache facade (singleflight, negative caching) on Redis
@@ -23,8 +24,8 @@ tests/integration/
 
 ## Why a separate module
 
-The integration module depends on the root through `replace github.com/altessa-s/go-atlas => ../..`. It owns the MySQL test driver and live
-backend fixtures. The PostgreSQL runtime and PostgreSQL integration tests both use pgx. Run these suites separately from the root's unit tests.
+The integration module depends on the root and the PostgreSQL migrations module through local `replace` directives. It owns the MySQL test driver and
+live backend fixtures. The PostgreSQL runtime and PostgreSQL integration tests both use pgx. Run these suites separately from the root's unit tests.
 
 ## Running
 

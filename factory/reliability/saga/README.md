@@ -23,6 +23,7 @@ the function registered with `UseStorage` from `storages/<backend>/factory`, and
 |--------------------|-----------------------------|-------------------------------------------------------------------------|
 | `UseStorage`       | `nats`, `mongo`, `redis`    | Registers the `StorageFunc` of a store type the builder does not build. |
 | `UseSQLDB`         | `sqldb`                     | `*sql.DB`; caller registers driver.                                     |
+| `UseSQLPool`       | `sqldb`                     | Supplies the pool and per-call transaction resolver.                    |
 | `UseLogger`        | —                           | Logger for builder and orchestrator.                                    |
 | `UseDefaultLogger` | —                           | Use `slog.Default()` as the logger.                                     |
 | `UseMeter`         | —                           | Prometheus metrics collector.                                           |

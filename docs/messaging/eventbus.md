@@ -154,10 +154,10 @@ func indexOnFileUploaded(txCtx context.Context, e FileUploaded) error {
 Neither `eventbus` nor `uow` imports a database driver. A database is wired in through two small consumer-defined seams; the cores never change.
 Switching or adding a database means writing these two adapters where the database handle lives. Nothing in `eventbus` / `uow` is touched.
 
-| Seam               | Contract                                            | What you supply                                                                                                                                  |
-|--------------------|-----------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| `uow.Committer`    | `WithTransaction(ctx, fn) error`                    | A type that opens a transaction and passes a transaction-scoped context to `fn` (your database handle; `store/mongo.Mongo` already satisfies it) |
-| `eventbus.TxProbe` | reports whether `ctx` carries an active transaction | A function that detects your database's transaction in `ctx`                                                                                     |
+| Seam               | Contract                                            | What you supply                                                                                                                                                                     |
+|--------------------|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `uow.Committer`    | `WithTransaction(ctx, fn) error`                    | A type that opens a transaction and passes a transaction-scoped context to `fn` (`store/mongo.Mongo` and `store/postgres.Committer` already satisfy it)                             |
+| `eventbus.TxProbe` | reports whether `ctx` carries an active transaction | A function that detects your database's transaction in `ctx` (`store/postgres.InWriteTransaction` for `eventbus.TxProbe`; `store/mongo.Transaction` / `store/postgres.Transaction` for `uow.Detector`) |
 
 The one behavioral nuance is per-database, not per-design. Some drivers carry the transaction in the context and **retry** the `WithTransaction`
 callback on transient errors (for example, the MongoDB driver), which is exactly why `uow` resets its registered effects on every attempt. Others have

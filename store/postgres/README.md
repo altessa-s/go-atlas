@@ -47,10 +47,10 @@ plan, or set `synchronous_commit`. `BeginAsyncCommit` opens an independent trans
 recently acknowledged asynchronous commit.
 
 For transaction pooling, configure PgBouncer to track protocol-level prepared statements (`max_prepared_statements > 0`). Give the database role
-positive `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` defaults for autocommit work. `Open` checks these
-settings before returning the pool. The connector retires a pooled connection following a failed prepare. The default execution mode uses pgx’s statement cache. Set `default_query_exec_mode=exec` in the DSN to use the extended protocol without caching.
-Application SQL should use transaction-local
-settings and transaction-scoped locks.
+positive `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` defaults for autocommit work. `Open` checks these settings
+before returning the pool. The connector retires a pooled connection following a failed prepare. The default execution mode uses pgx’s statement cache.
+Set `default_query_exec_mode=exec` in the DSN to use the extended protocol without caching. Application SQL should use transaction-local settings and
+transaction-scoped locks.
 
 ## Application transactions
 
@@ -64,13 +64,14 @@ return postgres.WithTransaction(ctx, db, func(ctx context.Context) error {
 })
 ```
 
-Use `UseSQLDB` for distributed locks. For stores that enlist, call `UseSQLPool(pools.Binding(name))` on the subsystem factory.
-Only outbox saves enlist. Standalone operations use the named pool, and operations in a transaction use
-the caller’s connection from any pool in the group. Configure one group per logical database. When constructing a store directly, pass its
-`WithTxResolver(postgres.Tx)` option for stores that use that same logical database. With a plain `UseSQLDB` injection, attach the transaction to each outbox save with the outbox SQL store’s `WithTx` helper. A transaction belongs to one call. Its owner commits on
-success and rolls back on error or panic. Nested `WithTransaction` and `WithSnapshot` join the outer transaction and inherit its isolation and
-access mode. A top-level snapshot uses read-only repeatable read. Use `WithSavepoint` to roll back a nested operation while continuing the outer
-transaction. A savepoint covers the entire transaction. Keep other goroutines off that transaction until the savepoint handler returns.
+Use `UseSQLDB` for distributed locks. For stores that enlist, call `UseSQLPool(pools.Binding(name))` on the subsystem factory. Only outbox saves
+enlist; outbox dispatch runs in store-owned transactions. Standalone operations use the named pool, and operations in a transaction use the caller’s
+connection from any pool in the group. Configure one group per logical database. When constructing a store directly, pass its
+`WithTxResolver(postgres.Tx)` option for stores that use that same logical database. With a plain `UseSQLDB` injection, attach the transaction to each
+outbox save with the outbox SQL store’s `WithTx` helper. A transaction belongs to one call. Its owner commits on success and rolls back on error or
+panic. Nested `WithTransaction` and `WithSnapshot` join the outer transaction and inherit its isolation and access mode. A top-level snapshot uses
+read-only repeatable read. Use `WithSavepoint` to roll back a nested operation while continuing the outer transaction. A savepoint covers the entire
+transaction. Keep other goroutines off that transaction until the savepoint handler returns.
 
 ### Units of work
 
@@ -85,31 +86,34 @@ return runner.Run(ctx, func(txCtx context.Context) error {
 })
 ```
 
-The runner uses `postgres.Transaction` to recognize open write transactions across pools, including joins and savepoints. Use `committer.Detect`
-to inspect only its selected pool. The transaction owner alone may call
-`Commit` or `Rollback`. After completion or cancellation of the owner context, `Tx` returns the attached handle and `false`. SQL store resolvers
-treat that handle as a closed binding. Statements and nested transactions on a retained scope fail with `sql.ErrTxDone`.
+The runner uses `postgres.Transaction` to recognize open write transactions across pools, including joins and savepoints. Use `committer.Detect` to
+inspect only its selected pool. The transaction owner alone may call `Commit` or `Rollback`. After completion or cancellation of the owner context,
+`Tx` returns the attached handle and `false`. SQL store resolvers treat that handle as a closed binding. Statements and nested transactions on a
+retained scope fail with `sql.ErrTxDone`.
 
 The default executes the body once. For a replay-safe body, `WithTxRetries(n)` permits up to n additional attempts after SQLSTATE 40001 or 40P01.
-`WithTxRetryDelay` sets the initial positive backoff. `WithTxTimeout` caps the root transaction including backoff and retries. Each attempt gets
-fresh registrations. A replay-enabled committer rejects a join with `ErrUnsafeReplay`; `BeginAsyncCommit` returns the same error inside its body.
-Cross-pool nesting returns `ErrDifferentDatabase`. Use the supplied context and enlisted repositories throughout a replayable body. Independent writes
-through a raw pool, detached roots and external effects are the caller's responsibility.
+`WithTxRetryDelay` sets the initial positive backoff. `WithTxTimeout` caps the root transaction including backoff and retries. Each attempt gets fresh
+registrations. A replay-enabled committer rejects a join with `ErrUnsafeReplay`; `BeginAsyncCommit` returns the same error inside its body. Cross-pool
+nesting returns `ErrDifferentDatabase`. Use the supplied context and enlisted repositories throughout a replayable body. Independent writes through a
+raw pool, detached roots and external effects are the caller's responsibility.
 
-A server-rejected commit discards registrations and preserves the database error for inspection. An ambiguous commit yields `uow.ErrUnknownOutcome`.
-A joined panic poisons the root even if the caller recovers. Use a savepoint to recover from a statement error before continuing the transaction.
+A server-rejected commit discards registrations and preserves the database error for inspection. An ambiguous commit yields `uow.ErrUnknownOutcome`. A
+joined panic poisons the root even if the caller recovers. Use a savepoint to recover from a statement error before continuing the transaction.
 
-Register a callback with `AfterCommit`, or use `AfterCommitContext` to retain request values with a fresh cancellation and transaction scope.
-Outside a transaction these callbacks run immediately. `NotifyAfterCommit` coalesces notifications to a channel across a transaction.
-Finish all operations and hook registrations before returning from the handler.
+Register a callback with `AfterCommit`, or use `AfterCommitContext` to retain request values with a fresh cancellation and transaction scope. Outside a
+transaction these callbacks run immediately. `NotifyAfterCommit` coalesces notifications to a channel across a transaction. Finish all operations and
+hook registrations before returning from the handler.
 
-On pools opened with `Open` or `NewConnector`, `Querier` retries a standalone statement once if the driver establishes that it sent no data.
-The subsystem SQL stores apply the same limit through their database/sql connection leases. A transaction stays on its
-own connection, and an iteration or scan error is final. Use an executor with contexts for the same logical database.
-Call `CheckDatabase(ctx, db)` at a boundary that accepts a transaction context and a separately supplied pool. Code using `*sql.DB` directly receives Go's native bad-connection retry policy.
-`Classify` identifies integrity violations (with the constraint name), retryable transaction failures, connection failures, statement timeouts
-and cancellations. Use `kind.RetryableTransaction()` to identify failures eligible for whole-transaction replay. An ambiguous connection failure can represent a
-committed write. PostgreSQL reports both server-side timeout and cancellation as SQLSTATE 57014. Use English server messages for that distinction. An unrecognized 57014 diagnostic returns `Unknown`.
+On pools opened with `Open` or `NewConnector`, `Querier` retries a standalone statement once if the driver establishes that it sent no data. The
+subsystem SQL stores apply the same limit through their `database/sql` connection leases. A transaction stays on its own connection, and an iteration
+or scan error is final. Use an executor with contexts for the same logical database. Call `CheckDatabase(ctx, db)` at a boundary that accepts a
+transaction context and a separately supplied pool. Call `CheckDirect(ctx, conn, database)` before session-level work to verify backend identity and
+reject a transaction pooler with `ErrDirectConnectionRequired`. Code using `*sql.DB` directly receives Go's native bad-connection retry policy.
+Diagnostics format only the operation, Go error type and validated SQLSTATE, omitting raw driver and DSN text while keeping the underlying cause
+available to `errors.Is` and `errors.As`. `Classify` identifies integrity violations (with the constraint name), retryable transaction failures,
+connection failures, statement timeouts and cancellations. Use `kind.RetryableTransaction()` to identify failures eligible for whole-transaction
+replay. An ambiguous connection failure can represent a committed write. PostgreSQL reports both server-side timeout and cancellation as SQLSTATE
+57014. Use English server messages for that distinction. An unrecognized 57014 diagnostic returns `Unknown`.
 
 ## Migrations
 
@@ -118,18 +122,17 @@ same transaction as its changes. Use `migrations.Status` to inspect the ledger a
 
 ## Migrating an application
 
-1. Replace the local PostgreSQL configuration with `config/postgres.Config`. Move each reservation into `pools` and carry over its size, lock
-   timeout and optional DSN. Listing and count budgets remain available to the application's query layer.
-2. Open pools with `factory/store/postgres.New(&cfg).Build(ctx)`. Supply the migration callback with `UseMigrator` for startup migrations on the direct
-   primary pool. Inject the logger, meter, tracer and health registrar on the builder. Close the returned pools at shutdown.
+1. Replace the local PostgreSQL configuration with `config/postgres.Config`. Move each reservation into `pools` and carry over its size, lock timeout
+   and optional DSN. Listing and count budgets remain available to the application's query layer.
+2. Open pools with `factory/store/postgres.New(&cfg).Build(ctx)`. Supply the migration callback with `UseMigrator` for startup migrations on the
+   direct primary pool. Inject the logger, meter, tracer and health registrar on the builder. Close the returned pools at shutdown.
 3. Replace the local transaction, savepoint, snapshot, commit-hook and settings helpers with their same-named functions here. Pass
-   `postgres.Querier(db)` to repositories constructed once, or `postgres.Queryer(ctx, db)` when constructing a query object per call.
-   For example, a client that uses sqlc with `database/sql` can call `queries := generated.New(postgres.Querier(db))`.
-4. Pass `pools.Binding(name)` to builders that support `UseSQLPool`, or inject `WithTxResolver(postgres.Tx)` directly.
-   Remove per-call outbox transaction attachment.
-   Use `Classify` or `UniqueViolation` to map constraints to application errors. Column encryption, domain error policy and listing logic stay
-   with the application.
+   `postgres.Querier(db)` to repositories constructed once, or `postgres.Queryer(ctx, db)` when constructing a query object per call. For example, a
+   client that uses sqlc with `database/sql` can call `queries := generated.New(postgres.Querier(db))`.
+4. Pass `pools.Binding(name)` to builders that support `UseSQLPool`, or inject `WithTxResolver(postgres.Tx)` directly. Remove per-call outbox
+   transaction attachment. Use `Classify` or `UniqueViolation` to map constraints to application errors. Column encryption, domain error policy and
+   listing logic stay with the application.
 
-Pool metrics are listed in the [metrics reference](../../docs/metrics.md#postgres). Client spans require a sampled, recording parent.
-They contain the statement name or operation, normalized SQL text (up to 2 KiB), database and server attributes, affected rows and SQLSTATE.
-Bind parameter values and server error messages are omitted. Use placeholders for sensitive values because literals written into SQL are part of its text.
+Pool metrics are listed in the [metrics reference](../../docs/metrics.md#postgres). Client spans require a sampled, recording parent. They contain the
+statement name or operation, normalized SQL text (up to 2 KiB), database and server attributes, affected rows and SQLSTATE. Bind parameter values and
+server error messages are omitted. Use placeholders for sensitive values because literals written into SQL are part of its text.

@@ -6,8 +6,8 @@ import "github.com/altessa-s/go-atlas/reliability/idempotency"
 
 A duplicate-request detector with a state machine. `AttemptLock` either claims a key (caller does the work) or returns the current `*State` of
 whoever is already holding it (caller short-circuits with cached result or "in progress" signal). `Complete` writes the success state under a
-CAS guard — a stale holder cannot overwrite a fresh one. Four pluggable backends: in-memory (real, with TTL), Redis, NATS JetStream KV, and
-MongoDB, which joins the caller's transaction.
+CAS guard — a stale holder cannot overwrite a fresh one. Five pluggable backends: in-memory (real, with TTL), Redis, NATS JetStream KV, MongoDB, and
+SQL (`database/sql`), where the MongoDB and SQL backends can join the caller's transaction.
 
 ---
 
@@ -23,7 +23,7 @@ MongoDB, which joins the caller's transaction.
 | Crashed holder leaves an InProgress entry — unblock retries before bucket TTL fires               | `WithMaxLockDuration` (or per-call `MaxLockDuration`) — orphan-lock CAS-steal |
 | Same key reused for a different request — refuse instead of replaying                             | `AttemptLockOpts.Fingerprint` → `ErrFingerprintMismatch`                      |
 | Replays visible only to the caller that recorded the key                                          | `WithOwner` (+ `WithReplayAuthorizer`) → `ErrOwnerMismatch`                   |
-| Key and business write must commit atomically                                                     | MongoDB backend inside the caller's transaction                               |
+| Key and business write must commit atomically                                                     | MongoDB or SQL backend inside the caller's transaction                        |
 | Failure cleanup so the next attempt can re-claim                                                  | `Release`                                                                     |
 
 ---
@@ -109,8 +109,9 @@ defer storage.Close(ctx) // stops the purge loop
 keeper := idempotency.New(storage)
 ```
 
-Passed a transaction through `sqlstorage.WithTx(ctx, tx)`, the lock and the result commit or abort with the caller's writes. Expired keys are deleted
-by `PurgeExpired`, from a background loop every `WithPurgeInterval`; see [`storages/sqldb`](../../reliability/idempotency/storages/sqldb/README.md).
+Passed a transaction through `sqlstorage.WithTx(ctx, tx)` (or resolved from `store/postgres` through `WithTxResolver` / `UseSQLPool`), the lock and the
+result commit or abort with the caller's writes. Expired keys are deleted by `PurgeExpired`, from a background loop every `WithPurgeInterval`; see
+[`storages/sqldb`](../../reliability/idempotency/storages/sqldb/README.md).
 
 ### Factory from YAML
 
@@ -129,9 +130,9 @@ keeper, err := idempfactory.New(cfg.Idempotency).
     Build()
 ```
 
-The factory builds the memory storage and, over the `*sql.DB` given to `UseSQLDB`, the `sqldb` one. The `redis`, `nats` and `mongo` storages register
-with `UseStorage` from `reliability/idempotency/storages/<backend>/factory` (`redisfactory.Builder(client)`, `natsfactory.Builder(js)`,
-`mongofactory.Builder(db)`); a configured type without one fails `Build` naming the package to add.
+The factory builds the memory storage and, over the `*sql.DB` given to `UseSQLDB` (or `UseSQLPool`), the `sqldb` one. The `redis`, `nats` and `mongo`
+storages register with `UseStorage` from `factory/reliability/idempotency/storages/<backend>` (`redisfactory.Builder(client)`,
+`natsfactory.Builder(js)`, `mongofactory.Builder(db)`); a configured type without one fails `Build` naming the package to add.
 
 YAML:
 
@@ -145,7 +146,7 @@ idempotency:
       keysPrefix: "myapp:idem:"
 ```
 
-`storage.type` is one of `memory`, `redis`, `nats` or `mongo`. Memory backend additionally accepts `storage.memory.cleanupSchedule` (cron
+`storage.type` is one of `memory`, `redis`, `nats`, `mongo` or `sqldb`. Memory backend additionally accepts `storage.memory.cleanupSchedule` (cron
 string) so a scheduler periodically purges expired entries; the mongo backend accepts `storage.mongo.collection` (default `idempotency_keys`).
 
 ---

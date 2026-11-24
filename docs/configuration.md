@@ -321,24 +321,26 @@ When enabled via `WithStrict()`, the loader returns errors instead of silently i
 ## SQL backends
 
 Every durable capability can keep its state in PostgreSQL, MySQL or MariaDB: select `type: sqldb` (dlock: `provider: sqldb`) and fill the `sqldb`
-block. The factory builds the store over a `*sql.DB` the application injects with `UseSQLDB`; the application
-chooses and registers the driver. The optional [PostgreSQL configuration](../config/postgres) describes pgx pools and reservations. Applications
-register startup migrations in Go and pass a `UseMigrator` callback to the pool builder. The primary pool must use direct pooling.
-`postgres.migrationTimeout` bounds that callback (default `30s`, minimum `1ms`). An earlier caller deadline takes precedence.
+block. The factory builds the store over a `*sql.DB` the application injects with `UseSQLDB` (or `UseSQLPool(pools.Binding(name))` for stores that
+enlist in `store/postgres` transactions). The optional [PostgreSQL configuration](../config/postgres) describes pgx pools and reservations built by
+[`factory/store/postgres`](../factory/store/postgres); for MySQL or MariaDB the application opens the `*sql.DB` and registers the driver. Applications
+register startup migrations in Go (`store/postgres/migrations`) and pass a `UseMigrator` callback to the pool builder. The primary pool must use direct
+pooling. `postgres.migrationTimeout` bounds that callback (default `30s`, minimum `1ms`). An earlier caller deadline takes precedence.
 
-Set `postgres.tls: {}` for system trust and hostname verification or set `postgres.tls.caCerts` for a private CA.
-A `postgres.pools.<name>.tls` block replaces the primary TLS settings. With DSN-only configuration, pgx defaults to `sslmode=prefer`
-unless overridden by the environment or DSN. That mode permits unverified TLS and plaintext fallback.
+Set `postgres.tls: {}` for system trust and hostname verification or set `postgres.tls.caCerts` for a private CA. A `postgres.pools.<name>.tls` block
+replaces the primary TLS settings. With DSN-only configuration, pgx defaults to `sslmode=prefer` unless overridden by the environment or DSN. That mode
+permits unverified TLS and plaintext fallback.
 
-| Capability  | Schema                     | Store                                                                                 | `sqldb` keys besides `dialect` and `ensureSchema`                         |
-|-------------|----------------------------|---------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| Audit       | `config/audit`             | [`audit/storages/sqldb`](../audit/storages/sqldb)                                     | `tableName`, `ttl`, `purgeInterval`, `purgeBatchSize`                     |
-| Lock        | `config/lock`              | [`coord/dlock/providers/sqldb`](../coord/dlock/providers/sqldb)                       | `table`, lease keys, `expiredCleanup*`, `purgeInterval`, `purgeBatchSize` |
-| Saga        | `config/saga`              | [`reliability/saga/storages/sqldb`](../reliability/saga/storages/sqldb)               | `table`                                                                   |
-| Outbox      | `config/broker` (`outbox`) | [`reliability/outbox/storages/sqldb`](../reliability/outbox/storages/sqldb)           | `table`; `outbox.watch` selects the notification mode                     |
-| Idempotency | `config/idempotency`       | [`reliability/idempotency/storages/sqldb`](../reliability/idempotency/storages/sqldb) | `table`, `purgeInterval`, `purgeBatchSize`                                |
-| Retry queue | `config/retryqueue`        | [`reliability/retryqueue/storages/sqldb`](../reliability/retryqueue/storages/sqldb)   | `table`, `resolvedRetention`, `purgeInterval`, `purgeBatchSize`           |
-| Scheduler   | `config/scheduler`         | go-horai `storage/sqldb`                                                              | `tasksTable`, `historyTable`                                              |
+| Capability  | Schema                  | Store                                                                                     | `sqldb` keys besides `dialect` and `ensureSchema`                         |
+|-------------|-------------------------|-------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| Audit       | `config/audit`          | [`audit/storages/sqldb`](../audit/storages/sqldb)                                         | `tableName`, `ttl`, `purgeInterval`, `purgeBatchSize`                     |
+| Lock        | `config/lock`           | [`coord/dlock/providers/sqldb`](../coord/dlock/providers/sqldb)                           | `table`, lease keys, `expiredCleanup*`, `purgeInterval`, `purgeBatchSize` |
+| Saga        | `config/saga`           | [`reliability/saga/storages/sqldb`](../reliability/saga/storages/sqldb)                   | `table`                                                                   |
+| Outbox      | `config/broker` (`outbox`) | [`reliability/outbox/storages/sqldb`](../reliability/outbox/storages/sqldb)            | `table`, `keyOrder`, `asynchronousCommit`, `notifyChannel`; `outbox.watch` selects the notification mode |
+| Idempotency | `config/idempotency`    | [`reliability/idempotency/storages/sqldb`](../reliability/idempotency/storages/sqldb)     | `table`, `purgeInterval`, `purgeBatchSize`                                |
+| Request ID  | `config/requestidstore` | [`reliability/requestidstore/storages/sqldb`](../reliability/requestidstore/storages/sqldb) | `table`, `purgeInterval`, `purgeBatchSize`                              |
+| Retry queue | `config/retryqueue`     | [`reliability/retryqueue/storages/sqldb`](../reliability/retryqueue/storages/sqldb)       | `table`, `resolvedRetention`, `purgeInterval`, `purgeBatchSize`           |
+| Scheduler   | `config/scheduler`      | go-horai `storage/sqldb`                                                                  | `tasksTable`, `historyTable`                                              |
 
 The SQL stores share one set of rules:
 
@@ -350,10 +352,11 @@ The SQL stores share one set of rules:
   skewed clocks agree on what is due. The others take the caller's time: the audit retention cutoff (the store's clock), saga recovery (the `now`
   the orchestrator passes) and the retry queue, whose instants all come from the caller (`ListDue`, `WakeDue` and `Requeue` take a `now`); only
   its `PurgeExpired` reads the database clock.
-- **Transactions.** Audit, saga, outbox, idempotency and retry queue accept `WithTxResolver` for per-call enlistment. The outbox, idempotency
-  and retry queue also support their existing `WithTx(ctx, tx)` helpers. Only outbox saves enlist. Lock operations and schema
-  initialization use the pool.
-- **Purging.** Audit, lock, idempotency and retry-queue stores delete what their retention expired with `PurgeExpired(ctx)`, in batches of
+- **Transactions.** Audit, saga, outbox, idempotency and retry queue accept `WithTxResolver` for per-call enlistment (wired with
+  `UseSQLPool(pools.Binding(name))`). The outbox, idempotency and retry queue also support their existing `WithTx(ctx, tx)` helpers. Only outbox saves
+  enlist; outbox dispatch (claims, outcome updates and sweeps) always runs in store-owned transactions. Lock operations and schema initialization use
+  the pool.
+- **Purging.** Audit, lock, idempotency, request-ID and retry-queue stores delete what their retention expired with `PurgeExpired(ctx)`, in batches of
   `purgeBatchSize` (default 1000), and in the background every `purgeInterval` (default `1m`; `"0s"` disables the loop) once retention is set. The
   loop starts on the first write and stops with the store's `Close`, which the factories register as a shutdown hook.
 - **Outbox notifications.** `outbox.watch` is `polling` (default), `changeStream` (MongoDB) or `notify` (PostgreSQL `LISTEN`/`NOTIFY`, with a

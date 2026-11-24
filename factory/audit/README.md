@@ -43,6 +43,7 @@ auditor, err := factory.New(cfg.Audit).
 | `UseDispatcher`    | Sets the `audit.Dispatcher` (must already be started); overrides `storage` and `dispatch`           |
 | `UseStorage`       | Registers the `StorageBuilder` of a storage type the builder does not build (`mongo`, `clickhouse`) |
 | `UseSQLDB`         | Sets the `*sql.DB` for `storage.type: sqldb`; the caller registers the driver                       |
+| `UseSQLPool`       | Supplies the pool and per-call transaction resolver for `storage.type: sqldb`                       |
 | `UseShutdownHooks` | Sets the `runtime.HookGroup` the builder registers what it owns into                                |
 
 ### Terminal

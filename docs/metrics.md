@@ -478,15 +478,16 @@ interval — correct, but at the latency the schedule dictates.
 
 ## postgres
 
-Emitted by [store/postgres](../store/postgres) under the `postgres` subsystem. The `pool` label is a configured pool name, defaulting to
-`foreground`. Gauges sample database/sql statistics at open, every second and at close. Closing the pool clears its gauges. Counters accumulate changes since the previous sample.
+Emitted by [store/postgres](../store/postgres) under the `postgres` subsystem. The `pool` label is a configured pool name, defaulting to `foreground`.
+Gauges sample `database/sql` statistics at open, every second and at close. Closing the pool clears its gauges. Counters accumulate changes since the
+previous sample.
 
-| Metric | Type | Labels | Description |
-| --- | --- | --- | --- |
-| `postgres_open_connections` | Gauge | `pool` | Total open connections |
-| `postgres_in_use_connections` | Gauge | `pool` | Connections in use |
-| `postgres_idle_connections` | Gauge | `pool` | Idle connections |
-| `postgres_wait_total` | Counter | `pool` | Waits for a connection |
+| Metric                        | Type    | Labels | Description                      |
+|-------------------------------|---------|--------|----------------------------------|
+| `postgres_open_connections`   | Gauge   | `pool` | Total open connections           |
+| `postgres_in_use_connections` | Gauge   | `pool` | Connections in use               |
+| `postgres_idle_connections`   | Gauge   | `pool` | Idle connections                 |
+| `postgres_wait_total`         | Counter | `pool` | Waits for a connection           |
 | `postgres_wait_seconds_total` | Counter | `pool` | Cumulative seconds spent waiting |
 
 ---

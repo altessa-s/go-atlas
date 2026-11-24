@@ -58,8 +58,9 @@ group is supplied. Run those hooks before closing the injected database. A dedic
 | `UseDefaultLogger` | Sets the logger to `slog.Default()`                                                                 |
 | `UseStorage`       | Registers the `StorageFunc` of a storage type the builder does not build (`redis`, `nats`, `mongo`) |
 | `UseScheduler`     | Sets the scheduler for background cleanup task registration                                         |
-| `UseShutdownHooks` | Sets the shutdown hook group for the SQL storage (default: process-wide runtime registry) |
+| `UseShutdownHooks` | Sets the shutdown hook group for the SQL storage (default: process-wide runtime registry)           |
 | `UseSQLDB`         | Injects the database for built-in SQL storage                                                       |
+| `UseSQLPool`       | Supplies the pool and per-call transaction resolver for built-in SQL storage                        |
 | `UseMeter`         | Sets the metrics collector passed to the keeper                                                     |
 
 ### Caller binding

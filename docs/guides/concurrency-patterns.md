@@ -193,9 +193,10 @@ The same applies to SQL: `SET counter = counter + 1`, not a value computed in Go
 
 ### Advisory locks in Postgres
 
-`pg_advisory_lock(key)` provides a named database-level mutex that is not tied to a row. It is convenient for "only one instance runs this data
-migration". Session-level locks are released when the connection drops, transaction-level locks on commit; the latter are safer because they cannot
-leak.
+`pg_advisory_lock(key)` provides a named database-level mutex that is not tied to a row. It is convenient for "only one instance runs this migration"
+(as in `store/postgres/migrations`). Session-level locks are released when the connection drops and require a direct connection — never run them through
+a transaction pooler such as PgBouncer. Transaction-level locks (`pg_advisory_xact_lock`) release on commit, cannot leak, and work with transaction
+pooling.
 
 ---
 
@@ -294,16 +295,16 @@ COMMIT;
 ```
 
 The poller picks up a batch with `SKIP LOCKED`, publishes it, and marks it as sent. Multiple pollers do not interfere with each other. In MongoDB, a
-change stream on the outbox collection reduces delivery latency, but it is an optimization on top of the poller, not a replacement: retries, expired
-leases, and missed notifications still need polling (see [Message Brokers and Queues, section 8](message-brokers.md)).
+change stream on the outbox collection — and in PostgreSQL, `LISTEN`/`NOTIFY` on a direct listener connection — reduces delivery latency, but it is an
+optimization on top of the poller, not a replacement: retries, expired leases, and missed notifications still need polling (see
+[Message Brokers and Queues, section 8](message-brokers.md)).
 
 What to understand about the outbox:
 
 - Delivery is at-least-once. A duplicate occurs when publishing succeeded but marking did not. It is eliminated by deduplication on `Nats-Msg-Id` (see
   [Message Brokers and Queues](message-brokers.md)) or by idempotency on the receiving side.
-- Publishing order is not guaranteed with parallel pollers. If order matters, there must be a single poller taking records in order — which then
-  limits
-  throughput.
+- Publishing order is not guaranteed with parallel pollers unless the store serializes claims per key: in the SQL outbox store, `sqldb.WithKeyOrder()`
+  allows at most one in-flight event per `OrderKey` while other keys proceed independently.
 - The outbox table must be cleaned up. Delete sent rows or move them to an archive partition; otherwise it becomes the second-largest table in the
   database.
 

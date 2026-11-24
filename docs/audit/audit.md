@@ -21,7 +21,7 @@ process crashes mid-flight, the optional WAL recovers what was in the buffer.
 | WAL               | Write-ahead log on disk, replayed on restart                   |
 | Fluent builder    | `NewEvent(...).WithActor(...).WithSuccess().Emit()`            |
 | gRPC / HTTP hooks | Interceptor and middleware that emit per-request events        |
-| Storage           | In-memory for tests, MongoDB for prod                          |
+| Storage           | In-memory for tests; MongoDB, ClickHouse or SQL for prod       |
 | Metrics           | Two counters: emitted and dropped                              |
 
 ## How it's wired
@@ -283,8 +283,8 @@ The ClickHouse storage takes a connection from `factory/infrastructure/clickhous
 its expected schema at startup (missing or differently defined columns, skip indexes, sorting and partition keys). See the
 [package README](../../audit/storages/clickhouse/README.md).
 
-The SQL storage runs over a caller-owned `*sql.DB` (`UseSQLDB` in the factory) and keeps rows past `ttl` until `PurgeExpired` deletes them, in
-batches of `purgeBatchSize`, from a background loop every `purgeInterval` that starts on the first write and stops with `Close`. See the
+The SQL storage runs over a caller-owned `*sql.DB` (`UseSQLDB` or `UseSQLPool` in the factory) and keeps rows past `ttl` until `PurgeExpired` deletes
+them, in batches of `purgeBatchSize`, from a background loop every `purgeInterval` that starts on the first write and stops with `Close`. See the
 [package README](../../audit/storages/sqldb/README.md) and [SQL backends](../configuration.md#sql-backends).
 
 ### Paging
@@ -359,6 +359,6 @@ audit:
 
 - Core types: `Auditor` (the facade), `Event` (one record), `Storage` (the backend interface).
 - A YAML-driven builder that wires the auditor, dispatch engine, and storage from the `audit:` config block.
-- Storage backends: in-memory (tests, single node) and MongoDB (durable, indexable).
+- Storage backends: in-memory (tests, single node), MongoDB, ClickHouse and SQL (PostgreSQL, MySQL, MariaDB).
 - HTTP middleware and gRPC interceptor that emit one event per request, with path/method ignore filters and a pluggable actor extractor.
 - An async dispatch engine — buffer, batching, retries, optional WAL — that decouples request handling from storage I/O.

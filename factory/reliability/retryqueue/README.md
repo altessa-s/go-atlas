@@ -24,6 +24,7 @@ The backend is chosen by `retryqueueconfig.Config.Storage.Type`. The builder bui
 |--------------------|-----------------------------|-------------------------------------------------------------------------------------|
 | `UseStorage`       | `mongo`                     | Registers the `StorageFunc[P]` of a type the builder does not build.                |
 | `UseSQLDB`         | `sqldb`                     | `*sql.DB`; caller registers the driver.                                             |
+| `UseSQLPool`       | `sqldb`                     | Supplies the pool and per-call transaction resolver.                                |
 | `UseCodec`         | —                           | Payload codec of the sqldb store (default JSON).                                    |
 | `UseLogger`        | —                           | Logger for the builder and the sqldb background purge.                              |
 | `UseShutdownHooks` | —                           | Hook group that receives the sqldb store's `Close`; default: process-wide registry. |

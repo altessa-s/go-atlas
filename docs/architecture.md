@@ -1,7 +1,8 @@
 # Architecture
 
 go-atlas is a toolkit composed of Go packages in one root module. Applications own construction, startup and shutdown; individual packages can be used
-without a framework bootstrap. The integration suite and development tools are separate modules under `tests/integration` and `devtools`.
+without a framework bootstrap. The PostgreSQL migration registry (`store/postgres/migrations`), the integration suite (`tests/integration`) and
+development tools (`devtools`) are separate modules.
 
 Several adjacent capabilities have already been extracted into their own modules, including `go-atlas-core`, `go-atlas-net`, `go-nomos`, `go-horai`,
 `go-kryptos`, `go-slogx`, `go-tlsutils` and `go-aip`. This document describes the packages that remain in the go-atlas root module and their dependency
@@ -90,20 +91,19 @@ flowchart TD
 
 ## SQL backends
 
-`audit`, `coord/dlock`, `reliability/saga`, `reliability/outbox`, `reliability/idempotency`, `reliability/retryqueue` and the go-horai scheduler each
-have a `sqldb` backend beside their MongoDB (and NATS or Redis) ones. The backends take a caller-owned `*sql.DB` and a dialect — `postgres`, or `mysql`
-for MySQL and MariaDB — through `internal/sqldialect`. The optional `store/postgres` package supplies a pgx pool and implements the eventbus unit-of-work
-committer and detector contracts using the same transaction binding as the SQL stores.
-The PostgreSQL factory uses `factory/ext/tlsutils` to turn `config/tls.Client` blocks into standard-library TLS configs for the pgx connector.
-The [goose migration module](adr/0001-postgres-migrations-module.md) owns PostgreSQL migrations and requires a direct connection.
-Its sibling `postgrestest` subpackage creates isolated databases on a direct test endpoint. Backend constructors perform no I/O,
-and `EnsureSchema` is a separate idempotent call. The lock, idempotency and
-outbox stores evaluate time predicates against the database clock. Lock operations use the pool. Audit, saga, idempotency and retry queue operations
-support caller transactions, as do outbox saves.
-Stores whose MongoDB counterpart relies on a TTL index purge expired rows with
-`PurgeExpired`, from a background loop that starts on the first write and stops with `Close`. The outbox store implements `outbox.Watcher` with
-PostgreSQL `LISTEN`/`NOTIFY` through an injected `Listener`, the SQL counterpart of the MongoDB change stream. Configuration keys and the shared rules
-are in [configuration](configuration.md#sql-backends).
+`audit`, `coord/dlock`, `reliability/saga`, `reliability/outbox`, `reliability/idempotency`, `reliability/requestidstore`, `reliability/retryqueue` and
+the go-horai scheduler each have a `sqldb` backend beside their MongoDB (and NATS or Redis) ones. The backends take a caller-owned `*sql.DB` and a
+dialect — `postgres`, or `mysql` for MySQL and MariaDB — through `internal/sqldialect`. The optional `store/postgres` package supplies pgx-backed pools
+and implements the eventbus unit-of-work committer and detector contracts using the same transaction binding as the SQL stores. The PostgreSQL factory
+(`factory/store/postgres`) uses `factory/ext/tlsutils` to turn `config/tls.Client` blocks into standard-library TLS configs for the pgx connector. The
+[goose migration module](adr/0001-postgres-migrations-module.md) (`store/postgres/migrations`) owns PostgreSQL migrations and requires a direct
+connection. Its sibling `postgrestest` subpackage creates isolated databases on a direct test endpoint. Backend constructors perform no I/O, and
+`EnsureSchema` is a separate idempotent call. The lock, idempotency and outbox stores evaluate time predicates against the database clock. Lock
+operations use the pool. Audit, saga, idempotency and retry queue operations support caller transactions through a resolver, as do outbox saves (while
+outbox dispatch always runs in store-owned transactions). Stores whose MongoDB counterpart relies on a TTL index purge expired rows with `PurgeExpired`,
+from a background loop that starts on the first write and stops with `Close`. The outbox store implements `outbox.Watcher` with PostgreSQL
+`LISTEN`/`NOTIFY` through an injected `Listener`, the SQL counterpart of the MongoDB change stream. Configuration keys and the shared rules are in
+[configuration](configuration.md#sql-backends).
 
 ## Configuration and adapters
 

@@ -30,7 +30,7 @@ compensation). Compensation covers the one remaining case — an effect that fai
 | `Runner.AfterCommit(ctx, hook) error`                                   | Registers a hook on the open unit; outside one, runs it at once or returns `ErrNoUnitOfWork`          |
 | `OnCommit(ctx, Effect) error`                                           | Registers an effect on the innermost unit; `ErrNoUnitOfWork` if none, `ErrScopeClosed` if it ended   |
 | `Committer`                                                             | `WithTransaction(ctx, fn)`; implemented by `store/mongo.Mongo` and `store/postgres.Committer`                                           |
-| `Detector`                                                              | `func(ctx) (tx any, ok bool)`: the innermost running transaction of any client and its identity; `store/mongo.Transaction` has this shape|
+| `Detector`                                                              | `func(ctx) (tx any, ok bool)`: the innermost running transaction of any client and its identity; `store/mongo.Transaction`, `store/postgres.Transaction` and `(*postgres.Committer).Detect` have this shape |
 | `Effect`                                                                | `Label`, `Apply` (post-commit), `Compensate` (nil = best-effort / irreversible)                      |
 | `UnknownOutcomeError`                                                   | The body returned nil but the commit did not report success; `Err` is the Committer error             |
 
@@ -50,7 +50,7 @@ compensation). Compensation covers the one remaining case — an effect that fai
 | Driver retries the callback                      | Each attempt gets a fresh unit; the aborted attempt's unit is closed and its registrations dropped          |
 | Commit-only retry                                | The callback is not re-run; its unit is kept                                                                |
 | Body returns an error                            | The Committer error is returned as is; nothing is applied                                                   |
-| Body panics, the Committer recovers it           | Known abort (`store/mongo.ErrTransactionPanicked`): returned as is, never `ErrUnknownOutcome`                |
+| Body panics, the Committer recovers it           | Known abort (`store/mongo.ErrTransactionPanicked`, `store/postgres.ErrTransactionPanicked`): returned as is, never `ErrUnknownOutcome`  |
 | Body panics, the Committer propagates it         | The unit is closed and the panic propagates                                                                 |
 | Body returns nil, the Committer fails            | `*UnknownOutcomeError` unless the committer reports a definitive abort; nothing is applied                                                                  |
 | Nested `Run` of the same Runner                  | Calls the body directly; registrations join the root unit and apply after the outermost commit            |
@@ -73,7 +73,7 @@ copy: a commit has happened, so a caller that walks away afterwards does not los
 | Option                           | Default | Effect                                                                                               |
 |----------------------------------|---------|------------------------------------------------------------------------------------------------------|
 | `WithCompensationTimeout`        | 30s     | Overall compensation budget, independent of the original caller deadline                            |
-| `WithDetector`                   | nil     | Enables foreign-transaction detection (`ErrForeignTransaction`); pass `store/mongo.Transaction`     |
+| `WithDetector`                   | nil     | Enables foreign-transaction detection (`ErrForeignTransaction`); pass `store/mongo.Transaction` or `store/postgres.Transaction` |
 | `WithRunHooksOutsideTransaction` | off     | `AfterCommit` outside a unit of work and a transaction runs the hook at once instead of failing     |
 
 ## Usage

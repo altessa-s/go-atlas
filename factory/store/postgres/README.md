@@ -15,11 +15,10 @@ defer pools.Close()
 db := pools[postgres.DefaultPool]
 ```
 
-Build verifies every pool, calls the application hook on the direct primary pool, then registers each pool as `postgres.<name>`.
-The optional hook runs with the earlier of the caller’s deadline and `postgres.migrationTimeout` (default `30s`, minimum `1ms`).
-For goose migrations, `WithLockTimeout` limits lock acquisition within that overall budget.
-Build returns schema validation errors unchanged. A startup hook on a transaction-pooled primary returns an error matching
-`corefactory.ErrUnsupported`. A startup failure closes already-opened pools.
+Build verifies every pool, calls the application hook on the direct primary pool, then registers each pool as `postgres.<name>`. The optional hook runs
+with the earlier of the caller’s deadline and `postgres.migrationTimeout` (default `30s`, minimum `1ms`); for goose migrations, `WithLockTimeout`
+limits lock acquisition within that overall budget. Build returns schema validation errors unchanged. A startup hook on a transaction-pooled primary
+returns an error matching `corefactory.ErrUnsupported`. A startup failure closes already-opened pools.
 
 The builder resolves the primary and reserved pools' TLS material before opening any connection. A named pool inherits the primary TLS block or
 replaces it with its own. `UseTlsConfig(*tls.Config)` supplies a verified configuration for all pools and takes precedence over both blocks.
