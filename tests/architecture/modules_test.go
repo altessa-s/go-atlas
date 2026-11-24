@@ -112,6 +112,7 @@ var driverBases = []targetModule{
 	{root: "mapping/behavior/translators/mongo", deps: []string{"mapping", "internal/bsontag", "internal/bsonfield"}},
 	{root: "store/mongo", deps: []string{"core", "observability", "internal/memcleanup", "mapping/behavior/translators/mongo"}},
 	{root: "store/postgres", deps: []string{"core", "observability", "internal/sqldialect"}},
+	{root: "store/postgres/postgrestest", deps: []string{"store/postgres", "core", "internal/sqldialect"}},
 	{root: "factory/store/postgres", deps: []string{"store/postgres", "factory"}},
 	{root: "factory/store/mongo", deps: []string{"store/mongo", "factory"}},
 	{root: "store/meilisearch", deps: []string{"core"}},

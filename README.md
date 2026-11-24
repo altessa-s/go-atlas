@@ -89,6 +89,7 @@ The decimal codec now rejects coefficients over 4096 bits. See the [keyset migra
 | [`store/meilisearch`](store/meilisearch/)                                           | Meilisearch SDK wrapper with context propagation and sentinel-error classification                                                                                  |
 | [`store/mongo`](store/mongo/)                                                       | MongoDB repository patterns, cursor pagination, CSFLE, migrations                                                                                                   |
 | [`store/postgres`](store/postgres/) | PostgreSQL pools, transactions, migrations and query tracing |
+| [`store/postgres/postgrestest`](store/postgres/postgrestest/) | Isolated PostgreSQL databases for integration tests |
 | [`reliability/outbox`](reliability/outbox/)                                         | Transactional outbox (MongoDB, PostgreSQL, MySQL, MariaDB)                                                                                                          |
 | [`cache/probfilter`](cache/probfilter/)                                             | Bloom and Cuckoo probabilistic filters                                                                                                                              |
 | [`reliability/retryqueue`](reliability/retryqueue/)                                 | Durable retry queue: one record per key, due list, backoff, expiry, generation fencing (memory, MongoDB, SQL)                                                       |
