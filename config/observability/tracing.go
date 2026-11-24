@@ -5,7 +5,10 @@
 package observabilityconfig
 
 import (
+	"time"
+
 	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
+	"github.com/altessa-s/go-atlas-core/types/ptr"
 
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -14,6 +17,7 @@ import (
 
 // Default values for Tracing configuration.
 const (
+	defaultTracingMaxQueueSize = 2048
 	defaultTracingEnabled      = false
 	defaultTracingType         = TracingTypeOTLP
 	defaultTracingSamplerType  = SamplerTypeParentBased
@@ -107,8 +111,34 @@ type Tracing struct {
 	// Controls which traces are recorded and exported.
 	Sampler *TracingSampler `yaml:"sampler" default:"-"`
 
+	// Batch controls asynchronous span export. Omitted settings use tracer defaults.
+	Batch TracingBatch `yaml:"batch"`
+
 	// Adapters contains adapter-specific configurations.
 	Adapters *TracingAdapters `yaml:"adapters" default:"-"`
+}
+
+// TracingBatch configures the bounded span queue and batch worker.
+type TracingBatch struct {
+	// MaxQueueSize limits waiting spans. Defaults to 2048.
+	MaxQueueSize *int `yaml:"maxQueueSize"`
+	// MaxExportBatchSize limits spans per export. Defaults to the smaller of 512 and MaxQueueSize.
+	MaxExportBatchSize *int `yaml:"maxExportBatchSize"`
+	// ScheduledDelay is the interval for exporting partial batches. Defaults to 1s.
+	ScheduledDelay *time.Duration `yaml:"scheduledDelay"`
+	// ExportTimeout bounds each batch export. Defaults to 10s.
+	ExportTimeout *time.Duration `yaml:"exportTimeout"`
+}
+
+// Validate checks positive bounds and that a batch fits in the queue.
+func (b *TracingBatch) Validate() error {
+	return validationconfig.ValidateStruct(b,
+		validation.Field(&b.MaxQueueSize, validation.NilOrNotEmpty, validation.Min(1)),
+		validation.Field(&b.MaxExportBatchSize, validation.NilOrNotEmpty, validation.Min(1),
+			validation.Max(ptr.Unwrap(b.MaxQueueSize, defaultTracingMaxQueueSize))),
+		validation.Field(&b.ScheduledDelay, validation.NilOrNotEmpty, validation.Min(time.Nanosecond)),
+		validation.Field(&b.ExportTimeout, validation.NilOrNotEmpty, validation.Min(time.Nanosecond)),
+	)
 }
 
 // TracingAdapters contains configurations for different tracing adapters.
@@ -164,6 +194,7 @@ func (t *Tracing) Validate() error {
 			validation.Required.Error("serviceName is required when tracing is enabled"),
 		),
 		validation.Field(&t.Sampler),
+		validationconfig.NestedField(&t.Batch),
 		validation.Field(&t.Adapters,
 			validation.Required.When(t.Type == TracingTypeOTLP || t.Type == TracingTypeConsole),
 		),

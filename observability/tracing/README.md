@@ -35,6 +35,35 @@ option types; a custom `Tracer`, `Recorder` or `Span` resolves them with `ApplyR
 
 `WithAttributes`, `WithLinks` and `WithEventAttributes` accumulate across repeated options; the others are last-wins.
 
+## Batch export
+
+`Span.End` timestamps a sampled span and tries to enqueue it. One worker sends full batches immediately and partial batches on a timer.
+A full queue drops the newly ended span silently. Unsampled spans bypass the queue. The tracer submits each accepted span to the adapter at most
+once. Export failures discard the batch, and ordering across batches is not guaranteed. Transport-level retries follow the adapter's policy.
+
+| Tracer option | Optional YAML key under `tracing.batch` | Default |
+|---------------|----------------------------------------|---------|
+| `WithMaxQueueSize` | `maxQueueSize` | 2048 waiting spans |
+| `WithMaxExportBatchSize` | `maxExportBatchSize` | 512 spans, capped at the queue size |
+| `WithScheduledDelay` | `scheduledDelay` | 1s |
+| `WithExportTimeout` | `exportTimeout` | 10s per batch |
+
+All four settings must be positive. The config validator rejects an explicit batch size larger than the queue. Direct Go options ignore
+nonpositive values and cap the effective batch size at the queue size. The worker can hold one batch in flight in addition to the queue.
+
+Use `tracer.ForceFlush(ctx)` before reading exported data. It waits for spans already enqueued, including an in-flight export, then flushes the
+adapter. A flush reports the most recent batch failure since the previous flush and any adapter flush error. The caller can bound the wait with
+its context. At service exit, call `tracer.Shutdown(ctx)` with a deadline. The first shutdown closes admission, drains the queue within its
+budget, and shuts down the adapter. Spans ended after admission closes are silently discarded. Cancellation interrupts in-flight work and
+discards the remaining queue. Adapter calls must return on context cancellation for their worker to exit. A console writer that can block
+indefinitely needs its own I/O deadline.
+
+Span, event and link attributes of the built-in slice types are copied for export. Custom reference-valued attributes must remain immutable through export.
+
+Pass `WithMeter(meter)`, or `UseMeter(meter)` on the factory builder, to record successful spans, queue-full drops, failed export calls and
+queue length. The meter samples queue pressure once per second, including during a stalled export, and again at flush.
+See the [metric names](../../docs/metrics.md#tracing).
+
 ## Subpackages
 
 | Package                                    | Description                                          |

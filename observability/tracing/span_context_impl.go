@@ -8,6 +8,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
+
+	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 )
 
 // randBufSize is the size of each buffered CSPRNG chunk. Each refill is a
@@ -52,27 +54,40 @@ type spanContextImpl struct {
 	traceState string
 }
 
-// newSpanContextImpl creates a new SpanContext.
-// If parent is valid, the trace ID is inherited.
-func newSpanContextImpl(parent SpanContext) *spanContextImpl {
-	sc := &spanContextImpl{
-		traceFlags: FlagsSampled,
-	}
-
-	// IDs come from a buffered CSPRNG (amortizes syscall overhead).
-	if parent != nil && parent.IsValid() {
-		readRandom(sc.spanID[:], nil)
-		// Inherit parent trace ID
-		sc.traceID = traceIDOf(parent)
-		sc.remote = false
-		if state, ok := parent.(interface{ TraceState() string }); ok {
-			sc.traceState = state.TraceState()
-		}
-	} else {
+func makeSpanContext(parent *sampler.SpanContext, state string) spanContextImpl {
+	sc := spanContextImpl{traceFlags: FlagsSampled, traceState: state}
+	if parent == nil {
 		readRandom(sc.spanID[:], sc.traceID[:])
+	} else {
+		readRandom(sc.spanID[:], nil)
+		sc.traceID = parent.TraceID
 	}
-
 	return sc
+}
+
+// snapshotParent reads the parent once. Custom samplers receive their own
+// copy of the identifiers and sampling flags.
+func snapshotParent(sc SpanContext) (*sampler.SpanContext, string) {
+	if native, ok := sc.(*spanContextImpl); ok {
+		if !native.IsValid() {
+			return nil, ""
+		}
+		return &sampler.SpanContext{
+			TraceID: native.traceID, SpanID: native.spanID,
+			IsSampled: native.IsSampled(), IsRemote: native.remote,
+		}, native.traceState
+	}
+	if sc == nil || !sc.IsValid() {
+		return nil, ""
+	}
+	var state string
+	if carrier, ok := sc.(interface{ TraceState() string }); ok {
+		state = carrier.TraceState()
+	}
+	return &sampler.SpanContext{
+		TraceID: traceIDOf(sc), SpanID: spanIDOf(sc),
+		IsSampled: sc.IsSampled(), IsRemote: sc.IsRemote(),
+	}, state
 }
 
 // TraceState returns the inherited or sampler-updated vendor trace state.

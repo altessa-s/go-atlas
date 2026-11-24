@@ -25,11 +25,11 @@ import (
 	obstracing "github.com/altessa-s/go-atlas/observability/tracing"
 )
 
-// newBufferedTracer builds a real [obstracing.Tracer] that exports spans
-// synchronously (console adapter, AlwaysOn sampler) into buf, so tests
-// can assert on observable span output instead of internal state.
-func newBufferedTracer(buf *bytes.Buffer) obstracing.Tracer {
-	return obstracing.New(obstracing.WithAdapter(console.New(console.WithWriter(buf))))
+func newBufferedTracer(t *testing.T, buf *bytes.Buffer) obstracing.Tracer {
+	t.Helper()
+	tr := obstracing.New(obstracing.WithAdapter(console.New(console.WithWriter(buf))))
+	t.Cleanup(func() { require.NoError(t, tr.Shutdown(context.Background())) })
+	return tr
 }
 
 type fakeServerStream struct {
@@ -75,7 +75,7 @@ func TestServerUnaryInterceptor_SuccessRecordsSpan(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ServerUnaryInterceptor(tracer)
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
 
@@ -85,6 +85,7 @@ func TestServerUnaryInterceptor_SuccessRecordsSpan(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "ok", resp)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), "/pkg.Svc/Method")
 	require.Contains(t, buf.String(), " OK\n")
 }
@@ -93,7 +94,7 @@ func TestServerUnaryInterceptor_ErrorRecordsSpan(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ServerUnaryInterceptor(tracer)
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
 	handlerErr := status.Error(codes.NotFound, "missing")
@@ -104,6 +105,7 @@ func TestServerUnaryInterceptor_ErrorRecordsSpan(t *testing.T) {
 
 	require.Nil(t, resp)
 	require.ErrorIs(t, err, handlerErr)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), " Error\n")
 }
 
@@ -111,7 +113,7 @@ func TestServerUnaryInterceptor_RecordsPeerAttribute(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ServerUnaryInterceptor(tracer)
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
 
@@ -120,6 +122,7 @@ func TestServerUnaryInterceptor_RecordsPeerAttribute(t *testing.T) {
 	_, err := inter(ctx, "req", info, func(_ context.Context, _ any) (any, error) { return "ok", nil })
 
 	require.NoError(t, err)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), "net.peer.name=127.0.0.1:1234")
 }
 
@@ -127,7 +130,7 @@ func TestServerStreamInterceptor_SuccessRecordsSpan(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ServerStreamInterceptor(tracer)
 	info := &grpc.StreamServerInfo{FullMethod: "/pkg.Svc/Stream"}
 	stream := &fakeServerStream{ctx: t.Context()}
@@ -135,6 +138,7 @@ func TestServerStreamInterceptor_SuccessRecordsSpan(t *testing.T) {
 	err := inter(nil, stream, info, func(_ any, _ grpc.ServerStream) error { return nil })
 
 	require.NoError(t, err)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), "/pkg.Svc/Stream")
 	require.Contains(t, buf.String(), " OK\n")
 }
@@ -143,7 +147,7 @@ func TestServerStreamInterceptor_ErrorRecordsSpan(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ServerStreamInterceptor(tracer)
 	info := &grpc.StreamServerInfo{FullMethod: "/pkg.Svc/Stream"}
 	stream := &fakeServerStream{ctx: t.Context()}
@@ -152,6 +156,7 @@ func TestServerStreamInterceptor_ErrorRecordsSpan(t *testing.T) {
 	err := inter(nil, stream, info, func(any, grpc.ServerStream) error { return handlerErr })
 
 	require.ErrorIs(t, err, handlerErr)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), " Error\n")
 }
 
@@ -159,7 +164,7 @@ func TestClientUnaryInterceptor_SuccessRecordsSpan(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ClientUnaryInterceptor(tracer)
 
 	var invokerCtx context.Context
@@ -171,6 +176,7 @@ func TestClientUnaryInterceptor_SuccessRecordsSpan(t *testing.T) {
 	err := inter(t.Context(), "/pkg.Svc/Method", "req", "reply", nil, invoker)
 
 	require.NoError(t, err)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), " OK\n")
 
 	// injectTraceContext must have stashed the propagated headers in the
@@ -183,7 +189,7 @@ func TestClientUnaryInterceptor_ErrorRecordsSpan(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ClientUnaryInterceptor(tracer)
 	invokerErr := status.Error(codes.PermissionDenied, "denied")
 
@@ -194,6 +200,7 @@ func TestClientUnaryInterceptor_ErrorRecordsSpan(t *testing.T) {
 	err := inter(t.Context(), "/pkg.Svc/Method", "req", "reply", nil, invoker)
 
 	require.ErrorIs(t, err, invokerErr)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), " Error\n")
 }
 
@@ -201,7 +208,7 @@ func TestClientStreamInterceptor_StreamerErrorRecordsSpanImmediately(t *testing.
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ClientStreamInterceptor(tracer)
 	streamerErr := status.Error(codes.Unavailable, "down")
 
@@ -213,6 +220,7 @@ func TestClientStreamInterceptor_StreamerErrorRecordsSpanImmediately(t *testing.
 
 	require.Nil(t, stream)
 	require.ErrorIs(t, err, streamerErr)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), " Error\n")
 }
 
@@ -220,7 +228,7 @@ func TestClientStreamInterceptor_WrapsStreamAndEndsSpanOnError(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ClientStreamInterceptor(tracer)
 	recvErr := status.Error(codes.Internal, "boom")
 
@@ -230,11 +238,13 @@ func TestClientStreamInterceptor_WrapsStreamAndEndsSpanOnError(t *testing.T) {
 
 	stream, err := inter(t.Context(), &grpc.StreamDesc{}, nil, "/pkg.Svc/Stream", streamer)
 	require.NoError(t, err)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Empty(t, buf.String()) // span is only ended by RecvMsg, not by a successful streamer call
 
 	gotErr := stream.RecvMsg(new(string))
 
 	require.ErrorIs(t, gotErr, recvErr)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), " Error\n")
 }
 
@@ -242,7 +252,7 @@ func TestClientStreamInterceptor_WrapsStreamAndEndsSpanOnEOF(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ClientStreamInterceptor(tracer)
 
 	streamer := func(context.Context, *grpc.StreamDesc, *grpc.ClientConn, string, ...grpc.CallOption) (grpc.ClientStream, error) {
@@ -255,6 +265,7 @@ func TestClientStreamInterceptor_WrapsStreamAndEndsSpanOnEOF(t *testing.T) {
 	gotErr := stream.RecvMsg(new(string))
 
 	require.ErrorIs(t, gotErr, io.EOF)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), " OK\n")
 }
 
@@ -262,7 +273,7 @@ func TestExtractTraceContext_CustomPropagator(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	fp := &fakePropagator{}
 	inter := ServerInterceptor(tracer, WithPropagator(fp))
 	unary := inter.ServerUnaryInterceptor()
@@ -281,13 +292,14 @@ func TestWithSpanNameFunc(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	tracer := newBufferedTracer(&buf)
+	tracer := newBufferedTracer(t, &buf)
 	inter := ServerUnaryInterceptor(tracer, WithSpanNameFunc(func(string) string { return "custom-span" }))
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
 
 	_, err := inter(t.Context(), "req", info, func(context.Context, any) (any, error) { return "ok", nil })
 
 	require.NoError(t, err)
+	require.NoError(t, tracer.ForceFlush(t.Context()))
 	require.Contains(t, buf.String(), "custom-span")
 }
 

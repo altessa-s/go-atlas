@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
 
@@ -34,5 +36,11 @@ func (b *TracerBuilder) UseAdapter(typ observabilityconfig.TracingType, build Ad
 		b.adapters = map[observabilityconfig.TracingType]AdapterBuilder{}
 	}
 	b.adapters[typ] = build
+	return b
+}
+
+// UseMeter records batch exporter metrics through the supplied meter.
+func (b *TracerBuilder) UseMeter(m metrics.Meter) *TracerBuilder {
+	b.meter = m
 	return b
 }

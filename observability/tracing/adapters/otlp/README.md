@@ -24,6 +24,10 @@ Package `otlp` provides an OpenTelemetry Protocol adapter for the Atlas tracing 
 | `WithEnvironment`       | --               | OpenTelemetry deployment.environment resource attribute                     |
 | `WithResourceAttrs`     | --               | Additional resource attributes                                              |
 
+Each span carries the resource of the tracer that recorded it (`tracing.WithServiceName`, `WithServiceVersion`, `WithEnvironment`). The adapter
+exports one resource per tracer: the span's resource attributes win, the adapter's attributes above fill the keys the tracer leaves unset or
+empty, and spans without a resource use the adapter's resource as is.
+
 ## Outbound clients
 
 The adapter sends on the client it is given. Without one it falls back to defaults so standalone use works: for gRPC it dials `WithEndpoint` with

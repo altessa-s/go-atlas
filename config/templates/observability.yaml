@@ -76,6 +76,24 @@
 #      # Default value: 1.0
 #      ratio: 1.0
 #
+#    # <object> Bounded queue for asynchronous span export.
+#    batch:
+#      # <int> Maximum number of spans waiting for export. The tracer uses 2048 when omitted.
+#      # Default value: not set
+#      maxQueueSize:
+#
+#      # <int> Maximum spans per export. When omitted, the tracer uses the smaller of 512 and the queue size.
+#      # Default value: not set
+#      maxExportBatchSize:
+#
+#      # <duration> Time between exports of partial batches. The tracer uses 1s when omitted.
+#      # Default value: not set
+#      scheduledDelay:
+#
+#      # <duration> Time allowed for each batch export. The tracer uses 10s when omitted.
+#      # Default value: not set
+#      exportTimeout:
+#
 #    # <object> Adapter-specific configurations.
 #    adapters:
 #      # <object> OTLP adapter configuration.

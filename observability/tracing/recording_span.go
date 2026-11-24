@@ -5,7 +5,6 @@
 package tracing
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -19,7 +18,7 @@ type recordingSpan struct {
 	mu          sync.RWMutex
 	recorder    *recorder
 	name        string
-	spanContext *spanContextImpl
+	spanContext spanContextImpl
 	parentID    [8]byte
 	kind        SpanKind
 	startTime   time.Time
@@ -30,10 +29,6 @@ type recordingSpan struct {
 	status      StatusCode
 	statusDesc  string
 	ended       bool
-
-	droppedAttrCount  int
-	droppedEventCount int
-	droppedLinkCount  int
 }
 
 // End implements Span.
@@ -46,11 +41,11 @@ func (s *recordingSpan) End(opts ...SpanEndOption) {
 	}
 	s.ended = true
 
-	cfg := ApplySpanEndOptions(opts...)
-	if cfg.Timestamp().IsZero() {
+	if len(opts) > 0 {
+		s.endTime = ApplySpanEndOptions(opts...).Timestamp()
+	}
+	if s.endTime.IsZero() {
 		s.endTime = time.Now()
-	} else {
-		s.endTime = cfg.Timestamp()
 	}
 
 	// RecordOnly spans remain available locally but must not be exported.
@@ -61,7 +56,7 @@ func (s *recordingSpan) End(opts ...SpanEndOption) {
 
 // SpanContext implements Span.
 func (s *recordingSpan) SpanContext() SpanContext {
-	return s.spanContext
+	return &s.spanContext
 }
 
 // IsRecording implements Span.
@@ -119,6 +114,10 @@ func (s *recordingSpan) RecordError(err error, opts ...EventOption) {
 		{Key: "exception.message", Value: err.Error()},
 	}
 	for _, attr := range cfg.Attributes() {
+		if attr.Key == "exception.message" {
+			errorAttrs[1].Value = attr.Value
+			continue
+		}
 		errorAttrs = append(errorAttrs, adapters.Attribute{
 			Key:   attr.Key,
 			Value: attr.Value,
@@ -161,12 +160,12 @@ func (s *recordingSpan) AddEvent(name string, opts ...EventOption) {
 	})
 }
 
-// export sends the span data to adapters.
+// export snapshots the ended span for the batch worker.
 func (s *recordingSpan) export() {
 	// Convert attributes to adapter format
 	adapterAttrs := make([]adapters.Attribute, len(s.attributes))
 	for i, attr := range s.attributes {
-		adapterAttrs[i] = adapters.Attribute{Key: attr.Key, Value: attr.Value}
+		adapterAttrs[i] = adapters.Attribute{Key: attr.Key, Value: snapshotValue(attr.Value)}
 	}
 
 	// Convert links to adapter format
@@ -174,7 +173,7 @@ func (s *recordingSpan) export() {
 	for i, link := range s.links {
 		linkAttrs := make([]adapters.Attribute, len(link.Attributes))
 		for j, attr := range link.Attributes {
-			linkAttrs[j] = adapters.Attribute{Key: attr.Key, Value: attr.Value}
+			linkAttrs[j] = adapters.Attribute{Key: attr.Key, Value: snapshotValue(attr.Value)}
 		}
 		adapterLinks[i] = adapters.SpanLink{
 			TraceID:    traceIDOf(link.SpanContext),
@@ -183,28 +182,31 @@ func (s *recordingSpan) export() {
 		}
 	}
 
-	spanData := &adapters.SpanData{
-		TraceID:               s.spanContext.traceID,
-		SpanID:                s.spanContext.spanID,
-		ParentID:              s.parentID,
-		Name:                  s.name,
-		Kind:                  adapters.SpanKind(s.kind),
-		StartTime:             s.startTime,
-		EndTime:               s.endTime,
-		Attributes:            adapterAttrs,
-		Events:                s.events,
-		Links:                 adapterLinks,
-		Status:                adapters.StatusCode(s.status),
-		StatusDesc:            s.statusDesc,
-		Resource:              s.recorder.tracer.resource,
-		InstrumentationScope:  s.recorder.scope,
-		DroppedAttributeCount: s.droppedAttrCount,
-		DroppedEventCount:     s.droppedEventCount,
-		DroppedLinkCount:      s.droppedLinkCount,
+	for i := range s.events {
+		for j := range s.events[i].Attributes {
+			attr := &s.events[i].Attributes[j]
+			attr.Value = snapshotValue(attr.Value)
+		}
 	}
 
-	// Export to tracer
-	s.recorder.tracer.export(context.Background(), spanData)
+	spanData := &adapters.SpanData{
+		TraceID:              s.spanContext.traceID,
+		SpanID:               s.spanContext.spanID,
+		ParentID:             s.parentID,
+		Name:                 s.name,
+		Kind:                 adapters.SpanKind(s.kind),
+		StartTime:            s.startTime,
+		EndTime:              s.endTime,
+		Attributes:           adapterAttrs,
+		Events:               s.events,
+		Links:                adapterLinks,
+		Status:               adapters.StatusCode(s.status),
+		StatusDesc:           s.statusDesc,
+		Resource:             s.recorder.tracer.resource,
+		InstrumentationScope: &s.recorder.scope,
+	}
+
+	s.recorder.tracer.processor.enqueue(spanData)
 }
 
 // Ensure recordingSpan implements Span.

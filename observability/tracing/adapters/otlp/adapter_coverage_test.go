@@ -248,6 +248,28 @@ func TestExportSpans_KindsStatusesAndScopes(t *testing.T) {
 	require.Equal(t, len(spans), seen)
 }
 
+func TestExportSpans_DistinctScopes(t *testing.T) {
+	col, conn := startRequestCollector(t, nil)
+	a, err := otlp.New(t.Context(), otlp.WithGRPCConn(conn))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
+	spans := []adapters.SpanData{
+		{Name: "first", InstrumentationScope: &adapters.InstrumentationScope{Name: "lib@v", Version: "1"}},
+		{Name: "second", InstrumentationScope: &adapters.InstrumentationScope{Name: "lib", Version: "v@1"}},
+		{Name: "third", InstrumentationScope: &adapters.InstrumentationScope{Name: "lib", Version: "v@1", SchemaURL: "https://schema.example/v2"}},
+	}
+	require.NoError(t, a.ExportSpans(t.Context(), spans))
+	scopes := receive(t, col.got).GetResourceSpans()[0].GetScopeSpans()
+	require.Len(t, scopes, len(spans))
+	for i, group := range scopes {
+		require.Equal(t, spans[i].InstrumentationScope.Name, group.GetScope().GetName())
+		require.Equal(t, spans[i].InstrumentationScope.Version, group.GetScope().GetVersion())
+		require.Equal(t, spans[i].InstrumentationScope.SchemaURL, group.GetSchemaUrl())
+		require.Len(t, group.GetSpans(), 1)
+		require.Equal(t, spans[i].Name, group.GetSpans()[0].GetName())
+	}
+}
+
 func TestExportSpans_EmptyBatchSkipsUpload(t *testing.T) {
 	t.Parallel()
 	col, conn := startRequestCollector(t, nil)
@@ -363,4 +385,47 @@ func TestPointerStringOptions_Apply(t *testing.T) {
 	require.Equal(t, "psvc", res["service.name"].GetStringValue())
 	require.Equal(t, "staging", res["deployment.environment"].GetStringValue())
 	require.NotContains(t, res, "service.version")
+}
+
+func TestExportSpans_UsesTheTracerResourceOfEachSpan(t *testing.T) {
+	t.Parallel()
+	col, conn := startRequestCollector(t, nil)
+
+	a, err := otlp.New(t.Context(), otlp.WithGRPCConn(conn), otlp.WithEnvironment("test"),
+		otlp.WithResourceAttrs(adapters.Attribute{Key: "host.name", Value: "node-1"}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Shutdown(context.Background()) })
+
+	first := &adapters.Resource{SchemaURL: "https://schema.example/v1", Attributes: []adapters.Attribute{
+		{Key: "service.name", Value: "first"},
+		{Key: "service.version", Value: "v1.2.3"},
+		{Key: "deployment.environment", Value: ""},
+	}}
+	second := &adapters.Resource{Attributes: []adapters.Attribute{{Key: "service.name", Value: "second"}}}
+	require.NoError(t, a.ExportSpans(t.Context(), []adapters.SpanData{
+		{Name: "first-1", SpanID: adapters.SpanID{1}, Resource: first},
+		{Name: "second-1", SpanID: adapters.SpanID{2}, Resource: second},
+		{Name: "first-2", SpanID: adapters.SpanID{3}, Resource: first},
+		{Name: "bare", SpanID: adapters.SpanID{4}},
+	}))
+
+	req := receive(t, col.got)
+	require.Len(t, req.GetResourceSpans(), 3, "spans are grouped by their resource")
+	require.Equal(t, first.SchemaURL, req.GetResourceSpans()[0].GetSchemaUrl())
+
+	byService := map[string]map[string]*commonpb.AnyValue{}
+	counts := map[string]int{}
+	for _, rs := range req.GetResourceSpans() {
+		attrs := attrMap(rs.GetResource().GetAttributes())
+		name := attrs["service.name"].GetStringValue()
+		byService[name] = attrs
+		for _, ss := range rs.GetScopeSpans() {
+			counts[name] += len(ss.GetSpans())
+		}
+	}
+	require.Equal(t, map[string]int{"first": 2, "second": 1, "unknown-service": 1}, counts)
+	require.Equal(t, "v1.2.3", byService["first"]["service.version"].GetStringValue())
+	require.Equal(t, "test", byService["first"]["deployment.environment"].GetStringValue(),
+		"an empty span attribute keeps the adapter value")
+	require.Equal(t, "node-1", byService["second"]["host.name"].GetStringValue(), "adapter attributes are kept")
 }

@@ -17,7 +17,7 @@ import (
 //	tracer := GetOrCreate(&tracers, "mytracer", func() *Tracer {
 //	    return newTracer("mytracer")
 //	})
-func GetOrCreate[T any](m *sync.Map, key string, create func() T) T {
+func GetOrCreate[T any, K comparable](m *sync.Map, key K, create func() T) T {
 	// Fast path: value already exists
 	if existing, ok := m.Load(key); ok {
 		if t, ok := existing.(T); ok {

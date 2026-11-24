@@ -47,7 +47,8 @@ type Recorder interface {
 // Use [Recorder.Start] to begin a new span.
 // After [Span.End] is called, the span must not be modified.
 type Span interface {
-	// End completes the span, recording its end time.
+	// End completes the span, recording its end time. The default tracer
+	// enqueues sampled spans for batch export and drops them if the queue is full.
 	// After End is called, the span should not be modified.
 	End(opts ...SpanEndOption)
 
@@ -71,7 +72,7 @@ type Span interface {
 	SetAttributes(attrs ...Attribute)
 
 	// RecordError records an error as a span event.
-	// It also sets appropriate attributes for the error.
+	// An explicit exception.message event attribute replaces the default err.Error() text.
 	RecordError(err error, opts ...EventOption)
 
 	// AddEvent adds an event to the span.

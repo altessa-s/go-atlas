@@ -20,18 +20,18 @@ type discardAdapter struct {
 
 func (discardAdapter) ExportSpans(context.Context, []adapters.SpanData) error { return nil }
 
-func newBenchRecorder() tracing.Recorder {
+func newBenchRecorder(b *testing.B) tracing.Recorder {
 	tr := tracing.New(
 		tracing.WithAdapter(discardAdapter{MultiAdapter: adapters.NewMultiAdapter()}),
 		tracing.WithSampler(sampler.NewParentBased(sampler.AlwaysOn())),
 	)
+	b.Cleanup(func() { _ = tr.Shutdown(context.Background()) })
 	return tr.Recorder("bench")
 }
 
-// BenchmarkRecorderStartEnd measures a full span lifecycle: Start, End and
-// export through the adapter.
+// BenchmarkRecorderStartEnd measures a full span lifecycle: Start, End and enqueue.
 func BenchmarkRecorderStartEnd(b *testing.B) {
-	rec := newBenchRecorder()
+	rec := newBenchRecorder(b)
 
 	b.Run("root", func(b *testing.B) {
 		ctx := b.Context()

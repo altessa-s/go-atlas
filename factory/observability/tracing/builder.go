@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas-core/types/ptr"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters/console"
@@ -27,6 +29,7 @@ import (
 // factory/observability/tracing/adapters/otlp.
 type TracerBuilder struct {
 	corefactory.Base
+	meter    metrics.Meter
 	cfg      *observabilityconfig.Tracing
 	adapters map[observabilityconfig.TracingType]AdapterBuilder
 	errs     []error
@@ -55,14 +58,19 @@ func (b *TracerBuilder) Build(ctx context.Context) (tracing.Tracer, error) {
 		return tracing.Noop(), nil
 	}
 
-	adapter, err := b.createAdapter(ctx)
-	if err != nil {
-		return nil, b.WrapError(err, "create adapter")
+	batch := &b.cfg.Batch
+	if err := batch.Validate(); err != nil {
+		return nil, b.WrapError(err, "batch export settings")
 	}
 
 	s, err := b.createSampler()
 	if err != nil {
 		return nil, b.WrapError(err, "create sampler")
+	}
+
+	adapter, err := b.createAdapter(ctx)
+	if err != nil {
+		return nil, b.WrapError(err, "create adapter")
 	}
 
 	opts := []tracing.Option{
@@ -71,9 +79,14 @@ func (b *TracerBuilder) Build(ctx context.Context) (tracing.Tracer, error) {
 		tracing.WithEnvironment(b.cfg.Environment),
 		tracing.WithAdapter(adapter),
 		tracing.WithSampler(s),
+		tracing.WithMeter(b.meter),
+		tracing.WithMaxQueueSize(ptr.Unwrap(batch.MaxQueueSize)),
+		tracing.WithMaxExportBatchSize(ptr.Unwrap(batch.MaxExportBatchSize)),
+		tracing.WithScheduledDelay(ptr.Unwrap(batch.ScheduledDelay)),
+		tracing.WithExportTimeout(ptr.Unwrap(batch.ExportTimeout)),
 	}
 
-	return tracing.New(opts...), nil
+	return tracing.New(opts...), nil //nolint:contextcheck // The export worker lives until tracer shutdown.
 }
 
 // createAdapter creates the adapter of the configured type: console and noop

@@ -12,6 +12,7 @@ import (
 
 // Attribute represents a key-value pair attached to a span.
 // Attributes provide context about the operation being traced.
+// Custom reference values must remain immutable through export.
 type Attribute struct {
 	Key   string
 	Value any
@@ -89,4 +90,25 @@ func BoolSlice(key string, value []bool) Attribute {
 // Valid returns true if the attribute has a non-empty key.
 func (a Attribute) Valid() bool {
 	return a.Key != ""
+}
+
+// snapshotValue copies mutable values supported by the typed attribute API at
+// span end, so callers may reuse their slices while a batch is in flight.
+func snapshotValue(value any) any {
+	switch v := value.(type) {
+	case []string:
+		return slices.Clone(v)
+	case []int:
+		return slices.Clone(v)
+	case []int64:
+		return slices.Clone(v)
+	case []float64:
+		return slices.Clone(v)
+	case []bool:
+		return slices.Clone(v)
+	case []byte:
+		return slices.Clone(v)
+	default:
+		return v
+	}
 }

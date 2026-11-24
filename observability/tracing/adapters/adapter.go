@@ -191,7 +191,8 @@ func (s *SpanData) LinksIter() iter.Seq[SpanLink] {
 
 // Adapter is the interface that tracing backends must implement.
 // It exports [SpanData] to specific backend formats.
-// Implementations must be safe for concurrent use.
+// Implementations must be safe for concurrent use and honor cancellation
+// in blocking operations so the tracer can complete shutdown.
 type Adapter interface {
 	// Name returns the adapter name (e.g., "otlp", "console", "jaeger").
 	Name() string

@@ -4,9 +4,12 @@
 package tracing
 
 import (
+	"reflect"
 	"strings"
+	"time"
 
 	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 )
@@ -48,12 +51,77 @@ func WithEnvironment[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithExportTimeout sets the exportTimeout option.
+//
+// exportTimeout is the deadline for each batch export.
+func WithExportTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.exportTimeout = v
+	}
+}
+
+// WithMaxExportBatchSize sets the maxExportBatchSize option.
+//
+// maxExportBatchSize limits spans per adapter call, capped at maxQueueSize.
+func WithMaxExportBatchSize(v int) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.maxExportBatchSize = v
+	}
+}
+
+// WithMaxQueueSize sets the maxQueueSize option.
+//
+// maxQueueSize limits sampled spans waiting for export. A full queue drops new spans.
+func WithMaxQueueSize(v int) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.maxQueueSize = v
+	}
+}
+
+// WithMeter sets the meter option.
+//
+// meter records exporter metrics under the tracing subsystem.
+func WithMeter(v metrics.Meter) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.meter = v
+	}
+}
+
 // WithSampler sets the sampler option.
 //
 // sampler determines which spans are recorded.
 func WithSampler(v sampler.Sampler) Option {
 	return func(o *options) {
 		o.sampler = v
+	}
+}
+
+// WithScheduledDelay sets the scheduledDelay option.
+//
+// scheduledDelay is the interval for exporting partial batches.
+func WithScheduledDelay(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.scheduledDelay = v
 	}
 }
 
@@ -108,9 +176,13 @@ func WithServiceVersion[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		environment:    appinfo.EnvLabel(),
-		serviceName:    appinfo.Name,
-		serviceVersion: appinfo.Version,
+		environment:        appinfo.EnvLabel(),
+		exportTimeout:      DefaultExportTimeout,
+		maxExportBatchSize: DefaultMaxExportBatchSize,
+		maxQueueSize:       DefaultMaxQueueSize,
+		scheduledDelay:     DefaultScheduledDelay,
+		serviceName:        appinfo.Name,
+		serviceVersion:     appinfo.Version,
 	}
 }
 

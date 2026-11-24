@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/factory/observability/tracing"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters/console"
@@ -53,7 +54,10 @@ func TestBuild_UnknownSamplerFails(t *testing.T) {
 
 	cfg := stubTracing()
 	cfg.Sampler = &observabilityconfig.TracingSampler{Type: "sometimes"}
-	_, err := factory.New(cfg).UseAdapter(stubType, stubBuilder).Build(t.Context())
+	_, err := factory.New(cfg).UseAdapter(stubType, func(context.Context, *observabilityconfig.TracingAdapters) (adapters.Adapter, error) {
+		t.Fatal("adapter opened for an invalid sampler")
+		return nil, nil
+	}).Build(t.Context())
 	require.ErrorContains(t, err, "sometimes")
 }
 
@@ -90,7 +94,7 @@ func TestBuild_SamplerSelection(t *testing.T) {
 			tr, err := factory.New(cfg).UseAdapter(stubType, stubBuilder).Build(t.Context())
 			require.NoError(t, err)
 			require.False(t, tracing.IsNoop(tr))
-			t.Cleanup(func() { _ = tr.Shutdown(t.Context()) })
+			t.Cleanup(func() { require.NoError(t, tr.Shutdown(context.Background())) })
 
 			_, span := tr.Recorder("test").Start(t.Context(), "op")
 			defer span.End()
@@ -148,4 +152,21 @@ func TestBuild_NilAdapterBuilderFails(t *testing.T) {
 	t.Parallel()
 	_, err := factory.New(stubTracing()).UseAdapter(stubType, nil).Build(t.Context())
 	require.ErrorContains(t, err, "nil builder")
+}
+
+func TestBuildBatchExport(t *testing.T) {
+	cfg := stubTracing()
+	cfg.Batch.MaxQueueSize = new(2)
+	cfg.Batch.MaxExportBatchSize = new(3)
+	meter := metricstest.NewTestCollector()
+	builder := factory.New(cfg).UseAdapter(stubType, stubBuilder).UseMeter(meter.Collector)
+	_, err := builder.Build(t.Context())
+	require.Error(t, err)
+	cfg.Batch.MaxExportBatchSize = new(1)
+	tr, err := builder.Build(t.Context())
+	require.NoError(t, err)
+	_, span := tr.Recorder("test").Start(t.Context(), "query")
+	span.End()
+	require.NoError(t, tr.Shutdown(t.Context()))
+	require.Equal(t, 1.0, meter.CounterValue("test_tracing_spans_exported_total", nil))
 }
