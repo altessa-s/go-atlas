@@ -262,7 +262,7 @@ release: ## Semantic versioning - create and push a new release tag
 .PHONY: gosec
 gosec: ## Run gosec static security scanner (see GOSEC_EXCLUDED_RULES)
 	@cd devtools && go install github.com/securego/gosec/v2/cmd/gosec
-	@gosec -quiet -exclude-generated -exclude=$(GOSEC_EXCLUDED_RULES) ./...
+	@$(FOR_MODULES) (cd $$m && gosec -quiet -exclude-generated -exclude=$(GOSEC_EXCLUDED_RULES) ./...); done
 
 .PHONY: security-scan
 security-scan: ## Security checks - run vulnerability and security scanners

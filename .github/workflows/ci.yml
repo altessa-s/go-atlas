@@ -16,6 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      matrix:
+        module: [".", "store/postgres/migrations"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,6 +32,7 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.15.0
+          working-directory: ${{ matrix.module }}
           # Build the linter with the runner's Go instead of downloading the
           # prebuilt binary: the module requires go 1.27, and a linter compiled
           # with an older Go fails typecheck on its files ("file requires newer
@@ -36,12 +40,13 @@ jobs:
           install-mode: goinstall
 
       - name: Check go fix modernizers
+        if: matrix.module == '.'
         # go fix -diff exits non-zero when any modernizer would rewrite code.
         # stditerators is off: Value.Fields allocates per-field metadata that
         # value-only hot loops in domain/ deliberately avoid (see the
         # //nolint:modernize sites); golangci-lint still enforces it elsewhere.
         run: |
-          for mod in . tests/integration; do
+          for mod in $(make -s modules) tests/integration; do
             (cd "$mod" && go fix -diff -stditerators=false ./...) || { echo "::error::go fix -diff is not empty in $mod"; exit 1; }
           done
 
@@ -59,11 +64,17 @@ jobs:
         with:
           go-version: "1.27"
 
+      - name: Check go mod tidy
+        run: make tidy-check
+
       - name: Check architecture boundaries
         run: make check-architecture
 
       - name: Run tests
         run: go test -race -shuffle=on -coverprofile=coverage.out ./...
+
+      - name: Race-test migrations
+        run: go -C store/postgres/migrations test -race -shuffle=on ./...
 
       - name: Report coverage
         run: |
@@ -116,10 +127,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        # linux is covered by the main build; guard the platform-gated
-        # code (*_other.go fallbacks)
-        # against build-tag rot on the other supported targets.
-        goos: [darwin, windows]
+        goos: [linux, darwin, windows]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -132,7 +140,10 @@ jobs:
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
-        run: go build ./...
+        run: |
+          for mod in $(make -s modules); do
+            go -C "$mod" build ./...
+          done
 
   security:
     name: Security
@@ -151,7 +162,9 @@ jobs:
       - name: Run govulncheck
         run: |
           (cd devtools && go install golang.org/x/vuln/cmd/govulncheck)
-          govulncheck ./...
+          for mod in $(make -s modules); do
+            (cd "$mod" && govulncheck ./...)
+          done
 
       - name: Run gosec
         run: make gosec

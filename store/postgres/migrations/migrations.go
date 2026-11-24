@@ -273,7 +273,8 @@ type versionRecord struct {
 
 // recordedVersions reads the whole version table in one query; a later row of a version overrides an earlier one, as in goose.
 func recordedVersions(ctx context.Context, db *sql.Conn, table string) (map[int64]versionRecord, error) {
-	rows, err := db.QueryContext(ctx, "SELECT version_id, is_applied, tstamp FROM "+table+" ORDER BY id") //nolint:gosec // validated name
+	// #nosec G202 -- settings validates table against tableNamePattern before Status calls recordedVersions.
+	rows, err := db.QueryContext(ctx, "SELECT version_id, is_applied, tstamp FROM "+table+" ORDER BY id")
 	if err != nil {
 		if sqldialect.SQLState(err) == sqlStateUndefinedTable {
 			return map[int64]versionRecord{}, nil // no version table: nothing applied
