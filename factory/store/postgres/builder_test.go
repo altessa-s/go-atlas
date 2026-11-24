@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"errors"
 	"io"
@@ -53,6 +54,11 @@ func (r healthRegistry) RegisterService(name string, check health.Checker) { r[n
 // messages. No SQL evaluation is needed to check the pool configuration.
 func poolEndpoint(t testing.TB, queryError func() *pgproto3.ErrorResponse) (redacted.RedactedString, <-chan map[string]string, <-chan string) {
 	t.Helper()
+	return poolEndpointTLS(t, queryError, nil)
+}
+
+func poolEndpointTLS(t testing.TB, queryError func() *pgproto3.ErrorResponse, server *tls.Config) (redacted.RedactedString, <-chan map[string]string, <-chan string) {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	startup := make(chan map[string]string, 8)
@@ -71,6 +77,26 @@ func poolEndpoint(t testing.TB, queryError func() *pgproto3.ErrorResponse) (reda
 				if err != nil {
 					t.Error(err)
 					return
+				}
+				if server != nil {
+					if _, ok := m.(*pgproto3.SSLRequest); !ok {
+						t.Error("expected TLS request")
+						return
+					}
+					if _, err := conn.Write([]byte("S")); err != nil {
+						t.Error(err)
+						return
+					}
+					secure := tls.Server(conn, server)
+					if err := secure.HandshakeContext(t.Context()); err != nil {
+						return // tests also exercise failed certificate verification
+					}
+					backend = pgproto3.NewBackend(secure, secure)
+					m, err = backend.ReceiveStartupMessage()
+					if err != nil {
+						t.Error(err)
+						return
+					}
 				}
 				startup <- m.(*pgproto3.StartupMessage).Parameters
 				backend.Send(&pgproto3.AuthenticationOk{})
@@ -119,7 +145,11 @@ func poolEndpoint(t testing.TB, queryError func() *pgproto3.ErrorResponse) (reda
 		}
 	})
 	t.Cleanup(func() { _ = listener.Close(); handlers.Wait() })
-	return redacted.RedactedString("postgres://app@" + listener.Addr().String() + "/app?sslmode=disable"), startup, statements
+	dsn := "postgres://app@" + listener.Addr().String() + "/app"
+	if server == nil {
+		dsn += "?sslmode=disable"
+	}
+	return redacted.RedactedString(dsn), startup, statements
 }
 
 func TestBuildNamedPools(t *testing.T) {
@@ -233,4 +263,14 @@ func TestMigrationFailureClosesPoolsAndPreservesCause(t *testing.T) {
 			require.Zero(t, gauge(postgres.DefaultPool), "pool and metric observer must close after migration failure")
 		})
 	}
+}
+
+func TestInjectedTLSMustVerifyServer(t *testing.T) {
+	t.Parallel()
+	cfg := postgresconfig.Default()
+	cfg.DSN = "host=db"
+	insecure := &tls.Config{InsecureSkipVerify: true} //nolint:gosec // verify the factory rejects the injection
+	_, err := New(&cfg).UseTlsConfig(insecure).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
+	require.ErrorContains(t, err, "must verify the server")
 }

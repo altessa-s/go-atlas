@@ -6,7 +6,12 @@ package factory
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -21,6 +26,8 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters/memory"
 
 	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 func TestBuild_DriverTextNeverReachesErrorsOrLogs(t *testing.T) {
@@ -93,4 +100,62 @@ func TestHealthFailureDoesNotExposeDriverText(t *testing.T) {
 	require.False(t, observed.leaked.Load(), "password in metric labels")
 	require.True(t, strings.Contains(logs.String(), "PostgreSQL pool opened"), "missing lifecycle log")
 	require.False(t, strings.Contains(logs.String(), secret), "password in log")
+}
+
+func TestTLSBuildAndDiagnostics(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cret-password"
+	_, _, cert := testhelpers.SelfSignedCert(t)
+	roots := x509.NewCertPool()
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[1]})
+	require.True(t, roots.AppendCertsFromPEM(caPEM))
+	caPath, _ := testhelpers.WriteTempCertFiles(t, caPEM, nil)
+	server := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}
+	for _, tc := range []string{"inherited", "override", "injected", "bad CA", "handshake", "transaction handshake"} {
+		t.Run(tc, func(t *testing.T) {
+			t.Parallel()
+			endpoint, startup, _ := poolEndpointTLS(t, nil, server)
+			cfg := postgresconfig.Default()
+			cfg.DSN = redacted.RedactedString(endpoint.Expose() + "?password=" + secret)
+			cfg.TLS = &tlsconfig.Client{CACerts: []string{caPath}, ServerName: "localhost"}
+			p := postgresconfig.Pool{MaxOpenConnections: 1}
+			b := New(&cfg)
+			switch tc {
+			case "override":
+				p.TLS = &tlsconfig.Client{CACerts: []string{caPath}, ServerName: "wrong.example"}
+			case "injected":
+				p.TLS = &tlsconfig.Client{CACerts: []string{"missing"}}
+				cfg.TLS.ServerName = "wrong.example"
+				b.UseTlsConfig(&tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: "localhost"})
+			case "bad CA":
+				path := filepath.Join(t.TempDir(), secret)
+				require.NoError(t, os.WriteFile(path, []byte("invalid certificate"), 0o600))
+				p.TLS = &tlsconfig.Client{CACerts: []string{path}}
+			case "transaction handshake":
+				cfg.Pooling = "transaction"
+				fallthrough
+			case "handshake":
+				cfg.TLS.ServerName = secret
+			}
+			cfg.Pools = map[string]postgresconfig.Pool{"worker": p}
+			pools, err := b.Build(t.Context())
+			switch tc {
+			case "inherited", "injected":
+				require.NoError(t, err)
+				require.NoError(t, pools.Close())
+				require.Len(t, startup, 2)
+			default:
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), secret)
+				require.NotContains(t, err.Error(), endpoint.Expose())
+				if tc == "bad CA" {
+					require.ErrorIs(t, err, corefactory.ErrUnsupported)
+					require.Empty(t, startup, "a reserved pool's bad CA must fail before opening the primary")
+				} else {
+					var certErr *tls.CertificateVerificationError
+					require.ErrorAs(t, err, &certErr)
+				}
+			}
+		})
+	}
 }

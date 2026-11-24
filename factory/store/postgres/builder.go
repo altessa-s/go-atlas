@@ -7,6 +7,7 @@ package factory
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"errors"
 	"maps"
@@ -18,20 +19,24 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/store/postgres"
 
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
+	tlsfactory "github.com/altessa-s/go-atlas/factory/ext/tlsutils"
 )
 
 // Builder constructs application pools and registers their health checks after successful startup.
 type Builder struct {
 	corefactory.Base
-	cfg      *postgresconfig.Config
-	meter    metrics.Meter
-	tracer   tracing.Tracer
-	health   health.Registrar
-	migrator func(context.Context, *sql.DB) error
+	cfg       *postgresconfig.Config
+	tlsConfig *tls.Config
+	meter     metrics.Meter
+	tracer    tracing.Tracer
+	health    health.Registrar
+	migrator  func(context.Context, *sql.DB) error
 }
 
 // New creates a builder. Configuration errors surface at Build.
@@ -46,11 +51,15 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 	if c == nil {
 		return nil, corefactory.ErrConfigRequired
 	}
-	if err := c.Validate(); err != nil {
-		return nil, err
+	if err := b.validate(); err != nil {
+		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "invalid PostgreSQL configuration: %w", err)
 	}
 	if b.migrator != nil && c.Pooling == string(postgres.PoolingTransaction) {
 		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "startup migrations require a direct primary pool")
+	}
+	configs, err := b.poolTLSConfigs()
+	if err != nil {
+		return nil, err
 	}
 	pools := make(postgres.Pools, len(c.Pools)+1)
 	complete := false
@@ -69,7 +78,9 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 				idle = *p.MaxIdleConnections
 			}
 		}
-		db, err := postgres.Open(ctx, cmp.Or(p.DSN, c.DSN),
+		tlsCfg := cmp.Or(configs[name], configs[postgres.DefaultPool])
+		opts := []postgres.Option{
+			postgres.WithTLSConfig(tlsCfg),
 			postgres.WithPoolName(name),
 			postgres.WithPooling(postgres.PoolingMode(cmp.Or(p.Pooling, c.Pooling))),
 			postgres.WithMaxOpenConnections(size),
@@ -83,7 +94,9 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 			postgres.WithTracer(b.tracer),
 			postgres.WithMeter(b.meter),
 			postgres.WithLogger(b.Logger()),
-		)
+		}
+		opts = coreslices.AppendIf(opts, tlsCfg != nil && tlsCfg.InsecureSkipVerify, postgres.WithAllowInsecureSkipVerify())
+		db, err := postgres.Open(ctx, cmp.Or(p.DSN, c.DSN), opts...)
 		if err != nil {
 			return nil, coreerrs.WrapOperationWithContext(err, "open PostgreSQL pool", name)
 		}
@@ -104,4 +117,56 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 	}
 	complete = true
 	return pools, nil
+}
+
+// Validate effective settings. An injected config supersedes certificate files,
+// but an explicit TLS block must still agree with its pool's DSN.
+func (b *Builder) validate() error {
+	if b.tlsConfig == nil {
+		return b.cfg.Validate()
+	}
+	if b.tlsConfig.InsecureSkipVerify {
+		return errors.New("injected PostgreSQL TLS configuration must verify the server")
+	}
+	c := *b.cfg
+	if c.TLS != nil {
+		c.TLS = &tlsconfig.Client{}
+	}
+	c.Pools = maps.Clone(c.Pools)
+	for name, pool := range c.Pools {
+		if pool.TLS != nil {
+			pool.TLS = &tlsconfig.Client{}
+			c.Pools[name] = pool
+		}
+	}
+	return c.Validate()
+}
+
+// Resolve all certificate material before opening even the primary pool.
+func (b *Builder) poolTLSConfigs() (map[string]*tls.Config, error) {
+	configs := map[string]*tls.Config{postgres.DefaultPool: b.tlsConfig}
+	if b.tlsConfig != nil {
+		return configs, nil
+	}
+	builder := tlsfactory.New(nil).UseLogger(b.Logger())
+	build := func(name string, block *tlsconfig.Client) error {
+		cfg, err := builder.CreateClientConfig(block)
+		if err != nil {
+			// File errors can contain arbitrary user-supplied paths.
+			return corefactory.Errorf(corefactory.ErrUnsupported, "cannot build PostgreSQL TLS configuration for pool %q", name)
+		}
+		configs[name] = cfg
+		return nil
+	}
+	if err := build(postgres.DefaultPool, b.cfg.TLS); err != nil {
+		return nil, err
+	}
+	for name, pool := range b.cfg.Pools {
+		if pool.TLS != nil {
+			if err := build(name, pool.TLS); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return configs, nil
 }

@@ -20,6 +20,10 @@ The optional hook runs with the earlier of the caller’s deadline and `postgres
 For goose migrations, `WithLockTimeout` limits lock acquisition within that overall budget.
 A transaction-pooled primary rejects the hook during validation. A startup failure closes already-opened pools.
 
+The builder resolves the primary and reserved pools' TLS material before opening any connection. A named pool inherits the primary TLS block or
+replaces it with its own. `UseTlsConfig(*tls.Config)` supplies a verified configuration for all pools and takes precedence over both blocks.
+Without either source, pgx follows the DSN and environment. Its default `sslmode=prefer` allows unverified TLS and a plaintext retry.
+
 On a SQL subsystem factory, call `UseSQLPool(pools.Binding("worker"))` to use the reserved pool for standalone calls and join a transaction
 started on any pool in this group. Alternatively, use `UseSQLDB` with the outbox SQL store’s per-save `WithTx` helper. Configure one group per logical
 database. [Runtime](../../../store/postgres) · [Configuration](../../../config/postgres)
