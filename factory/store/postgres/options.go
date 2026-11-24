@@ -5,7 +5,8 @@
 package factory
 
 import (
-	"io/fs"
+	"context"
+	"database/sql"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -42,9 +43,8 @@ func (b *Builder) UseHealthCoordinator(r health.Registrar) *Builder {
 	return b
 }
 
-// UseMigrations sets the forward migration directory and schema containing the ledger.
-func (b *Builder) UseMigrations(source fs.FS, schema string) *Builder {
-	b.source = source
-	b.schema = schema
+// UseMigrator runs fn on the direct primary pool during startup, with a thirty-second budget.
+func (b *Builder) UseMigrator(fn func(context.Context, *sql.DB) error) *Builder {
+	b.migrator = fn
 	return b
 }

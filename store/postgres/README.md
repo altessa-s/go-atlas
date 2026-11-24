@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/store/postgres"
 ```
 
-PostgreSQL connection pools, transactions and forward migrations over pgx and `database/sql`.
+PostgreSQL connection pools and transactions over pgx and `database/sql`.
 
 ## Opening a pool
 
@@ -108,21 +108,15 @@ committed write. PostgreSQL reports both server-side timeout and cancellation as
 
 ## Migrations
 
-Give `Migrate(ctx, db, source, schema)` an `fs.FS` rooted at the migration directory, for example via `fs.Sub` on an embedded filesystem.
-Use a schema name other than PostgreSQL’s search-path aliases `$user` and `pg_temp`.
-Files use positive numeric versions and the suffix `_<name>.up.sql`. Each version must occur once. Only forward migration files belong in the
-directory. The runner takes a schema-specific transaction-scoped advisory lock before creating the schema or its `schema_migrations` ledger.
-It sets the local search path to the schema, applies pending versions in numeric order and commits the DDL and ledger entries together.
-A context deadline supplies the migration lock and statement budgets. Without a deadline, the pool timeouts apply.
-Migration files must contain transactional SQL. Use the same ledger schema when moving an existing deployment. If an older runner uses a
-different lock key, finish its startup migrations before enabling the new runner on that database.
+Register Go migrations in the [migrations module](migrations) and call `migrations.Run(ctx, db)` on a direct pool. Goose records each version in the
+same transaction as its changes. Use `migrations.Status` to inspect the ledger and `migrations.Down` to revert the most recent version.
 
 ## Migrating an application
 
 1. Replace the local PostgreSQL configuration with `config/postgres.Config`. Move each reservation into `pools` and carry over its size, lock
    timeout and optional DSN. Listing and count budgets remain available to the application's query layer.
-2. Replace local startup with `factory/store/postgres.New(&cfg).UseMigrations(source, schema).Build(ctx)`. Set `migrations: true` to apply
-   the embedded files. Inject the logger, meter, tracer and health registrar on the builder. Close the returned pools at shutdown.
+2. Open pools with `factory/store/postgres.New(&cfg).Build(ctx)`. Supply the migration callback with `UseMigrator` for startup migrations on the direct
+   primary pool. Inject the logger, meter, tracer and health registrar on the builder. Close the returned pools at shutdown.
 3. Replace the local transaction, savepoint, snapshot, commit-hook and settings helpers with their same-named functions here. Pass
    `postgres.Querier(db)` to repositories constructed once, or `postgres.Queryer(ctx, db)` when constructing a query object per call.
    For example, a client that uses sqlc with `database/sql` can call `queries := generated.New(postgres.Querier(db))`.

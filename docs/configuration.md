@@ -322,7 +322,8 @@ When enabled via `WithStrict()`, the loader returns errors instead of silently i
 
 Every durable capability can keep its state in PostgreSQL, MySQL or MariaDB: select `type: sqldb` (dlock: `provider: sqldb`) and fill the `sqldb`
 block. The factory builds the store over a `*sql.DB` the application injects with `UseSQLDB`; the application
-chooses and registers the driver. The optional [PostgreSQL configuration](../config/postgres) describes pgx pools, reservations and migrations.
+chooses and registers the driver. The optional [PostgreSQL configuration](../config/postgres) describes pgx pools and reservations. Applications
+register startup migrations in Go and pass a `UseMigrator` callback to the pool builder. The primary pool must use direct pooling.
 
 | Capability  | Schema                     | Store                                                                                 | `sqldb` keys besides `dialect` and `ensureSchema`                         |
 |-------------|----------------------------|---------------------------------------------------------------------------------------|---------------------------------------------------------------------------|

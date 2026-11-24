@@ -14,7 +14,6 @@ postgres:
       dsn: ${WORKER_DSN}
       maxOpenConnections: 3
       lockTimeout: 6s
-  migrations: true
 ```
 
 | Field | Default | Meaning |
@@ -26,7 +25,6 @@ postgres:
 | connectTimeout | 5s | Connection establishment |
 | statementTimeout / lockTimeout / idleTransactionTimeout | 10s / 3s / 30s | Server limits |
 | listingTimeout / countBudget | 3s / 50ms | Query-layer budgets. Zero count budget disables exact-count probing |
-| migrations / migrationTimeout | false / 30s | Apply the supplied forward migrations at startup |
 | pools | empty | Additional named connection reservations |
 
 Each named pool requires a positive open limit. Its idle limit defaults to the smaller of this limit and the primary idle limit. An explicit zero

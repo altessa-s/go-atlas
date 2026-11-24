@@ -88,7 +88,8 @@ The decimal codec now rejects coefficients over 4096 bits. See the [keyset migra
 | [`coord/dlock`](coord/dlock/)                                                       | Distributed locking (NATS, MongoDB, SQL)                                                                                                                            |
 | [`store/meilisearch`](store/meilisearch/)                                           | Meilisearch SDK wrapper with context propagation and sentinel-error classification                                                                                  |
 | [`store/mongo`](store/mongo/)                                                       | MongoDB repository patterns, cursor pagination, CSFLE, migrations                                                                                                   |
-| [`store/postgres`](store/postgres/) | PostgreSQL pools, transactions, migrations and query tracing |
+| [`store/postgres`](store/postgres/) | PostgreSQL pools, transactions and query tracing |
+| [`store/postgres/migrations`](store/postgres/migrations/) | Goose migrations over a direct PostgreSQL connection (separate Go module) |
 | [`store/postgres/postgrestest`](store/postgres/postgrestest/) | Isolated PostgreSQL databases for integration tests |
 | [`reliability/outbox`](reliability/outbox/)                                         | Transactional outbox (MongoDB, PostgreSQL, MySQL, MariaDB)                                                                                                          |
 | [`cache/probfilter`](cache/probfilter/)                                             | Bloom and Cuckoo probabilistic filters                                                                                                                              |

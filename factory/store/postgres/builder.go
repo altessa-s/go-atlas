@@ -7,10 +7,11 @@ package factory
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
-	"io/fs"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -18,20 +19,22 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/store/postgres"
 
+	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
+const startupMigrationTimeout = 30 * time.Second
+
 // Builder constructs application pools and registers their health checks after successful startup.
 type Builder struct {
 	corefactory.Base
-	cfg    *postgresconfig.Config
-	meter  metrics.Meter
-	tracer tracing.Tracer
-	health health.Registrar
-	source fs.FS
-	schema string
+	cfg      *postgresconfig.Config
+	meter    metrics.Meter
+	tracer   tracing.Tracer
+	health   health.Registrar
+	migrator func(context.Context, *sql.DB) error
 }
 
 // New creates a builder. Configuration errors surface at Build.
@@ -49,8 +52,8 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	if c.Migrations && (nilcheck.IsNil(b.source) || b.schema == "") {
-		return nil, corefactory.Errorf(corefactory.ErrDependencyRequired, "enabled migrations require a source and ledger schema")
+	if b.migrator != nil && c.Pooling == string(postgres.PoolingTransaction) {
+		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "startup migrations require a direct primary pool")
 	}
 	pools := make(postgres.Pools, len(c.Pools)+1)
 	complete := false
@@ -89,10 +92,10 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 		}
 		pools[name] = db
 	}
-	if c.Migrations {
-		migrationCtx, cancel := context.WithTimeout(ctx, c.MigrationTimeout)
-		err := postgres.Migrate(migrationCtx, pools[postgres.DefaultPool], b.source, b.schema)
-		cancel()
+	if b.migrator != nil {
+		migrationCtx, cancel := corecontext.WithMaxTimeout(ctx, startupMigrationTimeout)
+		defer cancel()
+		err := b.migrator(migrationCtx, pools[postgres.DefaultPool])
 		if err != nil {
 			return nil, err
 		}

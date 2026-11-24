@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package postgresconfig defines the PostgreSQL pool, timeout and migration
+// Package postgresconfig defines the PostgreSQL pool and timeout
 // schema. [Default] supplies defaults for programmatic configuration. The YAML
 // and default tags support the go-nomos loader. [Config.Validate] checks the
 // configuration before the factory opens any connections.

@@ -6,16 +6,14 @@ package factory
 
 import (
 	"context"
-	"embed"
+	"database/sql"
 	"errors"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net"
 	"strings"
 	"sync"
 	"testing"
-	"testing/fstest"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgproto3"
@@ -32,6 +30,7 @@ import (
 )
 
 func TestBuildValidation(t *testing.T) {
+	t.Parallel()
 	_, err := New(nil).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 	cfg := postgresconfig.Default()
@@ -40,14 +39,10 @@ func TestBuildValidation(t *testing.T) {
 	_, err = b.Build(t.Context())
 	require.Error(t, err)
 	cfg.DSN = "postgres://localhost/db"
-	cfg.Migrations = true
-	_, err = b.UseMigrations((*embed.FS)(nil), "catalog").Build(t.Context())
-	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
-	require.ErrorContains(t, err, "ledger schema")
-	for _, source := range []fs.FS{nil, fstest.MapFS{}} {
-		_, err = b.UseMigrations(source, "").Build(t.Context())
-		require.ErrorContains(t, err, "ledger schema")
-	}
+	cfg.Pooling = "transaction"
+	_, err = b.UseMigrator(func(context.Context, *sql.DB) error { t.Fatal("hook ran"); return nil }).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
+	require.ErrorContains(t, err, "direct primary pool")
 }
 
 type healthRegistry map[string]health.Checker
@@ -128,6 +123,7 @@ func poolEndpoint(t testing.TB, queryError func() *pgproto3.ErrorResponse) (reda
 }
 
 func TestBuildNamedPools(t *testing.T) {
+	t.Parallel()
 	primary, mainStartup, _ := poolEndpoint(t, nil)
 	reserved, workerStartup, commands := poolEndpoint(t, nil)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -136,9 +132,11 @@ func TestBuildNamedPools(t *testing.T) {
 	c.DSN = primary
 	c.Pools = map[string]postgresconfig.Pool{"jobs": {DSN: reserved, MaxOpenConnections: 2, LockTimeout: time.Second}}
 	checks := healthRegistry{}
-	pools, err := New(&c).UseHealthCoordinator(checks).Build(ctx)
+	var migrated *sql.DB
+	pools, err := New(&c).UseMigrator(func(_ context.Context, primary *sql.DB) error { migrated = primary; return nil }).UseHealthCoordinator(checks).Build(ctx)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, pools.Close()) })
+	require.Same(t, pools[postgres.DefaultPool], migrated)
 	require.Equal(t, c.MaxOpenConnections, pools[postgres.DefaultPool].Stats().MaxOpenConnections)
 	require.Equal(t, 2, pools["jobs"].Stats().MaxOpenConnections)
 	require.Equal(t, "3000", (<-mainStartup)["lock_timeout"])
@@ -158,11 +156,6 @@ func TestBuildNamedPools(t *testing.T) {
 	require.True(t, seen)
 }
 
-// A migration source is application code and can panic during discovery.
-type migrationSource func(string) (fs.File, error)
-
-func (s migrationSource) Open(name string) (fs.File, error) { return s(name) }
-
 func TestMigrationFailureClosesPoolsAndPreservesCause(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -176,20 +169,26 @@ func TestMigrationFailureClosesPoolsAndPreservesCause(t *testing.T) {
 			meter := metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("test"))
 			cfg := postgresconfig.Default()
 			cfg.DSN = endpoint
-			cfg.Migrations = true
+			cfg.Pools = map[string]postgresconfig.Pool{"worker": {MaxOpenConnections: 1}}
+			checks := healthRegistry{}
 			cause := errors.New("migration source sentinel")
-			gauge := func() float64 {
-				return adapter.GaugeValue("test_postgres_open_connections", map[string]string{"pool": postgres.DefaultPool})
+			gauge := func(pool string) float64 {
+				return adapter.GaugeValue("test_postgres_open_connections", map[string]string{"pool": pool})
 			}
-			source := migrationSource(func(string) (fs.File, error) {
-				require.Equal(t, float64(1), gauge(), "the pool was open before migration")
+			hook := func(ctx context.Context, db *sql.DB) error {
+				deadline, ok := ctx.Deadline()
+				require.True(t, ok)
+				require.LessOrEqual(t, time.Until(deadline), 30*time.Second)
+				require.NoError(t, db.PingContext(ctx))
+				require.Equal(t, float64(1), gauge(postgres.DefaultPool), "the pool was open before migration")
+				require.Equal(t, float64(1), gauge("worker"))
 				if tc.panics {
 					panic("migration panic")
 				}
-				return nil, cause
-			})
+				return cause
+			}
 			build := func() error {
-				_, err := New(&cfg).UseMeter(meter).UseMigrations(source, "test_schema").Build(t.Context())
+				_, err := New(&cfg).UseMeter(meter).UseHealthCoordinator(checks).UseMigrator(hook).Build(t.Context())
 				return err
 			}
 			if tc.panics {
@@ -197,7 +196,9 @@ func TestMigrationFailureClosesPoolsAndPreservesCause(t *testing.T) {
 			} else {
 				require.ErrorIs(t, build(), cause)
 			}
-			require.Zero(t, gauge(), "pool and metric observer must close after migration failure")
+			require.Empty(t, checks)
+			require.Zero(t, gauge("worker"))
+			require.Zero(t, gauge(postgres.DefaultPool), "pool and metric observer must close after migration failure")
 		})
 	}
 }
