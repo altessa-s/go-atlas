@@ -122,6 +122,8 @@ type OutboxSQLStorageConfig struct {
 	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
 	// KeyOrder claims one event at a time per ordering key, in insertion order.
 	KeyOrder bool `yaml:"keyOrder" default:"false"`
+	// AsynchronousCommit allows PostgreSQL to flush dispatcher bookkeeping after commit.
+	AsynchronousCommit bool `yaml:"asynchronousCommit" default:"false"`
 }
 
 // Validate performs validation of the SQL outbox storage configuration.

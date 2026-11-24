@@ -6,7 +6,11 @@ package sqldb
 
 //go:generate go tool optgen generate
 
-import "log/slog"
+import (
+	"context"
+	"database/sql"
+	"log/slog"
+)
 
 // DefaultTableName is the default table name for outbox events; it matches the
 // MongoDB store's default collection name.
@@ -14,8 +18,12 @@ const DefaultTableName = "events_outbox"
 
 type options struct {
 	// WithKeyOrder restricts claims to the earliest undelivered event for each ordering group, in insertion order.
-	keyOrder  bool
-	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
+	keyOrder bool
+	// WithAsynchronousCommit disables synchronous WAL flush for PostgreSQL dispatch bookkeeping. MySQL ignores it.
+	asynchronousCommit bool
+	// WithTxResolver finds the application transaction for a call.
+	txResolver func(context.Context) (*sql.Tx, bool) `optgen:"notnil"`
+	tableName  string                                `optval:"nonempty" optgen:"default=DefaultTableName"`
 	// WithNotify makes every save signal the notification channel with
 	// pg_notify in the transaction that inserts the events, so a [Listener]
 	// learns of them the moment they commit. The channel is derived from the

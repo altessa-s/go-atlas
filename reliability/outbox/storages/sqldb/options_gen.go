@@ -4,12 +4,22 @@
 package sqldb
 
 import (
+	"context"
+	"database/sql"
 	"log/slog"
 	"strings"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithAsynchronousCommit disables synchronous WAL flush for PostgreSQL dispatch bookkeeping. MySQL ignores it.
+func WithAsynchronousCommit() Option {
+	return func(o *options) {
+		value := true
+		o.asynchronousCommit = value
+	}
+}
 
 // WithKeyOrder restricts claims to the earliest undelivered event for each ordering group, in insertion order.
 func WithKeyOrder() Option {
@@ -101,6 +111,16 @@ func WithTableName[T interface{ string | *string }](v T) Option {
 			return
 		}
 		o.tableName = transformedValue
+	}
+}
+
+// WithTxResolver finds the application transaction for a call.
+func WithTxResolver(v func(context.Context) (*sql.Tx, bool)) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.txResolver = v
 	}
 }
 

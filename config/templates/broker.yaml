@@ -211,6 +211,10 @@
 #        # <bool> Claim the oldest undelivered event per ordering key. Enable on every dispatcher.
 #        # Default value: false
 #        keyOrder: false
+#        # <bool> Allow asynchronous WAL flush for PostgreSQL dispatcher bookkeeping.
+#        # A database crash can cause redelivery. Use an idempotent consumer.
+#        # Default value: false
+#        asynchronousCommit: false
 #
 #    # <string> How the dispatcher learns of new events beyond dispatchSchedule,
 #    # which keeps running in every mode. The factory starts the watcher and

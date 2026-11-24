@@ -42,6 +42,7 @@ A zero threshold checks every reused connection and adds a round trip per checko
 |---------------------|------------------------|----------------------------------------------------------------------------------------------|
 | `WithTableName`     | `events_outbox`        | Events table; may be qualified as `schema.name` (≤ 63 chars per part)                        |
 | `WithKeyOrder`      | off                    | Claim only the earliest undelivered sequence for each ordering group                              |
+| `WithAsynchronousCommit` | off           | PostgreSQL can acknowledge dispatch bookkeeping before flushing its WAL                      |
 | `WithNotify`        | off                    | Every save runs `pg_notify` on the notification channel in its transaction (PostgreSQL only) |
 | `WithNotifyChannel` | derived from the table | Enables `WithNotify` on the given channel: a plain identifier of at most 63 characters       |
 | `WithListener`      | none                   | `Listener` that `Watch` subscribes through (PostgreSQL only); nil or a typed nil is none     |
@@ -86,6 +87,19 @@ return tx.Commit()
 
 Only `SaveEvents` uses the context transaction. Without one, a batch is still all-or-nothing: a single `INSERT`, or its own transaction when the batch
 spans several statements. With `WithNotify`, each chunk inserts and signals in one CTE statement, so a single chunk needs no explicit transaction.
+
+### PostgreSQL asynchronous commit
+
+`WithAsynchronousCommit()` runs `SET LOCAL synchronous_commit = off` in the store's claim, outcome update, unlock and expiration transactions.
+PostgreSQL can acknowledge those commits before their WAL reaches durable storage. The setting ends with the transaction. All save paths,
+including a standalone multi-statement batch and a save on the business transaction, keep the caller's durability settings. Retention uses the
+database's normal commit policy. MySQL and MariaDB ignore the option.
+
+A database crash can roll back a recent claim, retry count, backoff deadline, acknowledgement, unlock or expiry. The durable business event
+survives when its business transaction committed synchronously. Polling can claim it again, stale leases can be reclaimed and expiry is checked
+again. A send that reached the broker before its acknowledgement was lost can therefore repeat. This preserves at-least-once delivery. JetStream
+can suppress a repeated publish with the same `Nats-Msg-Id` inside its duplicate window. Consumers that require deduplication beyond that window
+need idempotent processing.
 
 ## Server clock
 

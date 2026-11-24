@@ -364,3 +364,43 @@ func TestEnsureSchemaKeyOrder(t *testing.T) {
 		})
 	}
 }
+
+func TestAsynchronousCommitIsScopedToDispatch(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	for _, d := range []sqldb.Dialect{sqldb.DialectPostgres, sqldb.DialectMySQL} {
+		t.Run(string(d), func(t *testing.T) {
+			db, fake := testhelpers.NewFakeSQL(t, readyRows(nil, 1))
+			store, err := sqldb.New(db, d, sqldb.WithAsynchronousCommit())
+			require.NoError(t, err)
+			tx, err := db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			require.NoError(t, store.SaveEvents(sqldb.WithTx(ctx, tx), pending("business")))
+			require.NoError(t, tx.Commit())
+			require.NoError(t, store.SaveEvents(ctx, pending("standalone")))
+			require.NoError(t, store.SaveEvents(ctx, make([]outbox.Event, 501)...))
+			for _, c := range fake.Calls() {
+				require.True(t, strings.HasPrefix(c.Query, "INSERT INTO"), c.Query)
+			}
+
+			_, err = store.FetchUnprocessedEvents(ctx, 1)
+			require.NoError(t, err)
+			require.NoError(t, store.UpdateEvents(ctx, pending("claimed")))
+			require.NoError(t, store.UnlockStuckEvents(ctx, time.Minute))
+			_, err = store.ExpireEvents(ctx)
+			require.NoError(t, err)
+			settings := 0
+			for _, c := range fake.Calls() {
+				if c.Query == "SET LOCAL synchronous_commit = off" {
+					require.True(t, c.InTx)
+					settings++
+				}
+			}
+			if d == sqldb.DialectPostgres {
+				require.Equal(t, 4, settings)
+			} else {
+				require.Zero(t, settings)
+			}
+		})
+	}
+}

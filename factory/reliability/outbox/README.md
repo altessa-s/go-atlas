@@ -59,6 +59,7 @@ driver. A configured type without its dependency fails at `Build` with `factory/
 
 The sqldb store creates the events table only with `storage.sqldb.ensureSchema: true` (otherwise it must exist). `Save` must run on the business
 transaction via `outboxsql.WithTx`. Set `storage.sqldb.keyOrder` on all dispatchers for per-key delivery.
+Enable `storage.sqldb.asynchronousCommit` to allow PostgreSQL to acknowledge bookkeeping before flushing its WAL.
 
 ## Watch
 

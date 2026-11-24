@@ -128,6 +128,21 @@ func TestCreateOutbox_AppliesThePayloadLimitFromConfig(t *testing.T) {
 		dataoutbox.ErrPayloadTooLarge)
 }
 
+func TestCreateOutbox_UsesAsynchronousSQLCommit(t *testing.T) {
+	t.Parallel()
+	cfg := outboxConfig()
+	cfg.Outbox.Storage.SQL.AsynchronousCommit = true
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	ob, err := factory.New(cfg).UseSQLDB(db).CreateOutbox(t.Context(), stubPublisher{})
+	require.NoError(t, err)
+
+	require.NoError(t, ob.RunDispatchCycle(t.Context()))
+	calls := fake.Calls()
+	require.NotEmpty(t, calls)
+	require.Equal(t, "SET LOCAL synchronous_commit = off", calls[0].Query)
+	require.True(t, calls[0].InTx)
+}
+
 // A disabled outbox builds into nothing rather than into a running one.
 func TestCreateOutbox_DisabledReturnsNothing(t *testing.T) {
 	t.Parallel()

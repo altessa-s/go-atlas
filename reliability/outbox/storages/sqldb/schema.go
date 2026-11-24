@@ -49,7 +49,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 			"create outbox schema", "table "+s.table)
 	}
 	for _, stmt := range s.ddl() {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		if _, err := s.db.DB.ExecContext(ctx, stmt); err != nil {
 			return coreerrs.WrapOperationWithContext(err, "create outbox schema", "table "+s.table)
 		}
 	}

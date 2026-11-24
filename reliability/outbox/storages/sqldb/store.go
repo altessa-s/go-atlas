@@ -50,16 +50,17 @@ const deleteChunk = lockChunk
 // without one [outbox.Outbox.Watch] reports [outbox.ErrWatchUnsupported] and
 // dispatch runs on the poll schedule.
 type Store struct {
-	db       sqldialect.Pool
-	dialect  dialect
-	table    string // quoted
-	name     string // unqualified, for index names
-	stmts    statements
-	keyOrder bool
-	notify   bool     // signal channel on save
-	channel  string   // notification channel; empty on MySQL
-	listener Listener // nil: Watch is unsupported
-	logger   *slog.Logger
+	db                 sqldialect.Pool
+	dialect            dialect
+	table              string // quoted
+	name               string // unqualified, for index names
+	stmts              statements
+	asynchronousCommit bool
+	notify             bool     // signal channel on save
+	channel            string   // notification channel; empty on MySQL
+	listener           Listener // nil: Watch is unsupported
+	logger             *slog.Logger
+	keyOrder           bool
 }
 
 var (
@@ -106,14 +107,15 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	}
 
 	s := &Store{
-		db:       dl.WrapPool(db),
-		dialect:  dl,
-		table:    table,
-		name:     sqldialect.Unqualified(o.tableName),
-		keyOrder: o.keyOrder,
-		notify:   o.notify,
-		listener: listener,
-		logger:   o.logger,
+		db:                 dl.WrapPool(db).WithResolver(o.txResolver),
+		dialect:            dl,
+		table:              table,
+		name:               sqldialect.Unqualified(o.tableName),
+		asynchronousCommit: o.asynchronousCommit && d == DialectPostgres,
+		notify:             o.notify,
+		listener:           listener,
+		logger:             o.logger,
+		keyOrder:           o.keyOrder,
 	}
 	if d != DialectPostgres {
 		if s.notify || s.listener != nil {
@@ -255,6 +257,9 @@ func (s *Store) SaveEventsWithTTL(ctx context.Context, ttl time.Duration, events
 	if tx, ok := ctx.Value(txKey{}).(*sql.Tx); ok && tx != nil {
 		return s.insert(ctx, tx, ttl, events)
 	}
+	if tx, ok := s.db.Tx(ctx); ok {
+		return s.insert(ctx, tx, ttl, events)
+	}
 	if len(events) <= saveChunk {
 		return s.insert(ctx, s.db, ttl, events)
 	}
@@ -321,6 +326,37 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 	return nil
 }
 
+// beginDispatchTx configures only store-owned bookkeeping transactions.
+func (s *Store) beginDispatchTx(ctx context.Context, opts *sql.TxOptions) (sqldialect.Scope, error) {
+	tx, err := s.db.BeginScope(ctx, opts)
+	if err != nil || !tx.Owned() || !s.asynchronousCommit {
+		return tx, err
+	}
+	if _, err := tx.ExecContext(ctx, "SET LOCAL synchronous_commit = off"); err != nil {
+		_ = tx.Rollback()
+		return sqldialect.Scope{}, coreerrs.WrapOperation(err, "set outbox transaction durability")
+	}
+	return tx, nil
+}
+
+// execDispatch runs a single bookkeeping statement in autocommit mode unless
+// transaction-local settings require an explicit transaction.
+func (s *Store) execDispatch(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if !s.asynchronousCommit {
+		return s.db.ExecContext(ctx, query, args...)
+	}
+	tx, err := s.beginDispatchTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return res, tx.Commit()
+}
+
 // FetchUnprocessedEvents locks and returns up to batchSize events that are
 // ready to dispatch — pending ones, plus failed ones whose backoff elapsed —
 // oldest first, events saved together in insertion order. The rows are
@@ -330,13 +366,13 @@ func (s *Store) insert(ctx context.Context, ex execer, ttl time.Duration, events
 // even while its lease is held or its retry is backing off.
 // Every returned event carries the lock token this call minted.
 func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([]outbox.Event, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := s.beginDispatchTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "begin outbox fetch transaction")
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	events, err := s.selectReady(ctx, tx, batchSize)
+	events, err := s.selectReady(ctx, tx.Tx, batchSize)
 	if err != nil || len(events) == 0 {
 		return events, err
 	}
@@ -474,11 +510,14 @@ func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error 
 		return nil
 	}
 	ordered := slices.SortedFunc(slices.Values(events), func(a, b outbox.Event) int { return cmp.Compare(a.Id, b.Id) })
+	if _, ok := s.db.Tx(ctx); ok {
+		return s.updateEvents(ctx, ordered)
+	}
 	return deadlockRetry.Do(ctx, func(ctx context.Context) error { return s.updateEvents(ctx, ordered) })
 }
 
 func (s *Store) updateEvents(ctx context.Context, events []outbox.Event) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginDispatchTx(ctx, nil)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "begin outbox update transaction")
 	}
@@ -515,14 +554,18 @@ func (s *Store) UnlockStuckEvents(ctx context.Context, lockExpiry time.Duration)
 	if s.dialect.name == DialectMySQL {
 		unlock = s.unlockStuckByID
 	}
-	err := deadlockRetry.Do(ctx, func(ctx context.Context) error {
+	sweep := func(ctx context.Context) error {
 		return unlock(ctx, string(outbox.StatusPending), string(outbox.StatusInProgress), s.dialect.duration(lockExpiry))
-	})
+	}
+	if _, ok := s.db.Tx(ctx); ok {
+		return sweep(ctx)
+	}
+	err := deadlockRetry.Do(ctx, sweep)
 	return coreerrs.WrapOperation(err, "unlock stuck outbox events")
 }
 
 func (s *Store) unlockStuck(ctx context.Context, pending, inProgress string, age any) error {
-	_, err := s.db.ExecContext(ctx, s.stmts.unlock, pending, inProgress, age)
+	_, err := s.execDispatch(ctx, s.stmts.unlock, pending, inProgress, age)
 	return err
 }
 
@@ -600,7 +643,7 @@ func (s *Store) DeleteProcessedEvents(ctx context.Context, olderThan time.Durati
 func (s *Store) ExpireEvents(ctx context.Context) (int64, error) {
 	var total int64
 	for {
-		res, err := s.db.ExecContext(ctx, s.stmts.expire,
+		res, err := s.execDispatch(ctx, s.stmts.expire,
 			string(outbox.StatusExpired), string(outbox.StatusPending), string(outbox.StatusFailed))
 		if err != nil {
 			return total, coreerrs.WrapOperation(err, "expire outbox events")
