@@ -479,7 +479,7 @@ interval — correct, but at the latency the schedule dictates.
 ## postgres
 
 Emitted by [store/postgres](../store/postgres) under the `postgres` subsystem. The `pool` label is a configured pool name, defaulting to
-`foreground`. Gauges sample database/sql statistics at open, every second and at close. Counters accumulate changes since the previous sample.
+`foreground`. Gauges sample database/sql statistics at open, every second and at close. Closing the pool clears its gauges. Counters accumulate changes since the previous sample.
 
 | Metric | Type | Labels | Description |
 | --- | --- | --- | --- |

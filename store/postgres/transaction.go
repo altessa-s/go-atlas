@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"maps"
+	"slices"
 	"sync"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
@@ -212,11 +213,13 @@ func withTransaction(
 		return err
 	}
 	observers, notifications := current.takeHooks()
-	for _, observe := range observers {
-		observe()
-	}
+	// Every hook belongs to an already committed write. Defers preserve delivery
+	// if one observer panics, while letting its panic reach the caller.
 	for wake := range notifications {
-		notify(wake)
+		defer notify(wake)
+	}
+	for _, observe := range slices.Backward(observers) {
+		defer observe()
 	}
 	return nil
 }

@@ -92,9 +92,8 @@ func (p Pools) Close() error {
 	return errors.Join(errs...)
 }
 
-// Binding returns the named pool and the transaction resolver for subsystem factories'
-// UseSQLPool methods. Pools in the group must serve the same logical database.
-// A missing name returns a nil database, which the consuming factory rejects.
+// Binding returns the named pool and a resolver for transactions owned by the group. Pools in the group must serve the same logical database.
+// A missing name returns a nil database, which the caller must check.
 func (p Pools) Binding(name string) (*sql.DB, func(context.Context) (*sql.Tx, bool)) {
 	members := make(map[*sql.DB]struct{}, len(p))
 	for _, db := range p {

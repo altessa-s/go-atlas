@@ -61,6 +61,11 @@ func observePool(db *sql.DB, meter metrics.Meter, name string) func() {
 				sample()
 			case <-stop:
 				sample()
+				// sql.DB.Close allows outstanding leases to finish after it returns.
+				// This observer no longer owns a live pool.
+				open.Set(0)
+				inUse.Set(0)
+				idle.Set(0)
 				return
 			}
 		}

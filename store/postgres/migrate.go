@@ -56,7 +56,7 @@ type migration struct {
 // migration are created in one transaction under an advisory lock, so concurrent starts apply
 // each migration exactly once and a failed migration leaves nothing behind.
 func Migrate(ctx context.Context, db *sql.DB, source fs.FS, schema string) error {
-	if nilcheck.IsNil(source) || schema == "" || len(schema) > 63 || strings.ContainsRune(schema, 0) {
+	if nilcheck.IsNil(source) || schema == "" || schema == "$user" || schema == "pg_temp" || len(schema) > 63 || strings.ContainsRune(schema, 0) {
 		return errors.New("valid migration schema and source are required")
 	}
 
@@ -87,7 +87,7 @@ func Migrate(ctx context.Context, db *sql.DB, source fs.FS, schema string) error
 		}
 
 		if _, err := q.ExecContext(ctx, fmt.Sprintf(createSchema, quotedSchema)); err != nil {
-			return fmt.Errorf("failed to create schema %s: %w", schema, err)
+			return fmt.Errorf("failed to create schema %q: %w", schema, err)
 		}
 
 		if _, err := q.ExecContext(ctx, "SET LOCAL search_path TO "+quotedSchema); err != nil {
@@ -99,7 +99,7 @@ func Migrate(ctx context.Context, db *sql.DB, source fs.FS, schema string) error
 
 		for _, pending := range migrations {
 			if err := apply(ctx, q, source, ledger, pending); err != nil {
-				return fmt.Errorf("failed to apply %s migration %d: %w", schema, pending.version, err)
+				return fmt.Errorf("failed to apply %q migration %d: %w", schema, pending.version, err)
 			}
 		}
 

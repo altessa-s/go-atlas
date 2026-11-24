@@ -130,6 +130,10 @@ type connection struct {
 	retire               bool
 }
 
+func (c *connection) Begin() (driver.Tx, error) {
+	return c.BeginTx(context.Background(), driver.TxOptions{})
+}
+
 func (c *connection) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
 	conn := c.Conn()
 	if conn.IsClosed() {
@@ -156,6 +160,10 @@ func (c *connection) ExecContext(ctx context.Context, query string, args []drive
 	return result, c.statementError(ctx, err)
 }
 
+func (c *connection) Prepare(query string) (driver.Stmt, error) {
+	return c.PrepareContext(context.Background(), query)
+}
+
 func (c *connection) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
 	stmt, err := c.stdlibConn.PrepareContext(ctx, query)
 	return stmt, c.statementError(ctx, err)
@@ -178,14 +186,15 @@ func (c *connection) statementError(ctx context.Context, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return sqldialect.DriverError(ctx, err)
-	}
-	if c.retireOnPrepareError {
+	} else if c.retireOnPrepareError {
 		if _, failed := errors.AsType[*pgconn.PrepareError](err); failed {
 			c.retire = true
 		}
 	}
-	return err
+	if errors.Is(err, driver.ErrBadConn) {
+		c.retire = true
+	}
+	return sqldialect.DriverError(ctx, err)
 }
 
 func beginOptions(ctx context.Context, opts driver.TxOptions, settings string) (pgx.TxOptions, error) {

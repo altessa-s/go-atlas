@@ -129,9 +129,21 @@ func TestPoolRoutingAndHooks(t *testing.T) {
 }
 
 func TestOpenRejectsInvalidInputs(t *testing.T) {
-	for _, option := range []Option{WithPooling("unknown"), WithMaxOpenConnections(0), WithMaxIdleConnections(-1), WithStatementTimeout(time.Nanosecond), WithStatementTimeout(-1), WithConnectionMaxLifetime(0)} {
-		_, err := Open(t.Context(), "postgres://localhost/db", option)
-		require.Error(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, tc := range []struct {
+		option  Option
+		message string
+	}{
+		{WithPooling("unknown"), "unknown PostgreSQL pooling mode"},
+		{WithMaxOpenConnections(0), "invalid PostgreSQL pool limits"},
+		{WithMaxIdleConnections(-1), "invalid PostgreSQL pool limits"},
+		{WithStatementTimeout(time.Nanosecond), "statement_timeout must be between"},
+		{WithStatementTimeout(-1), "statement_timeout must be between"},
+		{WithConnectionMaxLifetime(0), "invalid PostgreSQL pool limits"},
+	} {
+		_, err := Open(ctx, "postgres://localhost/db", tc.option)
+		require.ErrorContains(t, err, tc.message)
 	}
 	for _, dsn := range []string{"", "postgres://hidden:password@%gh/db"} {
 		_, err := NewConnector(redacted.RedactedString(dsn))
@@ -287,6 +299,29 @@ func TestBeginAsyncCommitIsIndependent(t *testing.T) {
 
 func TestFatalConnectionError(t *testing.T) {
 	err := &pgconn.PgError{Severity: "FATAL", Code: "25P03", Message: "idle transaction timeout"}
+	kind, _ := Classify(err)
+	require.Equal(t, ConnectionLost, kind)
+}
+
+func TestCommitHookPanicPreservesOtherHooks(t *testing.T) {
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	wake := make(chan struct{}, 1)
+	var calls []int
+	require.PanicsWithValue(t, "observer", func() {
+		_ = WithTransaction(t.Context(), db, func(ctx context.Context) error {
+			AfterCommit(ctx, func() { calls = append(calls, 1); panic("observer") })
+			AfterCommit(ctx, func() { calls = append(calls, 2) })
+			NotifyAfterCommit(ctx, wake)
+			return nil
+		})
+	})
+	require.Equal(t, 1, fake.Commits())
+	require.Equal(t, []int{1, 2}, calls)
+	require.Len(t, wake, 1)
+}
+
+func TestLocalizedFatalConnectionError(t *testing.T) {
+	err := &pgconn.PgError{Severity: "FATALE", SeverityUnlocalized: "FATAL", Code: "25P03"}
 	kind, _ := Classify(err)
 	require.Equal(t, ConnectionLost, kind)
 }

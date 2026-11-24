@@ -5,6 +5,7 @@
 package postgres
 
 import (
+	"cmp"
 	"database/sql"
 	"errors"
 	"io"
@@ -85,7 +86,8 @@ func Classify(err error) (ErrorKind, string) {
 		case "57P01", "57P02", "57P03":
 			return ConnectionLost, ""
 		}
-		if strings.HasPrefix(e.Code, "08") || e.Severity == "FATAL" || e.Severity == "PANIC" {
+		severity := cmp.Or(e.SeverityUnlocalized, e.Severity)
+		if strings.HasPrefix(e.Code, "08") || severity == "FATAL" || severity == "PANIC" {
 			return ConnectionLost, ""
 		}
 	}

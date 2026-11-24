@@ -61,7 +61,7 @@ return postgres.WithTransaction(ctx, db, func(ctx context.Context) error {
 
 Call `UseSQLPool(pools.Binding(name))` on the subsystem factory. Standalone operations use the named pool, and operations in a transaction use
 the caller’s connection from any pool in the group. Configure one group per logical database. When constructing a store directly, pass its
-`WithTxResolver(postgres.Tx)` option for stores that use that same logical database. A transaction belongs to one call. Its owner commits on
+`WithTxResolver(postgres.Tx)` option for stores that use that same logical database. With a plain `UseSQLDB` injection, attach the transaction to each outbox save with the outbox SQL store’s `WithTx` helper. A transaction belongs to one call. Its owner commits on
 success and rolls back on error or panic. Nested `WithTransaction` and `WithSnapshot` join the outer transaction and inherit its isolation and
 access mode. A top-level snapshot uses read-only repeatable read. Use `WithSavepoint` to roll back a nested operation while continuing the outer
 transaction. A savepoint covers the entire transaction. Keep other goroutines off that transaction until the savepoint handler returns.
@@ -81,6 +81,7 @@ committed write. PostgreSQL reports both server-side timeout and cancellation as
 ## Migrations
 
 Give `Migrate(ctx, db, source, schema)` an `fs.FS` rooted at the migration directory, for example via `fs.Sub` on an embedded filesystem.
+Use a schema name other than PostgreSQL’s search-path aliases `$user` and `pg_temp`.
 Files use positive numeric versions and the suffix `_<name>.up.sql`. Each version must occur once. Only forward migration files belong in the
 directory. The runner takes a schema-specific transaction-scoped advisory lock before creating the schema or its `schema_migrations` ledger.
 It sets the local search path to the schema, applies pending versions in numeric order and commits the DDL and ledger entries together.

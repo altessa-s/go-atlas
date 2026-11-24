@@ -79,7 +79,7 @@ func TestConnectionDriverInterfaces(t *testing.T) {
 func TestConnectionResetAfterStatementError(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []PoolingMode{PoolingDirect, PoolingTransaction} {
-		for _, operation := range []string{"query", "exec", "prepare", "simple exec"} {
+		for _, operation := range []string{"query", "exec", "prepare", "legacy prepare", "simple exec"} {
 			t.Run(string(mode)+"/"+operation, func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 				defer cancel()
@@ -94,6 +94,8 @@ func TestConnectionResetAfterStatementError(t *testing.T) {
 					_, err = conn.ExecContext(ctx, query, args)
 				case "prepare":
 					_, err = conn.PrepareContext(ctx, query)
+				case "legacy prepare":
+					_, err = conn.Prepare(query)
 				case "simple exec":
 					_, err = conn.ExecContext(ctx, "SELECT unavailable", nil)
 				}
@@ -191,6 +193,24 @@ func serveStatementError(backend *pgproto3.Backend) error {
 		if err != nil {
 			return err
 		}
+		if query, ok := msg.(*pgproto3.Query); ok {
+			status := byte('I')
+			switch query.String {
+			case "BEGIN; SET LOCAL statement_timeout = 10000; SET LOCAL lock_timeout = 3000; SET LOCAL idle_in_transaction_session_timeout = 30000":
+				status = 'T'
+			case "rollback":
+			default:
+				status = 0
+			}
+			if status != 0 {
+				backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("OK")})
+				backend.Send(&pgproto3.ReadyForQuery{TxStatus: status})
+				if err := backend.Flush(); err != nil {
+					return err
+				}
+				continue
+			}
+		}
 		switch msg.(type) {
 		case *pgproto3.Query, *pgproto3.Sync:
 			backend.Send(&pgproto3.ErrorResponse{Severity: "ERROR", Code: "42P01", Message: "undefined table"})
@@ -201,5 +221,25 @@ func serveStatementError(backend *pgproto3.Backend) error {
 		case *pgproto3.Terminate:
 			return nil
 		}
+	}
+}
+
+func TestLegacyBeginAppliesTransactionSettings(t *testing.T) {
+	conn := statementErrorConnection(t.Context(), t, PoolingTransaction)
+	// The protocol fixture accepts only BEGIN with the configured local settings.
+	tx, err := conn.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMixedStatementFailureSuppressesDriverRetry(t *testing.T) {
+	c := new(connection)
+	err := c.statementError(t.Context(), errors.Join(driver.ErrBadConn, errors.New("lost response")))
+	if err == nil || errors.Is(err, driver.ErrBadConn) {
+		t.Fatalf("ambiguous failure permits database/sql replay: %v", err)
 	}
 }

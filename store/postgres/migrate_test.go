@@ -107,3 +107,11 @@ func TestMigrateLedger(t *testing.T) {
 		require.Error(t, WithTransaction(t.Context(), db, func(ctx context.Context) error { return Migrate(ctx, db, source, "catalog") }))
 	}
 }
+
+func TestMigrationRejectsSearchPathAlias(t *testing.T) {
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	for _, alias := range []string{"$user", "pg_temp"} {
+		require.Error(t, Migrate(t.Context(), db, fstest.MapFS{}, alias))
+	}
+	require.Empty(t, fake.Calls())
+}
