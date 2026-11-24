@@ -23,6 +23,8 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/metrics/adapters/memory"
 	"github.com/altessa-s/go-atlas/store/postgres"
 
 	postgresconfig "github.com/altessa-s/go-atlas/config/postgres"
@@ -54,7 +56,7 @@ func (r healthRegistry) RegisterService(name string, check health.Checker) { r[n
 
 // poolEndpoint accepts the direct connector's startup, ping and transaction
 // messages. No SQL evaluation is needed to check the pool configuration.
-func poolEndpoint(t *testing.T) (redacted.RedactedString, <-chan map[string]string, <-chan string) {
+func poolEndpoint(t testing.TB, queryError func() *pgproto3.ErrorResponse) (redacted.RedactedString, <-chan map[string]string, <-chan string) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -99,7 +101,15 @@ func poolEndpoint(t *testing.T) (redacted.RedactedString, <-chan map[string]stri
 						if strings.HasPrefix(cmd.String, "BEGIN") {
 							status = 'T'
 						}
-						backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("OK")})
+						var failure *pgproto3.ErrorResponse
+						if queryError != nil {
+							failure = queryError()
+						}
+						if failure != nil {
+							backend.Send(failure)
+						} else {
+							backend.Send(&pgproto3.CommandComplete{CommandTag: []byte("OK")})
+						}
 						backend.Send(&pgproto3.ReadyForQuery{TxStatus: status})
 						if err := backend.Flush(); err != nil {
 							t.Error(err)
@@ -118,8 +128,8 @@ func poolEndpoint(t *testing.T) (redacted.RedactedString, <-chan map[string]stri
 }
 
 func TestBuildNamedPools(t *testing.T) {
-	primary, mainStartup, _ := poolEndpoint(t)
-	reserved, workerStartup, commands := poolEndpoint(t)
+	primary, mainStartup, _ := poolEndpoint(t, nil)
+	reserved, workerStartup, commands := poolEndpoint(t, nil)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	c := postgresconfig.Default()
@@ -146,4 +156,48 @@ func TestBuildNamedPools(t *testing.T) {
 		}
 	}
 	require.True(t, seen)
+}
+
+// A migration source is application code and can panic during discovery.
+type migrationSource func(string) (fs.File, error)
+
+func (s migrationSource) Open(name string) (fs.File, error) { return s(name) }
+
+func TestMigrationFailureClosesPoolsAndPreservesCause(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		panics bool
+	}{{"sentinel", false}, {"panic", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			endpoint, _, _ := poolEndpoint(t, nil)
+			adapter := memory.New()
+			meter := metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("test"))
+			cfg := postgresconfig.Default()
+			cfg.DSN = endpoint
+			cfg.Migrations = true
+			cause := errors.New("migration source sentinel")
+			gauge := func() float64 {
+				return adapter.GaugeValue("test_postgres_open_connections", map[string]string{"pool": postgres.DefaultPool})
+			}
+			source := migrationSource(func(string) (fs.File, error) {
+				require.Equal(t, float64(1), gauge(), "the pool was open before migration")
+				if tc.panics {
+					panic("migration panic")
+				}
+				return nil, cause
+			})
+			build := func() error {
+				_, err := New(&cfg).UseMeter(meter).UseMigrations(source, "test_schema").Build(t.Context())
+				return err
+			}
+			if tc.panics {
+				require.PanicsWithValue(t, "migration panic", func() { _ = build() })
+			} else {
+				require.ErrorIs(t, build(), cause)
+			}
+			require.Zero(t, gauge(), "pool and metric observer must close after migration failure")
+		})
+	}
 }

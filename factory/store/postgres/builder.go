@@ -41,7 +41,7 @@ func New(cfg *postgresconfig.Config) *Builder {
 
 // Build opens all pools, optionally migrates the primary database and registers health checks.
 // The caller owns the returned pools. A failed build closes every pool that it opened.
-func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
+func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) {
 	c := b.cfg
 	if c == nil {
 		return nil, corefactory.ErrConfigRequired
@@ -53,6 +53,12 @@ func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
 		return nil, corefactory.Errorf(corefactory.ErrDependencyRequired, "enabled migrations require a source and ledger schema")
 	}
 	pools := make(postgres.Pools, len(c.Pools)+1)
+	complete := false
+	defer func() {
+		if !complete {
+			buildErr = errors.Join(buildErr, pools.Close())
+		}
+	}()
 	for _, name := range append([]string{postgres.DefaultPool}, slices.Sorted(maps.Keys(c.Pools))...) {
 		p := c.Pools[name]
 		size, idle := c.MaxOpenConnections, c.MaxIdleConnections
@@ -79,7 +85,7 @@ func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
 			postgres.WithLogger(b.Logger()),
 		)
 		if err != nil {
-			return nil, errors.Join(coreerrs.WrapOperationWithContext(err, "open PostgreSQL pool", name), pools.Close())
+			return nil, coreerrs.WrapOperationWithContext(err, "open PostgreSQL pool", name)
 		}
 		pools[name] = db
 	}
@@ -88,7 +94,7 @@ func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
 		err := postgres.Migrate(migrationCtx, pools[postgres.DefaultPool], b.source, b.schema)
 		cancel()
 		if err != nil {
-			return nil, errors.Join(err, pools.Close())
+			return nil, err
 		}
 	}
 	if !nilcheck.IsNil(b.health) {
@@ -96,5 +102,6 @@ func (b *Builder) Build(ctx context.Context) (postgres.Pools, error) {
 			b.health.RegisterService("postgres."+name, postgres.Checker(db))
 		}
 	}
+	complete = true
 	return pools, nil
 }
