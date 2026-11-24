@@ -6,6 +6,13 @@
 #  # Default value: not set
 #  dsn: host=localhost dbname=atlas
 #
+#  # <object> Enable TLS with certificate and hostname verification on every host.
+#  # Without this block or a DSN/environment override, pgx uses sslmode=prefer:
+#  # it tries unverified TLS first and may retry in plaintext. With this block,
+#  # omit sslmode or use require, verify-ca or verify-full.
+#  # For a private CA, set caCerts: [/etc/atlas/postgres-ca.pem] in the shared block.
+#  !include tls-client.yaml
+#
 #  # <string> Use direct for PostgreSQL or transaction for PgBouncer transaction pooling.
 #  # Default value: direct
 #  pooling: direct
@@ -61,6 +68,10 @@
 #      # <string> Alternate database endpoint. Omit to use the primary DSN.
 #      # Default value: not set
 #      dsn: host=localhost dbname=atlas
+#
+#      # <object> Replace the entire primary TLS block for this endpoint.
+#      # Omit to inherit the primary CA and verification settings.
+#      !include tls-client.yaml
 #
 #      # <string> Override the primary pooling mode.
 #      # Default value: not set

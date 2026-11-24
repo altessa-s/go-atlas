@@ -326,6 +326,10 @@ chooses and registers the driver. The optional [PostgreSQL configuration](../con
 register startup migrations in Go and pass a `UseMigrator` callback to the pool builder. The primary pool must use direct pooling.
 `postgres.migrationTimeout` bounds that callback (default `30s`, minimum `1ms`). An earlier caller deadline takes precedence.
 
+Set `postgres.tls: {}` for system trust and hostname verification or set `postgres.tls.caCerts` for a private CA.
+A `postgres.pools.<name>.tls` block replaces the primary TLS settings. With DSN-only configuration, pgx defaults to `sslmode=prefer`
+unless overridden by the environment or DSN. That mode permits unverified TLS and plaintext fallback.
+
 | Capability  | Schema                     | Store                                                                                 | `sqldb` keys besides `dialect` and `ensureSchema`                         |
 |-------------|----------------------------|---------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
 | Audit       | `config/audit`             | [`audit/storages/sqldb`](../audit/storages/sqldb)                                     | `tableName`, `ttl`, `purgeInterval`, `purgeBatchSize`                     |

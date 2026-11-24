@@ -13,7 +13,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-nomos/loader"
+
+	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 )
 
 func TestConfig(t *testing.T) {
@@ -56,8 +59,8 @@ func TestLoadPoolDefaults(t *testing.T) {
 		budget time.Duration
 	}{{"", 3, 30 * time.Second}, {"  maxIdleConnections: 0\n  migrationTimeout: 2m\n", 0, 2 * time.Minute}} {
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		data := "postgres:\n  dsn: host=localhost\n  maxOpenConnections: 3\n  countBudget: 0s\n" + tc.yaml +
-			"  pools:\n    jobs:\n      maxOpenConnections: 2\n      maxIdleConnections: 0\n"
+		data := "postgres:\n  dsn: host=localhost\n  maxOpenConnections: 3\n  countBudget: 0s\n  tls: {}\n" + tc.yaml +
+			"  pools:\n    jobs:\n      tls:\n        serverName: jobs.internal\n      maxOpenConnections: 2\n      maxIdleConnections: 0\n"
 		require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
 		var c struct {
 			Postgres *Config `yaml:"postgres"`
@@ -65,10 +68,50 @@ func TestLoadPoolDefaults(t *testing.T) {
 		_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(&c)
 		require.NoError(t, err)
 		require.NoError(t, c.Postgres.Validate())
+		require.NotNil(t, c.Postgres.TLS)
+		require.NotNil(t, c.Postgres.Pools["jobs"].TLS)
+		require.Equal(t, "jobs.internal", c.Postgres.Pools["jobs"].TLS.ServerName)
 		require.Equal(t, tc.idle, c.Postgres.MaxIdleConnections)
 		require.Equal(t, tc.budget, c.Postgres.MigrationTimeout)
 		require.Zero(t, c.Postgres.CountBudget)
 		require.NotNil(t, c.Postgres.Pools["jobs"].MaxIdleConnections)
 		require.Zero(t, *c.Postgres.Pools["jobs"].MaxIdleConnections)
+	}
+}
+
+func TestTLSValidation(t *testing.T) {
+	t.Parallel()
+	block := &tlsconfig.Client{}
+	for _, tc := range []struct {
+		name                string
+		dsn, reserved       redacted.RedactedString
+		primaryTLS, poolTLS *tlsconfig.Client
+		wantErr             bool
+	}{
+		{"driver only", "host=db sslmode=disable", "", nil, nil, false},
+		{"system trust", "host=db", "", block, nil, false},
+		{"url disable", "postgres://db/app?sslmode=disable", "", block, nil, true},
+		{"encoded mode", "postgres://db/app?ssl%6dode=pr%65fer", "", block, nil, true},
+		{"quoted mode", "host=db sslmode = 'allow'", "", block, nil, true},
+		{"repeated mode", "postgres://db/app?sslmode=require&sslmode=allow", "", block, nil, true},
+		{"quoted password", `host=db password='escaped\' sslmode=disable' sslmode=verify-full`, "", block, nil, false},
+		{"escaped space", `host=db password=secret\ sslmode=disable sslmode=require`, "", block, nil, false},
+		{"trailing escaped space", `host=db password=secret\ `, "", block, nil, false},
+		{"inherited tls", "host=db", "host=worker sslmode=prefer", block, nil, true},
+		{"inherited dsn", "host=db sslmode=allow", "", nil, block, true},
+		{"pool only", "host=db sslmode=disable", "host=worker", nil, block, false},
+		{"missing client key", "host=db", "", &tlsconfig.Client{Certificate: "missing"}, nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Default()
+			cfg.DSN, cfg.TLS = tc.dsn, tc.primaryTLS
+			cfg.Pools = map[string]Pool{"worker": {MaxOpenConnections: 1, DSN: tc.reserved, TLS: tc.poolTLS}}
+			if tc.wantErr {
+				require.Error(t, cfg.Validate())
+			} else {
+				require.NoError(t, cfg.Validate())
+			}
+		})
 	}
 }
