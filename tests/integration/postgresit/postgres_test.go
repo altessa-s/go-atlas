@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters/memory"
@@ -30,6 +31,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 	"github.com/altessa-s/go-atlas/store/postgres"
+	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	cfg "github.com/altessa-s/go-atlas/config/postgres"
@@ -74,15 +76,15 @@ func TestPools(t *testing.T) {
 			c.Migrations = true
 			builder := func() *factory.Builder { return factory.New(&c).UseMigrations(source, schema) }
 			probe, err := sql.Open("pgx", dsn)
-			require.NoError(t, err)
+			require.NoError(t, sqldialect.SafeError(nil, "open PostgreSQL preflight", err))
 			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			err = probe.PingContext(probeCtx)
 			cancel()
 			_ = probe.Close()
-			if skipEndpoint(err, os.Getenv(tc.env)) {
+			if livebackend.SkipEndpoint(err, os.Getenv(tc.env)) {
 				t.Skip("compose endpoint unavailable")
 			}
-			require.NoError(t, err)
+			require.NoError(t, sqldialect.SafeError(nil, "ping PostgreSQL preflight", err))
 			cleanup, err := postgres.Open(ctx, c.DSN, postgres.WithPooling(postgres.PoolingMode(tc.name)))
 			require.NoError(t, err)
 			t.Cleanup(func() {
@@ -370,16 +372,10 @@ func testMigrationLockWait(t *testing.T, db *sql.DB, schema string, source fstes
 	require.Equal(t, 1, count(t, ctx, db, schema+".schema_migrations"))
 }
 
-func skipEndpoint(err error, configuredDSN string) bool {
-	dial, ok := errors.AsType[*net.OpError](err)
-	return configuredDSN == "" && ok && dial.Op == "dial" &&
-		(errors.Is(dial.Err, syscall.ECONNREFUSED) || errors.Is(dial.Err, os.ErrPermission) || dial.Timeout())
-}
-
 func TestSkipEndpoint(t *testing.T) {
 	refused := &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}
-	require.True(t, skipEndpoint(fmt.Errorf("connect: %w", refused), ""))
-	require.False(t, skipEndpoint(refused, "explicit"))
-	require.False(t, skipEndpoint(errors.New("authentication failed"), ""))
-	require.False(t, skipEndpoint(nil, ""))
+	require.True(t, livebackend.SkipEndpoint(fmt.Errorf("connect: %w", refused), ""))
+	require.False(t, livebackend.SkipEndpoint(refused, "explicit"))
+	require.False(t, livebackend.SkipEndpoint(errors.New("authentication failed"), ""))
+	require.False(t, livebackend.SkipEndpoint(nil, ""))
 }

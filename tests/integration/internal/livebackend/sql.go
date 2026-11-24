@@ -7,11 +7,16 @@ package livebackend
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"net"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 )
 
 // SQL dialect names of [SQLTarget.Dialect]. Every SQL storage of the toolkit
@@ -74,19 +79,20 @@ func (t SQLTarget) DSN() string {
 }
 
 // Open connects to the server and returns a connection pool, closed on
-// cleanup. It skips the test when the server is unreachable; the DSN is not
-// printed, as an override may carry a password.
+// cleanup. Only an unreachable default endpoint skips the test.
 func (t SQLTarget) Open(tb testing.TB) *sql.DB {
 	tb.Helper()
 	db, err := sql.Open(t.Driver, t.DSN())
-	require.NoError(tb, err)
+	require.NoError(tb, sqldialect.SafeError(nil, "open SQL target", err))
+	tb.Cleanup(func() { _ = db.Close() })
 	ctx, cancel := context.WithTimeout(tb.Context(), sqlDDLTimeout)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		tb.Skipf("%s unreachable (%v) — start it with: make integration-up", t.Name, err)
+		if SkipEndpoint(err, os.Getenv(t.Env)) {
+			tb.Skipf("%s unreachable — start it with: make integration-up", t.Name)
+		}
+		tb.Fatalf("%s: %v", t.Name, sqldialect.SafeError(nil, "ping SQL target", err))
 	}
-	tb.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -109,4 +115,11 @@ func SQLTable(tb testing.TB, db *sql.DB, prefix string) string {
 		require.NoError(tb, err)
 	})
 	return table
+}
+
+// SkipEndpoint reports whether an optional local endpoint could not be reached.
+func SkipEndpoint(err error, configuredDSN string) bool {
+	dial, ok := errors.AsType[*net.OpError](err)
+	return configuredDSN == "" && ok && dial.Op == "dial" &&
+		(errors.Is(dial.Err, syscall.ECONNREFUSED) || errors.Is(dial.Err, os.ErrPermission) || dial.Timeout())
 }
