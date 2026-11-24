@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
-	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 
 	authconfig "github.com/altessa-s/go-atlas/config/auth"
 )
@@ -122,12 +122,12 @@ func TestManagerOptions_MapsScheduler(t *testing.T) {
 func TestManagerOptions_MapsMeter(t *testing.T) {
 	t.Parallel()
 
-	cfg := filesystemConfig(t)
+	meter := metricstest.NewTestCollector()
+	manager, err := New(filesystemConfig(t)).UseMeter(meter).Build(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
 
-	withoutMeter := len(New(cfg).managerOptions())
-	withMeter := len(New(cfg).UseMeter(metrics.Noop()).managerOptions())
-
-	require.Equal(t, withoutMeter+1, withMeter, "a meter must reach the manager through WithMeter")
+	require.EqualValues(t, 1, metricstest.GetGaugeValue(t, meter, "test_auth_opa_modules_loaded"))
 }
 
 // A schedule without a scheduler has nothing to run it, so it must not look

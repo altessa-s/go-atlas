@@ -1488,6 +1488,7 @@ Returns `StatusServing` when the discovery document is valid and JWKS keys are l
 
 | Metric                                    | Description                                                           |
 |-------------------------------------------|-----------------------------------------------------------------------|
+| `auth_oidc_discovery_duration_seconds`    | Discovery latency histogram                                           |
 | `auth_oidc_token_validations_total`       | Total validation attempts                                             |
 | `auth_oidc_validation_errors_total`       | Validation failures                                                   |
 | `auth_oidc_validation_duration_seconds`   | Validation latency histogram                                          |

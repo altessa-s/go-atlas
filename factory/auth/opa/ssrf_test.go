@@ -123,3 +123,40 @@ func TestResolveS3Client_SSRF(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveS3Client_SSRFWithInstanceRole(t *testing.T) {
+	for _, key := range []string{
+		"AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_SECRET_KEY",
+		"AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_WEB_IDENTITY_TOKEN_FILE",
+		"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+	} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("AWS_CONFIG_FILE", t.TempDir()+"/config")
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", t.TempDir()+"/credentials")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "false")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("PUT /latest/api/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "60")
+		_, _ = io.WriteString(w, "token")
+	})
+	mux.HandleFunc("GET /latest/meta-data/iam/security-credentials/{$}", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "test-role")
+	})
+	mux.HandleFunc("GET /latest/meta-data/iam/security-credentials/test-role", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"Code":"Success","AccessKeyId":"test-key","SecretAccessKey":"secret","Token":"token","Expiration":"2099-01-01T00:00:00Z"}`)
+	})
+	metadata := httptest.NewServer(mux)
+	t.Cleanup(metadata.Close)
+	t.Setenv("AWS_EC2_METADATA_SERVICE_ENDPOINT", metadata.URL)
+
+	client, err := New(&authconfig.OPA{}).resolveS3Client(t.Context(), &authconfig.OPAS3{
+		Region: "us-east-1",
+		SSRF:   &httpconfig.ClientSSRF{},
+	})
+	require.NoError(t, err)
+	creds, err := client.(*awss3.Client).Options().Credentials.Retrieve(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "test-key", creds.AccessKeyID)
+}

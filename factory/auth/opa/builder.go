@@ -259,7 +259,7 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *authconfig.
 	if s3Cfg.Proxy != nil && s3Cfg.Proxy.Mode != "" && s3Cfg.Proxy.Mode != netproxy.ModeNone {
 		return nil, b.WrapError(httpclient.ErrSSRFUnsafeTransport, "proxy requires a separately constructed client with SSRF protection disabled")
 	}
-	clientOpts, err := httpclientfactory.ProxyOptions(s3Cfg.Proxy)
+	proxyOpts, err := httpclientfactory.ProxyOptions(s3Cfg.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize s3 proxy options")
 	}
@@ -267,9 +267,8 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *authconfig.
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize s3 SSRF options")
 	}
-	if len(clientOpts) > 0 || s3Cfg.SSRF != nil {
-		clientOpts = append(clientOpts, ssrfOpts...)
-		awsCfgOpts = append(awsCfgOpts, awsconfig.WithHTTPClient(httpclient.New(clientOpts...)))
+	if len(proxyOpts) > 0 {
+		awsCfgOpts = append(awsCfgOpts, awsconfig.WithHTTPClient(httpclient.New(proxyOpts...)))
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsCfgOpts...)
@@ -278,6 +277,12 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *authconfig.
 	}
 
 	var s3Opts []func(*awss3.Options)
+	// S3 egress rules apply to policy objects. Credential providers such as
+	// EC2 IMDS must retain their independently configured AWS transport.
+	if s3Cfg.SSRF != nil {
+		client := httpclient.New(append(proxyOpts, ssrfOpts...)...)
+		s3Opts = append(s3Opts, func(o *awss3.Options) { o.HTTPClient = client })
+	}
 	s3Opts = slices.AppendIf(s3Opts, s3Cfg.Endpoint != "", func(o *awss3.Options) {
 		o.BaseEndpoint = &s3Cfg.Endpoint
 	})

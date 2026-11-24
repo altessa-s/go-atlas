@@ -78,7 +78,7 @@ For network-backed policy sources, `Build(ctx)` translates the per-source `proxy
 | Source | YAML blocks | Client selection |
 |--------|-------------|------------------|
 | GitLab | `opa.gitlab.proxy`, `opa.gitlab.ssrf` | Always uses the Atlas HTTP client via `gitlab.WithHTTPClient(...)`. |
-| S3     | `opa.s3.proxy`, `opa.s3.ssrf`         | Uses the Atlas HTTP client via `awsconfig.WithHTTPClient(...)` when `proxy.mode: none` or an `ssrf` block is set. Otherwise uses the AWS SDK client. |
+| S3     | `opa.s3.proxy`, `opa.s3.ssrf`         | Uses the Atlas HTTP client when `proxy.mode: none` or an `ssrf` block is set. Otherwise uses the AWS SDK client. |
 
 ```yaml
 opa:

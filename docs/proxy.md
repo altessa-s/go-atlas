@@ -337,20 +337,8 @@ opts = append(opts, gitlab.WithHTTPClient(httpclient.New(clientOpts...)))
 The factory injects the Atlas HTTP client for S3 when `proxy.mode: none` or an `ssrf` block is set. With neither setting, the AWS SDK uses its own
 HTTP client and retry layer and honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. An injected S3 client takes precedence over both settings.
 
-```go
-clientOpts, err := httpclientfactory.ProxyOptions(s3Cfg.Proxy)
-if err != nil {
-    return nil, b.WrapError(err, "failed to materialize s3 proxy options")
-}
-ssrfOpts, err := httpclientfactory.SSRFOptions(s3Cfg.SSRF)
-if err != nil {
-    return nil, b.WrapError(err, "failed to materialize s3 SSRF options")
-}
-if len(clientOpts) > 0 || s3Cfg.SSRF != nil {
-    clientOpts = append(clientOpts, ssrfOpts...)
-    awsCfgOpts = append(awsCfgOpts, awsconfig.WithHTTPClient(httpclient.New(clientOpts...)))
-}
-```
+The factory applies `s3.ssrf` to the S3 service client. AWS credential providers, including EC2 instance metadata, retain their SDK transport
+and the existing `s3.proxy` configuration.
 
 ### OTLP — gRPC and HTTP exporters
 
