@@ -20,9 +20,9 @@ func TestK8sHealtz(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/healthz", nil)
 
-	rw := writer.NewReadWriter(rec, req, w)
+	rw, cleanup := writer.NewReadWriter(rec, req, w)
 	K8sHealtz(rw)
-	rw.Release()
+	cleanup()
 
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -38,9 +38,9 @@ func TestK8sReadyz(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/readyz", nil)
 
-	rw := writer.NewReadWriter(rec, req, w)
+	rw, cleanup := writer.NewReadWriter(rec, req, w)
 	K8sReadyz(rw)
-	rw.Release()
+	cleanup()
 
 	require.Equal(t, http.StatusOK, rec.Code)
 

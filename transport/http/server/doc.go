@@ -8,7 +8,8 @@
 // The server abstracts the router implementation behind a [router.Router] interface,
 // allowing different routing libraries to be used interchangeably. Handlers receive
 // a [writer.ReadWriter] that provides content-negotiated request/response handling
-// instead of raw http.ResponseWriter and *http.Request.
+// instead of raw http.ResponseWriter and *http.Request. [Server.Handle] cleans up
+// the helper when the handler returns or panics.
 //
 // # Lifecycle
 //
@@ -35,12 +36,11 @@
 //	import (
 //	    "github.com/altessa-s/go-atlas/transport/http/server"
 //	    "github.com/altessa-s/go-atlas/transport/http/server/router/std"
-//	    baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 //	)
 //
 //	srv, err := server.New(
 //	    server.WithRouter(std.New()),
-//	    server.WithBaseOptions(baseserver.WithAddress(":8080")),
+//	    server.WithAddress(":8080"),
 //	)
 //	if err != nil {
 //	    log.Fatal(err)
@@ -49,6 +49,10 @@
 //	srv.RegisterHandlers(handlers...)
 //	srv.Start()
 //	defer srv.Shutdown(ctx)
+//
+// Configure startup verification, graceful shutdown, and warning intervals with
+// [WithLifecycleTimeouts]. A repeated Start returns [ErrServerAlreadyStarted],
+// and a Start after Done closes returns [ErrServerClosed].
 //
 // After Start succeeds, wait on Done to observe a post-start Serve failure or
 // completion of lifecycle shutdown, including cancellation after the lifecycle

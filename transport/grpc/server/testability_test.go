@@ -83,3 +83,16 @@ func TestWithStartupVerification(t *testing.T) {
 	require.GreaterOrEqual(t, took, check)
 	require.Less(t, took, grpcserver.DefaultStartupVerification, "shorter than the default check")
 }
+
+func TestRegisterHandlersAppends(t *testing.T) {
+	t.Parallel()
+	srv, err := grpcserver.New(grpcserver.WithListener(bufconn.Listen(1024)), grpcserver.WithStartupVerification(0))
+	require.NoError(t, err)
+	first, second := &countingHandler{}, &countingHandler{}
+	srv.RegisterHandlers(first)
+	srv.RegisterHandlers((*countingHandler)(nil), second)
+	srv.RegisterHandlers()
+	startServer(t, srv)
+	require.EqualValues(t, 1, first.calls.Load())
+	require.EqualValues(t, 1, second.calls.Load())
+}

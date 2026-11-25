@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas-net/httpx"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/authprincipal"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 )
@@ -95,10 +96,7 @@ func (m *middleware) authenticate(r *http.Request, path string) (any, error) {
 
 	token, err := m.opts.tokenExtractor.ExtractToken(r)
 	if err != nil {
-		m.LogDebug(ctx, "token extraction failed", path,
-			slog.String("method", r.Method),
-			slog.String("error", err.Error()))
-		return nil, err
+		return nil, m.callbackError(r, "token extraction failed", err)
 	}
 
 	if token == "" {
@@ -113,10 +111,7 @@ func (m *middleware) authenticate(r *http.Request, path string) (any, error) {
 
 	data, err := m.opts.authFunc.Authenticate(ctx, token)
 	if err != nil {
-		m.LogDebug(ctx, "authentication failed", path,
-			slog.String("method", r.Method),
-			slog.String("error", err.Error()))
-		return nil, err
+		return nil, m.callbackError(r, "authentication failed", err)
 	}
 
 	m.LogDebug(ctx, "authentication successful", path,
@@ -125,18 +120,53 @@ func (m *middleware) authenticate(r *http.Request, path string) (any, error) {
 	return data, nil
 }
 
+func (m *middleware) callbackError(r *http.Request, operation string, err error) error {
+	class := "unauthorized"
+	switch {
+	case errors.Is(err, ErrMissingToken):
+		class = "missing_token"
+	case errors.Is(err, ErrInvalidToken):
+		class = "invalid_token"
+	}
+	m.LogDebug(r.Context(), operation, r.URL.Path, slog.String("method", r.Method), slog.String("classification", class))
+	safe := diagnostics.ClassifiedError(class, err)
+	if statusErr, ok := errors.AsType[httpStatusError](err); ok {
+		if code := statusErr.HTTPStatus(); code >= http.StatusBadRequest && code <= 599 {
+			return callbackStatus{error: safe, code: code}
+		}
+	}
+	return safe
+}
+
+type httpStatusError interface {
+	error
+	HTTPStatus() int
+}
+
+type callbackStatus struct {
+	error
+	code int
+}
+
+func (s callbackStatus) Unwrap() error   { return s.error }
+func (s callbackStatus) HTTPStatus() int { return s.code }
+
 func (m *middleware) handleAuthError(w http.ResponseWriter, r *http.Request, err error) {
 	if m.opts.errorHandler != nil {
 		m.opts.errorHandler.HandleError(w, r, err)
 		return
 	}
 
-	if errors.Is(err, ErrMissingToken) {
+	code := http.StatusUnauthorized
+	if s, ok := err.(callbackStatus); ok {
+		code = s.code
+	}
+	if code == http.StatusUnauthorized && errors.Is(err, ErrMissingToken) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="Restricted"`)
 		http.Error(w, "Missing or invalid authorization", http.StatusUnauthorized)
 		return
 	}
-	http.Error(w, "Authentication failed", http.StatusUnauthorized)
+	http.Error(w, "Authentication failed", code)
 }
 
 // ContextWithPrincipal returns a copy of ctx carrying principal as the

@@ -18,7 +18,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	observhealth "github.com/altessa-s/go-atlas/observability/health"
 )
+
+var _ health.Health = (*observhealth.Coordinator)(nil)
 
 type fakeHealth struct {
 	err error

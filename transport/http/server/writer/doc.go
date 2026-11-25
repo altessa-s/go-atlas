@@ -13,8 +13,8 @@
 // error values.
 //
 // [ReadWriter] combines read and write operations into a per-request helper
-// that is pooled for efficiency. Handlers receive a ReadWriter from the
-// server and should call Release when done.
+// that is pooled for efficiency. The server owns cleanup for its handlers. Direct callers
+// of [NewReadWriter] defer the returned cleanup function.
 //
 // For large payloads, [Writer.WriteStream] and [Writer.WriteStreamWithFlush]
 // write directly to the response without buffering the entire body.

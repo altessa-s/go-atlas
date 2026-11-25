@@ -8,11 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/static"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
+	"github.com/altessa-s/go-atlas/transport/internal/authaudit"
 )
 
 // AuthFunc returns an [auth.AuthFunc] that validates the token against store.
@@ -70,21 +69,7 @@ func WithAudit(rec auth.DecisionRecorder, subjectOf func(any) string) AuthOption
 }
 
 func (c authConfig) record(ctx context.Context, data any, allowed bool, reason string) error {
-	if c.recorder == nil {
-		return nil
-	}
-	subject := ""
-	if allowed && c.subjectOf != nil {
-		subject = c.subjectOf(data)
-	}
-	return c.recorder.Record(ctx, decision.Decision{
-		Time:       time.Now().UTC(),
-		Allowed:    allowed,
-		Subject:    subject,
-		Action:     "authenticate",
-		Reason:     reason,
-		Attributes: map[string]string{"transport": "http"},
-	})
+	return authaudit.RecordAuthentication(ctx, c.recorder, "http", "authenticate", data, c.subjectOf, allowed, reason)
 }
 
 // auditReason maps a store error to a stable audit reason token.

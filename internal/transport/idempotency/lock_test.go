@@ -12,42 +12,39 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/transport/idempotency"
-
-	idempotencydata "github.com/altessa-s/go-atlas/reliability/idempotency"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 func TestClassifyLock(t *testing.T) {
 	t.Parallel()
 
-	completed := &storages.State{Status: storages.StatusSuccess, Data: "entity-1"}
+	fingerprintMismatch := errors.New("fingerprint mismatch")
+	ownerMismatch := errors.New("owner mismatch")
 	tests := []struct {
-		name   string
-		locked bool
-		state  *storages.State
-		err    error
-		want   idempotency.LockOutcome
-		record idempotency.Record
+		name             string
+		locked, hasState bool
+		status           idempotency.LockStatus
+		data             any
+		err              error
+		want             idempotency.LockOutcome
+		record           idempotency.Record
 	}{
-		{name: "acquired", locked: true, state: &storages.State{Status: storages.StatusInProgress},
-			want: idempotency.LockAcquired},
-		{name: "fingerprint mismatch", err: fmt.Errorf("lock: %w", idempotencydata.ErrFingerprintMismatch),
-			want: idempotency.LockFingerprintMismatch},
-		{name: "owner mismatch", err: fmt.Errorf("lock: %w", idempotencydata.ErrOwnerMismatch), want: idempotency.LockOwnerMismatch},
+		{name: "acquired", locked: true, hasState: true, status: idempotency.StatusInProgress, want: idempotency.LockAcquired},
+		{name: "fingerprint mismatch", err: fmt.Errorf("lock: %w", fingerprintMismatch), want: idempotency.LockFingerprintMismatch},
+		{name: "owner mismatch", err: fmt.Errorf("lock: %w", ownerMismatch), want: idempotency.LockOwnerMismatch},
 		{name: "storage error wins over locked", locked: true, err: errors.New("down"), want: idempotency.LockStorageError},
 		{name: "nil state", want: idempotency.LockNilState},
-		{name: "in progress", state: &storages.State{Status: storages.StatusInProgress}, want: idempotency.LockInProgress},
-		{name: "completed decodes the record", state: completed, want: idempotency.LockCompleted,
-			record: idempotency.Record{EntityID: "entity-1"}},
-		{name: "completed without data", state: &storages.State{Status: storages.StatusSuccess},
-			want: idempotency.LockCompleted},
-		{name: "unknown status runs the request", state: &storages.State{Status: "other"}, want: idempotency.LockAcquired},
+		{name: "in progress", hasState: true, status: idempotency.StatusInProgress, want: idempotency.LockInProgress},
+		{name: "completed decodes the record", hasState: true, status: idempotency.StatusSuccess, data: "entity-1",
+			want: idempotency.LockCompleted, record: idempotency.Record{EntityID: "entity-1"}},
+		{name: "completed without data", hasState: true, status: idempotency.StatusSuccess, want: idempotency.LockCompleted},
+		{name: "unknown status runs the request", hasState: true, status: "other", want: idempotency.LockAcquired},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, record := idempotency.ClassifyLock(tc.locked, tc.state, tc.err)
+			kind := idempotency.ClassifyLockError(tc.err, fingerprintMismatch, ownerMismatch)
+			got, record := idempotency.ClassifyLock(tc.locked, tc.hasState, tc.status, tc.data, kind)
 			require.Equal(t, tc.want, got)
 			require.Equal(t, tc.record, record)
 		})

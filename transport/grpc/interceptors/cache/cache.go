@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/cache"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
@@ -20,7 +21,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	slogx "github.com/altessa-s/go-slogx"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
@@ -136,7 +136,7 @@ func (i *interceptor) cacheResponse(ctx context.Context, key string, resp any, e
 			errorEntry := cachedEntry{ErrorCode: st.Code(), ErrorMsg: st.Message()}
 			if saveErr := i.cacher.Save(ctx, key, errorEntry, ttl); saveErr != nil {
 				i.Logger().Error("failed to save error entry to cache",
-					slog.String("key", key), slogx.Error(saveErr))
+					slog.String("key", key), slog.String("classification", diagnostics.ErrorClass(saveErr)))
 			}
 		}
 		return
@@ -154,14 +154,14 @@ func (i *interceptor) cacheResponse(ctx context.Context, key string, resp any, e
 		data, marshalErr := i.opts.serializer.MarshalForMethod(ctx, resp, config)
 		if marshalErr != nil {
 			i.Logger().Error("failed to serialize response",
-				slog.String("key", key), slogx.Error(marshalErr))
+				slog.String("key", key), slog.String("classification", diagnostics.ErrorClass(marshalErr)))
 			return
 		}
 
 		successEntry := cachedEntry{Data: data}
 		if saveErr := i.cacher.Save(ctx, key, successEntry, ttl); saveErr != nil {
 			i.Logger().Error("failed to save entry to cache",
-				slog.String("key", key), slogx.Error(saveErr))
+				slog.String("key", key), slog.String("classification", diagnostics.ErrorClass(saveErr)))
 		}
 	}
 }
@@ -180,7 +180,7 @@ func (i *interceptor) getCachedResponse(ctx context.Context, key string, config 
 		// Cache miss or error - don't log ErrMissing as it's expected behavior
 		if !errors.Is(err, cache.ErrMissing) {
 			i.Logger().Error("failed to get cached entry",
-				slog.String("key", key), slogx.Error(err))
+				slog.String("key", key), slog.String("classification", diagnostics.ErrorClass(err)))
 		}
 		return nil, nil, false //nolint:nilnil // third bool return discriminates cache miss
 	}
@@ -196,7 +196,7 @@ func (i *interceptor) getCachedResponse(ctx context.Context, key string, config 
 		// Log deserialization failures - this could indicate cache corruption,
 		// version mismatches, or serialization issues
 		i.Logger().Error("failed to deserialize cached response",
-			slog.String("key", key), slogx.Error(err))
+			slog.String("key", key), slog.String("classification", diagnostics.ErrorClass(err)))
 		return nil, nil, false //nolint:nilnil // third bool return discriminates cache miss
 	}
 
@@ -262,7 +262,7 @@ func (d *cacheDriver) PreCall(ctx context.Context, req any) (any, error) {
 		// If key generation fails, skip caching but log the error for debugging
 		// We don't return the error to avoid breaking the request flow
 		d.logger.Error("failed to generate cache key",
-			slog.String("key", key), slogx.Error(err))
+			slog.String("key", key), slog.String("classification", diagnostics.ErrorClass(err)))
 		return nil, nil //nolint:nilnil
 	}
 

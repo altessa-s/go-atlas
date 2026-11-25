@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
 	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // Use defaults package for optgen code generation
@@ -170,19 +170,24 @@ func PatternKeyValidator(pattern *regexp.Regexp, maxLen int) KeyFormatValidator 
 
 // Policy tells the middleware how one request treats idempotency keys; see
 // [WithRequestClassifier].
-type Policy = internalidem.Policy
+type Policy int
+
+// Mandatory reports whether the request requires an idempotency key.
+func (p Policy) Mandatory(enforceMandatory bool) bool {
+	return internalidem.Policy(p).Mandatory(enforceMandatory)
+}
 
 const (
 	// PolicyDefault applies [WithEnforceMandatory]: the key is checked when
 	// present and required when enforcement is on.
-	PolicyDefault = internalidem.PolicyDefault
+	PolicyDefault = Policy(internalidem.PolicyDefault)
 	// PolicySkip ignores idempotency for the request, as [WithIgnorePaths]
 	// does.
-	PolicySkip = internalidem.PolicySkip
+	PolicySkip = Policy(internalidem.PolicySkip)
 	// PolicyOptional checks a key when present and never requires one.
-	PolicyOptional = internalidem.PolicyOptional
+	PolicyOptional = Policy(internalidem.PolicyOptional)
 	// PolicyMandatory requires a key.
-	PolicyMandatory = internalidem.PolicyMandatory
+	PolicyMandatory = Policy(internalidem.PolicyMandatory)
 )
 
 // RequestClassifier returns the [Policy] of a request. It runs after the
@@ -252,6 +257,6 @@ type EntityIdExtractor func(r *http.Request, contentType string, body []byte) st
 
 // ErrorHandler writes an HTTP response for idempotency-related errors.
 // The middleware invokes it with the [ErrorScenario] that triggered the error
-// and, when available, the existing [storages.State] for the key.
+// and, when available, the existing [idempotency.State] for the key.
 // A default handler is provided; override it with [WithErrorHandler].
-type ErrorHandler func(w http.ResponseWriter, r *http.Request, scenario ErrorScenario, state *storages.State)
+type ErrorHandler func(w http.ResponseWriter, r *http.Request, scenario ErrorScenario, state *idempotency.State)

@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 )
 
@@ -94,6 +95,20 @@ type drivenMiddlewareWrapper struct {
 
 func (w *drivenMiddlewareWrapper) Name() string {
 	return w.dm.Name()
+}
+
+func (w *drivenMiddlewareWrapper) Dependencies() []string {
+	if d, ok := w.dm.(depgraph.DependencyDeclarer); ok {
+		return d.Dependencies()
+	}
+	return nil
+}
+
+func (w *drivenMiddlewareWrapper) RequiredDependencies() []string {
+	if d, ok := w.dm.(depgraph.RequiredDependencyDeclarer); ok {
+		return d.RequiredDependencies()
+	}
+	return nil
 }
 
 func (w *drivenMiddlewareWrapper) Handler(next http.Handler) http.Handler {

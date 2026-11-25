@@ -14,12 +14,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
 
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
 	stdGrpc "google.golang.org/grpc"
 )
@@ -31,12 +30,14 @@ const fastVerify = 10 * time.Millisecond
 // when gate is non-nil, signals entered and blocks inside Register until
 // gate is closed — i.e. while Start is in its critical section.
 type countingHandler struct {
+	stop    <-chan struct{}
 	calls   atomic.Int32
 	entered chan struct{}
 	gate    chan struct{}
 }
 
-func (h *countingHandler) Register(_ *stdGrpc.Server, _ <-chan struct{}) {
+func (h *countingHandler) Register(_ *stdGrpc.Server, stop <-chan struct{}) {
+	h.stop = stop
 	h.calls.Add(1)
 	if h.gate != nil {
 		h.entered <- struct{}{}
@@ -51,14 +52,12 @@ func newLifecycleServer(t *testing.T, verify time.Duration, handlers ...grpcserv
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
-	srv, err := grpcserver.New(grpcserver.WithBaseOptions(
-		baseserver.WithListener(ln),
-		baseserver.WithTimeouts(timeouts.Lifecycle{
+	srv, err := grpcserver.New(grpcserver.WithListener(ln),
+		grpcserver.WithLifecycleTimeouts(lifecycle.Timeouts{
 			StartupVerification: verify,
 			ShutdownGraceful:    time.Minute,
 			ShutdownWarning:     time.Minute,
-		}),
-	))
+		}))
 	require.NoError(t, err)
 	srv.RegisterHandlers(handlers...)
 	return srv, ln
@@ -89,7 +88,7 @@ func TestServer_Start_RepeatedKeepsRunningServer(t *testing.T) {
 		require.FailNow(t, "stream handler did not start")
 	}
 
-	require.ErrorIs(t, srv.Start(), baseserver.ErrServerAlreadyStarted)
+	require.ErrorIs(t, srv.Start(), grpcserver.ErrServerAlreadyStarted)
 	require.Equal(t, int32(1), counter.calls.Load())
 
 	// The open stream blocks GracefulStop, so the deadline forces Stop on
@@ -137,7 +136,7 @@ func TestServer_Start_Concurrent(t *testing.T) {
 			ok++
 			continue
 		}
-		require.ErrorIs(t, err, baseserver.ErrServerAlreadyStarted)
+		require.ErrorIs(t, err, grpcserver.ErrServerAlreadyStarted)
 	}
 	require.Equal(t, 1, ok)
 	require.Equal(t, int32(1), counter.calls.Load())
@@ -153,7 +152,7 @@ func TestServer_Start_AfterShutdown(t *testing.T) {
 	require.NoError(t, srv.Start())
 	require.NoError(t, srv.Shutdown(t.Context()))
 
-	require.ErrorIs(t, srv.Start(), baseserver.ErrServerClosed)
+	require.ErrorIs(t, srv.Start(), grpcserver.ErrServerClosed)
 	require.Equal(t, int32(1), counter.calls.Load())
 	require.NoError(t, srv.Shutdown(t.Context()))
 }
@@ -186,7 +185,7 @@ func TestServer_Shutdown_DuringStart(t *testing.T) {
 
 	require.True(t, srv.IsStopped())
 	require.False(t, srv.IsStarted())
-	require.ErrorIs(t, srv.Start(), baseserver.ErrServerClosed)
+	require.ErrorIs(t, srv.Start(), grpcserver.ErrServerClosed)
 }
 
 // TestServer_Start_FailureIsRetryable checks that a start whose Serve fails
@@ -203,14 +202,20 @@ func TestServer_Start_FailureIsRetryable(t *testing.T) {
 
 	err := srv.Start()
 	require.Error(t, err)
-	require.NotErrorIs(t, err, baseserver.ErrServerAlreadyStarted)
+	require.NotErrorIs(t, err, grpcserver.ErrServerAlreadyStarted)
 
 	err = srv.Start()
 	require.Error(t, err)
-	require.NotErrorIs(t, err, baseserver.ErrServerAlreadyStarted)
-	require.NotErrorIs(t, err, baseserver.ErrServerClosed)
+	require.NotErrorIs(t, err, grpcserver.ErrServerAlreadyStarted)
+	require.NotErrorIs(t, err, grpcserver.ErrServerClosed)
 	require.Equal(t, int32(2), counter.calls.Load())
 	require.NoError(t, srv.Shutdown(t.Context()))
+	select {
+	case <-counter.stop:
+	default:
+		require.FailNow(t, "handler did not receive the final shutdown signal")
+	}
+	require.NoError(t, srv.Shutdown(t.Context()))
 	require.True(t, srv.IsStopped())
-	require.ErrorIs(t, srv.Start(), baseserver.ErrServerClosed)
+	require.ErrorIs(t, srv.Start(), grpcserver.ErrServerClosed)
 }

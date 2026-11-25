@@ -19,14 +19,16 @@ import (
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas-core/io/spool"
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // Response messages.
@@ -55,10 +57,9 @@ type middleware struct {
 	replayHeaders *coremaps.ImmutableMap[string, struct{}]
 }
 
-// Dependencies returns middlewares that idempotency requires to run before it.
-// Idempotency has no dependencies.
+// Dependencies orders authentication before owner-bound idempotency.
 func (m *middleware) Dependencies() []string {
-	return nil
+	return []string{auth.Name(), mtls.Name()}
 }
 
 // New creates a new idempotency middleware with the given
@@ -111,7 +112,7 @@ func Middleware(storage idempotency.Idempotency, opt ...Option) func(http.Handle
 
 // defaultErrorHandler handles idempotency errors by writing a plain text response.
 // Override with [WithErrorHandler] to produce structured (JSON/XML) responses.
-func defaultErrorHandler(w http.ResponseWriter, _ *http.Request, scenario ErrorScenario, _ *storages.State) {
+func defaultErrorHandler(w http.ResponseWriter, _ *http.Request, scenario ErrorScenario, _ *idempotency.State) {
 	switch scenario {
 	case ErrorIDKMissing:
 		http.Error(w, "Idempotency key is required for this operation", http.StatusBadRequest)
@@ -171,7 +172,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 // under internalidem.FinalizeContext, so a client that disconnected does not
 // leave the key in progress until the lock expires.
 func (m *middleware) finalize(
-	r *http.Request, sw *middlewares.ResponseWriter, storageKey string, lockState *storages.State, panicked bool,
+	r *http.Request, sw *middlewares.ResponseWriter, storageKey string, lockState *idempotency.State, panicked bool,
 ) {
 	ctx, cancel := internalidem.FinalizeContext(r.Context())
 	defer cancel()
@@ -181,17 +182,19 @@ func (m *middleware) finalize(
 		// and another node took over — our result is dropped rather than
 		// overwriting the new holder's state.
 		if err := m.i.Complete(ctx, storageKey, m.completionData(r, sw), lockState); err != nil {
-			m.LogWarn(ctx, "idempotency key not completed", r.URL.Path, err, slog.String("method", r.Method))
+			m.LogWarn(ctx, "idempotency key not completed", r.URL.Path, nil,
+				slog.String("classification", diagnostics.ErrorClass(err)), slog.String("method", r.Method))
 		}
 		return
 	}
 	// Release only the lock owned by this failed request.
 	if err := m.i.Release(ctx, storageKey, lockState); err != nil {
-		m.LogWarn(ctx, "idempotency key not released", r.URL.Path, err, slog.String("method", r.Method))
+		m.LogWarn(ctx, "idempotency key not released", r.URL.Path, nil,
+			slog.String("classification", diagnostics.ErrorClass(err)), slog.String("method", r.Method))
 	}
 }
 
-func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (string, *storages.State, error) {
+func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (string, *idempotency.State, error) {
 	path := r.URL.Path
 	ctx := r.Context()
 
@@ -243,7 +246,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge || errors.Is(err, spool.ErrTooLarge) {
 			scenario = ErrorIDKBodyTooLarge
 		}
-		m.LogDebug(ctx, "request body could not be fingerprinted", path, slog.Any("error", err))
+		m.LogDebug(ctx, "request body could not be fingerprinted", path, slog.String("classification", diagnostics.ErrorClass(err)))
 		m.opts.errorHandler(w, r, scenario, nil)
 		return "", nil, errKeyNotUnique
 	}
@@ -252,7 +255,13 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 	locked, state, err := m.i.AttemptLockWithOpts(ctx, storageKey, idempotency.AttemptLockOpts{
 		Fingerprint: fingerprint,
 	})
-	outcome, record := internalidem.ClassifyLock(locked, state, err)
+	var lockStatus internalidem.LockStatus
+	var data any
+	if state != nil {
+		lockStatus, data = internalidem.LockStatus(state.Status), state.Data
+	}
+	errKind := internalidem.ClassifyLockError(err, idempotency.ErrFingerprintMismatch, idempotency.ErrOwnerMismatch)
+	outcome, record := internalidem.ClassifyLock(locked, state != nil, lockStatus, data, errKind)
 	switch outcome {
 	case internalidem.LockFingerprintMismatch:
 		m.LogDebug(ctx, "idempotency key used for a different request", path, m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
@@ -466,12 +475,12 @@ var errIdempotencyKeyMissing = http.ErrAbortHandler
 var errIdempotencyKeyInvalidFormat = http.ErrAbortHandler
 
 // buildKey constructs a storage key from HTTP method, path, and idempotency key
-// with internalidem.BuildStorageKey: the tuple ("transport", service, key) in the
+// with idempotency.ComposeKey: the tuple ("transport", service, key) in the
 // length-prefixed v2 format. For HTTP, service is represented as {method}:/{path}.
 // Example: idk:v2:9:transport18:POST:/api/v1/users36:550e8400-e29b-41d4-a716-446655440000
 func (m *middleware) buildKey(method, path, idempotencyKey string) string {
 	path = intern.String(strings.TrimPrefix(path, "/"))
-	return internalidem.BuildStorageKey(method+":/"+path, idempotencyKey)
+	return idempotency.ComposeKey("transport", method+":/"+path, idempotencyKey)
 }
 
 // isSafeMethod reports whether the HTTP method is safe (idempotent by definition).
@@ -485,7 +494,7 @@ func isSafeMethod(method string) bool {
 }
 
 func (m *middleware) handleStorageError(w http.ResponseWriter, r *http.Request, err error) error {
-	m.LogWarn(r.Context(), "idempotency storage error", r.URL.Path, err,
+	m.LogWarn(r.Context(), "idempotency storage error", r.URL.Path, nil, slog.String("classification", diagnostics.ErrorClass(err)),
 		slog.String("method", r.Method))
 
 	switch m.opts.fallbackBehavior {

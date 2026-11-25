@@ -21,7 +21,7 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 
 | Type / Interface | Description                                                                            |
 |------------------|----------------------------------------------------------------------------------------|
-| `GRPCServer`     | Full server contract: extends base `Server` with handler and interceptor registration  |
+| `GRPCServer`     | Lifecycle observation, startup, shutdown, and handler and interceptor registration  |
 | `Server`         | Concrete implementation wrapping `grpc.Server` with lifecycle and TLS management       |
 | `Handler`        | Interface for service handlers: `Register(gs, stop)` attaches services to the server   |
 
@@ -29,7 +29,9 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 
 | Option              | Default  | Description                                                                   |
 |---------------------|----------|-------------------------------------------------------------------------------|
-| `WithBaseOptions`   | --       | Base server options: address, TLS config, logger, timeouts                    |
+| `WithAddress`, `WithName`, `WithLogger` | :0, empty, discard | TCP listen address and lifecycle logging |
+| `WithTLSConfig` | nil | TLS settings for the listener |
+| `WithLifecycleTimeouts` | See below | Startup verification, graceful shutdown limit, and warning interval |
 | `WithGrpcOptions`   | --       | Additional `grpc.ServerOption` values passed to the underlying gRPC server    |
 | `WithReflection`    | false    | Enables the gRPC server reflection service for tooling and debugging          |
 | `WithListener`      | --       | Serve this `net.Listener` (e.g. bufconn in tests) instead of listening on the address |
@@ -40,6 +42,18 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 | Package                                           | Description                                                             |
 |---------------------------------------------------|-------------------------------------------------------------------------|
 | [factory](../../../factory/transport/grpc/server) | Configuration-based server and interceptor creation from config structs |
+
+## TLS listeners
+
+With server TLS configured with `WithTLSConfig`, pass a raw listener if
+you supply one. The protocol server negotiates TLS for both supplied and
+automatically created listeners.
+
+## Lifecycle configuration
+
+Pass [`lifecycle.Timeouts`](../../lifecycle) to `WithLifecycleTimeouts`. Start with `lifecycle.DefaultTimeouts()` to override individual fields.
+`LifecycleTimeouts()` returns the effective settings. The shorter of the graceful shutdown limit and the caller's deadline bounds protocol cleanup.
+A second `Start` on a running server returns `ErrServerAlreadyStarted`. Both lifecycle errors support `errors.Is`.
 
 ## Lifecycle observation
 
@@ -52,7 +66,3 @@ Once `Done` closes, `Start` returns `ErrServerClosed`, including after a post-st
 Serve failure. Create a new server to restart. Early startup errors are returned
 by `Start` and leave `Done` open; a supplied listener may be consumed by a failed
 Serve, so retrying with that listener may not succeed.
-
-`GRPCServer` gained `Done() <-chan struct{}` and `Err() error` through its embedded
-base interface. This is an interface addition: custom implementations and mocks
-must implement both methods.

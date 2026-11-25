@@ -22,6 +22,9 @@ const (
 )
 
 var (
+	// ErrFilterCompilerRequired is returned by NewWithCompiler without a compiler.
+	ErrFilterCompilerRequired = errors.New("scheduler filter compiler is required")
+
 	// ErrFilterParserRequired is returned by [New] without a filter parser.
 	ErrFilterParserRequired = errors.New("scheduler filter parser is required")
 

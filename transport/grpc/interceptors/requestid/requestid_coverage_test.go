@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	internalrequestid "github.com/altessa-s/go-atlas/internal/transport/requestid"
+	sharedrequestid "github.com/altessa-s/go-atlas/transport/requestid"
 )
 
 const validUUID = "018f2a3c-1111-4222-8333-444455556666"
@@ -38,7 +38,7 @@ func TestName_ID(t *testing.T) {
 func TestServerUnaryInterceptor_ValidIncomingID(t *testing.T) {
 	t.Parallel()
 
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	inter := ServerUnaryInterceptor(gen)
 	info := &grpc.UnaryServerInfo{FullMethod: "/svc/Method"}
 
@@ -59,7 +59,7 @@ func TestServerUnaryInterceptor_ValidIncomingID(t *testing.T) {
 func TestServerUnaryInterceptor_GeneratesWhenMissing(t *testing.T) {
 	t.Parallel()
 
-	gen := internalrequestid.NewGenerator(internalrequestid.WithGenerateIfMissing(true))
+	gen := sharedrequestid.NewGenerator(sharedrequestid.WithGenerateIfMissing(true))
 	inter := ServerUnaryInterceptor(gen)
 	info := &grpc.UnaryServerInfo{FullMethod: "/svc/Method"}
 
@@ -76,7 +76,7 @@ func TestServerUnaryInterceptor_GeneratesWhenMissing(t *testing.T) {
 func TestServerStreamInterceptor_ValidIncomingID(t *testing.T) {
 	t.Parallel()
 
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	inter := ServerStreamInterceptor(gen)
 	info := &grpc.StreamServerInfo{FullMethod: "/svc/Stream"}
 
@@ -97,7 +97,7 @@ func TestServerStreamInterceptor_ValidIncomingID(t *testing.T) {
 func TestClientUnaryInterceptor_AttachesRequestID(t *testing.T) {
 	t.Parallel()
 
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	inter := ClientUnaryInterceptor(gen)
 
 	var invokerCtx context.Context
@@ -117,7 +117,7 @@ func TestClientUnaryInterceptor_AttachesRequestID(t *testing.T) {
 func TestClientStreamInterceptor_AttachesRequestID(t *testing.T) {
 	t.Parallel()
 
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	inter := ClientStreamInterceptor(gen)
 
 	var streamerCtx context.Context
@@ -137,7 +137,7 @@ func TestClientStreamInterceptor_AttachesRequestID(t *testing.T) {
 func TestClientInterceptor_Name(t *testing.T) {
 	t.Parallel()
 
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	require.Equal(t, "requestid", ClientInterceptor(gen).Name())
 	require.Equal(t, "requestid", ServerInterceptor(gen).Name())
 }
@@ -145,7 +145,7 @@ func TestClientInterceptor_Name(t *testing.T) {
 func TestServerUnaryInterceptor_GenerationDisabled(t *testing.T) {
 	t.Parallel()
 
-	gen := internalrequestid.NewGenerator(internalrequestid.WithGenerateIfMissing(false))
+	gen := sharedrequestid.NewGenerator(sharedrequestid.WithGenerateIfMissing(false))
 	inter := ServerUnaryInterceptor(gen)
 	info := &grpc.UnaryServerInfo{FullMethod: "/svc/Method"}
 	noop := func(context.Context, any) (any, error) { return "ok", nil }
@@ -181,7 +181,7 @@ func TestServerUnaryInterceptor_GenerationDisabled(t *testing.T) {
 func TestClientUnaryInterceptor_GenerationDisabled(t *testing.T) {
 	t.Parallel()
 
-	gen := internalrequestid.NewGenerator(internalrequestid.WithGenerateIfMissing(false))
+	gen := sharedrequestid.NewGenerator(sharedrequestid.WithGenerateIfMissing(false))
 	inter := ClientUnaryInterceptor(gen)
 
 	var invokerCtx context.Context

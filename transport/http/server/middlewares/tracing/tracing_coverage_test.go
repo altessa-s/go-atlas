@@ -40,8 +40,6 @@ type fakeTracer struct {
 }
 
 func (f *fakeTracer) Recorder(string, ...obstracing.RecorderOption) obstracing.Recorder { return f }
-func (f *fakeTracer) Shutdown(context.Context) error                                    { return nil }
-func (f *fakeTracer) ForceFlush(context.Context) error                                  { return nil }
 func (f *fakeTracer) WithScope(string) obstracing.Tracer                                { return f }
 
 func (f *fakeTracer) Start(ctx context.Context, name string, opts ...obstracing.SpanStartOption) (context.Context, obstracing.Span) {

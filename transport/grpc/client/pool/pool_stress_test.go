@@ -87,7 +87,7 @@ func TestStressPool(t *testing.T) {
 			pool.WithCleanupInterval(time.Second), pool.WithMaxIdleTime(time.Second))
 		stop, err := p.Start(t.Context())
 		require.NoError(t, err)
-		bindings := make(map[string]*pool.Binding, len(targets))
+		bindings := make(map[string]pool.Binding, len(targets))
 		for _, target := range targets {
 			b, err := p.Bind(target, factory)
 			require.NoError(t, err)

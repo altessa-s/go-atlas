@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"regexp"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/endpointfilter"
 
 	slogx "github.com/altessa-s/go-slogx"
@@ -121,7 +122,7 @@ func (b *Base) LogWarn(ctx context.Context, msg, endpoint string, err error, att
 	allAttrs := make([]slog.Attr, 0, len(attrs)+3)
 	allAttrs = append(allAttrs, slog.String(b.componentKind, b.name), slog.String(b.endpointKind, endpoint))
 	if err != nil {
-		allAttrs = append(allAttrs, slog.Any("error", err))
+		allAttrs = append(allAttrs, slog.Any("error", diagnostics.LogError(err)))
 	}
 	allAttrs = append(allAttrs, attrs...)
 	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelWarn, msg, allAttrs...)
@@ -132,7 +133,7 @@ func (b *Base) LogError(ctx context.Context, msg, endpoint string, err error, at
 	allAttrs := make([]slog.Attr, 0, len(attrs)+3)
 	allAttrs = append(allAttrs, slog.String(b.componentKind, b.name), slog.String(b.endpointKind, endpoint))
 	if err != nil {
-		allAttrs = append(allAttrs, slog.Any("error", err))
+		allAttrs = append(allAttrs, slog.Any("error", diagnostics.LogError(err)))
 	}
 	allAttrs = append(allAttrs, attrs...)
 	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelError, msg, allAttrs...)

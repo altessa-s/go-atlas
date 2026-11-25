@@ -17,7 +17,7 @@ import (
 )
 
 // DefaultPoolHealthServiceName is the service name used when the pool
-// registers its aggregate checker with [observability/health.Coordinator].
+// registers its aggregate checker with a health reporter.
 // It mirrors [DefaultMetricsSubsystem] for visual consistency in dashboards.
 const DefaultPoolHealthServiceName = "grpc_pool"
 
@@ -44,96 +44,123 @@ func DefaultStateMapper(s connectivity.State) health.ServingStatus {
 }
 
 // poolHealth is the optional pool-level health helper. It owns the wiring
-// between the [stateTracker] and the user-supplied
-// [observability/health.Coordinator]. When no coordinator is configured the
-// helper is still used to back [ConnectionPool.CheckHealth] and
-// [ConnectionPool.StateForTarget] using the default mapper.
+// between the [stateTracker] and the user-supplied health reporter. When no
+// reporter is configured, the helper still backs [ConnectionPool.CheckHealth]
+// and [ConnectionPool.StateForTarget] using the configured mapper.
 type poolHealth struct {
 	pool        *ConnectionPool
-	coordinator health.DynamicReporter // may be nil
+	enabled     bool
 	serviceName string
 	mapper      StateMapper // never nil
 	perTarget   bool
 
-	perTargetMu       sync.Mutex
-	registeredTargets map[string]int // target -> live conn count for lazy registration
+	mu                sync.Mutex
+	stopping          bool
+	aggregate         targetRegistration
+	registeredTargets map[string]targetRegistration
 }
 
 func newPoolHealth(p *ConnectionPool) *poolHealth {
 	return &poolHealth{
 		pool:              p,
-		coordinator:       p.opts.healthCoordinator,
+		enabled:           p.opts.healthCoordinator != nil || p.opts.scopedHealthReporter != nil,
 		serviceName:       p.opts.healthServiceName,
 		mapper:            p.opts.healthStateMapper,
 		perTarget:         p.opts.healthPerTarget,
-		registeredTargets: make(map[string]int),
+		registeredTargets: make(map[string]targetRegistration),
 	}
 }
 
-// register hooks the helper into the tracker and, when a coordinator is
-// configured, registers the aggregate service. Per-target services are
-// registered lazily as new targets first appear via [onConnAttached].
+type targetRegistration struct {
+	count      int
+	notify     func(health.ServingStatus)
+	unregister func()
+}
+
+func (h *poolHealth) registerService(name string, checker health.Checker) targetRegistration {
+	if scoped := h.pool.opts.scopedHealthReporter; scoped != nil {
+		notify, unregister := scoped.RegisterScopedService(name, checker)
+		return targetRegistration{notify: notify, unregister: unregister}
+	}
+	notify, unregister := health.RegisterOwnedService(h.pool.opts.healthCoordinator, name, checker)
+	return targetRegistration{notify: notify, unregister: unregister}
+}
+
 func (h *poolHealth) register() {
-	if h.coordinator == nil {
+	if !h.enabled {
 		return
 	}
-	h.coordinator.RegisterService(h.serviceName, h)
+	h.mu.Lock()
+	h.aggregate = h.registerService(h.serviceName, h)
+	h.mu.Unlock()
 	h.pool.tracker.enable()
 }
 
-// onTargetStateChange is the synchronous hook the tracker calls on every
-// per-conn state change. It pushes the recomputed aggregate and, when
-// per-target tracking is on, the per-target status.
-func (h *poolHealth) onTargetStateChange(target string, _ connectivity.State) {
-	if h.coordinator == nil {
-		return
-	}
-	h.coordinator.NotifyStatusChange(h.serviceName, h.aggregateStatus())
-	if h.perTarget && h.targetRegistered(target) {
-		h.coordinator.NotifyStatusChange(perTargetServiceName(h.serviceName, target), h.targetStatus(target))
-	}
-}
-
-// onConnAttached is called from [targetPool.createConnection] after the
-// tracker has been told about pc. It registers a per-target service the
-// first time we see a target.
-func (h *poolHealth) onConnAttached(target string) {
-	if h.coordinator == nil || !h.perTarget {
-		return
-	}
-	h.perTargetMu.Lock()
-	count := h.registeredTargets[target] + 1
-	h.registeredTargets[target] = count
-	h.perTargetMu.Unlock()
-	if count == 1 {
-		h.coordinator.RegisterService(perTargetServiceName(h.serviceName, target), &perTargetChecker{ph: h, target: target})
-	}
-}
-
-// onConnDetached is the mirror of onConnAttached. The per-target service is
-// unregistered when its last conn disappears so the registry stays bounded.
-func (h *poolHealth) onConnDetached(target string) {
-	if h.coordinator == nil || !h.perTarget {
-		return
-	}
-	h.perTargetMu.Lock()
-	count := h.registeredTargets[target] - 1
-	if count <= 0 {
+func (h *poolHealth) unregister() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.stopping = true
+	for target, reg := range h.registeredTargets {
+		reg.unregister()
 		delete(h.registeredTargets, target)
-	} else {
-		h.registeredTargets[target] = count
 	}
-	h.perTargetMu.Unlock()
-	if count <= 0 {
-		h.coordinator.UnregisterService(perTargetServiceName(h.serviceName, target))
+	if h.aggregate.unregister != nil {
+		h.aggregate.unregister()
+		h.aggregate = targetRegistration{}
 	}
 }
 
-func (h *poolHealth) targetRegistered(target string) bool {
-	h.perTargetMu.Lock()
-	defer h.perTargetMu.Unlock()
-	_, ok := h.registeredTargets[target]
-	return ok
+// onTargetStateChange forwards aggregate and per-target connection states.
+func (h *poolHealth) onTargetStateChange(target string, _ connectivity.State) {
+	if !h.enabled {
+		return
+	}
+	h.mu.Lock()
+	aggregate, service := h.aggregate, h.registeredTargets[target]
+	h.mu.Unlock()
+	if aggregate.notify != nil {
+		aggregate.notify(h.aggregateStatus())
+	}
+	if service.notify != nil {
+		service.notify(h.targetStatus(target))
+	}
+}
+
+// onConnAttached registers a per-target service on its first live connection.
+func (h *poolHealth) onConnAttached(target string) {
+	if !h.enabled || !h.perTarget {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.stopping {
+		return
+	}
+	reg := h.registeredTargets[target]
+	if reg.count == 0 {
+		reg = h.registerService(perTargetServiceName(h.serviceName, target), &perTargetChecker{ph: h, target: target})
+	}
+	reg.count++
+	h.registeredTargets[target] = reg
+}
+
+func (h *poolHealth) onConnDetached(target string) {
+	if !h.enabled || !h.perTarget {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	reg, ok := h.registeredTargets[target]
+	if !ok {
+		return
+	}
+	reg.count--
+	if reg.count == 0 {
+		reg.unregister()
+		delete(h.registeredTargets, target)
+		return
+	}
+	h.registeredTargets[target] = reg
 }
 
 // CheckHealth implements [health.Checker] for the aggregate pool service.
@@ -144,6 +171,9 @@ func (h *poolHealth) CheckHealth(_ context.Context) health.ServingStatus {
 // aggregateStatus returns the worst per-target status across the pool. With
 // no tracked targets it returns Serving — the pool is empty but functional.
 func (h *poolHealth) aggregateStatus() health.ServingStatus {
+	if h.pool.stopped.Load() {
+		return health.StatusNotServing
+	}
 	targets := h.pool.tracker.allTargets()
 	if len(targets) == 0 {
 		return health.StatusServing

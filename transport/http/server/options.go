@@ -7,9 +7,13 @@ package server
 //go:generate go tool optgen generate --type=options
 
 import (
+	"crypto/tls"
+	"log/slog"
+	"net"
 	"time"
 
-	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
+
 	router "github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
@@ -37,7 +41,18 @@ const (
 )
 
 type options struct {
-	baseOpts []baseserver.Option `opt:"BaseOptions"`
+	// WithAddress sets the TCP listen address. The default is ":0".
+	address string `optval:"lower"`
+	// WithName sets the server name used in lifecycle logs.
+	name string `optval:"lower"`
+	// WithTLSConfig configures TLS for supplied and automatically created listeners.
+	tlsConfig *tls.Config
+	// WithLogger sets the logger for server lifecycle events.
+	logger *slog.Logger
+	// WithLifecycleTimeouts sets the startup verification and shutdown durations.
+	lifecycleTimeouts lifecycle.Timeouts `optgen:"default=lifecycle.DefaultTimeouts()"`
+	// WithListener serves a supplied listener and closes it on shutdown.
+	listener net.Listener `optgen:"notnil"`
 
 	router            router.Router `optgen:"notnil"`
 	readTimeout       time.Duration `optgen:"default=DefaultReadTimeout"`

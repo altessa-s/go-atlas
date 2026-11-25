@@ -8,6 +8,9 @@ Package `auth` provides gRPC interceptors for token-based authentication and sco
 pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metadata. `ScopeClientAuth` enforces the method→scope policy held in an
 [`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/scope.Enforcer`.
 
+Callback failures retain their gRPC code and support sentinel matching with `errors.Is`. Logs and observers receive a fixed classification. The client
+receives the code name, with callback messages and status details discarded.
+
 ## Key types
 
 | Type / Interface  | Description                                                                  |
@@ -17,7 +20,7 @@ pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metada
 | `ClientAuth`      | Interface for additional client-level authentication after initial auth       |
 | `TokenExtractor`  | Interface for extracting tokens from context (default: Bearer from metadata) |
 | `TokenProvider`   | Interface for providing tokens in outgoing client requests                    |
-| `ScopeClientAuth` | `ClientAuth` adapter that enforces an `auth/scope.Enforcer`                   |
+| `ScopeClientAuth` | `ClientAuth` adapter that accepts a `ScopeEnforcer[P]`                   |
 | `ScopeClientAuthPrincipal` / `WithScopeAudit` | `ScopeClientAuth` for `principal.Principal`; option recording each decision via `DecisionRecorder` |
 | `ErrPrincipalTypeMismatch` | Wrapped when `Credentials.Data` is not the enforcer's principal type   |
 | `Credentials`     | Authenticated credentials with headers and custom data                       |

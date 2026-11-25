@@ -24,13 +24,7 @@
 // untrusted edges that need server-authoritative IDs must strip or
 // replace the header at the edge proxy.
 //
-// # Tracing fallback
-//
-// [FromContextOrTraceID] returns the request ID when available, otherwise
-// falls back to the OpenTelemetry trace ID, providing a consistent
-// correlation key for logs even when explicit request IDs are absent.
-//
-// Example:
+// # Usage
 //
 //	gen := requestid.NewGenerator(
 //	    requestid.WithHeaderName("X-Request-ID"),

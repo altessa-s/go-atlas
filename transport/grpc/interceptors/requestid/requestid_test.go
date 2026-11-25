@@ -5,13 +5,17 @@
 package requestid
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/observability/tracing"
+
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	internalrequestid "github.com/altessa-s/go-atlas/internal/transport/requestid"
+	sharedrequestid "github.com/altessa-s/go-atlas/transport/requestid"
 )
 
 func TestHeaderValue(t *testing.T) {
@@ -41,7 +45,7 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 
 func TestClientAttachRequestID_NoOutgoingMD(t *testing.T) {
 	t.Parallel()
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 
 	const reqID = "018f2a3c-1111-4222-8333-444455556666"
@@ -55,7 +59,7 @@ func TestClientAttachRequestID_NoOutgoingMD(t *testing.T) {
 
 func TestClientAttachRequestID_MergesExistingMD(t *testing.T) {
 	t.Parallel()
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 
 	const reqID = "018f2a3c-1111-4222-8333-444455556666"
@@ -77,7 +81,7 @@ func TestClientAttachRequestID_MergesExistingMD(t *testing.T) {
 // must not be cleared or overwritten by a later attach on another context.
 func TestClientAttachRequestID_MetadataSurvivesLaterCalls(t *testing.T) {
 	t.Parallel()
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 
 	const firstID = "018f2a3c-1111-4222-8333-444455556666"
@@ -93,7 +97,7 @@ func TestClientAttachRequestID_MetadataSurvivesLaterCalls(t *testing.T) {
 
 func TestClientAttachGeneratedRequestID(t *testing.T) {
 	t.Parallel()
-	gen := internalrequestid.NewGenerator(internalrequestid.WithGenerateIfMissing(true))
+	gen := sharedrequestid.NewGenerator(sharedrequestid.WithGenerateIfMissing(true))
 	i := &interceptor{gen: gen}
 	ctx := i.clientAttachRequestID(t.Context())
 	id := FromContext(ctx)
@@ -101,4 +105,18 @@ func TestClientAttachGeneratedRequestID(t *testing.T) {
 	md, ok := metadata.FromOutgoingContext(ctx)
 	require.True(t, ok)
 	require.Equal(t, []string{id}, md.Get(gen.HeaderName()))
+}
+
+func TestTracedClientOmitsMissingRequestID(t *testing.T) {
+	t.Parallel()
+	span := tracing.NewRemoteSpanContext([16]byte{1}, [8]byte{2}, tracing.FlagsSampled)
+	ctx := tracing.ContextWithSpanContext(t.Context(), span)
+	require.NotEmpty(t, tracing.TraceIDFromContext(ctx))
+	gen := sharedrequestid.NewGenerator(sharedrequestid.WithGenerateIfMissing(false))
+	invoke := func(ctx context.Context, _ string, _, _ any, _ *grpc.ClientConn, _ ...grpc.CallOption) error {
+		md, _ := metadata.FromOutgoingContext(ctx)
+		require.Empty(t, md.Get(gen.HeaderName()))
+		return nil
+	}
+	require.NoError(t, ClientUnaryInterceptor(gen)(ctx, "/service/Method", nil, nil, nil, invoke))
 }

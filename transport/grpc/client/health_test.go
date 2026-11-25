@@ -67,7 +67,9 @@ func TestClientPushNotifySingleMode(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(sub.Close)
 
-	c.conn.Connect()
+	conn, err := c.GetConnection(t.Context())
+	require.NoError(t, err)
+	conn.Connect()
 
 	deadline := time.After(5 * time.Second)
 	for {
@@ -77,7 +79,7 @@ func TestClientPushNotifySingleMode(t *testing.T) {
 				return
 			}
 		case <-deadline:
-			t.Fatalf("did not observe Degraded push within 5s, current state=%v", c.conn.GetState())
+			require.FailNow(t, "did not observe Degraded push", "connection state %v", conn.GetState())
 		}
 	}
 }
@@ -142,7 +144,7 @@ func TestClientPushNotifyPoolMode(t *testing.T) {
 				return
 			}
 		case <-deadline:
-			t.Fatalf("did not observe Degraded push within 5s in pool mode")
+			require.FailNow(t, "did not observe Degraded push in pool mode")
 		}
 	}
 }
@@ -178,6 +180,7 @@ func TestClientCloseStopsWatcher(t *testing.T) {
 
 	// Close should return cleanly and the goroutine wait should not hang.
 	require.NoError(t, c.Close(t.Context()))
+	require.Empty(t, slices.Collect(coord.ListServices()))
 	// Subsequent close on the helper is a noop.
 	c.health.detach()
 }
@@ -225,8 +228,70 @@ func TestClientConcurrentCloseWithHealth(t *testing.T) {
 			close(start)
 			wg.Wait()
 
-			require.Nil(t, c.health.cancel)
-			require.Nil(t, c.health.poolUnsub)
+			require.Nil(t, c.health.stopWatching)
 		})
 	}
+}
+
+func TestHealthRegistrationReplacement(t *testing.T) {
+	t.Parallel()
+	coord := health.New()
+	t.Cleanup(coord.Close)
+	newClient := func() *Client {
+		c, err := New(t.Context(), unreachableTarget, WithInsecure(), WithHealthCoordinator(coord))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = c.Close(t.Context()) })
+		return c
+	}
+	first, second := newClient(), newClient()
+	second.health.notify(health.StatusServing)
+	first.health.notify(health.StatusDegraded)
+	require.NoError(t, first.Close(t.Context()))
+	require.Equal(t, health.StatusServing, coord.CheckStatus(t.Context(), DefaultClientHealthServiceName))
+	require.NoError(t, second.Close(t.Context()))
+	require.Empty(t, slices.Collect(coord.ListServices()))
+}
+
+func TestFailedPoolSubscriptionPreservesRegistration(t *testing.T) {
+	t.Parallel()
+	coord := health.New()
+	t.Cleanup(coord.Close)
+	p := pool.New()
+	stop, err := p.Start(t.Context())
+	require.NoError(t, err)
+	stop()
+	c := &Client{backend: &pooledBackend{pool: p}, options: *newOptions(WithHealthCoordinator(coord))}
+	h := newClientHealth(c)
+	require.ErrorIs(t, h.attach(t.Context()), pool.ErrConnectionPoolClosed)
+	require.Empty(t, slices.Collect(coord.ListServices()))
+}
+
+func TestClientCloseDetachesRegistrationOnlyReporter(t *testing.T) {
+	t.Parallel()
+	coord := health.New()
+	t.Cleanup(coord.Close)
+	// Expose only the original Reporter contract.
+	reporter := struct{ health.Reporter }{coord}
+	c, err := New(t.Context(), unreachableTarget, WithInsecure(), WithHealthCoordinator(reporter))
+	require.NoError(t, err)
+	require.NoError(t, c.Close(t.Context()))
+	require.NoError(t, c.Close(t.Context()))
+	require.Empty(t, slices.Collect(coord.ListServices()))
+	require.Equal(t, health.StatusServing, coord.CheckStatus(t.Context(), ""))
+	require.Equal(t, health.StatusServiceUnknown, coord.CheckServiceHealth(t.Context(), DefaultClientHealthServiceName))
+}
+
+func TestExplicitScopedHealthReporter(t *testing.T) {
+	t.Parallel()
+	first, last := health.New(), health.New()
+	t.Cleanup(first.Close)
+	t.Cleanup(last.Close)
+	reporter := struct{ health.ScopedReporter }{last}
+	c, err := New(t.Context(), unreachableTarget, WithInsecure(), WithHealthCoordinator(first), WithScopedHealthReporter(reporter))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close(t.Context()) })
+	require.Empty(t, slices.Collect(first.ListServices()))
+	require.Equal(t, []string{DefaultClientHealthServiceName}, slices.Collect(last.ListServices()))
+	require.NoError(t, c.Close(t.Context()))
+	require.Empty(t, slices.Collect(last.ListServices()))
 }

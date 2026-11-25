@@ -5,6 +5,7 @@
 package recovery
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/internal/requestidcapture"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 )
 
@@ -37,12 +39,11 @@ type middleware struct {
 	logStack bool
 }
 
-// Dependencies returns middlewares that recovery reads from context.
-// All dependencies are optional for ordering - recovery gracefully degrades
-// if requestid is not available in context.
-func (m *middleware) Dependencies() []string {
-	return []string{requestid.Name()}
-}
+// Outermost keeps panics in other middleware within the recovery boundary.
+func (*middleware) Outermost() bool { return true }
+
+// Dependencies reports that recovery can run before every other middleware.
+func (*middleware) Dependencies() []string { return nil }
 
 // New creates a new panic recovery middleware.
 // The logger is required for panic reporting; pass additional [Option]
@@ -71,6 +72,8 @@ func PanicRecover(logger *slog.Logger, opt ...Option) func(next http.Handler) ht
 
 // Handler wraps an http.Handler with panic recovery functionality.
 func (m *middleware) Handler(next http.Handler) http.Handler {
+	panicOpts := panics.NewHandleOpts().SetReallyPanic(false)
+	observeID := m.Logger().Handler() != slog.DiscardHandler
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Check if this path should be ignored
 		if m.ShouldIgnoreRequest(request) {
@@ -82,8 +85,11 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		// the default handler.
 		tracked := &trackingWriter{ResponseWriter: writer}
 
-		// Create panic handling options
-		panicOpts := panics.NewHandleOpts().SetReallyPanic(false)
+		// Inner middleware passes a new request to its children. Observe the ID
+		// it resolves even if those children replace or commit response headers.
+		if observeID {
+			request = request.WithContext(requestidcapture.WithCapture(request.Context()))
+		}
 
 		// Create a handler that captures panic for logging
 		httpPanicHandler := func(ctx context.Context, p any) {
@@ -93,7 +99,8 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			}
 
 			// Log the panic using observability logger
-			m.logPanic(ctx, request, p)
+			id := cmp.Or(requestidcapture.ID(ctx), requestid.FromContext(ctx))
+			m.logPanic(ctx, request, p, id)
 
 			// Call custom handler if provided
 			if m.handler != nil {
@@ -113,10 +120,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 
 // logPanic logs the panic with request context including request ID, stack trace, and goroutine ID.
 // This matches the logging format used in gRPC recovery interceptor.
-func (m *middleware) logPanic(ctx context.Context, request *http.Request, p any) {
-	// Get request ID from context
-	requestID := requestid.FromContext(ctx)
-
+func (m *middleware) logPanic(ctx context.Context, request *http.Request, p any, requestID string) {
 	attrs := []slog.Attr{
 		slog.String("method", request.Method),
 		slog.String("request_id", requestID),

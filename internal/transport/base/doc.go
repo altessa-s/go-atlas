@@ -4,8 +4,7 @@
 
 // Package base provides the shared foundation for HTTP middlewares and gRPC
 // interceptors. It contains the common [Base] struct with constructors,
-// endpoint filtering, parameterized structured logging, and the [Matcher]
-// interface used for runtime enable/disable decisions.
+// endpoint filtering and parameterized structured logging.
 //
 // This is an internal package — import it only from
 // transport/http/server/middlewares and transport/grpc/interceptors.

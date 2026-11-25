@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas-net/httpx"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
@@ -161,7 +162,7 @@ func (i *interceptor) rateLimit(ctx context.Context, method string) (metadata.MD
 			return md, status.New(codes.ResourceExhausted, "Rate Limit Exceeded").Err()
 		}
 
-		i.LogWarn(ctx, "rate limit check failed", method, err)
+		i.LogWarn(ctx, "rate limit check failed", method, nil, slog.String("classification", diagnostics.ErrorClass(err)))
 
 		switch i.opts.fallbackBehavior {
 		case fallback.Allow:

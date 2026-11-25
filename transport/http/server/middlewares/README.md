@@ -15,9 +15,13 @@ before sorting. `ConditionalMiddleware` applies a middleware only to requests ac
 | Type / Interface        | Description                                                                     |
 |-------------------------|---------------------------------------------------------------------------------|
 | `Middleware`            | Interface: `Name() string` + `Handler(http.Handler) http.Handler`               |
+| `OutermostMiddleware`   | Runs before ordinary middleware in dependency-ordered chains                    |
 | `BaseMiddleware`        | Embeddable struct with path filtering, logging, and response-writer wrapping    |
 | `Chain`                 | Middleware collection with dependency ordering, deduplication, and clone/extend |
 | `ConditionalMiddleware` | Function wrapping a middleware with a `Matcher` evaluated on every request      |
+
+Outermost middleware can depend on other outermost members. A dependency on an ordinary member creates a cycle and the chain returns an error.
+Conditional wrappers preserve an outermost member's placement and dependencies.
 
 ## Ignore lists and request paths
 

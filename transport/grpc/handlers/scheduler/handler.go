@@ -20,14 +20,28 @@ import (
 )
 
 // Handler implements [schedulerv1.SchedulerServiceServer] by delegating to a
-// go-horai [scheduler.Scheduler]. It owns what the scheduler leaves to the
+// [SchedulerService]. It owns what the scheduler leaves to the
 // transport: parsing CEL filters into typed queries and signing page tokens.
 type Handler struct {
 	schedulerv1.UnimplementedSchedulerServiceServer
 
-	scheduler *scheduler.Scheduler
+	scheduler SchedulerService
 	tokens    TokenCodec
-	parser    FilterParser
+	compiler  FilterCompiler
+}
+
+// SchedulerService provides the task operations exposed by the scheduler RPCs.
+type SchedulerService interface {
+	Task(context.Context, string) (*horai.TaskState, error)
+	ListTasks(context.Context, scheduler.TaskListRequest) (*scheduler.Page[*horai.TaskSummary, horai.TaskCursor], error)
+	ListHistory(context.Context, scheduler.HistoryListRequest) (*scheduler.Page[*horai.TaskHistory, horai.HistoryCursor], error)
+	Status() scheduler.Status
+	Pause(context.Context, string) error
+	Resume(context.Context, string) error
+	Disable(context.Context, string) error
+	Enable(context.Context, string) error
+	SkipNextRun(context.Context, string) error
+	Trigger(context.Context, string) error
 }
 
 // TokenCodec issues and resolves bound scheduler page tokens.
@@ -45,17 +59,33 @@ type FilterParser interface {
 // ListHistory; use one codec with the same key on every instance serving the
 // lists. Without it (nil) both RPCs fail with FailedPrecondition
 // ([ErrPageTokensNotConfigured]).
-func New(s *scheduler.Scheduler, tokens TokenCodec, parser FilterParser) (*Handler, error) {
-	if s == nil {
+func New(s SchedulerService, tokens TokenCodec, parser FilterParser) (*Handler, error) {
+	if nilcheck.IsNil(s) {
 		return nil, ErrSchedulerRequired
 	}
 	if nilcheck.IsNil(parser) {
 		return nil, ErrFilterParserRequired
 	}
+	return newHandler(s, tokens, celCompiler{parser}), nil
+}
+
+// NewWithCompiler creates a handler with a caller-supplied filter compiler.
+// The handler validates compiled expressions against each RPC's filterable fields.
+func NewWithCompiler(s SchedulerService, tokens TokenCodec, compiler FilterCompiler) (*Handler, error) {
+	if nilcheck.IsNil(s) {
+		return nil, ErrSchedulerRequired
+	}
+	if nilcheck.IsNil(compiler) {
+		return nil, ErrFilterCompilerRequired
+	}
+	return newHandler(s, tokens, compiler), nil
+}
+
+func newHandler(s SchedulerService, tokens TokenCodec, compiler FilterCompiler) *Handler {
 	if nilcheck.IsNil(tokens) {
 		tokens = nil
 	}
-	return &Handler{scheduler: s, tokens: tokens, parser: parser}, nil
+	return &Handler{scheduler: s, tokens: tokens, compiler: compiler}
 }
 
 // Register registers the handler with gs.

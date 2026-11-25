@@ -123,7 +123,7 @@ func (h *Handler) Watch(req *grpc_health_v1.HealthCheckRequest, stream stdGrpc.S
 	}
 }
 
-// subscribeError maps a [health.Coordinator.Subscribe] failure to a gRPC
+// subscribeError maps a [HealthWatcher.Subscribe] failure to a gRPC
 // status.
 func subscribeError(err error, service string) error {
 	switch {

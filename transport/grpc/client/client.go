@@ -11,11 +11,12 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/time/timeformat"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
-	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
+	"github.com/altessa-s/go-atlas/transport/grpc/internal/grpcstatus"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -32,7 +33,6 @@ import (
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	grpcinterceptors "github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	grpcerrstatus "github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	grpclogger "github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
 	grpcmetrics "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
 	grpctracing "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
@@ -44,11 +44,11 @@ import (
 //
 // Create a Client with [New]. In single-connection mode (default), the client holds
 // one persistent [grpc.ClientConn]. In pool mode (when [WithPool] is used),
-// connections are obtained from a [pool.ConnectionPool] and must be returned via
+// connections are obtained from a [ConnPool] and must be returned via
 // [Client.ReturnConnection].
 //
 // All exported methods are safe for concurrent use after construction. The
-// underlying [grpc.ClientConn] and [pool.ConnectionPool] handle their own
+// underlying [grpc.ClientConn] and [ConnPool] handle their own
 // synchronization.
 //
 // Basic usage (single connection mode):
@@ -78,12 +78,13 @@ type Client struct {
 	address string
 	options options
 
-	binding *pool.Binding
-	conn    *grpc.ClientConn // Used when pool is nil (single connection mode)
+	backend connBackend
 
 	// health is the optional [observability/health] integration. nil when
 	// no coordinator is configured.
-	health *clientHealth
+	health    *clientHealth
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // New creates a new gRPC client connected to address.
@@ -116,32 +117,26 @@ func (c *Client) connect(ctx context.Context) error {
 		return coreerrs.WrapOperation(err, "build dial options")
 	}
 
-	if c.options.pool != nil {
-		c.binding, err = c.options.pool.Bind(c.address, func(_ context.Context, target string) (*grpc.ClientConn, error) {
+	if p := c.options.pool; p != nil {
+		binding, err := p.Bind(c.address, func(_ context.Context, target string) (*grpc.ClientConn, error) {
 			return grpc.NewClient(target, dialOpts...)
 		})
 		if err != nil {
 			return coreerrs.WrapOperation(err, "bind connection policy")
 		}
+		c.backend = &pooledBackend{pool: p, binding: binding, target: c.address}
 		c.options.logger.InfoContext(ctx, "using connection pool mode", "address", c.address)
-		c.health = newClientHealth(c)
-		if attachErr := c.health.attach(ctx); attachErr != nil {
-			return coreerrs.WrapOperation(attachErr, "attach health")
+	} else {
+		conn, err := grpc.NewClient(c.address, dialOpts...)
+		if err != nil {
+			return coreerrs.Wrapf(err, "failed to connect to %s", c.address)
 		}
-		return nil
+		c.backend = &singleBackend{conn}
+		c.options.logger.InfoContext(ctx, "created single connection", "address", c.address)
 	}
-
-	conn, err := grpc.NewClient(c.address, dialOpts...)
-	if err != nil {
-		return coreerrs.Wrapf(err, "failed to connect to %s", c.address)
-	}
-
-	c.conn = conn
-	c.options.logger.InfoContext(ctx, "created single connection", "address", c.address)
-
 	c.health = newClientHealth(c)
 	if err := c.health.attach(ctx); err != nil {
-		_ = conn.Close()
+		_ = c.backend.Close()
 		return coreerrs.WrapOperation(err, "attach health")
 	}
 
@@ -149,31 +144,33 @@ func (c *Client) connect(ctx context.Context) error {
 }
 
 // Close closes the underlying gRPC connection.
-// In pool mode this is a no-op because the pool owns the connections.
+// In pool mode it releases the client health registration; connections are owned by the pool.
 // Close is idempotent and safe to call on a nil connection.
 func (c *Client) Close(_ context.Context) error {
-	c.health.detach()
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return nil
+	c.closeOnce.Do(func() {
+		c.health.detach()
+		if c.backend != nil {
+			c.closeErr = c.backend.Close()
+		}
+	})
+	return c.closeErr
 }
 
 // GetConnection returns a connection from the pool or the single connection.
 // When using pool mode, the returned connection MUST be returned via ReturnConnection.
 // When using single connection mode, calling ReturnConnection is a no-op.
 func (c *Client) GetConnection(ctx context.Context) (*grpc.ClientConn, error) {
-	if c.options.pool != nil {
-		return c.binding.GetConnection(ctx)
+	if c.backend == nil {
+		return nil, nil //nolint:nilnil // A zero Client has no connection.
 	}
-	return c.conn, nil
+	return c.backend.GetConnection(ctx)
 }
 
 // ReturnConnection returns a connection to the pool.
 // This is a no-op when using single connection mode.
 func (c *Client) ReturnConnection(conn *grpc.ClientConn) {
-	if c.options.pool != nil {
-		c.options.pool.ReturnConnection(conn)
+	if c.backend != nil {
+		c.backend.ReturnConnection(conn)
 	}
 }
 
@@ -348,13 +345,20 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 func (c *Client) interceptorOptions() ([]grpc.DialOption, error) {
 	// All observers run inside client-side status conversion so a custom
 	// converter can return a domain error without changing the recorded RPC.
-	list := []any{grpcerrstatus.ClientInterceptor(grpcerrstatus.WithStatusConverterFunc(c.convertError))}
+	list := []any{grpcstatus.New(nil, func(ctx context.Context, st *status.Status) (error, bool) {
+		return c.convertError(ctx, st), true
+	})}
 	if nilcheck.IsNotNil(c.options.tracer) {
 		list = append(list, grpctracing.ClientInterceptor(c.options.tracer))
 	}
 	list = append(list, grpclogger.ClientInterceptor(grpclogger.Slog(c.options.logger), grpclogger.WithTimeFormat(timeformat.RFC3339)))
 	if nilcheck.IsNotNil(c.options.meter) {
 		list = append(list, grpcmetrics.ClientInterceptor(grpcmetrics.WithMeter(c.options.meter)))
+	}
+	for _, interceptor := range c.options.interceptors {
+		if nilcheck.IsNotNil(interceptor) {
+			list = append(list, interceptor)
+		}
 	}
 	return grpcinterceptors.NewChain(list...).ClientOptions()
 }

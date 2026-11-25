@@ -7,6 +7,9 @@ import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
 Package `auth` provides HTTP authentication middleware with support for Bearer tokens, API keys, and custom token schemes. It offers flexible token
 extraction, validation, and error handling with path-based filtering.
 
+Custom error handlers receive a fixed classification and can match callback sentinels with `errors.Is`. A callback implementing `HTTPStatus() int` can
+supply a 4xx or 5xx status. Other failures return 401 by default.
+
 ## Key types
 
 | Type / Interface    | Description                                              |
@@ -17,7 +20,7 @@ extraction, validation, and error handling with path-based filtering.
 | `ErrorHandler`      | Interface for custom error responses                    |
 | `FromContext`       | Returns the authenticated data stored in the request context |
 | `ContextWithPrincipal` | Installs a principal established outside the token flow (e.g. mTLS) |
-| `ScopeMiddleware`   | Authorization middleware enforcing `auth/scope` rules on the principal |
+| `ScopeMiddleware`   | Accepts a `ScopeEnforcer[P]` to authorize the request principal |
 
 ## Options
 
@@ -69,7 +72,7 @@ middleware := auth.Middleware(
 
 ```go
 errorHandler := auth.ErrorHandlerFunc(func(w http.ResponseWriter, r *http.Request, err error) {
-    if err == auth.ErrMissingToken {
+    if errors.Is(err, auth.ErrMissingToken) {
         w.WriteHeader(http.StatusUnauthorized)
         json.NewEncoder(w).Encode(map[string]string{"error": "token required"})
     }
@@ -104,9 +107,10 @@ if p, ok := principal.FromContext(r.Context()); ok {
 
 ## Subpackages
 
-| Package              | Description                                                |
-|----------------------|------------------------------------------------------------|
-| [static](./static)   | Static token/API key validation with timing-safe comparison |
+| Package              | Description                                                                                 |
+|----------------------|---------------------------------------------------------------------------------------------|
+| [mtls](./mtls)       | Mutual-TLS client certificate authentication over [`auth/mtls`](../../../../../auth/mtls)   |
+| [static](./static)   | Static token/API key validation with timing-safe comparison                                 |
 | [oidc](./oidc)       | OIDC adapter over [`auth/oidc`](../../../../../auth/oidc) `ClaimsValidator`; failures → 401 |
 
 ## Integration with middleware chain

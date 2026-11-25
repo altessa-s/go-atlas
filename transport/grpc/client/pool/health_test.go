@@ -6,6 +6,7 @@ package pool
 
 import (
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -329,4 +330,90 @@ func TestPoolSubscribeTargetAfterStopReturnsClosed(t *testing.T) {
 
 	_, err = p.SubscribeTarget("api", func(connectivity.State) {})
 	require.ErrorIs(t, err, ErrConnectionPoolClosed)
+}
+
+func TestStoppedPoolReleasesOnlyItsRegistrations(t *testing.T) {
+	t.Parallel()
+	coord := health.New()
+	t.Cleanup(coord.Close)
+	reporter := struct{ health.DynamicReporter }{coord}
+	newPool := func() (*ConnectionPool, func()) {
+		p := New(WithHealthCoordinator(reporter), WithHealthPerTarget())
+		stop, err := p.Start(t.Context())
+		require.NoError(t, err)
+		t.Cleanup(stop)
+		p.health.onConnAttached("api")
+		return p, stop
+	}
+	old, stopOld := newPool()
+	_, stopCurrent := newPool()
+
+	stopOld()
+	require.Equal(t, health.StatusNotServing, old.health.CheckHealth(t.Context()))
+	require.ElementsMatch(t, []string{DefaultPoolHealthServiceName, DefaultPoolHealthServiceName + ".api"}, slices.Collect(coord.ListServices()))
+
+	stopCurrent()
+	require.Empty(t, slices.Collect(coord.ListServices()))
+}
+
+type legacyPoolReporter struct {
+	mu         sync.Mutex
+	registered map[string]health.Checker
+}
+
+func (r *legacyPoolReporter) RegisterService(name string, checker health.Checker) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.registered[name] = checker
+}
+
+func (r *legacyPoolReporter) NotifyStatusChange(string, health.ServingStatus) {}
+
+func (r *legacyPoolReporter) UnregisterService(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.registered, name)
+}
+
+func (r *legacyPoolReporter) names() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	names := make([]string, 0, len(r.registered))
+	for name := range r.registered {
+		names = append(names, name)
+	}
+	return names
+}
+
+func TestPoolUnregistersFromLegacyDynamicReporter(t *testing.T) {
+	t.Parallel()
+	reporter := &legacyPoolReporter{registered: make(map[string]health.Checker)}
+	p := New(WithHealthCoordinator(reporter), WithHealthPerTarget())
+	stop, err := p.Start(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(stop)
+
+	p.health.onConnAttached("api")
+	require.ElementsMatch(t, []string{DefaultPoolHealthServiceName, DefaultPoolHealthServiceName + ".api"}, reporter.names())
+	p.health.onConnDetached("api")
+	require.Equal(t, []string{DefaultPoolHealthServiceName}, reporter.names())
+	stop()
+	require.Empty(t, reporter.names())
+}
+
+func TestExplicitScopedHealthReporter(t *testing.T) {
+	t.Parallel()
+	first, last := health.New(), health.New()
+	t.Cleanup(first.Close)
+	t.Cleanup(last.Close)
+	reporter := struct{ health.ScopedReporter }{last}
+	p := New(WithHealthCoordinator(first), WithScopedHealthReporter(reporter), WithHealthPerTarget())
+	stop, err := p.Start(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	p.health.onConnAttached("api")
+	require.Empty(t, slices.Collect(first.ListServices()))
+	require.ElementsMatch(t, []string{DefaultPoolHealthServiceName, DefaultPoolHealthServiceName + ".api"}, slices.Collect(last.ListServices()))
+	stop()
+	require.Empty(t, slices.Collect(last.ListServices()))
 }

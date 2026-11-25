@@ -24,10 +24,10 @@ import (
 	obstracing "github.com/altessa-s/go-atlas/observability/tracing"
 )
 
-func newBufferedTracer(t *testing.T, buf *bytes.Buffer) obstracing.Tracer {
+func newBufferedTracer(t testing.TB, buf *bytes.Buffer) obstracing.TracerProvider {
 	t.Helper()
 	tr := obstracing.New(obstracing.WithAdapter(console.New(console.WithWriter(buf))))
-	t.Cleanup(func() { require.NoError(t, tr.Shutdown(context.Background())) })
+	t.Cleanup(func() { require.NoError(t, tr.Shutdown(context.WithoutCancel(t.Context()))) })
 	return tr
 }
 

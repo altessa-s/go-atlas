@@ -14,6 +14,7 @@
 //   - Timeout management: Separate timeouts for query and mutation operations
 //   - Error handling: Rich error type with field-level validation errors
 //   - Authentication: Via WithDialOptions for custom credentials
+//   - Client interceptors: [WithInterceptors] extends the dependency-ordered default chain
 //   - Logging: Automatic gRPC call logging via interceptors
 //   - Proxy: declarative outbound proxy via WithProxy, WithProxyURL, or
 //     WithoutProxy; defaults to grpc-go's HTTPS_PROXY env lookup

@@ -17,21 +17,20 @@ import (
 	"google.golang.org/grpc/status"
 
 	idempotencydata "github.com/altessa-s/go-atlas/reliability/idempotency"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // ctxKeeper fails Complete and Release under an ended context, as a storage
 // reached over the network does.
 type ctxKeeper struct{ *idempotencydata.Keeper }
 
-func (k ctxKeeper) Complete(ctx context.Context, key string, data any, state *storages.State) error {
+func (k ctxKeeper) Complete(ctx context.Context, key string, data any, state *idempotencydata.State) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return k.Keeper.Complete(ctx, key, data, state)
 }
 
-func (k ctxKeeper) Release(ctx context.Context, key string, state *storages.State) error {
+func (k ctxKeeper) Release(ctx context.Context, key string, state *idempotencydata.State) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}

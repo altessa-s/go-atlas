@@ -15,6 +15,8 @@
 // ID is absent or not a valid UUID v4, the server interceptor returns
 // [ErrInvalidRequestId] as a gRPC [codes.InvalidArgument] status.
 //
+// Construct the shared generator with [github.com/altessa-s/go-atlas/transport/requestid.NewGenerator].
+//
 // # Trust model
 //
 // A client-supplied metadata value that passes strict UUID v4 validation
@@ -28,7 +30,9 @@
 //
 // Example:
 //
+//	// import requestid "github.com/altessa-s/go-atlas/transport/requestid"
+//	// import grpcrequestid "github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 //	gen := requestid.NewGenerator()
-//	server := grpc.NewServer(grpc.UnaryInterceptor(requestid.ServerUnaryInterceptor(gen)))
+//	server := grpc.NewServer(grpc.UnaryInterceptor(grpcrequestid.ServerUnaryInterceptor(gen)))
 //	// In handler: reqID := requestid.FromContext(ctx)
 package requestid

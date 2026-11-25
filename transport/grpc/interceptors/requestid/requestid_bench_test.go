@@ -9,11 +9,11 @@ import (
 
 	"google.golang.org/grpc/metadata"
 
-	internalrequestid "github.com/altessa-s/go-atlas/internal/transport/requestid"
+	sharedrequestid "github.com/altessa-s/go-atlas/transport/requestid"
 )
 
 func BenchmarkClientAttachRequestID(b *testing.B) {
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 	ctx := NewContext(b.Context(), "018f2a3c-1111-4222-8333-444455556666")
 
@@ -24,7 +24,7 @@ func BenchmarkClientAttachRequestID(b *testing.B) {
 }
 
 func BenchmarkClientAttachRequestID_ExistingMD(b *testing.B) {
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 	ctx := metadata.NewOutgoingContext(
 		NewContext(b.Context(), "018f2a3c-1111-4222-8333-444455556666"),
@@ -38,7 +38,7 @@ func BenchmarkClientAttachRequestID_ExistingMD(b *testing.B) {
 }
 
 func BenchmarkContextWithRequestID(b *testing.B) {
-	gen := internalrequestid.NewGenerator()
+	gen := sharedrequestid.NewGenerator()
 	i := &interceptor{gen: gen}
 	ctx := metadata.NewIncomingContext(
 		b.Context(),

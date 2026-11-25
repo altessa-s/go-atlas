@@ -53,8 +53,11 @@ func TestServer_IsStopped_Default(t *testing.T) {
 	require.False(t, srv.IsStopped(), "should not be stopped initially")
 }
 
-func TestDefaultTimeoutConfig(t *testing.T) {
-	cfg := DefaultTimeoutConfig()
+func TestDefaultLifecycleTimeouts(t *testing.T) {
+	t.Parallel()
+	srv, err := New()
+	require.NoError(t, err)
+	cfg := srv.LifecycleTimeouts()
 	require.False(t, cfg.StartupVerification <= 0, "StartupVerification should be > 0")
 }
 

@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
+
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -147,7 +149,7 @@ func resetGzipReader(r *gzipReader) bool {
 			// Note: We use slog here as this is a utility function without access to interceptor options
 			// In production, consider passing logger through context or as parameter
 			slog.Warn("compression: failed to close gzip reader",
-				"error", err,
+				"error", diagnostics.LogError(err),
 				"operation", "putGzipReader")
 			r.failureCount++
 

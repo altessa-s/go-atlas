@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/altessa-s/go-atlas-net/httpx"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -298,7 +299,7 @@ func (wr *Writer) writeFallback(ctx context.Context, w http.ResponseWriter) {
 	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
 	if _, err := w.Write([]byte(DefaultFallbackMessage)); err != nil { //nolint:gosec // Constant string, not user input
 		if wr.options.logger != nil {
-			wr.options.logger.WarnContext(ctx, "fallback response write failed", "error", err)
+			wr.options.logger.WarnContext(ctx, "fallback response write failed", "classification", diagnostics.ErrorClass(err))
 		}
 	}
 }
@@ -308,8 +309,7 @@ func (wr *Writer) writeFallback(ctx context.Context, w http.ResponseWriter) {
 // http.ResponseWriter and *http.Request to each method.
 //
 // Create instances via [Writer.NewReadWriter] or [NewReadWriter]. Instances are
-// drawn from a [sync.Pool] and must be returned by calling [ReadWriter.Release]
-// when the handler is done.
+// drawn from a [sync.Pool]. The caller of the constructor owns cleanup.
 //
 // ReadWriter is NOT safe for concurrent use. Each instance must be used only
 // within a single HTTP request by a single goroutine.
@@ -339,26 +339,20 @@ type ReadWriter interface {
 	// WriteStream writes a streaming response without buffering.
 	// Use for large responses that should not be buffered in memory.
 	WriteStream(data any) error
-
-	// Release releases the ReadWriter back to the pool.
-	// This should be called when the request handling is complete.
-	Release()
 }
 
 // readWriter implements ReadWriter interface.
 type readWriter struct {
-	w      http.ResponseWriter
-	r      *http.Request
-	writer *Writer
+	w       http.ResponseWriter
+	r       *http.Request
+	writer  *Writer
+	cleanup func() // bound once per pooled helper
 }
 
-var readWriterPool = sync.Pool{
-	New: func() any {
-		return &readWriter{}
-	},
-}
+var readWriterPool sync.Pool
 
-// NewReadWriter creates a ReadWriter for handling a request.
+// NewReadWriter returns a request helper and a cleanup function. Call cleanup exactly
+// once after the final use of the helper.
 //
 // Parameters:
 //   - w: http.ResponseWriter for writing the response
@@ -368,8 +362,8 @@ var readWriterPool = sync.Pool{
 // Example:
 //
 //	func handler(w http.ResponseWriter, r *http.Request) {
-//	    rw := writers.NewReadWriter(w, r, sharedWriter)
-//	    defer rw.Release()
+//	    rw, cleanup := writers.NewReadWriter(w, r, sharedWriter)
+//	    defer cleanup()
 //	    var input RequestBody
 //	    if err := rw.Read(&input); err != nil {
 //	        rw.WriteError(err, http.StatusBadRequest)
@@ -377,17 +371,21 @@ var readWriterPool = sync.Pool{
 //	    }
 //	    rw.Write(response)
 //	}
-func NewReadWriter(w http.ResponseWriter, r *http.Request, wr *Writer) ReadWriter {
-	rw := readWriterPool.Get().(*readWriter) //nolint:errcheck // Type assertion from pool is safe by design
+func NewReadWriter(w http.ResponseWriter, r *http.Request, wr *Writer) (ReadWriter, func()) {
+	rw, ok := readWriterPool.Get().(*readWriter)
+	if !ok {
+		rw = &readWriter{}
+		rw.cleanup = rw.release
+	}
 	rw.w = w
 	rw.r = r
 	rw.writer = wr
-	return rw
+	return rw, rw.cleanup
 }
 
 // NewReadWriter creates a ReadWriter helper for the given request.
-// This method satisfies the http.ResponseWriter interface.
-func (wr *Writer) NewReadWriter(w http.ResponseWriter, r *http.Request) ReadWriter {
+// Call the returned cleanup function exactly once after the final use of the helper.
+func (wr *Writer) NewReadWriter(w http.ResponseWriter, r *http.Request) (ReadWriter, func()) {
 	return NewReadWriter(w, r, wr)
 }
 
@@ -415,7 +413,7 @@ func (rw *readWriter) WriteStream(data any) error {
 	return rw.writer.WriteStream(rw.w, rw.r, data)
 }
 
-func (rw *readWriter) Release() {
+func (rw *readWriter) release() {
 	rw.w = nil
 	rw.r = nil
 	rw.writer = nil

@@ -7,11 +7,10 @@ package oidc
 import (
 	"context"
 	"errors"
-	"time"
 
-	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
+	"github.com/altessa-s/go-atlas/transport/internal/authaudit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -88,21 +87,7 @@ func WithAudit(rec auth.DecisionRecorder, subjectOf func(*oidc.Claims) string) A
 }
 
 func (c authConfig) finalize(ctx context.Context, claims *oidc.Claims, allowed bool, reason string, authErr error) error {
-	if c.recorder == nil {
-		return authErr
-	}
-	subject := ""
-	if allowed && c.subjectOf != nil {
-		subject = c.subjectOf(claims)
-	}
-	recErr := c.recorder.Record(ctx, decision.Decision{
-		Time:       time.Now().UTC(),
-		Allowed:    allowed,
-		Subject:    subject,
-		Action:     "validate_token",
-		Reason:     reason,
-		Attributes: map[string]string{"transport": "grpc"},
-	})
+	recErr := authaudit.RecordAuthentication(ctx, c.recorder, "grpc", "validate_token", claims, c.subjectOf, allowed, reason)
 	if recErr != nil && authErr == nil {
 		return status.Error(codes.Internal, "authentication audit failed")
 	}

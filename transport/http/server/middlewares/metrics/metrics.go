@@ -144,7 +144,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 // initializeMetrics creates all metrics.
 func (m *Middleware) initializeMetrics() {
-	scoped := m.opts.meter.WithSubsystem(m.opts.metricsSubsystem)
+	scoped := metrics.MustMeter{Meter: m.opts.meter.WithSubsystem(m.opts.metricsSubsystem)}
 
 	m.requestsTotal = scoped.MustCounter(metrics.MetricOpts{
 		Name:       "server_requests_total",

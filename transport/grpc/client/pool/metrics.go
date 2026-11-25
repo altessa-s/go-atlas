@@ -46,7 +46,7 @@ func newPoolMetrics(c metrics.Meter, subsystem string) *poolMetrics {
 		subsystem = DefaultMetricsSubsystem
 	}
 
-	scoped := c.WithSubsystem(subsystem)
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem(subsystem)}
 
 	return &poolMetrics{
 		connectionsCreated: scoped.MustCounter(metrics.MetricOpts{

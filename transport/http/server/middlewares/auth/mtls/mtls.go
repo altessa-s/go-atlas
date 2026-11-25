@@ -11,6 +11,7 @@ import (
 	"net/http"
 
 	"github.com/altessa-s/go-atlas/audit/decision"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	authmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
@@ -37,6 +38,18 @@ func PeerCertificate(r *http.Request) (*x509.Certificate, error) {
 		return nil, ErrNoVerifiedCert
 	}
 	return chains[0][0], nil
+}
+
+// Name returns the mTLS authentication middleware's ordering name.
+func Name() string { return "mtls" }
+
+// New constructs certificate authentication for a dependency-ordered chain.
+func New(opts ...coremtls.Option) (middlewares.Middleware, error) {
+	handler, err := Middleware(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return middlewares.Func(Name(), handler), nil
 }
 
 // Middleware authenticates each request from its verified mTLS client

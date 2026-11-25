@@ -4,24 +4,39 @@
 package server
 
 import (
+	"crypto/tls"
+	"log/slog"
+	"net"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
-
-	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithBaseOptions sets the baseOpts option.
-func WithBaseOptions(v ...baseserver.Option) Option {
+// WithAddress sets the TCP listen address. The default is ":0".
+func WithAddress[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
-		if len(v) == 0 {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.ToLower(strings.TrimSpace(value))
+
+		if transformedValue == "" {
 			return
 		}
-		o.baseOpts = v
+		o.address = transformedValue
 	}
 }
 
@@ -35,10 +50,64 @@ func WithIdleTimeout(v time.Duration) Option {
 	}
 }
 
+// WithLifecycleTimeouts sets the startup verification and shutdown durations.
+func WithLifecycleTimeouts(v lifecycle.Timeouts) Option {
+	return func(o *options) {
+		o.lifecycleTimeouts = v
+	}
+}
+
+// WithListener serves a supplied listener and closes it on shutdown.
+func WithListener(v net.Listener) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.listener = v
+	}
+}
+
+// WithLogger sets the logger for server lifecycle events.
+func WithLogger(v *slog.Logger) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.logger = v
+	}
+}
+
 // WithMaxHeaderBytes sets the maxHeaderBytes option.
 func WithMaxHeaderBytes(v int) Option {
 	return func(o *options) {
 		o.maxHeaderBytes = v
+	}
+}
+
+// WithName sets the server name used in lifecycle logs.
+func WithName[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.ToLower(strings.TrimSpace(value))
+
+		if transformedValue == "" {
+			return
+		}
+		o.name = transformedValue
 	}
 }
 
@@ -77,6 +146,16 @@ func WithRouter(v router.Router) Option {
 	}
 }
 
+// WithTLSConfig configures TLS for supplied and automatically created listeners.
+func WithTLSConfig(v *tls.Config) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.tlsConfig = v
+	}
+}
+
 // WithWriteTimeout sets the writeTimeout option.
 func WithWriteTimeout(v time.Duration) Option {
 	return func(o *options) {
@@ -98,6 +177,8 @@ func WithWriter(v ResponseWriter) Option {
 func defaultOptions() *options {
 	return &options{
 		idleTimeout:       DefaultIdleTimeout,
+		lifecycleTimeouts: lifecycle.DefaultTimeouts(),
+		logger:            slog.New(slog.DiscardHandler),
 		maxHeaderBytes:    DefaultMaxHeaderBytes,
 		readHeaderTimeout: DefaultReadHeaderTimeout,
 		readTimeout:       DefaultReadTimeout,

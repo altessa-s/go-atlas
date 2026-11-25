@@ -8,6 +8,8 @@ Package `requestid` provides gRPC interceptors for request ID generation and pro
 auto-generated. Server-side extraction with validation, client-side propagation to outgoing metadata. The metadata key is the generator's header
 name, `x-request-id` by default (the server factory takes it from `requestID.headerName`).
 
+Construct the generator with [`transport/requestid.NewGenerator`](../../../requestid).
+
 ## Trust model
 
 A client-supplied metadata value that passes strict UUID v4 validation is trusted as-is: it is propagated, stored in the context, and used as a log

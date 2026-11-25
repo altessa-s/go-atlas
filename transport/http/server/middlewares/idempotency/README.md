@@ -9,6 +9,8 @@ DELETE) via the Idempotency-Key header (lowercase UUID v4). The middleware acqui
 the key is marked complete, on failure it is deleted so the client can retry. Safe methods (GET, HEAD, OPTIONS) bypass the check. Supports configurable
 fallback behavior when storage is unavailable.
 
+Dependency-ordered chains run `auth` and `mtls` first when present so the keeper can resolve the authenticated owner.
+
 ## Options
 
 | Option                            | Default                     | Description                                                   |

@@ -94,7 +94,7 @@ type pooledConnection struct {
 	created  time.Time
 	lastUsed atomic.Int64 // Unix nanoseconds
 	inUse    atomic.Bool
-	binding  *Binding
+	binding  *binding
 }
 
 // New creates a new connection pool with the specified options.
@@ -187,6 +187,7 @@ func (cp *ConnectionPool) shutdown() {
 			return true
 		})
 		cp.tracker.shutdown()
+		cp.health.unregister()
 		close(cp.done)
 	})
 	<-cp.done
@@ -199,7 +200,7 @@ func (cp *ConnectionPool) GetConnection(ctx context.Context, target string) (*gr
 	return cp.getConnection(ctx, target, nil)
 }
 
-func (cp *ConnectionPool) getConnection(ctx context.Context, target string, binding *Binding) (*grpc.ClientConn, error) {
+func (cp *ConnectionPool) getConnection(ctx context.Context, target string, binding *binding) (*grpc.ClientConn, error) {
 	tp, err := cp.getOrCreateTargetPool(target)
 	if err != nil {
 		return nil, err
@@ -210,7 +211,11 @@ func (cp *ConnectionPool) getConnection(ctx context.Context, target string, bind
 // Binding owns a connection policy for one caller and target. Connections never
 // cross bindings, but all bindings share the pool's per-target capacity limit.
 // The pool owns shutdown; return borrowed connections through ReturnConnection.
-type Binding struct {
+type Binding interface {
+	GetConnection(context.Context) (*grpc.ClientConn, error)
+}
+
+type binding struct {
 	pool    *ConnectionPool
 	target  string
 	factory ClientFactory
@@ -218,7 +223,7 @@ type Binding struct {
 
 // Bind isolates a caller's factory from all other policies for the same target.
 // The factory must honor cancellation and return a fresh connection on success.
-func (cp *ConnectionPool) Bind(target string, factory ClientFactory) (*Binding, error) {
+func (cp *ConnectionPool) Bind(target string, factory ClientFactory) (Binding, error) {
 	if factory == nil {
 		return nil, ErrFactoryRequired
 	}
@@ -227,11 +232,11 @@ func (cp *ConnectionPool) Bind(target string, factory ClientFactory) (*Binding, 
 	if cp.stopped.Load() {
 		return nil, ErrConnectionPoolClosed
 	}
-	return &Binding{pool: cp, target: target, factory: factory}, nil
+	return &binding{pool: cp, target: target, factory: factory}, nil
 }
 
 // GetConnection borrows a connection using this binding's policy.
-func (b *Binding) GetConnection(ctx context.Context) (*grpc.ClientConn, error) {
+func (b *binding) GetConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	return b.pool.getConnection(ctx, b.target, b)
 }
 
@@ -339,7 +344,7 @@ func (tp *targetPool) notifyLocked() {
 	tp.changed = make(chan struct{})
 }
 
-func (tp *targetPool) getConnection(ctx context.Context, binding *Binding) (*grpc.ClientConn, error) {
+func (tp *targetPool) getConnection(ctx context.Context, binding *binding) (*grpc.ClientConn, error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -423,7 +428,7 @@ func (tp *targetPool) returnConnection(conn *grpc.ClientConn) {
 	tp.notifyLocked()
 }
 
-func (tp *targetPool) createConnection(ctx context.Context, binding *Binding) (*grpc.ClientConn, error) {
+func (tp *targetPool) createConnection(ctx context.Context, binding *binding) (*grpc.ClientConn, error) {
 	defer tp.creates.Done()
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, tp.opts.connectTimeout)
 	defer cancel()

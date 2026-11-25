@@ -7,8 +7,10 @@ package health
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
@@ -91,7 +93,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 
 		i.LogDebug(ctx, "performing health check", method)
 		if err := i.health.Health(ctx); err != nil {
-			i.LogWarn(ctx, "health check failed", method, err)
+			i.LogWarn(ctx, "health check failed", method, nil, slog.String("classification", diagnostics.ErrorClass(err)))
 			return nil, i.unavailableError(err)
 		}
 		i.LogDebug(ctx, "health check passed", method)
@@ -112,7 +114,7 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 
 		i.LogDebug(ctx, "performing health check", method)
 		if err := i.health.Health(ctx); err != nil {
-			i.LogWarn(ctx, "health check failed", method, err)
+			i.LogWarn(ctx, "health check failed", method, nil, slog.String("classification", diagnostics.ErrorClass(err)))
 			return i.unavailableError(err)
 		}
 		i.LogDebug(ctx, "health check passed", method)

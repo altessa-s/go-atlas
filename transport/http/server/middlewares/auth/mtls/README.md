@@ -13,6 +13,7 @@ transport label.
 
 | Symbol                    | Description                                                                                    |
 |---------------------------|------------------------------------------------------------------------------------------------|
+| `New(opts…)` / `Name()` | Constructs the ordering-aware middleware and identifies it as `mtls`. |
 | `Middleware(opts…)`       | `(func(http.Handler) http.Handler, error)`; `opts` are `auth/mtls` options. Errors with `coremtls.ErrNoTrustDomainPolicy` without a trust decision. No/ rejected cert → `401`; required-audit failure → `500`. |
 | `PeerCertificate(r)`      | Verified leaf client certificate from `r.TLS.VerifiedChains` (not unverified peer certs).       |
 

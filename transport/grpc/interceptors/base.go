@@ -40,7 +40,7 @@ import (
 //	    }
 //	}
 type BaseInterceptor struct {
-	base.Base
+	base base.Base
 }
 
 // NewBaseInterceptor creates a new BaseInterceptor with the given name and logger.
@@ -50,7 +50,7 @@ type BaseInterceptor struct {
 //   - name: The interceptor name used for identification and ordering
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseInterceptor(name string, logger *slog.Logger) BaseInterceptor {
-	return BaseInterceptor{Base: base.New(name, "interceptor", "method", logger)}
+	return BaseInterceptor{base: base.New(name, "interceptor", "method", logger)}
 }
 
 // NewBaseInterceptorWithFilter creates a new BaseInterceptor with method filtering support.
@@ -62,7 +62,7 @@ func NewBaseInterceptor(name string, logger *slog.Logger) BaseInterceptor {
 //   - ignorePatterns: Regex patterns for methods to skip
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseInterceptorWithFilter(name string, ignoreMethods []string, ignorePatterns []*regexp.Regexp, logger *slog.Logger) BaseInterceptor {
-	return BaseInterceptor{Base: base.NewWithFilter(name, "interceptor", "method", ignoreMethods, ignorePatterns, logger)}
+	return BaseInterceptor{base: base.NewWithFilter(name, "interceptor", "method", ignoreMethods, ignorePatterns, logger)}
 }
 
 // ShouldIgnoreFromContext checks if the current call should be ignored based on CallMetadata.
@@ -77,10 +77,29 @@ func (b *BaseInterceptor) ShouldIgnoreFromContext(ctx context.Context) (*metadat
 
 // LogWarn logs a warning with a bounded, credential-redacted error field.
 func (b *BaseInterceptor) LogWarn(ctx context.Context, msg, method string, err error, attrs ...slog.Attr) {
-	b.Base.LogWarn(ctx, msg, method, diagnostics.LogError(err), attrs...)
+	b.base.LogWarn(ctx, msg, method, diagnostics.LogError(err), attrs...)
 }
 
 // LogError logs a failure with a bounded, credential-redacted error field.
 func (b *BaseInterceptor) LogError(ctx context.Context, msg, method string, err error, attrs ...slog.Attr) {
-	b.Base.LogError(ctx, msg, method, diagnostics.LogError(err), attrs...)
+	b.base.LogError(ctx, msg, method, diagnostics.LogError(err), attrs...)
+}
+
+// Name returns the interceptor name.
+func (b *BaseInterceptor) Name() string { return b.base.Name() }
+
+// Logger returns the configured logger.
+func (b *BaseInterceptor) Logger() *slog.Logger { return b.base.Logger() }
+
+// ShouldIgnore reports whether method matches a configured exclusion.
+func (b *BaseInterceptor) ShouldIgnore(method string) bool { return b.base.ShouldIgnore(method) }
+
+// LogIgnored records that the interceptor skipped method.
+func (b *BaseInterceptor) LogIgnored(ctx context.Context, method string) {
+	b.base.LogIgnored(ctx, method)
+}
+
+// LogDebug records a debug message with the interceptor and method names.
+func (b *BaseInterceptor) LogDebug(ctx context.Context, msg, method string, attrs ...slog.Attr) {
+	b.base.LogDebug(ctx, msg, method, attrs...)
 }

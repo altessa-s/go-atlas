@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/client"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -279,4 +280,32 @@ func TestOptions_BlankValuesKeepDefaults(t *testing.T) {
 	_, err := invoke(t, c, "x")
 	require.NoError(t, err)
 	require.False(t, strings.HasPrefix(b.lastUserAgent(), " "))
+}
+
+type prefixInterceptor struct {
+	*interceptors.NoOpClientInterceptor
+	prefixes []string
+}
+
+func (i prefixInterceptor) Name() string { return i.prefixes[0] }
+
+func (i prefixInterceptor) ClientUnaryInterceptor() grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, next grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		in, ok := req.(*wrapperspb.StringValue)
+		if !ok {
+			return next(ctx, method, req, reply, cc, opts...)
+		}
+		return next(ctx, method, wrapperspb.String(i.prefixes[0]+in.GetValue()), reply, cc, opts...)
+	}
+}
+
+func TestWithInterceptors(t *testing.T) {
+	t.Parallel()
+	c := newClient(t, startBackend(t),
+		client.WithInterceptors(nil, (*prefixInterceptor)(nil), prefixInterceptor{prefixes: []string{"first/"}}),
+		client.WithInterceptors(prefixInterceptor{prefixes: []string{"second/"}}),
+	)
+	got, err := invoke(t, c, "request")
+	require.NoError(t, err)
+	require.Equal(t, "echo:second/first/request", got)
 }

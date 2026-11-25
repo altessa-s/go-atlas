@@ -11,6 +11,8 @@
 // [github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth.ScopeMiddleware])
 // reads it via FromContext.
 //
+// [New] constructs the named middleware for dependency-ordered chains.
+//
 // Configure behavior with the core package's options (mtls.WithTrustDomains /
 // WithIdentity / WithValidator / WithAudit). The options must make the trust
 // decision — mtls.WithTrustDomains or the mtls.WithInsecureAnyTrustDomain

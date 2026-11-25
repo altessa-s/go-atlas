@@ -37,7 +37,6 @@ import (
 	sharedlimiter "github.com/altessa-s/go-atlas/coord/limiters"
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 	idempotencydata "github.com/altessa-s/go-atlas/reliability/idempotency"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
 	stdGrpc "google.golang.org/grpc"
 )
@@ -174,7 +173,7 @@ func TestUseIdempotencyOptions(t *testing.T) {
 	b := New(cfg).
 		UseIdempotency(idempotencydata.New(idempotencytest.NewMockIdempotencyStorage())).
 		UseIdempotencyOptions(idempotency.WithStatusCreator(
-			func(_ context.Context, s idempotency.ErrorScenario, _ *storages.State) *status.Status {
+			func(_ context.Context, s idempotency.ErrorScenario, _ *idempotencydata.State) *status.Status {
 				scenarios = append(scenarios, s)
 				return status.New(codes.FailedPrecondition, "custom")
 			})).

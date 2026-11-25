@@ -10,8 +10,8 @@
 //
 // The middleware optionally logs the goroutine stack trace (enabled by
 // default) and supports a custom [PanicHandler] for application-specific
-// error responses. It declares a dependency on "requestid" for log
-// correlation.
+// error responses. It requests outermost placement and logs the ID resolved
+// by requestid, including IDs generated inside the recovery boundary.
 //
 // # Example
 //

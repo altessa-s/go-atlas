@@ -6,6 +6,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"iter"
 	"net"
@@ -16,12 +17,22 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 	"github.com/altessa-s/go-atlas/transport/http/server/responder"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
+)
+
+// Lifecycle errors returned by [Server.Start].
+var (
+	// ErrServerAlreadyStarted indicates that the server is already running.
+	ErrServerAlreadyStarted = baseserver.ErrServerAlreadyStarted
+	// ErrServerClosed indicates that the server cannot be restarted after Done closes.
+	ErrServerClosed = baseserver.ErrServerClosed
 )
 
 // ResponseWriter is the contract for request/response helpers used by handlers.
@@ -37,8 +48,8 @@ type ResponseWriter interface {
 	// WriteError writes an error response.
 	WriteError(w http.ResponseWriter, r *http.Request, err error, statusCode ...int) error
 
-	// NewReadWriter creates a ReadWriter for handling a request.
-	NewReadWriter(w http.ResponseWriter, r *http.Request) writer.ReadWriter
+	// NewReadWriter returns a request helper and its cleanup function. Handle calls cleanup once after the handler returns or panics.
+	NewReadWriter(w http.ResponseWriter, r *http.Request) (writer.ReadWriter, func())
 }
 
 // InitializableRouter is an optional interface that Router implementations
@@ -58,10 +69,11 @@ var _ RouteRegistrar = (*Server)(nil)
 // All route and middleware registration must happen before [Server.Start].
 // The zero value is not usable; create instances with [New].
 type Server struct {
-	*baseserver.BaseServer
+	base *baseserver.BaseServer
 
 	routerOnce        sync.Once
 	stopCh            chan struct{}
+	stopOnce          sync.Once
 	http              *http.Server
 	router            router.Router
 	readTimeout       time.Duration
@@ -89,7 +101,14 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	srv := &Server{
-		BaseServer:        baseserver.NewBaseServer(cfg.baseOpts...),
+		base: baseserver.NewBaseServer(
+			baseserver.WithAddress(cfg.address),
+			baseserver.WithName(cfg.name),
+			baseserver.WithLogger(cfg.logger),
+			baseserver.WithListener(cfg.listener),
+			baseserver.WithTLSConfig(cfg.tlsConfig),
+			baseserver.WithTimeouts(timeouts.Lifecycle(cfg.lifecycleTimeouts)),
+		),
 		stopCh:            make(chan struct{}),
 		router:            cfg.router,
 		readTimeout:       cfg.readTimeout,
@@ -132,26 +151,44 @@ func (s *Server) RegisterMiddleware(middleware ...router.Middleware) {
 // may work but is not recommended and may cause race conditions.
 func (s *Server) Handle(pattern string, handler HandlerFunc) router.Route {
 	// Warn if the server is already started (routes should be registered before Start())
-	if s.IsStarted() && s.Logger() != nil {
-		s.Logger().Warn("registering route after server start, this may cause race conditions",
+	if s.IsStarted() && s.base.Logger() != nil {
+		s.base.Logger().Warn("registering route after server start, this may cause race conditions",
 			"pattern", pattern)
 	}
 
 	return s.router.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		rw := s.writer.NewReadWriter(w, r)
-		defer rw.Release()
+		rw, cleanup := s.writer.NewReadWriter(w, r)
+		defer cleanup()
 		handler(rw)
 	})
 }
 
+// Done closes after shutdown or a post-start serving failure.
+func (s *Server) Done() <-chan struct{} { return s.base.Done() }
+
+// Err reports the first post-start serving failure. It is nil after normal shutdown.
+func (s *Server) Err() error { return s.base.Err() }
+
+// Address returns the bound address, or the configured address before binding.
+func (s *Server) Address() string { return s.base.Address() }
+
+// Listener returns the supplied or bound listener, if any.
+func (s *Server) Listener() net.Listener { return s.base.Listener() }
+
+// TLSConfig returns the configured TLS settings.
+func (s *Server) TLSConfig() *tls.Config { return s.base.TLSConfig() }
+
+// LifecycleTimeouts returns the effective startup and shutdown durations.
+func (s *Server) LifecycleTimeouts() lifecycle.Timeouts { return lifecycle.Timeouts(s.base.Timeouts()) }
+
 // IsStarted returns true if the server is running.
 func (s *Server) IsStarted() bool {
-	return s.BaseServer.IsStarted()
+	return s.base.IsStarted()
 }
 
 // IsStopped returns true if the server is stopped.
 func (s *Server) IsStopped() bool {
-	return s.IsShutdown()
+	return s.base.IsShutdown()
 }
 
 // errorInterceptorMiddleware returns middleware that wraps ResponseWriter
@@ -177,7 +214,7 @@ func (s *Server) errorInterceptorMiddleware() router.Middleware {
 // configured, the server uses ServeTLS. Returns an error if the writer is
 // nil or the underlying listener fails to bind.
 func (s *Server) Start() (err error) {
-	if err := s.CanStart(); err != nil {
+	if err := s.base.CanStart(); err != nil {
 		return err
 	}
 	// Validate required components
@@ -209,7 +246,7 @@ func (s *Server) Start() (err error) {
 	})
 
 	var srv *http.Server
-	startErr := s.BaseServer.Start("http", func(ln net.Listener, errCh chan<- error) {
+	startErr := s.base.Start("http", func(ln net.Listener, errCh chan<- error) {
 		// Configure HTTP server.
 		//
 		// ReadHeaderTimeout caps the header-read phase independently of the
@@ -276,10 +313,10 @@ func (s *Server) Middleware() iter.Seq[router.Middleware] {
 // is canceled or expires, active connections are force-closed and the context
 // error is returned. Force-close may finish after Shutdown returns.
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.GracefulShutdown(ctx, func(ctx context.Context) error {
+	s.stopOnce.Do(func() { close(s.stopCh) })
+	return s.base.GracefulShutdown(ctx, func(ctx context.Context) error {
 		// The lifecycle claim synchronizes this read with Start and prevents replacement.
 		srv := s.http
-		close(s.stopCh)
 
 		// http.Server.Shutdown sets the shutdown flag, closes tracked
 		// listeners (preventing new connections), and waits for active

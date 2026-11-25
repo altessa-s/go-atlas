@@ -5,6 +5,7 @@
 package mtls_test
 
 import (
+	"context"
 	"crypto/x509"
 	"testing"
 
@@ -29,7 +30,7 @@ func TestAuthFuncRequiresTrustDecision(t *testing.T) {
 		opts []coremtls.Option
 	}{
 		{"no options", nil},
-		{"ancillary validator", []coremtls.Option{coremtls.WithValidator(func(*x509.Certificate) error { return nil })}},
+		{"ancillary validator", []coremtls.Option{coremtls.WithValidator(func(context.Context, *x509.Certificate) error { return nil })}},
 		{"empty trust domain validator", []coremtls.Option{coremtls.WithValidator(coremtls.TrustDomainValidator())}},
 		{"empty trust domains", []coremtls.Option{coremtls.WithTrustDomains()}},
 	}

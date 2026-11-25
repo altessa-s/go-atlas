@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
@@ -138,7 +139,7 @@ func (c *clientInterceptor) checkLimit(ctx context.Context, method string) error
 
 		c.logger.ErrorContext(ctx, "client rate limit check failed",
 			slog.String("method", internedMethod),
-			slog.String("error", err.Error()))
+			slog.String("classification", diagnostics.ErrorClass(err)))
 
 		switch c.fallbackBehavior {
 		case fallback.Allow:

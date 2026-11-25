@@ -14,7 +14,7 @@
 // automatically. On limit exceeded, the middleware returns 429 Too Many
 // Requests.
 //
-// The middleware declares a dependency on "realip" for ordering.
+// The middleware requires "realip" and runs after "auth" and "mtls" when present.
 //
 // # Example
 //

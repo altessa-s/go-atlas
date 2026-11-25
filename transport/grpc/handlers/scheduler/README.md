@@ -14,6 +14,8 @@ to gRPC status codes (`NotFound`, `FailedPrecondition`, `InvalidArgument`, `Inte
 
 | Type / Symbol                | Description                                                                            |
 |------------------------------|----------------------------------------------------------------------------------------|
+| `SchedulerService`           | Task management, listing and status operations required by the RPCs                     |
+| `NewWithCompiler(s, tokens, compiler)` | Accepts a `FilterCompiler` returning a go-horai query. The handler checks the fields for each list. |
 | `Handler`                    | Implements `SchedulerServiceServer` by delegating to a go-horai scheduler              |
 | `New(s, tokens, parser)`     | Creates a `Handler`; `tokens` implements `TokenCodec` and `parser` implements the required `FilterParser` |
 | `ErrPageTokensNotConfigured` | `List`/`ListHistory` without a codec (`FailedPrecondition`)                            |

@@ -17,9 +17,11 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
 )
@@ -38,7 +40,7 @@ var (
 	ErrInvalidConfiguration = errors.New("invalid server configuration")
 )
 
-// BaseServer provides listener management, TLS wrapping, startup
+// BaseServer provides listener management, startup
 // verification, and graceful-shutdown orchestration shared by the HTTP
 // and gRPC server implementations. Lifecycle state is tracked with
 // a lifecycle mutex and atomic flags so Start and GracefulShutdown are safe from
@@ -63,12 +65,10 @@ type BaseServer struct {
 }
 
 // Server is the common interface implemented by HTTP and gRPC server
-// wrappers. [GetBase] provides access to the underlying [BaseServer] for
-// shared lifecycle operations.
+// wrappers.
 type Server interface {
 	Start() error
 	Shutdown(ctx context.Context) error
-	GetBase() *BaseServer
 	// Done closes exactly once when a post-start Serve error is recorded or
 	// GracefulShutdown completes, including cancellation and not-started paths.
 	// Early Start errors leave Done open; see Start for retry limitations. A wrapper
@@ -91,11 +91,6 @@ type StartFunc func(ln net.Listener, errCh chan<- error)
 // implementations should respect it to avoid blocking indefinitely.
 type ShutdownFunc func(ctx context.Context) error
 
-// GetBase returns the BaseServer instance.
-func (s *BaseServer) GetBase() *BaseServer {
-	return s
-}
-
 // NewBaseServer creates a new [BaseServer] with the given options.
 // Panics if no address is configured (use [WithAddress]).
 func NewBaseServer(opt ...Option) *BaseServer {
@@ -108,6 +103,12 @@ func NewBaseServer(opt ...Option) *BaseServer {
 	// Validate that address was provided
 	panics.Must(s.options.address != "", "server: address is required, use WithAddress option")
 
+	if s.options.timeouts.ShutdownGraceful <= 0 {
+		s.options.timeouts.ShutdownGraceful = timeouts.DefaultShutdownGraceful
+	}
+	if s.options.timeouts.ShutdownWarning <= 0 {
+		s.options.timeouts.ShutdownWarning = timeouts.DefaultShutdownWarning
+	}
 	return s
 }
 
@@ -143,7 +144,7 @@ func (s *BaseServer) watch(errCh <-chan error) {
 		s.serveErr = err
 		s.errMu.Unlock()
 		s.started.Store(false)
-		s.Logger().Error("server serve error", "error", err)
+		s.Logger().Error("server serve error", "classification", diagnostics.ErrorClass(err))
 		s.closeDone()
 	case <-s.watchStop:
 	}
@@ -151,7 +152,7 @@ func (s *BaseServer) watch(errCh <-chan error) {
 
 // Listen returns the pre-configured listener if one was provided via
 // [WithListener], otherwise creates a new TCP listener on [BaseServer.Address].
-// When TLS is configured, the raw listener is wrapped with [tls.NewListener].
+// The protocol server applies [BaseServer.TLSConfig] when serving.
 func (s *BaseServer) Listen() (net.Listener, error) {
 	if s.Listener() != nil {
 		return s.Listener(), nil
@@ -164,10 +165,6 @@ func (s *BaseServer) Listen() (net.Listener, error) {
 	ln, err := net.Listen("tcp", s.Address()) //nolint:noctx
 	if err != nil {
 		return nil, coreerrs.WrapOperationWithContext(err, "listen", s.Address())
-	}
-
-	if s.options.tlsConfig != nil {
-		ln = tls.NewListener(ln, s.options.tlsConfig)
 	}
 
 	s.options.listener = ln
@@ -212,7 +209,7 @@ func (s *BaseServer) validateStart() error {
 //
 // Example:
 //
-//	s.BaseServer.Start("http", func(ln net.Listener, errCh chan<- error) {
+//	s.base.Start("http", func(ln net.Listener, errCh chan<- error) {
 //	    go func() {
 //	        if err := s.httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 //	            select {
@@ -317,6 +314,9 @@ func (s *BaseServer) GracefulShutdown(ctx context.Context, shutdownFunc Shutdown
 		return nil
 	}
 
+	ctx, cancel := corecontext.WithMaxTimeout(ctx, s.options.timeouts.ShutdownGraceful)
+	defer cancel()
+
 	ch := make(chan error, 1)
 	// We don't close ch here because we can't guarantee the goroutine won't write to it
 	// after we return if context is canceled. Let GC handle it.
@@ -340,7 +340,7 @@ func (s *BaseServer) GracefulShutdown(ctx context.Context, shutdownFunc Shutdown
 			s.Logger().Warn("server still shutting down", "elapsed", time.Since(shutdownStart))
 		case err := <-ch:
 			if err != nil {
-				s.Logger().Error("server shutdown error", "error", err)
+				s.Logger().Error("server shutdown error", "classification", diagnostics.ErrorClass(err))
 				return err
 			}
 			s.Logger().Info("server shutdown complete")

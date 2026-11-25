@@ -6,6 +6,7 @@ package middlewares
 
 import (
 	"log/slog"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
 )
@@ -14,6 +15,7 @@ import (
 // and forward DependencyDeclarer.
 type middlewareWrapper struct {
 	middleware Middleware
+	outer      []string
 }
 
 // Name implements depgraph.Namer.
@@ -24,9 +26,12 @@ func (w middlewareWrapper) Name() string {
 // Dependencies implements depgraph.DependencyDeclarer by forwarding to the underlying middleware.
 func (w middlewareWrapper) Dependencies() []string {
 	if declarer, ok := w.middleware.(depgraph.DependencyDeclarer); ok {
-		return declarer.Dependencies()
+		if len(w.outer) == 0 {
+			return declarer.Dependencies()
+		}
+		return slices.Concat(w.outer, declarer.Dependencies())
 	}
-	return nil
+	return w.outer
 }
 
 // RequiredDependencies implements depgraph.RequiredDependencyDeclarer by forwarding to the underlying middleware.
@@ -44,10 +49,20 @@ func orderByDependencies(items []Middleware, logger *slog.Logger) ([]Middleware,
 		return items, nil
 	}
 
-	// Wrap middlewares for depgraph
+	// Every ordinary middleware follows the outer group. Let the dependency
+	// graph reject conflicting constraints just like other cycles.
+	var outer []string
+	for _, m := range items {
+		if o, ok := m.(OutermostMiddleware); ok && o.Outermost() {
+			outer = append(outer, m.Name())
+		}
+	}
 	wrapped := make([]middlewareWrapper, len(items))
 	for i, m := range items {
 		wrapped[i] = middlewareWrapper{middleware: m}
+		if len(outer) > 0 && !slices.Contains(outer, m.Name()) {
+			wrapped[i].outer = outer
+		}
 	}
 
 	// Sort using shared depgraph

@@ -4,17 +4,20 @@
 
 package interceptors
 
-import "github.com/altessa-s/go-atlas/internal/transport/base"
-
 // Matcher determines if an interceptor should be applied at runtime.
 // Unlike static boolean conditions, Matcher is evaluated dynamically,
 // allowing interceptors to be enabled/disabled based on runtime state
 // such as feature flags, health checks, or external configuration.
-type Matcher = base.Matcher
+type Matcher interface {
+	Match() bool
+}
 
 // MatchFunc adapts a function to the Matcher interface.
 // This provides a convenient way to create Matchers from simple functions.
-type MatchFunc = base.MatchFunc
+type MatchFunc func() bool
+
+// Match reports whether the component should run.
+func (f MatchFunc) Match() bool { return f() }
 
 // Interceptor is the minimal contract that every interceptor in a [Chain]
 // must satisfy. The returned name is used for dependency-based topological

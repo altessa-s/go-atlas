@@ -7,12 +7,11 @@ package auth
 import (
 	"context"
 	"errors"
-	"time"
 
-	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/internal/authaudit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -50,6 +49,11 @@ var errPrincipalTypeMismatch = interceptors.NewError(
 	errors.Join(scope.ErrAccessDenied, ErrPrincipalTypeMismatch),
 )
 
+// ScopeEnforcer authorizes a principal to perform the action identified by key.
+type ScopeEnforcer[P any] interface {
+	Enforce(p P, key string) error
+}
+
 // ScopeClientAuth adapts a [scope.Enforcer] to the [ClientAuth] seam, enforcing
 // the method→scope policy on every authenticated call. The verified principal of
 // type P is read from [Credentials.Data] (the value returned by the [Auth]
@@ -76,7 +80,7 @@ var errPrincipalTypeMismatch = interceptors.NewError(
 //
 // Pass [WithScopeAudit] to record every decision through an
 // [DecisionRecorder].
-func ScopeClientAuth[P any](e *scope.Enforcer[P], opts ...ScopeClientAuthOption[P]) ClientAuth {
+func ScopeClientAuth[P any](e ScopeEnforcer[P], opts ...ScopeClientAuthOption[P]) ClientAuth {
 	var cfg scopeClientAuthConfig[P]
 	for _, opt := range opts {
 		opt(&cfg)
@@ -100,7 +104,7 @@ func ScopeClientAuth[P any](e *scope.Enforcer[P], opts ...ScopeClientAuthOption[
 // pass [WithScopeAudit] with subjectOf func(principal.Principal) string to record
 // the subject (typically p.Subject).
 func ScopeClientAuthPrincipal(
-	e *scope.Enforcer[principal.Principal], opts ...ScopeClientAuthOption[principal.Principal],
+	e ScopeEnforcer[principal.Principal], opts ...ScopeClientAuthOption[principal.Principal],
 ) ClientAuth {
 	return ScopeClientAuth(e, opts...)
 }
@@ -139,17 +143,7 @@ func (c scopeClientAuthConfig[P]) subject(p P) string {
 func (c scopeClientAuthConfig[P]) finalize(
 	ctx context.Context, cred Credentials, subject string, allowed bool, reason string, authErr error,
 ) error {
-	if c.recorder == nil {
-		return authErr
-	}
-	recErr := c.recorder.Record(ctx, decision.Decision{
-		Time:       time.Now().UTC(),
-		Allowed:    allowed,
-		Subject:    subject,
-		Action:     cred.FullyMethodName,
-		Reason:     reason,
-		Attributes: map[string]string{"transport": "grpc"},
-	})
+	recErr := authaudit.Record(ctx, c.recorder, "grpc", cred.FullyMethodName, subject, allowed, reason)
 	if recErr != nil && authErr == nil {
 		return status.Error(codes.Internal, "authorization audit failed")
 	}

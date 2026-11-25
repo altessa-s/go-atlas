@@ -8,9 +8,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/transport/depgraph"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 )
 
 func TestNoopDriver_PreRequest(t *testing.T) {
@@ -151,4 +155,22 @@ func TestHTTPDrivenMiddlewareInformationalResponse(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 	require.Equal(t, http.StatusCreated, md.postResponseInfo.StatusCode)
 	require.True(t, md.postResponseInfo.HeadersSent)
+}
+
+type dependentMiddleware struct{ mockDrivenMiddleware }
+
+func (*dependentMiddleware) Dependencies() []string         { return []string{"upstream"} }
+func (*dependentMiddleware) RequiredDependencies() []string { return []string{"required"} }
+
+func TestHTTPDrivenMiddlewareDependencies(t *testing.T) {
+	t.Parallel()
+	chain := middlewares.NewChain(HTTPDrivenMiddleware(&dependentMiddleware{}))
+	require.Equal(t, []string{"upstream"}, chain.DependencyGraph()["mock"])
+	_, err := chain.Ordered()
+	require.ErrorIs(t, err, depgraph.ErrMissingDependency)
+	pass := func(next http.Handler) http.Handler { return next }
+	chain.AddFunc("upstream", pass).AddFunc("required", pass)
+	order, err := chain.DependencyOrder()
+	require.NoError(t, err)
+	require.Less(t, slices.Index(order, "upstream"), slices.Index(order, "mock"))
 }

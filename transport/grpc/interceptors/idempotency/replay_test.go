@@ -129,7 +129,7 @@ func TestResponseReplayInProgress(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := unary(t, ic, context.Background(), getReq("order"), slow)
+		_, err := unary(t, ic, t.Context(), getReq("order"), slow)
 		done <- err
 	}()
 	<-entered
@@ -216,18 +216,23 @@ func TestResponseReplayRefusedWithoutOwner(t *testing.T) {
 			require.EqualValues(t, 1, h.calls.Load())
 		})
 	}
+}
 
-	// The header capture works: an owned record echoes its entity id.
-	owned := newReplayKeeper(idempotencydata.WithOwner(func(context.Context) string { return "alice" }))
-	ic := idempotency.ServerInterceptor(owned, idempotency.WithExposeEntityID(),
-		idempotency.WithEntityIDExtractor(func(string, any) string { return "entity-a" })).ServerUnaryInterceptor()
+func TestResponseReplayLegacyRecord(t *testing.T) {
+	t.Parallel()
+	k := newReplayKeeper()
+	writer := idempotency.ServerInterceptor(k, idempotency.WithEntityIDExtractor(func(string, any) string { return "entity-a" })).ServerUnaryInterceptor()
 	h := &counter{}
-	_, err := unary(t, ic, t.Context(), getReq("order"), h.handle)
+	_, err := unary(t, writer, t.Context(), getReq("order"), h.handle)
 	require.NoError(t, err)
+
+	reader := idempotency.ServerInterceptor(k, idempotency.WithResponseReplay(), idempotency.WithExposeEntityID()).ServerUnaryInterceptor()
 	stream := &headerStream{}
-	_, err = unary(t, ic, grpc.NewContextWithServerTransportStream(t.Context(), stream), getReq("order"), h.handle)
+	res, err := unary(t, reader, grpc.NewContextWithServerTransportStream(t.Context(), stream), getReq("order"), h.handle)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Nil(t, res)
 	require.Equal(t, []string{"entity-a"}, stream.md.Get(idempotency.DefaultIdempotencyKeyEntityIdMetadata))
+	require.EqualValues(t, 1, h.calls.Load())
 }
 
 // Keys are scoped by service, not method: with fingerprinting off, another

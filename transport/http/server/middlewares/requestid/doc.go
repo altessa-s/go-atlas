@@ -13,6 +13,8 @@
 //
 // OPTIONS requests are always passed through without processing.
 //
+// Construct the shared generator with [github.com/altessa-s/go-atlas/transport/requestid.NewGenerator].
+//
 // # Trust model
 //
 // A client-supplied value that passes strict UUID v4 validation is
@@ -26,8 +28,10 @@
 //
 // # Example
 //
+//	// import requestid "github.com/altessa-s/go-atlas/transport/requestid"
+//	// import httprequestid "github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 //	gen := requestid.NewGenerator(requestid.WithGenerateIfMissing(true))
-//	handler := requestid.RequestId(gen)(yourHandler)
+//	handler := httprequestid.RequestId(gen)(yourHandler)
 //
 //	// In a downstream handler:
 //	id := requestid.FromContext(r.Context())

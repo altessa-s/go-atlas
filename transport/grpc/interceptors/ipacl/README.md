@@ -10,7 +10,6 @@ addresses.
 ## Usage
 
 ```go
-// Inside this module only; external services configure rules through the server factory.
 // import aclpolicy "github.com/altessa-s/go-atlas/transport/policy/ipacl"
 registry := aclpolicy.NewRegistry(aclpolicy.PolicyDeny)
 registry.Register("/admin.AdminService/Delete", &aclpolicy.AccessRule{
@@ -51,6 +50,7 @@ services outside the module configure them through the [server factory](../../..
 
 | Type | Description |
 |------|-------------|
+| `Evaluator` | Accepts a policy registry or a custom implementation of `Evaluate` |
 | `Registry` | Manages per-endpoint IP access rules |
 | `AccessRule` | Defines allowlist/denylist IP ranges |
 | `ServerInterceptor` | Combined unary/stream interceptor |

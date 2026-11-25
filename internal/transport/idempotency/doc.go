@@ -6,7 +6,7 @@
 // gRPC interceptor idempotency twins: the key-format validators
 // ([DefaultKeyValidator], [OpaqueKeyValidator], [PatternKeyValidator],
 // bounded by [DefaultMaxKeyLength]), their sentinel error, the canonical
-// header/metadata names, the storage-key format, the per-request [Policy]
+// header/metadata names, the per-request [Policy]
 // (with [Policy.Mandatory]), the lock-outcome classification and the record
 // stored for response replay.
 //
@@ -29,21 +29,9 @@
 // the transport's configured replay size limit (default
 // [DefaultMaxReplaySize]) is not stored.
 //
-// # Storage-key ABI
-//
-// [BuildStorageKey] composes the tuple ("transport", service, key) with
-// reliability/idempotency.ComposeKey into the length-prefixed v2 layout, e.g.
-// "idk:v2:9:transport17:users.UserService36:{key}", so distinct
-// (service, key) pairs never share a storage key. Keys built with it persist
-// in external backends (Redis, NATS KV, memory), so the format is an
-// external ABI. The v2 layout is frozen; an incompatible format needs a new
-// version and a migration. Both transport packages pin it with
-// literal-string tests.
-//
 // # Usage
 //
 //	if err := idempotency.DefaultKeyValidator(key); err != nil {
 //		return err // errors.Is(err, idempotency.ErrInvalidFormat)
 //	}
-//	storageKey := idempotency.BuildStorageKey("users.UserService", key)
 package idempotency

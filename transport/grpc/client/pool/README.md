@@ -84,3 +84,7 @@ The default factory uses TLS with a minimum version of TLS 1.2. Plaintext requir
 Stop cancels in-flight factory contexts, waits for factories to return, closes all connections and rejects new borrows. A factory completing after
 shutdown begins has its returned connection closed instead of published. Custom factories must honor cancellation; stop cannot force an uncooperative
 factory to return.
+
+Stopping a pool removes its aggregate and per-target registrations. Passing a coordinator directly protects a replacement using the same name.
+Use `WithScopedHealthReporter` to obtain the same ordering from a custom reporter. `WithHealthCoordinator` respects a decorator's named methods.
+When replacing registrations concurrently through a name-based reporter, serialize replacement with notifications and teardown.

@@ -52,11 +52,12 @@ func BenchmarkWriter_WriteError(b *testing.B) {
 
 func BenchmarkNewReadWriter(b *testing.B) {
 	w := New()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(b.Context(), "GET", "/", nil)
+	b.ReportAllocs()
 	for b.Loop() {
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/", nil)
-		rw := NewReadWriter(rec, req, w)
-		rw.Release()
+		_, cleanup := NewReadWriter(rec, req, w)
+		cleanup()
 	}
 }
 

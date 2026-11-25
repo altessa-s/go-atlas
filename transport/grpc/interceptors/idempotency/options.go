@@ -12,13 +12,13 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
 	"google.golang.org/grpc/status"
 
 	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // Use defaults package for optgen code generation
@@ -102,19 +102,24 @@ func PatternKeyValidator(pattern *regexp.Regexp, maxLen int) KeyFormatValidator 
 
 // Policy tells the interceptor how one method treats idempotency keys; see
 // [WithMethodClassifier].
-type Policy = internalidem.Policy
+type Policy int
+
+// Mandatory reports whether the request requires an idempotency key.
+func (p Policy) Mandatory(enforceMandatory bool) bool {
+	return internalidem.Policy(p).Mandatory(enforceMandatory)
+}
 
 const (
 	// PolicyDefault applies [WithEnforceMandatory]: the key is checked when
 	// present and required when enforcement is on.
-	PolicyDefault = internalidem.PolicyDefault
+	PolicyDefault = Policy(internalidem.PolicyDefault)
 	// PolicySkip ignores idempotency for the method, as [WithIgnoreMethods]
 	// does.
-	PolicySkip = internalidem.PolicySkip
+	PolicySkip = Policy(internalidem.PolicySkip)
 	// PolicyOptional checks a key when present and never requires one.
-	PolicyOptional = internalidem.PolicyOptional
+	PolicyOptional = Policy(internalidem.PolicyOptional)
 	// PolicyMandatory requires a key.
-	PolicyMandatory = internalidem.PolicyMandatory
+	PolicyMandatory = Policy(internalidem.PolicyMandatory)
 )
 
 // MethodClassifier returns the [Policy] of a fully qualified method name
@@ -137,7 +142,9 @@ var DefaultSkipVerbs = internalidem.DefaultSkipVerbs
 // methods that are not naturally idempotent.
 func VerbMethodClassifier(p Policy, opts ...VerbOption) MethodClassifier {
 	verbs := slices.Clone(newVerbOptions(opts...).skipVerbs)
-	return func(fullMethod string) Policy { return internalidem.VerbMethodPolicy(fullMethod, p, verbs) }
+	return func(fullMethod string) Policy {
+		return Policy(internalidem.VerbMethodPolicy(fullMethod, internalidem.Policy(p), verbs))
+	}
 }
 
 // options holds configuration for the idempotency interceptor.
@@ -185,4 +192,4 @@ type options struct {
 type EntityIdExtractor func(method string, resp any) string
 
 // StatusCreator serves for creating a custom gRPC status error for idempotency scenarios.
-type StatusCreator func(ctx context.Context, scenario ErrorScenario, state *storages.State) *status.Status
+type StatusCreator func(ctx context.Context, scenario ErrorScenario, state *idempotency.State) *status.Status

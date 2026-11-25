@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/internal/transport/requestid"
+	"github.com/altessa-s/go-atlas/transport/requestid"
 )
 
 func BenchmarkRequestId(b *testing.B) {

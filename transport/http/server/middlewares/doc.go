@@ -8,7 +8,7 @@
 // All chainable middlewares implement the [Middleware] interface which
 // provides Name() for identification and Handler() for wrapping an
 // [http.Handler]. Middlewares that implement [depgraph.DependencyDeclarer]
-// participate in topological ordering via [OrderMiddlewares].
+// participate in topological ordering via [OrderMiddlewares]. [OutermostMiddleware] requests placement before ordinary middleware.
 //
 // [BaseMiddleware] is an embeddable struct providing path filtering,
 // structured logging helpers, and response-writer wrapping. Most concrete

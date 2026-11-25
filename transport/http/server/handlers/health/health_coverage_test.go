@@ -61,9 +61,9 @@ func newCoordinator(t *testing.T, services map[string]obsmhealth.ServingStatus) 
 func serve(t *testing.T, h func(writer.ReadWriter), req *http.Request) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	rw := writer.NewReadWriter(rec, req, writer.New())
+	rw, cleanup := writer.NewReadWriter(rec, req, writer.New())
 	h(rw)
-	rw.Release()
+	cleanup()
 	return rec
 }
 

@@ -17,11 +17,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
-
-	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
 )
 
 func TestDefaultOptions(t *testing.T) {
@@ -66,7 +64,7 @@ func TestNew_PropagatesReadHeaderTimeoutToHTTPServer(t *testing.T) {
 
 	require.NoError(t, srv.Start())
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 	})
@@ -139,15 +137,13 @@ func newTestServer(t *testing.T, pattern string, handler http.HandlerFunc) *Serv
 	r := std.New()
 	srv, err := New(
 		WithRouter(r),
-		WithBaseOptions(
-			baseserver.WithAddress(ln.Addr().String()),
-			baseserver.WithListener(ln),
-			baseserver.WithTimeouts(timeouts.Lifecycle{
-				StartupVerification: 200 * time.Millisecond,
-				ShutdownGraceful:    5 * time.Second,
-				ShutdownWarning:     5 * time.Second,
-			}),
-		),
+		WithAddress(ln.Addr().String()),
+		WithListener(ln),
+		WithLifecycleTimeouts(lifecycle.Timeouts{
+			StartupVerification: 200 * time.Millisecond,
+			ShutdownGraceful:    5 * time.Second,
+			ShutdownWarning:     5 * time.Second,
+		}),
 	)
 	if err != nil {
 		ln.Close()

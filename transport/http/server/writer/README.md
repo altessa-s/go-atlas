@@ -7,6 +7,7 @@ import "github.com/altessa-s/go-atlas/transport/http/server/writer"
 Package `writer` provides HTTP response writing with content negotiation and request body decoding. `Writer` selects a `codec.Encoder` by negotiating
 the Accept header against the `codec.Registry`, then encodes the response through a configurable `Builder` that wraps data in a `Response` envelope.
 `ReadWriter` combines read and write operations into a per-request helper that is pooled for efficiency.
+Direct callers of `NewReadWriter` defer its cleanup function. Server handlers receive only the helper.
 
 ## Key types
 

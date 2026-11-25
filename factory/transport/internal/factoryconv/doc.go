@@ -10,6 +10,7 @@
 //
 // # Helpers
 //
+//   - [ServerTLS] obtains the server certificate configuration and applies its minimum TLS version.
 //   - [CompilePatterns] compiles string patterns to regexps, skipping
 //     invalid ones.
 //   - [StringMatcher] matches a string against an exact list and regex

@@ -73,8 +73,3 @@ func (g *Generator) HeaderName() string {
 func (g *Generator) GenerateIfMissing() bool {
 	return g.opts.generateIfMissing
 }
-
-// Options returns the generator options.
-func (g *Generator) Options() *options {
-	return g.opts
-}

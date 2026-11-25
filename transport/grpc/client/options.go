@@ -23,13 +23,14 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 )
 
-// DefaultClientHealthServiceName is the default service name used when a
-// [health.Coordinator] is configured. Mirrors the metrics subsystem
+// DefaultClientHealthServiceName is the default service name used when health
+// reporting is configured. It mirrors the metrics subsystem
 // convention so dashboards and alerts stay aligned.
 const DefaultClientHealthServiceName = "grpc_client"
 
@@ -94,7 +95,9 @@ type options struct {
 	insecure bool         `optgen:"manual"`
 	logger   *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler)"`
 	appName  string
-	pool     *pool.ConnectionPool
+	pool     ConnPool `optgen:"notnil"`
+	// WithInterceptors appends client interceptors to the dependency-ordered default chain.
+	interceptors []interceptors.ClientInterceptor `optgen:"append" optval:"nodup"`
 	// WithMeter enables outgoing gRPC metrics.
 	meter metrics.Meter
 	// WithTracer enables outgoing gRPC spans and W3C trace context propagation.
@@ -134,7 +137,10 @@ type options struct {
 	// [grpc.ClientConn.WaitForStateChange] watcher; in pool mode it
 	// subscribes to [pool.ConnectionPool.SubscribeTarget] for its address.
 	// Leave nil to disable.
-	healthCoordinator health.Reporter `optgen:"notnil"`
+	healthCoordinator health.Reporter `optgen:"notnil,resets=scopedHealthReporter"`
+	// WithScopedHealthReporter binds health notifications and teardown to an
+	// individual registration, including concurrent replacements of its name.
+	scopedHealthReporter health.ScopedReporter `optgen:"notnil,resets=healthCoordinator"`
 	// healthServiceName is the service name used when registering the
 	// client's checker. Defaults to [DefaultClientHealthServiceName].
 	healthServiceName string `optgen:"default=DefaultClientHealthServiceName"`

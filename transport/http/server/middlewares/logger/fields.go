@@ -6,17 +6,18 @@ package logger
 
 import (
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
-
-	loggerfields "github.com/altessa-s/go-atlas/internal/transport/observability"
 )
+
+// FieldKey names a structured log attribute.
+type FieldKey = string
 
 // HTTP-specific field keys used by the logger [Middleware].
 // Interned via [intern.String] for memory efficiency, since these
 // strings appear in every logged request entry.
 var (
-	FieldKeyHTTPMethod loggerfields.FieldKey = intern.String("http.method")
-	FieldKeyHTTPPath   loggerfields.FieldKey = intern.String("http.path")
-	FieldKeyHTTPProto  loggerfields.FieldKey = intern.String("http.proto")
-	FieldKeyHTTPStatus loggerfields.FieldKey = intern.String("http.status")
-	FieldKeyHTTPQuery  loggerfields.FieldKey = intern.String("http.query")
+	FieldKeyHTTPMethod FieldKey = intern.String("http.method")
+	FieldKeyHTTPPath   FieldKey = intern.String("http.path")
+	FieldKeyHTTPProto  FieldKey = intern.String("http.proto")
+	FieldKeyHTTPStatus FieldKey = intern.String("http.status")
+	FieldKeyHTTPQuery  FieldKey = intern.String("http.query")
 )

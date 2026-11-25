@@ -37,17 +37,28 @@ var flipped = coremaps.NewImmutableMap(map[query.Op]query.Op{
 	query.Lt: query.Gt, query.Le: query.Ge, query.Gt: query.Lt, query.Ge: query.Le,
 })
 
-// parseFilter parses a CEL filter expression into a query over fields. An
+// FilterCompiler translates a nonempty filter into a scheduler query.
+type FilterCompiler interface {
+	Compile(context.Context, string) (query.Expr, error)
+}
+
+type celCompiler struct{ parser FilterParser }
+
+func (c celCompiler) Compile(ctx context.Context, expr string) (query.Expr, error) {
+	node, err := c.parser.Parse(ctx, expr)
+	if err != nil {
+		return nil, err
+	}
+	return toQuery(node)
+}
+
+// parseFilter compiles a filter expression and checks it against fields. An
 // empty expression matches everything.
 func (h *Handler) parseFilter(ctx context.Context, expr string, fields []query.Field) (query.Expr, error) {
 	if expr == "" {
 		return nil, nil //nolint:nilnil // a nil expression matches everything
 	}
-	node, err := h.parser.Parse(ctx, expr)
-	if err != nil {
-		return nil, err
-	}
-	q, err := toQuery(node)
+	q, err := h.compiler.Compile(ctx, expr)
 	if err != nil {
 		return nil, err
 	}

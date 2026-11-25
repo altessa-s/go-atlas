@@ -6,11 +6,15 @@ package auth
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/auth/scope"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/authprincipal"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
@@ -120,7 +124,7 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 
 	token, err := i.opts.tokenExtractor.ExtractToken(ctx)
 	if err != nil {
-		return ctx, err
+		return ctx, i.callbackError(ctx, method, "token extraction failed", err, nil)
 	} else if token == "" {
 		return ctx, status.Error(codes.Unauthenticated, "Missing or invalid Bearer token")
 	}
@@ -145,12 +149,7 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 	}
 
 	if err != nil {
-		i.LogWarn(ctx, "authentication failed", method, err)
-
-		if _, ok := status.FromError(err); !ok {
-			err = interceptors.NewError(status.New(codes.Unauthenticated, "Unauthenticated"), err)
-		}
-		return ctx, err
+		return ctx, i.callbackError(ctx, method, "authentication failed", err, statusUnauthenticated)
 	}
 
 	// The credentials always reach the handler through CredentialsFromContext.
@@ -166,17 +165,48 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 	if i.opts.clientAuth != nil {
 		newCtx, err = i.opts.clientAuth.ClientAuth(newCtx, creds)
 		if err != nil {
-			i.LogWarn(ctx, "authentication failed", method, err)
-			if _, ok := status.FromError(err); !ok {
-				err = interceptors.NewError(status.New(codes.Unauthenticated, "Unauthenticated"), err)
-			}
-			return ctx, err
+			return ctx, i.callbackError(ctx, method, "client authorization failed", err, statusUnauthenticated)
 		}
 	}
 
 	i.LogDebug(ctx, "authentication successful", method)
 
 	return newCtx, nil
+}
+
+var statusUnauthenticated = status.New(codes.Unauthenticated, codes.Unauthenticated.String())
+
+type grpcStatusError interface {
+	error
+	GRPCStatus() *status.Status
+}
+
+// callbackError rebuilds the status so neither its message, details nor the
+// cause saved by callstatus can carry callback text.
+func (i *interceptor) callbackError(ctx context.Context, method, operation string, err error, st *status.Status) error {
+	if carrier, ok := errors.AsType[grpcStatusError](err); ok {
+		st = statusUnauthenticated
+		if original := carrier.GRPCStatus(); original != nil && original.Code() > codes.OK && original.Code() <= codes.Unauthenticated {
+			st = status.New(original.Code(), original.Code().String())
+		}
+	}
+	class := "token_extraction_failed"
+	if st != nil {
+		class = st.Code().String()
+	}
+	switch {
+	case errors.Is(err, ErrPrincipalTypeMismatch):
+		class = "principal_type_mismatch"
+	case errors.Is(err, scope.ErrAccessDenied):
+		class = "scope_denied"
+	}
+	i.LogWarn(ctx, operation, method, nil, slog.String("classification", class))
+	safe := diagnostics.ClassifiedError(class, err)
+	if st == nil {
+		// A plain extractor error is mapped by the outer errstatus converters.
+		return safe
+	}
+	return interceptors.NewError(st, safe)
 }
 
 // credentialHeaders copies the incoming metadata into a header map, dropping

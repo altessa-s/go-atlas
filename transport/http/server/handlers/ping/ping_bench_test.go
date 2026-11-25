@@ -16,8 +16,8 @@ func BenchmarkHandler(b *testing.B) {
 	for b.Loop() {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/ping", nil)
-		rw := writer.NewReadWriter(rec, req, w)
+		rw, cleanup := writer.NewReadWriter(rec, req, w)
 		Handler(rw)
-		rw.Release()
+		cleanup()
 	}
 }

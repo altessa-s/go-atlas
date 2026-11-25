@@ -25,7 +25,7 @@ import "github.com/altessa-s/go-atlas/internal/transport/depgraph"
 //
 //	middlewares := []Middleware{limiterMiddleware, loggerMiddleware, recoveryMiddleware}
 //	ordered, err := middlewares.OrderMiddlewares(middlewares)
-//	// ordered: [loggerMiddleware, recoveryMiddleware, limiterMiddleware]
+//	// recoveryMiddleware wraps loggerMiddleware and limiterMiddleware
 func OrderMiddlewares(middlewares []Middleware) ([]Middleware, error) {
 	return orderByDependencies(middlewares, nil)
 }

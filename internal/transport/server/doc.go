@@ -5,10 +5,10 @@
 // Package server provides the shared lifecycle primitives used by both
 // the HTTP and gRPC server implementations.
 //
-// [BaseServer] owns listener creation, TLS wrapping, startup verification,
-// and graceful shutdown with progress logging. Protocol-specific servers
-// embed it and supply [StartFunc] / [ShutdownFunc] callbacks for their
-// own Serve/GracefulStop logic.
+// [BaseServer] owns listener creation, startup verification, and graceful
+// shutdown with progress logging. Protocol-specific servers own it and
+// supply [StartFunc] / [ShutdownFunc] callbacks for serving, TLS negotiation,
+// and protocol shutdown.
 //
 // Lifecycle methods serialize startup, shutdown, and failure recording.
 // Shutdown progress is logged at warning level on a configurable interval

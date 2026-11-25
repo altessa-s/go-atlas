@@ -8,9 +8,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/altessa-s/go-atlas/internal/transport/requestid"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+	"github.com/altessa-s/go-atlas/transport/requestid"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"

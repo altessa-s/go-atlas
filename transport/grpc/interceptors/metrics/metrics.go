@@ -406,7 +406,7 @@ func (s *streamMetrics) finalizeStreamMetrics(code codes.Code) {
 
 func (i *interceptor) initializeMetrics(side string) {
 	i.byMethod = make(map[string]*methodHandles)
-	scoped := i.opts.meter.WithSubsystem(i.opts.metricsSubsystem)
+	scoped := metrics.MustMeter{Meter: i.opts.meter.WithSubsystem(i.opts.metricsSubsystem)}
 
 	i.requestsTotal = scoped.MustCounter(metrics.MetricOpts{
 		Name:       side + "_requests_total",

@@ -21,7 +21,7 @@ srv, err := factory.New(cfg.Http).
 ## Middleware Control
 
 `WithRealIPMiddleware` honors forwarding headers only from configured `trustedProxies`. Set `trustPrivatePeers: true` in its configuration to restore
-implicit private-peer trust. Authentication must be installed explicitly with `WithMiddleware`; `WithMiddlewares` does not install it.
+implicit private-peer trust. Install authentication explicitly with `WithMiddleware` or `WithMTLSMiddleware`.
 
 Three levels of control are available:
 
@@ -93,13 +93,14 @@ factory.New(cfg.Http).
 | `UseIdempotency` | Sets the idempotency keeper used by the idempotency middleware |
 | `UseMeter`     | Sets the `metrics.Meter` (a `metrics.Collector` also fits) used by the metrics middleware (no-op when unset) |
 | `UseGeoResolver` | Sets the geo resolver used by the geoacl middleware |
+| `UseMetricsHandler` | Sets the `http.Handler` mounted at `<internalPrefix>/metrics` (required to expose metrics) |
 | `Meter` | Returns the configured `metrics.Meter`, or `metrics.Noop()` when none was set |
 
 ### Router
 
 | Method | Description |
 |--------|-------------|
-| `WithRouter` | Sets a custom router (default: `router/std` over `http.ServeMux`) |
+| `WithRouter` | Sets the router for application routes and enabled internal endpoints (default: `router/std` over `http.ServeMux`) |
 | `WithRouterPrefix` | Sets a path prefix for the default router |
 
 ### Timeouts
@@ -170,6 +171,7 @@ from `ipACL` and `geoACL`, and requires an idempotency key once `idempotency.man
 | Method | Description |
 |--------|-------------|
 | `WithMiddleware` | Adds pre-built middleware (sorted and deduplicated with config MW) |
+| `WithMTLSMiddleware` | Adds certificate authentication to the ordered chain. Requires an explicit trust policy and a listener configured to verify client certificates. |
 | `WithRawMiddleware` | Adds raw middleware functions (bypasses sorting) |
 
 ### Handlers
@@ -180,7 +182,7 @@ from `ipACL` and `geoACL`, and requires an idempotency key once `idempotency.man
 | `WithoutBuiltinHandlers` | Disables all built-in handlers (ping, healthz, readyz, pprof, metrics) |
 | `WithPprof` | Enables pprof handlers, overriding config |
 | `WithoutPprof` | Disables pprof handlers |
-| `WithoutMetrics` | Disables Prometheus metrics handler |
+| `WithoutMetrics` | Disables the metrics endpoint (which otherwise mounts only when `UseMetricsHandler` is supplied) |
 | `WithInternalPrefix` | Overrides the built-in handler prefix (default `/internal`) |
 
 ### Address

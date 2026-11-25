@@ -9,9 +9,8 @@ location.
 
 ## Usage
 
-The registry and rule types live in the public `transport/policy` packages. The server factory
-builds the registry from YAML `middlewares.geoACL` (`WithGeoAclMiddleware`) and takes the resolver from `UseGeoResolver`; because `GeoResolver.Resolve`
-returns the internal `GeoInfo` type, resolvers can currently be implemented only inside the module.
+The server factory builds the registry from YAML `middlewares.geoACL` and takes the resolver from `UseGeoResolver`. Custom resolvers return
+`transport/policy/geoacl.GeoInfo`.
 
 ```go
 import (
@@ -78,6 +77,7 @@ on the ignore list and is answered with 403, so no spelling of a path reaches a 
 
 | Type | Description |
 |------|-------------|
+| `Evaluator` | Accepts a policy registry or a custom implementation of `Evaluate` |
 | `Registry` | Manages per-path geographic access rules |
 | `AccessRule` | Defines allow/deny lists for countries and continents |
 | `GeoResolver` | Interface for IP-to-location resolution |

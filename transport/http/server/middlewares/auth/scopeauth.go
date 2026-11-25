@@ -6,14 +6,17 @@ package auth
 
 import (
 	"net/http"
-	"time"
 
-	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/principal"
-	"github.com/altessa-s/go-atlas/auth/scope"
+	"github.com/altessa-s/go-atlas/transport/internal/authaudit"
 )
 
-// ScopeMiddleware enforces a [scope.Enforcer] over authenticated HTTP requests.
+// ScopeEnforcer authorizes a principal to perform the action identified by key.
+type ScopeEnforcer[P any] interface {
+	Enforce(p P, key string) error
+}
+
+// ScopeMiddleware enforces a [ScopeEnforcer] over authenticated HTTP requests.
 // The verified principal of type P is read from the request context via
 // [FromContext] (installed by the authentication [Middleware]); keyFunc maps the
 // request to the action key registered in the enforcer's registry — typically
@@ -26,7 +29,7 @@ import (
 // must run after the authentication [Middleware] that populates the context.
 // Pass [WithScopeAudit] to record every decision through an
 // [DecisionRecorder].
-func ScopeMiddleware[P any](e *scope.Enforcer[P], keyFunc func(*http.Request) string, opts ...ScopeMiddlewareOption[P]) func(http.Handler) http.Handler {
+func ScopeMiddleware[P any](e ScopeEnforcer[P], keyFunc func(*http.Request) string, opts ...ScopeMiddlewareOption[P]) func(http.Handler) http.Handler {
 	var cfg scopeMiddlewareConfig[P]
 	for _, opt := range opts {
 		opt(&cfg)
@@ -61,7 +64,7 @@ func ScopeMiddleware[P any](e *scope.Enforcer[P], keyFunc func(*http.Request) st
 // ScopeMiddleware[principal.Principal](e, keyFunc); pass [WithScopeAudit] with
 // subjectOf func(principal.Principal) string to record the subject.
 func ScopeMiddlewarePrincipal(
-	e *scope.Enforcer[principal.Principal], keyFunc func(*http.Request) string,
+	e ScopeEnforcer[principal.Principal], keyFunc func(*http.Request) string,
 	opts ...ScopeMiddlewareOption[principal.Principal],
 ) func(http.Handler) http.Handler {
 	return ScopeMiddleware(e, keyFunc, opts...)
@@ -96,15 +99,5 @@ func (c scopeMiddlewareConfig[P]) subject(p P) string {
 }
 
 func (c scopeMiddlewareConfig[P]) record(r *http.Request, key, subject string, allowed bool, reason string) error {
-	if c.recorder == nil {
-		return nil
-	}
-	return c.recorder.Record(r.Context(), decision.Decision{
-		Time:       time.Now().UTC(),
-		Allowed:    allowed,
-		Subject:    subject,
-		Action:     key,
-		Reason:     reason,
-		Attributes: map[string]string{"transport": "http"},
-	})
+	return authaudit.Record(r.Context(), c.recorder, "http", key, subject, allowed, reason)
 }

@@ -76,3 +76,18 @@ func TestPooledClientPreservesTLSAndInterceptors(t *testing.T) {
 		})
 	}
 }
+
+type unavailablePool struct{ *pool.ConnectionPool }
+
+func (*unavailablePool) Bind(string, pool.ClientFactory) (pool.Binding, error) {
+	return nil, pool.ErrConnectionPoolClosed
+}
+
+func TestWithPoolKeepsCustomPoolAfterTypedNil(t *testing.T) {
+	t.Parallel()
+	var absent *pool.ConnectionPool
+	_, err := client.New(t.Context(), "localhost:1",
+		client.WithPool(&unavailablePool{}), client.WithPool(nil), client.WithPool(absent),
+	)
+	require.ErrorIs(t, err, pool.ErrConnectionPoolClosed)
+}

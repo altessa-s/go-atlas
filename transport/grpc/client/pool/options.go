@@ -60,7 +60,10 @@ type options struct {
 	// When non-nil the pool registers an aggregate [health.Checker] that
 	// reflects the worst per-target status across all tracked connections.
 	// Leave nil to disable the integration entirely.
-	healthCoordinator health.DynamicReporter `optgen:"notnil"`
+	healthCoordinator health.DynamicReporter `optgen:"notnil,resets=scopedHealthReporter"`
+	// WithScopedHealthReporter binds health notifications and teardown to an
+	// individual registration, including concurrent replacements of its name.
+	scopedHealthReporter health.ScopedReporter `optgen:"notnil,resets=healthCoordinator"`
 	// healthServiceName is the service name used when registering the
 	// aggregate checker. Defaults to [DefaultPoolHealthServiceName].
 	healthServiceName string `optgen:"default=DefaultPoolHealthServiceName"`

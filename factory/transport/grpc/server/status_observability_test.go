@@ -86,7 +86,7 @@ func TestFactoryFinalStatus(t *testing.T) {
 		{"mapped", "*errors.errorString", errAlreadyAccepted.Error(), "already accepted", codes.FailedPrecondition, adapters.StatusUnset},
 		{"unmapped", "*errors.errorString", safe, errstatus.MessageInternal, codes.Internal, adapters.StatusError},
 		{"panic", "*recovery.PanicError", "panic: dial postgres://db failed", errstatus.MessageInternal, codes.Internal, adapters.StatusError},
-		{"auth", "*errors.errorString", "auth at postgres://db/atlas failed", "Unauthenticated", codes.Unauthenticated, adapters.StatusUnset},
+		{"auth", "*diagnostics.classifiedError", "Unauthenticated", "Unauthenticated", codes.Unauthenticated, adapters.StatusUnset},
 		{"request ID", "*status.Error", status.Error(codes.InvalidArgument, "invalid request ID, it must be a UUID v4").Error(),
 			"invalid request ID, it must be a UUID v4", codes.InvalidArgument, adapters.StatusUnset},
 		{"finalizer", "*errors.errorString", safe, "try again", codes.Unavailable, adapters.StatusError},
@@ -105,7 +105,7 @@ func TestFactoryFinalStatus(t *testing.T) {
 				}}
 				capture := statusCapture{adapters.NewMultiAdapter(), make(chan adapters.SpanData, 1)}
 				tr := tracing.New(tracing.WithAdapter(capture))
-				t.Cleanup(func() { require.NoError(t, tr.Shutdown(context.Background())) })
+				t.Cleanup(func() { require.NoError(t, tr.Shutdown(context.WithoutCancel(t.Context()))) })
 				var logs bytes.Buffer
 				meter := metricstest.NewTestCollector()
 				b := factory.New(cfg).UseMeter(meter).UseTracer(tr).UseLogger(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))).

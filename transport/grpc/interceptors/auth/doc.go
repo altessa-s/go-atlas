@@ -9,7 +9,7 @@
 // server side. For client-side token injection, use [ClientInterceptor] with
 // [TokenCredentials]. Scope-based authorization is layered on via
 // [ScopeClientAuth], which drives a transport-neutral
-// [github.com/altessa-s/go-atlas/auth/scope.Enforcer] from the verified
+// [ScopeEnforcer] from the verified
 // principal in [Credentials].
 //
 // Bearer tokens are extracted from the "authorization" gRPC metadata header.
@@ -21,6 +21,9 @@
 // that maps itself onto a principal, such as the *oidc.Claims of the oidc
 // adapter, is stored as its Principal(). A handler served over gRPC and HTTP
 // reads the caller with principal.FromContext.
+//
+// Callback errors retain their gRPC code and errors.Is matches. Client statuses
+// and diagnostic records contain only fixed classifications.
 //
 // No method is exempt from authentication by default, gRPC health and
 // reflection included. Opt methods out with exact names via WithIgnoreMethods

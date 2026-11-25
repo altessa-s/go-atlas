@@ -6,8 +6,6 @@ package middlewares
 
 import (
 	"net/http"
-
-	"github.com/altessa-s/go-atlas/internal/transport/base"
 )
 
 // Middleware is the interface that all chainable HTTP middlewares must implement.
@@ -30,16 +28,27 @@ type Middleware interface {
 	Handler(next http.Handler) http.Handler
 }
 
+// OutermostMiddleware requests placement in the outer group of a dependency-ordered
+// chain. Members retain their dependency order within that group.
+type OutermostMiddleware interface {
+	Outermost() bool
+}
+
 // Matcher determines if a middleware should be applied at runtime.
 // Unlike [StaticConditionMiddleware] whose condition is fixed at creation
 // time, Matcher is evaluated on every request by [ConditionalMiddleware],
 // allowing middlewares to be enabled/disabled based on runtime state
 // such as feature flags, health checks, or external configuration.
-type Matcher = base.Matcher
+type Matcher interface {
+	Match() bool
+}
 
 // MatchFunc adapts a function to the Matcher interface.
 // This provides a convenient way to create Matchers from simple functions.
-type MatchFunc = base.MatchFunc
+type MatchFunc func() bool
+
+// Match reports whether the component should run.
+func (f MatchFunc) Match() bool { return f() }
 
 // middlewareFunc is an adapter that allows ordinary functions to be used as Middleware.
 type middlewareFunc struct {
@@ -104,6 +113,21 @@ func (c *conditionalMiddleware) Name() string {
 	return c.middleware.Name()
 }
 
+// Preserve an outer guard's placement and constraints across the runtime
+// matcher. Ordinary conditional middleware keeps its original method set.
+type conditionalOuter struct {
+	conditionalMiddleware
+	OutermostMiddleware
+}
+
+func (c *conditionalOuter) Dependencies() []string {
+	return middlewareWrapper{middleware: c.middleware}.Dependencies()
+}
+
+func (c *conditionalOuter) RequiredDependencies() []string {
+	return middlewareWrapper{middleware: c.middleware}.RequiredDependencies()
+}
+
 func (c *conditionalMiddleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c.matcher.Match() {
@@ -126,10 +150,11 @@ func (c *conditionalMiddleware) Handler(next http.Handler) http.Handler {
 //	})
 //	conditionalAuth := middlewares.ConditionalMiddleware(matcher, authMiddleware)
 func ConditionalMiddleware(matcher Matcher, middleware Middleware) Middleware {
-	return &conditionalMiddleware{
-		matcher:    matcher,
-		middleware: middleware,
+	conditional := conditionalMiddleware{matcher: matcher, middleware: middleware}
+	if outer, ok := middleware.(OutermostMiddleware); ok {
+		return &conditionalOuter{conditional, outer}
 	}
+	return &conditional
 }
 
 // StaticConditionMiddleware wraps a middleware with a static boolean condition.

@@ -8,20 +8,19 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/altessa-s/go-atlas-net/httpx"
-	"github.com/altessa-s/go-atlas/internal/transport/requestid"
-	"github.com/altessa-s/go-atlas/internal/transport/validation"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/internal/requestidcapture"
+	"github.com/altessa-s/go-atlas/transport/requestid"
 )
 
-// singleHeaderAdapter adapts HTTPHeaderGetter to requestid.HeaderGetter interface.
-type singleHeaderAdapter struct {
-	*httpx.HTTPHeaderGetter
-}
+// headerValues contains the values of the generator's configured HTTP header.
+type headerValues []string
 
-// GetHeader returns the first value for the given header name.
-func (s *singleHeaderAdapter) GetHeader(name string) string {
-	return s.GetSingleHeader(name)
+func (v headerValues) GetHeader(_ string) string {
+	if len(v) == 0 {
+		return ""
+	}
+	return v[0]
 }
 
 const middlewareName = "requestid"
@@ -54,6 +53,11 @@ func (m *middleware) Dependencies() []string { return nil }
 //     - If generateIfMissing is false: the request is rejected with 400 Bad Request
 //  3. The request ID is stored in the context and set in the response header
 func (m *middleware) Handler(next http.Handler) http.Handler {
+	// OPTIONS bypasses ID processing, even when no generator was supplied.
+	var header string
+	if m.gen != nil {
+		header = http.CanonicalHeaderKey(m.gen.HeaderName())
+	}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Skip OPTIONS requests
 		if request.Method == http.MethodOptions {
@@ -61,24 +65,18 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		// Extract existing ID from header using HeaderGetter and generate if needed
-		adapter := &singleHeaderAdapter{httpx.NewHTTPHeaderGetter(request)}
-		reqID := m.gen.Extract(adapter)
-
-		// If generation is disabled and ID is missing or invalid, return 400
-		if !m.gen.GenerateIfMissing() {
-			raw := adapter.GetHeader(m.gen.HeaderName())
-			if raw == "" || !validation.IsValidUUIDv4(raw) {
-				http.Error(writer, "invalid request id", http.StatusBadRequest)
-				return
-			}
+		// Extract validates the first header value and returns an empty ID when
+		// generation is disabled and the client supplied no valid ID.
+		reqID := m.gen.Extract(headerValues(request.Header[header]))
+		if reqID == "" && !m.gen.GenerateIfMissing() {
+			http.Error(writer, "invalid request id", http.StatusBadRequest)
+			return
 		}
-
-		// If we have a request ID, add it to context and response header
 		if reqID != "" {
-			writer.Header().Set(m.gen.HeaderName(), reqID)
-			ctx := requestid.NewContext(request.Context(), reqID)
-			request = request.WithContext(ctx)
+			ctx := request.Context()
+			requestidcapture.Record(ctx, reqID)
+			writer.Header()[header] = []string{reqID}
+			request = request.WithContext(requestid.NewContext(ctx, reqID))
 		}
 
 		next.ServeHTTP(writer, request)

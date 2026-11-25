@@ -33,7 +33,8 @@ logging, and rich error parsing with field-level validation details.
 | `WithAppName`         | --        | Application name sent in the gRPC User-Agent header                          |
 | `WithRetry`           | disabled  | Enables retry (5 attempts, 1s-10s exponential backoff); `RetryOption` values override it |
 | `WithoutHealthCheck`  | enabled   | Disables the client-side watch of overall server health |
-| `WithPool`  | nil       | Enables pool mode backed by a `pool.ConnectionPool`                          |
+| `WithPool`  | nil       | Accepts a `ConnPool`, including `*pool.ConnectionPool`                          |
+| `WithInterceptors`    | --        | Appends named unary/stream client interceptors to the dependency-ordered chain |
 | `WithDialOptions`     | --        | Appends custom `grpc.DialOption` values (auth credentials, call options)     |
 | `WithProxy`           | env       | Route via `http://host:port` with optional `*url.Userinfo`                    |
 | `WithProxyURL`        | env       | Route via any proxy URL (`http`, `https`, `socks5`, `socks5h`)               |
@@ -98,6 +99,11 @@ c, err := client.New(ctx, "service.example.com:443",
     client.WithHealthCoordinator(coord),
 )
 ```
+
+With `health.Coordinator`, closing a client releases its health registration.
+If another client has registered the same service name, its checker and status remain active.
+Use `WithScopedHealthReporter` for decorators that implement owner-scoped registration. `WithHealthCoordinator` calls the decorator's named methods.
+A registration-only reporter receives a detachable checker that releases the client when closed. A coordinator receiving that checker also removes it.
 
 ## Subpackages
 

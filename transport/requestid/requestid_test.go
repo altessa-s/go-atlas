@@ -119,19 +119,3 @@ func TestFromContext_NilContext(t *testing.T) {
 	got := FromContext(nil)
 	require.Equal(t, "", got)
 }
-
-func TestFromContextOrTraceID(t *testing.T) {
-	t.Run("with_request_id", func(t *testing.T) {
-		ctx := NewContext(t.Context(), "req-123")
-		got := FromContextOrTraceID(ctx)
-		require.Equal(t, "req-123", got)
-	})
-
-	t.Run("no_request_id_no_trace", func(t *testing.T) {
-		got := FromContextOrTraceID(t.Context())
-		// Should return empty when neither request ID nor trace ID
-		if got != "" {
-			// May have trace ID from context; that's fine
-		}
-	})
-}

@@ -10,6 +10,7 @@ import (
 	"net/netip"
 
 	"github.com/altessa-s/go-atlas-net/clientip"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/peer"
@@ -86,7 +87,7 @@ func (i *interceptor) getIP(ctx context.Context) *netip.Addr {
 
 	peerAddrPort, err := netip.ParseAddrPort(p.Addr.String())
 	if err != nil {
-		i.LogError(ctx, "failed to parse peer address", extractOperation, err,
+		i.LogError(ctx, "failed to parse peer address", extractOperation, diagnostics.LogError(err),
 			slog.String("peer", p.Addr.String()),
 		)
 		return nil

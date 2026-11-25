@@ -20,9 +20,9 @@ func TestHandler(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ping", nil)
 
-	rw := writer.NewReadWriter(rec, req, w)
+	rw, cleanup := writer.NewReadWriter(rec, req, w)
 	Handler(rw)
-	rw.Release()
+	cleanup()
 
 	require.Equal(t, http.StatusOK, rec.Code)
 

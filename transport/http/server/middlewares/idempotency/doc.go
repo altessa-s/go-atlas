@@ -20,6 +20,9 @@
 // The middleware supports configurable fallback behavior when storage is
 // unavailable: allow the request through, deny with 503, or fail with 500.
 //
+// Dependency-ordered chains run token and mTLS authentication first, so the
+// keeper can resolve the authenticated owner of each record.
+//
 // # Security
 //
 // Keys are caller-chosen and may embed user data, and the invalid-format

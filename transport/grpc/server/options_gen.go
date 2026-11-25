@@ -4,37 +4,40 @@
 package grpc
 
 import (
+	"crypto/tls"
+	"log/slog"
 	"net"
 	"reflect"
+	"strings"
 	"time"
 
-	"google.golang.org/grpc"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
 
-	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
+	"google.golang.org/grpc"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithBaseOptions adds base server options (TLS, listener, logger, address, name, timeouts).
-// This is a convenience function to avoid duplicating wrapper functions for each base server option.
-//
-// Example:
-//
-//	srv, _ := grpc.New(
-//	    grpc.WithBaseOptions(
-//	        server.WithAddress(":50051"),
-//	        server.WithLogger(slog.Default()),
-//	        server.WithTLSConfig(tlsConfig),
-//	    ),
-//	    grpc.WithReflection(true),
-//	)
-func WithBaseOptions(v ...baseserver.Option) Option {
+// WithAddress sets the TCP listen address. The default is ":0".
+func WithAddress[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
-		if len(v) == 0 {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.ToLower(strings.TrimSpace(value))
+
+		if transformedValue == "" {
 			return
 		}
-		o.baseOpts = append(o.baseOpts, v...)
+		o.address = transformedValue
 	}
 }
 
@@ -61,6 +64,15 @@ func WithGrpcOptions(v ...grpc.ServerOption) Option {
 	}
 }
 
+// WithLifecycleTimeouts sets the startup verification and shutdown durations.
+func WithLifecycleTimeouts(v lifecycle.Timeouts) Option {
+	return func(o *options) {
+		o.lifecycleTimeouts = v
+		o.lifecycleTimeoutsSet = true
+
+	}
+}
+
 // WithListener sets the listener option.
 //
 // listener, when set, is served instead of a TCP listener on the
@@ -80,6 +92,38 @@ func WithListener(v net.Listener) Option {
 	}
 }
 
+// WithLogger sets the logger for server lifecycle events.
+func WithLogger(v *slog.Logger) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.logger = v
+	}
+}
+
+// WithName sets the server name used in lifecycle logs.
+func WithName[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.ToLower(strings.TrimSpace(value))
+
+		if transformedValue == "" {
+			return
+		}
+		o.name = transformedValue
+	}
+}
+
 // WithReflection enables the reflection option.
 func WithReflection() Option {
 	return func(o *options) {
@@ -93,16 +137,28 @@ func WithReflection() Option {
 // startupVerification is how long Start waits for the serving goroutine
 // to report an early error before declaring the start successful. Zero
 // or negative skips the wait (an early serve error is then only logged).
-// A base timeouts option passed through WithBaseOptions takes precedence.
+// WithLifecycleTimeouts takes precedence.
 func WithStartupVerification(v time.Duration) Option {
 	return func(o *options) {
 		o.startupVerification = v
 	}
 }
 
+// WithTLSConfig configures TLS for supplied and automatically created listeners.
+func WithTLSConfig(v *tls.Config) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.tlsConfig = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		lifecycleTimeouts:   lifecycle.DefaultTimeouts(),
+		logger:              slog.New(slog.DiscardHandler),
 		reflection:          false,
 		startupVerification: DefaultStartupVerification,
 	}

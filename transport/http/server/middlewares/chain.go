@@ -160,7 +160,7 @@ func (c *Chain) ThenFunc(fn func(http.ResponseWriter, *http.Request)) http.Handl
 //	// Even if added out of order, they execute in canonical order
 //	chain := middlewares.NewChain(limiter, logger, recovery)
 //	ordered, err := chain.Ordered()
-//	// ordered executes as: logger -> recovery -> limiter
+//	// recovery wraps logger and limiter
 func (c *Chain) Ordered() (*Chain, error) {
 	orderedList, err := OrderMiddlewares(c.list)
 	if err != nil {

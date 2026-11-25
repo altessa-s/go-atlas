@@ -13,8 +13,8 @@ import (
 
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
-	"github.com/altessa-s/go-atlas/internal/transport/requestid"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/requestid"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -88,19 +88,6 @@ type StatusConverter struct {
 // and returns a potentially modified error.
 type Finalizer func(ctx context.Context, err error) error
 
-// statusConverterIndex holds indexed status errorConverters for fast lookup.
-// Converters are split into two groups:
-// - Fast path: errorConverters that match by gRPC code only (O(1) lookup)
-// - Slow path: errorConverters with complex matchers that need Details inspection
-type statusConverterIndex struct {
-	// fastPath maps gRPC codes to errorConverters that only check the code
-	// This enables O(1) lookup for simple code-based conversions
-	fastPath map[codes.Code][]StatusConverter
-	// slowPath contains errorConverters with complex matchers (check details, etc.)
-	// These are evaluated sequentially in registration order
-	slowPath []StatusConverter
-}
-
 // options holds the configuration for the error status interceptor.
 // These options are set through functional option functions and control
 // how errors are converted, cached, and processed.
@@ -112,8 +99,6 @@ type options struct {
 	// incoming gRPC statuses back to application errors. Converters are appended
 	// to the existing list and evaluated in registration order; the first match wins.
 	statusConverter []StatusConverter `opt:"StatusConverters" optgen:"append"`
-	// Derived from statusConverter during interceptor setup.
-	statusConverterIndex *statusConverterIndex `opt:"-"`
 	// logger is used for debugging error conversion behavior
 	logger *slog.Logger
 	// finalizer is the post-processing function for converted errors

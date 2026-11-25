@@ -20,6 +20,21 @@ decouples the server from any specific routing library, so implementations can b
 | [router](./router)                 | Router interfaces and the `http.ServeMux` implementation (std)          |
 | [writer](./writer)                 | Content-negotiated response writing with builder pattern                |
 
+Use `WithAddress` or `WithListener` to choose the listening endpoint, and `WithName` and `WithLogger` to configure lifecycle logs. `Handle` owns cleanup
+of the request helper, including when a handler panics.
+
+## TLS listeners
+
+With server TLS configured with `WithTLSConfig`, pass a raw listener if
+you supply one. The protocol server negotiates TLS for both supplied and
+automatically created listeners.
+
+## Lifecycle configuration
+
+Pass [`lifecycle.Timeouts`](../../lifecycle) to `WithLifecycleTimeouts`. Start with `lifecycle.DefaultTimeouts()` to override individual fields.
+`LifecycleTimeouts()` returns the effective settings. The shorter of the graceful shutdown limit and the caller's deadline bounds protocol cleanup.
+A second `Start` on a running server returns `ErrServerAlreadyStarted`. Both lifecycle errors support `errors.Is`.
+
 ## Lifecycle observation
 
 `Done() <-chan struct{}` closes when shutdown is observed or a post-start Serve

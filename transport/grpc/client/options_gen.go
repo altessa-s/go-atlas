@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc"
 )
@@ -99,6 +100,8 @@ func WithHealthCoordinator(v health.Reporter) Option {
 			}
 		}
 		o.healthCoordinator = v
+		o.scopedHealthReporter = *new(health.ScopedReporter)
+
 	}
 }
 
@@ -142,6 +145,16 @@ func WithHealthStateMapper(v pool.StateMapper) Option {
 	}
 }
 
+// WithInterceptors appends client interceptors to the dependency-ordered default chain.
+func WithInterceptors(v ...interceptors.ClientInterceptor) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		o.interceptors = append(o.interceptors, v...)
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -170,10 +183,15 @@ func WithMutationTimeout(v time.Duration) Option {
 }
 
 // WithPool sets the pool option.
-func WithPool(v *pool.ConnectionPool) Option {
+func WithPool(v ConnPool) Option {
 	return func(o *options) {
-		if v == nil {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
 			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
 		}
 		o.pool = v
 	}
@@ -233,6 +251,24 @@ func WithRetry(opts ...RetryOption) Option {
 	return func(o *options) {
 		o.retryOptions = newRetryOptions(opts...)
 		o.enableRetry = true
+
+	}
+}
+
+// WithScopedHealthReporter binds health notifications and teardown to an
+// individual registration, including concurrent replacements of its name.
+func WithScopedHealthReporter(v health.ScopedReporter) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.scopedHealthReporter = v
+		o.healthCoordinator = *new(health.Reporter)
 
 	}
 }

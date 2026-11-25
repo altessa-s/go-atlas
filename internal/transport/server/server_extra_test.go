@@ -25,11 +25,6 @@ func TestWithTlsConfig(t *testing.T) {
 	require.True(t, s.HasTLS(), "HasTLS() should be true")
 }
 
-func TestGetBase(t *testing.T) {
-	s := NewBaseServer(WithAddress(":0"))
-	require.False(t, s.GetBase() != s, "GetBase() should return itself")
-}
-
 func TestTLSConfig_Nil(t *testing.T) {
 	s := NewBaseServer(WithAddress(":0"))
 	require.False(t, s.TLSConfig() != nil, "TLSConfig() should be nil when not set")

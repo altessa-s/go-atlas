@@ -102,7 +102,7 @@ func TestCustomHeadersAndErrorHandler(t *testing.T) {
 		middleware.WithExposeEntityID(),
 		middleware.WithEntityIDExtractor(func(*http.Request, string, []byte) string { return "42" }),
 		middleware.WithEnforceMandatory(true),
-		middleware.WithErrorHandler(func(w http.ResponseWriter, _ *http.Request, s middleware.ErrorScenario, _ *storages.State) {
+		middleware.WithErrorHandler(func(w http.ResponseWriter, _ *http.Request, s middleware.ErrorScenario, _ *idempotency.State) {
 			scenarios = append(scenarios, s)
 			w.WriteHeader(http.StatusTeapot)
 		}),

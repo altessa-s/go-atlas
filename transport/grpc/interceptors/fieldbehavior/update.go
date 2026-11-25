@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-aip/fieldinfo"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
@@ -35,9 +36,9 @@ func (ri *requestInterceptor) stripUpdateRequest(ctx context.Context, msg proto.
 	ri.plan.Store(res.Plan)
 	if err != nil {
 		if status.Code(err) == codes.Internal {
-			ri.LogError(ctx, "fieldbehavior update_mask apply failed", method, err)
+			ri.LogError(ctx, "fieldbehavior update_mask apply failed", method, diagnostics.LogError(err))
 		} else {
-			ri.LogDebug(ctx, "fieldbehavior update request rejected", method, slog.String("error", err.Error()))
+			ri.LogDebug(ctx, "fieldbehavior update request rejected", method, slog.Any("error", diagnostics.LogError(err)))
 		}
 
 		return err
@@ -66,7 +67,7 @@ func (ri *requestInterceptor) checkUpdateFormats(ctx context.Context, req proto.
 
 	invalid, ok := errors.AsType[*fieldinfo.ViolationError](err)
 	if !ok {
-		ri.LogError(ctx, "fieldbehavior format check failed", ri.meta.Method(), err)
+		ri.LogError(ctx, "fieldbehavior format check failed", ri.meta.Method(), diagnostics.LogError(err))
 		return interceptors.NewError(status.New(codes.Internal, "Internal Error"), err)
 	}
 

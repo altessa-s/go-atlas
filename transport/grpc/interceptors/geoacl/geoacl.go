@@ -7,10 +7,12 @@ package geoacl
 import (
 	"context"
 	"log/slog"
+	"net/netip"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas-net/netipx"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
@@ -23,6 +25,11 @@ import (
 )
 
 const interceptorName = "geoacl"
+
+// Evaluator decides whether the client address may access an endpoint.
+type Evaluator interface {
+	Evaluate(ctx context.Context, resolver geoacl.GeoResolver, ip netip.Addr, endpoint string) (bool, error)
+}
 
 // Name returns the interceptor name used for dependency resolution and chain ordering.
 func Name() string { return interceptorName }
@@ -37,7 +44,7 @@ var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 type interceptor struct {
 	interceptors.BaseInterceptor
 	resolver geoacl.GeoResolver
-	registry *geoacl.Registry
+	registry Evaluator
 	opts     *options
 }
 
@@ -52,7 +59,7 @@ func (i *interceptor) RequiredDependencies() []string {
 }
 
 // ServerInterceptor returns a new interceptor that enforces geographic access control.
-func ServerInterceptor(resolver geoacl.GeoResolver, registry *geoacl.Registry, opt ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(resolver geoacl.GeoResolver, registry Evaluator, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	return &interceptor{
@@ -69,12 +76,12 @@ func ServerInterceptor(resolver geoacl.GeoResolver, registry *geoacl.Registry, o
 }
 
 // ServerUnaryInterceptor returns a new unary server interceptor that enforces geographic access control.
-func ServerUnaryInterceptor(resolver geoacl.GeoResolver, registry *geoacl.Registry, opt ...Option) stdGrpc.UnaryServerInterceptor {
+func ServerUnaryInterceptor(resolver geoacl.GeoResolver, registry Evaluator, opt ...Option) stdGrpc.UnaryServerInterceptor {
 	return ServerInterceptor(resolver, registry, opt...).ServerUnaryInterceptor()
 }
 
 // ServerStreamInterceptor returns a new streaming server interceptor that enforces geographic access control.
-func ServerStreamInterceptor(resolver geoacl.GeoResolver, registry *geoacl.Registry, opt ...Option) stdGrpc.StreamServerInterceptor {
+func ServerStreamInterceptor(resolver geoacl.GeoResolver, registry Evaluator, opt ...Option) stdGrpc.StreamServerInterceptor {
 	return ServerInterceptor(resolver, registry, opt...).ServerStreamInterceptor()
 }
 
@@ -122,7 +129,7 @@ func (i *interceptor) checkAccess(ctx context.Context, method string) error {
 
 	allowed, err := i.registry.Evaluate(ctx, i.resolver, ip, method)
 	if err != nil {
-		i.LogDebug(ctx, "geo resolver error", method, slog.String("error", err.Error()))
+		i.LogDebug(ctx, "geo resolver error", method, slog.String("classification", diagnostics.ErrorClass(err)))
 		switch i.opts.fallbackBehavior {
 		case fallback.Allow:
 			return nil

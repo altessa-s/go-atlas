@@ -16,9 +16,9 @@ func BenchmarkK8sHealtz(b *testing.B) {
 	for b.Loop() {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/healthz", nil)
-		rw := writer.NewReadWriter(rec, req, w)
+		rw, cleanup := writer.NewReadWriter(rec, req, w)
 		K8sHealtz(rw)
-		rw.Release()
+		cleanup()
 	}
 }
 
@@ -27,8 +27,8 @@ func BenchmarkK8sReadyz(b *testing.B) {
 	for b.Loop() {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/readyz", nil)
-		rw := writer.NewReadWriter(rec, req, w)
+		rw, cleanup := writer.NewReadWriter(rec, req, w)
 		K8sReadyz(rw)
-		rw.Release()
+		cleanup()
 	}
 }

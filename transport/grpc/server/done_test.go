@@ -5,50 +5,39 @@
 package grpc
 
 import (
-	"errors"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
+	"github.com/stretchr/testify/require"
 
-	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
+
 	stdgrpc "google.golang.org/grpc"
 )
 
 func TestServer_DoneServeFailure(t *testing.T) {
+	t.Parallel()
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
+	srv, err := New(WithListener(ln), WithLifecycleTimeouts(lifecycle.Timeouts{
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
-	})))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := ln.Close(); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, err)
+	require.NoError(t, srv.Start())
+	require.NoError(t, ln.Close())
 	select {
 	case <-srv.Done():
 	case <-time.After(5 * time.Second):
 		t.Fatal("Done did not close after listener failure")
 	}
-	if !errors.Is(srv.Err(), net.ErrClosed) {
-		t.Fatalf("Err = %v, want net.ErrClosed", srv.Err())
-	}
+	require.ErrorIs(t, srv.Err(), net.ErrClosed)
 	if srv.IsStarted() {
 		t.Fatal("server still started")
 	}
-	if err := srv.Start(); !errors.Is(err, baseserver.ErrServerClosed) {
-		t.Fatalf("Start after failure = %v", err)
-	}
+	require.ErrorIs(t, srv.Start(), ErrServerClosed)
 	first := srv.Err()
-	if err := srv.Shutdown(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Shutdown(t.Context()))
 	select {
 	case <-srv.stopCh:
 	default:
@@ -60,31 +49,22 @@ func TestServer_DoneServeFailure(t *testing.T) {
 }
 
 func TestServer_DoneNormalShutdown(t *testing.T) {
+	t.Parallel()
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
+	srv, err := New(WithListener(ln), WithLifecycleTimeouts(lifecycle.Timeouts{
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
-	})))
-	if err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, err)
 	defer ln.Close()
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.Shutdown(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Start())
+	require.NoError(t, srv.Shutdown(t.Context()))
 	select {
 	case <-srv.Done():
 	default:
 		t.Fatal("Shutdown did not close Done")
 	}
-	if err := srv.Start(); !errors.Is(err, baseserver.ErrServerClosed) {
-		t.Fatalf("Start after shutdown = %v", err)
-	}
-	if srv.Err() != nil {
-		t.Fatalf("Err = %v after normal shutdown", srv.Err())
-	}
+	require.ErrorIs(t, srv.Start(), ErrServerClosed)
+	require.NoError(t, srv.Err())
 }
 
 // doneListener delays a permanent Accept failure until the test closes it.
@@ -98,21 +78,17 @@ func (l *doneListener) Close() error              { l.once.Do(func() { close(l.c
 func (*doneListener) Addr() net.Addr              { return &net.TCPAddr{} }
 
 func TestServer_DoneNeverStarted(t *testing.T) {
+	t.Parallel()
 	srv, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.Shutdown(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, srv.Shutdown(t.Context()))
 	select {
 	case <-srv.Done():
 	default:
 		t.Fatal("Done remains open")
 	}
-	if !srv.IsStopped() || srv.Err() != nil {
-		t.Fatalf("stopped=%v Err=%v", srv.IsStopped(), srv.Err())
-	}
+	require.True(t, srv.IsStopped())
+	require.NoError(t, srv.Err())
 }
 
 type captureServerHandler struct{ server *stdgrpc.Server }
@@ -122,25 +98,20 @@ func (h *captureServerHandler) Register(server *stdgrpc.Server, _ <-chan struct{
 }
 
 func TestServer_EarlyFailureStopsCreatedServer(t *testing.T) {
+	t.Parallel()
 	ln := &doneListener{closed: make(chan struct{})}
 	_ = ln.Close()
 	srv, err := New(WithListener(ln), WithStartupVerification(5*time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	handler := &captureServerHandler{}
 	srv.RegisterHandlers(handler)
-	if err := srv.Start(); !errors.Is(err, net.ErrClosed) {
-		t.Fatalf("Start = %v, want net.ErrClosed", err)
-	}
+	require.ErrorIs(t, srv.Start(), net.ErrClosed)
 	if handler.server == nil {
 		t.Fatal("underlying gRPC server was not created")
 	}
 	t.Cleanup(handler.server.Stop)
 	// Serve on a stopped server returns ErrServerStopped before Accept.
-	if err := handler.server.Serve(ln); !errors.Is(err, stdgrpc.ErrServerStopped) {
-		t.Fatalf("Serve = %v, want ErrServerStopped after early failure", err)
-	}
+	require.ErrorIs(t, handler.server.Serve(ln), stdgrpc.ErrServerStopped)
 	select {
 	case <-srv.Done():
 		t.Fatal("early failure closed Done")

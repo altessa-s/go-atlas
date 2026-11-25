@@ -67,6 +67,7 @@ on the ignore list and is answered with 403, so no spelling of a path reaches a 
 
 | Type | Description |
 |------|-------------|
+| `Evaluator` | Accepts a policy registry or a custom implementation of `Evaluate` |
 | `Registry` | Manages per-path IP access rules |
 | `AccessRule` | Defines allowlist/denylist IP ranges |
 | `New` / `Middleware` | Constructors returning the middleware or a `func(http.Handler) http.Handler` |

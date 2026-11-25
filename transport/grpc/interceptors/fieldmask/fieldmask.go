@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
@@ -311,9 +312,9 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 	ri.plan.Store(res.Plan)
 	if err != nil {
 		if status.Code(err) == codes.Internal {
-			ri.LogError(ctx, "fieldmask update_mask apply failed", method, err)
+			ri.LogError(ctx, "fieldmask update_mask apply failed", method, diagnostics.LogError(err))
 		} else {
-			ri.LogDebug(ctx, "fieldmask update_mask rejected", method, slog.String("error", err.Error()))
+			ri.LogDebug(ctx, "fieldmask update_mask rejected", method, slog.Any("error", diagnostics.LogError(err)))
 		}
 
 		return err
@@ -349,7 +350,7 @@ func (ri *requestInterceptor) captureReadMask(ctx context.Context, req proto.Mes
 	if mask, ok := ri.resolveRead(ctx, req); ok {
 		parsed, err := pbfieldmask.FromProtoFieldMask(mask)
 		if err != nil {
-			ri.LogDebug(ctx, "fieldmask read_mask rejected", ri.meta.Method(), slog.String("error", err.Error()))
+			ri.LogDebug(ctx, "fieldmask read_mask rejected", ri.meta.Method(), slog.Any("error", diagnostics.LogError(err)))
 			return interceptors.NewError(status.New(codes.InvalidArgument, err.Error()), err)
 		}
 		snap.mask, _ = proto.Clone(mask).(*fieldmaskpb.FieldMask)
@@ -394,7 +395,7 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 	// (AIP-161); the response is not sent half-filtered.
 	if filterErr := msk.Filter(resp); filterErr != nil {
 		ri.LogDebug(ctx, "fieldmask read_mask does not match the response", method,
-			slog.String("error", filterErr.Error()),
+			slog.Any("error", diagnostics.LogError(filterErr)),
 		)
 		return interceptors.NewError(status.New(codes.InvalidArgument, filterErr.Error()), filterErr)
 	}

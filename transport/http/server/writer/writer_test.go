@@ -146,11 +146,11 @@ func TestNewReadWriter(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 
-	rw := NewReadWriter(rec, req, w)
+	rw, cleanup := NewReadWriter(rec, req, w)
 	require.NotNil(t, rw)
 	require.Equal(t, req, rw.Request())
 	require.Equal(t, rec, rw.ResponseWriter())
-	rw.Release()
+	cleanup()
 }
 
 func TestWriter_NewReadWriter(t *testing.T) {
@@ -158,9 +158,9 @@ func TestWriter_NewReadWriter(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 
-	rw := w.NewReadWriter(rec, req)
+	rw, cleanup := w.NewReadWriter(rec, req)
 	require.NotNil(t, rw)
-	rw.Release()
+	cleanup()
 }
 
 func TestReadWriter_Write(t *testing.T) {
@@ -168,8 +168,8 @@ func TestReadWriter_Write(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 
-	rw := NewReadWriter(rec, req, w)
-	defer rw.Release()
+	rw, cleanup := NewReadWriter(rec, req, w)
+	defer cleanup()
 
 	err := rw.Write(map[string]string{"key": "value"})
 	require.NoError(t, err)
@@ -182,8 +182,8 @@ func TestReadWriter_Read(t *testing.T) {
 	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 
-	rw := NewReadWriter(rec, req, w)
-	defer rw.Release()
+	rw, cleanup := NewReadWriter(rec, req, w)
+	defer cleanup()
 
 	var out map[string]string
 	err := rw.Read(&out)
@@ -195,22 +195,24 @@ func TestReadWriter_WriteError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 
-	rw := NewReadWriter(rec, req, w)
-	defer rw.Release()
+	rw, cleanup := NewReadWriter(rec, req, w)
+	defer cleanup()
 
 	err := rw.WriteError(errors.New("fail"), http.StatusBadRequest)
 	require.NoError(t, err)
 }
 
-func TestReadWriter_Release_ClearsFields(t *testing.T) {
+func TestReadWriter_CleanupOwnedByCaller(t *testing.T) {
+	t.Parallel()
 	w := New()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
 
-	rw := NewReadWriter(rec, req, w)
-	rw.Release()
-	// After release, the underlying struct fields should be nil.
-	// We can't check directly, but at least verify no panic.
+	rw, cleanup := NewReadWriter(rec, req, w)
+	_, handlerCanRelease := rw.(interface{ Release() })
+	require.False(t, handlerCanRelease)
+	cleanup()
+
 }
 
 func TestWriter_Write_WithAcceptWildcard(t *testing.T) {

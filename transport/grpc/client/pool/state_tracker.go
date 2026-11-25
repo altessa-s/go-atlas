@@ -46,7 +46,7 @@ type stateTracker struct {
 
 	// onTargetStateChange is invoked synchronously on the watcher goroutine
 	// before subscriber fan-out. Used by the pool's health helper to push
-	// status updates into [observability/health.Coordinator]. Set once
+	// status updates to the health reporter. Set once
 	// before [enable] and never again.
 	onTargetStateChange func(target string, newState connectivity.State)
 }

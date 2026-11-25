@@ -7,11 +7,10 @@ package static
 import (
 	"context"
 	"errors"
-	"time"
 
-	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/static"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
+	"github.com/altessa-s/go-atlas/transport/internal/authaudit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -75,21 +74,7 @@ func WithAudit(rec auth.DecisionRecorder, subjectOf func(any) string) AuthOption
 }
 
 func (c authConfig) finalize(ctx context.Context, data any, allowed bool, reason string, authErr error) error {
-	if c.recorder == nil {
-		return authErr
-	}
-	subject := ""
-	if allowed && c.subjectOf != nil {
-		subject = c.subjectOf(data)
-	}
-	recErr := c.recorder.Record(ctx, decision.Decision{
-		Time:       time.Now().UTC(),
-		Allowed:    allowed,
-		Subject:    subject,
-		Action:     "authenticate",
-		Reason:     reason,
-		Attributes: map[string]string{"transport": "grpc"},
-	})
+	recErr := authaudit.RecordAuthentication(ctx, c.recorder, "grpc", "authenticate", data, c.subjectOf, allowed, reason)
 	if recErr != nil && authErr == nil {
 		return status.Error(codes.Internal, "authentication audit failed")
 	}

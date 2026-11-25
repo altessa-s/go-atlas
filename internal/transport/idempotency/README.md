@@ -6,7 +6,7 @@ import "github.com/altessa-s/go-atlas/internal/transport/idempotency"
 
 Shared kernel of the idempotency twins ([`transport/http/server/middlewares/idempotency`](../../../transport/http/server/middlewares/idempotency) and
 [`transport/grpc/interceptors/idempotency`](../../../transport/grpc/interceptors/idempotency)): key validators, sentinel error, canonical
-header/metadata names, the storage-key format, per-request policies, lock-outcome classification, and the record stored with a completed key for
+header/metadata names, per-request policies, lock-outcome classification, and the record stored with a completed key for
 response replay.
 
 ## Key symbols
@@ -23,11 +23,10 @@ response replay.
 | `Policy`                     | type     | Per-request mode: `PolicyDefault`, `PolicySkip`, `PolicyOptional`, `PolicyMandatory` |
 | `DefaultSkipVerbs`           | variable | Method-name prefixes skipped by default: Get, List, Search, Update, Delete and their Batch forms |
 | `VerbMethodPolicy(m, p, v)`  | function | `PolicySkip` when the method name starts with a verb of `v` (whole word), else `p` |
-| `BuildStorageKey(service,k)` | function | Composes the `("transport", service, key)` v2 storage key                |
 | `DefaultMaxKeyLength`        | constant | `128` — byte bound of opaque and pattern keys when `n < 1`               |
 | `Policy.Mandatory(enforce)`  | method   | Whether the policy requires a key, `enforce` deciding for `PolicyDefault` |
 | `LockOutcome`                | type     | AttemptLock result: `LockAcquired`, `LockFingerprintMismatch`, `LockOwnerMismatch`, `LockStorageError`, `LockNilState`, `LockInProgress`, `LockCompleted` |
-| `ClassifyLock(l, st, err)`   | function | Classifies an AttemptLock result; decodes the stored `Record` for `LockCompleted` |
+| `ClassifyLock(locked, hasState, status, data, errKind)`   | function | Classifies an AttemptLock result; decodes the stored `Record` for `LockCompleted` |
 | `DefaultMaxReplaySize`       | constant | `256 KiB` — default bound of a response stored for replay                |
 | `Record`                     | type     | Data stored with a completed key under replay: entity ID, binding, gRPC response or HTTP status/headers/body |
 | `NewRecord(entityID, b)`     | function | Base `Record` holding the entity ID and binding; the transport attaches its response |
@@ -38,7 +37,7 @@ response replay.
 
 ## Storage-key ABI
 
-`BuildStorageKey` composes the tuple `("transport", service, key)` with [`reliability/idempotency.ComposeKey`](../../../reliability/idempotency#storage-key-format)
+The transports compose the tuple `("transport", service, key)` with [`reliability/idempotency.ComposeKey`](../../../reliability/idempotency#storage-key-format)
 into the length-prefixed v2 layout, so distinct `(service, key)` pairs never share a storage key:
 
 | Transport | Service              | Storage key                                                                       |
@@ -67,5 +66,4 @@ its own answer to every outcome: status codes, fail-open policy, headers, and th
 if err := idempotency.DefaultKeyValidator(key); err != nil {
     return err // errors.Is(err, idempotency.ErrInvalidFormat)
 }
-storageKey := idempotency.BuildStorageKey("users.UserService", key)
 ```

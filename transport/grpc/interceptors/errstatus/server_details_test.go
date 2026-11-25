@@ -169,9 +169,9 @@ func TestServerInterceptor_KeptDetailsRoundTripThroughClient(t *testing.T) {
 	ci := ClientInterceptor(WithStatusConverterFunc(func(_ context.Context, st *status.Status) error {
 		seen = st
 		return st.Err()
-	})).(*clientInterceptor)
+	}))
 	// The wire carries only the status, not the interceptors.Error around it.
-	err := ci.convertError(t.Context(), status.Convert(serverErr).Err())
+	err := convertClientError(t, ci, status.Convert(serverErr).Err())
 
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.Len(t, seen.Details(), 1)

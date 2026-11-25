@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas-net/httpx"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 )
 
@@ -71,7 +72,7 @@ func (m *middleware) getIP(r *http.Request) netip.Addr {
 
 	peerIP, err := netip.ParseAddr(remoteHost)
 	if err != nil {
-		m.LogError(r.Context(), "failed to parse remote address", r.URL.Path, err,
+		m.LogError(r.Context(), "failed to parse remote address", r.URL.Path, diagnostics.LogError(err),
 			slog.String("remote_addr", r.RemoteAddr),
 		)
 		return netip.Addr{}

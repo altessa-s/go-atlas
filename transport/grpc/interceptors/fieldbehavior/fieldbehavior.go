@@ -16,6 +16,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas-core/types/ptr"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
@@ -226,7 +227,7 @@ func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, e
 	// Any failure other than a violation (e.g. ErrMaxDepthExceeded) rejects the
 	// message before it is cloned.
 	if _, ok := errors.AsType[*pbfieldbehavior.BehaviorViolationError](detectErr); !ok {
-		ri.LogError(ctx, "fieldbehavior strip failed", ri.meta.Method(), detectErr,
+		ri.LogError(ctx, "fieldbehavior strip failed", ri.meta.Method(), diagnostics.LogError(detectErr),
 			slog.String("side", "response"),
 			slog.String("kind", "response"),
 		)
@@ -324,7 +325,7 @@ func (ri *requestInterceptor) runStrip(ctx context.Context, msg proto.Message, f
 			return interceptors.NewError(buildViolationStatus(violation), stripErr)
 		}
 
-		ri.LogError(ctx, "fieldbehavior strip failed", method, stripErr,
+		ri.LogError(ctx, "fieldbehavior strip failed", method, diagnostics.LogError(stripErr),
 			slog.String("side", side),
 			slog.String("kind", label),
 		)

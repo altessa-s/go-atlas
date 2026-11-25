@@ -13,7 +13,10 @@ import (
 
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas-net/httpx"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
 
@@ -40,7 +43,7 @@ type middleware struct {
 
 // Dependencies returns optional middlewares that should run before limiter.
 func (m *middleware) Dependencies() []string {
-	return nil
+	return []string{auth.Name(), mtls.Name()}
 }
 
 // RequiredDependencies returns middlewares that limiter requires to function.
@@ -125,7 +128,7 @@ func (m *middleware) rateLimit(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 
-		m.LogWarn(ctx, "rate limit check failed", path, err,
+		m.LogWarn(ctx, "rate limit check failed", path, nil, slog.String("classification", diagnostics.ErrorClass(err)),
 			slog.String("method", r.Method))
 
 		switch m.fallbackBehavior {

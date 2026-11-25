@@ -26,8 +26,8 @@ func TestPanicRecover_NoPanic(t *testing.T) {
 }
 
 func TestPanicRecover_Dependencies(t *testing.T) {
+	t.Parallel()
 	m := &middleware{}
-	deps := m.Dependencies()
-	require.Len(t, deps, 1)
-	require.Equal(t, "requestid", deps[0])
+	require.Empty(t, m.Dependencies())
+	require.True(t, m.Outermost())
 }

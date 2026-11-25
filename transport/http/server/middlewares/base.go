@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/base"
 	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
 )
@@ -62,12 +63,12 @@ func (b *BaseMiddleware) LogDebug(ctx context.Context, msg, path string, attrs .
 
 // LogWarn logs a warning message with middleware context.
 func (b *BaseMiddleware) LogWarn(ctx context.Context, msg, path string, err error, attrs ...slog.Attr) {
-	b.base.LogWarn(ctx, msg, path, err, attrs...)
+	b.base.LogWarn(ctx, msg, path, diagnostics.LogError(err), attrs...)
 }
 
 // LogError logs an error message with middleware context.
 func (b *BaseMiddleware) LogError(ctx context.Context, msg, path string, err error, attrs ...slog.Attr) {
-	b.base.LogError(ctx, msg, path, err, attrs...)
+	b.base.LogError(ctx, msg, path, diagnostics.LogError(err), attrs...)
 }
 
 // NewBaseMiddleware creates a new BaseMiddleware with the given name and logger.

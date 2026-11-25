@@ -24,10 +24,8 @@
 // # Usage
 //
 //	srv, _ := grpc.New(
-//	    grpc.WithBaseOptions(
-//	        server.WithAddress(":8080"),
-//	    ),
-//	    grpc.WithReflection(true),
+//	    grpc.WithAddress(":8080"),
+//	    grpc.WithReflection(),
 //	)
 //
 //	srv.RegisterHandlers(myHandler)
@@ -36,6 +34,10 @@
 //	    log.Fatal(err)
 //	}
 //	defer srv.Shutdown(ctx)
+//
+// Configure startup verification, graceful shutdown, and warning intervals with
+// [WithLifecycleTimeouts]. A repeated Start returns [ErrServerAlreadyStarted],
+// and a Start after Done closes returns [ErrServerClosed].
 //
 // After Start succeeds, wait on Done to observe a post-start Serve failure or
 // completion of lifecycle shutdown, including cancellation after the lifecycle

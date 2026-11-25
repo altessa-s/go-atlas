@@ -5,8 +5,11 @@
 package geoacl
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/netip"
 	"testing"
 
@@ -181,4 +184,19 @@ func TestUnaryInterceptor_NoDefaultExemptions(t *testing.T) {
 			require.Equal(t, "ok", resp)
 		})
 	}
+}
+
+func TestResolverErrorRedaction(t *testing.T) {
+	t.Parallel()
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	resolver := &mockResolver{err: fmt.Errorf("Bearer standalone-geo-token https://geo.test/?api_key=SECRET: %w", context.DeadlineExceeded)}
+	inter := ServerUnaryInterceptor(resolver, newTestRegistry(), WithLogger(log), WithFallbackBehavior(fallback.Error))
+	ctx := clientip.NewContext(t.Context(), netip.MustParseAddr("192.0.2.1"))
+	_, err := inter(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}, noopHandler)
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Contains(t, logs.String(), "geo resolver error")
+	require.NotContains(t, logs.String(), "standalone-geo-token")
+	require.NotContains(t, logs.String(), "SECRET")
+	require.Contains(t, logs.String(), "deadline_exceeded")
 }

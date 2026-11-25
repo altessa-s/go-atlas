@@ -7,11 +7,13 @@ package idempotency
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"reflect"
 	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
@@ -28,7 +30,6 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	internalidem "github.com/altessa-s/go-atlas/internal/transport/idempotency"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 	grpcmetadata "google.golang.org/grpc/metadata"
 	stdStrings "strings"
@@ -67,7 +68,7 @@ type requestInterceptor struct {
 	meta        *sharedmetadata.CallMetadata
 	currentKey  atomic.Value
 	lockedKey   string
-	lockedState *storages.State // populated by AttemptLock; required by Complete
+	lockedState *idempotency.State // populated by AttemptLock; required by Complete
 }
 
 // DrivenInterceptor implements the driver.DrivenInterceptor interface.
@@ -110,7 +111,7 @@ func ServerInterceptor(i idempotency.Idempotency, opt ...Option) interceptors.Se
 
 // defaultStatusCreator creates a gRPC status for an idempotency error and
 // attaches an [errdetails.ErrorInfo] detail with a scenario-specific reason code.
-func defaultStatusCreator(_ context.Context, scenario ErrorScenario, _ *storages.State) *status.Status {
+func defaultStatusCreator(_ context.Context, scenario ErrorScenario, _ *idempotency.State) *status.Status {
 	var (
 		st     *status.Status
 		reason string
@@ -185,7 +186,13 @@ func (ri *requestInterceptor) check(ctx context.Context, req any, replay bool) (
 	locked, state, err := ri.i.AttemptLockWithOpts(ctx, storageKey, idempotency.AttemptLockOpts{
 		Fingerprint: ri.requestFingerprint(req),
 	})
-	outcome, record := internalidem.ClassifyLock(locked, state, err)
+	var lockStatus internalidem.LockStatus
+	var data any
+	if state != nil {
+		lockStatus, data = internalidem.LockStatus(state.Status), state.Data
+	}
+	errKind := internalidem.ClassifyLockError(err, idempotency.ErrFingerprintMismatch, idempotency.ErrOwnerMismatch)
+	outcome, record := internalidem.ClassifyLock(locked, state != nil, lockStatus, data, errKind)
 	switch outcome {
 	case internalidem.LockFingerprintMismatch:
 		return nil, interceptors.NewError(ri.opts.statusCreator(ctx, ErrorIDKMismatch, nil), nil)
@@ -368,7 +375,7 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, res any, err error) 
 	// another node took over — our result is no longer authoritative, so it
 	// is dropped rather than overwriting the new holder's state.
 	if completeErr := ri.i.Complete(ctx, ri.lockedKey, ri.completionData(res), ri.lockedState); completeErr != nil {
-		ri.LogWarn(ctx, "idempotency key not completed", ri.meta.FullyMethodName, completeErr)
+		ri.LogWarn(ctx, "idempotency key not completed", ri.meta.FullyMethodName, nil, slog.String("classification", diagnostics.ErrorClass(completeErr)))
 	}
 	return nil
 }
@@ -387,7 +394,7 @@ func (ri *requestInterceptor) release(ctx context.Context) {
 	ctx, cancel := internalidem.FinalizeContext(ctx)
 	defer cancel()
 	if err := ri.i.Release(ctx, ri.lockedKey, ri.lockedState); err != nil {
-		ri.LogWarn(ctx, "idempotency key not released", ri.meta.FullyMethodName, err)
+		ri.LogWarn(ctx, "idempotency key not released", ri.meta.FullyMethodName, nil, slog.String("classification", diagnostics.ErrorClass(err)))
 	}
 }
 
@@ -492,7 +499,7 @@ func (ri *requestInterceptor) isNilPointer(req any) bool {
 }
 
 // buildKey constructs a storage key from method name and idempotency key with
-// internalidem.BuildStorageKey: the tuple ("transport", service, key) in the
+// idempotency.ComposeKey: the tuple ("transport", service, key) in the
 // length-prefixed v2 format, the service being the method without its name.
 // Example: idk:v2:9:transport17:users.UserService36:550e8400-e29b-41d4-a716-446655440000
 func (ri *requestInterceptor) buildKey(method, key string) string {
@@ -501,5 +508,5 @@ func (ri *requestInterceptor) buildKey(method, key string) string {
 	if idx := stdStrings.LastIndex(method, "/"); idx > 0 {
 		method = method[:idx]
 	}
-	return internalidem.BuildStorageKey(method, key)
+	return idempotency.ComposeKey("transport", method, key)
 }

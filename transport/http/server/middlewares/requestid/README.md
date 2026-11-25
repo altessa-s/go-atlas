@@ -9,6 +9,8 @@ Package `requestid` provides middleware for UUID v4 request ID extraction or gen
 when generation is disabled, such requests are rejected with 400 Bad Request. The ID is stored in the request context (retrievable via `FromContext`)
 and echoed in the response header. OPTIONS requests are always passed through without processing.
 
+Construct the generator with [`transport/requestid.NewGenerator`](../../../../requestid).
+
 ## Trust model
 
 A client-supplied value that passes strict UUID v4 validation is trusted as-is: it is echoed in the response header, stored in the context, and used as

@@ -11,6 +11,7 @@ IP/CIDR prefixes, fallback behavior strings, IP and geographic ACL rules — int
 
 | Helper                    | Purpose                                                                                  |
 |---------------------------|------------------------------------------------------------------------------------------|
+| `ServerTLS`               | Resolve the selected certificate provider and apply the minimum server TLS version       |
 | `CompilePatterns`         | Compile string patterns to `[]*regexp.Regexp`; invalid patterns are silently skipped     |
 | `StringMatcher`           | Match a string against an exact list (frozen in a `coremaps.ImmutableMap`) and compiled regex patterns; nil when both are empty |
 | `IdempotencyKeyValidator` | Return the key validator of an `IdempotencyKeyFormat`: uuidv4 (or empty), opaque, or pattern; bounded by `maxLen` |

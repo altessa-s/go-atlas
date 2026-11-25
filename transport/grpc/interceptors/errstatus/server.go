@@ -206,7 +206,7 @@ func (i *interceptor) sanitizeConverted(ctx context.Context, st *status.Status, 
 	}
 	out, dropped := clientStatus(st, err)
 	if out.Message() != st.Message() {
-		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, err,
+		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, diagnostics.LogError(err),
 			slog.String("code", st.Code().String()),
 			slog.Bool("converter", true))
 	}
@@ -313,7 +313,7 @@ func (i *interceptor) handleServerError(ctx context.Context, srv any, err error)
 	// status describes a server fault; both would publish internals.
 	_, direct := err.(grpcStatuser)
 	if !direct || isServerFault(st.Code()) {
-		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, err,
+		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, diagnostics.LogError(err),
 			slog.String("code", st.Code().String()),
 			slog.Bool("wrapped", !direct))
 		clientSt, dropped := clientStatus(st, err)

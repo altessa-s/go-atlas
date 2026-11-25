@@ -7,6 +7,8 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 Package `health` provides a gRPC server interceptor for service health checking. Rejects requests with `codes.Unavailable` when the `Health` check
 fails. Wraps errors with `ErrServiceUnavailable`. If the Health check returns a gRPC status error, it is forwarded as-is.
 
+The [health coordinator](../../../../observability/health) implements the interceptor’s `Health` interface.
+
 ## Key types
 
 | Type / Interface        | Description                                                            |

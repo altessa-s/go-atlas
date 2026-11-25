@@ -5,11 +5,14 @@
 package geoacl
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas-net/netipx"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
@@ -18,6 +21,11 @@ import (
 )
 
 const middlewareName = "geoacl"
+
+// Evaluator decides whether the client address may access an endpoint.
+type Evaluator interface {
+	Evaluate(ctx context.Context, resolver geoacl.GeoResolver, ip netip.Addr, endpoint string) (bool, error)
+}
 
 // Name returns the middleware name used for dependency resolution and chain ordering.
 func Name() string { return middlewareName }
@@ -32,7 +40,7 @@ var _ middlewares.Middleware = (*middleware)(nil)
 type middleware struct {
 	middlewares.BaseMiddleware
 	resolver              geoacl.GeoResolver
-	registry              *geoacl.Registry
+	registry              Evaluator
 	fallbackBehavior      fallback.Behavior
 	allowPrivateAddresses bool
 }
@@ -48,7 +56,7 @@ func (m *middleware) RequiredDependencies() []string {
 }
 
 // New creates a new geographic access control middleware with the given resolver, registry and options.
-func New(resolver geoacl.GeoResolver, registry *geoacl.Registry, opt ...Option) *middleware {
+func New(resolver geoacl.GeoResolver, registry Evaluator, opt ...Option) *middleware {
 	opts := newOptions(opt...)
 
 	return &middleware{
@@ -66,7 +74,7 @@ func New(resolver geoacl.GeoResolver, registry *geoacl.Registry, opt ...Option) 
 }
 
 // Middleware returns an HTTP middleware function that enforces geographic access control.
-func Middleware(resolver geoacl.GeoResolver, registry *geoacl.Registry, opt ...Option) func(http.Handler) http.Handler {
+func Middleware(resolver geoacl.GeoResolver, registry Evaluator, opt ...Option) func(http.Handler) http.Handler {
 	return New(resolver, registry, opt...).Handler
 }
 
@@ -115,7 +123,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 		if err != nil {
 			m.LogDebug(ctx, "geo resolver error", path,
 				slog.String("method", r.Method),
-				slog.String("error", err.Error()))
+				slog.String("classification", diagnostics.ErrorClass(err)))
 			switch m.fallbackBehavior {
 			case fallback.Allow:
 				next.ServeHTTP(w, r)

@@ -33,8 +33,9 @@ func TestDefaultKeyValidator(t *testing.T) {
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
+	t.Parallel()
 	m := &middleware{}
-	require.Nil(t, m.Dependencies())
+	require.ElementsMatch(t, []string{"auth", "mtls"}, m.Dependencies())
 }
 
 func TestBuildKey(t *testing.T) {

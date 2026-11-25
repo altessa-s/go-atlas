@@ -7,16 +7,21 @@ package ipacl
 import (
 	"log/slog"
 	"net/http"
+	"net/netip"
 
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
-	"github.com/altessa-s/go-atlas/transport/policy/ipacl"
 )
 
 const middlewareName = "ipacl"
+
+// Evaluator decides whether the client address may access an endpoint.
+type Evaluator interface {
+	Evaluate(ip netip.Addr, endpoint string) bool
+}
 
 // Name returns the middleware name used for dependency resolution and chain ordering.
 func Name() string { return middlewareName }
@@ -30,7 +35,7 @@ var _ middlewares.Middleware = (*middleware)(nil)
 
 type middleware struct {
 	middlewares.BaseMiddleware
-	registry         *ipacl.Registry
+	registry         Evaluator
 	fallbackBehavior fallback.Behavior
 }
 
@@ -45,7 +50,7 @@ func (m *middleware) RequiredDependencies() []string {
 }
 
 // New creates a new IP access control middleware with the given registry and options.
-func New(registry *ipacl.Registry, opt ...Option) *middleware {
+func New(registry Evaluator, opt ...Option) *middleware {
 	opts := newOptions(opt...)
 
 	return &middleware{
@@ -61,7 +66,7 @@ func New(registry *ipacl.Registry, opt ...Option) *middleware {
 }
 
 // Middleware returns an HTTP middleware function that enforces IP-based access control.
-func Middleware(registry *ipacl.Registry, opt ...Option) func(http.Handler) http.Handler {
+func Middleware(registry Evaluator, opt ...Option) func(http.Handler) http.Handler {
 	return New(registry, opt...).Handler
 }
 

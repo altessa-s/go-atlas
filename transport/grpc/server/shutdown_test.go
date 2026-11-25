@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
 	stdGrpc "google.golang.org/grpc"
 )
@@ -55,7 +54,7 @@ func TestServer_Shutdown_TimeoutWithInFlightStream(t *testing.T) {
 		require.NoError(t, err)
 
 		h := blockingStreamHandler{started: make(chan struct{}, 1)}
-		srv, err := grpcserver.New(grpcserver.WithBaseOptions(baseserver.WithListener(ln)))
+		srv, err := grpcserver.New(grpcserver.WithListener(ln))
 		require.NoError(t, err)
 		srv.RegisterHandlers(h)
 		require.NoError(t, srv.Start())

@@ -8,11 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
+	"github.com/altessa-s/go-atlas/transport/internal/authaudit"
 )
 
 // AuthFunc returns an [auth.AuthFunc] that validates the bearer token with
@@ -71,21 +70,7 @@ func WithAudit(rec auth.DecisionRecorder, subjectOf func(*oidc.Claims) string) A
 }
 
 func (c authConfig) record(ctx context.Context, claims *oidc.Claims, allowed bool, reason string) error {
-	if c.recorder == nil {
-		return nil
-	}
-	subject := ""
-	if allowed && c.subjectOf != nil {
-		subject = c.subjectOf(claims)
-	}
-	return c.recorder.Record(ctx, decision.Decision{
-		Time:       time.Now().UTC(),
-		Allowed:    allowed,
-		Subject:    subject,
-		Action:     "validate_token",
-		Reason:     reason,
-		Attributes: map[string]string{"transport": "http"},
-	})
+	return authaudit.RecordAuthentication(ctx, c.recorder, "http", "validate_token", claims, c.subjectOf, allowed, reason)
 }
 
 // auditReason maps a token-validation error to a stable audit reason token.

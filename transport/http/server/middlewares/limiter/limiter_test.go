@@ -121,9 +121,10 @@ func TestMiddleware_FallbackDeny(t *testing.T) {
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
+	t.Parallel()
 	m := &middleware{}
 	deps := m.Dependencies()
-	require.Len(t, deps, 0)
+	require.ElementsMatch(t, []string{"auth", "mtls"}, deps)
 	reqDeps := m.RequiredDependencies()
 	require.Len(t, reqDeps, 1)
 	require.Equal(t, "realip", reqDeps[0])

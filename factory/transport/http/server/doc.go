@@ -14,6 +14,9 @@
 //	    WithMiddlewares().
 //	    Build()
 //
+// Enabled pprof and metrics handlers are mounted under the internal prefix on
+// the default root router or the router supplied through [ServerBuilder.WithRouter].
+//
 // # Middleware Control
 //
 // Three levels of middleware control are available:
@@ -22,6 +25,9 @@
 //     accepts optional exclude arguments (e.g., corsmw.ID, limitermw.ID) to skip specific middleware.
 //   - [ServerBuilder.WithBodyLimitMiddleware], [ServerBuilder.WithCorsMiddleware], etc. — individual config-based middleware
 //   - [ServerBuilder.WithMiddleware] — custom pre-built middleware instances
+//
+// [ServerBuilder.WithMTLSMiddleware] registers certificate authentication in the
+// ordered chain. Configure client certificate verification on the TLS listener.
 //
 // To skip specific middleware, pass their typed IDs:
 //

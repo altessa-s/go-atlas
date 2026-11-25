@@ -15,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-aip/filter"
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
+	"github.com/altessa-s/go-horai/query"
 	"github.com/altessa-s/go-horai/storage/memory"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -397,4 +398,35 @@ func TestHandler_List_Filter(t *testing.T) {
 	require.ElementsMatch(t, []string{"daily/report"}, ids(`id.startsWith("daily/") && !unmanaged`))
 	require.ElementsMatch(t, []string{"hourly/sync", "daily/cleanup"}, ids(`id in ["hourly/sync", "daily/cleanup"]`))
 	require.ElementsMatch(t, []string{"daily/report", "hourly/sync"}, ids(`failures < 1 && unmanaged == false`))
+}
+
+type fieldCompiler struct{}
+
+func (fieldCompiler) Compile(_ context.Context, field string) (query.Expr, error) {
+	return query.Cmp{Field: query.Field(field), Op: query.Eq, Value: "wanted"}, nil
+}
+
+func TestHandler_CustomFilterCompiler(t *testing.T) {
+	t.Parallel()
+	s := newScheduler(t)
+	register(t, s, schedtask.Config{ID: "wanted"})
+	register(t, s, schedtask.Config{ID: "other"})
+	h, err := grpcsched.NewWithCompiler(s, pageTokens(t), fieldCompiler{})
+	require.NoError(t, err)
+	resp, err := h.List(t.Context(), &schedulerv1.TasksListRequest{Filter: "id"})
+	require.NoError(t, err)
+	require.Len(t, resp.GetTasks(), 1)
+	require.Equal(t, "wanted", resp.GetTasks()[0].GetId())
+	_, err = h.List(t.Context(), &schedulerv1.TasksListRequest{Filter: "unknownField"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestNewWithCompilerRequiresDependencies(t *testing.T) {
+	t.Parallel()
+	var s *sched.Scheduler
+	_, err := grpcsched.NewWithCompiler(s, nil, fieldCompiler{})
+	require.ErrorIs(t, err, grpcsched.ErrSchedulerRequired)
+	var compiler *fieldCompiler
+	_, err = grpcsched.NewWithCompiler(newScheduler(t), nil, compiler)
+	require.ErrorIs(t, err, grpcsched.ErrFilterCompilerRequired)
 }

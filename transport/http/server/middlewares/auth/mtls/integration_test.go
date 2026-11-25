@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/spiffe"
-	"github.com/altessa-s/go-atlas/internal/transport/mtlstest"
+	"github.com/altessa-s/go-atlas/internal/testhelpers/mtlstest"
 
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	authmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"

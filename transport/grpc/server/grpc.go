@@ -6,6 +6,7 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -24,11 +26,25 @@ import (
 	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
 )
 
-// GRPCServer is the contract for a managed gRPC server. It extends
-// [baseserver.Server] with handler and interceptor registration.
+// Lifecycle errors returned by [Server.Start].
+var (
+	// ErrServerAlreadyStarted indicates that the server is already running.
+	ErrServerAlreadyStarted = baseserver.ErrServerAlreadyStarted
+	// ErrServerClosed indicates that the server cannot be restarted after Done closes.
+	ErrServerClosed = baseserver.ErrServerClosed
+)
+
+// GRPCServer is the contract for a managed gRPC server, including lifecycle and registration.
 // All methods are safe for concurrent use after the server has started.
 type GRPCServer interface {
-	baseserver.Server
+	// Start begins serving and verifies startup.
+	Start() error
+	// Shutdown drains active calls within the available deadline.
+	Shutdown(ctx context.Context) error
+	// Done closes after shutdown or a post-start serving failure.
+	Done() <-chan struct{}
+	// Err reports the first post-start serving failure.
+	Err() error
 
 	// RegisterHandlers registers gRPC service handlers with the server.
 	// Must be called before Start().
@@ -44,13 +60,12 @@ type GRPCServer interface {
 var _ GRPCServer = (*Server)(nil)
 
 // Server wraps a [grpc.Server] with lifecycle management, TLS support,
-// reflection, and interceptor chaining. It embeds [baseserver.BaseServer]
-// for listener management and graceful shutdown.
+// reflection, and interceptor chaining.
 //
 // Typical sequence: [New] -> RegisterHandlers -> RegisterInterceptors -> [Server.Start] -> [Server.Shutdown].
 // All exported methods are safe for concurrent use. A stopped Server cannot be restarted.
 type Server struct {
-	*baseserver.BaseServer
+	base *baseserver.BaseServer
 
 	stopCh      chan struct{}       // coordination channel for shutdown
 	grpcOptions []grpc.ServerOption // additional gRPC server options
@@ -78,7 +93,7 @@ type Server struct {
 //   - Uses a discard logger (no logging output)
 //   - No TLS configuration (insecure connections)
 //   - Reflection disabled
-//   - Default address :50051
+//   - Default address :0
 //   - No custom gRPC options
 //
 // Returns a configured Server instance ready for service registration and startup.
@@ -87,18 +102,20 @@ func New(opts ...Option) (*Server, error) {
 	// Create config with defaults
 	cfg := newOptions(opts...)
 
-	// The listener and startup check come first, so explicit base options
-	// passed through WithBaseOptions take precedence.
-	t := timeouts.Default()
-	t.StartupVerification = max(cfg.startupVerification, 0)
-	baseOpts := make([]baseserver.Option, 0, len(cfg.baseOpts)+2)
-	baseOpts = append(baseOpts, baseserver.WithTimeouts(t))
-	baseOpts = coreslices.AppendIf(baseOpts, cfg.listener != nil, baseserver.WithListener(cfg.listener))
-	baseOpts = append(baseOpts, cfg.baseOpts...)
+	if !cfg.lifecycleTimeoutsSet {
+		cfg.lifecycleTimeouts.StartupVerification = max(cfg.startupVerification, 0)
+	}
 
 	// Create server
 	srv := &Server{
-		BaseServer:  baseserver.NewBaseServer(baseOpts...),
+		base: baseserver.NewBaseServer(
+			baseserver.WithAddress(cfg.address),
+			baseserver.WithName(cfg.name),
+			baseserver.WithLogger(cfg.logger),
+			baseserver.WithListener(cfg.listener),
+			baseserver.WithTLSConfig(cfg.tlsConfig),
+			baseserver.WithTimeouts(timeouts.Lifecycle(cfg.lifecycleTimeouts)),
+		),
 		stopCh:      make(chan struct{}),
 		lifecycle:   make(chan struct{}, 1),
 		grpcOptions: cfg.grpcOpts,
@@ -117,7 +134,7 @@ func New(opts ...Option) (*Server, error) {
 // [grpc.Server]. Nil handlers are silently filtered. Must be called before
 // [Server.Start]; not safe for concurrent use during setup.
 func (s *Server) RegisterHandlers(handlers ...Handler) {
-	s.handlers = slices.Collect(coreslices.Filter(handlers, func(h Handler) bool {
+	s.handlers = slices.AppendSeq(s.handlers, coreslices.Filter(handlers, func(h Handler) bool {
 		return nilcheck.IsNotNil(h)
 	}))
 }
@@ -137,14 +154,32 @@ func (s *Server) RegisterInterceptors(lst ...interceptors.ServerInterceptor) err
 	return nil
 }
 
+// Done closes after shutdown or a post-start serving failure.
+func (s *Server) Done() <-chan struct{} { return s.base.Done() }
+
+// Err reports the first post-start serving failure. It is nil after normal shutdown.
+func (s *Server) Err() error { return s.base.Err() }
+
+// Address returns the bound address, or the configured address before binding.
+func (s *Server) Address() string { return s.base.Address() }
+
+// Listener returns the supplied or bound listener, if any.
+func (s *Server) Listener() net.Listener { return s.base.Listener() }
+
+// TLSConfig returns the configured TLS settings.
+func (s *Server) TLSConfig() *tls.Config { return s.base.TLSConfig() }
+
+// LifecycleTimeouts returns the effective startup and shutdown durations.
+func (s *Server) LifecycleTimeouts() lifecycle.Timeouts { return lifecycle.Timeouts(s.base.Timeouts()) }
+
 // IsStarted returns true if the server has been started and is currently running.
 func (s *Server) IsStarted() bool {
-	return s.BaseServer.IsStarted()
+	return s.base.IsStarted()
 }
 
 // IsStopped returns true if the server has been stopped.
 func (s *Server) IsStopped() bool {
-	return s.IsShutdown()
+	return s.base.IsShutdown()
 }
 
 // Start starts the gRPC server and begins accepting connections.
@@ -166,7 +201,7 @@ func (s *Server) Start() (err error) {
 	s.lifecycle <- struct{}{}
 	defer func() { <-s.lifecycle }()
 
-	if err := s.CanStart(); err != nil {
+	if err := s.base.CanStart(); err != nil {
 		return err
 	}
 	if s.stopped {
@@ -204,11 +239,11 @@ func (s *Server) Start() (err error) {
 	// accidental production-enablement.
 	if s.reflection {
 		reflection.Register(srv)
-		s.Logger().Warn("gRPC reflection enabled — service schema is publicly discoverable; disable in production")
+		s.base.Logger().Warn("gRPC reflection enabled — service schema is publicly discoverable; disable in production")
 	}
 
 	// Use BaseServer.Start with gRPC-specific callback
-	startErr := s.BaseServer.Start("grpc", func(ln net.Listener, errCh chan<- error) {
+	startErr := s.base.Start("grpc", func(ln net.Listener, errCh chan<- error) {
 		go func() {
 			// Recover panics that happen before grpc.Server.Serve has a
 			// chance to install its own per-stream recovery (e.g. during
@@ -255,14 +290,17 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		return ctx.Err()
 	}
 	defer func() { <-s.lifecycle }()
-	srv := s.grpc
-	if srv == nil || s.stopped {
-		return s.GracefulShutdown(ctx, func(context.Context) error { return nil })
+	if s.stopped {
+		return nil
 	}
 	s.stopped = true
+	close(s.stopCh)
+	srv := s.grpc
 
-	return s.GracefulShutdown(ctx, func(ctx context.Context) error {
-		close(s.stopCh)
+	return s.base.GracefulShutdown(ctx, func(ctx context.Context) error {
+		if srv == nil {
+			return nil
+		}
 
 		// Close listener first to prevent new connections
 		if s.Listener() != nil {

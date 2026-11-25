@@ -15,7 +15,6 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	middleware "github.com/altessa-s/go-atlas/transport/http/server/middlewares/idempotency"
 )
 
@@ -23,14 +22,14 @@ import (
 // reached over the network does.
 type ctxKeeper struct{ *idempotency.Keeper }
 
-func (k ctxKeeper) Complete(ctx context.Context, key string, data any, state *storages.State) error {
+func (k ctxKeeper) Complete(ctx context.Context, key string, data any, state *idempotency.State) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return k.Keeper.Complete(ctx, key, data, state)
 }
 
-func (k ctxKeeper) Release(ctx context.Context, key string, state *storages.State) error {
+func (k ctxKeeper) Release(ctx context.Context, key string, state *idempotency.State) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -75,7 +74,7 @@ func TestCanceledRequestStillFinalizesKey(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.wantLocked, locked)
 			if !tc.wantLocked {
-				require.Equal(t, storages.StatusSuccess, state.Status)
+				require.Equal(t, idempotency.StatusSuccess, state.Status)
 			}
 		})
 	}

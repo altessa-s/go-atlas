@@ -7,6 +7,7 @@ package client
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
@@ -24,20 +25,18 @@ import (
 //   - Pool mode: the helper subscribes to [pool.ConnectionPool.SubscribeTarget]
 //     for the client's target address and forwards each push.
 //
-// The helper is allocated even when no coordinator is configured, in which
-// case all methods are cheap noops.
+// Without a coordinator the helper is nil and its methods are no-ops.
 type clientHealth struct {
 	client      *Client
-	coordinator health.Reporter // may be nil
 	serviceName string
 	mapper      pool.StateMapper // never nil
 
-	// single-mode resources
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	stopWatching func()
 
-	// pool-mode resources
-	poolUnsub func()
+	// A pool may publish during subscription, before registration succeeds.
+	registered atomic.Bool
+	notify     func(health.ServingStatus)
+	unregister func()
 
 	// detachOnce serializes teardown so concurrent Close calls neither race
 	// on the fields above nor return before the watcher has exited.
@@ -48,48 +47,60 @@ type clientHealth struct {
 // integration is disabled so the request hot path can do a single nil
 // check at the call site.
 func newClientHealth(c *Client) *clientHealth {
-	if c.options.healthCoordinator == nil {
+	if c.options.scopedHealthReporter == nil && c.options.healthCoordinator == nil {
 		return nil
 	}
 	return &clientHealth{
 		client:      c,
-		coordinator: c.options.healthCoordinator,
 		serviceName: c.options.healthServiceName,
 		mapper:      c.options.healthStateMapper,
 	}
 }
 
 // attach registers the client checker and starts the appropriate watcher.
-// Must be called from [Client.connect] after c.conn is set (single mode) or
-// after pool mode is confirmed (pool mode).
-//
-//nolint:contextcheck // the single-mode watcher lifecycle is detach-scoped, not request-scoped
 func (h *clientHealth) attach(ctx context.Context) error {
 	if h == nil {
 		return nil
 	}
-	h.coordinator.RegisterService(h.serviceName, h)
+	return h.client.backend.attachHealth(ctx, h)
+}
 
-	if h.client.options.pool != nil {
-		//nolint:contextcheck // pool watcher lifecycle is pool-scoped, not request-scoped
-		unsub, err := h.client.options.pool.SubscribeTarget(h.client.address, h.onPoolStateChange)
-		if err != nil {
-			return err
-		}
-		h.poolUnsub = unsub
-		// Push the current snapshot immediately so subscribers see a
-		// status without waiting for the first transition.
-		h.coordinator.NotifyStatusChange(h.serviceName, h.CheckHealth(ctx))
-		return nil
+func (b *pooledBackend) attachHealth(ctx context.Context, h *clientHealth) error {
+	//nolint:contextcheck // The subscription lives until the client closes.
+	unsub, err := b.pool.SubscribeTarget(b.target, h.onPoolStateChange)
+	if err != nil {
+		return err
 	}
-
-	// Single mode: own watcher goroutine. The watcher must outlive the
-	// attach call's context, so it is rooted at a fresh background ctx
-	// owned by this helper and canceled in detach.
-	watcherCtx, cancel := context.WithCancel(context.Background())
-	h.cancel = cancel
-	h.wg.Go(func() { h.watchSingle(watcherCtx) })
+	h.stopWatching = unsub
+	h.register()
+	h.notify(h.CheckHealth(ctx))
 	return nil
+}
+
+//nolint:contextcheck // The client owns its watcher until Close.
+func (b *singleBackend) attachHealth(_ context.Context, h *clientHealth) error {
+	h.register()
+	watcherCtx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		state := b.GetState()
+		h.notify(h.mapper(state))
+		for b.WaitForStateChange(watcherCtx, state) {
+			state = b.GetState()
+			h.notify(h.mapper(state))
+		}
+	})
+	h.stopWatching = func() { cancel(); wg.Wait() }
+	return nil
+}
+
+func (h *clientHealth) register() {
+	if scoped := h.client.options.scopedHealthReporter; scoped != nil {
+		h.notify, h.unregister = scoped.RegisterScopedService(h.serviceName, h)
+	} else {
+		h.notify, h.unregister = health.RegisterOwnedService(h.client.options.healthCoordinator, h.serviceName, h)
+	}
+	h.registered.Store(true)
 }
 
 // detach stops the watcher / unsubscribes. Idempotent and safe for
@@ -99,34 +110,23 @@ func (h *clientHealth) detach() {
 		return
 	}
 	h.detachOnce.Do(func() {
-		if h.poolUnsub != nil {
-			h.poolUnsub()
-			h.poolUnsub = nil
+		h.registered.Store(false)
+		if h.stopWatching != nil {
+			h.stopWatching()
+			h.stopWatching = nil
 		}
-		if h.cancel != nil {
-			h.cancel()
-			h.cancel = nil
-			h.wg.Wait()
+		if h.unregister != nil {
+			h.unregister()
 		}
 	})
-}
-
-func (h *clientHealth) watchSingle(ctx context.Context) {
-	if h.client.conn == nil {
-		return
-	}
-	state := h.client.conn.GetState()
-	h.coordinator.NotifyStatusChange(h.serviceName, h.mapper(state))
-	for h.client.conn.WaitForStateChange(ctx, state) {
-		state = h.client.conn.GetState()
-		h.coordinator.NotifyStatusChange(h.serviceName, h.mapper(state))
-	}
 }
 
 // onPoolStateChange is the subscription callback used in pool mode. The
 // pool's tracker invokes it synchronously on every per-conn state change.
 func (h *clientHealth) onPoolStateChange(state connectivity.State) {
-	h.coordinator.NotifyStatusChange(h.serviceName, h.mapper(state))
+	if h.registered.Load() {
+		h.notify(h.mapper(state))
+	}
 }
 
 // CheckHealth implements [health.Checker]. The coordinator's pull path uses
@@ -135,11 +135,8 @@ func (h *clientHealth) CheckHealth(_ context.Context) health.ServingStatus {
 	if h == nil {
 		return health.StatusServing
 	}
-	if h.client.options.pool != nil {
-		return h.mapper(h.client.options.pool.StateForTarget(h.client.address))
-	}
-	if h.client.conn == nil {
+	if h.client.backend == nil {
 		return health.StatusUnknown
 	}
-	return h.mapper(h.client.conn.GetState())
+	return h.mapper(h.client.backend.GetState())
 }

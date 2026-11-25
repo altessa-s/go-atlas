@@ -10,7 +10,6 @@ geographic location.
 ## Usage
 
 ```go
-// Inside this module only; external services configure rules through the server factory.
 // import geopolicy "github.com/altessa-s/go-atlas/transport/policy/geoacl"
 registry := geopolicy.NewRegistry(geopolicy.PolicyDeny)
 registry.Register("/admin.AdminService/Delete", &geopolicy.AccessRule{
@@ -63,6 +62,7 @@ factory](../../../../factory/transport/grpc/server).
 
 | Type | Description |
 |------|-------------|
+| `Evaluator` | Accepts a policy registry or a custom implementation of `Evaluate` |
 | `Registry` | Manages per-endpoint geographic access rules |
 | `AccessRule` | Defines allow/deny lists for continents, countries, and regions |
 | `GeoResolver` | Interface for IP-to-country resolution |

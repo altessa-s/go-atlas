@@ -5,6 +5,7 @@
 package base
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -265,4 +266,22 @@ func assertAttr(t *testing.T, rec logRecord, key, want string) {
 	got, ok := rec.Attrs[key]
 	require.True(t, ok)
 	require.Equal(t, want, got)
+}
+
+func TestLogRedactsURLCredentials(t *testing.T) {
+	t.Parallel()
+	for _, level := range []string{"warn", "error"} {
+		t.Run(level, func(t *testing.T) {
+			t.Parallel()
+			var logs bytes.Buffer
+			b := New("test", "middleware", "path", slog.New(slog.NewJSONHandler(&logs, nil)))
+			log := b.LogWarn
+			if level == "error" {
+				log = b.LogError
+			}
+			log(t.Context(), "request failed", "/orders", errors.New("dial https://worker:private-password@db.test"))
+			require.Contains(t, logs.String(), "https://db.test")
+			require.NotContains(t, logs.String(), "private-password")
+		})
+	}
 }

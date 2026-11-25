@@ -15,45 +15,34 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
-
-	baseserver "github.com/altessa-s/go-atlas/internal/transport/server"
+	"github.com/altessa-s/go-atlas/transport/lifecycle"
 )
 
 func TestServer_DoneServeFailure(t *testing.T) {
+	t.Parallel()
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
+	srv, err := New(WithRouter(std.New()), WithListener(ln), WithLifecycleTimeouts(lifecycle.Timeouts{
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
-	})))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := ln.Close(); err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, err)
+	require.NoError(t, srv.Start())
+	require.NoError(t, ln.Close())
 	select {
 	case <-srv.Done():
 	case <-time.After(5 * time.Second):
 		t.Fatal("Done did not close after listener failure")
 	}
-	if !errors.Is(srv.Err(), net.ErrClosed) {
-		t.Fatalf("Err = %v, want net.ErrClosed", srv.Err())
-	}
+	require.ErrorIs(t, srv.Err(), net.ErrClosed)
 	if srv.IsStarted() {
 		t.Fatal("server still started")
 	}
-	if err := srv.Start(); !errors.Is(err, baseserver.ErrServerClosed) {
-		t.Fatalf("Start after failure = %v", err)
-	}
+	require.ErrorIs(t, srv.Start(), ErrServerClosed)
 	first := srv.Err()
-	if err := srv.Shutdown(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Shutdown(t.Context()))
 	select {
 	case <-srv.stopCh:
 	default:
@@ -65,31 +54,22 @@ func TestServer_DoneServeFailure(t *testing.T) {
 }
 
 func TestServer_DoneNormalShutdown(t *testing.T) {
+	t.Parallel()
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
+	srv, err := New(WithRouter(std.New()), WithListener(ln), WithLifecycleTimeouts(lifecycle.Timeouts{
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
-	})))
-	if err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, err)
 	defer ln.Close()
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.Shutdown(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, srv.Start())
+	require.NoError(t, srv.Shutdown(t.Context()))
 	select {
 	case <-srv.Done():
 	default:
 		t.Fatal("Shutdown did not close Done")
 	}
-	if err := srv.Start(); !errors.Is(err, baseserver.ErrServerClosed) {
-		t.Fatalf("Start after shutdown = %v", err)
-	}
-	if srv.Err() != nil {
-		t.Fatalf("Err = %v after normal shutdown", srv.Err())
-	}
+	require.ErrorIs(t, srv.Start(), ErrServerClosed)
+	require.NoError(t, srv.Err())
 }
 
 // doneListener delays a permanent Accept failure until the test closes it.
@@ -133,44 +113,32 @@ func (h *retryHandler) Register(r RouteRegistrar, _ <-chan struct{}) {
 }
 
 func TestServer_EarlyFailureRetry(t *testing.T) {
+	t.Parallel()
 	ln := &retryListener{closed: make(chan struct{})}
-	srv, err := New(WithRouter(std.New()), WithBaseOptions(baseserver.WithListener(ln), baseserver.WithTimeouts(timeouts.Lifecycle{
+	srv, err := New(WithRouter(std.New()), WithListener(ln), WithLifecycleTimeouts(lifecycle.Timeouts{
 		StartupVerification: 50 * time.Millisecond, ShutdownWarning: time.Second,
-	})))
-	if err != nil {
-		t.Fatal(err)
-	}
+	}))
+	require.NoError(t, err)
 	handler := &retryHandler{}
 	srv.RegisterHandlers(handler)
 	if err := srv.Start(); err == nil {
 		t.Fatal("expected early error")
 	}
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.Shutdown(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.Start(); !errors.Is(err, baseserver.ErrServerClosed) {
-		t.Fatalf("Start = %v", err)
-	}
-	if handler.calls != 1 {
-		t.Fatalf("handler registrations = %d", handler.calls)
-	}
+	require.NoError(t, srv.Start())
+	require.NoError(t, srv.Shutdown(t.Context()))
+	require.ErrorIs(t, srv.Start(), ErrServerClosed)
+	require.Equal(t, 1, handler.calls)
 }
 
 func TestServer_ConcurrentStart(t *testing.T) {
+	t.Parallel()
 	ln := &doneListener{closed: make(chan struct{})}
-	srv, err := New(WithRouter(std.New()), WithBaseOptions(
-		baseserver.WithListener(ln),
-		baseserver.WithTimeouts(timeouts.Lifecycle{
+	srv, err := New(WithRouter(std.New()), WithListener(ln),
+		WithLifecycleTimeouts(lifecycle.Timeouts{
 			StartupVerification: 50 * time.Millisecond, ShutdownWarning: time.Second,
-		}),
-	))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+		}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Shutdown(context.WithoutCancel(t.Context())) })
 	ready := make(chan struct{})
 	results := make(chan error, 2)
 	for range 2 {
@@ -185,18 +153,15 @@ func TestServer_ConcurrentStart(t *testing.T) {
 		switch err := <-results; {
 		case err == nil:
 			successes++
-		case errors.Is(err, baseserver.ErrServerAlreadyStarted):
+		case errors.Is(err, ErrServerAlreadyStarted):
 			alreadyStarted++
 		default:
-			t.Fatalf("Start = %v", err)
+			require.NoError(t, err)
 		}
 	}
-	if successes != 1 || alreadyStarted != 1 {
-		t.Fatalf("successes=%d alreadyStarted=%d, want 1 each", successes, alreadyStarted)
-	}
-	if err := srv.Shutdown(t.Context()); err != nil {
-		t.Fatal(err)
-	}
+	require.Equal(t, 1, successes)
+	require.Equal(t, 1, alreadyStarted)
+	require.NoError(t, srv.Shutdown(t.Context()))
 	select {
 	case <-ln.closed:
 	default:
@@ -205,8 +170,10 @@ func TestServer_ConcurrentStart(t *testing.T) {
 }
 
 func TestServer_CanceledShutdownClosesActiveConnection(t *testing.T) {
+	t.Parallel()
 	for _, deadline := range []bool{false, true} {
 		t.Run(fmt.Sprintf("deadline=%t", deadline), func(t *testing.T) {
+			t.Parallel()
 			r := std.New()
 			entered, exited, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			r.HandleFunc("/", func(_ http.ResponseWriter, req *http.Request) {
@@ -217,26 +184,18 @@ func TestServer_CanceledShutdownClosesActiveConnection(t *testing.T) {
 				case <-release:
 				}
 			})
-			srv, err := New(WithRouter(r), WithBaseOptions(
-				baseserver.WithAddress("127.0.0.1:0"),
-				baseserver.WithTimeouts(timeouts.Lifecycle{
+			srv, err := New(WithRouter(r), WithAddress("127.0.0.1:0"),
+				WithLifecycleTimeouts(lifecycle.Timeouts{
 					StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
-				}),
-			))
-			if err != nil {
-				t.Fatal(err)
-			}
+				}))
+			require.NoError(t, err)
 			t.Cleanup(func() {
 				close(release)
-				_ = srv.Shutdown(context.Background())
+				_ = srv.Shutdown(context.WithoutCancel(t.Context()))
 			})
-			if err := srv.Start(); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, srv.Start())
 			conn, err := net.DialTimeout("tcp", srv.Address(), time.Second)
-			if err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, err)
 			defer conn.Close()
 			if _, err := fmt.Fprint(conn, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"); err != nil {
 				t.Fatal(err)
@@ -256,17 +215,13 @@ func TestServer_CanceledShutdownClosesActiveConnection(t *testing.T) {
 				cancel()
 			}
 			defer cancel()
-			if err := srv.Shutdown(ctx); !errors.Is(err, want) {
-				t.Fatalf("Shutdown = %v, want %v", err, want)
-			}
+			require.ErrorIs(t, srv.Shutdown(ctx), want)
 			select {
 			case <-exited:
 			case <-time.After(time.Second):
 				t.Fatal("force-close did not cancel active request")
 			}
-			if srv.Err() != nil {
-				t.Fatalf("Err = %v after cancellation", srv.Err())
-			}
+			require.NoError(t, srv.Err())
 		})
 	}
 }
@@ -288,27 +243,21 @@ func (*acceptedFailureListener) Close() error   { return nil }
 func (*acceptedFailureListener) Addr() net.Addr { return &net.TCPAddr{} }
 
 func TestServer_EarlyFailureClosesAcceptedConnection(t *testing.T) {
+	t.Parallel()
 	accepted, client := net.Pipe()
 	t.Cleanup(func() { _ = accepted.Close() })
 	t.Cleanup(func() { _ = client.Close() })
 	ln := &acceptedFailureListener{conn: accepted}
-	srv, err := New(WithRouter(std.New()), WithBaseOptions(
-		baseserver.WithListener(ln),
-		baseserver.WithTimeouts(timeouts.Lifecycle{StartupVerification: 5 * time.Second}),
-	))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.Start(); !errors.Is(err, net.ErrClosed) {
-		t.Fatalf("Start = %v, want net.ErrClosed", err)
-	}
+	srv, err := New(WithRouter(std.New()), WithListener(ln),
+		WithLifecycleTimeouts(lifecycle.Timeouts{StartupVerification: 5 * time.Second}))
+	require.NoError(t, err)
+	require.ErrorIs(t, srv.Start(), net.ErrClosed)
 	// Close must have closed the accepted connection before Start returns.
 	if err := client.SetReadDeadline(time.Now().Add(time.Second)); err != nil && !errors.Is(err, io.ErrClosedPipe) {
 		t.Fatal(err)
 	}
-	if _, err := client.Read(make([]byte, 1)); !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) {
-		t.Fatalf("Read = %v, want EOF or ErrClosedPipe from orphaned server cleanup", err)
-	}
+	_, err = client.Read(make([]byte, 1))
+	require.True(t, errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe), "read after cleanup: %v", err)
 	select {
 	case <-srv.Done():
 		t.Fatal("early failure closed Done")

@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/internal/transport/requestid"
+	"github.com/altessa-s/go-atlas/transport/requestid"
 )
 
 func TestRequestId_GeneratesIfMissing(t *testing.T) {

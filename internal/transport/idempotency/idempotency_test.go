@@ -44,52 +44,6 @@ func TestDefaultKeyValidator(t *testing.T) {
 	}
 }
 
-// TestBuildStorageKeyABIPinned pins the storage-key layout byte-for-byte:
-// keys persist in Redis/NATS/memory backends, so the literal format is an
-// external ABI. The expected values are hard-coded string literals on
-// purpose.
-func TestBuildStorageKeyABIPinned(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		service string
-		key     string
-		want    string
-	}{
-		{
-			name:    "gRPC-style service",
-			service: "users.UserService",
-			key:     "550e8400-e29b-41d4-a716-446655440000",
-			want:    "idk:v2:9:transport17:users.UserService36:550e8400-e29b-41d4-a716-446655440000",
-		},
-		{
-			name:    "HTTP-style service",
-			service: "POST:/api/v1/users",
-			key:     "550e8400-e29b-41d4-a716-446655440000",
-			want:    "idk:v2:9:transport18:POST:/api/v1/users36:550e8400-e29b-41d4-a716-446655440000",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			require.Equal(t, tc.want, idempotency.BuildStorageKey(tc.service, tc.key))
-		})
-	}
-}
-
-// TestBuildStorageKeyDistinctPairs pins that (service, key) pairs whose
-// ':'-joined forms are equal get distinct storage keys, so one request can
-// never replay another's stored result.
-func TestBuildStorageKeyDistinctPairs(t *testing.T) {
-	t.Parallel()
-
-	require.NotEqual(t, idempotency.BuildStorageKey("a:b", "c"), idempotency.BuildStorageKey("a", "b:c"))
-	require.NotEqual(t, idempotency.BuildStorageKey("POST:/orders", "x"), idempotency.BuildStorageKey("POST", "/orders:x"))
-}
-
 func TestFinalizeContextOutlivesCancellation(t *testing.T) {
 	t.Parallel()
 

@@ -66,6 +66,8 @@ func WithHealthCoordinator(v health.DynamicReporter) Option {
 			}
 		}
 		o.healthCoordinator = v
+		o.scopedHealthReporter = *new(health.ScopedReporter)
+
 	}
 }
 
@@ -192,6 +194,24 @@ func WithMetricsSubsystem[T interface{ string | *string }](v T) Option {
 			return
 		}
 		o.metricsSubsystem = transformedValue
+	}
+}
+
+// WithScopedHealthReporter binds health notifications and teardown to an
+// individual registration, including concurrent replacements of its name.
+func WithScopedHealthReporter(v health.ScopedReporter) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.scopedHealthReporter = v
+		o.healthCoordinator = *new(health.DynamicReporter)
+
 	}
 }
 

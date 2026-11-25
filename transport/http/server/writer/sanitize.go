@@ -12,6 +12,8 @@ import (
 
 	"github.com/altessa-s/go-aip/fieldbehavior"
 
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -72,7 +74,7 @@ func (wr *Writer) sanitize(w http.ResponseWriter, r *http.Request, data any) (an
 	if err == nil {
 		return sanitized, true, nil
 	}
-	wr.options.logger.ErrorContext(r.Context(), "writer: response sanitization failed", slog.Any("error", err))
+	wr.options.logger.ErrorContext(r.Context(), "writer: response sanitization failed", slog.Any("error", diagnostics.LogError(err)))
 	if writeErr := wr.writeError(w, r, ErrResponseSanitization, http.StatusInternalServerError); writeErr != nil {
 		return nil, false, errors.Join(err, writeErr)
 	}

@@ -10,13 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBuildKeyStorageABIPinned pins the exact v2 storage-key format as an
+// TestBuildStorageKeyABIPinned pins the exact v2 storage-key format as an
 // external ABI: keys built here persist in Redis/NATS/memory backends, so
 // the literal byte layout is frozen; an incompatible layout needs a new
 // version and a migration. The expected
 // values are hard-coded string literals on purpose — do not derive them
 // from the same helper that produces them.
-func TestBuildKeyStorageABIPinned(t *testing.T) {
+func TestBuildStorageKeyABIPinned(t *testing.T) {
 	t.Parallel()
 
 	ri := &requestInterceptor{}
@@ -66,4 +66,10 @@ func TestBuildKeyScopesByService(t *testing.T) {
 
 	require.Equal(t, ri.buildKey("/users.UserService/CreateUser", key), ri.buildKey("/users.UserService/UpdateUser", key))
 	require.NotEqual(t, ri.buildKey("/users.UserService/CreateUser", key), ri.buildKey("/orders.OrderService/CreateUser", key))
+}
+
+func TestBuildStorageKeyDistinctPairs(t *testing.T) {
+	t.Parallel()
+	ri := &requestInterceptor{}
+	require.NotEqual(t, ri.buildKey("a:b", "c"), ri.buildKey("a", "b:c"))
 }

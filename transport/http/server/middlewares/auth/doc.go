@@ -46,6 +46,9 @@
 //   - Missing token: 401 with WWW-Authenticate header
 //   - Invalid token: 401 with error message
 //
+// Callback errors expose a fixed classification and preserve errors.Is matches.
+// A callback implementing HTTPStatus() int may supply a 4xx or 5xx status.
+//
 // Custom error handling can be configured:
 //
 //	middleware := auth.Middleware(

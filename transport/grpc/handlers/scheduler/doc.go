@@ -6,7 +6,7 @@
 // proto/scheduler/v1/scheduler.proto over a github.com/altessa-s/go-horai
 // scheduler.
 //
-// [Handler] delegates to a go-horai scheduler.Scheduler and exposes task
+// [Handler] delegates to a [SchedulerService] and exposes task
 // lifecycle operations (Get, List, Pause, Resume, Disable, Enable, Trigger,
 // SkipNextRun) as well as scheduler status queries and task history listing.
 //
@@ -16,6 +16,7 @@
 //     an injected go-aip filter parser and translated to a typed go-horai query:
 //     &&, ||, !, comparisons and in between a field and literals, startsWith
 //     and contains on a string field, and a bare boolean field.
+//     [NewWithCompiler] accepts a [FilterCompiler] for a custom filter language.
 //   - Page tokens. Cursors are signed with a go-aip pagination/pagetoken codec and bound to
 //     the list, the task and the filter expression.
 //

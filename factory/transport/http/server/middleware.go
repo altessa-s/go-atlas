@@ -12,10 +12,11 @@ import (
 	"github.com/altessa-s/go-atlas/factory/transport/internal/factoryconv"
 	"github.com/altessa-s/go-atlas/internal/transport/urlpath"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth/mtls"
 
 	netipx "github.com/altessa-s/go-atlas-net/netipx"
+	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
-	sharedreqid "github.com/altessa-s/go-atlas/internal/transport/requestid"
 	bodylimitmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
 	corsmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/cors"
 	geoaclmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/geoacl"
@@ -29,6 +30,7 @@ import (
 	requestidmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 	securityheadersmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/securityheaders"
 	tracingmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/tracing"
+	sharedreqid "github.com/altessa-s/go-atlas/transport/requestid"
 )
 
 // middlewaresCfg returns the middlewares config or nil if not configured.
@@ -485,4 +487,15 @@ func (b *ServerBuilder) WithSecurityHeadersMiddleware() *ServerBuilder {
 
 	b.configMW = append(b.configMW, securityheadersmw.New(configOpts...))
 	return b
+}
+
+// WithMTLSMiddleware authenticates verified client certificates before
+// middleware that consumes the principal. Configure client TLS separately.
+func (b *ServerBuilder) WithMTLSMiddleware(opts ...coremtls.Option) *ServerBuilder {
+	mw, err := mtls.New(opts...)
+	if err != nil {
+		b.errs = append(b.errs, err)
+		return b
+	}
+	return b.WithMiddleware(mw)
 }

@@ -26,12 +26,12 @@ import (
 
 	netipx "github.com/altessa-s/go-atlas-net/netipx"
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
-	sharedreqid "github.com/altessa-s/go-atlas/internal/transport/requestid"
 	geoaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/geoacl"
 	ipaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/ipacl"
 	metricsint "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
 	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
+	sharedreqid "github.com/altessa-s/go-atlas/transport/requestid"
 )
 
 // interceptorsCfg returns the interceptors config or nil if not configured.

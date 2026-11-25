@@ -6,13 +6,13 @@ package ipacl
 
 import (
 	"context"
+	"net/netip"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/policy/fallback"
-	"github.com/altessa-s/go-atlas/transport/policy/ipacl"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,6 +21,11 @@ import (
 )
 
 const interceptorName = "ipacl"
+
+// Evaluator decides whether the client address may access an endpoint.
+type Evaluator interface {
+	Evaluate(ip netip.Addr, endpoint string) bool
+}
 
 // Name returns the interceptor name used for dependency resolution and chain ordering.
 func Name() string { return interceptorName }
@@ -34,7 +39,7 @@ var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	registry *ipacl.Registry
+	registry Evaluator
 	opts     *options
 }
 
@@ -49,7 +54,7 @@ func (i *interceptor) RequiredDependencies() []string {
 }
 
 // ServerInterceptor returns a new interceptor that enforces IP-based access control.
-func ServerInterceptor(registry *ipacl.Registry, opt ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(registry Evaluator, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	return &interceptor{
@@ -65,12 +70,12 @@ func ServerInterceptor(registry *ipacl.Registry, opt ...Option) interceptors.Ser
 }
 
 // ServerUnaryInterceptor returns a new unary server interceptor that enforces IP-based access control.
-func ServerUnaryInterceptor(registry *ipacl.Registry, opt ...Option) stdGrpc.UnaryServerInterceptor {
+func ServerUnaryInterceptor(registry Evaluator, opt ...Option) stdGrpc.UnaryServerInterceptor {
 	return ServerInterceptor(registry, opt...).ServerUnaryInterceptor()
 }
 
 // ServerStreamInterceptor returns a new streaming server interceptor that enforces IP-based access control.
-func ServerStreamInterceptor(registry *ipacl.Registry, opt ...Option) stdGrpc.StreamServerInterceptor {
+func ServerStreamInterceptor(registry Evaluator, opt ...Option) stdGrpc.StreamServerInterceptor {
 	return ServerInterceptor(registry, opt...).ServerStreamInterceptor()
 }
 

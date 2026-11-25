@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
@@ -168,7 +169,7 @@ func (ri *requestInterceptor) validate(ctx context.Context, req any) (err error)
 	msgType := string(msg.ProtoReflect().Descriptor().FullName())
 
 	if validationErr := ri.validator.Validate(ctx, msg); validationErr != nil {
-		ri.LogWarn(ctx, "validation failed", method, validationErr,
+		ri.LogWarn(ctx, "validation failed", method, nil, slog.String("classification", diagnostics.ErrorClass(validationErr)),
 			slog.String("message_type", msgType),
 		)
 
