@@ -40,6 +40,10 @@ func WithAPIKey[T interface{ string | *string }](v T) Option {
 // [WithTimeout] (the latter is ignored because the operator passing a
 // custom client has already expressed intent about timeout semantics).
 //
+// New closes the client's idle connections if the startup health probe
+// fails, and Client.Close does the same on shutdown. Use a dedicated
+// client if closing a shared pool would disrupt other callers.
+//
 // Typical use case: the infrastructure factory builds an *http.Client
 // with a *tls.Config derived from tlsconfig.Client, so TLS settings
 // (CA pool, mTLS client cert, MinVersion, SkipVerifyMode) reach the SDK

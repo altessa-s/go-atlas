@@ -7,7 +7,6 @@ package factory
 import (
 	"cmp"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -18,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/store/meilisearch"
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	httpclient "github.com/altessa-s/go-atlas-net/http/client"
 	meilisearchconfig "github.com/altessa-s/go-atlas/config/meilisearch"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -45,6 +45,7 @@ type ClientBuilder struct {
 	// Dependencies
 	healthCoordinator health.Registrar
 	healthServiceName string
+	noHealth          bool
 }
 
 // New creates a [ClientBuilder] for the given Meilisearch config.
@@ -59,12 +60,13 @@ func New(cfg *meilisearchconfig.Config) *ClientBuilder {
 
 // Build creates a [meilisearch.Client] from configuration. The client
 // performs an initial health check during construction and Build returns
-// an error if the server is unreachable. ctx bounds the initial probe
+// an error if the server is unavailable. ctx bounds the initial probe
 // so a slow / hung server cannot block startup beyond the caller's
 // deadline. If a [health.Registrar] was provided via
 // [ClientBuilder.UseHealthCoordinator], a health checker is registered
 // under the service name configured by
-// [ClientBuilder.UseHealthServiceName] (defaulting to "meilisearch").
+// [ClientBuilder.UseHealthServiceName] (defaulting to "meilisearch"),
+// unless disabled with [ClientBuilder.WithoutHealth].
 func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -72,6 +74,9 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 
 	if b.cfg == nil {
 		return nil, ErrConfigRequired
+	}
+	if err := b.cfg.Validate(); err != nil {
+		return nil, b.WrapError(err, "validate meilisearch config")
 	}
 
 	timeout := b.cfg.Timeout
@@ -98,7 +103,7 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 		return nil, b.WrapError(err, "create meilisearch client")
 	}
 
-	if !nilcheck.IsNil(b.healthCoordinator) {
+	if !nilcheck.IsNil(b.healthCoordinator) && !b.noHealth {
 		b.healthCoordinator.RegisterService(
 			cmp.Or(b.healthServiceName, defaultHealthServiceName),
 			&meilisearchHealthChecker{client: client, logger: b.Logger()},
@@ -123,16 +128,8 @@ func (b *ClientBuilder) buildHTTPClient(tlsCfg *tlsconfig.Client, timeout time.D
 	if err != nil {
 		return nil, err
 	}
-	return &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-	}, nil
+	transport := httpclient.DefaultPooledTransport()
+	transport.Proxy = nil
+	transport.TLSClientConfig = tlsConfig
+	return &http.Client{Timeout: cmp.Or(timeout, meilisearch.DefaultTimeout), Transport: transport}, nil
 }
-
-// Compile-time assertion: tls.Config is referenced indirectly via
-// http.Transport.TLSClientConfig — keep the import stable in case the
-// build flips between Go versions that strip unused imports more
-// aggressively. The actual value is constructed via tlsfactory.
-var _ = (*tls.Config)(nil)

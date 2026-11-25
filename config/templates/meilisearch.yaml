@@ -5,7 +5,8 @@
 
 #meilisearch:
 #  # <string> Meilisearch server URL.
-#  # Includes scheme, host and port of the Meilisearch instance.
+#  # Accepts an HTTP or HTTPS URL with an optional path prefix.
+#  # Query strings and fragments are rejected.
 #  # Default value: http://localhost:7700
 #  host: "http://localhost:7700"
 #
@@ -21,8 +22,7 @@
 #  # Default value: 30s
 #  timeout: "30s"
 #
-#  # <object> TLS settings for HTTPS deployments. Leave unset for
-#  # plaintext HTTP (only safe on localhost / internal network).
+#  # <object> TLS settings. Setting this block requires an HTTPS host URL.
 #  # See tls-client.yaml for the full field list (certificate,
 #  # privateKey, caCerts, serverName, skipVerifyServerName, etc.).
 #  # skipVerifyServerName: true requires also opting into skipVerifyMode warn or

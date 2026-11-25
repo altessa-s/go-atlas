@@ -36,6 +36,7 @@ defer client.Close()
 | `UseDefaultLogger()`         | Shortcut for `UseLogger(slog.Default())`                                            |
 | `UseHealthCoordinator(c)`    | Registers the client's health check with the given `health.Registrar`            |
 | `UseHealthServiceName(n)`    | Overrides the registered service name (default: `"meilisearch"`)                   |
+| `WithoutHealth()`            | Disables coordinator registration while retaining the startup probe                |
 
 ### Terminal
 
@@ -54,9 +55,8 @@ failure cause.
 
 ## TLS
 
-When `cfg.TLS != nil`, the builder delegates TLS-config construction to [factory/ext/tlsutils](../../ext/tlsutils) and wraps the
-result into an `*http.Client` that the SDK uses for every outbound call. CA pool assembly, mTLS client-cert loading, `SkipVerifyMode` enforcement, and
-the `ATLAS_ALLOW_INSECURE_TLS` env-var gate all happen in the canonical place — this factory does not reimplement any of it.
+When `cfg.TLS != nil`, the builder requires an HTTPS base URL and delegates TLS-config construction to [factory/ext/tlsutils](../../ext/tlsutils).
+The resulting TLS config applies to all requests through the pooled HTTP transport.
 
 ```yaml
 meilisearch:
@@ -72,6 +72,7 @@ meilisearch:
 
 `UseHealthCoordinator` registers a `health.Checker` that pings Meilisearch on demand. The default service name is `"meilisearch"`; override it via
 `UseHealthServiceName` when running two Meilisearch instances against the same coordinator (would otherwise collide).
+`WithoutHealth` disables registration. Probe failures logged by the coordinator checker use a fixed category.
 
 ## See also
 

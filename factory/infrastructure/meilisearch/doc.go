@@ -16,10 +16,11 @@
 // The builder integrates with [meilisearchconfig.Config] to create
 // [meilisearch.Client] instances with the configured host, optional API key,
 // and HTTP timeout. Build performs an initial health check against the
-// server and returns an error if it is unreachable.
+// server and returns an error unless the server reports that it is available.
 //
 // When a [health.Registrar] is provided via [ClientBuilder.UseHealthCoordinator],
 // the builder registers a health checker that pings Meilisearch on each
 // check under the service name "meilisearch" (overridable via
-// [ClientBuilder.UseHealthServiceName]).
+// [ClientBuilder.UseHealthServiceName]). [ClientBuilder.WithoutHealth]
+// disables registration and retains the startup check.
 package factory

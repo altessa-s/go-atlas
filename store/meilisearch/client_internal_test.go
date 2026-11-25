@@ -38,20 +38,21 @@ func TestClient_Health_PassesContextThrough(t *testing.T) {
 	}
 	c := newTestClient(sdk)
 
-	ctx, cancel := context.WithCancel(t.Context())
+	type contextKey struct{}
+	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), contextKey{}, "probe"))
 	defer cancel()
 	require.NoError(t, c.Health(ctx))
 	require.NotNil(t, captured, "Health must reach the SDK")
-	require.Same(t, ctx, captured, "Health must pass the caller's ctx unchanged — the PR-43 review flagged a sdk.Health() call that dropped it")
+	require.Equal(t, "probe", captured.Value(contextKey{}))
+	cancel()
+	require.ErrorIs(t, captured.Err(), context.Canceled)
 }
 
-// TestClient_Health_WrapsSDKError covers the coreerrs migration: every
-// SDK error must round-trip through the wrap so structured operation
-// labels reach the logs.
-func TestClient_Health_WrapsSDKError(t *testing.T) {
+func TestClient_Health_RedactsSDKError(t *testing.T) {
 	t.Parallel()
 
-	sentinel := errors.New("network down")
+	const secret = "secret-health-error"
+	sentinel := errors.New(secret)
 	sdk := &fakeSDK{
 		healthFn: func(_ context.Context) (*msdk.Health, error) {
 			return nil, sentinel
@@ -60,8 +61,8 @@ func TestClient_Health_WrapsSDKError(t *testing.T) {
 	c := newTestClient(sdk)
 
 	err := c.Health(t.Context())
-	require.Error(t, err)
-	require.ErrorIs(t, err, sentinel, "wrapped error must preserve the SDK error for errors.Is")
+	require.ErrorIs(t, err, ErrHealthCheck)
+	require.NotContains(t, err.Error(), secret)
 }
 
 // TestClient_IndexExists_UsesContextVariant is the regression guard

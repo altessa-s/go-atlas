@@ -6,11 +6,16 @@ package meilisearch
 
 import (
 	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	coreio "github.com/altessa-s/go-atlas-core/io"
+	httpclient "github.com/altessa-s/go-atlas-net/http/client"
 	msdk "github.com/meilisearch/meilisearch-go"
 )
 
@@ -29,7 +34,7 @@ type Client struct {
 }
 
 // New creates a [Client] targeting host and verifies connectivity with a
-// Health round-trip. Returns an error if the server is unreachable.
+// Health round-trip. Returns an error if the server is unavailable.
 //
 // ctx bounds the initial health probe — pass a context with a deadline
 // (or [context.Background] if startup should only be capped by the
@@ -39,12 +44,20 @@ type Client struct {
 func New(ctx context.Context, host string, opts ...Option) (*Client, error) {
 	o := newOptions(opts...)
 
-	httpClient := o.httpClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: o.timeout}
+	endpoint, err := url.Parse(host)
+	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") ||
+		endpoint.RawQuery != "" || endpoint.ForceQuery || strings.Contains(host, "#") {
+		return nil, ErrInvalidHost
 	}
 
-	sdkOpts := []msdk.Option{msdk.WithCustomClient(httpClient)}
+	httpClient := o.httpClient
+	if httpClient == nil {
+		transport := httpclient.DefaultPooledTransport()
+		transport.Proxy = nil
+		httpClient = &http.Client{Timeout: o.timeout, Transport: transport}
+	}
+
+	sdkOpts := []msdk.Option{msdk.WithCustomClient(wrapHTTPClient(httpClient)), msdk.DisableRetries()}
 	sdkOpts = coreslices.AppendIf(sdkOpts, o.apiKey != "", msdk.WithAPIKey(o.apiKey))
 
 	sdk := msdk.New(host, sdkOpts...)
@@ -55,20 +68,33 @@ func New(ctx context.Context, host string, opts ...Option) (*Client, error) {
 		logger:     o.logger.With(slog.String("component", loggerComponent)),
 	}
 
-	if _, err := sdk.Health(ctx); err != nil {
-		return nil, coreerrs.WrapOperation(err, "meilisearch health check")
+	if err := c.Health(ctx); err != nil {
+		httpClient.CloseIdleConnections()
+		return nil, err
 	}
 
-	c.logger.InfoContext(ctx, "meilisearch client initialized", slog.String("host", host))
+	c.logger.InfoContext(ctx, "meilisearch client initialized", slog.String("host", endpoint.Host))
 
 	return c, nil
 }
 
-// Health pings the server and returns an error if it is unreachable.
-// Honors ctx for cancellation.
+// Health checks that the server reports "available".
+// Failures match [ErrHealthCheck] and omit response and SDK error text.
 func (c *Client) Health(ctx context.Context) error {
-	if _, err := c.sdk.Health(ctx); err != nil {
-		return coreerrs.WrapOperation(err, "meilisearch health check")
+	status, err := c.sdk.Health(context.WithValue(ctx, healthRequestKey{}, true))
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return errors.Join(ErrHealthCheck, ctxErr)
+		}
+		for _, cause := range []error{coreio.ErrReadLimitExceeded, io.ErrUnexpectedEOF, context.DeadlineExceeded} {
+			if errors.Is(err, cause) {
+				return errors.Join(ErrHealthCheck, cause)
+			}
+		}
+		return ErrHealthCheck
+	}
+	if status == nil || status.Status != "available" {
+		return ErrHealthCheck
 	}
 	return nil
 }

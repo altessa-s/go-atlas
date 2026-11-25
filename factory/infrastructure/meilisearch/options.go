@@ -30,6 +30,12 @@ func (b *ClientBuilder) UseHealthCoordinator(v health.Registrar) *ClientBuilder 
 	return b
 }
 
+// WithoutHealth disables coordinator registration while retaining the startup probe.
+func (b *ClientBuilder) WithoutHealth() *ClientBuilder {
+	b.noHealth = true
+	return b
+}
+
 // UseHealthServiceName sets the service name used when registering the
 // health checker with the coordinator. Defaults to "meilisearch" if not set.
 func (b *ClientBuilder) UseHealthServiceName(v string) *ClientBuilder {

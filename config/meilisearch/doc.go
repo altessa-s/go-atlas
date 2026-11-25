@@ -9,5 +9,8 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
+// The base URL must use HTTP or HTTPS and may include a path prefix.
+// TLS settings require an HTTPS base URL. Queries and fragments are rejected.
+//
 // Key types: [Config].
 package meilisearchconfig

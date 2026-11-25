@@ -27,6 +27,12 @@ const (
 //	    // create the index lazily
 //	}
 var (
+	// ErrInvalidHost reports a malformed Meilisearch HTTP or HTTPS base URL.
+	ErrInvalidHost = errors.New("meilisearch: invalid host URL")
+
+	// ErrHealthCheck reports a failed or unavailable Meilisearch health probe.
+	ErrHealthCheck = errors.New("meilisearch: health check failed")
+
 	// ErrIndexNotFound classifies the SDK's "index_not_found" code
 	// internally. Use [IsErrorIndexNotFound] to check returned errors.
 	ErrIndexNotFound = errors.New("meilisearch: index not found")

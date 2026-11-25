@@ -4,13 +4,15 @@
 
 // Package meilisearch provides a thin wrapper around the meilisearch-go SDK
 // for full-text search and document indexing. It owns the HTTP client (so
-// connections can be closed at shutdown), performs a health check at startup,
+// connections can be closed at shutdown or after a failed startup probe),
+// requires an available health status at startup,
 // and implements [IndexManager], [DocumentClient], [Searcher], [TaskWaiter],
 // and [HealthChecker].
 //
 // # Features
 //
 //   - Owned HTTP client with configurable timeout and idle-connection cleanup.
+//   - Same-origin redirects limited to ten hops and a 64 KiB health response limit.
 //   - Index lifecycle helpers: IndexExists, EnsureIndex, UpdateIndexSettings, SetupIndexes.
 //   - Search returning raw JSON hits so callers deserialize into their own document types.
 //   - Pluggable construction via options or the factory/infrastructure/meilisearch builder.

@@ -33,6 +33,27 @@ func TestNew_ReturnsErrorOnUnreachableHost(t *testing.T) {
 	require.Error(t, err, "New must surface health-probe failure as an error")
 }
 
+func TestNew_RejectsInvalidHostWithoutLeakingCredentials(t *testing.T) {
+	t.Parallel()
+
+	const secret = "secret-url-password"
+	for _, tc := range []struct {
+		name string
+		host string
+	}{
+		{"bad port", "http://user:" + secret + "@localhost:bad"},
+		{"query", "http://user:" + secret + "@localhost?"},
+		{"fragment", "http://user:" + secret + "@localhost#"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := meilisearch.New(t.Context(), tc.host)
+			require.ErrorIs(t, err, meilisearch.ErrInvalidHost)
+			require.NotContains(t, err.Error(), secret)
+		})
+	}
+}
+
 // TestSetupIndexes_PropagatesCtxCancellation guards against the
 // IndexExists / GetIndex context-discard bug that the PR-43 review
 // flagged. After the fix, a cancelled context propagated into

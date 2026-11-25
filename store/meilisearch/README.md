@@ -40,6 +40,11 @@ err = client.SetupIndexes(ctx, []meilisearch.IndexDefinition{
 | `WithHTTPClient`  | nil           | Inject a fully configured `*http.Client` — typically used by the factory for TLS  |
 
 `WithHTTPClient` takes precedence over `WithTimeout` (the caller passing a custom client has already expressed timeout intent).
+Use a dedicated injected client when its connection pool must be isolated. A failed startup probe and `Client.Close` both close idle connections.
+
+`New` and `Client.Health` require HTTP 200 with `{"status":"available"}` and read up to 64 KiB before decoding. Failures match `ErrHealthCheck`
+and omit raw server and SDK error text. SDK retries are disabled. The client permits up to ten same-origin redirect hops, including with an
+injected client. Origin comparison uses the scheme, canonical host with its trailing dot preserved, and effective port.
 
 ## Methods
 

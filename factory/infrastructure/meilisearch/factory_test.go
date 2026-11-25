@@ -5,17 +5,21 @@
 package factory_test
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/store/meilisearch"
 
 	meilisearchconfig "github.com/altessa-s/go-atlas/config/meilisearch"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
@@ -130,6 +134,77 @@ func TestBuild_HealthServiceNameOverride(t *testing.T) {
 	services := collectServices(coord)
 	require.Contains(t, services, "search-primary")
 	require.NotContains(t, services, "meilisearch", "default name must NOT register when an override is set")
+}
+
+func TestBuild_WithoutHealthKeepsStartupProbe(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = io.WriteString(w, `{"status":"available"}`)
+	}))
+	defer srv.Close()
+
+	coord := health.New()
+	defer coord.Close()
+
+	client, err := mfactory.New(&meilisearchconfig.Config{Host: srv.URL}).
+		WithoutHealth().
+		UseHealthCoordinator(coord).
+		Build(t.Context())
+	require.NoError(t, err)
+	defer client.Close() //nolint:errcheck // test cleanup
+	require.Empty(t, collectServices(coord))
+	require.EqualValues(t, 1, calls.Load())
+}
+
+func TestBuild_RejectsTLSOverHTTP(t *testing.T) {
+	t.Parallel()
+
+	cfg := meilisearchconfig.Default()
+	cfg.TLS = &tlsconfig.Client{}
+	_, err := mfactory.New(&cfg).Build(t.Context())
+	require.ErrorIs(t, err, meilisearchconfig.ErrTLSRequiresHTTPS)
+}
+
+func TestHealthChecker_RedactsFailures(t *testing.T) {
+	t.Parallel()
+
+	const secret = "secret-proxy-body"
+	var healthy atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if healthy.Load() {
+			_, _ = io.WriteString(w, `{"status":"available"}`)
+			return
+		}
+		_, _ = io.WriteString(w, secret)
+	}))
+	defer srv.Close()
+
+	coord := health.New()
+	defer coord.Close()
+
+	var logs bytes.Buffer
+	host := strings.Replace(srv.URL, "://", "://test-user:secret-url-password@", 1)
+	b := mfactory.New(&meilisearchconfig.Config{Host: host}).
+		UseHealthCoordinator(coord).
+		UseLogger(slog.New(slog.NewJSONHandler(&logs, nil)))
+
+	_, err := b.Build(t.Context())
+	require.ErrorIs(t, err, meilisearch.ErrHealthCheck)
+	require.NotContains(t, err.Error(), secret)
+
+	healthy.Store(true)
+	client, err := b.Build(t.Context())
+	require.NoError(t, err)
+	defer client.Close() //nolint:errcheck // test cleanup
+	healthy.Store(false)
+	require.Equal(t, health.StatusNotServing, coord.CheckServiceHealth(t.Context(), "meilisearch"))
+	require.Contains(t, logs.String(), `"category":"health_check_failed"`)
+	require.NotContains(t, logs.String(), secret)
+	require.NotContains(t, logs.String(), "secret-url-password")
+	require.NotContains(t, logs.String(), "test-user")
 }
 
 // TestBuild_TLSConfigThreadsThroughToHTTPClient is the regression

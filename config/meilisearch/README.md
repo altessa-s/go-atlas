@@ -14,4 +14,7 @@ options; runtime packages never import them.
 |---------------|------------------------------------------------------------------------|
 | `Config` | Represents the configuration for connecting to a Meilisearch instance. |
 
+`Host` accepts an absolute HTTP or HTTPS URL with an optional base path. Queries and fragments are rejected. Set an HTTPS URL when configuring
+`TLS`; the default URL uses HTTP. URL validation errors omit credentials.
+
 See the [config index](../README.md) for the other schema packages.

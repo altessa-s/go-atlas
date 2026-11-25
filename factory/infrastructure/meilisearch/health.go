@@ -23,7 +23,7 @@ type meilisearchHealthChecker struct {
 // CheckHealth implements [health.Checker].
 func (c *meilisearchHealthChecker) CheckHealth(ctx context.Context) health.ServingStatus {
 	if err := c.client.Health(ctx); err != nil {
-		c.logger.Warn("meilisearch health check failed", slog.Any("error", err))
+		c.logger.WarnContext(ctx, "meilisearch health check failed", slog.String("category", "health_check_failed"))
 		return health.StatusNotServing
 	}
 	return health.StatusServing
