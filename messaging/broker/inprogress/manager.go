@@ -59,8 +59,8 @@ type Manager struct {
 //	)
 //	sched.Register(ctx, schedtask.Config{
 //	    ID:       "inprogress-heartbeat",
-//	    Interval: 500 * time.Millisecond,
-//	    Func:     mgr.RunTickCycle,
+//	    Schedule: "@every 1s",
+//	    Func:     mgr.RegisterTickSchedulerFunc(),
 //	})
 func New(opts ...Option) *Manager {
 	cfg := newOptions(opts...)

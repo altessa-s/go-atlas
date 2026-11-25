@@ -10,15 +10,15 @@
 // Any type implementing the [Heartbeater] interface can be registered.
 // [msg.Message] satisfies this interface via [msg.Message.InProgress].
 //
-// Create a Manager and register RunTickCycle with a scheduler:
+// Create a Manager and register its tick callback with a scheduler:
 //
 //	mgr := inprogress.New(
 //	    inprogress.WithLogger(logger),
 //	)
-//	sched.Register(ctx, scheduler.TaskConfig{
+//	sched.Register(ctx, schedtask.Config{
 //	    ID:       "inprogress-heartbeat",
-//	    Interval: 500 * time.Millisecond,
-//	    Func:     mgr.RunTickCycle,
+//	    Schedule: "@every 1s",
+//	    Func:     mgr.RegisterTickSchedulerFunc(),
 //	})
 //
 // Inside a message handler, register the message before long-running work:

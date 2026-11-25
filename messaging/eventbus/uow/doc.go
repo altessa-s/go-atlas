@@ -55,23 +55,29 @@
 // aborted attempt is closed, so a driver retry discards its registrations and
 // a retained context of it returns [ErrScopeClosed]. A [Runner.Run] inside the
 // body of the same Runner joins the enclosing unit: it calls the body directly,
-// and its registrations apply only after the outermost commit. With
-// WithDetector (store/mongo.Transaction has the [Detector] shape), each unit is
+// and its registrations apply only after the outermost commit. With a
+// configured detector or the committer's [TransactionDetector], each unit is
 // bound to the transaction its attempt runs in, and Run, AfterCommit and
 // [OnCommit] return [ErrForeignTransaction] when the context is inside another
-// transaction: one the Runner did not start, or another client's transaction
-// started inside the body, which may abort while the unit's commits. They also
+// transaction that the Runner did not start. Run and AfterCommit also
 // return it inside an open unit of another Runner.
+//
+// With PostgreSQL savepoints, registrations survive only when every enclosing
+// savepoint is released. Their original registration order is preserved.
+// Retaining the child context after the savepoint ends yields [ErrScopeClosed].
 //
 // # Commit outcome
 //
 // When the Committer fails after the last body attempt returned nil, the
 // commit may or may not have happened: Run returns an [*UnknownOutcomeError]
 // (matching [ErrUnknownOutcome] and the Committer error), unless the committer reports
-// a definitive abort through CommitOutcomeUnknown(error) bool. A body that returned
+// a definitive abort through [OutcomeClassifier]. A body that returned
 // an error, or that panicked and was recovered by the Committer (as
 // store/mongo does, with ErrTransactionPanicked), is a known abort and its error
-// is returned as is. WithDetector also checks that a successful root body
+// is returned as is. A committer can confirm the commit of its body context through
+// [WithCommitConfirmation] before reporting an observer failure. The runner
+// processes its registrations and returns any observer and effect errors.
+// A detector checks that a successful root body
 // leaves its captured transaction running. An ended or replaced transaction
 // returns [ErrForeignTransaction] and discards registrations, without
 // [ErrUnknownOutcome]. Without a detector, the Committer must report an explicit
@@ -80,7 +86,6 @@
 // # Usage
 //
 //	runner := uow.New(mongo, logger,
-//		uow.WithDetector(datamongo.Transaction),
 //		uow.WithRunHooksOutsideTransaction(),
 //	)
 //	err := runner.Run(ctx, func(txCtx context.Context) error {

@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/altessa-s/go-atlas/messaging/broker"
+
+	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
 )
 
 // ManagedSubscription represents a subscription managed by the recovery [Manager].
@@ -22,7 +24,7 @@ type ManagedSubscription struct {
 	stream       string
 	consumerName string
 	handler      broker.SubscriberHandler
-	factory      broker.SubscriberFactory
+	factory      natsprovider.SubscriberFactory
 
 	mu         sync.RWMutex
 	subscriber broker.Subscriber

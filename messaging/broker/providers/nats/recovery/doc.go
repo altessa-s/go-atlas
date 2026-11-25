@@ -18,10 +18,10 @@
 //   - [HealthMonitor]: Fallback checks for missed events (scheduler-managed)
 //   - [RecoveryTimeoutMonitor]: Clears stale "recovering" marks (scheduler-managed)
 //
-// # Integration with service/scheduler
+// # Integration with go-horai
 //
 // Background tasks (health checks, stale recovery cleanup) are designed to be run
-// via an external scheduler ([service/scheduler]). This provides:
+// via an external scheduler such as go-horai. This provides:
 //
 //   - Unified task management across the application
 //   - Pause/resume/disable capabilities
@@ -31,7 +31,7 @@
 // # Integration with natsprovider
 //
 // The recovery package integrates with the existing [natsprovider] package by accepting
-// [broker.SubscriberFactory] for subscription configuration. This design:
+// [natsprovider.SubscriberFactory] for subscription configuration. This design:
 //
 //   - Eliminates duplicated message handling logic
 //   - Reuses existing, tested subscription code
@@ -73,16 +73,16 @@
 //	manager.Start()
 //
 //	// Register background tasks with external scheduler
-//	scheduler.Register(ctx, scheduler.TaskConfig{
+//	scheduler.Register(ctx, schedtask.Config{
 //	    ID:       "recovery-health-check",
 //	    Schedule: "0 */5 * * * *", // every 5 minutes
-//	    Func:     manager.RunHealthCheckCycle,
+//	    Func:     manager.RegisterHealthCheckSchedulerFunc(),
 //	})
 //
-//	scheduler.Register(ctx, scheduler.TaskConfig{
+//	scheduler.Register(ctx, schedtask.Config{
 //	    ID:       "recovery-stale-cleanup",
 //	    Schedule: "0 * * * * *", // every minute
-//	    Func:     manager.RunStaleRecoveryCleanup,
+//	    Func:     manager.RegisterStaleCleanupSchedulerFunc(),
 //	})
 //
 //	// Register stream for recovery

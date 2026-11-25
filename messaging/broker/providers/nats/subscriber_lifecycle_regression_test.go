@@ -11,10 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
-	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
+	"github.com/altessa-s/go-atlas/messaging/broker/msg"
 )
 
 type heldDrain struct {

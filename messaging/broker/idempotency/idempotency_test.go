@@ -22,7 +22,6 @@ import (
 
 	brokeridem "github.com/altessa-s/go-atlas/messaging/broker/idempotency"
 	fieldbehaviortestv1 "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 	memorystorage "github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
 )
 
@@ -30,7 +29,7 @@ var _ brokeridem.Keeper = (*idempotency.Keeper)(nil)
 
 type fakeKeeper struct {
 	acquired  bool
-	state     *storages.State
+	state     *idempotency.State
 	lockErr   error
 	complete  error
 	release   error
@@ -39,17 +38,17 @@ type fakeKeeper struct {
 	released  int
 }
 
-func (k *fakeKeeper) AttemptLockWithOpts(context.Context, string, idempotency.AttemptLockOpts) (bool, *storages.State, error) {
+func (k *fakeKeeper) AttemptLockWithOpts(context.Context, string, idempotency.AttemptLockOpts) (bool, *idempotency.State, error) {
 	k.locks++
 	return k.acquired, k.state, k.lockErr
 }
 
-func (k *fakeKeeper) Complete(context.Context, string, any, *storages.State) error {
+func (k *fakeKeeper) Complete(context.Context, string, any, *idempotency.State) error {
 	k.completed++
 	return k.complete
 }
 
-func (k *fakeKeeper) Release(context.Context, string, *storages.State) error {
+func (k *fakeKeeper) Release(context.Context, string, *idempotency.State) error {
 	k.released++
 	return k.release
 }
@@ -184,7 +183,7 @@ func TestWrap_KeeperPort(t *testing.T) {
 
 	t.Run("successful existing state acknowledges duplicate", func(t *testing.T) {
 		t.Parallel()
-		keeper := &fakeKeeper{state: &storages.State{Status: storages.StatusSuccess}}
+		keeper := &fakeKeeper{state: &idempotency.State{Status: idempotency.StatusSuccess}}
 		acker := &mockAcker{}
 		m := msg.NewMessageWithMeta("topic", nil, msg.Meta{{Key: msg.MetaKeyDeduplicateId, Value: "key"}}, msg.WithAcker(acker))
 		called := false
@@ -558,7 +557,7 @@ func TestWrap_CanceledContextOnAck(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, acquired)
 	require.NotNil(t, state)
-	require.Equal(t, storages.StatusSuccess, state.Status)
+	require.Equal(t, idempotency.StatusSuccess, state.Status)
 }
 
 func TestWrap_ConcurrentDeliveries(t *testing.T) {

@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/messaging/broker"
+
+	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
 )
 
 // TestSupervisor_ClearStaleRecoveries_CallbackMayReenter is the regression
@@ -82,7 +84,7 @@ func newTestManagedSubscription(parent context.Context, registry *Registry, stre
 		manager:      &Manager{registry: registry},
 		stream:       stream,
 		consumerName: consumer,
-		factory:      func(any) broker.Subscriber { return sub },
+		factory:      func(*natsprovider.NATS) broker.Subscriber { return sub },
 	}
 	registry.RegisterStream(stream, jetstream.StreamConfig{Name: stream}, RecoveryStrategyAuto)
 	registry.RegisterResubscribeHandler(stream, consumer, func(recoveryCtx context.Context) error {

@@ -319,7 +319,7 @@ func TestRun_Nesting(t *testing.T) {
 		t.Parallel()
 
 		f := &uowtest.Fake{}
-		r := uow.New(f, nil)
+		r := uow.New(committerFunc(f.WithTransaction), nil)
 
 		var applied bool
 		err := r.Run(t.Context(), func(txCtx context.Context) error {
@@ -591,4 +591,48 @@ func TestFake_InnermostTransaction(t *testing.T) {
 	}))
 	require.Equal(t, 1, a.Txns())
 	require.Equal(t, 1, b.Txns())
+}
+
+func TestRun_CommitterConfirmsItsBody(t *testing.T) {
+	t.Parallel()
+	observerErr := errors.New("observer failed after commit")
+	r := uow.New(committerFunc(func(ctx context.Context, fn func(context.Context) error) error {
+		tx, confirm := uow.WithCommitConfirmation(ctx)
+		require.NotNil(t, confirm)
+		if err := fn(tx); err != nil {
+			return err
+		}
+		confirm()
+		return observerErr
+	}), nil)
+	var applied bool
+	err := r.Run(t.Context(), func(ctx context.Context) error {
+		return r.AfterCommit(ctx, func(context.Context) { applied = true })
+	})
+	require.ErrorIs(t, err, observerErr)
+	require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
+	require.True(t, applied)
+}
+
+type classifiedCommitter struct {
+	committerFunc
+	uow.OutcomeClassifier
+}
+
+type definitiveAbort struct{}
+
+func (definitiveAbort) CommitOutcomeUnknown(error) bool { return false }
+
+func TestOutcomeClassifierDefinitiveAbort(t *testing.T) {
+	t.Parallel()
+	cause := errors.New("rolled back")
+	c := classifiedCommitter{committerFunc: func(ctx context.Context, body func(context.Context) error) error {
+		if err := body(ctx); err != nil {
+			return err
+		}
+		return cause
+	}, OutcomeClassifier: definitiveAbort{}}
+	err := uow.New(c, nil).Run(t.Context(), func(context.Context) error { return nil })
+	require.ErrorIs(t, err, cause)
+	require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
 }

@@ -139,9 +139,12 @@ func buildNatsMsg(pmsg msg.Message) (*nats.Msg, []jetstream.PublishOpt) {
 	return natsMsg, pubOpts
 }
 
+// DefaultSubscriber creates a tracked ephemeral subscriber.
+func (n *NATS) DefaultSubscriber() broker.Subscriber { return n.Subscriber(nil) }
+
 // Subscriber creates a new JetStream subscriber using the provided factory.
 // If factory is nil, uses SubscriberWithEphemeralConsumer.
-func (n *NATS) Subscriber(factory broker.SubscriberFactory) broker.Subscriber {
+func (n *NATS) Subscriber(factory SubscriberFactory) broker.Subscriber {
 	if factory == nil {
 		factory = SubscriberWithEphemeralConsumer()
 	}

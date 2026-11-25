@@ -26,8 +26,8 @@ import (
 // recovering them when deletion is detected via [AdvisoryListener] or [HealthMonitor].
 //
 // Background tasks (health checks, stale recovery cleanup) are designed to be run
-// via an external scheduler. Use [Manager.RunHealthCheckCycle] and
-// [Manager.RunStaleRecoveryCleanup] methods with a scheduler TaskConfig.
+// via an external scheduler. Use [Manager.RegisterHealthCheckSchedulerFunc]
+// and [Manager.RegisterStaleCleanupSchedulerFunc] with [schedtask.Config].
 //
 // All exported methods are safe for concurrent use.
 type Manager struct {
@@ -242,7 +242,7 @@ func (m *Manager) Subscribe(
 	stream string,
 	consumerName string,
 	handler broker.SubscriberHandler,
-	factory broker.SubscriberFactory,
+	factory natsprovider.SubscriberFactory,
 ) (*ManagedSubscription, error) {
 	if m.closed.Load() {
 		return nil, ErrManagerClosed

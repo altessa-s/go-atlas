@@ -38,11 +38,32 @@ type Publisher interface {
 	Publish(ctx context.Context, msg msg.Message) error
 }
 
-// Outbox is a broker-specific adapter that wraps the generic [outbox.Outbox]
-// with [msg.Message] conversion and the broker retry classification.
-// It implements the [broker.Outboxer] interface.
+// Saver persists a batch of outbox events in the caller's transaction.
+type Saver interface {
+	Save(context.Context, ...outbox.Event) error
+}
+
+// Management exposes the dispatch, watch and scheduling operations of a managed outbox.
+type Management interface {
+	RegisterTasks(context.Context) error
+	Watch(context.Context) error
+	RunDispatchCycle(context.Context) error
+	RunUnlockCycle(context.Context) error
+	RunCleanupCycle(context.Context) error
+	RunExpireCycle(context.Context) error
+	RunStatsCycle(context.Context) error
+	RegisterDispatchSchedulerFunc() func(context.Context) error
+	RegisterUnlockSchedulerFunc() func(context.Context) error
+	RegisterCleanupSchedulerFunc() func(context.Context) error
+	RegisterExpireSchedulerFunc() func(context.Context) error
+	RegisterStatsSchedulerFunc() func(context.Context) error
+}
+
+// Outbox adapts messages to events. Publish and PublishBatch require only Saver.
+// New also supplies Management for callers that run dispatch and maintenance.
 type Outbox struct {
-	*outbox.Outbox
+	Saver
+	Management
 }
 
 // brokerPayload is the serialization envelope for broker messages stored in the outbox.
@@ -54,39 +75,29 @@ type brokerPayload struct {
 
 // New creates a new broker-specific Outbox adapter. It wraps the generic
 // outbox with the [NewHandler] msg.Message conversion and the [ShouldRetry]
-// classification. opts configure the underlying [outbox.Outbox]; an
-// [outbox.WithShouldRetry] among them is overridden by [ShouldRetry].
-func New(store outbox.Storage, publisher Publisher, opts ...outbox.Option) *Outbox {
-	opts = append(slices.Clip(opts), outbox.WithShouldRetry(ShouldRetry))
-	return &Outbox{Outbox: outbox.New(store, NewHandler(publisher, opts...), opts...)}
-}
-
-type handlerOptions struct {
-	tracer tracing.Tracer
-	system string
-}
-
-// WithTracer enables producer spans for sampled events on New and NewHandler.
-func WithTracer(t tracing.Tracer) outbox.Option {
-	return outbox.WithHandlerOptions(func(o *handlerOptions) { o.tracer = t })
-}
-
-// WithMessagingSystem sets the messaging.system attribute on producer spans.
-func WithMessagingSystem(system string) outbox.Option {
-	return outbox.WithHandlerOptions(func(o *handlerOptions) { o.system = system })
+// classification. [WithOutboxOptions] configures the underlying outbox;
+// [ShouldRetry] takes precedence over a supplied retry predicate.
+func New(store outbox.Storage, publisher Publisher, opts ...Option) *Outbox {
+	cfg := newOptions(opts...)
+	cfg.outboxOptions = append(cfg.outboxOptions, outbox.WithShouldRetry(ShouldRetry))
+	runtime := outbox.New(store, newHandler(publisher, cfg), cfg.outboxOptions...)
+	return &Outbox{Saver: runtime, Management: runtime}
 }
 
 // NewHandler returns the [outbox.Handler] that decodes a stored broker
 // envelope and publishes it through publisher as a [msg.Message]. Pair it
 // with [ShouldRetry] when assembling a generic outbox that delivers broker
 // messages, as [New] and the broker factory do.
-func NewHandler(publisher Publisher, opts ...outbox.Option) outbox.Handler {
-	var cfg handlerOptions
-	outbox.ConfigureHandler(&cfg, opts...)
+func NewHandler(publisher Publisher, opts ...Option) outbox.Handler {
+	return newHandler(publisher, newOptions(opts...))
+}
+
+func newHandler(publisher Publisher, cfg *options) outbox.Handler {
 	var recorder tracing.Recorder
 	if !nilcheck.IsNil(cfg.tracer) {
 		recorder = cfg.tracer.Recorder("messaging/broker/outbox")
 	}
+	system := cfg.messagingSystem
 	return func(ctx context.Context, event outbox.Event) error {
 		var bp brokerPayload
 		if err := json.Unmarshal(event.Payload, &bp); err != nil {
@@ -101,7 +112,7 @@ func NewHandler(publisher Publisher, opts ...outbox.Option) outbox.Handler {
 		if parent := propagation.RemoteSpanContextFromContext(ctx); recorder == nil || parent == nil || !parent.IsSampled() {
 			return bp.publish(ctx, publisher, event)
 		}
-		return bp.tracedPublish(ctx, publisher, event, recorder, cfg.system)
+		return bp.tracedPublish(ctx, publisher, event, recorder, system)
 	}
 }
 

@@ -18,8 +18,8 @@ type noopProvider struct{}
 
 func (noopProvider) Publish(context.Context, msg.Message) error         { return nil }
 func (noopProvider) PublishBatch(context.Context, ...msg.Message) error { return nil }
-func (noopProvider) Subscriber(f broker.SubscriberFactory) broker.Subscriber {
-	return f(noopProvider{})
+func (noopProvider) DefaultSubscriber() broker.Subscriber {
+	return nil
 }
 
 func BenchmarkPublish(b *testing.B) {

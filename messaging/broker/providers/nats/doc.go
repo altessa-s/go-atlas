@@ -11,6 +11,8 @@
 // subscribed. Attempting to use a disallowed subject returns
 // [ErrSubjectNotAllowed].
 //
+// [SubscriberFactory] takes a *NATS. [NATS.Subscriber] tracks its result for shutdown.
+//
 // All exported methods on [NATS] are safe for concurrent use.
 //
 // # Example

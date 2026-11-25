@@ -20,10 +20,8 @@ func WithCompensationTimeout(v time.Duration) Option {
 	}
 }
 
-// WithDetector sets the detector option.
-//
-// detector reports whether a context carries a running database transaction of any client
-// (store/mongo.InTransaction has this shape). It enables foreign-transaction detection; nil disables it.
+// WithDetector overrides detection of active transactions and their identity.
+// A nil detector uses the committer's [TransactionDetector] when provided.
 func WithDetector(v Detector) Option {
 	return func(o *options) {
 		o.detector = v

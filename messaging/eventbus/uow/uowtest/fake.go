@@ -27,11 +27,12 @@ type Snapshotter interface {
 }
 
 var (
-	_ uow.Committer = (*Fake)(nil)
-	_ uow.Detector  = Transaction
+	_ uow.Committer           = (*Fake)(nil)
+	_ uow.TransactionDetector = (*Fake)(nil)
+	_ uow.Detector            = Transaction
 )
 
-// Fake is a [uow.Committer] for unit tests; [Transaction] is its [uow.Detector]. Its zero value runs one attempt, no
+// Fake is a [uow.Committer] for unit tests and supplies [Transaction] as its default detector. Its zero value runs one attempt, no
 // commit retry, no failure. A call inside a running transaction of the same Fake joins it, as store/mongo does (the innermost one: inside
 // another Fake's attempt it starts its own, and blocks if that attempt runs inside one of its own). WithTransaction holds
 // an internal mutex for its whole duration: root transactions on one Fake never overlap.
@@ -160,6 +161,9 @@ func (f *Fake) call(ctx context.Context, fn func(ctx context.Context) error, rol
 	}()
 	return fn(ctx)
 }
+
+// DetectTransaction supplies the Runner's default detector for transactions of any Fake.
+func (f *Fake) DetectTransaction(ctx context.Context) (any, bool) { return Transaction(ctx) }
 
 // InTransaction reports whether the innermost running callback attempt in ctx is one of f, which WithTransaction joins, as
 // store/mongo joins a running transaction of the same client only: inside another Fake's attempt started within f's, f starts a

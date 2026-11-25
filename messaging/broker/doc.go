@@ -23,6 +23,8 @@
 //	b.Publish(ctx, msg.Message{Topic: "orders.created", Data: orderData})
 //
 //	// Subscribe with factory
-//	sub := b.Subscriber(factory)
+//	sub := b.Subscriber(func() broker.Subscriber {
+//	    return provider.Subscriber(nats.SubscriberWithConsumerName("worker"))
+//	})
 //	sub.Subscribe(ctx, handler)
 package broker

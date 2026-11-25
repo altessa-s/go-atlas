@@ -43,7 +43,7 @@ func NewObserved(bus Bus, collector metrics.Meter) Bus {
 	if collector == nil {
 		collector = metrics.Noop()
 	}
-	m := collector.WithSubsystem(metricsSubsystem)
+	m := metrics.MustMeter{Meter: collector.WithSubsystem(metricsSubsystem)}
 	return &observedBus{
 		Bus:    bus,
 		logger: slog.Default().With(slogx.Module(metricsSubsystem)),

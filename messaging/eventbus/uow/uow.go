@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas/internal/txscope"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	slogx "github.com/altessa-s/go-slogx"
@@ -27,7 +28,7 @@ var (
 
 	// ErrForeignTransaction is returned by [Runner.Run], [Runner.AfterCommit]
 	// and [OnCommit] when ctx carries a running transaction other than the one
-	// the unit of work runs in (reported by the WithDetector detector: a
+	// the unit of work runs in (reported by the configured or built-in detector: a
 	// transaction the Runner did not start, or another client's transaction
 	// started inside it), or an open unit of work of another Runner. The body,
 	// effect or hook is not called or registered. It also rejects a successful
@@ -46,13 +47,40 @@ var (
 	ErrUnknownOutcome = errors.New("uow: transaction outcome unknown")
 )
 
-// Committer runs fn inside a transaction, passing a transaction-scoped context
-// to the body. Both *store/mongo.Mongo and *store/postgres.Committer implement it. The passed context should derive from the
-// one given so the body keeps its values and cancellation. A committer may implement
-// CommitOutcomeUnknown(error) bool to distinguish an ambiguous commit from a definitive
-// abort, including failure to start a subsequent attempt.
+// Committer runs fn inside a transaction, passing a derived, transaction-scoped
+// context to the body. A nil result from WithTransaction confirms a commit.
+// Use [WithCommitConfirmation] to report a successful commit even when a
+// later operation, such as a post-commit observer, fails. Implement [TransactionDetector] if WithTransaction can join an
+// existing transaction.
+// A committer may implement [OutcomeClassifier] to distinguish an
+// ambiguous commit from a definitive abort, including failure to start a subsequent attempt.
 type Committer interface {
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+// WithCommitConfirmation lets a Committer report the outcome of the transaction
+// whose context it passes to its body. Call the returned function only after
+// that transaction commits. It is nil when the caller did not request a report.
+func WithCommitConfirmation(ctx context.Context) (context.Context, func()) {
+	return txscope.StartCommitReport(ctx)
+}
+
+// OutcomeClassifier optionally distinguishes an ambiguous commit error from a definitive abort.
+type OutcomeClassifier interface {
+	CommitOutcomeUnknown(error) bool
+}
+
+// OutcomeCommitter exposes commit success separately for callers of
+// WithTransactionOutcome. [Runner] always calls [Committer.WithTransaction]
+// so an embedding wrapper's override still participates in the transaction.
+type OutcomeCommitter interface {
+	WithTransactionOutcome(ctx context.Context, fn func(ctx context.Context) error) (committed bool, err error)
+}
+
+// TransactionDetector supplies a default detector for a [Committer] when the
+// caller has not supplied WithDetector.
+type TransactionDetector interface {
+	DetectTransaction(ctx context.Context) (tx any, ok bool)
 }
 
 // Detector reports the innermost running database transaction ctx carries,
@@ -106,6 +134,7 @@ type Effect struct {
 // entry is one registration of a unit: an [Effect] (OnCommit) or a hook
 // (AfterCommit).
 type entry struct {
+	scope  *txscope.Savepoint
 	effect Effect
 	hook   func(ctx context.Context)
 }
@@ -113,6 +142,8 @@ type entry struct {
 // unit holds the registrations of one body attempt of a root Run. It is safe
 // for concurrent registration; once closed it accepts nothing.
 type unit struct {
+	commit  *txscope.CommitReport // confirmation from the adapter that ran this body
+	scope   *txscope.Savepoint    // savepoint at the start of this body attempt
 	runner  *Runner
 	tx      any // the transaction the attempt runs in, as the detector identifies it; nil without a detector
 	mu      sync.Mutex
@@ -149,12 +180,13 @@ func (u *unit) close() []entry {
 // unitKey keys the unit of one Runner, so a Runner finds its own unit even
 // below another Runner's.
 type unitKey struct {
+	txscope.Key
 	r *Runner
 }
 
 // activeKey keys the innermost unit, used by [OnCommit] and by foreign
 // detection.
-type activeKey struct{}
+type activeKey struct{ txscope.Key }
 
 func withUnit(ctx context.Context, u *unit) context.Context {
 	ctx = context.WithValue(ctx, unitKey{r: u.runner}, u)
@@ -179,6 +211,11 @@ func New(committer Committer, logger *slog.Logger, opts ...Option) *Runner {
 		logger = slog.Default()
 	}
 	o := newOptions(opts...)
+	if o.detector == nil {
+		if detector, ok := committer.(TransactionDetector); ok {
+			o.detector = detector.DetectTransaction
+		}
+	}
 	return &Runner{
 		committer:           committer,
 		logger:              logger.With(slogx.Module("pkg:uow")),
@@ -193,10 +230,10 @@ func New(committer Committer, logger *slog.Logger, opts ...Option) *Runner {
 // Root (ctx carries no unit of r): Run calls the Committer, which starts a
 // transaction. Every body attempt gets a fresh unit and the unit of an
 // aborted attempt is closed, so a driver retry discards its registrations.
-// When the Committer returns nil the transaction has committed: Run applies
+// When the Committer confirms the transaction committed, Run applies
 // the registrations of the last attempt in registration order (see
-// [OnCommit] and [Runner.AfterCommit]) and returns the effect error, if any.
-// When the Committer fails nothing is applied and the error is classified:
+// [OnCommit] and [Runner.AfterCommit]) and returns any post-commit and effect errors.
+// When the transaction fails nothing is applied and the error is classified:
 // if the last attempt returned an error, or never returned (it panicked and
 // the Committer recovered the panic), the Committer error is returned as is;
 // if the last attempt returned nil, the failure happened at or after commit
@@ -248,11 +285,11 @@ func (r *Runner) runRoot(ctx context.Context, body func(ctx context.Context) err
 			u.close() // also on a panic the Committer propagates
 		}
 	}()
-	err := r.committer.WithTransaction(ctx, func(txCtx context.Context) error {
+	runBody := func(txCtx context.Context) error {
 		if u != nil {
 			u.close() // the previous attempt was aborted
 		}
-		u = &unit{runner: r}
+		u = &unit{runner: r, scope: txscope.Current(txCtx), commit: txscope.ReportFrom(txCtx)}
 		if r.detector != nil {
 			u.tx, _ = r.detector(txCtx)
 		}
@@ -265,18 +302,23 @@ func (r *Runner) runRoot(ctx context.Context, body func(ctx context.Context) err
 		}
 		returned = true
 		return bodyErr
-	})
+	}
+	err := r.committer.WithTransaction(txscope.WithCommitReporting(ctx), runBody)
 	if u == nil {
 		return err
 	}
 	entries := u.close()
 	switch {
-	case err == nil:
-		return r.apply(ctx, entries)
+	case err == nil || (returned && bodyErr == nil && u.commit.Confirmed()):
+		effectErr := r.apply(ctx, entries, u.scope)
+		if err == nil {
+			return effectErr
+		}
+		return errors.Join(err, effectErr)
 	case returned && bodyErr == nil:
 		// Some backends can distinguish a definitive rollback or a failed retry BEGIN
 		// from loss of the reply to COMMIT.
-		if reporter, ok := r.committer.(interface{ CommitOutcomeUnknown(error) bool }); ok && !reporter.CommitOutcomeUnknown(err) {
+		if reporter, ok := r.committer.(OutcomeClassifier); ok && !reporter.CommitOutcomeUnknown(err) {
 			return err
 		}
 		return &UnknownOutcomeError{Err: err}
@@ -289,7 +331,7 @@ func (r *Runner) runRoot(ctx context.Context, body func(ctx context.Context) err
 // transaction u's attempt runs in — not merely inside some transaction, such as another client's started within it, whose abort
 // would leave u's registrations applied for writes that never committed.
 func (r *Runner) joinable(ctx context.Context, u *unit) error {
-	if u.isClosed() {
+	if u.isClosed() || !txscope.Current(ctx).OpenWithin(u.scope) {
 		return ErrScopeClosed
 	}
 	if r.detector != nil {
@@ -301,13 +343,12 @@ func (r *Runner) joinable(ctx context.Context, u *unit) error {
 }
 
 // inForeignTransaction reports, for a ctx without a unit of r, whether it is
-// inside a transaction r did not start. It needs a detector.
+// inside a detected transaction or a unit of work r did not start.
 func (r *Runner) inForeignTransaction(ctx context.Context) bool {
-	if r.detector == nil {
-		return false
-	}
-	if _, ok := r.detector(ctx); ok {
-		return true
+	if r.detector != nil {
+		if _, ok := r.detector(ctx); ok {
+			return true
+		}
 	}
 	other, ok := ctx.Value(activeKey{}).(*unit)
 	return ok && other != nil && other.runner != r && !other.isClosed()
@@ -322,7 +363,7 @@ func (r *Runner) inForeignTransaction(ctx context.Context) bool {
 // effect failed.
 //
 // Without a unit of r in ctx: [ErrForeignTransaction] inside a foreign
-// transaction (needs a detector); otherwise hook runs at once on ctx when
+// transaction (as reported by a detector); otherwise hook runs at once on ctx when
 // WithRunHooksOutsideTransaction is set, or [ErrNoUnitOfWork] is returned. A
 // closed unit returns [ErrScopeClosed]. A nil hook is accepted and ignored.
 func (r *Runner) AfterCommit(ctx context.Context, hook func(ctx context.Context)) error {
@@ -333,7 +374,7 @@ func (r *Runner) AfterCommit(ctx context.Context, hook func(ctx context.Context)
 		if hook == nil {
 			return nil
 		}
-		return u.add(entry{hook: hook})
+		return u.add(entry{scope: txscope.Current(ctx), hook: hook})
 	}
 	if r.inForeignTransaction(ctx) {
 		return ErrForeignTransaction
@@ -348,13 +389,16 @@ func (r *Runner) AfterCommit(ctx context.Context, hook func(ctx context.Context)
 // apply runs the registrations in order. An effect's Apply runs on ctx; on the
 // first failure the applied effects are compensated (LIFO) and later effects
 // are skipped. Hooks run on a cancellation-detached ctx regardless.
-func (r *Runner) apply(ctx context.Context, entries []entry) error {
+func (r *Runner) apply(ctx context.Context, entries []entry, rootScope *txscope.Savepoint) error {
 	hookCtx := context.WithoutCancel(ctx)
 	var (
 		applied []Effect
 		failed  error
 	)
 	for _, e := range entries {
+		if !e.scope.ReleasedWithin(rootScope) {
+			continue
+		}
 		if e.hook != nil {
 			r.runHook(hookCtx, e.hook)
 			continue
@@ -420,5 +464,5 @@ func OnCommit(ctx context.Context, e Effect) error {
 	if err := u.runner.joinable(ctx, u); err != nil {
 		return err
 	}
-	return u.add(entry{effect: e})
+	return u.add(entry{scope: txscope.Current(ctx), effect: e})
 }

@@ -148,15 +148,19 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 	return b.PublishBatch(ctx, msgs...)
 }
 
-// Subscriber creates a new message Subscriber using the underlying Provider and factory.
-// The factory allows for custom instantiation and configuration of the subscriber.
+// Subscriber creates a subscriber with factory and applies the broker's tracing.
+// A nil factory uses the provider's DefaultSubscriber. To retain provider-owned
+// shutdown for a configured subscriber, call the provider's constructor inside factory.
 //
 // Example:
 //
-//	sub := b.Subscriber(nats.SubscriberFactory)
+//	sub := b.Subscriber(nil)
 //	sub.Subscribe(ctx, handler)
 func (b *Broker) Subscriber(factory SubscriberFactory) Subscriber {
-	sub := b.provider.Subscriber(factory)
+	if factory == nil {
+		factory = b.provider.DefaultSubscriber
+	}
+	sub := factory()
 	if b.tracer == nil || sub == nil {
 		return sub
 	}

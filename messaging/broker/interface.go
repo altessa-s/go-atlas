@@ -52,9 +52,8 @@ type Publisher interface {
 	PublishAny(ctx context.Context, msg ...any) error
 }
 
-// SubscriberFactory is a function type that creates a new Subscriber from a provider.
-// The provider argument is typed as any to allow flexibility across different implementations.
-type SubscriberFactory func(any) Subscriber
+// SubscriberFactory creates a subscriber using the provider bound by the caller.
+type SubscriberFactory func() Subscriber
 
 // Outboxer defines the interface for the transactional outbox pattern.
 // It ensures reliable message delivery by persisting messages before publishing.
@@ -83,8 +82,8 @@ type Provider interface {
 	// PublishBatch sends multiple messages using the provider's implementation.
 	PublishBatch(context.Context, ...msg.Message) error
 
-	// Subscriber creates a new Subscriber specific to this provider.
-	Subscriber(SubscriberFactory) Subscriber
+	// DefaultSubscriber creates a subscriber with provider defaults.
+	DefaultSubscriber() Subscriber
 }
 
 // PublishConverter is a function that converts arbitrary types to msg.Message.

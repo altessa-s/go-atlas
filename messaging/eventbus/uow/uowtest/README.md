@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/messaging/eventbus/uow/uowtest"
 ```
 
-Scriptable in-memory transaction for testing code built on [`uow`](../README.md). `Fake` is a `uow.Committer` and `Transaction` is its
-`uow.Detector`; its fields script driver retries, commit failures, lost commit replies and panic recovery, and roll back registered stores on abort.
+Scriptable in-memory transaction for testing code built on [`uow`](../README.md). `Fake` is a `uow.Committer` that supplies `Transaction`
+as its default detector; its fields script driver retries, commit failures, lost commit replies and panic recovery, and roll back registered stores on abort.
 
 ## Key types
 
@@ -35,7 +35,7 @@ retries).
 
 ```go
 f := &uowtest.Fake{Attempts: 2, Isolate: []uowtest.Snapshotter{store}}
-runner := uow.New(f, nil, uow.WithDetector(uowtest.Transaction))
+runner := uow.New(f, nil)
 
 err := runner.Run(ctx, func(txCtx context.Context) error {
     return store.Save(txCtx, doc)

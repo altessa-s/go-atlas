@@ -7,7 +7,7 @@
 //
 // # Fake
 //
-// [Fake] is a uow.Committer and [Transaction] is its uow.Detector. Its fields script a driver: callback retries after a transient
+// [Fake] is a uow.Committer that supplies [Transaction] as its default detector. Its fields script a driver: callback retries after a transient
 // abort (Attempts), commit-only retries (CommitRetries), a definite failure
 // (Fail, Abort), a lost commit reply with the writes kept (Unknown), and
 // recovery of a callback panic into an error (RecoverPanics), as
@@ -18,7 +18,7 @@
 // # Usage
 //
 //	f := &uowtest.Fake{Attempts: 2, Isolate: []uowtest.Snapshotter{store}}
-//	runner := uow.New(f, nil, uow.WithDetector(uowtest.Transaction))
+//	runner := uow.New(f, nil)
 //	err := runner.Run(ctx, func(txCtx context.Context) error {
 //		return store.Save(txCtx, doc)
 //	})

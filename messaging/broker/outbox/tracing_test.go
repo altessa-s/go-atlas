@@ -25,7 +25,6 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 
 	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
-	dataoutbox "github.com/altessa-s/go-atlas/reliability/outbox"
 )
 
 type spanSink struct {
@@ -90,7 +89,9 @@ func TestPublishOutboxJetStreamConsumerTrace(t *testing.T) {
 	store := &oneShotStore{}
 	ob := outbox.New(store, provider, outbox.WithTracer(tracer), outbox.WithMessagingSystem("nats"))
 	b := broker.New(provider, broker.WithOutbox(ob), broker.WithTracer(tracer))
-	sub := b.Subscriber(natsprovider.SubscriberWithConsumerName("worker"))
+	sub := b.Subscriber(func() broker.Subscriber {
+		return provider.Subscriber(natsprovider.SubscriberWithConsumerName("worker"))
+	})
 	_, err = provider.CreateConsumer(ctx, "EVENTS", &jetstream.ConsumerConfig{Durable: "worker", AckPolicy: jetstream.AckExplicitPolicy})
 	require.NoError(t, err)
 	type delivery struct {
@@ -196,7 +197,7 @@ func TestDispatchParentAndFailure(t *testing.T) {
 			event.Attempts, event.CreatedAt = 2, time.Now().Add(time.Minute)
 			fail := errors.New("publish to nats://publisher:private@broker.example failed")
 			pub := &capturingPublisher{err: fail}
-			var opts []dataoutbox.Option
+			var opts []outbox.Option
 			if tc.traced {
 				opts = append(opts, outbox.WithTracer(tracer))
 			}

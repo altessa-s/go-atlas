@@ -21,7 +21,7 @@ func newInprogressMetrics(c metrics.Meter) *inprogressMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("broker_inprogress")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("broker_inprogress")}
 
 	return &inprogressMetrics{
 		heartbeatsSent: scoped.MustCounter(metrics.MetricOpts{

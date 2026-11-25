@@ -41,7 +41,7 @@ func newBrokerMetrics(c metrics.Meter, consumer string) *brokerMetrics {
 	}
 
 	scoped := c.WithSubsystem("broker_idempotency")
-	outcomes := scoped.MustCounter(metrics.MetricOpts{
+	outcomes := metrics.MustCounter(scoped, metrics.MetricOpts{
 		Name:       "outcomes_total",
 		Help:       "Total number of broker idempotency outcomes by consumer and outcome.",
 		LabelNames: []string{"consumer", "outcome"},

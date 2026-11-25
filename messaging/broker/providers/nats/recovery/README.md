@@ -37,7 +37,7 @@ and periodic health checks as a fallback for missed events during reconnection o
 | `RegisterStream`          | Register a stream configuration for automatic recovery                         |
 | `UnregisterStream`        | Remove a stream from recovery management                                       |
 | `CreateStream`            | Create or update a JetStream stream and register it for recovery               |
-| `Subscribe`               | Create a managed subscription with automatic consumer recovery                 |
+| `Subscribe`               | Create a managed subscription using a typed `natsprovider.SubscriberFactory` for initial delivery and recovery                 |
 | `RunHealthCheckCycle`     | Execute a single health check cycle (register with scheduler)                  |
 | `RunStaleRecoveryCleanup` | Execute a single stale recovery cleanup cycle (register with scheduler)        |
 | `RegisterHealthCheckSchedulerFunc` | Return the health check task for a scheduler; direct `RunHealthCheckCycle` calls then return `cycle.ErrManaged` |

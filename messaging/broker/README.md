@@ -18,7 +18,7 @@ implements the Transactional Outbox pattern for at-least-once delivery in distri
 | `Publisher`         | Interface for sending messages: `Publish`, `PublishBatch`, `PublishAny`                        |
 | `Outboxer`          | Interface for transactional outbox pattern ensuring reliable delivery                          |
 | `PublishConverter`   | Function type that converts arbitrary types to `msg.Message` for use with `PublishAny`         |
-| `SubscriberFactory` | Function type that creates a new `Subscriber` from a provider                                  |
+| `SubscriberFactory` | Creates a subscriber using a provider bound in the closure. Pass nil for the default                                  |
 | `SubscriberHandler` | Interface for message processing: `Handle` and `Topic`                                         |
 
 ## Methods
@@ -30,6 +30,15 @@ implements the Transactional Outbox pattern for at-least-once delivery in distri
 | `PublishBatch`| Send multiple messages in a single batch operation                                             |
 | `PublishAny`  | Convert arbitrary types to messages using `PublishConverter` and publish them                   |
 | `Subscriber`  | Create a new `Subscriber` using a `SubscriberFactory`                                          |
+
+A nil factory uses `Provider.DefaultSubscriber`. For a named NATS consumer, bind the provider in the factory. Calling the provider’s `Subscriber`
+method registers the subscriber for shutdown, and the broker applies its tracing wrapper.
+
+```go
+sub := b.Subscriber(func() broker.Subscriber {
+    return provider.Subscriber(natsprovider.SubscriberWithConsumerName("orders"))
+})
+```
 
 ## Options
 

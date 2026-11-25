@@ -83,7 +83,7 @@ func newBrokerMetrics(c metrics.Meter, labelLimit int) *brokerMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("broker")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("broker")}
 
 	return &brokerMetrics{
 		labelLimit: int64(labelLimit),

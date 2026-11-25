@@ -11,7 +11,9 @@ the broker retry classification, implementing the `broker.Outboxer` interface. I
 
 | Type              | Description                                                                             |
 |-------------------|------------------------------------------------------------------------------------------|
-| `Outbox`          | Broker-specific adapter wrapping the generic `reliability/outbox.Outbox`                       |
+| `Outbox`          | Broker-specific adapter. Use `Outbox{Saver: saver}` for publishing with a custom saver                       |
+| `Saver`           | Persists one batch of events in the publisher’s context |
+| `Management`      | Supplies the watch, cycle and scheduling methods of a managed outbox |
 | `Publisher`       | Interface for message transmission to external brokers                                  |
 | `reliability/outbox.Storage` | Storage interface from `github.com/altessa-s/go-atlas/reliability/outbox` |
 | `reliability/outbox.Event` | Event type from `github.com/altessa-s/go-atlas/reliability/outbox` |
@@ -63,13 +65,13 @@ closed-connection error with that sentinel (the NATS provider does); a custom `P
 
 | Method        | Description                                                                                                       |
 |---------------|-------------------------------------------------------------------------------------------------------------------|
-| `New`         | Create a new broker outbox adapter with a `outbox.Storage`, `Publisher`, and `reliability/outbox` options (`...outbox.Option`)  |
+| `New`         | Create a new broker outbox adapter with a `outbox.Storage`, `Publisher`, and broker outbox options  |
 | `NewHandler`  | The `outbox.Handler` that decodes a stored broker envelope and publishes it as a `msg.Message`                    |
 | `ShouldRetry` | The broker retry predicate for `outbox.WithShouldRetry` (see [Error classification](#error-classification))       |
 | `Publish`     | Save a single message to the outbox store for later publishing                                                    |
 | `PublishBatch`| Save multiple messages to the outbox store in a single operation                                                  |
 
-The adapter also exposes these methods inherited from `reliability/outbox.Outbox`:
+The adapter also exposes these methods through its `Management` handle when constructed by `New` or the broker factory:
 
 | Method | Description |
 |--------|-------------|
@@ -84,18 +86,17 @@ The adapter also exposes these methods inherited from `reliability/outbox.Outbox
 
 ## Options
 
-`New` takes the [`reliability/outbox`](../../../reliability/outbox) options directly (`outbox.WithLogger`, `outbox.WithHandleTimeout`,
-`outbox.WithEventsBatchSize`, `outbox.WithCompaction`, `outbox.WithScheduler`, the `With*Schedule` and `With*TaskID` options, and so on) — see its
-README for the full table. The adapter appends `outbox.WithShouldRetry(ShouldRetry)` after them, so a caller-supplied retry predicate is overridden.
+Pass storage, timeout, and scheduling options from [the generic outbox](../../../reliability/outbox) through `WithOutboxOptions`. Repeated calls append
+options in order. The adapter applies its own retry predicate last.
 
 ```go
 import dataoutbox "github.com/altessa-s/go-atlas/reliability/outbox"
 
-ob := outbox.New(store, publisher,
+ob := outbox.New(store, publisher, outbox.WithOutboxOptions(
     dataoutbox.WithLogger(logger),
     dataoutbox.WithHandleTimeout(5*time.Second),
     dataoutbox.WithMaxLockTime(time.Minute),
-)
+))
 ```
 
 `WithMaxLockTime` must exceed `WithHandleTimeout`; a smaller value is raised at construction with a warning. Without `WithMeter` and execution of
@@ -104,6 +105,6 @@ which is indistinguishable from a healthy idle outbox — see [docs/metrics.md](
 
 ## Scheduler registration
 
-The adapter inherits `RegisterTasks(ctx)` from `reliability/outbox`. Its constructor does not install schedules; call this method after configuring
+The management handle supplies `RegisterTasks(ctx)`. Its constructor does not install schedules; call this method after configuring
 `WithScheduler` and handle errors. Partial registration gates callbacks until a retry on the same instance succeeds.
 [Factory](../../../factory/messaging/broker) constructors register automatically and retain the outbox alongside any registration error.

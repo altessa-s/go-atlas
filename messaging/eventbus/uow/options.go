@@ -14,8 +14,8 @@ const DefaultCompensationTimeout = 30 * time.Second
 type options struct {
 	compensationTimeout time.Duration `optgen:"default=DefaultCompensationTimeout" optval:"positive"`
 
-	// detector reports whether a context carries a running database transaction of any client
-	// (store/mongo.InTransaction has this shape). It enables foreign-transaction detection; nil disables it.
+	// WithDetector overrides detection of active transactions and their identity.
+	// A nil detector uses the committer's [TransactionDetector] when provided.
 	detector Detector
 
 	// runHooksOutsideTransaction makes [Runner.AfterCommit] run its hook at once when the context carries

@@ -48,8 +48,8 @@ func (p *recordingProvider) PublishBatch(_ context.Context, mm ...msg.Message) e
 	return p.record(mm...)
 }
 
-func (p *recordingProvider) Subscriber(factory broker.SubscriberFactory) broker.Subscriber {
-	return factory(p)
+func (p *recordingProvider) DefaultSubscriber() broker.Subscriber {
+	return &stubSubscriber{}
 }
 
 func (p *recordingProvider) record(mm ...msg.Message) error {
@@ -402,15 +402,9 @@ func TestSubscriber_DelegatesToProvider(t *testing.T) {
 	b := broker.New(provider)
 
 	sub := &stubSubscriber{}
-	var factoryArg any
-	factory := func(p any) broker.Subscriber {
-		factoryArg = p
-		return sub
-	}
-
-	got := b.Subscriber(factory)
+	got := b.Subscriber(func() broker.Subscriber { return sub })
 	require.Same(t, sub, got)
-	require.Same(t, provider, factoryArg)
+	require.IsType(t, sub, b.Subscriber(nil))
 }
 
 func TestPublish_Metrics_SubjectLabelLimit(t *testing.T) {
@@ -482,6 +476,6 @@ func TestPublishPropagatesContextWithoutChangingInputs(t *testing.T) {
 
 func TestTracingPreservesNilSubscription(t *testing.T) {
 	b := broker.New(&recordingProvider{}, broker.WithTracer(tracing.Noop()))
-	require.Nil(t, b.Subscriber(func(any) broker.Subscriber { return nil }))
+	require.Nil(t, b.Subscriber(func() broker.Subscriber { return nil }))
 	require.Nil(t, broker.TraceHandler(nil, tracing.Noop(), "worker", "nats"))
 }

@@ -8,12 +8,11 @@
 // [ErrUndeliverable] are permanent), and implements the broker.Outboxer
 // interface. It does not import a broker driver.
 //
-// For the generic, transport-agnostic implementation, see reliability/outbox. [New]
-// accepts its options (dataoutbox.Option) directly.
+// For the generic, transport-agnostic implementation, see reliability/outbox. Pass its options to [New] through [WithOutboxOptions].
 //
 // Example:
 //
 //	store, _ := mongostore.New(db)
-//	ob := outbox.New(store, publisher, dataoutbox.WithLogger(slog.Default()))
+//	ob := outbox.New(store, publisher, outbox.WithOutboxOptions(dataoutbox.WithLogger(slog.Default())))
 //	ob.Publish(ctx, msg.Message{Topic: "events", Data: data})
 package outbox

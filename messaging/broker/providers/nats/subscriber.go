@@ -66,18 +66,17 @@ func newStreamSubscriber(natsProvider *NATS, opt []jetstream.PullConsumeOpt) *st
 	}
 }
 
+// SubscriberFactory creates a JetStream subscriber for the supplied NATS provider.
+type SubscriberFactory func(*NATS) broker.Subscriber
+
 // SubscriberWithConsumer returns a factory that creates JetStream subscribers with custom consumer config.
-// Panics if the provider is not *Nats.
 //
 // Example:
 //
 //	factory := natsprovider.SubscriberWithConsumer(&jetstream.ConsumerConfig{Durable: "my-consumer"})
-//	sub := b.Subscriber(factory)
-func SubscriberWithConsumer(consumerConfig *jetstream.ConsumerConfig, opt ...jetstream.PullConsumeOpt) broker.SubscriberFactory {
-	return func(p any) broker.Subscriber {
-		natsProvider, ok := p.(*NATS)
-		panics.Must(ok, "SubscriberWithConsumer factory requires a *natsprovider.Nats instance")
-
+//	sub := provider.Subscriber(factory)
+func SubscriberWithConsumer(consumerConfig *jetstream.ConsumerConfig, opt ...jetstream.PullConsumeOpt) SubscriberFactory {
+	return func(natsProvider *NATS) broker.Subscriber {
 		ss := newStreamSubscriber(natsProvider, opt)
 		ss.consumerConfig = consumerConfig
 		return ss
@@ -85,34 +84,25 @@ func SubscriberWithConsumer(consumerConfig *jetstream.ConsumerConfig, opt ...jet
 }
 
 // SubscriberWithEphemeralConsumer returns a factory that creates JetStream subscribers with ephemeral consumers.
-// Panics if the provider is not *Nats.
 //
 // Example:
 //
 //	factory := natsprovider.SubscriberWithEphemeralConsumer()
-//	sub := b.Subscriber(factory)
-func SubscriberWithEphemeralConsumer(opt ...jetstream.PullConsumeOpt) broker.SubscriberFactory {
-	return func(p any) broker.Subscriber {
-		natsProvider, ok := p.(*NATS)
-		panics.Must(ok, "SubscriberWithEphemeralConsumer factory requires a *natsprovider.Nats instance")
-
+//	sub := provider.Subscriber(factory)
+func SubscriberWithEphemeralConsumer(opt ...jetstream.PullConsumeOpt) SubscriberFactory {
+	return func(natsProvider *NATS) broker.Subscriber {
 		return newStreamSubscriber(natsProvider, opt)
 	}
 }
 
 // SubscriberWithConsumerName returns a factory that uses an existing named consumer.
-// Panics if the provider is not *Nats.
 //
 // Example:
 //
 //	factory := natsprovider.SubscriberWithConsumerName("existing-consumer")
-//	sub := b.Subscriber(factory)
-func SubscriberWithConsumerName(consumerName string, opt ...jetstream.PullConsumeOpt) broker.SubscriberFactory {
-	return func(p any) broker.Subscriber {
-		natsProvider, ok := p.(*NATS)
-		// This panic is for programmer error: StreamSubscriber factory is specific to Nats provider.
-		panics.Must(ok, "SubscriberWithConsumerName factory requires a *natsprovider.Nats instance")
-
+//	sub := provider.Subscriber(factory)
+func SubscriberWithConsumerName(consumerName string, opt ...jetstream.PullConsumeOpt) SubscriberFactory {
+	return func(natsProvider *NATS) broker.Subscriber {
 		ss := newStreamSubscriber(natsProvider, opt)
 		ss.consumerName = consumerName
 		return ss

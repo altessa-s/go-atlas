@@ -26,6 +26,7 @@ delivery through the JetStream API. The `NATS` type is safe for concurrent use.
 |------------------|-----------------------------------------------------------------------------------|
 | `Publish`        | Send a single message via JetStream                                               |
 | `PublishBatch`   | Send multiple messages via JetStream                                              |
+| `DefaultSubscriber` | Create a tracked ephemeral subscriber |
 | `Subscriber`     | Create a new `broker.Subscriber` using a `SubscriberFactory`                      |
 | `UnsubscribeAll` | Unsubscribe all active subscribers and clear the internal list                    |
 | `Subscribers`    | Return a snapshot iterator over subscribers created through this provider since the last `UnsubscribeAll`, including inactive subscribers                        |
@@ -41,11 +42,11 @@ delivery through the JetStream API. The `NATS` type is safe for concurrent use.
 
 | Function                          | Description                                                                 |
 |-----------------------------------|-----------------------------------------------------------------------------|
-| `SubscriberWithConsumer`          | `broker.SubscriberFactory` that creates subscribers with a custom consumer config |
-| `SubscriberWithEphemeralConsumer` | `broker.SubscriberFactory` that creates subscribers with ephemeral consumers |
-| `SubscriberWithConsumerName`      | `broker.SubscriberFactory` that uses an existing named consumer             |
+| `SubscriberWithConsumer`          | `SubscriberFactory` that creates subscribers with a custom consumer config |
+| `SubscriberWithEphemeralConsumer` | `SubscriberFactory` that creates subscribers with ephemeral consumers |
+| `SubscriberWithConsumerName`      | `SubscriberFactory` that uses an existing named consumer             |
 
-Each factory panics when the provider passed to it is not a `*NATS`.
+Each factory accepts `*NATS` directly (`func(*NATS) broker.Subscriber`), enforced at compile time.
 
 ## Helpers
 

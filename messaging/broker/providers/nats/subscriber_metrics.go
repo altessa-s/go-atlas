@@ -25,7 +25,7 @@ func newSubscriberMetrics(c metrics.Meter) *subscriberMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("broker")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("broker")}
 
 	return &subscriberMetrics{
 		messagesReceived: scoped.MustCounter(metrics.MetricOpts{

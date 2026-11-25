@@ -67,7 +67,7 @@ type stubProvider struct{}
 
 func (stubProvider) Publish(context.Context, msg.Message) error         { return nil }
 func (stubProvider) PublishBatch(context.Context, ...msg.Message) error { return nil }
-func (stubProvider) Subscriber(broker.SubscriberFactory) broker.Subscriber {
+func (stubProvider) DefaultSubscriber() broker.Subscriber {
 	return nil
 }
 

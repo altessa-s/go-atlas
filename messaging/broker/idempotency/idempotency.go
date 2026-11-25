@@ -18,8 +18,6 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 
 	"google.golang.org/protobuf/proto"
-
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 // StorageKeyPrefix is the domain tag of the storage keys managed by this package: the first component of the tuple
@@ -81,9 +79,9 @@ func BuildStorageKey(consumer, topic, key string) string {
 
 // Keeper is the idempotency storage behavior required by [Wrap].
 type Keeper interface {
-	AttemptLockWithOpts(context.Context, string, idempotency.AttemptLockOpts) (bool, *storages.State, error)
-	Complete(context.Context, string, any, *storages.State) error
-	Release(context.Context, string, *storages.State) error
+	AttemptLockWithOpts(context.Context, string, idempotency.AttemptLockOpts) (bool, *idempotency.State, error)
+	Complete(context.Context, string, any, *idempotency.State) error
+	Release(context.Context, string, *idempotency.State) error
 }
 
 // Wrap returns a [broker.SubscriberHandler] that deduplicates incoming messages
@@ -189,7 +187,7 @@ func (w *wrappedHandler) Handle(ctx context.Context, m *msg.Message) {
 	}
 
 	if !acquired {
-		if state != nil && state.Status == storages.StatusSuccess {
+		if state != nil && state.Status == idempotency.StatusSuccess {
 			w.metrics.inc(outcomeDuplicate)
 			_ = m.Ack()
 			return
@@ -226,7 +224,7 @@ type idempotencyAcker struct {
 	orig       *msg.Message
 	keeper     Keeper
 	storageKey string
-	state      *storages.State
+	state      *idempotency.State
 	consumer   string
 	metrics    *brokerMetrics
 	logger     *slog.Logger
@@ -242,7 +240,7 @@ func (a *idempotencyAcker) Ack() error {
 
 		err := a.keeper.Complete(releaseCtx, a.storageKey, nil, a.state)
 		if err != nil {
-			if errors.Is(err, storages.ErrLockStolen) {
+			if errors.Is(err, idempotency.ErrLockStolen) {
 				a.metrics.inc(outcomeLockStolen)
 				a.logger.WarnContext(releaseCtx, "idempotency: lock was stolen during processing",
 					slog.String("consumer", a.consumer),

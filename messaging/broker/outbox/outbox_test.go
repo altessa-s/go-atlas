@@ -232,7 +232,7 @@ func (r *capturingRegistrar) ids() []string {
 func TestOptions_PayloadLimitReachesTheOutbox(t *testing.T) {
 	t.Parallel()
 
-	ob := outbox.New(&oneShotStore{}, &capturingPublisher{}, dataoutbox.WithMaxPayloadBytes(32))
+	ob := outbox.New(&oneShotStore{}, &capturingPublisher{}, outbox.WithOutboxOptions(dataoutbox.WithMaxPayloadBytes(32)))
 
 	err := ob.Publish(t.Context(), *msg.NewMessage("billing.invoice.paid", bytes.Repeat([]byte("x"), 64)))
 	require.ErrorIs(t, err, dataoutbox.ErrPayloadTooLarge)
@@ -246,12 +246,12 @@ func TestOptions_SchedulesReachTheOutbox(t *testing.T) {
 
 	reg := &capturingRegistrar{}
 	ob := outbox.New(&oneShotStore{}, &capturingPublisher{},
-		dataoutbox.WithScheduler(reg),
-		dataoutbox.WithDispatchSchedule("@every 2s"),
-		dataoutbox.WithUnlockSchedule("@every 11s"),
-		dataoutbox.WithStatsSchedule("@every 30s"),
-		dataoutbox.WithDispatchTaskID("svc-a-dispatch"),
-		dataoutbox.WithStatsTaskID("svc-a-stats"),
+		outbox.WithOutboxOptions(dataoutbox.WithScheduler(reg),
+			dataoutbox.WithDispatchSchedule("@every 2s"),
+			dataoutbox.WithUnlockSchedule("@every 11s"),
+			dataoutbox.WithStatsSchedule("@every 30s"),
+			dataoutbox.WithDispatchTaskID("svc-a-dispatch"),
+			dataoutbox.WithStatsTaskID("svc-a-stats")),
 	)
 
 	require.NoError(t, ob.RegisterTasks(t.Context()))
@@ -288,7 +288,7 @@ func TestNew_ShouldRetryOptionIsOverridden(t *testing.T) {
 		storedEvent(t, *msg.NewMessage("billing.invoice.paid", []byte(`{"id":1}`)), "event-id-42"),
 	}}
 
-	ob := outbox.New(store, pub, dataoutbox.WithShouldRetry(func(error) bool { return true }))
+	ob := outbox.New(store, pub, outbox.WithOutboxOptions(dataoutbox.WithShouldRetry(func(error) bool { return true })))
 	require.NoError(t, ob.RunDispatchCycle(t.Context()))
 
 	written := store.written()
@@ -354,4 +354,27 @@ func TestDispatch_NATSProviderClosedConnectionIsRejected(t *testing.T) {
 	written := store.written()
 	require.Len(t, written, 1)
 	require.Equal(t, dataoutbox.StatusRejected, written[0].Status)
+}
+
+type recordingSaver struct{ calls [][]dataoutbox.Event }
+
+func (s *recordingSaver) Save(_ context.Context, events ...dataoutbox.Event) error {
+	s.calls = append(s.calls, events)
+	return nil
+}
+
+func TestPublishThroughSaver(t *testing.T) {
+	t.Parallel()
+	saver := &recordingSaver{}
+	adapter := outbox.Outbox{Saver: saver}
+	a, b := msg.Message{Topic: "a"}, msg.Message{Topic: "b"}
+	require.NoError(t, adapter.Publish(t.Context(), a))
+	require.NoError(t, adapter.PublishBatch(t.Context()))
+	require.NoError(t, adapter.PublishBatch(t.Context(), b, a))
+	require.Len(t, saver.calls, 2)
+	require.Len(t, saver.calls[0], 1)
+	require.Len(t, saver.calls[1], 2)
+	require.Equal(t, "a", saver.calls[0][0].Key)
+	require.Equal(t, "b", saver.calls[1][0].Key)
+	require.Equal(t, "a", saver.calls[1][1].Key)
 }

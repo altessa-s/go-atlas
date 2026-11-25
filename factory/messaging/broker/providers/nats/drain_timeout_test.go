@@ -38,8 +38,10 @@ func TestBuilder_AppliesTheSubscriberDrainTimeoutFromConfig(t *testing.T) {
 		Provider: brokerconfig.ProviderNATS,
 		NATS:     &natsconfig.Config{SubscriberDrainTimeout: 50 * time.Millisecond},
 	}
-	provider, err := factory.Builder(conn)(cfg, env())
+	built, err := factory.Builder(conn)(cfg, env())
 	require.NoError(t, err)
+	provider, ok := built.(*natsprovider.NATS)
+	require.True(t, ok)
 
 	started := make(chan struct{}, 1)
 	handler := recoveryHandler{topic: topic, handle: func(ctx context.Context, _ *msg.Message) {

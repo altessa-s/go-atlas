@@ -99,3 +99,39 @@ func TestRun_TransactionChangedBeforeBodyReturns(t *testing.T) {
 		})
 	}
 }
+
+func TestRun_RejectsMongoTransactionByDefault(t *testing.T) {
+	t.Parallel()
+	// An empty transaction exercises the driver without server I/O.
+	client, err := mongo.Connect(mongooptions.Client().ApplyURI("mongodb://localhost:27017"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Disconnect(context.WithoutCancel(t.Context()))) })
+	session, err := client.StartSession()
+	require.NoError(t, err)
+	defer session.EndSession(context.WithoutCancel(t.Context()))
+	require.NoError(t, session.StartTransaction())
+
+	// Detection must happen before the committer attempts to start a session.
+	r := uow.New(&datamongo.Mongo{}, nil, uow.WithRunHooksOutsideTransaction())
+	ctx := mongo.NewSessionContext(t.Context(), session)
+	require.ErrorIs(t, r.Run(ctx, func(context.Context) error {
+		t.Error("body called inside another MongoDB transaction")
+		return nil
+	}), uow.ErrForeignTransaction)
+	require.ErrorIs(t, r.AfterCommit(ctx, func(context.Context) {
+		t.Error("hook ran inside another MongoDB transaction")
+	}), uow.ErrForeignTransaction)
+	require.True(t, session.TransactionRunning())
+}
+
+func TestRun_RejectsFakeTransactionByDefault(t *testing.T) {
+	t.Parallel()
+	f := new(uowtest.Fake)
+	r := uow.New(f, nil)
+	require.ErrorIs(t, f.WithTransaction(t.Context(), func(ctx context.Context) error {
+		return r.Run(ctx, func(context.Context) error {
+			t.Error("runner entered a transaction it does not own")
+			return nil
+		})
+	}), uow.ErrForeignTransaction)
+}

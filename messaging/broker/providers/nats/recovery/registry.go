@@ -12,6 +12,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/messaging/broker"
+
+	natsprovider "github.com/altessa-s/go-atlas/messaging/broker/providers/nats"
 )
 
 // streamEntry holds stream configuration and its recovery strategy.
@@ -25,7 +27,7 @@ type subscriptionEntry struct {
 	stream   string
 	consumer string
 	handler  broker.SubscriberHandler
-	factory  broker.SubscriberFactory
+	factory  natsprovider.SubscriberFactory
 }
 
 // Registry stores stream and subscription configurations for recovery.
@@ -135,7 +137,7 @@ func (r *Registry) StreamCount() int {
 
 // RegisterSubscription adds a subscription to the registry for recovery.
 // The stream must be registered before registering subscriptions.
-func (r *Registry) RegisterSubscription(stream, consumer string, handler broker.SubscriberHandler, factory broker.SubscriberFactory) error {
+func (r *Registry) RegisterSubscription(stream, consumer string, handler broker.SubscriberHandler, factory natsprovider.SubscriberFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

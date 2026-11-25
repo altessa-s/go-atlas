@@ -201,7 +201,7 @@ func wrapOutbox(ob *dataoutbox.Outbox, err error) (*outbox.Outbox, error) {
 	if ob == nil {
 		return nil, err
 	}
-	return &outbox.Outbox{Outbox: ob}, err
+	return &outbox.Outbox{Saver: ob, Management: ob}, err
 }
 
 // applyBrokerDefaults returns factory default broker options.
