@@ -235,8 +235,8 @@ i := auditgrpc.ServerInterceptor(auditor,
 )
 ```
 
-Emits one `api.request` event per call (unary and streaming). Includes method name, gRPC status code mapped to result status, duration, and
-request ID if present in context.
+Emits one `api.request` event per call (unary and streaming). `ServerInterceptor` accepts the narrow `EventEmitter` seam (`Emit(*audit.Event) bool`),
+which `*audit.Auditor` implements. Includes method name, gRPC status code mapped to result status, duration, and request ID if present in context.
 
 ## HTTP middleware
 
@@ -252,9 +252,9 @@ handler := audithttp.Middleware(auditor,
 )(next)
 ```
 
-HTTP method maps to action (`GET` = read, `POST` = create, `PUT`/`PATCH` = update, `DELETE` = delete). Status code maps to result (2xx = success,
-4xx =
-failure, 5xx = error).
+`Middleware` (and `New`) accepts the narrow `EventEmitter` seam (`Emit(*audit.Event) bool`), which `*audit.Auditor` implements. HTTP method maps to
+action (`GET` = read, `POST` = create, `PUT`/`PATCH` = update, `DELETE` = delete). Status code maps to result (2xx = success, 4xx = failure, 5xx =
+error).
 
 ---
 
@@ -278,6 +278,12 @@ type Storage interface {
     Close(ctx context.Context) error
 }
 ```
+
+Every `StoreBatch` implementation accepts an empty slice and rejects any batch containing a `nil` element before writing anything, returning an error
+matching `coreerrs.ErrInvalidArgument`. Batch atomicity varies by backend: **memory** appends atomically under one mutex; **sqldb** inserts atomically
+in one `INSERT` or a storage-owned transaction across chunks (ignoring duplicate IDs; inside a caller-owned transaction, earlier chunks persist until
+the caller rolls back); **mongo** uses ordered `InsertMany` (a write failure can leave an ordered prefix persisted); and **clickhouse** sends chunks
+independently (earlier chunks remain persisted if a later chunk fails).
 
 The ClickHouse storage takes a connection from `factory/infrastructure/clickhouse`, writes column-wise batches, and checks the table against
 its expected schema at startup (missing or differently defined columns, skip indexes, sorting and partition keys). See the

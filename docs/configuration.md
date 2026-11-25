@@ -21,6 +21,26 @@ The loader merges configuration from multiple sources in order of precedence (la
 
 ---
 
+## Custom factory backends
+
+Register the implementation on its builder with `UseStorage` or `UseProvider`. When the application loads or validates its own schema before building,
+pass the builder’s registered names to the corresponding storage or provider block. For example, a retry queue can validate a custom backend during
+YAML loading.
+
+```go
+cfg := retryqueueconfig.Default()
+builder := retryqueuefactory.New[Item](&cfg).UseStorage("custom", buildStore)
+cfg.Storage.SetRegisteredTypes(builder.RegisteredStorageTypes())
+_, err := loader.New(nil, loader.WithPath(path)).Load(&cfg)
+if err != nil {
+    return err
+}
+store, err := builder.Build(ctx)
+```
+
+`SetRegisteredTypes` takes a snapshot. For a provider selector, pass `builder.RegisteredProviderTypes()`. Built-in configuration rules still apply.
+Factories that validate during assembly use their own registered names on a local copy.
+
 ## Quick start
 
 ```go
@@ -231,7 +251,7 @@ database:
 ```
 
 Each placeholder looks up the key `namespace:key` (for example `myapp:db_password`). Configure the secrets manager, by hand or from a `secrets`
-section with `factory.New(&cfg.Secrets).BuildString(ctx)` (`factory/ext/kryptos`):
+section with `factory.New[string](&cfg.Secrets).Build(ctx)` (`factory/ext/kryptos`):
 
 ```go
 store, _ := manager.New[string](provider) // github.com/altessa-s/go-kryptos/manager
@@ -358,9 +378,12 @@ The SQL stores share one set of rules:
   the pool.
 - **Purging.** Audit, lock, idempotency, request-ID and retry-queue stores delete what their retention expired with `PurgeExpired(ctx)`, in batches of
   `purgeBatchSize` (default 1000), and in the background every `purgeInterval` (default `1m`; `"0s"` disables the loop) once retention is set. The
-  loop starts on the first write and stops with the store's `Close`, which the factories register as a shutdown hook.
+  loop starts on the first write and stops with the store's `Close` (or `StopPurge` on `reliability/retryqueue/storages/sqldb`), which the factories
+  register as a shutdown hook.
 - **Outbox notifications.** `outbox.watch` is `polling` (default), `changeStream` (MongoDB) or `notify` (PostgreSQL `LISTEN`/`NOTIFY`, with a
-  listener injected through `UseSQLListener`). The dispatch schedule keeps running in every mode.
+  listener injected through `UseSQLListener`). Incompatible backend/watch combinations fail with `ErrUnsupportedOutboxWatch` (wrapped with
+  `coreerrs.ErrInvalidArgument` by `factory/reliability/outbox`), and the factory starts `StartWatch` only after task registration succeeds. The dispatch
+  schedule keeps running in every mode.
 
 ---
 

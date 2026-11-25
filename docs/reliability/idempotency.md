@@ -40,7 +40,7 @@ ok, state, err := keeper.AttemptLock(ctx, "request-id-42")
 if err != nil { return err }
 
 if !ok {
-    if state.Status == storages.StatusSuccess {
+    if state.Status == idempotency.StatusSuccess {
         return state.Data.(MyResponse), nil // cached
     }
     return ErrInProgress // someone else is processing
@@ -127,7 +127,7 @@ keeper, err := idempfactory.New(cfg.Idempotency).
     UseStorage(idempotencyconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
     UseScheduler(scheduler).
     UseMeter(collector).
-    Build()
+    Build(ctx)
 ```
 
 The factory builds the memory storage and, over the `*sql.DB` given to `UseSQLDB` (or `UseSQLPool`), the `sqldb` one. The `redis`, `nats` and `mongo`
@@ -186,6 +186,7 @@ inconsistency.
 | redis   | Lua script: `GET == lockToken ? SET : ErrLockStolen`                  |
 | nats    | `kv.Update(key, val, revision)` — server rejects on revision mismatch |
 | mongo   | `UpdateOne` filtered on the stored bytes                              |
+| sqldb   | Conditional SQL writes comparing live stored bytes (revision column on MySQL) |
 
 The token is opaque to callers — just pass the `*State` from `AttemptLock` back to `Complete`. The Keeper also injects a per-attempt UUID
 nonce into the serialized state so two consecutive `AttemptLock` calls on the same key produce distinct bytes (memory and Redis CAS by byte
@@ -223,10 +224,12 @@ A key identifies one command. `core/encoding/keys.Digest(parts...)` hashes the o
 `AttemptLockOpts.Fingerprint` and it is stored with the key. A later attempt with the same key and another fingerprint fails with
 `ErrFingerprintMismatch` instead of receiving the stored result. Records or callers without a fingerprint are not checked.
 
-`WithOwner(func(ctx) string)` records an opaque owner label with each key. A caller with another label gets `ErrOwnerMismatch` and nothing of
-the record. `WithReplayAuthorizer(func(ctx, owner) error)` replaces the label comparison: it decides every replay from the recorded label, and
-its error is returned wrapped in `ErrOwnerMismatch` (return the service's NotFound error to hide the record). Only the record's own owner may
-take over its orphaned lock. See the [package README](../../reliability/idempotency/README.md#owners) for details.
+`WithOwner(func(ctx) string)` records an opaque owner label with each key. A caller with another label gets `ErrOwnerMismatch` and nothing of the
+record. A `Keeper` built without `WithOwner` (and without `WithReplayAuthorizer`) cannot replay or take over a record that has a persisted owner:
+collisions return `ErrOwnerMismatch`, and orphan-lock reclaim refuses owner-bound locks. `WithReplayAuthorizer(func(ctx, owner) error)` replaces
+the label comparison: it decides every replay from the recorded label, and its error is returned wrapped in `ErrOwnerMismatch` (return the service's
+NotFound error to hide the record). Only the record's own owner may take over its orphaned lock. `factory/reliability/idempotency` defaults
+`UseOwner` to `principalowner.PrincipalOwner`. See the [package README](../../reliability/idempotency/README.md#owners) for details.
 
 ### NATS lock-TTL requirement
 
@@ -301,7 +304,7 @@ keeper := idempotency.New(storage,
 Both forms silence the warning. The second one is the "I read the docs and 5m fits my service" idiom — code review can grep for it to confirm
 the choice was deliberate.
 
-Factory users set `idempotency.maxLockDuration` in YAML — `Build()` forwards it via `WithMaxLockDuration` only when set, so leaving the field
+Factory users set `idempotency.maxLockDuration` in YAML — `Build(ctx)` forwards it via `WithMaxLockDuration` only when set, so leaving the field
 empty intentionally surfaces the warning at boot. Keep `maxLockDuration` empty to flag "this service has not been tuned yet"; fill it in
 after evaluating handler runtime + upstream retry window.
 
@@ -327,6 +330,7 @@ Per-backend Steal mechanism:
 | redis   | Lua script: `GET == expectedVal ? SET PX ttl : ErrLockStolen`                                           |
 | nats    | `kv.Get` → `bytes.Equal` → `kv.Update(key, val, revision)` (revision check protects the Get/Update gap) |
 | mongo   | `UpdateOne` filtered on the stored bytes                                                                |
+| sqldb   | Conditional SQL `UPDATE` comparing live stored bytes on expired `LockedAt`                              |
 
 Tune via:
 
@@ -341,7 +345,7 @@ until the bucket TTL fires (which is the original failure mode without this feat
 
 ---
 
-## State and `storages.Status`
+## State and `idempotency.Status`
 
 ```go
 const (
@@ -357,8 +361,8 @@ type State struct {
 
 On `AttemptLock` collision, `state.Status` is the answer to "what's happening with this key right now":
 
-- `storages.StatusInProgress` — another holder is still working. Block, retry, or return 409 to the user.
-- `storages.StatusSuccess` — already completed, `state.Data` is the cached result.
+- `idempotency.StatusInProgress` — another holder is still working. Block, retry, or return 409 to the user.
+- `idempotency.StatusSuccess` — already completed, `state.Data` is the cached result.
 
 Callers don't mutate `*State` themselves — write through `Complete(data, state)` and `Keeper` builds the new `Success` payload.
 
@@ -380,10 +384,11 @@ Callers don't mutate `*State` themselves — write through `Complete(data, state
 
 `go-atlas` ships HTTP and gRPC interceptors that wrap a `Keeper`:
 
-- `transport/http/server/middlewares/idempotency` — reads the configured header (default `Idempotency-Key`), short-circuits with `409 Conflict`
-  for in-progress requests, `422 Unprocessable Entity` for already-used keys and fingerprint mismatches, and `403 Forbidden` for another
-  owner's key (or the `HTTPStatus()` of a `ReplayAuthorizer` error). It does not replay responses: the body is captured only when an entity-ID
-  extractor is configured, and the extracted ID becomes the `Complete` payload, echoed in a response header on later duplicates.
+- `transport/http/server/middlewares/idempotency` — reads the configured header (default `Idempotency-Key`), short-circuits with `409 Conflict` for
+  in-progress requests, `422 Unprocessable Entity` for already-used keys and fingerprint mismatches, and `403 Forbidden` for another owner's key (or
+  the `HTTPStatus()` of a `ReplayAuthorizer` error). In dependency-ordered HTTP chains, idempotency runs after `auth` and `mtls` so the keeper can
+  resolve the authenticated owner. Response replay is off by default and enabled with `WithResponseReplay()`, failing closed unless the record has a
+  persisted owner; entity-ID extraction and echoing (`WithExposeEntityID()`) likewise requires an owner-bound record.
 - `transport/grpc/interceptors/idempotency` — same model with metadata-based key extraction and gRPC status codes (`InvalidArgument` for a
   fingerprint mismatch, `PermissionDenied` for another owner's key, or the status of a `ReplayAuthorizer` error). Ships a client-side
   counterpart in the same package: `DeriveKey(seed, call)` mints a deterministic UUID v4 anchored to the package namespace, `WithKey` /

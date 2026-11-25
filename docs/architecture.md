@@ -30,7 +30,7 @@ adapters intentionally connect capabilities. Go rejects actual import cycles; a 
 | `*/adapters/*`, `*/storages/*`, `*/providers/*`, `*/engines/*` | Concrete integration dependencies and the contracts they implement.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `factory/*`                                                    | The composition layer: `factory/<path>` builds `<path>`, a factory of an external module lives under `factory/ext/<module>` (`factory/ext/kryptos`, `factory/ext/net/httpclient`, `factory/ext/core/dispatch`, `factory/ext/aip/pagination/pagetoken`), and `factory/infrastructure/*` constructs connections to external systems. Composition from schemas and injected dependencies; may import concrete adapters, clients, providers and other factories. The only readers of schemas besides `config/*` itself. A factory of a driver backend or heavy SDK is its own package, registered on the driver-neutral factory. |
 | `transport/*`, `auth/*`, `security/*`                          | Runtime capabilities assembled from interfaces, go-atlas-core helpers and required integrations. The gRPC adapter of the go-horai scheduler, `transport/grpc/handlers/scheduler`, is the only transport package that reaches go-horai beyond its `task` and `schedule` contracts.                                                                                                                                                                                                                                                                                                                                            |
-| `internal/*`                                                   | Module-wide internals: `internal/{nats,redis,memcleanup,sqldialect}` hold backend bases shared by storages and their factories; `internal/transport/*` holds the transport internals. They import other internal packages and external modules only; the few that import a public package of this module are listed in `tests/architecture` (`internalCapabilityImports`).                                                                                                                                                                                                                                                   |
+| `internal/*`                                                   | Module-wide internals: `internal/{nats,redis,memcleanup,sqldialect,sqlident}` hold backend bases and validation shared by storages and their factories; `internal/transport/*` holds the transport internals. They import other internal packages and external modules only; the sole allowlisted capability import (`internal/transport/authprincipal` → `auth/principal`) is listed in `tests/architecture` (`internalCapabilityImports`).                                                                                                                                                                                                                                                   |
 
 ### AIP request contracts
 
@@ -58,17 +58,47 @@ A component that needs an outbound client accepts it (for example `oidc.WithHTTP
 client from configuration.
 
 `make check-architecture` runs `tests/architecture` in the root module. It parses production imports on every platform and enforces the boundaries
-above,
-that runtime packages read no schemas and that only composition imports factories. The same check runs in CI. Test dependencies and the separate
-integration module are excluded. Other composition rules require ordinary code review; the check does not claim to enforce a complete layer ordering.
+above, that runtime packages read no schemas and import no test fixtures, that only composition imports factories, and that every modeled module edge
+has a direct production import. It also checks that `transport/` packages expose no `internal/` types (backed by an external-module server lifecycle
+fixture) and log no raw `error` arguments, that factories outside `factory/observability/health` avoid concrete `health.Coordinator`, that no exported
+`*Config` struct lives outside `config/` or `proto/` (except `coord/leadelect/providers.Config`), and that auth constructors use role-specific option
+types. The same check runs in CI. Test dependencies and the separate integration module are excluded. Other composition rules require ordinary code
+review; the check does not claim to enforce a complete layer ordering.
+
+### Planned gRPC module split
+
+The shared gRPC pipeline must move before the nested server and client modules
+are published. Move only the exact packages listed in the transport module's
+`relocations` map in `tests/architecture/modules_test.go`.
+
+| Current location | Location after the split |
+| --- | --- |
+| Selected packages in `transport/grpc/interceptors` | Matching packages under `transport/grpcshared/interceptors` |
+| `transport/grpc/interceptors/internal/callstatus` | `transport/internal/callstatus` |
+| `transport/grpc/internal/grpcstatus` | `transport/internal/grpcstatus` |
+
+Rewrite imports in client, server, adapters, tests and examples to the mapped
+destinations. Move individual package files without moving their children
+unless the children have their own entry. Keep server-only interceptors and
+handlers under `transport/grpc`. The new internal helper paths keep imports
+available to both gRPC modules under the `transport` prefix.
+
+`TestGRPCSplitLayout` loads package stubs with the repository's gRPC import
+edges in separate local Go modules. It checks module ownership and visibility
+of the relocated imports. Run the full package and integration checks after
+the physical moves.
 
 ## Consumer-side seams
 
-Consumers declare the interfaces they call; `factory/` or application composition wires concrete implementations. The seams include
-`DecisionRecorder`,
-`HealthReporter`/`HealthWatcher`, audit `EventEmitter`, broker `Keeper`, and the local `TokenCodec` ports (implemented by `pagetoken.Codec`, alongside
-`pagetoken.Signer`, both go-aip). Scheduler handlers accept `FilterParser`; transport limiters use context helpers from `coord/limiters`. Any interface
-parameter must treat typed nils as nil with `go-atlas-core/types/nilcheck`.
+Consumers declare the interfaces they call; `factory/` or application composition wires concrete implementations. The seams include `DecisionRecorder`,
+`health.Registrar`/`health.ScopedReporter`/`health.Reporter`/`health.DynamicReporter`, `HealthReporter`/`HealthWatcher`, audit `EventEmitter` (and
+`audit.Dispatcher`), broker `Keeper`, `Starter[T]` in `reliability/saga/engines/jetstream`, `uow.OutcomeClassifier`, `opa.DecisionCache`,
+`kms.MasterKeyProvider`/`kms.TLSConfigurer`, Meilisearch role interfaces (`IndexManager`, `DocumentClient`, `Searcher`, `TaskWaiter`, `HealthChecker`),
+`mongo.CursorDeleter`, `cache/storages.ExistenceChecker`, and the local `TokenCodec` ports (implemented by `pagetoken.Codec`, alongside
+`pagetoken.Signer`, both go-aip). Scheduler handlers accept `SchedulerService` and `FilterParser` or `FilterCompiler` (`NewWithCompiler`); gRPC/HTTP
+auth adapters take `ScopeEnforcer[P]` (`auth/scope` defines `ActionRegistry`); `ipacl` and `geoacl` adapters take `Evaluator`; `transport/grpc/client`
+takes `ConnPool` and `pool.Binding`; transport limiters use context helpers from `coord/limiters`. Any interface parameter must treat typed nils as nil
+with `go-atlas-core/types/nilcheck`.
 
 Two of these boundaries are checked beyond direct imports. The backend-neutral contracts (`observability/tracing`, `observability/metrics`) must
 not reach a storage or messaging driver through any production dependency: the check resolves
@@ -114,9 +144,9 @@ schemas and materialize options. Nil optional telemetry dependencies use no-ops;
 Outbound proxy mapping lives in `factory/ext/net/proxydial`: `HTTPClientOptions(cfg.Proxy)` and `GRPCClientOptions(cfg.Proxy)`. Client health and HTTP
 SSRF mapping live in `factory/ext/net/httpclient` and `factory/transport/grpc/client`. See the [proxy guide](proxy.md).
 
-The `store/mongo` write-document converters use `mapping/behavior` and its MongoDB translator for BSON layout and update operators. The translator
-calls an internal field-transformation interface. The store supplies its CSFLE implementation and owns the client, KMS provider and key vault.
-See the [write document contract](../store/mongo/README.md#write-documents).
+The `store/mongo` write-document converters use `mapping/behavior` and its MongoDB translator for BSON layout and update operators. The store
+binds its CSFLE selector to both translators with `WithFieldTransformer` and owns the client, KMS provider and key vault. See the
+[write document contract](../store/mongo/README.md#write-documents).
 
 BSON encoding of `optional.Optional[T]` uses `store/mongo/bsoncodec.NewRegistry()`. `store/mongo` installs this registry for clients it constructs
 unless
@@ -146,7 +176,7 @@ components must be stopped or tested independently. Package-specific thread-safe
 | Saga callbacks                               | Must be idempotent and cancellation-aware. Use `ExecutionFromContext` for stable step keys and increasing fencing tokens; external systems must enforce fencing when needed.                                                                                             |
 | Idempotency                                  | Completion and failed-request release compare the original ownership token atomically. Unconditional deletion is administrative only.                                                                                                                                    |
 | Scheduler                                    | Atomic claim and `FinishRun` fence ownership at both transitions; stale completion cannot overwrite a newer run or task configuration.                                                                                                                                   |
-| Health/outbox startup                        | Constructors do not register tasks. Explicit registration reports errors; factories perform it before returning. Partial outbox registration gates callbacks until retry succeeds.                                                                                       |
+| Health/outbox startup                        | Constructors do not register tasks. Explicit registration reports errors; factories perform it before returning. Outbox factories with push watch enabled (`changeStream` or `notify`) start `StartWatch` only after `RegisterTasks` succeeds. Partial outbox registration gates callbacks until retry succeeds. |
 | Bloom filter rebuilds                        | `bloom.New` does not rebuild or schedule. `StartRebuild(ctx)` runs the initial rebuild and starts the schedule: a process-local cron for a process-local storage, scheduler registration for a shared one. Factories map config to options and call it before returning. |
 | gRPC pool                                    | Client bindings preserve the complete dial policy. Per-target capacity includes borrowed, idle and in-flight creations; stop cancels and joins factories before completing.                                                                                              |
 | Saga recovery                                | `RegisterRecovery(ctx)` reports scheduler failures. Manual recovery remains available until registration succeeds. Recovery, execution, step and persistence budgets are maximum deadlines and preserve any earlier caller deadline.                                     |
@@ -171,5 +201,4 @@ and [WAL](https://github.com/altessa-s/go-atlas-core/tree/develop/io/wal/README.
 [CONTRIBUTING.md](../CONTRIBUTING.md) describes contribution conventions; the [root README](../README.md) lists packages. Generated options are produced
 by optgen from private options
 structs. Public packages include godoc, README and behavior tests; benchmarks cover hot paths. Internal packages follow the documented exemptions.
-This
-document is authoritative for architecture; `.ai-factory/ARCHITECTURE.md` links here instead of duplicating dependency rules.
+This document is authoritative for architecture.

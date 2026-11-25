@@ -54,8 +54,9 @@ Each `Checker` is owned by the consumer (database, broker, secret manager, plugi
 `WithCheckTimeout` deadline on its context; the timeout is cooperative — the coordinator calls checkers synchronously, so a checker must honor
 cancellation and bound its own I/O. Results live in a sharded cache, so probe handlers stay cheap under load.
 
-In-tree subsystems that self-register when supplied a `health.Registrar` (or the wider `health.Reporter` / `health.DynamicReporter` ports that
-`*health.Coordinator` also implements) via their `WithHealthCoordinator` option:
+In-tree subsystems that self-register when supplied a `health.Registrar` or `health.ScopedReporter` (narrow registration ports implemented by
+`*health.Coordinator`, alongside `health.Reporter` and `health.DynamicReporter`; factories avoid concrete `*health.Coordinator`) via their
+`WithHealthCoordinator` option:
 
 | Package       | Default service name | What is probed                                                    |
 |---------------|----------------------|-------------------------------------------------------------------|
@@ -146,6 +147,7 @@ defer coord.Close()
 |-------------------------------------------|--------------------------------------------------------------------------------------------------------------|
 | `New(opts...)`                            | Construct a coordinator                                                                                      |
 | `(c) RegisterService(name, Checker)`      | Add a service                                                                                                |
+| `(c) RegisterScopedService(name, Checker)`| Add a service; returns `(notify, unregister)` (`RegisterOwnedService` wraps `Reporter`)                      |
 | `(c) UnregisterService(name)`             | Remove a service and clear its cache entry                                                                   |
 | `(c) ListServices() iter.Seq[string]`     | Iterate over registered names                                                                                |
 | `(c) CheckStatus(ctx, service)`           | Read status (cached when fresh); empty `service` = overall                                                   |
@@ -218,13 +220,16 @@ is accepting".
 > **Default wiring caveat.** `factory/transport/http/server` registers
 > `K8sHealtz` at `/internal/healthz` and `K8sReadyz` at `/internal/readyz`
 > as built-in handlers (on by default; disable them with
-> `WithoutBuiltinHandlers()`). They will **not** flip to `NOT_SERVING` on
-> SIGTERM, on a checker failure, or on `coord.Close()` — they don't
-> know the coordinator exists. To get readiness that reflects state,
-> register `httphealth.Readyz(coord)` yourself (e.g. via
-> `srv.Handle("/readyz", httphealth.Readyz(coord))`); from then on
-> `coord.Close()` (or an explicit `coord.SetOverallStatus(StatusNotServing)`)
-> flips the probe to 503 immediately — see [Lifecycle](#lifecycle-and-shutdown).
+> `WithoutBuiltinHandlers()`), and also mounts `/internal/pprof` (opt-in
+> via `WithPprof()`) and `/internal/metrics` (when `UseMetricsHandler` is
+> supplied) on custom routers as well as the default router. The built-in
+> health stubs will **not** flip to `NOT_SERVING` on SIGTERM, on a checker
+> failure, or on `coord.Close()` — they don't know the coordinator exists.
+> To get readiness that reflects state, register `httphealth.Readyz(coord)`
+> yourself (e.g. via `srv.Handle("/readyz", httphealth.Readyz(coord))`);
+> from then on `coord.Close()` (or an explicit
+> `coord.SetOverallStatus(StatusNotServing)`) flips the probe to 503
+> immediately — see [Lifecycle](#lifecycle-and-shutdown).
 
 ### Coordinator-backed — `Healthz`, `Readyz`, `Detailed`
 
@@ -330,7 +335,7 @@ The cycle re-runs registered checkers and pushes diffs to subscribers. Two ways 
 
 ```go
 coord := health.New(
-    health.WithScheduler(sched),                  // service/scheduler
+    health.WithScheduler(sched),                  // go-horai/task.Registrar
     health.WithCheckSchedule("*/5 * * * * *"),    // every 5 s
     health.WithLogger(logger),
 )

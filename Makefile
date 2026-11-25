@@ -200,6 +200,7 @@ fuzz: ## Fuzz every target for FUZZTIME each (FUZZTIME=30s FUZZPKG=./...)
 .PHONY: test-integration
 test-integration: ## Run the integration suite against live backends (see tests/integration/README.md)
 	@go test -C tests/integration -race -count=1 -p 1 ./...
+	@go test -v -race -count=1 -run '^(TestIntegration_Conformance|TestStoreBatchPartialFailure|TestStorageRoundTrip|TestStorageDeduplicatesReplayedEvents)$$' ./audit/storages/clickhouse
 
 .PHONY: test-volume
 test-volume: ## Run the volume tests (VOLUME_ROWS rows per backend) against the integration backends

@@ -158,8 +158,8 @@ That is also why the context you hand to `Lock` or `Synchronize` must outlive th
 
 ## Health
 
-`*DLock` implements `health.Checker`. Pass `WithHealthCoordinator(c)` and `dlock` registers itself under the name `"dlock"` (or whatever
-`WithHealthServiceName` overrides it to).
+`*DLock` implements `health.Checker`. Pass `WithHealthCoordinator(c)` (accepting `health.Registrar`, such as `*health.Coordinator`) and `dlock`
+registers itself under the name `"dlock"` (or whatever `WithHealthServiceName` overrides it to).
 
 ```go
 coord := health.New()
@@ -217,6 +217,9 @@ including one whose `defer Release` was forgotten — are invisible here; instru
 `acquired - released` counts outstanding `Synchronize` acquisitions: critical sections still running plus locks whose release failed. A
 long-running `fn` keeps the difference positive while healthy, and counters reset on process restart, so compare increases over the same window
 (`increase(acquired[5m]) - increase(released[5m])`) and add your own in-flight gauge before treating a persistent gap as a leak.
+
+When using `coord/dlock/providers/nats`, pass `natsprovider.WithMeter(meter)` to emit NATS KV lease metrics under subsystem `nats_kv_lease`
+(`nats_kv_lease_operations_total`, `nats_kv_lease_lease_held`).
 
 ---
 

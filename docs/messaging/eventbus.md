@@ -112,10 +112,10 @@ skipped because the caller's context was canceled. A `nil` `Compensate` marks th
 Fire-and-forget work such as a cache invalidation registers with `Runner.AfterCommit` instead: the hook runs after the commit on a
 cancellation-detached
 context and its panic is recovered. A `Run` inside the body of the same runner joins the enclosing unit, so a store method that opens its own unit of
-work is safe to call from a larger one: its effects wait for the outermost commit. With `uow.WithDetector(datamongo.Transaction)` the runner also
-refuses (`ErrForeignTransaction`) to run or register inside a transaction other than its unit's (one it did not start, or another client's), and a
-body that returned nil before a failed commit is reported as
-`ErrUnknownOutcome`.
+work is safe to call from a larger one: its effects wait for the outermost commit. With `uow.WithDetector(mongo.Transaction)` the runner also
+refuses (`ErrForeignTransaction`) to run or register inside a transaction other than its unit's (one it did not start, or another client's). When a
+body returns nil before a failed commit, `Runner` reports `ErrUnknownOutcome` unless the `Committer` implements `uow.OutcomeClassifier`
+(`CommitOutcomeUnknown(error) bool`) and classifies the error as a definitive abort, in which case the error is returned directly.
 
 `uow` and `eventbus` do **not** import each other; they meet only through the `context`. `uow.Run` puts the unit of work in the transaction-scoped
 `ctx`
@@ -154,10 +154,11 @@ func indexOnFileUploaded(txCtx context.Context, e FileUploaded) error {
 Neither `eventbus` nor `uow` imports a database driver. A database is wired in through two small consumer-defined seams; the cores never change.
 Switching or adding a database means writing these two adapters where the database handle lives. Nothing in `eventbus` / `uow` is touched.
 
-| Seam               | Contract                                            | What you supply                                                                                                                                                                     |
-|--------------------|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `uow.Committer`    | `WithTransaction(ctx, fn) error`                    | A type that opens a transaction and passes a transaction-scoped context to `fn` (`store/mongo.Mongo` and `store/postgres.Committer` already satisfy it)                             |
-| `eventbus.TxProbe` | reports whether `ctx` carries an active transaction | A function that detects your database's transaction in `ctx` (`store/postgres.InWriteTransaction` for `eventbus.TxProbe`; `store/mongo.Transaction` / `store/postgres.Transaction` for `uow.Detector`) |
+| Seam                    | Contract                                            | What you supply                                                                                                                                                                     |
+|-------------------------|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `uow.Committer`         | `WithTransaction(ctx, fn) error`                    | A type that opens a transaction and passes a transaction-scoped context to `fn` (`store/mongo.Mongo` and `store/postgres.Committer` already satisfy it)                             |
+| `uow.OutcomeClassifier` | `CommitOutcomeUnknown(error) bool`                  | Optional interface on a `Committer` distinguishing definitive pre-commit aborts (`false`) from uncertain commit errors (`true` → `ErrUnknownOutcome`)                               |
+| `eventbus.TxProbe`      | reports whether `ctx` carries an active transaction | A function that detects your database's transaction in `ctx` (`store/postgres.InWriteTransaction` for `eventbus.TxProbe`; `store/mongo.Transaction` / `store/postgres.Transaction` for `uow.Detector`) |
 
 The one behavioral nuance is per-database, not per-design. Some drivers carry the transaction in the context and **retry** the `WithTransaction`
 callback on transient errors (for example, the MongoDB driver), which is exactly why `uow` resets its registered effects on every attempt. Others have

@@ -207,7 +207,7 @@ projection, err := proj.Translate(ctx, Entity{})
 
 The [store document converters](../../store/mongo/README.md#write-documents) use these insert and update translators with the effective client
 registry. Store updates use an empty strip set and still preserve identifiers and fields tagged `omitonupdate`. The store supplies the CSFLE field
-transformer for both operations. Standalone users choose their own behavior policy and registry.
+transformer for both operations. Standalone users can pass `mongotr.WithFieldTransformer` to either translator alongside their registry option.
 
 ---
 

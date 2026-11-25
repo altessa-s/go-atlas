@@ -7,7 +7,7 @@ Components and factory builders receive a `metrics.Meter` (instrument creation o
 the application holds the `metrics.Collector`, which adds `Shutdown` / `ForceFlush`, and passes it or a `WithSubsystem` scope down. See
 [observability/metrics](../observability/metrics/README.md#meter-vs-collector).
 
-**40 subsystems, 243 metrics.**
+**40 subsystems, 226 metrics.**
 
 ---
 
@@ -370,7 +370,7 @@ Package: `store/mongo`
 
 ## nats_kv_lease
 
-Package: `internal/nats/natskvlease`
+Package: `coord/dlock/providers/nats`. Enable these instruments with `WithMeter` on `coord/dlock/providers/nats`.
 
 | Name                             | Type    | Labels         | Description                            |
 |----------------------------------|---------|----------------|----------------------------------------|
@@ -453,7 +453,7 @@ Package: `reliability/outbox`
 | `outbox_events_expired_total`                  | Counter   | --     | Events that expired before dispatch                |
 | `outbox_events_retries_scheduled_total`        | Counter   | --     | Failures rescheduled for a later attempt           |
 | `outbox_max_retries_exhausted_total`           | Counter   | --     | Events hitting the retry limit                     |
-| `outbox_watch_notifications_total`             | Counter   | --     | Change notifications pushed to `Outbox.Watch`      |
+| `outbox_watch_notifications_total`             | Counter   | --     | Change notifications pushed to `Outbox.Watch` / `Outbox.StartWatch` |
 | `outbox_events_in_flight`                      | Gauge     | --     | Events currently being dispatched                  |
 | `outbox_events_pending`                        | Gauge     | --     | Backlog depth: events awaiting dispatch            |
 | `outbox_events_in_progress`                    | Gauge     | --     | Events currently locked by a dispatcher            |
@@ -470,9 +470,9 @@ Package: `reliability/outbox`
 are retained deliberately for inspection, so a non-zero value means an operator still has to look. Populating all four requires the stats task
 to be scheduled (`statsSchedule`).
 
-`outbox_watch_notifications_total` only moves when a watcher is running (`Outbox.Watch` against a store that supports change notifications). A
-flat line while `outbox_events_saved_total` climbs means the watcher died or was never started and dispatch quietly fell back to the poll
-interval — correct, but at the latency the schedule dictates.
+`outbox_watch_notifications_total` only moves when a watcher is running (`Outbox.Watch` or `Outbox.StartWatch` against a store that supports change
+notifications). A flat line while `outbox_events_saved_total` climbs means the watcher died or was never started and dispatch quietly fell back to the
+poll interval — correct, but at the latency the schedule dictates.
 
 ---
 

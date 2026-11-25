@@ -47,13 +47,12 @@ effect leaves inconsistency. That is the deliberate single-process trade-off.
 
 ### `reliability/outbox` — reliable delivery out of a transaction
 
-The transactional-outbox pattern. The event is **persisted to a store in the same transaction as the state change**, then dispatched later by
-background
-cycles (dispatch, unlock, expire, cleanup, stats). This is the crash-safe answer to the dual write: because the event is written atomically with
-the state, it cannot be lost; because it is delivered out-of-band, the transaction never waits on the network. Delivery is **at-least-once**,
+The transactional-outbox pattern. The event is **persisted to a store in the same transaction as the state change**, then dispatched later by background
+cycles (dispatch, unlock, expire, cleanup, stats). This is the crash-safe answer to the dual write: because the event is written atomically with the
+state, it cannot be lost; because it is delivered out-of-band, the transaction never waits on the network. Delivery is **at-least-once**,
 transport-agnostic (the `Handler` decides how to deliver: broker, HTTP, gRPC). Lease and retention windows are evaluated against the **database
-server clock** (MongoDB `$$NOW`), not the worker's wall clock, so a clock-skewed worker can neither prematurely steal a locked event nor leak one;
-timestamps are stored as BSON `Date`.
+server clock** (MongoDB `$$NOW` or the SQL database clock), not the worker's wall clock, so a clock-skewed worker can neither prematurely steal a
+locked event nor leak one; MongoDB timestamps are stored as BSON `Date`.
 
 Five properties are worth knowing before you design against it:
 
@@ -69,12 +68,13 @@ Five properties are worth knowing before you design against it:
 - **The backlog is only visible if you schedule the stats cycle.** Counters cannot distinguish a stalled outbox from an idle one — both report zero.
   `outbox_events_pending`, `outbox_events_dead_lettered`, and `outbox_events_oldest_pending_age_seconds` are what an alert can be written against; see
   [metrics.md](metrics.md#outbox).
-- **Delivery latency is the dispatch interval, unless you run a watcher.** A saved event waits for the next scheduled cycle. `Outbox.Watch` closes
-  that
-  gap by blocking on store notifications and dispatching as soon as events land — the MongoDB store implements it with a change stream, so an event
-  becomes visible the instant its transaction commits. It is layered **on top of** the schedule, never instead of it: a notification means "something
-  arrived", never "this event is due", so retry backoffs elapsing and the unlock cycle freeing a stuck lease stay the poll cycle's job. Change streams
-  need a replica set or sharded cluster; on a standalone `mongod` the call returns `ErrWatchUnsupported` and dispatch simply keeps polling.
+- **Delivery latency is the dispatch interval, unless you run a watcher.** A saved event waits for the next scheduled cycle. `Outbox.Watch` (and
+  `Outbox.StartWatch` / `Outbox.StopWatch` for managed background lifecycle) closes that gap by blocking on store notifications and dispatching as
+  soon as events land — the MongoDB store implements it with a change stream (`changeStream`), and the SQL store with PostgreSQL `LISTEN`/`NOTIFY`
+  (`notify` through an injected `Listener`), so an event becomes visible the instant its transaction commits. It is layered **on top of** the
+  schedule, never instead of it: a notification means "something arrived", never "this event is due", so retry backoffs elapsing and the unlock cycle
+  freeing a stuck lease stay the poll cycle's job. Change streams need a replica set or sharded cluster and PostgreSQL `LISTEN` needs a direct
+  session; on an unsupported backend or standalone `mongod` the call returns `ErrWatchUnsupported` and dispatch simply keeps polling.
 
 ### `messaging/broker` — asynchronous messaging between services
 
@@ -134,9 +134,10 @@ sequence, compensation, and crash recovery.
   the
   `messaging/broker/outbox` adapter sends the outbox event ID as `Nats-Msg-Id` so JetStream collapses a republished event within its duplicate
   window, and a repeat that arrives after that window still reaches the consumer.
-- **A change-stream watcher does not replace the dispatch schedule.** `Outbox.Watch` only ever reports that something was *saved*. Retry backoffs
-  expiring and stuck leases being reclaimed are time-driven, produce no change event, and are invisible to it — as is any notification that arrives
-  while a cycle is already running. Sparsening the schedule because "the watcher covers it" strands exactly the events that already failed once.
+- **A notification watcher does not replace the dispatch schedule.** `Outbox.Watch` / `Outbox.StartWatch` (change streams or `LISTEN`/`NOTIFY`) only
+  ever reports that something was *saved*. Retry backoffs expiring and stuck leases being reclaimed are time-driven, produce no change event, and are
+  invisible to it — as is any notification that arrives while a cycle is already running. Sparsening the schedule because "the watcher covers it"
+  strands exactly the events that already failed once.
 - **A dead-letter queue nobody watches is data loss with extra steps.** Terminal failures are retained deliberately and never expire on their own.
   Schedule the stats cycle and alert on `outbox_events_dead_lettered` and `outbox_events_oldest_pending_age_seconds`, or the retention is just
   storage.

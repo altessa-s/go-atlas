@@ -184,8 +184,7 @@ cd go-atlas
 Stress tests live next to the code they exercise in `*_stress_test.go` files behind the `stress` build tag, so `go test ./...` never runs them. Each one
 mixes every operation of its package concurrently for `ATLAS_STRESS_DURATION` (default 30s) and checks invariants as it goes; run one with
 `ATLAS_STRESS_DURATION=10s go test -tags stress -race -run '^TestStress' ./coord/limiters/storages/memory`. The dlock test needs the NATS broker from
-`make
-integration-up` (`NATS_URL` overrides it) and skips without one. The `Stress` workflow runs them nightly.
+`make integration-up` (`NATS_URL` overrides it) and skips without one. The `Stress` workflow runs them nightly.
 
 ## Contributing
 

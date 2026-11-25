@@ -109,7 +109,7 @@ sequenceDiagram
 ```
 
 `Start` returns the original triggering error and an instance in `COMPENSATED` state. If any compensation itself exhausts its retries the
-instance goes to `FAILED` (wrapping `errs.ErrCompensationFailed`) and the dead-letter hook fires.
+instance goes to `FAILED` (wrapping `ErrCompensationFailed`) and the dead-letter hook fires.
 
 ### The pivot: roll forward instead of back
 
@@ -141,7 +141,7 @@ flowchart LR
     Store --- Redis[redis]
     Store --- Nats[nats KV]
     Store --- SQL[sqldb]
-    Orch -->|register recovery cycle| Sched[scheduler.TaskRegistrar]
+    Orch -->|register recovery cycle| Sched[task.Registrar]
     Orch -->|gate to leader| Leader[LeaderElector]
     Orch -->|on FAILED| DLQ[DeadLetterFunc]
     Orch -->|counters / timers| Metrics[metrics.Meter]
@@ -289,7 +289,7 @@ orch := saga.New(store, def,
 
 In production, assemble the orchestrator from [`sagaconfig.Config`](../../config/saga/saga.go) and a registered store. The factory picks the
 store named by `sagaconfig.Config.Storage.Type` and wires every option. It builds only the memory and sqldb stores; the nats, mongo and redis
-stores register with `UseStorage` from `reliability/saga/storages/<backend>/factory`, and a configured type without one fails `Build` naming the
+stores register with `UseStorage` from `factory/reliability/saga/storages/<backend>`, and a configured type without one fails `Build` naming the
 package to add.
 
 ```go
@@ -342,13 +342,14 @@ if err := orch.RunRecoveryCycle(ctx); err != nil {
 | `sqldb`  | [`storages/sqldb`](../../reliability/saga/storages/sqldb)   | yes     | row `version`       | `(status, lease_until)`, `(status, deadline)` indexes | PostgreSQL, MySQL, MariaDB over a caller-owned `*sql.DB`; `EnsureSchema` or migrations.                                       |
 
 All backends return the same sentinel errors of [`saga`](../../reliability/saga) (`ErrInstanceNotFound`, `ErrInstanceExists`,
-`ErrVersionConflict`, …); match them with `errors.Is`.
+`ErrVersionConflict`, `ErrInvalidStorageKey`, …); match them with `errors.Is`.
 
 ## Distributed execution with JetStream
 
 `Orchestrator.Start` runs a saga in the caller's goroutine. When the decision to start a saga must survive a crash of the caller, or execution
-should be spread over a pool of workers, put the [`engines/jetstream`](../../reliability/saga/engines/jetstream) engine in front of the orchestrator.
-Combined with the `nats` store this is an all-NATS deployment.
+should be spread over a pool of workers, put the [`engines/jetstream`](../../reliability/saga/engines/jetstream) engine in front of the
+orchestrator. `jetstream.New` accepts the narrow `Starter[T]` seam (satisfied by `*saga.Orchestrator[T]`). Combined with the `nats` store this is
+an all-NATS deployment.
 
 ```mermaid
 sequenceDiagram
@@ -388,7 +389,7 @@ err = engine.Submit(ctx, order.ID, order) // durable once this returns
 |------------------------------------------------------|------------------------------|
 | Terminal (completed, compensated, failed)            | acked — the outcome is final |
 | Interrupted (store error, instance busy, shutdown)   | redelivered with backoff     |
-| Undecodable, or the ID belongs to another definition | terminated                   |
+| Undecodable, `ErrDefinitionNotFound`, or `ErrInvalidStorageKey` | terminated (`Term`)          |
 
 Delivery is at-least-once; a redelivered command resumes the existing instance because the saga ID is the idempotency key. Keep the recovery
 cycle configured: it still owns deadline-driven rollback and instances started by direct `Start` calls. The engine never modifies an existing

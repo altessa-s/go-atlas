@@ -169,7 +169,10 @@ filter, err := factory.NewFilter("users", filterCfg, defaults).
 
 The factory builds only the in-memory storages. A `redis` storage is registered with `UseBloomStorage` / `UseCuckooStorage` from
 `factory/cache/probfilter/bloom/storages/redis` (`bloomredisfactory`) and `factory/cache/probfilter/cuckoo/storages/redis` (`cuckooredisfactory`);
-without one `Build` fails naming the package to add.
+without one `Build` fails naming the package to add. `Builder(client)` verifies standalone primary `*redis.Client` or `*redis.ClusterClient`
+topologies and fails with `probfilter.ErrUnverifiableTopology` for a raw `*redis.Ring` (or a direct client pointing to a replica or cluster node). For
+Redis Sentinel, pass `SentinelBuilder(managed.SentinelCluster())` using the `*redis.ClusterClient` from
+`factory/infrastructure/redis.ManagedClient.SentinelCluster()`.
 
 ### Manager with all configured filters
 
@@ -441,10 +444,12 @@ never added can still remove a colliding member's fingerprint, so only delete va
 
 | Error                    | Package                  | Condition                                                            |
 |--------------------------|--------------------------|----------------------------------------------------------------------|
-| `ErrFilterNotFound`      | `probfilter`             | `Manager.Get` with an unregistered name                              |
-| `ErrFilterAlreadyExists` | `probfilter`             | `Manager.Register` with a duplicate name                             |
-| `ErrFilterClosed`        | `probfilter`             | `Rebuild` on a closed filter                                         |
-| `ErrCommitIndeterminate` | `probfilter`             | Wrapped when a Redis rebuild commit's outcome is unknown             |
-| `ErrRebuildInProgress`   | `probfilter`             | Wrapped when another process is rebuilding the shared Redis filter   |
-| `ErrRebuildSuperseded`   | `probfilter`             | Wrapped when a rebuild lost its lease and its snapshot was discarded |
-| `ErrFilterFull`          | `cuckoo/storages/memory` | Cuckoo filter capacity exhausted                                     |
+| `ErrFilterNotFound`       | `probfilter`             | `Manager.Get` with an unregistered name                              |
+| `ErrFilterAlreadyExists`  | `probfilter`             | `Manager.Register` with a duplicate name                             |
+| `ErrFilterClosed`         | `probfilter`             | `Rebuild` on a closed filter                                         |
+| `ErrCommitIndeterminate`  | `probfilter`             | Wrapped when a Redis rebuild commit's outcome is unknown             |
+| `ErrRebuildInProgress`    | `probfilter`             | Wrapped when another process is rebuilding the shared Redis filter   |
+| `ErrRebuildSuperseded`    | `probfilter`             | Wrapped when a rebuild lost its lease and its snapshot was discarded |
+| `ErrUnsafeEvictionPolicy` | `probfilter`             | Redis server configured with an `allkeys-*` eviction policy          |
+| `ErrUnverifiableTopology` | `probfilter`             | Redis client topology cannot verify primary eviction policy (e.g. Ring or replica) |
+| `ErrFilterFull`           | `cuckoo/storages/memory` | Cuckoo filter capacity exhausted                                     |
