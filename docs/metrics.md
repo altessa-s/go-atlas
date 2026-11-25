@@ -7,7 +7,7 @@ Components and factory builders receive a `metrics.Meter` (instrument creation o
 the application holds the `metrics.Collector`, which adds `Shutdown` / `ForceFlush`, and passes it or a `WithSubsystem` scope down. See
 [observability/metrics](../observability/metrics/README.md#meter-vs-collector).
 
-**40 subsystems, 243 metrics.**
+**41 subsystems, 245 metrics.**
 
 ---
 
@@ -263,6 +263,20 @@ Package: `transport/grpc/client/pool`
 | `grpc_connection_pool_connect_duration_seconds`    | Histogram | `target`           | Connection establishment duration   |
 | `grpc_connection_pool_cleanup_duration_seconds`    | Histogram | --                 | Cleanup cycle duration              |
 | `grpc_connection_pool_cleanup_connections_removed` | Counter   | --                 | Connections removed during cleanup  |
+
+---
+
+## grpc_dns_resolver
+
+Package: `transport/grpc/client/dnsresolver` (recorded on the meter `transport/grpc/client` gets with `WithMeter`)
+
+| Name                              | Type    | Labels             | Description                                                          |
+|-----------------------------------|---------|--------------------|----------------------------------------------------------------------|
+| `grpc_dns_resolver_lookups_total` | Counter | `target`, `result` | DNS lookups by result: `ok`, `empty` (NXDOMAIN or no records), `error` |
+| `grpc_dns_resolver_addresses`     | Gauge   | `target`           | Addresses of the latest lookup that succeeded or found none           |
+
+`target` is the resolved `host:port`. Like the `target` label of `grpc_connection_pool`, its values are the configured upstreams, so cardinality
+stays bounded. Resolvers of the same target (pooled connections, several clients) share the series.
 
 ---
 
