@@ -33,3 +33,5 @@ Metric names are prefixed with the collector's service name and the configured s
 | `WithIgnorePaths`       | --                      | Exact URL paths to skip                                                                                |
 | `WithIgnorePatterns`    | health, metrics, pprof  | Regex patterns for URL paths to skip                                                                   |
 | `WithLogger`            | discard                 | Structured logger                                                                                      |
+
+Counters and histograms use the matched route template as the `route` label. Requests without a template share `/_unknown`.

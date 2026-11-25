@@ -20,3 +20,8 @@ if err != nil {
 }
 handler := realip.Middleware(extractor, logger)(mux)
 ```
+
+The factory uses a discard logger for extractor diagnostics by default. Enable both YAML `logClientDetails` and `logRawErrors` to send
+extractor diagnostics to the server logger. For programmatic use, configure the supplied extractor logger separately. On address parse failures, middleware logs
+the route template or `/_unknown`. `WithLogClientDetails(true)` adds the peer address. `WithLogRawErrors(true)` (YAML `logRawErrors: true`)
+adds the underlying parse error, which can contain the address.

@@ -128,6 +128,15 @@ func WithIgnoreResponseCodes(v ...int) Option {
 	}
 }
 
+// WithLogClientDetails sets the logClientDetails option.
+//
+// logClientDetails includes client addresses, User-Agent, Host, and the raw URL path.
+func WithLogClientDetails(v bool) Option {
+	return func(o *options) {
+		o.logClientDetails = v
+	}
+}
+
 // WithLogQuery enables the logQuery option.
 //
 // logQuery adds the raw query string as the http.query field. Off by
@@ -178,7 +187,7 @@ func WithLogResponseCodes(v ...int) Option {
 
 // WithMaxPathLength sets the maxPathLength option.
 //
-// maxPathLength caps, in bytes, the URL path logged as http.path. A longer
+// maxPathLength caps, in bytes, the URL path logged as http.target. A longer
 // path is truncated and marked with [TruncationSuffix]. Values below 1 are
 // ignored.
 func WithMaxPathLength(v int) Option {

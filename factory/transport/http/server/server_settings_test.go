@@ -20,7 +20,8 @@ func TestServerSettingsAddressOverride(t *testing.T) {
 	const override = "127.0.0.1:1234"
 	base := corefactory.NewBase(nil)
 	settings := serverSettings{cfg: &httpconfig.Config{ListenAddress: "localhost:8080"}, listenAddress: new(override)}
-	srv, err := settings.newServer(&base, std.New(), nil)
+	rt := std.New()
+	srv, err := settings.newServer(&base, rt, rt, nil)
 	require.NoError(t, err)
 	require.Equal(t, override, srv.Address())
 }

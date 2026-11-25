@@ -56,3 +56,7 @@ See the [config index](../README.md) for the other schema packages.
 `maxBodySize` controls the factory's `Writer.Read` cap: positive values select a byte limit, negative values disable it, and zero uses 4 MiB or the
 positive size of an installed bodyLimit middleware. Middleware limits still apply independently; reading `r.Body` directly bypasses the writer cap. See
 [writer](../../transport/http/server/writer).
+
+The HTTP server factory uses 10 seconds for a zero `readHeaderTimeout` and 600 seconds for a zero `idleTimeout`.
+Log and span client details and raw diagnostics are opt-in through `logClientDetails`, `logRawErrors`, `recordClientDetails`,
+and `recordRawErrors` on the applicable middleware.

@@ -14,6 +14,12 @@ type RealIPMiddleware struct {
 	// BaseMiddleware provides standard enable and filtering fields.
 	BaseMiddleware `yaml:",inline"`
 
+	// LogClientDetails includes client addresses. Enable LogRawErrors as well for extractor diagnostics.
+	LogClientDetails bool `yaml:"logClientDetails" default:"false"`
+
+	// LogRawErrors includes raw parse errors, which can contain addresses.
+	LogRawErrors bool `yaml:"logRawErrors" default:"false"`
+
 	// Headers is a list of HTTP headers to check for the real client IP.
 	// The first header present decides; a private or invalid value is not
 	// replaced by a later header. Default: ["X-Forwarded-For"]. Add a

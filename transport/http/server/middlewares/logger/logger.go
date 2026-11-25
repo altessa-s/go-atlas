@@ -23,6 +23,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
+	"github.com/altessa-s/go-atlas/transport/http/server/router"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	coreio "github.com/altessa-s/go-atlas-core/io"
@@ -157,12 +158,16 @@ func (m *middleware) requestFields(request *http.Request) slogx.Fields {
 	// Pre-allocate fields with expected capacity
 	fields := make(slogx.Fields, 0, DefaultFieldsCapacity)
 	fields = append(fields,
-		slogx.Field{Key: FieldKeyHTTPMethod, Value: request.Method},
-		slogx.Field{Key: FieldKeyHTTPPath, Value: sanitizeLogValue(request.URL.Path, m.opts.maxPathLength)},
+		slogx.Field{Key: FieldKeyHTTPMethod, Value: middlewares.BoundedMethod(request.Method)},
+		slogx.Field{Key: FieldKeyHTTPPath, Value: router.RouteTemplate(request)},
 		slogx.Field{Key: FieldKeyHTTPProto, Value: request.Proto},
 	)
 	if m.opts.logQuery && request.URL.RawQuery != "" {
 		fields = append(fields, slogx.Field{Key: FieldKeyHTTPQuery, Value: m.redactedQuery(request.URL.RawQuery)})
+	}
+
+	if !m.opts.logClientDetails {
+		return fields
 	}
 
 	// Extract peer IP
@@ -171,7 +176,9 @@ func (m *middleware) requestFields(request *http.Request) slogx.Fields {
 		peerIP = request.RemoteAddr
 	}
 	fields = append(fields,
-		slogx.Field{Key: observability.FieldKeyClientPeerIP, Value: peerIP},
+		slogx.Field{Key: observability.FieldKeyClientPeerIP, Value: sanitizeLogValue(peerIP, m.opts.maxPathLength)},
+		slogx.Field{Key: FieldKeyHTTPHost, Value: sanitizeLogValue(request.Host, m.opts.maxPathLength)},
+		slogx.Field{Key: FieldKeyHTTPTarget, Value: sanitizeLogValue(request.URL.Path, m.opts.maxPathLength)},
 		slogx.Field{
 			Key:   observability.FieldKeyClientUserAgent,
 			Value: sanitizeLogValue(request.UserAgent(), m.opts.maxUserAgentLength),

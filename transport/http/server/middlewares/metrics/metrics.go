@@ -13,6 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
 const middlewareName = "metrics"
@@ -41,16 +42,15 @@ type Middleware struct {
 	requestsInFlight metrics.Gauge
 	requestSize      metrics.Histogram
 	responseSize     metrics.Histogram
-	// byMethod caches bound label handles per (method, status) so the
-	// request path never rebuilds label maps. Cardinality is bounded by
-	// the HTTP method set times the status-code set.
-	byMethod sync.Map // method string → *methodEntry
+	// handles caches bound instruments per combination of method, status and
+	// registered route template.
+	handles sync.Map // requestLabels → *requestHandles
 }
 
-// methodEntry holds the per-status handle cache for one HTTP method.
-type methodEntry struct {
-	method   string
-	byStatus sync.Map // status string → *requestHandles
+type requestLabels struct {
+	method string
+	status string
+	route  string
 }
 
 // requestHandles caches the bound handles for one (method, status) pair.
@@ -61,21 +61,13 @@ type requestHandles struct {
 	respSize metrics.Histogram
 }
 
-// handlesFor returns the cached handles for (method, status), binding them
-// on first use.
-func (m *Middleware) handlesFor(method, statusCode string) *requestHandles {
-	var me *methodEntry
-	if v, ok := m.byMethod.Load(method); ok {
-		me = v.(*methodEntry) //nolint:errcheck // only *methodEntry is stored
-	} else {
-		v, _ := m.byMethod.LoadOrStore(method, &methodEntry{method: method})
-		me = v.(*methodEntry) //nolint:errcheck // only *methodEntry is stored
-	}
-
-	if v, ok := me.byStatus.Load(statusCode); ok {
+// handlesFor returns the cached instruments, binding the labels on first use.
+func (m *Middleware) handlesFor(key requestLabels) *requestHandles {
+	if v, ok := m.handles.Load(key); ok {
 		return v.(*requestHandles) //nolint:errcheck // only *requestHandles is stored
 	}
-	labels := metrics.Labels{methodLabel: me.method, statusLabel: statusCode}
+
+	labels := metrics.Labels{methodLabel: key.method, statusLabel: key.status, routeLabel: key.route}
 	h := &requestHandles{
 		total:    m.requestsTotal.WithLabels(labels),
 		duration: m.requestDuration.WithLabels(labels),
@@ -86,7 +78,7 @@ func (m *Middleware) handlesFor(method, statusCode string) *requestHandles {
 	if m.responseSize != nil {
 		h.respSize = m.responseSize.WithLabels(labels)
 	}
-	v, _ := me.byStatus.LoadOrStore(statusCode, h)
+	v, _ := m.handles.LoadOrStore(key, h)
 	return v.(*requestHandles) //nolint:errcheck // only *requestHandles is stored
 }
 
@@ -123,7 +115,7 @@ func New(opt ...Option) *Middleware {
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if m.ShouldIgnoreRequest(r) {
-			m.LogIgnored(r.Context(), r.URL.Path)
+			m.LogIgnored(r.Context(), router.RouteTemplate(r))
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -131,11 +123,12 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		rec := middlewares.NewResponseWriter(w, false)
 		defer rec.Release()
 		start := time.Now()
+		route := router.RouteTemplate(r)
 
 		m.requestsInFlight.Inc()
 		defer func() {
 			m.requestsInFlight.Dec()
-			m.recordMetrics(r, rec, start)
+			m.recordMetrics(r, rec, start, route)
 		}()
 
 		next.ServeHTTP(rec, r)
@@ -148,14 +141,14 @@ func (m *Middleware) initializeMetrics() {
 
 	m.requestsTotal = scoped.MustCounter(metrics.MetricOpts{
 		Name:       "server_requests_total",
-		Help:       "Total number of HTTP server requests with method and status labels",
-		LabelNames: []string{methodLabel, statusLabel},
+		Help:       "Total number of HTTP server requests with method, status and route labels",
+		LabelNames: []string{methodLabel, statusLabel, routeLabel},
 	})
 
 	m.requestDuration = scoped.MustHistogram(metrics.HistogramOpts{
 		Name:       "server_request_duration_seconds",
 		Help:       "Duration of HTTP server requests in seconds",
-		LabelNames: []string{methodLabel, statusLabel},
+		LabelNames: []string{methodLabel, statusLabel, routeLabel},
 		Buckets:    m.opts.durationBuckets,
 	})
 
@@ -168,14 +161,14 @@ func (m *Middleware) initializeMetrics() {
 		m.requestSize = scoped.MustHistogram(metrics.HistogramOpts{
 			Name:       "server_request_size_bytes",
 			Help:       "Size of HTTP server request bodies in bytes",
-			LabelNames: []string{methodLabel, statusLabel},
+			LabelNames: []string{methodLabel, statusLabel, routeLabel},
 			Buckets:    m.opts.sizeBuckets,
 		})
 
 		m.responseSize = scoped.MustHistogram(metrics.HistogramOpts{
 			Name:       "server_response_size_bytes",
 			Help:       "Size of HTTP server response bodies in bytes",
-			LabelNames: []string{methodLabel, statusLabel},
+			LabelNames: []string{methodLabel, statusLabel, routeLabel},
 			Buckets:    m.opts.sizeBuckets,
 		})
 	}
@@ -200,28 +193,12 @@ func statusString(code int) string {
 	return strconv.Itoa(code)
 }
 
-// methodOther is the label value for request methods outside the standard set.
-const methodOther = "OTHER"
-
-// boundedMethod maps r.Method to a bounded label value. net/http accepts any
-// token as a method, so an unauthenticated client could otherwise mint a new
-// metric series per request.
-func boundedMethod(method string) string {
-	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
-		http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
-		return method
-	default:
-		return methodOther
-	}
-}
-
 // recordMetrics records all metrics for a completed request.
-func (m *Middleware) recordMetrics(r *http.Request, rec *middlewares.ResponseWriter, startTime time.Time) {
+func (m *Middleware) recordMetrics(r *http.Request, rec *middlewares.ResponseWriter, startTime time.Time, route string) {
 	duration := time.Since(startTime)
 	statusCode := statusString(rec.StatusCode())
 
-	h := m.handlesFor(boundedMethod(r.Method), statusCode)
+	h := m.handlesFor(requestLabels{method: middlewares.BoundedMethod(r.Method), status: statusCode, route: route})
 
 	h.total.Inc()
 	h.duration.Observe(duration.Seconds())
@@ -233,8 +210,8 @@ func (m *Middleware) recordMetrics(r *http.Request, rec *middlewares.ResponseWri
 		h.respSize.Observe(float64(rec.BytesWritten()))
 	}
 
-	m.LogDebug(r.Context(), "recorded prometheus metrics", r.URL.Path,
-		slog.String("method", r.Method),
+	m.LogDebug(r.Context(), "recorded prometheus metrics", route,
+		slog.String("method", middlewares.BoundedMethod(r.Method)),
 		slog.String("status", statusCode),
 		slog.Duration("duration", duration))
 }

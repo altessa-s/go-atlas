@@ -28,7 +28,7 @@ type endpoints struct {
 }
 
 // registerBuiltinHandlers registers built-in HTTP handlers (ping, healthz, readyz, pprof, metrics).
-func (b *endpoints) registerBuiltinHandlers(srv *server.Server, rootRouter router.Router, cfg *httpconfig.Pprof) {
+func (b *endpoints) registerBuiltinHandlers(srv *server.Server, routes router.Router, cfg *httpconfig.Pprof) {
 	if b.builtinEnabled {
 		srv.Handle(b.internalPrefix+"/ping", pingh.Handler).Methods(http.MethodGet)
 		srv.Handle(b.internalPrefix+"/healthz", healthh.K8sHealtz).Methods(http.MethodGet)
@@ -37,10 +37,10 @@ func (b *endpoints) registerBuiltinHandlers(srv *server.Server, rootRouter route
 
 	pprof := b.resolvePprofEnabled(cfg)
 	metrics := b.metricsEnabled && b.metricsHandler != nil
-	if rootRouter == nil || (!pprof && !metrics) {
+	if routes == nil || (!pprof && !metrics) {
 		return
 	}
-	internal := rootRouter.PathPrefix(b.internalPrefix).Subrouter()
+	internal := routes.PathPrefix(b.internalPrefix).Subrouter()
 	if pprof {
 		pprofh.Mount(internal)
 	}

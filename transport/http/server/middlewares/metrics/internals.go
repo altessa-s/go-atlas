@@ -10,6 +10,7 @@ package metrics
 const (
 	methodLabel = "method"
 	statusLabel = "status"
+	routeLabel  = "route"
 )
 
 // Default bucket configurations for histogram metrics.

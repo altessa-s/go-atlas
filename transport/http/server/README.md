@@ -46,3 +46,7 @@ Once `Done` closes, `Start` returns `ErrServerClosed`, including after a post-st
 Serve failure. Create a new server to restart. Early startup errors are returned
 by `Start` and leave `Done` open; a supplied listener may be consumed by a failed
 Serve, so retrying with that listener may not succeed.
+
+`WithRouteRegistrar` directs endpoint registrations to a subrouter when configured. The router supplied to `WithRouter` serves requests,
+installs server middleware, and is initialized at startup. `OPTIONS *` passes through the router and its middleware. Standard-library
+server diagnostics go to the server logger as a fixed error message that omits peer addresses and request data.

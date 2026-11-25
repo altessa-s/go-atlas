@@ -20,4 +20,6 @@ var (
 	FieldKeyHTTPProto  FieldKey = intern.String("http.proto")
 	FieldKeyHTTPStatus FieldKey = intern.String("http.status")
 	FieldKeyHTTPQuery  FieldKey = intern.String("http.query")
+	FieldKeyHTTPHost   FieldKey = intern.String("http.host")
+	FieldKeyHTTPTarget FieldKey = intern.String("http.target")
 )

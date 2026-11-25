@@ -5,6 +5,7 @@
 package recovery_test
 
 import (
+	"bytes"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,7 @@ func TestPanicRecover_NoPanic_StatusOK(t *testing.T) {
 func TestPanicRecover_WithAllOptions(t *testing.T) {
 	handler := recovery.PanicRecover(
 		slog.Default(),
-		recovery.WithLogStack(),
+		recovery.WithLogRawErrors(true),
 		recovery.WithIgnorePaths("/health", "/ready"),
 	)
 	require.NotNil(t, handler)
@@ -86,4 +87,26 @@ func TestPanicRecover_NilLogger(t *testing.T) {
 	// Should not panic with nil logger
 	handler := recovery.PanicRecover(nil)
 	require.NotNil(t, handler)
+}
+
+// Recovery must keep request panics out of the process-wide panic logger.
+func TestPanicRecover_SanitizesLocalAndGlobalLogs(t *testing.T) {
+	var global, local bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&global, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	h := recovery.PanicRecover(slog.New(slog.NewJSONHandler(&local, nil)))(http.HandlerFunc(
+		func(http.ResponseWriter, *http.Request) { panic("private-panic") },
+	))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/private-url", nil))
+
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	require.Contains(t, local.String(), "panic recovered")
+	require.Contains(t, local.String(), "/_unknown")
+	require.NotContains(t, local.String(), "private-panic")
+	require.NotContains(t, local.String(), "private-url")
+	require.NotContains(t, local.String(), "stack_trace")
+	require.Empty(t, global.String())
 }

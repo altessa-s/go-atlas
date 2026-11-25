@@ -131,6 +131,23 @@ func WithReadTimeout(v time.Duration) Option {
 	}
 }
 
+// WithRouteRegistrar sets the routeRegistrar option.
+//
+// routeRegistrar optionally directs endpoint registrations to a subrouter.
+func WithRouteRegistrar(v router.Router) Option {
+	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
+		o.routeRegistrar = v
+	}
+}
+
 // WithRouter sets the router option.
 func WithRouter(v router.Router) Option {
 	return func(o *options) {

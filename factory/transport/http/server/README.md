@@ -101,7 +101,7 @@ factory.New(cfg.Http).
 | Method | Description |
 |--------|-------------|
 | `WithRouter` | Sets the router for application routes and enabled internal endpoints (default: `router/std` over `http.ServeMux`) |
-| `WithRouterPrefix` | Sets a path prefix for the default router |
+| `WithRouterPrefix` | Sets a path prefix for endpoint registrations on the default router |
 
 ### Timeouts
 
@@ -202,3 +202,6 @@ from `ipACL` and `geoACL`, and requires an idempotency key once `idempotency.man
 `Config.MaxBodySize` overrides the `Writer.Read` cap (negative disables it). When zero, an installed, enabled bodyLimit middleware supplies its positive
 MaxSize; otherwise the writer uses 4 MiB. Uninstalled or disabled middleware does not raise this default. Middleware limits still apply independently.
 Direct body reads require middleware or their own limit.
+
+The root router applies server middleware to every request, including misses under a configured prefix. The factory resolves a zero
+`ReadHeaderTimeout` or `IdleTimeout` from config or a fluent override to its HTTP config default of 10 or 600 seconds, respectively.

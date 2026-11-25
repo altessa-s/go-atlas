@@ -15,6 +15,6 @@
 //
 // # Example
 //
-//	mw := recovery.New(logger, recovery.WithLogStack())
+//	mw := recovery.New(logger, recovery.WithLogRawErrors(true))
 //	handler := mw.Handler(yourHandler)
 package recovery

@@ -9,7 +9,7 @@
 // (names shown after [github.com/altessa-s/go-atlas/observability/metrics.Meter.WithSubsystem] is applied; default subsystem
 // is "http"):
 //
-//   - {service}_http_server_requests_total — total requests, labels: method, status
+//   - {service}_http_server_requests_total — total requests, labels: method, status, route
 //   - {service}_http_server_request_duration_seconds — request latency histogram
 //   - {service}_http_server_requests_in_flight — concurrent requests (gauge)
 //   - {service}_http_server_request_size_bytes — request body sizes (opt-in)

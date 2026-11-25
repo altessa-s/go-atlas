@@ -49,7 +49,8 @@
 #  # Default value: true
 #  propagateContext: true
 #
-#  # <bool> Record client IP as span attribute.
-#  # The built-in HTTP server factory does not currently apply this setting.
-#  # Default value: true
-#  recordClientIP: true
+#  # Export client IP, User-Agent, Host, and the raw URL path as span attributes.
+#  recordClientDetails: false
+#
+#  # Export raw panic values and stack traces when panics unwind through tracing.
+#  recordRawErrors: false

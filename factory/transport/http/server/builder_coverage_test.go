@@ -156,7 +156,7 @@ func TestWithMiddlewares_FullChain(t *testing.T) {
 	require.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"), "security headers middleware is installed")
 	require.Equal(t, "https://app.example.com", resp.Header.Get("Access-Control-Allow-Origin"), "cors middleware is installed")
 	require.Equal(t, "100", resp.Header.Get("X-RateLimit-Limit"), "limiter middleware is installed")
-	require.Equal(t, float64(1), metricstest.GetCounterValue(t, col, "test_web_server_requests_total", "method", "GET", "status", "200"))
+	require.Equal(t, float64(1), metricstest.GetCounterValue(t, col, "test_web_server_requests_total", "method", "GET", "status", "200", "route", "/hello"))
 	require.Contains(t, logs.String(), "/hello", "logger middleware is installed")
 
 	resp, _ = get(t, base+"/boom", nil)

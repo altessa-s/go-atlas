@@ -54,7 +54,9 @@ type options struct {
 	// WithListener serves a supplied listener and closes it on shutdown.
 	listener net.Listener `optgen:"notnil"`
 
-	router            router.Router `optgen:"notnil"`
+	router router.Router `optgen:"notnil"`
+	// routeRegistrar optionally directs endpoint registrations to a subrouter.
+	routeRegistrar    router.Router `optgen:"notnil"`
 	readTimeout       time.Duration `optgen:"default=DefaultReadTimeout"`
 	readHeaderTimeout time.Duration `optgen:"default=DefaultReadHeaderTimeout"`
 	writeTimeout      time.Duration `optgen:"default=DefaultWriteTimeout"`

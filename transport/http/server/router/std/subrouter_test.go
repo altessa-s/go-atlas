@@ -113,3 +113,37 @@ func TestSubrouterSealedWithTree(t *testing.T) {
 	require.Panics(t, func() { sub.HandleFunc("/y", reply("y")) })
 	require.Panics(t, func() { sub.Use(tag("late")) })
 }
+
+func TestRootMiddlewareSeesRegisteredTemplates(t *testing.T) {
+	t.Parallel()
+
+	r := std.New()
+	sub := r.PathPrefix("/api").Subrouter()
+	sub.HandleFunc("GET /items/{id}", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(r.PathValue("id")))
+	})
+	sub.HandleFunc("GET /items/{id}/history/", reply("history"))
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Route", router.RouteTemplate(r))
+			next.ServeHTTP(w, r)
+		})
+	})
+	for _, tc := range []struct {
+		method, path, route string
+		status              int
+	}{
+		{http.MethodGet, "/api/items/private-id", "/api/items/{id}", http.StatusOK},
+		{http.MethodPost, "/api/items/private-id", router.UnknownRoute, http.StatusMethodNotAllowed},
+		{http.MethodGet, "/api/items/private-id/history", router.UnknownRoute, http.StatusTemporaryRedirect},
+		{http.MethodGet, "/private-path", router.UnknownRoute, http.StatusNotFound},
+	} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil))
+		require.Equal(t, tc.status, rec.Code, tc.path)
+		require.Equal(t, tc.route, rec.Header().Get("X-Route"), tc.path)
+		if tc.status == http.StatusOK {
+			require.Equal(t, "private-id", rec.Body.String())
+		}
+	}
+}

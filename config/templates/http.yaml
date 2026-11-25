@@ -32,7 +32,7 @@
 #  # Tightening it below the default trades resilience to slow clients
 #  # against tolerance for transient network jitter; the default is the
 #  # smallest value that survives normal congested-internet handshakes.
-#  # Default value: 10s
+#  # Zero selects the default value (10s).
 #  readHeaderTimeout: "10s"
 #
 #  # <duration> Maximum time from end of request headers to response write completion.
@@ -42,7 +42,7 @@
 #
 #  # <duration> Maximum idle time before disconnecting an inactive connection.
 #  # Helps manage server resources by closing idle connections.
-#  # Default value: 600s
+#  # Zero selects the default value (600s).
 #  idleTimeout: "600s"
 #
 #  # <bool> Enables logging of HTTP requests.
@@ -147,7 +147,7 @@
 #
 #  # <object> Pprof profiling endpoint configuration.
 #  # Controls whether Go pprof handlers are exposed on this HTTP server.
-#  # When enabled, exposes profiling endpoints at /internal/pprof/* for
+#  # When enabled, exposes profiling endpoints at /internal/pprof/* under routerPrefix for
 #  # performance analysis. Should only be enabled in non-production environments
 #  # or behind restricted access.
 #  pprof:

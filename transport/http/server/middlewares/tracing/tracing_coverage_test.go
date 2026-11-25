@@ -127,9 +127,10 @@ func TestHandler_RecordsServerSpan(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			tr := &fakeTracer{}
-			h := tracing.New(tr).Handler(statusHandler(tc.code))
+			h := tracing.New(tr, tracing.WithRecordClientDetails(true)).Handler(statusHandler(tc.code))
 
 			req := httptest.NewRequest(http.MethodGet, "https://api.example.com/v1/users?token=secret", nil)
+			req.Pattern = "GET api.example.com/v1/{resource}"
 			req.Header.Set("User-Agent", "probe/1.0")
 			req.RemoteAddr = "198.51.100.4:5555"
 			rec := httptest.NewRecorder()
@@ -139,13 +140,14 @@ func TestHandler_RecordsServerSpan(t *testing.T) {
 			spans := tr.recorded()
 			require.Len(t, spans, 1)
 			s := spans[0]
-			require.Equal(t, "GET /v1/users", s.name)
+			require.Equal(t, "GET /v1/{resource}", s.name)
 			require.Equal(t, obstracing.SpanKindServer, s.kind)
 			require.True(t, s.ended)
 			require.Equal(t, tc.wantStatus, s.status)
 			require.Equal(t, tc.wantDesc, s.statusDesc)
 			require.Equal(t, tc.code, s.attrs[tracing.HTTPStatusCodeKey])
 			require.Equal(t, "https", s.attrs[tracing.HTTPSchemeKey])
+			require.Equal(t, "/v1/{resource}", s.attrs[tracing.HTTPRouteKey])
 			require.Equal(t, "https://api.example.com/v1/users", s.attrs[tracing.HTTPURLKey], "query string is never exported")
 			require.Equal(t, "probe/1.0", s.attrs[tracing.HTTPUserAgentKey])
 			require.Equal(t, "198.51.100.4", s.attrs[tracing.NetPeerIPKey])
@@ -157,7 +159,7 @@ func TestHandler_ClientIPAndPlainScheme(t *testing.T) {
 	t.Parallel()
 
 	tr := &fakeTracer{}
-	h := tracing.New(tr).Handler(statusHandler(http.StatusOK))
+	h := tracing.New(tr, tracing.WithRecordClientDetails(true)).Handler(statusHandler(http.StatusOK))
 
 	req := httptest.NewRequest(http.MethodPost, "http://svc.local/orders", nil)
 	req.TLS = nil

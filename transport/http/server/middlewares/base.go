@@ -108,3 +108,16 @@ func (b *BaseMiddleware) ShouldIgnoreRequest(r *http.Request) bool {
 func (b *BaseMiddleware) WrapResponseWriter(w http.ResponseWriter, captureBody bool) *ResponseWriter {
 	return NewResponseWriter(w, captureBody)
 }
+
+// BoundedMethod maps r.Method to a bounded observability value. net/http accepts any
+// token as a method, so an unauthenticated client could otherwise mint a new
+// metric series per request.
+func BoundedMethod(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
+		return method
+	default:
+		return "OTHER"
+	}
+}

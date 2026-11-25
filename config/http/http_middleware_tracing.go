@@ -15,6 +15,12 @@ type TracingMiddleware struct {
 	// BaseMiddleware provides standard enable and filtering fields.
 	BaseMiddleware `yaml:",inline"`
 
+	// RecordClientDetails exports client IP, User-Agent, Host, and the raw URL path.
+	RecordClientDetails bool `yaml:"recordClientDetails" default:"false"`
+
+	// RecordRawErrors exports raw panic values and stack traces.
+	RecordRawErrors bool `yaml:"recordRawErrors" default:"false"`
+
 	// RecordBody determines whether request/response bodies are recorded.
 	// Warning: This can significantly increase trace size and may expose sensitive data.
 	// Defaults to false.
@@ -34,10 +40,6 @@ type TracingMiddleware struct {
 	// When true, parent spans from incoming requests are linked to server spans.
 	// Defaults to true.
 	PropagateContext bool `yaml:"propagateContext" default:"true"`
-
-	// RecordClientIP determines whether client IP is recorded as span attribute.
-	// Defaults to true.
-	RecordClientIP bool `yaml:"recordClientIP" default:"true"`
 }
 
 // IsEnabled returns true if the tracing middleware is enabled.
@@ -69,6 +71,5 @@ func DefaultTracingMiddleware() TracingMiddleware {
 			"X-Auth-Token",
 		},
 		PropagateContext: true,
-		RecordClientIP:   true,
 	}
 }

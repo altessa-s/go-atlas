@@ -21,3 +21,6 @@ path-prefix matching, and subrouter creation.
 | Package                | Description                                                                    |
 |------------------------|--------------------------------------------------------------------------------|
 | [std](./std)           | Router implementation using Go 1.22+ `http.ServeMux` enhanced patterns         |
+
+`RouteTemplate` extracts the registered path template from `http.Request.Pattern` and returns `/_unknown` when no template is available.
+Custom routers provide route-aware middleware with a template by populating the field before invoking the middleware chain.

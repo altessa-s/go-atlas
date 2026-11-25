@@ -71,11 +71,12 @@ func WithIgnorePatterns(v ...*regexp.Regexp) Option {
 	}
 }
 
-// WithLogStack enables the logStack option.
-func WithLogStack() Option {
+// WithLogRawErrors sets the logRawErrors option.
+//
+// logRawErrors includes the panic value and stack trace in the log.
+func WithLogRawErrors(v bool) Option {
 	return func(o *options) {
-		value := true
-		o.logStack = value
+		o.logRawErrors = v
 	}
 }
 
@@ -92,8 +93,7 @@ func WithLogger(v *slog.Logger) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		logStack: true,
-		logger:   slog.New(slog.DiscardHandler),
+		logger: slog.New(slog.DiscardHandler),
 	}
 }
 

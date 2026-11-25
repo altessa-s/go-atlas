@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
 const middlewareName = "realip"
@@ -31,6 +32,7 @@ var _ middlewares.Middleware = (*middleware)(nil)
 type middleware struct {
 	middlewares.BaseMiddleware
 	extractor *clientip.Extractor
+	opts      *options
 }
 
 // Dependencies returns middlewares that realip requires to run before it.
@@ -38,18 +40,20 @@ type middleware struct {
 func (m *middleware) Dependencies() []string { return nil }
 
 // New creates a new real IP extraction middleware.
-func New(extractor *clientip.Extractor, logger *slog.Logger) *middleware {
+// Extractor diagnostics are controlled by the logger used to build extractor.
+func New(extractor *clientip.Extractor, logger *slog.Logger, opt ...Option) *middleware {
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddleware(middlewareName, logger),
 		extractor:      extractor,
+		opts:           newOptions(opt...),
 	}
 }
 
 // Middleware returns an HTTP middleware that extracts the real client IP address
 // from incoming requests and stores it in the request context.
 // This is a convenience function; prefer New() for access to the full Middleware interface.
-func Middleware(extractor *clientip.Extractor, logger *slog.Logger) func(http.Handler) http.Handler {
-	return New(extractor, logger).Handler
+func Middleware(extractor *clientip.Extractor, logger *slog.Logger, opt ...Option) func(http.Handler) http.Handler {
+	return New(extractor, logger, opt...).Handler
 }
 
 // Handler wraps an http.Handler with real IP extraction functionality.
@@ -72,9 +76,14 @@ func (m *middleware) getIP(r *http.Request) netip.Addr {
 
 	peerIP, err := netip.ParseAddr(remoteHost)
 	if err != nil {
-		m.LogError(r.Context(), "failed to parse remote address", r.URL.Path, diagnostics.LogError(err),
-			slog.String("remote_addr", r.RemoteAddr),
-		)
+		attrs := []slog.Attr{slog.String("classification", diagnostics.ErrorClass(err))}
+		if m.opts.logClientDetails {
+			attrs = append(attrs, slog.String("remote_addr", r.RemoteAddr))
+		}
+		if !m.opts.logRawErrors {
+			err = nil
+		}
+		m.LogError(r.Context(), "failed to parse remote address", router.RouteTemplate(r), diagnostics.LogError(err), attrs...)
 		return netip.Addr{}
 	}
 

@@ -12,14 +12,14 @@ import (
 	"net/http"
 
 	"github.com/altessa-s/go-atlas-core/runtime/helpers"
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/internal/requestidcapture"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
+	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
-const logPanicStackSkip = 2
+const logPanicStackSkip = 1
 
 const middlewareName = "recovery"
 
@@ -35,8 +35,8 @@ var _ middlewares.Middleware = (*middleware)(nil)
 
 type middleware struct {
 	middlewares.BaseMiddleware
-	handler  PanicHandler
-	logStack bool
+	handler      PanicHandler
+	logRawErrors bool
 }
 
 // Outermost keeps panics in other middleware within the recovery boundary.
@@ -59,8 +59,8 @@ func New(logger *slog.Logger, opt ...Option) *middleware {
 			opts.ignorePatterns,
 			opts.logger,
 		),
-		handler:  opts.handler,
-		logStack: opts.logStack,
+		handler:      opts.handler,
+		logRawErrors: opts.logRawErrors,
 	}
 }
 
@@ -72,7 +72,6 @@ func PanicRecover(logger *slog.Logger, opt ...Option) func(next http.Handler) ht
 
 // Handler wraps an http.Handler with panic recovery functionality.
 func (m *middleware) Handler(next http.Handler) http.Handler {
-	panicOpts := panics.NewHandleOpts().SetReallyPanic(false)
 	observeID := m.Logger().Handler() != slog.DiscardHandler
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// Check if this path should be ignored
@@ -91,11 +90,13 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			request = request.WithContext(requestidcapture.WithCapture(request.Context()))
 		}
 
-		// Create a handler that captures panic for logging
-		httpPanicHandler := func(ctx context.Context, p any) {
-			// Check for http.ErrAbortHandler - don't handle it
+		defer func(ctx context.Context) {
+			p := recover()
+			if p == nil {
+				return
+			}
 			if err, ok := p.(error); ok && errors.Is(err, http.ErrAbortHandler) {
-				panic(err)
+				panic(http.ErrAbortHandler)
 			}
 
 			// Log the panic using observability logger
@@ -106,13 +107,9 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			if m.handler != nil {
 				m.handler(ctx, tracked, request, p)
 			} else if !tracked.started {
-				// Default handler: return 500 unless the response has
-				// already started.
 				tracked.WriteHeader(http.StatusInternalServerError)
 			}
-		}
-
-		defer panics.HandleWithOpts(request.Context(), panicOpts, httpPanicHandler)
+		}(request.Context())
 
 		next.ServeHTTP(tracked, request)
 	})
@@ -122,17 +119,16 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 // This matches the logging format used in gRPC recovery interceptor.
 func (m *middleware) logPanic(ctx context.Context, request *http.Request, p any, requestID string) {
 	attrs := []slog.Attr{
-		slog.String("method", request.Method),
+		slog.String("method", middlewares.BoundedMethod(request.Method)),
 		slog.String("request_id", requestID),
-		slog.Any("panic", p),
 		slog.Int("goroutine_id", helpers.GoroutineID()),
 	}
 
 	// Optionally include stack trace
-	if m.logStack {
+	if m.logRawErrors {
 		frames := recovery.StackTrace(logPanicStackSkip)
-		attrs = append(attrs, slog.Any("stack_trace", frames))
+		attrs = append(attrs, slog.Any("panic", p), slog.Any("stack_trace", frames))
 	}
 
-	m.LogError(ctx, "panic recovered", request.URL.Path, nil, attrs...)
+	m.LogError(ctx, "panic recovered", router.RouteTemplate(request), nil, attrs...)
 }

@@ -61,10 +61,10 @@ func TestMiddleware_TwoSubsystemsShareCollector(t *testing.T) {
 	})
 	require.Equal(t, float64(1),
 		metricstest.GetCounterValue(t, tc, "test_egrul_server_requests_total",
-			"method", "GET", "status", "200"))
+			"method", "GET", "status", "200", "route", "/_unknown"))
 	require.Equal(t, float64(1),
 		metricstest.GetCounterValue(t, tc, "test_kfocus_server_requests_total",
-			"method", "GET", "status", "200"))
+			"method", "GET", "status", "200", "route", "/_unknown"))
 }
 
 // TestMiddleware_SameSubsystemReusesMetrics confirms the adapter dedupes by
@@ -91,11 +91,11 @@ func TestMiddleware_UnknownMethodsShareOneSeries(t *testing.T) {
 	}
 
 	var methods []string
-	m.byMethod.Range(func(k, _ any) bool {
-		methods = append(methods, k.(string))
+	m.handles.Range(func(k, _ any) bool {
+		methods = append(methods, k.(requestLabels).method)
 		return true
 	})
-	require.ElementsMatch(t, []string{methodOther, http.MethodGet}, methods)
+	require.ElementsMatch(t, []string{"OTHER", http.MethodGet}, methods)
 }
 
 func TestMiddlewareInformationalResponse(t *testing.T) {
@@ -107,7 +107,7 @@ func TestMiddlewareInformationalResponse(t *testing.T) {
 		w.WriteHeader(http.StatusCreated)
 	}))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
-	require.Equal(t, float64(1), metricstest.GetCounterValue(t, tc, "test_http_server_requests_total", "method", "GET", "status", "201"))
+	require.Equal(t, float64(1), metricstest.GetCounterValue(t, tc, "test_http_server_requests_total", "method", "GET", "status", "201", "route", "/_unknown"))
 }
 
 // TestNew_WithoutCollector pins the safe no-op default: omitting

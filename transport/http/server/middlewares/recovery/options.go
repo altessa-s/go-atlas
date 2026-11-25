@@ -29,5 +29,6 @@ type options struct {
 	// nothing unless the caller configures it.
 	ignorePaths    []string
 	ignorePatterns []*regexp.Regexp
-	logStack       bool `optgen:"default=true"`
+	// logRawErrors includes the panic value and stack trace in the log.
+	logRawErrors bool `optval:"param"`
 }

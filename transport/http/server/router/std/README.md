@@ -17,3 +17,6 @@ its method (`"GET /users/{id}"`) on a subrouter too; path wildcards are read wit
 
 `http.ServeMux` patterns have no regular expressions, and a prefix route (`PathPrefix`, or a pattern ending in `/`) answers its bare path with a
 redirect to the trailing-slash form (307).
+
+Root middleware can read the registered pattern from `http.Request.Pattern` before dispatch. The field is empty for generated
+redirects and unmatched requests at that point. Wildcard values are available after dispatch to the registered route.

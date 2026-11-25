@@ -13,10 +13,12 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
 // SpanNameFunc is a function that generates span names from HTTP requests.
-// The default implementation ([defaultSpanName]) returns "METHOD /path".
+// The default implementation ([defaultSpanName]) returns "METHOD /route-template".
 // Override with [WithSpanNameFunc].
 type SpanNameFunc func(r *http.Request) string
 
@@ -34,6 +36,10 @@ type options struct {
 	spanNameFunc SpanNameFunc `optgen:"default=defaultSpanName"`
 	// logger sets the logger for debug messages.
 	logger *slog.Logger
+	// recordClientDetails exports client addresses, User-Agent, Host and URL path.
+	recordClientDetails bool `optval:"param"`
+	// recordRawErrors exports raw panic values and stack traces.
+	recordRawErrors bool `optval:"param"`
 }
 
 // defaultPropagator returns the default W3C Trace Context propagator.
@@ -41,15 +47,17 @@ func defaultPropagator() propagation.TextMapPropagator {
 	return propagation.NewTraceContext()
 }
 
-// defaultSpanName returns the HTTP method and path as the span name.
+// defaultSpanName returns the HTTP method and route template as the span name.
 func defaultSpanName(r *http.Request) string {
-	return r.Method + " " + r.URL.Path
+	return middlewares.BoundedMethod(r.Method) + " " + router.RouteTemplate(r)
 }
 
 // Semantic convention attributes for HTTP tracing.
 const (
 	// HTTPMethodKey is the key for HTTP method attribute.
 	HTTPMethodKey = "http.method"
+	// HTTPRouteKey is the key for the matched route template.
+	HTTPRouteKey = "http.route"
 	// HTTPURLKey is the key for HTTP URL attribute.
 	HTTPURLKey = "http.url"
 	// HTTPTargetKey is the key for HTTP target (path) attribute.
@@ -67,20 +75,28 @@ const (
 )
 
 // requestAttributes returns common attributes for HTTP spans.
-func requestAttributes(r *http.Request) []tracing.Attribute {
+func requestAttributes(r *http.Request, recordClientDetails bool) []tracing.Attribute {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
 
-	return []tracing.Attribute{
-		tracing.String(HTTPMethodKey, r.Method),
-		// Deliberately omit the query string: it can carry tokens, API keys, or
-		// OAuth codes that would otherwise be exported verbatim to the tracing backend.
-		tracing.String(HTTPURLKey, scheme+"://"+r.Host+r.URL.Path),
-		tracing.String(HTTPTargetKey, r.URL.Path),
-		tracing.String(HTTPHostKey, r.Host),
+	attrs := []tracing.Attribute{
+		tracing.String(HTTPMethodKey, middlewares.BoundedMethod(r.Method)),
+		tracing.String(HTTPRouteKey, router.RouteTemplate(r)),
 		tracing.String(HTTPSchemeKey, scheme),
-		tracing.String(HTTPUserAgentKey, r.UserAgent()),
 	}
+	if recordClientDetails {
+		// Omit the query even when recording the URL.
+		attrs = append(attrs,
+			tracing.String(HTTPURLKey, scheme+"://"+r.Host+r.URL.Path),
+			tracing.String(HTTPTargetKey, r.URL.Path),
+			tracing.String(HTTPHostKey, r.Host),
+			tracing.String(HTTPUserAgentKey, r.UserAgent()),
+		)
+		if ip := extractClientIP(r); ip != "" {
+			attrs = append(attrs, tracing.String(NetPeerIPKey, ip))
+		}
+	}
+	return attrs
 }

@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/recovery"
 ```
 
-Package `recovery` provides middleware that recovers from panics in HTTP handlers, logs the panic with a stack trace, and returns a 500 Internal Server
+Package `recovery` provides middleware that recovers from panics in HTTP handlers, logs a fixed panic category and the route template, and returns a 500 Internal Server
 Error response. Panics with `http.ErrAbortHandler` are re-raised rather than recovered, matching the standard library convention. Supports a custom
 `PanicHandler` for application-specific error responses. It requests outermost placement in ordered chains and logs the ID resolved by
 `requestid`, including generated IDs.
@@ -14,12 +14,13 @@ Error response. Panics with `http.ErrAbortHandler` are re-raised rather than rec
 | Option               | Default                | Description                                         |
 |----------------------|------------------------|-----------------------------------------------------|
 | `WithHandler`        | bare 500               | `PanicHandler` that writes the error response       |
-| `WithLogStack`       | `true`                 | Log the stack trace with the panic                  |
+| `WithLogRawErrors`   | off                    | Log the raw panic value and stack trace             |
 | `WithIgnorePaths`    | --                     | Paths to skip                                       |
 | `WithIgnorePatterns` | --                     | Regex patterns for paths to skip                    |
 | `WithLogger`         | discard                | Structured logger                                   |
 
-Recovery covers every path by default, including health, metrics, and pprof endpoints.
+Recovery covers every path by default, including health, metrics, and pprof endpoints. The route is `/_unknown` when no template is available.
+Enable `WithLogRawErrors(true)` (YAML `logRawErrors: true`) to include raw diagnostics.
 
 ## Started responses
 

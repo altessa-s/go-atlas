@@ -4,15 +4,15 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger"
 ```
 
-Package `logger` provides HTTP middleware for structured request/response logging. Logs method, path, status code, duration, and client IP for each
-request. Supports configurable path filtering to exclude health-check and metrics endpoints from log output. Integrates with the `realip` middleware for
-accurate client IP logging when behind proxies or load balancers.
+Package `logger` provides HTTP middleware for structured request/response logging. Logs the method, route template, status code, and duration. The `http.path` field uses `/_unknown` when the request has no matched template.
+Configurable path filtering can exclude health-check and metrics endpoints.
 
 ## Options
 
 | Option                    | Default                  | Description                                                  |
 |---------------------------|--------------------------|--------------------------------------------------------------|
 | `WithTimeFormat`          | `timeformat.RFC3339`     | Time format of logged timestamps                             |
+| `WithLogClientDetails`    | off                      | Log peer and real IPs, Host, User-Agent, and the raw URL path |
 | `WithLogRequest`          | off                      | Log the request body (redacted, see below)                   |
 | `WithLogResponse`         | off                      | Log the response body (redacted, see below)                  |
 | `WithBodyRedactor`        | full mask when bodies on | Scrubs logged bodies                                         |
@@ -24,10 +24,12 @@ accurate client IP logging when behind proxies or load balancers.
 | `WithIgnorePaths`         | --                       | Paths to skip                                                |
 | `WithIgnorePatterns`      | health, metrics, pprof   | Regex patterns for paths to skip                             |
 | `WithContextLogger`       | nil                      | Store the request-enriched logger in the context             |
-| `WithMaxPathLength`       | 2048 bytes               | Cap of the logged `http.path` (`DefaultMaxPathLength`)       |
+| `WithMaxPathLength`       | 2048 bytes               | Cap of the logged `http.target` (`DefaultMaxPathLength`)       |
 | `WithMaxUserAgentLength`  | 512 bytes                | Cap of the logged User-Agent (`DefaultMaxUserAgentLength`)   |
 
-## Path and User-Agent are sanitized
+## Client details
+
+Enable `WithLogClientDetails(true)` (YAML `logClientDetails: true`) to include client details. The raw URL path is available separately as `http.target`.
 
 The URL path and the User-Agent come from the client, and the path is logged decoded, so `/a%0d%0alevel=ERROR` would otherwise put a line break
 into the record. Both values are cut to their cap (the cut is marked with `TruncationSuffix`, `...`, which counts toward the cap) and their control

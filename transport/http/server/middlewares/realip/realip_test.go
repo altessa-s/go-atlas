@@ -5,6 +5,8 @@
 package realip
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -60,4 +62,44 @@ func TestMiddleware_InvalidRemoteAddr(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	require.True(t, called, "handler should still be called")
+}
+
+func TestMiddleware_RemoteAddressDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		opts []Option
+	}{
+		{name: "private by default"},
+		{name: "client details", opts: []Option{WithLogClientDetails(true)}},
+		{name: "raw errors", opts: []Option{WithLogRawErrors(true)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			extractor, err := clientip.NewExtractor()
+			require.NoError(t, err)
+			var logs bytes.Buffer
+			h := Middleware(extractor, slog.New(slog.NewJSONHandler(&logs, nil)), tc.opts...)(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					require.False(t, clientip.FromContext(r.Context()).IsValid())
+					w.WriteHeader(http.StatusNoContent)
+				},
+			))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/private-url", nil)
+			req.RemoteAddr = "private-address"
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusNoContent, rec.Code)
+			require.Contains(t, logs.String(), "/_unknown")
+			require.NotContains(t, logs.String(), "private-url")
+			if len(tc.opts) == 0 {
+				require.NotContains(t, logs.String(), "private-address")
+			} else {
+				require.Contains(t, logs.String(), "private-address")
+			}
+		})
+	}
 }

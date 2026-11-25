@@ -86,6 +86,24 @@ func WithPropagator(v propagation.TextMapPropagator) Option {
 	}
 }
 
+// WithRecordClientDetails sets the recordClientDetails option.
+//
+// recordClientDetails exports client addresses, User-Agent, Host and URL path.
+func WithRecordClientDetails(v bool) Option {
+	return func(o *options) {
+		o.recordClientDetails = v
+	}
+}
+
+// WithRecordRawErrors sets the recordRawErrors option.
+//
+// recordRawErrors exports raw panic values and stack traces.
+func WithRecordRawErrors(v bool) Option {
+	return func(o *options) {
+		o.recordRawErrors = v
+	}
+}
+
 // WithSpanNameFunc sets the spanNameFunc option.
 //
 // spanNameFunc sets a custom function for generating span names.

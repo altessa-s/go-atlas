@@ -55,7 +55,7 @@ type Config struct {
 	// request headers. Independent from ReadTimeout, this is the primary
 	// Slowloris defense: it bounds the header-read phase to a short window
 	// even when ReadTimeout is intentionally long (e.g. for streaming
-	// uploads). Defaults to 10 seconds.
+	// uploads). The server factory treats zero as the 10-second default.
 	ReadHeaderTimeout time.Duration `yaml:"readHeaderTimeout" default:"10s"`
 
 	// WriteTimeout is the maximum duration before timing out writes of the response.
@@ -63,7 +63,8 @@ type Config struct {
 	WriteTimeout time.Duration `yaml:"writeTimeout" default:"300s"`
 
 	// IdleTimeout is the maximum amount of time to wait for the next request
-	// when keep-alives are enabled. Defaults to 600 seconds.
+	// when keep-alives are enabled. The server factory treats zero as the
+	// 600-second default.
 	IdleTimeout time.Duration `yaml:"idleTimeout" default:"600s"`
 
 	// LogRequests enables or disables Http request logging.

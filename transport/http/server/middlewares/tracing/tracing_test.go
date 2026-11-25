@@ -60,5 +60,5 @@ func TestExtractClientIP_FromRemoteAddr(t *testing.T) {
 func TestDefaultSpanName(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/users", nil)
 	name := defaultSpanName(req)
-	require.Equal(t, "POST /api/users", name)
+	require.Equal(t, "POST /_unknown", name)
 }

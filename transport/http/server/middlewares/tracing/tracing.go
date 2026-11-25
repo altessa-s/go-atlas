@@ -5,8 +5,10 @@
 package tracing
 
 import (
+	"fmt"
 	"net"
 	"net/http"
+	"runtime/debug"
 
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/observability/tracing"
@@ -85,14 +87,25 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		spanName := m.opts.spanNameFunc(r)
 		ctx, span := m.recorder.Start(ctx, spanName,
 			tracing.WithSpanKind(tracing.SpanKindServer),
-			tracing.WithAttributes(requestAttributes(r)...),
+			tracing.WithAttributes(requestAttributes(r, m.opts.recordClientDetails)...),
 		)
 		defer span.End()
 
-		// Add client IP if available
-		if ip := extractClientIP(r); ip != "" {
-			span.SetAttributes(tracing.String(NetPeerIPKey, ip))
-		}
+		// Record a fixed failure status when a panic unwinds through tracing.
+		// Preserve propagation so the outer recovery middleware can respond.
+		defer func() {
+			if p := recover(); p != nil {
+				if p != http.ErrAbortHandler {
+					span.SetStatus(tracing.StatusError, "handler panicked")
+					if m.opts.recordRawErrors {
+						span.RecordError(fmt.Errorf("%v", p), tracing.WithEventAttributes(
+							tracing.String("exception.stacktrace", string(debug.Stack())),
+						))
+					}
+				}
+				panic(p)
+			}
+		}()
 
 		// Update request with traced context
 		r = r.WithContext(ctx)

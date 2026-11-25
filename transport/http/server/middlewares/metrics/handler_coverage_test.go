@@ -45,9 +45,9 @@ func TestHandler_SizeMetrics(t *testing.T) {
 	req.ContentLength = -1
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
-	require.Equal(t, float64(2), metricstest.GetCounterValue(t, col, "test_http_server_requests_total", "method", "POST", "status", "201"))
-	require.Equal(t, uint64(1), metricstest.GetHistogramCount(t, col, "test_http_server_request_size_bytes", "method", "POST", "status", "201"))
-	require.Equal(t, uint64(2), metricstest.GetHistogramCount(t, col, "test_http_server_response_size_bytes", "method", "POST", "status", "201"))
+	require.Equal(t, float64(2), metricstest.GetCounterValue(t, col, "test_http_server_requests_total", "method", "POST", "status", "201", "route", "/_unknown"))
+	require.Equal(t, uint64(1), metricstest.GetHistogramCount(t, col, "test_http_server_request_size_bytes", "method", "POST", "status", "201", "route", "/_unknown"))
+	require.Equal(t, uint64(2), metricstest.GetHistogramCount(t, col, "test_http_server_response_size_bytes", "method", "POST", "status", "201", "route", "/_unknown"))
 	require.Equal(t, float64(0), metricstest.GetGaugeValue(t, col, "test_http_server_requests_in_flight"))
 }
 
@@ -57,7 +57,7 @@ func TestHandler_NonStandardStatusCode(t *testing.T) {
 	col := metricstest.NewTestCollector()
 	h := metrics.New(metrics.WithMeter(col)).Handler(writeStatus(799, ""))
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
-	require.Equal(t, float64(1), metricstest.GetCounterValue(t, col, "test_http_server_requests_total", "method", "GET", "status", "799"))
+	require.Equal(t, float64(1), metricstest.GetCounterValue(t, col, "test_http_server_requests_total", "method", "GET", "status", "799", "route", "/_unknown"))
 }
 
 func TestHandler_IgnoredPaths(t *testing.T) {
@@ -77,10 +77,10 @@ func TestHandler_IgnoredPaths(t *testing.T) {
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
-	require.Zero(t, metricstest.GetCounterValue(t, col, "test_http_server_requests_total", "method", "GET", "status", "200"))
+	require.Zero(t, metricstest.GetCounterValue(t, col, "test_http_server_requests_total", "method", "GET", "status", "200", "route", "/_unknown"))
 
 	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api", nil))
-	require.Equal(t, float64(1), metricstest.GetCounterValue(t, col, "test_http_server_requests_total", "method", "GET", "status", "200"))
+	require.Equal(t, float64(1), metricstest.GetCounterValue(t, col, "test_http_server_requests_total", "method", "GET", "status", "200", "route", "/_unknown"))
 	require.Contains(t, logs.String(), "recorded prometheus metrics")
 }
 
@@ -104,7 +104,7 @@ func TestWithMetricsSubsystem(t *testing.T) {
 			col := metricstest.NewTestCollector()
 			metrics.New(metrics.WithMeter(col), tc.opt).Handler(writeStatus(http.StatusOK, "")).
 				ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
-			require.Equal(t, float64(1), metricstest.GetCounterValue(t, col, tc.want, "method", "GET", "status", "200"))
+			require.Equal(t, float64(1), metricstest.GetCounterValue(t, col, tc.want, "method", "GET", "status", "200", "route", "/_unknown"))
 		})
 	}
 }

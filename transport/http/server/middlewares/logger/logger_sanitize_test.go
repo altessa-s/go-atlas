@@ -37,9 +37,9 @@ func TestHandler_StripsControlCharacters(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/items/%0d%0alevel=ERROR%20msg=forged%1b%5b31m%00%7f%c2%85", nil)
 	req.Header.Set("User-Agent", "agent\twith\ttabs")
-	got := loggedFields(t, req)
+	got := loggedFields(t, req, WithLogClientDetails(true))
 
-	require.Equal(t, "/items/level=ERROR msg=forged[31m", got[FieldKeyHTTPPath])
+	require.Equal(t, "/items/level=ERROR msg=forged[31m", got[FieldKeyHTTPTarget])
 	require.Equal(t, "agentwithtabs", got[observability.FieldKeyClientUserAgent])
 }
 
@@ -50,9 +50,9 @@ func TestHandler_CapsPathAndUserAgent(t *testing.T) {
 		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/"+strings.Repeat("a", 3*DefaultMaxPathLength), nil)
 		req.Header.Set("User-Agent", strings.Repeat("u", 3*DefaultMaxUserAgentLength))
-		got := loggedFields(t, req)
+		got := loggedFields(t, req, WithLogClientDetails(true))
 
-		path, ok := got[FieldKeyHTTPPath].(string)
+		path, ok := got[FieldKeyHTTPTarget].(string)
 		require.True(t, ok)
 		require.Len(t, path, DefaultMaxPathLength)
 		require.True(t, strings.HasSuffix(path, TruncationSuffix))
@@ -67,9 +67,9 @@ func TestHandler_CapsPathAndUserAgent(t *testing.T) {
 		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/abcdefghijklmnop", nil)
 		req.Header.Set("User-Agent", "0123456789abcdef")
-		got := loggedFields(t, req, WithMaxPathLength(8), WithMaxUserAgentLength(6))
+		got := loggedFields(t, req, WithLogClientDetails(true), WithMaxPathLength(8), WithMaxUserAgentLength(6))
 
-		require.Equal(t, "/abcd...", got[FieldKeyHTTPPath])
+		require.Equal(t, "/abcd...", got[FieldKeyHTTPTarget])
 		require.Equal(t, "012...", got[observability.FieldKeyClientUserAgent])
 	})
 
@@ -77,18 +77,18 @@ func TestHandler_CapsPathAndUserAgent(t *testing.T) {
 		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/items/42", nil)
 		req.Header.Set("User-Agent", "curl/8.4.0")
-		got := loggedFields(t, req)
+		got := loggedFields(t, req, WithLogClientDetails(true))
 
-		require.Equal(t, "/api/v1/items/42", got[FieldKeyHTTPPath])
+		require.Equal(t, "/api/v1/items/42", got[FieldKeyHTTPTarget])
 		require.Equal(t, "curl/8.4.0", got[observability.FieldKeyClientUserAgent])
 	})
 
 	t.Run("a non-positive cap keeps the default", func(t *testing.T) {
 		t.Parallel()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/items/42", nil)
-		got := loggedFields(t, req, WithMaxPathLength(0), WithMaxUserAgentLength(-1))
+		got := loggedFields(t, req, WithLogClientDetails(true), WithMaxPathLength(0), WithMaxUserAgentLength(-1))
 
-		require.Equal(t, "/api/v1/items/42", got[FieldKeyHTTPPath])
+		require.Equal(t, "/api/v1/items/42", got[FieldKeyHTTPTarget])
 	})
 }
 

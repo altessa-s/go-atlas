@@ -9,6 +9,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"iter"
+	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"slices"
@@ -76,6 +78,7 @@ type Server struct {
 	stopOnce          sync.Once
 	http              *http.Server
 	router            router.Router
+	routeRegistrar    router.Router
 	readTimeout       time.Duration
 	readHeaderTimeout time.Duration
 	writeTimeout      time.Duration
@@ -96,6 +99,10 @@ func New(opts ...Option) (*Server, error) {
 		return nil, errors.New("router is required")
 	}
 
+	if cfg.routeRegistrar == nil {
+		cfg.routeRegistrar = cfg.router
+	}
+
 	if cfg.writer == nil {
 		cfg.writer = writer.New()
 	}
@@ -111,6 +118,7 @@ func New(opts ...Option) (*Server, error) {
 		),
 		stopCh:            make(chan struct{}),
 		router:            cfg.router,
+		routeRegistrar:    cfg.routeRegistrar,
 		readTimeout:       cfg.readTimeout,
 		readHeaderTimeout: cfg.readHeaderTimeout,
 		writeTimeout:      cfg.writeTimeout,
@@ -156,7 +164,7 @@ func (s *Server) Handle(pattern string, handler HandlerFunc) router.Route {
 			"pattern", pattern)
 	}
 
-	return s.router.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+	return s.routeRegistrar.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		rw, cleanup := s.writer.NewReadWriter(w, r)
 		defer cleanup()
 		handler(rw)
@@ -257,13 +265,15 @@ func (s *Server) Start() (err error) {
 		// (default DefaultReadHeaderTimeout) bounds the header phase to
 		// seconds while keeping the body-read budget unchanged.
 		local := &http.Server{
-			Handler:           s.router,
-			TLSConfig:         s.TLSConfig(),
-			ReadTimeout:       s.readTimeout,
-			ReadHeaderTimeout: s.readHeaderTimeout,
-			WriteTimeout:      s.writeTimeout,
-			IdleTimeout:       s.idleTimeout,
-			MaxHeaderBytes:    s.maxHeaderBytes,
+			Handler:                      s.router,
+			TLSConfig:                    s.TLSConfig(),
+			ReadTimeout:                  s.readTimeout,
+			ReadHeaderTimeout:            s.readHeaderTimeout,
+			WriteTimeout:                 s.writeTimeout,
+			IdleTimeout:                  s.idleTimeout,
+			MaxHeaderBytes:               s.maxHeaderBytes,
+			DisableGeneralOptionsHandler: true,
+			ErrorLog:                     log.New(serverErrorLog{s.base.Logger()}, "", 0),
 		}
 		srv = local
 		// Publish under the lifecycle lock before shutdown can claim cleanup.
@@ -294,6 +304,18 @@ func (s *Server) Start() (err error) {
 		_ = srv.Close()
 	}
 	return startErr
+}
+
+// serverErrorLog routes net/http diagnostics to the configured logger. The
+// standard library supplies free-form text containing peer addresses and
+// potentially other request or panic data, so record a fixed message.
+type serverErrorLog struct {
+	logger *slog.Logger
+}
+
+func (l serverErrorLog) Write(p []byte) (int, error) {
+	l.logger.Error("HTTP server error")
+	return len(p), nil
 }
 
 // Handlers returns an iterator over registered handlers.

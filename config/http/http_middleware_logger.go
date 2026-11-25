@@ -20,6 +20,9 @@ type LoggerMiddleware struct {
 	// BaseMiddleware provides standard enable and filtering fields.
 	BaseMiddleware `yaml:",inline"`
 
+	// LogClientDetails includes client addresses, User-Agent, Host, and the raw URL path.
+	LogClientDetails bool `yaml:"logClientDetails" default:"false"`
+
 	// LogRequest enables or disables logging of the request body.
 	// CAUTION: Enabling this may log sensitive data.
 	LogRequest bool `yaml:"logRequest" default:"false"`

@@ -6,7 +6,21 @@ package router
 
 import (
 	"net/http"
+	"strings"
 )
+
+// UnknownRoute represents requests without a matched route template.
+const UnknownRoute = "/_unknown"
+
+// RouteTemplate returns the path portion of the matched router pattern.
+// Routers can set [http.Request.Pattern] before invoking middleware.
+// Without a pattern, RouteTemplate returns [UnknownRoute].
+func RouteTemplate(r *http.Request) string {
+	if i := strings.IndexByte(r.Pattern, '/'); i >= 0 {
+		return r.Pattern[i:]
+	}
+	return UnknownRoute
+}
 
 // Middleware is a function that wraps an HTTP handler.
 // It provides a way to intercept and modify requests/responses.

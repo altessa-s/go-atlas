@@ -113,7 +113,7 @@ func (b *ServerBuilder) WithReadTimeout(d time.Duration) *ServerBuilder {
 // from config. This is the Slowloris defense knob — it bounds the
 // header-read phase independently of [ServerBuilder.WithReadTimeout],
 // so streaming-friendly read budgets can coexist with a tight header
-// budget. Use [server.DefaultReadHeaderTimeout] as a sane lower bound.
+// budget. A zero override selects the HTTP config default (10 seconds).
 func (b *ServerBuilder) WithReadHeaderTimeout(d time.Duration) *ServerBuilder {
 	b.readHeaderTimeout = &d
 	return b
@@ -126,6 +126,7 @@ func (b *ServerBuilder) WithWriteTimeout(d time.Duration) *ServerBuilder {
 }
 
 // WithIdleTimeout overrides the idle timeout from config.
+// A zero override selects the HTTP config default (600 seconds).
 func (b *ServerBuilder) WithIdleTimeout(d time.Duration) *ServerBuilder {
 	b.idleTimeout = &d
 	return b

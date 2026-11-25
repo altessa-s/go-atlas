@@ -9,9 +9,8 @@ type RecoveryMiddleware struct {
 	// BaseMiddleware provides standard enable and filtering fields.
 	BaseMiddleware `yaml:",inline"`
 
-	// LogStack enables or disables logging of the stack trace when a panic is recovered.
-	// Defaults to true.
-	LogStack bool `yaml:"logStack" default:"true"`
+	// LogRawErrors includes the panic value and stack trace in logs.
+	LogRawErrors bool `yaml:"logRawErrors" default:"false"`
 }
 
 // Validate performs validation of the RecoveryMiddleware.
@@ -21,10 +20,7 @@ func (c *RecoveryMiddleware) Validate() error {
 
 // DefaultRecoveryMiddleware returns a configuration for recovery middleware with default values.
 func DefaultRecoveryMiddleware() RecoveryMiddleware {
-	return RecoveryMiddleware{
-		Enabled:  false,
-		LogStack: true,
-	}
+	return RecoveryMiddleware{}
 }
 
 // IsEnabled returns true if the middleware is enabled.

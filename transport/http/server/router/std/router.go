@@ -151,6 +151,21 @@ func (t *tree) initialize() {
 	for _, mw := range slices.Backward(t.root.middleware) {
 		handler = mw(handler)
 	}
+	if len(t.root.middleware) > 0 {
+		next := handler
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Pattern = ""
+			if r.RequestURI != "*" {
+				h, pattern := t.mux.Handler(r)
+				// ServeMux can also return a generated redirect path. Only
+				// publish patterns backed by a registered endpoint.
+				if _, ok := h.(registeredHandler); ok {
+					r.Pattern = pattern
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 	t.finalHandler = handler
 	t.sealed.Store(true)
 }
@@ -206,6 +221,10 @@ func (rt *route) Subrouter() router.Router {
 	return rt.subRouter
 }
 
+// registeredHandler distinguishes endpoint handlers from mux-generated
+// redirects and errors during the root middleware's route lookup.
+type registeredHandler struct{ http.Handler }
+
 // register adds the route to mux under its full path, one pattern per method.
 func (rt *route) register(mux *http.ServeMux) {
 	if rt.subRouter != nil {
@@ -229,7 +248,7 @@ func (rt *route) register(mux *http.ServeMux) {
 	if rt.isPrefix && !strings.HasSuffix(path, "/") {
 		path += "/"
 	}
-	handler := rt.router.chain(rt.handler)
+	handler := registeredHandler{rt.router.chain(rt.handler)}
 	if len(methods) == 0 {
 		mux.Handle(path, handler)
 		return

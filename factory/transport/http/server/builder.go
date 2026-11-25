@@ -50,9 +50,9 @@ func (b *ServerBuilder) Build() (*server.Server, error) {
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	rootRouter, routerInterface := b.buildRouter()
+	rootRouter, routeRegistrar := b.buildRouter()
 
-	srv, err := b.newServer(&b.Base, routerInterface, b.bodyLimitWriter())
+	srv, err := b.newServer(&b.Base, rootRouter, routeRegistrar, b.bodyLimitWriter())
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (b *ServerBuilder) Build() (*server.Server, error) {
 	}
 
 	// Register built-in handlers.
-	b.registerBuiltinHandlers(srv, rootRouter, b.cfg.Pprof)
+	b.registerBuiltinHandlers(srv, routeRegistrar, b.cfg.Pprof)
 
 	// Register custom handlers.
 	srv.RegisterHandlers(b.handlers...)

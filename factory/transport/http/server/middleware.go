@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
@@ -310,6 +311,7 @@ func (b *ServerBuilder) WithLoggerMiddleware() *ServerBuilder {
 	c := cfg.Logger
 	configOpts := []loggermw.Option{
 		loggermw.WithTimeFormat(c.TimeFormat),
+		loggermw.WithLogClientDetails(c.LogClientDetails),
 		loggermw.WithIgnorePaths(c.IgnorePaths...),
 		loggermw.WithIgnoreResponseCodes(c.IgnoreResponseCodes...),
 		loggermw.WithLogResponseCodes(c.LogResponseCodes...),
@@ -375,6 +377,8 @@ func (b *ServerBuilder) WithTracingMiddleware() *ServerBuilder {
 	c := cfg.Tracing
 	configOpts := []tracingmw.Option{
 		tracingmw.WithLogger(b.Logger()),
+		tracingmw.WithRecordClientDetails(c.RecordClientDetails),
+		tracingmw.WithRecordRawErrors(c.RecordRawErrors),
 		tracingmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
@@ -395,8 +399,13 @@ func (b *ServerBuilder) WithRealIPMiddleware() *ServerBuilder {
 	}
 
 	c := cfg.RealIp
+	diagnosticLogger := slog.New(slog.DiscardHandler)
+	// The extractor can include both addresses and raw parse errors.
+	if c.LogClientDetails && c.LogRawErrors {
+		diagnosticLogger = b.Logger()
+	}
 	extractorOpts := []clientip.Option{
-		clientip.WithLogger(b.Logger()),
+		clientip.WithLogger(diagnosticLogger),
 		clientip.WithHeaders(c.Headers...),
 	}
 	extractorOpts = slices.AppendIf(extractorOpts, c.TrustPrivatePeers, clientip.WithTrustPrivatePeers())
@@ -416,7 +425,8 @@ func (b *ServerBuilder) WithRealIPMiddleware() *ServerBuilder {
 		return b
 	}
 
-	b.configMW = append(b.configMW, realipmw.New(extractor, b.Logger()))
+	b.configMW = append(b.configMW, realipmw.New(extractor, b.Logger(),
+		realipmw.WithLogClientDetails(c.LogClientDetails), realipmw.WithLogRawErrors(c.LogRawErrors)))
 	return b
 }
 
@@ -430,9 +440,8 @@ func (b *ServerBuilder) WithRecoveryMiddleware() *ServerBuilder {
 	c := cfg.Recovery
 	configOpts := []recoverymw.Option{
 		recoverymw.WithIgnorePaths(c.IgnorePaths...),
+		recoverymw.WithLogRawErrors(c.LogRawErrors),
 	}
-
-	configOpts = slices.AppendIf(configOpts, c.LogStack, recoverymw.WithLogStack())
 
 	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
 		recoverymw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))

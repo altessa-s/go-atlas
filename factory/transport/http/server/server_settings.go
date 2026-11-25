@@ -40,9 +40,8 @@ type serverSettings struct {
 	listenAddress *string
 }
 
-// buildRouter creates the router. Returns (rootRouter, routerInterface) where
-// rootRouter hosts pprof and metrics (the supplied router or the default root)
-// and routerInterface is the router used by the server (possibly a subrouter).
+// buildRouter returns the router that serves requests and the router where
+// endpoints are registered. A custom router serves both roles.
 func (b *serverSettings) buildRouter() (router.Router, router.Router) {
 	if b.routerSet {
 		return b.router, b.router
@@ -59,9 +58,9 @@ func (b *serverSettings) buildRouter() (router.Router, router.Router) {
 }
 
 // newServer maps HTTP server settings, applying explicit overrides after configuration defaults.
-func (b *serverSettings) newServer(base *corefactory.Base, router router.Router, w server.ResponseWriter) (*server.Server, error) {
+func (b *serverSettings) newServer(base *corefactory.Base, root, routes router.Router, w server.ResponseWriter) (*server.Server, error) {
 	opts := make([]server.Option, 0, 9)
-	opts = append(opts, server.WithRouter(router))
+	opts = append(opts, server.WithRouter(root), server.WithRouteRegistrar(routes))
 
 	if b.readTimeout != nil {
 		opts = append(opts, server.WithReadTimeout(*b.readTimeout))
@@ -69,27 +68,13 @@ func (b *serverSettings) newServer(base *corefactory.Base, router router.Router,
 		opts = append(opts, server.WithReadTimeout(b.cfg.ReadTimeout))
 	}
 
-	if b.readHeaderTimeout != nil {
-		opts = append(opts, server.WithReadHeaderTimeout(*b.readHeaderTimeout))
-	} else if b.cfg.ReadHeaderTimeout > 0 {
-		// Honor an explicit config value, but fall back to the server
-		// package's own default (DefaultReadHeaderTimeout) for older
-		// configs that predate this field. Falling through silently
-		// would leave the server with ReadHeaderTimeout=0, which is
-		// the unsafe pre-fix behavior we're closing.
-		opts = append(opts, server.WithReadHeaderTimeout(b.cfg.ReadHeaderTimeout))
-	}
+	readHeaderTimeout, idleTimeout := b.readHeaderAndIdleTimeouts()
+	opts = append(opts, server.WithReadHeaderTimeout(readHeaderTimeout), server.WithIdleTimeout(idleTimeout))
 
 	if b.writeTimeout != nil {
 		opts = append(opts, server.WithWriteTimeout(*b.writeTimeout))
 	} else {
 		opts = append(opts, server.WithWriteTimeout(b.cfg.WriteTimeout))
-	}
-
-	if b.idleTimeout != nil {
-		opts = append(opts, server.WithIdleTimeout(*b.idleTimeout))
-	} else {
-		opts = append(opts, server.WithIdleTimeout(b.cfg.IdleTimeout))
 	}
 
 	if w != nil {
@@ -115,4 +100,24 @@ func (b *serverSettings) newServer(base *corefactory.Base, router router.Router,
 	}
 
 	return server.New(opts...)
+}
+
+// readHeaderAndIdleTimeouts uses the HTTP config defaults for zero durations.
+func (b *serverSettings) readHeaderAndIdleTimeouts() (time.Duration, time.Duration) {
+	defaults := httpconfig.Default()
+	readHeaderTimeout := b.cfg.ReadHeaderTimeout
+	if b.readHeaderTimeout != nil {
+		readHeaderTimeout = *b.readHeaderTimeout
+	}
+	if readHeaderTimeout == 0 {
+		readHeaderTimeout = defaults.ReadHeaderTimeout
+	}
+	idleTimeout := b.cfg.IdleTimeout
+	if b.idleTimeout != nil {
+		idleTimeout = *b.idleTimeout
+	}
+	if idleTimeout == 0 {
+		idleTimeout = defaults.IdleTimeout
+	}
+	return readHeaderTimeout, idleTimeout
 }

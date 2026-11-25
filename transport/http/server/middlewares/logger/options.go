@@ -35,9 +35,11 @@ func redactAllBody(string) string { return DefaultRedactedBodyPlaceholder }
 
 // options holds configuration for the logger middleware.
 type options struct {
-	timeFormat          timeformat.Format `optgen:"default=timeformat.RFC3339"`
-	logResponse         bool
-	logRequest          bool
+	timeFormat  timeformat.Format `optgen:"default=timeformat.RFC3339"`
+	logResponse bool
+	logRequest  bool
+	// logClientDetails includes client addresses, User-Agent, Host, and the raw URL path.
+	logClientDetails    bool `optval:"param"`
 	ignorePaths         []string
 	ignorePatterns      []*regexp.Regexp `optgen:"default=defaults.IgnorePatterns"`
 	ignoreMethods       []string         `optgen:"mod=upper"`
@@ -54,7 +56,7 @@ type options struct {
 	// redactQueryParams lists query parameter names (exact, case-sensitive)
 	// whose values are replaced with [RedactedQueryValue] in http.query.
 	redactQueryParams []string
-	// maxPathLength caps, in bytes, the URL path logged as http.path. A longer
+	// maxPathLength caps, in bytes, the URL path logged as http.target. A longer
 	// path is truncated and marked with [TruncationSuffix]. Values below 1 are
 	// ignored.
 	maxPathLength int `optcheck:"min=1" optgen:"default=DefaultMaxPathLength,onfail=skip"`

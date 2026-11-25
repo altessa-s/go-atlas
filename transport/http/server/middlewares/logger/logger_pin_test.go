@@ -53,7 +53,7 @@ func TestHandler_Pin(t *testing.T) {
 		t.Parallel()
 		var got map[string]any
 		lh := LogHandlerFunc(func(_ context.Context, _ string, _ int, fields slogx.Fields) { got = fieldMap(fields) })
-		h := New(lh).Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		h := New(lh, WithLogClientDetails(true)).Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 
 		req := httptest.NewRequest(http.MethodGet, "/p", nil)
 		req.RemoteAddr = "10.0.0.1"
