@@ -11,25 +11,25 @@ require (
 	github.com/MicahParks/jwkset v0.12.0
 	github.com/MicahParks/keyfunc/v3 v3.9.2
 	github.com/alicebob/miniredis/v2 v2.40.0
-	github.com/altessa-s/go-aip v0.1.9
+	github.com/altessa-s/go-aip v0.1.12
 	github.com/altessa-s/go-atlas-core v0.3.5
-	github.com/altessa-s/go-atlas-net v0.3.6
-	github.com/altessa-s/go-convert v0.1.0
-	github.com/altessa-s/go-horai v0.1.2
-	github.com/altessa-s/go-horai/storage/clickhouse v0.1.2
-	github.com/altessa-s/go-horai/storage/mongo v0.1.2
-	github.com/altessa-s/go-horai/storage/redis v0.1.2
-	github.com/altessa-s/go-kryptos v0.1.4
-	github.com/altessa-s/go-kryptos/providers/gcp v0.1.4
-	github.com/altessa-s/go-kryptos/providers/lockbox v0.1.4
-	github.com/altessa-s/go-kryptos/providers/vault v0.1.4
+	github.com/altessa-s/go-atlas-net v0.3.7
+	github.com/altessa-s/go-convert v0.1.1
+	github.com/altessa-s/go-horai v0.1.3
+	github.com/altessa-s/go-horai/storage/clickhouse v0.1.3
+	github.com/altessa-s/go-horai/storage/mongo v0.1.3
+	github.com/altessa-s/go-horai/storage/redis v0.1.3
+	github.com/altessa-s/go-kryptos v0.1.5
+	github.com/altessa-s/go-kryptos/providers/gcp v0.1.5
+	github.com/altessa-s/go-kryptos/providers/lockbox v0.1.5
+	github.com/altessa-s/go-kryptos/providers/vault v0.1.5
 	github.com/altessa-s/go-mongox v0.1.2
-	github.com/altessa-s/go-nomos v0.2.3
-	github.com/altessa-s/go-slogx v0.1.4
-	github.com/altessa-s/go-tlsutils v0.2.2
-	github.com/altessa-s/go-tlsutils/providers/s3 v0.1.2
-	github.com/altessa-s/go-tlsutils/providers/vault v0.1.2
-	github.com/altessa-s/go-tlsutils/spiffe v0.1.2
+	github.com/altessa-s/go-nomos v0.2.5
+	github.com/altessa-s/go-slogx v0.1.5
+	github.com/altessa-s/go-tlsutils v0.2.3
+	github.com/altessa-s/go-tlsutils/providers/s3 v0.1.3
+	github.com/altessa-s/go-tlsutils/providers/vault v0.1.3
+	github.com/altessa-s/go-tlsutils/spiffe v0.1.3
 	github.com/altessa-s/ozzo-rules v1.17.0
 	github.com/altessa-s/proto-gen-go v0.3.0
 	github.com/aohorodnyk/mimeheader v0.0.6
@@ -46,7 +46,7 @@ require (
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/hashicorp/vault/api/auth/approle v0.12.0
 	github.com/hashicorp/vault/api/auth/userpass v0.12.0
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/meilisearch/meilisearch-go v0.37.0
 	github.com/nats-io/nats-server/v2 v2.15.3
 	github.com/nats-io/nats.go v1.56.0
@@ -54,7 +54,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/open-policy-agent/opa v1.22.4
 	github.com/prometheus/client_golang v1.25.0
-	github.com/redis/go-redis/v9 v9.23.0
+	github.com/redis/go-redis/v9 v9.24.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/shirou/gopsutil/v4 v4.26.10
 	github.com/shopspring/decimal v1.6.0
@@ -69,9 +69,9 @@ require (
 	go.opentelemetry.io/proto/otlp v1.11.1
 	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
-	google.golang.org/genproto v0.0.0-20261118221215-c8830f628b3f
-	google.golang.org/genproto/googleapis/api v0.0.0-20261118221215-c8830f628b3f
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261118221215-c8830f628b3f
+	google.golang.org/genproto v0.0.0-20261123191846-1e707ab9fbc2
+	google.golang.org/genproto/googleapis/api v0.0.0-20261123191846-1e707ab9fbc2
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261123191846-1e707ab9fbc2
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
@@ -80,7 +80,7 @@ require (
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.3.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/iam v1.15.1 // indirect
 	cloud.google.com/go/secretmanager v1.23.1 // indirect
@@ -145,7 +145,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/johanbrandhorst/certify v1.9.0 // indirect
 	github.com/klauspost/compress v1.20.4 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
@@ -184,7 +184,7 @@ require (
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
-	github.com/yandex-cloud/go-genproto v0.134.0 // indirect
+	github.com/yandex-cloud/go-genproto v0.136.0 // indirect
 	github.com/yashtewari/glob-intersection v0.2.0 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
@@ -207,7 +207,7 @@ require (
 	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
-	google.golang.org/api v0.310.0 // indirect
+	google.golang.org/api v0.311.0 // indirect
 )
 
 tool github.com/altessa-s/go-optgen/cmd/optgen

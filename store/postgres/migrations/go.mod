@@ -12,7 +12,7 @@ replace github.com/altessa-s/go-atlas => ../../..
 
 require (
 	github.com/altessa-s/go-atlas v0.0.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/pressly/goose/v3 v3.30.1
 	github.com/stretchr/testify v1.12.1
 )
@@ -20,9 +20,9 @@ require (
 require (
 	github.com/MakeNowJust/heredoc v1.0.0 // indirect
 	github.com/altessa-s/go-atlas-core v0.3.5 // indirect
-	github.com/altessa-s/go-horai v0.1.2 // indirect
+	github.com/altessa-s/go-horai v0.1.3 // indirect
 	github.com/altessa-s/go-optgen v0.4.0 // indirect
-	github.com/altessa-s/go-slogx v0.1.4 // indirect
+	github.com/altessa-s/go-slogx v0.1.5 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
