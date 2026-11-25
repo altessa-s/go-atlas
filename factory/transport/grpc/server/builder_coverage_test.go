@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -49,7 +50,7 @@ var on = grpcconfig.BaseInterceptor{Enabled: true}
 // of "panic" panics in the handler.
 type echoService struct{ calls atomic.Int32 }
 
-func (e *echoService) Register(gs *grpc.Server, _ <-chan struct{}) {
+func (e *echoService) Register(gs grpc.ServiceRegistrar, _ <-chan struct{}) {
 	gs.RegisterService(&grpc.ServiceDesc{
 		ServiceName: "cov.v1.Echo",
 		HandlerType: (*any)(nil),
@@ -330,6 +331,28 @@ func TestBuild_WithInterceptorAndGrpcOptions(t *testing.T) {
 	_, err := echo(t.Context(), conn, "x")
 	require.NoError(t, err)
 	require.Equal(t, int32(1), seen.Load(), "a pre-built interceptor joins the chain")
+}
+
+func TestBuildPreservesMessageLimitsWithUserOptions(t *testing.T) {
+	t.Parallel()
+
+	cfg := &grpcconfig.Config{MaxRecvMsgSize: new(64), MaxSendMsgSize: new(32)}
+	conn, svc := startBuilt(t, factory.New(cfg).
+		UseServerOptions(grpcserver.WithGrpcOptions(grpc.MaxConcurrentStreams(8))))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	got, err := echo(ctx, conn, "small")
+	require.NoError(t, err)
+	require.Equal(t, "small", got)
+
+	_, err = echo(ctx, conn, strings.Repeat("x", 64))
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.EqualValues(t, 1, svc.calls.Load(), "receive limit rejects before service dispatch")
+
+	_, err = echo(ctx, conn, strings.Repeat("x", 32))
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.EqualValues(t, 2, svc.calls.Load(), "send limit rejects the service response")
 }
 
 // grpcserverInterceptor is a minimal interceptors.ServerInterceptor.

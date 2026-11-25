@@ -25,7 +25,7 @@ type blockingStreamHandler struct {
 	started chan struct{}
 }
 
-func (h blockingStreamHandler) Register(gs *stdGrpc.Server, _ <-chan struct{}) {
+func (h blockingStreamHandler) Register(gs stdGrpc.ServiceRegistrar, _ <-chan struct{}) {
 	gs.RegisterService(&stdGrpc.ServiceDesc{
 		ServiceName: "test.Blocking",
 		HandlerType: (*any)(nil),

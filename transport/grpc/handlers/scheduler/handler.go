@@ -89,7 +89,7 @@ func newHandler(s SchedulerService, tokens TokenCodec, compiler FilterCompiler) 
 }
 
 // Register registers the handler with gs.
-func (h *Handler) Register(gs *stdGrpc.Server, _ <-chan struct{}) {
+func (h *Handler) Register(gs stdGrpc.ServiceRegistrar, _ <-chan struct{}) {
 	schedulerv1.RegisterSchedulerServiceServer(gs, h)
 }
 

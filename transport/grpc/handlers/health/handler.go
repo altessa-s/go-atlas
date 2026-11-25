@@ -43,7 +43,7 @@ func New(coord HealthWatcher) *Handler {
 
 // Register attaches the handler to gs and stores stop for Watch stream
 // termination. Must be called before the server starts accepting connections.
-func (h *Handler) Register(gs *stdGrpc.Server, stop <-chan struct{}) {
+func (h *Handler) Register(gs stdGrpc.ServiceRegistrar, stop <-chan struct{}) {
 	h.stop = stop
 	grpc_health_v1.RegisterHealthServer(gs, h)
 }

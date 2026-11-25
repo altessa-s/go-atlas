@@ -9,10 +9,11 @@ import (
 )
 
 // Handler defines the interface for gRPC service handlers.
-// Implementations register their services with the provided gRPC server
-// and use the stop channel to detect graceful shutdown (e.g. for streaming RPCs).
+// Implementations register their services with the provided registrar and can
+// use the stop channel to detect graceful shutdown for streaming RPCs.
 type Handler interface {
-	// Register registers the handler's services with gs.
-	// stop is closed when the server begins shutting down.
-	Register(gs *stdGrpc.Server, stop <-chan struct{})
+	// Register synchronously submits service descriptors during Start. The
+	// registrar is valid only during this call. The stop channel closes when
+	// the running server begins shutting down.
+	Register(registrar stdGrpc.ServiceRegistrar, stop <-chan struct{})
 }

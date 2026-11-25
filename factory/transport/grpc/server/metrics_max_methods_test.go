@@ -34,7 +34,7 @@ const (
 // of one.
 type pairService struct{}
 
-func (pairService) Register(gs *grpc.Server, _ <-chan struct{}) {
+func (pairService) Register(gs grpc.ServiceRegistrar, _ <-chan struct{}) {
 	method := func(name, full string) grpc.MethodDesc {
 		return grpc.MethodDesc{
 			MethodName: name,

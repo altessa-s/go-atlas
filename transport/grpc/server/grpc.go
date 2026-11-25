@@ -46,7 +46,7 @@ type GRPCServer interface {
 	// Err reports the first post-start serving failure.
 	Err() error
 
-	// RegisterHandlers registers gRPC service handlers with the server.
+	// RegisterHandlers adds gRPC service handlers to the server.
 	// Must be called before Start().
 	RegisterHandlers(handlers ...Handler)
 
@@ -130,9 +130,9 @@ func New(opts ...Option) (*Server, error) {
 	return srv, nil
 }
 
-// RegisterHandlers stores handlers for later registration with the underlying
-// [grpc.Server]. Nil handlers are silently filtered. Must be called before
-// [Server.Start]; not safe for concurrent use during setup.
+// RegisterHandlers adds handlers for later registration with the underlying
+// [grpc.Server]. Each call appends non-nil handlers in order. Call it before
+// [Server.Start] from a single goroutine during setup.
 func (s *Server) RegisterHandlers(handlers ...Handler) {
 	s.handlers = slices.AppendSeq(s.handlers, coreslices.Filter(handlers, func(h Handler) bool {
 		return nilcheck.IsNotNil(h)
@@ -185,7 +185,7 @@ func (s *Server) IsStopped() bool {
 // Start starts the gRPC server and begins accepting connections.
 // It performs the following operations in sequence:
 //  1. Validates server is not already started
-//  2. Registers reflection service if enabled
+//  2. Validates and registers services, including reflection if enabled
 //  3. Creates TCP listener if none provided ([WithListener])
 //  4. Starts serving in a background goroutine
 //  5. Waits for startup verification ([WithStartupVerification], default
@@ -195,6 +195,7 @@ func (s *Server) IsStopped() bool {
 // ErrServerClosed once the server has been shut down; the running server is
 // left untouched in both cases. Retry is meaningful for listen/bind or pre-Serve
 // errors; a WithListener listener may be consumed by a failed Serve.
+// Returns [ErrInvalidServiceRegistration] if service descriptors fail validation.
 // Returns network errors if listener creation or binding fails.
 // This method is non-blocking after successful startup verification.
 func (s *Server) Start() (err error) {
@@ -223,22 +224,31 @@ func (s *Server) Start() (err error) {
 		grpcOptions = append(grpcOptions, serverOpts...)
 	}
 
-	// Create gRPC server
-	srv := grpc.NewServer(grpcOptions...)
-
-	// Register handlers
+	var registrar serviceRegistrar
 	for _, h := range s.handlers {
-		h.Register(srv, s.stopCh)
+		h.Register(&registrar, s.stopCh)
+	}
+	if s.reflection {
+		reflection.Register(&registrar)
+	}
+	if err := registrar.validate(); err != nil {
+		return err
 	}
 
-	// Enable reflection if configured. Reflection exposes the full
+	srv := grpc.NewServer(grpcOptions...)
+	registrar.ServiceInfoProvider = srv
+	for _, service := range registrar.services {
+		srv.RegisterService(service.desc, service.impl)
+	}
+	registrar.services = nil
+
+	// Reflection exposes the full
 	// service / method / field schema to any caller that can reach
 	// the gRPC port — useful for development but a recon foothold in
 	// production. Log a loud WARN at registration so operators can
 	// grep for "reflection enabled" in their startup logs and catch
 	// accidental production-enablement.
 	if s.reflection {
-		reflection.Register(srv)
 		s.base.Logger().Warn("gRPC reflection enabled — service schema is publicly discoverable; disable in production")
 	}
 

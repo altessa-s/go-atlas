@@ -82,7 +82,7 @@ safe when the client IP source is trustworthy (`realIP` with `trustedPeers` or `
 | `UseLoggerOptions` | Adds code-supplied logger options (payload redactor, log codes) to the configured interceptor, after the config-built ones |
 | `UseFieldBehaviorOptions` | Adds field-behavior options (`WithMethodKind` for unconventional method names, `WithSkipResponse`) to the stock interceptor |
 | `UseIdempotencyOptions` | Adds code-supplied idempotency options (`WithEntityIDExtractor`, `WithStatusCreator`) after the config-built ones |
-| `UseServerOptions` | Adds server options (`grpcserver.WithListener` for bufconn tests, `WithStartupVerification`) after the config-built ones |
+| `UseServerOptions` | Applies server options after the config-built ones. `WithGrpcOptions` appends to the factory's gRPC options |
 | `UseFieldMaskOptions` | Adds field mask options (`WithMethodKind`, update/read extractors) to the configured interceptor, after the config-built ones |
 
 ### Configuration

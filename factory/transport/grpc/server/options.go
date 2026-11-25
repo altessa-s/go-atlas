@@ -191,11 +191,10 @@ func (b *ServerBuilder) UseFieldMaskOptions(opts ...fieldmask.Option) *ServerBui
 	return b
 }
 
-// UseServerOptions adds code-supplied server options — an injected listener
-// ([grpcserver.WithListener], e.g. bufconn in tests), the startup check
-// ([grpcserver.WithStartupVerification]) — applied after the options built
-// from configuration. gRPC server options from configuration are kept;
-// [grpcserver.WithGrpcOptions] here replaces them.
+// UseServerOptions applies code-supplied server options after the options built
+// from configuration. For example, [grpcserver.WithListener] can inject a bufconn
+// listener for tests. [grpcserver.WithGrpcOptions] appends gRPC server options
+// after those built from configuration.
 func (b *ServerBuilder) UseServerOptions(opts ...grpcserver.Option) *ServerBuilder {
 	b.serverOptions = append(b.serverOptions, opts...)
 	return b

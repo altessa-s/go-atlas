@@ -52,7 +52,7 @@ func New(opts ...Option) *Handler {
 
 // Register attaches the handler to gs. The stop channel is unused —
 // GetServiceInfo is unary and has no streams to terminate on shutdown.
-func (h *Handler) Register(gs *stdGrpc.Server, _ <-chan struct{}) {
+func (h *Handler) Register(gs stdGrpc.ServiceRegistrar, _ <-chan struct{}) {
 	serviceinfov1.RegisterServiceInfoServiceServer(gs, h)
 }
 

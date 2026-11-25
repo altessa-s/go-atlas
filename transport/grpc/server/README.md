@@ -8,6 +8,9 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 `Server` with `New`, register services via `RegisterHandlers`, optionally add interceptors with `RegisterInterceptors`, then call `Start`. The
 `GRPCServer` interface defines the full contract. All exported methods are safe for concurrent use after startup.
 
+Each call to `RegisterHandlers` appends handlers. Implement `Register(grpc.ServiceRegistrar, <-chan struct{})` to submit service descriptors at startup.
+`Start` validates the descriptors before creating the gRPC server and returns an error matching `ErrInvalidServiceRegistration` for invalid registrations.
+
 ## Features
 
 | Feature                | Description                                                                        |
@@ -23,7 +26,7 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 |------------------|----------------------------------------------------------------------------------------|
 | `GRPCServer`     | Lifecycle observation, startup, shutdown, and handler and interceptor registration  |
 | `Server`         | Concrete implementation wrapping `grpc.Server` with lifecycle and TLS management       |
-| `Handler`        | Interface for service handlers: `Register(gs, stop)` attaches services to the server   |
+| `Handler`        | Interface for service handlers that submit descriptors through a `grpc.ServiceRegistrar` |
 
 ## Options
 
@@ -32,7 +35,7 @@ Package `server` (imported as `grpc`) provides a production-ready gRPC server wr
 | `WithAddress`, `WithName`, `WithLogger` | :0, empty, discard | TCP listen address and lifecycle logging |
 | `WithTLSConfig` | nil | TLS settings for the listener |
 | `WithLifecycleTimeouts` | See below | Startup verification, graceful shutdown limit, and warning interval |
-| `WithGrpcOptions`   | --       | Additional `grpc.ServerOption` values passed to the underlying gRPC server    |
+| `WithGrpcOptions`   | --       | Appends `grpc.ServerOption` values in call order                               |
 | `WithReflection`    | false    | Enables the gRPC server reflection service for tooling and debugging          |
 | `WithListener`      | --       | Serve this `net.Listener` (e.g. bufconn in tests) instead of listening on the address |
 | `WithStartupVerification` | 2s | How long `Start` waits for an early serve error; 0 skips the wait (tests)       |

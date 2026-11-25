@@ -9,6 +9,10 @@
 // optionally add interceptors with [Server.RegisterInterceptors], then call
 // [Server.Start]. The [GRPCServer] interface defines the full contract.
 //
+// Calls to [Server.RegisterHandlers] and [WithGrpcOptions] accumulate in order.
+// [Server.Start] validates service descriptors and returns an error matching
+// [ErrInvalidServiceRegistration] when validation fails.
+//
 // All exported methods on [Server] are safe for concurrent use after the server
 // has started.
 //

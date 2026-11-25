@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/transport/lifecycle"
-
-	stdgrpc "google.golang.org/grpc"
 )
 
 func TestServer_DoneServeFailure(t *testing.T) {
@@ -91,27 +89,15 @@ func TestServer_DoneNeverStarted(t *testing.T) {
 	require.NoError(t, srv.Err())
 }
 
-type captureServerHandler struct{ server *stdgrpc.Server }
-
-func (h *captureServerHandler) Register(server *stdgrpc.Server, _ <-chan struct{}) {
-	h.server = server
-}
-
 func TestServer_EarlyFailureStopsCreatedServer(t *testing.T) {
-	t.Parallel()
+	// Channelz tracks servers across the process, so keep this test serial.
+	before := channelzServers(t)
 	ln := &doneListener{closed: make(chan struct{})}
 	_ = ln.Close()
 	srv, err := New(WithListener(ln), WithStartupVerification(5*time.Second))
 	require.NoError(t, err)
-	handler := &captureServerHandler{}
-	srv.RegisterHandlers(handler)
 	require.ErrorIs(t, srv.Start(), net.ErrClosed)
-	if handler.server == nil {
-		t.Fatal("underlying gRPC server was not created")
-	}
-	t.Cleanup(handler.server.Stop)
-	// Serve on a stopped server returns ErrServerStopped before Accept.
-	require.ErrorIs(t, handler.server.Serve(ln), stdgrpc.ErrServerStopped)
+	require.Equal(t, before, channelzServers(t))
 	select {
 	case <-srv.Done():
 		t.Fatal("early failure closed Done")

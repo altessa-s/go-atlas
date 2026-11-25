@@ -36,7 +36,7 @@ type countingHandler struct {
 	gate    chan struct{}
 }
 
-func (h *countingHandler) Register(_ *stdGrpc.Server, stop <-chan struct{}) {
+func (h *countingHandler) Register(_ stdGrpc.ServiceRegistrar, stop <-chan struct{}) {
 	h.stop = stop
 	h.calls.Add(1)
 	if h.gate != nil {

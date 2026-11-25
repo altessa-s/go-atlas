@@ -40,7 +40,7 @@ type statusService struct {
 	fail func() error
 }
 
-func (s *statusService) Register(gs *grpc.Server, _ <-chan struct{}) {
+func (s *statusService) Register(gs grpc.ServiceRegistrar, _ <-chan struct{}) {
 	grpc_testing.RegisterTestServiceServer(gs, s)
 }
 
