@@ -1,0 +1,82 @@
+# gRPC client name resolution and connection backoff configuration.
+# Loads into grpcclientconfig.Config; grpcclientfactory.ConnectionOptions
+# applies it to transport/grpc/client. Omitted keys keep the client defaults.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#grpcClient:
+#  # <object> Optional Atlas DNS resolver for targets without a scheme
+#  # and dns:// targets. It re-resolves the host periodically, so servers
+#  # added behind a headless Kubernetes service are seen without a connection
+#  # failure, and retries a failed or empty lookup within a few seconds.
+#  resolver:
+#    # <bool> Enable the Atlas resolver. The default keeps grpc-go's resolver
+#    # selection, including DNS TXT service configs and global builders.
+#    # Default value: false
+#    enabled: false
+#
+#    # <duration> How often the host is resolved again while lookups succeed.
+#    # Minimum 1s.
+#    # Default value: 30s
+#    refreshInterval: "30s"
+#
+#    # <float64> Largest fraction (0-0.5) by which a refresh interval is
+#    # shortened at random, so that clients started together do not query
+#    # the DNS server in lockstep; 0 disables jitter.
+#    # Default value: not set (0.1)
+#    refreshJitter: 0.1
+#
+#    # <duration> Shortest pause between the end of a lookup and a lookup that
+#    # gRPC requests after a connection failure. At most refreshInterval.
+#    # Default value: 2s
+#    minInterval: "2s"
+#
+#    # <duration> Timeout of one lookup.
+#    # Default value: 10s
+#    lookupTimeout: "10s"
+#
+#    # <object> Exponential backoff after a failed or empty lookup. maxDelay
+#    # bounds how long a client takes to see a server that returns after an
+#    # outage.
+#    backoff:
+#      # <duration> Delay after the first failed lookup.
+#      # Default value: 1s
+#      baseDelay: "1s"
+#
+#      # <float64> Factor the delay grows by after each further failed lookup.
+#      # Minimum 1.
+#      # Default value: 1.6
+#      multiplier: 1.6
+#
+#      # <float64> Fraction (0-1) by which each delay is randomized; 0
+#      # disables jitter.
+#      # Default value: not set (0.2)
+#      jitter: 0.2
+#
+#      # <duration> Cap of the delay between failed lookups; not below
+#      # baseDelay.
+#      # Default value: 5s
+#      maxDelay: "5s"
+#
+#  # <object> Exponential backoff between attempts to connect to one address.
+#  # With a target that always resolves (a ClusterIP service or an IP
+#  # address) it alone decides how fast the client reconnects after an outage.
+#  connectBackoff:
+#    # <duration> Delay after the first failed connection attempt.
+#    # Default value: 1s
+#    baseDelay: "1s"
+#
+#    # <float64> Factor the delay grows by after each further failed attempt.
+#    # Minimum 1.
+#    # Default value: 1.6
+#    multiplier: 1.6
+#
+#    # <float64> Fraction (0-1) by which each delay is randomized; 0 disables
+#    # jitter.
+#    # Default value: not set (0.2)
+#    jitter: 0.2
+#
+#    # <duration> Cap before jitter, at least baseDelay. Jitter can make
+#    # later waits exceed it.
+#    # Default value: 2m
+#    maxDelay: "2m"

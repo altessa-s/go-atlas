@@ -59,6 +59,23 @@
 // A subchannel reporting NOT_SERVING stops receiving calls until it reports
 // SERVING again. [WithoutHealthCheck] disables this watch.
 //
+// # Name resolution
+//
+// The client follows grpc-go's resolver selection by default, preserving
+// DNS TXT service configs and globally registered builders. [WithDNSResolver]
+// enables the Atlas [dnsresolver] for targets without a scheme and dns
+// targets, including pooled connections. It refreshes addresses periodically
+// and caps retry delays after failed or empty lookups:
+//
+//	c, err := client.New(ctx, "inventory.default.svc:9000",
+//		client.WithDNSResolver(dnsresolver.WithRefreshInterval(10*time.Second)),
+//		client.WithConnectBackoff(client.WithConnectBackoffMaxDelay(10*time.Second)),
+//	)
+//
+// [WithConnectBackoff] spaces the connection attempts to one address. It
+// alone decides how fast the client reconnects to a target that always
+// resolves to the same address, such as a ClusterIP service.
+//
 // # Connection Pooling
 //
 // For high-throughput scenarios, use connection pooling:

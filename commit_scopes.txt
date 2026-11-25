@@ -147,6 +147,7 @@ transport/policy            # Transport-neutral access policies (ipacl, geoacl, 
 transport/grpc              # gRPC transport
 transport/grpc/client       # gRPC client
 transport/grpc/client/pool  # gRPC connection pooling
+transport/grpc/client/dnsresolver # gRPC client DNS resolver
 transport/grpc/handlers     # gRPC handlers
 transport/grpc/handlers/scheduler # gRPC SchedulerService handler
 transport/grpc/interceptors # gRPC interceptors

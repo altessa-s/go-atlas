@@ -142,7 +142,9 @@ schemas in the `config/*` packages; runtime packages do not expose another mutab
 schemas and materialize options. Nil optional telemetry dependencies use no-ops; required storage, codecs and credentials remain required.
 
 Outbound proxy mapping lives in `factory/ext/net/proxydial`: `HTTPClientOptions(cfg.Proxy)` and `GRPCClientOptions(cfg.Proxy)`. Client health and HTTP
-SSRF mapping live in `factory/ext/net/httpclient` and `factory/transport/grpc/client`. See the [proxy guide](proxy.md).
+SSRF mapping live in `factory/ext/net/httpclient` and `factory/transport/grpc/client`. See the [proxy guide](proxy.md). The gRPC client resolves
+`dns` targets with its own resolver, installed per connection without touching grpc-go's global registry
+([ADR 0002](adr/0002-grpc-client-dns-resolver.md)); `factory/transport/grpc/client` maps its settings from `config/grpcclient`.
 
 The `store/mongo` write-document converters use `mapping/behavior` and its MongoDB translator for BSON layout and update operators. The store
 binds its CSFLE selector to both translators with `WithFieldTransformer` and owns the client, KMS provider and key vault. See the

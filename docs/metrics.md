@@ -7,7 +7,7 @@ Components and factory builders receive a `metrics.Meter` (instrument creation o
 the application holds the `metrics.Collector`, which adds `Shutdown` / `ForceFlush`, and passes it or a `WithSubsystem` scope down. See
 [observability/metrics](../observability/metrics/README.md#meter-vs-collector).
 
-**40 subsystems, 226 metrics.**
+**41 subsystems, 228 metrics.**
 
 ---
 
@@ -263,6 +263,17 @@ Package: `transport/grpc/client/pool`
 | `grpc_connection_pool_connect_duration_seconds`    | Histogram | `target`           | Connection establishment duration   |
 | `grpc_connection_pool_cleanup_duration_seconds`    | Histogram | --                 | Cleanup cycle duration              |
 | `grpc_connection_pool_cleanup_connections_removed` | Counter   | --                 | Connections removed during cleanup  |
+
+---
+
+## grpc_dns_resolver
+
+Package: `transport/grpc/client/dnsresolver` (recorded on the meter `transport/grpc/client` gets with `WithMeter`)
+
+| Name | Type | Labels | Description |
+|------|------|--------|-------------|
+| `grpc_dns_resolver_lookups_total` | Counter | `result` | Attempts classified as `ok`, `empty` (both families conclusive) or `error` (either family failed) |
+| `grpc_dns_resolver_addresses` | Gauge | — | Sum of addresses last submitted by active polling resolvers. Closing a resolver removes its contribution |
 
 ---
 
