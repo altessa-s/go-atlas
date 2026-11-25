@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 	"github.com/stretchr/testify/require"
+
+	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 )
 
 func TestSQLPurgeSettings(t *testing.T) {

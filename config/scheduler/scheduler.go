@@ -7,6 +7,8 @@ package schedulerconfig
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/config/internal/validators"
+
 	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -223,8 +225,10 @@ var schedulerStorageAllowedTypes = []StorageType{
 //		},
 //	}
 type StorageConfig struct {
+	validators.BackendTypes[StorageType] `yaml:"-" json:"-"`
+
 	// Type defines the storage backend type.
-	// Must be one of: mongo, redis, memory, sqldb.
+	// Packaged storage types are mongo, redis, memory, and sqldb.
 	// Defaults to "memory" if not specified.
 	Type StorageType `yaml:"type" default:"memory"`
 
@@ -265,7 +269,7 @@ func DefaultStorageConfig() StorageConfig {
 // Ensures type is valid and corresponding configuration is provided when required.
 // Returns an error if validation fails, nil otherwise.
 func (c *StorageConfig) Validate() error {
-	return validationconfig.ValidateStorage(c, &c.Type, schedulerStorageAllowedTypes, c.storageCases())
+	return validationconfig.ValidateStorage(c, &c.Type, c.AllowedTypes(schedulerStorageAllowedTypes...), c.storageCases())
 }
 
 // HistoryStorageType defines the backend of a history storage kept apart

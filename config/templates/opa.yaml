@@ -17,6 +17,12 @@
 #  # Default value: not set (required for filesystem source)
 #  bundlePath: ./policies
 #
+#  # <string> Required filesystem release manifest, relative to bundlePath or a policy file's parent.
+#  # For rollouts, set "root" to a relative release directory and "files" to its map of lowercase SHA-256 hex digests.
+#  # Stage the complete release in a new root, atomically rename the manifest into place, then retire the old root after in-flight fetches finish.
+#  # Default value: not set
+#  releaseManifest: release.json
+#
 #  # The gitlab and s3 sections below are alternatives selected by source; configure only the one in use.
 #  #
 #  # <object> GitLab-specific configuration for loading policies from a GitLab repository.
@@ -81,6 +87,12 @@
 #    # Default value: not set (bucket root)
 #    prefix: policies/opa
 #
+#    # <string> Required unless using checksums. Object key relative to prefix.
+#    # For rollouts, set "root" to a relative release prefix and "files" to its map of {"etag": "...", "sha256": "..."} entries.
+#    # Preserve the ETag quotes. Upload the new release first, PUT the manifest once, then retire the old prefix after in-flight fetches finish.
+#    # Default value: not set
+#    releaseManifest: release.json
+#
 #    # <string> AWS region for the S3 bucket.
 #    # Default value: not set
 #    region: us-east-1
@@ -109,10 +121,9 @@
 #    # Default value: false
 #    pathStyle: false
 #
-#    # <map[string]string> Pins policy and data objects: object keys relative to prefix mapped
-#    # to their lower-case SHA-256 hex digests. When set, every fetched object must match its
-#    # entry and every entry must be fetched.
-#    # Default value: not set (no verification)
+#    # <map[string]string> Fixed release alternative to releaseManifest. Enable only one.
+#    # Map each included relative object key to the lowercase SHA-256 hex digest.
+#    # Default value: not set
 #    checksums:
 #      authz.rego: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 #
@@ -199,7 +210,7 @@
 #  #   - Useful in development environments
 #  # Considerations:
 #  #   - Adds network/filesystem overhead per poll cycle
-#  #   - May cause brief inconsistency during reload
+#  #   - A failed release keeps the previous snapshot and marks the manager unhealthy
 #  # Default value: false
 #  watchBundle: false
 #
@@ -214,7 +225,8 @@
 #  # This provides a fallback mechanism for remote bundles or ensures periodic refresh.
 #  # Format: cron expression with seconds (e.g., "*/5 * * * * *" for every 5 seconds)
 #  # or descriptor format (e.g., "@every 1m" for every minute).
-#  # When empty, only watchBundle (if enabled) triggers reloads.
+#  # A task registrar is required when this is set and watchBundle is false.
+#  # When empty, only watchBundle (if enabled) triggers automatic reloads.
 #  # Default value: not set (disabled)
 #  updateSchedule: ""
 #

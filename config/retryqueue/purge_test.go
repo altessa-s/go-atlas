@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 	"github.com/stretchr/testify/require"
+
+	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
 )
 
 func TestSQLPurgeSettings(t *testing.T) {

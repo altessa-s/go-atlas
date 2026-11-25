@@ -43,5 +43,5 @@ Use migrations when `ensureSchema` is false. SQL expiry uses the database clock;
 cleanup shutdown hooks; use `UseShutdownHooks(group)` for a component scope and run hooks before closing the injected database. See [the storage
 template](../templates/idempotency_storage.yaml).
 
-The sqldb block exposes purgeInterval (default "1m", "0s" disables the background loop) and purgeBatchSize (default 1000). Manual PurgeExpired remains
-available with a zero interval. Purging runs only when retention is enabled; idempotency keys always have their own expiry.
+The sqldb block exposes `purgeInterval` (default `"1m"`, `"0s"` disables the background loop) and `purgeBatchSize` (default 1000). Manual `PurgeExpired`
+remains available with a zero interval. Idempotency keys always expire per `ttl`, and the purge loop runs whenever `purgeInterval` is positive.

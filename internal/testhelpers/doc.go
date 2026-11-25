@@ -14,7 +14,7 @@
 //     ([GenerateRSAKey], [GenerateECDSAKey], [GenerateEd25519Key]), and
 //     PEM-file plumbing ([WriteTempCertFiles]).
 //   - A scheduler double ([MockTaskRegistrar]) that records registered
-//     [core/scheduler.TaskConfig] values instead of running them, so a test can
+//     [github.com/altessa-s/go-horai/task.Config] values instead of running them, so a test can
 //     assert the task ID and schedule a component derived from configuration.
 //   - A scripted database/sql driver ([NewFakeSQL], [FakeSQL]) that records
 //     every statement, its arguments and whether it ran in a transaction, so
@@ -24,11 +24,12 @@
 //     would, to check which stored values an update leaves intact.
 //   - Polling helpers ([WaitFor]).
 //
-// The package depends only on core and the standard library. Fixtures tied to
+// The package uses shared helpers from go-atlas-core and the registrar contract from go-horai. Fixtures tied to
 // a capability live with it: audit/audittest,
 // reliability/idempotency/idempotencytest and
 // observability/metrics/metricstest; in-process NATS and Redis servers live in
-// internal/testhelpers/servers/{natstest,redistest}.
+// internal/testhelpers/servers/{natstest,redistest}. The mtlstest subpackage
+// issues matching server and client certificates for transport tests.
 //   - The run length of the `stress`-tagged soak tests ([StressDuration],
 //     set through [StressDurationEnv]).
 //

@@ -5,6 +5,7 @@
 package money_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -82,6 +83,12 @@ func TestCrossRate(t *testing.T) {
 	_, err = money.CrossRate(eurRub, other)
 	require.ErrorIs(t, err, money.ErrPairMismatch)
 
+	_, err = money.CrossRate(eurRub, eurRub)
+	require.ErrorIs(t, err, money.ErrPairMismatch)
+	usdRub.Value = dec("1e32")
+	_, err = money.CrossRate(eurRub, usdRub)
+	require.ErrorIs(t, err, money.ErrNonPositiveRate)
+
 	// Invalid components are rejected.
 	_, err = money.CrossRate(money.ExchangeRate{Base: eur, Quote: rub}, usdRub)
 	require.ErrorIs(t, err, money.ErrNonPositiveRate)
@@ -148,4 +155,68 @@ func TestConvert(t *testing.T) {
 	require.ErrorIs(t, err, money.ErrNonPositiveRate)
 	_, err = money.Money{}.Convert(rate, money.HalfUp)
 	require.ErrorIs(t, err, money.ErrInvalidCurrency)
+}
+
+func TestInversePreservesTinyPositiveRate(t *testing.T) {
+	t.Parallel()
+	rate := money.ExchangeRate{Base: eur, Quote: usd, Value: dec("1e30")}
+	inverse := rate.Inverse()
+	require.NoError(t, inverse.Validate())
+	require.True(t, inverse.Value.Equal(dec("1e-30")))
+}
+
+func TestExchangeRateRejectsUnsupportedMagnitude(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		value decimal.Decimal
+	}{
+		{name: "minimum raw exponent", value: decimal.New(1, math.MinInt32)},
+		{name: "maximum raw exponent", value: decimal.New(1, math.MaxInt32)},
+		{name: "below inverse range", value: decimal.New(9, -money.MaxRateExponent-1)},
+		{name: "above inverse range", value: decimal.New(2, money.MaxRateExponent)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rate := money.ExchangeRate{Base: eur, Quote: rub, Value: tc.value}
+			require.ErrorIs(t, rate.Validate(), money.ErrRateOutOfRange)
+			_, err := rate.InverseChecked()
+			require.ErrorIs(t, err, money.ErrRateOutOfRange)
+			_, err = money.NormalizeRate(eur, rub, tc.value, 1)
+			require.ErrorIs(t, err, money.ErrRateOutOfRange)
+		})
+	}
+}
+
+func TestExchangeRateInverseAtMagnitudeLimits(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		exponent int32
+	}{
+		{name: "minimum", exponent: -money.MaxRateExponent},
+		{name: "maximum", exponent: money.MaxRateExponent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rate := money.ExchangeRate{Base: eur, Quote: rub, Value: decimal.New(1, tc.exponent)}
+			require.NoError(t, rate.Validate())
+			inverse := rate.Inverse()
+			require.NoError(t, inverse.Validate())
+			require.True(t, inverse.Value.Equal(decimal.New(1, -tc.exponent)))
+		})
+	}
+}
+
+func TestNormalizeRateAllowsLargerTotalQuote(t *testing.T) {
+	t.Parallel()
+	for _, nominal := range []int64{2, 10, math.MaxInt64} {
+		total := decimal.New(nominal, money.MaxRateExponent)
+		rate, err := money.NormalizeRate(eur, usd, total, nominal)
+		require.NoError(t, err)
+		require.True(t, rate.Value.Equal(decimal.New(1, money.MaxRateExponent)))
+		_, err = money.NormalizeRate(eur, usd, total, nominal-1)
+		require.ErrorIs(t, err, money.ErrRateOutOfRange)
+	}
 }

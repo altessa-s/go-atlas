@@ -8,14 +8,14 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
-	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 // MaxSQLKeyBatch caps the purge batch of the SQL storages whose MySQL sweep
-// deletes selected keys through an IN list; see [sqldialect.MaxKeyBatch].
-const MaxSQLKeyBatch = sqldialect.MaxKeyBatch
+// reserves one of the 65,535 placeholders for another argument.
+const MaxSQLKeyBatch = 65_534
 
 // SQLTableName validates a plain SQL identifier, optionally qualified by one
 // schema name. Each part matches [A-Za-z_][A-Za-z0-9_]* and is at most 63
@@ -32,7 +32,7 @@ var SQLTableName = validation.By(func(value any) error {
 	if name == "" {
 		return nil
 	}
-	if _, err := sqldialect.Postgres.Table(name); err != nil {
+	if err := sqlident.Validate(name); err != nil {
 		return cfgerrors.Invalidf("SQL table name: %w", err)
 	}
 	return nil
@@ -48,7 +48,7 @@ var SQLIdentifier = validation.By(func(value any) error {
 	value, _ = validation.Indirect(value)
 	name, _ := validation.EnsureString(value)
 	if strings.Contains(name, ".") {
-		return cfgerrors.Invalidf("SQL identifier %q must be unqualified: %w", name, sqldialect.ErrInvalidTableName)
+		return cfgerrors.Invalidf("SQL identifier %q must be unqualified: %w", name, sqlident.ErrInvalidTableName)
 	}
 	return nil
 })

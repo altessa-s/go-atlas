@@ -11,9 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config/internal/validators"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
+
+func TestMaxSQLKeyBatch(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, sqldialect.MaxKeyBatch, validators.MaxSQLKeyBatch)
+}
 
 func TestSQLNames(t *testing.T) {
 	t.Parallel()

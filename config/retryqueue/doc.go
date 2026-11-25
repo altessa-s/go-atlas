@@ -17,5 +17,5 @@
 //
 // The sqldb block exposes purgeInterval (default "1m", "0s" disables the background loop) and
 // purgeBatchSize (default 1000). Manual PurgeExpired remains available with a zero interval. Purging
-// runs only when retention is enabled; idempotency keys always have their own expiry.
+// runs only when resolvedRetention is positive.
 package retryqueueconfig

@@ -2,10 +2,12 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package diagnostics sanitizes error text for logs, spans and persisted outcomes.
 package diagnostics
 
 import (
+	"context"
+	"errors"
+	"io"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -56,6 +58,9 @@ func LogError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if _, ok := err.(diagnosticError); ok {
+		return err
+	}
 	return diagnosticError{err}
 }
 
@@ -63,3 +68,31 @@ type diagnosticError struct{ cause error }
 
 func (e diagnosticError) Error() string        { return ErrorText(e.cause.Error(), DefaultMaxErrorLength) }
 func (e diagnosticError) LogValue() slog.Value { return slog.StringValue(e.Error()) }
+
+// ErrorClass classifies failures from injected components without rendering their text.
+func ErrorClass(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, io.ErrClosedPipe):
+		return "closed_pipe"
+	default:
+		return "failed"
+	}
+}
+
+// ClassifiedError exposes only a caller-supplied safe classification. Is can
+// still match the callback's sentinels, while Unwrap cannot expose its text.
+func ClassifiedError(class string, cause error) error {
+	return &classifiedError{class: class, matches: func(target error) bool { return errors.Is(cause, target) }}
+}
+
+type classifiedError struct {
+	class   string
+	matches func(error) bool
+}
+
+func (e classifiedError) Error() string        { return e.class }
+func (e classifiedError) Is(target error) bool { return e.matches(target) }

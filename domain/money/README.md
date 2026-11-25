@@ -66,17 +66,20 @@ parts, _ := rent.Allocate(decimal.NewFromInt(1), decimal.NewFromInt(1), decimal.
 ## Exchange rates
 
 An `ExchangeRate` is a plain value: `Value` units of `Quote` per one unit of `Base`. `Validate` requires two distinct, set currencies and a strictly
-positive value — a missing rate is never replaced by zero or one.
+positive value. The rate must lie between `10^-MaxRateExponent` and `10^MaxRateExponent`, inclusive.
+Validation also bounds the decimal scale before arithmetic.
 
 | Function                                     | Behavior                                                                                   |
 |----------------------------------------------|--------------------------------------------------------------------------------------------|
 | `NormalizeRate(base, quote, value, nominal)` | Per-unit rate from a quote for `nominal` units: 5500 KZT per 100 RUB ⇒ 55 KZT per 1 RUB    |
-| `ExchangeRate.Inverse()`                     | The reciprocal pair: 100 RUB per 1 EUR ⇒ 0.01 EUR per 1 RUB                                |
+| `ExchangeRate.Inverse()`                     | Reciprocal of a valid rate                                                                 |
+| `ExchangeRate.InverseChecked()`              | Validates the rate and returns its reciprocal                                              |
 | `CrossRate(baseQuote, targetQuote)`          | "target per 1 base" from two quotes in a common currency: EUR/RUB, USD/RUB ⇒ USD per 1 EUR |
 | `Money.Convert(rate, mode)`                  | `amount × Value` in `Quote`, rounded to its minor units                                    |
 
-Divisions keep `RateDivisionPrecision` (28) fractional digits, rounded half away from zero, so repeating fractions terminate without distorting rates
-stored with a dozen digits. Conversion itself never divides: invert or cross the rate first.
+Divisions normally keep `RateDivisionPrecision` (28) fractional digits and round half away from zero.
+The reciprocal keeps additional fractional digits if the standard precision would round it to zero.
+Conversion itself never divides.
 
 ```go
 rate, _ := money.NormalizeRate(kzt, rub, decimal.RequireFromString("17.85"), 100) // 0.1785 RUB per 1 KZT
@@ -96,3 +99,4 @@ inRUB, _ := price.Convert(rate, money.HalfUp) // 22312.50 RUB
 | `ErrInvalidRatios`    | No ratios, a negative ratio, ratios summing to zero, or `Split(0)` |
 | `ErrNonPositiveRate`  | An exchange rate, published value or nominal that is not positive  |
 | `ErrPairMismatch`     | Exchange rates that do not form the expected currency pair         |
+| `ErrRateOutOfRange`   | An exchange rate outside the supported magnitude or scale          |

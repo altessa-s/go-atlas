@@ -3,9 +3,10 @@
 // the LICENSE file.
 
 // Package validators provides custom validation rules for configuration fields.
-// SQLTableName and SQLIdentifier validate SQL names through the shared dialect
-// parser. MongoDirectionConnect checks MongoDB connection settings.
+// SQLTableName and SQLIdentifier validate SQL names with internal/sqlident. MongoDirectionConnect checks MongoDB connection settings.
+// RetryQueueFlagField checks a flag field against the MongoDB retry queue schema.
 // CIDRPrefix and HTTPSURL validate network prefixes and endpoint URLs.
+// [BackendTypes] admits application-registered storage and provider names.
 // Internal package; API may change without notice.
 //
 // # Usage

@@ -90,6 +90,12 @@
 #    # Default value: not set
 #    issuer:
 #
+#    # <duration> Minimum token lifetime.
+#    # Rejects tokens with exp - iat < minTokenLifetime.
+#    # Must be non-negative and at most maxTokenLifetime when the maximum is enabled.
+#    # Default value: 0s (disabled)
+#    minTokenLifetime: "5m"
+#
 #    # <duration> Maximum token lifetime.
 #    # Rejects tokens with exp - iat > maxTokenLifetime.
 #    # Protection against tokens with excessively long validity period.
@@ -197,6 +203,11 @@
 #        # <string> Expected issuer (iss claim) for this preset.
 #        # Default value: not set
 #        issuer:
+#
+#        # <duration> Minimum token lifetime for this preset.
+#        # Must be non-negative and at most maxTokenLifetime when the maximum is enabled.
+#        # Default value: 0s (disabled)
+#        minTokenLifetime: "5m"
 #
 #        # <duration> Maximum token lifetime for this preset.
 #        # Default value: not set (no limitation)

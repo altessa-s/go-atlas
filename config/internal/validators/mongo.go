@@ -7,6 +7,8 @@ package validators
 import (
 	"strings"
 
+	"github.com/altessa-s/go-atlas/internal/retryqueuefields"
+
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -85,4 +87,18 @@ func (r MongoDirectionConnectRule) Error(message string) MongoDirectionConnectRu
 func (r MongoDirectionConnectRule) ErrorObject(err validation.Error) MongoDirectionConnectRule {
 	r.err = err
 	return r
+}
+
+// RetryQueueFlagField validates a configurable retry queue BSON field name.
+func RetryQueueFlagField(companion string) validation.Rule {
+	return validation.By(func(value any) error {
+		name, err := validation.EnsureString(value)
+		if err != nil {
+			return err
+		}
+		if !retryqueuefields.ValidFlag(name, companion) {
+			return retryqueuefields.ErrInvalidFlagField
+		}
+		return nil
+	})
 }

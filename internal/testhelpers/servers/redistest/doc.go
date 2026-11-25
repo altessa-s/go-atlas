@@ -4,6 +4,8 @@
 
 // Package redistest returns a go-redis client connected to an in-process miniredis for tests; both are closed through tb.Cleanup.
 //
+// [ServeTopology] supplies ROLE and INFO cluster replies for topology tests.
+//
 // It lives apart from internal/testhelpers so the heavy server dependencies
 // (nats-server, miniredis) stay out of packages that only need generic
 // test helpers.

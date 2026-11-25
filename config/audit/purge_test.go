@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	"github.com/stretchr/testify/require"
+
+	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 )
 
 func TestSQLPurgeSettings(t *testing.T) {

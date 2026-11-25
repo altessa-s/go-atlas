@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	"github.com/stretchr/testify/require"
+
+	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 )
 
 func TestSQLPurgeSettings(t *testing.T) {

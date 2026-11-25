@@ -146,7 +146,9 @@ const (
 // OutboxStorageConfig selects and configures the outbox storage backend. Each
 // backend has its own nested section; only the one named by Type is used.
 type OutboxStorageConfig struct {
-	// Type defines the storage backend type (mongo or sqldb).
+	validators.BackendTypes[OutboxStorageType] `yaml:"-" json:"-"`
+
+	// Type selects mongo, sqldb, or a registered storage.
 	Type OutboxStorageType `yaml:"type" default:"mongo"`
 
 	// Mongo defines the MongoDB configuration.
@@ -193,22 +195,7 @@ func (c *OutboxStorageConfig) storageCases() []validationconfig.StorageCase[Outb
 // Validate performs validation of the outbox storage configuration. Ensures
 // the storage type is valid and its corresponding configuration is provided.
 func (c *OutboxStorageConfig) Validate() error {
-	return validationconfig.ValidateStorage(c, &c.Type, outboxStorageAllowedTypes, c.storageCases())
-}
-
-// supportsWatch reports whether the storage can serve the watch mode; the
-// empty mode is polling.
-func (c *OutboxStorageConfig) supportsWatch(w OutboxWatch) bool {
-	switch w {
-	case "", OutboxWatchPolling:
-		return true
-	case OutboxWatchChangeStream:
-		return c.Type == OutboxStorageTypeMongo
-	case OutboxWatchNotify:
-		return c.Type == OutboxStorageTypeSQL && c.SQL != nil && c.SQL.Dialect == SQLDialectPostgres
-	default:
-		return false
-	}
+	return validationconfig.ValidateStorage(c, &c.Type, c.AllowedTypes(outboxStorageAllowedTypes...), c.storageCases())
 }
 
 // Outbox defines the configuration for reliable event delivery via the outbox pattern.
@@ -328,19 +315,19 @@ func (c *Outbox) Normalize() {
 
 // ValidateStorage validates the storage section and the watch mode alone — the
 // part of [Outbox.Validate] the outbox factories check before building the
-// store. A watch mode the storage cannot serve fails with
-// [ErrUnsupportedOutboxWatch]. A push mode without a dispatch schedule fails
+// store. A push mode without a dispatch schedule fails
 // with [ErrOutboxWatchNeedsSchedule].
 func (c *Outbox) ValidateStorage() error {
-	err := validationconfig.ValidateStruct(c,
-		validation.Field(&c.Storage, validation.Required),
-		validation.Field(&c.Watch, validation.When(c.Watch != "", ozzo_rules.OneOf(OutboxWatchPolling, OutboxWatchChangeStream, OutboxWatchNotify))),
-	)
+	err := validationconfig.ValidateStruct(c, validation.Field(&c.Storage, validation.Required))
+	if c.Watch != "" {
+		watchErr := validationconfig.ValidateStruct(c,
+			validation.Field(&c.Watch, ozzo_rules.OneOf(OutboxWatchPolling, OutboxWatchChangeStream, OutboxWatchNotify)))
+		if watchErr != nil {
+			err = errors.Join(err, watchErr, cfgerrors.Invalidf("outbox watch %q: %w", c.Watch, ErrUnsupportedOutboxWatch))
+		}
+	}
 	if (c.Watch == OutboxWatchChangeStream || c.Watch == OutboxWatchNotify) && c.DispatchSchedule == "" {
 		err = errors.Join(err, cfgerrors.Invalidf("outbox watch %q: %w", c.Watch, ErrOutboxWatchNeedsSchedule))
-	}
-	if c.Storage != nil && !c.Storage.supportsWatch(c.Watch) {
-		err = errors.Join(err, cfgerrors.Invalidf("outbox watch %q with storage %q: %w", c.Watch, c.Storage.Type, ErrUnsupportedOutboxWatch))
 	}
 	return err
 }

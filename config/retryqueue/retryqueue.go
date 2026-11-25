@@ -71,8 +71,8 @@ type MongoStorageConfig struct {
 func (c *MongoStorageConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Collection, validation.Required),
-		validation.Field(&c.FlagField, validation.Required),
-		validation.Field(&c.FlagReasonField, validation.Required),
+		validation.Field(&c.FlagField, validation.Required, validators.RetryQueueFlagField(c.FlagReasonField)),
+		validation.Field(&c.FlagReasonField, validation.Required, validators.RetryQueueFlagField(c.FlagField)),
 		validation.Field(&c.ResolvedRetention, validation.When(c.ResolvedRetention != 0, validationconfig.PositiveDuration())),
 	)
 }
@@ -114,6 +114,8 @@ func (c *SQLStorageConfig) Validate() error {
 // StorageConfig selects and configures the retry queue backend. Each backend
 // has its own nested section; only the one named by Type is used.
 type StorageConfig struct {
+	validators.BackendTypes[StorageType] `yaml:"-" json:"-"`
+
 	// Type defines the storage backend type (memory, mongo or sqldb).
 	Type StorageType `yaml:"type" default:"memory"`
 
@@ -169,7 +171,7 @@ func (c *StorageConfig) storageCases() []validationconfig.StorageCase[StorageTyp
 // Validate ensures the storage type is valid and its configuration is
 // provided.
 func (c *StorageConfig) Validate() error {
-	return validationconfig.ValidateStorage(c, &c.Type, storageAllowedTypes, c.storageCases())
+	return validationconfig.ValidateStorage(c, &c.Type, c.AllowedTypes(storageAllowedTypes...), c.storageCases())
 }
 
 // Config configures a retry queue: the backend that persists its items.

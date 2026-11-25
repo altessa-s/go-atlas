@@ -25,24 +25,22 @@ func TestOutbox_StorageAndWatch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		storage     *brokerconfig.OutboxStorageConfig
-		watch       brokerconfig.OutboxWatch
-		wantErr     bool
-		unsupported bool
+		name    string
+		storage *brokerconfig.OutboxStorageConfig
+		watch   brokerconfig.OutboxWatch
+		wantErr bool
 	}{
 		{name: "mongo polling", storage: brokerconfig.DefaultOutboxStorage(), watch: brokerconfig.OutboxWatchPolling},
 		{name: "mongo default watch", storage: brokerconfig.DefaultOutboxStorage()},
 		{name: "mongo change stream", storage: brokerconfig.DefaultOutboxStorage(), watch: brokerconfig.OutboxWatchChangeStream},
-		{name: "mongo notify", storage: brokerconfig.DefaultOutboxStorage(), watch: brokerconfig.OutboxWatchNotify, wantErr: true, unsupported: true},
+		{name: "mongo notify", storage: brokerconfig.DefaultOutboxStorage(), watch: brokerconfig.OutboxWatchNotify},
 		{name: "postgres polling", storage: sqlStorage(brokerconfig.SQLDialectPostgres), watch: brokerconfig.OutboxWatchPolling},
 		{name: "postgres notify", storage: sqlStorage(brokerconfig.SQLDialectPostgres), watch: brokerconfig.OutboxWatchNotify},
 		{
 			name: "postgres change stream", storage: sqlStorage(brokerconfig.SQLDialectPostgres), watch: brokerconfig.OutboxWatchChangeStream,
-			wantErr: true, unsupported: true,
 		},
-		{name: "mysql notify", storage: sqlStorage(brokerconfig.SQLDialectMySQL), watch: brokerconfig.OutboxWatchNotify, wantErr: true, unsupported: true},
-		{name: "unknown watch", storage: brokerconfig.DefaultOutboxStorage(), watch: "push", wantErr: true, unsupported: true},
+		{name: "mysql notify", storage: sqlStorage(brokerconfig.SQLDialectMySQL), watch: brokerconfig.OutboxWatchNotify},
+		{name: "unknown watch", storage: brokerconfig.DefaultOutboxStorage(), watch: "push", wantErr: true},
 		{name: "unknown dialect", storage: sqlStorage("oracle"), wantErr: true},
 		{name: "unknown type", storage: &brokerconfig.OutboxStorageConfig{Type: "redis"}, wantErr: true},
 		{name: "sqldb without table", storage: sqlStorage(""), wantErr: true},
@@ -61,9 +59,8 @@ func TestOutbox_StorageAndWatch(t *testing.T) {
 				return
 			}
 			require.Error(t, err)
-			if tc.unsupported {
+			if tc.watch == "push" {
 				require.ErrorIs(t, err, brokerconfig.ErrUnsupportedOutboxWatch)
-				require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 			}
 		})
 	}

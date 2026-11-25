@@ -187,8 +187,10 @@ type DistributionLockNATS struct {
 //		NATS:     &lockconfig.DistributionLockNATS{Bucket: "myapp-locks"},
 //	}
 type DistributionLock struct {
+	validators.BackendTypes[DistributionLockProvider] `yaml:"-" json:"-"`
+
 	// Provider defines the type of distributed locking implementation to use.
-	// Must be one of the supported providers: "nats", "mongo", or "sqldb".
+	// Packaged providers are nats, mongo, and sqldb.
 	Provider DistributionLockProvider `yaml:"provider"`
 
 	// Nats defines the NATS configuration for distributed locking.
@@ -231,7 +233,7 @@ func DefaultDistributionLock() DistributionLock {
 func (dl *DistributionLock) Validate() error {
 	return validationconfig.ValidateStruct(dl,
 		validation.Field(&dl.Provider, validation.Required,
-			ozzo_rules.OneOf(DistributionLockProviderNATS, DistributionLockProviderMongo, DistributionLockProviderSQL)),
+			ozzo_rules.OneOf(dl.AllowedTypes(DistributionLockProviderNATS, DistributionLockProviderMongo, DistributionLockProviderSQL)...)),
 		validation.Field(&dl.NATS, validation.When(dl.Provider == DistributionLockProviderNATS, validation.NilOrNotEmpty)),
 		validation.Field(&dl.Mongo, validation.When(dl.Provider == DistributionLockProviderMongo, validation.Required)),
 		validation.Field(&dl.SQL, validation.When(dl.Provider == DistributionLockProviderSQL, validation.Required)),

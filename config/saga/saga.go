@@ -157,6 +157,8 @@ func (c *SQLStorageConfig) Validate() error {
 // StorageConfig selects and configures the saga state-store backend. Each
 // backend has its own nested section; only the one named by Type is used.
 type StorageConfig struct {
+	validators.BackendTypes[StorageType] `yaml:"-" json:"-"`
+
 	// Type defines the storage backend type (memory, nats, mongo, redis, or
 	// sqldb).
 	Type StorageType `yaml:"type" default:"memory"`
@@ -231,7 +233,7 @@ func (c *StorageConfig) storageCases() []validationconfig.StorageCase[StorageTyp
 // Validate performs validation of the saga storage configuration. Ensures the
 // storage type is valid and its corresponding configuration is provided.
 func (c *StorageConfig) Validate() error {
-	return validationconfig.ValidateStorage(c, &c.Type, sagaStorageAllowedTypes, c.storageCases())
+	return validationconfig.ValidateStorage(c, &c.Type, c.AllowedTypes(sagaStorageAllowedTypes...), c.storageCases())
 }
 
 // Config configures the saga orchestrator and its state store. It mirrors the

@@ -5,9 +5,11 @@
 package redistest
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/alicebob/miniredis/v2/server"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -23,4 +25,24 @@ func RedisClient(tb testing.TB) (*goredis.Client, *miniredis.Miniredis) {
 	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
 	tb.Cleanup(func() { _ = client.Close() })
 	return client, mr
+}
+
+// ServeTopology supplies ROLE and INFO cluster, which miniredis does not
+// implement. Other commands keep their usual behavior.
+func ServeTopology(mr *miniredis.Miniredis, role, clusterEnabled string) {
+	mr.Server().SetPreHook(func(c *server.Peer, cmd string, args ...string) bool {
+		switch {
+		case cmd == "ROLE":
+			const primaryRoleFields = 3 // role, replication offset, connected replicas
+			c.WriteLen(primaryRoleFields)
+			c.WriteBulk(role)
+			c.WriteInt(0)
+			c.WriteLen(0)
+		case cmd == "INFO" && len(args) == 1 && strings.EqualFold(args[0], "cluster"):
+			c.WriteBulk("# Cluster\r\ncluster_enabled:" + clusterEnabled + "\r\n")
+		default:
+			return false
+		}
+		return true
+	})
 }

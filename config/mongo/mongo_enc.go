@@ -6,6 +6,7 @@ package mongoconfig
 
 import (
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -40,6 +41,8 @@ const MasterKeyLength = 96
 // It contains provider-specific settings for managing encryption keys.
 // Only the configuration matching the specified provider is required.
 type KMS struct {
+	validators.BackendTypes[KMSProvider] `yaml:"-" json:"-"`
+
 	Provider KMSProvider `yaml:"provider"`
 	Local    *KMSLocal   `yaml:"local" default:"-"`
 	AWS      *KMSAWS     `yaml:"aws" default:"-"`
@@ -55,7 +58,7 @@ type KMS struct {
 func (m *KMS) Validate() error {
 	return validationconfig.ValidateStruct(m,
 		validation.Field(&m.Provider, validation.Required,
-			ozzo_rules.OneOf(KMSProviderLocal, KMSProviderAzure, KMSProviderAWS, KMSProviderGCP)),
+			ozzo_rules.OneOf(m.AllowedTypes(KMSProviderLocal, KMSProviderAzure, KMSProviderAWS, KMSProviderGCP)...)),
 		validation.Field(&m.Local, validation.Required.When(m.Provider == KMSProviderLocal)),
 		validation.Field(&m.AWS, validation.Required.When(m.Provider == KMSProviderAWS)),
 		validation.Field(&m.Azure, validation.Required.When(m.Provider == KMSProviderAzure)),

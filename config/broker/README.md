@@ -20,8 +20,8 @@ options; runtime packages never import them.
 | `OutboxStorageConfig` | Selects MongoDB or SQL storage and its settings.                                                     |
 | `OutboxWatch`         | `polling` (default), `changeStream` (mongo only) or `notify` (sqldb with the postgres dialect only). |
 
-`Outbox.Normalize` defaults a missing `storage` block to MongoDB and allocates the backend block its type names; call it before `Validate`. A watch
-mode the storage cannot serve fails validation with `ErrUnsupportedOutboxWatch`, wrapped with go-atlas-core `ErrInvalidArgument`.
+`Outbox.Normalize` defaults a missing `storage` block to MongoDB and allocates the backend block its type names; call it before `Validate`. At build
+time, an incompatible storage and watch mode fails with `ErrUnsupportedOutboxWatch`, wrapped with go-atlas-core `ErrInvalidArgument`.
 
 See the [config index](../README.md) for the other schema packages.
 

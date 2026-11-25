@@ -122,7 +122,9 @@ func (c *MongoStorageConfig) Validate() error {
 // StorageConfig selects and configures the idempotency key store. Each
 // backend has its own nested section; only the one named by Type is used.
 type StorageConfig struct {
-	// Type defines the storage backend type (memory, redis, nats, mongo or sqldb).
+	validators.BackendTypes[StorageType] `yaml:"-" json:"-"`
+
+	// Type selects memory, redis, nats, mongo, sqldb, or a registered storage.
 	Type StorageType `yaml:"type"`
 
 	// Memory defines the in-memory configuration.
@@ -186,7 +188,7 @@ func (c *StorageConfig) storageCases() []validationconfig.StorageCase[StorageTyp
 // Validate ensures the storage type is valid and its configuration is
 // provided.
 func (c *StorageConfig) Validate() error {
-	return validationconfig.ValidateStorage(c, &c.Type, storageAllowedTypes, c.storageCases())
+	return validationconfig.ValidateStorage(c, &c.Type, c.AllowedTypes(storageAllowedTypes...), c.storageCases())
 }
 
 // Default returns an Idempotency configuration with default values.

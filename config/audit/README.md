@@ -21,10 +21,10 @@ nomos/tree/develop/loader) and consumed by the component factories, which map th
 The `paging` section of event queries is the shared [`config/paging`](../paging) schema (nil disables page tokens).
 
 `storage.sqldb.ttl` uses the same duration field, YAML key, and validation as `storage.mongo.ttl`: zero keeps events forever; nonpositive values leave
-retention disabled. SQL retention runs in the storage every minute in batches of up to 1,000 rows, while MongoDB uses a server TTL index. The SQL
-factory maps `ttl`, `purgeInterval` and `purgeBatchSize` to the storage options.
+retention disabled. SQL retention runs in the storage on `purgeInterval` (default `"1m"`) in batches of up to `purgeBatchSize` (default 1000), while
+MongoDB uses a server TTL index. The SQL factory maps `ttl`, `purgeInterval` and `purgeBatchSize` to the storage options.
 
 See the [config index](../README.md) for the other schema packages.
 
-The sqldb block exposes purgeInterval (default "1m", "0s" disables the background loop) and purgeBatchSize (default 1000). Manual PurgeExpired remains
-available with a zero interval. Purging runs only when retention is enabled; idempotency keys always have their own expiry.
+The sqldb block exposes `purgeInterval` (default `"1m"`, `"0s"` disables the background loop) and `purgeBatchSize` (default 1000). Manual `PurgeExpired`
+remains available with a zero interval. Purging runs only when retention (`ttl`) is enabled.

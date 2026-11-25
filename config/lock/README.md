@@ -21,5 +21,5 @@ nomos/tree/develop/loader) and consumed by the component factories, which map th
 
 See the [config index](../README.md) for the other schema packages.
 
-The sqldb block exposes purgeInterval (default "1m", "0s" disables the background loop) and purgeBatchSize (default 1000). Manual PurgeExpired remains
-available with a zero interval. Purging runs only when retention is enabled; idempotency keys always have their own expiry.
+The sqldb block exposes `purgeInterval` (default `"1m"`, `"0s"` disables the background loop) and `purgeBatchSize` (default 1000). Manual `PurgeExpired`
+remains available with a zero interval. Purging runs only when `expiredCleanup` is enabled.

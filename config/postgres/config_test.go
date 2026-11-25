@@ -13,8 +13,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-nomos/loader"
+
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"

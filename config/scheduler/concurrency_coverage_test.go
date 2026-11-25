@@ -10,9 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
-
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -63,65 +60,6 @@ func TestConcurrency_Validate(t *testing.T) {
 		Strategy: schedulerconfig.ConcurrencyAdaptive,
 		Adaptive: &schedulerconfig.AdaptiveConcurrency{MemoryLowThresholdMB: 100, MemoryMediumThresholdMB: 500},
 	}).Validate())
-}
-
-func TestConcurrency_BuildLimitFunc(t *testing.T) {
-	t.Parallel()
-
-	t.Run("static", func(t *testing.T) {
-		t.Parallel()
-		fn, err := (&schedulerconfig.Concurrency{Strategy: schedulerconfig.ConcurrencyStatic, MaxTasks: 7}).BuildLimitFunc()
-		require.NoError(t, err)
-		require.Equal(t, 7, fn())
-	})
-
-	t.Run("static without limit uses default", func(t *testing.T) {
-		t.Parallel()
-		fn, err := (&schedulerconfig.Concurrency{}).BuildLimitFunc()
-		require.NoError(t, err)
-		require.Nil(t, fn)
-	})
-
-	t.Run("environment", func(t *testing.T) {
-		t.Parallel()
-		fn, err := (&schedulerconfig.Concurrency{
-			Strategy: schedulerconfig.ConcurrencyEnvironment, Environment: concurrency.EnvironmentRateLimited,
-		}).BuildLimitFunc()
-		require.NoError(t, err)
-		require.Equal(t, concurrency.ConcurrencyForEnvironment(concurrency.EnvironmentRateLimited), fn())
-	})
-
-	t.Run("memory-aware", func(t *testing.T) {
-		t.Parallel()
-		_, err := (&schedulerconfig.Concurrency{Strategy: schedulerconfig.ConcurrencyMemoryAware}).BuildLimitFunc()
-		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
-
-		fn, err := (&schedulerconfig.Concurrency{
-			Strategy:    schedulerconfig.ConcurrencyMemoryAware,
-			MemoryAware: &schedulerconfig.MemoryAwareConcurrency{LowMemoryMB: 1, MediumMemoryMB: 2, HighMemoryMB: 3},
-		}).BuildLimitFunc()
-		require.NoError(t, err)
-		require.Positive(t, fn())
-	})
-
-	t.Run("adaptive", func(t *testing.T) {
-		t.Parallel()
-		_, err := (&schedulerconfig.Concurrency{Strategy: schedulerconfig.ConcurrencyAdaptive}).BuildLimitFunc()
-		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
-
-		fn, err := (&schedulerconfig.Concurrency{
-			Strategy: schedulerconfig.ConcurrencyAdaptive,
-			Adaptive: &schedulerconfig.AdaptiveConcurrency{MemoryLowThresholdMB: 1, MemoryMediumThresholdMB: 2, HighLoadThreshold: 0.8},
-		}).BuildLimitFunc()
-		require.NoError(t, err)
-		require.Positive(t, fn())
-	})
-
-	t.Run("unknown", func(t *testing.T) {
-		t.Parallel()
-		_, err := (&schedulerconfig.Concurrency{Strategy: "greedy"}).BuildLimitFunc()
-		require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
-	})
 }
 
 func TestStorageDefaults(t *testing.T) {

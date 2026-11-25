@@ -5,6 +5,7 @@
 package auditconfig
 
 import (
+	"slices"
 	"time"
 
 	"github.com/altessa-s/go-atlas/config/internal/validators"
@@ -83,6 +84,8 @@ type Config struct {
 
 // Storage defines the storage backend configuration for audit events.
 type Storage struct {
+	validators.BackendTypes[StorageType] `yaml:"-" json:"-"`
+
 	// Type selects the storage backend.
 	Type StorageType `yaml:"type" default:"memory"`
 
@@ -223,7 +226,8 @@ func (a *Config) Validate() error {
 // Validate performs validation of the audit storage configuration.
 func (s *Storage) Validate() error {
 	return validationconfig.ValidateStruct(s,
-		validation.Field(&s.Type, validation.Required, validation.In(StorageTypeMemory, StorageTypeMongo, StorageTypeClickHouse, StorageTypeSQL)),
+		validation.Field(&s.Type, validation.Required, validation.When(!slices.Contains(s.AllowedTypes(), s.Type),
+			validation.In(StorageTypeMemory, StorageTypeMongo, StorageTypeClickHouse, StorageTypeSQL))),
 		validation.Field(&s.Mongo, validation.When(s.Type == StorageTypeMongo, validation.Required)),
 		validation.Field(&s.ClickHouse, validation.When(s.Type == StorageTypeClickHouse, validation.Required)),
 		validation.Field(&s.SQL, validation.When(s.Type == StorageTypeSQL, validation.Required)),

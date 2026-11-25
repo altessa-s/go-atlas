@@ -5,6 +5,8 @@
 package storageconfig
 
 import (
+	"github.com/altessa-s/go-atlas/config/internal/validators"
+
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -129,8 +131,10 @@ var backendAllowedTypes = []BackendType{
 // limiters, MongoDB cursor storage). The cache uses [CacheStorageConfig]
 // instead, which has no NATS backend.
 type BackendConfig struct {
+	validators.BackendTypes[BackendType] `yaml:"-" json:"-"`
+
 	// Type defines the storage backend type.
-	// Must be one of the supported storage types (memory, redis, nats).
+	// Built-in and packaged types are memory, redis, and nats.
 	Type BackendType `yaml:"type"`
 
 	// Memory defines the in-memory configuration.
@@ -176,7 +180,7 @@ func (c *BackendConfig) storageCases() []validationconfig.StorageCase[BackendTyp
 // Validate performs validation of the storage backend configuration.
 // Ensures storage type is valid and corresponding configuration is provided.
 func (c *BackendConfig) Validate() error {
-	return validationconfig.ValidateStorage(c, &c.Type, backendAllowedTypes, c.storageCases())
+	return validationconfig.ValidateStorage(c, &c.Type, c.AllowedTypes(backendAllowedTypes...), c.storageCases())
 }
 
 // CacheStorageType selects the storage backend of the cache

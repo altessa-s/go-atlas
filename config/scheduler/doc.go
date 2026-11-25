@@ -11,7 +11,7 @@
 //
 // Key types: [ConcurrencyStrategy], [MemoryAwareConcurrency],
 // [AdaptiveConcurrency], [Concurrency], [TaskConcurrency],
-// [StorageType].
+// [StorageType]. The go-horai factory builds the runtime limit function from [Concurrency].
 //
 // [ScheduleRule] validates a cron schedule spec with the grammar every
 // go-horai scheduler parses (github.com/altessa-s/go-horai/schedule), so

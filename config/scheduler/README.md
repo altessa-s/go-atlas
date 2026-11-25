@@ -25,7 +25,7 @@ validation.Field(&c.Schedule, validation.Required, schedulerconfig.ScheduleRule)
 | `ConcurrencyStrategy`     | Defines the concurrency strategy.                                                       |
 | `MemoryAwareConcurrency`  | Configures the memory-aware concurrency strategy.                                       |
 | `AdaptiveConcurrency`     | Configures the adaptive concurrency strategy.                                           |
-| `Concurrency`             | Is the base concurrency configuration reusable across components.                       |
+| `Concurrency`             | Provides the strategy used by the [go-horai factory](../../factory/ext/horai).                       |
 | `TaskConcurrency`         | Configures the concurrency behavior of the scheduler.                                   |
 | `StorageType`             | Defines the storage backend type for the scheduler.                                     |
 | `StorageMongoConfig`      | Contains MongoDB-specific settings for the scheduler storage.                           |

@@ -7,6 +7,8 @@ import "github.com/altessa-s/go-atlas/internal/testhelpers"
 Package `testhelpers` provides shared fixtures and doubles for tests across toolkit packages. Helpers accepting `testing.TB` register cleanup
 automatically.
 
+The [mtlstest](mtlstest) subpackage issues matching client and server certificates for HTTP and gRPC tests.
+
 ## Key helpers
 
 | Helper                                | Purpose                                                                                          |

@@ -48,6 +48,12 @@ func TestConfig_Validate(t *testing.T) {
 		{"mongo empty flag field", &retryqueueconfig.StorageConfig{Type: retryqueueconfig.StorageTypeMongo, Mongo: &retryqueueconfig.MongoStorageConfig{
 			Collection: "retry_items", FlagReasonField: "flagReason",
 		}}, false},
+		{"mongo duplicate flag names", &retryqueueconfig.StorageConfig{Type: retryqueueconfig.StorageTypeMongo, Mongo: &retryqueueconfig.MongoStorageConfig{
+			Collection: "retry_items", FlagField: " statusFlag ", FlagReasonField: "statusFlag",
+		}}, false},
+		{"mongo reserved flag name", &retryqueueconfig.StorageConfig{Type: retryqueueconfig.StorageTypeMongo, Mongo: &retryqueueconfig.MongoStorageConfig{
+			Collection: "retry_items", FlagField: "state", FlagReasonField: "flagReason",
+		}}, false},
 		{"mongo negative retention", &retryqueueconfig.StorageConfig{Type: retryqueueconfig.StorageTypeMongo, Mongo: &retryqueueconfig.MongoStorageConfig{
 			Collection: "retry_items", FlagField: "flagged", FlagReasonField: "flagReason", ResolvedRetention: -time.Second,
 		}}, false},
