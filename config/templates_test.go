@@ -30,6 +30,7 @@ import (
 	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
+	grpcclientconfig "github.com/altessa-s/go-atlas/config/grpcclient"
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
@@ -100,6 +101,7 @@ var templateCases = map[string][]templateRoot{
 	"dispatch.yaml":                          {root[dispatchconfig.Config]("dispatch")},
 	"dlock.yaml":                             {root[lockconfig.DistributionLock]("distributionLock")},
 	"grpc.yaml":                              {root[grpcconfig.Config]("grpc")},
+	"grpc_client.yaml":                       {root[grpcclientconfig.Config]("grpcClient")},
 	"grpc_proxy.yaml":                        {root[proxyconfig.Config]("proxy")},
 	"health.yaml":                            {root[observabilityconfig.Health]("health")},
 	"health_client.yaml":                     {root[clienthealthconfig.HTTP]("httpHealthClient"), root[clienthealthconfig.GRPC]("grpcHealthClient")},

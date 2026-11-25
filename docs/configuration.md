@@ -364,13 +364,48 @@ The SQL stores share one set of rules:
 
 ---
 
+## gRPC client name resolution
+
+grpc-go selects the resolver by default, preserving DNS TXT service configs and globally registered builders. Set `grpcClient.resolver.enabled`
+to true to use the [Atlas DNS resolver](../transport/grpc/client/dnsresolver) for targets without a scheme and `dns` targets. The Atlas resolver
+re-resolves periodically and retries failed lookups within a few seconds. The
+[`grpcclientconfig`](../config/grpcclient) schema tunes it and the connection backoff; `factory.ConnectionOptions`
+([`factory/transport/grpc/client`](../factory/transport/grpc/client)) maps it to client options. Template: `grpc_client.yaml`.
+
+```yaml
+grpcClient:
+  resolver:
+    enabled: false         # true enables the Atlas DNS resolver
+    refreshInterval: 30s   # re-resolution while lookups succeed (minimum 1s)
+    refreshJitter: 0.1     # largest random shortening of a refresh interval (0-0.5); unset keeps 0.1
+    minInterval: 2s        # shortest pause before a re-resolution gRPC requests (at most refreshInterval)
+    lookupTimeout: 10s
+    backoff:               # after a failed or empty lookup
+      baseDelay: 1s
+      multiplier: 1.6
+      jitter: 0.2          # unset keeps 0.2; 0 disables jitter
+      maxDelay: 5s
+  connectBackoff:          # between attempts to connect to one address
+    baseDelay: 1s
+    multiplier: 1.6
+    jitter: 0.2
+    maxDelay: 2m
+```
+
+The values shown are the defaults. Resolver tuning applies when `enabled` is true. grpc-go applies connection backoff jitter after the cap,
+so later waits can exceed `connectBackoff.maxDelay`.
+With a target that always resolves to the same address (a ClusterIP service, an IP address) only `connectBackoff` decides how fast a client
+reconnects after an outage. See [ADR 0002](adr/0002-grpc-client-dns-resolver.md).
+
+---
+
 ## Configuration templates
 
 The `config/templates` package provides 30+ pre-built YAML templates for common components:
 
 | Category       | Templates                                                                                     |
 |----------------|-----------------------------------------------------------------------------------------------|
-| Transport      | `http.yaml`, `grpc.yaml`, `broker.yaml` + middleware/interceptor dirs                         |
+| Transport      | `http.yaml`, `grpc.yaml`, `grpc_client.yaml`, `broker.yaml` + middleware/interceptor dirs     |
 | Proxy          | `http_proxy.yaml`, `grpc_proxy.yaml` (reusable via `!include`)                                |
 | HTTP egress    | `http_client_ssrf.yaml` (reusable via `!include`)                                            |
 | Data           | `postgres.yaml`, `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`, `storage_backend.yaml`         |

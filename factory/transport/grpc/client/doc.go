@@ -7,7 +7,9 @@
 // # Usage
 //
 //	opts := factory.HealthOptions(cfg.Health)
+//	opts = append(opts, factory.ConnectionOptions(cfg.GRPCClient)...)
 //
-// HealthOptions configures health reporting.
-// Proxy options are assembled in factory/ext/net/proxydial.
+// HealthOptions configures health reporting. ConnectionOptions configures
+// optional Atlas DNS resolution and connection backoff. Proxy options are assembled in
+// factory/ext/net/proxydial.
 package factory

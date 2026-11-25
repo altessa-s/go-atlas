@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
+	grpcclientconfig "github.com/altessa-s/go-atlas/config/grpcclient"
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
 	natsconfig "github.com/altessa-s/go-atlas/config/nats"
@@ -72,6 +73,16 @@ func TestValidate_NegativeDurationRejected(t *testing.T) {
 		}},
 		{"GRPC.KeepAlive.Time (zero allowed)", func() error {
 			return (&grpcconfig.KeepAlive{Time: neg}).Validate()
+		}},
+		{"GRPCClient.Resolver.LookupTimeout (zero means default)", func() error {
+			c := grpcclientconfig.Default()
+			c.Resolver.LookupTimeout = neg
+			return c.Validate()
+		}},
+		{"GRPCClient.ConnectBackoff.MaxDelay (zero means default)", func() error {
+			c := grpcclientconfig.Default()
+			c.ConnectBackoff.MaxDelay = neg
+			return c.Validate()
 		}},
 	}
 	for _, tc := range tests {

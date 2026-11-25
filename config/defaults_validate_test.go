@@ -17,6 +17,7 @@ import (
 	clickhouseconfig "github.com/altessa-s/go-atlas/config/clickhouse"
 	clienthealthconfig "github.com/altessa-s/go-atlas/config/clienthealth"
 	grpcconfig "github.com/altessa-s/go-atlas/config/grpc"
+	grpcclientconfig "github.com/altessa-s/go-atlas/config/grpcclient"
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
@@ -90,6 +91,9 @@ func TestDefaults_PassOwnValidate(t *testing.T) {
 		{"grpcconfig.DefaultRequestIDInterceptor", func() error { return validateDefault(grpcconfig.DefaultRequestIDInterceptor()) }},
 		{"grpcconfig.DefaultTracingInterceptor", func() error { return validateDefault(grpcconfig.DefaultTracingInterceptor()) }},
 		{"grpcconfig.DefaultInterceptors", func() error { return validateDefault(grpcconfig.DefaultInterceptors()) }},
+		{"grpcclientconfig.Default", func() error { return validateDefault(grpcclientconfig.Default()) }},
+		{"grpcclientconfig.DefaultResolver", func() error { return validateDefault(grpcclientconfig.DefaultResolver()) }},
+		{"grpcclientconfig.DefaultConnectBackoff", func() error { return validateDefault(grpcclientconfig.DefaultConnectBackoff()) }},
 		{"httpconfig.Default", func() error { return validateDefault(httpconfig.Default()) }},
 		{"httpconfig.DefaultClientSSRF", func() error { return validateDefault(httpconfig.DefaultClientSSRF()) }},
 		{"httpconfig.DefaultBodyLimitMiddleware", func() error { return validateDefault(httpconfig.DefaultBodyLimitMiddleware()) }},
