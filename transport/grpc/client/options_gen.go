@@ -13,6 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
+	"github.com/altessa-s/go-atlas/transport/grpc/client/dnsresolver"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
@@ -40,6 +41,51 @@ func WithAppName[T interface{ string | *string }](v T) Option {
 			return
 		}
 		o.appName = transformedValue
+	}
+}
+
+// WithBuiltinDNSResolver resolves targets without a scheme and dns targets with grpc-go's built-in dns
+// resolver instead of the [dnsresolver] the client installs by default; [WithDNSResolver] options are then ignored.
+func WithBuiltinDNSResolver() Option {
+	return func(o *options) {
+		value := true
+		o.builtinDNSResolver = value
+	}
+}
+
+// WithConnectBackoff sets the backoff between attempts to connect to an address. Without options it keeps
+// grpc-go's defaults (1s base delay, multiplier 1.6, jitter 0.2, 120s cap); the generated
+// [ConnectBackoffOption] values override individual settings.
+//
+// Example:
+//
+//	c, err := client.New(ctx, "inventory:9000",
+//		client.WithConnectBackoff(client.WithConnectBackoffMaxDelay(10*time.Second)),
+//	)
+func WithConnectBackoff(opts ...ConnectBackoffOption) Option {
+	return func(o *options) {
+		o.connectBackoff = newConnectBackoffOptions(opts...)
+	}
+}
+
+// WithDNSResolver tunes the [dnsresolver] the client installs for targets without a scheme and dns targets,
+// for example with [dnsresolver.WithRefreshInterval]. Values from repeated calls accumulate; a later one wins.
+// The client supplies its logger and meter first, so a resolver option can override them.
+//
+// Example:
+//
+//	c, err := client.New(ctx, "inventory.default.svc:9000",
+//		client.WithDNSResolver(
+//			dnsresolver.WithRefreshInterval(10*time.Second),
+//			dnsresolver.WithBackoffMaxDelay(3*time.Second),
+//		),
+//	)
+func WithDNSResolver(v ...dnsresolver.Option) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		o.dnsResolverOptions = append(o.dnsResolverOptions, v...)
 	}
 }
 
@@ -257,6 +303,7 @@ func WithTracer(v tracing.Tracer) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		connectBackoff:    defaultConnectBackoffOptions(),
 		healthServiceName: DefaultClientHealthServiceName,
 		healthStateMapper: pool.DefaultStateMapper,
 		logger:            slog.New(slog.DiscardHandler),

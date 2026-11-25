@@ -15,14 +15,15 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/time/timeformat"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/transport/grpc/client/dnsresolver"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/status"
 
 	// Register grpc-go's client-side Health/Watch implementation.
@@ -304,10 +305,7 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 	serviceConfig := c.buildServiceConfig()
 
 	grpcOptions := []grpc.DialOption{
-		grpc.WithConnectParams(grpc.ConnectParams{
-			Backoff:           backoff.DefaultConfig,
-			MinConnectTimeout: MinConnectTimeout,
-		}),
+		grpc.WithConnectParams(c.connectParams()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
 		//nolint:mnd
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -342,7 +340,32 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 
 	grpcOptions = append(grpcOptions, c.options.extraDialOptions...)
 
+	// A connection uses the first builder registered for a scheme, so a dns
+	// builder in extraDialOptions takes precedence over this one. The builder
+	// serves this client only: grpc-go's global dns resolver stays in place.
+	grpcOptions = coreslices.AppendIfFunc(grpcOptions, !c.options.builtinDNSResolver, func() []grpc.DialOption {
+		return []grpc.DialOption{grpc.WithResolvers(c.dnsResolverBuilder())}
+	})
+
 	return grpcOptions, nil
+}
+
+// connectParams returns the connection backoff and the minimum connect
+// timeout of every subchannel.
+func (c *Client) connectParams() grpc.ConnectParams {
+	return grpc.ConnectParams{
+		Backoff:           c.options.connectBackoff.config(),
+		MinConnectTimeout: MinConnectTimeout,
+	}
+}
+
+// dnsResolverBuilder returns the builder of the go-atlas DNS resolver with
+// the client's logger and meter and the WithDNSResolver options. Each
+// connection built with it, every pooled one included, gets its own resolver.
+func (c *Client) dnsResolverBuilder() resolver.Builder {
+	opts := append([]dnsresolver.Option{dnsresolver.WithLogger(c.options.logger), dnsresolver.WithMeter(c.options.meter)},
+		c.options.dnsResolverOptions...)
+	return dnsresolver.NewBuilder(opts...)
 }
 
 func (c *Client) interceptorOptions() ([]grpc.DialOption, error) {

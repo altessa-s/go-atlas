@@ -58,6 +58,27 @@
 // A subchannel reporting NOT_SERVING stops receiving calls until it reports
 // SERVING again. [WithoutHealthCheck] disables this watch.
 //
+// # Name resolution
+//
+// Targets without a scheme and dns targets are resolved by the [dnsresolver]
+// the client installs on its own connections, pooled ones included, with
+// [grpc.WithResolvers]; grpc-go's global resolver stays untouched. The
+// resolver re-resolves at most 30s apart, so new servers behind a headless
+// service receive traffic without a connection failure, and retries a failed
+// or empty lookup within 5s. While DNS finds no address it drops the old
+// ones, so servers returning even on their old addresses are connected at
+// once. Tune it with [WithDNSResolver] or return to grpc-go's resolver with
+// [WithBuiltinDNSResolver]:
+//
+//	c, err := client.New(ctx, "inventory.default.svc:9000",
+//		client.WithDNSResolver(dnsresolver.WithRefreshInterval(10*time.Second)),
+//		client.WithConnectBackoff(client.WithConnectBackoffMaxDelay(10*time.Second)),
+//	)
+//
+// [WithConnectBackoff] spaces the connection attempts to one address. It
+// alone decides how fast the client reconnects to a target that always
+// resolves to the same address, such as a ClusterIP service.
+//
 // # Connection Pooling
 //
 // For high-throughput scenarios, use connection pooling:

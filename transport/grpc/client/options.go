@@ -5,6 +5,7 @@
 package client
 
 //go:generate go tool optgen generate --type=retryOptions --option-type=RetryOption --option-prefix=Retry --output=retry_options_gen.go
+//go:generate go tool optgen generate --type=connectBackoffOptions --option-type=ConnectBackoffOption --option-prefix=ConnectBackoff --output=connect_backoff_options_gen.go
 //go:generate go tool optgen generate --type=options
 
 import (
@@ -22,6 +23,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
+	"github.com/altessa-s/go-atlas/transport/grpc/client/dnsresolver"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
@@ -147,6 +149,32 @@ type options struct {
 	// The watch takes subchannels reporting NOT_SERVING out of rotation.
 	// WithHealthCoordinator separately reports the local connection state.
 	withoutHealthCheck bool `opt:"HealthCheck" optval:"invert"`
+	// WithDNSResolver tunes the [dnsresolver] the client installs for targets without a scheme and dns targets,
+	// for example with [dnsresolver.WithRefreshInterval]. Values from repeated calls accumulate; a later one wins.
+	// The client supplies its logger and meter first, so a resolver option can override them.
+	//
+	// Example:
+	//
+	//	c, err := client.New(ctx, "inventory.default.svc:9000",
+	//		client.WithDNSResolver(
+	//			dnsresolver.WithRefreshInterval(10*time.Second),
+	//			dnsresolver.WithBackoffMaxDelay(3*time.Second),
+	//		),
+	//	)
+	dnsResolverOptions []dnsresolver.Option `opt:"DNSResolver" optgen:"append"`
+	// WithBuiltinDNSResolver resolves targets without a scheme and dns targets with grpc-go's built-in dns
+	// resolver instead of the [dnsresolver] the client installs by default; [WithDNSResolver] options are then ignored.
+	builtinDNSResolver bool
+	// WithConnectBackoff sets the backoff between attempts to connect to an address. Without options it keeps
+	// grpc-go's defaults (1s base delay, multiplier 1.6, jitter 0.2, 120s cap); the generated
+	// [ConnectBackoffOption] values override individual settings.
+	//
+	// Example:
+	//
+	//	c, err := client.New(ctx, "inventory:9000",
+	//		client.WithConnectBackoff(client.WithConnectBackoffMaxDelay(10*time.Second)),
+	//	)
+	connectBackoff *connectBackoffOptions `optfn:"ConnectBackoff=newConnectBackoffOptions" optgen:"default=defaultConnectBackoffOptions()"`
 }
 
 // WithInsecure disables TLS and uses an insecure plaintext connection.
