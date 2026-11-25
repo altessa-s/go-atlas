@@ -11,6 +11,7 @@ happens through pluggable adapters (OTLP, console, etc.) with configurable sampl
 
 | Type / Function        | Description                                               |
 |------------------------|-----------------------------------------------------------|
+| `TracerProvider`       | Root tracer returned by `New` and `Noop`. Owns flush and shutdown. |
 | `Tracer`               | Create `Recorder` instances; supports `WithScope` scoping |
 | `Recorder`             | Start spans from a context                                |
 | `Span`                 | Unit of work: attributes, events, status, errors          |
@@ -51,9 +52,9 @@ once. Export failures discard the batch, and ordering across batches is not guar
 All four settings must be positive. The config validator rejects an explicit batch size larger than the queue. Direct Go options ignore
 nonpositive values and cap the effective batch size at the queue size. The worker can hold one batch in flight in addition to the queue.
 
-Use `tracer.ForceFlush(ctx)` before reading exported data. It waits for spans already enqueued, including an in-flight export, then flushes the
+Use `provider.ForceFlush(ctx)` before reading exported data. It waits for spans already enqueued, including an in-flight export, then flushes the
 adapter. A flush reports the most recent batch failure since the previous flush and any adapter flush error. The caller can bound the wait with
-its context. At service exit, call `tracer.Shutdown(ctx)` with a deadline. The first shutdown closes admission, drains the queue within its
+its context. At service exit, call `provider.Shutdown(ctx)` with a deadline. The first shutdown closes admission, drains the queue within its
 budget, and shuts down the adapter. Spans ended after admission closes are silently discarded. Cancellation interrupts in-flight work and
 discards the remaining queue. Adapter calls must return on context cancellation for their worker to exit. A console writer that can block
 indefinitely needs its own I/O deadline.
@@ -71,6 +72,6 @@ See the [metric names](../../docs/metrics.md#tracing).
 | [adapters](./adapters)                     | Adapter interface and `MultiAdapter` broadcaster     |
 | [adapters/console](./adapters/console)     | Human-readable or JSON console output                |
 | [adapters/otlp](./adapters/otlp)          | OpenTelemetry Protocol export over gRPC or HTTP      |
-| [factory](../../factory/observability/tracing)                       | Configuration-based `Tracer` creation                |
+| [factory](../../factory/observability/tracing)                       | Configuration-based `TracerProvider` creation                |
 | [propagation](./propagation)              | W3C Trace Context propagation                        |
 | [sampler](./sampler)                       | Sampling strategies: ratio, parent-based, always     |

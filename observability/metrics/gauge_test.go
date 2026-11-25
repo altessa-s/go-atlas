@@ -106,7 +106,7 @@ func TestGauge_ConcurrentIncPublishesLatest_Unbound(t *testing.T) {
 	gate := newPublishGate()
 	mem := memory.New()
 	c := metrics.New(metrics.WithAdapter(&gatedMemoryAdapter{Adapter: mem, gate: gate}), metrics.WithServiceName("svc"))
-	g := c.MustGauge(metrics.MetricOpts{Name: "depth", Help: "test"})
+	g := metrics.MustGauge(c, metrics.MetricOpts{Name: "depth", Help: "test"})
 
 	raceIncrements(t, g, gate)
 
@@ -123,7 +123,7 @@ func TestGauge_ConcurrentIncPublishesLatest_Bound(t *testing.T) {
 		gate:    gate,
 	}
 	c := metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("svc"))
-	g := c.MustGauge(metrics.MetricOpts{Name: "inflight", Help: "test", LabelNames: []string{"m"}}).
+	g := metrics.MustGauge(c, metrics.MetricOpts{Name: "inflight", Help: "test", LabelNames: []string{"m"}}).
 		WithLabels(metrics.Labels{"m": "GET"})
 
 	raceIncrements(t, g, gate)
@@ -137,7 +137,7 @@ func TestGauge_EquivalentLabelHandlesShareValue_Memory(t *testing.T) {
 
 	mem := memory.New()
 	c := metrics.New(metrics.WithAdapter(mem), metrics.WithServiceName("svc"))
-	g := c.MustGauge(metrics.MetricOpts{Name: "conns", Help: "test", LabelNames: []string{"a", "b"}})
+	g := metrics.MustGauge(c, metrics.MetricOpts{Name: "conns", Help: "test", LabelNames: []string{"a", "b"}})
 
 	a := g.WithLabels(metrics.Labels{"a": "1", "b": "2"})
 	b := g.WithLabels(metrics.Labels{"b": "2", "a": "1"})
@@ -156,7 +156,7 @@ func TestGauge_EquivalentLabelHandlesShareValue_Prometheus(t *testing.T) {
 	t.Parallel()
 
 	c, reg := newPromRegistryCollector(t)
-	g := c.MustGauge(metrics.MetricOpts{Name: "conns", Help: "test", LabelNames: []string{"a"}})
+	g := metrics.MustGauge(c, metrics.MetricOpts{Name: "conns", Help: "test", LabelNames: []string{"a"}})
 
 	g.WithLabels(metrics.Labels{"a": "x"}).Inc()
 	g.WithLabels(metrics.Labels{"a": "x"}).Inc()

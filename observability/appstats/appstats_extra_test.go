@@ -118,9 +118,9 @@ func TestStartMetricsCollectionWithContext(t *testing.T) {
 	StartMetricsCollectionWithContext(ctx)
 	defer StopMetricsCollection()
 
-	metricsMu.Lock()
-	running := cachedMetrics.running.Load()
-	metricsMu.Unlock()
+	sampler.mu.Lock()
+	running := sampler.running.Load()
+	sampler.mu.Unlock()
 
 	require.True(t, running, "expected running=true after StartMetricsCollectionWithContext")
 }

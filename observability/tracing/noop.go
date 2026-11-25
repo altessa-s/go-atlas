@@ -10,9 +10,11 @@ import "context"
 // All operations are safe but do nothing.
 type noopTracer struct{}
 
-var noopTracerInstance = &noopTracer{}
+type noopProvider struct{ noopTracer }
 
-// Noop returns a no-op implementation of [Tracer].
+var noopProviderInstance = &noopProvider{}
+
+// Noop returns a no-op [TracerProvider].
 // All operations are safe but nothing is recorded or exported.
 // The returned value is a singleton; [IsNoop] can identify it.
 //
@@ -24,13 +26,13 @@ var noopTracerInstance = &noopTracer{}
 //	    }
 //	    // ...
 //	}
-func Noop() Tracer {
-	return noopTracerInstance
+func Noop() TracerProvider {
+	return noopProviderInstance
 }
 
-// IsNoop reports whether t is the singleton no-op [Tracer] returned by [Noop].
+// IsNoop reports whether t is the no-op provider or one of its scopes.
 func IsNoop(t Tracer) bool {
-	return t == noopTracerInstance
+	return t == noopProviderInstance || t == &noopProviderInstance.noopTracer
 }
 
 // Recorder implements Tracer.
@@ -38,13 +40,13 @@ func (n *noopTracer) Recorder(_ string, _ ...RecorderOption) Recorder {
 	return noopRecorder{}
 }
 
-// Shutdown implements Tracer.
-func (n *noopTracer) Shutdown(_ context.Context) error {
+// Shutdown implements TracerProvider.
+func (*noopProvider) Shutdown(_ context.Context) error {
 	return nil
 }
 
-// ForceFlush implements Tracer.
-func (n *noopTracer) ForceFlush(_ context.Context) error {
+// ForceFlush implements TracerProvider.
+func (*noopProvider) ForceFlush(_ context.Context) error {
 	return nil
 }
 

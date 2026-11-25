@@ -69,7 +69,7 @@ func TestBuild_PrometheusRegistrySelection(t *testing.T) {
 			}).UseAdapter(observabilityconfig.MetricsTypePrometheus, factory.Builder()).UseDefaultLogger().UseLogger(slog.New(slog.DiscardHandler)).Build()
 			require.NoError(t, err)
 
-			c.MustCounter(metrics.MetricOpts{Name: "hits_total", Help: "hits"}).Inc()
+			metrics.MustCounter(c, metrics.MetricOpts{Name: "hits_total", Help: "hits"}).Inc()
 			require.Equal(t, tc.wantDefault, inDefaultRegistry(t, tc.service+"_hits_total"))
 		})
 	}

@@ -14,10 +14,10 @@
 //
 // # Periodic Stats Logging with Scheduler
 //
-// For periodic logging of application statistics, use StatsLogger with service/scheduler:
+// For periodic logging of application statistics, use [StatsLogger] with go-horai:
 //
 //	statsLogger := appstats.NewStatsLogger(appstats.WithLogger(logger))
-//	sched.Register(ctx, scheduler.TaskConfig{
+//	sched.Register(ctx, schedtask.Config{
 //	    ID:         "appstats-logging",
 //	    Schedule:   appstats.DefaultStatsLogSchedule, // every 5 minutes
 //	    Func:       statsLogger.RunLogCycle,

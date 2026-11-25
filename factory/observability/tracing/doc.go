@@ -2,16 +2,17 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides a fluent builder for creating tracers
+// Package factory provides a fluent builder for creating tracer providers
 // from configuration.
 //
-// Returns [tracing.Noop] when config is nil or tracing is disabled.
+// Build returns a tracing.TracerProvider. A nil or disabled configuration
+// yields a no-op provider with the same lifecycle methods.
 //
 // Console and noop adapters are built in; register any other backend with
 // [TracerBuilder.UseAdapter]. A configured type without a registered builder
 // fails at Build with an error naming the module to add.
 //
-//	tracer, err := factory.New(cfg.Tracing).
+//	provider, err := factory.New(cfg.Tracing).
 //	    UseAdapter(observabilityconfig.TracingTypeOTLP, otlpfactory.Builder()).
 //	    UseLogger(logger).
 //	    Build(ctx)

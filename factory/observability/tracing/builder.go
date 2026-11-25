@@ -20,7 +20,7 @@ import (
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
-// TracerBuilder assembles a [tracing.Tracer] from configuration
+// TracerBuilder assembles a [tracing.TracerProvider] from configuration
 // using a fluent API with deferred error accumulation.
 // Returns [tracing.Noop] when config is nil or tracing is disabled.
 //
@@ -47,9 +47,9 @@ func New(cfg *observabilityconfig.Tracing) *TracerBuilder {
 	}
 }
 
-// Build assembles and returns the tracer.
+// Build returns the provider that owns the configured exporter.
 // Returns [tracing.Noop] if config is nil or tracing is disabled.
-func (b *TracerBuilder) Build(ctx context.Context) (tracing.Tracer, error) {
+func (b *TracerBuilder) Build(ctx context.Context) (tracing.TracerProvider, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}

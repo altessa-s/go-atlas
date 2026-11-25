@@ -184,7 +184,7 @@ func TestCoordinator_CheckStatus_UnknownNamesNotRetained(t *testing.T) {
 	require.Equal(t, StatusServing, c.CheckStatus(t.Context(), "svc"))
 
 	cached := 0
-	c.statusCache.Range(func(any, any) bool {
+	c.statuses.registry.cache.Range(func(any, any) bool {
 		cached++
 		return true
 	})

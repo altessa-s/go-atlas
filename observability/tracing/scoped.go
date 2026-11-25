@@ -4,11 +4,7 @@
 
 package tracing
 
-import (
-	"context"
-
-	"github.com/altessa-s/go-atlas/observability/internal/shared"
-)
+import "github.com/altessa-s/go-atlas/observability/internal/shared"
 
 // scopedTracer is a Tracer that adds a scope prefix to all recorders.
 type scopedTracer struct {
@@ -19,16 +15,6 @@ type scopedTracer struct {
 // Recorder implements Tracer.
 func (s *scopedTracer) Recorder(name string, opts ...RecorderOption) Recorder {
 	return s.parent.getOrCreateRecorder(s.scope, name, opts...)
-}
-
-// Shutdown implements Tracer.
-func (s *scopedTracer) Shutdown(ctx context.Context) error {
-	return s.parent.Shutdown(ctx)
-}
-
-// ForceFlush implements Tracer.
-func (s *scopedTracer) ForceFlush(ctx context.Context) error {
-	return s.parent.ForceFlush(ctx)
 }
 
 // WithScope implements Tracer.

@@ -36,7 +36,7 @@ func (s RegexCacheStatsSnapshot) HitRate() float64 {
 //	        return metrics.RegexCacheStatsSnapshot{Hits: hits, Misses: misses, Size: int64(size)}
 //	    },
 //	)
-//	sched.Register(ctx, scheduler.TaskConfig{
+//	sched.Register(ctx, schedtask.Config{
 //	    ID:       "regex-cache-metrics",
 //	    Schedule: "0 */1 * * * *",
 //	    Func:     func(ctx context.Context) error { rcm.Report(); return nil },
@@ -70,7 +70,7 @@ func NewRegexCacheMetrics(c Meter, statsFunc func() RegexCacheStatsSnapshot) *Re
 		c = Noop()
 	}
 
-	scoped := c.WithSubsystem("regex_cache")
+	scoped := MustMeter{Meter: c.WithSubsystem("regex_cache")}
 
 	return &RegexCacheMetrics{
 		statsFunc: statsFunc,

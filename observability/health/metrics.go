@@ -22,7 +22,7 @@ func newHealthMetrics(c metrics.Meter) *healthMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("health")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("health")}
 
 	return &healthMetrics{
 		checkCycleDuration: scoped.MustTimer(metrics.HistogramOpts{

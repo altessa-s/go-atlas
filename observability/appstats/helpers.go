@@ -7,22 +7,8 @@ package appstats
 import (
 	"context"
 	"fmt"
-	"os"
-	"runtime"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
-
-	"github.com/shirou/gopsutil/v4/cpu"
-	"github.com/shirou/gopsutil/v4/mem"
-	"github.com/shirou/gopsutil/v4/net"
-	"github.com/shirou/gopsutil/v4/process"
-
-	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
-
-	corecontext "github.com/altessa-s/go-atlas-core/context"
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // CPULoadData represents CPU load statistics for both the service and the system.
@@ -155,340 +141,6 @@ const (
 	ProcessCacheSeconds = 30
 )
 
-// CachedMetrics holds cached system metrics for high-performance access.
-// It uses atomic operations for lock-free reads and is safe for concurrent access.
-// All metrics are updated by a background goroutine at regular intervals.
-type CachedMetrics struct {
-	// ServiceCPU contains the service CPU usage as a formatted string with '%' suffix
-	ServiceCPU atomic.Value // string
-	// SystemCPU contains the system CPU usage as a formatted string with '%' suffix
-	SystemCPU atomic.Value // string
-
-	// MemoryData contains complete memory statistics using atomic pointer for lock-free access
-	MemoryData atomic.Pointer[MemoryLoadData]
-
-	// NetworkReceived contains total bytes received since process start
-	NetworkReceived atomic.Uint64
-	// NetworkSent contains total bytes sent since process start
-	NetworkSent atomic.Uint64
-
-	// ProcessCache contains cached process object to avoid expensive OS calls
-	ProcessCache atomic.Pointer[process.Process]
-
-	// CPUTimestamp contains the Unix timestamp of the last CPU metrics update
-	CPUTimestamp atomic.Int64
-	// MemoryTimestamp contains the Unix timestamp of the last memory metrics update
-	MemoryTimestamp atomic.Int64
-	// NetworkTimestamp contains the Unix timestamp of the last network metrics update
-	NetworkTimestamp atomic.Int64
-	// ProcessTimestamp contains the Unix timestamp of the last process cache update
-	ProcessTimestamp atomic.Int64
-
-	// stopChan is used to signal the background collection goroutine to stop
-	stopChan chan struct{}
-	// running indicates whether background collection is currently active
-	running atomic.Bool
-}
-
-var (
-	cachedMetrics  = &CachedMetrics{}
-	metricsMu      sync.Mutex
-	stringBuffer   = sync.Pool{New: func() any { b := make([]byte, 0, StringFormatBufferSize); return &b }}
-	memStatsBuffer = sync.Pool{New: func() any { return &runtime.MemStats{} }}
-
-	// metricCollectionTasks is a static list of background metric collectors,
-	// declared at package level to avoid allocating the slice on every tick.
-	metricCollectionTasks = []func(context.Context, int64){
-		collectCPUMetrics,
-		collectMemoryMetrics,
-		collectNetworkMetrics,
-	}
-)
-
-// StartMetricsCollection initializes the background metrics collection system.
-// It starts a goroutine that periodically collects CPU, memory, and network metrics
-// using atomic operations for lock-free access. This function is idempotent and
-// safe to call multiple times.
-//
-// The background collection runs every DefaultCacheInterval (2 seconds) and provides
-// cached metrics that can be accessed with sub-microsecond latency.
-func StartMetricsCollection() {
-	//nolint:contextcheck // Convenience wrapper; use StartMetricsCollectionWithContext when you have an inherited ctx.
-	StartMetricsCollectionWithContext(context.Background())
-}
-
-// StartMetricsCollectionWithContext initializes the background metrics collection system
-// using ctx as the base context for gopsutil calls (timeouts are still applied per tick).
-//
-// Note: canceling ctx stops the collection, as [StopMetricsCollection] does; a later
-// start begins a new one. Prefer passing a long-lived application context.
-//
-//nolint:contextcheck // Background collector is not request-scoped; ctx here is a best-effort base for gopsutil calls.
-func StartMetricsCollectionWithContext(ctx context.Context) {
-	metricsMu.Lock()
-	defer metricsMu.Unlock()
-
-	if cachedMetrics.running.Load() {
-		return
-	}
-
-	ctx = corecontext.OrBackground(ctx)
-	baseCtx := ctx
-
-	stop := make(chan struct{})
-	cachedMetrics.stopChan = stop
-	cachedMetrics.running.Store(true)
-
-	// Initialize with zero values
-	cachedMetrics.ServiceCPU.Store(zeroPercent)
-	cachedMetrics.SystemCPU.Store(zeroPercent)
-	cachedMetrics.MemoryData.Store(&MemoryLoadData{
-		Service: zeroPercent,
-		System:  zeroPercent,
-		Total:   "0",
-	})
-
-	go backgroundMetricsCollection(baseCtx, stop)
-}
-
-// StopMetricsCollection stops the background metrics collection system.
-// It signals the background goroutine to terminate and stops all metric updates.
-// This function is idempotent and safe to call multiple times.
-//
-// After calling this function, cached metrics will become stale and
-// IsCacheStale() will return true after MaxCacheAge duration.
-func StopMetricsCollection() {
-	metricsMu.Lock()
-	if !cachedMetrics.running.Load() {
-		metricsMu.Unlock()
-		return
-	}
-	stop := cachedMetrics.stopChan
-	cachedMetrics.running.Store(false)
-	cachedMetrics.stopChan = nil
-	metricsMu.Unlock()
-
-	if stop != nil {
-		close(stop)
-	}
-}
-
-// backgroundMetricsCollection runs metrics collection in the background.
-// It collects CPU, memory, and network metrics concurrently at regular intervals.
-// This function runs in its own goroutine and should not be called directly.
-func backgroundMetricsCollection(baseCtx context.Context, stop <-chan struct{}) {
-	ticker := time.NewTicker(DefaultCacheInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			// Bound the gopsutil calls so we don't risk blocking forever in the background.
-			ctx, cancel := corecontext.WithMaxTimeout(baseCtx, DefaultCacheInterval)
-			collectMetrics(ctx)
-			cancel()
-		case <-stop:
-			return
-		case <-baseCtx.Done():
-			// The collection cannot outlive its base context. Mark it stopped,
-			// unless a newer collection has replaced this one, so a later
-			// start is not a no-op.
-			metricsMu.Lock()
-			if cachedMetrics.stopChan == stop {
-				cachedMetrics.running.Store(false)
-				cachedMetrics.stopChan = nil
-			}
-			metricsMu.Unlock()
-			return
-		}
-	}
-}
-
-// collectMetrics collects all metrics concurrently in the background.
-// It spawns separate goroutines for CPU, memory, and network collection
-// to minimize the total collection time and avoid blocking operations.
-func collectMetrics(ctx context.Context) {
-	now := time.Now().Unix()
-
-	tasks := metricCollectionTasks
-
-	// Run collection tasks concurrently.
-	// Since tasks themselves handle internal timeouts and don't return errors,
-	// we only check for context cancellation.
-	if err := concurrency.Process(ctx, tasks, func(ctx context.Context, task func(context.Context, int64)) error {
-		task(ctx, now)
-		return nil
-	}); err != nil {
-		// Context cancellation is expected during shutdown.
-		if !coreerrs.IsContextCanceled(err) {
-			// In case of other errors (though unlikely here), we don't want to panic.
-			return
-		}
-	}
-}
-
-// collectCPUMetrics collects CPU metrics with process caching optimizations.
-// It caches the process object to avoid expensive OS calls and uses
-// atomic operations to store the results for lock-free access.
-func collectCPUMetrics(ctx context.Context, timestamp int64) {
-	// Use cached process if available and recent
-	var proc *process.Process
-	if cached := cachedMetrics.ProcessCache.Load(); cached != nil {
-		if time.Now().Unix()-cachedMetrics.ProcessTimestamp.Load() < ProcessCacheSeconds {
-			proc = cached
-		}
-	}
-
-	if proc == nil {
-		var err error
-		proc, err = ProcessDetails(ctx)
-		if err != nil {
-			return
-		}
-		cachedMetrics.ProcessCache.Store(proc)
-		cachedMetrics.ProcessTimestamp.Store(timestamp)
-	}
-
-	// Get service CPU (fast)
-	serviceCPU, err := proc.CPUPercent()
-	if err == nil {
-		if bufInterface := stringBuffer.Get(); bufInterface != nil {
-			bufPtr, ok := bufInterface.(*[]byte)
-			if !ok {
-				return
-			}
-			buf := strconv.AppendFloat((*bufPtr)[:0], serviceCPU, 'f', 2, 64)
-			buf = append(buf, '%')
-			cachedMetrics.ServiceCPU.Store(string(buf))
-			*bufPtr = buf
-			stringBuffer.Put(bufPtr)
-		}
-	}
-
-	// Get system CPU (slow - 1 second)
-	// Use interval of 0 to get instant reading based on previous call
-	cpuPercents, err := cpu.PercentWithContext(ctx, 0, false)
-	if err == nil && len(cpuPercents) > 0 {
-		if bufInterface := stringBuffer.Get(); bufInterface != nil {
-			bufPtr, ok := bufInterface.(*[]byte)
-			if !ok {
-				return
-			}
-			buf := strconv.AppendFloat((*bufPtr)[:0], cpuPercents[0], 'f', 2, 64)
-			buf = append(buf, '%')
-			cachedMetrics.SystemCPU.Store(string(buf))
-			*bufPtr = buf
-			stringBuffer.Put(bufPtr)
-		}
-	}
-
-	cachedMetrics.CPUTimestamp.Store(timestamp)
-}
-
-// collectMemoryMetrics collects memory usage statistics for both system and service.
-// It retrieves virtual memory statistics and process-specific memory information,
-// then formats them as percentages and stores them atomically.
-func collectMemoryMetrics(ctx context.Context, timestamp int64) {
-	vmStat, err := mem.VirtualMemoryWithContext(ctx)
-	if err != nil {
-		return
-	}
-
-	// Get process if available
-	proc := cachedMetrics.ProcessCache.Load()
-	if proc == nil {
-		var processErr error
-		proc, processErr = ProcessDetails(ctx)
-		if processErr != nil {
-			return
-		}
-	}
-
-	memInfo, err := proc.MemoryInfoWithContext(ctx)
-	if err != nil {
-		return
-	}
-
-	// Pre-allocate buffers for string formatting
-	serviceBufPtr, ok := stringBuffer.Get().(*[]byte)
-	if !ok {
-		return
-	}
-
-	systemBufPtr, ok := stringBuffer.Get().(*[]byte)
-	if !ok {
-		stringBuffer.Put(serviceBufPtr)
-		return
-	}
-
-	totalBufPtr, ok := stringBuffer.Get().(*[]byte)
-	if !ok {
-		stringBuffer.Put(serviceBufPtr)
-		stringBuffer.Put(systemBufPtr)
-		return
-	}
-
-	serviceBuf := strconv.AppendFloat((*serviceBufPtr)[:0], float64(memInfo.RSS)/float64(vmStat.Total)*100, 'f', 2, 64)
-	serviceBuf = append(serviceBuf, '%')
-
-	systemBuf := strconv.AppendFloat((*systemBufPtr)[:0], vmStat.UsedPercent, 'f', 2, 64)
-	systemBuf = append(systemBuf, '%')
-
-	totalBuf := strconv.AppendFloat((*totalBufPtr)[:0], float64(vmStat.Total), 'f', 2, 64)
-
-	memData := &MemoryLoadData{
-		Service: string(serviceBuf),
-		System:  string(systemBuf),
-		Total:   string(totalBuf),
-	}
-
-	cachedMetrics.MemoryData.Store(memData)
-	cachedMetrics.MemoryTimestamp.Store(timestamp)
-
-	// Return buffers to pool
-	*serviceBufPtr = serviceBuf
-	*systemBufPtr = systemBuf
-	*totalBufPtr = totalBuf
-	stringBuffer.Put(serviceBufPtr)
-	stringBuffer.Put(systemBufPtr)
-	stringBuffer.Put(totalBufPtr)
-}
-
-// collectNetworkMetrics collects cumulative network I/O statistics.
-// It aggregates bytes sent and received across all network interfaces
-// and stores the totals atomically for fast access.
-func collectNetworkMetrics(_ context.Context, timestamp int64) {
-	netIO, err := net.IOCounters(true)
-	if err != nil {
-		return
-	}
-
-	var totalBytesReceived, totalBytesSent uint64
-	for i := range netIO {
-		totalBytesReceived += netIO[i].BytesRecv
-		totalBytesSent += netIO[i].BytesSent
-	}
-
-	cachedMetrics.NetworkReceived.Store(totalBytesReceived)
-	cachedMetrics.NetworkSent.Store(totalBytesSent)
-	cachedMetrics.NetworkTimestamp.Store(timestamp)
-}
-
-// IsCacheStale checks if cached metrics are too old.
-// It returns true if any of the CPU, memory, or network metrics are older than MaxCacheAge.
-// This function is useful for determining if metrics should be refreshed or marked as stale.
-//
-// Returns true if cached data is considered stale, false otherwise.
-func IsCacheStale() bool {
-	now := time.Now().Unix()
-	cpuAge := now - cachedMetrics.CPUTimestamp.Load()
-	memAge := now - cachedMetrics.MemoryTimestamp.Load()
-	netAge := now - cachedMetrics.NetworkTimestamp.Load()
-
-	maxAge := int64(MaxCacheAge.Seconds())
-	return cpuAge > maxAge || memAge > maxAge || netAge > maxAge
-}
-
 // CPULoad returns cached CPU load statistics for both the service and the system.
 // It provides sub-microsecond response times by using pre-collected cached data.
 // The function automatically starts background metrics collection if not already running.
@@ -498,7 +150,7 @@ func IsCacheStale() bool {
 // Returns CPULoadData with Service and System CPU usage as formatted percentages,
 // or an error if metrics collection fails (though errors are rare with caching).
 func CPULoad(ctx context.Context) (*CPULoadData, error) {
-	if !cachedMetrics.running.Load() {
+	if !sampler.running.Load() {
 		// The collector outlives the request that happened to start it.
 		StartMetricsCollectionWithContext(context.WithoutCancel(ctx))
 	}
@@ -513,32 +165,6 @@ func CPULoad(ctx context.Context) (*CPULoadData, error) {
 	}, nil
 }
 
-// ProcessDetails returns the process details for the current application.
-// It creates a new process object using the current process ID and can be used
-// to query detailed process information such as CPU usage, memory consumption, etc.
-//
-// The context can be used to cancel the operation if it takes too long.
-//
-// Returns a process.Process object for the current application process,
-// or an error if the process cannot be found or accessed.
-func ProcessDetails(ctx context.Context) (*process.Process, error) {
-	pid := ProcessId()
-	proc, err := process.NewProcessWithContext(ctx, pid)
-	if err != nil {
-		return nil, coreerrs.Wrapf(err, "get process details for pid %d", pid)
-	}
-	return proc, nil
-}
-
-// ProcessId returns the process ID of the current application.
-// This is a wrapper around os.Getpid() that returns the PID as int32
-// for compatibility with the gopsutil library.
-//
-// Returns the current process ID as int32.
-func ProcessId() int32 {
-	return int32(os.Getpid()) // #nosec G115 -- PIDs fit in int32 on all supported platforms
-}
-
 // MemoryLoad returns cached memory usage statistics for both the service and the system.
 // It provides sub-microsecond response times by using pre-collected cached data.
 // The function automatically starts background metrics collection if not already running.
@@ -548,7 +174,7 @@ func ProcessId() int32 {
 // Returns MemoryLoadData with Service and System memory usage as formatted percentages
 // and Total memory in bytes, or an error if metrics collection fails.
 func MemoryLoad(ctx context.Context) (*MemoryLoadData, error) {
-	if !cachedMetrics.running.Load() {
+	if !sampler.running.Load() {
 		// The collector outlives the request that happened to start it.
 		StartMetricsCollectionWithContext(context.WithoutCancel(ctx))
 	}
@@ -579,7 +205,7 @@ func MemoryLoad(ctx context.Context) (*MemoryLoadData, error) {
 // Returns total bytes received and sent since process start as float64 values,
 // or an error if metrics collection fails (though errors are rare with caching).
 func NetworkIO(ctx context.Context) (float64, float64, error) {
-	if !cachedMetrics.running.Load() {
+	if !sampler.running.Load() {
 		// The collector outlives the request that happened to start it.
 		StartMetricsCollectionWithContext(context.WithoutCancel(ctx))
 	}
@@ -588,42 +214,6 @@ func NetworkIO(ctx context.Context) (float64, float64, error) {
 	sent := float64(cachedMetrics.NetworkSent.Load())
 
 	return received, sent, nil
-}
-
-// MemStats returns the current memory statistics for the Go runtime using object pooling.
-// It uses a memory pool to reduce allocations and provides detailed heap, stack, and GC information.
-// The function is optimized for frequent calls with minimal allocation overhead.
-//
-// This function calls runtime.ReadMemStats internally, which may cause a brief pause
-// in garbage collection to ensure consistent results.
-//
-// Returns a runtime.MemStats struct containing detailed memory statistics,
-// or nil if memory statistics cannot be retrieved.
-func MemStats() *runtime.MemStats {
-	if memStatsInterface := memStatsBuffer.Get(); memStatsInterface != nil {
-		memStats, ok := memStatsInterface.(*runtime.MemStats)
-		if !ok {
-			// Fallback to direct allocation if type assertion fails
-			result := &runtime.MemStats{}
-			runtime.ReadMemStats(result)
-			return result
-		}
-
-		runtime.ReadMemStats(memStats)
-
-		// Create a copy since we're returning it
-		result := &runtime.MemStats{}
-		*result = *memStats
-
-		// Return to pool
-		memStatsBuffer.Put(memStats)
-		return result
-	}
-
-	// Fallback if Get() returns nil
-	result := &runtime.MemStats{}
-	runtime.ReadMemStats(result)
-	return result
 }
 
 // GetApplicationStats returns comprehensive application statistics including CPU, memory,
@@ -690,19 +280,6 @@ func GetApplicationStats(ctx context.Context) *ApplicationStats {
 		stats.Network.RawSent = bytesSent
 	}
 
-	// Go runtime statistics (optimized)
-	memStats := MemStats()
-	stats.Runtime.Goroutines = runtime.NumGoroutine()
-	stats.Runtime.HeapAllocBytes = memStats.HeapAlloc
-	stats.Runtime.HeapSysBytes = memStats.HeapSys
-	stats.Runtime.HeapIdleBytes = memStats.HeapIdle
-	stats.Runtime.HeapInUseBytes = memStats.HeapInuse
-	stats.Runtime.HeapReleasedBytes = memStats.HeapReleased
-	stats.Runtime.HeapObjects = memStats.HeapObjects
-	stats.Runtime.GCCycles = memStats.NumGC
-	stats.Runtime.GCPauseTotalNs = memStats.PauseTotalNs
-	stats.Runtime.StackInUseBytes = memStats.StackInuse
-	stats.Runtime.StackSysBytes = memStats.StackSys
-
+	collectRuntime(stats)
 	return stats
 }

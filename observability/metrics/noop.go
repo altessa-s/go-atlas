@@ -49,18 +49,6 @@ func (n *noopCollector) Histogram(_ HistogramOpts) Histogram { return noopHistog
 // Timer implements Collector.
 func (n *noopCollector) Timer(_ HistogramOpts) Timer { return noopTimer{} }
 
-// MustCounter implements Collector.
-func (n *noopCollector) MustCounter(opts MetricOpts) Counter { return noopCounter{} }
-
-// MustGauge implements Collector.
-func (n *noopCollector) MustGauge(_ MetricOpts) Gauge { return noopGauge{} }
-
-// MustHistogram implements Collector.
-func (n *noopCollector) MustHistogram(_ HistogramOpts) Histogram { return noopHistogram{} }
-
-// MustTimer implements Collector.
-func (n *noopCollector) MustTimer(_ HistogramOpts) Timer { return noopTimer{} }
-
 // WithSubsystem implements Collector.
 func (n *noopCollector) WithSubsystem(_ string) Meter { return n }
 

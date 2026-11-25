@@ -15,7 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 )
 
-// tracer is the default implementation of Tracer.
+// tracer is the default implementation of TracerProvider.
 type tracer struct {
 	processor *batchProcessor
 	sampler   sampler.Sampler
@@ -23,9 +23,9 @@ type tracer struct {
 	recorders sync.Map           // map[adapters.InstrumentationScope]*recorder
 }
 
-// New creates a new [Tracer] with the given options.
+// New creates a new [TracerProvider] with the given options.
 // Returns [Noop] if no adapter is configured.
-func New(opts ...Option) Tracer {
+func New(opts ...Option) TracerProvider {
 	cfg := newOptions(opts...)
 
 	// If no adapter configured, return noop tracer
@@ -54,12 +54,12 @@ func (t *tracer) Recorder(name string, opts ...RecorderOption) Recorder {
 	return t.getOrCreateRecorder("", name, opts...)
 }
 
-// Shutdown implements Tracer.
+// Shutdown implements TracerProvider.
 func (t *tracer) Shutdown(ctx context.Context) error {
 	return t.processor.shutdown(ctx)
 }
 
-// ForceFlush implements Tracer.
+// ForceFlush implements TracerProvider.
 func (t *tracer) ForceFlush(ctx context.Context) error {
 	return t.processor.forceFlush(ctx)
 }
@@ -200,8 +200,8 @@ func hexVal(c byte) byte {
 	}
 }
 
-// Ensure tracer implements Tracer.
-var _ Tracer = (*tracer)(nil)
+// Ensure tracer implements TracerProvider.
+var _ TracerProvider = (*tracer)(nil)
 
 // Ensure recorder implements Recorder.
 var _ Recorder = (*recorder)(nil)

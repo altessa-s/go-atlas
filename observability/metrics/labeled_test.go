@@ -75,7 +75,7 @@ func promValue(t *testing.T, reg *prometheus.Registry, name string, labels map[s
 func TestWithLabels_PrometheusBound_CounterRecords(t *testing.T) {
 	t.Parallel()
 	c, reg := newPromRegistryCollector(t)
-	ctr := c.MustCounter(metrics.MetricOpts{
+	ctr := metrics.MustCounter(c, metrics.MetricOpts{
 		Name:       "hits_total",
 		Help:       "test",
 		LabelNames: []string{"method"},
@@ -95,7 +95,7 @@ func TestWithLabels_PrometheusBound_CounterRecords(t *testing.T) {
 func TestWithLabels_PrometheusBound_ChainedMerge(t *testing.T) {
 	t.Parallel()
 	c, reg := newPromRegistryCollector(t)
-	ctr := c.MustCounter(metrics.MetricOpts{
+	ctr := metrics.MustCounter(c, metrics.MetricOpts{
 		Name:       "chained_total",
 		Help:       "test",
 		LabelNames: []string{"a", "b"},
@@ -111,7 +111,7 @@ func TestWithLabels_PrometheusBound_GaugeAndTimer(t *testing.T) {
 	t.Parallel()
 	c, reg := newPromRegistryCollector(t)
 
-	g := c.MustGauge(metrics.MetricOpts{Name: "in_flight", Help: "test", LabelNames: []string{"method"}})
+	g := metrics.MustGauge(c, metrics.MetricOpts{Name: "in_flight", Help: "test", LabelNames: []string{"method"}})
 	bg := g.WithLabels(metrics.Labels{"method": "GET"})
 	bg.Inc()
 	bg.Inc()
@@ -119,7 +119,7 @@ func TestWithLabels_PrometheusBound_GaugeAndTimer(t *testing.T) {
 	v, _ := promValue(t, reg, "svc_in_flight", map[string]string{"method": "GET"})
 	require.Equal(t, float64(1), v)
 
-	tm := c.MustTimer(metrics.HistogramOpts{
+	tm := metrics.MustTimer(c, metrics.HistogramOpts{
 		Name: "latency_seconds", Help: "test", LabelNames: []string{"method"},
 	})
 	tm.WithLabels(metrics.Labels{"method": "GET"}).ObserveDuration(250 * time.Millisecond)
@@ -134,7 +134,7 @@ func TestWithLabels_PrometheusBound_GaugeAndTimer(t *testing.T) {
 func TestWithLabels_FallbackWithoutBinder(t *testing.T) {
 	t.Parallel()
 	tc := metricstest.NewTestCollector()
-	ctr := tc.MustCounter(metrics.MetricOpts{
+	ctr := metrics.MustCounter(tc, metrics.MetricOpts{
 		Name:       "fallback_total",
 		Help:       "test",
 		LabelNames: []string{"method"},
@@ -148,7 +148,7 @@ func TestWithLabels_FallbackWithoutBinder(t *testing.T) {
 
 func TestWithLabels_BoundCounterInc_NoAllocs(t *testing.T) {
 	c, _ := newPromRegistryCollector(t)
-	ctr := c.MustCounter(metrics.MetricOpts{
+	ctr := metrics.MustCounter(c, metrics.MetricOpts{
 		Name:       "alloc_guard_total",
 		Help:       "test",
 		LabelNames: []string{"method"},

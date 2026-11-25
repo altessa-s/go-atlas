@@ -49,7 +49,7 @@ func New() *Adapter {
 func (a *Adapter) Name() string { return "memory" }
 
 // Register implements [adapters.Adapter]. Re-registration of an
-// already-known name is a no-op so repeated [metrics.Meter.MustCounter]
+// already-known name is a no-op so repeated [metrics.MustCounter]
 // calls with the same name behave like the Prometheus adapter.
 func (a *Adapter) Register(desc *adapters.Desc) error {
 	if desc == nil {
@@ -116,10 +116,7 @@ func (a *Adapter) RecordHistogram(name string, labels map[string]string, value f
 	entry.sum += value
 }
 
-// Flush implements [adapters.Adapter]. No-op for in-memory storage.
-func (a *Adapter) Flush() error { return nil }
-
-// Close implements [adapters.Adapter]. Releases all accumulated samples.
+// Close implements [adapters.Closer]. Releases all accumulated samples.
 func (a *Adapter) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

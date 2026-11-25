@@ -21,16 +21,16 @@ func TestMetricsCollection_RestartsAfterContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	StartMetricsCollectionWithContext(ctx)
-	require.True(t, cachedMetrics.running.Load())
+	require.True(t, sampler.running.Load())
 
 	cancel()
-	testhelpers.WaitFor(t, 5*time.Second, func() bool { return !cachedMetrics.running.Load() },
+	testhelpers.WaitFor(t, 5*time.Second, func() bool { return !sampler.running.Load() },
 		"collection still marked running after its context was canceled")
 
 	StartMetricsCollectionWithContext(t.Context())
-	metricsMu.Lock()
-	restarted := cachedMetrics.running.Load() && cachedMetrics.stopChan != nil
-	metricsMu.Unlock()
+	sampler.mu.Lock()
+	restarted := sampler.running.Load() && sampler.stopChan != nil
+	sampler.mu.Unlock()
 	require.True(t, restarted, "collection did not start again after its context was canceled")
 }
 
@@ -38,28 +38,28 @@ func TestMetricsCollection_StartStopRestart(t *testing.T) {
 	StopMetricsCollection() // idempotent
 
 	StartMetricsCollection()
-	metricsMu.Lock()
-	firstStop := cachedMetrics.stopChan
-	firstRunning := cachedMetrics.running.Load()
-	metricsMu.Unlock()
+	sampler.mu.Lock()
+	firstStop := sampler.stopChan
+	firstRunning := sampler.running.Load()
+	sampler.mu.Unlock()
 
 	require.True(t, firstRunning, "running=false, want true after StartMetricsCollection")
 	require.NotNil(t, firstStop, "stopChan=nil, want non-nil after StartMetricsCollection")
 
 	StopMetricsCollection()
-	metricsMu.Lock()
-	afterStopChan := cachedMetrics.stopChan
-	afterStopRunning := cachedMetrics.running.Load()
-	metricsMu.Unlock()
+	sampler.mu.Lock()
+	afterStopChan := sampler.stopChan
+	afterStopRunning := sampler.running.Load()
+	sampler.mu.Unlock()
 
 	require.False(t, afterStopRunning, "running=true, want false after StopMetricsCollection")
 	require.Nil(t, afterStopChan, "stopChan should be nil after StopMetricsCollection")
 
 	StartMetricsCollection()
-	metricsMu.Lock()
-	secondStop := cachedMetrics.stopChan
-	secondRunning := cachedMetrics.running.Load()
-	metricsMu.Unlock()
+	sampler.mu.Lock()
+	secondStop := sampler.stopChan
+	secondRunning := sampler.running.Load()
+	sampler.mu.Unlock()
 
 	require.True(t, secondRunning, "running=false, want true after restart StartMetricsCollection")
 	require.NotNil(t, secondStop, "stopChan=nil, want non-nil after restart StartMetricsCollection")

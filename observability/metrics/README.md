@@ -12,7 +12,8 @@ export happens through pluggable adapters (Prometheus and in-memory ship in [ada
 | Type / Function | Description                                                                                           |
 |-----------------|-------------------------------------------------------------------------------------------------------|
 | `New`           | Create a `Collector` (`WithServiceName` namespace, default `appinfo.Name`; `WithAdapter`)             |
-| `Meter`         | Create metrics (`Counter`, `Gauge`, `Histogram`, `Timer`, `Must*`); `WithSubsystem` returns a `Meter` |
+| `Meter`         | Create metrics (`Counter`, `Gauge`, `Histogram`, `Timer`); `WithSubsystem` returns a `Meter` |
+| `MustMeter`     | Wrap a `Meter` for repeated validating registrations through its `Must*` methods                        |
 | `Collector`     | `Meter` plus lifecycle (`Shutdown`, `ForceFlush`); held by the composition root                       |
 | `Counter`       | Monotonically increasing value                                                                        |
 | `Gauge`         | Value that can increase and decrease                                                                  |
@@ -27,6 +28,9 @@ export happens through pluggable adapters (Prometheus and in-memory ship in [ada
 Libraries accept a `Meter` (through `WithMeter` / `WithMetrics` options) and never see the lifecycle, so no component can shut down or flush
 the shared collector. The application builds the `Collector`, passes it (or a `WithSubsystem` scope) to components, and calls `Shutdown` on exit.
 A scoped `Meter` does not implement `Collector`.
+
+Use `metrics.MustCounter(m, opts)`, `MustGauge`, `MustHistogram`, or `MustTimer` to validate options before creating an instrument. These helpers panic
+on invalid options even with `Noop()`. To register several instruments, wrap the meter once with `metrics.MustMeter{Meter: m}`.
 
 ## Naming convention
 

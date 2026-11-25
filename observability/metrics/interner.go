@@ -13,14 +13,14 @@ import (
 // and evictions; gauges report current size and hit rates.
 //
 // Create with [NewInternerMetrics] and call [InternerMetrics.Report] on a
-// periodic schedule (e.g., via service/scheduler) to push the latest snapshot
+// periodic schedule (e.g., via go-horai) to push the latest snapshot
 // into the configured [Meter]:
 //
 //	im := metrics.NewInternerMetrics(collector, intern.Default())
-//	sched.Register(ctx, scheduler.TaskConfig{
+//	sched.Register(ctx, schedtask.Config{
 //	    ID:       "interner-metrics",
 //	    Schedule: "0 */1 * * * *",
-//	    Func:     im.Report,
+//	    Func:     func(ctx context.Context) error { im.Report(); return nil },
 //	})
 type InternerMetrics struct {
 	interner *intern.Interner
@@ -42,7 +42,7 @@ func NewInternerMetrics(c Meter, interner *intern.Interner) *InternerMetrics {
 		c = Noop()
 	}
 
-	scoped := c.WithSubsystem("interner")
+	scoped := MustMeter{Meter: c.WithSubsystem("interner")}
 
 	return &InternerMetrics{
 		interner: interner,

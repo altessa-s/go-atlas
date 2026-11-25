@@ -58,26 +58,6 @@ func (r *collector) Timer(opts HistogramOpts) Timer {
 	return r.getOrCreateTimer("", opts)
 }
 
-// MustCounter implements Collector.
-func (r *collector) MustCounter(opts MetricOpts) Counter {
-	return must(opts, func() Counter { return r.Counter(opts) })
-}
-
-// MustGauge implements Collector.
-func (r *collector) MustGauge(opts MetricOpts) Gauge {
-	return must(opts, func() Gauge { return r.Gauge(opts) })
-}
-
-// MustHistogram implements Collector.
-func (r *collector) MustHistogram(opts HistogramOpts) Histogram {
-	return must(opts, func() Histogram { return r.Histogram(opts) })
-}
-
-// MustTimer implements Collector.
-func (r *collector) MustTimer(opts HistogramOpts) Timer {
-	return must(opts, func() Timer { return r.Timer(opts) })
-}
-
 // WithSubsystem implements Collector.
 func (r *collector) WithSubsystem(subsystem string) Meter {
 	return &scopedMeter{
@@ -93,7 +73,7 @@ func (r *collector) Shutdown(ctx context.Context) error {
 	}
 
 	// Flush first (before setting shutdown flag)
-	if err := r.adapter.Flush(); err != nil {
+	if err := r.flush(); err != nil {
 		return err
 	}
 
@@ -103,7 +83,10 @@ func (r *collector) Shutdown(ctx context.Context) error {
 	}
 
 	// Close adapter
-	return r.adapter.Close()
+	if closer, ok := r.adapter.(adapters.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }
 
 // ForceFlush implements Collector.
@@ -111,20 +94,14 @@ func (r *collector) ForceFlush(ctx context.Context) error {
 	if r.shutdown.Load() {
 		return ErrCollectorShutdown
 	}
-	return r.adapter.Flush()
+	return r.flush()
 }
 
-// validator is an interface for types that can be validated.
-type validator interface {
-	Validate() error
-}
-
-// must validates opts and panics if validation fails, otherwise calls create.
-func must[T any](opts validator, create func() T) T {
-	if err := opts.Validate(); err != nil {
-		panic(err)
+func (r *collector) flush() error {
+	if flusher, ok := r.adapter.(adapters.Flusher); ok {
+		return flusher.Flush()
 	}
-	return create()
+	return nil
 }
 
 // getOrCreateCounter retrieves or creates a counter.

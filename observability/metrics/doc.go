@@ -19,12 +19,12 @@
 //
 //	// Create a collector with Prometheus adapter
 //	collector := metrics.New(
-//	    metrics.WithNamespace("myapp"),
+//	    metrics.WithServiceName("myapp"),
 //	    metrics.WithAdapter(prometheusAdapter),
 //	)
 //
 //	// Create metrics
-//	requestsTotal := collector.MustCounter(metrics.MetricOpts{
+//	requestsTotal := metrics.MustCounter(collector, metrics.MetricOpts{
 //	    Name: "requests_total",
 //	    Help: "Total number of requests",
 //	    LabelNames: []string{"method", "status"},
@@ -42,10 +42,13 @@
 //	scoped := collector.WithSubsystem("inprogress")
 //
 //	// Creates metric: myapp_inprogress_active_heartbeaters
-//	gauge := scoped.MustGauge(metrics.MetricOpts{
+//	gauge := metrics.MustGauge(scoped, metrics.MetricOpts{
 //	    Name: "active_heartbeaters",
 //	    Help: "Current number of active heartbeaters",
 //	})
+//
+// The Must helpers validate options and panic on invalid input, including with [Noop].
+// [MustMeter] provides the same helpers as methods for repeated registrations.
 //
 // # Optional Metrics
 //

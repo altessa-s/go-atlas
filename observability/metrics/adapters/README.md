@@ -11,7 +11,8 @@ specific backend format (Prometheus, StatsD, OpenTelemetry, etc.). Use `MultiAda
 
 | Type           | Description                                                                                |
 |----------------|--------------------------------------------------------------------------------------------|
-| `Adapter`      | Interface: `Name`, `Register`, `RecordCounter`, `RecordGauge`, `RecordHistogram`, `Flush`, `Close` |
+| `Adapter`      | Interface: `Name`, `Register`, `RecordCounter`, `RecordGauge`, `RecordHistogram` |
+| `Flusher`, `Closer` | Independent, optional lifecycle capabilities for buffered output and resource cleanup                    |
 | `HTTPHandler`  | Optional capability: an `Adapter` that also serves metrics over HTTP via `Handler()`       |
 | `Binder`       | Optional capability: pre-resolves a (metric, label set) pair into a direct handle          |
 | `BoundCounter`, `BoundGauge`, `BoundHistogram` | Recording handles returned by `Binder`, one concrete label set each |

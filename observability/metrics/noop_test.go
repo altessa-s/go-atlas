@@ -60,10 +60,10 @@ func TestNoopCollector_MethodsDoNotPanic(t *testing.T) {
 	timer.WithLabels(Labels{"k": "v"}).ObserveDuration(time.Second)
 
 	// Must* variants
-	c.MustCounter(MetricOpts{Name: "test"}).Inc()
-	c.MustGauge(MetricOpts{Name: "test"}).Set(0)
-	c.MustHistogram(HistogramOpts{Name: "test"}).Observe(1)
-	c.MustTimer(HistogramOpts{Name: "test"}).ObserveDuration(time.Second)
+	MustCounter(c, MetricOpts{Name: "test"}).Inc()
+	MustGauge(c, MetricOpts{Name: "test"}).Set(0)
+	MustHistogram(c, HistogramOpts{Name: "test"}).Observe(1)
+	MustTimer(c, HistogramOpts{Name: "test"}).ObserveDuration(time.Second)
 
 	// WithSubsystem returns same noop
 	sub := c.WithSubsystem("sub")

@@ -6,28 +6,27 @@ package tracing
 
 import "context"
 
-// Tracer is the interface for creating and managing [Recorder] instances.
-// Use [New] to create a concrete implementation or [Noop] for a no-op.
-//
-// All methods are safe for concurrent use. After [Tracer.Shutdown],
-// new spans become no-ops.
+// Tracer creates recorders for instrumentation. Its methods are safe for
+// concurrent use. After the provider shuts down, new spans become no-ops.
 type Tracer interface {
 	// Recorder returns a Recorder for instrumentation.
 	// The name should identify the instrumentation library (e.g., "myapp/orders").
 	Recorder(name string, opts ...RecorderOption) Recorder
 
-	// Shutdown shuts down the tracer and exports any pending spans.
-	// It should be called when the application exits.
-	Shutdown(ctx context.Context) error
+	// WithScope returns a Tracer that prefixes recorder names with scope.
+	WithScope(scope string) Tracer
+}
 
-	// ForceFlush forces an immediate export of all pending spans.
+// TracerProvider owns the export lifecycle for the root tracer and its scopes.
+// [New] and [Noop] return a provider. Pass [Tracer] to instrumentation.
+type TracerProvider interface {
+	Tracer
+
+	// ForceFlush exports pending spans and flushes the adapter.
 	ForceFlush(ctx context.Context) error
 
-	// WithScope returns a Tracer scoped to the given name.
-	// The scope is added as a prefix to recorder names:
-	// {namespace}/{scope}/{recorderName}
-	// Similar to metrics.Meter.WithSubsystem.
-	WithScope(scope string) Tracer
+	// Shutdown drains pending spans and shuts down the adapter.
+	Shutdown(ctx context.Context) error
 }
 
 // Recorder creates [Span] instances for tracking operations.

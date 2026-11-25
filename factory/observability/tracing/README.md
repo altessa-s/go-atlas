@@ -4,13 +4,13 @@
 import "github.com/altessa-s/go-atlas/factory/observability/tracing"
 ```
 
-Package `factory` provides a fluent builder for creating tracers from configuration. `TracerBuilder` uses deferred error accumulation — errors from any
-step are collected and returned at `Build()` time. Returns `tracing.Noop` when config is `nil` or tracing is disabled.
+Package `factory` builds a `tracing.TracerProvider` from configuration. The caller owns flush and shutdown. A nil or disabled configuration returns the
+no-op provider. The builder collects configuration errors and returns them from `Build(ctx)`.
 
 ## Quick Start
 
 ```go
-tracer, err := factory.New(cfg.Tracing).
+provider, err := factory.New(cfg.Tracing).
     UseAdapter(observabilityconfig.TracingTypeOTLP, otlpfactory.Builder()).
     UseLogger(logger).
     Build(ctx)
@@ -47,7 +47,7 @@ Console and noop adapters are built in. Any other backend registers its builder 
 
 | Method | Description |
 |--------|-------------|
-| `Build(ctx)` | Assembles and returns the tracer; returns `tracing.Noop` if disabled |
+| `Build(ctx)` | Returns a `tracing.TracerProvider`, including `tracing.Noop()` when disabled |
 
 ## Batch export settings
 

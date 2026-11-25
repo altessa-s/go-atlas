@@ -20,8 +20,8 @@ var (
 	// 16-character hex format required by W3C Trace Context.
 	ErrInvalidSpanID = errors.New("invalid span ID")
 
-	// ErrTracerShutdown is returned by [Tracer.ForceFlush] and other operations
-	// after [Tracer.Shutdown] has been called.
+	// ErrTracerShutdown is returned by [TracerProvider.ForceFlush] and other operations
+	// after [TracerProvider.Shutdown] has been called.
 	ErrTracerShutdown = errors.New("tracer has been shut down")
 
 	// ErrEmptySpanName is returned when a span name is empty.

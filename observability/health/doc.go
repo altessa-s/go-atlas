@@ -48,10 +48,10 @@
 //	}))
 //
 //	// Register periodic health checks with scheduler
-//	sched.Register(ctx, scheduler.TaskConfig{
+//	sched.Register(ctx, schedtask.Config{
 //	    ID:         "health-check",
 //	    Schedule:   "*/5 * * * * *", // every 5 seconds
-//	    Func:       coordinator.RunHealthCheckCycle,
+//	    Func:       coordinator.RegisterHealthCheckSchedulerFunc(),
 //	    RunOnStart: true,
 //	})
 //

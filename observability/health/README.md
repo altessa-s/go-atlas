@@ -15,12 +15,19 @@ named services, caches status results, and delivers changes to subscribers via s
 | `Checker`             | Interface for health check implementations                       |
 | `Registrar`           | Consumer port: `RegisterService` only, implemented by `Coordinator` |
 | `Reporter`            | Consumer port: `Registrar` plus `NotifyStatusChange`             |
+| `ScopedReporter` | Registers one owner with status and removal callbacks that expire on replacement |
 | `DynamicReporter`     | Consumer port: `Reporter` plus `UnregisterService`               |
 | `Func`                | Adapter to use a plain function as `Checker`                     |
 | `Subscriber`          | Subscription for reactive status change notifications            |
 | `ServingStatus`       | Status enum: `StatusServing`, `StatusNotServing`, `StatusDegraded`, `StatusUnknown`, `StatusServiceUnknown` |
 | `RunHealthCheckCycle` | Single check cycle method for scheduler integration              |
 | `Coordinator.Health`  | `Health(ctx) error`: nil while serving, else `ErrNotServing` — plugs into the gRPC health interceptor directly |
+
+Status updates for a named service invalidate cached overall readiness. A push supersedes an overlapping poll for the same subscriber.
+`RegisterScopedService` binds updates and removal to the registered owner, including concurrent replacement. `RegisterOwnedService` uses that
+contract for a direct coordinator. For a decorated `Reporter`, it calls the supplied named methods, including `UnregisterService` when available.
+A name-based reporter must serialize replacement with an outstanding update or removal. `DetachableChecker.Detach` releases its own registrations
+through either coordinator registration method.
 
 ## Features
 

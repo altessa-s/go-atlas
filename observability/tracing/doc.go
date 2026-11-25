@@ -9,8 +9,8 @@
 // # Architecture
 //
 // The package follows an adapter pattern similar to observability/metrics:
-//   - Components depend on abstract interfaces (TracerProvider, Tracer, Span)
-//   - TracerProvider manages tracer creation and lifecycle (like metrics.Collector)
+//   - Instrumentation uses Tracer, Recorder, and Span
+//   - TracerProvider owns export, flush, and shutdown
 //   - Adapters translate abstract spans to specific backends (OTLP, Console, etc.)
 //   - Samplers control which spans are recorded and exported
 //
@@ -25,11 +25,11 @@
 //	)
 //	defer provider.Shutdown(context.Background())
 //
-//	// Get a tracer
-//	tracer := provider.Tracer("myapp/orders")
+//	// Get a recorder
+//	recorder := provider.Recorder("myapp/orders")
 //
 //	// Start a span
-//	ctx, span := tracer.Start(ctx, "ProcessOrder",
+//	ctx, span := recorder.Start(ctx, "ProcessOrder",
 //	    tracing.WithSpanKind(tracing.SpanKindServer),
 //	)
 //	defer span.End()
@@ -44,20 +44,20 @@
 //
 // For configuration-driven setup, use the factory package:
 //
-//	tracer, err := factory.New(cfg.Tracing).
+//	provider, err := factory.New(cfg.Tracing).
 //	    UseLogger(logger).
 //	    Build(ctx)
 //	if err != nil {
 //	    return err
 //	}
-//	defer tracer.Shutdown(ctx)
+//	defer provider.Shutdown(ctx)
 //
-// # Scoped Providers
+// # Scoped Tracers
 //
-// Use WithScope for organizing tracers by subsystem (similar to metrics.Meter.WithSubsystem):
+// Use [Tracer.WithScope] to organize recorders by subsystem.
 //
 //	ordersTracing := provider.WithScope("orders")
-//	tracer := ordersTracing.Tracer("handler") // creates "orders/handler" tracer
+//	recorder := ordersTracing.Recorder("handler") // recorder name is "orders/handler"
 //
 // # Context Propagation
 //
@@ -72,15 +72,15 @@
 //
 // # Optional Tracing
 //
-// Components should accept tracing.TracerProvider through options and default to Noop():
+// Components accept [Tracer] through options and default to [Noop].
 //
 //	type options struct {
-//	    tracerProvider tracing.TracerProvider
+//	    tracer tracing.Tracer
 //	}
 //
 //	func newOptions(opts ...Option) *options {
 //	    o := &options{
-//	        tracerProvider: tracing.Noop(), // Default to no-op
+//	        tracer: tracing.Noop(), // Default to no-op
 //	    }
 //	    for _, opt := range opts {
 //	        opt(o)

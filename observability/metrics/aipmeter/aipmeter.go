@@ -40,12 +40,12 @@ func (a meter) Timer(opts aipmetrics.HistogramOpts) aipmetrics.Timer {
 
 // MustCounter creates a counter on the wrapped Meter, panicking on error.
 func (a meter) MustCounter(opts aipmetrics.MetricOpts) aipmetrics.Counter {
-	return a.m.MustCounter(metricOpts(opts))
+	return metrics.MustCounter(a.m, metricOpts(opts))
 }
 
 // MustTimer creates a timer on the wrapped Meter, panicking on error.
 func (a meter) MustTimer(opts aipmetrics.HistogramOpts) aipmetrics.Timer {
-	return a.m.MustTimer(histogramOpts(opts))
+	return metrics.MustTimer(a.m, histogramOpts(opts))
 }
 
 // WithSubsystem scopes the wrapped Meter to subsystem.

@@ -7,8 +7,9 @@ package health
 import (
 	"context"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 
-	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
@@ -16,15 +17,32 @@ import (
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
+type checkScheduler struct {
+	scheduler      schedtask.Registrar
+	checkSchedule  string
+	registrationMu sync.Mutex
+	managed        atomic.Bool
+	running        atomic.Bool
+	closed         atomic.Bool
+	metrics        *healthMetrics
+	logger         *slog.Logger
+	statuses       *statusReporter
+	watchers       *subscriptions
+}
+
 // RegisterHealthChecks installs the configured periodic check. Failures leave
 // manual checks available; callers may retry. New does not register tasks.
 func (c *Coordinator) RegisterHealthChecks(ctx context.Context) error {
-	c.registrationMu.Lock()
-	defer c.registrationMu.Unlock()
-	if c.schedulerHealthCheckRegistered.Load() {
+	return c.checks.register(ctx)
+}
+
+func (s *checkScheduler) register(ctx context.Context) error {
+	s.registrationMu.Lock()
+	defer s.registrationMu.Unlock()
+	if s.managed.Load() {
 		return nil
 	}
-	if nilcheck.IsNil(c.scheduler) || c.checkSchedule == "" {
+	if nilcheck.IsNil(s.scheduler) || s.checkSchedule == "" {
 		return nil
 	}
 
@@ -33,21 +51,21 @@ func (c *Coordinator) RegisterHealthChecks(ctx context.Context) error {
 	taskCfg := schedtask.Config{
 		ID:             "health-check",
 		Description:    "Periodic health check cycle for all watched services",
-		Func:           c.runHealthCheckCycleInternal,
-		Schedule:       c.checkSchedule,
+		Func:           s.run,
+		Schedule:       s.checkSchedule,
 		Priority:       schedtask.PriorityNormal,
 		RunOnStart:     true,
 		Unmanaged:      true,
 		DisableHistory: true,
 	}
 
-	if err := c.scheduler.Register(ctx, taskCfg); err != nil {
+	if err := s.scheduler.Register(ctx, taskCfg); err != nil {
 		return coreerrs.WrapOperation(err, "register health check task")
 	}
 
-	c.schedulerHealthCheckRegistered.Store(true)
-	c.logger.Debug("registered health check task",
-		slog.String("schedule", c.checkSchedule))
+	s.managed.Store(true)
+	s.logger.Debug("registered health check task",
+		slog.String("schedule", s.checkSchedule))
 
 	return nil
 }
@@ -56,93 +74,57 @@ func (c *Coordinator) RegisterHealthChecks(ctx context.Context) error {
 // health check as scheduler-managed. After calling this method, direct calls to
 // RunHealthCheckCycle will return ErrSchedulerManaged.
 func (c *Coordinator) RegisterHealthCheckSchedulerFunc() func(context.Context) error {
-	c.schedulerHealthCheckRegistered.Store(true)
-	return c.runHealthCheckCycleInternal
+	c.checks.managed.Store(true)
+	return c.checks.run
 }
 
 // RunHealthCheckCycle performs a single health check cycle for all watched services.
 // This method is designed to be called manually for one-time health check.
 // If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
 func (c *Coordinator) RunHealthCheckCycle(ctx context.Context) error {
-	if c.schedulerHealthCheckRegistered.Load() {
+	if c.checks.managed.Load() {
 		return ErrSchedulerManaged
 	}
-	return c.runHealthCheckCycleInternal(ctx)
+	return c.checks.run(ctx)
 }
 
-// runHealthCheckCycleInternal performs the actual health check cycle.
-// It is safe to call concurrently; if already running, returns immediately.
-func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
-	// Prevent concurrent execution
-	if !c.healthCheckRunning.CompareAndSwap(false, true) {
-		return nil // Already running, skip this cycle
+// Overlapping scheduler and manual ticks skip the work already in progress.
+func (s *checkScheduler) run(ctx context.Context) error {
+	if !s.running.CompareAndSwap(false, true) {
+		return nil
 	}
-	defer c.healthCheckRunning.Store(false)
+	defer s.running.Store(false)
 
-	if c.closed.Load() {
+	if s.closed.Load() {
 		return nil
 	}
 
-	stop := c.metrics.checkCycleDuration.Start()
+	stop := s.metrics.checkCycleDuration.Start()
 	defer stop()
 
-	// Collect all services with active watchers
-	watchedServices := make(map[string]struct{})
-	for i := range c.watcherShards {
-		shard := &c.watcherShards[i]
-		shard.mu.RLock()
-		for service := range shard.watchers {
-			watchedServices[service] = struct{}{}
-		}
-		shard.mu.RUnlock()
-	}
-
-	if len(watchedServices) == 0 {
-		return nil
-	}
+	watchedServices := make(map[string][]poll)
+	s.watchers.collectPolls(watchedServices)
 
 	// Check health for each watched service and notify watchers if changed
-	for service := range watchedServices {
+	for service, watchers := range watchedServices {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		checkCtx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
-		currentStatus := c.getHealthStatus(checkCtx, service)
+		checkCtx, cancel := corectx.ApplyTimeout(ctx, s.statuses.checkTimeout)
+		currentStatus := s.statuses.getHealthStatus(checkCtx, service)
 		cancel()
-		c.metrics.checksPerformed.Inc()
+		s.metrics.checksPerformed.Inc()
 
-		// Find watchers for this service and notify if status changed
-		shardIdx := c.getShardIndex(service)
-		shard := &c.watcherShards[shardIdx]
-
-		shard.mu.RLock()
-		watchers := shard.watchers[service]
-		if watchers == nil {
-			shard.mu.RUnlock()
-			continue
-		}
-
-		// Collect watchers that need notification
-		var toNotify []*watcher
-		for w := range watchers {
-			toNotify = slices.AppendIf(toNotify, ServingStatus(w.lastStatus.Load()) != currentStatus, w)
-		}
-		shard.mu.RUnlock()
-
-		// Notify watchers outside the lock
-		c.metrics.statusChanges.Add(float64(len(toNotify)))
-		for _, w := range toNotify {
-			c.logger.Info("health status changed",
-				slog.String("service", service),
-				slog.String("from", ServingStatus(w.lastStatus.Load()).String()),
-				slog.String("to", currentStatus.String()))
-			// Advance lastStatus only on delivery, so a status dropped on a
-			// full buffer is retried on the next cycle.
-			if w.notify(currentStatus) {
-				w.lastStatus.Store(int32(currentStatus))
+		for _, target := range watchers {
+			if previous, sent := target.watcher.notifyPoll(currentStatus, target.pushes); sent {
+				s.metrics.statusChanges.Inc()
+				s.logger.Info("health status changed",
+					slog.String("service", service),
+					slog.String("from", previous.String()),
+					slog.String("to", currentStatus.String()))
 			}
 		}
 	}

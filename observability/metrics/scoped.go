@@ -34,26 +34,6 @@ func (s *scopedMeter) Timer(opts HistogramOpts) Timer {
 	return s.parent.getOrCreateTimer(s.subsystem, opts)
 }
 
-// MustCounter implements Meter.
-func (s *scopedMeter) MustCounter(opts MetricOpts) Counter {
-	return must(opts, func() Counter { return s.Counter(opts) })
-}
-
-// MustGauge implements Meter.
-func (s *scopedMeter) MustGauge(opts MetricOpts) Gauge {
-	return must(opts, func() Gauge { return s.Gauge(opts) })
-}
-
-// MustHistogram implements Meter.
-func (s *scopedMeter) MustHistogram(opts HistogramOpts) Histogram {
-	return must(opts, func() Histogram { return s.Histogram(opts) })
-}
-
-// MustTimer implements Meter.
-func (s *scopedMeter) MustTimer(opts HistogramOpts) Timer {
-	return must(opts, func() Timer { return s.Timer(opts) })
-}
-
 // WithSubsystem implements Meter.
 // Nested subsystems are joined with underscores.
 func (s *scopedMeter) WithSubsystem(subsystem string) Meter {

@@ -195,17 +195,6 @@ func normalizeLabels(labels map[string]string) prometheus.Labels {
 	return labels
 }
 
-// Flush implements adapters.Adapter.
-// For Prometheus, this is a no-op as metrics are scraped by Prometheus.
-func (a *Adapter) Flush() error {
-	return nil
-}
-
-// Close implements adapters.Adapter.
-func (a *Adapter) Close() error {
-	return nil
-}
-
 // Handler implements adapters.HTTPHandler.
 // Returns an http.Handler that serves metrics in Prometheus format.
 func (a *Adapter) Handler() http.Handler {

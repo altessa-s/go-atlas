@@ -79,5 +79,76 @@ func TestCollector_WithSubsystemHidesLifecycle(t *testing.T) {
 	}
 
 	// Instruments created through the scoped meter keep working.
-	nested.MustCounter(metrics.MetricOpts{Name: "acquired_total", Help: "test"}).Inc()
+	metrics.MustCounter(nested, metrics.MetricOpts{Name: "acquired_total", Help: "test"}).Inc()
 }
+
+// lifecycleAdapter records flush and close calls on a real recording backend.
+type lifecycleAdapter struct {
+	*memory.Adapter
+	calls []string
+}
+
+func (a *lifecycleAdapter) Flush() error {
+	a.calls = append(a.calls, "flush")
+	return nil
+}
+
+func (a *lifecycleAdapter) Close() error {
+	a.calls = append(a.calls, "close")
+	return nil
+}
+
+func TestOptionalAdapterLifecycle(t *testing.T) {
+	t.Parallel()
+	for _, multi := range []bool{false, true} {
+		for _, tc := range []struct {
+			name   string
+			expose func(*lifecycleAdapter) adapters.Adapter
+			want   []string
+		}{
+			{"record_only", func(a *lifecycleAdapter) adapters.Adapter {
+				return struct{ adapters.Adapter }{a}
+			}, nil},
+			{"flush_only", func(a *lifecycleAdapter) adapters.Adapter {
+				return flushOnlyAdapter{Adapter: a, flush: a.Flush}
+			}, []string{"flush", "flush"}},
+			{"close_only", func(a *lifecycleAdapter) adapters.Adapter {
+				return closeOnlyAdapter{Adapter: a, close: a.Close}
+			}, []string{"close"}},
+			{"both", func(a *lifecycleAdapter) adapters.Adapter { return a }, []string{"flush", "flush", "close"}},
+		} {
+			name := tc.name
+			if multi {
+				name = "multi/" + name
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				probe := &lifecycleAdapter{Adapter: memory.New()}
+				a := tc.expose(probe)
+				if multi {
+					a = adapters.NewMultiAdapter(struct{ adapters.Adapter }{memory.New()}, a)
+				}
+				c := metrics.New(metrics.WithAdapter(a))
+				require.NoError(t, c.ForceFlush(t.Context()))
+				require.NoError(t, c.Shutdown(t.Context()))
+				require.NoError(t, c.Shutdown(t.Context()))
+				require.ErrorIs(t, c.ForceFlush(t.Context()), metrics.ErrCollectorShutdown)
+				require.Equal(t, tc.want, probe.calls)
+			})
+		}
+	}
+}
+
+type flushOnlyAdapter struct {
+	adapters.Adapter
+	flush func() error
+}
+
+func (a flushOnlyAdapter) Flush() error { return a.flush() }
+
+type closeOnlyAdapter struct {
+	adapters.Adapter
+	close func() error
+}
+
+func (a closeOnlyAdapter) Close() error { return a.close() }

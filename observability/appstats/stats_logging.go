@@ -26,10 +26,10 @@ const (
 // StatsLogger provides periodic logging of application statistics.
 // It logs CPU load, memory usage, network I/O, goroutine count, and uptime.
 //
-// For periodic logging, register RunLogCycle with service/scheduler:
+// For periodic logging, register [StatsLogger.RunLogCycle] with go-horai:
 //
 //	statsLogger := appstats.NewStatsLogger(appstats.WithLogger(logger))
-//	sched.Register(ctx, scheduler.TaskConfig{
+//	sched.Register(ctx, schedtask.Config{
 //	    ID:         "appstats-logging",
 //	    Schedule:   appstats.DefaultStatsLogSchedule,
 //	    Func:       statsLogger.RunLogCycle,
@@ -50,7 +50,7 @@ func NewStatsLogger(opts ...Option) *StatsLogger {
 }
 
 // RunLogCycle performs a single logging cycle of application statistics.
-// This method is designed to be registered with service/scheduler for periodic execution.
+// This method is designed to be registered with go-horai for periodic execution.
 //
 // It collects and logs CPU load, memory usage, network I/O, goroutine count, and uptime.
 // The context controls the timeout for metrics collection (DefaultStatsCollectionTimeout).

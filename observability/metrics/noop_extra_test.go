@@ -51,10 +51,10 @@ func TestNoopCollector_Timer(t *testing.T) {
 
 func TestNoopCollector_MustVariants(t *testing.T) {
 	n := metrics.Noop()
-	_ = n.MustCounter(metrics.MetricOpts{Name: "c"})
-	_ = n.MustGauge(metrics.MetricOpts{Name: "g"})
-	_ = n.MustHistogram(metrics.HistogramOpts{Name: "h"})
-	_ = n.MustTimer(metrics.HistogramOpts{Name: "t"})
+	_ = metrics.MustCounter(n, metrics.MetricOpts{Name: "c"})
+	_ = metrics.MustGauge(n, metrics.MetricOpts{Name: "g"})
+	_ = metrics.MustHistogram(n, metrics.HistogramOpts{Name: "h"})
+	_ = metrics.MustTimer(n, metrics.HistogramOpts{Name: "t"})
 }
 
 func TestNoopCollector_WithSubsystem(t *testing.T) {
@@ -100,4 +100,24 @@ func TestLabelsValues(t *testing.T) {
 		count++
 	}
 	require.Equal(t, 2, count)
+}
+
+func TestNoopMustValidatesOptions(t *testing.T) {
+	t.Parallel()
+	n := metrics.Noop()
+	for _, tc := range []struct {
+		name   string
+		create func()
+		want   error
+	}{
+		{"counter", func() { metrics.MustCounter(n, metrics.MetricOpts{}) }, metrics.ErrEmptyMetricName},
+		{"gauge", func() { metrics.MustGauge(n, metrics.MetricOpts{Name: "g", LabelNames: []string{""}}) }, metrics.ErrEmptyLabelName},
+		{"histogram", func() { metrics.MustHistogram(n, metrics.HistogramOpts{}) }, metrics.ErrEmptyMetricName},
+		{"timer", func() { metrics.MustTimer(n, metrics.HistogramOpts{}) }, metrics.ErrEmptyMetricName},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.PanicsWithValue(t, tc.want, tc.create)
+		})
+	}
 }

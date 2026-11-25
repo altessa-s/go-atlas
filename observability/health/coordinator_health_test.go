@@ -11,12 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/observability/health"
-
-	grpchealth "github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 )
-
-// The Coordinator plugs into the gRPC health interceptor as is.
-var _ grpchealth.Health = (*health.Coordinator)(nil)
 
 // staticChecker reports a fixed status.
 type staticChecker health.ServingStatus

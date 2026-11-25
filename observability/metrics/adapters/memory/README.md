@@ -14,7 +14,7 @@ adapter := memory.New()
 collector := metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("test"))
 
 // Record metrics
-collector.MustCounter(metrics.MetricOpts{Name: "requests", Help: "Total requests", LabelNames: []string{"method"}}).
+metrics.MustCounter(collector, metrics.MetricOpts{Name: "requests", Help: "Total requests", LabelNames: []string{"method"}}).
     WithLabels(metrics.Labels{"method": "GET"}).
     Add(1)
 

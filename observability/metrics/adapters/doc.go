@@ -15,6 +15,8 @@
 // which lets the facade skip the per-observation metric lookup and label
 // hashing on hot paths.
 //
+// Implement [Flusher] to write buffered metrics or [Closer] to release resources.
+//
 // Implementations must be safe for concurrent use.
 //
 // # Example
@@ -26,6 +28,4 @@
 //	func (a *MyAdapter) RecordCounter(name string, labels map[string]string, delta float64) {}
 //	func (a *MyAdapter) RecordGauge(name string, labels map[string]string, value float64) {}
 //	func (a *MyAdapter) RecordHistogram(name string, labels map[string]string, value float64) {}
-//	func (a *MyAdapter) Flush() error { return nil }
-//	func (a *MyAdapter) Close() error { return nil }
 package adapters

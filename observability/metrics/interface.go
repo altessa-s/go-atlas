@@ -29,18 +29,6 @@ type Meter interface {
 	// Timer creates or retrieves a timer metric (histogram-based).
 	Timer(opts HistogramOpts) Timer
 
-	// MustCounter creates a counter, panicking on error.
-	MustCounter(opts MetricOpts) Counter
-
-	// MustGauge creates a gauge, panicking on error.
-	MustGauge(opts MetricOpts) Gauge
-
-	// MustHistogram creates a histogram, panicking on error.
-	MustHistogram(opts HistogramOpts) Histogram
-
-	// MustTimer creates a timer, panicking on error.
-	MustTimer(opts HistogramOpts) Timer
-
 	// WithSubsystem returns a Meter with the given subsystem.
 	// The subsystem is added between namespace and metric name:
 	// {namespace}_{subsystem}_{name}
@@ -70,7 +58,7 @@ type Collector interface {
 }
 
 // Counter is a metric that can only increase or be reset to zero.
-// Obtain via [Meter.Counter] or [Meter.MustCounter].
+// Obtain via [Meter.Counter] or [MustCounter].
 // All methods are safe for concurrent use.
 type Counter interface {
 	// Inc increments the counter by 1.
@@ -88,7 +76,7 @@ type Counter interface {
 }
 
 // Gauge is a metric that can increase and decrease.
-// Obtain via [Meter.Gauge] or [Meter.MustGauge].
+// Obtain via [Meter.Gauge] or [MustGauge].
 // All methods are safe for concurrent use.
 type Gauge interface {
 	// Set sets the gauge to the given value.
@@ -114,7 +102,7 @@ type Gauge interface {
 }
 
 // Histogram tracks the distribution of values across configured bucket boundaries.
-// Obtain via [Meter.Histogram] or [Meter.MustHistogram].
+// Obtain via [Meter.Histogram] or [MustHistogram].
 // All methods are safe for concurrent use.
 type Histogram interface {
 	// Observe records a value in the histogram.
@@ -128,7 +116,7 @@ type Histogram interface {
 
 // Timer is a specialized metric for measuring durations.
 // Internally it uses a [Histogram] to track the distribution of durations.
-// Obtain via [Meter.Timer] or [Meter.MustTimer].
+// Obtain via [Meter.Timer] or [MustTimer].
 // All methods are safe for concurrent use.
 type Timer interface {
 	// Start begins timing and returns a stop function.

@@ -8,8 +8,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/observability/health"
 )
 
 func TestRegisteredUnknownIsUnhealthy(t *testing.T) {

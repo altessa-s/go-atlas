@@ -6,21 +6,13 @@ package health
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"iter"
-	"log/slog"
-	"maps"
 	"slices"
-	"sync"
-	"sync/atomic"
-	"time"
 
-	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
-	schedtask "github.com/altessa-s/go-horai/task"
 )
 
 // Subscriber represents an active subscription to health status updates.
@@ -94,6 +86,12 @@ type Reporter interface {
 	NotifyStatusChange(service string, status ServingStatus)
 }
 
+// ScopedReporter registers a checker for the lifetime of its owner. Both
+// callbacks become no-ops once another registration replaces this one.
+type ScopedReporter interface {
+	RegisterScopedService(name string, checker Checker) (notify func(ServingStatus), unregister func())
+}
+
 // DynamicReporter is the port for components whose set of registered
 // services changes at runtime: they register, report, and unregister
 // services as the underlying targets come and go. [Coordinator]
@@ -107,6 +105,7 @@ type DynamicReporter interface {
 var (
 	_ Registrar       = (*Coordinator)(nil)
 	_ Reporter        = (*Coordinator)(nil)
+	_ ScopedReporter  = (*Coordinator)(nil)
 	_ DynamicReporter = (*Coordinator)(nil)
 )
 
@@ -147,59 +146,18 @@ type Metrics interface {
 //	    return err
 //	}
 //
-// Or register RunHealthCheckCycle manually with service/scheduler:
+// Or register the health check callback directly with go-horai:
 //
 //	sched.Register(ctx, schedtask.Config{
 //	    ID:         "health-check",
 //	    Schedule:   "*/5 * * * * *", // every 5 seconds
-//	    Func:       coordinator.RunHealthCheckCycle,
+//	    Func:       coordinator.RegisterHealthCheckSchedulerFunc(),
 //	    RunOnStart: true,
 //	})
 type Coordinator struct {
-	servicesMu      sync.RWMutex
-	services        map[string]*serviceRegistration
-	servicesVersion uint64
-
-	watcherShards []watcherShard
-
-	watcherChannelBuffer      int
-	maxWatchersPerService     int
-	numShards                 int
-	maxConcurrentHealthChecks int
-	statusCacheTTL            time.Duration
-	checkTimeout              time.Duration
-	adaptiveBufferThreshold   int32
-	adaptiveBufferMultiplier  int
-	maxAdaptiveBuffer         int
-
-	statusCache sync.Map // map[string]*cachedStatus
-
-	// refresh collapses concurrent refreshes of one expired cache entry into
-	// a single run of the checkers.
-	refresh *singleflight.Group[string, ServingStatus]
-
-	logger         *slog.Logger
-	scheduler      schedtask.Registrar
-	checkSchedule  string
-	registrationMu sync.Mutex
-
-	metrics *healthMetrics
-
-	activeWatchers    atomic.Int32
-	listCallsInFlight atomic.Int32
-
-	// overallStatusOverride forces [CheckHealth], [CheckServiceHealth] and
-	// [CheckStatus] to return a fixed status regardless of registered Checkers.
-	// Storing [StatusUnknown] (zero) means "no override" — the default behavior.
-	// Set with [Coordinator.SetOverallStatus] (typically to [StatusNotServing])
-	// to flip readiness probes during graceful shutdown without waiting for
-	// individual Checkers to reflect the shutdown.
-	overallStatusOverride atomic.Int32
-
-	closed             atomic.Bool
-	healthCheckRunning atomic.Bool // Guards against concurrent RunHealthCheckCycle calls.
-
-	schedulerHealthCheckRegistered atomic.Bool // Marks if RunHealthCheckCycle is managed by scheduler.
+	statuses statusReporter
+	watchers subscriptions
+	checks   checkScheduler
 }
 
 // Compile-time interface assertions.
@@ -221,28 +179,23 @@ var (
 func New(opts ...Option) *Coordinator {
 	o := newOptions(opts...)
 	c := &Coordinator{
-		metrics:                   newHealthMetrics(o.meter),
-		services:                  make(map[string]*serviceRegistration),
-		watcherChannelBuffer:      o.watcherChannelBuffer,
-		maxWatchersPerService:     o.maxWatchersPerService,
-		numShards:                 o.numShards,
-		maxConcurrentHealthChecks: o.maxConcurrentHealthChecks,
-		statusCacheTTL:            o.statusCacheTTL,
-		checkTimeout:              o.checkTimeout,
-		adaptiveBufferThreshold:   o.adaptiveBufferThreshold,
-		adaptiveBufferMultiplier:  o.adaptiveBufferMultiplier,
-		maxAdaptiveBuffer:         o.maxAdaptiveBuffer,
-		logger:                    o.logger,
-		scheduler:                 o.scheduler,
-		checkSchedule:             o.checkSchedule,
-		refresh:                   singleflight.New[string, ServingStatus](singleflight.WithTimeout(o.checkTimeout)),
+		statuses: statusReporter{
+			registry:                  serviceRegistry{services: make(map[string]*serviceRegistration)},
+			statusCacheTTL:            o.statusCacheTTL,
+			checkTimeout:              o.checkTimeout,
+			maxConcurrentHealthChecks: o.maxConcurrentHealthChecks,
+			refresh:                   singleflight.New[string, ServingStatus](singleflight.WithTimeout(o.checkTimeout)),
+		},
+		watchers: newSubscriptions(o),
 	}
-
-	c.watcherShards = make([]watcherShard, c.numShards)
-	for i := range c.watcherShards {
-		c.watcherShards[i].watchers = make(map[string]map[*watcher]struct{})
+	c.checks = checkScheduler{
+		scheduler:     o.scheduler,
+		checkSchedule: o.checkSchedule,
+		logger:        o.logger,
+		metrics:       newHealthMetrics(o.meter),
+		statuses:      &c.statuses,
+		watchers:      &c.watchers,
 	}
-
 	return c
 }
 
@@ -255,7 +208,7 @@ func New(opts ...Option) *Coordinator {
 // by [Coordinator.CheckStatus]) and push-based subscribers immediately see
 // the service as not serving.
 func (c *Coordinator) Close() {
-	if !c.closed.CompareAndSwap(false, true) {
+	if !c.checks.closed.CompareAndSwap(false, true) {
 		return // Already closed
 	}
 
@@ -288,17 +241,17 @@ func (c *Coordinator) Close() {
 // Setting the override clears the cached overall status so the next
 // CheckStatus("") observes the override without waiting for cache TTL.
 func (c *Coordinator) SetOverallStatus(status ServingStatus) {
-	c.overallStatusOverride.Store(int32(status))
+	c.statuses.override.Store(int32(status))
 	// Drop the cached overall status so CheckStatus("") does not return a
 	// stale Serving entry from before the override was set.
-	c.statusCache.Delete("")
+	c.statuses.registry.cache.Delete("")
 }
 
 // OverallStatusOverride returns the current override set via
 // [Coordinator.SetOverallStatus], or [StatusUnknown] if no override is in
 // effect.
 func (c *Coordinator) OverallStatusOverride() ServingStatus {
-	return ServingStatus(c.overallStatusOverride.Load())
+	return ServingStatus(c.statuses.override.Load())
 }
 
 // RegisterService adds a service to the coordinator.
@@ -307,40 +260,35 @@ func (c *Coordinator) OverallStatusOverride() ServingStatus {
 //
 //	coordinator.RegisterService("database", &DatabaseChecker{db: db})
 func (c *Coordinator) RegisterService(name string, checker Checker) {
-	c.servicesMu.Lock()
-	defer c.servicesMu.Unlock()
+	c.register(name, checker)
+}
 
-	c.services[name] = &serviceRegistration{Checker: checker}
-	c.servicesVersion++
-	c.statusCache.Delete(name)
-	c.statusCache.Delete("")
+// RegisterScopedService implements [ScopedReporter]. Closing an old registration
+// cannot unregister its replacement or overwrite its last reported status.
+func (c *Coordinator) RegisterScopedService(name string, checker Checker) (notify func(ServingStatus), unregister func()) {
+	reg := c.register(name, checker)
+	return func(status ServingStatus) { c.statuses.registry.report(name, reg, status, &c.watchers) },
+		func() { c.statuses.registry.remove(name, reg) }
+}
+
+func (c *Coordinator) register(name string, checker Checker) *serviceRegistration {
+	reg := c.statuses.registry.register(name, checker)
+	if detachable, ok := checker.(*DetachableChecker); ok {
+		detachable.bind(serviceBinding{registry: &c.statuses.registry, name: name, owner: reg})
+	}
+	return reg
 }
 
 // UnregisterService removes a service and clears its cached status.
 func (c *Coordinator) UnregisterService(name string) {
-	c.servicesMu.Lock()
-	defer c.servicesMu.Unlock()
-
-	delete(c.services, name)
-	c.servicesVersion++
-	c.statusCache.Delete(name)
-	c.statusCache.Delete("")
+	c.statuses.registry.remove(name, nil)
 }
 
 // ListServices returns an iterator over all registered service names.
 func (c *Coordinator) ListServices() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		// Snapshot under the lock so the loop body may register or
-		// unregister services without deadlocking.
-		c.servicesMu.RLock()
-		names := slices.Collect(maps.Keys(c.services))
-		c.servicesMu.RUnlock()
-
-		for _, name := range names {
-			if !yield(name) {
-				return
-			}
-		}
+		// Take a fresh snapshot for each iteration and yield outside the lock.
+		slices.Values(c.statuses.registry.names())(yield)
 	}
 }
 
@@ -353,40 +301,7 @@ func (c *Coordinator) ListServices() iter.Seq[string] {
 // [StatusServiceUnknown] so callers can distinguish missing services from
 // the shutdown signal.
 func (c *Coordinator) CheckServiceHealth(ctx context.Context, service string) ServingStatus {
-	result := c.checkService(ctx, service)
-	if result.unregistered {
-		return StatusServiceUnknown
-	}
-	if result.replaced {
-		return StatusNotServing
-	}
-	return result.status
-}
-
-type serviceRegistration struct {
-	Checker
-}
-
-func (c *Coordinator) checkService(ctx context.Context, service string) serviceStatus {
-	c.servicesMu.RLock()
-	checker, ok := c.services[service]
-	c.servicesMu.RUnlock()
-
-	if !ok {
-		return serviceStatus{service: service, status: StatusServiceUnknown, unregistered: true}
-	}
-
-	var status ServingStatus
-	if override := ServingStatus(c.overallStatusOverride.Load()); override != StatusUnknown {
-		status = override
-	} else {
-		status = checker.CheckHealth(ctx)
-	}
-
-	c.servicesMu.RLock()
-	current, registered := c.services[service]
-	c.servicesMu.RUnlock()
-	return serviceStatus{service: service, registration: checker, status: status, unregistered: !registered, replaced: registered && current != checker}
+	return c.statuses.serviceHealth(ctx, service)
 }
 
 // Health reports the overall status as an error: nil while [CheckHealth]
@@ -395,7 +310,7 @@ func (c *Coordinator) checkService(ctx context.Context, service string) serviceS
 // Health(ctx) error dependency is expected — the gRPC health interceptor
 // (transport/grpc/interceptors/health) among them — without an adapter.
 func (c *Coordinator) Health(ctx context.Context) error {
-	ctx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
+	ctx, cancel := corectx.ApplyTimeout(ctx, c.statuses.checkTimeout)
 	defer cancel()
 
 	if st := c.CheckHealth(ctx); st != StatusServing {
@@ -414,156 +329,7 @@ func (c *Coordinator) Health(ctx context.Context) error {
 // consulting any [Checker]. This lets graceful shutdown flip readiness
 // before individual dependencies report as failed.
 func (c *Coordinator) CheckHealth(ctx context.Context) ServingStatus {
-	if override := ServingStatus(c.overallStatusOverride.Load()); override != StatusUnknown {
-		return override
-	}
-
-	statuses, err := c.checkServices(ctx)
-	if err != nil {
-		return StatusNotServing
-	}
-
-	for _, st := range statuses {
-		// A service unregistered while the checks ran is not part of the
-		// overall status.
-		if !st.unregistered && (st.replaced || st.status != StatusServing) {
-			return StatusNotServing
-		}
-	}
-
-	return StatusServing
-}
-
-// serviceStatus is the result of checking one registered service.
-type serviceStatus struct {
-	unregistered bool
-	replaced     bool
-	service      string
-	registration *serviceRegistration
-	status       ServingStatus
-}
-
-// checkServices checks every registered service concurrently, bounded by
-// MaxConcurrentHealthChecks, each under the check timeout.
-func (c *Coordinator) checkServices(ctx context.Context) ([]serviceStatus, error) {
-	services := slices.Collect(c.ListServices())
-	if len(services) == 0 {
-		return nil, nil
-	}
-
-	statuses, err := concurrency.ProcessCollect(ctx, services, func(ctx context.Context, svc string) (serviceStatus, error) {
-		checkCtx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
-		status := c.checkService(checkCtx, svc)
-		cancel()
-
-		return status, nil
-	},
-		// No StopOnError: continue checking other services if one fails.
-		concurrency.WithConcurrency[string](c.maxConcurrentHealthChecks),
-	)
-	if err != nil {
-		return statuses, err
-	}
-
-	c.servicesMu.RLock()
-	defer c.servicesMu.RUnlock()
-	for i := range statuses {
-		current, registered := c.services[statuses[i].service]
-		statuses[i].unregistered = !registered
-		statuses[i].replaced = registered && current != statuses[i].registration
-	}
-	return statuses, nil
-}
-
-func (c *Coordinator) getShardIndex(service string) int {
-	// Inline FNV-1a 32-bit to avoid allocating a hash.Hash32 per call.
-	const (
-		offset32 uint32 = 2166136261
-		prime32  uint32 = 16777619
-	)
-	h := offset32
-	for i := range len(service) {
-		h ^= uint32(service[i])
-		h *= prime32
-	}
-	return int(h % uint32(c.numShards)) // #nosec G115 -- numShards is small positive int
-}
-
-func (c *Coordinator) getCachedStatus(service string) (ServingStatus, bool) {
-	if cached, ok := c.statusCache.Load(service); ok {
-		if cs, ok := cached.(*cachedStatus); ok {
-			timestamp := cs.timestamp.Load()
-			if time.Since(time.Unix(0, timestamp)) < c.statusCacheTTL {
-				return cs.status, true
-			}
-		}
-	}
-	return StatusUnknown, false
-}
-
-func (c *Coordinator) setCachedStatus(service string, status ServingStatus) {
-	cs := &cachedStatus{status: status}
-	cs.timestamp.Store(time.Now().UnixNano())
-	c.statusCache.Store(service, cs)
-}
-
-func (c *Coordinator) getHealthStatus(ctx context.Context, service string) ServingStatus {
-	// Honor the overall status override before reading the cache so that
-	// shutdown signals (see [Coordinator.SetOverallStatus]) cannot be masked
-	// by a Serving entry written just before the override was set.
-	if override := ServingStatus(c.overallStatusOverride.Load()); override != StatusUnknown {
-		if service == "" {
-			return override
-		}
-		c.servicesMu.RLock()
-		_, ok := c.services[service]
-		c.servicesMu.RUnlock()
-		if !ok {
-			return StatusServiceUnknown
-		}
-		return override
-	}
-
-	if status, ok := c.getCachedStatus(service); ok {
-		return status
-	}
-
-	// Callers that find the entry expired at the same time share one run of
-	// the checkers, bounded by the check timeout of the group.
-	status, err := c.refresh.Do(ctx, service, func(work context.Context) (ServingStatus, error) {
-		return c.refreshStatus(work, service), nil
-	})
-	if errors.Is(err, singleflight.ErrOverloaded) {
-		checkCtx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
-		defer cancel()
-		return c.refreshStatus(checkCtx, service)
-	}
-	if err != nil {
-		// The caller stopped waiting; the shared refresh still fills the cache.
-		return StatusNotServing
-	}
-	return status
-}
-
-// refreshStatus runs the checkers behind service and caches the result.
-func (c *Coordinator) refreshStatus(ctx context.Context, service string) ServingStatus {
-	c.servicesMu.RLock()
-	version := c.servicesVersion
-	c.servicesMu.RUnlock()
-	var status ServingStatus
-	if service == "" {
-		status = c.CheckHealth(ctx)
-	} else {
-		status = c.CheckServiceHealth(ctx, service)
-	}
-	// Unknown names come from callers (HTTP and gRPC health requests);
-	// caching them would retain every distinct name ever asked for.
-	c.servicesMu.RLock()
-	defer c.servicesMu.RUnlock()
-	if status != StatusServiceUnknown && version == c.servicesVersion {
-		c.setCachedStatus(service, status)
-	}
-	return status
+	return c.statuses.overall(ctx)
 }
 
 // CheckStatus returns a service's status using cache when available.
@@ -573,26 +339,13 @@ func (c *Coordinator) refreshStatus(ctx context.Context, service string) Serving
 //
 //	status := coordinator.CheckStatus(ctx, "database")
 func (c *Coordinator) CheckStatus(ctx context.Context, service string) ServingStatus {
-	return c.getHealthStatus(ctx, service)
+	return c.statuses.getHealthStatus(ctx, service)
 }
 
 // ListStatuses returns all services and their current statuses.
 // Concurrent checks are limited by MaxConcurrentHealthChecks.
 func (c *Coordinator) ListStatuses(ctx context.Context) (map[string]ServingStatus, error) {
-	c.listCallsInFlight.Add(1)
-	defer c.listCallsInFlight.Add(-1)
-
-	statuses, err := c.checkServices(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	results := make(map[string]ServingStatus, len(statuses))
-	for _, r := range statuses {
-		results[r.service] = r.status
-	}
-
-	return results, nil
+	return c.statuses.list(ctx)
 }
 
 // Subscribe creates a [Subscription] for a service's health updates.
@@ -608,94 +361,25 @@ func (c *Coordinator) ListStatuses(ctx context.Context) (map[string]ServingStatu
 //	}
 //	defer sub.Close()
 func (c *Coordinator) Subscribe(ctx context.Context, service string) (Subscriber, error) {
-	if c.closed.Load() {
+	if c.checks.closed.Load() {
 		return nil, ErrCoordinatorShutdown
 	}
 
-	initialStatus := c.getHealthStatus(ctx, service)
-
-	bufferSize := c.watcherChannelBuffer
-	if active := c.activeWatchers.Load(); active > c.adaptiveBufferThreshold {
-		bufferSize = min(bufferSize*c.adaptiveBufferMultiplier, c.maxAdaptiveBuffer)
-	}
-
-	w := newWatcher(bufferSize, initialStatus)
-	shardIdx := c.getShardIndex(service)
-	shard := &c.watcherShards[shardIdx]
-
-	shard.mu.Lock()
-	if shard.watchers[service] == nil {
-		shard.watchers[service] = make(map[*watcher]struct{})
-	}
-	if c.maxWatchersPerService > 0 && len(shard.watchers[service]) >= c.maxWatchersPerService {
-		shard.mu.Unlock()
-		w.close()
-		return nil, ErrWatcherLimitExceeded
-	}
-	shard.watchers[service][w] = struct{}{}
-	shard.mu.Unlock()
-
-	c.activeWatchers.Add(1)
-
-	c.logger.Debug("new subscription created",
-		slog.String("service", service),
-		slog.Int("buffer_size", bufferSize),
-		slog.String("initial_status", initialStatus.String()))
-
-	return &Subscription{
-		initialStatus: initialStatus,
-		updates:       w.ch,
-		cancel: func() {
-			shard := &c.watcherShards[shardIdx]
-			shard.mu.Lock()
-			delete(shard.watchers[service], w)
-			if len(shard.watchers[service]) == 0 {
-				delete(shard.watchers, service)
-			}
-			shard.mu.Unlock()
-
-			w.close()
-			c.activeWatchers.Add(-1)
-		},
-	}, nil
+	initialStatus := c.statuses.getHealthStatus(ctx, service)
+	return c.watchers.subscribe(service, initialStatus)
 }
 
 // NotifyStatusChange sends a status update to all watchers of a service.
 // The status is cached and delivered to active subscriptions.
 func (c *Coordinator) NotifyStatusChange(service string, status ServingStatus) {
-	c.setCachedStatus(service, status)
-
-	shardIdx := c.getShardIndex(service)
-	shard := &c.watcherShards[shardIdx]
-
-	shard.mu.RLock()
-	watchers := shard.watchers[service]
-	if watchers == nil {
-		shard.mu.RUnlock()
-		return
-	}
-
-	list := make([]*watcher, 0, len(watchers))
-	for w := range watchers {
-		list = append(list, w)
-	}
-	shard.mu.RUnlock()
-
-	for _, w := range list {
-		w.notify(status)
-	}
-
-	c.logger.Debug("status change notified",
-		slog.String("service", service),
-		slog.String("status", status.String()),
-		slog.Int("watchers", len(list)))
+	c.statuses.registry.report(service, nil, status, &c.watchers)
 }
 
 // TriggerRecheckAll invalidates all cached statuses.
 // Watchers fetch fresh status on their next poll cycle.
 func (c *Coordinator) TriggerRecheckAll() {
-	c.statusCache.Range(func(key, value any) bool {
-		c.statusCache.Delete(key)
+	c.statuses.registry.cache.Range(func(key, value any) bool {
+		c.statuses.registry.cache.Delete(key)
 		return true
 	})
 }
@@ -703,22 +387,7 @@ func (c *Coordinator) TriggerRecheckAll() {
 // BroadcastStatus sends the same status to all watchers across all services.
 // Useful for shutdown scenarios.
 func (c *Coordinator) BroadcastStatus(status ServingStatus) {
-	for i := range c.watcherShards {
-		shard := &c.watcherShards[i]
-
-		shard.mu.RLock()
-		var list []*watcher
-		for _, serviceWatchers := range shard.watchers {
-			for w := range serviceWatchers {
-				list = append(list, w)
-			}
-		}
-		shard.mu.RUnlock()
-
-		for _, w := range list {
-			w.notify(status)
-		}
-	}
+	c.watchers.broadcast(status)
 }
 
 // GetMetrics returns runtime metrics for monitoring.
@@ -730,26 +399,16 @@ func (c *Coordinator) BroadcastStatus(status ServingStatus) {
 func (c *Coordinator) GetMetrics() map[string]any {
 	metrics := make(map[string]any)
 
-	metrics["active_watchers"] = c.activeWatchers.Load()
-	metrics["list_calls_in_flight"] = c.listCallsInFlight.Load()
+	metrics["active_watchers"] = c.watchers.activeWatchers.Load()
+	metrics["list_calls_in_flight"] = c.statuses.listCallsInFlight.Load()
 
 	cached := 0
-	c.statusCache.Range(func(key, value any) bool {
+	c.statuses.registry.cache.Range(func(key, value any) bool {
 		cached++
 		return true
 	})
 	metrics["cached_statuses"] = cached
 
-	totalWatchers := 0
-	for i := range c.watcherShards {
-		shard := &c.watcherShards[i]
-		shard.mu.RLock()
-		for _, watchers := range shard.watchers {
-			totalWatchers += len(watchers)
-		}
-		shard.mu.RUnlock()
-	}
-	metrics["total_watchers"] = totalWatchers
-
+	metrics["total_watchers"] = c.watchers.count()
 	return metrics
 }

@@ -73,11 +73,17 @@ type Adapter interface {
 
 	// RecordHistogram records an observation in a histogram.
 	RecordHistogram(name string, labels map[string]string, value float64)
+}
 
+// Flusher is an optional [Adapter] capability for writing buffered metrics.
+type Flusher interface {
 	// Flush ensures all pending metrics are written.
 	// For pull-based systems like Prometheus, this may be a no-op.
 	Flush() error
+}
 
+// Closer is an optional [Adapter] capability for releasing resources.
+type Closer interface {
 	// Close releases any resources held by the adapter.
 	Close() error
 }
@@ -179,22 +185,30 @@ func (m *MultiAdapter) RecordHistogram(name string, labels map[string]string, va
 	}
 }
 
-// Flush implements Adapter.
-// Flushes all adapters, returning the first error encountered.
+// Flush implements [Flusher].
+// Flushes participating adapters, returning the first error encountered.
 func (m *MultiAdapter) Flush() error {
 	for _, a := range m.adapters {
-		if err := a.Flush(); err != nil {
+		capable, ok := a.(Flusher)
+		if !ok {
+			continue
+		}
+		if err := capable.Flush(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Close implements Adapter.
-// Closes all adapters, returning the first error encountered.
+// Close implements [Closer].
+// Closes participating adapters, returning the first error encountered.
 func (m *MultiAdapter) Close() error {
 	for _, a := range m.adapters {
-		if err := a.Close(); err != nil {
+		capable, ok := a.(Closer)
+		if !ok {
+			continue
+		}
+		if err := capable.Close(); err != nil {
 			return err
 		}
 	}

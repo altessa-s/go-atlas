@@ -30,7 +30,7 @@ func newPromCollector(tb testing.TB) metrics.Collector {
 // counters.
 func BenchmarkCounterInc(b *testing.B) {
 	c := newPromCollector(b)
-	ctr := c.MustCounter(metrics.MetricOpts{
+	ctr := metrics.MustCounter(c, metrics.MetricOpts{
 		Name: "events_total",
 		Help: "bench",
 	})
@@ -43,7 +43,7 @@ func BenchmarkCounterInc(b *testing.B) {
 
 func BenchmarkLabeledCounterInc(b *testing.B) {
 	c := newPromCollector(b)
-	ctr := c.MustCounter(metrics.MetricOpts{
+	ctr := metrics.MustCounter(c, metrics.MetricOpts{
 		Name:       "requests_total",
 		Help:       "bench",
 		LabelNames: []string{"method"},
@@ -67,7 +67,7 @@ func BenchmarkLabeledCounterInc(b *testing.B) {
 
 func BenchmarkLabeledHistogramObserve(b *testing.B) {
 	c := newPromCollector(b)
-	h := c.MustHistogram(metrics.HistogramOpts{
+	h := metrics.MustHistogram(c, metrics.HistogramOpts{
 		Name:       "request_size_bytes",
 		Help:       "bench",
 		LabelNames: []string{"method"},
@@ -91,7 +91,7 @@ func BenchmarkLabeledHistogramObserve(b *testing.B) {
 
 func BenchmarkLabeledTimerObserveDuration(b *testing.B) {
 	c := newPromCollector(b)
-	t := c.MustTimer(metrics.HistogramOpts{
+	t := metrics.MustTimer(c, metrics.HistogramOpts{
 		Name:       "request_duration_seconds",
 		Help:       "bench",
 		LabelNames: []string{"method"},
@@ -106,7 +106,7 @@ func BenchmarkLabeledTimerObserveDuration(b *testing.B) {
 
 func BenchmarkLabeledGaugeSet(b *testing.B) {
 	c := newPromCollector(b)
-	g := c.MustGauge(metrics.MetricOpts{
+	g := metrics.MustGauge(c, metrics.MetricOpts{
 		Name:       "in_flight",
 		Help:       "bench",
 		LabelNames: []string{"method"},
@@ -123,7 +123,7 @@ func BenchmarkLabeledGaugeSet(b *testing.B) {
 // the shadow value and its publication consistent per series.
 func BenchmarkGaugeInc(b *testing.B) {
 	c := newPromCollector(b)
-	g := c.MustGauge(metrics.MetricOpts{
+	g := metrics.MustGauge(c, metrics.MetricOpts{
 		Name: "queue_depth",
 		Help: "bench",
 	})
@@ -136,7 +136,7 @@ func BenchmarkGaugeInc(b *testing.B) {
 
 func BenchmarkLabeledGaugeInc(b *testing.B) {
 	c := newPromCollector(b)
-	g := c.MustGauge(metrics.MetricOpts{
+	g := metrics.MustGauge(c, metrics.MetricOpts{
 		Name:       "in_flight",
 		Help:       "bench",
 		LabelNames: []string{"method"},

@@ -27,7 +27,7 @@ func newExportMetrics(ctx context.Context, meter metrics.Meter, queueLength func
 	if meter == nil || metrics.IsNoop(meter) {
 		return nil
 	}
-	m := meter.WithSubsystem("tracing")
+	m := metrics.MustMeter{Meter: meter.WithSubsystem("tracing")}
 	stats := &exportMetrics{
 		exported:    m.MustCounter(metrics.MetricOpts{Name: "spans_exported_total", Help: "Spans in successful batch exports."}),
 		dropped:     m.MustCounter(metrics.MetricOpts{Name: "spans_dropped_total", Help: "Sampled spans dropped because the export queue was full."}),
