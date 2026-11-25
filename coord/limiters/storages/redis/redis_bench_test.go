@@ -10,8 +10,10 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
+	"github.com/altessa-s/go-atlas-core/time/clock"
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
 	"github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
+	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -58,5 +60,26 @@ func BenchmarkProvider_AllowAll(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_, _ = p.AllowAll(ctx, limits)
+	}
+}
+
+func BenchmarkProvider_AllowAllUntagged(b *testing.B) {
+	client, mr := redistest.RedisClient(b)
+	redistest.ServeTopology(mr, "master", "0")
+	fake := clock.NewFake(time.Unix(0, 0))
+	p := redis.New(client, redis.WithClock(fake))
+	ctx := b.Context()
+	limits := []storages.Limit{
+		{Key: "host:a", Limit: 1_000_000, Period: time.Millisecond},
+		{Key: "global", Limit: 1_000_000, Period: time.Millisecond},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		// Expire the previous sample so both sorted sets stay the same size.
+		fake.Advance(time.Millisecond)
+		if _, err := p.AllowAll(ctx, limits); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

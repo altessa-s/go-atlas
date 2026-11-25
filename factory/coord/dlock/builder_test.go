@@ -176,3 +176,20 @@ func TestBuild_SQLPurgeShutdownAndBatch(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := &lockconfig.DistributionLock{Provider: "custom"}
+
+	build := func(context.Context, *lockconfig.DistributionLock, *slog.Logger) (providers.Provider, error) {
+		return noopprovider.New(), nil
+	}
+	b := factory.New(cfg).UseProvider("custom", build)
+	cfg.SetRegisteredTypes(b.RegisteredProviderTypes())
+	require.NoError(t, cfg.Validate())
+	got, err := b.Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	_, err = factory.New(cfg).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
+}

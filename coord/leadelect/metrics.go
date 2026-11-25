@@ -26,7 +26,7 @@ func newLeaderMetrics(c metrics.Meter) *leaderMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("leader_election")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("leader_election")}
 
 	return &leaderMetrics{
 		transitions: scoped.MustCounter(metrics.MetricOpts{

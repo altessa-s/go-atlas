@@ -24,7 +24,7 @@ func newDlockMetrics(c metrics.Meter) *dlockMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("dlock")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("dlock")}
 
 	return &dlockMetrics{
 		locksAcquired: scoped.MustCounter(metrics.MetricOpts{

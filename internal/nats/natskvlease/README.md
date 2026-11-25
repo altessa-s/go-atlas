@@ -24,7 +24,7 @@ Shared NATS KeyValue lease utilities for the data packages. Provides revision-ba
 | `WithLeaseOwnerCheck` | none | Reports whether a stored value belongs to this holder |
 | `WithLeaseCallbacks` | none | `LeaseCallbacks` fired on acquire, renew, loss and release |
 | `WithLeaseLogger` | `slog.Default()` | Logger for lease operations; nil keeps the default |
-| `WithLeaseCollector` | none | Meter for the lease metrics; nil disables them |
+| `WithLeaseObserver` | none | Receives operation results and held-state transitions |
 
 `Retry(ctx, fn, opts...)` retries transient network errors with exponential backoff.
 

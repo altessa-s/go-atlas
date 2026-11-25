@@ -24,12 +24,12 @@ when the fake clock runs a period or more behind real time.
 them only when each admits, so a refusal takes no slot; windows keep the millisecond resolution of `Allow`. The single-key `Allow` script is
 unchanged.
 
-A script reaches one node, so on a `*redis.ClusterClient` or `*redis.Ring` every key of a call must hash alike: give the keys one hash tag, such as
-`{tenant-1}:global` and `{tenant-1}:host:example.com`, or put a tag in the key prefix (`WithKeyPrefix("{app}:")`, which places every key of the
-provider on one node). Redis hashes the text between the first `{` and the next `}` when it is not empty, and the whole key otherwise. A call whose
-keys hash differently fails before any network I/O with a `*storages.KeyError` wrapping `ErrCrossSlot`, instead of a `CROSSSLOT` reply from the
-server. Single-node and failover clients accept any keys.
+Give the keys a shared hash tag, such as `{tenant-1}:global` and `{tenant-1}:host:example.com`, or place the tag in the key prefix. For keys without a
+common tag, only a raw `*redis.Client` can run the script, after `ROLE` and `INFO cluster` verify a single non-cluster primary. Each provider shares one
+in-flight check and reuses success for 30 seconds on its configured clock. The next call after expiry checks again so the provider can detect failover.
+Each caller can cancel its own wait. The shared check has a 15-second deadline, and a failed check is retried on the next call. Cluster, Ring and
+decorated clients return a `*storages.KeyError` wrapping `ErrCrossSlot` before sending any commands.
 
 | Error          | Description                                                                     |
 |----------------|---------------------------------------------------------------------------------|
-| `ErrCrossSlot` | Keys of one `AllowAll` call on a Cluster or Ring client do not share a hash tag |
+| `ErrCrossSlot` | Keys of one `AllowAll` call on an unverified or sharded client do not share a hash tag |

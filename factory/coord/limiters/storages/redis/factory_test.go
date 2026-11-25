@@ -19,6 +19,7 @@ import (
 	budgetfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/budget"
 	factory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/redis"
 	tokenbucketfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/tokenbucket"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 func TestBuilder_BudgetEnforcesLimit(t *testing.T) {
@@ -78,4 +79,5 @@ func TestBuilder_Errors(t *testing.T) {
 	client, _ := redistest.RedisClient(t)
 	_, err = factory.Builder(client)(t.Context(), &storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis}, nil)
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }

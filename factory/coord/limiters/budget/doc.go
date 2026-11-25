@@ -17,4 +17,7 @@
 // register from factory/coord/limiters/storages/redis and
 // factory/coord/limiters/storages/nats, and a configured type without one
 // fails at Build naming the package to add.
+//
+// [BudgetLimiterBuilder.UseStorage] accepts custom backend names. For standalone schema
+// validation, pass [BudgetLimiterBuilder.RegisteredStorageTypes] results to SetRegisteredTypes.
 package factory

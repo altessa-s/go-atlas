@@ -76,9 +76,7 @@ type LockInfo struct {
 	// wall-clock fields that may differ between the holder and the
 	// observer node, so IsStale can flip across NTP corrections or
 	// clock skew — callers MUST NOT use it to make safety-critical
-	// decisions. The only authoritative liveness signal is the
-	// JetStream KV TTL: once the underlying key expires the lease is
-	// definitively gone, and the [FencingToken] revision is the
-	// authoritative ordering primitive for write-fencing.
+	// decisions. Use the provider's lease
+	// mechanism to establish ownership and FencingToken to order fenced writes.
 	IsStale bool
 }

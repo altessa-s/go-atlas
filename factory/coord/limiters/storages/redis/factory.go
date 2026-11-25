@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/redis/go-redis/v9"
 
@@ -16,6 +17,7 @@ import (
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	redisstorage "github.com/altessa-s/go-atlas/coord/limiters/storages/redis"
 	storagesfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 var (
@@ -24,7 +26,7 @@ var (
 	ErrClientRequired = errors.New("limiters: redis client is required for storage type redis")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// redis block.
-	ErrConfigRequired = errors.New("limiters: redis storage configuration is required")
+	ErrConfigRequired = fmt.Errorf("limiters: redis storage configuration is required: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the redis type, ready for

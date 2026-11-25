@@ -85,11 +85,12 @@ func (lt *lockTracker) Drain() map[string]*lock {
 // Locker implements the provider.Locker interface and the providers.Provider interface using NATS Key Value.
 // It provides distributed locking capabilities using NATS JetStream's KV.
 type Locker struct {
-	client *nats.Conn
-	js     jetstream.JetStream
-	opts   *options
-	kv     jetstream.KeyValue
-	kvOps  *natskvlease.KVOps
+	client   *nats.Conn
+	js       jetstream.JetStream
+	opts     *options
+	kv       jetstream.KeyValue
+	kvOps    *natskvlease.KVOps
+	observer natskvlease.LeaseObserver
 
 	// Track active locks for cleanup
 	activeLocks *lockTracker
@@ -155,6 +156,9 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Locker, error
 		return nil, err
 	}
 
+	if cfg.meter != nil {
+		l.observer = newLeaseMetrics(cfg.meter)
+	}
 	l.kvOps = natskvlease.NewKVOps(l.kv, l.opts.logger)
 
 	return l, nil
@@ -192,7 +196,7 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	l.mu.Unlock()
 	defer l.inflight.Done()
 
-	lk := newLock(&config{Key: key, TTL: l.opts.ttl, Value: uuid.New().String()}, l.kvOps, l.opts.logger, l.opts.renewRatio)
+	lk := newLock(&config{Key: key, TTL: l.opts.ttl, Value: uuid.New().String()}, l.kvOps, l.opts, l.observer)
 	// A lease released by ctx cancellation or lost to expiry never passes
 	// through trackedLock.Release, so untrack it when it ends.
 	lk.onTerminal = func() { l.activeLocks.DeleteIf(key, lk) }

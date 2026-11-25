@@ -23,6 +23,7 @@ import (
 	budgetfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/budget"
 	factory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages/nats"
 	tokenbucketfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/tokenbucket"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 func budgetLimiter(ctx context.Context, js jetstream.JetStream, limit int64, storage *storageconfig.BackendConfig,
@@ -135,4 +136,5 @@ func TestBuilder_Errors(t *testing.T) {
 	_, js := natstest.ConnectJetStream(t, ns)
 	_, err = factory.Builder(js)(t.Context(), &storageconfig.BackendConfig{Type: storageconfig.BackendTypeNATS}, nil)
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }

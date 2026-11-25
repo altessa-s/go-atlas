@@ -10,8 +10,6 @@ package natskvlease
 import (
 	"log/slog"
 	"time"
-
-	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // leaseOptions holds the optional settings of a [Lease]. The key, lifetime and
@@ -34,9 +32,9 @@ type leaseOptions struct {
 	// [slog.Default].
 	logger *slog.Logger `optgen:"default=slog.Default()"`
 
-	// WithLeaseCollector sets the meter the lease metrics are registered with;
-	// nil disables them.
-	collector metrics.Meter
+	// WithLeaseObserver reports lease operations and held-state changes to the observer.
+	// A nil observer disables reporting.
+	observer LeaseObserver
 }
 
 // retryOptions holds the settings of one [Retry] call.

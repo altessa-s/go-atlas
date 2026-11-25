@@ -2,26 +2,20 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package natskvlease
+package nats
 
 import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // leaseMetrics holds all Prometheus metrics for NATS KV lease operations.
-// When no [metrics.Meter] is provided, [metrics.Noop] is used and
-// all methods become zero-cost no-ops.
 type leaseMetrics struct {
 	operations metrics.Counter
 	leaseHeld  metrics.Gauge
 }
 
 func newLeaseMetrics(c metrics.Meter) *leaseMetrics {
-	if c == nil {
-		c = metrics.Noop()
-	}
-
-	scoped := c.WithSubsystem("nats_kv_lease")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("nats_kv_lease")}
 
 	return &leaseMetrics{
 		operations: scoped.MustCounter(metrics.MetricOpts{
@@ -33,5 +27,17 @@ func newLeaseMetrics(c metrics.Meter) *leaseMetrics {
 			Name: "lease_held",
 			Help: "Whether the lease is currently held (1=held, 0=not held).",
 		}),
+	}
+}
+
+func (m *leaseMetrics) RecordOperation(op, result string) {
+	m.operations.WithLabels(metrics.Labels{"op": op, "result": result}).Inc()
+}
+
+func (m *leaseMetrics) SetHeld(held bool) {
+	if held {
+		m.leaseHeld.Set(1)
+	} else {
+		m.leaseHeld.Set(0)
 	}
 }

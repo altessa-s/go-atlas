@@ -22,7 +22,7 @@ func newNatsLeaderMetrics(c metrics.Meter) *natsLeaderMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("nats_leader_election")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("nats_leader_election")}
 
 	return &natsLeaderMetrics{
 		leaseOperations: scoped.MustCounter(metrics.MetricOpts{

@@ -18,7 +18,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
-	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
@@ -82,13 +81,19 @@ type LeaseCallbacks struct {
 	OnReleased func()
 }
 
+// LeaseObserver receives lease operation results and held-state transitions.
+// Methods may be called concurrently.
+type LeaseObserver interface {
+	RecordOperation(op, result string)
+	SetHeld(held bool)
+}
+
 // Lease represents a distributed lease that can be acquired, renewed, and released.
 type Lease struct {
-	ops     *KVOps
-	key     string
-	ttl     time.Duration
-	opts    *leaseOptions
-	metrics *leaseMetrics
+	ops  *KVOps
+	key  string
+	ttl  time.Duration
+	opts *leaseOptions
 
 	isHeld atomic.Bool
 	// value holds the lease payload (owner identifier) as an atomically
@@ -120,12 +125,11 @@ func NewLease(kv jetstream.KeyValue, key string, ttl time.Duration, value []byte
 	o := newLeaseOptions(opts...)
 
 	l := &Lease{
-		ops:     NewKVOps(kv, o.logger),
-		key:     key,
-		ttl:     ttl,
-		opts:    o,
-		metrics: newLeaseMetrics(o.collector),
-		logger:  o.logger.With(slog.String("key", key)),
+		ops:    NewKVOps(kv, o.logger),
+		key:    key,
+		ttl:    ttl,
+		opts:   o,
+		logger: o.logger.With(slog.String("key", key)),
 
 		releaseGuard: make(chan struct{}, 1),
 	}
@@ -154,8 +158,7 @@ func (l *Lease) Acquire(ctx context.Context) (bool, error) {
 	// Try to create the key - only succeeds if it doesn't exist
 	_, err := l.ops.Create(ctx, l.key, l.currentValue())
 	if err == nil {
-		l.isHeld.Store(true)
-		l.metrics.leaseHeld.Set(1)
+		l.setHeld(true)
 		l.record("acquire", nil)
 		if l.opts.callbacks.OnAcquired != nil {
 			l.opts.callbacks.OnAcquired()
@@ -205,21 +208,29 @@ func (l *Lease) tryTakeoverStale(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
+func (l *Lease) setHeld(held bool) {
+	l.isHeld.Store(held)
+	if l.opts.observer != nil {
+		l.opts.observer.SetHeld(held)
+	}
+}
+
 // record counts one lease operation, classifying it by whether it failed.
 func (l *Lease) record(op string, err error) {
 	result := "success"
 	if err != nil {
 		result = "failure"
 	}
-	l.metrics.operations.WithLabels(metrics.Labels{"op": op, "result": result}).Inc()
+	if l.opts.observer != nil {
+		l.opts.observer.RecordOperation(op, result)
+	}
 }
 
 // lost marks the lease as no longer held and reports it as a failed renewal.
 // Every way of discovering the loss — the key gone, a tombstone, another owner,
 // a revision that moved on — leaves the same state behind.
 func (l *Lease) lost() (bool, error) {
-	l.isHeld.Store(false)
-	l.metrics.leaseHeld.Set(0)
+	l.setHeld(false)
 	l.record("renew", ErrLeaseNotHeld)
 
 	return false, ErrLeaseNotHeld
@@ -292,7 +303,9 @@ func (l *Lease) Release(ctx context.Context) error {
 	// Stop renewing before touching the key, so the renewal loop cannot write
 	// it back between the ownership check and the delete below.
 	l.StopCamping()
-	l.metrics.leaseHeld.Set(0)
+	if l.opts.observer != nil {
+		l.opts.observer.SetHeld(false)
+	}
 
 	entry, err := l.ops.Get(ctx, l.key)
 	if err != nil {
@@ -338,8 +351,7 @@ func (l *Lease) Release(ctx context.Context) error {
 // no-op; renewal stays stopped, so an unretried lease lapses at its TTL.
 func (l *Lease) releaseFailed(err error) error {
 	l.record("release", err)
-	l.isHeld.Store(true)
-	l.metrics.leaseHeld.Set(1)
+	l.setHeld(true)
 
 	return err
 }
@@ -575,8 +587,7 @@ func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) {
 			// Renew marks a definitive loss itself; a lease that ran out of time
 			// is just as gone.
 			if !errors.Is(err, ErrLeaseNotHeld) {
-				l.isHeld.Store(false)
-				l.metrics.leaseHeld.Set(0)
+				l.setHeld(false)
 			}
 			l.logger.WarnContext(ctx, "lease lost during renewal", slog.Any("error", err))
 			if l.opts.callbacks.OnLost != nil {

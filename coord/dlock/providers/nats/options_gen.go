@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Option is a functional option for configuring options.
@@ -58,6 +60,13 @@ func WithLogger(v *slog.Logger) Option {
 			return
 		}
 		o.logger = v
+	}
+}
+
+// WithMeter registers NATS KV lease metrics. A nil meter disables them.
+func WithMeter(v metrics.Meter) Option {
+	return func(o *options) {
+		o.meter = v
 	}
 }
 

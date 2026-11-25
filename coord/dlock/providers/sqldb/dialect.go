@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 )
 
 // Dialect selects the SQL flavor the locker speaks.
@@ -28,7 +29,7 @@ var (
 	// ErrInvalidTableName is returned by [New] when the table name is not a
 	// plain SQL identifier, optionally qualified by one schema name, or a part
 	// of it exceeds 63 characters.
-	ErrInvalidTableName = sqldialect.ErrInvalidTableName
+	ErrInvalidTableName = sqlident.ErrInvalidTableName
 	// ErrValueTooLong is returned by Lock for a key longer than [MaxKeyLength]
 	// characters. Rejecting it up front matters because PostgreSQL silently
 	// trims excess trailing spaces, which would make "k" and "k " (past the

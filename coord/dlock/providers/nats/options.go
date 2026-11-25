@@ -14,6 +14,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/internal/nats/natskvlease"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // DefaultBucketKeysTTL is the default lock TTL, and with it the key TTL of the
@@ -37,6 +38,8 @@ const DefaultOperationsTimeout = time.Second * 5
 
 // options contains NATS locker configuration.
 type options struct {
+	// WithMeter registers NATS KV lease metrics. A nil meter disables them.
+	meter      metrics.Meter
 	logger     *slog.Logger
 	bucket     string        `optgen:"default=defaultBucket()"`
 	renewRatio float64       `optgen:"default=DefaultRenewRatio"`

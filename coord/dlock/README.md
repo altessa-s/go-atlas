@@ -15,7 +15,7 @@ MongoDB, SQL, no-op) with automatic resource management and context-aware operat
 | `WithMeter`             | noop      | Prometheus metrics collector                                     |
 | `WithHealthCoordinator` | unset     | Auto-register with a `health.Registrar` on construction          |
 | `WithHealthServiceName` | `"dlock"` | Override service name when several DLock instances share a coord |
-| `WithReleaseTimeout`    | `10s`     | Bound of the release `Synchronize` performs; `0` is unbounded    |
+| `WithReleaseTimeout`    | `10s`     | Bound of the release `Synchronize` performs; non-positive values are ignored and keep the default |
 
 ## Acquisition and lifetime
 

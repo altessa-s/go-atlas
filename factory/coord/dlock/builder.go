@@ -45,7 +45,7 @@ type DLockBuilder struct {
 	// Dependencies
 	shutdownHooks     *coreruntime.HookGroup
 	sqlDB             *sql.DB
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.Registrar
 	healthServiceName string
 
 	providers map[lockconfig.DistributionLockProvider]ProviderFunc

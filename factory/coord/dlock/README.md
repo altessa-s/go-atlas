@@ -19,6 +19,9 @@ lock, err := factory.New(cfg.DistributionLock).
 The builder builds only the `sqldb` provider. `nats` and `mongo` use the function registered with `UseProvider`; without one `Build` fails naming the
 package to add.
 
+Register a custom backend name with `UseProvider`. Before standalone validation or config loading, call
+`cfg.SetRegisteredTypes(b.RegisteredProviderTypes())`.
+
 ## Supported Providers
 
 | Provider                                                                                                                                                  | Requires                                                                                                                                                                                              |                                                                                                   |
@@ -45,7 +48,7 @@ package to add.
 | `UseProvider`              | Registers the `ProviderFunc` of a provider type the builder does not build (`nats`, `mongo`)                               |
 | `UseShutdownHooks`         | Sets the hook group that closes the SQL provider; defaults to the process-wide runtime registry                            |
 | `UseSQLDB`                 | Sets the `*sql.DB` for the `sqldb` provider                                                                                |
-| `UseHealthCoordinator`     | Registers the lock with a `health.Coordinator`                                                                             |
+| `UseHealthCoordinator`     | Registers the lock with a `health.Registrar`                                                                             |
 | `UseHealthServiceName`     | Overrides the health service name (default `dlock`)                                                                        |
 
 ### Terminal

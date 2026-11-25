@@ -6,9 +6,11 @@
 // Uses sorted sets with atomic Lua scripts and sliding window algorithm for consistency.
 //
 // [Provider.AllowAll] implements [storages.MultiStorage] with one script over
-// every key. On a Redis Cluster or Ring client the keys of one call must
+// every key. On a sharded or unknown client the keys of one call must
 // share a hash tag, such as "{tenant-1}:global" and "{tenant-1}:host:a";
-// otherwise the call fails with [ErrCrossSlot] before any network I/O.
+// otherwise the call fails with [ErrCrossSlot] before any network I/O. Untagged multi-key calls on
+// raw single-node clients share one ROLE and INFO cluster check. The provider
+// reuses a successful check for [DefaultTopologyVerificationWindow].
 //
 // Example:
 //

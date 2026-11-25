@@ -5,8 +5,6 @@ package natskvlease
 
 import (
 	"log/slog"
-
-	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // LeaseOption is a functional option for configuring leaseOptions.
@@ -19,14 +17,6 @@ func WithLeaseCallbacks(v LeaseCallbacks) LeaseOption {
 	}
 }
 
-// WithLeaseCollector sets the meter the lease metrics are registered with;
-// nil disables them.
-func WithLeaseCollector(v metrics.Meter) LeaseOption {
-	return func(o *leaseOptions) {
-		o.collector = v
-	}
-}
-
 // WithLeaseLogger sets the logger for lease operations; nil uses
 // [slog.Default].
 func WithLeaseLogger(v *slog.Logger) LeaseOption {
@@ -35,6 +25,14 @@ func WithLeaseLogger(v *slog.Logger) LeaseOption {
 			return
 		}
 		o.logger = v
+	}
+}
+
+// WithLeaseObserver reports lease operations and held-state changes to the observer.
+// A nil observer disables reporting.
+func WithLeaseObserver(v LeaseObserver) LeaseOption {
+	return func(o *leaseOptions) {
+		o.observer = v
 	}
 }
 

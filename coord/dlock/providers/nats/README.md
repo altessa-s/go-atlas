@@ -24,6 +24,7 @@ holder failure.
 | `WithAcquireTimeout`   | 5s                        | Bound of the single acquisition attempt, separate from the lock's context |
 | `WithStorage`          | `jetstream.MemoryStorage` | Storage type of the bucket                                                |
 | `WithMigrateBucketTTL` | off                       | Update an existing bucket whose key TTL differs instead of failing        |
+| `WithMeter`            | none                      | Registers the lease operation counter and held-state gauge                |
 | `WithLogger`           | discard                   | Structured logger                                                         |
 
 ## Keys

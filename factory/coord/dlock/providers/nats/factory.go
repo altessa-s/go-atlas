@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/nats-io/nats.go"
@@ -20,6 +21,7 @@ import (
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	natsprovider "github.com/altessa-s/go-atlas/coord/dlock/providers/nats"
 	dlockfactory "github.com/altessa-s/go-atlas/factory/coord/dlock"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 var (
@@ -28,7 +30,7 @@ var (
 	ErrClientRequired = errors.New("dlock: nats connection is required for provider nats")
 	// ErrConfigRequired is returned when the distribution lock configuration
 	// has no nats block.
-	ErrConfigRequired = errors.New("dlock: nats configuration is required for provider nats")
+	ErrConfigRequired = fmt.Errorf("dlock: nats configuration is required for provider nats: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the provider function of the nats type, ready for

@@ -18,6 +18,7 @@ import (
 	limiterconfig "github.com/altessa-s/go-atlas/config/limiter"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	memorystorage "github.com/altessa-s/go-atlas/coord/limiters/storages/memory"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 var errBuild = errors.New("build failed")
@@ -110,4 +111,22 @@ func TestBuild_WithLogger(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, l, "Build() returned nil")
+}
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := validConfig()
+	cfg.Storage = &storageconfig.BackendConfig{Type: "custom"}
+
+	build := func(context.Context, *storageconfig.BackendConfig, *limiterconfig.NATSContention) (storages.Storage, error) {
+		return memorystorage.New(), nil
+	}
+	b := factory.New(cfg).UseStorage("custom", build)
+	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+	require.NoError(t, cfg.Storage.Validate())
+	got, err := b.Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	_, err = factory.New(cfg).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
 }

@@ -3,7 +3,7 @@
 // the LICENSE file.
 
 // Package redisutils provides common utilities for Redis-based data providers.
-// It standardizes key building with consistent separator handling.
+// It standardizes key building and verifies standalone primary topology.
 //
 // Example:
 //

@@ -40,7 +40,7 @@ type options struct {
 	// registration. Useful when multiple DLock instances share one
 	// coordinator (e.g. "dlock-payments", "dlock-inventory").
 	healthServiceName string `optgen:"default=DefaultHealthServiceName"`
-	// releaseTimeout bounds the release Synchronize performs once its
-	// function returned; 0 leaves it unbounded.
+	// WithReleaseTimeout bounds the release Synchronize performs after its
+	// function returns. Nonpositive values leave the timeout unchanged.
 	releaseTimeout time.Duration `optgen:"default=DefaultReleaseTimeout"`
 }

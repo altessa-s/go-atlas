@@ -7,6 +7,8 @@ package factory
 import (
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/coord/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -61,4 +63,9 @@ func (b *TokenBucketLimiterBuilder) UseMeter(v metrics.Meter) *TokenBucketLimite
 func (b *TokenBucketLimiterBuilder) UseClientService(v tokenbucket.ClientService) *TokenBucketLimiterBuilder {
 	b.clientService = v
 	return b
+}
+
+// RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
+func (b *TokenBucketLimiterBuilder) RegisteredStorageTypes() []storageconfig.BackendType {
+	return slices.Sorted(maps.Keys(b.storages))
 }

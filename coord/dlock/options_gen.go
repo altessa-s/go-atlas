@@ -85,10 +85,8 @@ func WithMeter(v metrics.Meter) Option {
 	}
 }
 
-// WithReleaseTimeout sets the releaseTimeout option.
-//
-// releaseTimeout bounds the release Synchronize performs once its
-// function returned; 0 leaves it unbounded.
+// WithReleaseTimeout bounds the release Synchronize performs after its
+// function returns. Nonpositive values leave the timeout unchanged.
 func WithReleaseTimeout(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {

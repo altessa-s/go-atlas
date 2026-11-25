@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -17,6 +18,7 @@ import (
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	natsstorage "github.com/altessa-s/go-atlas/coord/limiters/storages/nats"
 	storagesfactory "github.com/altessa-s/go-atlas/factory/coord/limiters/storages"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 var (
@@ -25,7 +27,7 @@ var (
 	ErrClientRequired = errors.New("limiters: jetstream is required for storage type nats")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// nats block.
-	ErrConfigRequired = errors.New("limiters: nats storage configuration is required")
+	ErrConfigRequired = fmt.Errorf("limiters: nats storage configuration is required: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the nats type, ready for UseStorage

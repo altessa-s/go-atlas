@@ -21,6 +21,7 @@ import (
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	locknats "github.com/altessa-s/go-atlas/coord/dlock/providers/nats"
 	dlockfactory "github.com/altessa-s/go-atlas/factory/coord/dlock"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // newBuilder returns a dlock builder with the nats provider registered on nc.
@@ -60,6 +61,7 @@ func TestBuilder_MigrateBucketTTL(t *testing.T) {
 	require.NotNil(t, dl)
 	require.Equal(t, locknats.DefaultBucketKeysTTL, natstest.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
 }
+
 // TestBuilder_Storage pins that nats.storage selects the storage type of the
 // bucket the provider creates, memory by default.
 func TestBuilder_Storage(t *testing.T) {
@@ -90,6 +92,7 @@ func TestBuilder_Errors(t *testing.T) {
 
 	_, err := factory.Builder(nil)(t.Context(), &lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderNATS}, logger)
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 
 	_, err = newBuilder(&lockconfig.DistributionLock{
 		Provider: lockconfig.DistributionLockProviderNATS,

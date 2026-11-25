@@ -17,5 +17,6 @@
 //	lock, _ := dl.Lock(ctx, "resource-key")
 //	defer lock.Release(ctx)
 //
+// [WithMeter] enables the nats_kv_lease operation counter and held-state gauge.
 // [NewDLock] builds a DLock over a provider that sets only the bucket.
 package nats

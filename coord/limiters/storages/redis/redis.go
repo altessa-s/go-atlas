@@ -7,12 +7,14 @@ package redis
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas-core/id"
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
+	"github.com/altessa-s/go-atlas-core/runtime/singleflight"
 	"github.com/altessa-s/go-atlas-core/text/strings"
 	"github.com/altessa-s/go-atlas-core/time/clock"
 	"github.com/altessa-s/go-atlas/coord/limiters/storages"
@@ -29,6 +31,9 @@ const memberBytes = 8
 type Provider struct {
 	redisbase.Base
 	clock clock.Clock
+
+	verified     atomic.Pointer[primaryVerification]
+	verification *singleflight.Group[*redis.Client, struct{}]
 }
 
 // New creates a new Redis-based rate limiting provider.
@@ -36,8 +41,9 @@ func New(client redis.UniversalClient, opt ...Option) *Provider {
 	opts := newOptions(opt...)
 
 	return &Provider{
-		Base:  redisbase.NewBase(client, opts.keyPrefix),
-		clock: opts.clock,
+		Base:         redisbase.NewBase(client, opts.keyPrefix),
+		clock:        opts.clock,
+		verification: singleflight.New[*redis.Client, struct{}](),
 	}
 }
 

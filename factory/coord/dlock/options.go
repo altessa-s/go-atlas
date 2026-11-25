@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
@@ -55,7 +57,7 @@ func (b *DLockBuilder) UseProvider(typ lockconfig.DistributionLockProvider, buil
 // supplied health coordinator on construction. Combine with
 // [DLockBuilder.UseHealthServiceName] to override the default
 // "dlock" service name when several DLock instances share a coordinator.
-func (b *DLockBuilder) UseHealthCoordinator(v *health.Coordinator) *DLockBuilder {
+func (b *DLockBuilder) UseHealthCoordinator(v health.Registrar) *DLockBuilder {
 	b.healthCoordinator = v
 	return b
 }
@@ -73,4 +75,9 @@ func (b *DLockBuilder) UseHealthServiceName(v string) *DLockBuilder {
 func (b *DLockBuilder) UseShutdownHooks(v *coreruntime.HookGroup) *DLockBuilder {
 	b.shutdownHooks = v
 	return b
+}
+
+// RegisteredProviderTypes returns a snapshot of the names registered with UseProvider for standalone configuration validation.
+func (b *DLockBuilder) RegisteredProviderTypes() []lockconfig.DistributionLockProvider {
+	return slices.Sorted(maps.Keys(b.providers))
 }

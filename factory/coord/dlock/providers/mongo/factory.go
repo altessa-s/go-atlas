@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	mongoprovider "github.com/altessa-s/go-atlas/coord/dlock/providers/mongo"
 	dlockfactory "github.com/altessa-s/go-atlas/factory/coord/dlock"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -30,7 +32,7 @@ var (
 	ErrClientRequired = errors.New("dlock: mongo database is required for provider mongo")
 	// ErrConfigRequired is returned when the distribution lock configuration
 	// has no mongo block.
-	ErrConfigRequired = errors.New("dlock: mongo configuration is required for provider mongo")
+	ErrConfigRequired = fmt.Errorf("dlock: mongo configuration is required for provider mongo: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the provider function of the mongo type, ready for

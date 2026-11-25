@@ -15,20 +15,21 @@ import (
 
 	"github.com/altessa-s/go-atlas/coord/dlock/providers"
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
+	"github.com/altessa-s/go-atlas/observability/metrics/metricstest"
 
 	locknats "github.com/altessa-s/go-atlas/coord/dlock/providers/nats"
 )
 
-func setupLocker(tb testing.TB) *locknats.Locker {
+func setupLocker(tb testing.TB, opts ...locknats.Option) *locknats.Locker {
 	tb.Helper()
 	ns := natstest.StartNATSServer(tb)
 	nc := natstest.ConnectNATS(tb, ns)
 	ctx := tb.Context()
 
 	bucket := strings.ReplaceAll(tb.Name(), "/", "-")
-	locker, err := locknats.New(ctx, nc, locknats.WithBucket(bucket))
+	locker, err := locknats.New(ctx, nc, append(opts, locknats.WithBucket(bucket))...)
 	require.NoError(tb, err)
-	tb.Cleanup(func() { _ = locker.Close(context.Background()) })
+	tb.Cleanup(func() { _ = locker.Close(context.WithoutCancel(ctx)) })
 	return locker
 }
 
@@ -189,4 +190,21 @@ func TestLocker_ContextReleaseUntracksLock(t *testing.T) {
 	}
 	require.Eventually(t, func() bool { return locker.TrackedLocks() == 0 },
 		5*time.Second, 10*time.Millisecond, "context-released locks must be untracked")
+}
+
+func TestLeaseMetrics(t *testing.T) {
+	t.Parallel()
+	collector := metricstest.NewTestCollector()
+	locker := setupLocker(t, locknats.WithMeter(collector))
+	const operations = "test_nats_kv_lease_operations_total"
+	const held = "test_nats_kv_lease_lease_held"
+	for attempt := range 2 {
+		lock, err := locker.Lock(t.Context(), "measured")
+		require.NoError(t, err)
+		require.EqualValues(t, attempt+1, metricstest.GetCounterValue(t, collector, operations, "op", "acquire", "result", "success"))
+		require.EqualValues(t, 1, metricstest.GetGaugeValue(t, collector, held))
+		require.NoError(t, lock.Release(t.Context()))
+		require.EqualValues(t, attempt+1, metricstest.GetCounterValue(t, collector, operations, "op", "release", "result", "success"))
+		require.Zero(t, metricstest.GetGaugeValue(t, collector, held))
+	}
 }

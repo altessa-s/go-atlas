@@ -7,6 +7,8 @@ package factory
 import (
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -52,4 +54,9 @@ func (b *BudgetLimiterBuilder) UseScheduler(v schedtask.Registrar) *BudgetLimite
 func (b *BudgetLimiterBuilder) UseMeter(v metrics.Meter) *BudgetLimiterBuilder {
 	b.collector = v
 	return b
+}
+
+// RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
+func (b *BudgetLimiterBuilder) RegisteredStorageTypes() []storageconfig.BackendType {
+	return slices.Sorted(maps.Keys(b.storages))
 }

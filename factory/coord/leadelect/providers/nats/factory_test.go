@@ -67,6 +67,7 @@ func TestBuilder_MigrateBucketTTL(t *testing.T) {
 	require.NotNil(t, leader)
 	require.Equal(t, lenats.DefaultBucketKeysTTL, natstest.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
 }
+
 // TestBuilder_Storage pins that storage selects the storage type of the election
 // bucket the provider creates, memory by default.
 func TestBuilder_Storage(t *testing.T) {

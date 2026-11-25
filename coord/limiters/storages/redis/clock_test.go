@@ -75,7 +75,8 @@ func TestProvider_WithClock(t *testing.T) {
 	t.Run("AllowAll", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
-		client, _ := redistest.RedisClient(t)
+		client, mr := redistest.RedisClient(t)
+		redistest.ServeTopology(mr, "master", "0")
 		fake := clock.NewFake(epoch)
 		p := redis.New(client, redis.WithClock(fake))
 		limits := []storages.Limit{

@@ -30,4 +30,7 @@
 // 1000). A zero interval disables background purging. The builder registers Close with
 // UseShutdownHooks(group) or the process-wide runtime shutdown registry; run shutdown hooks before
 // closing the injected database.
+//
+// [DLockBuilder.UseProvider] accepts custom backend names. For standalone schema
+// validation, pass [DLockBuilder.RegisteredProviderTypes] results to SetRegisteredTypes.
 package factory

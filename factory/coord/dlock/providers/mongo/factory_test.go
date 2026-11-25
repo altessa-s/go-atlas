@@ -15,6 +15,7 @@ import (
 
 	lockconfig "github.com/altessa-s/go-atlas/config/lock"
 	dlockfactory "github.com/altessa-s/go-atlas/factory/coord/dlock"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -41,6 +42,7 @@ func TestBuilder_Mongodb(t *testing.T) {
 		_, err := newBuilder(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongo}, client.Database("x")).
 			Build(t.Context())
 		require.ErrorIs(t, err, factory.ErrConfigRequired)
+		require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 	})
 	t.Run("builds_without_io", func(t *testing.T) {
 		t.Parallel()

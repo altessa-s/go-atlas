@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/coord/leadelect"
 	"github.com/altessa-s/go-atlas/coord/leadelect/providers"
-	"github.com/stretchr/testify/require"
 )
 
 type heldStateProvider struct {

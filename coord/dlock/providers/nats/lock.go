@@ -41,7 +41,7 @@ type lock struct {
 	metadata *lockMetadata
 }
 
-func newLock(cfg *config, kvOps *natskvlease.KVOps, logger *slog.Logger, renewRatio float64) *lock {
+func newLock(cfg *config, kvOps *natskvlease.KVOps, opts *options, observer natskvlease.LeaseObserver) *lock {
 	metadata := &lockMetadata{
 		OwnerId:     uuid.New().String(),
 		AcquiredAt:  time.Now(),
@@ -53,12 +53,12 @@ func newLock(cfg *config, kvOps *natskvlease.KVOps, logger *slog.Logger, renewRa
 
 	l := &lock{
 		config:   cfg,
-		logger:   logger,
+		logger:   opts.logger,
 		metadata: metadata,
 	}
 
 	l.lease = natskvlease.NewLease(kvOps.KV(), cfg.Key, cfg.TTL, metadataBytes,
-		natskvlease.WithLeaseRenewRatio(renewRatio),
+		natskvlease.WithLeaseRenewRatio(opts.renewRatio),
 		natskvlease.WithLeaseOwnerCheck(func(value []byte) bool {
 			var m lockMetadata
 			if err := json.Unmarshal(value, &m); err != nil {
@@ -78,7 +78,8 @@ func newLock(cfg *config, kvOps *natskvlease.KVOps, logger *slog.Logger, renewRa
 				}
 			},
 		}),
-		natskvlease.WithLeaseLogger(logger),
+		natskvlease.WithLeaseLogger(opts.logger),
+		natskvlease.WithLeaseObserver(observer),
 	)
 
 	return l

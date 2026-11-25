@@ -22,7 +22,7 @@ func newLimiterMetrics(c metrics.Meter) *limiterMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("budget_limiter")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("budget_limiter")}
 
 	return &limiterMetrics{
 		requestsAllowed: scoped.MustCounter(metrics.MetricOpts{

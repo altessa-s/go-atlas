@@ -9,9 +9,10 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/coord/leadelect"
 	"github.com/altessa-s/go-atlas/coord/leadelect/providers"
-	"github.com/stretchr/testify/require"
 )
 
 func TestLeader_StopFromCallbackDuringStart(t *testing.T) {

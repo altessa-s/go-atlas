@@ -17,7 +17,10 @@ limiter, err := factory.New(cfg.BudgetLimiter).
 ```
 
 The builder builds only the in-memory storage. `redis` and `nats` use the function registered with `UseStorage`; without one `Build` fails naming
-the package to add. Any other type fails `Build` with an unsupported storage type error.
+the package to add. An unregistered custom type fails with `ErrUnsupported`.
+
+Register a custom backend name with `UseStorage`. Before standalone validation or config loading, call
+`cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())`.
 
 ## Supported Storage Types
 

@@ -14,15 +14,15 @@ import (
 )
 
 // A lease built from the mandatory arguments alone is usable: the optional
-// logger, collector, owner check and callbacks all have nil-safe defaults.
+// logger, observer, owner check and callbacks all have nil-safe defaults.
 func TestNewLease_Defaults(t *testing.T) {
 	t.Parallel()
 
 	for name, opts := range map[string][]natskvlease.LeaseOption{
 		"no options": nil,
-		"nil logger and collector": {
+		"nil logger and observer": {
 			natskvlease.WithLeaseLogger(nil),
-			natskvlease.WithLeaseCollector(nil),
+			natskvlease.WithLeaseObserver(nil),
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

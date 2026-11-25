@@ -22,6 +22,7 @@ import (
 func setupProvider(tb testing.TB) (*redis.Provider, *miniredis.Miniredis) {
 	tb.Helper()
 	client, mr := redistest.RedisClient(tb)
+	redistest.ServeTopology(mr, "master", "0")
 	return redis.New(client), mr
 }
 

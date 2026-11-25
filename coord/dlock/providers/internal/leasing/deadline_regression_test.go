@@ -12,9 +12,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/coord/dlock/providers"
 	"github.com/altessa-s/go-atlas/coord/dlock/providers/internal/leasing"
-	"github.com/stretchr/testify/require"
 )
 
 type renewalFaultStore struct {
