@@ -16,8 +16,8 @@ provider, err := factory.New(cfg.Tracing).
     Build(ctx)
 ```
 
-Console and noop adapters are built in. Any other backend registers its builder with `UseAdapter`; a configured type without one fails at
-`Build(ctx)` with an error naming the module to add.
+Console and noop adapters are built in. Use `UseAdapter` to register other backends or override the console adapter.
+Use `UseConsoleWriter` to set the built-in console adapter's output. It defaults to stdout.
 
 ## Supported Adapter Types
 
@@ -40,6 +40,7 @@ Console and noop adapters are built in. Any other backend registers its builder 
 | Method | Description |
 |--------|-------------|
 | `UseMeter` | Records batch exporter metrics through the application meter |
+| `UseConsoleWriter` | Sets the writer for the built-in console adapter |
 | `UseLogger` | Sets the logger for the builder and all created components |
 | `UseDefaultLogger` | Uses `slog.Default()` as the logger |
 

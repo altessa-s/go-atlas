@@ -63,6 +63,8 @@ Span, event and link attributes of the built-in slice types are copied for expor
 
 Pass `WithMeter(meter)`, or `UseMeter(meter)` on the factory builder, to record successful spans, queue-full drops, failed export calls and
 queue length. The meter samples queue pressure once per second, including during a stalled export, and again at flush.
+Call `tracer.Shutdown(ctx)` before shutting down its `metrics.Collector`. Shutdown waits for the worker and sampler or returns the context error
+after fencing both from the collector. An instrument call already in progress must finish before Shutdown can return.
 See the [metric names](../../docs/metrics.md#tracing).
 
 ## Subpackages

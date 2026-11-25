@@ -38,11 +38,12 @@ func (s *statusReporter) serviceHealth(ctx context.Context, service string) Serv
 }
 
 func (s *statusReporter) checkService(ctx context.Context, service string) serviceStatus {
-	checker := s.registry.lookup(service)
-
+	checker := s.registry.acquire(service)
 	if checker == nil {
 		return serviceStatus{service: service, status: StatusServiceUnknown, unregistered: true}
 	}
+
+	defer checker.checks.Done()
 
 	var status ServingStatus
 	if override := ServingStatus(s.override.Load()); override != StatusUnknown {

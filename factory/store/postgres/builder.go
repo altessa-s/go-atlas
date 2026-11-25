@@ -12,6 +12,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -27,6 +28,8 @@ import (
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	tlsfactory "github.com/altessa-s/go-atlas/factory/ext/tlsutils"
 )
+
+const buildCloseTimeout = 5 * time.Second
 
 // Builder constructs application pools and registers their health checks after successful startup.
 type Builder struct {
@@ -48,7 +51,8 @@ func New(cfg *postgresconfig.Config) *Builder {
 // Build returns schema validation errors unchanged. Invalid injected TLS settings and failures
 // to build a pool’s TLS config match [coreerrs.ErrInvalidArgument]. Startup migrations on a
 // transaction-pooled primary match [corefactory.ErrUnsupported].
-// The caller owns the returned pools. A failed build closes every pool that it opened.
+// The caller owns the returned pools. A failed build starts closing all opened pools
+// and waits up to five seconds, joining cleanup errors with the build error.
 func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) {
 	c := b.cfg
 	if c == nil {
@@ -67,8 +71,10 @@ func (b *Builder) Build(ctx context.Context) (_ postgres.Pools, buildErr error) 
 	pools := make(postgres.Pools, len(c.Pools)+1)
 	complete := false
 	defer func() {
-		if !complete {
-			buildErr = errors.Join(buildErr, pools.Close())
+		if !complete && len(pools) != 0 {
+			closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), buildCloseTimeout)
+			defer cancel()
+			buildErr = errors.Join(buildErr, pools.CloseContext(closeCtx))
 		}
 	}()
 	for _, name := range append([]string{postgres.DefaultPool}, slices.Sorted(maps.Keys(c.Pools))...) {

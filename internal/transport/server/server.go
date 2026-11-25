@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -129,25 +130,28 @@ func (s *BaseServer) closeDone()   { s.doneOnce.Do(func() { close(s.done) }) }
 func (s *BaseServer) stopWatcher() { s.watchStopOnce.Do(func() { close(s.watchStop) }) }
 
 func (s *BaseServer) watch(errCh <-chan error) {
+	var err error
 	select {
-	case err := <-errCh:
-		s.lifecycle.Lock()
-		defer s.lifecycle.Unlock()
-		if err == nil || s.shutdown.Load() {
-			return
-		}
-		s.errMu.Lock()
-		if s.serveErr != nil {
-			s.errMu.Unlock()
-			return
-		}
-		s.serveErr = err
-		s.errMu.Unlock()
-		s.started.Store(false)
-		s.Logger().Error("server serve error", "classification", diagnostics.ErrorClass(err))
-		s.closeDone()
+	case err = <-errCh:
 	case <-s.watchStop:
+		// Shutdown and a queued Serve error can become visible together.
+		select {
+		case err = <-errCh:
+		default:
+			return
+		}
 	}
+	if err == nil || errors.Is(err, ErrServerClosed) || errors.Is(err, http.ErrServerClosed) {
+		return
+	}
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	s.errMu.Lock()
+	s.serveErr = err
+	s.errMu.Unlock()
+	s.started.Store(false)
+	s.Logger().Error("server serve error", "classification", diagnostics.ErrorClass(err))
+	s.closeDone()
 }
 
 // Listen returns the pre-configured listener if one was provided via
@@ -175,6 +179,9 @@ func (s *BaseServer) Listen() (net.Listener, error) {
 // CanStart checks lifecycle state without reserving startup. Start performs
 // the authoritative validation under the lifecycle lock.
 func (s *BaseServer) CanStart() error {
+	if s.shutdown.Load() {
+		return ErrServerClosed
+	}
 	select {
 	case <-s.done:
 		return ErrServerClosed
@@ -188,6 +195,9 @@ func (s *BaseServer) CanStart() error {
 
 // validateStart checks if the server can be started.
 func (s *BaseServer) validateStart() error {
+	if s.shutdown.Load() {
+		return ErrServerClosed
+	}
 	select {
 	case <-s.done:
 		return ErrServerClosed
@@ -304,9 +314,9 @@ func (s *BaseServer) GracefulShutdown(ctx context.Context, shutdownFunc Shutdown
 	}
 	defer func() {
 		s.stopWatcher()
-		s.closeDone()
 		s.lifecycle.Unlock()
 		s.watchers.Wait()
+		s.closeDone()
 	}()
 	s.shutdown.Store(true)
 	s.started.Store(false)

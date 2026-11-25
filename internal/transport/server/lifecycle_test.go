@@ -11,14 +11,33 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 )
+
+func TestServeErrorRecordedDuringGracefulShutdown(t *testing.T) {
+	t.Parallel()
+	s := newLifecycleBase(t)
+	var serveErrors chan<- error
+	require.NoError(t, s.Start("test", func(_ net.Listener, ch chan<- error) {
+		serveErrors = ch
+	}))
+	serveErr := errors.New("listener failed after startup")
+	require.NoError(t, s.GracefulShutdown(t.Context(), func(context.Context) error {
+		serveErrors <- serveErr
+		return nil
+	}))
+	awaitDone(t, s)
+	require.ErrorIs(t, s.Err(), serveErr)
+}
 
 func newLifecycleBase(t *testing.T) *BaseServer {
 	t.Helper()
@@ -26,7 +45,7 @@ func newLifecycleBase(t *testing.T) *BaseServer {
 		StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
 	}))
 	t.Cleanup(func() {
-		_ = s.GracefulShutdown(context.Background(), func(context.Context) error { return nil })
+		_ = s.GracefulShutdown(context.WithoutCancel(t.Context()), func(context.Context) error { return nil })
 		if s.Listener() != nil {
 			_ = s.Listener().Close()
 		}
@@ -49,17 +68,13 @@ func TestBaseServer_LateErrorAndRetry(t *testing.T) {
 	s.options.logger = slog.New(slog.NewTextHandler(&logs, nil))
 	done := s.Done()
 	early := errors.New("early")
-	if err := s.Start("test", func(_ net.Listener, ch chan<- error) { ch <- early }); err != early {
-		t.Fatalf("Start = %v, want %v", err, early)
-	}
+	require.ErrorIs(t, s.Start("test", func(_ net.Listener, ch chan<- error) { ch <- early }), early)
 	select {
 	case <-done:
 		t.Fatal("early error closed Done")
 	default:
 	}
-	if s.Err() != nil {
-		t.Fatalf("early Err = %v", s.Err())
-	}
+	require.NoError(t, s.Err())
 	var errCh chan<- error
 	if err := s.Start("test", func(_ net.Listener, ch chan<- error) { errCh = ch }); err != nil {
 		t.Fatal(err)
@@ -84,9 +99,7 @@ func TestBaseServer_LateErrorAndRetry(t *testing.T) {
 	errCh <- late
 	awaitDone(t, s)
 	readers.Wait()
-	if s.Err() != late {
-		t.Fatalf("Err = %v, want original late error", s.Err())
-	}
+	require.ErrorIs(t, s.Err(), late)
 	if s.IsStarted() {
 		t.Fatal("server still started after failure")
 	}
@@ -99,15 +112,11 @@ func TestBaseServer_LateErrorAndRetry(t *testing.T) {
 	if err := s.GracefulShutdown(t.Context(), callback); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 1 {
-		t.Fatalf("cleanup calls = %d", calls.Load())
-	}
+	require.EqualValues(t, 1, calls.Load())
 	if s.Err() != late {
 		t.Fatal("shutdown replaced first error")
 	}
-	if count := strings.Count(logs.String(), "server serve error"); count != 1 {
-		t.Fatalf("Serve error logged %d times, want 1", count)
-	}
+	require.Equal(t, 1, strings.Count(logs.String(), "server serve error"))
 }
 
 func TestBaseServer_ShutdownDone(t *testing.T) {
@@ -134,15 +143,7 @@ func TestBaseServer_ShutdownDone(t *testing.T) {
 					<-ctx.Done()
 					return ctx.Err()
 				}
-				// An error from Serve during shutdown must not become Err.
-				errCh <- errors.New("listener closed during shutdown")
-				deadline := time.Now().Add(time.Second)
-				for len(errCh) != 0 && time.Now().Before(deadline) {
-					time.Sleep(time.Millisecond)
-				}
-				if len(errCh) != 0 {
-					return errors.New("watcher did not consume error")
-				}
+				errCh <- fmt.Errorf("serve: %w", http.ErrServerClosed)
 				if mode == "error" {
 					return want
 				}
@@ -150,22 +151,16 @@ func TestBaseServer_ShutdownDone(t *testing.T) {
 			})
 			switch mode {
 			case "canceled":
-				if !errors.Is(err, context.Canceled) {
-					t.Fatalf("Shutdown = %v", err)
-				}
+				require.ErrorIs(t, err, context.Canceled)
 			case "error":
-				if err != want {
-					t.Fatalf("Shutdown = %v", err)
-				}
+				require.ErrorIs(t, err, want)
 			default:
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
 			awaitDone(t, s)
-			if s.Err() != nil {
-				t.Fatalf("Err = %v", s.Err())
-			}
+			require.NoError(t, s.Err())
 			select {
 			case <-s.watchStop:
 			default:
@@ -198,9 +193,8 @@ func TestBaseServer_ConcurrentStartShutdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitDone(t, s)
-	if s.IsStarted() || s.Err() != nil {
-		t.Fatalf("started=%v Err=%v", s.IsStarted(), s.Err())
-	}
+	require.False(t, s.IsStarted())
+	require.NoError(t, s.Err())
 }
 
 // lifecycleListener avoids opening a socket: BaseServer callbacks control serving.
@@ -217,7 +211,7 @@ func TestBaseServer_EarlyFailureRetryOwnedListener(t *testing.T) {
 				StartupVerification: 10 * time.Millisecond, ShutdownWarning: time.Second,
 			}))
 			t.Cleanup(func() {
-				_ = s.GracefulShutdown(context.Background(), func(context.Context) error {
+				_ = s.GracefulShutdown(context.WithoutCancel(t.Context()), func(context.Context) error {
 					return s.Listener().Close()
 				})
 			})
@@ -230,15 +224,12 @@ func TestBaseServer_EarlyFailureRetryOwnedListener(t *testing.T) {
 				}
 				ch <- early
 			})
-			if err != early {
-				t.Fatalf("Start = %v, want %v", err, early)
-			}
+			require.ErrorIs(t, err, early)
 			if s.Listener() != nil {
 				t.Fatal("early failure retained owned listener")
 			}
-			if _, err := first.Accept(); !errors.Is(err, net.ErrClosed) {
-				t.Fatalf("first listener Accept = %v, want net.ErrClosed", err)
-			}
+			_, err = first.Accept()
+			require.ErrorIs(t, err, net.ErrClosed)
 			select {
 			case <-s.Done():
 				t.Fatal("early failure closed Done")
@@ -252,13 +243,9 @@ func TestBaseServer_EarlyFailureRetryOwnedListener(t *testing.T) {
 				t.Fatal(err)
 			}
 			conn, err := net.DialTimeout("tcp", s.Address(), time.Second)
-			if err != nil {
-				t.Fatalf("retry listener is not usable: %v", err)
-			}
+			require.NoError(t, err, "retry listener is not usable")
 			_ = conn.Close()
-			if s.Err() != nil {
-				t.Fatalf("Err = %v", s.Err())
-			}
+			require.NoError(t, s.Err())
 		})
 	}
 }

@@ -10,6 +10,7 @@ Listener and lifecycle management shared by the HTTP and gRPC server implementat
 
 | Function | Purpose |
 |----------|---------|
-| `BaseServer.Start` | Runs the protocol-specific serve callback and monitors it for failures. |
-| `BaseServer.GracefulShutdown` | Invokes protocol shutdown and reports completion through `Done`. |
-| `BaseServer.Err` | Returns the recorded serve error. Lifecycle logs expose a fixed classification. |
+| `BaseServer.Start` | Runs protocol startup and returns early Serve failures directly. |
+| `BaseServer.GracefulShutdown` | Runs protocol cleanup once and waits for Serve error observation to stop. |
+| `BaseServer.Done` | Closes after a post-start Serve failure or lifecycle shutdown. |
+| `BaseServer.Err` | Returns the post-start Serve error, including one reported during graceful shutdown. Lifecycle logs expose a fixed classification. |

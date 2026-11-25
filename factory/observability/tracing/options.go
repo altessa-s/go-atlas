@@ -6,6 +6,7 @@ package factory
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -42,5 +43,11 @@ func (b *TracerBuilder) UseAdapter(typ observabilityconfig.TracingType, build Ad
 // UseMeter records batch exporter metrics through the supplied meter.
 func (b *TracerBuilder) UseMeter(m metrics.Meter) *TracerBuilder {
 	b.meter = m
+	return b
+}
+
+// UseConsoleWriter sets the built-in console adapter's output. A nil writer uses os.Stdout.
+func (b *TracerBuilder) UseConsoleWriter(w io.Writer) *TracerBuilder {
+	b.consoleWriter = w
 	return b
 }

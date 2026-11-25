@@ -95,7 +95,7 @@ func TestBlockedExport(t *testing.T) {
 		require.ErrorIs(t, tr.Shutdown(ctx), context.DeadlineExceeded)
 		synctest.Wait()
 		require.Equal(t, 0.0, meter.GaugeValue("test_tracing_queue_length", nil))
-		require.Equal(t, 1.0, meter.CounterValue("test_tracing_export_failures_total", nil))
+		require.Zero(t, meter.CounterValue("test_tracing_export_failures_total", nil))
 	})
 }
 
@@ -148,6 +148,7 @@ func TestExportTimeout(t *testing.T) {
 }
 
 func TestShutdownDeadlineWithUnresponsiveAdapter(t *testing.T) {
+	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		release := make(chan struct{})
 		started := make(chan struct{})
@@ -156,7 +157,8 @@ func TestShutdownDeadlineWithUnresponsiveAdapter(t *testing.T) {
 			<-release
 			return nil
 		}}
-		tr := tracing.New(tracing.WithAdapter(a), tracing.WithMaxExportBatchSize(1))
+		meter := metricstest.NewTestCollector()
+		tr := tracing.New(tracing.WithAdapter(a), tracing.WithMaxExportBatchSize(1), tracing.WithMeter(meter))
 		rec := tr.Recorder("test")
 		endSpan(rec, t.Context())
 		<-started
@@ -168,6 +170,34 @@ func TestShutdownDeadlineWithUnresponsiveAdapter(t *testing.T) {
 		require.False(t, late.IsRecording())
 		close(release)
 		require.ErrorIs(t, tr.Shutdown(t.Context()), context.DeadlineExceeded)
+		require.Zero(t, meter.CounterValue("test_tracing_spans_exported_total", nil),
+			"an exporter that returns after Shutdown must not record metrics")
+	})
+}
+
+func TestConcurrentShutdownDeadlineFencesMetrics(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		release, started := make(chan struct{}), make(chan struct{})
+		a := batchAdapter{adapters.NewMultiAdapter(), func(context.Context, []adapters.SpanData) error {
+			close(started)
+			<-release
+			return nil
+		}}
+		meter := metricstest.NewTestCollector()
+		tr := tracing.New(tracing.WithAdapter(a), tracing.WithMaxExportBatchSize(1), tracing.WithMeter(meter))
+		endSpan(tr.Recorder("test"), t.Context())
+		<-started
+		first := make(chan error, 1)
+		go func() { first <- tr.Shutdown(t.Context()) }()
+		synctest.Wait()
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		err := tr.Shutdown(ctx)
+		close(release)
+		require.ErrorIs(t, err, context.Canceled)
+		require.NoError(t, <-first)
+		require.Zero(t, meter.CounterValue("test_tracing_spans_exported_total", nil))
 	})
 }
 

@@ -40,6 +40,10 @@ Each registration has its own identity. Removing a service during a check exclud
 not serving until the replacement is checked on a later call. `ListStatuses` still reports the statuses actually checked. Registry changes invalidate
 the service and overall caches, and checks spanning a registry change do not populate the cache.
 
+Use `RegisterScopedService` to get an unregister function tied to that registration. Both this function and `UnregisterService` stop admitting
+new checks for the removed registration and wait for its in-flight checks to finish. Invoke them outside the checker's `CheckHealth` method,
+before closing the dependency it probes.
+
 ## Subpackages
 
 | Package                                       | Description                                |

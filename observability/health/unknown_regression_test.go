@@ -6,7 +6,9 @@ package health_test
 
 import (
 	"context"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -38,7 +40,15 @@ func TestUnregisteredDuringCheckIsIgnored(t *testing.T) {
 	result := make(chan health.ServingStatus, 1)
 	go func() { result <- c.CheckHealth(t.Context()) }()
 	<-entered
-	c.UnregisterService("dependency")
+	unregistered := make(chan struct{})
+	go func() {
+		c.UnregisterService("dependency")
+		close(unregistered)
+	}()
+	require.Eventually(t, func() bool {
+		return !slices.Contains(slices.Collect(c.ListServices()), "dependency")
+	}, time.Second, time.Millisecond)
 	close(resume)
+	<-unregistered
 	require.Equal(t, health.StatusServing, <-result)
 }

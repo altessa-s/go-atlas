@@ -6,6 +6,9 @@ package factory_test
 
 import (
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -61,16 +64,21 @@ func TestBuild_PrometheusRegistrySelection(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			c, err := metricsfactory.New(&observabilityconfig.Metrics{
+			c, handler, err := metricsfactory.New(&observabilityconfig.Metrics{
 				Enabled:     true,
 				Type:        observabilityconfig.MetricsTypePrometheus,
 				ServiceName: tc.service,
 				Adapters:    tc.adapters,
-			}).UseAdapter(observabilityconfig.MetricsTypePrometheus, factory.Builder()).UseDefaultLogger().UseLogger(slog.New(slog.DiscardHandler)).Build()
+			}).UseAdapter(observabilityconfig.MetricsTypePrometheus, factory.Builder()).UseDefaultLogger().UseLogger(slog.New(slog.DiscardHandler)).BuildWithHandler()
 			require.NoError(t, err)
+			require.NotNil(t, handler)
 
-			metrics.MustCounter(c, metrics.MetricOpts{Name: "hits_total", Help: "hits"}).Inc()
+			metrics.MustCounter(c, metrics.MetricOpts{Name: "hits_total", Help: "hits"}).Add(2)
 			require.Equal(t, tc.wantDefault, inDefaultRegistry(t, tc.service+"_hits_total"))
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", http.NoBody))
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Contains(t, strings.Split(w.Body.String(), "\n"), tc.service+"_hits_total 2")
 		})
 	}
 }

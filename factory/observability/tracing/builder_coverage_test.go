@@ -5,6 +5,7 @@
 package factory_test
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -20,6 +21,36 @@ import (
 
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 )
+
+func TestBuild_ConsoleWriterAndAdapterOverride(t *testing.T) {
+	t.Parallel()
+	for _, custom := range []bool{false, true} {
+		name := "writer"
+		if custom {
+			name = "registered adapter"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var builtIn, registered bytes.Buffer
+			cfg := enabledTracing(observabilityconfig.TracingTypeConsole)
+			b := factory.New(cfg).UseConsoleWriter(&builtIn)
+			want, unused := &builtIn, &registered
+			if custom {
+				b.UseAdapter(cfg.Type, func(context.Context, *observabilityconfig.TracingAdapters) (adapters.Adapter, error) {
+					return console.New(console.WithWriter(&registered)), nil
+				})
+				want, unused = &registered, &builtIn
+			}
+			tr, err := b.Build(t.Context())
+			require.NoError(t, err)
+			_, span := tr.Recorder("test").Start(t.Context(), "console span")
+			span.End()
+			require.NoError(t, tr.Shutdown(t.Context()))
+			require.Contains(t, want.String(), "console span")
+			require.Empty(t, unused.String())
+		})
+	}
+}
 
 func enabledTracing(typ observabilityconfig.TracingType) *observabilityconfig.Tracing {
 	cfg := observabilityconfig.DefaultTracing()
@@ -94,7 +125,7 @@ func TestBuild_SamplerSelection(t *testing.T) {
 			tr, err := factory.New(cfg).UseAdapter(stubType, stubBuilder).Build(t.Context())
 			require.NoError(t, err)
 			require.False(t, tracing.IsNoop(tr))
-			t.Cleanup(func() { require.NoError(t, tr.Shutdown(context.Background())) })
+			t.Cleanup(func() { require.NoError(t, tr.Shutdown(context.WithoutCancel(t.Context()))) })
 
 			_, span := tr.Recorder("test").Start(t.Context(), "op")
 			defer span.End()

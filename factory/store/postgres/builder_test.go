@@ -274,3 +274,48 @@ func TestInjectedTLSMustVerifyServer(t *testing.T) {
 	_, err := New(&cfg).UseTlsConfig(insecure).Build(t.Context())
 	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 }
+
+type blockingPoolMetrics struct {
+	*memory.Adapter
+	block   chan struct{}
+	release chan struct{}
+}
+
+func (a blockingPoolMetrics) RecordGauge(name string, labels map[string]string, value float64) {
+	if labels["pool"] == postgres.DefaultPool {
+		select {
+		case <-a.block:
+			<-a.release
+		default:
+		}
+	}
+	a.Adapter.RecordGauge(name, labels, value)
+}
+
+func TestBuildBoundsFailedPoolCleanup(t *testing.T) {
+	t.Parallel()
+	endpoint, _, _ := poolEndpoint(t, nil)
+	cfg := postgresconfig.Default()
+	cfg.DSN = endpoint
+	cfg.Pools = map[string]postgresconfig.Pool{"worker": {MaxOpenConnections: 1}}
+	a := blockingPoolMetrics{Adapter: memory.New(), block: make(chan struct{}), release: make(chan struct{})}
+	defer close(a.release)
+	meter := metrics.New(metrics.WithAdapter(a), metrics.WithServiceName("test"))
+	cause := errors.New("migration failed")
+	done := make(chan error, 1)
+	go func() {
+		_, err := New(&cfg).UseMeter(meter).UseMigrator(func(context.Context, *sql.DB) error {
+			close(a.block)
+			return cause
+		}).Build(t.Context())
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, cause)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(buildCloseTimeout + 3*time.Second):
+		t.Fatal("Build is still waiting for the blocked pool observer")
+	}
+	require.Zero(t, a.GaugeValue("test_postgres_open_connections", map[string]string{"pool": "worker"}))
+}

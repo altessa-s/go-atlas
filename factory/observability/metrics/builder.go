@@ -6,6 +6,7 @@ package factory
 
 import (
 	"log/slog"
+	"net/http"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
@@ -43,17 +44,35 @@ func New(cfg *observabilityconfig.Metrics) *CollectorBuilder {
 // Build assembles and returns the metrics collector.
 // Returns [metrics.Noop] if config is nil or metrics are disabled.
 func (b *CollectorBuilder) Build() (metrics.Collector, error) {
+	collector, _, err := b.build()
+	return collector, err
+}
+
+// BuildWithHandler assembles the collector and returns the scrape handler of
+// its adapter. The handler is nil when the adapter doesn't serve metrics over HTTP.
+func (b *CollectorBuilder) BuildWithHandler() (metrics.Collector, http.Handler, error) {
+	collector, adapter, err := b.build()
+	if err != nil {
+		return nil, nil, err
+	}
+	if httpAdapter, ok := adapter.(adapters.HTTPHandler); ok {
+		return collector, httpAdapter.Handler(), nil
+	}
+	return collector, nil, nil
+}
+
+func (b *CollectorBuilder) build() (metrics.Collector, adapters.Adapter, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if b.cfg == nil || !b.cfg.Enabled {
-		return metrics.Noop(), nil
+		return metrics.Noop(), nil, nil
 	}
 
 	adapter, err := b.createAdapter()
 	if err != nil {
-		return nil, b.WrapError(err, "create adapter")
+		return nil, nil, b.WrapError(err, "create adapter")
 	}
 
 	opts := []metrics.Option{
@@ -61,7 +80,7 @@ func (b *CollectorBuilder) Build() (metrics.Collector, error) {
 		metrics.WithAdapter(adapter),
 	}
 
-	return metrics.New(opts...), nil
+	return metrics.New(opts...), adapter, nil
 }
 
 // createAdapter creates the adapter registered for the configured type.

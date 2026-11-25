@@ -97,6 +97,31 @@ func (p Pools) Close() error {
 	return errors.Join(errs...)
 }
 
+// CloseContext starts closing every pool and waits until they close or ctx ends.
+// Pool closure continues in the background if the context ends first.
+func (p Pools) CloseContext(ctx context.Context) error {
+	// database/sql has no context-aware Close. Start every close before waiting
+	// so one stalled pool cannot prevent the others from closing.
+	results := make(chan error, len(p))
+	for _, db := range p {
+		go func() { results <- diagnostic("close PostgreSQL", db.Close()) }()
+	}
+	var err error
+	for range p {
+		select {
+		case closeErr := <-results:
+			err = errors.Join(err, closeErr)
+		case <-ctx.Done():
+			// Include close errors already available when the wait expires.
+			for len(results) > 0 {
+				err = errors.Join(err, <-results)
+			}
+			return errors.Join(err, ctx.Err())
+		}
+	}
+	return err
+}
+
 // Binding returns the named pool and a resolver for transactions owned by the group. Pools in the group must serve the same logical database.
 // A missing name returns a nil database, which the caller must check.
 func (p Pools) Binding(name string) (*sql.DB, func(context.Context) (*sql.Tx, bool)) {

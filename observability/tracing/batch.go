@@ -220,6 +220,9 @@ func (p *batchProcessor) forceFlush(ctx context.Context) error {
 }
 
 func (p *batchProcessor) shutdown(ctx context.Context) error {
+	if p.metrics != nil {
+		defer p.metrics.disable()
+	}
 	select {
 	case <-p.done:
 		return p.shutdownErr
@@ -268,9 +271,6 @@ func (p *batchProcessor) run(ctx context.Context, delay time.Duration) {
 
 	flushErr := p.flush(p.shutdownCtx)
 	p.shutdownErr = errors.Join(flushErr, p.adapter.Shutdown(p.shutdownCtx))
-	p.stopCancel()
-	p.stopCancel = nil
-	p.shutdownCtx = nil
 	// A shutdown deadline can expire with spans still in the queue.
 	p.mu.Lock()
 	p.sealed = nil
@@ -280,8 +280,11 @@ func (p *batchProcessor) run(ctx context.Context, delay time.Duration) {
 	p.cancel()
 	if p.metrics != nil {
 		<-p.metrics.done
-		p.metrics.sample()
+		p.metrics.sample(p.shutdownCtx)
 	}
+	p.stopCancel()
+	p.stopCancel = nil
+	p.shutdownCtx = nil
 }
 
 func (p *batchProcessor) flush(ctx context.Context) error {
@@ -291,7 +294,7 @@ func (p *batchProcessor) flush(ctx context.Context) error {
 	err := p.lastExportErr
 	p.lastExportErr = nil
 	if p.metrics != nil {
-		p.metrics.sample()
+		p.metrics.sample(ctx)
 	}
 	if ctx.Err() != nil {
 		return errors.Join(err, ctx.Err())
@@ -312,11 +315,7 @@ func (p *batchProcessor) export(ctx context.Context, count int) {
 			p.lastExportErr = err
 		}
 		if p.metrics != nil {
-			if err != nil {
-				p.metrics.failures.Inc()
-			} else {
-				p.metrics.exported.Add(float64(len(batch)))
-			}
+			p.metrics.recordExport(ctx, len(batch), err)
 		}
 		count--
 	}

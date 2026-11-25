@@ -98,7 +98,7 @@ type ScopedReporter interface {
 // implements this interface.
 type DynamicReporter interface {
 	Reporter
-	// UnregisterService removes a service and clears its cached status.
+	// UnregisterService removes a service and waits for its active checks to return.
 	UnregisterService(name string)
 }
 
@@ -265,6 +265,8 @@ func (c *Coordinator) RegisterService(name string, checker Checker) {
 
 // RegisterScopedService implements [ScopedReporter]. Closing an old registration
 // cannot unregister its replacement or overwrite its last reported status.
+// The unregister callback waits for active checks and must be called outside
+// the registered checker's CheckHealth method.
 func (c *Coordinator) RegisterScopedService(name string, checker Checker) (notify func(ServingStatus), unregister func()) {
 	reg := c.register(name, checker)
 	return func(status ServingStatus) { c.statuses.registry.report(name, reg, status, &c.watchers) },
@@ -279,7 +281,8 @@ func (c *Coordinator) register(name string, checker Checker) *serviceRegistratio
 	return reg
 }
 
-// UnregisterService removes a service and clears its cached status.
+// UnregisterService removes a service and waits for its active checks to return.
+// Call it outside the registered checker's CheckHealth method.
 func (c *Coordinator) UnregisterService(name string) {
 	c.statuses.registry.remove(name, nil)
 }

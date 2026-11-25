@@ -10,10 +10,12 @@ Maps the Prometheus block of the metrics configuration to a [Prometheus adapter]
 ## Usage
 
 ```go
-collector, err := metricsfactory.New(&cfg.Metrics).
+collector, handler, err := metricsfactory.New(&cfg.Metrics).
     UseAdapter(observabilityconfig.MetricsTypePrometheus, promfactory.Builder()).
-    Build()
+    BuildWithHandler()
 ```
+
+Mount `handler` at `/metrics` to scrape the same registry the collector writes to.
 
 | Function    | Description                                                                                                  |
 |-------------|--------------------------------------------------------------------------------------------------------------|

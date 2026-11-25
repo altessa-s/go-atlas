@@ -312,11 +312,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			return nil
 		}
 
-		// Close listener first to prevent new connections
-		if s.Listener() != nil {
-			_ = s.Listener().Close()
-		}
-
 		// ch is intentionally never closed: on timeout we return while the
 		// goroutine may still be inside GracefulStop, and its later send
 		// would panic on a closed channel. The buffer of one keeps that
@@ -324,6 +319,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		ch := make(chan struct{}, 1)
 
 		go func(ch chan<- struct{}) {
+			// GracefulStop marks the server as stopping before closing listeners,
+			// so Serve recognizes listener closure as part of normal shutdown.
 			srv.GracefulStop()
 			ch <- struct{}{}
 		}(ch)

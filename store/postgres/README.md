@@ -26,6 +26,7 @@ defer db.Close()
 `dsn` is a `redacted.RedactedString`. The returned `*sql.DB` owns the connections and the pool metric observer. Use `Checker(db)` for health checks.
 The configuration factory opens several named pools, each with its own connection reservation and optional DSN. The primary pool is `DefaultPool`.
 Pass a reserved pool to a repository directly or use `WithPool(ctx, primary, reserved)` to route one operation to a pool for the same database.
+Use `Pools.CloseContext(ctx)` to bound the wait for all pools to close. Outstanding closes continue in the background after the context ends.
 
 `WithTLSConfig(*tls.Config)` requires TLS in both pooling modes. Each host and port keeps its place in failover order and receives a clone.
 An empty `ServerName` defaults to that host. Plaintext retries are removed. A config with `InsecureSkipVerify` requires the explicit

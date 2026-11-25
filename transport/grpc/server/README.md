@@ -62,8 +62,10 @@ A second `Start` on a running server returns `ErrServerAlreadyStarted`. Both lif
 
 `Done() <-chan struct{}` closes when shutdown is observed or a post-start Serve
 failure occurs. After it closes, `Err() error` reports the first unexpected Serve
-error, or nil for normal shutdown. Call `Shutdown` to finish protocol cleanup even
-after a Serve failure.
+error, including an error published while shutdown is running. During normal
+shutdown, gRPC closes its listeners after marking itself as stopping and
+`Err()` stays nil. Call `Shutdown` to finish protocol cleanup even after a Serve
+failure.
 
 Once `Done` closes, `Start` returns `ErrServerClosed`, including after a post-start
 Serve failure. Create a new server to restart. Early startup errors are returned

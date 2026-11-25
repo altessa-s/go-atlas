@@ -19,6 +19,7 @@ type exportMetrics struct {
 	queueLength                 func() int
 	pendingDrops                atomic.Uint64
 	mu                          sync.Mutex
+	disabled                    bool // protected by mu
 	lastLength                  int
 	done                        chan struct{}
 }
@@ -45,9 +46,8 @@ func newExportMetrics(ctx context.Context, meter metrics.Meter, queueLength func
 		for {
 			select {
 			case <-ticker.C:
-				stats.sample()
+				stats.sample(ctx)
 			case <-ctx.Done():
-				stats.sample()
 				return
 			}
 		}
@@ -55,9 +55,36 @@ func newExportMetrics(ctx context.Context, meter metrics.Meter, queueLength func
 	return stats
 }
 
-func (m *exportMetrics) sample() {
+// disable stops both metric writers and removes this tracer's queue gauge contribution.
+func (m *exportMetrics) disable() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.disabled = true
+	if m.lastLength != 0 {
+		m.length.Add(-float64(m.lastLength))
+		m.lastLength = 0
+	}
+}
+
+func (m *exportMetrics) recordExport(ctx context.Context, count int, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.disabled || ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		m.failures.Inc()
+	} else {
+		m.exported.Add(float64(count))
+	}
+}
+
+func (m *exportMetrics) sample(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.disabled || ctx.Err() != nil {
+		return
+	}
 	if drops := m.pendingDrops.Swap(0); drops > 0 {
 		m.dropped.Add(float64(drops))
 	}

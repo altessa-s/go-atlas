@@ -5,8 +5,6 @@
 package health
 
 import (
-	"maps"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +22,8 @@ type serviceRegistry struct {
 type serviceRegistration struct {
 	Checker
 	version uint64 // guarded by serviceRegistry.mu
+	removed bool   // guarded by serviceRegistry.mu
+	checks  sync.WaitGroup
 }
 
 type cachedStatus struct {
@@ -44,32 +44,73 @@ func (r *serviceRegistry) register(name string, checker Checker) *serviceRegistr
 
 func (r *serviceRegistry) remove(name string, owner *serviceRegistration) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if owner != nil && r.services[name] != owner {
+	current := r.services[name]
+	if owner == nil {
+		owner = current
+	}
+	if owner != nil && current == owner && !owner.removed {
+		// Keep the inactive entry until its checks drain so concurrent
+		// unregister calls can wait for the same registration.
+		owner.removed = true
+		r.version++
+		r.cache.Delete(name)
+		r.cache.Delete("")
+	}
+	r.mu.Unlock()
+
+	if owner == nil {
 		return
 	}
-	delete(r.services, name)
-	r.version++
-	r.cache.Delete(name)
-	r.cache.Delete("")
+	owner.checks.Wait()
+	r.mu.Lock()
+	if r.services[name] == owner {
+		delete(r.services, name)
+	}
+	r.mu.Unlock()
 }
 
 func (r *serviceRegistry) names() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return slices.Collect(maps.Keys(r.services))
+	names := make([]string, 0, len(r.services))
+	for name, reg := range r.services {
+		if !reg.removed {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func (r *serviceRegistry) lookup(name string) *serviceRegistration {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.services[name]
+	return r.active(name)
+}
+
+// active requires the registry lock.
+func (r *serviceRegistry) active(name string) *serviceRegistration {
+	reg := r.services[name]
+	if reg == nil || reg.removed {
+		return nil
+	}
+	return reg
+}
+
+// acquire admits a check before unregister can mark the registration inactive.
+func (r *serviceRegistry) acquire(name string) *serviceRegistration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	reg := r.active(name)
+	if reg != nil {
+		reg.checks.Add(1)
+	}
+	return reg
 }
 
 func (r *serviceRegistry) report(service string, owner *serviceRegistration, status ServingStatus, watchers *subscriptions) {
 	r.mu.Lock()
 	registration := r.services[service]
-	if owner != nil && registration != owner {
+	if (owner != nil && registration != owner) || (registration != nil && registration.removed) {
 		r.mu.Unlock()
 		return
 	}
@@ -103,7 +144,7 @@ type registrationSnapshot struct {
 func (r *serviceRegistry) snapshot(service string) registrationSnapshot {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	snapshot := registrationSnapshot{aggregateVersion: r.version, reg: r.services[service]}
+	snapshot := registrationSnapshot{aggregateVersion: r.version, reg: r.active(service)}
 	if snapshot.reg != nil {
 		snapshot.version = snapshot.reg.version
 	}
@@ -117,7 +158,7 @@ func (r *serviceRegistry) finishRefresh(service string, snapshot registrationSna
 	defer r.mu.RUnlock()
 	current := snapshot.aggregateVersion == r.version
 	if service != "" {
-		current = snapshot.reg != nil && r.services[service] == snapshot.reg && snapshot.reg.version == snapshot.version
+		current = snapshot.reg != nil && r.active(service) == snapshot.reg && snapshot.reg.version == snapshot.version
 	}
 	if !current {
 		// A push can supersede a shared refresh before another caller joins it.
@@ -134,8 +175,8 @@ func (r *serviceRegistry) revalidate(statuses []serviceStatus) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for i := range statuses {
-		current, registered := r.services[statuses[i].service]
-		statuses[i].unregistered = !registered
-		statuses[i].replaced = registered && current != statuses[i].registration
+		current := r.active(statuses[i].service)
+		statuses[i].unregistered = current == nil
+		statuses[i].replaced = current != nil && current != statuses[i].registration
 	}
 }

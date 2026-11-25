@@ -10,14 +10,16 @@ errors from any step are collected and returned at `Build()` time. Returns `metr
 ## Quick Start
 
 ```go
-collector, err := factory.New(cfg.Metrics).
+collector, handler, err := factory.New(cfg.Metrics).
     UseAdapter(observabilityconfig.MetricsTypePrometheus, promfactory.Builder()).
     UseLogger(logger).
-    Build()
+    BuildWithHandler()
 ```
 
 The builder knows no concrete adapter: register one per metrics type with `UseAdapter`. A configured type without a registered builder fails at
 `Build()` with an error naming the module to add.
+
+Mount the returned handler at `/metrics`. It serves the registry used by the collector, including when `customRegistry` is enabled.
 
 ## Supported Adapter Types
 
@@ -47,3 +49,4 @@ The builder knows no concrete adapter: register one per metrics type with `UseAd
 | Method | Description |
 |--------|-------------|
 | `Build` | Assembles and returns the metrics collector; returns `metrics.Noop` if disabled |
+| `BuildWithHandler` | Returns the collector and its adapter's HTTP handler, or a nil handler if unavailable |

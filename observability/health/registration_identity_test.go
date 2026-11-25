@@ -6,8 +6,11 @@ package health_test
 
 import (
 	"context"
+	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -61,7 +64,14 @@ func TestRegistrationChangesDuringCheck(t *testing.T) {
 					}
 				}()
 				<-entered
-				c.UnregisterService("db")
+				unregistered := make(chan struct{})
+				go func() {
+					c.UnregisterService("db")
+					close(unregistered)
+				}()
+				require.Eventually(t, func() bool {
+					return !slices.Contains(slices.Collect(c.ListServices()), "db")
+				}, time.Second, time.Millisecond)
 				var replacementCalls atomic.Int32
 				if replace {
 					c.RegisterService("db", health.Func(func(context.Context) health.ServingStatus {
@@ -70,6 +80,7 @@ func TestRegistrationChangesDuringCheck(t *testing.T) {
 					}))
 				}
 				close(release)
+				<-unregistered
 				want := health.StatusServing
 				if replace {
 					want = health.StatusNotServing
@@ -88,6 +99,70 @@ func TestRegistrationChangesDuringCheck(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestUnregisterWaitsForActiveCheck(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		scoped bool
+	}{{"named", false}, {"scoped", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				c := health.New()
+				entered, release := make(chan struct{}), make(chan struct{})
+				resume := sync.OnceFunc(func() { close(release) })
+				defer resume()
+				calls := 0
+				checker := health.Func(func(context.Context) health.ServingStatus {
+					calls++
+					if calls == 1 {
+						close(entered)
+						<-release
+					}
+					return health.StatusServing
+				})
+				var unregister func()
+				if tc.scoped {
+					_, unregister = c.RegisterScopedService("db", checker)
+				} else {
+					c.RegisterService("db", checker)
+					unregister = func() { c.UnregisterService("db") }
+				}
+				go c.CheckServiceHealth(t.Context(), "db")
+				<-entered
+				completed := make(chan bool, 2)
+				for range 2 {
+					go func() {
+						unregister()
+						completed <- true
+					}()
+				}
+				synctest.Wait()
+				require.Empty(t, completed)
+				require.Equal(t, health.StatusServiceUnknown, c.CheckServiceHealth(t.Context(), "db"))
+				resume()
+				<-completed
+				<-completed
+				require.Equal(t, health.StatusServiceUnknown, c.CheckServiceHealth(t.Context(), "db"))
+				require.Equal(t, 1, calls)
+			})
+		})
+	}
+}
+
+func TestScopedUnregisterLeavesReplacement(t *testing.T) {
+	t.Parallel()
+	c := health.New()
+	_, unregister := c.RegisterScopedService("db", health.Func(func(context.Context) health.ServingStatus {
+		return health.StatusNotServing
+	}))
+	c.RegisterService("db", health.Func(func(context.Context) health.ServingStatus {
+		return health.StatusServing
+	}))
+	unregister()
+	require.Equal(t, health.StatusServing, c.CheckServiceHealth(t.Context(), "db"))
 }
 
 func TestRegistrationInvalidatesCachedStatuses(t *testing.T) {

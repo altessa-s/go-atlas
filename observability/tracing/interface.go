@@ -25,7 +25,9 @@ type TracerProvider interface {
 	// ForceFlush exports pending spans and flushes the adapter.
 	ForceFlush(ctx context.Context) error
 
-	// Shutdown drains pending spans and shuts down the adapter.
+	// Shutdown drains pending spans and shuts down the adapter. It waits for the
+	// export worker or returns the caller's context error. Call it before
+	// shutting down the metrics collector used by the provider.
 	Shutdown(ctx context.Context) error
 }
 

@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/types/ptr"
@@ -29,10 +30,11 @@ import (
 // factory/observability/tracing/adapters/otlp.
 type TracerBuilder struct {
 	corefactory.Base
-	meter    metrics.Meter
-	cfg      *observabilityconfig.Tracing
-	adapters map[observabilityconfig.TracingType]AdapterBuilder
-	errs     []error
+	meter         metrics.Meter
+	cfg           *observabilityconfig.Tracing
+	adapters      map[observabilityconfig.TracingType]AdapterBuilder
+	consoleWriter io.Writer
+	errs          []error
 }
 
 // AdapterBuilder creates the tracing adapter of one tracing type from the
@@ -89,36 +91,32 @@ func (b *TracerBuilder) Build(ctx context.Context) (tracing.TracerProvider, erro
 	return tracing.New(opts...), nil //nolint:contextcheck // The export worker lives until tracer shutdown.
 }
 
-// createAdapter creates the adapter of the configured type: console and noop
-// are built in, every other type comes from a builder registered with
-// UseAdapter.
+// createAdapter uses a registered builder or falls back to the built-in console adapter.
 func (b *TracerBuilder) createAdapter(ctx context.Context) (adapters.Adapter, error) {
+	if b.cfg.Type == observabilityconfig.TracingTypeNoop {
+		return nil, nil //nolint:nilnil // Intentional: nil adapter signals noop mode
+	}
+	if build, ok := b.adapters[b.cfg.Type]; ok {
+		return build(ctx, b.cfg.Adapters)
+	}
 	switch b.cfg.Type {
 	case observabilityconfig.TracingTypeConsole:
 		var consoleCfg *observabilityconfig.TracingConsole
 		if b.cfg.Adapters != nil {
 			consoleCfg = b.cfg.Adapters.Console
 		}
-		return createConsoleAdapter(consoleCfg), nil
-	case observabilityconfig.TracingTypeNoop:
-		return nil, nil //nolint:nilnil // Intentional: nil adapter signals noop mode
+		return createConsoleAdapter(consoleCfg, b.consoleWriter), nil
 	case observabilityconfig.TracingTypeOTLP:
-		// Registered with UseAdapter.
-	}
-	build, ok := b.adapters[b.cfg.Type]
-	if !ok {
-		if b.cfg.Type == observabilityconfig.TracingTypeOTLP {
-			return nil, fmt.Errorf("tracing type %q is not registered: add factory/observability/tracing/adapters/otlp "+
-				"with UseAdapter(%q, otlpfactory.Builder())", b.cfg.Type, b.cfg.Type)
-		}
+		return nil, fmt.Errorf("tracing type %q is not registered: add factory/observability/tracing/adapters/otlp "+
+			"with UseAdapter(%q, otlpfactory.Builder())", b.cfg.Type, b.cfg.Type)
+	default:
 		return nil, fmt.Errorf("unknown tracing type: %s", b.cfg.Type)
 	}
-	return build(ctx, b.cfg.Adapters)
 }
 
 // createConsoleAdapter creates a console adapter from config.
-func createConsoleAdapter(cfg *observabilityconfig.TracingConsole) adapters.Adapter {
-	var opts []console.Option
+func createConsoleAdapter(cfg *observabilityconfig.TracingConsole, writer io.Writer) adapters.Adapter {
+	opts := []console.Option{console.WithWriter(writer)}
 	if cfg != nil {
 		opts = append(opts, console.WithPrettyPrint(cfg.PrettyPrint), console.WithTimestamps(cfg.Timestamps))
 	}
