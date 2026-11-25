@@ -10,14 +10,14 @@ Maps the `vault` section of the secrets configuration to the go-kryptos [Vault K
 ## Usage
 
 ```go
-manager, err := secretsfactory.New(&cfg.Secrets).
-    UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder(vaultClient)).
+manager, err := secretsfactory.New[any](&cfg.Secrets).
+    UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder[any](vaultClient)).
     Build(ctx)
 ```
 
 | Function                      | Description                                                                                                  |
 |-------------------------------|--------------------------------------------------------------------------------------------------------------|
-| `Builder(client)`             | Provider builder for the `vault` type; reads KV through `client`                                             |
+| `Builder[T](client)`             | Provider builder for the `vault` type; reads KV through `client`                                             |
 | `NewProvider[T](client, cfg)` | Builds the Vault KV provider of `T` secrets from `secretsconfig.Vault`; `ErrClientRequired` without a client |
 
 [provider]: https://github.com/altessa-s/go-kryptos/tree/main/providers/vault

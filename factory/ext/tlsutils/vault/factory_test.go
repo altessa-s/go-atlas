@@ -39,6 +39,6 @@ func TestBuilder_RequiresClient(t *testing.T) {
 
 	_, err := tlsfactory.New(&tlsconfig.Provider{Vault: &tlsconfig.ProviderVault{CommonName: "x", Role: "r"}}).
 		UseProvider(tlsproviders.ProviderTypeVault, factory.Builder(nil)).
-		Build()
+		Build(t.Context())
 	require.ErrorIs(t, err, factory.ErrClientRequired)
 }

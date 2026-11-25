@@ -25,7 +25,7 @@
 // host, credential, and pool settings). Both paths converge in
 // [MongoBuilder.ClientOptions].
 //
-// When a [health.Coordinator] is provided via [MongoBuilder.UseHealthCoordinator],
+// When a [health.Registrar] is provided via [MongoBuilder.UseHealthCoordinator],
 // the builder automatically registers a health checker that pings the
 // primary on each check.
 package factory

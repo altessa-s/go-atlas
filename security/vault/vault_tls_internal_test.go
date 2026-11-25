@@ -16,7 +16,9 @@ import (
 
 type stubRoundTripper struct{}
 
-func (stubRoundTripper) RoundTrip(*http.Request) (*http.Response, error) { return nil, http.ErrSkipAltProtocol }
+func (stubRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, http.ErrSkipAltProtocol
+}
 
 // White-box: vaultApi.DefaultConfig always yields an *http.Transport, so the
 // rejected-transport branch is reachable only through applyTLSConfig.

@@ -13,7 +13,7 @@ Maps the `s3` section of the TLS provider configuration to an
 ```go
 providers, err := tlsfactory.New(cfg.TLSProvider).
     UseProvider(tlsproviders.ProviderTypeS3, s3factory.Builder(nil)).
-    Build()
+    Build(ctx)
 ```
 
 | Function          | Description                                                                                                         |

@@ -47,15 +47,15 @@ func TestNewProvider(t *testing.T) {
 	require.Equal(t, "lockbox", p.Name())
 }
 
-// Build and BuildString reject a lockbox provider whose section is absent
+// Any- and string-valued managers reject a lockbox provider whose section is absent
 // with ErrProviderConfigMissing instead of dereferencing it.
 func TestBuilder_MissingSection(t *testing.T) {
 	t.Parallel()
 	cfg := &secretsconfig.Config{Provider: secretsconfig.ProviderLockbox}
 
-	_, err := secretsfactory.New(cfg).UseProvider(secretsconfig.ProviderLockbox, factory.Builder()).Build(t.Context())
+	_, err := secretsfactory.New[any](cfg).UseProvider(secretsconfig.ProviderLockbox, factory.Builder[any]()).Build(t.Context())
 	require.ErrorIs(t, err, secretsfactory.ErrProviderConfigMissing)
-	_, err = secretsfactory.New(cfg).UseProvider(secretsconfig.ProviderLockbox, factory.Builder()).BuildString(t.Context())
+	_, err = secretsfactory.New[string](cfg).UseProvider(secretsconfig.ProviderLockbox, factory.Builder[string]()).Build(t.Context())
 	require.ErrorIs(t, err, secretsfactory.ErrProviderConfigMissing)
 }
 
@@ -74,6 +74,6 @@ func TestBuilder_LoadedConfigWithoutSection(t *testing.T) {
 	cfg := loaded.(*root).Secrets //nolint:forcetypeassert // Load returns the pointer it was given
 	require.Nil(t, cfg.Lockbox)
 
-	_, err = secretsfactory.New(cfg).UseProvider(secretsconfig.ProviderLockbox, factory.Builder()).BuildString(t.Context())
+	_, err = secretsfactory.New[string](cfg).UseProvider(secretsconfig.ProviderLockbox, factory.Builder[string]()).Build(t.Context())
 	require.ErrorIs(t, err, secretsfactory.ErrProviderConfigMissing)
 }

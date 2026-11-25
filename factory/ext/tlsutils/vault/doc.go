@@ -10,5 +10,5 @@
 //
 //	providers, err := tlsfactory.New(cfg.TLSProvider).
 //		UseProvider(tlsproviders.ProviderTypeVault, vaultfactory.Builder(vaultClient)).
-//		Build()
+//		Build(ctx)
 package factory

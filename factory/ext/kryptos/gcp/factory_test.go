@@ -36,15 +36,15 @@ func TestNewProvider(t *testing.T) {
 	require.NotErrorIs(t, err, secretsfactory.ErrProviderConfigMissing)
 }
 
-// Build and BuildString reject a gcp provider whose section is absent with
+// Any- and string-valued managers reject a gcp provider whose section is absent with
 // ErrProviderConfigMissing instead of dereferencing it.
 func TestBuilder_MissingSection(t *testing.T) {
 	t.Parallel()
 	cfg := &secretsconfig.Config{Provider: secretsconfig.ProviderGCP}
 
-	_, err := secretsfactory.New(cfg).UseProvider(secretsconfig.ProviderGCP, factory.Builder()).Build(t.Context())
+	_, err := secretsfactory.New[any](cfg).UseProvider(secretsconfig.ProviderGCP, factory.Builder[any]()).Build(t.Context())
 	require.ErrorIs(t, err, secretsfactory.ErrProviderConfigMissing)
-	_, err = secretsfactory.New(cfg).UseProvider(secretsconfig.ProviderGCP, factory.Builder()).BuildString(t.Context())
+	_, err = secretsfactory.New[string](cfg).UseProvider(secretsconfig.ProviderGCP, factory.Builder[string]()).Build(t.Context())
 	require.ErrorIs(t, err, secretsfactory.ErrProviderConfigMissing)
 }
 
@@ -63,6 +63,6 @@ func TestBuilder_LoadedConfigWithoutSection(t *testing.T) {
 	cfg := loaded.(*root).Secrets //nolint:forcetypeassert // Load returns the pointer it was given
 	require.Nil(t, cfg.GCP)
 
-	_, err = secretsfactory.New(cfg).UseProvider(secretsconfig.ProviderGCP, factory.Builder()).BuildString(t.Context())
+	_, err = secretsfactory.New[string](cfg).UseProvider(secretsconfig.ProviderGCP, factory.Builder[string]()).Build(t.Context())
 	require.ErrorIs(t, err, secretsfactory.ErrProviderConfigMissing)
 }

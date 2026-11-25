@@ -6,6 +6,7 @@ package auth
 
 import (
 	"context"
+	"sync"
 
 	"github.com/altessa-s/go-atlas-core/text/strings/secure"
 
@@ -20,7 +21,9 @@ type MountPathLoginFunc func(ctx context.Context, client *vaultApi.Client, mount
 // to a MountPathLoginFunc, while keeping common behavior in BaseMethod.
 type MountPathMethod struct {
 	BaseMethod
-	loginFn MountPathLoginFunc
+	loginFn  MountPathLoginFunc
+	mu       sync.RWMutex // protects credentials throughout loginFn and Shutdown
+	shutDown bool
 	// secret holds credential material (e.g. a userpass password or an approle
 	// secret ID) captured by loginFn. It is zeroed on Shutdown so the credential
 	// does not linger in the heap after the method is retired.
@@ -46,6 +49,11 @@ func NewMountPathMethod(name string, loginFn MountPathLoginFunc, opt ...MethodOp
 
 // Authenticate performs login using the provided Vault client.
 func (m *MountPathMethod) Authenticate(ctx context.Context, client *vaultApi.Client) (*vaultApi.Secret, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.shutDown {
+		return nil, WrapAuthError(m.Name(), ErrMethodShutDown)
+	}
 	return m.PerformLogin(ctx, client, func(ctx context.Context, client *vaultApi.Client) (*vaultApi.Secret, error) {
 		return m.loginFn(ctx, client, m.MountPath())
 	})
@@ -55,6 +63,9 @@ func (m *MountPathMethod) Authenticate(ctx context.Context, client *vaultApi.Cli
 // BaseMethod.Shutdown so passwords and secret IDs are wiped from memory when the
 // method is no longer needed.
 func (m *MountPathMethod) Shutdown() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.shutDown = true
 	if m.secret != nil {
 		m.secret.Clear()
 		m.secret = nil

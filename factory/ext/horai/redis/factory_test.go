@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/factory/ext/horai/redis"
 
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedulerfactory "github.com/altessa-s/go-atlas/factory/ext/horai"
 )
 
@@ -57,7 +58,9 @@ func TestBuilder(t *testing.T) {
 		t.Parallel()
 		cfg := redisConfig(false)
 		cfg.Storage.Redis = nil
-		require.ErrorIs(t, build(t, cfg, client), factory.ErrConfigRequired)
+		err := build(t, cfg, client)
+		require.ErrorIs(t, err, factory.ErrConfigRequired)
+		require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 	})
 
 	t.Run("builds_without_io", func(t *testing.T) {

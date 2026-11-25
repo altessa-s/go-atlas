@@ -34,7 +34,7 @@ type VaultBuilder struct {
 
 	// Dependencies
 	tlsConfig         *tls.Config
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.Registrar
 	collector         metrics.Meter
 }
 

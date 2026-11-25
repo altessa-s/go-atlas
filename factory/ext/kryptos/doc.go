@@ -19,20 +19,20 @@
 // [ManagerBuilder] uses a fluent API with deferred error accumulation:
 // errors from any step are collected and returned at [ManagerBuilder.Build] time.
 //
-//	manager, err := factory.New(&cfg.Secrets).
+//	manager, err := factory.New[any](&cfg.Secrets).
 //	    UseLogger(logger).
 //	    UseScheduler(sched).
-//	    UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder(vaultClient)).
+//	    UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder[any](vaultClient)).
 //	    Build(ctx)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	defer manager.Close(context.WithoutCancel(ctx))
 //
-// [ManagerBuilder.BuildString] builds the string-typed Manager the config
+// [New] instantiated with string builds the string-typed Manager the config
 // loader expands $__secret{namespace:key} placeholders with:
 //
-//	secretsManager, err := factory.New(&cfg.Secrets).BuildString(ctx)
+//	secretsManager, err := factory.New[string](&cfg.Secrets).Build(ctx)
 //	if err != nil {
 //	    return err
 //	}

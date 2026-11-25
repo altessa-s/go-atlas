@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -14,6 +15,7 @@ import (
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedulerfactory "github.com/altessa-s/go-atlas/factory/ext/horai"
 	horai "github.com/altessa-s/go-horai"
 	redisstorage "github.com/altessa-s/go-horai/storage/redis"
@@ -25,7 +27,7 @@ var (
 	ErrClientRequired = errors.New("scheduler: redis client is required for storage type redis")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// redis block.
-	ErrConfigRequired = errors.New("scheduler: redis configuration is required for storage type redis")
+	ErrConfigRequired = fmt.Errorf("scheduler: redis configuration is required for storage type redis: %w", corefactory.ErrConfigRequired)
 )
 
 // ensureTimeout bounds the index creation the builder runs when the config

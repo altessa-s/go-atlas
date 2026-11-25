@@ -8,11 +8,12 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
-	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/store/meilisearch"
 
@@ -31,7 +32,7 @@ const defaultHealthServiceName = "meilisearch"
 // builder was constructed with a nil config. Exported so callers that
 // build the factory dynamically (e.g. from a YAML loader pipeline that
 // may omit the Meilisearch block) can branch on the failure.
-var ErrConfigRequired = errors.New("meilisearch factory: configuration is required")
+var ErrConfigRequired = fmt.Errorf("meilisearch factory: %w", corefactory.ErrConfigRequired)
 
 // ClientBuilder assembles a [meilisearch.Client] step by step using a fluent
 // API. Create instances with [New]. Errors are accumulated and reported at
@@ -42,7 +43,7 @@ type ClientBuilder struct {
 	errs []error
 
 	// Dependencies
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.Registrar
 	healthServiceName string
 }
 
@@ -60,7 +61,7 @@ func New(cfg *meilisearchconfig.Config) *ClientBuilder {
 // performs an initial health check during construction and Build returns
 // an error if the server is unreachable. ctx bounds the initial probe
 // so a slow / hung server cannot block startup beyond the caller's
-// deadline. If a [health.Coordinator] was provided via
+// deadline. If a [health.Registrar] was provided via
 // [ClientBuilder.UseHealthCoordinator], a health checker is registered
 // under the service name configured by
 // [ClientBuilder.UseHealthServiceName] (defaulting to "meilisearch").
@@ -73,15 +74,19 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 		return nil, ErrConfigRequired
 	}
 
+	timeout := b.cfg.Timeout
+	if timeout <= 0 {
+		timeout = meilisearch.DefaultTimeout
+	}
 	opts := []meilisearch.Option{
 		meilisearch.WithLogger(b.Logger()),
-		meilisearch.WithTimeout(b.cfg.Timeout),
+		meilisearch.WithTimeout(timeout),
 	}
 	key := b.cfg.APIKey.Expose()
 	opts = coreslices.AppendIf(opts, key != "", meilisearch.WithAPIKey(key))
 
 	if b.cfg.TLS != nil {
-		httpClient, err := b.buildHTTPClient(b.cfg.TLS, b.cfg.Timeout)
+		httpClient, err := b.buildHTTPClient(b.cfg.TLS, timeout)
 		if err != nil {
 			return nil, b.WrapError(err, "build TLS http.Client")
 		}
@@ -93,7 +98,7 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 		return nil, b.WrapError(err, "create meilisearch client")
 	}
 
-	if b.healthCoordinator != nil {
+	if !nilcheck.IsNil(b.healthCoordinator) {
 		b.healthCoordinator.RegisterService(
 			cmp.Or(b.healthServiceName, defaultHealthServiceName),
 			&meilisearchHealthChecker{client: client, logger: b.Logger()},
@@ -114,7 +119,7 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 // resulting http.Client so the WithTimeout option still bounds every
 // outbound request, including the synchronous startup probe.
 func (b *ClientBuilder) buildHTTPClient(tlsCfg *tlsconfig.Client, timeout time.Duration) (*http.Client, error) {
-	tlsConfig, err := tlsfactory.New(nil).UseLogger(b.Logger()).CreateClientConfig(tlsCfg)
+	tlsConfig, err := tlsfactory.CreateClientConfig(tlsCfg, b.Logger())
 	if err != nil {
 		return nil, err
 	}

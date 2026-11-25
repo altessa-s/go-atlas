@@ -18,7 +18,7 @@
 // and HTTP timeout. Build performs an initial health check against the
 // server and returns an error if it is unreachable.
 //
-// When a [health.Coordinator] is provided via [ClientBuilder.UseHealthCoordinator],
+// When a [health.Registrar] is provided via [ClientBuilder.UseHealthCoordinator],
 // the builder registers a health checker that pings Meilisearch on each
 // check under the service name "meilisearch" (overridable via
 // [ClientBuilder.UseHealthServiceName]).

@@ -8,10 +8,14 @@
 // [ClientBuilder] uses a fluent API with deferred error accumulation:
 // errors from any step are collected and returned at [ClientBuilder.Build] time.
 //
-//	client, err := factory.New(cfg.Redis).
+//	owner, err := factory.New(cfg.Redis).
 //	    UseLogger(logger).
 //	    UseHealthCoordinator(coordinator).
 //	    Build(ctx)
+//
+// After a successful build, pass owner.Client() to storages as a borrowed
+// reference. Only the owner closes the driver and releases the health checker,
+// either directly or through [ClientBuilder.UseShutdownHooks].
 //
 // The builder integrates with [redisconfig.Config] to create [redis.UniversalClient]
 // instances with authentication, connection pooling, and support for
@@ -24,7 +28,7 @@
 // host, credential, and pool settings). Both paths converge in
 // [ClientBuilder.UniversalOptions].
 //
-// When a [health.Coordinator] is provided via [ClientBuilder.UseHealthCoordinator],
+// When a [health.ScopedReporter] is provided via [ClientBuilder.UseHealthCoordinator],
 // the builder registers a health checker that pings Redis on each check.
 //
 // [ClientBuilder.Build] pings Redis before returning the client. For a

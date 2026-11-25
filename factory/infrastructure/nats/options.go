@@ -32,7 +32,7 @@ func (b *ConnectionBuilder) UseTlsConfig(v *tls.Config) *ConnectionBuilder {
 
 // UseHealthCoordinator sets the health coordinator used to register a
 // health checker for the created NATS connection.
-func (b *ConnectionBuilder) UseHealthCoordinator(v *health.Coordinator) *ConnectionBuilder {
+func (b *ConnectionBuilder) UseHealthCoordinator(v health.Registrar) *ConnectionBuilder {
 	b.healthCoordinator = v
 	return b
 }

@@ -10,14 +10,14 @@ Maps the `lockbox` section of the secrets configuration to the go-kryptos [Yande
 ## Usage
 
 ```go
-manager, err := secretsfactory.New(&cfg.Secrets).
-    UseProvider(secretsconfig.ProviderLockbox, lockboxfactory.Builder()).
+manager, err := secretsfactory.New[any](&cfg.Secrets).
+    UseProvider(secretsconfig.ProviderLockbox, lockboxfactory.Builder[any]()).
     Build(ctx)
 ```
 
 | Function                   | Description                                                                                           |
 |----------------------------|-------------------------------------------------------------------------------------------------------|
-| `Builder()`                | Provider builder for the `lockbox` type                                                               |
+| `Builder[T]()`                | Provider builder for the `lockbox` type                                                               |
 | `NewProvider[T](ctx, cfg)` | Builds the Lockbox provider of `T` secrets from `secretsconfig.Lockbox`, reading the private key file |
 
 `NewProvider` returns a `*Provider[T]` that owns its service-account token source: `Close` closes both.

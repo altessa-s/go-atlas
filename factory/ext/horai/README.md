@@ -20,6 +20,9 @@ sched, err := factory.New(cfg.Scheduler).
 The builder maps every `schedulerconfig.Config` field to a scheduler option, including `instanceID` → `scheduler.WithInstanceID` (empty keeps the
 per-process random ID).
 
+Register a custom backend name with `UseStorage`. Before standalone validation or config loading, call
+`cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())`.
+
 ## Supported Storage Backends
 
 | Type     | Backend                                                | Requires                                                                                |
@@ -61,6 +64,11 @@ per-process random ID).
 | Method | Description |
 |--------|-------------|
 | `Build(ctx)` | Assembles and returns the scheduler with storage created from config; `ctx` bounds the schema/index creation |
+
+## Concurrency
+
+`BuildLimitFunc` converts the [concurrency schema](../../../config/scheduler) into a limit function. A static limit of zero selects the scheduler
+default.
 
 ## Page tokens
 

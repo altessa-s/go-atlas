@@ -23,27 +23,14 @@ import (
 
 var errBuild = errors.New("build failed")
 
-// memoryBuilder is a registered provider builder serving an empty memory
-// provider; it records which Manager value type asked for it.
-type memoryBuilder struct {
-	err   error
-	calls *[]string
-}
-
-func (m memoryBuilder) Build(context.Context, *secretsconfig.Config) (kryptos.Provider[any], error) {
-	*m.calls = append(*m.calls, "any")
-	if m.err != nil {
-		return nil, m.err
+func memoryBuilder[T any](calls *[]string, name string, err error) factory.ProviderBuilder[T] {
+	return func(context.Context, *secretsconfig.Config) (kryptos.Provider[T], error) {
+		*calls = append(*calls, name)
+		if err != nil {
+			return nil, err
+		}
+		return memoryprovider.New[T](nil)
 	}
-	return memoryprovider.New[any](nil)
-}
-
-func (m memoryBuilder) BuildString(context.Context, *secretsconfig.Config) (kryptos.Provider[string], error) {
-	*m.calls = append(*m.calls, "string")
-	if m.err != nil {
-		return nil, m.err
-	}
-	return memoryprovider.New[string](nil)
 }
 
 func vaultConfig() *secretsconfig.Config {
@@ -63,7 +50,7 @@ func TestBuild_UnregisteredProviderFails(t *testing.T) {
 			cfg := secretsconfig.Default()
 			cfg.Provider = provider
 
-			_, err := factory.New(&cfg).Build(t.Context())
+			_, err := factory.New[any](&cfg).Build(t.Context())
 			require.Error(t, err)
 			require.NotErrorIs(t, err, factory.ErrProviderConfigMissing)
 		})
@@ -73,7 +60,7 @@ func TestBuild_UnregisteredProviderFails(t *testing.T) {
 func TestUseProvider_NilBuilderFails(t *testing.T) {
 	t.Parallel()
 
-	_, err := factory.New(vaultConfig()).UseProvider(secretsconfig.ProviderVault, nil).Build(t.Context())
+	_, err := factory.New[any](vaultConfig()).UseProvider(secretsconfig.ProviderVault, nil).Build(t.Context())
 	require.Error(t, err)
 }
 
@@ -81,13 +68,12 @@ func TestUseProvider_DispatchesByManagerType(t *testing.T) {
 	t.Parallel()
 
 	var calls []string
-	b := memoryBuilder{calls: &calls}
 
-	m, err := factory.New(vaultConfig()).UseProvider(secretsconfig.ProviderVault, b).Build(t.Context())
+	m, err := factory.New[any](vaultConfig()).UseProvider(secretsconfig.ProviderVault, memoryBuilder[any](&calls, "any", nil)).Build(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, m.Close(t.Context()))
 
-	s, err := factory.New(vaultConfig()).UseProvider(secretsconfig.ProviderVault, b).BuildString(t.Context())
+	s, err := factory.New[string](vaultConfig()).UseProvider(secretsconfig.ProviderVault, memoryBuilder[string](&calls, "string", nil)).Build(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, s.Close(t.Context()))
 
@@ -98,9 +84,9 @@ func TestUseProvider_BuilderErrorPropagates(t *testing.T) {
 	t.Parallel()
 
 	var calls []string
-	_, err := factory.New(vaultConfig()).
-		UseProvider(secretsconfig.ProviderVault, memoryBuilder{err: errBuild, calls: &calls}).
-		BuildString(t.Context())
+	_, err := factory.New[string](vaultConfig()).
+		UseProvider(secretsconfig.ProviderVault, memoryBuilder[string](&calls, "string", errBuild)).
+		Build(t.Context())
 	require.ErrorIs(t, err, errBuild)
 }
 
@@ -110,10 +96,10 @@ func TestBuild_RegisteredProviderRegistersHealth(t *testing.T) {
 	t.Cleanup(coord.Close)
 
 	var calls []string
-	m, err := factory.New(vaultConfig()).
+	m, err := factory.New[any](vaultConfig()).
 		UseDefaultLogger().
 		UseLogger(slog.New(slog.DiscardHandler)).
-		UseProvider(secretsconfig.ProviderVault, memoryBuilder{calls: &calls}).
+		UseProvider(secretsconfig.ProviderVault, memoryBuilder[any](&calls, "any", nil)).
 		UseHealthCoordinator(coord).
 		Build(t.Context())
 	require.NoError(t, err)

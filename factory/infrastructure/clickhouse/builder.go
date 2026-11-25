@@ -14,6 +14,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	chgo "github.com/ClickHouse/clickhouse-go/v2"
@@ -54,7 +55,7 @@ type ClickHouseBuilder struct {
 
 	// Dependencies
 	tlsConfig         *tls.Config
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.Registrar
 	healthServiceName string
 }
 
@@ -71,7 +72,7 @@ func New(cfg *clickhouseconfig.Config) *ClickHouseBuilder {
 //
 // The driver connects lazily, so a successful Build does not prove the
 // server is reachable; the registered health checker is what reports that.
-// When a [health.Coordinator] was provided via
+// When a [health.Registrar] was provided via
 // [ClickHouseBuilder.UseHealthCoordinator], a checker is registered under
 // [DefaultHealthServiceName] unless another name was set.
 //
@@ -95,7 +96,7 @@ func (b *ClickHouseBuilder) Build(_ context.Context) (driver.Conn, error) {
 		return nil, fmt.Errorf("open clickhouse connection: %w", err)
 	}
 
-	if b.healthCoordinator != nil {
+	if !nilcheck.IsNil(b.healthCoordinator) {
 		b.healthCoordinator.RegisterService(
 			cmp.Or(b.healthServiceName, DefaultHealthServiceName),
 			&clickHouseHealthChecker{conn: conn, logger: b.Logger()},
@@ -146,7 +147,7 @@ func (b *ClickHouseBuilder) resolveTLS() (*tls.Config, error) {
 	if b.cfg.TLS == nil {
 		return nil, nil //nolint:nilnil // no TLS configured
 	}
-	tlsCfg, err := tlsfactory.New(nil).UseLogger(b.Logger()).CreateClientConfig(b.cfg.TLS)
+	tlsCfg, err := tlsfactory.CreateClientConfig(b.cfg.TLS, b.Logger())
 	if err != nil {
 		return nil, b.WrapError(err, "failed to build clickhouse TLS configuration")
 	}

@@ -26,7 +26,7 @@ func newVaultAuthMetrics(c metrics.Meter) *vaultAuthMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("vault_auth")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("vault_auth")}
 
 	return &vaultAuthMetrics{
 		authAttempts: scoped.MustCounter(metrics.MetricOpts{

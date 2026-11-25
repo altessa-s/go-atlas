@@ -23,6 +23,6 @@
 // to [jetstream.ConsumerConfig] including delivery policy, ack policy, replay
 // policy, backoff schedules, and performance tuning.
 //
-// When a [health.Coordinator] is provided via [ConnectionBuilder.UseHealthCoordinator],
+// When a [health.Registrar] is provided via [ConnectionBuilder.UseHealthCoordinator],
 // the builder registers a health checker that reports the connection status.
 package factory

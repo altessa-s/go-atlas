@@ -123,28 +123,25 @@ func (b *SchedulerBuilder) createStorageFromConfig(ctx context.Context) (horai.S
 		return b.createMemoryStorage()
 	}
 
-	switch b.cfg.Storage.Type {
-	case schedulerconfig.StorageTypeMemory, "":
+	if b.cfg.Storage.Type == schedulerconfig.StorageTypeMemory || b.cfg.Storage.Type == "" {
 		return b.createMemoryStorage()
-	case schedulerconfig.StorageTypeSQL:
+	}
+	if b.cfg.Storage.Type == schedulerconfig.StorageTypeSQL {
 		if err := b.RequireDependency(b.sqlDB, "sql database"); err != nil {
 			return nil, err
 		}
 		return b.createSQLStorage(ctx)
+	}
+	if build, ok := b.storages[b.cfg.Storage.Type]; ok {
+		return build(ctx, b.cfg)
+	}
+	switch b.cfg.Storage.Type {
 	case schedulerconfig.StorageTypeMongo:
-		build, ok := b.storages[b.cfg.Storage.Type]
-		if !ok {
-			return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "scheduler storage %q is not registered: add factory/ext/horai/mongo "+
-				"with UseStorage(%q, mongofactory.Builder(db))", b.cfg.Storage.Type, b.cfg.Storage.Type)
-		}
-		return build(ctx, b.cfg)
+		return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "scheduler storage %q is not registered: add factory/ext/horai/mongo "+
+			"with UseStorage(%q, mongofactory.Builder(db))", b.cfg.Storage.Type, b.cfg.Storage.Type)
 	case schedulerconfig.StorageTypeRedis:
-		build, ok := b.storages[b.cfg.Storage.Type]
-		if !ok {
-			return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "scheduler storage %q is not registered: add factory/ext/horai/redis "+
-				"with UseStorage(%q, redisfactory.Builder(client))", b.cfg.Storage.Type, b.cfg.Storage.Type)
-		}
-		return build(ctx, b.cfg)
+		return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "scheduler storage %q is not registered: add factory/ext/horai/redis "+
+			"with UseStorage(%q, redisfactory.Builder(client))", b.cfg.Storage.Type, b.cfg.Storage.Type)
 	default:
 		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported storage type: %s", b.cfg.Storage.Type)
 	}
@@ -216,7 +213,7 @@ func (b *SchedulerBuilder) concurrencyOptions() ([]scheduler.Option, error) {
 		}, nil
 	}
 
-	limitFunc, err := b.cfg.Concurrency.BuildLimitFunc()
+	limitFunc, err := BuildLimitFunc(b.cfg.Concurrency.Concurrency)
 	if err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ import (
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	schedtask "github.com/altessa-s/go-horai/task"
 	tlsocsp "github.com/altessa-s/go-tlsutils/ocsp"
+	tlsproviders "github.com/altessa-s/go-tlsutils/providers"
 )
 
 // TestEnsureOcspStaplerFromConfig_DisabledSkipsBuild guards the
@@ -119,20 +120,43 @@ func (r *recordingRegistrar) Register(_ context.Context, cfg schedtask.Config) e
 	return r.err
 }
 
+// buildStapler captures the stapler actually given to a provider.
+func buildStapler(t testing.TB, b *ProvidersBuilder) tlsutils.OCSPStapler {
+	t.Helper()
+	var stapler tlsutils.OCSPStapler
+	b.cfg.Vault = &tlsconfig.ProviderVault{}
+	b.UseProvider(tlsproviders.ProviderTypeVault, func(_ *tlsconfig.Provider, env ProviderEnv) (tlsproviders.Provider, error) {
+		stapler = env.OCSPStapler
+		return testVaultProvider{}, nil
+	})
+	providers, err := b.Build(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { providers.Close(context.WithoutCancel(t.Context()), nil) })
+	return stapler
+}
+
+type testVaultProvider struct{}
+
+func (testVaultProvider) Type() tlsproviders.ProviderType { return tlsproviders.ProviderTypeVault }
+func (testVaultProvider) TLSConfig() (*tls.Config, error) {
+	return &tls.Config{MinVersion: tls.VersionTLS12}, nil
+}
+func (testVaultProvider) Close(context.Context) error { return nil }
+
 func TestEnsureOcspStaplerRegistersTrimmedSchedule(t *testing.T) {
 	t.Parallel()
 	reg := &recordingRegistrar{}
 	b := New(&tlsconfig.Provider{OCSP: &tlsconfig.ProviderOCSP{
 		Enabled: true, RefreshSchedule: "  @every 1h  ",
 	}}).UseScheduler(reg)
-	b.ensureOcspStaplerFromConfig()
+	stapler := buildStapler(t, b)
 	require.True(t, reg.called)
 	require.Equal(t, "@every 1h", reg.cfg.Schedule)
-	require.Equal(t, "ocsp-stapler-refresh-all", reg.cfg.ID)
+	require.Regexp(t, "^ocsp-stapler-refresh-all-[0-9a-f]{24}$", reg.cfg.ID)
 	require.Equal(t, "Refresh all cached OCSP staples", reg.cfg.Description)
 	require.Equal(t, schedtask.PriorityLow, reg.cfg.Priority)
 	require.NotNil(t, reg.cfg.Func)
-	err := b.ocspStapler.RunRefreshAll(t.Context())
+	err := stapler.RunRefreshAll(t.Context())
 	require.ErrorIs(t, err, tlsocsp.ErrSchedulerManaged)
 }
 
@@ -143,9 +167,9 @@ func TestEnsureOcspStaplerSkipsBlankSchedule(t *testing.T) {
 		b := New(&tlsconfig.Provider{OCSP: &tlsconfig.ProviderOCSP{
 			Enabled: true, RefreshSchedule: schedule,
 		}}).UseScheduler(reg)
-		b.ensureOcspStaplerFromConfig()
+		stapler := buildStapler(t, b)
 		require.False(t, reg.called)
-		require.NoError(t, b.ocspStapler.RunRefreshAll(t.Context()))
+		require.NoError(t, stapler.RunRefreshAll(t.Context()))
 	}
 }
 
@@ -154,8 +178,8 @@ func TestEnsureOcspStaplerSkipsNilScheduler(t *testing.T) {
 	b := New(&tlsconfig.Provider{OCSP: &tlsconfig.ProviderOCSP{
 		Enabled: true, RefreshSchedule: "@every 1h",
 	}})
-	b.ensureOcspStaplerFromConfig()
-	require.NoError(t, b.ocspStapler.RunRefreshAll(t.Context()))
+	stapler := buildStapler(t, b)
+	require.NoError(t, stapler.RunRefreshAll(t.Context()))
 }
 
 func TestEnsureOcspStaplerFailedRegisterStaysCallable(t *testing.T) {
@@ -164,9 +188,7 @@ func TestEnsureOcspStaplerFailedRegisterStaysCallable(t *testing.T) {
 	b := New(&tlsconfig.Provider{OCSP: &tlsconfig.ProviderOCSP{
 		Enabled: true, RefreshSchedule: "@every 1h",
 	}}).UseScheduler(reg)
-	providers, err := b.Build()
-	require.NoError(t, err)
-	require.NotNil(t, providers)
+	stapler := buildStapler(t, b)
 	require.True(t, reg.called)
-	require.NoError(t, b.ocspStapler.RunRefreshAll(t.Context()))
+	require.NoError(t, stapler.RunRefreshAll(t.Context()))
 }

@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -14,6 +15,7 @@ import (
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedulerfactory "github.com/altessa-s/go-atlas/factory/ext/horai"
 	horai "github.com/altessa-s/go-horai"
 	mongostorage "github.com/altessa-s/go-horai/storage/mongo"
@@ -25,7 +27,7 @@ var (
 	ErrDatabaseRequired = errors.New("scheduler: mongo database is required for storage type mongo")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// mongo block.
-	ErrConfigRequired = errors.New("scheduler: mongo configuration is required for storage type mongo")
+	ErrConfigRequired = fmt.Errorf("scheduler: mongo configuration is required for storage type mongo: %w", corefactory.ErrConfigRequired)
 )
 
 // ensureTimeout bounds the index creation the builder runs when the config

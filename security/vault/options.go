@@ -24,7 +24,7 @@ const DefaultInitialAuthTimeout = 10 * time.Second
 type options struct {
 	vaultClient       *vaultApi.Client
 	tlsConfig         *tls.Config
-	authMethod        auth.Method `opgen:"nonnil"`
+	authMethod        auth.Method `optgen:"notnil"`
 	logger            *slog.Logger
 	authTimeout       time.Duration    `optgen:"default=DefaultInitialAuthTimeout"`
 	healthCoordinator health.Registrar `optgen:"notnil"`

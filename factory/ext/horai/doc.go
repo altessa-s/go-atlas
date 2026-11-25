@@ -9,6 +9,8 @@
 // [SchedulerBuilder] uses a fluent API with deferred error accumulation:
 // errors from any step are collected and returned at [SchedulerBuilder.Build] time.
 //
+// [BuildLimitFunc] converts scheduler concurrency settings into a runtime limit function.
+//
 // Supported storage backends:
 //
 //   - In-memory (default) -- no external dependencies; suitable for development
@@ -31,4 +33,7 @@
 //	    UseStorage(schedulerconfig.StorageTypeMongo, mongofactory.Builder(db)).
 //	    Build(ctx)
 //	if err != nil { ... }
+//
+// [SchedulerBuilder.UseStorage] accepts custom backend names. For standalone schema
+// validation, pass [SchedulerBuilder.RegisteredStorageTypes] results to SetRegisteredTypes.
 package factory

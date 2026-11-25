@@ -8,6 +8,9 @@
 // [ProvidersBuilder] uses a fluent API with deferred error accumulation:
 // errors from any step are collected and returned at [ProvidersBuilder.Build] time.
 //
+// If a later provider fails, Build closes providers already created. It registers
+// OCSP refresh with the build context after all providers have succeeded.
+//
 // The builder builds the file and Let's Encrypt providers. The Vault and S3
 // providers register their [ProviderBuilder] per provider type with
 // [ProvidersBuilder.UseProvider], from factory/ext/tlsutils/<type>;
@@ -17,14 +20,13 @@
 //	    UseLogger(logger).
 //	    UseProvider(tlsproviders.ProviderTypeVault, vaultfactory.Builder(vaultClient)).
 //	    UseCacheDir("./certs").
-//	    Build()
+//	    Build(ctx)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	defer providers.Close(ctx, nil)
 //
-// For client TLS configurations, use [ProvidersBuilder.CreateClientConfig]:
+// For client TLS configurations, use [CreateClientConfig]:
 //
-//	b := factory.New(nil).UseLogger(logger)
-//	tlsConfig, err := b.CreateClientConfig(cfg.TlsClient)
+//	tlsConfig, err := factory.CreateClientConfig(cfg.TlsClient, logger)
 package factory

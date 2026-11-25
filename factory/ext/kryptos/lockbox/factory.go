@@ -27,8 +27,8 @@ const DefaultIAMTimeout = 10 * time.Second
 // Builder returns the provider builder of the lockbox type, ready for
 // secretsfactory.ManagerBuilder.UseProvider. The provider is configured by
 // the lockbox section.
-func Builder() secretsfactory.ProviderBuilder {
-	return builder{}
+func Builder[T any]() secretsfactory.ProviderBuilder[T] {
+	return provider[T]
 }
 
 // Provider is a Lockbox provider that owns its service-account token source:
@@ -73,17 +73,6 @@ func NewProvider[T any](ctx context.Context, cfg *secretsconfig.Lockbox) (*Provi
 		return nil, errors.Join(err, tokens.Close(context.WithoutCancel(ctx)))
 	}
 	return &Provider[T]{Storage: storage, tokens: tokens}, nil
-}
-
-// builder is the ProviderBuilder of the lockbox type.
-type builder struct{}
-
-func (builder) Build(ctx context.Context, cfg *secretsconfig.Config) (kryptos.Provider[any], error) {
-	return provider[any](ctx, cfg)
-}
-
-func (builder) BuildString(ctx context.Context, cfg *secretsconfig.Config) (kryptos.Provider[string], error) {
-	return provider[string](ctx, cfg)
 }
 
 // provider adapts NewProvider to the kryptos.Provider interface without

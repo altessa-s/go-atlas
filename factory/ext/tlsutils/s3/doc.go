@@ -11,5 +11,5 @@
 //
 //	providers, err := tlsfactory.New(cfg.TLSProvider).
 //		UseProvider(tlsproviders.ProviderTypeS3, s3factory.Builder(nil)).
-//		Build()
+//		Build(ctx)
 package factory

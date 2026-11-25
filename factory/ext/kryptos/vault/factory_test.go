@@ -48,15 +48,15 @@ func TestBuilder(t *testing.T) {
 	cfg.Provider = secretsconfig.ProviderVault
 	cfg.Vault = &secretsconfig.Vault{MountPath: "kv", SecretPath: "app"}
 
-	m, err := secretsfactory.New(&cfg).
-		UseProvider(secretsconfig.ProviderVault, factory.Builder(vaultClient(t))).
+	m, err := secretsfactory.New[any](&cfg).
+		UseProvider(secretsconfig.ProviderVault, factory.Builder[any](vaultClient(t))).
 		Build(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, m.Close(t.Context()))
 
-	s, err := secretsfactory.New(&cfg).
-		UseProvider(secretsconfig.ProviderVault, factory.Builder(vaultClient(t))).
-		BuildString(t.Context())
+	s, err := secretsfactory.New[string](&cfg).
+		UseProvider(secretsconfig.ProviderVault, factory.Builder[string](vaultClient(t))).
+		Build(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, s.Close(t.Context()))
 }
@@ -66,6 +66,6 @@ func TestBuilder_RequiresClient(t *testing.T) {
 	cfg := secretsconfig.Default()
 	cfg.Provider = secretsconfig.ProviderVault
 
-	_, err := secretsfactory.New(&cfg).UseProvider(secretsconfig.ProviderVault, factory.Builder(nil)).Build(t.Context())
+	_, err := secretsfactory.New[any](&cfg).UseProvider(secretsconfig.ProviderVault, factory.Builder[any](nil)).Build(t.Context())
 	require.ErrorIs(t, err, factory.ErrClientRequired)
 }

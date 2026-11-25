@@ -10,11 +10,18 @@ from any step are collected and returned at `Build()` time.
 ## Quick Start
 
 ```go
-client, err := factory.New(cfg.Redis).
+owner, err := factory.New(cfg.Redis).
     UseLogger(logger).
     UseHealthCoordinator(healthCoordinator).
     Build(ctx)
 ```
+
+After a successful build, call `owner.Close()` or register `UseShutdownHooks(group)`. Close synchronously removes its own health checker and closes the
+driver once. A later registration under the same name survives.
+
+`owner.Client()` returns a borrowed reference to the raw driver client. Storages and storage factories must never close it. Type assertions on the
+borrowed client expose driver-specific operations. For a Sentinel-backed cluster client, pass `owner.SentinelCluster()` to the Bloom or Cuckoo storage
+factory’s `SentinelBuilder`.
 
 ## Supported Modes
 
@@ -39,6 +46,7 @@ Mode is detected automatically from configuration — no explicit mode field is 
 | Method                   | Description                                                     |
 |--------------------------|-----------------------------------------------------------------|
 | `UseLogger`              | Sets the logger for the builder and all created components      |
+| `UseShutdownHooks`       | Registers the owner’s `Close` with the supplied shutdown hook group |
 | `UseDefaultLogger`       | Shorthand for `UseLogger(slog.Default())`                       |
 | `UseHealthCoordinator`   | Registers a health checker for the created client               |
 | `UseHealthServiceName`   | Name to register the checker under (default `"redis"`)          |
@@ -54,7 +62,7 @@ Mode is detected automatically from configuration — no explicit mode field is 
 Together they make Redis optional for the service, for example behind a fail-open cache:
 
 ```go
-client, err := factory.New(cfg.Redis).
+owner, err := factory.New(cfg.Redis).
     SkipStartupPing().
     WithoutHealth().
     Build(ctx)
@@ -64,7 +72,7 @@ client, err := factory.New(cfg.Redis).
 
 | Method        | Description                                                                                    |
 |---------------|------------------------------------------------------------------------------------------------|
-| `Build(ctx)`  | Assembles the `redis.UniversalClient`, pings it within `DefaultPingTimeout` (unless skipped), and returns it |
+| `Build(ctx)`  | Assembles the `redis.UniversalClient`, pings it within `DefaultPingTimeout` (unless skipped), and returns its `*ManagedClient` owner |
 | `UniversalOptions()` | Renders the `redis.UniversalOptions` without creating a client                                 |
 
 ## Constants

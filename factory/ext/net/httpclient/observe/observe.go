@@ -156,7 +156,7 @@ func newClientMetrics(c metrics.Meter, subsystem string) *clientMetrics {
 		subsystem = DefaultMetricsSubsystem
 	}
 
-	scoped := c.WithSubsystem(subsystem)
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem(subsystem)}
 
 	return &clientMetrics{
 		requestsTotal: scoped.MustCounter(metrics.MetricOpts{

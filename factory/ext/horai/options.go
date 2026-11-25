@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -83,4 +85,9 @@ func (b *SchedulerBuilder) UseMeter(v metrics.Meter) *SchedulerBuilder {
 func (b *SchedulerBuilder) UseReadinessProbe(fn func() bool) *SchedulerBuilder {
 	b.readinessProbe = fn
 	return b
+}
+
+// RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
+func (b *SchedulerBuilder) RegisteredStorageTypes() []schedulerconfig.StorageType {
+	return slices.Sorted(maps.Keys(b.storages))
 }

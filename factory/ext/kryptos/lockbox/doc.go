@@ -8,7 +8,7 @@
 // The secrets factory builds only the in-memory provider; register this one
 // for the lockbox provider type:
 //
-//	manager, err := secretsfactory.New(&cfg.Secrets).
-//		UseProvider(secretsconfig.ProviderLockbox, lockboxfactory.Builder()).
+//	manager, err := secretsfactory.New[any](&cfg.Secrets).
+//		UseProvider(secretsconfig.ProviderLockbox, lockboxfactory.Builder[any]()).
 //		Build(ctx)
 package factory

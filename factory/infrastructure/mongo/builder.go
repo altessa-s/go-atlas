@@ -11,6 +11,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/store/mongo"
@@ -32,8 +33,8 @@ type MongoBuilder struct {
 
 	// Dependencies
 	tlsConfig         *tls.Config
-	kmsProvider       kms.Provider
-	healthCoordinator *health.Coordinator
+	kmsProvider       kms.MasterKeyProvider
+	healthCoordinator health.Registrar
 	healthServiceName string
 	collector         metrics.Meter
 	converterOpts     []converter.Option
@@ -49,7 +50,7 @@ func New(cfg *mongoconfig.Config) *MongoBuilder {
 }
 
 // Build creates a [mongo.Mongo] wrapper from configuration.
-// If a [health.Coordinator] was provided via [MongoBuilder.UseHealthCoordinator],
+// If a [health.Registrar] was provided via [MongoBuilder.UseHealthCoordinator],
 // a health checker is registered under the service name "mongo".
 // The returned instance is not connected; call [mongo.Mongo.Connect] to establish
 // the connection.
@@ -72,7 +73,7 @@ func (b *MongoBuilder) Build(_ context.Context) (*mongo.Mongo, error) {
 		return nil, err
 	}
 
-	if b.healthCoordinator != nil {
+	if !nilcheck.IsNil(b.healthCoordinator) {
 		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "mongo"), &mongoHealthChecker{
 			m:      m,
 			logger: b.Logger(),
@@ -238,8 +239,10 @@ func (b *MongoBuilder) applyEncryption(clientOpts *mongoOptions.ClientOptions, o
 			SetKeyVaultNamespace(vaultDB + "." + b.cfg.Encryption.VaultCollection).
 			SetKmsProviders(provider.Credentials())
 
-		if tlsCfg := provider.TLSConfig(); tlsCfg != nil {
-			autoEncOpts.SetTLSConfig(map[string]*tls.Config{provider.Name(): tlsCfg})
+		if tlsProvider, ok := provider.(kms.TLSConfigurer); ok {
+			if tlsCfg := tlsProvider.TLSConfig(); tlsCfg != nil {
+				autoEncOpts.SetTLSConfig(map[string]*tls.Config{provider.Name(): tlsCfg})
+			}
 		}
 
 		clientOpts.SetAutoEncryptionOptions(autoEncOpts)

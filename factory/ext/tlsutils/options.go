@@ -56,7 +56,7 @@ func (b *ProvidersBuilder) UseCacheDir(v string) *ProvidersBuilder {
 	return b
 }
 
-// UseScheduler injects a TaskRegistrar used by [ProvidersBuilder.Build]
+// UseScheduler injects a [schedtask.Registrar] used by [ProvidersBuilder.Build]
 // to register periodic OCSP refresh. Required only when the YAML config
 // sets a non-empty tlsProvider.ocsp.refreshSchedule and no stapler was
 // already injected via [ProvidersBuilder.UseOcspStapler]. When omitted
@@ -65,5 +65,13 @@ func (b *ProvidersBuilder) UseCacheDir(v string) *ProvidersBuilder {
 // block on an OCSP fetch.
 func (b *ProvidersBuilder) UseScheduler(v schedtask.Registrar) *ProvidersBuilder {
 	b.scheduler = v
+	return b
+}
+
+// UseOCSPTaskNamespace distinguishes independent registries that have the same
+// provider configuration and cache directory on one scheduler. Use a stable
+// application or component name so the task ID survives a process restart.
+func (b *ProvidersBuilder) UseOCSPTaskNamespace(name string) *ProvidersBuilder {
+	b.ocspTaskNamespace = name
 	return b
 }

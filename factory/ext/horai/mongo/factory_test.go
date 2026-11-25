@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/factory/ext/horai/mongo"
 
 	schedulerconfig "github.com/altessa-s/go-atlas/config/scheduler"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedulerfactory "github.com/altessa-s/go-atlas/factory/ext/horai"
 	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -59,7 +60,9 @@ func TestBuilder(t *testing.T) {
 		t.Parallel()
 		cfg := mongoConfig(false)
 		cfg.Storage.Mongo = nil
-		require.ErrorIs(t, build(t, cfg, db), factory.ErrConfigRequired)
+		err := build(t, cfg, db)
+		require.ErrorIs(t, err, factory.ErrConfigRequired)
+		require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 	})
 
 	t.Run("builds_without_io", func(t *testing.T) {

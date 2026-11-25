@@ -35,7 +35,7 @@ func New(meter metrics.Meter, opts ...Option) *Observer {
 	if nilcheck.IsNil(meter) {
 		meter = metrics.Noop()
 	}
-	scoped := meter.WithSubsystem(cmp.Or(o.metricsSubsystem, DefaultMetricsSubsystem))
+	scoped := metrics.MustMeter{Meter: meter.WithSubsystem(cmp.Or(o.metricsSubsystem, DefaultMetricsSubsystem))}
 	return &Observer{
 		enqueued: scoped.MustCounter(metrics.MetricOpts{
 			Name: "items_enqueued_total",

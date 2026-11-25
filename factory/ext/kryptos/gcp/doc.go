@@ -8,7 +8,7 @@
 // The secrets factory builds only the in-memory provider; register this one
 // for the gcp provider type:
 //
-//	manager, err := secretsfactory.New(&cfg.Secrets).
-//		UseProvider(secretsconfig.ProviderGCP, gcpfactory.Builder()).
+//	manager, err := secretsfactory.New[any](&cfg.Secrets).
+//		UseProvider(secretsconfig.ProviderGCP, gcpfactory.Builder[any]()).
 //		Build(ctx)
 package factory

@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/factory/ext/tlsutils"
 ```
 
 Package `factory` provides a fluent builder for creating TLS provider registries from configuration. `ProvidersBuilder` uses deferred error accumulation
-— errors from any step are collected and returned at `Build()` time.
+— errors from any step are collected and returned at `Build(ctx)` time.
 
 The builder builds the file and Let's Encrypt providers. The Vault and S3 providers register their `ProviderBuilder` with `UseProvider` from their
 own packages; a configured section without one fails at `Build` naming the package to add. A builder receives the provider configuration and a
@@ -18,10 +18,15 @@ providers, err := factory.New(cfg.TLS).
     UseLogger(logger).
     UseProvider(tlsproviders.ProviderTypeVault, vaultfactory.Builder(vaultClient)).
     UseCacheDir("/var/cache/tls").
-    Build()
+    Build(ctx)
 ```
 
 When config is `nil`, `Build` returns an empty `*tlsproviders.Providers` with no error.
+
+If a provider fails, the builder closes the providers it already created and returns any cleanup errors with the build error. After all providers
+succeed, it registers the config-built stapler under `ocsp-stapler-refresh-all-<digest>`. The digest identifies the certificate sources, cache
+directory and optional namespace. Use `UseOCSPTaskNamespace` with distinct stable names for independent registries that share those inputs and a
+scheduler. A scheduler registration error retains lazy refresh and leaves manual refresh available.
 
 ## Supported Providers
 
@@ -55,5 +60,6 @@ When config is `nil`, `Build` returns an empty `*tlsproviders.Providers` with no
 
 | Method                    | Description                                                                                 |
 |---------------------------|---------------------------------------------------------------------------------------------|
-| `Build()`                 | Assembles and returns the `*tlsproviders.Providers` registry                                |
-| `CreateClientConfig(cfg)` | Builds a client `*tls.Config` from a `tlsconfig.Client`; independent of the provider config |
+| `Build(ctx)`                 | Assembles and returns the `*tlsproviders.Providers` registry                                |
+
+The standalone function `CreateClientConfig(cfg, logger)` builds a client `*tls.Config`. Pass a nil logger to discard warnings.

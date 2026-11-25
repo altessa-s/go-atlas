@@ -9,10 +9,12 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 )
 
@@ -61,8 +63,42 @@ func TestBuild_RedisDown(t *testing.T) {
 			t.Cleanup(func() { _ = client.Close() })
 
 			// The client exists, but commands fail until Redis is reachable.
-			require.Error(t, client.Ping(t.Context()).Err())
+			require.Error(t, client.Client().Ping(t.Context()).Err())
 			require.Equal(t, tc.wantRegistered, slices.Contains(slices.Collect(coord.ListServices()), "redis"))
 		})
 	}
+}
+
+func TestBuildCloseReleasesOnlyOwnedChecker(t *testing.T) {
+	t.Parallel()
+	coord := health.New()
+	t.Cleanup(coord.Close)
+	cfg := redisconfig.Default()
+	first, err := New(&cfg).SkipStartupPing().UseHealthCoordinator(struct{ health.ScopedReporter }{coord}).Build(t.Context())
+	require.NoError(t, err)
+	second, err := New(&cfg).SkipStartupPing().UseHealthCoordinator(struct{ health.ScopedReporter }{coord}).Build(t.Context())
+	require.NoError(t, err)
+	require.IsType(t, (*redis.Client)(nil), second.Client())
+	require.Equal(t, []string{"redis"}, slices.Collect(coord.ListServices()))
+	require.NoError(t, first.Close())
+	require.NoError(t, first.Close())
+	require.Equal(t, []string{"redis"}, slices.Collect(coord.ListServices()))
+	require.NoError(t, second.Close())
+	require.Empty(t, slices.Collect(coord.ListServices()))
+	require.Equal(t, health.StatusServing, coord.CheckHealth(t.Context()))
+}
+
+func TestBuildShutdownClosesClient(t *testing.T) {
+	t.Parallel()
+	var hooks coreruntime.HookGroup
+	cfg := redisconfig.Default()
+	coord := health.New()
+	t.Cleanup(coord.Close)
+	owner, err := New(&cfg).SkipStartupPing().UseShutdownHooks(&hooks).UseHealthCoordinator(coord).Build(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, hooks.Shutdown(t.Context()))
+	require.Empty(t, slices.Collect(coord.ListServices()))
+	require.ErrorIs(t, owner.Client().Ping(t.Context()).Err(), redis.ErrClosed)
+	require.NoError(t, owner.Close())
+	require.NoError(t, owner.Close())
 }

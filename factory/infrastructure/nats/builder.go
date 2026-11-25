@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
@@ -102,7 +103,7 @@ type ConnectionBuilder struct {
 
 	// Dependencies
 	tlsConfig         *tls.Config
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.Registrar
 	healthServiceName string
 }
 
@@ -118,7 +119,7 @@ func New(cfg *natsconfig.Config) *ConnectionBuilder {
 // Build creates a NATS connection from configuration.
 // When [natsconfig.Config.ConnectionURI] is set, it is used directly as the
 // connection URL. Otherwise, the URL is built by joining the configured Hosts.
-// If a [health.Coordinator] was provided via [ConnectionBuilder.UseHealthCoordinator],
+// If a [health.Registrar] was provided via [ConnectionBuilder.UseHealthCoordinator],
 // a health checker is registered under the service name "nats".
 func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
@@ -150,7 +151,7 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 		return nil, fmt.Errorf("connect to NATS at %s: %s", redactNATSURL(url), scrubURLCredentials(err.Error(), url))
 	}
 
-	if b.healthCoordinator != nil {
+	if !nilcheck.IsNil(b.healthCoordinator) {
 		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "nats"), &natsHealthChecker{
 			conn:   conn,
 			logger: b.Logger(),

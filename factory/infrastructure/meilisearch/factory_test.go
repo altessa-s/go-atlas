@@ -19,6 +19,7 @@ import (
 
 	meilisearchconfig "github.com/altessa-s/go-atlas/config/meilisearch"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	mfactory "github.com/altessa-s/go-atlas/factory/infrastructure/meilisearch"
 )
 
@@ -42,6 +43,7 @@ func TestBuild_NilConfigReturnsErrConfigRequired(t *testing.T) {
 
 	_, err := mfactory.New(nil).Build(t.Context())
 	require.Error(t, err)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 	require.True(t, errors.Is(err, mfactory.ErrConfigRequired),
 		"Build must return a sentinel-compatible ErrConfigRequired so YAML-loader pipelines can branch on it")
 }

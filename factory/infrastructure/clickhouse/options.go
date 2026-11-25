@@ -35,7 +35,7 @@ func (b *ClickHouseBuilder) UseTlsConfig(v *tls.Config) *ClickHouseBuilder {
 
 // UseHealthCoordinator sets the health coordinator used to register a
 // health checker for the created connection.
-func (b *ClickHouseBuilder) UseHealthCoordinator(v *health.Coordinator) *ClickHouseBuilder {
+func (b *ClickHouseBuilder) UseHealthCoordinator(v health.Registrar) *ClickHouseBuilder {
 	b.healthCoordinator = v
 
 	return b

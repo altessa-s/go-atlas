@@ -10,14 +10,14 @@ Maps the `gcp` section of the secrets configuration to the go-kryptos [GCP Secre
 ## Usage
 
 ```go
-manager, err := secretsfactory.New(&cfg.Secrets).
-    UseProvider(secretsconfig.ProviderGCP, gcpfactory.Builder()).
+manager, err := secretsfactory.New[any](&cfg.Secrets).
+    UseProvider(secretsconfig.ProviderGCP, gcpfactory.Builder[any]()).
     Build(ctx)
 ```
 
 | Function                   | Description                                                                    |
 |----------------------------|--------------------------------------------------------------------------------|
-| `Builder()`                | Provider builder for the `gcp` type                                            |
+| `Builder[T]()`                | Provider builder for the `gcp` type                                            |
 | `NewProvider[T](ctx, cfg)` | Builds the GCP Secret Manager provider of `T` secrets from `secretsconfig.GCP` |
 
 [provider]: https://github.com/altessa-s/go-kryptos/tree/main/providers/gcp

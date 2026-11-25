@@ -22,7 +22,7 @@ func newVaultMetrics(c metrics.Meter) *vaultMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("vault")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("vault")}
 
 	return &vaultMetrics{
 		renewalAttempts: scoped.MustCounter(metrics.MetricOpts{

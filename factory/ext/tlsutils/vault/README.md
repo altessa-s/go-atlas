@@ -13,7 +13,7 @@ Maps the `vault` section of the TLS provider configuration to a
 ```go
 providers, err := tlsfactory.New(cfg.TLSProvider).
     UseProvider(tlsproviders.ProviderTypeVault, vaultfactory.Builder(vaultClient)).
-    Build()
+    Build(ctx)
 ```
 
 | Function          | Description                                                                                                  |

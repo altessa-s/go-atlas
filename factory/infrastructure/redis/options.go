@@ -25,7 +25,7 @@ func (b *ClientBuilder) UseDefaultLogger() *ClientBuilder {
 
 // UseHealthCoordinator sets the health coordinator used to register a
 // health checker for the created Redis client.
-func (b *ClientBuilder) UseHealthCoordinator(v *health.Coordinator) *ClientBuilder {
+func (b *ClientBuilder) UseHealthCoordinator(v health.ScopedReporter) *ClientBuilder {
 	b.healthCoordinator = v
 	return b
 }

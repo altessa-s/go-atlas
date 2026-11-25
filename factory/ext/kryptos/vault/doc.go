@@ -8,7 +8,7 @@
 // The secrets factory builds only the in-memory provider; register this one
 // for the vault provider type:
 //
-//	manager, err := secretsfactory.New(&cfg.Secrets).
-//		UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder(vaultClient)).
+//	manager, err := secretsfactory.New[any](&cfg.Secrets).
+//		UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder[any](vaultClient)).
 //		Build(ctx)
 package factory

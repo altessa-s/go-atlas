@@ -41,7 +41,7 @@ func newMetrics(c metrics.Meter) *schedulerMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("scheduler")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("scheduler")}
 
 	return &schedulerMetrics{
 		tasksDispatched: scoped.MustCounter(metrics.MetricOpts{

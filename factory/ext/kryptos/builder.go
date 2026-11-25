@@ -15,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/retry"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -37,13 +38,8 @@ const HealthServiceName = "secrets"
 // caller that loads it without running its Validate can produce.
 var ErrProviderConfigMissing = errors.New("secrets provider configuration is missing")
 
-// ProviderBuilder creates the provider of one secrets provider type from the
-// secrets configuration, for both Manager value types: Build serves
-// [ManagerBuilder.Build], BuildString serves [ManagerBuilder.BuildString].
-type ProviderBuilder interface {
-	Build(ctx context.Context, cfg *secretsconfig.Config) (kryptos.Provider[any], error)
-	BuildString(ctx context.Context, cfg *secretsconfig.Config) (kryptos.Provider[string], error)
-}
+// ProviderBuilder creates the configured provider for a manager of T secrets.
+type ProviderBuilder[T any] func(ctx context.Context, cfg *secretsconfig.Config) (kryptos.Provider[T], error)
 
 // ManagerBuilder assembles a [manager.Manager] step by step using a fluent API.
 // Create instances with [New]. Errors are accumulated and reported at [ManagerBuilder.Build] time.
@@ -52,21 +48,21 @@ type ProviderBuilder interface {
 // The builder builds only the memory provider: register the remote ones per
 // provider type with [ManagerBuilder.UseProvider], for example the Vault one
 // from factory/ext/kryptos/vault.
-type ManagerBuilder struct {
+type ManagerBuilder[T any] struct {
 	corefactory.Base
 	cfg  *secretsconfig.Config
 	errs []error
 
 	// Dependencies
 	scheduler         task.Registrar
-	healthCoordinator *health.Coordinator
-	providers         map[secretsconfig.Provider]ProviderBuilder
+	healthCoordinator health.Registrar
+	providers         map[secretsconfig.Provider]ProviderBuilder[T]
 }
 
 // New creates a [ManagerBuilder] for the given secrets config.
 // Config can be nil — the error surfaces at [ManagerBuilder.Build] time.
-func New(cfg *secretsconfig.Config) *ManagerBuilder {
-	return &ManagerBuilder{
+func New[T any](cfg *secretsconfig.Config) *ManagerBuilder[T] {
+	return &ManagerBuilder[T]{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
 	}
@@ -76,21 +72,7 @@ func New(cfg *secretsconfig.Config) *ManagerBuilder {
 
 // Build assembles the secrets Manager. Errors from fluent methods are accumulated
 // and reported here via [errors.Join].
-func (b *ManagerBuilder) Build(ctx context.Context) (*manager.Manager[any], error) {
-	return build[any](ctx, b)
-}
-
-// BuildString assembles a Manager of string secrets, the type the config
-// loader expands $__secret{namespace:key} placeholders with
-// (through manager.NewStringResolver and loader.WithSecretResolver). Providers decode
-// each payload with their value codec (JSON by default, so a stored secret is
-// a JSON string); memory values are served as they are.
-func (b *ManagerBuilder) BuildString(ctx context.Context) (*manager.Manager[string], error) {
-	return build[string](ctx, b)
-}
-
-// build assembles a Manager of T secrets.
-func build[T any](ctx context.Context, b *ManagerBuilder) (*manager.Manager[T], error) {
+func (b *ManagerBuilder[T]) Build(ctx context.Context) (*manager.Manager[T], error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -112,7 +94,7 @@ func build[T any](ctx context.Context, b *ManagerBuilder) (*manager.Manager[T], 
 // provider (its clients and connections) belongs to the builder, so every
 // error path closes it; afterwards Manager.Close does. A Manager whose update
 // task the scheduler rejects is closed, which closes the provider too.
-func newManager[T any](ctx context.Context, b *ManagerBuilder, provider kryptos.Provider[T]) (*manager.Manager[T], error) {
+func newManager[T any](ctx context.Context, b *ManagerBuilder[T], provider kryptos.Provider[T]) (*manager.Manager[T], error) {
 	mgr, err := manager.New[T](provider, managerOptions[T](b)...)
 	if err != nil {
 		closeErr := provider.Close(context.WithoutCancel(ctx))
@@ -123,7 +105,7 @@ func newManager[T any](ctx context.Context, b *ManagerBuilder, provider kryptos.
 		return nil, errors.Join(err, mgr.Close(context.WithoutCancel(ctx)))
 	}
 
-	if b.healthCoordinator != nil {
+	if !nilcheck.IsNil(b.healthCoordinator) {
 		b.healthCoordinator.RegisterService(HealthServiceName, healthChecker(mgr))
 	}
 
@@ -133,7 +115,7 @@ func newManager[T any](ctx context.Context, b *ManagerBuilder, provider kryptos.
 // registerUpdateTask schedules the Manager's update cycle when a scheduler is
 // set and the configuration has an update schedule. The memory provider is
 // the only source of its values, so it is never reconciled.
-func registerUpdateTask[T any](ctx context.Context, b *ManagerBuilder, mgr *manager.Manager[T]) error {
+func registerUpdateTask[T any](ctx context.Context, b *ManagerBuilder[T], mgr *manager.Manager[T]) error {
 	if b.scheduler == nil || b.cfg.UpdateSchedule == "" || b.cfg.Provider == secretsconfig.ProviderMemory {
 		return nil
 	}
@@ -184,7 +166,7 @@ func createMemoryProvider[T any](cfg *secretsconfig.Memory) (*memoryprovider.Sto
 
 // createProvider creates the provider of T secrets selected by the
 // configuration: the memory one, or the one registered for its type.
-func createProvider[T any](ctx context.Context, b *ManagerBuilder) (kryptos.Provider[T], error) {
+func createProvider[T any](ctx context.Context, b *ManagerBuilder[T]) (kryptos.Provider[T], error) {
 	if b.cfg.Provider == secretsconfig.ProviderMemory {
 		return createMemoryProvider[T](b.cfg.Memory)
 	}
@@ -198,22 +180,7 @@ func createProvider[T any](ctx context.Context, b *ManagerBuilder) (kryptos.Prov
 		return nil, coreerrs.Wrapf(corefactory.Errorf(corefactory.ErrUnsupported, "unsupported provider: %s", b.cfg.Provider),
 			"invalid configuration for %s", "secrets provider")
 	}
-	var provider any
-	var err error
-	switch any(*new(T)).(type) {
-	case string:
-		provider, err = build.BuildString(ctx, b.cfg)
-	default:
-		provider, err = build.Build(ctx, b.cfg)
-	}
-	if err != nil {
-		return nil, err
-	}
-	typed, ok := provider.(kryptos.Provider[T])
-	if !ok {
-		return nil, fmt.Errorf("secrets provider %q: builder returned %T for a manager of %T", b.cfg.Provider, provider, *new(T))
-	}
-	return typed, nil
+	return build(ctx, b.cfg)
 }
 
 // managerOptions builds manager options from configuration for a Manager of T
@@ -221,7 +188,7 @@ func createProvider[T any](ctx context.Context, b *ManagerBuilder) (kryptos.Prov
 //
 // cache.maxSize zero keeps the Manager's default size and cache.shardCount
 // zero its single shard.
-func managerOptions[T any](b *ManagerBuilder) []manager.Option[T] {
+func managerOptions[T any](b *ManagerBuilder[T]) []manager.Option[T] {
 	opts := []manager.Option[T]{
 		manager.WithLogger[T](b.Logger()),
 		manager.WithMaxRetries[T](b.cfg.Retry.MaxAttempts),

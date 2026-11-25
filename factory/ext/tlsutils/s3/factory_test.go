@@ -69,10 +69,10 @@ func TestBuilder_SendsSSECustomerKey(t *testing.T) {
 	}}).
 		UseLogger(slog.New(slog.DiscardHandler)).
 		UseProvider(tlsproviders.ProviderTypeS3, factory.Builder(s3c)).
-		Build()
+		Build(t.Context())
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		providers.Close(context.Background(), func(_ tlsproviders.Provider, err error) {
+		providers.Close(context.WithoutCancel(t.Context()), func(_ tlsproviders.Provider, err error) {
 			t.Errorf("close provider: %v", err)
 		})
 	})

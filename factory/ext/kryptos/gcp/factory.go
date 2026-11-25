@@ -21,8 +21,8 @@ import (
 // Builder returns the provider builder of the gcp type, ready for
 // secretsfactory.ManagerBuilder.UseProvider. The provider is configured by
 // the gcp section.
-func Builder() secretsfactory.ProviderBuilder {
-	return builder{}
+func Builder[T any]() secretsfactory.ProviderBuilder[T] {
+	return provider[T]
 }
 
 // NewProvider creates the GCP Secret Manager provider of T secrets from the
@@ -42,16 +42,6 @@ func NewProvider[T any](ctx context.Context, cfg *secretsconfig.GCP) (*gcpprovid
 	opts = slices.AppendIf(opts, cfg.IgnoreInvalidKeys, gcpprovider.WithIgnoreInvalidKeys[T]())
 
 	return gcpprovider.New[T](ctx, cfg.ProjectID, credentials, opts...)
-}
-
-type builder struct{}
-
-func (builder) Build(ctx context.Context, cfg *secretsconfig.Config) (kryptos.Provider[any], error) {
-	return provider[any](ctx, cfg)
-}
-
-func (builder) BuildString(ctx context.Context, cfg *secretsconfig.Config) (kryptos.Provider[string], error) {
-	return provider[string](ctx, cfg)
 }
 
 // provider adapts NewProvider to the kryptos.Provider interface without

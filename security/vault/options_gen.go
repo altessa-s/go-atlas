@@ -22,6 +22,14 @@ type Option func(o *options)
 // WithAuthMethod sets the authMethod option.
 func WithAuthMethod(v auth.Method) Option {
 	return func(o *options) {
+		switch rv := reflect.ValueOf(v); rv.Kind() {
+		case reflect.Invalid:
+			return
+		case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+			if rv.IsNil() {
+				return
+			}
+		}
 		o.authMethod = v
 	}
 }

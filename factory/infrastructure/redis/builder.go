@@ -9,13 +9,16 @@ import (
 	"context"
 	"crypto/tls"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	corectx "github.com/altessa-s/go-atlas-core/context"
+	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
@@ -44,8 +47,9 @@ type ClientBuilder struct {
 	errs []error
 
 	// Dependencies
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.ScopedReporter
 	healthServiceName string
+	shutdownHooks     *coreruntime.HookGroup
 	// tlsConfig is applied to the field-based universal options when
 	// non-nil. The URI-based path (rediss://) picks up TLS through the
 	// scheme; field-based configs (Hosts/Password/Database) had no
@@ -93,14 +97,20 @@ func New(cfg *redisconfig.Config) *ClientBuilder {
 	}
 }
 
-// Build creates a [redis.UniversalClient] from configuration.
+// UseShutdownHooks registers each successfully built owner's Close with group.
+func (b *ClientBuilder) UseShutdownHooks(group *coreruntime.HookGroup) *ClientBuilder {
+	b.shutdownHooks = group
+	return b
+}
+
+// Build creates a [ManagedClient] from configuration.
 // After creating the client it performs a health-check ping within
 // [DefaultPingTimeout]; if the ping fails the client is closed and an error
 // is returned; [ClientBuilder.SkipStartupPing] disables the ping. If a
-// [health.Coordinator] was provided via [ClientBuilder.UseHealthCoordinator],
+// [health.ScopedReporter] was provided via [ClientBuilder.UseHealthCoordinator],
 // a health checker is registered under the service name "redis" unless
 // [ClientBuilder.WithoutHealth] was called.
-func (b *ClientBuilder) Build(ctx context.Context) (redis.UniversalClient, error) {
+func (b *ClientBuilder) Build(ctx context.Context) (*ManagedClient, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -126,15 +136,49 @@ func (b *ClientBuilder) Build(ctx context.Context) (redis.UniversalClient, error
 		slog.String("mode", mode),
 		slog.Any("hosts", b.cfg.Hosts))
 
-	if b.healthCoordinator != nil && !b.noHealth {
-		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "redis"), &redisHealthChecker{
+	owner := &ManagedClient{client: client}
+	if opts.MasterName != "" {
+		owner.sentinelCluster, _ = client.(*redis.ClusterClient)
+	}
+	var unregister func()
+	if !nilcheck.IsNil(b.healthCoordinator) && !b.noHealth {
+		_, unregister = b.healthCoordinator.RegisterScopedService(cmp.Or(b.healthServiceName, "redis"), &redisHealthChecker{
 			client: client,
 			logger: b.Logger(),
 		})
 	}
-
-	return client, nil
+	owner.close = sync.OnceValue(func() error {
+		if unregister != nil {
+			unregister()
+		}
+		return client.Close()
+	})
+	if b.shutdownHooks != nil {
+		b.shutdownHooks.OnShutdown(func(context.Context) error { return owner.Close() })
+	}
+	return owner, nil
 }
+
+// ManagedClient owns a raw Redis client and its scoped health registration.
+// Storages and storage factories borrow Client() and must never close it.
+// Only Close releases both resources.
+type ManagedClient struct {
+	client          redis.UniversalClient
+	sentinelCluster *redis.ClusterClient
+	close           func() error
+}
+
+// Client returns the borrowed, unwrapped driver client.
+func (c *ManagedClient) Client() redis.UniversalClient { return c.client }
+
+// SentinelCluster returns the borrowed driver client when it was constructed
+// with NewFailoverClusterClient. Pass it to Sentinel-aware storage builders.
+// It returns nil for standalone, ordinary failover and true Cluster clients.
+func (c *ManagedClient) SentinelCluster() *redis.ClusterClient { return c.sentinelCluster }
+
+// Close synchronously unregisters this owner's checker and closes the driver
+// client. Concurrent and repeated calls return the same result.
+func (c *ManagedClient) Close() error { return c.close() }
 
 // ping checks client within [DefaultPingTimeout] and closes it on failure.
 func (b *ClientBuilder) ping(ctx context.Context, client redis.UniversalClient) error {

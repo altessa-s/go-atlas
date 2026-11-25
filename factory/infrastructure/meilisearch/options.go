@@ -25,7 +25,7 @@ func (b *ClientBuilder) UseDefaultLogger() *ClientBuilder {
 
 // UseHealthCoordinator sets the health coordinator used to register a
 // health checker for the created Meilisearch client.
-func (b *ClientBuilder) UseHealthCoordinator(v *health.Coordinator) *ClientBuilder {
+func (b *ClientBuilder) UseHealthCoordinator(v health.Registrar) *ClientBuilder {
 	b.healthCoordinator = v
 	return b
 }

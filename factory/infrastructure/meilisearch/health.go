@@ -16,7 +16,7 @@ var _ health.Checker = (*meilisearchHealthChecker)(nil)
 
 // meilisearchHealthChecker implements [health.Checker] for a [meilisearch.Client].
 type meilisearchHealthChecker struct {
-	client *meilisearch.Client
+	client meilisearch.HealthChecker
 	logger *slog.Logger
 }
 

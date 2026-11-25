@@ -6,7 +6,7 @@ package factory
 
 import (
 	"context"
-	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-tlsutils"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
@@ -25,15 +26,6 @@ import (
 	tlsproviders "github.com/altessa-s/go-tlsutils/providers"
 	tlsfile "github.com/altessa-s/go-tlsutils/providers/file"
 	tlsletsencrypt "github.com/altessa-s/go-tlsutils/providers/letsencrypt"
-)
-
-// ErrInsecureSkipVerifyRejected is returned by [ProvidersBuilder.CreateClientConfig]
-// when SkipVerify is true and the configured [tlsconfig.SkipVerifyMode] is
-// [tlsconfig.SkipVerifyModeEnforce] (the default). Operators who genuinely
-// need to skip verification must explicitly opt out via SkipVerifyMode=warn
-// (logged) or SkipVerifyMode=disabled (silent, tests only).
-var ErrInsecureSkipVerifyRejected = errors.New(
-	"security/tlsutils: SkipVerify is true but SkipVerifyMode is enforce — refusing to disable certificate verification",
 )
 
 // ProviderEnv carries the dependencies a registered provider builder shares
@@ -66,10 +58,11 @@ type ProvidersBuilder struct {
 	errs []error
 
 	// Dependencies
-	ocspStapler tlsutils.OCSPStapler
-	scheduler   schedtask.Registrar
-	providers   map[tlsproviders.ProviderType]ProviderBuilder
-	cacheDir    string
+	ocspStapler       tlsutils.OCSPStapler
+	scheduler         schedtask.Registrar
+	providers         map[tlsproviders.ProviderType]ProviderBuilder
+	cacheDir          string
+	ocspTaskNamespace string
 }
 
 // New creates a [ProvidersBuilder] for the given TLS provider config.
@@ -85,7 +78,7 @@ func New(cfg *tlsconfig.Provider) *ProvidersBuilder {
 
 // Build assembles the TLS providers registry. Errors from fluent methods are accumulated
 // and reported here via [errors.Join].
-func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
+func (b *ProvidersBuilder) Build(ctx context.Context) (*tlsproviders.Providers, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -94,14 +87,27 @@ func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
 		return &tlsproviders.Providers{}, nil
 	}
 
-	b.ensureOcspStaplerFromConfig()
-
+	// Each registry has its own OCSP cache unless the caller supplied one.
+	assembly := *b
+	stapler := assembly.ensureOcspStaplerFromConfig()
 	providers := &tlsproviders.Providers{}
+	if err := assembly.buildProviders(providers); err != nil {
+		providers.Close(context.WithoutCancel(ctx), func(_ tlsproviders.Provider, closeErr error) {
+			err = errors.Join(err, closeErr)
+		})
+		return nil, err
+	}
+	if stapler != nil {
+		assembly.registerOcspRefresh(ctx, stapler, assembly.cfg.OCSP.RefreshSchedule)
+	}
+	return providers, nil
+}
 
+func (b *ProvidersBuilder) buildProviders(providers *tlsproviders.Providers) error {
 	if b.cfg.File != nil {
 		provider, err := b.createFileProvider()
 		if err != nil {
-			return nil, b.WrapError(err, "failed to create file provider")
+			return b.WrapError(err, "failed to create file provider")
 		}
 		providers.Register(provider)
 	}
@@ -109,7 +115,7 @@ func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
 	if b.cfg.Vault != nil {
 		provider, err := b.createRegisteredProvider(tlsproviders.ProviderTypeVault)
 		if err != nil {
-			return nil, b.WrapError(err, "failed to create vault provider")
+			return b.WrapError(err, "failed to create vault provider")
 		}
 		providers.Register(provider)
 	}
@@ -117,7 +123,7 @@ func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
 	if b.cfg.LetsEncrypt != nil {
 		provider, err := b.createLetsEncryptProvider()
 		if err != nil {
-			return nil, b.WrapError(err, "failed to create letsencrypt provider")
+			return b.WrapError(err, "failed to create letsencrypt provider")
 		}
 		providers.Register(provider)
 	}
@@ -125,72 +131,12 @@ func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
 	if b.cfg.S3 != nil {
 		provider, err := b.createRegisteredProvider(tlsproviders.ProviderTypeS3)
 		if err != nil {
-			return nil, b.WrapError(err, "failed to create s3 provider")
+			return b.WrapError(err, "failed to create s3 provider")
 		}
 		providers.Register(provider)
 	}
 
-	return providers, nil
-}
-
-// CreateClientConfig creates a TLS configuration for client connections from config.
-// Returns nil, nil if the configuration is nil.
-// This is a standalone utility that does not depend on the builder's TLS provider config.
-func (b *ProvidersBuilder) CreateClientConfig(cfg *tlsconfig.Client) (*tls.Config, error) {
-	if cfg == nil {
-		return nil, nil //nolint:nilnil
-	}
-
-	caPool, err := tlsutils.BuildCAPool(true, cfg.CACerts...)
-	if err != nil {
-		return nil, b.WrapError(err, "failed to build CA pool")
-	}
-
-	var certs []tls.Certificate
-	if cfg.Certificate != "" && cfg.PrivateKey != "" {
-		cert, err := tlsutils.LoadFromFile(cfg.PrivateKey, cfg.Certificate, cfg.PrivateKeyPassword.Expose())
-		if err != nil {
-			return nil, b.WrapError(err, "failed to load client certificate")
-		}
-		certs = []tls.Certificate{*cert}
-	}
-
-	tlsConfig := tlsutils.DefaultClientTLSConfig(cfg.ServerName)
-	if cfg.SkipVerify {
-		switch cfg.SkipVerifyMode {
-		case tlsconfig.SkipVerifyModeEnforce:
-			return nil, b.WrapError(ErrInsecureSkipVerifyRejected,
-				"refusing to build TLS client config for server "+cfg.ServerName)
-		case tlsconfig.SkipVerifyModeWarn:
-			b.Logger().Warn("TLS certificate verification is disabled — connections are susceptible to man-in-the-middle attacks",
-				slog.String("server_name", cfg.ServerName))
-			tlsConfig.InsecureSkipVerify = true
-		case tlsconfig.SkipVerifyModeDisabled:
-			// Explicit operator/test opt-out. Still log it: an operator who
-			// disables verification should see runtime evidence of it, matching
-			// the Warn mode above. Use only in tests with localhost fixtures.
-			b.Logger().Warn("TLS certificate verification disabled via TLSSkipVerifyModeDisabled (explicit opt-out) — "+
-				"connections are susceptible to man-in-the-middle attacks",
-				slog.String("server_name", cfg.ServerName))
-			tlsConfig.InsecureSkipVerify = true
-		default:
-			// Empty or unrecognized mode — fail safe with the Enforce
-			// error. The YAML loader fills in the default:"enforce"
-			// struct tag, so this path is reached only by programmatic
-			// callers that built TlsClient by hand and forgot to set
-			// SkipVerifyMode, or by a typo in YAML. Either way we want
-			// the operator to commit to a value explicitly rather than
-			// inheriting a silent fallback.
-			return nil, b.WrapError(ErrInsecureSkipVerifyRejected,
-				"SkipVerifyMode must be one of enforce/warn/disabled (got "+string(cfg.SkipVerifyMode)+")")
-		}
-	}
-	tlsConfig.RootCAs = caPool
-	if len(certs) > 0 {
-		tlsConfig.Certificates = certs
-	}
-
-	return tlsConfig, nil
+	return nil
 }
 
 // createFileProvider creates a file-based TLS provider from configuration.
@@ -259,21 +205,20 @@ func (b *ProvidersBuilder) letsEncryptProviderOpts() []tlsletsencrypt.Option {
 // ensureOcspStaplerFromConfig populates b.ocspStapler from b.cfg.OCSP
 // when the operator enabled OCSP via YAML and no stapler was already
 // injected programmatically via UseOcspStapler. The auto-built stapler
-// inherits failureMode, compression, cache cap, and HTTP timeout. A
-// non-empty refreshSchedule is registered on the injected scheduler
-// here; the stapler library does not import one.
+// inherits failureMode, compression, cache cap, and HTTP timeout. It returns
+// the newly built stapler for registration once all providers are ready.
 //
 // A programmatically-injected stapler always wins — operators staging
 // custom retry / HTTP-client plumbing don't lose it just because they
 // also filled in the YAML block. An injected stapler is not registered
 // for periodic refresh.
-func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() {
+func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() *tlsocsp.Stapler {
 	if b.ocspStapler != nil {
-		return
+		return nil
 	}
 	ocspCfg := b.cfg.OCSP
 	if ocspCfg == nil || !ocspCfg.Enabled {
-		return
+		return nil
 	}
 
 	opts := []tlsocsp.Option{
@@ -289,7 +234,7 @@ func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() {
 
 	stapler := tlsocsp.NewOCSPStapler(opts...)
 	b.ocspStapler = stapler
-	b.registerOcspRefresh(stapler, ocspCfg.RefreshSchedule)
+	return stapler
 }
 
 // registerOcspRefresh registers the whole-cache OCSP refresh on the
@@ -297,13 +242,13 @@ func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() {
 // lazy: GetOCSPStaple fetches on a cache miss. Register runs before the
 // stapler is marked managed, so a failed registration keeps RunRefreshAll
 // available. Build does not fail when registration fails.
-func (b *ProvidersBuilder) registerOcspRefresh(stapler *tlsocsp.Stapler, schedule string) {
+func (b *ProvidersBuilder) registerOcspRefresh(ctx context.Context, stapler *tlsocsp.Stapler, schedule string) {
 	schedule = strings.TrimSpace(schedule)
 	if b.scheduler == nil || schedule == "" {
 		return
 	}
-	err := b.scheduler.Register(context.Background(), schedtask.Config{
-		ID:          "ocsp-stapler-refresh-all",
+	err := b.scheduler.Register(ctx, schedtask.Config{
+		ID:          b.ocspRefreshTaskID(),
 		Description: "Refresh all cached OCSP staples",
 		Func:        stapler.RefreshAllFunc(),
 		Schedule:    schedule,
@@ -316,4 +261,26 @@ func (b *ProvidersBuilder) registerOcspRefresh(stapler *tlsocsp.Stapler, schedul
 	}
 	stapler.MarkSchedulerManaged()
 	b.Logger().Debug("registered OCSP refresh task", slog.String("schedule", schedule))
+}
+
+// ocspRefreshTaskID identifies the certificate sources. Rotating credentials
+// or adjusting the refresh interval preserves the scheduler's task history.
+func (b *ProvidersBuilder) ocspRefreshTaskID() string {
+	parts := []string{b.ocspTaskNamespace, b.cacheDir}
+	if f := b.cfg.File; f != nil {
+		parts = append(parts, keys.Compose("file", f.Certificate, f.PrivateKey))
+	}
+	if v := b.cfg.Vault; v != nil {
+		parts = append(parts, keys.Compose("vault", v.Role, v.CommonName,
+			keys.Compose(v.SubjectAlternativeNames...), keys.Compose(v.IPSubjectAlternativeNames...)))
+	}
+	if l := b.cfg.LetsEncrypt; l != nil {
+		parts = append(parts, keys.Compose("letsencrypt", l.Email, keys.Compose(l.Domain...)))
+	}
+	if s := b.cfg.S3; s != nil {
+		parts = append(parts, keys.Compose("s3", s.Endpoint, s.Region, s.Bucket, s.CertificateKey, s.PrivateKeyKey))
+	}
+	const digestBytes = 12
+	digest := keys.Digest([]byte(keys.Compose(parts...)))
+	return "ocsp-stapler-refresh-all-" + hex.EncodeToString(digest[:digestBytes])
 }

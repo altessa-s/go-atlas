@@ -35,14 +35,14 @@ func (b *MongoBuilder) UseTlsConfig(v *tls.Config) *MongoBuilder {
 }
 
 // UseKmsProvider sets the KMS provider used for client-side field level encryption.
-func (b *MongoBuilder) UseKmsProvider(v kms.Provider) *MongoBuilder {
+func (b *MongoBuilder) UseKmsProvider(v kms.MasterKeyProvider) *MongoBuilder {
 	b.kmsProvider = v
 	return b
 }
 
 // UseHealthCoordinator sets the health coordinator used to register a
 // health checker for the created MongoDB client.
-func (b *MongoBuilder) UseHealthCoordinator(v *health.Coordinator) *MongoBuilder {
+func (b *MongoBuilder) UseHealthCoordinator(v health.Registrar) *MongoBuilder {
 	b.healthCoordinator = v
 	return b
 }

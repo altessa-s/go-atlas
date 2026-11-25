@@ -32,7 +32,7 @@ func (b *VaultBuilder) UseTlsConfig(v *tls.Config) *VaultBuilder {
 }
 
 // UseHealthCoordinator sets the health coordinator for the Vault client.
-func (b *VaultBuilder) UseHealthCoordinator(v *health.Coordinator) *VaultBuilder {
+func (b *VaultBuilder) UseHealthCoordinator(v health.Registrar) *VaultBuilder {
 	b.healthCoordinator = v
 	return b
 }

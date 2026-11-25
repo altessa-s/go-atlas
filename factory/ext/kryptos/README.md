@@ -13,9 +13,9 @@ configured provider without one fails at `Build` naming the package to add.
 ## Quick Start
 
 ```go
-manager, err := factory.New(cfg.Secrets).
+manager, err := factory.New[any](cfg.Secrets).
     UseLogger(logger).
-    UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder(vaultClient)).
+    UseProvider(secretsconfig.ProviderVault, vaultfactory.Builder[any](vaultClient)).
     UseScheduler(scheduler).
     UseHealthCoordinator(healthCoordinator).
     Build(ctx)
@@ -25,9 +25,9 @@ manager, err := factory.New(cfg.Secrets).
 
 | Provider           | Config value | Register                                | Requires                                                    |
 |--------------------|--------------|-----------------------------------------|-------------------------------------------------------------|
-| Vault KV           | `vault`      | [`vaultfactory.Builder(client)`](vault) | A Vault client                                              |
-| GCP Secret Manager | `gcp`        | [`gcpfactory.Builder()`](gcp)           | The `gcp` section (project ID, service account path)        |
-| Yandex Lockbox     | `lockbox`    | [`lockboxfactory.Builder()`](lockbox)   | The `lockbox` section (folder ID, key ID, private key file) |
+| Vault KV           | `vault`      | [`vaultfactory.Builder[any](client)`](vault) | A Vault client                                              |
+| GCP Secret Manager | `gcp`        | [`gcpfactory.Builder[any]()`](gcp)           | The `gcp` section (project ID, service account path)        |
+| Yandex Lockbox     | `lockbox`    | [`lockboxfactory.Builder[any]()`](lockbox)   | The `lockbox` section (folder ID, key ID, private key file) |
 | In-memory          | `memory`     | built in                                | — (`memory.values` seeds it; tests and development)         |
 
 A selected `gcp` or `lockbox` provider without its section fails with `ErrProviderConfigMissing`; a configuration loaded without its
@@ -39,7 +39,7 @@ A selected `gcp` or `lockbox` provider without its section fails with `ErrProvid
 
 | Method     | Description                                                        |
 |------------|--------------------------------------------------------------------|
-| `New(cfg)` | Creates a `ManagerBuilder` for the given secrets config            |
+| `New[T](cfg)` | Creates a `ManagerBuilder` for the given secrets config            |
 
 ### Dependencies
 
@@ -55,11 +55,10 @@ A selected `gcp` or `lockbox` provider without its section fails with `ErrProvid
 
 | Method             | Description                                                                                                   |
 |--------------------|---------------------------------------------------------------------------------------------------------------|
-| `Build(ctx)`       | Assembles and returns the `*manager.Manager[any]`                                                             |
-| `BuildString(ctx)` | Assembles a `*manager.Manager[string]`, adapted by `manager.NewStringResolver` for `loader.WithSecretResolver`  |
+| `Build(ctx)`       | Assembles and returns the `*manager.Manager[T]`                                                               |
 
-`BuildString` decodes provider payloads with the provider's value codec (JSON by default, so a stored secret is a JSON string); memory values are
-served as configured. A `$__secret{namespace:key}` placeholder looks up the key `namespace:key`.
+A manager built with `New[string]` decodes provider payloads with its value codec. The default codec reads JSON strings. Memory serves configured
+strings directly. A `$__secret{namespace:key}` placeholder looks up the key `namespace:key`.
 
 ## Update cycle
 

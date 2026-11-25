@@ -34,7 +34,7 @@ defer client.Close()
 |------------------------------|------------------------------------------------------------------------------------|
 | `UseLogger(l)`               | Sets the logger for the builder and the created client                             |
 | `UseDefaultLogger()`         | Shortcut for `UseLogger(slog.Default())`                                            |
-| `UseHealthCoordinator(c)`    | Registers the client's health check with the given `health.Coordinator`            |
+| `UseHealthCoordinator(c)`    | Registers the client's health check with the given `health.Registrar`            |
 | `UseHealthServiceName(n)`    | Overrides the registered service name (default: `"meilisearch"`)                   |
 
 ### Terminal

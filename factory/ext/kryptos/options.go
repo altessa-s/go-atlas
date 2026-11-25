@@ -19,24 +19,24 @@ import (
 // --- Dependency methods ---
 
 // UseLogger sets the logger for the builder and all created components.
-func (b *ManagerBuilder) UseLogger(v *slog.Logger) *ManagerBuilder {
+func (b *ManagerBuilder[T]) UseLogger(v *slog.Logger) *ManagerBuilder[T] {
 	b.SetLogger(v)
 	return b
 }
 
 // UseDefaultLogger sets the logger to [slog.Default].
-func (b *ManagerBuilder) UseDefaultLogger() *ManagerBuilder {
+func (b *ManagerBuilder[T]) UseDefaultLogger() *ManagerBuilder[T] {
 	return b.UseLogger(slog.Default())
 }
 
 // UseScheduler sets the task scheduler for background processes.
-func (b *ManagerBuilder) UseScheduler(v task.Registrar) *ManagerBuilder {
+func (b *ManagerBuilder[T]) UseScheduler(v task.Registrar) *ManagerBuilder[T] {
 	b.scheduler = v
 	return b
 }
 
 // UseHealthCoordinator sets the health coordinator for auto-registration with the health system.
-func (b *ManagerBuilder) UseHealthCoordinator(v *health.Coordinator) *ManagerBuilder {
+func (b *ManagerBuilder[T]) UseHealthCoordinator(v health.Registrar) *ManagerBuilder[T] {
 	b.healthCoordinator = v
 	return b
 }
@@ -45,13 +45,13 @@ func (b *ManagerBuilder) UseHealthCoordinator(v *health.Coordinator) *ManagerBui
 // (secretsconfig.ProviderVault, ...). A later registration of the same type
 // replaces the earlier one; the memory provider is built in and cannot be
 // replaced.
-func (b *ManagerBuilder) UseProvider(typ secretsconfig.Provider, build ProviderBuilder) *ManagerBuilder {
+func (b *ManagerBuilder[T]) UseProvider(typ secretsconfig.Provider, build ProviderBuilder[T]) *ManagerBuilder[T] {
 	if build == nil {
 		b.errs = append(b.errs, corefactory.Errorf(coreerrs.ErrInvalidArgument, "UseProvider %q: nil builder", typ))
 		return b
 	}
 	if b.providers == nil {
-		b.providers = map[secretsconfig.Provider]ProviderBuilder{}
+		b.providers = map[secretsconfig.Provider]ProviderBuilder[T]{}
 	}
 	b.providers[typ] = build
 	return b

@@ -165,3 +165,21 @@ func TestUseStorage(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := schedulerconfig.Default()
+	cfg.Storage = &schedulerconfig.StorageConfig{Type: "custom"}
+
+	build := func(context.Context, *schedulerconfig.Config) (horai.Store, error) {
+		return memory.New(memory.WithMaxHistoryPerTask(1))
+	}
+	b := factory.New(&cfg).UseStorage("custom", build)
+	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+	require.NoError(t, cfg.Validate())
+	got, err := b.Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	_, err = factory.New(&cfg).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
+}

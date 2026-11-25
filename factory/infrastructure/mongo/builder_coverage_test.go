@@ -7,6 +7,7 @@ package factory
 import (
 	"crypto/tls"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
+	kmslocal "github.com/altessa-s/go-atlas/store/mongo/kms/providers/local"
 	converter "github.com/altessa-s/go-convert"
 )
 
@@ -100,14 +102,20 @@ func TestEncryption_RequiresKMSProvider(t *testing.T) {
 func TestEncryption_AutoConfiguresKeyVault(t *testing.T) {
 	t.Parallel()
 	vaultDB := "vault"
+	local, err := kmslocal.New(kmslocal.WithMasterKey(strings.Repeat("k", kmslocal.RequiredMasterKeyLength)))
+	require.NoError(t, err)
+	t.Cleanup(local.Clear)
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 	tests := []struct {
 		name          string
 		vaultDatabase *string
+		provider      kms.MasterKeyProvider
 		kmsTLS        *tls.Config
 		wantNamespace string
 	}{
-		{name: "vault in app database", wantNamespace: "app.__keyVault"},
-		{name: "separate vault database with tls", vaultDatabase: &vaultDB, kmsTLS: &tls.Config{MinVersion: tls.VersionTLS12}, wantNamespace: "vault.__keyVault"},
+		{name: "local provider without TLS capability", provider: local, wantNamespace: "app.__keyVault"},
+		{name: "vault in app database", provider: fakeKMS{}, wantNamespace: "app.__keyVault"},
+		{name: "separate vault database with tls", vaultDatabase: &vaultDB, provider: fakeKMS{tls: tlsConfig}, kmsTLS: tlsConfig, wantNamespace: "vault.__keyVault"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -116,7 +124,7 @@ func TestEncryption_AutoConfiguresKeyVault(t *testing.T) {
 			cfg.Encryption = &mongoconfig.Encryption{
 				Type: mongoconfig.EncryptionTypeAuto, VaultCollection: "__keyVault", VaultDatabase: tc.vaultDatabase,
 			}
-			b := New(cfg).UseKmsProvider(fakeKMS{tls: tc.kmsTLS})
+			b := New(cfg).UseKmsProvider(tc.provider)
 			clientOpts, err := b.ClientOptions()
 			require.NoError(t, err)
 			opts, err := b.applyEncryption(clientOpts, nil)

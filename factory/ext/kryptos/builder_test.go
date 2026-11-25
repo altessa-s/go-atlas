@@ -27,9 +27,9 @@ import (
 func TestManagerOptions_CacheOnlyWhenConfigured(t *testing.T) {
 	t.Parallel()
 
-	base := managerOptions[any](New(&secretsconfig.Config{}))
-	sized := managerOptions[string](New(&secretsconfig.Config{Cache: secretsconfig.Cache{MaxSize: 100}}))
-	sharded := managerOptions[string](New(&secretsconfig.Config{Cache: secretsconfig.Cache{MaxSize: 100, ShardCount: 4}}))
+	base := managerOptions[any](New[any](&secretsconfig.Config{}))
+	sized := managerOptions[string](New[string](&secretsconfig.Config{Cache: secretsconfig.Cache{MaxSize: 100}}))
+	sharded := managerOptions[string](New[string](&secretsconfig.Config{Cache: secretsconfig.Cache{MaxSize: 100, ShardCount: 4}}))
 
 	require.Len(t, sized, len(base)+1, "a configured size must add exactly one option")
 	require.Len(t, sharded, len(base)+2, "a configured size and shard count must add two options")
@@ -38,14 +38,14 @@ func TestManagerOptions_CacheOnlyWhenConfigured(t *testing.T) {
 func TestBuild_RequiresConfig(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(nil).Build(t.Context())
+	_, err := New[any](nil).Build(t.Context())
 	require.Error(t, err)
 }
 
 func TestBuild_RejectsUnsupportedProvider(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(&secretsconfig.Config{Provider: "nope"}).Build(t.Context())
+	_, err := New[any](&secretsconfig.Config{Provider: "nope"}).Build(t.Context())
 	require.Error(t, err)
 }
 
@@ -56,7 +56,7 @@ func TestBuild_MemoryProvider(t *testing.T) {
 
 	cfg := secretsconfig.Default()
 	cfg.Cache = secretsconfig.Cache{MaxSize: 64, ShardCount: 4}
-	mgr, err := New(&cfg).Build(t.Context())
+	mgr, err := New[any](&cfg).Build(t.Context())
 
 	require.NoError(t, err)
 	require.NotNil(t, mgr)
@@ -78,7 +78,7 @@ func TestBuild_MemoryProviderServesConfiguredValues(t *testing.T) {
 
 	cfg := memoryConfig(map[string]redacted.RedactedString{"app:db_password": "s3cret"})
 
-	anyManager, err := New(cfg).Build(t.Context())
+	anyManager, err := New[any](cfg).Build(t.Context())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = anyManager.Close(context.WithoutCancel(t.Context())) })
 	anyValue, err := anyManager.Get(t.Context(), "app:db_password")
@@ -86,7 +86,7 @@ func TestBuild_MemoryProviderServesConfiguredValues(t *testing.T) {
 	t.Cleanup(anyValue.Clear)
 	require.Equal(t, any("s3cret"), anyValue.Value)
 
-	stringManager, err := New(cfg).BuildString(t.Context())
+	stringManager, err := New[string](cfg).Build(t.Context())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = stringManager.Close(context.WithoutCancel(t.Context())) })
 	value, err := stringManager.Get(t.Context(), "app:db_password")
@@ -101,16 +101,16 @@ func TestBuild_MemoryProviderServesConfiguredValues(t *testing.T) {
 func TestBuild_MemoryProviderRejectsInvalidKey(t *testing.T) {
 	t.Parallel()
 
-	_, err := New(memoryConfig(map[string]redacted.RedactedString{"app/db": "x"})).BuildString(t.Context())
+	_, err := New[string](memoryConfig(map[string]redacted.RedactedString{"app/db": "x"})).Build(t.Context())
 	require.ErrorIs(t, err, kryptos.ErrInvalidKey)
 }
 
-// BuildString yields the manager the config loader expands placeholders with:
+// A string-valued builder yields the manager the config loader expands placeholders with:
 // a known placeholder expands, an unknown one fails (fail-closed).
-func TestBuildString_ExpandsLoaderPlaceholders(t *testing.T) {
+func TestBuild_ExpandsLoaderPlaceholders(t *testing.T) {
 	t.Parallel()
 
-	mgr, err := New(memoryConfig(map[string]redacted.RedactedString{"app:db_password": "s3cret"})).BuildString(t.Context())
+	mgr, err := New[string](memoryConfig(map[string]redacted.RedactedString{"app:db_password": "s3cret"})).Build(t.Context())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(context.WithoutCancel(t.Context())) })
 
@@ -161,12 +161,12 @@ func TestNewManager_ClosesProviderOnError(t *testing.T) {
 	cfg.Provider = secretsconfig.ProviderVault
 
 	failed := newObservedProvider(t)
-	_, err := newManager[string](t.Context(), New(&cfg).UseScheduler(&recordingRegistrar{err: errors.New("rejected")}), failed)
+	_, err := newManager[string](t.Context(), New[string](&cfg).UseScheduler(&recordingRegistrar{err: errors.New("rejected")}), failed)
 	require.Error(t, err)
 	require.Eventually(t, func() bool { return failed.closes.Load() == 1 }, timeout, tick)
 
 	built := newObservedProvider(t)
-	mgr, err := newManager[string](t.Context(), New(&cfg), built)
+	mgr, err := newManager[string](t.Context(), New[string](&cfg), built)
 	require.NoError(t, err)
 	require.Zero(t, built.closes.Load())
 	require.NoError(t, mgr.Close(t.Context()))
@@ -181,7 +181,7 @@ func TestNewManager_RegistersUpdateTask(t *testing.T) {
 	cfg := secretsconfig.Default()
 	cfg.Provider = secretsconfig.ProviderVault
 	reg := &recordingRegistrar{}
-	mgr, err := newManager[string](t.Context(), New(&cfg).UseScheduler(reg), newObservedProvider(t))
+	mgr, err := newManager[string](t.Context(), New[string](&cfg).UseScheduler(reg), newObservedProvider(t))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(context.WithoutCancel(t.Context())) })
 
@@ -193,7 +193,7 @@ func TestNewManager_RegistersUpdateTask(t *testing.T) {
 
 	memory := secretsconfig.Default()
 	memReg := &recordingRegistrar{}
-	memMgr, err := New(&memory).UseScheduler(memReg).Build(t.Context())
+	memMgr, err := New[any](&memory).UseScheduler(memReg).Build(t.Context())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = memMgr.Close(context.WithoutCancel(t.Context())) })
 	require.Empty(t, memReg.tasks)
