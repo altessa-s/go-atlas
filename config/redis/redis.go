@@ -8,6 +8,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/config/internal/cfgerrors"
@@ -15,6 +17,9 @@ import (
 	validationconfig "github.com/altessa-s/go-nomos/validation"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
+
+// ErrInvalidConnectionURI reports that connectionURI cannot be parsed.
+var ErrInvalidConnectionURI = errors.New("redis: invalid connectionURI")
 
 // Default values for Redis configuration.
 const (
@@ -143,7 +148,7 @@ func Default() Config {
 }
 
 // Validate performs validation on the Redis configuration.
-// It validates hosts, timeout durations, and key prefix settings
+// It validates the connection URI, hosts, timeout durations, and key prefix settings
 // to ensure they meet Redis client requirements.
 //
 // When ConnectionURI is set, Hosts are not required and authentication fields
@@ -153,6 +158,11 @@ func Default() Config {
 func (r *Config) Validate() error {
 	if err := r.validateConnectionURIConflicts(); err != nil {
 		return err
+	}
+	if r.UseConnectionURI() {
+		if _, err := r.ParseConnectionURI(); err != nil {
+			return err
+		}
 	}
 
 	return validationconfig.ValidateStruct(r,
@@ -165,6 +175,17 @@ func (r *Config) Validate() error {
 		validation.Field(&r.MaxConnectionAge, validationconfig.NonNegativeDuration()),
 		validation.Field(&r.KeysPrefix, validation.NilOrNotEmpty),
 	)
+}
+
+// ParseConnectionURI parses ConnectionURI with the same rules used to build
+// Redis clients. Parse failures match [ErrInvalidConnectionURI] and omit the URI
+// and any parser diagnostics.
+func (r *Config) ParseConnectionURI() (*redis.Options, error) {
+	parsed, err := redis.ParseURL(r.ConnectionURI.Expose())
+	if err != nil {
+		return nil, cfgerrors.Invalidf("%w", ErrInvalidConnectionURI)
+	}
+	return parsed, nil
 }
 
 // validateConnectionURIConflicts returns an error if ConnectionURI is set

@@ -322,12 +322,18 @@ func schemasDescribeSettings(e edge) bool {
 		return false
 	}
 	if !e.internal {
-		return e.thirdParty && !allowedSchemaExternal(e.dependency)
+		return e.thirdParty && !allowedSchemaExternal(e.dependency) && !redisSchemaURIParser(e.pkg, e.dependency)
 	}
 	return !strings.HasPrefix(e.dep, "core/") && !isSchema(e.dep) && e.dep != "config/internal" && !strings.HasPrefix(e.dep, "config/internal/") &&
 		!(e.pkg == "config/auth" && e.dep == "auth/oidc/rules") &&
 		!(e.pkg == "config/proxy" && e.dep == "net/proxyconfig") &&
 		e.dep != "net/egressrule" && e.dep != "service/scheduler/task" && e.dep != "service/scheduler/schedule"
+}
+
+// redisSchemaURIParser allows the Redis schema to validate connectionURI
+// against the same parser used by the factory.
+func redisSchemaURIParser(pkg, dependency string) bool {
+	return pkg == "config/redis" && dependency == "github.com/redis/go-redis/v9"
 }
 
 // runtimeReadsNoSchemas lets config/* (the loader included) read schemas;
@@ -825,6 +831,7 @@ func TestBoundaryRules(t *testing.T) {
 		{"schema uses validation library", "config/grpc", "github.com/go-ozzo/ozzo-validation/v4/is", false},
 		{"schema uses stdlib", "config/tls", "crypto/tls", false},
 		{"schema uses driver", "config/mongo", "go.mongodb.org/mongo-driver/v2/mongo", true},
+		{"Redis schema uses its URI parser", "config/redis", "github.com/redis/go-redis/v9", false},
 		{"schema uses external client", "config", "github.com/redis/go-redis/v9", true},
 		{"factory adapter reads schema", "factory/ext/net/httpclient/observe", module + "config/http", false},
 		{"runtime factory lookalike reads schema", "store/foo/factory", module + "config/grpc", true},

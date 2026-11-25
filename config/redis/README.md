@@ -14,4 +14,8 @@ options; runtime packages never import them.
 |---------|--------------------------------------------------------------|
 | `Config` | Represents the configuration for Redis database connections. |
 
+`Config.Validate` checks `connectionURI` with the go-redis URL parser. A
+parse failure matches `ErrInvalidConnectionURI` via `errors.Is`. Its message
+omits the URI and parser diagnostics.
+
 See the [config index](../README.md) for the other schema packages.

@@ -9,5 +9,8 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
+// [Config.Validate] checks the connection URI. Parse failures match
+// [ErrInvalidConnectionURI] and omit the original URI.
+//
 // Key types: [Config].
 package redisconfig

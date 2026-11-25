@@ -26,13 +26,19 @@
 // The builder supports two configuration paths: connection-URI based
 // (when [redisconfig.Config.ConnectionURI] is set) and field-based (individual
 // host, credential, and pool settings). Both paths converge in
-// [ClientBuilder.UniversalOptions].
+// [ClientBuilder.UniversalOptions]. URI parse failures match
+// [redisconfig.ErrInvalidConnectionURI].
 //
 // When a [health.ScopedReporter] is provided via [ClientBuilder.UseHealthCoordinator],
 // the builder registers a health checker that pings Redis on each check.
 //
-// [ClientBuilder.Build] pings Redis before returning the client. For a
-// service that must start while Redis is down, [ClientBuilder.SkipStartupPing]
+// [ClientBuilder.Build] pings Redis before returning the client, with
+// [DefaultPingTimeout] as an upper bound on the ping context. On failure or
+// cancellation, the builder closes the client and includes any close error.
+// For a service that must start while Redis is down, [ClientBuilder.SkipStartupPing]
 // drops the ping and [ClientBuilder.WithoutHealth] drops the health checker;
 // go-redis reconnects by itself once Redis is reachable.
+//
+// A service can install [NewSlogAdapter] with redis.SetLogger during startup
+// to route go-redis diagnostics, including Sentinel discovery, to its logger.
 package factory

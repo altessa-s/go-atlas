@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -74,4 +75,24 @@ func TestConfig_Validate(t *testing.T) {
 		require.ErrorContains(t, err, "username must not be set")
 		require.ErrorContains(t, err, "password must not be set")
 	})
+}
+
+func TestConfig_ValidateInvalidConnectionURI(t *testing.T) {
+	t.Parallel()
+
+	for name, uri := range map[string]redacted.RedactedString{
+		"invalid port":       "redis://user:Secret@127.0.0.1:notaport/0",
+		"unsupported scheme": "ftp://user:Secret@127.0.0.1:6379/0",
+		"invalid database":   "redis://user:Secret@127.0.0.1:6379/Secret",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg := redisconfig.Default()
+			cfg.ConnectionURI = uri
+			err := cfg.Validate()
+			require.ErrorIs(t, err, redisconfig.ErrInvalidConnectionURI)
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+			require.NotContains(t, err.Error(), "Secret")
+		})
+	}
 }

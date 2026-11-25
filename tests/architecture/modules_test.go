@@ -362,7 +362,7 @@ func (p *modulePlan) checkModuleEdge(pkg, dependency string) string {
 	if foreignGooseImport(pkg, dependency) {
 		return "goose belongs to store/postgres/migrations"
 	}
-	if !p.isDriverModule(from) && hasPathPrefix(dependency, driverLibraries) {
+	if !p.isDriverModule(from) && hasPathPrefix(dependency, driverLibraries) && !redisSchemaURIParser(pkg, dependency) {
 		return "module " + from + " imports a driver library"
 	}
 	return ""
@@ -471,6 +471,8 @@ func TestCheckModuleEdge(t *testing.T) {
 		{"backend reaches driver base", "cache/storages/redis", module + "internal/redis/redisbase", false},
 		{"backend reaches another backend", "cache/storages/redis", module + "reliability/saga/storages/redis", true},
 		{"api imports driver library", "cache", "github.com/redis/go-redis/v9", true},
+		{"Redis schema uses its URI parser", "config/redis", "github.com/redis/go-redis/v9", false},
+		{"other schemas cannot import Redis driver", "config/mongo", "github.com/redis/go-redis/v9", true},
 		{"backend imports driver library", "cache/storages/redis", "github.com/redis/go-redis/v9", false},
 		{"sdk leaf imports sdk", "security/vault/auth", "github.com/hashicorp/vault/api", false},
 		{"api imports sdk", "factory/ext/kryptos", "github.com/hashicorp/vault/api", true},

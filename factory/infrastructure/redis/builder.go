@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -182,24 +183,33 @@ func (c *ManagedClient) Close() error { return c.close() }
 
 // ping checks client within [DefaultPingTimeout] and closes it on failure.
 func (b *ClientBuilder) ping(ctx context.Context, client redis.UniversalClient) error {
-	pingCtx, cancel := corectx.ApplyTimeout(ctx, DefaultPingTimeout)
+	pingCtx, cancel := corectx.WithMaxTimeout(ctx, DefaultPingTimeout)
 	defer cancel()
 
-	if err := client.Ping(pingCtx).Err(); err != nil {
-		if closeErr := client.Close(); closeErr != nil {
-			b.Logger().Warn("failed to close Redis client after ping failure",
-				slog.Any("error", closeErr))
-		}
-		return b.WrapError(err, "health check failed")
+	// go-redis can keep reading the socket after the context expires.
+	// A buffered result lets the ping finish when Close interrupts the read.
+	pingResult := make(chan error, 1)
+	go func() {
+		pingResult <- client.Ping(pingCtx).Err()
+	}()
+
+	var pingErr error
+	select {
+	case pingErr = <-pingResult:
+	case <-pingCtx.Done():
+		pingErr = pingCtx.Err()
+	}
+	if pingErr != nil {
+		return b.WrapError(errors.Join(pingErr, client.Close()), "health check failed")
 	}
 	return nil
 }
 
 // UniversalOptions builds [redis.UniversalOptions] from configuration.
-// When [redisconfig.Config.ConnectionURI] is set, it is parsed via [redis.ParseURL] to
+// When [redisconfig.Config.ConnectionURI] is set, it is parsed to
 // extract address, auth, TLS, and database number; pool/timeout/sentinel fields
 // from config are applied on top. Otherwise, options are built from individual
-// config fields. Returns an error if cfg is nil or the URI cannot be parsed.
+// config fields. A parse failure matches [redisconfig.ErrInvalidConnectionURI].
 func (b *ClientBuilder) UniversalOptions() (*redis.UniversalOptions, error) {
 	if b.cfg == nil {
 		return nil, corefactory.ErrConfigRequired
@@ -237,9 +247,9 @@ func (b *ClientBuilder) universalOptionsFromFields() *redis.UniversalOptions {
 // universalOptionsFromURI parses the ConnectionURI to get addr/auth/db, then
 // applies pool, timeout, sentinel, and routing fields from config on top.
 func (b *ClientBuilder) universalOptionsFromURI() (*redis.UniversalOptions, error) {
-	parsed, err := redis.ParseURL(b.cfg.ConnectionURI.Expose())
+	parsed, err := b.cfg.ParseConnectionURI()
 	if err != nil {
-		return nil, b.WrapError(err, "failed to parse connection URI")
+		return nil, err
 	}
 
 	opts := &redis.UniversalOptions{

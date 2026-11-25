@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
@@ -141,12 +142,22 @@ func TestUniversalOptions_ConnectionURI_Sentinel(t *testing.T) {
 }
 
 func TestUniversalOptions_ConnectionURI_InvalidURI(t *testing.T) {
-	b := New(&redisconfig.Config{
-		ConnectionURI: "not-a-valid-uri",
-	})
+	t.Parallel()
 
-	_, err := b.UniversalOptions()
-	require.Error(t, err)
+	for name, uri := range map[string]redacted.RedactedString{
+		"invalid port":       "redis://user:Secret@127.0.0.1:notaport/0",
+		"unsupported scheme": "ftp://user:Secret@127.0.0.1:6379/0",
+		"invalid database":   "redis://user:Secret@127.0.0.1:6379/Secret",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			b := New(&redisconfig.Config{ConnectionURI: uri})
+			opts, err := b.UniversalOptions()
+			require.Nil(t, opts)
+			require.ErrorIs(t, err, redisconfig.ErrInvalidConnectionURI)
+			require.NotContains(t, err.Error(), "Secret")
+		})
+	}
 }
 
 func TestUniversalOptions_CommonFieldsMatchAcrossPaths(t *testing.T) {

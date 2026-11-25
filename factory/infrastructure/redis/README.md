@@ -75,6 +75,23 @@ owner, err := factory.New(cfg.Redis).
 | `Build(ctx)`  | Assembles the `redis.UniversalClient`, pings it within `DefaultPingTimeout` (unless skipped), and returns its `*ManagedClient` owner |
 | `UniversalOptions()` | Renders the `redis.UniversalOptions` without creating a client                                 |
 
+The startup ping uses the earlier of the caller's deadline and
+`DefaultPingTimeout`. On failure or cancellation, the builder closes the
+client and returns the ping failure together with any close error.
+
+## go-redis logging
+
+To route driver diagnostics, including Sentinel discovery, through your
+service logger, call this once during service startup:
+
+```go
+redis.SetLogger(factory.NewSlogAdapter(logger))
+```
+
+Here `redis` is `github.com/redis/go-redis/v9`. The adapter emits a generic
+warning to keep driver diagnostic text and server addresses private. Use a
+nonblocking handler because go-redis can log while holding locks.
+
 ## Constants
 
 | Constant             | Value | Description                                           |
@@ -87,3 +104,5 @@ owner, err := factory.New(cfg.Redis).
 
 When `ConnectionURI` is set, it is parsed via `redis.ParseURL` to extract address, auth, TLS, and database number; pool, timeout, sentinel, and routing
 fields from config are applied on top. Otherwise, options are built from individual config fields.
+URI parsing failures match `redisconfig.ErrInvalidConnectionURI` and omit the
+URI and parser diagnostics.
