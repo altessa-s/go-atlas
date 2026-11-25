@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/store/mongo"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	mongofactory "github.com/altessa-s/go-atlas/factory/store/mongo"
 )
 
@@ -57,4 +58,5 @@ func TestBuilder_Errors(t *testing.T) {
 	client, _ := redistest.RedisClient(t)
 	_, err = factory.Builder(client)(t.Context(), &storageconfig.BackendConfig{Type: storageconfig.BackendTypeRedis}, 0, nil)
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }

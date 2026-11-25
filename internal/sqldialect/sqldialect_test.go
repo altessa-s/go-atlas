@@ -11,15 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 )
 
 func TestTable(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"", "t; DROP TABLE x", "a.b.c", "1tasks", `"quoted"`, "tab le", ".t", "s.", "a..b", "s.1t", "t\n", "t-x", "ü",
-		strings.Repeat("t", sqldialect.MaxIdentLen+1), "s." + strings.Repeat("t", sqldialect.MaxIdentLen+1)} {
-		_, err := sqldialect.Postgres.Table(name)
-		require.ErrorIs(t, err, sqldialect.ErrInvalidTableName, name)
-	}
+	_, err := sqldialect.Postgres.Table("a.b.c")
+	require.ErrorIs(t, err, sqlident.ErrInvalidTableName)
 	for _, tc := range []struct {
 		style      sqldialect.Style
 		name, want string
@@ -34,9 +32,6 @@ func TestTable(t *testing.T) {
 		require.NoError(t, err, tc.name)
 		require.Equal(t, tc.want, got)
 	}
-	long := strings.Repeat("t", sqldialect.MaxIdentLen)
-	_, err := sqldialect.MySQL.Table(long + "." + long)
-	require.NoError(t, err, "the limit applies per part and is inclusive")
 }
 
 func TestIndexName(t *testing.T) {
@@ -49,7 +44,7 @@ func TestIndexName(t *testing.T) {
 	require.NotEqual(t, a, b, "truncated names must stay distinct")
 	for _, n := range []string{a, b} {
 		unquoted := strings.Trim(n, `"`)
-		require.LessOrEqual(t, len(unquoted), sqldialect.MaxIdentLen)
+		require.LessOrEqual(t, len(unquoted), sqlident.MaxIdentLen)
 		require.True(t, strings.HasPrefix(unquoted, "tttt"), "a readable prefix is kept")
 		require.True(t, strings.HasSuffix(unquoted, "_due_idx"))
 	}
@@ -77,10 +72,10 @@ func TestQualifiedParts(t *testing.T) {
 
 func TestIndexNameLongSuffix(t *testing.T) {
 	t.Parallel()
-	suffix := strings.Repeat("s", sqldialect.MaxIdentLen)
+	suffix := strings.Repeat("s", sqlident.MaxIdentLen)
 	a := sqldialect.Postgres.IndexName("tasks", suffix+"a")
 	b := sqldialect.Postgres.IndexName("tasks", suffix+"b")
-	require.Len(t, a, sqldialect.MaxIdentLen+2)
+	require.Len(t, a, sqlident.MaxIdentLen+2)
 	require.NotEqual(t, a, b)
 	require.Equal(t, a, sqldialect.Postgres.IndexName("tasks", suffix+"a"))
 }

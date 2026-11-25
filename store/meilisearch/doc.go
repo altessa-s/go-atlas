@@ -5,8 +5,8 @@
 // Package meilisearch provides a thin wrapper around the meilisearch-go SDK
 // for full-text search and document indexing. It owns the HTTP client (so
 // connections can be closed at shutdown), performs a health check at startup,
-// and exposes a small interface (MeilisearchClient) covering indexing,
-// deletion, and search operations.
+// and implements [IndexManager], [DocumentClient], [Searcher], [TaskWaiter],
+// and [HealthChecker].
 //
 // # Features
 //
@@ -17,7 +17,7 @@
 //
 // # Usage
 //
-//	c, err := meilisearch.New("http://localhost:7700",
+//	c, err := meilisearch.New(ctx, "http://localhost:7700",
 //	    meilisearch.WithAPIKey("masterKey"),
 //	    meilisearch.WithLogger(logger),
 //	)
@@ -26,7 +26,7 @@
 //	}
 //	defer c.Close()
 //
-//	if err := meilisearch.SetupIndexes(ctx, c, defs, logger); err != nil {
+//	if err := c.SetupIndexes(ctx, defs); err != nil {
 //	    return err
 //	}
 package meilisearch

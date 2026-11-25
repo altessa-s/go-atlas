@@ -3,6 +3,7 @@
 // the LICENSE file.
 
 // Package memory provides in-memory cursor storage for MongoDB pagination.
+// Store and Load copy non-nil metadata. Storing nil preserves nil on load.
 // Suitable for single-instance deployments with automatic TTL cleanup.
 //
 // Example:

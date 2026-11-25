@@ -23,6 +23,7 @@ import (
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/query"
 	"github.com/altessa-s/go-atlas/store/mongo/kms"
+	"github.com/altessa-s/go-atlas/store/mongo/migrations"
 
 	converter "github.com/altessa-s/go-convert"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -84,7 +85,7 @@ type TransactionOptions struct {
 // config holds all configuration for a MongoDB client instance.
 type config struct {
 	// KMS is the KMS provider for Client-Side Field Level Encryption
-	KMS kms.Provider
+	KMS kms.MasterKeyProvider
 
 	// VaultDatabase sets the database where encryption keys are stored.
 	// If not set, uses the same database as the main connection.
@@ -123,6 +124,9 @@ type config struct {
 
 	// Logger sets a custom structured logger for the MongoDB client.
 	Logger *slog.Logger
+
+	// WithMigrationRegistry selects the migrations Connect applies. The default includes init-registered and legacy migrations.
+	migrationRegistry *migrations.Registry
 
 	// RollbackMigrationsOnFailure makes a failed migration run roll back every
 	// applied migration (migrate.Down to the beginning). Off by default: a full

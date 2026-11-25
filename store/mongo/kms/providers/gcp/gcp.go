@@ -12,7 +12,7 @@ import (
 )
 
 // Google represents a Google Cloud KMS provider configuration.
-// It implements the kms.Provider, kms.MasterKey, and kms.TLSConfig interfaces.
+// It implements the kms.MasterKeyProvider and kms.TLSConfigurer interfaces.
 // Credentials are stored securely using the credentials package.
 type Google struct {
 	credentialsCache atomic.Pointer[kms.Credentials]
@@ -73,13 +73,13 @@ func New(projectID, email, privateKey, location, keyRing, keyName string, opts .
 }
 
 // Name returns the provider name "gcp".
-// This implements the kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 func (g *Google) Name() string {
 	return ProviderName
 }
 
 // Credentials returns the Google Cloud service account credentials.
-// This implements the kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 // Note: This method exposes sensitive credentials - use with caution.
 func (g *Google) Credentials() kms.Credentials {
 	if cred := g.credentialsCache.Load(); cred != nil {
@@ -107,7 +107,7 @@ func (g *Google) Credentials() kms.Credentials {
 }
 
 // MasterKey returns the Google Cloud KMS master key configuration.
-// This implements the kms.MasterKey interface.
+// This implements the kms.MasterKeyProvider interface.
 func (g *Google) MasterKey() kms.Key {
 	key := kms.Key{
 		ProjectID:   g.ProjectID,
@@ -128,7 +128,7 @@ func (g *Google) MasterKey() kms.Key {
 }
 
 // TLSConfig returns the TLS configuration for Google Cloud KMS connections.
-// This implements the simplified kms.Provider interface.
+// This implements the kms.TLSConfigurer interface.
 func (g *Google) TLSConfig() *tls.Config {
 	return g.TLS
 }

@@ -6,16 +6,21 @@ package factory_test
 
 import (
 	"crypto/tls"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-nomos/loader"
+
 	"github.com/altessa-s/go-atlas-core/types/redacted"
-	"github.com/altessa-s/go-atlas/factory/store/mongo/kms"
 	"github.com/altessa-s/go-atlas/store/mongo/kms"
 
 	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
+	factory "github.com/altessa-s/go-atlas/factory/store/mongo/kms"
 	kmsaws "github.com/altessa-s/go-atlas/store/mongo/kms/providers/aws"
 	kmsazure "github.com/altessa-s/go-atlas/store/mongo/kms/providers/azure"
 	kmsgcp "github.com/altessa-s/go-atlas/store/mongo/kms/providers/gcp"
@@ -77,7 +82,7 @@ func TestBuild_Local(t *testing.T) {
 
 	require.Equal(t, kmslocal.ProviderName, p.Name())
 	require.Equal(t, []byte(localMasterKey), p.Credentials()[kmslocal.ProviderName][kmslocal.MasterKey])
-	require.Nil(t, p.TLSConfig(), "local provider ignores the builder TLS config")
+	require.False(t, kms.HasCustomTLS(p), "local provider ignores the builder TLS config")
 }
 
 func TestBuild_AWS(t *testing.T) {
@@ -100,7 +105,9 @@ func TestBuild_AWS(t *testing.T) {
 	t.Cleanup(p.Clear)
 
 	require.Equal(t, kmsaws.ProviderName, p.Name())
-	require.Same(t, tlsCfg, p.TLSConfig())
+	tlsProvider, ok := p.(kms.TLSConfigurer)
+	require.True(t, ok)
+	require.Same(t, tlsCfg, tlsProvider.TLSConfig())
 	require.Equal(t, kms.Key{
 		kmsaws.KeyARN:   "arn:aws:kms:key",
 		kmsaws.Region:   "eu-west-1",
@@ -125,7 +132,7 @@ func TestBuild_AWSOptionalFieldsUnset(t *testing.T) {
 	t.Cleanup(p.Clear)
 
 	require.Equal(t, kms.Key{kmsaws.KeyARN: "arn"}, p.MasterKey())
-	require.Nil(t, p.TLSConfig())
+	require.False(t, kms.HasCustomTLS(p))
 }
 
 func TestBuild_Azure(t *testing.T) {
@@ -149,7 +156,9 @@ func TestBuild_Azure(t *testing.T) {
 	t.Cleanup(p.Clear)
 
 	require.Equal(t, kmsazure.ProviderName, p.Name())
-	require.Same(t, tlsCfg, p.TLSConfig())
+	tlsProvider, ok := p.(kms.TLSConfigurer)
+	require.True(t, ok)
+	require.Same(t, tlsCfg, tlsProvider.TLSConfig())
 
 	key := p.MasterKey()
 	require.Equal(t, "key", key[kmsazure.AzureKeyName])
@@ -185,7 +194,9 @@ func TestBuild_GCP(t *testing.T) {
 	t.Cleanup(p.Clear)
 
 	require.Equal(t, kmsgcp.ProviderName, p.Name())
-	require.Same(t, tlsCfg, p.TLSConfig())
+	tlsProvider, ok := p.(kms.TLSConfigurer)
+	require.True(t, ok)
+	require.Same(t, tlsCfg, tlsProvider.TLSConfig())
 	require.Equal(t, kms.Key{
 		kmsgcp.ProjectID:   "project",
 		kmsgcp.GCPLocation: "global",
@@ -198,4 +209,24 @@ func TestBuild_GCP(t *testing.T) {
 	creds := p.Credentials()[kmsgcp.ProviderName]
 	require.Equal(t, "sa@example.iam", creds[kmsgcp.Email])
 	require.Equal(t, "private", creds[kmsgcp.GCPPrivateKey])
+}
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := &mongoconfig.KMS{}
+
+	build := func(*mongoconfig.KMS, *tls.Config) (kms.MasterKeyProvider, error) {
+		return kmslocal.New(kmslocal.WithMasterKey(localMasterKey))
+	}
+	b := factory.New(cfg).UseProvider("custom", build)
+	cfg.SetRegisteredTypes(b.RegisteredProviderTypes())
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("provider: custom\n"), 0o600))
+	_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(cfg)
+	require.NoError(t, err)
+	got, err := b.Build()
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	_, err = factory.New(cfg).Build()
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
 }

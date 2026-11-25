@@ -28,13 +28,17 @@ import (
 
 type readDocument struct{ Name string }
 
-func mockReadCollection(t testing.TB, started func(context.Context, *event.CommandStartedEvent), batch bson.A) *mongo.Collection {
+func mockReadCollection(t testing.TB, started func(context.Context, *event.CommandStartedEvent), batches ...bson.A) *mongo.Collection {
 	t.Helper()
 	opts := options.Client().SetMonitor(&event.CommandMonitor{Started: started})
-	opts.Deployment = drivertest.NewMockDeployment(bson.D{
-		{Key: "ok", Value: 1},
-		{Key: "cursor", Value: bson.M{"id": int64(0), "ns": "testdb.items", "firstBatch": batch}},
-	})
+	deployment := drivertest.NewMockDeployment()
+	for _, batch := range batches {
+		deployment.AddResponses(bson.D{
+			{Key: "ok", Value: 1},
+			{Key: "cursor", Value: bson.M{"id": int64(0), "ns": "testdb.items", "firstBatch": batch}},
+		})
+	}
+	opts.Deployment = deployment
 	c, err := mongo.Connect(opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Disconnect(context.WithoutCancel(t.Context())) })

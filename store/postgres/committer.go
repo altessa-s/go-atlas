@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/retry"
+	"github.com/altessa-s/go-atlas/internal/txscope"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -23,6 +24,11 @@ var (
 	ErrUnsafeReplay = errors.New("independent transaction and whole-body replay cannot be combined")
 	// ErrTransactionPanicked indicates a joined transaction panicked and its caller recovered.
 	ErrTransactionPanicked = errors.New("joined transaction panicked")
+	// ErrTransactionAlreadyOpen indicates an attempt to own a commit inside an open transaction.
+	ErrTransactionAlreadyOpen = errors.New("context already carries an open transaction")
+	// ErrPostCommitObserverPanicked reports an observer panic after a successful commit.
+	// The panic value is omitted from the error.
+	ErrPostCommitObserverPanicked = errors.New("post-commit observer panicked")
 )
 
 type uncertainCommit struct{ error }
@@ -64,8 +70,7 @@ func NewCommitter(db *sql.DB, opts ...CommitterOption) (*Committer, error) {
 	return c, nil
 }
 
-// Transaction identifies the open write transaction of any pool in ctx. Use it as the
-// uow.Detector so another pool's transaction is recognized as foreign even outside Run.
+// Transaction identifies the open write transaction of any pool in ctx.
 func Transaction(ctx context.Context) (any, bool) {
 	t := attached(ctx)
 	if t == nil || t.readOnly || !t.open() {
@@ -83,6 +88,16 @@ func (c *Committer) Detect(ctx context.Context) (any, bool) {
 	return Transaction(ctx)
 }
 
+// DetectTransaction identifies an open transaction, including a read-only snapshot,
+// on any pool. A unit of work uses it by default to detect foreign transactions.
+func (c *Committer) DetectTransaction(ctx context.Context) (any, bool) {
+	tx, open := Tx(ctx)
+	if !open {
+		return nil, false
+	}
+	return tx, true
+}
+
 // CommitOutcomeUnknown tells a uow.Runner whether the server may have committed the writes.
 func (c *Committer) CommitOutcomeUnknown(err error) bool {
 	_, ok := errors.AsType[*uncertainCommit](err)
@@ -91,6 +106,52 @@ func (c *Committer) CommitOutcomeUnknown(err error) bool {
 
 // WithTransaction runs fn once by default. Replay applies only to root transactions and requires a replay-safe callback.
 func (c *Committer) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return transactionResult(ctx, func(ctx context.Context, outcome *commitOutcome) error {
+		return c.withTransaction(ctx, fn, outcome)
+	})
+}
+
+// WithTransactionOutcome runs fn in a transaction it owns and reports whether the
+// database committed. A post-commit observer panic returns true and
+// [ErrPostCommitObserverPanicked], so callers can still run their committed work.
+// An open transaction in ctx is rejected with [ErrTransactionAlreadyOpen].
+func (c *Committer) WithTransactionOutcome(ctx context.Context, fn func(context.Context) error) (bool, error) {
+	ctx, confirm := txscope.StartCommitReport(ctx)
+	return runWithOutcome(ctx, confirm, func(ctx context.Context, outcome *commitOutcome) error {
+		return c.withTransaction(ctx, fn, outcome)
+	})
+}
+
+func transactionResult(ctx context.Context, run func(context.Context, *commitOutcome) error) error {
+	ctx, confirm := txscope.StartCommitReport(ctx)
+	if confirm == nil {
+		return run(ctx, nil)
+	}
+	_, err := runWithOutcome(ctx, confirm, run)
+	return err
+}
+
+func runWithOutcome(ctx context.Context, confirm func(), run func(context.Context, *commitOutcome) error) (bool, error) {
+	if t := attached(ctx); t != nil && t.open() {
+		return false, ErrTransactionAlreadyOpen
+	}
+	var outcome commitOutcome
+	err := run(ctx, &outcome)
+	if outcome.committed && confirm != nil {
+		confirm()
+	}
+	if err != nil {
+		return outcome.committed, err
+	}
+	return outcome.committed, outcome.observerErr
+}
+
+type commitOutcome struct {
+	committed   bool
+	observerErr error
+}
+
+func (c *Committer) withTransaction(ctx context.Context, fn func(context.Context) error, outcome *commitOutcome) error {
 	if t := attached(ctx); t != nil {
 		if !t.open() {
 			return sql.ErrTxDone
@@ -106,13 +167,13 @@ func (c *Committer) WithTransaction(ctx context.Context, fn func(context.Context
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, c.timeout)
 	defer cancel()
 	if c.policy == nil {
-		return WithTransaction(ctx, c.db, fn)
+		return withTransaction(ctx, c.db, nil, fn, outcome)
 	}
 	err := c.policy.Do(ctx, func(ctx context.Context) error {
-		return WithTransaction(ctx, c.db, func(txCtx context.Context) error {
+		return withTransaction(ctx, c.db, nil, func(txCtx context.Context) error {
 			attached(txCtx).life.replay = true
 			return fn(txCtx)
-		})
+		}, outcome)
 	})
 	if err != nil && ctx.Err() != nil {
 		if !errors.Is(err, ctx.Err()) {

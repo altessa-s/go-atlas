@@ -19,23 +19,20 @@ const (
 	errCodeIndexAlreadyExists = "index_already_exists"
 )
 
-// Sentinel errors for the meilisearch package. Returned by the client
-// when a Meilisearch API call surfaces one of the classified codes.
-// Callers should branch on these with [errors.Is]:
+// Sentinel errors for the meilisearch package. Index sentinels classify
+// SDK errors internally. Use the predicates to recognize SDK error codes
+// in returned errors:
 //
-//	if errors.Is(err, meilisearch.ErrIndexNotFound) {
+//	if meilisearch.IsErrorIndexNotFound(err) {
 //	    // create the index lazily
 //	}
-//
-// The [IsErrorIndexNotFound] / [IsErrorIndexAlreadyExists] predicates
-// remain available for callers that already use them; both forms agree.
 var (
-	// ErrIndexNotFound is wrapped into the returned error when Meilisearch
-	// responds with the "index_not_found" code.
+	// ErrIndexNotFound classifies the SDK's "index_not_found" code
+	// internally. Use [IsErrorIndexNotFound] to check returned errors.
 	ErrIndexNotFound = errors.New("meilisearch: index not found")
 
-	// ErrIndexAlreadyExists is wrapped into the returned error when
-	// Meilisearch responds with the "index_already_exists" code.
+	// ErrIndexAlreadyExists classifies the SDK's "index_already_exists" code
+	// internally. Use [IsErrorIndexAlreadyExists] to check returned errors.
 	ErrIndexAlreadyExists = errors.New("meilisearch: index already exists")
 
 	// ErrTaskFailed is wrapped into the returned error when a Meilisearch

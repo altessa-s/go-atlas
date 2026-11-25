@@ -33,6 +33,12 @@ func Transaction(ctx context.Context) (tx any, ok bool) {
 	return transactionID{session: sess, txnNumber: txnNumber(sess)}, true
 }
 
+// DetectTransaction identifies the running transaction of any client in ctx.
+// A unit of work uses it by default to detect foreign transactions.
+func (m *Mongo) DetectTransaction(ctx context.Context) (any, bool) {
+	return Transaction(ctx)
+}
+
 // transactionID identifies one transaction: the driver numbers the transactions of a session, and the number stays fixed while
 // one runs (a write inside a transaction is not retried with a new number).
 type transactionID struct {

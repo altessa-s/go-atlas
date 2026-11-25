@@ -86,7 +86,7 @@ func (f *Fields) Matches(owner reflect.Type, sf reflect.StructField) bool {
 
 // Transform resolves the declared Go field through inline ancestors. The
 // builder's encoder carries the active registry, minsize and addressability.
-func (f *Fields) Transform(ctx context.Context, owner reflect.Type, path []int, name string, _ reflect.Value, _ *bson.Registry,
+func (f *Fields) Transform(ctx context.Context, owner reflect.Type, path []int, name string,
 	encode func() (bson.RawValue, error)) (bson.Binary, error) {
 	for _, i := range path[:len(path)-1] {
 		owner = owner.Field(i).Type

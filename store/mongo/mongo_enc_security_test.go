@@ -66,11 +66,9 @@ func newEncryptingMongo(t testing.TB, ce clientEncryption, opts ...Option) *Mong
 	t.Helper()
 	kms, err := kmslocal.New(kmslocal.WithMasterKey(strings.Repeat("k", kmslocal.RequiredMasterKeyLength)))
 	require.NoError(t, err)
-	m, err := New("testdb", opts...)
+	m, err := New("testdb", append(opts, WithEncryptionEnabled(), WithKMS(kms))...)
 	require.NoError(t, err)
-	m.config.EncryptionEnabled = true
-	m.config.KMS = kms
-	m.encryptionClient = ce
+	m.encryption.encryptionClient = ce
 	return m
 }
 
@@ -271,7 +269,7 @@ func TestDataKey_RejectsEmptyKeyID(t *testing.T) {
 
 	_, err := m.DataKey(t.Context(), "k", false)
 	require.Error(t, err)
-	_, cached := m.dkids.Load("k")
+	_, cached := m.encryption.dkids.Load("k")
 	require.False(t, cached, "an empty id must never be cached")
 }
 
@@ -521,18 +519,6 @@ func TestConvert_AbsentOptionalWithEncryptedDescendant(t *testing.T) {
 	}
 }
 
-func TestConvert_RejectsNilTransformer(t *testing.T) {
-	t.Parallel()
-	m, err := New("testdb")
-	require.NoError(t, err)
-	m.encryptedFields = nil
-	for _, convert := range []func(context.Context, any) (bson.M, error){m.ConvertToNewDocument, m.ConvertToUpdateDocument} {
-		doc, err := convert(t.Context(), secretChild{Secret: "value"})
-		require.ErrorIs(t, err, ErrFieldEncryption)
-		require.Nil(t, doc)
-	}
-}
-
 func TestEncrypt_UsesRegisteredValueEncoder(t *testing.T) {
 	t.Parallel()
 	reg := bsoncodec.NewRegistry()
@@ -541,7 +527,7 @@ func TestEncrypt_UsesRegisteredValueEncoder(t *testing.T) {
 	}))
 	ce := &fakeClientEncryption{}
 	m := newEncryptingMongo(t, ce, WithClientOptions(mongoOptions.Client().SetRegistry(reg)))
-	m.dkids.Store("key", DataKeyId{Subtype: bson.TypeBinaryUUID, Data: []byte("0123456789abcdef")})
+	m.encryption.dkids.Store("key", DataKeyId{Subtype: bson.TypeBinaryUUID, Data: []byte("0123456789abcdef")})
 	_, err := m.Encrypt(t.Context(), secretMarshaler{Secret: "value"}, EncryptionAlgRandom, "key")
 	require.NoError(t, err)
 	require.Len(t, ce.encrypted, 1)

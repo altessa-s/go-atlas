@@ -23,7 +23,7 @@ func TestStoredCursorKeyIsUnpredictable(t *testing.T) {
 	const n = 64
 	keys := make([]ulid.ULID, 0, n)
 	for range n {
-		key, err := generateNextCursorToken(t.Context(), "id-1", sort, "_id", cursorFilter{original: bson.M{}}, storage, nil, "", "")
+		key, err := storeCursor(t.Context(), "id-1", sort, "_id", cursorFilter{original: bson.M{}}, storage, nil, "", "")
 		require.NoError(t, err)
 		id, err := ulid.ParseStrict(key)
 		require.NoError(t, err)

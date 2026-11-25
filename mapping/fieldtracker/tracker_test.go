@@ -265,3 +265,43 @@ func TestTracker_SliceOfOpaqueStructs(t *testing.T) {
 		})
 	}
 }
+
+func TestInterfaceMapKeyPaths(t *testing.T) {
+	t.Parallel()
+	type record struct{ Labels map[any]int }
+	before := record{Labels: map[any]int{"region": 1, "team": 1, "1": 1, 1: 1, "@int:1": 1, nil: 1}}
+	after := record{Labels: map[any]int{"region": 2, "team": 2, "1": 2, 1: 2, "@int:1": 2, nil: 2}}
+	tr := fieldtracker.NewTracker(fieldtracker.WithIgnoreFields("labels[region]"))
+	require.ElementsMatch(t, []string{"labels[team]", "labels[1]", "labels[@int:1]", "labels[@@int:1]", "labels[@nil]"}, tr.GetChangedFields(&before, &after))
+}
+
+type mapKeyLabel struct{ id int }
+
+func (mapKeyLabel) GoString() string { return "label" }
+
+func TestMapKeyPathsKeepSegmentBoundaries(t *testing.T) {
+	t.Parallel()
+	type record struct{ Labels map[any]any }
+	before := record{map[any]any{"x][y": 1, "x": map[string]int{"y": 1}}}
+	after := record{map[any]any{"x][y": 2, "x": map[string]int{"y": 2}}}
+	require.ElementsMatch(t, []string{`labels[x\]\[y]`, "labels[x][y]"}, fieldtracker.GetChangedFields(before, after))
+	require.Equal(t, []string{`labels[x\]\[y]`}, fieldtracker.GetChangedFields(before, after, fieldtracker.WithIgnoreFields("labels[x][y]")))
+}
+
+func TestMapKeyPathsKeepGoIdentity(t *testing.T) {
+	t.Parallel()
+	type record struct {
+		Pointers map[*mapKeyLabel]int
+		Values   map[mapKeyLabel]int
+	}
+	a, b := &mapKeyLabel{1}, &mapKeyLabel{1}
+	before := record{map[*mapKeyLabel]int{a: 1, b: 1}, map[mapKeyLabel]int{{1}: 1, {2}: 1}}
+	after := record{map[*mapKeyLabel]int{a: 2, b: 2}, map[mapKeyLabel]int{{1}: 2, {2}: 2}}
+	changed := fieldtracker.GetChangedFields(before, after)
+	require.Len(t, changed, 4)
+	unique := make(map[string]struct{})
+	for _, path := range changed {
+		unique[path] = struct{}{}
+	}
+	require.Len(t, unique, 4)
+}

@@ -256,3 +256,25 @@ func TestMigratedListCursorOptionsPreserveNilAndMapAliasing(t *testing.T) {
 	require.Nil(t, opts.storage)
 	require.Nil(t, opts.collation)
 }
+
+func TestWithListCursorCursorDefinedTypes(t *testing.T) {
+	t.Parallel()
+	type token string
+	type tokenPointer *string
+	for _, tc := range []struct {
+		name   string
+		option ListCursorOption
+		want   string
+	}{
+		{"defined string", WithListCursorCursor(token("next")), "next"},
+		{"defined pointer", WithListCursorCursor(tokenPointer(new("next"))), "next"},
+		{"nil defined pointer", WithListCursorCursor(tokenPointer(nil)), "previous"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			o := listCursorOptions{cursorToken: "previous"}
+			tc.option(&o)
+			require.Equal(t, tc.want, o.cursorToken)
+		})
+	}
+}

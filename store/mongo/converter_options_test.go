@@ -22,7 +22,7 @@ func TestWithConverterOptions_StoresOptions(t *testing.T) {
 		WithConverterOptions(converter.WithValueMode(converter.IgnoreZeroValues)),
 	)
 	require.NoError(t, err)
-	require.Len(t, m.config.ConverterOptions, 1)
+	require.Len(t, m.repo.converterOpts[1:], 1)
 }
 
 func TestWithConverterOptions_AccumulatesAcrossCalls(t *testing.T) {
@@ -33,7 +33,7 @@ func TestWithConverterOptions_AccumulatesAcrossCalls(t *testing.T) {
 		WithConverterOptions(converter.WithValueMode(converter.IgnoreNilValues)),
 	)
 	require.NoError(t, err)
-	require.Len(t, m.config.ConverterOptions, 2)
+	require.Len(t, m.repo.converterOpts[1:], 2)
 }
 
 func TestWithConverterOptions_DefaultEmpty(t *testing.T) {
@@ -41,12 +41,10 @@ func TestWithConverterOptions_DefaultEmpty(t *testing.T) {
 
 	m, err := New("testdb")
 	require.NoError(t, err)
-	require.Empty(t, m.config.ConverterOptions)
+	require.Empty(t, m.repo.converterOpts[1:])
 }
 
-// TestWithConverterOptions_PassedToConverter exercises the same call shape used
-// inside GetEntity / GetEntities: prepend WithEmbeddedStructs(EmbeddedFillAlways) to
-// the stored options and pass to NewShared. A fake codec records invocations
+// TestWithConverterOptions_PassedToConverter uses the shared converter from the repository read path. A fake codec records invocations
 // so we can confirm the user-provided option reaches the converter. The codec
 // chain is only consulted when source and destination field types differ, so
 // the test uses int → string to force routing through the chain.
@@ -67,11 +65,7 @@ func TestWithConverterOptions_PassedToConverter(t *testing.T) {
 	type src struct{ Value int }
 	type dst struct{ Value string }
 
-	convOpts := append(
-		[]converter.Option{converter.WithEmbeddedStructs(converter.EmbeddedFillAlways)},
-		m.config.ConverterOptions...,
-	)
-	conv := converter.New[src, *dst](convOpts...)
+	conv := sharedConverter[src](&m.repo)
 
 	var d dst
 	conv.Convert(src{Value: 42}, &d)

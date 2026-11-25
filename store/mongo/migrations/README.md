@@ -11,6 +11,8 @@ Registers and runs versioned schema migrations. Uses the existing mongo-migrate 
 | Symbol | Purpose |
 |--------|---------|
 | `RegisterMigration` | Register an up/down step |
+| `Registry.Register` | Add a step to an independent, zero-value-ready registry |
+| `WithRegistry` | Apply only the supplied registry; omit to merge the default and legacy registrations |
 | `RegisteredMigrations` | Sorted registry snapshot |
 | `Run` | Apply pending migrations to a driver database |
 | `WithLogger` | Log rollback and lock release failures |

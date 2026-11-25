@@ -91,9 +91,12 @@ func TestLocal_MasterKey_Nil(t *testing.T) {
 	require.Nil(t, p.MasterKey())
 }
 
-func TestLocal_TLSConfig_Nil(t *testing.T) {
-	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	require.Nil(t, p.TLSConfig())
+func TestLocal_HasNoTLSConfigurer(t *testing.T) {
+	t.Parallel()
+	p, err := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
+	require.NoError(t, err)
+	_, ok := any(p).(kms.TLSConfigurer)
+	require.False(t, ok)
 }
 
 func TestLocal_Clear(t *testing.T) {
@@ -126,7 +129,7 @@ func TestLocal_Clear_ZeroesCachedCredentials(t *testing.T) {
 
 func TestLocal_ImplementsProvider(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	var _ kms.Provider = p
+	var _ kms.MasterKeyProvider = p
 }
 
 func TestLocal_HasMasterKey_False(t *testing.T) {

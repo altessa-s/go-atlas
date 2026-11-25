@@ -78,3 +78,18 @@ func TestMergeMigrations(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, merged)
 }
+
+func TestInjectedRegistry(t *testing.T) {
+	t.Parallel()
+	var r Registry
+	require.NoError(t, r.Register(2, "private", noopMigration, nil))
+	require.ErrorIs(t, r.Register(2, "duplicate", noopMigration, nil), ErrInvalidMigration)
+	got, err := newOptions(WithRegistry(&r)).pendingMigrations()
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "private", got[0].Description)
+	require.Equal(t, uint64(2), got[0].Version)
+	for _, m := range RegisteredMigrations() {
+		require.NotEqual(t, "private", m.Description)
+	}
+}

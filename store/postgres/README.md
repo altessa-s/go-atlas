@@ -72,6 +72,7 @@ outbox save with the outbox SQL store’s `WithTx` helper. A transaction belongs
 panic. Nested `WithTransaction` and `WithSnapshot` join the outer transaction and inherit its isolation and access mode. A top-level snapshot uses
 read-only repeatable read. Use `WithSavepoint` to roll back a nested operation while continuing the outer transaction. A savepoint covers the entire
 transaction. Keep other goroutines off that transaction until the savepoint handler returns.
+A `uow.Runner` also discards hooks and effects registered through a rolled-back savepoint context. Registrations in released savepoints run in their original order after the outer transaction commits.
 
 ### Units of work
 
@@ -80,16 +81,17 @@ committer, err := postgres.NewCommitter(db)
 if err != nil {
     return err
 }
-runner := uow.New(committer, logger, uow.WithDetector(postgres.Transaction))
+runner := uow.New(committer, logger)
 return runner.Run(ctx, func(txCtx context.Context) error {
     return repo.Save(txCtx, item)
 })
 ```
 
-The runner uses `postgres.Transaction` to recognize open write transactions across pools, including joins and savepoints. Use `committer.Detect` to
-inspect only its selected pool. The transaction owner alone may call `Commit` or `Rollback`. After completion or cancellation of the owner context,
-`Tx` returns the attached handle and `false`. SQL store resolvers treat that handle as a closed binding. Statements and nested transactions on a
-retained scope fail with `sql.ErrTxDone`.
+By default the runner uses `committer.DetectTransaction` to recognize open transactions across pools, including joins, savepoints and read-only snapshots.
+A root `Run` refuses those contexts with `uow.ErrForeignTransaction`. Use `committer.Detect` to inspect write transactions on its selected pool.
+The transaction owner alone may call `Commit` or `Rollback`. After completion, cancellation of the owner context, or the end of a savepoint handler,
+`Tx` returns the attached handle and `false`. Use the handle only when it is open. SQL store resolvers and executors treat a retained scope as a closed
+binding. Statements and nested transactions through these helpers fail with `sql.ErrTxDone`.
 
 The default executes the body once. For a replay-safe body, `WithTxRetries(n)` permits up to n additional attempts after SQLSTATE 40001 or 40P01.
 `WithTxRetryDelay` sets the initial positive backoff. `WithTxTimeout` caps the root transaction including backoff and retries. Each attempt gets fresh
@@ -100,9 +102,13 @@ raw pool, detached roots and external effects are the caller's responsibility.
 A server-rejected commit discards registrations and preserves the database error for inspection. An ambiguous commit yields `uow.ErrUnknownOutcome`. A
 joined panic poisons the root even if the caller recovers. Use a savepoint to recover from a statement error before continuing the transaction.
 
-Register a callback with `AfterCommit`, or use `AfterCommitContext` to retain request values with a fresh cancellation and transaction scope. Outside a
-transaction these callbacks run immediately. `NotifyAfterCommit` coalesces notifications to a channel across a transaction. Finish all operations and
-hook registrations before returning from the handler.
+An observer panic after a successful commit through the runner returns `ErrPostCommitObserverPanicked` after the unit's effects and hooks are processed.
+That commit is final. Standalone `WithTransaction` and `Committer.WithTransaction` propagate observer panics after all observers and notifications run.
+
+Register a callback with `AfterCommit`, or use `AfterCommitContext` to retain request values with a fresh cancellation and transaction scope. The
+callback can start a new unit of work. Outside a PostgreSQL transaction these callbacks run immediately. `NotifyAfterCommit` coalesces notifications
+to a channel across a transaction. Finish all operations and hook registrations before returning from the handler. A retained closed scope discards
+new hook and notification registrations.
 
 On pools opened with `Open` or `NewConnector`, `Querier` retries a standalone statement once if the driver establishes that it sent no data. The
 subsystem SQL stores apply the same limit through their `database/sql` connection leases. A transaction stays on its own connection, and an iteration

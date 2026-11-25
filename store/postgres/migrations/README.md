@@ -25,6 +25,7 @@ not enter the dependency graph of go-atlas consumers — see the [ADR](../../../
 
 | Option            | Default            | Description                                                                         |
 |-------------------|--------------------|-------------------------------------------------------------------------------------|
+| `WithRegistry`    | package registry   | Run, Down and Status use the supplied Registry. Populate it with Registry.Register.  |
 | `WithLogger`      | discard            | goose migration progress                                                    |
 | `WithTableName`   | `goose_db_version` | Version table                                                                       |
 | `WithLockID`      | goose's default    | Advisory lock key; every process migrating the database must use the same           |

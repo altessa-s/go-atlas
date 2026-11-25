@@ -34,6 +34,13 @@ func WithBsonTagName[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithFieldTransformer binds a field transformer to insert and update translators.
+func WithFieldTransformer(v FieldTransformer) Option {
+	return func(o *options) {
+		o.fieldTransformer = v
+	}
+}
+
 // WithRegistry sets the registry option.
 //
 // registry is the BSON registry the driver encodes with. A type it

@@ -26,6 +26,9 @@
 //     but the client can choose its own continuation position within that
 //     query and reads the cursor ID and sort value of the last item of a page.
 //
+// Stateful storage snapshots metadata and returns owned copies. [CursorDeleter]
+// is the optional capability for explicit cleanup.
+//
 // A subject (WithListCursorSubject) is matched exactly in the first two modes.
 // The third cannot enforce one, so ListCursor given a subject without a
 // storage or a signer fails with ErrCursorSubjectNotEnforced. When the sort
@@ -45,7 +48,7 @@
 // # Migrations and indexes
 //
 // mongomigrations.RegisterMigration registers a versioned migration that Connect applies
-// under the database-wide migration lock, in the mongo-migrate format.
+// under the database-wide migration lock, in the mongo-migrate format. [WithMigrationRegistry] selects a client-specific set of steps.
 // mongoindexes.Ensure creates a collection's indexes idempotently, optionally
 // dropping obsolete ones and recreating those whose specification changed.
 //
@@ -66,7 +69,7 @@
 // # Usage
 //
 //	client, err := mongo.New("myapp",
-//	    mongo.WithMongoClientOptions(options.Client().ApplyURI(uri)),
+//	    mongo.WithClientOptions(options.Client().ApplyURI(uri)),
 //	    mongo.WithLogger(logger),
 //	)
 //	if err != nil {

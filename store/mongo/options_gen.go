@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/store/mongo/kms"
+	"github.com/altessa-s/go-atlas/store/mongo/migrations"
 
 	converter "github.com/altessa-s/go-convert"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -147,7 +148,7 @@ func WithEncryptionTagName[T interface{ string | *string }](v T) Option {
 // WithKMS sets the KMS option.
 //
 // KMS is the KMS provider for Client-Side Field Level Encryption
-func WithKMS(v kms.Provider) Option {
+func WithKMS(v kms.MasterKeyProvider) Option {
 	return func(o *config) {
 		o.KMS = v
 	}
@@ -179,6 +180,16 @@ func WithMeter(v metrics.Meter) Option {
 			}
 		}
 		o.Meter = v
+	}
+}
+
+// WithMigrationRegistry selects the migrations Connect applies. The default includes init-registered and legacy migrations.
+func WithMigrationRegistry(v *migrations.Registry) Option {
+	return func(o *config) {
+		if v == nil {
+			return
+		}
+		o.migrationRegistry = v
 	}
 }
 

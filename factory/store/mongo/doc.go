@@ -18,4 +18,7 @@
 // register from factory/store/mongo/storages/redis and
 // factory/store/mongo/storages/nats, and a configured type without one fails
 // at Build naming the package to add.
+//
+// [CursorStorageBuilder.UseStorage] accepts custom backend names. For standalone schema
+// validation, pass [CursorStorageBuilder.RegisteredStorageTypes] results to SetRegisteredTypes.
 package factory

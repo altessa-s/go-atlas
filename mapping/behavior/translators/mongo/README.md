@@ -6,12 +6,10 @@ import "github.com/altessa-s/go-atlas/mapping/behavior/translators/mongo"
 
 Package `mongo` provides [`behavior.Translator`](../../README.md) implementations that fold behavior-tagged Go structs into MongoDB BSON documents from
 the objects resolved by the behavior engine. [`store/mongo`](../../../../store/mongo/README.md#write-documents) uses the insert and update translators
-for its document-conversion methods and supplies CSFLE field handling through an internal interface. Standalone translators apply their configured BSON
-registry and behavior policy.
+for its document-conversion methods and supplies CSFLE field handling through `WithFieldTransformer`. Standalone translators can use the same option.
 
-The package exposes **only translators** — drive them through `behavior.New`. Configuration that belongs to the core (the behavior tag name, traversal
-depth, and the strip-kind policy) is set on the engine via `behavior.WithTagName` / `behavior.WithMaxDepth` / `behavior.WithKinds`, never duplicated
-here. The document translators own BSON tag and registry selection.
+Drive translators through `behavior.New`. Configure the behavior tag name, traversal depth, and strip kinds on the engine with `behavior.WithTagName`,
+`behavior.WithMaxDepth`, and `behavior.WithKinds`. The document translators accept the BSON tag, registry, and field transformer.
 
 ## Translators
 
@@ -19,23 +17,28 @@ here. The document translators own BSON tag and registry selection.
 | --- | --- | --- |
 | `NewInsertTranslator` | `bson.M` insert document | none — the codec's own encoding of the value |
 | `NewUpdateTranslator` | `bson.M` `{"$set", "$unset"}` document | `behavior.WithKinds(behavior.DefaultUpdateKinds...)` |
-| `NewProjectionTranslator` | `bson.M` exclusions | `behavior.WithKinds(behavior.DefaultResponseKinds...)` + `behavior.WithSchemaWalk()` |
-| `NewFieldPathsTranslator` | `FieldPaths{Selectable, Denied}` | `behavior.WithKinds(behavior.DefaultResponseKinds...)` + `behavior.WithSchemaWalk()` |
+| `NewProjectionTranslator` | `bson.M` exclusions | `behavior.WithKinds(behavior.DefaultResponseKinds...)` |
+| `NewFieldPathsTranslator` | `FieldPaths{Selectable, Denied}` | `behavior.WithKinds(behavior.DefaultResponseKinds...)` |
 
 The update translator excludes `identifier` fields itself, whatever kinds the engine strips: the identifier selects the record and never lands in `$set`
 or `$unset`, under `_id` or any other name, set or nil — including every key an inline struct or inline map tagged `identifier` contributes to the
 parent. `DefaultUpdateKinds` keeps the identifier in the `StripUpdate` payload (AIP-203), and the same set drives the update translator. An identifier
 inside a collection element belongs to the element and is written with it.
 
-The first three return `behavior.Translator[bson.M]`. `NewProjectionTranslator` and `NewFieldPathsTranslator` are type-driven: the engine **must** be
-built with `behavior.WithSchemaWalk()` so nested paths appear even for a zero-value carrier or a nil pointer / empty collection.
+The first three return `behavior.Translator[bson.M]`. `NewProjectionTranslator` and `NewFieldPathsTranslator` request a schema walk from the engine, so
+nested paths appear even for a zero-value carrier, nil pointer, or empty collection. When calling a translator directly with a `behavior.Object`,
+pass `behavior.WithSchemaWalk()` to `behavior.Resolve` when building that object.
 
 ## Options
 
-| Option            | Default        | Description                                                                 |
-|-------------------|----------------|-----------------------------------------------------------------------------|
-| `WithBsonTagName` | `"bson"`       | Struct tag key for the document name plus `omitempty` / `omitonupdate`.     |
-| `WithRegistry`    | driver default | BSON registry the driver encodes with; see [Custom codecs](#custom-codecs). |
+| Option                 | Default        | Description                                                                 |
+|------------------------|----------------|-----------------------------------------------------------------------------|
+| `WithBsonTagName`      | `"bson"`       | Struct tag key for the document name plus `omitempty` / `omitonupdate`.     |
+| `WithRegistry`         | driver default | BSON registry the driver encodes with; see [Custom codecs](#custom-codecs). |
+| `WithFieldTransformer` | none           | Select and replace fields during insert and update translation.              |
+
+The transformer receives the context of each translation and a lazy encoder for the selected field. Each translation maintains its own selection cache.
+A transformation error aborts the translation and returns a nil document.
 
 ## Custom codecs
 
@@ -150,7 +153,7 @@ holding a stripped field is absent, its other fields are listed. Paths are stora
 
 ```go
 fpEng := behavior.New[mongo.FieldPaths](mongo.NewFieldPathsTranslator(),
-    behavior.WithKinds(behavior.DefaultResponseKinds...), behavior.WithSchemaWalk())
+    behavior.WithKinds(behavior.DefaultResponseKinds...))
 fp, err := fpEng.Translate(ctx, User{})
 // fp.Selectable == [_id create_time name …], fp.Denied == [password]
 
@@ -181,7 +184,7 @@ upd := behavior.New[bson.M](mongo.NewUpdateTranslator(),
 setUnset, err := upd.Translate(ctx, &user) // no _id, no create_time
 
 proj := behavior.New[bson.M](mongo.NewProjectionTranslator(),
-    behavior.WithKinds(behavior.DefaultResponseKinds...), behavior.WithSchemaWalk())
+    behavior.WithKinds(behavior.DefaultResponseKinds...))
 p, err := proj.Translate(ctx, User{}) // {"password": 0}
 ```
 

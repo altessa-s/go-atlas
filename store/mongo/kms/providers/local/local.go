@@ -5,16 +5,13 @@
 package kmslocal
 
 import (
-	"crypto/tls"
 	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas/store/mongo/kms"
 )
 
 // Local represents a local key management provider configuration.
-// It implements the kms.Provider interface and optionally the kms.TLSConfig interface.
-// Unlike cloud KMS providers, it does not implement kms.MasterKey as the master key
-// is stored locally and used directly for encryption operations.
+// Its master key is supplied directly in the driver credentials.
 // Master key data is stored securely using the credentials package.
 type Local struct {
 	credentialsCache atomic.Pointer[kms.Credentials]
@@ -71,13 +68,13 @@ func New(opts ...Option) (*Local, error) {
 }
 
 // Name returns the provider name "local".
-// This implements the kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 func (l *Local) Name() string {
 	return ProviderName
 }
 
 // Credentials returns the local master key as credentials.
-// This implements the kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 // For local KMS, the "credentials" contain the actual master key data.
 //
 // Note: This method exposes sensitive key material - use with caution.
@@ -98,14 +95,8 @@ func (l *Local) Credentials() kms.Credentials {
 	return k
 }
 
-// TLSConfig returns the TLS configuration for local KMS operations.
-// This implements the simplified kms.Provider interface.
-func (l *Local) TLSConfig() *tls.Config {
-	return nil
-}
-
 // MasterKey returns the local master key configuration.
-// This implements the simplified kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 func (l *Local) MasterKey() kms.Key {
 	return nil
 }

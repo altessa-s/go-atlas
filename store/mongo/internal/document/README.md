@@ -20,5 +20,5 @@ Package `document` implements the [store](../../README.md#write-documents) field
 Register each model for the type that declares its exported fields. A model rule takes precedence over the field's encryption tag. The default tag
 key is `encryption`, and a tag such as `encryption:"deterministic,user_email"` identifies the algorithm and key alternative name.
 
-The builder supplies the Go type and field path, stored BSON name, value and effective registry. An encryption or encoding failure aborts the
-conversion. An unsupported placement, such as a codec-owned parent containing a separately encrypted field, also fails the conversion.
+The builder supplies the Go type and field path, stored BSON name, and a lazy encoder bound to the effective registry. An encryption or encoding
+failure aborts the conversion. An unsupported placement, such as a codec-owned parent containing a separately encrypted field, also fails the conversion.

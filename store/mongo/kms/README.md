@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/store/mongo/kms"
 ```
 
-Package `kms` defines the `Provider` interface for Key Management Service integration with MongoDB Client-Side Field Level Encryption.
+Package `kms` defines the `MasterKeyProvider` and optional `TLSConfigurer` interfaces for MongoDB Client-Side Field Level Encryption.
 
 ## Subpackages
 

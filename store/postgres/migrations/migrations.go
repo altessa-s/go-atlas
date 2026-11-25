@@ -55,8 +55,10 @@ type MigrationStatus struct {
 	AppliedAt time.Time
 }
 
-// registry holds the migrations of [Register].
-var registry struct {
+var registry Registry
+
+// Registry holds an independent set of migrations. Its zero value is ready for use.
+type Registry struct {
 	mu         sync.Mutex
 	migrations []Migration
 }
@@ -68,6 +70,11 @@ var registry struct {
 // nor its version behind. A version below 1, a nil up and a version already registered are rejected with [ErrInvalidMigration]; a
 // nil down makes the migration irreversible: [Down] fails on it with [ErrIrreversibleMigration] and keeps its version recorded.
 func Register(version int64, description string, up, down MigrationFunc) error {
+	return registry.Register(version, description, up, down)
+}
+
+// Register adds a version to this registry under the same rules as [Register].
+func (r *Registry) Register(version int64, description string, up, down MigrationFunc) error {
 	if version < 1 {
 		return fmt.Errorf("%w: version %d is not positive", ErrInvalidMigration, version)
 	}
@@ -79,12 +86,12 @@ func Register(version int64, description string, up, down MigrationFunc) error {
 			return fmt.Errorf("%w: version %d (%s)", ErrIrreversibleMigration, version, description)
 		}
 	}
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	if slices.ContainsFunc(registry.migrations, func(m Migration) bool { return m.Version == version }) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if slices.ContainsFunc(r.migrations, func(m Migration) bool { return m.Version == version }) {
 		return fmt.Errorf("%w: version %d is already registered", ErrInvalidMigration, version)
 	}
-	registry.migrations = append(registry.migrations, Migration{Version: version, Description: description, Up: up, Down: down})
+	r.migrations = append(r.migrations, Migration{Version: version, Description: description, Up: up, Down: down})
 	return nil
 }
 
@@ -96,10 +103,13 @@ func MustRegister(version int64, description string, up, down MigrationFunc) {
 }
 
 // Registered returns a copy of the migrations registered with [Register], ordered by version.
-func Registered() []Migration {
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	out := slices.Clone(registry.migrations)
+func Registered() []Migration { return registry.Registered() }
+
+// Registered returns a sorted snapshot of this registry.
+func (r *Registry) Registered() []Migration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := slices.Clone(r.migrations)
 	slices.SortFunc(out, func(a, b Migration) int { return cmp.Compare(a.Version, b.Version) })
 	return out
 }
@@ -157,7 +167,7 @@ func migrate(ctx context.Context, db *sql.DB, down bool, opts ...Option) error {
 	if err != nil {
 		return err
 	}
-	registered := Registered()
+	registered := o.registry.Registered()
 	if len(registered) == 0 {
 		return nil
 	}
@@ -241,7 +251,7 @@ func Status(ctx context.Context, db *sql.DB, opts ...Option) ([]MigrationStatus,
 	if err != nil {
 		return nil, err
 	}
-	registered := Registered()
+	registered := o.registry.Registered()
 	if len(registered) == 0 {
 		return nil, nil
 	}

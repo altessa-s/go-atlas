@@ -11,6 +11,8 @@ persistence across restarts is not required.
 scheduled via `WithScheduler` and `WithCleanupSchedule`, and by `Store` itself, which drops the expired cursors at the head of its insertion order.
 The TTL is the same for every cursor, so the insertion order is the expiry order.
 
+The store snapshots the input metadata and returns a fresh copy on every successful non-nil load. A stored nil loads as nil.
+
 ## Entry caps
 
 | Option                     | Default                                               | Bounds                                                      |

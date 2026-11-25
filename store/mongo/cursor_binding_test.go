@@ -16,7 +16,7 @@ import (
 // of collection and returns its storage key.
 func mintStoredCursor(t testing.TB, storage Storage, collection *mongo.Collection, sort bson.D, filter bson.M) string {
 	t.Helper()
-	token, err := generateNextCursorToken(t.Context(), bson.NewObjectID().Hex(), sort, DefaultCursorIdField, cursorFilter{original: filter}, storage,
+	token, err := storeCursor(t.Context(), bson.NewObjectID().Hex(), sort, DefaultCursorIdField, cursorFilter{original: filter}, storage,
 		"alice", "tenant-A", cursorCollectionDigest(collection))
 	require.NoError(t, err)
 	return token
@@ -117,15 +117,12 @@ func TestStatefulCursor_ContinuationWithSameParameters(t *testing.T) {
 			storage := newFakeCursorStorage()
 			token := mintStoredCursor(t, storage, coll, tc.sort, filter)
 
-			opts := defaultListCursorOptions()
-			for _, opt := range append([]ListCursorOption{
+			opts := newListCursorOptions(append([]ListCursorOption{
 				WithListCursorStorage(storage),
 				WithListCursorSubject("tenant-A"),
 				WithListCursorFilter(filter),
 				WithListCursorCursor(token),
-			}, tc.opts...) {
-				opt(opts)
-			}
+			}, tc.opts...)...)
 			require.NoError(t, resolveCursorOptions(t.Context(), opts, cursorCollectionDigest(coll)))
 			require.NotNil(t, opts.cursor)
 			// The stored sort is decoded BSON (int32 directions): compare encodings.

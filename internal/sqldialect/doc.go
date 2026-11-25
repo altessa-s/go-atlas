@@ -12,7 +12,7 @@
 //
 // Table names are the only SQL fragments a storage cannot bind as parameters,
 // so [Style.Table] accepts only a plain identifier, optionally qualified by one
-// schema name, with every part at most [MaxIdentLen] characters, and quotes
+// schema name, with every part at most [sqlident.MaxIdentLen] characters, and quotes
 // each part. [Style.IndexName] derives index names from the unqualified table
 // name and hashes the tail of a name that would exceed the limit.
 //
@@ -35,7 +35,7 @@
 //
 // # Errors
 //
-// [ErrUnsupportedDialect], [ErrInvalidTableName] and [ErrValueTooLong] are
+// [ErrUnsupportedDialect], [sqlident.ErrInvalidTableName] and [ErrValueTooLong] are
 // re-exported by the applicable storage packages, so errors.Is matches across them.
 //
 // # Usage

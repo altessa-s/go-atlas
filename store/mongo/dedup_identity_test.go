@@ -26,7 +26,7 @@ func dedupTenant(ctx context.Context) string {
 func TestDeduplicationKey_IsolatesByIdentity(t *testing.T) {
 	t.Parallel()
 
-	m := &Mongo{config: &config{dedupIdentity: dedupTenant}}
+	m := &repository{dedupIdentity: dedupTenant}
 	filter := mustPrepareFilter(t, bson.M{"_id": "shared"})
 
 	ctxA := context.WithValue(t.Context(), dedupTenantKey{}, "A")
@@ -50,13 +50,13 @@ func TestDeduplicationKey_BackwardCompatible(t *testing.T) {
 
 	t.Run("nil identity", func(t *testing.T) {
 		t.Parallel()
-		m := &Mongo{config: &config{}}
+		m := &repository{}
 		require.Equal(t, want, m.deduplicationKey(t.Context(), "db:coll", filter))
 	})
 
 	t.Run("empty identity", func(t *testing.T) {
 		t.Parallel()
-		m := &Mongo{config: &config{dedupIdentity: func(context.Context) string { return "" }}}
+		m := &repository{dedupIdentity: func(context.Context) string { return "" }}
 		require.Equal(t, want, m.deduplicationKey(t.Context(), "db:coll", filter))
 	})
 }

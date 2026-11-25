@@ -7,6 +7,11 @@ package factory
 import (
 	"crypto/tls"
 	"log/slog"
+	"maps"
+	"slices"
+
+	mongoconfig "github.com/altessa-s/go-atlas/config/mongo"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // --- Dependency methods ---
@@ -26,4 +31,22 @@ func (b *ProviderBuilder) UseDefaultLogger() *ProviderBuilder {
 func (b *ProviderBuilder) UseTlsConfig(v *tls.Config) *ProviderBuilder {
 	b.tlsConfig = v
 	return b
+}
+
+// UseProvider registers a custom KMS provider. Built-in providers retain their constructors.
+func (b *ProviderBuilder) UseProvider(typ mongoconfig.KMSProvider, build ProviderFunc) *ProviderBuilder {
+	if build == nil {
+		b.errs = append(b.errs, corefactory.Errorf(corefactory.ErrDependencyRequired, "UseProvider %q: nil function", typ))
+		return b
+	}
+	if b.providers == nil {
+		b.providers = make(map[mongoconfig.KMSProvider]ProviderFunc)
+	}
+	b.providers[typ] = build
+	return b
+}
+
+// RegisteredProviderTypes returns a snapshot of the names registered with UseProvider for standalone configuration validation.
+func (b *ProviderBuilder) RegisteredProviderTypes() []mongoconfig.KMSProvider {
+	return slices.Sorted(maps.Keys(b.providers))
 }

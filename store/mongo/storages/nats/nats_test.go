@@ -13,6 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/natstest"
 	"github.com/altessa-s/go-atlas/store/mongo"
+	"github.com/altessa-s/go-atlas/store/mongo/storages/storagetest"
 
 	mongohelpers "github.com/altessa-s/go-atlas/store/mongo/internal/testhelpers"
 	cursnats "github.com/altessa-s/go-atlas/store/mongo/storages/nats"
@@ -68,7 +69,8 @@ func TestStorage_Delete(t *testing.T) {
 
 func TestStorage_Delete_NonExistent(t *testing.T) {
 	s := setupStorage(t)
-	require.NoError(t, s.Delete(t.Context(), "nope"))
+	var deleter mongo.CursorDeleter = s
+	require.NoError(t, deleter.Delete(t.Context(), "nope"))
 }
 
 func TestStorage_Overwrite(t *testing.T) {
@@ -90,4 +92,9 @@ func TestStorage_Overwrite(t *testing.T) {
 func TestStorage_Ping(t *testing.T) {
 	s := setupStorage(t)
 	require.NoError(t, s.Ping(t.Context()))
+}
+
+func TestMetadataOwnership(t *testing.T) {
+	t.Parallel()
+	storagetest.MetadataOwnership(t, setupStorage(t), &mongo.CursorMetadata{})
 }

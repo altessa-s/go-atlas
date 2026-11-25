@@ -7,7 +7,9 @@
 // Field paths are returned in dot notation (e.g. "address.city") using names
 // derived from struct tags (default "json") or PascalCase-to-snake_case
 // conversion. Nested structs, embedded structs, slices, and maps are traversed
-// recursively up to a configurable depth (default [DefaultMaxDepth]).
+// recursively up to a configurable depth (default [DefaultMaxDepth]). A repeated
+// reference pair ends traversal of its current branch. Literal dots, brackets,
+// and backslashes in struct tag names are escaped in field paths.
 //
 // For one-shot comparisons use the package-level [GetChangedFields]. For
 // repeated comparisons, create a [Tracker] via [NewTracker] to benefit from

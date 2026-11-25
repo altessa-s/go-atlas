@@ -36,7 +36,7 @@ func TestDeduplicateBypassesSessions(t *testing.T) {
 	release := make(chan struct{})
 	entered := make(chan struct{})
 	go func() {
-		_, _ = m.deduplicate(t.Context(), key, func(context.Context) (any, error) {
+		_, _ = m.repo.deduplicate(t.Context(), key, func(context.Context) (any, error) {
 			close(entered)
 			<-release
 			return "outside", nil
@@ -47,7 +47,7 @@ func TestDeduplicateBypassesSessions(t *testing.T) {
 
 	done := make(chan any, 1)
 	go func() {
-		v, _ := m.deduplicate(sessCtx, key, func(context.Context) (any, error) { return "inside", nil })
+		v, _ := m.repo.deduplicate(sessCtx, key, func(context.Context) (any, error) { return "inside", nil })
 		done <- v
 	}()
 	select {

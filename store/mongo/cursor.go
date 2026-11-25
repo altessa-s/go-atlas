@@ -183,21 +183,7 @@ func MustNewCursor(cursorId string) *Cursor {
 //	cursor := mongotools.MustNewCursor("507f1f77bcf86cd799439011")
 //	encoded := cursor.String()
 func (c *Cursor) String() string {
-	if c == nil {
-		return ""
-	}
-
-	// JSON encode using anonymous struct to avoid infinite recursion
-	// with MarshalJSON method
-	type cursorAlias Cursor
-	jsonBytes, err := json.Marshal((*cursorAlias)(c))
-	if err != nil {
-		// Defensive: should never happen with a simple struct, but don't crash the process.
-		return ""
-	}
-
-	// Base64 encode
-	return base64.URLEncoding.EncodeToString(jsonBytes)
+	return (unsignedCursorCodec{}).encode(c)
 }
 
 // MarshalJSON implements json.Marshaler interface.
@@ -266,37 +252,7 @@ func (c *Cursor) UnmarshalJSON(data []byte) error {
 //	    // Handle error
 //	}
 func ParseCursor(encoded string) (*Cursor, error) {
-	if encoded == "" {
-		return nil, coreerrs.Wrap(ErrInvalidCursor, "empty string")
-	}
-	if len(encoded) > MaxCursorTokenLength {
-		return nil, coreerrs.Wrapf(ErrInvalidCursor, "token longer than %d bytes", MaxCursorTokenLength)
-	}
-
-	// Base64 decode
-	jsonBytes, err := base64.URLEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, coreerrs.Wrapf(ErrInvalidCursor, "%v", err)
-	}
-
-	// JSON decode using alias to avoid calling UnmarshalJSON
-	type cursorAlias Cursor
-	var c cursorAlias
-	if err = json.Unmarshal(jsonBytes, &c); err != nil {
-		return nil, coreerrs.Wrapf(ErrInvalidCursor, "%v", err)
-	}
-
-	// Validation
-	if c.CursorId == "" {
-		return nil, coreerrs.Wrap(ErrInvalidCursor, "cursor_id is required")
-	}
-
-	// Validate cursor ID format
-	if !isValidCursorId(c.CursorId) {
-		return nil, coreerrs.Wrap(ErrInvalidCursor, "invalid cursor: cursor_id must be a MongoDB ObjectID (24 hex characters)")
-	}
-
-	return (*Cursor)(&c), nil
+	return (unsignedCursorCodec{}).decode(encoded)
 }
 
 // IsZero returns true if the cursor is nil or has zero values.

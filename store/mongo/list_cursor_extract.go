@@ -6,14 +6,12 @@ package mongo
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strings"
 	"sync"
 
-	"github.com/oklog/ulid/v2"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
@@ -127,86 +125,6 @@ func isBase32Char(c rune) bool {
 		(c >= 'V' && c <= 'Z') // V-Z
 }
 
-// parseCursorToken loads a cursor in the format the configuration selects,
-// never the one the token's shape suggests:
-//  1. storage configured: the token must be a ULID storage key (stateful
-//     mode); anything else fails with [ErrInvalidCursorFormat], so a
-//     client-minted stateless token cannot bypass storage and subject binding
-//  2. no storage: the token must be base64-encoded JSON (stateless mode); a
-//     ULID fails with [ErrStorageRequired]
-//
-// Parameters:
-//   - ctx: Context for storage operations
-//   - token: Cursor token from client
-//   - storage: Storage instance (can be nil for stateless mode)
-//   - filter: Current filter for validation
-//   - subject: Requesting principal (stateful mode)
-//   - collection: Digest of the requested collection (stateful mode), see [cursorCollectionDigest]
-//
-// Returns:
-//   - *Cursor: Loaded cursor with metadata
-//   - error: If parsing/loading fails
-func parseCursorToken(ctx context.Context, token string, storage Storage, filter cursorFilter, subject, collection string) (*Cursor, error) {
-	if token == "" {
-		// Empty token is valid - means no cursor provided, start from beginning
-		return nil, nil //nolint:nilnil // nil cursor with nil error is semantically correct here
-	}
-
-	if storage != nil {
-		if !isULID(token) {
-			return nil, coreerrs.Wrap(ErrInvalidCursorFormat, "cursor storage is configured: only server-issued storage keys are accepted")
-		}
-
-		// Load metadata from storage
-		metadata, err := storage.Load(ctx, token)
-		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "load cursor from storage")
-		}
-
-		// Validate the cursor was issued for this collection: storages are
-		// shared between endpoints, and a filter hash alone does not tell them apart.
-		if validationErr := metadata.ValidateCollection(collection); validationErr != nil {
-			return nil, validationErr
-		}
-
-		// Validate filter hasn't changed
-		if validationErr := metadata.validateFilter(ctx, filter); validationErr != nil {
-			return nil, validationErr
-		}
-
-		// Validate the cursor belongs to the requesting principal: the stored
-		// subject must equal the request's, an unbound cursor included.
-		if validationErr := metadata.ValidateSubject(subject); validationErr != nil {
-			return nil, validationErr
-		}
-
-		// Convert metadata to Cursor
-		cursor, convErr := metadata.ToCursor()
-		if convErr != nil {
-			return nil, coreerrs.WrapOperation(convErr, "convert metadata to cursor")
-		}
-
-		return cursor, nil
-	}
-
-	if isULID(token) {
-		return nil, coreerrs.Wrap(ErrStorageRequired, "received ULID cursor but no storage configured")
-	}
-
-	// Stateless format: base64-encoded JSON
-	cursor, err := ParseCursor(token)
-	if err != nil {
-		return nil, err
-	}
-
-	// Validate filter hasn't changed (stateless mode)
-	if validationErr := cursor.validateFilter(ctx, filter); validationErr != nil {
-		return nil, validationErr
-	}
-
-	return cursor, nil
-}
-
 // cursorCollectionDigest identifies the collection a stateful cursor is bound
 // to: a length-prefixed digest of the database and collection names, so the
 // pairs ("a", "b.c") and ("a.b", "c") differ.
@@ -217,7 +135,7 @@ func cursorCollectionDigest(collection *mongo.Collection) string {
 // validateStatelessCursor checks a client-supplied stateless cursor against
 // the server's pagination parameters: its ID must be an ObjectID, its checksum
 // and embedded sort/ID-field metadata must match sort and cursorIdField, and —
-// for a direct *Cursor, which skipped parseCursorToken — its filter hash must
+// for a direct *Cursor, supplied without a token — its filter hash must
 // match filter.
 func validateStatelessCursor(ctx context.Context, c *Cursor, sort bson.D, cursorIdField string, filter cursorFilter, direct bool) error {
 	if !isValidCursorId(c.CursorId) {
@@ -246,71 +164,6 @@ func validateCursorSortValue(c *Cursor, sort bson.D, cursorIdField string) error
 		return fmt.Errorf("%w: %w", ErrInvalidCursor, err)
 	}
 	return nil
-}
-
-// generateNextCursorToken creates the next cursor token.
-// If storage is configured, stores metadata and returns ULID key (stateful mode).
-// Otherwise, encodes cursor as base64 JSON (stateless mode).
-//
-// Parameters:
-//   - ctx: Context for storage operations
-//   - cursorId: MongoDB ObjectID from last item
-//   - sort: Sort specification
-//   - cursorIdField: Field name for cursor ID
-//   - filter: Current filter
-//   - storage: Storage instance (can be nil)
-//   - subject: Requesting principal the stored cursor is bound to (can be empty)
-//   - collection: Digest of the collection the stored cursor is bound to, see [cursorCollectionDigest]
-//
-// Returns:
-//   - string: Cursor token for client
-//   - error: If generation fails
-func generateNextCursorToken(
-	ctx context.Context,
-	cursorId string,
-	sort bson.D,
-	cursorIdField string,
-	filter cursorFilter,
-	storage Storage,
-	sortValue any,
-	subject string,
-	collection string,
-) (string, error) {
-	if storage != nil {
-		// Server-side storage mode: create metadata and store
-		metadata, err := newCursorMetadata(cursorId, sort, cursorIdField, filter, sortValue)
-		if err != nil {
-			return "", coreerrs.WrapOperation(err, "create cursor metadata")
-		}
-
-		// Bind the cursor to the requesting principal so it can't be replayed by
-		// another. Empty subject leaves the cursor unbound (the default).
-		metadata.Subject = subject
-		metadata.Collection = collection
-
-		// The key is a bearer handle: its entropy comes from crypto/rand, not from ulid.Make's monotonic math/rand source,
-		// whose next value follows from the previous key.
-		id, err := ulid.New(ulid.Now(), rand.Reader)
-		if err != nil {
-			return "", coreerrs.WrapOperation(err, "generate cursor key")
-		}
-		key := id.String()
-
-		// Store with generated key
-		if err := storage.Store(ctx, key, metadata); err != nil {
-			return "", coreerrs.WrapOperation(err, "store cursor")
-		}
-
-		return key, nil
-	}
-
-	// Stateless mode: encode cursor as base64 JSON
-	cursor, err := newCursorWithMetadata(cursorId, sort, cursorIdField, filter, sortValue)
-	if err != nil {
-		return "", coreerrs.WrapOperation(err, "create cursor")
-	}
-
-	return cursor.String(), nil
 }
 
 // extractCursorDataFromItem extracts cursor ID and sort field value from an item.

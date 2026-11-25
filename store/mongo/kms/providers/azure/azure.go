@@ -12,7 +12,7 @@ import (
 )
 
 // Azure represents an Azure Key Vault provider configuration.
-// It implements the kms.Provider, kms.MasterKey, and kms.TLSConfig interfaces.
+// It implements the kms.MasterKeyProvider and kms.TLSConfigurer interfaces.
 // Credentials are stored securely using the credentials package.
 type Azure struct {
 	credentialsCache atomic.Pointer[kms.Credentials]
@@ -58,13 +58,13 @@ func New(clientID, clientSecret, tenantID, keyName string, opts ...Option) *Azur
 }
 
 // Name returns the provider name "azure".
-// This implements the kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 func (az *Azure) Name() string {
 	return ProviderName
 }
 
 // Credentials returns the Azure AD authentication credentials.
-// This implements the kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 // Note: This method exposes sensitive credentials - use with caution.
 func (az *Azure) Credentials() kms.Credentials {
 	if cred := az.credentialsCache.Load(); cred != nil {
@@ -88,7 +88,7 @@ func (az *Azure) Credentials() kms.Credentials {
 }
 
 // MasterKey returns the Azure Key Vault master key configuration.
-// This implements the kms.MasterKey interface.
+// This implements the kms.MasterKeyProvider interface.
 func (az *Azure) MasterKey() kms.Key {
 	key := kms.Key{AzureKeyName: az.KeyName, AzureKeyVaultEndpoint: az.KeyVaultEndpoint}
 
@@ -100,7 +100,7 @@ func (az *Azure) MasterKey() kms.Key {
 }
 
 // TLSConfig returns the TLS configuration for Azure Key Vault connections.
-// This implements the simplified kms.Provider interface.
+// This implements the kms.TLSConfigurer interface.
 func (az *Azure) TLSConfig() *tls.Config {
 	return az.TLS
 }

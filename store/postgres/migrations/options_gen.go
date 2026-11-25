@@ -38,6 +38,16 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithRegistry selects an independent set of migrations for this run.
+func WithRegistry(v *Registry) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.registry = v
+	}
+}
+
 // WithTableName names the table recording the applied versions.
 func WithTableName[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -62,6 +72,7 @@ func defaultOptions() *options {
 		lockID:      DefaultLockID,
 		lockTimeout: DefaultLockTimeout,
 		logger:      slog.New(slog.DiscardHandler),
+		registry:    &registry,
 		tableName:   DefaultTableName,
 	}
 }

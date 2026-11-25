@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/store/mongo"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	mongofactory "github.com/altessa-s/go-atlas/factory/store/mongo"
 	redisstorage "github.com/altessa-s/go-atlas/store/mongo/storages/redis"
 )
@@ -25,7 +27,7 @@ var (
 	ErrClientRequired = errors.New("cursor storage: redis client is required for storage type redis")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// redis block.
-	ErrConfigRequired = errors.New("cursor storage: redis configuration is required for storage type redis")
+	ErrConfigRequired = fmt.Errorf("cursor storage: redis configuration is required for storage type redis: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the redis type, ready for

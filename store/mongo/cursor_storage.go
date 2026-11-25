@@ -27,7 +27,7 @@ import (
 //   - Redis: Distributed, with automatic TTL expiration
 //   - MongoDB: Persistent, with TTL indexes
 type Storage interface {
-	// Store saves cursor metadata using the provided storage key.
+	// Store snapshots cursor metadata using the provided storage key.
 	// The storage key is generated externally (typically a ULID) and passed to the storage.
 	//
 	// Storage implementations decide their own TTL policies:
@@ -48,7 +48,9 @@ type Storage interface {
 	// Thread-safety: Must be safe for concurrent calls.
 	Store(ctx context.Context, storageKey string, metadata *CursorMetadata) error
 
-	// Load retrieves cursor metadata by storage key.
+	// Load returns an independent copy of the metadata for the storage key.
+	// For a stored nil, memory returns nil and the JSON-backed NATS and Redis
+	// stores decode JSON null into a zero-valued CursorMetadata.
 	// This is called when a client provides a cursor token to continue pagination.
 	//
 	// Returns:
@@ -58,20 +60,13 @@ type Storage interface {
 	//
 	// Thread-safety: Must be safe for concurrent calls.
 	Load(ctx context.Context, storageKey string) (*CursorMetadata, error)
+}
 
-	// Delete removes cursor metadata from storage.
-	// This is optional and used for explicit cleanup when pagination is complete.
-	//
-	// Most implementations rely on automatic TTL expiration and can implement
-	// this as a no-op. However, explicit deletion can be useful for:
-	//   - Immediate resource cleanup
-	//   - Security (invalidating cursors after use)
-	//   - Storage optimization (removing large cursor sets)
-	//
-	// Returns:
-	//   - error: If deletion fails (implementations may return nil for not-found)
-	//
-	// Thread-safety: Must be safe for concurrent calls.
+// CursorDeleter is an optional [Storage] capability for explicit cursor invalidation.
+type CursorDeleter interface {
+	// Delete removes the metadata for storageKey. Implementations may return
+	// nil for a missing key. TTL-only implementations may treat Delete as a
+	// no-op. It must be safe for concurrent calls.
 	Delete(ctx context.Context, storageKey string) error
 }
 

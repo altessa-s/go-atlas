@@ -24,6 +24,9 @@ provider, err := factory.New(cfg.MongoKMS).
     Build()
 ```
 
+Register a custom backend name with `UseProvider`. Before standalone validation or config loading, call
+`cfg.SetRegisteredTypes(b.RegisteredProviderTypes())`.
+
 ## Supported KMS Providers
 
 | Provider | Backend                      | TLS Support               |

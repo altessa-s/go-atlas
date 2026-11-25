@@ -89,5 +89,5 @@ func TestGoogle_Clear(t *testing.T) {
 }
 
 func TestGoogle_ImplementsProvider(t *testing.T) {
-	var _ kms.Provider = kmsgcp.New("p", "e", "k", "l", "r", "n")
+	var _ kms.MasterKeyProvider = kmsgcp.New("p", "e", "k", "l", "r", "n")
 }

@@ -9,6 +9,7 @@ import (
 	"context"
 	"iter"
 	"log/slog"
+	"reflect"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -45,6 +46,8 @@ const (
 // The options control filtering, sorting, projection, pagination limits, and query
 // optimization features like index hints and explain analysis.
 type listCursorOptions struct {
+	// codec is selected after all options are applied and shared by every page.
+	codec cursorCodec `opt:"-"`
 	// WithListCursorSort parses string forms and ignores invalid sorts.
 	sort bson.D `optgen:"manual"`
 	// WithListCursorFilter configures the query filter for cursor-based list operations.
@@ -184,7 +187,7 @@ type listCursorOptions struct {
 //   - Filter: Empty (no filtering)
 //   - Limit: DefaultListLimit (100 items per page)
 //   - Logger: DiscardLogger (no logging)
-//   - includeTotal: true (compute total count)
+//   - includeTotal: false (skip total count)
 //
 // These defaults can be overridden using functional options like WithListCursorSort,
 // WithListCursorFilter, WithListCursorLimit, etc.
@@ -200,23 +203,13 @@ func defaultListCursorOptions() *listCursorOptions {
 	}
 }
 
-// signsCursors reports whether stateless tokens are signed: a signer is
-// configured and no storage takes the cursors server-side.
-func (o *listCursorOptions) signsCursors() bool {
-	return o.storage == nil && o.signer != nil
-}
-
-// nextCursorToken returns the token of the page after the item with cursorId
-// and sortValue, in the format the configuration selects.
-func (o *listCursorOptions) nextCursorToken(ctx context.Context, cursorId string, sortValue any, collection string) (string, error) {
-	if !o.signsCursors() {
-		return generateNextCursorToken(ctx, cursorId, o.sort, o.cursorIdField, o.binding(), o.storage, sortValue, o.subject, collection)
+func newListCursorOptions(options ...ListCursorOption) *listCursorOptions {
+	opts := defaultListCursorOptions()
+	for _, opt := range options {
+		opt(opts)
 	}
-	cursor, err := newCursorWithMetadata(cursorId, o.sort, o.cursorIdField, o.binding(), sortValue)
-	if err != nil {
-		return "", coreerrs.WrapOperation(err, "create cursor")
-	}
-	return issueSignedCursor(o.signer, cursor, o.subject, collection)
+	opts.codec = selectCursorCodec(opts)
+	return opts
 }
 
 // ListCursorOption represents a functional option for configuring cursor-based list operations.
@@ -291,15 +284,13 @@ func WithListCursorIdField(cursorIdField string) ListCursorOption {
 //	WithListCursorCursor(previousResult.NextCursor)
 func WithListCursorCursor[T interface{ ~string | ~*string | *Cursor }](cursor T) ListCursorOption {
 	return func(options *listCursorOptions) {
-		switch v := any(cursor).(type) {
-		case string:
-			options.cursorToken = v
-		case *string:
-			if v != nil {
-				options.cursorToken = *v
-			}
-		case *Cursor:
-			options.cursor = v
+		if c, ok := any(cursor).(*Cursor); ok {
+			options.cursor = c
+			return
+		}
+		value := reflect.Indirect(reflect.ValueOf(cursor))
+		if value.IsValid() {
+			options.cursorToken = value.String()
 		}
 	}
 }
@@ -489,10 +480,7 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 }
 
 func prepareListCursorOptions(ctx context.Context, collection *mongo.Collection, o []ListCursorOption) (*listCursorOptions, error) {
-	opts := defaultListCursorOptions()
-	for _, opt := range o {
-		opt(opts)
-	}
+	opts := newListCursorOptions(o...)
 	raw, err := prepareFilter(ctx, collection, opts.filter, opts.filterEncoding)
 	if err != nil {
 		return nil, err
@@ -614,52 +602,12 @@ func listCursorPage[T any](ctx context.Context, collection *mongo.Collection, op
 // resulting sort and projection. collection is the digest a stateful cursor
 // is bound to, see [cursorCollectionDigest].
 func resolveCursorOptions(ctx context.Context, opts *listCursorOptions, collection string) error {
-	// With storage configured, only a storage key loaded below is accepted: a
-	// direct *Cursor did not come from storage and carries no subject binding.
-	if opts.storage != nil && !opts.cursor.IsZero() {
-		return coreerrs.Wrap(ErrInvalidCursorFormat, "cursor storage is configured: only server-issued storage keys are accepted")
+	cursor, err := opts.codec.resolve(ctx, opts, collection)
+	if err != nil {
+		return err
 	}
-	signed := opts.signsCursors()
-	if signed && !opts.cursor.IsZero() {
-		return coreerrs.Wrap(ErrInvalidCursorFormat, "cursor signer is configured: only signed tokens are accepted")
-	}
-	// An unsigned stateless token carries no subject: refuse the request
-	// rather than serve it without the binding it asks for.
-	if opts.subject != "" && opts.storage == nil && !signed {
-		return ErrCursorSubjectNotEnforced
-	}
-	directCursor := opts.cursorToken == ""
-
-	// Parse cursor token if provided (format selected by the storage and signer configuration)
-	if opts.cursorToken != "" {
-		var cursor *Cursor
-		var err error
-		if signed {
-			cursor, err = resolveSignedCursor(ctx, opts.signer, opts.cursorToken, opts.binding(), opts.subject, collection)
-		} else {
-			cursor, err = parseCursorToken(ctx, opts.cursorToken, opts.storage, opts.binding(), opts.subject, collection)
-		}
-		if err != nil {
-			return err
-		}
-		opts.cursor = cursor
-	}
-
-	// If cursor is provided, validate and use its metadata
-	// This ensures pagination parameters remain consistent between requests
-	if opts.cursor != nil && !opts.cursor.IsZero() {
-		// Stateless cursors (no storage) are client-supplied: validate every field
-		if opts.storage == nil {
-			if err := validateStatelessCursor(ctx, opts.cursor, opts.sort, opts.cursorIdField, opts.binding(), directCursor); err != nil {
-				return coreerrs.WrapOperation(err, "validate cursor")
-			}
-		} else if err := opts.cursor.ValidateChecksum(opts.sort, opts.cursorIdField); err != nil {
-			// A stored cursor is trusted, but the request must still be the one it
-			// was issued for: a token of another endpoint sharing the storage would
-			// otherwise force its sort and cursor ID field onto this one.
-			return coreerrs.WrapOperation(err, "validate cursor")
-		}
-
+	opts.cursor = cursor
+	if !cursor.IsZero() {
 		// Override options with cursor metadata to ensure consistency
 		// This prevents using different sort/cursor fields between requests
 		cursorSort, err := opts.cursor.GetSort()
@@ -707,9 +655,11 @@ func ListCursorSeq[T any](ctx context.Context, collection *mongo.Collection, o .
 			yield(zero, err)
 			return
 		}
+		// Each continuation validates against the caller's original sort and ID
+		// field. Reuse the request allocation for the page the codec receives.
+		initial := *opts
 		for {
-			page := *opts
-			result, err := listCursorPage[T](ctx, collection, &page)
+			result, err := listCursorPage[T](ctx, collection, opts)
 			if err != nil {
 				var zero T
 				yield(zero, err)
@@ -728,6 +678,7 @@ func ListCursorSeq[T any](ctx context.Context, collection *mongo.Collection, o .
 				return
 			}
 
+			*opts = initial
 			opts.cursor = nil
 			opts.cursorToken = *result.NextCursor
 		}

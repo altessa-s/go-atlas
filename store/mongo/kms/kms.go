@@ -31,33 +31,33 @@ type Credentials map[string]map[string]any
 //   - GCP: {"projectId": "my-project", "location": "global", "keyRing": "ring", "keyName": "key"}
 type Key map[string]any
 
-// Provider represents a unified KMS provider interface.
-// This interface replaces the complex hierarchy of Provider, MasterKey, TLSConfig, etc.
-// All providers implement this single interface, using nil returns for unsupported features.
-type Provider interface {
-	// Core provider functionality (required)
+// MasterKeyProvider supplies the credentials and key descriptor used by MongoDB CSFLE.
+type MasterKeyProvider interface {
 	Name() string
 	Credentials() Credentials
 	Clear()
-
-	// Optional functionality (can return nil if not supported)
-	MasterKey() Key         // Returns nil if provider doesn't support master keys
-	TLSConfig() *tls.Config // Returns nil if provider doesn't need custom TLS
+	// MasterKey returns the driver key descriptor. Local key material is supplied
+	// in Credentials and needs no separate descriptor.
+	MasterKey() Key
 }
 
-// Helper functions for capability checking (simplified)
+// TLSConfigurer supplies custom TLS settings for a remote KMS.
+type TLSConfigurer interface {
+	TLSConfig() *tls.Config
+}
 
 // HasMasterKey returns true if the provider supports master key functionality
-func HasMasterKey(p Provider) bool {
+func HasMasterKey(p MasterKeyProvider) bool {
 	return p.MasterKey() != nil
 }
 
 // HasCustomTLS returns true if the provider requires custom TLS configuration
-func HasCustomTLS(p Provider) bool {
-	return p.TLSConfig() != nil
+func HasCustomTLS(p MasterKeyProvider) bool {
+	tlsProvider, ok := p.(TLSConfigurer)
+	return ok && tlsProvider.TLSConfig() != nil
 }
 
 // IsFullyFeatured returns true if the provider supports all optional features
-func IsFullyFeatured(p Provider) bool {
+func IsFullyFeatured(p MasterKeyProvider) bool {
 	return HasMasterKey(p) && HasCustomTLS(p)
 }

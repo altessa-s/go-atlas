@@ -7,6 +7,8 @@ package factory
 import (
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"time"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
@@ -50,4 +52,9 @@ func (b *CursorStorageBuilder) UseScheduler(v schedtask.Registrar) *CursorStorag
 func (b *CursorStorageBuilder) WithTTL(ttl time.Duration) *CursorStorageBuilder {
 	b.ttl = ttl
 	return b
+}
+
+// RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
+func (b *CursorStorageBuilder) RegisteredStorageTypes() []storageconfig.BackendType {
+	return slices.Sorted(maps.Keys(b.storages))
 }

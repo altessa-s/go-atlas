@@ -20,6 +20,9 @@ storage, err := factory.New(cfg.CursorStorage).
 `memory` is built in. `redis` and `nats` use the function registered with `UseStorage`; without one `Build` fails naming the package to add. Any
 other type fails `Build` with an unsupported storage type error.
 
+Register a custom backend name with `UseStorage`. Before standalone validation or config loading, call
+`cfg.SetRegisteredTypes(b.RegisteredStorageTypes())`.
+
 ## Supported Storage Types
 
 | Type     | Backend           | Requires                                                                                                       |

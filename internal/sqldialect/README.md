@@ -13,7 +13,7 @@ rendering. Internal to the module.
 | Symbol                                                            | Description                                                                                                                   |
 |-------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------|
 | `Style`                                                           | Identifier quote and placeholder form of a SQL flavor: `Postgres` (`"`, `$n`), `MySQL` (`?`)                                  |
-| `Style.Table`                                                     | Validates `name` or `schema.name` (each part at most `MaxIdentLen` = 63) and quotes it                                        |
+| `Style.Table`                                                     | Validates each part with [sqlident](../sqlident) and quotes `name` or `schema.name`                                           |
 | `Style.IndexName`                                                 | `<table>_<suffix>_idx`, or a readable prefix plus an FNV-32a hash when over 63 (long suffixes included in the hash)           |
 | `Style.Bind`                                                      | Rewrites `?` as `$n` from a start index on numbered styles; positional styles pass through                                    |
 | `Style.WrapPool`, `Pool`, `Pool.WithResolver`, `Scope`            | Wraps `*sql.DB` with per-call transaction resolution (`Tx`, `BeginScope`) and one retry on a pre-send PostgreSQL failure      |
@@ -24,4 +24,4 @@ rendering. Internal to the module.
 | `IsDuplicateKey`                                                  | Recognizes PostgreSQL SQLSTATE 23505 and MySQL error number 1062 in error trees                                               |
 | `QueryKeys`, `InList`                                             | Read one batch of binary keys; expand a `%s` into an IN list of `n` placeholders                                              |
 | `Unqualified`                                                     | Table part of a possibly qualified name                                                                                       |
-| `ErrUnsupportedDialect`, `ErrInvalidTableName`, `ErrValueTooLong` | Shared sentinels, re-exported by the applicable storages so `errors.Is` matches across them                                   |
+| `ErrUnsupportedDialect`, `ErrValueTooLong`                        | Storage sentinels, shared alongside `sqlident.ErrInvalidTableName` so `errors.Is` matches across storages                     |

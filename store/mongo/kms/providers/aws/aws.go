@@ -12,7 +12,7 @@ import (
 )
 
 // Amazon represents an AWS KMS provider configuration.
-// It implements the kms.Provider, kms.MasterKey, and kms.TLSConfig interfaces.
+// It implements the kms.MasterKeyProvider and kms.TLSConfigurer interfaces.
 // Credentials are stored securely using the credentials package.
 type Amazon struct {
 	credentialsCache atomic.Pointer[kms.Credentials]
@@ -57,13 +57,13 @@ func New(accessKeyID, secretAccessKey, keyName string, opts ...Option) *Amazon {
 }
 
 // Name returns the provider name "aws".
-// This implements the kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 func (a *Amazon) Name() string {
 	return ProviderName
 }
 
 // Credentials returns the AWS authentication credentials.
-// This implements the kms.Provider interface.
+// This implements the kms.MasterKeyProvider interface.
 // Note: This method exposes sensitive credentials - use with caution.
 func (a *Amazon) Credentials() kms.Credentials {
 	if cred := a.credentialsCache.Load(); cred != nil {
@@ -91,7 +91,7 @@ func (a *Amazon) Credentials() kms.Credentials {
 }
 
 // MasterKey returns the AWS KMS master key configuration.
-// This implements the kms.MasterKey interface.
+// This implements the kms.MasterKeyProvider interface.
 func (a *Amazon) MasterKey() kms.Key {
 	key := kms.Key{KeyARN: a.Key}
 
@@ -107,7 +107,7 @@ func (a *Amazon) MasterKey() kms.Key {
 }
 
 // TLSConfig returns the TLS configuration for AWS KMS connections.
-// This implements the simplified kms.Provider interface.
+// This implements the kms.TLSConfigurer interface.
 func (a *Amazon) TLSConfig() *tls.Config {
 	return a.TLS
 }

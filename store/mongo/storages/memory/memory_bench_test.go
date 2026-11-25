@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altessa-s/go-atlas/store/mongo"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/store/mongo/storages/memory"
 )
@@ -32,6 +33,20 @@ func BenchmarkStorage_Load(b *testing.B) {
 
 	for b.Loop() {
 		_, _ = s.Load(ctx, "bench-key")
+	}
+}
+
+// Keep the last result across calls to measure a copy that escapes to its caller.
+var retainedMetadata *mongo.CursorMetadata
+
+func BenchmarkStorage_LoadRetained(b *testing.B) {
+	s := memory.New(time.Hour)
+	defer s.Close()
+	ctx := b.Context()
+	_ = s.Store(ctx, "bench-key", testhelpers.SampleCursorMetadata())
+
+	for b.Loop() {
+		retainedMetadata, _ = s.Load(ctx, "bench-key")
 	}
 }
 

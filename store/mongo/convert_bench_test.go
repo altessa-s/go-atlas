@@ -37,7 +37,7 @@ func BenchmarkEntityConversion(b *testing.B) {
 	b.Run("cached_shared_converter", func(b *testing.B) {
 		b.ReportAllocs()
 		for b.Loop() {
-			conv := sharedConverter[benchDocModel](m)
+			conv := sharedConverter[benchDocModel](&m.repo)
 			dst := reflect.New(entityType).Interface()
 			conv.Convert(model, dst)
 		}
@@ -48,7 +48,7 @@ func BenchmarkEntityConversion(b *testing.B) {
 		for b.Loop() {
 			convOpts := append(
 				[]converter.Option{converter.WithEmbeddedStructs(converter.EmbeddedFillAlways)},
-				m.config.ConverterOptions...,
+				m.repo.converterOpts[1:]...,
 			)
 			conv := converter.New[benchDocModel, any](convOpts...)
 			dst := reflect.New(entityType).Interface()

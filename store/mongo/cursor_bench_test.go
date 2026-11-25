@@ -26,3 +26,33 @@ func BenchmarkValidateStatelessCursor(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkCursorContinuation(b *testing.B) {
+	storage := newFakeCursorStorage()
+	for _, tc := range []struct {
+		name    string
+		options []ListCursorOption
+	}{
+		{"unsigned", nil},
+		{"signed", []ListCursorOption{WithListCursorSigner(newCursorSigner(b, 1))}},
+		{"stored", []ListCursorOption{WithListCursorStorage(storage)}},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			opts := newListCursorOptions(tc.options...)
+			id := bson.NewObjectID().Hex()
+			initial := *opts
+			for b.Loop() {
+				*opts = initial
+				token, err := opts.nextCursorToken(b.Context(), id, nil, "collection")
+				if err != nil {
+					b.Fatal(err)
+				}
+				opts.cursorToken = token
+				if err := resolveCursorOptions(b.Context(), opts, "collection"); err != nil {
+					b.Fatal(err)
+				}
+				delete(storage.entries, token)
+			}
+		})
+	}
+}

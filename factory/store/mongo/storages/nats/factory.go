@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -34,7 +35,7 @@ var (
 	ErrJetStreamRequired = errors.New("cursor storage: jetstream is required for storage type nats")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// nats block.
-	ErrConfigRequired = errors.New("cursor storage: nats configuration is required for storage type nats")
+	ErrConfigRequired = fmt.Errorf("cursor storage: nats configuration is required for storage type nats: %w", corefactory.ErrConfigRequired)
 )
 
 // ErrBucketTTLMismatch is returned by the storage function when the bucket

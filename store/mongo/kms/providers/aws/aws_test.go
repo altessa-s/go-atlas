@@ -98,7 +98,7 @@ func TestAmazon_Clear(t *testing.T) {
 }
 
 func TestAmazon_ImplementsProvider(t *testing.T) {
-	var _ kms.Provider = kmsaws.New("k", "s", "a")
+	var _ kms.MasterKeyProvider = kmsaws.New("k", "s", "a")
 }
 
 func TestAmazon_HasMasterKey(t *testing.T) {

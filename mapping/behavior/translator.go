@@ -69,7 +69,8 @@ type Collection struct {
 	// to its own Object; an element that is itself a collection resolves to a
 	// synthetic Object holding a single unnamed Field (see [Field.Name]) so
 	// arbitrarily nested collections stay traversable; a nil-pointer or
-	// non-struct element leaves an empty placeholder Object to keep Items
+	// non-struct element leaves an empty placeholder Object (schema walk resolves
+	// a nil pointer element from its declared struct type) to keep Items
 	// index-aligned.
 	Items []Object
 	// Keys are the map keys parallel to Items (map fields only); nil for
@@ -98,6 +99,12 @@ type Translator[Out any] interface {
 	Translate(ctx context.Context, root Object) (Out, error)
 }
 
+// SchemaWalker is implemented by translators that require a type-complete Object.
+// [New] enables [WithSchemaWalk] when RequiresSchemaWalk returns true.
+type SchemaWalker interface {
+	RequiresSchemaWalk() bool
+}
+
 // Engine drives the shared reflection walk and hands the result to a [Translator].
 // Construct one with [New]; it is safe for concurrent use.
 type Engine[Out any] struct {
@@ -117,6 +124,9 @@ func New[Out any](tr Translator[Out], opts ...Option) *Engine[Out] {
 	o.maxDepth = max(1, o.maxDepth)
 	if b, ok := tr.(PolicyBinder[Out]); ok {
 		tr = b.BindPolicy(o.policy())
+	}
+	if w, ok := tr.(SchemaWalker); ok && w.RequiresSchemaWalk() {
+		o.schemaWalk = true
 	}
 	return &Engine[Out]{tr: tr, opts: o}
 }
@@ -348,11 +358,17 @@ func descendList(f *Field, fv reflect.Value, o *options, a *arena, depth int) er
 // struct resolves to its [Object], and an element that is itself a collection
 // resolves to a synthetic Object holding a single unnamed [Field] bound to the
 // element value, so arbitrarily nested collections ([][]T, map[K][]T, …) stay
-// traversable. A nil pointer or non-struct leaf yields an empty placeholder
-// Object so the caller's Items stay index-aligned.
+// traversable. A nil pointer contributes its declared struct in a schema walk.
+// Otherwise it leaves an empty placeholder, as does a non-struct leaf, so
+// Items stays index-aligned.
 func resolveElement(ev reflect.Value, o *options, a *arena, depth int) (Object, error) {
 	for ev.Kind() == reflect.Pointer {
 		if ev.IsNil() {
+			if o.schemaWalk {
+				if et := structElemType(ev.Type()); et != nil {
+					return resolve(reflect.Zero(et), o, a, depth)
+				}
+			}
 			return Object{}, nil
 		}
 		ev = ev.Elem()

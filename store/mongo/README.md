@@ -151,6 +151,9 @@ request unbound. With both a storage and a signer the cursor is stored and the s
 
 ## Stateful cursor isolation
 
+Cursor storage snapshots the supplied metadata and gives each reader an independent copy. Backends that support explicit removal also implement
+`CursorDeleter`.
+
 In stateful mode (`WithListCursorStorage`), `ListCursor` returns an opaque ULID token and keeps the pagination metadata server-side. The token is a
 bearer credential: any caller presenting it — on the same collection, with the same filter and sort — continues that pagination. If a token leaks or is guessed, another principal can
 page through the original principal's result set.
@@ -318,9 +321,10 @@ wrapped (`IsErrorDuplicate`). Outside a transaction `TouchGuard` is a plain writ
 
 ## Migrations
 
-Register steps through `github.com/altessa-s/go-atlas/store/mongo/migrations`.
+Register steps through `github.com/altessa-s/go-atlas/store/mongo/migrations`. For an independent set, add steps to a `migrations.Registry` with
+`Register` and supply it to `New` with `WithMigrationRegistry`. That client runs only its registry.
 
-Register migrations from an `init` function with an explicit version, without importing the third-party registry:
+To populate the default registry, register migrations from an `init` function with an explicit version, without importing the third-party registry:
 
 ```go
 func init() {

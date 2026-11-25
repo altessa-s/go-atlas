@@ -37,7 +37,7 @@ type fieldPathsTranslator struct {
 // for configuring the go-aip projection policy:
 //
 //	eng := behavior.New[mongo.FieldPaths](mongo.NewFieldPathsTranslator(),
-//	    behavior.WithKinds(behavior.DefaultResponseKinds...), behavior.WithSchemaWalk())
+//	    behavior.WithKinds(behavior.DefaultResponseKinds...))
 //	fp, err := eng.Translate(ctx, User{})
 //
 //	policy, err := projection.NewPolicy(
@@ -48,8 +48,8 @@ type fieldPathsTranslator struct {
 //	    aipmongo.WithProjectionOptions(projection.WithDeniedStorageFields(fp.Denied...)),
 //	)
 //
-// Like [NewProjectionTranslator] it is type-driven, so the engine MUST be
-// built with [behavior.WithSchemaWalk]; pass a zero value as the carrier.
+// Like [NewProjectionTranslator], it requests a schema walk from the engine.
+// A zero value is sufficient as the carrier.
 // Paths into slices of structs carry no index ("aliases.city"). Map values
 // sit under dynamic keys, so no path below a map is selectable, and a map
 // whose values carry a stripped field is denied whole. Dynamic element types
@@ -57,6 +57,8 @@ type fieldPathsTranslator struct {
 func NewFieldPathsTranslator(opts ...Option) behavior.Translator[FieldPaths] {
 	return &fieldPathsTranslator{o: newOptions(opts...)}
 }
+
+func (*fieldPathsTranslator) RequiresSchemaWalk() bool { return true }
 
 // Translate folds root into [FieldPaths]. It fails with [ErrStrippedInline]
 // for stripped data in a `bson:",inline"` field.

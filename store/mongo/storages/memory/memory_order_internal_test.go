@@ -76,10 +76,10 @@ func TestStorage_RunCleanupDropsExpiredFromOrders(t *testing.T) {
 	s := New(time.Hour)
 	for i := range 10 {
 		e := &entry{
-			key:       fmt.Sprintf("expired-%d", i),
-			metadata:  &mongo.CursorMetadata{},
-			subject:   "tenant-A",
-			expiresAt: time.Now().Add(-time.Minute),
+			key:         fmt.Sprintf("expired-%d", i),
+			metadata:    mongo.CursorMetadata{Subject: "tenant-A"},
+			hasMetadata: true,
+			expiresAt:   time.Now().Add(-time.Minute),
 		}
 		s.mu.Lock()
 		s.insertLocked(e)

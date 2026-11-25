@@ -27,6 +27,9 @@ const (
 
 // options configures [Run], [Down] and [Status].
 type options struct {
+	// WithRegistry selects an independent set of migrations for this run.
+	registry *Registry `optgen:"default=&registry,notnil"`
+
 	// WithLogger selects the logger for goose migration progress. The default discards messages.
 	logger *slog.Logger
 	// WithTableName names the table recording the applied versions.

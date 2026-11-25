@@ -9,6 +9,9 @@ import "log/slog"
 //go:generate go tool optgen generate
 
 type options struct {
+	// WithRegistry selects an independent set of migrations for this run.
+	registry *Registry
+
 	// rollbackOnFailure rolls back all applied migrations when an up step fails.
 	rollbackOnFailure bool
 	// logger receives rollback and lease-release failures.

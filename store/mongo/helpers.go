@@ -117,32 +117,6 @@ func prepareFilter(ctx context.Context, coll *mongo.Collection, filter any, sett
 	return bsonfilter.Prepare(ctx, filter, reg, opts)
 }
 
-// deduplicate runs fn through the singleflight group under key, unless ctx
-// carries a session: a read inside a transaction must see that transaction's
-// snapshot, and a read outside it must never see its uncommitted writes, so
-// session-bound reads are never shared in either direction.
-func (m *Mongo) deduplicate(ctx context.Context, key string, fn func(context.Context) (any, error)) (any, error) {
-	if mongo.SessionFromContext(ctx) != nil {
-		return fn(ctx)
-	}
-	return m.singleFlight.Do(ctx, key, fn)
-}
-
-// deduplicationKey builds the singleflight key for a read, mixing in the
-// optional per-context identity segment (WithDeduplicationIdentity) ahead of the
-// db:collection base. When no identity func is configured, or it returns "", the
-// key is identical to the un-prefixed form so existing callers are unaffected.
-// The identity segment ensures two callers issuing the same filter concurrently
-// are only collapsed when they share an identity — never across tenants.
-func (m *Mongo) deduplicationKey(ctx context.Context, base string, filter bson.Raw) string {
-	if m.config.dedupIdentity != nil {
-		if id := m.config.dedupIdentity(ctx); id != "" {
-			base = id + ":" + base
-		}
-	}
-	return generateDeduplicationKey(base, filter)
-}
-
 func generateDeduplicationKey(prefix string, filter bson.Raw) string {
 	return corehash.SHA256HexString(prefix + ":" + string(filter))
 }

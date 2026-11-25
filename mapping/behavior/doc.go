@@ -89,8 +89,9 @@
 // the value is absent: a nil pointer descends a fresh zero, and an empty
 // collection contributes one representative element resolved from the bottom
 // struct type behind its element/value type (unwrapping nested collection
-// layers). The resulting [Object] is type-complete (one representative
-// per collection) and each synthesized [Field.Value] is a non-addressable zero.
+// layers). Nil pointer elements also resolve from their declared type.
+//
+// Translators implementing [SchemaWalker] can request this mode at construction.
 //
 // Because synthesized values are fabricated, schema-walk is for read-only,
 // type-driven translators only. [Strip], [Clean], and the in-place fold do not

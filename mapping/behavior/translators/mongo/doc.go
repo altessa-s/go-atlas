@@ -6,13 +6,11 @@
 // implementations that fold behavior-tagged Go structs into MongoDB BSON
 // documents from a single behavior reflection walk.
 //
-// The store uses these translators for document conversion. The writer can bind
-// a field transformation that runs before BSON encoding, including for inserts.
-// The encryption implementation stays in store/mongo. The package exposes only translators — drive them through
-// [github.com/altessa-s/go-atlas/mapping/behavior.New]; configuration that belongs
-// to the core (the behavior tag name, traversal depth, and the strip-kind policy)
-// is set on the engine, never duplicated here. The translators own only the bson
-// tag (see [WithBsonTagName]).
+// The store binds its CSFLE [FieldTransformer] to the insert and update
+// translators using [WithFieldTransformer]. Each translation supplies its own
+// context and caches field selections for that call. Drive translators through
+// [github.com/altessa-s/go-atlas/mapping/behavior.New], which owns the behavior
+// tag name, traversal depth, and strip-kind policy.
 //
 // # Translators
 //
@@ -43,7 +41,7 @@
 //     behavior.WithKinds(behavior.DefaultUpdateKinds...).
 //   - [NewProjectionTranslator] builds an exclusion projection ({path: 0}) for
 //     every stripped field, using dot-notation paths for nested fields. It is
-//     type-driven, so the engine MUST be built with behavior.WithSchemaWalk();
+//     type-driven and requests a schema walk from the engine automatically;
 //     drive it with behavior.WithKinds(behavior.DefaultResponseKinds...).
 //   - [NewFieldPathsTranslator] returns [FieldPaths]: the selectable and the
 //     denied dot-notation paths of a model, ready for the
@@ -85,6 +83,6 @@
 //	setUnset, err := upd.Translate(ctx, &user) // excludes _id, create_time
 //
 //	proj := behavior.New[bson.M](mongo.NewProjectionTranslator(),
-//	    behavior.WithKinds(behavior.DefaultResponseKinds...), behavior.WithSchemaWalk())
+//	    behavior.WithKinds(behavior.DefaultResponseKinds...))
 //	p, err := proj.Translate(ctx, User{}) // {"password": 0}
 package mongo

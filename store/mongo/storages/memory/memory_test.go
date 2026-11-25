@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/store/mongo"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/store/mongo/storages/memory"
+	"github.com/altessa-s/go-atlas/store/mongo/storages/storagetest"
 )
 
 func TestNew(t *testing.T) {
@@ -79,7 +80,8 @@ func TestStorage_Delete_NonExistent(t *testing.T) {
 	s := memory.New(time.Hour)
 	defer s.Close()
 
-	require.NoError(t, s.Delete(t.Context(), "nope"))
+	var deleter mongo.CursorDeleter = s
+	require.NoError(t, deleter.Delete(t.Context(), "nope"))
 }
 
 func TestStorage_Len(t *testing.T) {
@@ -147,4 +149,9 @@ func TestStorage_Overwrite(t *testing.T) {
 	loaded, _ := s.Load(ctx, "key")
 	require.Equal(t, "bbb", loaded.CursorId)
 	require.Equal(t, 1, s.Len())
+}
+
+func TestMetadataOwnership(t *testing.T) {
+	t.Parallel()
+	storagetest.MetadataOwnership(t, memory.New(time.Hour), nil)
 }

@@ -24,20 +24,12 @@ func newCursorSigner(t testing.TB, key byte, opts ...pagetoken.Option) *pagetoke
 	return codec
 }
 
-// applyListCursorOptions returns the options a ListCursor call would run with.
-func applyListCursorOptions(o ...ListCursorOption) *listCursorOptions {
-	opts := defaultListCursorOptions()
-	for _, opt := range o {
-		opt(opts)
-	}
-	return opts
-}
-
 // mintSignedCursor issues a "next" token the way ListCursor does for a page
 // of collection read with o.
 func mintSignedCursor(t testing.TB, collection *mongo.Collection, o ...ListCursorOption) string {
 	t.Helper()
-	token, err := applyListCursorOptions(o...).nextCursorToken(t.Context(), bson.NewObjectID().Hex(), "alice",
+	opts := newListCursorOptions(o...)
+	token, err := opts.nextCursorToken(t.Context(), bson.NewObjectID().Hex(), "alice",
 		cursorCollectionDigest(collection))
 	require.NoError(t, err)
 	return token
@@ -67,7 +59,7 @@ func TestSignedCursor_RoundTrip(t *testing.T) {
 			token := mintSignedCursor(t, coll, request...)
 			require.False(t, isULID(token))
 
-			opts := applyListCursorOptions(append(request, WithListCursorCursor(token))...)
+			opts := newListCursorOptions(append(request, WithListCursorCursor(token))...)
 			require.NoError(t, resolveCursorOptions(t.Context(), opts, cursorCollectionDigest(coll)))
 			require.NotNil(t, opts.cursor)
 			require.True(t, isValidCursorId(opts.cursor.CursorId))
@@ -253,7 +245,7 @@ func TestListCursor_UnsignedStatelessWithoutSubject(t *testing.T) {
 	unsigned, err := NewCursorWithMetadata(bson.NewObjectID().Hex(), sort, DefaultCursorIdField, filter, "alice")
 	require.NoError(t, err)
 
-	opts := applyListCursorOptions(WithListCursorFilter(filter), WithListCursorSort(sort), WithListCursorCursor(unsigned.String()))
+	opts := newListCursorOptions(WithListCursorFilter(filter), WithListCursorSort(sort), WithListCursorCursor(unsigned.String()))
 	require.NoError(t, resolveCursorOptions(t.Context(), opts, ""))
 	require.Equal(t, unsigned.CursorId, opts.cursor.CursorId)
 }

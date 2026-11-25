@@ -122,15 +122,15 @@ build-time-style error returned by `Strip`.
 
 By default the walk stops where a nested value is absent (a nil pointer-to-struct, an empty slice/map of structs). `WithSchemaWalk` makes it resolve
 nested struct *types* anyway: a nil pointer descends a fresh zero, fields promoted through a nil embedded pointer are resolved from its type, and an
-empty collection contributes one representative element from its element/value type. The resolved `Object` is then type-complete (one representative per
-collection) and each synthesized `Field.Value` is a non-addressable zero. It is for read-only, type-driven translators (for example a query projection
+empty collection contributes one representative element from its element/value type. Nil pointer elements also resolve from their declared type.
+The resolved `Object` includes the nested schema. It is for read-only, type-driven translators (for example a query projection
 that enumerates nested paths regardless of runtime contents) — `Strip`, `Clean`, and the in-place fold ignore the flag and fold real instance values
-only.
+only. Translators implementing `SchemaWalker` can require a schema walk when the engine is constructed.
 
 ```go
 // Type-driven translator: nested paths appear even for a zero-value carrier.
 eng := behavior.New[bson.M](mongo.NewProjectionTranslator(),
-    behavior.WithKinds(behavior.DefaultResponseKinds...), behavior.WithSchemaWalk())
+    behavior.WithKinds(behavior.DefaultResponseKinds...))
 proj, err := eng.Translate(ctx, Entity{})
 ```
 

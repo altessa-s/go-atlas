@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/store/mongo"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	memorystorage "github.com/altessa-s/go-atlas/store/mongo/storages/memory"
 )
 
@@ -63,4 +64,21 @@ func TestUseStorage(t *testing.T) {
 		Build(t.Context())
 	require.NoError(t, err)
 	require.Same(t, want, storage, "a later registration replaces the earlier one")
+}
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := &storageconfig.BackendConfig{Type: "custom"}
+
+	build := func(context.Context, *storageconfig.BackendConfig, time.Duration, *slog.Logger) (mongo.Storage, error) {
+		return memorystorage.New(0), nil
+	}
+	b := factory.New(cfg).UseStorage("custom", build)
+	cfg.SetRegisteredTypes(b.RegisteredStorageTypes())
+	require.NoError(t, cfg.Validate())
+	got, err := b.Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	_, err = factory.New(cfg).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
 }

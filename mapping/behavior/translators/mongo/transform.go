@@ -16,12 +16,25 @@ import (
 	"github.com/altessa-s/go-atlas/mapping/behavior"
 )
 
+// FieldTransformer selects fields by declaring type and replaces their values
+// in insert and update documents. Implementations must support concurrent calls
+// and keep request-specific state local to each call.
+type FieldTransformer interface {
+	Matches(owner reflect.Type, field reflect.StructField) bool
+	// Transform receives the translation context, enclosing type, Go field
+	// index path (including inline ancestors), and stored BSON name. The
+	// lazy encoder preserves the field's registry, minsize and addressability.
+	// The path is read-only and encode is valid only during this call.
+	Transform(ctx context.Context, owner reflect.Type, path []int, name string,
+		encode func() (bson.RawValue, error)) (bson.Binary, error)
+}
+
 // fieldTransforms belongs to one translation. A whole-value codec may run
 // only after proving it cannot bypass a selected field, even in a dynamic
 // interface or in private storage exposed by a custom encoder (e.g. Optional).
 type fieldTransforms struct {
 	ctx context.Context
-	bsonfield.Transformer
+	FieldTransformer
 	types map[reflect.Type]bsonfield.Selection
 }
 
@@ -119,7 +132,7 @@ func (ft *fieldTransforms) replace(df docField, v reflect.Value, ec encCtx) (any
 	if ft.required(v, 0, true) {
 		return nil, fmt.Errorf("%w: selected field %s.%s contains another selected field", bsonfield.ErrFieldTransform, ec.owner, df.name)
 	}
-	return ft.Transform(ft.ctx, ec.owner, df.index, df.name, v, ec.reg, func() (bson.RawValue, error) {
+	return ft.Transform(ft.ctx, ec.owner, df.index, df.name, func() (bson.RawValue, error) {
 		return encodeTransformValue(v, ec)
 	})
 }

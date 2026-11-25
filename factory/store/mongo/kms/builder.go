@@ -19,7 +19,10 @@ import (
 	kmslocal "github.com/altessa-s/go-atlas/store/mongo/kms/providers/local"
 )
 
-// ProviderBuilder assembles a [kms.Provider] step by step using a fluent API.
+// ProviderFunc constructs a custom KMS provider from the selected config and injected TLS settings.
+type ProviderFunc func(*mongoconfig.KMS, *tls.Config) (kms.MasterKeyProvider, error)
+
+// ProviderBuilder assembles a [kms.MasterKeyProvider] step by step using a fluent API.
 // Create instances with [New]. Errors are accumulated and reported at [ProviderBuilder.Build] time.
 // The builder is not safe for concurrent use.
 type ProviderBuilder struct {
@@ -29,6 +32,7 @@ type ProviderBuilder struct {
 
 	// Dependencies
 	tlsConfig *tls.Config
+	providers map[mongoconfig.KMSProvider]ProviderFunc
 }
 
 // New creates a [ProviderBuilder] for the given KMS config.
@@ -42,7 +46,7 @@ func New(cfg *mongoconfig.KMS) *ProviderBuilder {
 
 // Build creates a KMS provider from configuration.
 // Errors from fluent methods are accumulated and reported here via [errors.Join].
-func (b *ProviderBuilder) Build() (kms.Provider, error) {
+func (b *ProviderBuilder) Build() (kms.MasterKeyProvider, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -60,12 +64,14 @@ func (b *ProviderBuilder) Build() (kms.Provider, error) {
 		return b.createAzureProvider()
 	case mongoconfig.KMSProviderGCP:
 		return b.createGCPProvider()
-	default:
-		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported KMS provider: %s", b.cfg.Provider)
 	}
+	if build, ok := b.providers[b.cfg.Provider]; ok && b.cfg.Provider != "" {
+		return build(b.cfg, b.tlsConfig)
+	}
+	return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported KMS provider: %s", b.cfg.Provider)
 }
 
-func (b *ProviderBuilder) createLocalProvider() (kms.Provider, error) {
+func (b *ProviderBuilder) createLocalProvider() (kms.MasterKeyProvider, error) {
 	if b.cfg.Local == nil {
 		return nil, corefactory.ErrConfigRequired
 	}
@@ -77,7 +83,7 @@ func (b *ProviderBuilder) createLocalProvider() (kms.Provider, error) {
 	return kmslocal.New(opts...)
 }
 
-func (b *ProviderBuilder) createAWSProvider() (kms.Provider, error) {
+func (b *ProviderBuilder) createAWSProvider() (kms.MasterKeyProvider, error) {
 	cfg := b.cfg.AWS
 	if cfg == nil {
 		return nil, corefactory.ErrConfigRequired
@@ -91,7 +97,7 @@ func (b *ProviderBuilder) createAWSProvider() (kms.Provider, error) {
 	return kmsaws.New(cfg.AccessKeyId, cfg.SecretAccessKey.Expose(), cfg.Key, opts...), nil
 }
 
-func (b *ProviderBuilder) createAzureProvider() (kms.Provider, error) {
+func (b *ProviderBuilder) createAzureProvider() (kms.MasterKeyProvider, error) {
 	cfg := b.cfg.Azure
 	if cfg == nil {
 		return nil, corefactory.ErrConfigRequired
@@ -105,7 +111,7 @@ func (b *ProviderBuilder) createAzureProvider() (kms.Provider, error) {
 	return kmsazure.New(cfg.ClientId, cfg.ClientSecret.Expose(), cfg.TenantId, cfg.KeyName, opts...), nil
 }
 
-func (b *ProviderBuilder) createGCPProvider() (kms.Provider, error) {
+func (b *ProviderBuilder) createGCPProvider() (kms.MasterKeyProvider, error) {
 	cfg := b.cfg.GCP
 	if cfg == nil {
 		return nil, corefactory.ErrConfigRequired

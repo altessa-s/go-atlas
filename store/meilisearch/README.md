@@ -43,7 +43,7 @@ err = client.SetupIndexes(ctx, []meilisearch.IndexDefinition{
 
 ## Methods
 
-`Client` implements `MeilisearchClient`, the interface domain code should depend on instead of the concrete type.
+`Client` implements `IndexManager`, `DocumentClient`, `Searcher`, `TaskWaiter`, and `HealthChecker`. Consumers can depend on the roles they use.
 
 ### Client lifecycle
 

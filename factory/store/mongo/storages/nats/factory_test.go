@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/store/mongo"
 
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	mongofactory "github.com/altessa-s/go-atlas/factory/store/mongo"
 )
 
@@ -109,4 +110,5 @@ func TestBuilder_Errors(t *testing.T) {
 	_, js := natstest.ConnectJetStream(t, ns)
 	_, err = factory.Builder(js)(t.Context(), &storageconfig.BackendConfig{Type: storageconfig.BackendTypeNATS}, 0, logger)
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }

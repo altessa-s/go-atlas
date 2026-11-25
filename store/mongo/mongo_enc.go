@@ -10,19 +10,80 @@ package mongo
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/internal/bsonfield"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
+	"github.com/altessa-s/go-atlas/store/mongo/kms"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
+
+type fieldEncryption struct {
+	provider         kms.MasterKeyProvider
+	vaultDatabase    string
+	vaultCollection  string
+	encryptionClient clientEncryption
+	registry         *bson.Registry
+	dkids            sync.Map
+}
+
+// clientEncryption is the subset of [mongo.ClientEncryption] the package
+// uses. It is an interface so the key-vault and encryption paths can be
+// exercised without libmongocrypt.
+type clientEncryption interface {
+	GetKeyByAltName(ctx context.Context, keyAltName string) *mongo.SingleResult
+	CreateDataKey(ctx context.Context, kmsProvider string, opts ...mongoOptions.Lister[mongoOptions.DataKeyOptions]) (bson.Binary, error)
+	Encrypt(ctx context.Context, val bson.RawValue, opts ...mongoOptions.Lister[mongoOptions.EncryptOptions]) (bson.Binary, error)
+	Close(ctx context.Context) error
+}
+
+var _ clientEncryption = (*mongo.ClientEncryption)(nil)
+
+func (m *fieldEncryption) open(ctx context.Context, client *mongo.Client) error {
+	if m.provider == nil {
+		return nil
+	}
+	// Create collection for key vault. This is a one-time operation.
+	// The key vault collection should be created before using encryption.
+	if err := createKeyVaultCollection(ctx, client.Database(m.vaultDatabase), m.vaultCollection); err != nil {
+		return err
+	}
+
+	clientEncryptionOpts := mongoOptions.ClientEncryption().
+		SetKeyVaultNamespace(m.vaultDatabase + "." + m.vaultCollection).
+		SetKmsProviders(m.provider.Credentials())
+
+	if tlsProvider, ok := m.provider.(kms.TLSConfigurer); ok {
+		if tlsConfig := tlsProvider.TLSConfig(); tlsConfig != nil {
+			clientEncryptionOpts.SetTLSConfig(map[string]*tls.Config{
+				m.provider.Name(): tlsConfig,
+			})
+		}
+	}
+
+	// Use the main client for encryption operations (MongoDB Go driver explicitly supports this)
+	ce, err := mongo.NewClientEncryption(client, clientEncryptionOpts)
+	if err != nil {
+		return err
+	}
+	m.encryptionClient = ce
+	return nil
+}
+
+func (m *fieldEncryption) close(ctx context.Context) error {
+	if m.encryptionClient == nil {
+		return nil
+	}
+	return m.encryptionClient.Close(ctx)
+}
 
 // EncryptionAlg represents the encryption algorithm used for field-level encryption.
 type EncryptionAlg string
@@ -66,7 +127,7 @@ func (d DataKeyId) String() string {
 // IsEncryptionConfigured returns true if encryption is configured and available.
 // This helper function checks if encryption is enabled and a KMS provider is configured.
 func (m *Mongo) IsEncryptionConfigured() bool {
-	return m.config.EncryptionEnabled && m.config.KMS != nil
+	return m.encryption.provider != nil
 }
 
 // DataKey retrieves or creates a data encryption key by its alternative name.
@@ -93,7 +154,11 @@ func (m *Mongo) IsEncryptionConfigured() bool {
 //		return err
 //	}
 func (m *Mongo) DataKey(ctx context.Context, altName string, create bool) (*DataKeyId, error) {
-	if !m.IsEncryptionConfigured() {
+	return m.encryption.dataKey(ctx, altName, create)
+}
+
+func (m *fieldEncryption) dataKey(ctx context.Context, altName string, create bool) (*DataKeyId, error) {
+	if m.provider == nil {
 		return nil, ErrEncryptionNotEnabled
 	}
 
@@ -114,7 +179,7 @@ func (m *Mongo) DataKey(ctx context.Context, altName string, create bool) (*Data
 		return nil, err
 	}
 
-	return m.CreateDataKey(ctx, altName)
+	return m.createDataKey(ctx, altName)
 }
 
 // CreateDataKey creates a new data encryption key with the specified alternative name.
@@ -132,7 +197,11 @@ func (m *Mongo) DataKey(ctx context.Context, altName string, create bool) (*Data
 //   - *DataKeyId: The created or existing data key identifier
 //   - error: Error if encryption is not enabled or key creation fails
 func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
-	if !m.IsEncryptionConfigured() {
+	return m.encryption.createDataKey(ctx, altName)
+}
+
+func (m *fieldEncryption) createDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
+	if m.provider == nil {
 		return nil, ErrEncryptionNotEnabled
 	}
 
@@ -148,11 +217,11 @@ func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, 
 	dataKeyOpts := mongoOptions.DataKey().
 		SetKeyAltNames([]string{altName})
 
-	if masterKey := m.config.KMS.MasterKey(); masterKey != nil {
+	if masterKey := m.provider.MasterKey(); masterKey != nil {
 		dataKeyOpts.SetMasterKey(masterKey)
 	}
 
-	keyId, err := m.encryptionClient.CreateDataKey(ctx, m.config.KMS.Name(), dataKeyOpts)
+	keyId, err := m.encryptionClient.CreateDataKey(ctx, m.provider.Name(), dataKeyOpts)
 	if err != nil {
 		serr, ok := errors.AsType[mongo.ServerError](err)
 		if !ok || !serr.HasErrorCode(MongoErrorCodeDuplicateKey) {
@@ -178,7 +247,7 @@ func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, 
 // lookupDataKey reads the data key stored under altName in the key vault. It
 // returns [ErrDataKeyNotFound] when no key exists and rejects a document
 // whose _id is not a non-empty binary, so an invalid id is never cached.
-func (m *Mongo) lookupDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
+func (m *fieldEncryption) lookupDataKey(ctx context.Context, altName string) (*DataKeyId, error) {
 	res := m.encryptionClient.GetKeyByAltName(ctx, altName)
 	if err := res.Err(); err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -210,7 +279,7 @@ func (m *Mongo) lookupDataKey(ctx context.Context, altName string) (*DataKeyId, 
 // the cached id for the lifetime of the [Mongo] instance and silently
 // defeats key rotation.
 func (m *Mongo) InvalidateDataKey(altName string) {
-	m.dkids.Delete(altName)
+	m.encryption.dkids.Delete(altName)
 }
 
 // InvalidateAllDataKeys clears every cached DataKeyId. Useful after a
@@ -219,24 +288,10 @@ func (m *Mongo) InvalidateDataKey(altName string) {
 // Functionally equivalent to a full cache flush; the next DataKey call
 // for any altName will re-fetch from the vault.
 func (m *Mongo) InvalidateAllDataKeys() {
-	m.dkids.Range(func(k, _ any) bool {
-		m.dkids.Delete(k)
+	m.encryption.dkids.Range(func(k, _ any) bool {
+		m.encryption.dkids.Delete(k)
 		return true
 	})
-}
-
-// ConvertToNewDocument builds an insert document using the client's registry and BSON layout.
-// Encryption rules select fields by Go name in an [EncryptionModel] or by a struct tag
-// such as encryption:"deterministic,email_key". Encryption failures return no document.
-func (m *Mongo) ConvertToNewDocument(ctx context.Context, entity any) (bson.M, error) {
-	return m.insertDocument.Translate(bsonfield.WithTransformer(ctx, m.encryptedFields), entity)
-}
-
-// ConvertToUpdateDocument builds $set and $unset using the same field layout and encryption
-// rules as [Mongo.ConvertToNewDocument]. Updates skip the root _id, identifiers and
-// omitonupdate fields. A subdocument with protected descendants uses dotted update paths.
-func (m *Mongo) ConvertToUpdateDocument(ctx context.Context, entity any) (bson.M, error) {
-	return m.updateDocument.Translate(bsonfield.WithTransformer(ctx, m.encryptedFields), entity)
 }
 
 // Encrypt explicitly encrypts a value using the specified algorithm and data key.
@@ -263,11 +318,15 @@ func (m *Mongo) ConvertToUpdateDocument(ctx context.Context, entity any) (bson.M
 //	// Store in document
 //	doc := bson.M{"user_id": userID, "credit_card": encryptedCC}
 func (m *Mongo) Encrypt(ctx context.Context, data any, alg EncryptionAlg, altName string) (*bson.Binary, error) {
-	if !m.IsEncryptionConfigured() {
+	return m.encryption.encrypt(ctx, data, alg, altName)
+}
+
+func (m *fieldEncryption) encrypt(ctx context.Context, data any, alg EncryptionAlg, altName string) (*bson.Binary, error) {
+	if m.provider == nil {
 		return nil, ErrEncryptionNotEnabled
 	}
 
-	dkid, err := m.DataKey(ctx, altName, true)
+	dkid, err := m.dataKey(ctx, altName, true)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +343,7 @@ func (m *Mongo) Encrypt(ctx context.Context, data any, alg EncryptionAlg, altNam
 
 // encodePlaintext is the registry-aware equivalent of bson.MarshalValue.
 // The enclosing document gives the public driver writer a place to flush one value.
-func (m *Mongo) encodePlaintext(data any) (bson.RawValue, error) {
+func (m *fieldEncryption) encodePlaintext(data any) (bson.RawValue, error) {
 	var buf bytes.Buffer
 	doc, err := bson.NewDocumentWriter(&buf).WriteDocument()
 	if err != nil {
@@ -307,8 +366,8 @@ func (m *Mongo) encodePlaintext(data any) (bson.RawValue, error) {
 	return bson.Raw(buf.Bytes()).LookupErr("v")
 }
 
-func (m *Mongo) encryptDocumentField(ctx context.Context, raw bson.RawValue, algorithm, key string) (bson.Binary, error) {
-	if !m.IsEncryptionConfigured() || m.encryptionClient == nil {
+func (m *fieldEncryption) encryptDocumentField(ctx context.Context, raw bson.RawValue, algorithm, key string) (bson.Binary, error) {
+	if m.provider == nil || m.encryptionClient == nil {
 		return bson.Binary{}, ErrEncryptionNotEnabled
 	}
 	alg, err := EncryptionAlgFromAlias(algorithm)

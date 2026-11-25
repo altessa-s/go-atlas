@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/altessa-s/go-atlas/internal/bsonfield"
 	"github.com/altessa-s/go-atlas/mapping/behavior"
 	"github.com/altessa-s/go-atlas/mapping/behavior/translators/mongo"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
@@ -44,8 +43,8 @@ func BenchmarkTransformedInsert(b *testing.B) {
 		return ciphertext, nil
 	})
 	require.NoError(b, err)
-	ctx := bsonfield.WithTransformer(b.Context(), fields)
-	engine := behavior.New(mongo.NewInsertTranslator())
+	ctx := b.Context()
+	engine := behavior.New(mongo.NewInsertTranslator(mongo.WithFieldTransformer(fields)))
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := engine.Translate(ctx, entity); err != nil {

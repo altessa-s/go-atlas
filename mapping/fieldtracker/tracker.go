@@ -6,10 +6,12 @@ package fieldtracker
 
 import (
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
+	"unsafe"
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	corestrings "github.com/altessa-s/go-atlas-core/text/strings"
@@ -52,9 +54,9 @@ type typeInfo struct {
 
 // fieldInfo caches information about a struct field
 type fieldInfo struct {
-	index      int
-	jsonName   string
-	isEmbedded bool // true if this is an embedded (anonymous) struct field
+	index       int
+	pathSegment string
+	isEmbedded  bool // true if this is an embedded (anonymous) struct field
 }
 
 // Pre-allocated buffer pools for different sizes
@@ -143,6 +145,7 @@ func (ft *Tracker) GetChangedFields(before, after any) []string {
 
 	beforeVal := reflect.ValueOf(before)
 	afterVal := reflect.ValueOf(after)
+	beforeRoot, afterRoot := beforeVal, afterVal
 
 	// Dereference pointers
 	if beforeVal.Kind() == reflect.Pointer {
@@ -171,10 +174,13 @@ func (ft *Tracker) GetChangedFields(before, after any) []string {
 
 	// Get pooled slice for changed fields
 	changedPtr := changedFieldsPool.Get().(*[]string) //nolint:errcheck
-	changed := *changedPtr
-	changed = changed[:0] // Reset length but keep capacity
-
-	ft.compareStructsFast(beforeVal, afterVal, "", &changed, 0)
+	state := comparison{
+		changed:    (*changedPtr)[:0],
+		beforeRoot: beforeRoot,
+		afterRoot:  afterRoot,
+	}
+	ft.compareStructsFast(beforeVal, afterVal, "", &state, 0)
+	changed := state.changed
 
 	// Make a copy to return (so we can return the pooled slice)
 	result := make([]string, len(changed))
@@ -188,12 +194,74 @@ func (ft *Tracker) GetChangedFields(before, after any) []string {
 	return result
 }
 
-// compareStructsFast uses optimized comparison with zero-allocation path building
-func (ft *Tracker) compareStructsFast(before, after reflect.Value, prefix string, changed *[]string, depth int) {
-	if ft.opts.maxDepth > 0 && depth > ft.opts.maxDepth {
-		return
-	}
+// comparison is local to one call. Only pairs on the current recursion path
+// are tracked, so the same pair reached independently through two fields still
+// produces changes for both field paths.
+type comparison struct {
+	changed               []string
+	beforeRoot, afterRoot reflect.Value
 
+	// The common shallow path stays entirely on the stack. For deeper
+	// paths, a map keeps cycle checks bounded by the inline capacity.
+	active [8]referencePair
+	depth  int
+	spill  map[referencePair]struct{}
+}
+
+type referencePair struct {
+	typ       reflect.Type
+	before    unsafe.Pointer
+	after     unsafe.Pointer
+	beforeLen int
+	afterLen  int
+}
+
+func referenceOf(before, after reflect.Value) referencePair {
+	ref := referencePair{typ: before.Type(), before: before.UnsafePointer(), after: after.UnsafePointer()}
+	if before.Kind() == reflect.Slice {
+		ref.beforeLen, ref.afterLen = before.Len(), after.Len()
+	}
+	return ref
+}
+
+func (c *comparison) enter(ref referencePair) bool {
+	if slices.Contains(c.active[:min(c.depth, len(c.active))], ref) {
+		return false
+	}
+	if c.depth < len(c.active) {
+		c.active[c.depth] = ref
+	} else {
+		if _, ok := c.spill[ref]; ok {
+			return false
+		}
+		if c.spill == nil {
+			c.spill = make(map[referencePair]struct{})
+		}
+		c.spill[ref] = struct{}{}
+	}
+	c.depth++
+	return true
+}
+
+func (c *comparison) leave(ref referencePair) {
+	c.depth--
+	if c.depth >= len(c.active) {
+		delete(c.spill, ref)
+	}
+}
+
+// isRoot recognizes a pointer back edge to the two input structs.
+func (c *comparison) isRoot(ref referencePair) bool {
+	return ref.typ == c.beforeRoot.Type() && ref.typ == c.afterRoot.Type() &&
+		ref.before == c.beforeRoot.UnsafePointer() && ref.after == c.afterRoot.UnsafePointer()
+}
+
+func (ft *Tracker) depthExceeded(depth int) bool {
+	return ft.opts.maxDepth > 0 && depth > ft.opts.maxDepth
+}
+
+// compareStructsFast uses optimized comparison with zero-allocation path building.
+func (ft *Tracker) compareStructsFast(before, after reflect.Value, prefix string, state *comparison, depth int) {
 	typ := before.Type()
 
 	// Get or build type info
@@ -228,7 +296,7 @@ func (ft *Tracker) compareStructsFast(before, after reflect.Value, prefix string
 			pathBuf = append(pathBuf, prefix...)
 			pathBuf = append(pathBuf, '.')
 		}
-		pathBuf = append(pathBuf, field.jsonName...)
+		pathBuf = append(pathBuf, field.pathSegment...)
 
 		// Skip ignored fields; the string(pathBuf) map key does not allocate.
 		if _, ok := ft.opts.ignoreFields[string(pathBuf)]; ok {
@@ -241,8 +309,8 @@ func (ft *Tracker) compareStructsFast(before, after reflect.Value, prefix string
 		if field.isEmbedded {
 			// Flatten child paths, but report the embedded field itself when
 			// its nil state or opaque value changes.
-			if !ft.fastCompare(beforeField, afterField, prefix, changed, depth+1) {
-				*changed = append(*changed, fieldPathOf(prefix, field.jsonName, pathBuf))
+			if !ft.fastCompare(beforeField, afterField, prefix, state, depth+1) {
+				state.changed = append(state.changed, fieldPathOf(prefix, field.pathSegment, pathBuf))
 			}
 			continue
 		}
@@ -251,14 +319,14 @@ func (ft *Tracker) compareStructsFast(before, after reflect.Value, prefix string
 		// cost no allocation. Top-level fields reuse the cached JSON name.
 		if eq, ok := primitiveEqual(beforeField, afterField); ok {
 			if !eq {
-				*changed = append(*changed, fieldPathOf(prefix, field.jsonName, pathBuf))
+				state.changed = append(state.changed, fieldPathOf(prefix, field.pathSegment, pathBuf))
 			}
 			continue
 		}
 
-		fieldPath := fieldPathOf(prefix, field.jsonName, pathBuf)
-		if !ft.fastCompare(beforeField, afterField, fieldPath, changed, depth+1) {
-			*changed = append(*changed, fieldPath)
+		fieldPath := fieldPathOf(prefix, field.pathSegment, pathBuf)
+		if !ft.fastCompare(beforeField, afterField, fieldPath, state, depth+1) {
+			state.changed = append(state.changed, fieldPath)
 		}
 	}
 }
@@ -273,7 +341,7 @@ func fieldPathOf(prefix, jsonName string, buf []byte) string {
 }
 
 // fastCompare uses type-specific fast paths for common cases
-func (ft *Tracker) fastCompare(before, after reflect.Value, prefix string, changed *[]string, depth int) bool {
+func (ft *Tracker) fastCompare(before, after reflect.Value, prefix string, state *comparison, depth int) bool {
 	// Handle nil values
 	if !before.IsValid() && !after.IsValid() {
 		return true
@@ -282,26 +350,32 @@ func (ft *Tracker) fastCompare(before, after reflect.Value, prefix string, chang
 		return false
 	}
 
+	// Interfaces are transparent. Checking the concrete types here catches a
+	// type change at the current path before traversing either value.
+	if before.Kind() == reflect.Interface {
+		if before.IsNil() || after.IsNil() {
+			return before.IsNil() == after.IsNil()
+		}
+		before, after = before.Elem(), after.Elem()
+		if before.Type() != after.Type() {
+			return false
+		}
+	}
+
 	if eq, ok := primitiveEqual(before, after); ok {
 		return eq
 	}
 
 	switch before.Kind() {
 	case reflect.Pointer:
-		// Handle pointer comparison
-		if before.IsNil() && after.IsNil() {
-			return true
-		}
-		if before.IsNil() || after.IsNil() {
-			return false
-		}
-
-		return ft.fastCompare(before.Elem(), after.Elem(), prefix, changed, depth)
+		return ft.comparePointer(before, after, prefix, state, depth)
 
 	case reflect.Struct:
 		info := ft.getTypeInfo(before.Type())
 		if info.trackable {
-			ft.compareStructsFast(before, after, prefix, changed, depth)
+			if !ft.depthExceeded(depth) {
+				ft.compareStructsFast(before, after, prefix, state, depth)
+			}
 			return true
 		}
 		// An unexported embedded struct may expose public children, but
@@ -311,38 +385,59 @@ func (ft *Tracker) fastCompare(before, after reflect.Value, prefix string, chang
 		}
 		return reflect.DeepEqual(before.Interface(), after.Interface())
 
-	case reflect.Slice, reflect.Array:
-		return ft.compareSliceFast(before, after, prefix, changed, depth)
+	case reflect.Slice, reflect.Map:
+		return ft.compareReferencedCollection(before, after, prefix, state, depth)
 
-	case reflect.Map:
-		return ft.compareMapFast(before, after, prefix, changed, depth)
-
-	case reflect.Interface:
-		if before.IsNil() && after.IsNil() {
-			return true
-		}
-		if before.IsNil() || after.IsNil() {
-			return false
-		}
-		beforeElem, afterElem := before.Elem(), after.Elem()
-		// Dynamic types may differ behind an interface; the kind dispatch
-		// below assumes both sides share a type.
-		if beforeElem.Type() != afterElem.Type() {
-			return false
-		}
-		return ft.fastCompare(beforeElem, afterElem, prefix, changed, depth)
+	case reflect.Array:
+		return ft.depthExceeded(depth) || ft.compareSliceFast(before, after, prefix, state, depth)
 
 	default:
-		// Fallback to DeepEqual for complex types
 		return reflect.DeepEqual(before.Interface(), after.Interface())
 	}
 }
 
+func (ft *Tracker) comparePointer(before, after reflect.Value, prefix string, state *comparison, depth int) bool {
+	if before.IsNil() || after.IsNil() {
+		return before.IsNil() == after.IsNil()
+	}
+	ref := referenceOf(before, after)
+	if ref.before == ref.after || state.isRoot(ref) || !state.enter(ref) {
+		return true
+	}
+	defer state.leave(ref)
+	before, after = before.Elem(), after.Elem()
+	// A single pointer has the depth of its field or collection slot.
+	// Additional indirection within the slot also consumes depth.
+	if before.Kind() == reflect.Pointer || before.Kind() == reflect.Interface {
+		if ft.depthExceeded(depth) {
+			return true
+		}
+		depth++
+	}
+	return ft.fastCompare(before, after, prefix, state, depth)
+}
+
+func (ft *Tracker) compareReferencedCollection(before, after reflect.Value, prefix string, state *comparison, depth int) bool {
+	if ft.depthExceeded(depth) || (before.Len() == 0 && after.Len() == 0) {
+		return true
+	}
+	ref := referenceOf(before, after)
+	if (ref.before == ref.after && ref.beforeLen == ref.afterLen) || !state.enter(ref) {
+		return true
+	}
+	defer state.leave(ref)
+
+	if before.Kind() == reflect.Map {
+		return ft.compareMapFast(before, after, prefix, state, depth)
+	}
+	return ft.compareSliceFast(before, after, prefix, state, depth)
+}
+
 // compareSliceFast optimized slice comparison
-func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, changed *[]string, depth int) bool {
+func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, state *comparison, depth int) bool {
 	if before.Len() != after.Len() {
 		if _, ok := ft.opts.ignoreFields[prefix]; !ok {
-			*changed = append(*changed, prefix)
+			state.changed = append(state.changed, prefix)
 		}
 		return true
 	}
@@ -378,7 +473,7 @@ func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, 
 		if eq, ok := primitiveEqual(beforeItem, afterItem); ok {
 			if !eq {
 				if pathStr := buildPath(i); !ft.isIgnored(pathStr) {
-					*changed = append(*changed, pathStr)
+					state.changed = append(state.changed, pathStr)
 				}
 			}
 			continue
@@ -388,8 +483,8 @@ func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, 
 		if ft.isIgnored(pathStr) {
 			continue
 		}
-		if !ft.fastCompare(beforeItem, afterItem, pathStr, changed, depth) {
-			*changed = append(*changed, pathStr)
+		if !ft.fastCompare(beforeItem, afterItem, pathStr, state, depth+1) {
+			state.changed = append(state.changed, pathStr)
 		}
 	}
 	return true
@@ -421,7 +516,7 @@ func primitiveEqual(before, after reflect.Value) (equal, ok bool) {
 }
 
 // compareMapFast optimized map comparison
-func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, changed *[]string, depth int) bool {
+func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, state *comparison, depth int) bool {
 	if before.Len() == 0 && after.Len() == 0 {
 		return true
 	}
@@ -440,7 +535,7 @@ func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, ch
 			// Key present in "before" but missing in "after"
 			mapPath := prefix + "[" + formatMapKey(key) + "]"
 			if _, ok := ft.opts.ignoreFields[mapPath]; !ok {
-				*changed = append(*changed, mapPath)
+				state.changed = append(state.changed, mapPath)
 			}
 			continue
 		}
@@ -451,7 +546,7 @@ func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, ch
 			if !eq {
 				mapPath := prefix + "[" + formatMapKey(key) + "]"
 				if _, ok := ft.opts.ignoreFields[mapPath]; !ok {
-					*changed = append(*changed, mapPath)
+					state.changed = append(state.changed, mapPath)
 				}
 			}
 			continue
@@ -461,8 +556,8 @@ func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, ch
 		if ft.isIgnored(mapPath) {
 			continue
 		}
-		if !ft.fastCompare(beforeVal, afterVal, mapPath, changed, depth) {
-			*changed = append(*changed, mapPath)
+		if !ft.fastCompare(beforeVal, afterVal, mapPath, state, depth+1) {
+			state.changed = append(state.changed, mapPath)
 		}
 	}
 
@@ -475,32 +570,11 @@ func (ft *Tracker) compareMapFast(before, after reflect.Value, prefix string, ch
 
 		mapPath := prefix + "[" + formatMapKey(key) + "]"
 		if _, ok := ft.opts.ignoreFields[mapPath]; !ok {
-			*changed = append(*changed, mapPath)
+			state.changed = append(state.changed, mapPath)
 		}
 	}
 
 	return true
-}
-
-// formatMapKey formats a map key efficiently
-func formatMapKey(v reflect.Value) string {
-	switch v.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return strconv.FormatInt(v.Int(), 10)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return strconv.FormatUint(v.Uint(), 10)
-	case reflect.Float32:
-		return strconv.FormatFloat(v.Float(), 'f', -1, 32)
-	case reflect.Float64:
-		return strconv.FormatFloat(v.Float(), 'f', -1, 64)
-	case reflect.Bool:
-		return strconv.FormatBool(v.Bool())
-	case reflect.String:
-		return v.String()
-	default:
-		// Fallback - this allocates but is rare
-		return v.String()
-	}
 }
 
 // buildTypeInfoFast builds type information with optimized field name extraction
@@ -527,9 +601,9 @@ func (ft *Tracker) buildTypeInfoFast(typ reflect.Type) *typeInfo {
 			continue
 		}
 		info.fields = append(info.fields, fieldInfo{
-			index:      i,
-			jsonName:   ft.getFieldNameFast(field),
-			isEmbedded: embedded && tagName == "",
+			index:       i,
+			pathSegment: escapeFieldSegment(ft.getFieldNameFast(field)),
+			isEmbedded:  embedded && tagName == "",
 		})
 	}
 

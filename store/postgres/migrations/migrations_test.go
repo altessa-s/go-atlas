@@ -230,3 +230,29 @@ func TestLockQueryDeadline(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NoError(t, ctx.Err(), "stalled query used the acquisition deadline")
 }
+
+func TestInjectedRegistryOperations(t *testing.T) {
+	t.Parallel()
+	var r Registry
+	require.NoError(t, r.Register(2, "private", noop, nil))
+	require.ErrorIs(t, r.Register(2, "duplicate", noop, nil), ErrInvalidMigration)
+	// A canceled checkout distinguishes nonempty registries from the empty fast path.
+	db, _ := testhelpers.NewFakeSQL(t, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, tc := range []struct {
+		name string
+		call func(context.Context, *sql.DB, ...Option) error
+	}{
+		{"run", Run}, {"down", Down}, {"status", func(ctx context.Context, db *sql.DB, opts ...Option) error {
+			_, err := Status(ctx, db, opts...)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.ErrorIs(t, tc.call(ctx, db, WithRegistry(&r)), context.Canceled)
+			require.NoError(t, tc.call(ctx, db, WithRegistry(new(Registry))))
+		})
+	}
+}

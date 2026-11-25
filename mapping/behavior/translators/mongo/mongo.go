@@ -665,127 +665,24 @@ func removalError(t reflect.Type, ec encCtx) error {
 	}
 }
 
-// docTranslator folds a resolved behavior Object into an insert or update BSON
-// document. It implements [behavior.Translator] so the behavior engine's single
-// walk feeds this output model; build it through [NewInsertTranslator] /
-// [NewUpdateTranslator] and drive it with [github.com/altessa-s/go-atlas/mapping/behavior.New].
-//
-// A docTranslator holds no per-call state and is safe for concurrent use: every
-// Translate call accumulates into fresh maps.
-type docTranslator struct {
-	o    *options
-	mode mode
-}
-
-// BindPolicy implements [behavior.PolicyBinder]: [behavior.New] calls it with
-// the engine's policy, which the update translator applies to the values it
-// judges from their declared type. t itself is left unchanged.
-func (t *docTranslator) BindPolicy(p behavior.Policy) behavior.Translator[bson.M] {
-	o := *t.o
-	o.policy = p
-	return &docTranslator{o: &o, mode: t.mode}
-}
-
-// NewInsertTranslator returns a [behavior.Translator] producing insert documents
-// under opts. It emits every exported field (bson name, omitempty, []byte binary,
-// nested/opaque-leaf as today) and applies no behavior-kind filtering — drive it
-// through [github.com/altessa-s/go-atlas/mapping/behavior.New] with no
-// behavior.WithKinds so nothing is marked Strip.
-func NewInsertTranslator(opts ...Option) behavior.Translator[bson.M] {
-	return &docTranslator{o: newOptions(opts...), mode: modeInsert}
-}
-
-// NewUpdateTranslator returns a [behavior.Translator] producing update documents
-// ({"$set": …, "$unset": …}) under opts. "_id" is removed from both; nil
-// pointers and empty collections of a non-stripped field go to "$unset"; nested
-// values are full-replaced in "$set", except a nested object holding a field
-// the update leaves out, which is written by descendant paths ("profile.name")
-// so the stored value of that field survives. Fields the engine marked Strip
-// are excluded from both operators — recursively through nested objects; a
-// replaced collection whose elements carry one fails with
-// [ErrProtectedInCollection], as the replacement cannot preserve it. A value
-// that would remove stored data without resolved fields to check — a nil
-// pointer, a nil or empty collection, a nil element — is judged from its
-// declared type under the engine's own policy, which [behavior.New] binds to
-// the translator (see [behavior.PolicyBinder]): when the type holds a field of
-// a kind the engine strips, read under the engine's tag key (or, outside a
-// collection, an identifier or omitonupdate field), the update fails with
-// [ErrProtectedUnset] for a subdocument and [ErrProtectedInCollection] for a
-// collection or inside one, instead of deleting the stored value. Populated
-// and removed values thus follow the same policy.
-// Drive it through
-// [github.com/altessa-s/go-atlas/mapping/behavior.New] with
-// behavior.WithKinds(behavior.DefaultUpdateKinds...) to exclude server-owned and
-// immutable fields. Identifier fields are excluded by the translator itself,
-// whatever kinds the engine strips: the identifier selects the record and is
-// never written, under "_id" or any other name, set or nil. An identifier
-// inside a collection element is the element's own and is written with it;
-// stripped by the engine, only when it carries no other kind and its value is
-// written as a unit (see excludeOnUpdate).
-func NewUpdateTranslator(opts ...Option) behavior.Translator[bson.M] {
-	return &docTranslator{o: newOptions(opts...), mode: modeUpdate}
-}
-
-// Translate folds root into a BSON document for the translator's mode.
-func (t *docTranslator) Translate(ctx context.Context, root behavior.Object) (bson.M, error) {
-	ec := encCtx{reg: t.o.registry}
-	if transformer := bsonfield.FromContext(ctx); transformer != nil {
+// translateDocument resolves field selection once per call, before encoding the document.
+func (o *options) translateDocument(ctx context.Context, root behavior.Object, encode func(behavior.Object, encCtx) (bson.M, error)) (bson.M, error) {
+	ec := encCtx{reg: o.registry}
+	if transformer := o.fieldTransformer; transformer != nil {
 		if nilcheck.IsNil(transformer) {
 			return nil, fmt.Errorf("%w: nil transformer", bsonfield.ErrFieldTransform)
 		}
-		ft := &fieldTransforms{ctx: ctx, Transformer: transformer, types: make(map[reflect.Type]bsonfield.Selection)}
+		ft := &fieldTransforms{ctx: ctx, FieldTransformer: transformer, types: make(map[reflect.Type]bsonfield.Selection)}
 		if ft.required(root.Value, 0, false) {
 			ec.transforms = ft
-			doc, err := t.translate(root, ec)
+			doc, err := encode(root, ec)
 			if err != nil && !errors.Is(err, bsonfield.ErrFieldTransform) {
 				return nil, fmt.Errorf("%w: %w", bsonfield.ErrFieldTransform, err)
 			}
 			return doc, err
 		}
 	}
-	return t.translate(root, ec)
-}
-
-func (t *docTranslator) translate(root behavior.Object, ec encCtx) (bson.M, error) {
-	if t.mode == modeUpdate {
-		// The root's keys are operator paths: a field whose stored name holds
-		// a dot (bson:"a.b", a literal key to the codec) would address another
-		// field, and a "$" prefix is not a field at all, so folding checks
-		// each one (see encCtx.addressed).
-		ec.addressed, ec.root = true, true
-		set, unset, err := foldObject(root, t.o, modeUpdate, ec)
-		if err != nil {
-			return nil, err
-		}
-		// _id is immutable in MongoDB: neither operator may touch it. Folding
-		// skips the root _id field (own or inline-contributed, with every
-		// descendant path); an inline map entry named _id is dropped here.
-		delete(set, "_id")
-		delete(unset, "_id")
-		result := bson.M{"$set": set}
-		if len(unset) > 0 {
-			result["$unset"] = unset
-		}
-		return result, nil
-	}
-
-	if t.o.bsonTagName == DefaultBSONTagName && root.Value.IsValid() {
-		if ec.transforms == nil {
-			return encodeInsert(root.Value, t.o.registry)
-		}
-		// A root codec can choose arbitrary names or duplicate plaintext.
-		if isCodecLeaf(root.Value, ec) || (root.Value.CanAddr() && isCodecLeaf(root.Value.Addr(), ec)) {
-			return nil, ec.transforms.opaque(root.Value)
-		}
-	}
-	set, _, err := foldObject(root, t.o, modeInsert, ec)
-	if err != nil {
-		return nil, err
-	}
-	if t.o.bsonTagName == DefaultBSONTagName && ec.transforms != nil {
-		return encodeInsert(reflect.ValueOf(set), nil)
-	}
-	return set, nil
+	return encode(root, ec)
 }
 
 // ErrUnaddressableName reports a stored field name an update operator or a
@@ -812,42 +709,6 @@ var ErrProtectedInCollection = errors.New("stripped field inside a replaced coll
 // collection and a nil collection element fail with
 // [ErrProtectedInCollection] instead.
 var ErrProtectedUnset = errors.New("protected field inside a removed subdocument cannot be preserved")
-
-// encodeInsert builds an insert document by encoding v with the BSON codec
-// itself — an insert applies no behavior filtering, so the document is
-// exactly what the driver would store for v, inline fields, omitempty,
-// minsize and marshalers included — and decoding it into a bson.M (nested
-// documents as ordered bson.D, arrays as bson.A, values as their BSON Go
-// types). v is
-// encoded through its address when it has one, as the driver encodes a
-// pointer, with reg when it is non-nil. Keys starting with "$" are rejected at
-// any depth, as on the folding path, so no map can smuggle an operator-like key
-// into the document.
-func encodeInsert(v reflect.Value, reg *bson.Registry) (bson.M, error) {
-	// The codec recurses forever on a struct inlined into itself; reject what
-	// layoutOf rejects before handing the value over.
-	if err := validateCodecInput(v); err != nil {
-		return nil, err
-	}
-	target := v.Interface()
-	if v.CanAddr() {
-		target = v.Addr().Interface()
-	}
-	raw, err := marshal(target, reg)
-	if err != nil {
-		return nil, fmt.Errorf("behavior/mongo: encode insert document: %w", err)
-	}
-	if err := rejectOperatorKeys(raw); err != nil {
-		return nil, err
-	}
-	// Nested documents decode as bson.D: they keep the codec's key order (and
-	// any repeated key of an encoded bson.D), as the driver would store them.
-	var out bson.M
-	if err := bson.Unmarshal(raw, &out); err != nil {
-		return nil, fmt.Errorf("behavior/mongo: decode insert document: %w", err)
-	}
-	return out, nil
-}
 
 // validateCodecInput checks values whose declared type alone cannot rule
 // out recursive inline layouts or excessive nesting.

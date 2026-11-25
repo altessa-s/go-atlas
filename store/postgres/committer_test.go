@@ -456,3 +456,361 @@ func TestCancelDuringReplayBackoff(t *testing.T) {
 		require.False(t, kind.RetryableTransaction())
 	})
 }
+
+func TestSavepointUnitOfWorkRegistrations(t *testing.T) {
+	t.Parallel()
+
+	abort := errors.New("abort operation")
+	for _, tc := range []struct {
+		name              string
+		childErr, rootErr error
+		want              []string
+	}{
+		{"released", nil, nil, []string{"child hook", "root hook", "grandchild effect", "child effect"}},
+		{"rolled back", abort, nil, []string{"root hook"}},
+		{"root aborted", nil, abort, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			db, _ := testhelpers.NewFakeSQL(t, nil)
+			c, err := postgres.NewCommitter(db)
+			require.NoError(t, err)
+			r := uow.New(c, nil, uow.WithDetector(postgres.Transaction))
+			var applied []string
+			effect := func(label string) uow.Effect {
+				return uow.Effect{Label: label, Apply: func(context.Context) error {
+					applied = append(applied, label)
+					return nil
+				}}
+			}
+			err = r.Run(t.Context(), func(root context.Context) error {
+				var retained context.Context
+				saveErr := postgres.WithSavepoint(root, db, func(child context.Context) error {
+					retained = child
+					require.NoError(t, r.AfterCommit(child, func(context.Context) { applied = append(applied, "child hook") }))
+					require.NoError(t, r.AfterCommit(root, func(context.Context) { applied = append(applied, "root hook") }))
+					require.NoError(t, postgres.WithSavepoint(child, db, func(grandchild context.Context) error {
+						return uow.OnCommit(grandchild, effect("grandchild effect"))
+					}))
+					require.NoError(t, uow.OnCommit(child, effect("child effect")))
+					return tc.childErr
+				})
+				require.ErrorIs(t, saveErr, tc.childErr)
+				require.ErrorIs(t, r.AfterCommit(retained, func(context.Context) {}), uow.ErrScopeClosed)
+				require.ErrorIs(t, uow.OnCommit(retained, effect("late effect")), uow.ErrScopeClosed)
+				require.Empty(t, applied)
+				return tc.rootErr
+			})
+			require.ErrorIs(t, err, tc.rootErr)
+			require.Equal(t, tc.want, applied)
+		})
+	}
+}
+
+func TestFailedReleaseDiscardsUnitOfWorkEffect(t *testing.T) {
+	t.Parallel()
+	failure := errors.New("release failed")
+	releases := 0
+	db, _ := testhelpers.NewFakeSQL(t, func(query string, _ []any) testhelpers.FakeSQLReply {
+		if query == "RELEASE SAVEPOINT atlas_nested_operation" {
+			releases++
+			if releases == 1 {
+				return testhelpers.FakeSQLReply{Err: failure}
+			}
+		}
+		return testhelpers.FakeSQLReply{}
+	})
+	c, err := postgres.NewCommitter(db)
+	require.NoError(t, err)
+	r := uow.New(c, nil)
+	err = r.Run(t.Context(), func(root context.Context) error {
+		saveErr := postgres.WithSavepoint(root, db, func(child context.Context) error {
+			return uow.OnCommit(child, uow.Effect{Apply: func(context.Context) error {
+				t.Error("effect ran after unsuccessful savepoint release")
+				return nil
+			}})
+		})
+		require.ErrorIs(t, saveErr, failure)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, releases)
+}
+
+func TestFinishedSavepointCannotExecuteOrRegisterHooks(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "released"},
+		{name: "rolled back", err: errors.New("abort savepoint")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			db, fake := testhelpers.NewFakeSQL(t, nil)
+			wake := make(chan struct{}, 1)
+			require.NoError(t, postgres.WithTransaction(t.Context(), db, func(root context.Context) error {
+				var retained context.Context
+				var bound postgres.DBTX
+				require.ErrorIs(t, postgres.WithSavepoint(root, db, func(child context.Context) error {
+					retained = child
+					bound = postgres.Queryer(child, db)
+					_, err := bound.ExecContext(child, "child operation")
+					require.NoError(t, err)
+					return tc.err
+				}), tc.err)
+				owner, open := postgres.Tx(root)
+				require.True(t, open)
+				closed, open := postgres.Tx(retained)
+				require.Same(t, owner, closed)
+				require.False(t, open)
+				require.False(t, postgres.InWriteTransaction(retained))
+				calls := fake.Calls()
+				for _, q := range []postgres.DBTX{bound, postgres.Querier(db)} {
+					_, err := q.ExecContext(retained, "late")
+					require.ErrorIs(t, err, sql.ErrTxDone)
+					_, err = q.PrepareContext(retained, "late")
+					require.ErrorIs(t, err, sql.ErrTxDone)
+					_, err = q.QueryContext(retained, "late")
+					require.ErrorIs(t, err, sql.ErrTxDone)
+					require.ErrorIs(t, q.QueryRowContext(retained, "late").Scan(), sql.ErrTxDone)
+				}
+				_, err := bound.ExecContext(root, "late using parent context")
+				require.ErrorIs(t, err, sql.ErrTxDone)
+				require.Equal(t, calls, fake.Calls())
+				postgres.AfterCommit(retained, func() { t.Error("closed savepoint registered a hook") })
+				postgres.NotifyAfterCommit(retained, wake)
+				_, err = postgres.Querier(db).ExecContext(root, "parent operation")
+				return err
+			}))
+			require.Equal(t, 1, fake.Commits())
+			require.Zero(t, fake.Rollbacks())
+			require.Empty(t, wake)
+		})
+	}
+}
+
+func TestAfterCommitContextStartsFreshUnitOfWork(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	c, err := postgres.NewCommitter(db)
+	require.NoError(t, err)
+	r := uow.New(c, nil)
+	type requestKey struct{}
+	ctx := context.WithValue(t.Context(), requestKey{}, "request")
+	var callbackErr error
+	called := false
+	require.NoError(t, r.Run(ctx, func(root context.Context) error {
+		return postgres.WithSavepoint(root, db, func(child context.Context) error {
+			postgres.AfterCommitContext(child, func(fresh context.Context) {
+				called = true
+				require.Equal(t, "request", fresh.Value(requestKey{}))
+				_, deadline := fresh.Deadline()
+				require.False(t, deadline)
+				require.NoError(t, fresh.Err())
+				require.ErrorIs(t, uow.OnCommit(fresh, uow.Effect{}), uow.ErrNoUnitOfWork)
+				require.Equal(t, 1, fake.Commits())
+				callbackErr = r.Run(fresh, func(inner context.Context) error {
+					return uow.OnCommit(inner, uow.Effect{Apply: func(context.Context) error {
+						require.Equal(t, 2, fake.Commits())
+						return nil
+					}})
+				})
+			})
+			return nil
+		})
+	}))
+	require.True(t, called)
+	require.NoError(t, callbackErr)
+	require.Equal(t, 2, fake.Commits())
+}
+
+func TestUnitOfWorkRejectsOpenTransactionByDefault(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"root transaction", "savepoint", "snapshot"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			db, fake := testhelpers.NewFakeSQL(t, nil)
+			c, err := postgres.NewCommitter(db)
+			require.NoError(t, err)
+			r := uow.New(c, nil, uow.WithRunHooksOutsideTransaction())
+			check := func(ctx context.Context) error {
+				require.ErrorIs(t, r.Run(ctx, func(context.Context) error {
+					t.Error("unit body joined someone else's transaction")
+					return nil
+				}), uow.ErrForeignTransaction)
+				require.ErrorIs(t, r.AfterCommit(ctx, func(context.Context) {
+					t.Error("hook ran before its transaction committed")
+				}), uow.ErrForeignTransaction)
+				require.Zero(t, fake.Commits())
+				return nil
+			}
+			switch name {
+			case "root transaction":
+				require.NoError(t, postgres.WithTransaction(t.Context(), db, check))
+			case "savepoint":
+				require.NoError(t, postgres.WithTransaction(t.Context(), db, func(ctx context.Context) error {
+					return postgres.WithSavepoint(ctx, db, check)
+				}))
+			case "snapshot":
+				require.NoError(t, postgres.WithSnapshot(t.Context(), db, check))
+			}
+			require.Equal(t, 1, fake.Commits())
+		})
+	}
+}
+
+func TestUnitOfWorkAppliesEffectsAfterObserverPanic(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	c, err := postgres.NewCommitter(db, postgres.WithTxRetries(1), postgres.WithTxRetryDelay(time.Microsecond))
+	require.NoError(t, err)
+	r := uow.New(c, nil)
+	effectErr := errors.New("effect failed")
+	wake := make(chan struct{}, 1)
+	var calls []string
+	attempts := 0
+
+	err = r.Run(t.Context(), func(ctx context.Context) error {
+		attempts++
+		postgres.AfterCommit(ctx, func() {
+			calls = append(calls, "native observer")
+			// SQLSTATE 40001 is only replayable before a successful COMMIT.
+			panic(&pgconn.PgError{Code: "40001", Message: "private observer data"})
+		})
+		postgres.AfterCommit(ctx, func() { calls = append(calls, "next native observer") })
+		postgres.NotifyAfterCommit(ctx, wake)
+		require.NoError(t, uow.OnCommit(ctx, uow.Effect{Apply: func(context.Context) error {
+			require.Equal(t, 1, fake.Commits())
+			require.Len(t, wake, 1)
+			calls = append(calls, "effect")
+			return effectErr
+		}}))
+		return r.AfterCommit(ctx, func(context.Context) { calls = append(calls, "unit hook") })
+	})
+
+	require.ErrorIs(t, err, postgres.ErrPostCommitObserverPanicked)
+	require.ErrorIs(t, err, effectErr)
+	require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
+	require.NotContains(t, err.Error(), "private observer data")
+	require.Equal(t, 1, attempts)
+	require.Equal(t, []string{"native observer", "next native observer", "effect", "unit hook"}, calls)
+}
+
+type committerWrapper struct {
+	*postgres.Committer
+	withTransaction func(context.Context, func(context.Context) error) error
+}
+
+func (w committerWrapper) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return w.withTransaction(ctx, fn)
+}
+
+func TestUnitOfWorkHonorsEmbeddedCommitterOverride(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	c, err := postgres.NewCommitter(db)
+	require.NoError(t, err)
+
+	rejected := errors.New("transaction rejected by wrapper")
+	r := uow.New(committerWrapper{c, func(context.Context, func(context.Context) error) error {
+		return rejected
+	}}, nil)
+	var bodyCalled bool
+	require.ErrorIs(t, r.Run(t.Context(), func(context.Context) error {
+		bodyCalled = true
+		return nil
+	}), rejected)
+	require.False(t, bodyCalled)
+	require.Zero(t, fake.Commits())
+}
+
+func TestUnitOfWorkHonorsWrappedPostCommitOutcome(t *testing.T) {
+	t.Parallel()
+	for _, route := range []string{"committer", "package transaction"} {
+		t.Run(route, func(t *testing.T) {
+			t.Parallel()
+			db, fake := testhelpers.NewFakeSQL(t, nil)
+			c, err := postgres.NewCommitter(db)
+			require.NoError(t, err)
+			var wrapperCalled, effectCalled bool
+			r := uow.New(committerWrapper{c, func(ctx context.Context, fn func(context.Context) error) error {
+				wrapperCalled = true
+				run := c.WithTransaction
+				if route == "package transaction" {
+					run = func(ctx context.Context, fn func(context.Context) error) error {
+						return postgres.WithTransaction(ctx, db, fn)
+					}
+				}
+				if err := run(ctx, fn); err != nil {
+					return fmt.Errorf("wrapped transaction: %w", err)
+				}
+				return nil
+			}}, nil)
+
+			err = r.Run(t.Context(), func(ctx context.Context) error {
+				require.NoError(t, c.WithTransaction(ctx, func(context.Context) error { return nil }))
+				postgres.AfterCommit(ctx, func() { panic("observer failed") })
+				return r.AfterCommit(ctx, func(context.Context) { effectCalled = true })
+			})
+			require.ErrorIs(t, err, postgres.ErrPostCommitObserverPanicked)
+			require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
+			require.Equal(t, 1, fake.Commits())
+			require.True(t, wrapperCalled)
+			require.True(t, effectCalled)
+		})
+	}
+}
+
+func TestCommitterPropagatesStandaloneObserverPanic(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	c, err := postgres.NewCommitter(db)
+	require.NoError(t, err)
+
+	observerFailure := errors.New("observer panic")
+	require.PanicsWithValue(t, observerFailure, func() {
+		_ = c.WithTransaction(t.Context(), func(ctx context.Context) error {
+			postgres.AfterCommit(ctx, func() { panic(observerFailure) })
+			return nil
+		})
+	})
+	require.Equal(t, 1, fake.Commits())
+}
+
+func TestUnitOfWorkDoesNotApplyAfterIndependentCommit(t *testing.T) {
+	t.Parallel()
+	db, outerDB := testhelpers.NewFakeSQL(t, nil)
+	outerCommitter, err := postgres.NewCommitter(db)
+	require.NoError(t, err)
+	otherDB, innerDB := testhelpers.NewFakeSQL(t, nil)
+	innerCommitter, err := postgres.NewCommitter(otherDB)
+	require.NoError(t, err)
+	inner := uow.New(innerCommitter, nil)
+
+	outer := uow.New(committerWrapper{outerCommitter, func(ctx context.Context, fn func(context.Context) error) error {
+		return outerCommitter.WithTransaction(ctx, func(tx context.Context) error {
+			if err := fn(tx); err != nil {
+				return err
+			}
+			return inner.Run(t.Context(), func(independent context.Context) error {
+				postgres.AfterCommit(independent, func() { panic("observer failed") })
+				return nil
+			})
+		})
+	}}, nil)
+	var applied bool
+	err = outer.Run(t.Context(), func(ctx context.Context) error {
+		return uow.OnCommit(ctx, uow.Effect{Apply: func(context.Context) error {
+			applied = true
+			return nil
+		}})
+	})
+	require.ErrorIs(t, err, postgres.ErrPostCommitObserverPanicked)
+	require.NotErrorIs(t, err, uow.ErrUnknownOutcome)
+	require.Equal(t, 1, innerDB.Commits())
+	require.Equal(t, 1, outerDB.Rollbacks())
+	require.Zero(t, outerDB.Commits())
+	require.False(t, applied)
+}

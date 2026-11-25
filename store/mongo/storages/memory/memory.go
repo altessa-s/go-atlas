@@ -68,12 +68,10 @@ type Storage struct {
 
 // entry represents a stored cursor with expiration time.
 type entry struct {
-	key       string
-	metadata  *mongo.CursorMetadata
-	expiresAt time.Time
-	// subject is the cursor's subject at Store time; the caller keeps the
-	// metadata pointer and may change it afterwards.
-	subject string
+	key         string
+	metadata    mongo.CursorMetadata
+	expiresAt   time.Time
+	hasMetadata bool
 	// elem is the entry's position in Storage.order.
 	elem *list.Element
 	// subjectElem is the entry's position in its subject's list, nil when the
@@ -142,9 +140,10 @@ func New(ttl time.Duration, opts ...Option) *Storage {
 //
 // Thread-safe: Safe for concurrent calls.
 func (s *Storage) Store(ctx context.Context, key string, metadata *mongo.CursorMetadata) error {
-	e := &entry{key: key, metadata: metadata}
+	e := &entry{key: key}
 	if metadata != nil {
-		e.subject = metadata.Subject
+		e.metadata = *metadata
+		e.hasMetadata = true
 	}
 
 	s.mu.Lock()
@@ -152,9 +151,6 @@ func (s *Storage) Store(ctx context.Context, key string, metadata *mongo.CursorM
 	// of expiry.
 	now := time.Now()
 	e.expiresAt = now.Add(s.ttl)
-	if old, ok := s.store[key]; ok {
-		s.removeLocked(old)
-	}
 	s.insertLocked(e)
 	s.evictLocked(now)
 	s.mu.Unlock()
@@ -167,16 +163,25 @@ func (s *Storage) Store(ctx context.Context, key string, metadata *mongo.CursorM
 // subject at its cap never costs another one a cursor. Callers hold the write
 // lock and have removed any entry stored under the same key.
 func (s *Storage) insertLocked(e *entry) {
+	if old := s.store[e.key]; old != nil {
+		// An overwrite needs a distinct entry for deleteIfSame, but can
+		// reuse the old position in the global eviction order.
+		e.elem = old.elem
+		e.elem.Value = e
+		s.order.MoveToBack(e.elem)
+		s.removeSubjectLocked(old)
+	} else {
+		e.elem = s.order.PushBack(e)
+	}
 	s.store[e.key] = e
-	e.elem = s.order.PushBack(e)
 
-	if s.maxEntriesPerSubject == 0 || e.subject == "" {
+	if s.maxEntriesPerSubject == 0 || e.metadata.Subject == "" {
 		return
 	}
-	bound := s.subjects[e.subject]
+	bound := s.subjects[e.metadata.Subject]
 	if bound == nil {
 		bound = list.New()
-		s.subjects[e.subject] = bound
+		s.subjects[e.metadata.Subject] = bound
 	}
 	e.subjectElem = bound.PushBack(e)
 	if bound.Len() > s.maxEntriesPerSubject {
@@ -190,13 +195,17 @@ func (s *Storage) insertLocked(e *entry) {
 func (s *Storage) removeLocked(e *entry) {
 	delete(s.store, e.key)
 	s.order.Remove(e.elem)
+	s.removeSubjectLocked(e)
+}
+
+func (s *Storage) removeSubjectLocked(e *entry) {
 	if e.subjectElem == nil {
 		return
 	}
-	bound := s.subjects[e.subject]
+	bound := s.subjects[e.metadata.Subject]
 	bound.Remove(e.subjectElem)
 	if bound.Len() == 0 {
-		delete(s.subjects, e.subject)
+		delete(s.subjects, e.metadata.Subject)
 	}
 }
 
@@ -216,7 +225,16 @@ func (s *Storage) evictLocked(now time.Time) {
 // Returns mongotools.ErrCursorNotFound if key doesn't exist or has expired.
 //
 // Thread-safe: Safe for concurrent calls.
-func (s *Storage) Load(ctx context.Context, key string) (*mongo.CursorMetadata, error) {
+func (s *Storage) Load(ctx context.Context, key string) (metadata *mongo.CursorMetadata, err error) {
+	metadata, err = s.lookup(key)
+	if metadata != nil {
+		metadata = new(*metadata)
+	}
+	return metadata, err
+}
+
+// lookup returns the immutable stored snapshot. Load copies it for the caller.
+func (s *Storage) lookup(key string) (*mongo.CursorMetadata, error) {
 	// Check existence and expiration under read lock to prevent race condition
 	// with cleanup goroutine
 	s.mu.RLock()
@@ -231,8 +249,10 @@ func (s *Storage) Load(ctx context.Context, key string) (*mongo.CursorMetadata, 
 		}
 		return nil, mongo.ErrCursorNotFound
 	}
-
-	return entry.metadata, nil
+	if !entry.hasMetadata {
+		return nil, nil //nolint:nilnil // A stored nil is distinct from an absent key.
+	}
+	return &entry.metadata, nil
 }
 
 // deleteIfSame removes key only while it still maps to observed. A Store that

@@ -13,6 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-atlas/internal/bsonfield"
+	"github.com/altessa-s/go-atlas/mapping/behavior"
+	"github.com/altessa-s/go-atlas/mapping/behavior/translators/mongo"
 	"github.com/altessa-s/go-atlas/store/mongo/internal/document"
 )
 
@@ -38,7 +40,7 @@ func TestModelRuleThroughInlinePointer(t *testing.T) {
 	require.NoError(t, err)
 	model.Fields[0].KeyAltName = "mutated"
 	require.True(t, fields.Matches(typ, typ.Field(0)))
-	got, err := fields.Transform(t.Context(), reflect.TypeFor[root](), []int{0, 0}, "stored", reflect.ValueOf("v"), nil,
+	got, err := fields.Transform(t.Context(), reflect.TypeFor[root](), []int{0, 0}, "stored",
 		func() (bson.RawValue, error) { return raw, nil })
 	require.NoError(t, err)
 	require.Equal(t, want, got)
@@ -64,6 +66,33 @@ func TestRejectInvalidModel(t *testing.T) {
 			t.Parallel()
 			_, err := document.New("encryption", map[reflect.Type]*document.EncryptionModel{tc.typ: {Fields: tc.fields}}, nil)
 			require.ErrorIs(t, err, bsonfield.ErrFieldTransform)
+		})
+	}
+}
+
+func TestInvalidCiphertextReturnsNoDocument(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		value bson.Binary
+	}{
+		{"wrong subtype", bson.Binary{Data: []byte{1}}},
+		{"empty ciphertext", bson.Binary{Subtype: bson.TypeBinaryEncrypted}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fields, err := document.New("encryption", nil, func(context.Context, bson.RawValue, string, string) (bson.Binary, error) {
+				return tc.value, nil
+			})
+			require.NoError(t, err)
+			opt := mongo.WithFieldTransformer(fields)
+			for _, translator := range []behavior.Translator[bson.M]{mongo.NewInsertTranslator(opt), mongo.NewUpdateTranslator(opt)} {
+				doc, err := behavior.New(translator).Translate(t.Context(), struct {
+					Secret string `encryption:"random,key"`
+				}{"value"})
+				require.ErrorIs(t, err, bsonfield.ErrFieldTransform)
+				require.Nil(t, doc)
+			}
 		})
 	}
 }

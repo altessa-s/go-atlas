@@ -75,5 +75,5 @@ func TestAzure_Clear(t *testing.T) {
 }
 
 func TestAzure_ImplementsProvider(t *testing.T) {
-	var _ kms.Provider = kmsazure.New("c", "s", "t", "k")
+	var _ kms.MasterKeyProvider = kmsazure.New("c", "s", "t", "k")
 }

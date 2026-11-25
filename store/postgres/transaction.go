@@ -7,6 +7,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"maps"
 	"slices"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/txscope"
 )
 
 // DBTX is the database/sql surface shared by a pool and a transaction.
@@ -30,8 +32,9 @@ type DBTX interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-// Tx returns the attached transaction and whether it is still open. A finished transaction
-// returns its handle with false so statement resolvers can fail closed. Only the owner may end it.
+// Tx returns the attached transaction and whether its scope is still open. A finished
+// transaction or savepoint returns its handle with false so statement resolvers can
+// fail closed. Use the handle only when open is true. Only the owner may end it.
 func Tx(ctx context.Context) (*sql.Tx, bool) {
 	t := attached(ctx)
 	if t == nil {
@@ -46,6 +49,10 @@ func attached(ctx context.Context) *transaction {
 }
 
 func (t *transaction) open() bool {
+	return t.ownerOpen() && t.scope.OpenWithin(nil)
+}
+
+func (t *transaction) ownerOpen() bool {
 	return !t.life.done.Load() && t.ownerContext.Err() == nil
 }
 
@@ -56,27 +63,33 @@ func InWriteTransaction(ctx context.Context) bool {
 }
 
 // NotifyAfterCommit sends a coalescing wake-up once the enclosing transaction commits.
-// Without an enclosing transaction the write is already visible.
+// Without an enclosing transaction the write is already visible. A closed scope
+// ignores the notification.
 func NotifyAfterCommit(ctx context.Context, wake chan<- struct{}) {
 	if t, ok := ctx.Value(transactionKey{}).(*transaction); ok {
 		t.mu.Lock()
+		defer t.mu.Unlock()
+		if !t.open() {
+			return
+		}
 		if t.notifications == nil {
 			t.notifications = make(map[chan<- struct{}]struct{})
 		}
 		t.notifications[wake] = struct{}{}
-		t.mu.Unlock()
 		return
 	}
 	notify(wake)
 }
 
 // AfterCommit runs observe after the outer transaction commits. Callbacks run synchronously in registration order.
-// Outside a transaction it runs observe immediately.
+// Outside a transaction it runs observe immediately. A closed scope ignores the callback.
 func AfterCommit(ctx context.Context, observe func()) {
 	if t, ok := ctx.Value(transactionKey{}).(*transaction); ok {
 		t.mu.Lock()
-		t.observers = append(t.observers, observe)
-		t.mu.Unlock()
+		defer t.mu.Unlock()
+		if t.open() {
+			t.observers = append(t.observers, observe)
+		}
 		return
 	}
 	observe()
@@ -96,10 +109,11 @@ func CheckDatabase(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// Queryer returns the transaction attached to ctx, or db outside a transaction.
+// Queryer returns an executor bound to the scope attached to ctx, or to db
+// outside a transaction. A savepoint binding rejects calls after its handler ends.
 func Queryer(ctx context.Context, db *sql.DB) DBTX {
 	if t := attached(ctx); t != nil {
-		if t.open() {
+		if t.scope == nil && t.open() {
 			return t.tx
 		}
 		return Executor{bound: t}
@@ -116,7 +130,9 @@ func Querier(db *sql.DB) Executor {
 // WithTransaction runs handler in one transaction.
 // Nested calls reuse the transaction. Its owner commits on success and rolls back on error or panic.
 func WithTransaction(ctx context.Context, db *sql.DB, handler func(context.Context) error) error {
-	return withTransaction(ctx, db, nil, handler)
+	return transactionResult(ctx, func(ctx context.Context, outcome *commitOutcome) error {
+		return withTransaction(ctx, db, nil, handler, outcome)
+	})
 }
 
 // WithSnapshot starts a read-only repeatable-read transaction for consistent multi-query reads.
@@ -127,6 +143,7 @@ func WithSnapshot(ctx context.Context, db *sql.DB, handler func(context.Context)
 		db,
 		&sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true},
 		handler,
+		nil,
 	)
 }
 
@@ -138,7 +155,10 @@ func (q Executor) target(ctx context.Context) (context.Context, DBTX) {
 		t = attached(ctx)
 	}
 	if t != nil {
-		if !t.open() {
+		if !t.scope.OpenWithin(nil) {
+			return ctx, nil
+		}
+		if !t.ownerOpen() {
 			// database/sql checks the statement context before checking ErrTxDone.
 			if t.ownerContext.Err() != nil {
 				_ = t.tx.Rollback()
@@ -153,26 +173,50 @@ func (q Executor) target(ctx context.Context) (context.Context, DBTX) {
 // ExecContext routes the operation to the current transaction or pool.
 func (q Executor) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	ctx, target := q.target(ctx)
+	if target == nil {
+		return nil, sql.ErrTxDone
+	}
 	return target.ExecContext(ctx, query, args...)
 }
 
 // PrepareContext routes the operation to the current transaction or pool.
 func (q Executor) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
 	ctx, target := q.target(ctx)
+	if target == nil {
+		return nil, sql.ErrTxDone
+	}
 	return target.PrepareContext(ctx, query)
 }
 
 // QueryContext routes the operation to the current transaction or pool.
 func (q Executor) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	ctx, target := q.target(ctx)
+	if target == nil {
+		return nil, sql.ErrTxDone
+	}
 	return target.QueryContext(ctx, query, args...)
 }
 
 // QueryRowContext routes the operation to the current transaction or pool.
 func (q Executor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	ctx, target := q.target(ctx)
+	if target == nil {
+		// database/sql exposes no constructor for an error-only *sql.Row.
+		// A rejecting connector produces the row without opening a connection.
+		db := sql.OpenDB(closedSavepointConnector{})
+		defer func() { _ = db.Close() }() // The connector never opens a connection.
+		return db.QueryRowContext(context.WithoutCancel(ctx), "")
+	}
 	return target.QueryRowContext(ctx, query, args...)
 }
+
+type closedSavepointConnector struct{}
+
+func (closedSavepointConnector) Connect(context.Context) (driver.Conn, error) {
+	return nil, sql.ErrTxDone
+}
+func (c closedSavepointConnector) Driver() driver.Driver          { return c }
+func (closedSavepointConnector) Open(string) (driver.Conn, error) { return nil, sql.ErrTxDone }
 
 type poolKey struct{}
 type poolRoute struct{ db, pool *sql.DB }
@@ -194,6 +238,7 @@ type transactionLife struct {
 
 type transaction struct {
 	life          *transactionLife
+	scope         *txscope.Savepoint
 	db            *sql.DB
 	tx            *sql.Tx
 	readOnly      bool
@@ -214,6 +259,7 @@ func withTransaction(
 	db *sql.DB,
 	options *sql.TxOptions,
 	handler func(context.Context) error,
+	outcome *commitOutcome,
 ) (err error) {
 	if current := attached(ctx); current != nil {
 		if !current.open() {
@@ -273,16 +319,30 @@ func withTransaction(
 		}
 		return &uncertainCommit{safe}
 	}
-	observers, notifications := current.takeHooks()
+	current.finishCommit(outcome)
+	return nil
+}
+
+func (t *transaction) finishCommit(outcome *commitOutcome) {
+	observers, notifications := t.takeHooks()
+	if outcome != nil {
+		outcome.committed = true
+		// The outcome port reports observer failure separately from the
+		// transaction to keep a committed write out of the retry policy.
+		defer func() {
+			if recover() != nil {
+				outcome.observerErr = ErrPostCommitObserverPanicked
+			}
+		}()
+	}
 	// Every hook belongs to an already committed write. Defers preserve delivery
-	// if one observer panics, while letting its panic reach the caller.
+	// if one observer panics. Standalone transactions propagate that panic.
 	for wake := range notifications {
 		defer notify(wake)
 	}
 	for _, observe := range slices.Backward(observers) {
 		defer observe()
 	}
-	return nil
 }
 
 func notify(wake chan<- struct{}) {
@@ -300,12 +360,16 @@ func (t *transaction) takeHooks() ([]func(), map[chan<- struct{}]struct{}) {
 	return observers, notifications
 }
 
-// AfterCommitContext calls fn with request values, without the deadline, cancellation
-// or transaction settings of the completed operation.
+// AfterCommitContext calls fn with request values from the completed operation.
+// The callback starts without its cancellation, transaction settings, savepoint,
+// or unit-of-work binding and can begin a fresh transaction.
 func AfterCommitContext(ctx context.Context, fn func(context.Context)) {
 	AfterCommit(ctx, func() {
 		fresh := context.WithValue(context.WithoutCancel(ctx), transactionKey{}, nil)
 		fresh = context.WithValue(fresh, settingsKey{}, "")
+		if attached(ctx) != nil {
+			fresh = txscope.Detach(fresh)
+		}
 		fn(fresh)
 	})
 }
@@ -346,7 +410,17 @@ func WithSavepoint(ctx context.Context, db *sql.DB, handler func(context.Context
 		err = errors.Join(err, releaseErr)
 	}()
 	child := &transaction{life: parent.life, db: parent.db, ownerContext: parent.ownerContext, tx: parent.tx, readOnly: parent.readOnly}
-	if err = handler(context.WithValue(ctx, transactionKey{}, child)); err != nil {
+	childCtx, finish := txscope.Begin(context.WithValue(ctx, transactionKey{}, child))
+	child.scope = txscope.Current(childCtx)
+	defer func() {
+		finish(released)
+		if !released {
+			child.takeHooks()
+		}
+	}()
+	err = handler(childCtx)
+	child.scope.Seal()
+	if err != nil {
 		return err
 	}
 	if _, err = parent.tx.ExecContext(ctx, "RELEASE SAVEPOINT "+name); err != nil {

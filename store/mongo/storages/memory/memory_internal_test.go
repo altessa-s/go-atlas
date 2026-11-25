@@ -16,7 +16,7 @@ import (
 // storeExpired stores an already expired entry under key, bypassing Store,
 // which would evict it at once.
 func storeExpired(s *Storage, key string) *entry {
-	e := &entry{key: key, metadata: &mongo.CursorMetadata{}, expiresAt: time.Now().Add(-time.Minute)}
+	e := &entry{key: key, expiresAt: time.Now().Add(-time.Minute)}
 	s.mu.Lock()
 	s.insertLocked(e)
 	s.mu.Unlock()
@@ -42,7 +42,7 @@ func TestStorage_ExpiredCleanupKeepsConcurrentRefresh(t *testing.T) {
 
 	got, err := s.Load(t.Context(), key)
 	require.NoError(t, err, "the refreshed entry must not be removed by stale cleanup")
-	require.Same(t, fresh, got)
+	require.Equal(t, fresh, got)
 }
 
 func TestStorage_LoadRemovesUntouchedExpiredEntry(t *testing.T) {

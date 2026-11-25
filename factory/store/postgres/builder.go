@@ -151,9 +151,8 @@ func (b *Builder) poolTLSConfigs() (map[string]*tls.Config, error) {
 	if b.tlsConfig != nil {
 		return configs, nil
 	}
-	builder := tlsfactory.New(nil).UseLogger(b.Logger())
 	build := func(name string, block *tlsconfig.Client) error {
-		cfg, err := builder.CreateClientConfig(block)
+		cfg, err := tlsfactory.CreateClientConfig(block, b.Logger())
 		if err != nil {
 			// File errors can contain arbitrary user-supplied paths.
 			return corefactory.Errorf(coreerrs.ErrInvalidArgument, "cannot build PostgreSQL TLS configuration for pool %q", name)

@@ -10,6 +10,8 @@ import (
 	"hash/fnv"
 	"strconv"
 	"strings"
+
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 )
 
 // Sentinel errors shared by the SQL storages, which re-export them so that
@@ -17,18 +19,9 @@ import (
 var (
 	// ErrUnsupportedDialect reports a dialect a storage does not implement.
 	ErrUnsupportedDialect = errors.New("sqldb: unsupported dialect")
-	// ErrInvalidTableName reports a table name that is not a plain SQL
-	// identifier, optionally qualified by one schema name, or whose parts
-	// exceed [MaxIdentLen].
-	ErrInvalidTableName = errors.New("sqldb: invalid table name")
 	// ErrValueTooLong reports a value exceeding its column length.
 	ErrValueTooLong = errors.New("sqldb: value exceeds its column length")
 )
-
-// MaxIdentLen is the shorter of PostgreSQL's (63) and MySQL's (64) identifier
-// limits. PostgreSQL silently truncates longer names, so two distinct
-// configured names could address the same table or index; MySQL rejects them.
-const MaxIdentLen = 63
 
 // Style is the identifier quoting and placeholder form of a SQL flavor.
 type Style struct {
@@ -57,22 +50,17 @@ func (s Style) Ident(name string) string {
 // identifier ([A-Za-z_][A-Za-z0-9_]*), optionally qualified by one schema
 // name. Table and column names are the only SQL fragments that cannot be
 // bound as parameters, so they are restricted to this shape and then quoted.
-// Each part must fit [MaxIdentLen]; a name of any other shape is rejected
-// with [ErrInvalidTableName].
+// Each part must fit [sqlident.MaxIdentLen]; a name of any other shape is rejected
+// with [sqlident.ErrInvalidTableName].
 //
 // It sits on the per-request path of the SQL translators (one call per
 // selected or sorted column), so it validates by hand and allocates only the
 // result.
 func (s Style) Table(name string) (string, error) {
+	if err := sqlident.Validate(name); err != nil {
+		return "", err
+	}
 	schema, table, qualified := strings.Cut(name, ".")
-	if !isIdent(schema) || (qualified && !isIdent(table)) {
-		return "", fmt.Errorf("%w: %q", ErrInvalidTableName, name)
-	}
-	for _, p := range [...]string{schema, table} {
-		if len(p) > MaxIdentLen {
-			return "", fmt.Errorf("%w: %q exceeds %d characters", ErrInvalidTableName, p, MaxIdentLen)
-		}
-	}
 
 	var b strings.Builder
 	b.Grow(len(name) + 4) //nolint:mnd // two quotes per part, at most two parts
@@ -88,43 +76,27 @@ func (s Style) Table(name string) (string, error) {
 	return b.String(), nil
 }
 
-// isIdent reports whether p matches [A-Za-z_][A-Za-z0-9_]*.
-func isIdent(p string) bool {
-	if p == "" {
-		return false
-	}
-	for i := range len(p) {
-		switch c := p[i]; {
-		case c == '_', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
-		case c >= '0' && c <= '9' && i > 0:
-		default:
-			return false
-		}
-	}
-	return true
-}
-
 // IndexName derives a quoted index name from an unqualified table name, so
 // storages over different tables never collide on index names. A name that
-// would exceed [MaxIdentLen] keeps a readable prefix and ends in an FNV-32a
+// would exceed [sqlident.MaxIdentLen] keeps a readable prefix and ends in an FNV-32a
 // hash of the full table name, so truncation cannot make two tables' indexes
 // collide. If the suffix itself exceeds the available space, the hash covers
 // the full derived name and the readable prefix includes the table and suffix.
 func (s Style) IndexName(table, suffix string) string {
 	name := table + "_" + suffix + "_idx"
-	if len(name) > MaxIdentLen {
+	if len(name) > sqlident.MaxIdentLen {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(table))
 		tail := fmt.Sprintf("_%08x_%s_idx", h.Sum32(), suffix)
-		if len(tail) > MaxIdentLen {
+		if len(tail) > sqlident.MaxIdentLen {
 			// Preserve existing index names for ordinary suffixes. When the
 			// suffix itself is too long, hash the full name before truncating.
 			h.Reset()
 			_, _ = h.Write([]byte(name))
 			tail = fmt.Sprintf("_%08x_idx", h.Sum32())
-			name = name[:MaxIdentLen-len(tail)] + tail
+			name = name[:sqlident.MaxIdentLen-len(tail)] + tail
 		} else {
-			name = table[:MaxIdentLen-len(tail)] + tail
+			name = table[:sqlident.MaxIdentLen-len(tail)] + tail
 		}
 	}
 	return s.Ident(name)

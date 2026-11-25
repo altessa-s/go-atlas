@@ -29,12 +29,11 @@ type projectionTranslator struct {
 // fields from query results.
 //
 // Projection is type-driven: nested paths must appear even when a pointer is nil
-// or a collection is empty at run time. The engine MUST therefore be built with
-// [github.com/altessa-s/go-atlas/mapping/behavior.WithSchemaWalk] so absent nested
-// struct types are still resolved; pass a zero value as the type carrier:
+// or a collection is empty at run time. The translator requests a schema walk
+// from the engine, so a zero value is sufficient as the type carrier:
 //
 //	proj := behavior.New[bson.M](mongo.NewProjectionTranslator(),
-//	    behavior.WithKinds(behavior.DefaultResponseKinds...), behavior.WithSchemaWalk())
+//	    behavior.WithKinds(behavior.DefaultResponseKinds...))
 //	p, err := proj.Translate(ctx, Entity{})
 //
 // For slices of structs the field path is emitted without an index
@@ -44,6 +43,8 @@ type projectionTranslator struct {
 func NewProjectionTranslator(opts ...Option) behavior.Translator[bson.M] {
 	return &projectionTranslator{o: newOptions(opts...)}
 }
+
+func (*projectionTranslator) RequiresSchemaWalk() bool { return true }
 
 // Translate folds root into an exclusion projection. The returned map is empty
 // (non-nil) when no field matches. A map whose values carry a stripped field

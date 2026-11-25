@@ -59,7 +59,7 @@ func newMongoMetrics(c metrics.Meter) *mongoMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("mongo")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("mongo")}
 
 	return &mongoMetrics{
 		connectDuration: scoped.MustTimer(metrics.HistogramOpts{

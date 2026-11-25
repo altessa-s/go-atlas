@@ -22,6 +22,16 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithRegistry selects an independent set of migrations for this run.
+func WithRegistry(v *Registry) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.registry = v
+	}
+}
+
 // WithRollbackOnFailure enables the rollbackOnFailure option.
 //
 // rollbackOnFailure rolls back all applied migrations when an up step fails.

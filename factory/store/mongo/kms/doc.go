@@ -2,11 +2,14 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory creates [kms.Provider] instances from
+// Package factory creates [kms.MasterKeyProvider] instances from
 // [mongoconfig.KMS] configuration, routing to the appropriate cloud
 // or local KMS implementation (AWS, Azure, GCP, local).
 //
 //	provider, err := factory.New(cfg.Encryption.KMS).
 //	    UseTlsConfig(tlsConfig).
 //	    Build()
+//
+// [ProviderBuilder.UseProvider] accepts custom backend names. For standalone schema
+// validation, pass [ProviderBuilder.RegisteredProviderTypes] results to SetRegisteredTypes.
 package factory

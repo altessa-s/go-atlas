@@ -50,8 +50,10 @@ type Migration struct {
 	Down MigrationFunc
 }
 
-// migrationRegistry holds the migrations of [RegisterMigration].
-var migrationRegistry struct {
+var migrationRegistry Registry
+
+// Registry holds an independent set of migrations. Its zero value is ready for use.
+type Registry struct {
 	mu         sync.Mutex
 	migrations []Migration
 }
@@ -64,6 +66,11 @@ var migrationRegistry struct {
 // under the same version never runs again. Version 0 (which the collection reads as "nothing applied"), a nil up and a version already
 // registered are rejected with [ErrInvalidMigration]; a nil down is a no-op that keeps the migration's result on rollback.
 func RegisterMigration(version uint64, description string, up, down MigrationFunc) error {
+	return migrationRegistry.Register(version, description, up, down)
+}
+
+// Register adds a version to this registry under the same rules as [RegisterMigration].
+func (r *Registry) Register(version uint64, description string, up, down MigrationFunc) error {
 	if version == 0 {
 		return fmt.Errorf("%w: version 0 is reserved", ErrInvalidMigration)
 	}
@@ -73,12 +80,12 @@ func RegisterMigration(version uint64, description string, up, down MigrationFun
 	if down == nil {
 		down = func(context.Context, *mongo.Database) error { return nil }
 	}
-	migrationRegistry.mu.Lock()
-	defer migrationRegistry.mu.Unlock()
-	if slices.ContainsFunc(migrationRegistry.migrations, func(m Migration) bool { return m.Version == version }) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if slices.ContainsFunc(r.migrations, func(m Migration) bool { return m.Version == version }) {
 		return fmt.Errorf("%w: version %d is already registered", ErrInvalidMigration, version)
 	}
-	migrationRegistry.migrations = append(migrationRegistry.migrations,
+	r.migrations = append(r.migrations,
 		Migration{Version: version, Description: description, Up: up, Down: down})
 	return nil
 }
@@ -91,16 +98,22 @@ func MustRegisterMigration(version uint64, description string, up, down Migratio
 }
 
 // RegisteredMigrations returns the migrations registered with [RegisterMigration], ordered by version.
-func RegisteredMigrations() []Migration {
-	migrationRegistry.mu.Lock()
-	defer migrationRegistry.mu.Unlock()
-	out := slices.Clone(migrationRegistry.migrations)
+func RegisteredMigrations() []Migration { return migrationRegistry.Registered() }
+
+// Registered returns a sorted snapshot of this registry.
+func (r *Registry) Registered() []Migration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := slices.Clone(r.migrations)
 	slices.SortFunc(out, func(a, b Migration) int { return cmp.Compare(a.Version, b.Version) })
 	return out
 }
 
-// pendingMigrations merges the migrations of [RegisterMigration] with those of the mongo-migrate global registry.
-func pendingMigrations() ([]migrate.Migration, error) {
+// pendingMigrations preserves legacy init registration for the default runner.
+func (o *options) pendingMigrations() ([]migrate.Migration, error) {
+	if o.registry != nil {
+		return mergeMigrations(nil, o.registry.Registered())
+	}
 	return mergeMigrations(migrate.RegisteredMigrations(), RegisteredMigrations())
 }
 
@@ -122,13 +135,13 @@ func mergeMigrations(global []migrate.Migration, typed []Migration) ([]migrate.M
 }
 
 // Run applies registered migrations to db under the database-wide lease.
-// It merges this package's registry with mongo-migrate's registry and rejects
-// duplicate versions. By default, earlier successful steps remain applied on
+// Without [WithRegistry], it merges the default and legacy registries and rejects
+// duplicate versions. Earlier successful steps remain applied on
 // failure. WithRollbackOnFailure opts into rolling back all applied steps.
 // Waiting and work have separate budgets, both bounded by ctx.
 func Run(ctx context.Context, db *mongo.Database, opts ...Option) error {
 	o := newOptions(opts...)
-	migrations, err := pendingMigrations()
+	migrations, err := o.pendingMigrations()
 	if err != nil {
 		return err
 	}

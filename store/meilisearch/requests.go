@@ -64,12 +64,8 @@ type FetchResult struct {
 	Total int64
 }
 
-// Compile-time guarantee that [Client] satisfies the interface its doc
-// comment promises.
-var _ MeilisearchClient = (*Client)(nil)
-
-// MeilisearchClient is the surface domain code depends on. [Client] implements it.
-type MeilisearchClient interface {
+// DocumentClient reads, indexes, and deletes documents.
+type DocumentClient interface {
 	// IndexDocuments adds or updates documents in indexName. Returns task UID.
 	IndexDocuments(ctx context.Context, indexName string, documents any) (int64, error)
 
@@ -94,15 +90,44 @@ type MeilisearchClient interface {
 	// directly when the index uses a different primary key).
 	GetAllDocumentIDs(ctx context.Context, indexName string) ([]string, error)
 
+	GetAllDocumentIDsWithPrimaryKey(ctx context.Context, indexName, primaryKey string) ([]string, error)
+}
+
+// Searcher executes full-text queries.
+type Searcher interface {
 	// Search runs a full-text query against the specified index.
 	Search(ctx context.Context, req *SearchRequest) (*SearchResult, error)
+}
 
+// IndexManager manages index definitions and their lifecycle.
+type IndexManager interface {
+	IndexExists(ctx context.Context, indexName string) (bool, error)
+	EnsureIndex(ctx context.Context, name, primaryKey string, settings *IndexSettings) error
+	UpdateIndexSettings(ctx context.Context, indexName string, settings *IndexSettings) error
+	SetupIndexes(ctx context.Context, defs []IndexDefinition) error
+	DeleteIndex(ctx context.Context, name string) (int64, error)
 	// SwapIndexes atomically swaps the documents of each index pair in a
 	// single task. Returns the task UID; await it with WaitForTask.
 	SwapIndexes(ctx context.Context, pairs ...SwapPair) (int64, error)
+}
 
+// TaskWaiter waits for asynchronous writes and index operations.
+type TaskWaiter interface {
 	// WaitForTask blocks until the task identified by taskUID reaches a
 	// terminal state, polling every interval (0 = SDK default). Returns an
 	// error wrapping ErrTaskFailed when the task did not succeed.
 	WaitForTask(ctx context.Context, taskUID int64, interval time.Duration) error
 }
+
+// HealthChecker probes the service for availability.
+type HealthChecker interface {
+	Health(ctx context.Context) error
+}
+
+var (
+	_ DocumentClient = (*Client)(nil)
+	_ Searcher       = (*Client)(nil)
+	_ IndexManager   = (*Client)(nil)
+	_ TaskWaiter     = (*Client)(nil)
+	_ HealthChecker  = (*Client)(nil)
+)
