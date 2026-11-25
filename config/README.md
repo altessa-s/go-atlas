@@ -31,6 +31,7 @@ The root package declares no types.
 | [`config/paging`](paging)               | `pagingconfig`        | The page-token schema (signing key, rotation keys, key encoding, TTL, encryption) shared by every paginated component          |
 | [`config/tls`](tls)                     | `tlsconfig`           | TLS client and server schemas and the certificate provider schemas (file, Let's Encrypt, OCSP, S3, Vault)                       |
 | [`config/clienthealth`](clienthealth)   | `clienthealthconfig`  | The client health-check schema for outbound gRPC and HTTP clients                                                               |
+| [`config/grpcclient`](grpcclient)       | `grpcclientconfig`    | Name resolution and connection backoff of outbound gRPC clients                                                                 |
 | [`config/redis`](redis)                 | `redisconfig`         | The Redis connection schema                                                                                                     |
 | [`config/nats`](nats)                   | `natsconfig`          | The NATS connection, JetStream consumer and recovery schemas                                                                    |
 | [`config/mongo`](mongo)                 | `mongoconfig`         | The MongoDB connection, credential and client-side field level encryption schemas                                               |
