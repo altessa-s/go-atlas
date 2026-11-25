@@ -9,10 +9,12 @@
 #  # Default value: false
 #  enabled: false
 #
-#  # Include client addresses. Set logRawErrors as well to enable extractor diagnostics.
+#  # <bool> Include client addresses. Set logRawErrors as well to enable extractor diagnostics.
+#  # Default value: false
 #  logClientDetails: false
 #
-#  # Include raw parse errors, which may contain addresses.
+#  # <bool> Include raw parse errors, which may contain addresses.
+#  # Default value: false
 #  logRawErrors: false
 #
 #  # <list[string]> List of exact URL paths to skip real IP extraction for.

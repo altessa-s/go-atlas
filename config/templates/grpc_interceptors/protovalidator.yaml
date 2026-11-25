@@ -1,6 +1,10 @@
 # The gRPC server factory installs protobuf validation by default.
 # This section controls its diagnostics.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
 #protovalidator:
 #  # <bool> Log validation errors, panic values, and stack traces.
-#  # This can disclose sensitive information. Default value: false
+#  # This can disclose sensitive information.
+#  # Default value: false
 #  logRawErrors: false

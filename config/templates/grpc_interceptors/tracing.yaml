@@ -10,11 +10,13 @@
 #  enabled: false
 #
 #  # <bool> Record the peer address on server spans.
-#  # This can disclose sensitive information. Default value: false
+#  # This can disclose sensitive information.
+#  # Default value: false
 #  recordClientDetails: false
 #
 #  # <bool> Record exception messages and error status descriptions on spans.
-#  # This can disclose sensitive information. Default value: false
+#  # This can disclose sensitive information.
+#  # Default value: false
 #  recordRawErrors: false
 #
 #  # <list[string]> List of gRPC methods to skip tracing for.

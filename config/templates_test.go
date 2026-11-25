@@ -152,6 +152,7 @@ var templateCases = map[string][]templateRoot{
 	"grpc_interceptors/limiter.yaml":         {root[grpcconfig.LimiterInterceptor]("limiter")},
 	"grpc_interceptors/logger.yaml":          {root[grpcconfig.LoggerInterceptor]("logger")},
 	"grpc_interceptors/metrics.yaml":         {root[grpcconfig.MetricsInterceptor]("metrics")},
+	"grpc_interceptors/protovalidator.yaml":  {root[grpcconfig.ProtoValidatorInterceptor]("protovalidator")},
 	"grpc_interceptors/real_ip.yaml":         {root[grpcconfig.RealIPInterceptor]("realIP")},
 	"grpc_interceptors/recovery.yaml":        {root[grpcconfig.RecoveryInterceptor]("recovery")},
 	"grpc_interceptors/request_id.yaml":      {root[grpcconfig.RequestIDInterceptor]("requestID")},

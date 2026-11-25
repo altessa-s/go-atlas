@@ -19,5 +19,6 @@
 #  ignorePatterns:
 #    - "^/health\\..*"
 #
-#  # Include the raw panic value and stack trace in logs.
+#  # <bool> Include the raw panic value and stack trace in logs.
+#  # Default value: false
 #  logRawErrors: false

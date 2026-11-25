@@ -11,7 +11,8 @@
 #  enabled: false
 #
 #  # <bool> Log recovered panic values and stacks.
-#  # This can disclose sensitive information. Default value: false
+#  # This can disclose sensitive information.
+#  # Default value: false
 #  logRawErrors: false
 #
 #  # <list[string]> List of gRPC methods to skip recovery for.

@@ -49,8 +49,10 @@
 #  # Default value: true
 #  propagateContext: true
 #
-#  # Export client IP, User-Agent, Host, and the raw URL path as span attributes.
+#  # <bool> Export client IP, User-Agent, Host, and the raw URL path as span attributes.
+#  # Default value: false
 #  recordClientDetails: false
 #
-#  # Export raw panic values and stack traces when panics unwind through tracing.
+#  # <bool> Export raw panic values and stack traces when panics unwind through tracing.
+#  # Default value: false
 #  recordRawErrors: false

@@ -9,7 +9,8 @@
 #  # Default value: false
 #  enabled: false
 #
-#  # Include client IPs, User-Agent, Host, and the raw URL path in logs.
+#  # <bool> Include client IPs, User-Agent, Host, and the raw URL path in logs.
+#  # Default value: false
 #  logClientDetails: false
 #
 #  # <list[string]> List of exact URL paths to skip logging for.

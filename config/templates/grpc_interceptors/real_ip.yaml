@@ -11,11 +11,13 @@
 #  enabled: false
 #
 #  # <bool> Log peer addresses in real-IP diagnostics.
-#  # This can disclose sensitive information. Default value: false
+#  # This can disclose sensitive information.
+#  # Default value: false
 #  logClientDetails: false
 #
 #  # <bool> Log raw parser errors. Extractor diagnostics require both opt-ins.
-#  # This can disclose sensitive information. Default value: false
+#  # This can disclose sensitive information.
+#  # Default value: false
 #  logRawErrors: false
 #
 #  # <list[string]> List of gRPC methods to skip real IP extraction for.

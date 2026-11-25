@@ -11,11 +11,13 @@
 #  enabled: false
 #
 #  # <bool> Log peer IP, real IP, and User-Agent.
-#  # This can disclose sensitive information. Default value: false
+#  # This can disclose sensitive information.
+#  # Default value: false
 #  logClientDetails: false
 #
 #  # <bool> Log status messages, underlying errors, panic values, and stacks.
-#  # This can disclose sensitive information. Default value: false
+#  # This can disclose sensitive information.
+#  # Default value: false
 #  logRawErrors: false
 #
 #  # <list[string]> List of gRPC methods to skip logging for.
