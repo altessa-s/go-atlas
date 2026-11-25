@@ -9,8 +9,11 @@ import (
 	"fmt"
 )
 
-// ErrPanicRecovered is the diagnostic category for a recovered panic.
-var ErrPanicRecovered = errors.New("panic_recovered")
+// PanicCategory is the diagnostic category for a recovered panic.
+const PanicCategory = "panic_recovered"
+
+// ErrPanicRecovered indicates that an interceptor recovered a panic.
+var ErrPanicRecovered = errors.New(PanicCategory)
 
 // PanicError wraps a recovered panic value together with the stack trace
 // captured at the point of recovery. It implements the error interface so

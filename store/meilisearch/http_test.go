@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/store/meilisearch"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRedirects_SameOriginOnly(t *testing.T) {

@@ -162,7 +162,7 @@ func (ri *requestInterceptor) validate(ctx context.Context, req any) (err error)
 	// Perform validation with panic recovery
 	defer func() {
 		if r := recover(); r != nil {
-			attrs := []slog.Attr{slog.String("category", sharedrecovery.ErrPanicRecovered.Error())}
+			attrs := []slog.Attr{slog.String("category", sharedrecovery.PanicCategory)}
 			if ri.opts.logRawErrors {
 				attrs = append(attrs,
 					slog.String("panic", diagnostics.ErrorText(fmt.Sprint(r), diagnostics.DefaultMaxErrorLength)),

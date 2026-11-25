@@ -18,9 +18,11 @@ import (
 	"testing"
 	"time"
 
-	coreio "github.com/altessa-s/go-atlas-core/io"
-	"github.com/altessa-s/go-atlas/store/meilisearch"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/store/meilisearch"
+
+	coreio "github.com/altessa-s/go-atlas-core/io"
 )
 
 const available = `{"status":"available"}`

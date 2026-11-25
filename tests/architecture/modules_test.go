@@ -139,7 +139,7 @@ var driverModules = []targetModule{
 	{root: "store/postgres/postgrestest", deps: []string{"store/postgres", "core", "internal/sqldialect"}},
 	{root: "factory/store/postgres", deps: []string{"store/postgres", "factory"}},
 	{root: "factory/store/mongo", deps: []string{"store/mongo", "factory"}},
-	{root: "store/meilisearch", deps: []string{"core", "net/http"}},
+	{root: "store/meilisearch", deps: []string{"core", "net", "net/http"}},
 	{root: "internal/redis", deps: []string{"core"}},
 	// The RedisBloom plumbing shared by the Bloom and Cuckoo redis backends.
 	{root: "cache/probfilter/internal/redisfilter", deps: []string{"core", "cache", "internal/redis"}},

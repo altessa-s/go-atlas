@@ -10,8 +10,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	redisconfig "github.com/altessa-s/go-atlas/config/redis"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )

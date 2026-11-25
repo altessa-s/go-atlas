@@ -156,7 +156,7 @@ func (i *interceptor) handlePanic(ctx context.Context, p any, method string) err
 	attrs := []slog.Attr{
 		slog.String("method", method),
 		slog.String("request_id", requestid.FromContext(ctx)),
-		slog.String("category", recovery.ErrPanicRecovered.Error()),
+		slog.String("category", recovery.PanicCategory),
 	}
 	cause := recovery.ErrPanicRecovered
 	if i.opts.logRawErrors {

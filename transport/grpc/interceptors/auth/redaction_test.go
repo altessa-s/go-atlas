@@ -66,10 +66,11 @@ func TestAuthCallbackRedaction(t *testing.T) {
 			})
 			authorize := auth.ClientAuthFunc(func(ctx context.Context, _ auth.Credentials) (context.Context, error) { return ctx, callbackErr })
 			authn := auth.ServerInterceptor(auth.WithLogger(log), auth.WithTokenExtractor(extract), auth.WithAuthFn(authenticate), auth.WithClientAuth(authorize))
+			// Exercise callback redaction even with raw diagnostics enabled.
 			opts, err := interceptors.NewChain(
-				authn, errstatus.ServerInterceptor(errstatus.WithLogger(log)),
-				logger.ServerInterceptor(logger.Slog(log), logger.WithIgnorePatterns(regexp.MustCompile("^$"))),
-				tracing.ServerInterceptor(tr),
+				authn, errstatus.ServerInterceptor(errstatus.WithLogger(log), errstatus.WithLogRawErrors(true)),
+				logger.ServerInterceptor(logger.Slog(log), logger.WithIgnorePatterns(regexp.MustCompile("^$")), logger.WithLogRawErrors(true)),
+				tracing.ServerInterceptor(tr, tracing.WithRecordRawErrors(true)),
 			).ServerOptions()
 			require.NoError(t, err)
 			listener := bufconn.Listen(65536)

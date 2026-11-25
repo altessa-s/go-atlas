@@ -312,7 +312,7 @@ func (ri *requestInterceptor) appendErrorFields(ctx context.Context, fields slog
 	}
 	panicErr, isPanic := errors.AsType[*recovery.PanicError](cause)
 	if isPanic || errors.Is(cause, recovery.ErrPanicRecovered) {
-		fields = append(fields, slogx.Field{Key: "grpc.error_category", Value: recovery.ErrPanicRecovered.Error()})
+		fields = append(fields, slogx.Field{Key: "grpc.error_category", Value: recovery.PanicCategory})
 	}
 	if ri.opts.logRawErrors {
 		fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: diagnostics.ErrorText(cause.Error(), ri.opts.maxMessageLength)})

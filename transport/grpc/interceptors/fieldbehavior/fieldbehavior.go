@@ -200,7 +200,7 @@ func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, e
 		}
 		ri.LogError(ctx, "fieldbehavior strip panicked", ri.meta.Method(), nil,
 			slog.String("side", "response"),
-			slog.String("category", sharedrecovery.ErrPanicRecovered.Error()),
+			slog.String("category", sharedrecovery.PanicCategory),
 		)
 		out = nil
 		err = interceptors.NewError(
@@ -314,7 +314,7 @@ func (ri *requestInterceptor) runStrip(ctx context.Context, msg proto.Message, f
 		}
 		ri.LogError(ctx, "fieldbehavior strip panicked", method, nil,
 			slog.String("side", side),
-			slog.String("category", sharedrecovery.ErrPanicRecovered.Error()),
+			slog.String("category", sharedrecovery.PanicCategory),
 		)
 		err = interceptors.NewError(
 			status.New(codes.Internal, "Internal Error"),
