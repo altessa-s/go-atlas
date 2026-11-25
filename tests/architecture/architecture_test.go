@@ -159,6 +159,7 @@ type rule struct {
 // rules are the production boundaries of docs/architecture.md. An edge
 // violates the first rule that rejects it.
 var rules = []rule{
+	{"runtime packages import no test fixtures", runtimeOffTestFixtures},
 	{"transport never depends on services", transportOffServices},
 	{"observability factories import no concrete backend", observabilityFactoriesNeutral},
 	{"security factories import no remote provider", securityFactoriesNeutral},
@@ -178,6 +179,7 @@ var rules = []rule{
 	{"only store/mongo imports go-mongox", mongoxFromMongo},
 	{"transport limiters use the limiter contract", limiterOffTokenBucket},
 	{"gRPC cache interceptor uses cache contract sentinels", cacheInterceptorOffStorages},
+	{"broker and transport use the idempotency contract", idempotencyConsumersOffStorages},
 	{"scheduler handler uses injected filter parser", schedulerOffFilterParser},
 	{"internal packages import no public capability package", internalOffCapabilities},
 }
@@ -193,6 +195,14 @@ func violation(pkg, dependency string) string {
 		}
 	}
 	return ""
+}
+
+func runtimeOffTestFixtures(e edge) bool {
+	if hasPathPrefix(e.pkg, []string{"internal/testhelpers", "tests"}) || strings.HasSuffix(e.pkg, "test") {
+		return false
+	}
+	return e.dependency == "testing" || strings.HasSuffix(e.dependency, "test") ||
+		hasPathPrefix(e.dependency, []string{module + "internal/testhelpers"})
 }
 
 // observabilityFactoriesNeutral keeps the metrics factory off concrete
@@ -315,6 +325,7 @@ func schemasDescribeSettings(e edge) bool {
 		return e.thirdParty && !allowedSchemaExternal(e.dependency)
 	}
 	return !strings.HasPrefix(e.dep, "core/") && !isSchema(e.dep) && e.dep != "config/internal" && !strings.HasPrefix(e.dep, "config/internal/") &&
+		!(e.pkg == "config/auth" && e.dep == "auth/oidc/rules") &&
 		!(e.pkg == "config/proxy" && e.dep == "net/proxyconfig") &&
 		e.dep != "net/egressrule" && e.dep != "service/scheduler/task" && e.dep != "service/scheduler/schedule"
 }
@@ -369,10 +380,7 @@ func testhelpersGeneric(e edge) bool {
 // may import. The list only shrinks: internal packages are shared plumbing
 // below the capabilities that import them.
 var internalCapabilityImports = map[string][]string{
-	"internal/nats/natskvlease":        {"observability/metrics"},
 	"internal/transport/authprincipal": {"auth/principal"},
-	"internal/transport/idempotency":   {"reliability/idempotency"},
-	"internal/transport/requestid":     {"observability/tracing"},
 }
 
 // internalOffCapabilities keeps the root internal/ tree below the public
@@ -722,8 +730,11 @@ func TestBoundaryRules(t *testing.T) {
 		{"lru exception", "cache/lru", "github.com/hashicorp/golang-lru/v2/expirable", false},
 		{"lru stays a leaf", "cache/lru", module + "cache", true},
 		{"internal uses capability", "internal/redis/redisbase", module + "cache", true},
-		{"internal uses allowlisted capability", "internal/nats/natskvlease", module + "observability/metrics", false},
-		{"internal allowlist stays narrow", "internal/nats/natskvlease", module + "cache", true},
+		{"lease stays below metrics", "internal/nats/natskvlease", module + "observability/metrics", true},
+		{"request ID stays below tracing", "internal/transport/requestid", module + "observability/tracing", true},
+		{"transport lock classification stays below reliability", "internal/transport/idempotency", module + "reliability/idempotency", true},
+		{"internal uses allowlisted capability", "internal/transport/authprincipal", module + "auth/principal", false},
+		{"internal allowlist stays narrow", "internal/transport/authprincipal", module + "cache", true},
 		{"internal uses internal", "internal/redis/redisbase", module + "internal/redis/redisutils", false},
 		{"internal uses core", "internal/redis/redisbase", coreModule + "errors", false},
 		{"transport uses service", "transport/grpc/handlers/health", module + "service/scheduler", true},
@@ -769,6 +780,15 @@ func TestBoundaryRules(t *testing.T) {
 		{"schema uses egress rule grammar", "config/http", module + "net/egressrule", false},
 		{"schema transport", "config", module + "net/http/client", true},
 		{"schema service", "config", module + "service/scheduler", true},
+		{"runtime uses testing", "cache", "testing", true},
+		{"runtime uses shared fixtures", "cache", module + "internal/testhelpers", true},
+		{"runtime uses nested fixtures", "cache", module + "internal/testhelpers/servers", true},
+		{"runtime uses a conformance kit", "cache", module + "audit/storages/storagetest", true},
+		{"runtime uses an external fixture", "cache", "net/http/httptest", true},
+		{"runtime imports a lookalike", "cache", module + "internal/testhelpersx", false},
+		{"kit uses testing", "audit/storages/storagetest", "testing", false},
+		{"nested helpers use testing", "internal/testhelpers/servers", "testing", false},
+		{"repository tests use kits", "tests/interop", module + "audit/audittest", false},
 		{"testhelpers uses data", "internal/testhelpers", module + "audit", true},
 		{"testhelpers uses core", "internal/testhelpers", module + "core/scheduler", false},
 		{"principal uses third party", "auth/principal", "github.com/google/uuid", true},
@@ -812,6 +832,9 @@ func TestBoundaryRules(t *testing.T) {
 		{"limiter middleware uses tokenbucket", "transport/grpc/interceptors/limiter", module + "coord/limiters/tokenbucket", true},
 		{"HTTP limiter middleware uses tokenbucket", "transport/http/server/middlewares/limiter", module + "coord/limiters/tokenbucket", true},
 		{"cache interceptor uses storage", "transport/grpc/interceptors/cache", module + "cache/storages", true},
+		{"broker uses idempotency storage", "messaging/broker/idempotency", module + "reliability/idempotency/storages", true},
+		{"HTTP middleware uses idempotency storage", "transport/http/server/middlewares/idempotency", module + "reliability/idempotency/storages", true},
+		{"gRPC interceptor uses idempotency contract", "transport/grpc/interceptors/idempotency", module + "reliability/idempotency", false},
 		{"scheduler handler uses parser", "transport/grpc/handlers/scheduler", aipModule + "/filter/parser", true},
 		{"scheduler handler uses filter", "transport/grpc/handlers/scheduler", aipModule + "/filter", false},
 		{"interceptor uses go-aip update", "transport/grpc/interceptors/fieldmask", aipModule + "/fieldmask/update", false},
@@ -851,6 +874,10 @@ func limiterOffTokenBucket(e edge) bool {
 
 func cacheInterceptorOffStorages(e edge) bool {
 	return hasPathPrefix(e.pkg, []string{"transport/grpc/interceptors/cache"}) && e.internal && e.dep == "cache/storages"
+}
+
+func idempotencyConsumersOffStorages(e edge) bool {
+	return e.internal && e.dep == "reliability/idempotency/storages" && hasPathPrefix(e.pkg, []string{"messaging/broker", "transport"})
 }
 
 func schedulerOffFilterParser(e edge) bool {

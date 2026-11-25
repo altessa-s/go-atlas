@@ -17,12 +17,14 @@ func TestStorageContract(t *testing.T) {
 
 	t.Run("mongo", func(t *testing.T) {
 		t.Parallel()
-		storagetest.Run(t, func(tb testing.TB) outbox.Storage { return newFixture(tb).store })
+		newStore := func(tb testing.TB) outbox.Storage { return newFixture(tb).store }
+		storagetest.RunWithOrderKeys(t, newStore, false)
 	})
 	for _, spec := range sqlSpecs() {
 		t.Run(spec.name, func(t *testing.T) {
 			t.Parallel()
-			storagetest.Run(t, func(tb testing.TB) outbox.Storage { return newSQLFixture(tb, spec).store })
+			newStore := func(tb testing.TB) outbox.Storage { return newSQLFixture(tb, spec).store }
+			storagetest.RunWithOrderKeys(t, newStore, true)
 		})
 	}
 }

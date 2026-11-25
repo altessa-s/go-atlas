@@ -25,7 +25,9 @@ type user struct {
 	Name string `json:"name"`
 }
 
-// stored decodes what the facade wrote to Redis under key.
+const jsonStoragePrefix = "0"
+
+// stored decodes what the facade wrote to Redis under the physical key.
 func (f fixture) stored(tb testing.TB, key string) user {
 	tb.Helper()
 	raw, err := f.client.Get(tb.Context(), f.rawKey(key)).Bytes()
@@ -46,7 +48,7 @@ func TestCache_RoundTrip(t *testing.T) {
 	alice := user{ID: 1, Name: "Alice"}
 
 	require.NoError(t, c.Save(ctx, "user:1", &alice))
-	require.Equal(t, alice, f.stored(t, "user:1"))
+	require.Equal(t, alice, f.stored(t, jsonStoragePrefix+"user:1"))
 
 	var got user
 	require.NoError(t, c.Get(ctx, "user:1", &got))
@@ -78,15 +80,15 @@ func TestCache_TTL(t *testing.T) {
 	require.NoError(t, c.Save(ctx, "default", v))
 	require.NoError(t, c.Save(ctx, "use-default", v, cache.TTLUseDefault))
 	for _, key := range []string{"default", "use-default"} {
-		require.Greater(t, f.pttl(t, key), defaultTTL-time.Minute, key)
-		require.LessOrEqual(t, f.pttl(t, key), defaultTTL, key)
+		require.Greater(t, f.pttl(t, jsonStoragePrefix+key), defaultTTL-time.Minute, key)
+		require.LessOrEqual(t, f.pttl(t, jsonStoragePrefix+key), defaultTTL, key)
 	}
 
 	require.NoError(t, c.Save(ctx, "forever", v, cache.NoTTL))
-	require.Equal(t, time.Duration(-1), f.pttl(t, "forever"))
+	require.Equal(t, time.Duration(-1), f.pttl(t, jsonStoragePrefix+"forever"))
 
 	require.NoError(t, c.Save(ctx, "short", v, shortTTL))
-	f.awaitGone(t, "short")
+	f.awaitGone(t, jsonStoragePrefix+"short")
 	var got user
 	require.ErrorIs(t, c.Get(ctx, "short", &got), cache.ErrMissing)
 }
@@ -137,8 +139,8 @@ func TestCache_GetWithFallbackRunsTheFallbackOnce(t *testing.T) {
 		require.NoError(t, errs[i], "caller %d", i)
 		require.Equal(t, user{ID: 7, Name: "computed"}, results[i], "caller %d", i)
 	}
-	require.Equal(t, user{ID: 7, Name: "computed"}, f.stored(t, "user:7"))
-	require.Greater(t, f.pttl(t, "user:7"), 4*time.Minute, "the fallback's TTL must reach Redis")
+	require.Equal(t, user{ID: 7, Name: "computed"}, f.stored(t, jsonStoragePrefix+"user:7"))
+	require.Greater(t, f.pttl(t, jsonStoragePrefix+"user:7"), 4*time.Minute, "the fallback's TTL must reach Redis")
 
 	// Now cached: neither variant runs a fallback again.
 	got, err := cache.GetWithFallbackT(t.Context(), c, "user:7", func(context.Context) (user, time.Duration, error) {
@@ -172,8 +174,8 @@ func TestCache_NegativeCaching(t *testing.T) {
 			}
 			var got user
 			require.ErrorIs(t, c.GetWithFallback(ctx, "user:404", &got, fallback), cache.ErrMissing)
-			require.Positive(t, f.pttl(t, "user:404"), "the negative entry must be stored with an expiry")
-			require.LessOrEqual(t, f.pttl(t, "user:404"), shortTTL)
+			require.Positive(t, f.pttl(t, jsonStoragePrefix+"user:404"), "the negative entry must be stored with an expiry")
+			require.LessOrEqual(t, f.pttl(t, jsonStoragePrefix+"user:404"), shortTTL)
 
 			require.ErrorIs(t, c.GetWithFallback(ctx, "user:404", &got, fallback), cache.ErrMissing)
 			require.ErrorIs(t, c.Get(ctx, "user:404", &got), cache.ErrMissing)
@@ -182,7 +184,7 @@ func TestCache_NegativeCaching(t *testing.T) {
 			require.False(t, exists, "a negative entry is not a value")
 			require.EqualValues(t, 1, calls.Load(), "a negative entry must answer without the fallback")
 
-			f.awaitGone(t, "user:404")
+			f.awaitGone(t, jsonStoragePrefix+"user:404")
 			require.NoError(t, c.GetWithFallback(ctx, "user:404", &got, func(context.Context) (any, time.Duration, error) {
 				calls.Add(1)
 				return &user{ID: 404, Name: "created"}, cache.TTLUseDefault, nil
@@ -207,12 +209,12 @@ func TestCache_FailedFallbackIsNotCached(t *testing.T) {
 		return nil, 0, errDown
 	})
 	require.ErrorIs(t, err, errDown)
-	require.Equal(t, time.Duration(-2), f.pttl(t, "user:1"), "a failed fallback must not write")
+	require.Equal(t, time.Duration(-2), f.pttl(t, jsonStoragePrefix+"user:1"), "a failed fallback must not write")
 
 	require.NoError(t, c.GetWithFallback(t.Context(), "user:1", &got, func(context.Context) (any, time.Duration, error) {
 		return &user{ID: 1}, cache.TTLUseDefault, nil
 	}))
-	require.Equal(t, user{ID: 1}, f.stored(t, "user:1"))
+	require.Equal(t, user{ID: 1}, f.stored(t, jsonStoragePrefix+"user:1"))
 }
 
 type tenantKey struct{}
@@ -235,6 +237,6 @@ func TestCache_NamespacesIsolateTenants(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, tenant, got.Name, "a tenant must not read another's entry")
-		require.Equal(t, user{Name: tenant}, f.stored(t, fmt.Sprintf("%d:%s:settings", len(tenant), tenant)))
+		require.Equal(t, user{Name: tenant}, f.stored(t, fmt.Sprintf("2%d:%s:settings", len(tenant), tenant)))
 	}
 }

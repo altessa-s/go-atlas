@@ -22,6 +22,10 @@
 // Two facade instances on their own connections stand in for two processes
 // sharing one filter.
 //
+// The topology tests use explicit endpoint environment variables to check
+// standalone clients pointed at replicas and cluster nodes, Cluster primary
+// discovery and Sentinel failover routing. See the package README.
+//
 // Tests skip rather than fail when Redis is unreachable or lacks RedisBloom.
 // Every test works under its own key prefix; the filter keys and their
 // "__probfilter__:" metadata keys are deleted on cleanup. See

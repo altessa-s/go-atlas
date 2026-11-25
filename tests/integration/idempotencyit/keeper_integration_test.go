@@ -46,14 +46,14 @@ func TestKeeper_ReplaysTheCompletedResult(t *testing.T) {
 		acquired, state, err := k.AttemptLock(ctx, "payment-1")
 		require.NoError(t, err)
 		require.False(t, acquired)
-		require.Equal(t, storages.StatusInProgress, state.Status)
+		require.Equal(t, idempotency.StatusInProgress, state.Status)
 
 		require.NoError(t, k.Complete(ctx, "payment-1", "entity-42", held))
 
 		acquired, state, err = k.AttemptLock(ctx, "payment-1")
 		require.NoError(t, err)
 		require.False(t, acquired)
-		require.Equal(t, storages.StatusSuccess, state.Status)
+		require.Equal(t, idempotency.StatusSuccess, state.Status)
 		require.Equal(t, "entity-42", state.Data)
 
 		// The denied state carries no token, so it cannot complete the key.
@@ -108,7 +108,7 @@ func TestKeeper_ReclaimsAnOrphanedLock(t *testing.T) {
 
 		var (
 			wins   atomic.Int32
-			winner atomic.Pointer[storages.State]
+			winner atomic.Pointer[idempotency.State]
 			wg     sync.WaitGroup
 		)
 		errs := make([]error, contenders)

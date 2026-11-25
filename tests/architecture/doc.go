@@ -4,6 +4,10 @@
 
 // Package architecture checks production dependency boundaries across platforms.
 //
+// It checks runtime imports of test fixtures and verifies that production imports
+// exercise each declared dependency between planned modules. Public transport signatures
+// and an external server consumer are checked for internal type leaks.
+//
 // # Usage
 //
 //	go test ./tests/architecture

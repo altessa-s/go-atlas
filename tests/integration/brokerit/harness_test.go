@@ -121,7 +121,7 @@ func newWorld(tb testing.TB) *world {
 		Storage:  jetstream.MemoryStorage,
 	})
 	require.NoError(tb, err)
-	tb.Cleanup(func() { _ = p.DeleteStream(context.Background(), name) })
+	tb.Cleanup(func() { _ = p.DeleteStream(context.WithoutCancel(tb.Context()), name) })
 
 	return &world{provider: p, stream: stream, name: name, subject: subject}
 }
@@ -145,7 +145,7 @@ func (w *world) durable(name string, wait time.Duration, mods ...func(*jetstream
 
 // subscribe starts handler on provider with factory and unsubscribes it on
 // cleanup.
-func subscribe(tb testing.TB, p *natsprovider.NATS, factory broker.SubscriberFactory, handler broker.SubscriberHandler) broker.Subscriber {
+func subscribe(tb testing.TB, p *natsprovider.NATS, factory natsprovider.SubscriberFactory, handler broker.SubscriberHandler) broker.Subscriber {
 	tb.Helper()
 
 	sub := p.Subscriber(factory)

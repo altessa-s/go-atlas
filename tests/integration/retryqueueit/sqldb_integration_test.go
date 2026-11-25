@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
@@ -21,7 +22,6 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/retryqueue/storages/storagetest"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
-	"github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	retryqueueconfig "github.com/altessa-s/go-atlas/config/retryqueue"
@@ -76,6 +76,45 @@ func TestSQLStorageContract(t *testing.T) {
 				s, _, _ := target.store(tb, sqldb.WithResolvedRetention(7*24*time.Hour))
 				return s
 			})
+		})
+	}
+}
+
+func TestSQLReopenReplacesOldPayloadSchema(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			old, db, table := target.store(t)
+			ctx := t.Context()
+			first, err := old.Mark(ctx, storagetest.Pending("old", storagetest.T0))
+			require.NoError(t, err)
+			expired, err := old.Expire(ctx, first.Key, first.Generation, first.Since, first.Since)
+			require.NoError(t, err)
+			require.True(t, expired)
+
+			current, err := sqldb.New[string](db, target.dialect, sqldb.WithTableName(table))
+			require.NoError(t, err)
+			item := retryqueue.Item[string]{Key: first.Key, Generation: first.Generation, Since: first.Since, Payload: "replacement"}
+			tx, err := db.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = tx.Rollback() })
+			reopened, err := current.Reopen(sqldb.WithTx(ctx, tx), item)
+			require.NoError(t, err)
+			require.Equal(t, first.Since.Add(time.Nanosecond), reopened.Since)
+			require.Equal(t, item.Payload, reopened.Payload)
+			require.NoError(t, tx.Rollback())
+			expiredItems, err := old.ListByState(ctx, retryqueue.StateExpired, 1)
+			require.NoError(t, err)
+			require.Len(t, expiredItems, 1)
+			require.Equal(t, first.Payload, expiredItems[0].Payload)
+
+			committed, err := current.Reopen(ctx, item)
+			require.NoError(t, err)
+			require.Equal(t, reopened, committed)
+			pending, err := current.ListByState(ctx, retryqueue.StatePending, 1)
+			require.NoError(t, err)
+			require.Equal(t, []retryqueue.Item[string]{committed}, pending)
 		})
 	}
 }
@@ -333,4 +372,18 @@ func itemKeys(items []storagetest.Item) []string {
 		out = append(out, it.Key)
 	}
 	return out
+}
+
+func TestSQLScalarPayload(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			db, table := target.open(t)
+			s, err := sqldb.New[string](db, target.dialect, sqldb.WithTableName(table))
+			require.NoError(t, err)
+			require.NoError(t, s.EnsureSchema(t.Context()))
+			storagetest.ScalarPayload(t, s, nil, nil)
+		})
+	}
 }

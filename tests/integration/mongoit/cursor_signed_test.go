@@ -8,9 +8,10 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/altessa-s/go-aip/pagination/pagetoken"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/altessa-s/go-aip/pagination/pagetoken"
 
 	datamongo "github.com/altessa-s/go-atlas/store/mongo"
 )

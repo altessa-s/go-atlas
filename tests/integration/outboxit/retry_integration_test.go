@@ -46,6 +46,25 @@ func TestRetry_FailedAttemptIsPersisted(t *testing.T) {
 	})
 }
 
+func TestRetry_LastErrorIsLiteral(t *testing.T) {
+	t.Parallel()
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t)
+		saved := f.save(t, ob, event("billing.invoice.paid", `{"invoice":1}`))
+		batch, err := f.store.FetchUnprocessedEvents(t.Context(), 1)
+		require.NoError(t, err)
+		require.Len(t, batch, 1)
+		batch[0].LastError = new("$$undefined")
+		batch[0].Status = outbox.StatusFailed
+		batch[0].Attempts = 1
+		require.NoError(t, f.store.UpdateEvents(t.Context(), batch...))
+		doc := f.load(t, saved[0].Id)
+		require.Equal(t, batch[0].LastError, doc.LastError)
+		require.Equal(t, string(outbox.StatusFailed), doc.Status)
+		require.Equal(t, uint32(1), doc.Attempts)
+	})
+}
+
 // The backoff is enforced by the store against its own clock, so a retry cannot
 // be pulled forward by an eager dispatcher — and it survives a restart, because
 // the deadline lives in the document rather than in a process.

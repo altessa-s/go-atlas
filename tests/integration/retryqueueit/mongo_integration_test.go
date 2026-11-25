@@ -47,8 +47,8 @@ func mongoColl(tb testing.TB) *mongodrv.Collection {
 	}
 	db := client.Database("retryqueueit_" + strings.ToLower(rand.Text()[:12]))
 	tb.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
+		_ = db.Drop(context.WithoutCancel(tb.Context()))
+		_ = client.Disconnect(context.WithoutCancel(tb.Context()))
 	})
 	return db.Collection(collName)
 }
@@ -286,7 +286,7 @@ func TestMongoConcurrentFirstMarkAcrossReplicas(t *testing.T) {
 	for i := range replicas {
 		client, err := mongodrv.Connect(mongoopts.Client().ApplyURI(livebackend.MongoURI()))
 		require.NoError(t, err)
-		t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
+		t.Cleanup(func() { _ = client.Disconnect(context.WithoutCancel(t.Context())) })
 		replicaColl := client.Database(coll.Database().Name()).Collection(collName)
 		stores[i], err = retrymongo.New[storagetest.Payload](replicaColl)
 		require.NoError(t, err)
@@ -313,4 +313,28 @@ func TestMongoConcurrentFirstMarkAcrossReplicas(t *testing.T) {
 	n, err := coll.CountDocuments(t.Context(), bson.D{})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), n)
+}
+
+func TestMongoDeleteObsoleteTreatsMissingGenerationAsZero(t *testing.T) {
+	t.Parallel()
+	coll := mongoColl(t)
+	store := newStore(t, coll)
+	_, err := coll.InsertOne(t.Context(), bson.M{"_id": "legacy", "state": "pending"})
+	require.NoError(t, err)
+
+	newer, err := store.DeleteObsolete(t.Context(), "legacy", -1)
+	require.NoError(t, err)
+	require.True(t, newer)
+	require.NoError(t, coll.FindOne(t.Context(), bson.M{"_id": "legacy"}).Err())
+
+	newer, err = store.DeleteObsolete(t.Context(), "legacy", 0)
+	require.NoError(t, err)
+	require.False(t, newer)
+	require.ErrorIs(t, coll.FindOne(t.Context(), bson.M{"_id": "legacy"}).Err(), mongodrv.ErrNoDocuments)
+}
+
+func TestMongoScalarPayload(t *testing.T) {
+	t.Parallel()
+	s, err := retrymongo.New[string](mongoColl(t))
+	storagetest.ScalarPayload(t, s, err, retrymongo.ErrInvalidPayload)
 }

@@ -298,15 +298,47 @@ func deferredConstraint(t testing.TB, f *uowFixture) {
 
 func savepoint(t testing.TB, f *uowFixture) {
 	t.Helper()
+	var hooks, effects []string
+	var retained context.Context
+	var callbackErr error
+	register := func(ctx context.Context, label string) {
+		require.NoError(t, f.r.AfterCommit(ctx, func(context.Context) { hooks = append(hooks, label) }))
+		require.NoError(t, uow.OnCommit(ctx, uow.Effect{Apply: func(context.Context) error {
+			effects = append(effects, label)
+			return nil
+		}}))
+	}
 	require.NoError(t, f.r.Run(t.Context(), func(ctx context.Context) error {
 		err := postgres.WithSavepoint(ctx, f.db, func(child context.Context) error {
+			retained = child
+			require.NoError(t, f.insert(child, "discarded"))
+			register(child, "discarded")
 			err := postgres.WithTransaction(child, f.db, func(joined context.Context) error { _, err := f.q.ExecContext(joined, "SELECT 1/0"); return err })
 			require.Equal(t, "22012", sqldialect.SQLState(err))
 			_, err = f.q.ExecContext(child, "SELECT 1")
 			return err
 		})
 		require.Equal(t, "25P02", sqldialect.SQLState(err))
-		return f.insert(ctx, "recovered")
+		require.ErrorIs(t, f.insert(retained, "late"), sql.ErrTxDone)
+		return postgres.WithSavepoint(ctx, f.db, func(child context.Context) error {
+			register(child, "released")
+			postgres.AfterCommitContext(child, func(fresh context.Context) {
+				callbackErr = f.r.Run(fresh, func(independent context.Context) error {
+					return f.insert(independent, "from callback")
+				})
+			})
+			require.Empty(t, hooks)
+			require.Empty(t, effects)
+			return f.insert(child, "recovered")
+		})
 	}))
-	require.Equal(t, 1, count(t, t.Context(), f.db, f.table))
+	require.Equal(t, []string{"released"}, hooks)
+	require.Equal(t, []string{"released"}, effects)
+	require.NoError(t, callbackErr)
+	for _, expected := range []string{"from callback", "recovered"} {
+		var id string
+		require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT id FROM "+f.table+" WHERE id = $1", expected).Scan(&id))
+		require.Equal(t, expected, id)
+	}
+	require.Equal(t, 2, count(t, t.Context(), f.db, f.table))
 }

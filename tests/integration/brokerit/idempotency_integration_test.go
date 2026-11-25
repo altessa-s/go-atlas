@@ -57,8 +57,9 @@ func newRedisStorage(tb testing.TB) *idemredis.Storage {
 
 	prefix := uniqueName(tb) + ":"
 	tb.Cleanup(func() {
-		if keys, _ := client.Keys(context.Background(), prefix+"*").Result(); len(keys) > 0 {
-			_ = client.Del(context.Background(), keys...).Err()
+		cleanupCtx := context.WithoutCancel(tb.Context())
+		if keys, _ := client.Keys(cleanupCtx, prefix+"*").Result(); len(keys) > 0 {
+			_ = client.Del(cleanupCtx, keys...).Err()
 		}
 		_ = client.Close()
 	})
@@ -93,7 +94,7 @@ func requireKeyCompleted(tb testing.TB, keeper *idempotency.Keeper, subject, key
 	acquired, state, err := keeper.AttemptLock(tb.Context(), brokeridem.BuildStorageKey(consumerScope, subject, key))
 	require.NoError(tb, err)
 	require.False(tb, acquired, "key %s must still be held after processing", key)
-	require.Equal(tb, storages.StatusSuccess, state.Status, "key %s must be recorded as processed", key)
+	require.Equal(tb, idempotency.StatusSuccess, state.Status, "key %s must be recorded as processed", key)
 }
 
 // Three copies of one message — same message ID, different bodies, as a
@@ -257,7 +258,7 @@ func TestIdempotency_NATSKVStorageAcceptsTheMiddlewareKeys(t *testing.T) {
 	bucket := uniqueName(t)
 	storage, err := idemnats.New(w.provider.JetStream(), idemnats.WithBucket(bucket), idemnats.WithMaxAge(time.Hour))
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = w.provider.JetStream().DeleteKeyValue(context.Background(), bucket) })
+	t.Cleanup(func() { _ = w.provider.JetStream().DeleteKeyValue(context.WithoutCancel(t.Context()), bucket) })
 
 	keeper := newKeeper(storage)
 	key := brokeridem.BuildStorageKey(consumerScope, w.subject, "invoice-1")

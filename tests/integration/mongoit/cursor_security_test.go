@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/altessa-s/go-atlas/store/mongo/storages/storagetest"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
 	datamongo "github.com/altessa-s/go-atlas/store/mongo"
@@ -140,4 +141,18 @@ func TestListCursor_ScalarContinuation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCursorMetadataOwnership(t *testing.T) {
+	t.Parallel()
+	t.Run("memory", func(t *testing.T) {
+		t.Parallel()
+		storagetest.MetadataOwnership(t, cursormemory.New(time.Minute), nil)
+	})
+	t.Run("redis", func(t *testing.T) {
+		t.Parallel()
+		client := livebackend.ConnectRedis(t)
+		prefix := livebackend.RedisPrefix(t, client, "mongoit_ownership")
+		storagetest.MetadataOwnership(t, cursorredis.New(client, cursorredis.WithKeyPrefix(prefix)), &datamongo.CursorMetadata{})
+	})
 }

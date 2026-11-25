@@ -96,7 +96,11 @@ func TestBatchAtomicAndIdempotent(t *testing.T) {
 	for _, target := range sqlTargets() {
 		t.Run(target.name, func(t *testing.T) {
 			t.Parallel()
-			st, db, table := target.open(t, sqldb.WithMaxBatchRows(2))
+			type txKey struct{}
+			st, db, table := target.open(t, sqldb.WithMaxBatchRows(2), sqldb.WithTxResolver(func(ctx context.Context) (*sql.Tx, bool) {
+				tx, ok := ctx.Value(txKey{}).(*sql.Tx)
+				return tx, ok
+			}))
 
 			batch := make([]*audit.Event, 5)
 			want := make([]string, len(batch))
@@ -123,8 +127,25 @@ func TestBatchAtomicAndIdempotent(t *testing.T) {
 			rejected := event("n4", base)
 			rejected.Actor.ID = "boom"
 			bad := []*audit.Event{event("n0", base), event("n1", base), event("n2", base), event("n3", base), rejected}
-			require.Error(t, st.StoreBatch(t.Context(), bad))
-			require.Equal(t, want, ids(t, st), "a failed batch leaves no row behind")
+			storagetest.BatchFailure(t, st, bad, want)
+
+			t.Run("CallerRollback", func(t *testing.T) {
+				t.Parallel()
+				tx, err := db.BeginTx(t.Context(), nil)
+				require.NoError(t, err)
+				defer func() { _ = tx.Rollback() }()
+				ctx := context.WithValue(t.Context(), txKey{}, tx)
+				require.Error(t, st.StoreBatch(ctx, bad))
+				// MySQL and MariaDB retain earlier statements in the open
+				// transaction. PostgreSQL aborts it on the constraint error.
+				if target.dialect == sqldb.DialectMySQL {
+					var rows int
+					require.NoError(t, tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&rows))
+					require.Equal(t, len(want)+len(bad)-1, rows)
+				}
+				require.NoError(t, tx.Rollback())
+				require.Equal(t, want, ids(t, st))
+			})
 		})
 	}
 }

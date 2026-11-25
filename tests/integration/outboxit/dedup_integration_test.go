@@ -69,7 +69,7 @@ func newStream(tb testing.TB) (*natsprovider.NATS, jetstream.Stream, string) {
 		Storage:    jetstream.MemoryStorage,
 	})
 	require.NoError(tb, err)
-	tb.Cleanup(func() { _ = js.DeleteStream(context.Background(), name) })
+	tb.Cleanup(func() { _ = js.DeleteStream(context.WithoutCancel(tb.Context()), name) })
 
 	provider, err := natsprovider.New(nc)
 	require.NoError(tb, err)
@@ -102,10 +102,10 @@ func TestDedup_RepublishedEventIsCollapsedByJetStream(t *testing.T) {
 	f := newFixture(t)
 	provider, stream, subject := newStream(t)
 
-	ob := brokeroutbox.New(f.store, provider,
+	ob := brokeroutbox.New(f.store, provider, brokeroutbox.WithOutboxOptions(
 		dataoutbox.WithHandleTimeout(handleTimeout),
 		dataoutbox.WithMaxLockTime(lockTime),
-	)
+	))
 
 	require.NoError(t, ob.Publish(t.Context(), *msg.NewMessage(subject, []byte(`{"invoice":1}`))))
 	require.NoError(t, ob.RunDispatchCycle(t.Context()))
@@ -142,10 +142,10 @@ func TestDedup_DistinctEventsAreNotCollapsed(t *testing.T) {
 	f := newFixture(t)
 	provider, stream, subject := newStream(t)
 
-	ob := brokeroutbox.New(f.store, provider,
+	ob := brokeroutbox.New(f.store, provider, brokeroutbox.WithOutboxOptions(
 		dataoutbox.WithHandleTimeout(handleTimeout),
 		dataoutbox.WithMaxLockTime(lockTime),
-	)
+	))
 
 	require.NoError(t, ob.PublishBatch(t.Context(),
 		*msg.NewMessage(subject, []byte(`{"invoice":1}`)),
@@ -166,10 +166,10 @@ func TestDedup_CallerSuppliedIdCollapsesSeparateEvents(t *testing.T) {
 	f := newFixture(t)
 	provider, stream, subject := newStream(t)
 
-	ob := brokeroutbox.New(f.store, provider,
+	ob := brokeroutbox.New(f.store, provider, brokeroutbox.WithOutboxOptions(
 		dataoutbox.WithHandleTimeout(handleTimeout),
 		dataoutbox.WithMaxLockTime(lockTime),
-	)
+	))
 
 	withBusinessKey := func() msg.Message {
 		return *msg.NewMessageWithMeta(subject, []byte(`{"invoice":7}`),

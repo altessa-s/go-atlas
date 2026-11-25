@@ -26,7 +26,8 @@ func TestStorage_RoundTrip(t *testing.T) {
 
 	_, err := f.storage.Get(ctx, "k")
 	require.ErrorIs(t, err, storages.ErrMissing)
-	exists, err := f.storage.Exists(ctx, "k")
+	var checker storages.ExistenceChecker = f.storage
+	exists, err := checker.Exists(ctx, "k")
 	require.NoError(t, err)
 	require.False(t, exists)
 
@@ -34,7 +35,7 @@ func TestStorage_RoundTrip(t *testing.T) {
 	got, err := f.storage.Get(ctx, "k")
 	require.NoError(t, err)
 	require.Equal(t, value, got, "binary values must round-trip unchanged")
-	exists, err = f.storage.Exists(ctx, "k")
+	exists, err = checker.Exists(ctx, "k")
 	require.NoError(t, err)
 	require.True(t, exists)
 

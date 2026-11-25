@@ -210,7 +210,7 @@ func TestSQLFactory(t *testing.T) {
 				SQL: &idempotencyconfig.SQLStorageConfig{Dialect: string(target.dialect), Table: table, EnsureSchema: true}}
 			hooks := &coreruntime.HookGroup{}
 			t.Cleanup(func() { require.NoError(t, hooks.Shutdown(context.WithoutCancel(t.Context()))) })
-			k, err := idemfactory.New(&cfg).UseSQLDB(db).UseShutdownHooks(hooks).Build()
+			k, err := idemfactory.New(&cfg).UseSQLDB(db).UseShutdownHooks(hooks).Build(t.Context())
 			require.NoError(t, err)
 			ok, state, err := k.AttemptLock(t.Context(), "factory-key")
 			require.NoError(t, err)

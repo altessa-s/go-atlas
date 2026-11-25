@@ -28,14 +28,6 @@ var allowedPublicConfigStructs = map[string]string{
 	// hands it, notification channels included, to Provider.Start. Callers
 	// never fill it; see the type's godoc.
 	"coord/leadelect/providers.Config": "SPI value carrier between the elector core and a provider",
-
-	// Serialized document schema: the JSON validation-rules file an operator
-	// writes, decoded as a whole (json tags on every field), like the YAML
-	// schemas under config/.
-	"auth/oidc.ServiceConfig":                 "JSON document schema",
-	"auth/oidc.ValidationRulesConfig":         "JSON document schema",
-	"auth/oidc.ScopesValidationConfig":        "JSON document schema",
-	"auth/oidc.TokenLifetimeValidationConfig": "JSON document schema",
 }
 
 // TestNoPublicConfigStructs enforces the options rule of AGENTS.md: a package

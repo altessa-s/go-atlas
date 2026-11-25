@@ -10,7 +10,8 @@ tests/integration/
 ├── dlockit/               # coord/dlock: contended locking against a live broker, SQL servers and MongoDB
 ├── limiterit/             # coord/limiters: sliding-window contract on Redis and NATS vs memory, tokenbucket and budget on top
 ├── probfilterit/          # cache/probfilter: Bloom and Cuckoo filters on Redis Stack — membership, deletes, shared rebuilds
-├── auditit/               # audit: storage conformance, atomic and idempotent batches on SQL servers
+├── denylistit/            # auth/denylist: Redis exact-read and RawSource enforcement against live replicas and Sentinel
+├── auditit/               # audit: storage conformance, ordered partial inserts on MongoDB, atomic and idempotent batches on SQL servers
 ├── brokerit/              # messaging/broker: JetStream redelivery, restarts, shutdown, idempotency middleware over Redis
 ├── outboxit/              # reliability/outbox: transactional delivery against MongoDB, PostgreSQL, MariaDB and MySQL
 ├── retryqueueit/          # reliability/retryqueue: MongoDB and SQL storages — contracts, indexes, query plans, racing replicas, purge
@@ -41,9 +42,12 @@ server is unreachable by default, so `make test-integration` is green on a machi
 `make test-integration` runs packages sequentially (`-p 1`); tests within each package still run in parallel. All packages share the same backend
 containers, and running them together can delay requests beyond the one-second leases used by expiry tests, producing failures unrelated to correctness.
 
+The target includes the root-module ClickHouse audit tests. They skip when `CLICKHOUSE_ADDR` is unset. For the Compose service set
+`CLICKHOUSE_ADDR=127.0.0.1:19001`, `CLICKHOUSE_USER=atlas`, `CLICKHOUSE_PASSWORD=atlas` and `CLICKHOUSE_DATABASE=default`.
+
 | Backend     | Default address                       | Environment override                                                         |
 | ----------- | ------------------------------------- | ---------------------------------------------------------------------------- |
-| ClickHouse  | `127.0.0.1:19001`                     | `CLICKHOUSE_ADDR`, `CLICKHOUSE_DB`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
+| ClickHouse  | `127.0.0.1:19001`                     | `CLICKHOUSE_ADDR`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
 | MariaDB     | `127.0.0.1:13306`                     | `MARIADB_DSN`                                                                |
 | MySQL       | `127.0.0.1:13307`                     | `MYSQL_DSN`                                                                  |
 | PostgreSQL  | `127.0.0.1:15432`                     | `POSTGRES_DSN`                                                               |
@@ -51,6 +55,10 @@ containers, and running them together can delay requests beyond the one-second l
 | MongoDB     | `127.0.0.1:27019` (replica set `rs0`) | `MONGO_PORT`, `MONGO_URI`                                                    |
 | Redis Stack | `127.0.0.1:16379`                     | `REDIS_ADDR`                                                                 |
 | NATS        | `nats://127.0.0.1:14222`              | `NATS_URL`                                                                   |
+
+Additional env-gated Redis topology and denylist tests (`probfilterit/topology_integration_test.go` and `denylistit/redis_test.go`) skip unless their
+endpoint variables are set: `REDIS_CLUSTER_NODE_ADDR`, `REDIS_REPLICA_ADDR`, `REDIS_SAFE_CLUSTER_ADDR`, `REDIS_SAFE_SENTINEL_ADDR`, and
+`REDIS_SENTINEL_MASTER_NAME`.
 
 The AIP request contracts (filter, order, projection, listing) and their live-database suites live in
 [go-aip](https://github.com/altessa-s/go-aip), whose `integration/docker` module runs them against PostgreSQL, MariaDB, ClickHouse and MongoDB.
@@ -196,6 +204,18 @@ the generation-fenced delete — and the RedisBloom error texts the storages rec
 
 The superseded scenarios delete the rebuild lease key to stand in for its expiry, so they name it with the metadata key layout of
 `cache/probfilter/internal/redisfilter`; a change to that layout has to be mirrored in `harness_test.go`.
+
+Topology verification runs in `topology_integration_test.go` when env-gated Redis endpoints are provided: `TestDirectClientRejectsClusterNodeAndReplica`
+uses `REDIS_CLUSTER_NODE_ADDR` and `REDIS_REPLICA_ADDR` to verify `Builder` rejects direct cluster-node and replica clients with
+`probfilter.ErrUnverifiableTopology`, and `TestLivePrimaryDiscovery` uses `REDIS_SAFE_CLUSTER_ADDR` (with `Builder`) and `REDIS_SAFE_SENTINEL_ADDR` +
+`REDIS_SENTINEL_MASTER_NAME` (with `SentinelBuilder`) to verify primary eviction-policy discovery.
+
+## denylistit — token denylist against live Redis replicas
+
+`denylistit` verifies replica-safety enforcement in `auth/denylist/storages/redis` against live Redis replicas when the topology env variables are set:
+`TestDirectReplica` (`REDIS_REPLICA_ADDR`) and `TestSentinelReplicaOnly` (`REDIS_SAFE_SENTINEL_ADDR` and `REDIS_SENTINEL_MASTER_NAME` with
+`ReplicaOnly: true`) assert that `IsRevoked` returns `redisstore.ErrReplicaReadNotAllowed` and `RawSource().StreamValues` yields
+`redisstore.ErrUnsupportedClient`.
 
 ## outboxit — transactional delivery against live MongoDB and SQL servers
 
