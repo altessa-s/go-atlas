@@ -8,6 +8,9 @@ package grpcconfig
 // It controls which methods benefit from panic recovery and provides
 // options to disable recovery for specific critical methods.
 type RecoveryInterceptor struct {
+	// LogRawErrors includes diagnostic text that may contain secrets.
+	LogRawErrors bool `yaml:"logRawErrors" default:"false"`
+
 	// BaseInterceptor provides common interceptor configuration.
 	BaseInterceptor `yaml:",inline"`
 }

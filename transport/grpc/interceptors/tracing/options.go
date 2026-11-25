@@ -19,6 +19,11 @@ type SpanNameFunc func(fullMethod string) string
 
 // options contains configuration for the tracing interceptor.
 type options struct {
+	// recordClientDetails enables recording client addresses that may identify callers.
+	recordClientDetails bool `optval:"param"`
+	// recordRawErrors enables recording error text that may contain secrets.
+	recordRawErrors bool `optval:"param"`
+
 	// ignoreMethods sets methods to ignore for tracing.
 	// Methods should be full gRPC method names like "/package.Service/Method".
 	ignoreMethods []string `optgen:"append"`

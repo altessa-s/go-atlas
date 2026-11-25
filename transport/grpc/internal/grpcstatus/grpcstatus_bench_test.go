@@ -16,7 +16,7 @@ import (
 )
 
 func BenchmarkUnaryConversion(b *testing.B) {
-	intercept := grpcstatus.New(nil, nil).ClientUnaryInterceptor()
+	intercept := grpcstatus.New(nil, false, nil).ClientUnaryInterceptor()
 	cancelled := status.Error(codes.Canceled, "canceled")
 	invoke := func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
 		return cancelled

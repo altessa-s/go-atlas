@@ -5,8 +5,12 @@
 package recovery
 
 import (
+	"errors"
 	"fmt"
 )
+
+// ErrPanicRecovered is the diagnostic category for a recovered panic.
+var ErrPanicRecovered = errors.New("panic_recovered")
 
 // PanicError wraps a recovered panic value together with the stack trace
 // captured at the point of recovery. It implements the error interface so

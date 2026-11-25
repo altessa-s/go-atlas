@@ -35,3 +35,7 @@ The message omits URL user information and is capped at 1024 bytes. An Error spa
 | `WithIgnoreMethods`  | --                   | Methods to skip tracing                              |
 | `WithIgnorePatterns` | --                   | Regex patterns for methods to skip                   |
 | `WithLogger`         | discard              | Structured logger                                    |
+
+## Diagnostics
+
+By default spans record the gRPC code and status category. Use `WithRecordClientDetails(true)` for the server peer address and `WithRecordRawErrors(true)` for exception messages and status descriptions.

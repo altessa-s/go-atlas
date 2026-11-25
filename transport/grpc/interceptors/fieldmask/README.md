@@ -267,3 +267,7 @@ request do not alter it, and concurrent sends and receives on a bidi stream are 
 `WithUpdateOptions` supplies the `update.Option` policy of `update.Prepare`; the normalizer appends `update.WithUpdateMaskFieldName` with the
 configured mask field name and `update.WithStrict` last. `WithMaskFieldName` also controls the field name in strict
 validation error details.
+
+## Diagnostics
+
+An invalid read mask returns `InvalidArgument` with `ErrorInfo.Reason` set to `INVALID_FIELD_MASK`. The rejected path is omitted from the status and diagnostics.

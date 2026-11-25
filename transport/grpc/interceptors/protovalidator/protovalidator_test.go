@@ -56,9 +56,10 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 	require.True(t, ok, "expected *interceptor")
 
 	deps := ic.Dependencies()
-	require.Len(t, deps, 2)
+	require.Len(t, deps, 3)
 	require.Equal(t, "metadata", deps[0])
 	require.Equal(t, "auth", deps[1])
+	require.Equal(t, "recovery", deps[2])
 }
 
 func TestServerInterceptor_ReturnsInterceptors(t *testing.T) {

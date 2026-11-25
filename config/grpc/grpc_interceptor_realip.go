@@ -19,6 +19,12 @@ const (
 // Used by the realip interceptor to extract client IP addresses from various
 // proxy headers while validating trust relationships with intermediate proxies.
 type RealIPInterceptor struct {
+	// LogClientDetails includes client details that may identify callers.
+	LogClientDetails bool `yaml:"logClientDetails" default:"false"`
+
+	// LogRawErrors includes diagnostic text that may contain secrets.
+	LogRawErrors bool `yaml:"logRawErrors" default:"false"`
+
 	// BaseInterceptor provides common interceptor configuration.
 	BaseInterceptor `yaml:",inline"`
 

@@ -88,6 +88,15 @@ func WithFinalizer(v Finalizer) Option {
 	}
 }
 
+// WithLogRawErrors sets the logRawErrors option.
+//
+// logRawErrors enables logging error text, panic values, or stacks that may contain secrets.
+func WithLogRawErrors(v bool) Option {
+	return func(o *options) {
+		o.logRawErrors = v
+	}
+}
+
 // WithLogger sets the logger option.
 //
 // logger is used for debugging error conversion behavior

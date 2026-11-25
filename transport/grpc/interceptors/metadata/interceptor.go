@@ -8,6 +8,8 @@ import (
 	"context"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+
+	"google.golang.org/grpc"
 )
 
 const interceptorName = "metadata"
@@ -45,4 +47,24 @@ func (i metadataInterceptor) DrivenInterceptor(ctx context.Context) (driver.Driv
 // name "metadata".
 func Interceptor() driver.DrivenInterceptor {
 	return metadataInterceptor{}
+}
+
+// UnknownMethod is the telemetry name for requests to an unregistered RPC.
+const UnknownMethod = "/_unknown/Unknown"
+
+// ServerStreamMethod returns a bounded method name for calls dispatched
+// through grpc.UnknownServiceHandler. grpc-go passes a nil service implementation
+// and marks both streaming directions for these calls. The transport retains the
+// original path for the unknown service handler.
+func ServerStreamMethod(srv any, ctx context.Context, info *grpc.StreamServerInfo) string {
+	if srv == nil && info.IsClientStream && info.IsServerStream && grpc.ServerTransportStreamFromContext(ctx) != nil {
+		return UnknownMethod
+	}
+	return info.FullMethod
+}
+
+// EnsureServerStreamInContext initializes metadata with the bounded server
+// method name before the method reaches the cache.
+func EnsureServerStreamInContext(srv any, ctx context.Context, info *grpc.StreamServerInfo) (context.Context, *CallMetadata) {
+	return EnsureInContext(ctx, ServerStreamMethod(srv, ctx, info), info)
 }

@@ -11,6 +11,10 @@
 #  # Default value: false
 #  enabled: false
 #
+#  # <bool> Log raw error text during status conversion.
+#  # This can disclose sensitive information. Default value: false
+#  logRawErrors: false
+#
 #  # <list[string]> List of gRPC methods to skip error status conversion for.
 #  # The built-in gRPC server factory does not currently apply this list to errStatus.
 #  # Default value: not set

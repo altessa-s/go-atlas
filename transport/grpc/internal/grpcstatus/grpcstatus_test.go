@@ -44,7 +44,7 @@ func TestStreamErrorConversion(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			intercept := grpcstatus.New(nil, func(_ context.Context, st *status.Status) (error, bool) {
+			intercept := grpcstatus.New(nil, false, func(_ context.Context, st *status.Status) (error, bool) {
 				return mapped, st.Code() == codes.Aborted
 			}).ClientStreamInterceptor()
 			stream, err := intercept(t.Context(), &grpc.StreamDesc{}, nil, "/example/Method",
@@ -75,12 +75,21 @@ func TestClientErrorLogging(t *testing.T) {
 			t.Parallel()
 			var logs bytes.Buffer
 			log := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-			intercept := grpcstatus.New(log, nil).ClientUnaryInterceptor()
-			got := intercept(t.Context(), "/example/Method", nil, nil, nil, func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error { return err })
+			intercept := grpcstatus.New(log, false, nil).ClientUnaryInterceptor()
+			invoke := func(context.Context, string, any, any, *grpc.ClientConn, ...grpc.CallOption) error {
+				return err
+			}
+			got := intercept(t.Context(), "/example/Method", nil, nil, nil, invoke)
 			require.ErrorIs(t, got, err)
 			require.Contains(t, logs.String(), "handling client error conversion")
 			require.NotContains(t, logs.String(), "client-callback-token")
 			require.NotContains(t, logs.String(), "SECRET")
+
+			logs.Reset()
+			intercept = grpcstatus.New(log, true, nil).ClientUnaryInterceptor()
+			got = intercept(t.Context(), "/example/Method", nil, nil, nil, invoke)
+			require.ErrorIs(t, got, err)
+			require.Contains(t, logs.String(), "client-callback-token")
 		})
 	}
 }

@@ -39,3 +39,7 @@ stream type, timing, client IP, and user agent. Parsed method names are cached p
 | `EnsureInContext`         | Get-or-create pattern for server interceptors                    |
 | `EnsureInContextFromMethod`| Get-or-create pattern for client interceptors                  |
 | `Interceptor`             | Returns a DrivenInterceptor auto-prepended by Chain              |
+
+## Unknown methods
+
+Calls dispatched through a custom gRPC unknown-service handler use `/_unknown/Unknown` for cached metadata and telemetry. The handler can read the original path via `grpc.Method`. Register bidirectional streams with a non-nil service implementation so gRPC can distinguish them from unknown-service calls at the interceptor boundary.

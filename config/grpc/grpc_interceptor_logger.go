@@ -15,6 +15,12 @@ import (
 // LoggerInterceptor defines the configuration for request/response logging interceptor.
 // Controls what information is logged and how timestamps are formatted.
 type LoggerInterceptor struct {
+	// LogClientDetails includes client details that may identify callers.
+	LogClientDetails bool `yaml:"logClientDetails" default:"false"`
+
+	// LogRawErrors includes diagnostic text that may contain secrets.
+	LogRawErrors bool `yaml:"logRawErrors" default:"false"`
+
 	// BaseInterceptor provides common interceptor configuration.
 	BaseInterceptor `yaml:",inline"`
 

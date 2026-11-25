@@ -30,15 +30,18 @@ type ConvertFunc func(ctx context.Context, st *status.Status) (err error, matche
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	convert ConvertFunc
+	convert      ConvertFunc
+	logRawErrors bool
 }
 
 // New returns a unary and streaming client interceptor. Pass nil convert to
-// use the standard conversion for context errors.
-func New(logger *slog.Logger, convert ConvertFunc) interceptors.ClientInterceptor {
+// use the standard conversion for context errors. Enable logRawErrors to
+// include sanitized error text in debug records.
+func New(logger *slog.Logger, logRawErrors bool, convert ConvertFunc) interceptors.ClientInterceptor {
 	return &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptor(Name, logger),
 		convert:         convert,
+		logRawErrors:    logRawErrors,
 	}
 }
 
@@ -48,7 +51,11 @@ func (c *interceptor) convertError(ctx context.Context, err error) error {
 	}
 
 	class := slog.String("classification", diagnostics.ErrorClass(err))
-	c.LogDebug(ctx, "handling client error conversion", convertOperation, class)
+	attrs := []slog.Attr{class}
+	if c.logRawErrors {
+		attrs = append(attrs, slog.Any("error", diagnostics.LogError(err)))
+	}
+	c.LogDebug(ctx, "handling client error conversion", convertOperation, attrs...)
 
 	st, ok := status.FromError(err)
 	if !ok {
@@ -56,8 +63,11 @@ func (c *interceptor) convertError(ctx context.Context, err error) error {
 		return err
 	}
 
-	c.LogDebug(ctx, "extracted gRPC status from error", convertOperation,
-		slog.String("code", st.Code().String()))
+	attrs = []slog.Attr{slog.String("code", st.Code().String())}
+	if c.logRawErrors {
+		attrs = append(attrs, slog.String("message", diagnostics.ErrorText(st.Message(), diagnostics.DefaultMaxErrorLength)))
+	}
+	c.LogDebug(ctx, "extracted gRPC status from error", convertOperation, attrs...)
 
 	if c.convert != nil {
 		if converted, matched := c.convert(ctx, st); matched {

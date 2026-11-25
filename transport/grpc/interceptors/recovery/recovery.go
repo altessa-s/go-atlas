@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas-core/runtime/helpers"
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/internal/transport/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
@@ -34,8 +32,8 @@ func Name() string { return interceptorName }
 var ID = interceptors.Ref(interceptorName)
 
 // ServerInterceptor returns a new interceptor that recovers from panics.
-// When panic occurs, it will call the provided panic panicHandler.
-// If the panic panicHandler is not provided, it will use the default panic panicHandler.
+// It calls the configured PanicHandler when present. By default a panic
+// becomes an Internal status.
 func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
@@ -62,8 +60,8 @@ func ServerStreamInterceptor(opt ...Option) stdGrpc.StreamServerInterceptor {
 }
 
 // ClientInterceptor returns a new interceptor that recovers from panics in client calls.
-// When panic occurs in client interceptors or during client call processing, it will call the provided panic panicHandler.
-// If the panic panicHandler is not provided, it will use the default panic panicHandler.
+// It calls the configured PanicHandler when present. By default a panic
+// becomes an Internal status.
 func ClientInterceptor(opt ...Option) interceptors.ClientInterceptor {
 	opts := newOptions(opt...)
 
@@ -120,7 +118,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 			if i.opts.panicHandler != nil {
 				err = i.opts.panicHandler(ctx, r)
 			} else {
-				err = panicHandler(ctx, r, i.opts.logger, meta.FullyMethodName)
+				err = i.handlePanic(ctx, r, meta.FullyMethodName)
 			}
 		}
 
@@ -139,11 +137,11 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 
 		// Create a panicHandler that converts panic to gRPC error
 		grpcHandler := func(ctx context.Context, r any) {
-			_, meta := metadata.EnsureInContext(stream.Context(), info.FullMethod, info)
+			_, meta := metadata.EnsureServerStreamInContext(srv, stream.Context(), info)
 			if i.opts.panicHandler != nil {
 				err = i.opts.panicHandler(ctx, r)
 			} else {
-				err = panicHandler(ctx, r, i.opts.logger, meta.FullyMethodName)
+				err = i.handlePanic(ctx, r, meta.FullyMethodName)
 			}
 		}
 
@@ -153,26 +151,24 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 	}
 }
 
-// panicHandler is the default panic panicHandler that logs the panic internally
-// and returns a generic error to prevent information disclosure.
-func panicHandler(ctx context.Context, p any, logger *slog.Logger, method string) error {
-	frames := recovery.StackTrace(1)
-
-	// Get request ID if available
-	requestID := requestid.FromContext(ctx)
-
-	// Log the panic details internally
-	logger.Error("panic recovered",
+// handlePanic logs the recovery and returns a generic gRPC status.
+func (i *interceptor) handlePanic(ctx context.Context, p any, method string) error {
+	attrs := []slog.Attr{
 		slog.String("method", method),
-		slog.String("request_id", requestID),
-		slog.String("panic", diagnostics.ErrorText(fmt.Sprint(p), diagnostics.DefaultMaxErrorLength)),
-		slog.Any("stack_trace", frames),
-		slog.Int("goroutine_id", helpers.GoroutineID()),
-	)
-
-	panicErr := recovery.NewPanicError(p, 1)
-
-	return interceptors.NewError(status.New(codes.Internal, "Internal Error"), panicErr)
+		slog.String("request_id", requestid.FromContext(ctx)),
+		slog.String("category", recovery.ErrPanicRecovered.Error()),
+	}
+	cause := recovery.ErrPanicRecovered
+	if i.opts.logRawErrors {
+		panicErr := recovery.NewPanicError(p, 1)
+		cause = panicErr
+		attrs = append(attrs,
+			slog.String("panic", diagnostics.ErrorText(fmt.Sprint(p), diagnostics.DefaultMaxErrorLength)),
+			slog.Any("stack_trace", panicErr.Frames),
+		)
+	}
+	i.opts.logger.LogAttrs(ctx, slog.LevelError, "panic recovered", attrs...)
+	return interceptors.NewError(status.New(codes.Internal, "Internal Error"), cause)
 }
 
 // ClientUnaryInterceptor returns a new unary client interceptor that recovers from panics.
@@ -196,7 +192,7 @@ func (i *interceptor) ClientUnaryInterceptor() stdGrpc.UnaryClientInterceptor {
 			if i.opts.panicHandler != nil {
 				err = i.opts.panicHandler(ctx, r)
 			} else {
-				err = panicHandler(ctx, r, i.opts.logger, meta.FullyMethodName)
+				err = i.handlePanic(ctx, r, meta.FullyMethodName)
 			}
 		}
 
@@ -227,7 +223,7 @@ func (i *interceptor) ClientStreamInterceptor() stdGrpc.StreamClientInterceptor 
 			if i.opts.panicHandler != nil {
 				err = i.opts.panicHandler(ctx, r)
 			} else {
-				err = panicHandler(ctx, r, i.opts.logger, meta.FullyMethodName)
+				err = i.handlePanic(ctx, r, meta.FullyMethodName)
 			}
 		}
 
@@ -237,23 +233,10 @@ func (i *interceptor) ClientStreamInterceptor() stdGrpc.StreamClientInterceptor 
 	}
 }
 
-// recoverCall lets the RPC handler inspect the original panic. Process-wide
-// hooks also run, but their default logger prints the panic value directly,
-// so replace it there if its diagnostic representation needs redaction.
-func recoverCall(ctx context.Context, handle panics.PanicHandler) {
-	raw := recover()
-	if raw == nil {
-		return
-	}
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(ctx context.Context, _ any) {
+// recoverCall handles RPC panics locally so process-wide hooks cannot
+// log the raw panic or stack independently of the interceptor's settings.
+func recoverCall(ctx context.Context, handle func(context.Context, any)) {
+	if raw := recover(); raw != nil {
 		handle(ctx, raw)
-	})
-	text, ok := raw.(string)
-	if !ok {
-		text = fmt.Sprintf("%#v", raw)
 	}
-	if safe := diagnostics.ErrorText(text, diagnostics.DefaultMaxErrorLength); safe != text {
-		panic(safe)
-	}
-	panic(raw)
 }

@@ -115,7 +115,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 
 func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor {
 	return func(srv any, ss stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) error {
-		ctx, _ := sharedmetadata.EnsureInContext(ss.Context(), info.FullMethod, info)
+		ctx, _ := sharedmetadata.EnsureServerStreamInContext(srv, ss.Context(), info)
 
 		ctx, err := i.contextWithRequestID(ctx)
 		if err != nil {

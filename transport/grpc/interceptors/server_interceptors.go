@@ -111,7 +111,7 @@ func (i *DrivenServerInterceptor) Interceptor() any {
 // ServerStreamInterceptor returns a streaming server interceptor.
 func (i *DrivenServerInterceptor) ServerStreamInterceptor() grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		ctx, _ := metadata.EnsureInContext(stream.Context(), info.FullMethod, info)
+		ctx, _ := metadata.EnsureServerStreamInContext(srv, stream.Context(), info)
 
 		d, newCtx := i.i.DrivenInterceptor(ctx)
 

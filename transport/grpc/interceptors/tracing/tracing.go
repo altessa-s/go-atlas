@@ -129,7 +129,7 @@ func (i *Interceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
 		defer span.End()
 
 		// Add peer information if available
-		if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		if p, ok := peer.FromContext(ctx); i.opts.recordClientDetails && ok && p.Addr != nil {
 			span.SetAttributes(tracing.String(NetPeerNameKey, p.Addr.String()))
 		}
 
@@ -137,7 +137,7 @@ func (i *Interceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 
 		// Record status
-		recordStatus(span, err, callstatus.Cause(ctx), true)
+		i.recordStatus(span, err, callstatus.Cause(ctx), true)
 
 		return resp, err
 	}
@@ -146,26 +146,26 @@ func (i *Interceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
 // ServerStreamInterceptor returns a gRPC stream server interceptor.
 func (i *Interceptor) ServerStreamInterceptor() grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		ctx := ss.Context()
+		method := sharedmetadata.ServerStreamMethod(srv, ctx, info)
 		// Check if this method should be ignored
-		if i.ShouldIgnore(info.FullMethod) {
+		if i.ShouldIgnore(method) {
 			return handler(srv, ss)
 		}
-
-		ctx := ss.Context()
 
 		// Extract trace context from incoming metadata
 		ctx = callstatus.Observe(i.extractTraceContext(ctx))
 
 		// Start server span
-		spanName := i.opts.spanNameFunc(info.FullMethod)
+		spanName := i.opts.spanNameFunc(method)
 		ctx, span := i.recorder.Start(ctx, spanName,
 			tracing.WithSpanKind(tracing.SpanKindServer),
-			tracing.WithAttributes(spanAttributes(info.FullMethod)...),
+			tracing.WithAttributes(spanAttributes(method)...),
 		)
 		defer span.End()
 
 		// Add peer information if available
-		if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		if p, ok := peer.FromContext(ctx); i.opts.recordClientDetails && ok && p.Addr != nil {
 			span.SetAttributes(tracing.String(NetPeerNameKey, p.Addr.String()))
 		}
 
@@ -173,7 +173,7 @@ func (i *Interceptor) ServerStreamInterceptor() grpc.StreamServerInterceptor {
 		err := handler(srv, interceptors.NewServerWrappedStream(ctx, ss, nil))
 
 		// Record status
-		recordStatus(span, err, callstatus.Cause(ctx), true)
+		i.recordStatus(span, err, callstatus.Cause(ctx), true)
 
 		return err
 	}
@@ -207,7 +207,7 @@ func (i *Interceptor) ClientUnaryInterceptor() grpc.UnaryClientInterceptor {
 		err := invoker(ctx, method, req, reply, cc, opts...)
 
 		// Record status
-		recordStatus(span, err, nil, false)
+		i.recordStatus(span, err, nil, false)
 
 		return err
 	}
@@ -244,7 +244,7 @@ func (i *Interceptor) ClientStreamInterceptor() grpc.StreamClientInterceptor {
 		var once sync.Once
 		finish := func(err error) {
 			once.Do(func() {
-				recordStatus(span, err, nil, false)
+				i.recordStatus(span, err, nil, false)
 				span.End()
 			})
 		}
@@ -284,21 +284,25 @@ func (i *Interceptor) injectTraceContext(ctx context.Context) context.Context {
 }
 
 // recordStatus records the gRPC status on the span.
-func recordStatus(span tracing.Span, err, cause error, server bool) {
+func (i *Interceptor) recordStatus(span tracing.Span, err, cause error, server bool) {
 	st := callstatus.Status(err)
 	code := st.Code()
 	span.SetAttributes(tracing.Int(RPCGRPCStatusCodeKey, int(code)))
 	if cause == nil {
 		cause = err
 	}
-	if cause != nil && span.IsRecording() {
+	if i.opts.recordRawErrors && cause != nil && span.IsRecording() {
 		message := diagnostics.ErrorText(cause.Error(), diagnostics.DefaultMaxErrorLength)
 		span.RecordError(cause, tracing.WithEventAttributes(tracing.String("exception.message", message)))
 	}
 	if code == codes.OK {
 		span.SetStatus(tracing.StatusOK, "")
 	} else if !server || serverError(code) {
-		span.SetStatus(tracing.StatusError, diagnostics.ErrorText(st.Message(), diagnostics.DefaultMaxErrorLength))
+		var description string
+		if i.opts.recordRawErrors {
+			description = diagnostics.ErrorText(st.Message(), diagnostics.DefaultMaxErrorLength)
+		}
+		span.SetStatus(tracing.StatusError, description)
 	}
 }
 

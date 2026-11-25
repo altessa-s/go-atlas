@@ -5,6 +5,8 @@
 package factory
 
 import (
+	"log/slog"
+
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas-net/clientip"
 	"github.com/altessa-s/go-atlas/factory/transport/internal/factoryconv"
@@ -107,6 +109,8 @@ func (b *ServerBuilder) WithLoggerInterceptor() *ServerBuilder {
 	c := cfg.Logger
 	configOpts := []logger.Option{
 		logger.WithTimeFormat(c.TimeFormat),
+		logger.WithLogClientDetails(c.LogClientDetails),
+		logger.WithLogRawErrors(c.LogRawErrors),
 	}
 
 	configOpts = slices.AppendIf(configOpts, c.LogRequest, logger.WithLogRequest())
@@ -169,6 +173,8 @@ func (b *ServerBuilder) WithTracingInterceptor() *ServerBuilder {
 	c := cfg.Tracing
 	configOpts := []tracinginter.Option{
 		tracinginter.WithLogger(b.Logger()),
+		tracinginter.WithRecordClientDetails(c.RecordClientDetails),
+		tracinginter.WithRecordRawErrors(c.RecordRawErrors),
 		tracinginter.WithIgnoreMethods(c.IgnoreMethods...),
 	}
 
@@ -189,8 +195,13 @@ func (b *ServerBuilder) WithRealIPInterceptor() *ServerBuilder {
 	}
 
 	c := cfg.RealIp
+	diagnosticLogger := slog.New(slog.DiscardHandler)
+	// The extractor can emit client addresses and raw parser errors together.
+	if c.LogClientDetails && c.LogRawErrors {
+		diagnosticLogger = b.Logger()
+	}
 	extractorOpts := []clientip.Option{
-		clientip.WithLogger(b.Logger()),
+		clientip.WithLogger(diagnosticLogger),
 		clientip.WithTrustedProxiesCount(c.TrustedProxiesCount),
 	}
 	extractorOpts = slices.AppendIf(extractorOpts, c.TrustPrivatePeers, clientip.WithTrustPrivatePeers())
@@ -222,7 +233,11 @@ func (b *ServerBuilder) WithRealIPInterceptor() *ServerBuilder {
 		return b
 	}
 
-	configOpts := []realip.Option{realip.WithLogger(b.Logger())}
+	configOpts := []realip.Option{
+		realip.WithLogClientDetails(c.LogClientDetails),
+		realip.WithLogRawErrors(c.LogRawErrors),
+	}
+	configOpts = slices.AppendIf(configOpts, c.LogClientDetails, realip.WithLogger(b.Logger()))
 	b.interceptors = append(b.interceptors, realip.ServerInterceptor(extractor, configOpts...))
 	return b
 }
@@ -237,6 +252,7 @@ func (b *ServerBuilder) WithRecoveryInterceptor() *ServerBuilder {
 	c := cfg.Recovery
 	configOpts := []recovery.Option{
 		recovery.WithLogger(b.Logger()),
+		recovery.WithLogRawErrors(c.LogRawErrors),
 	}
 
 	configOpts = append(configOpts, recovery.WithIgnoreMethods(c.IgnoreMethods...))
@@ -529,12 +545,14 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 
 	opts := []errstatus.Option{
 		errstatus.WithFinalizer(finalizer),
+		errstatus.WithLogRawErrors(c.LogRawErrors),
 	}
 
 	opts = slices.AppendIfFunc(opts, c.CacheSize != nil, func() []errstatus.Option {
 		return []errstatus.Option{errstatus.WithCacheSize(*c.CacheSize)}
 	})
 	opts = slices.AppendIf(opts, c.CacheDisabled, errstatus.WithCacheDisabled())
+	opts = slices.AppendIf(opts, c.LogRawErrors, errstatus.WithLogger(b.Logger()))
 	opts = append(opts, b.errStatusOptions...)
 
 	b.interceptors = append(b.interceptors, errstatus.ServerInterceptor(opts...))
@@ -618,14 +636,19 @@ func (b *ServerBuilder) configFieldMaskNames() []fieldmask.Option {
 }
 
 // WithBufValidatorInterceptor creates a protovalidator interceptor using the buf protovalidate library.
-// This is a programmatic interceptor — it is not driven by config and must be called explicitly.
+// WithInterceptors installs it by default. The optional protovalidator config controls diagnostics.
 func (b *ServerBuilder) WithBufValidatorInterceptor() *ServerBuilder {
+	logRawErrors := false
+	if cfg := b.interceptorsCfg(); cfg != nil && cfg.ProtoValidator != nil {
+		logRawErrors = cfg.ProtoValidator.LogRawErrors
+	}
 	b.interceptors = append(b.interceptors, protovalidator.ServerInterceptor(
 		protovalidator.ValidatorFunc(bufhelpers.BuildValidator(
 			bufhelpers.BuildValidationFilter(),
 			bufhelpers.WithReasonCode(b.reasonCode),
 		)),
 		protovalidator.WithLogger(b.Logger()),
+		protovalidator.WithLogRawErrors(logRawErrors),
 	))
 	return b
 }

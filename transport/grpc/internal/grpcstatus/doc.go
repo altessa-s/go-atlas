@@ -6,6 +6,6 @@
 //
 // # Usage
 //
-//	converter := grpcstatus.New(logger, nil)
+//	converter := grpcstatus.New(logger, false, nil)
 //	opts, err := interceptors.NewChain(converter).ClientOptions()
 package grpcstatus

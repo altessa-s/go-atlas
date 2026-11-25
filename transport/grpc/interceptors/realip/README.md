@@ -13,3 +13,7 @@ trusted proxy support. Injects IP into context.
 | Option       | Default | Description                    |
 |--------------|---------|--------------------------------|
 | `WithLogger` | discard | Structured logger              |
+
+## Diagnostics
+
+Diagnostic logging is discarded by default. With a configured logger, `WithLogClientDetails(true)` permits logging peer addresses. Raw parser diagnostics require `WithLogRawErrors(true)` as well. The factory enables the external extractor logger only when both options are set.

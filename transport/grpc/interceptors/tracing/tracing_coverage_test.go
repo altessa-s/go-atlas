@@ -104,7 +104,7 @@ func TestServerUnaryInterceptor_RecordsPeerAttribute(t *testing.T) {
 
 	var buf bytes.Buffer
 	tracer := newBufferedTracer(t, &buf)
-	inter := ServerUnaryInterceptor(tracer)
+	inter := ServerUnaryInterceptor(tracer, WithRecordClientDetails(true))
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
 
 	ctx := peer.NewContext(t.Context(), &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}})

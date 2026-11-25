@@ -33,7 +33,7 @@ payloads, request IDs, trace correlation, and client IP with structured logging 
 | `WithDebugRedact`           | off                | Clear `debug_redact` fields from logged payloads, before the payload redactor |
 | `WithMaxMethodLength`       | 1024               | Cap, in bytes, of the logged service and method names |
 | `WithMaxUserAgentLength`    | 512                | Cap, in bytes, of the logged User-Agent             |
-| `WithMaxMessageLength`      | 1024               | Cap, in bytes, of the logged status message, error reason and error text |
+| `WithMaxMessageLength`      | 1024               | Cap, in bytes, of the logged status message and underlying error text |
 
 ## Method, User-Agent and messages are sanitized
 
@@ -59,3 +59,7 @@ turns it on with `interceptors.logger.debugRedact` (default `true`).
 ```go
 logger.ServerInterceptor(logger.Slog(l), logger.WithLogRequest(), logger.WithDebugRedact())
 ```
+
+## Diagnostics
+
+Completion records include the gRPC code, a valid ErrorInfo reason when available, and a recovery category for panics. Use `WithLogClientDetails(true)` for peer IP, real IP, and User-Agent, and `WithLogRawErrors(true)` for error text and panic diagnostics. The slog adapter emits dotted keys such as `client.peer_ip` as literal keys for masking.

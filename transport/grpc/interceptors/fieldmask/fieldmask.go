@@ -12,19 +12,21 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/extract"
 	"github.com/altessa-s/go-aip/fieldmask/update"
 
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	pbfieldmask "github.com/altessa-s/go-aip/fieldmask"
+	sharedrecovery "github.com/altessa-s/go-atlas/internal/transport/recovery"
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
 
@@ -62,10 +64,10 @@ func (ri *requestInterceptor) builtinReadExtractor(ctx context.Context, req prot
 }
 
 // Dependencies returns interceptors that fieldmask requires to run before it.
-// Metadata is needed for the method name; auth must reject unauthenticated
-// requests before any mask is honored.
+// Recovery covers panics from extractors. Authentication runs before any
+// mask is honored.
 func (i *interceptor) Dependencies() []string {
-	return []string{sharedmetadata.Name(), auth.Name()}
+	return []string{sharedmetadata.Name(), auth.Name(), recovery.Name()}
 }
 
 // requestInterceptor holds per-call state captured at PreCall time.
@@ -229,17 +231,20 @@ func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, e
 
 	// Cloning runs outside filterResponse; recover its panics the same way so
 	// the response is rejected with Internal instead of crashing SendMsg.
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
+	defer func() {
+		if recover() == nil {
+			return
+		}
 		ri.LogError(ctx, "fieldmask read_mask panicked", ri.meta.Method(), nil,
 			slog.String("side", "response"),
-			slog.Any("panic", r),
+			slog.String("category", sharedrecovery.ErrPanicRecovered.Error()),
 		)
 		out = nil
 		err = interceptors.NewError(
 			status.New(codes.Internal, "Internal Error"),
-			nil,
+			sharedrecovery.ErrPanicRecovered,
 		)
-	})
+	}()
 
 	clone := proto.Clone(msg)
 	if err := ri.filterResponse(ctx, clone, mask); err != nil {
@@ -312,9 +317,10 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 	ri.plan.Store(res.Plan)
 	if err != nil {
 		if status.Code(err) == codes.Internal {
-			ri.LogError(ctx, "fieldmask update_mask apply failed", method, diagnostics.LogError(err))
+			ri.LogError(ctx, "fieldmask update_mask apply failed", method, nil,
+				slog.String("classification", diagnostics.ErrorClass(err)))
 		} else {
-			ri.LogDebug(ctx, "fieldmask update_mask rejected", method, slog.Any("error", diagnostics.LogError(err)))
+			ri.LogDebug(ctx, "fieldmask update_mask rejected", method, slog.String("grpc.code", status.Code(err).String()))
 		}
 
 		return err
@@ -350,8 +356,7 @@ func (ri *requestInterceptor) captureReadMask(ctx context.Context, req proto.Mes
 	if mask, ok := ri.resolveRead(ctx, req); ok {
 		parsed, err := pbfieldmask.FromProtoFieldMask(mask)
 		if err != nil {
-			ri.LogDebug(ctx, "fieldmask read_mask rejected", ri.meta.Method(), slog.Any("error", diagnostics.LogError(err)))
-			return interceptors.NewError(status.New(codes.InvalidArgument, err.Error()), err)
+			return ri.rejectReadMask(ctx)
 		}
 		snap.mask, _ = proto.Clone(mask).(*fieldmaskpb.FieldMask)
 		snap.parsed = parsed
@@ -370,16 +375,19 @@ func (ri *requestInterceptor) captureReadMask(ctx context.Context, req proto.Mes
 func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Message, rawMask *fieldmaskpb.FieldMask) (err error) {
 	method := ri.meta.Method()
 
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
+	defer func() {
+		if recover() == nil {
+			return
+		}
 		ri.LogError(ctx, "fieldmask read_mask panicked", method, nil,
 			slog.String("side", "response"),
-			slog.Any("panic", r),
+			slog.String("category", sharedrecovery.ErrPanicRecovered.Error()),
 		)
 		err = interceptors.NewError(
 			status.New(codes.Internal, "Internal Error"),
-			nil,
+			sharedrecovery.ErrPanicRecovered,
 		)
-	})
+	}()
 
 	var msk pbfieldmask.FieldMask
 	if snap := ri.readMask.Load(); snap != nil && snap.mask == rawMask && snap.parsed != nil {
@@ -387,17 +395,14 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 	} else {
 		parsed, parseErr := pbfieldmask.FromProtoFieldMask(rawMask)
 		if parseErr != nil {
-			return interceptors.NewError(status.New(codes.InvalidArgument, parseErr.Error()), parseErr)
+			return ri.rejectReadMask(ctx)
 		}
 		msk = parsed
 	}
 	// A path the response schema does not hold is the client's error
 	// (AIP-161); the response is not sent half-filtered.
 	if filterErr := msk.Filter(resp); filterErr != nil {
-		ri.LogDebug(ctx, "fieldmask read_mask does not match the response", method,
-			slog.Any("error", diagnostics.LogError(filterErr)),
-		)
-		return interceptors.NewError(status.New(codes.InvalidArgument, filterErr.Error()), filterErr)
+		return ri.rejectReadMask(ctx)
 	}
 
 	ri.LogDebug(ctx, "fieldmask read_mask applied", method,
@@ -405,6 +410,24 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 	)
 
 	return nil
+}
+
+const invalidFieldMaskReason = "INVALID_FIELD_MASK"
+
+var invalidReadMaskStatus = func() *status.Status {
+	st := status.New(codes.InvalidArgument, "Invalid read field mask")
+	detailed, err := st.WithDetails(&errdetails.ErrorInfo{Reason: invalidFieldMaskReason})
+	if err != nil {
+		return st
+	}
+	return detailed
+}()
+
+func (ri *requestInterceptor) rejectReadMask(ctx context.Context) error {
+	ri.LogDebug(ctx, "fieldmask read_mask rejected", ri.meta.Method(),
+		slog.String("grpc.error_reason", invalidFieldMaskReason),
+	)
+	return invalidReadMaskStatus.Err()
 }
 
 // updateMaskName returns the configured update_mask field name.

@@ -10,6 +10,24 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithLogClientDetails sets the logClientDetails option.
+//
+// logClientDetails enables logging client details that may identify callers.
+func WithLogClientDetails(v bool) Option {
+	return func(o *options) {
+		o.logClientDetails = v
+	}
+}
+
+// WithLogRawErrors sets the logRawErrors option.
+//
+// logRawErrors enables logging error text, panic values, or stacks that may contain secrets.
+func WithLogRawErrors(v bool) Option {
+	return func(o *options) {
+		o.logRawErrors = v
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {

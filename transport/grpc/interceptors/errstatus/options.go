@@ -92,6 +92,9 @@ type Finalizer func(ctx context.Context, err error) error
 // These options are set through functional option functions and control
 // how errors are converted, cached, and processed.
 type options struct {
+	// logRawErrors enables logging error text, panic values, or stacks that may contain secrets.
+	logRawErrors bool `optval:"param"`
+
 	// WithErrorConverters adds multiple custom error errorConverters in a single call.
 	// Converters are appended to the existing list and evaluated in the order provided.
 	errorConverters []ErrorConverter `opt:"ErrorConverters" optgen:"append"`

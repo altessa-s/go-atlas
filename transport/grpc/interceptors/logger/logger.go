@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -190,16 +191,18 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 		slogx.Field{Key: FieldKeyGrpcService, Value: intern.String(diagnostics.SanitizeText(meta.ServiceName, i.opts.maxMethodLength))},
 	)
 
-	fields = slices.AppendIf(fields, !meta.IsClient,
-		slogx.Field{Key: observability.FieldKeyClientPeerIP, Value: meta.ClientPerIP},
-		slogx.Field{Key: observability.FieldKeyClientUserAgent, Value: diagnostics.SanitizeText(meta.ClientUserAgent, i.opts.maxUserAgentLength)},
-	)
+	fields = slices.AppendIfFunc(fields, i.opts.logClientDetails && !meta.IsClient, func() []slogx.Field {
+		return []slogx.Field{
+			{Key: observability.FieldKeyClientPeerIP, Value: meta.ClientPerIP},
+			{Key: observability.FieldKeyClientUserAgent, Value: diagnostics.SanitizeText(meta.ClientUserAgent, i.opts.maxUserAgentLength)},
+		}
+	})
 
 	if d, ok := ctx.Deadline(); ok {
 		fields = append(fields, slogx.Field{Key: observability.FieldKeyRequestDeadline, Value: d.Format(time.RFC3339)})
 	}
 
-	if realIP := clientip.FromContext(ctx); realIP.IsValid() {
+	if realIP := clientip.FromContext(ctx); i.opts.logClientDetails && realIP.IsValid() {
 		fields = append(fields, slogx.Field{Key: observability.FieldKeyClientRealIP, Value: realIP})
 	}
 
@@ -263,8 +266,11 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 		slogx.Field{Key: observability.FieldKeyRequestStartTime, Value: timeformat.FormatTime(ri.meta.StartTime, ri.opts.timeFormat)},
 		slogx.Field{Key: observability.FieldKeyRequestEndTime, Value: timeformat.FormatTime(now, ri.opts.timeFormat)},
 		slogx.Field{Key: observability.FieldKeyRequestDuration, Value: timeformat.FormatDuration(now.Sub(ri.meta.StartTime), ri.opts.timeFormat)},
-		slogx.Field{Key: FieldKeyGrpcMessage, Value: diagnostics.ErrorText(st.Message(), ri.opts.maxMessageLength)},
 	)
+
+	if ri.opts.logRawErrors && err != nil {
+		fields = append(fields, slogx.Field{Key: FieldKeyGrpcMessage, Value: diagnostics.ErrorText(st.Message(), ri.opts.maxMessageLength)})
+	}
 
 	// Add trace correlation fields if available
 	if traceID := tracing.TraceIDFromContext(ctx); traceID != "" {
@@ -274,22 +280,8 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 		fields = append(fields, slogx.Field{Key: observability.FieldKeySpanID, Value: spanID})
 	}
 
-	if st.Code() != codes.OK {
-		for _, detail := range st.Details() {
-			if t, ok := detail.(*errdetails.ErrorInfo); ok {
-				fields = append(fields, slogx.Field{Key: FieldKeyGrpcErrorReason, Value: diagnostics.SanitizeText(t.GetReason(), ri.opts.maxMessageLength)})
-			}
-		}
-	}
-
-	if cause := ri.errorCause(ctx, err); cause != nil {
-		fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: diagnostics.ErrorText(cause.Error(), ri.opts.maxMessageLength)})
-		if perr, ok := errors.AsType[*recovery.PanicError](cause); ok {
-			fields = append(fields,
-				slogx.Field{Key: observability.FieldKeyPanic, Value: diagnostics.ErrorText(fmt.Sprint(perr.Panic), ri.opts.maxMessageLength)},
-				slogx.Field{Key: observability.FieldKeyPanicStacktrace, Value: perr.Frames},
-			)
-		}
+	if err != nil {
+		fields = ri.appendErrorFields(ctx, fields, st, err)
 	}
 
 	if resp != nil && ri.opts.logResponse {
@@ -301,6 +293,37 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 	ri.logger.Log(ctx, "call finished", code, fields)
 
 	return err
+}
+
+// ErrorInfo reasons use UPPER_SNAKE_CASE and are at most 63 characters.
+var errorReasonPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{1,61}[A-Z0-9]$`)
+
+func (ri *requestInterceptor) appendErrorFields(ctx context.Context, fields slogx.Fields, st *status.Status, err error) slogx.Fields {
+	for _, detail := range st.Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && errorReasonPattern.MatchString(info.GetReason()) {
+			fields = append(fields, slogx.Field{Key: FieldKeyGrpcErrorReason, Value: info.GetReason()})
+			break
+		}
+	}
+
+	cause := ri.errorCause(ctx, err)
+	if cause == nil {
+		return fields
+	}
+	panicErr, isPanic := errors.AsType[*recovery.PanicError](cause)
+	if isPanic || errors.Is(cause, recovery.ErrPanicRecovered) {
+		fields = append(fields, slogx.Field{Key: "grpc.error_category", Value: recovery.ErrPanicRecovered.Error()})
+	}
+	if ri.opts.logRawErrors {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: diagnostics.ErrorText(cause.Error(), ri.opts.maxMessageLength)})
+		if isPanic {
+			fields = append(fields,
+				slogx.Field{Key: observability.FieldKeyPanic, Value: diagnostics.ErrorText(fmt.Sprint(panicErr.Panic), ri.opts.maxMessageLength)},
+				slogx.Field{Key: observability.FieldKeyPanicStacktrace, Value: panicErr.Frames},
+			)
+		}
+	}
+	return fields
 }
 
 func (ri *requestInterceptor) errorCause(ctx context.Context, err error) error {

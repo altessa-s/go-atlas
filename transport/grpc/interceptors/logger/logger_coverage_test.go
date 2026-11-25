@@ -88,7 +88,8 @@ func TestServer_LogsRequestResponseAndContext(t *testing.T) {
 	t.Parallel()
 
 	rec := &recorder{}
-	si := logger.ServerInterceptor(rec.logger(), logger.WithLogRequest(), logger.WithLogResponse(),
+	si := logger.ServerInterceptor(rec.logger(), logger.WithLogRequest(),
+		logger.WithLogClientDetails(true), logger.WithLogResponse(),
 		logger.WithContextLogger(slog.New(slog.DiscardHandler)))
 
 	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(time.Minute))
@@ -167,7 +168,7 @@ func TestServer_ErrorFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			rec := &recorder{}
-			si := logger.ServerInterceptor(rec.logger(), logger.WithLogResponse())
+			si := logger.ServerInterceptor(rec.logger(), logger.WithLogResponse(), logger.WithLogRawErrors(true))
 			_, err := runUnary(t, si, t.Context(), testMethod, nil, func(context.Context, any) (any, error) { return nil, tc.err })
 			require.ErrorIs(t, err, tc.err)
 
@@ -243,7 +244,7 @@ func TestServer_TimeFormat(t *testing.T) {
 	si := logger.ServerInterceptor(l, logger.WithTimeFormat(""))
 	_, err := runUnary(t, si, t.Context(), testMethod, nil, func(context.Context, any) (any, error) { return wrapperspb.String("ok"), nil })
 	require.NoError(t, err)
-	require.Contains(t, buf.String(), `"code":"OK"`)
+	require.Contains(t, buf.String(), `"grpc.code":"OK"`)
 	require.Contains(t, buf.String(), `"msg":"call finished"`)
 }
 

@@ -44,3 +44,13 @@ public methods. Real IP extraction honors headers only from `realIP.trustedPeers
 implicit trust of private, loopback and reserved peers. This opt-out defaults to `false`.
 
 See the [config index](../README.md) for the other schema packages.
+
+## Diagnostic opt-ins
+
+Client details and raw errors are disabled by default. The logger and real-IP
+sections accept `logClientDetails`. The logger, real-IP, recovery, error status,
+and protobuf validator sections accept `logRawErrors`. The tracing section
+accepts `recordClientDetails` and `recordRawErrors`. Real-IP extractor
+diagnostics require both logging opt-ins because they can mix addresses with
+raw parser errors. The optional `protovalidator` section controls diagnostics
+for the factory's default protobuf validator.

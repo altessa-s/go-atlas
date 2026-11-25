@@ -77,8 +77,18 @@ func (i *interceptor) Dependencies() []string {
 	return []string{requestid.Name(), tracing.Name(), logger.Name(), metrics.Name()}
 }
 
+func (i *interceptor) diagnosticError(err error) error {
+	if i.options.logRawErrors {
+		return err
+	}
+	return nil
+}
+
 func errorAttr(err error) slog.Attr {
-	return slog.Any("error", diagnostics.LogError(err))
+	if err != nil {
+		return slog.Any("error", diagnostics.LogError(err))
+	}
+	return slog.Attr{}
 }
 
 const convertOperation = "convert"
@@ -168,7 +178,7 @@ func (i *interceptor) tryCustomConverters(ctx context.Context, err error) *statu
 			continue
 		}
 		if i.debugEnabled(ctx) {
-			i.LogDebug(ctx, "matched custom converter", convertOperation, errorAttr(err))
+			i.LogDebug(ctx, "matched custom converter", convertOperation, errorAttr(i.diagnosticError(err)))
 		}
 		cached := converter.Static && idx < len(i.cache)
 		if cached {
@@ -206,7 +216,8 @@ func (i *interceptor) sanitizeConverted(ctx context.Context, st *status.Status, 
 	}
 	out, dropped := clientStatus(st, err)
 	if out.Message() != st.Message() {
-		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, diagnostics.LogError(err),
+		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, diagnostics.LogError(i.diagnosticError(err)),
+			slog.String("classification", diagnostics.ErrorClass(err)),
 			slog.String("code", st.Code().String()),
 			slog.Bool("converter", true))
 	}
@@ -240,7 +251,7 @@ func (i *interceptor) tryBuiltInErrors(ctx context.Context, err error) *status.S
 	}
 	if i.debugEnabled(ctx) {
 		i.LogDebug(ctx, "matched built-in error type", convertOperation,
-			errorAttr(err), slog.String("code", st.Code().String()))
+			errorAttr(i.diagnosticError(err)), slog.String("code", st.Code().String()))
 	}
 	return st
 }
@@ -258,7 +269,7 @@ func (i *interceptor) convertError(ctx context.Context, err error, debug bool) e
 	}
 	if debug {
 		i.LogDebug(ctx, "no specific error conversion found, using default Internal error", convertOperation,
-			errorAttr(err),
+			errorAttr(i.diagnosticError(err)),
 			slog.String("error_type", errorTypeString(err)))
 	}
 	return interceptors.NewError(statusInternal, err)
@@ -269,7 +280,7 @@ func (i *interceptor) handleServerError(ctx context.Context, srv any, err error)
 	debug := i.debugEnabled(ctx)
 	if debug {
 		i.LogDebug(ctx, "handling error conversion", convertOperation,
-			errorAttr(err),
+			errorAttr(i.diagnosticError(err)),
 			slog.String("error_type", errorTypeString(err)))
 	}
 
@@ -303,7 +314,7 @@ func (i *interceptor) handleServerError(ctx context.Context, srv any, err error)
 
 	if debug {
 		i.LogDebug(ctx, "error already has gRPC status", convertOperation,
-			errorAttr(err),
+			errorAttr(i.diagnosticError(err)),
 			slog.String("code", st.Code().String()))
 	}
 
@@ -313,7 +324,8 @@ func (i *interceptor) handleServerError(ctx context.Context, srv any, err error)
 	// status describes a server fault; both would publish internals.
 	_, direct := err.(grpcStatuser)
 	if !direct || isServerFault(st.Code()) {
-		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, diagnostics.LogError(err),
+		i.LogWarn(ctx, "gRPC status message replaced for the client", convertOperation, diagnostics.LogError(i.diagnosticError(err)),
+			slog.String("classification", diagnostics.ErrorClass(err)),
 			slog.String("code", st.Code().String()),
 			slog.Bool("wrapped", !direct))
 		clientSt, dropped := clientStatus(st, err)

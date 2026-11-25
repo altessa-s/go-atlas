@@ -36,9 +36,9 @@ func (ri *requestInterceptor) stripUpdateRequest(ctx context.Context, msg proto.
 	ri.plan.Store(res.Plan)
 	if err != nil {
 		if status.Code(err) == codes.Internal {
-			ri.LogError(ctx, "fieldbehavior update_mask apply failed", method, diagnostics.LogError(err))
+			ri.LogError(ctx, "fieldbehavior update_mask apply failed", method, nil, slog.String("classification", diagnostics.ErrorClass(err)))
 		} else {
-			ri.LogDebug(ctx, "fieldbehavior update request rejected", method, slog.Any("error", diagnostics.LogError(err)))
+			ri.LogDebug(ctx, "fieldbehavior update request rejected", method, slog.String("grpc.code", status.Code(err).String()))
 		}
 
 		return err
@@ -67,7 +67,7 @@ func (ri *requestInterceptor) checkUpdateFormats(ctx context.Context, req proto.
 
 	invalid, ok := errors.AsType[*fieldinfo.ViolationError](err)
 	if !ok {
-		ri.LogError(ctx, "fieldbehavior format check failed", ri.meta.Method(), diagnostics.LogError(err))
+		ri.LogError(ctx, "fieldbehavior format check failed", ri.meta.Method(), nil, slog.String("classification", diagnostics.ErrorClass(err)))
 		return interceptors.NewError(status.New(codes.Internal, "Internal Error"), err)
 	}
 

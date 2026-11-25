@@ -106,7 +106,7 @@ safe when the client IP source is trustworthy (`realIP` with `trustedPeers` or `
 | `WithErrStatusInterceptor()` | Adds an error-to-status conversion interceptor |
 | `WithFieldBehaviorInterceptor()` | Adds the AIP-203 `field_behavior` strip interceptor; no config toggle — `WithInterceptors` adds it unless `fieldbehavior.ID` is excluded |
 | `WithFieldMaskInterceptor()` | Adds the update/read field mask interceptor from `interceptors.fieldMask` (disabled by default) |
-| `WithBufValidatorInterceptor()` | Adds a buf protovalidate interceptor; no config toggle — `WithInterceptors` adds it unless `protovalidator.ID` is excluded |
+| `WithBufValidatorInterceptor()` | Adds a buf protovalidate interceptor. `WithInterceptors` adds it unless `protovalidator.ID` is excluded. The optional `protovalidator` config controls diagnostics |
 | `WithInterceptor(i ...)` | Adds pre-built interceptor instances |
 
 ### Terminal

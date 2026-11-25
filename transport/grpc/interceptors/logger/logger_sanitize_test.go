@@ -90,7 +90,7 @@ func TestServer_CapsPeerControlledFields(t *testing.T) {
 			t.Parallel()
 
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("user-agent", huge))
-			got := captureFields(t, ctx, "/"+huge+"/Get", callErr, tc.opts...)
+			got := captureFields(t, ctx, "/"+huge+"/Get", callErr, append(tc.opts, logger.WithLogClientDetails(true), logger.WithLogRawErrors(true))...)
 
 			require.Len(t, got[string(logger.FieldKeyGrpcMethod)], tc.wantMethod)
 			require.LessOrEqual(t, len(got[string(logger.FieldKeyGrpcService)]), tc.wantMethod)
@@ -111,7 +111,7 @@ func TestServer_StripsControlCharacters(t *testing.T) {
 	t.Parallel()
 
 	ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("user-agent", "curl/8\r\nlevel=ERROR msg=forged\x7f"))
-	got := captureFields(t, ctx, "/example.v1.Service/Get", status.Error(codes.NotFound, "no item \"x\"\nlevel=ERROR"))
+	got := captureFields(t, ctx, "/example.v1.Service/Get", status.Error(codes.NotFound, "no item \"x\"\nlevel=ERROR"), logger.WithLogClientDetails(true), logger.WithLogRawErrors(true))
 
 	require.Equal(t, "curl/8level=ERROR msg=forged", got[string(observability.FieldKeyClientUserAgent)])
 	require.Equal(t, "no item \"x\"level=ERROR", got[string(logger.FieldKeyGrpcMessage)])
@@ -123,7 +123,7 @@ func TestServer_CapsPlainErrorText(t *testing.T) {
 	t.Parallel()
 
 	callErr := errors.New("lookup failed for\n" + strings.Repeat("b", 1<<16))
-	got := captureFields(t, t.Context(), "/example.v1.Service/Get", callErr, logger.WithMaxMessageLength(40))
+	got := captureFields(t, t.Context(), "/example.v1.Service/Get", callErr, logger.WithMaxMessageLength(40), logger.WithLogRawErrors(true))
 
 	errText := got[string(observability.FieldKeyError)]
 	require.LessOrEqual(t, len(errText), 40)

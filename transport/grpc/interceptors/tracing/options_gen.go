@@ -87,6 +87,24 @@ func WithPropagator(v propagation.TextMapPropagator) Option {
 	}
 }
 
+// WithRecordClientDetails sets the recordClientDetails option.
+//
+// recordClientDetails enables recording client addresses that may identify callers.
+func WithRecordClientDetails(v bool) Option {
+	return func(o *options) {
+		o.recordClientDetails = v
+	}
+}
+
+// WithRecordRawErrors sets the recordRawErrors option.
+//
+// recordRawErrors enables recording error text that may contain secrets.
+func WithRecordRawErrors(v bool) Option {
+	return func(o *options) {
+		o.recordRawErrors = v
+	}
+}
+
 // WithSpanNameFunc sets the spanNameFunc option.
 //
 // spanNameFunc sets a custom function for generating span names.

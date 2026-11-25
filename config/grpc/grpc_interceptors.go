@@ -12,6 +12,8 @@ import (
 // Interceptors defines the configuration for gRPC interceptors.
 // Contains settings for various middleware components in the gRPC interceptor chain.
 type Interceptors struct {
+	// ProtoValidator controls diagnostics for protobuf validation.
+	ProtoValidator *ProtoValidatorInterceptor `yaml:"protovalidator" default:"-"`
 	// Cache contains configuration for response caching interceptor.
 	Cache *CacheInterceptor `yaml:"cache" default:"-"`
 	// RealIp contains configuration for real IP extraction interceptor.
@@ -42,6 +44,12 @@ type Interceptors struct {
 	ErrStatus *ErrStatusInterceptor `yaml:"errStatus" default:"-"`
 	// FieldMask contains configuration for the update/read field mask interceptor.
 	FieldMask *FieldMaskInterceptor `yaml:"fieldMask" default:"-"`
+}
+
+// ProtoValidatorInterceptor controls diagnostics for the protobuf validator.
+type ProtoValidatorInterceptor struct {
+	// LogRawErrors includes validation errors, panic values, and stack traces that may contain secrets.
+	LogRawErrors bool `yaml:"logRawErrors" default:"false"`
 }
 
 // Validate performs validation of the Interceptors.

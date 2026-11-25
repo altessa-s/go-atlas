@@ -25,5 +25,6 @@ capture with goroutine ID, and request ID correlation. Returns `codes.Internal` 
 
 Recovery covers every method by default, including the gRPC health and reflection services.
 
-The call-specific panic handler receives the original value. When a panic contains URL user information or an oversized diagnostic,
-process-wide panic handlers receive the sanitized text used for logging.
+## Diagnostics
+
+The default handler turns a panic into an Internal status and emits the `panic_recovered` category. Use `WithLogRawErrors(true)` to log panic values and stacks through the configured logger. The interceptor handles RPC panics locally. A custom panic handler receives the original value and controls the resulting error.

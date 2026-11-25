@@ -18,6 +18,8 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -217,4 +219,35 @@ func TestValidate_LoggerWithMultipleMessages(t *testing.T) {
 	require.Equal(t, "validation successful", firstLog["msg"])
 
 	require.Equal(t, "validation failed", secondLog["msg"])
+}
+
+func TestValidationDiagnosticOptIn(t *testing.T) {
+	t.Parallel()
+
+	const secret = "validator-input-secret"
+	ctx := t.Context()
+	for _, isPanic := range []bool{false, true} {
+		for _, raw := range []bool{false, true} {
+			var logs bytes.Buffer
+			out := slog.New(slog.NewTextHandler(&logs, nil))
+			v := ValidatorFunc(func(context.Context, proto.Message) error {
+				if isPanic {
+					panic(secret)
+				}
+				return errors.New(secret)
+			})
+			rpc := ServerInterceptor(v, WithLogger(out), WithLogRawErrors(raw)).ServerUnaryInterceptor()
+			_, err := rpc(ctx, &emptypb.Empty{}, &grpc.UnaryServerInfo{FullMethod: "/example.Service/Validate"}, func(context.Context, any) (any, error) {
+				return nil, nil
+			})
+			require.Error(t, err)
+			require.NotContains(t, status.Convert(err).Message(), secret)
+			if raw {
+				require.Contains(t, logs.String(), secret)
+			} else {
+				require.NotContains(t, logs.String(), secret)
+				require.NotContains(t, logs.String(), "stack_trace")
+			}
+		}
+	}
 }

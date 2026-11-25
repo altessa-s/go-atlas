@@ -21,3 +21,7 @@ Package `protovalidator` provides a gRPC server interceptor for validating incom
 | `WithIgnoreMethods`  | --                 | Methods to skip validation          |
 | `WithIgnorePatterns` | reflection, health | Regex patterns for methods to skip  |
 | `WithLogger`         | discard            | Structured logger                   |
+
+## Diagnostics
+
+Validation logs include the gRPC code or a panic category. Use `WithLogRawErrors(true)` to include validation errors, panic values, and stacks in diagnostics.

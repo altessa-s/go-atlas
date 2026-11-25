@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
@@ -96,7 +95,15 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 // ServerStreamInterceptor returns a new streaming server interceptor that authenticates the request.
 func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor {
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) error {
-		ctx, meta := sharedmetadata.EnsureInContext(stream.Context(), info.FullMethod, info)
+		ctx, meta := sharedmetadata.EnsureServerStreamInContext(srv, stream.Context(), info)
+		if meta.FullyMethodName != info.FullMethod {
+			// Keep the requested path for authentication policy without caching or
+			// interning it. Diagnostics continue to use the normalized context.
+			requested := *meta
+			requested.FullyMethodName = info.FullMethod
+			requested.ServiceName, requested.MethodName, _ = strings.Cut(strings.TrimPrefix(info.FullMethod, "/"), "/")
+			meta = &requested
+		}
 
 		newCtx, err := i.auth(ctx, meta)
 		if err != nil {
@@ -107,9 +114,9 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 }
 
 func (i *interceptor) auth(ctx context.Context, callMeta *sharedmetadata.CallMetadata) (context.Context, error) {
-	method := intern.String(callMeta.FullyMethodName)
+	method := sharedmetadata.MethodFromContext(ctx)
 
-	if i.ShouldIgnore(method) {
+	if i.ShouldIgnore(callMeta.FullyMethodName) {
 		i.LogIgnored(ctx, method)
 		return ctx, nil
 	}
@@ -120,7 +127,7 @@ func (i *interceptor) auth(ctx context.Context, callMeta *sharedmetadata.CallMet
 }
 
 func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *sharedmetadata.CallMetadata) (context.Context, error) {
-	method := intern.String(callMeta.FullyMethodName)
+	method := sharedmetadata.MethodFromContext(ctx)
 
 	token, err := i.opts.tokenExtractor.ExtractToken(ctx)
 	if err != nil {

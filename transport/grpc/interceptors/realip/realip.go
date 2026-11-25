@@ -80,16 +80,23 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 
 func (i *interceptor) getIP(ctx context.Context) *netip.Addr {
 	p, ok := peer.FromContext(ctx)
-	if !ok {
+	if !ok || p.Addr == nil {
 		i.LogDebug(ctx, "no peer info in context", extractOperation)
 		return nil
 	}
 
-	peerAddrPort, err := netip.ParseAddrPort(p.Addr.String())
+	address := p.Addr.String()
+	peerAddrPort, err := netip.ParseAddrPort(address)
 	if err != nil {
-		i.LogError(ctx, "failed to parse peer address", extractOperation, diagnostics.LogError(err),
-			slog.String("peer", p.Addr.String()),
-		)
+		attrs := []slog.Attr{slog.String("classification", diagnostics.ErrorClass(err))}
+		if i.opts.logClientDetails {
+			attrs = append(attrs, slog.String("peer", address))
+		}
+		// The parse error includes the peer address.
+		if !i.opts.logClientDetails || !i.opts.logRawErrors {
+			err = nil
+		}
+		i.LogError(ctx, "failed to parse peer address", extractOperation, diagnostics.LogError(err), attrs...)
 		return nil
 	}
 

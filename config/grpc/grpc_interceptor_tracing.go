@@ -7,6 +7,12 @@ package grpcconfig
 // TracingInterceptor defines the configuration for the tracing interceptor.
 // Controls distributed tracing for gRPC requests.
 type TracingInterceptor struct {
+	// RecordClientDetails includes client addresses that may identify callers.
+	RecordClientDetails bool `yaml:"recordClientDetails" default:"false"`
+
+	// RecordRawErrors includes diagnostic text that may contain secrets.
+	RecordRawErrors bool `yaml:"recordRawErrors" default:"false"`
+
 	// BaseInterceptor provides common interceptor configuration.
 	BaseInterceptor `yaml:",inline"`
 

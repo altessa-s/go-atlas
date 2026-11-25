@@ -115,3 +115,5 @@ half-mutated payload.
 - [go-aip `fieldbehavior`](https://github.com/altessa-s/go-aip/tree/develop/fieldbehavior) — the underlying Strip* functions and option set.
 - [go-aip field behavior guide](https://github.com/altessa-s/go-aip/tree/develop/docs/fieldbehavior.md) — full reference, traversal semantics, performance.
 - [`transport/grpc/interceptors/protovalidator`](../protovalidator/README.md) — pair with this interceptor; run validation **after** stripping.
+
+Payload sanitization failures log a status code or a recovery category.

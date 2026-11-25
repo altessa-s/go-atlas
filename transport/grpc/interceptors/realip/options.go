@@ -12,5 +12,10 @@ import (
 
 // options holds configuration for the realip interceptor.
 type options struct {
+	// logClientDetails enables logging client details that may identify callers.
+	logClientDetails bool `optval:"param"`
+	// logRawErrors enables logging error text, panic values, or stacks that may contain secrets.
+	logRawErrors bool `optval:"param"`
+
 	logger *slog.Logger
 }

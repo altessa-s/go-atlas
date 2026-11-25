@@ -8,6 +8,9 @@ package grpcconfig
 // The interceptor converts application errors to gRPC status errors and enriches
 // error responses with metadata such as domain and request information.
 type ErrStatusInterceptor struct {
+	// LogRawErrors includes diagnostic text that may contain secrets.
+	LogRawErrors bool `yaml:"logRawErrors" default:"false"`
+
 	// BaseInterceptor provides common interceptor configuration.
 	BaseInterceptor `yaml:",inline"`
 

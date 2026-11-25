@@ -189,3 +189,20 @@ func TestClientStreamInterceptor_NoPanicPassesThrough(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, stream)
 }
+
+func TestRecoveryOmitsProcessWidePanicDiagnostics(t *testing.T) {
+	const secret = "global-panic-secret"
+	var logs bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(original) })
+
+	rpc := ServerUnaryInterceptor()
+	_, err := rpc(t.Context(), nil, &grpc.UnaryServerInfo{FullMethod: "/example.Service/Read"}, func(context.Context, any) (any, error) {
+		panic(secret)
+	})
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.NotContains(t, status.Convert(err).Proto().String(), secret)
+	require.NotContains(t, logs.String(), secret)
+	require.NotContains(t, logs.String(), "stack")
+}

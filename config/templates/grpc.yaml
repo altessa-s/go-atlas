@@ -193,6 +193,9 @@
 #    # See grpc_interceptors/field_mask.yaml template for full configuration options.
 #    !include grpc_interceptors/field_mask.yaml
 #
+#    # Protobuf validator diagnostics
+#    !include grpc_interceptors/protovalidator.yaml
+#
 #    # Health check gating.
 #    # See grpc_interceptors/health.yaml template for full configuration options.
 #    !include grpc_interceptors/health.yaml

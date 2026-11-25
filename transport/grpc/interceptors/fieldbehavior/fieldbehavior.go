@@ -14,12 +14,12 @@ import (
 	"github.com/altessa-s/go-aip/fieldmask/update"
 	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas-core/types/ptr"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/updatemask"
 
 	"google.golang.org/grpc/codes"
@@ -27,6 +27,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pbfieldbehavior "github.com/altessa-s/go-aip/fieldbehavior"
+	sharedrecovery "github.com/altessa-s/go-atlas/internal/transport/recovery"
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
 
@@ -56,10 +57,10 @@ type interceptor struct {
 }
 
 // Dependencies returns interceptors that fieldbehavior requires to run before
-// it. Metadata is needed for the method name, and auth must reject
-// unauthenticated requests before any payload mutation runs.
+// it. Authentication rejects unauthenticated calls before payload mutation.
+// Recovery covers panics during mutation.
 func (i *interceptor) Dependencies() []string {
-	return []string{sharedmetadata.Name(), auth.Name()}
+	return []string{sharedmetadata.Name(), auth.Name(), recovery.Name()}
 }
 
 // requestInterceptor holds per-call state captured at PreCall time.
@@ -193,17 +194,20 @@ func (ri *requestInterceptor) PostMsgReceive(ctx context.Context, req any, err e
 func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, err error) {
 	// Detection and cloning run outside runStrip; recover their panics the same
 	// way so a traversal failure becomes codes.Internal, not a crashed SendMsg.
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
+	defer func() {
+		if recover() == nil {
+			return
+		}
 		ri.LogError(ctx, "fieldbehavior strip panicked", ri.meta.Method(), nil,
 			slog.String("side", "response"),
-			slog.Any("panic", r),
+			slog.String("category", sharedrecovery.ErrPanicRecovered.Error()),
 		)
 		out = nil
 		err = interceptors.NewError(
 			status.New(codes.Internal, "Internal Error"),
-			nil,
+			sharedrecovery.ErrPanicRecovered,
 		)
-	})
+	}()
 
 	if ri.meta != nil && ri.meta.IsClient {
 		return m, nil
@@ -227,7 +231,9 @@ func (ri *requestInterceptor) PreMsgSend(ctx context.Context, m any) (out any, e
 	// Any failure other than a violation (e.g. ErrMaxDepthExceeded) rejects the
 	// message before it is cloned.
 	if _, ok := errors.AsType[*pbfieldbehavior.BehaviorViolationError](detectErr); !ok {
-		ri.LogError(ctx, "fieldbehavior strip failed", ri.meta.Method(), diagnostics.LogError(detectErr),
+		ri.LogError(ctx, "fieldbehavior strip failed", ri.meta.Method(), nil,
+			slog.String("grpc.code", codes.Internal.String()),
+			slog.String("classification", diagnostics.ErrorClass(detectErr)),
 			slog.String("side", "response"),
 			slog.String("kind", "response"),
 		)
@@ -302,16 +308,19 @@ type stripFn = func(proto.Message, ...pbfieldbehavior.Option) error
 func (ri *requestInterceptor) runStrip(ctx context.Context, msg proto.Message, fn stripFn, label, side string) (err error) {
 	method := ri.meta.Method()
 
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
+	defer func() {
+		if recover() == nil {
+			return
+		}
 		ri.LogError(ctx, "fieldbehavior strip panicked", method, nil,
 			slog.String("side", side),
-			slog.Any("panic", r),
+			slog.String("category", sharedrecovery.ErrPanicRecovered.Error()),
 		)
 		err = interceptors.NewError(
 			status.New(codes.Internal, "Internal Error"),
-			nil,
+			sharedrecovery.ErrPanicRecovered,
 		)
-	})
+	}()
 
 	if stripErr := fn(msg, ri.stripOpts...); stripErr != nil {
 		// A request value that breaks its AIP-202 format is the client's
@@ -325,7 +334,9 @@ func (ri *requestInterceptor) runStrip(ctx context.Context, msg proto.Message, f
 			return interceptors.NewError(buildViolationStatus(violation), stripErr)
 		}
 
-		ri.LogError(ctx, "fieldbehavior strip failed", method, diagnostics.LogError(stripErr),
+		ri.LogError(ctx, "fieldbehavior strip failed", method, nil,
+			slog.String("grpc.code", codes.Internal.String()),
+			slog.String("classification", diagnostics.ErrorClass(stripErr)),
 			slog.String("side", side),
 			slog.String("kind", label),
 		)

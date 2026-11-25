@@ -72,7 +72,7 @@ func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerI
 // ServerStreamInterceptor returns a new streaming server interceptor that collects metrics.
 func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor {
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) error {
-		_, meta := sharedmetadata.EnsureInContext(stream.Context(), info.FullMethod, info)
+		_, meta := sharedmetadata.EnsureServerStreamInContext(srv, stream.Context(), info)
 		method := intern.String(meta.FullyMethodName)
 
 		if w.ShouldIgnore(method) {

@@ -18,6 +18,9 @@ var _ = defaults.IgnorePatterns
 
 // options holds configuration for the protovalidator interceptor.
 type options struct {
+	// logRawErrors enables logging error text, panic values, or stacks that may contain secrets.
+	logRawErrors bool `optval:"param"`
+
 	// ignoreMethods is a list of method names to skip validation for.
 	// Example: ["/grpc.health.v1.Health/Check"]
 	ignoreMethods []string

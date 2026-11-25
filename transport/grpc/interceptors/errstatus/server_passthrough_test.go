@@ -76,7 +76,7 @@ func TestServerInterceptor_StatusMessagePassthrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			var logs bytes.Buffer
-			si := ServerInterceptor(WithLogger(slog.New(slog.NewTextHandler(&logs, nil)))).(*interceptor)
+			si := ServerInterceptor(WithLogger(slog.New(slog.NewTextHandler(&logs, nil))), WithLogRawErrors(true)).(*interceptor)
 
 			_, err := callUnary(t, si, tc.err)
 

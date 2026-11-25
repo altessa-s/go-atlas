@@ -368,7 +368,7 @@ func (c *Client) dnsResolverBuilder() resolver.Builder {
 func (c *Client) interceptorOptions() ([]grpc.DialOption, error) {
 	// All observers run inside client-side status conversion so a custom
 	// converter can return a domain error without changing the recorded RPC.
-	list := []any{grpcstatus.New(nil, func(ctx context.Context, st *status.Status) (error, bool) {
+	list := []any{grpcstatus.New(nil, false, func(ctx context.Context, st *status.Status) (error, bool) {
 		return c.convertError(ctx, st), true
 	})}
 	if nilcheck.IsNotNil(c.options.tracer) {

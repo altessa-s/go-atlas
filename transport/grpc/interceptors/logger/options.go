@@ -27,6 +27,11 @@ type PayloadRedactor func(proto.Message) any
 
 // options configures the logger interceptor.
 type options struct {
+	// logClientDetails enables logging client details that may identify callers.
+	logClientDetails bool `optval:"param"`
+	// logRawErrors enables logging error text, panic values, or stacks that may contain secrets.
+	logRawErrors bool `optval:"param"`
+
 	// timeFormat specifies how to format timestamps (default: TimeFormatRFC3339)
 	timeFormat timeformat.Format `optgen:"default=timeformat.RFC3339"`
 	// logResponse specifies whether to log response payloads
@@ -65,8 +70,8 @@ type options struct {
 	// is truncated and marked with [TruncationSuffix]. Values below 1 are
 	// ignored.
 	maxUserAgentLength int `optcheck:"min=1" optgen:"default=DefaultMaxUserAgentLength,onfail=skip"`
-	// maxMessageLength caps, in bytes, the logged gRPC status message, error
-	// reason and error text. Handlers commonly echo request values in them,
+	// maxMessageLength caps, in bytes, the logged gRPC status message and
+	// underlying error text. Handlers commonly echo request values in them,
 	// and on the client side they come from the remote server. A longer value
 	// is truncated and marked with [TruncationSuffix]. Values below 1 are
 	// ignored.

@@ -17,6 +17,9 @@ type PanicHandler func(ctx context.Context, p any) error
 
 // options holds configuration for the recovery interceptor.
 type options struct {
+	// logRawErrors enables logging error text, panic values, or stacks that may contain secrets.
+	logRawErrors bool `optval:"param"`
+
 	panicHandler PanicHandler
 	logger       *slog.Logger
 	// ignoreMethods and ignorePatterns have no defaults: the middleware exempts

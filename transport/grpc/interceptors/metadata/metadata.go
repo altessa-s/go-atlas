@@ -34,7 +34,7 @@ type CallMetadata struct {
 	ServiceName string
 	// MethodName extracted from method path (e.g., "GetUser").
 	MethodName string
-	// FullyMethodName as provided by gRPC (e.g., "/UserService/GetUser").
+	// FullyMethodName identifies the RPC (e.g., "/UserService/GetUser").
 	FullyMethodName string
 	// IsStream indicates if the RPC is a streaming RPC.
 	IsStream bool
@@ -106,7 +106,7 @@ func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string,
 	}
 
 	if !callMetadata.IsClient {
-		if peerIp, ok := peer.FromContext(ctx); ok {
+		if peerIp, ok := peer.FromContext(ctx); ok && peerIp.Addr != nil {
 			// Common transports carry a concrete TCP/UDP address — take the
 			// netip form directly instead of round-tripping through a string.
 			switch a := peerIp.Addr.(type) {

@@ -6,18 +6,20 @@ package protovalidator
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	sharedrecovery "github.com/altessa-s/go-atlas/internal/transport/recovery"
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
 
@@ -57,10 +59,10 @@ type interceptor struct {
 }
 
 // Dependencies returns interceptors that protovalidator requires to run before it.
-// Protovalidator uses metadata for call information extraction and must run after auth
-// so that unauthenticated requests are rejected before validation.
+// Authentication rejects unauthenticated calls before validation. Recovery
+// covers the interceptor.
 func (i *interceptor) Dependencies() []string {
-	return []string{sharedmetadata.Name(), auth.Name()}
+	return []string{sharedmetadata.Name(), auth.Name(), recovery.Name()}
 }
 
 // requestInterceptor handles a single request with its own state.
@@ -158,25 +160,42 @@ func (ri *requestInterceptor) validate(ctx context.Context, req any) (err error)
 	}
 
 	// Perform validation with panic recovery
-	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
-		ri.LogError(ctx, "validator panic recovered", method, nil, slog.Any("panic", r))
-		err = interceptors.NewError(
-			status.New(codes.Internal, "Internal Error"),
-			nil,
-		)
-	})
+	defer func() {
+		if r := recover(); r != nil {
+			attrs := []slog.Attr{slog.String("category", sharedrecovery.ErrPanicRecovered.Error())}
+			if ri.opts.logRawErrors {
+				attrs = append(attrs,
+					slog.String("panic", diagnostics.ErrorText(fmt.Sprint(r), diagnostics.DefaultMaxErrorLength)),
+					slog.Any("stack_trace", sharedrecovery.StackTrace(1)),
+				)
+			}
+			ri.LogError(ctx, "validator panic recovered", method, nil, attrs...)
+			err = interceptors.NewError(status.New(codes.Internal, "Internal Error"), sharedrecovery.ErrPanicRecovered)
+		}
+	}()
 
 	msgType := string(msg.ProtoReflect().Descriptor().FullName())
 
 	if validationErr := ri.validator.Validate(ctx, msg); validationErr != nil {
-		ri.LogWarn(ctx, "validation failed", method, nil, slog.String("classification", diagnostics.ErrorClass(validationErr)),
+		st, isStatus := status.FromError(validationErr)
+		code := codes.InvalidArgument
+		if isStatus {
+			code = st.Code()
+		}
+		var logErr error
+		if ri.opts.logRawErrors {
+			logErr = validationErr
+		}
+		ri.LogWarn(ctx, "validation failed", method, diagnostics.LogError(logErr),
+			slog.String("classification", diagnostics.ErrorClass(validationErr)),
 			slog.String("message_type", msgType),
+			slog.String("grpc.code", code.String()),
 		)
 
 		// Wrap non-gRPC errors. The validator's raw message may echo submitted
 		// values or internal detail, so keep it internal (NewError preserves it for
 		// logging) and hand the client only a generic status.
-		if _, ok := status.FromError(validationErr); !ok {
+		if !isStatus {
 			return interceptors.NewError(
 				status.New(codes.InvalidArgument, "Validation Failed"),
 				validationErr,

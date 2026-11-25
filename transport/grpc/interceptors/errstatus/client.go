@@ -18,9 +18,9 @@ import (
 func ClientInterceptor(opt ...Option) interceptors.ClientInterceptor {
 	opts := newOptions(opt...)
 	if len(opts.statusConverter) == 0 {
-		return grpcstatus.New(opts.logger, nil)
+		return grpcstatus.New(opts.logger, opts.logRawErrors, nil)
 	}
-	return grpcstatus.New(opts.logger, func(ctx context.Context, st *status.Status) (error, bool) {
+	return grpcstatus.New(opts.logger, opts.logRawErrors, func(ctx context.Context, st *status.Status) (error, bool) {
 		for _, converter := range opts.statusConverter {
 			if converter.Matcher(ctx, st) {
 				return converter.Convert(ctx, st), true

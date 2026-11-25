@@ -116,6 +116,15 @@ func WithIgnorePatterns(v ...*regexp.Regexp) Option {
 	}
 }
 
+// WithLogClientDetails sets the logClientDetails option.
+//
+// logClientDetails enables logging client details that may identify callers.
+func WithLogClientDetails(v bool) Option {
+	return func(o *options) {
+		o.logClientDetails = v
+	}
+}
+
 // WithLogGrpcResponseCodes sets the logGrpcResponseCodes option.
 //
 // logGrpcResponseCodes specifies gRPC response codes to always log
@@ -136,6 +145,15 @@ func WithLogGrpcResponseCodes(v ...uint32) Option {
 			}
 		}
 		o.logGrpcResponseCodes = deduped
+	}
+}
+
+// WithLogRawErrors sets the logRawErrors option.
+//
+// logRawErrors enables logging error text, panic values, or stacks that may contain secrets.
+func WithLogRawErrors(v bool) Option {
+	return func(o *options) {
+		o.logRawErrors = v
 	}
 }
 
@@ -161,8 +179,8 @@ func WithLogResponse() Option {
 
 // WithMaxMessageLength sets the maxMessageLength option.
 //
-// maxMessageLength caps, in bytes, the logged gRPC status message, error
-// reason and error text. Handlers commonly echo request values in them,
+// maxMessageLength caps, in bytes, the logged gRPC status message and
+// underlying error text. Handlers commonly echo request values in them,
 // and on the client side they come from the remote server. A longer value
 // is truncated and marked with [TruncationSuffix]. Values below 1 are
 // ignored.

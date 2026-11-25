@@ -43,7 +43,7 @@ A service converter that logs its input can therefore emit a second record for t
 
 An error that already carries a gRPC status skips the converters. A status the handler returned directly (`status.Error(codes.NotFound, "user
 not found")`, or an `interceptors.Error`) with a code other than `Internal`, `Unknown` or `DataLoss` reaches the client unchanged. Otherwise the
-status is rewritten and the original error is logged at warn level:
+status is rewritten and the replacement is logged at warn level:
 
 | Returned error                                                | Client message                              | Details                  |
 |---------------------------------------------------------------|---------------------------------------------|--------------------------|
@@ -182,3 +182,7 @@ With the gRPC server factory, pass code-supplied options to the interceptor that
 | `DefaultFinalizer`    | Enriches errors with ErrorInfo reason codes and RequestInfo details |
 | `DefaultFinalizerWithDomain` | `DefaultFinalizer` that also sets `ErrorInfo.Domain`         |
 | `GrpcStatusToReasonCode` | Maps gRPC status codes to standardized reason code strings      |
+
+## Diagnostics
+
+Error conversion logs codes and error types by default. Use `WithLogRawErrors(true)` to include the underlying error text in server or client conversion logs.
