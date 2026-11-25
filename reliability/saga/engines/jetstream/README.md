@@ -12,7 +12,8 @@ it gives an all-NATS saga deployment in which any node can pick up any submitted
 
 | Symbol                    | Description                                                                                                |
 |---------------------------|------------------------------------------------------------------------------------------------------------|
-| `Engine[T]`               | Binds a stream consumer to one `saga.Orchestrator[T]`. Safe for concurrent use.                            |
+| `Starter[T]`              | Supplies the definition name and starts or resumes an instance. A permanent key rejection matches `saga.ErrInvalidStorageKey`. |
+| `Engine[T]`               | Binds a stream consumer to a `Starter[T]`, such as `*saga.Orchestrator[T]`. Safe for concurrent use.                            |
 | `New(ctx, js, orch, ...)` | Creates the stream and durable consumer when absent; validates them otherwise.                             |
 | `Engine.Submit`           | Publishes a start command for a saga ID and its initial data; returns after the JetStream publish ack.     |
 | `Engine.Run`              | Consumes commands until the context ends; returns nil on shutdown, `ErrConsumeStopped` on unexpected stop. |
@@ -40,13 +41,13 @@ cannot change retention or ack timing for the others.
 
 ## Behavior
 
-| Outcome of `Orchestrator.Start`                                                              | Acknowledgement                                                                     |
+| Outcome of `Starter.Start`                                                              | Acknowledgement                                                                     |
 |----------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|
 | Terminal instance (completed, compensated, failed, already terminal)                         | `Ack`                                                                               |
 | Interrupted (store error, instance busy, non-terminal instance)                              | `NakWithDelay` (exponential)                                                        |
 | Engine shutting down                                                                         | `NakWithDelay` (one fetch window, so the stopped engine's pull request has expired) |
 | Panic while decoding or executing                                                            | `NakWithDelay` (exponential)                                                        |
-| Undecodable command, empty or invalid-UTF-8 ID, definition mismatch, ID the KV store rejects | `Term`                                                                              |
+| Undecodable command, empty or invalid-UTF-8 ID, definition mismatch, `ErrInvalidStorageKey` | `Term`                                                                              |
 
 - **De-duplication.** `Nats-Msg-Id` is `<len(definition)>:<definition>:<id>`: JetStream de-duplicates per stream, so the definition is part of the key
   and commands of different definitions never collapse into one. This does not namespace the **store**: saga stores key instances by ID alone, so
@@ -54,7 +55,7 @@ cannot change retention or ack timing for the others.
   (`ErrDefinitionNotFound`).
 - **Envelope.** A command is `{"id":"<saga id>","data":"<base64 of T encoded with WithSerializer>"}` on `<prefix>.<definition>`; other producers may
   publish it directly (the body must be valid UTF-8 JSON and `data` must be present).
-- **Saga IDs.** Any non-empty valid UTF-8 string; `Submit` rejects an empty ID with `errs.ErrEmptyID` and an invalid-UTF-8 one with `ErrInvalidID`,
+- **Saga IDs.** Any non-empty valid UTF-8 string; `Submit` rejects an empty ID with `saga.ErrEmptyID` and an invalid-UTF-8 one with `ErrInvalidID`,
   because the durable stores persist instances as JSON/BSON, which would rewrite such an ID. The [NATS KV store](../../storages/nats) escapes IDs into
   valid KV keys; a command whose escaped ID exceeds its key budget (`ErrKeyTooLong`) is terminated rather than retried forever.
 - **De-duplication key encoding.** The key is base64url-encoded: header values are normalized on the wire (trailing whitespace trimmed, CR/LF replaced),

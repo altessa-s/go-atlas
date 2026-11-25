@@ -153,7 +153,9 @@ func (o *Outbox) RegisterCleanupSchedulerFunc() func(context.Context) error {
 }
 
 // RunDispatchCycle executes a single fetch-and-dispatch cycle for unprocessed events.
-// This method is designed to be called manually for one-time dispatch.
+// This method is designed to be called manually for one-time dispatch. It
+// returns errors fetching events or persisting their outcomes. Delivery
+// failures are recorded as event outcomes.
 // If the function is registered with a scheduler, this method returns
 // [cycle.ErrManaged].
 func (o *Outbox) RunDispatchCycle(ctx context.Context) error {
@@ -211,7 +213,8 @@ func (o *Outbox) dispatchOnce(ctx context.Context) (fetched int, advanced bool, 
 	handleCtx, handleCtxCancel := corectx.ApplyTimeout(ctx, o.handleTimeout)
 	defer handleCtxCancel()
 
-	return len(events), o.handleEvents(handleCtx, events...), nil
+	advanced, err = o.handleEvents(handleCtx, events...)
+	return len(events), advanced, err
 }
 
 // RunUnlockCycle executes a single cycle to unlock stuck events in the store.

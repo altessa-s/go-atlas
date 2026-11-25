@@ -14,6 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/audit/storages/storagetest"
 
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -28,7 +29,7 @@ func unreachableDB(t *testing.T) *mongo.Database {
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		// t.Context() is already canceled when cleanups run; best-effort disconnect.
-		_ = client.Disconnect(context.Background())
+		_ = client.Disconnect(context.WithoutCancel(t.Context()))
 	})
 
 	return client.Database("audit_unreachable")
@@ -409,7 +410,7 @@ func TestStorage_Query_ServerError(t *testing.T) {
 
 	var yields int
 	var got error
-	for e, err := range s.Query(t.Context(), &audit.Query{}) {
+	for e, err := range s.Query(t.Context(), nil) {
 		yields++
 		require.Nil(t, e)
 		got = err
@@ -426,7 +427,13 @@ func TestStorage_Count_ServerError(t *testing.T) {
 		opts:       defaultOptions(),
 	}
 
-	count, err := s.Count(t.Context(), &audit.Query{})
+	count, err := s.Count(t.Context(), nil)
 	require.Error(t, err)
 	require.Zero(t, count)
+}
+
+func TestStoreBatchNilEvent(t *testing.T) {
+	t.Parallel()
+	s := &Storage{}
+	storagetest.NilBatchEvent(t, s)
 }

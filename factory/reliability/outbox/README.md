@@ -30,6 +30,9 @@ The storage is selected by `outbox.storage.type`. The builder builds the sqldb s
 driver. A configured type without its dependency fails at `Build` with `factory/core.ErrDependencyRequired` (`UseSQLDB`, `UseSQLListener` for
 `watch: notify`) or `ErrNotRegistered` (`UseStorage` for mongo).
 
+Register a custom backend name with `UseStorage`. Before standalone validation or config loading, call
+`cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())`.
+
 ## Methods
 
 ### Constructor
@@ -64,8 +67,10 @@ Enable `storage.sqldb.asynchronousCommit` to allow PostgreSQL to acknowledge boo
 
 ## Watch
 
+Custom push storages must implement `outbox.Watcher`. Their storage function receives the selected watch mode and can reject modes it cannot serve.
+
 With `watch: changeStream` (mongo) or `watch: notify` (sqldb, postgres dialect), a nonempty dispatch schedule and `UseScheduler` are required. `Build`
-starts `outbox.Outbox.Watch` in its own goroutine whenever it returns a non-nil outbox, including when task registration fails. The watcher runs on a
+starts the watcher after all tasks register. The caller can stop it early with `ob.StopWatch()`. The watcher runs on a
 context detached from the build context; a shutdown hook stops it and waits for it to return. `notify` also makes each SQL insert signal in the same
 statement. The channel is derived from the table unless `storage.sqldb.notifyChannel` overrides it. Custom names are case-sensitive; quote mixed-case
 names in psql `LISTEN`. A store that cannot serve the watch — a standalone mongod — is logged at warn level and dispatch stays on the schedule. Polling
@@ -74,6 +79,5 @@ remains necessary for retry backoffs and unlock sweeps.
 ## Outbox startup
 
 The `ctx` passed to `Build` bounds the startup I/O (schema creation, task registration). The builder calls `RegisterTasks` before returning. A scheduler
-registration failure returns both a non-nil outbox and an error; the configured watcher is already started. Retain that instance to retry
-`RegisterTasks(ctx)`; callbacks already installed remain inactive until all configured tasks are registered. Do not start serving traffic while
-registration is incomplete.
+registration failure returns a non-nil outbox and an error. Retry `RegisterTasks(ctx)` on that instance. After a successful retry, start the watcher
+with `ob.StartWatch(lifetimeCtx)` and arrange to call `ob.StopWatch()`. Callbacks already installed remain inactive until all tasks are registered.

@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 ```
 
 Package `factory` provides a fluent builder for creating an idempotency keeper from configuration. `KeeperBuilder` uses deferred error accumulation —
-errors from any step are collected and returned at `Build()` time.
+errors from any step are collected and returned at `Build(ctx)` time.
 
 ## Quick Start
 
@@ -13,13 +13,16 @@ errors from any step are collected and returned at `Build()` time.
 keeper, err := factory.New(cfg.Idempotency).
     UseLogger(logger).
     UseStorage(idempotencyconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
-    Build()
+    Build(ctx)
 ```
+
+Register a custom backend name with `UseStorage`. Before standalone validation or config loading, call
+`cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())`.
 
 ## Supported Storage Types
 
 The builder builds `memory` and `sqldb` storage. `redis`, `nats` and `mongo` use the function registered with `UseStorage`; without one `Build` fails
-naming the package to add. Any other type fails `Build` with an unsupported storage type error.
+naming the package to add. An unregistered custom type fails with `ErrUnsupported`.
 
 | Type     | Backend                                            | Requires                                                                                                             |
 |------------|------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
@@ -30,12 +33,13 @@ naming the package to add. Any other type fails `Build` with an unsupported stor
 | `mongo`  | MongoDB collection, joins the caller's transaction | `UseStorage("mongo", mongofactory.Builder(db))` from [`factory/reliability/idempotency/storages/mongo`](storages/mongo)     |
 
 SQL uses `UseSQLDB(db)` with `storage.type: sqldb` and `storage.sqldb: {dialect, table, ensureSchema, purgeInterval, purgeBatchSize}`. A missing
-database returns `factory/core.ErrDependencyRequired`. With `ensureSchema: true`, `Build()` creates the table and index under a 30-second timeout;
-otherwise it performs no startup SQL I/O. The caller owns the driver and database lifetime. The backend applies `Config.TTL` to locks and results. See
-the [SQL storage](../../../reliability/idempotency/storages/sqldb/README.md) for `WithTx`, transaction restart errors and expired-row cleanup.
+database returns `factory/core.ErrDependencyRequired`. With `ensureSchema: true`, `Build(ctx)` creates the table and index within the startup context,
+capped at 30 seconds. Otherwise it performs no startup SQL I/O. The caller owns the driver and database lifetime. The backend applies `Config.TTL` to
+locks and results. See the [SQL storage](../../../reliability/idempotency/storages/sqldb/README.md) for `WithTx`, transaction restart errors and
+expired-row cleanup.
 
 ```go
-keeper, err := factory.New(cfg.Idempotency).UseSQLDB(db).Build()
+keeper, err := factory.New(cfg.Idempotency).UseSQLDB(db).Build(ctx)
 ```
 
 The SQL cleanup interval defaults to one minute through configuration; zero disables it. Cleanup starts lazily on the first key write. The builder owns

@@ -12,7 +12,7 @@ Maps the `mongo` block of the idempotency storage configuration to a [MongoDB id
 ```go
 keeper, err := idempotencyfactory.New(cfg.Idempotency).
     UseStorage(idempotencyconfig.StorageTypeMongo, mongofactory.Builder(db)).
-    Build()
+    Build(ctx)
 ```
 
 | Symbol              | Description                                                                                           |

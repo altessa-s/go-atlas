@@ -72,6 +72,9 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 
 	models := make([]any, len(events))
 	for i, e := range events {
+		if e == nil {
+			return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
+		}
 		models[i] = toModel(e)
 	}
 
@@ -83,6 +86,9 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 // timestamp then ID, newest first unless ascending order is requested, and
 // starting after query.Cursor.
 func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audit.Event, error] {
+	if query == nil {
+		query = &audit.Query{}
+	}
 	return func(yield func(*audit.Event, error) bool) {
 		filter := buildFilter(query)
 
@@ -133,6 +139,9 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 // Count returns the number of events matching the query filter. The page
 // position, size and order are ignored.
 func (s *Storage) Count(ctx context.Context, query *audit.Query) (int64, error) {
+	if query == nil {
+		query = &audit.Query{}
+	}
 	filter := buildFilter(query)
 	count, err := s.collection.CountDocuments(ctx, filter, mongoOptions.Count().SetCollation(simpleCollation()))
 	if err != nil {

@@ -18,28 +18,48 @@ import (
 )
 
 var (
-	_ retryqueue.Storage[struct{}] = (*Store[struct{}])(nil)
-	_ retryqueue.Mover             = (*Store[struct{}])(nil)
+	_ retryqueue.AttemptStorage[struct{}] = (*Store[struct{}])(nil)
+	_ retryqueue.Mover                    = (*Store[struct{}])(nil)
 )
 
 // Store is a map-backed [retryqueue.Storage]. Every method runs under one
 // mutex, so each transition is atomic, and checks its context before waiting
 // for the mutex and again once it holds it: a call whose context is done
-// fails with the context error and changes nothing. Items are stored and
-// returned by value; a payload holding references (slices, maps, pointers)
-// shares them with the caller.
+// fails with the context error and changes nothing. Payloads are snapshotted
+// on insert and each read. See [NewWithClone] for opaque payloads.
 type Store[P any] struct {
 	mu    sync.Mutex
 	items map[string]retryqueue.Item[P]
+	clone func(P) P
 	// beforeLock, when set, runs in lock after the first context check and
 	// before waiting for mu. It is a test seam, nil in production: a test
 	// holding mu learns that a call passed the check and is about to block.
 	beforeLock func()
 }
 
-// New returns an empty Store.
+// New returns an empty Store. The default snapshot copies exported data
+// recursively, including pointer targets, slices and map values. Private
+// fields, channels and function handles keep their Go identity. Pointers used
+// as map keys (including components of composite keys) keep their identity
+// throughout the snapshot so other fields can still look up those keys.
 func New[P any]() *Store[P] {
-	return &Store[P]{items: map[string]retryqueue.Item[P]{}}
+	return NewWithClone(clonePayload[P])
+}
+
+// NewWithClone returns an empty Store with a custom payload snapshot function.
+// Use it if a payload stores mutable data in opaque fields. The function must
+// return an independent snapshot without modifying its input or calling back
+// into this store. A nil function uses the default snapshot from [New].
+func NewWithClone[P any](clone func(P) P) *Store[P] {
+	if clone == nil {
+		clone = clonePayload[P]
+	}
+	return &Store[P]{items: map[string]retryqueue.Item[P]{}, clone: clone}
+}
+
+func (s *Store[P]) snapshot(item retryqueue.Item[P]) retryqueue.Item[P] {
+	item.Payload = s.clone(item.Payload)
+	return item
 }
 
 // Len returns the number of stored items in any state.
@@ -69,9 +89,9 @@ func (s *Store[P]) lock(ctx context.Context, op string) error {
 }
 
 // at returns the item of key when it is at generation gen. The caller holds mu.
-func (s *Store[P]) at(key string, gen int64) (retryqueue.Item[P], bool) {
+func (s *Store[P]) at(key string, gen int64, since *time.Time) (retryqueue.Item[P], bool) {
 	it, ok := s.items[key]
-	return it, ok && it.Generation == gen
+	return it, ok && it.Generation == gen && (since == nil || it.Since.Equal(*since))
 }
 
 // fresh returns item as a new pending item, as Mark inserts it.
@@ -101,11 +121,11 @@ func (s *Store[P]) Mark(ctx context.Context, item retryqueue.Item[P]) (retryqueu
 	}
 	defer s.mu.Unlock()
 	if cur, ok := s.items[item.Key]; ok {
-		return cur, nil
+		return s.snapshot(cur), nil
 	}
-	it := fresh(item)
+	it := fresh(s.snapshot(item))
 	s.items[item.Key] = it
-	return it, nil
+	return s.snapshot(it), nil
 }
 
 // Reopen implements [retryqueue.Storage].
@@ -117,11 +137,22 @@ func (s *Store[P]) Reopen(ctx context.Context, item retryqueue.Item[P]) (retryqu
 	cur, ok := s.items[item.Key]
 	if ok && (cur.Generation > item.Generation ||
 		(cur.Generation == item.Generation && cur.State == retryqueue.StatePending)) {
-		return cur, nil
+		return s.snapshot(cur), nil
 	}
-	it := fresh(item)
+	it := fresh(s.snapshot(item))
+	if ok && cur.Generation == it.Generation {
+		it.Since = nextSince(cur.Since, it.Since)
+	}
 	s.items[item.Key] = it
-	return it, nil
+	return s.snapshot(it), nil
+}
+
+// nextSince preserves the expiry fence across equal or regressing caller clocks.
+func nextSince(previous, now time.Time) time.Time {
+	if now.After(previous) {
+		return now
+	}
+	return previous.Add(time.Nanosecond)
 }
 
 // ListDue implements [retryqueue.Storage].
@@ -136,7 +167,11 @@ func (s *Store[P]) ListDue(ctx context.Context, now time.Time, limit int) ([]ret
 	slices.SortFunc(out, func(a, b retryqueue.Item[P]) int {
 		return cmp.Or(a.NextAttemptAt.Compare(b.NextAttemptAt), cmp.Compare(a.Key, b.Key))
 	})
-	return truncate(out, limit), nil
+	out = truncate(out, limit)
+	for i := range out {
+		out[i] = s.snapshot(out[i])
+	}
+	return out, nil
 }
 
 // WakeDue implements [retryqueue.Storage].
@@ -156,11 +191,20 @@ func (s *Store[P]) WakeDue(ctx context.Context, now time.Time) error {
 
 // Reschedule implements [retryqueue.Storage].
 func (s *Store[P]) Reschedule(ctx context.Context, key string, generation int64, next time.Time) error {
+	return s.reschedule(ctx, key, generation, nil, next)
+}
+
+// RescheduleAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) RescheduleAttempt(ctx context.Context, attempt retryqueue.Attempt, next time.Time) error {
+	return s.reschedule(ctx, attempt.Key, attempt.Generation, &attempt.Since, next)
+}
+
+func (s *Store[P]) reschedule(ctx context.Context, key string, generation int64, since *time.Time, next time.Time) error {
 	if err := s.lock(ctx, "reschedule retry item"); err != nil {
 		return err
 	}
 	defer s.mu.Unlock()
-	if it, ok := s.at(key, generation); ok && it.State == retryqueue.StatePending {
+	if it, ok := s.at(key, generation, since); ok && it.State == retryqueue.StatePending {
 		it.Attempts++
 		it.NextAttemptAt = next.UTC()
 		s.items[key] = it
@@ -174,8 +218,8 @@ func (s *Store[P]) Expire(ctx context.Context, key string, generation int64, sin
 		return false, err
 	}
 	defer s.mu.Unlock()
-	it, ok := s.at(key, generation)
-	if !ok || it.State != retryqueue.StatePending || !it.Since.Equal(since) {
+	it, ok := s.at(key, generation, &since)
+	if !ok || it.State != retryqueue.StatePending {
 		return false, nil
 	}
 	it.State = retryqueue.StateExpired
@@ -186,11 +230,20 @@ func (s *Store[P]) Expire(ctx context.Context, key string, generation int64, sin
 
 // Resolve implements [retryqueue.Storage].
 func (s *Store[P]) Resolve(ctx context.Context, key string, generation int64, at time.Time) error {
+	return s.resolve(ctx, key, generation, nil, at)
+}
+
+// ResolveAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) ResolveAttempt(ctx context.Context, attempt retryqueue.Attempt, at time.Time) error {
+	return s.resolve(ctx, attempt.Key, attempt.Generation, &attempt.Since, at)
+}
+
+func (s *Store[P]) resolve(ctx context.Context, key string, generation int64, since *time.Time, at time.Time) error {
 	if err := s.lock(ctx, "resolve retry item"); err != nil {
 		return err
 	}
 	defer s.mu.Unlock()
-	if it, ok := s.at(key, generation); ok && it.State != retryqueue.StateResolved {
+	if it, ok := s.at(key, generation, since); ok && it.State != retryqueue.StateResolved {
 		it.State = retryqueue.StateResolved
 		it.ResolvedAt = at.UTC()
 		it.ExpiredAt = time.Time{}
@@ -202,11 +255,20 @@ func (s *Store[P]) Resolve(ctx context.Context, key string, generation int64, at
 
 // Flag implements [retryqueue.Storage].
 func (s *Store[P]) Flag(ctx context.Context, key string, generation int64, reason string) (bool, error) {
+	return s.flag(ctx, key, generation, nil, reason)
+}
+
+// FlagAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) FlagAttempt(ctx context.Context, attempt retryqueue.Attempt, reason string) (bool, error) {
+	return s.flag(ctx, attempt.Key, attempt.Generation, &attempt.Since, reason)
+}
+
+func (s *Store[P]) flag(ctx context.Context, key string, generation int64, since *time.Time, reason string) (bool, error) {
 	if err := s.lock(ctx, "flag retry item"); err != nil {
 		return false, err
 	}
 	defer s.mu.Unlock()
-	it, ok := s.at(key, generation)
+	it, ok := s.at(key, generation, since)
 	if !ok || it.State != retryqueue.StatePending || (it.Flagged && it.FlagReason == reason) {
 		return false, nil
 	}
@@ -217,11 +279,20 @@ func (s *Store[P]) Flag(ctx context.Context, key string, generation int64, reaso
 
 // ClearFlag implements [retryqueue.Storage].
 func (s *Store[P]) ClearFlag(ctx context.Context, key string, generation int64) error {
+	return s.clearFlag(ctx, key, generation, nil)
+}
+
+// ClearAttemptFlag implements [retryqueue.AttemptStorage].
+func (s *Store[P]) ClearAttemptFlag(ctx context.Context, attempt retryqueue.Attempt) error {
+	return s.clearFlag(ctx, attempt.Key, attempt.Generation, &attempt.Since)
+}
+
+func (s *Store[P]) clearFlag(ctx context.Context, key string, generation int64, since *time.Time) error {
 	if err := s.lock(ctx, "clear retry item flag"); err != nil {
 		return err
 	}
 	defer s.mu.Unlock()
-	if it, ok := s.at(key, generation); ok && it.Flagged {
+	if it, ok := s.at(key, generation, since); ok && it.Flagged {
 		it.Flagged, it.FlagReason = false, ""
 		s.items[key] = it
 	}
@@ -265,7 +336,11 @@ func (s *Store[P]) ListByState(ctx context.Context, state retryqueue.State, limi
 	slices.SortFunc(out, func(a, b retryqueue.Item[P]) int {
 		return cmp.Or(a.Since.Compare(b.Since), cmp.Compare(a.Key, b.Key))
 	})
-	return truncate(out, limit), nil
+	out = truncate(out, limit)
+	for i := range out {
+		out[i] = s.snapshot(out[i])
+	}
+	return out, nil
 }
 
 // Requeue implements [retryqueue.Storage].
@@ -281,7 +356,7 @@ func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (
 			continue
 		}
 		it.State = retryqueue.StatePending
-		it.Since, it.NextAttemptAt = now, now
+		it.Since, it.NextAttemptAt = nextSince(it.Since, now), now
 		it.Attempts = 0
 		it.ExpiredAt = time.Time{}
 		s.items[key] = it
@@ -332,10 +407,11 @@ func truncate[P any](items []retryqueue.Item[P], limit int) []retryqueue.Item[P]
 		limit = retryqueue.DefaultListLimit
 	}
 	if len(items) > limit {
+		clear(items[limit:])
 		items = items[:limit]
 	}
 	if items == nil {
 		return []retryqueue.Item[P]{}
 	}
-	return items
+	return slices.Clip(items)
 }

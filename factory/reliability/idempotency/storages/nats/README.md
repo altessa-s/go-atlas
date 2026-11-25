@@ -12,7 +12,7 @@ storage](../../../../../reliability/idempotency/storages/nats/) for [`factory/re
 ```go
 keeper, err := idempotencyfactory.New(cfg.Idempotency).
     UseStorage(idempotencyconfig.StorageTypeNATS, natsfactory.Builder(js)).
-    Build()
+    Build(ctx)
 ```
 
 | Symbol              | Description                                                                                     |

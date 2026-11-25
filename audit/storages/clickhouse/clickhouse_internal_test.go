@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/audit"
+	"github.com/altessa-s/go-atlas/audit/storages/storagetest"
 )
 
 var errBackend = errors.New("backend failure")
@@ -667,4 +668,13 @@ func TestCloseIsNoOp(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, s.Close(t.Context()))
+}
+
+func TestStoreBatchNilEvent(t *testing.T) {
+	t.Parallel()
+	conn := &mockConn{}
+	s, err := New(t.Context(), conn, WithMaxBatchSize(1))
+	require.NoError(t, err)
+	storagetest.NilBatchEvent(t, s)
+	require.Zero(t, conn.prepareCalls)
 }

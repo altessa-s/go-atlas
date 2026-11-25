@@ -10,13 +10,12 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"slices"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas/internal/retryqueuefields"
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -38,7 +37,7 @@ const (
 // ErrInvalidFlagField reports a flag field name that is not a plain top-level
 // field name, collides with a field the store owns, or is shared by both flag
 // fields.
-var ErrInvalidFlagField = errors.New("retryqueue mongo: invalid flag field name")
+var ErrInvalidFlagField = retryqueuefields.ErrInvalidFlagField
 
 // ErrInvalidPayload reports a payload type whose document fields are not all
 // known statically (it is not a struct or a struct pointer, or it inlines a
@@ -57,6 +56,7 @@ const reopenAttempts = 2
 
 // Query and update operators the store reuses.
 const (
+	opExpr  = "$expr"  // Query predicate evaluated as an expression.
 	opOr    = "$or"    // Logical disjunction.
 	opNe    = "$ne"    // Inequality comparison.
 	opSet   = "$set"   // Field assignment.
@@ -64,9 +64,11 @@ const (
 )
 
 var (
-	_ retryqueue.Storage[struct{}] = (*Store[struct{}])(nil)
-	_ retryqueue.Mover             = (*Store[struct{}])(nil)
+	_ retryqueue.AttemptStorage[struct{}] = (*Store[struct{}])(nil)
+	_ retryqueue.Mover                    = (*Store[struct{}])(nil)
 )
+
+var _ retryqueue.AttemptStorage[struct{}] = (*Store[struct{}])(nil)
 
 // Store is the MongoDB-backed [retryqueue.Storage]: one document per item,
 // with the key as _id and the payload P inlined. P must be a struct or a
@@ -97,7 +99,7 @@ func New[P any](coll *mongo.Collection, opts ...Option) (*Store[P], error) {
 	if o.resolvedRetention > math.MaxInt32*time.Second {
 		return nil, errors.New("retryqueue mongo: resolved retention is too long")
 	}
-	if o.flagField == o.flagReasonField || !validField(o.flagField) || !validField(o.flagReasonField) {
+	if !retryqueuefields.ValidFlag(o.flagField, o.flagReasonField) || !retryqueuefields.ValidFlag(o.flagReasonField, o.flagField) {
 		return nil, ErrInvalidFlagField
 	}
 	fields, ok := payloadFields(reflect.TypeFor[P]())
@@ -105,17 +107,11 @@ func New[P any](coll *mongo.Collection, opts ...Option) (*Store[P], error) {
 		return nil, ErrInvalidPayload
 	}
 	for _, f := range fields {
-		if f == o.flagField || f == o.flagReasonField || slices.Contains(reservedFields, f) {
+		if f == o.flagField || f == o.flagReasonField || retryqueuefields.Reserved(f) {
 			return nil, ErrInvalidPayload
 		}
 	}
 	return &Store[P]{coll: coll, flagField: o.flagField, reasonField: o.flagReasonField, retention: o.resolvedRetention}, nil
-}
-
-// validField reports whether name is a plain top-level field the store does not
-// own.
-func validField(name string) bool {
-	return !strings.HasPrefix(name, "$") && !strings.Contains(name, ".") && !slices.Contains(reservedFields, name)
 }
 
 // EnsureIndexes creates the due-list and per-state indexes, plus the TTL index
@@ -190,15 +186,26 @@ func (s *Store[P]) Mark(ctx context.Context, item retryqueue.Item[P]) (retryqueu
 // Persistent contention returns the last stored item; the caller compares
 // generations per the Storage contract.
 func (s *Store[P]) Reopen(ctx context.Context, item retryqueue.Item[P]) (retryqueue.Item[P], error) {
+	// A missing generation belongs to generation zero.
+	generation := documentGeneration()
 	filter := bson.M{fID: item.Key, opOr: bson.A{
-		bson.M{fGeneration: bson.M{"$lt": item.Generation}},
-		bson.M{fGeneration: bson.M{"$exists": false}},
-		bson.M{fGeneration: item.Generation, fState: bson.M{opNe: string(retryqueue.StatePending)}},
+		bson.M{opExpr: bson.M{"$lt": bson.A{generation, item.Generation}}},
+		bson.M{fGeneration: genEq(item.Generation), fState: bson.M{opNe: string(retryqueue.StatePending)}},
 	}}
+	// Replace the entire document, preserving a strictly increasing age fence
+	// when the generation is reused. Payload strings are opaque BSON values.
+	since := bson.M{"$cond": bson.A{
+		bson.M{"$eq": bson.A{generation, item.Generation}}, nextSince(item.Since), item.Since.UTC(),
+	}}
+	update := mongo.Pipeline{
+		{{Key: "$replaceWith", Value: bson.M{"$mergeObjects": bson.A{
+			bson.M{"$literal": freshDoc(item)}, bson.M{fSince: since},
+		}}}},
+	}
 	var out retryqueue.Item[P]
 	for range reopenAttempts {
-		got, err := s.decodeOne(s.coll.FindOneAndReplace(ctx, filter, freshDoc(item),
-			mongoOptions.FindOneAndReplace().SetReturnDocument(mongoOptions.After)))
+		got, err := s.decodeOne(s.coll.FindOneAndUpdate(ctx, filter, update,
+			mongoOptions.FindOneAndUpdate().SetReturnDocument(mongoOptions.After)))
 		switch {
 		case err == nil:
 			return got, nil
@@ -238,8 +245,21 @@ func (s *Store[P]) WakeDue(ctx context.Context, now time.Time) error {
 
 // Reschedule implements [retryqueue.Storage].
 func (s *Store[P]) Reschedule(ctx context.Context, key string, generation int64, next time.Time) error {
+	return s.reschedule(ctx, key, generation, nil, next)
+}
+
+// RescheduleAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) RescheduleAttempt(ctx context.Context, attempt retryqueue.Attempt, next time.Time) error {
+	return s.reschedule(ctx, attempt.Key, attempt.Generation, &attempt.Since, next)
+}
+
+func (s *Store[P]) reschedule(ctx context.Context, key string, generation int64, since *time.Time, next time.Time) error {
+	filter := bson.M{fID: key, fState: string(retryqueue.StatePending), fGeneration: genEq(generation)}
+	if since != nil {
+		filter[fSince] = since.UTC()
+	}
 	_, err := s.coll.UpdateOne(ctx,
-		bson.M{fID: key, fState: string(retryqueue.StatePending), fGeneration: genEq(generation)},
+		filter,
 		bson.M{"$inc": bson.M{fAttempts: 1}, opSet: bson.M{fNextAttempt: next.UTC()}},
 	)
 	if err != nil {
@@ -262,8 +282,21 @@ func (s *Store[P]) Expire(ctx context.Context, key string, generation int64, sin
 
 // Resolve implements [retryqueue.Storage].
 func (s *Store[P]) Resolve(ctx context.Context, key string, generation int64, at time.Time) error {
+	return s.resolve(ctx, key, generation, nil, at)
+}
+
+// ResolveAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) ResolveAttempt(ctx context.Context, attempt retryqueue.Attempt, at time.Time) error {
+	return s.resolve(ctx, attempt.Key, attempt.Generation, &attempt.Since, at)
+}
+
+func (s *Store[P]) resolve(ctx context.Context, key string, generation int64, since *time.Time, at time.Time) error {
+	filter := bson.M{fID: key, fState: bson.M{opNe: string(retryqueue.StateResolved)}, fGeneration: genEq(generation)}
+	if since != nil {
+		filter[fSince] = since.UTC()
+	}
 	_, err := s.coll.UpdateOne(ctx,
-		bson.M{fID: key, fState: bson.M{opNe: string(retryqueue.StateResolved)}, fGeneration: genEq(generation)},
+		filter,
 		bson.M{
 			opSet:   bson.M{fState: string(retryqueue.StateResolved), fResolvedAt: at.UTC()},
 			opUnset: bson.M{fExpiredAt: "", s.flagField: "", s.reasonField: ""},
@@ -277,11 +310,24 @@ func (s *Store[P]) Resolve(ctx context.Context, key string, generation int64, at
 
 // Flag implements [retryqueue.Storage].
 func (s *Store[P]) Flag(ctx context.Context, key string, generation int64, reason string) (bool, error) {
+	return s.flag(ctx, key, generation, nil, reason)
+}
+
+// FlagAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) FlagAttempt(ctx context.Context, attempt retryqueue.Attempt, reason string) (bool, error) {
+	return s.flag(ctx, attempt.Key, attempt.Generation, &attempt.Since, reason)
+}
+
+func (s *Store[P]) flag(ctx context.Context, key string, generation int64, since *time.Time, reason string) (bool, error) {
+	filter := bson.M{fID: key, fState: string(retryqueue.StatePending), fGeneration: genEq(generation), opOr: bson.A{
+		bson.M{s.flagField: bson.M{opNe: true}},
+		bson.M{s.reasonField: bson.M{opNe: reason}},
+	}}
+	if since != nil {
+		filter[fSince] = since.UTC()
+	}
 	res, err := s.coll.UpdateOne(ctx,
-		bson.M{fID: key, fState: string(retryqueue.StatePending), fGeneration: genEq(generation), opOr: bson.A{
-			bson.M{s.flagField: bson.M{opNe: true}},
-			bson.M{s.reasonField: bson.M{opNe: reason}},
-		}},
+		filter,
 		bson.M{opSet: bson.M{s.flagField: true, s.reasonField: reason}},
 	)
 	if err != nil {
@@ -292,8 +338,21 @@ func (s *Store[P]) Flag(ctx context.Context, key string, generation int64, reaso
 
 // ClearFlag implements [retryqueue.Storage].
 func (s *Store[P]) ClearFlag(ctx context.Context, key string, generation int64) error {
+	return s.clearFlag(ctx, key, generation, nil)
+}
+
+// ClearAttemptFlag implements [retryqueue.AttemptStorage].
+func (s *Store[P]) ClearAttemptFlag(ctx context.Context, attempt retryqueue.Attempt) error {
+	return s.clearFlag(ctx, attempt.Key, attempt.Generation, &attempt.Since)
+}
+
+func (s *Store[P]) clearFlag(ctx context.Context, key string, generation int64, since *time.Time) error {
+	filter := bson.M{fID: key, fGeneration: genEq(generation), s.flagField: true}
+	if since != nil {
+		filter[fSince] = since.UTC()
+	}
 	_, err := s.coll.UpdateOne(ctx,
-		bson.M{fID: key, fGeneration: genEq(generation), s.flagField: true},
+		filter,
 		bson.M{opUnset: bson.M{s.flagField: "", s.reasonField: ""}},
 	)
 	if err != nil {
@@ -305,17 +364,14 @@ func (s *Store[P]) ClearFlag(ctx context.Context, key string, generation int64) 
 // DeleteObsolete implements [retryqueue.Storage]: a conditional delete, then,
 // when nothing was deleted, a look-up of a newer item.
 func (s *Store[P]) DeleteObsolete(ctx context.Context, key string, generation int64) (bool, error) {
-	res, err := s.coll.DeleteOne(ctx, bson.M{fID: key, opOr: bson.A{
-		bson.M{fGeneration: bson.M{"$lte": generation}},
-		bson.M{fGeneration: bson.M{"$exists": false}},
-	}})
+	res, err := s.coll.DeleteOne(ctx, bson.M{fID: key, opExpr: bson.M{"$lte": bson.A{documentGeneration(), generation}}})
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "delete obsolete retry item")
 	}
 	if res.DeletedCount > 0 {
 		return false, nil
 	}
-	err = s.coll.FindOne(ctx, bson.M{fID: key, fGeneration: bson.M{"$gt": generation}},
+	err = s.coll.FindOne(ctx, bson.M{fID: key, opExpr: bson.M{"$gt": bson.A{documentGeneration(), generation}}},
 		mongoOptions.FindOne().SetProjection(bson.M{fID: 1})).Err()
 	switch {
 	case errors.Is(err, mongo.ErrNoDocuments):
@@ -324,6 +380,11 @@ func (s *Store[P]) DeleteObsolete(ctx context.Context, key string, generation in
 		return false, coreerrs.WrapOperation(err, "look up newer retry item")
 	}
 	return true, nil
+}
+
+// documentGeneration treats legacy documents without a generation as generation zero.
+func documentGeneration() bson.M {
+	return bson.M{"$ifNull": bson.A{"$" + fGeneration, int64(0)}}
 }
 
 // Delete implements [retryqueue.Storage].
@@ -346,16 +407,22 @@ func (s *Store[P]) Requeue(ctx context.Context, now time.Time, keys ...string) (
 	if len(keys) > 0 {
 		filter[fID] = bson.M{"$in": keys}
 	}
-	res, err := s.coll.UpdateMany(ctx, filter, bson.M{
-		opSet: bson.M{
-			fState: string(retryqueue.StatePending), fSince: now.UTC(), fNextAttempt: now.UTC(), fAttempts: 0,
-		},
-		opUnset: bson.M{fExpiredAt: ""},
+	res, err := s.coll.UpdateMany(ctx, filter, mongo.Pipeline{
+		{{Key: opSet, Value: bson.M{
+			fState: string(retryqueue.StatePending), fSince: nextSince(now), fNextAttempt: now.UTC(), fAttempts: 0,
+			fExpiredAt: "$$REMOVE",
+		}}},
 	})
 	if err != nil {
 		return 0, coreerrs.WrapOperation(err, "requeue retry items")
 	}
 	return int(res.ModifiedCount), nil
+}
+
+// nextSince renders a new age later than the previous BSON date, even if the
+// caller supplied the same millisecond or its clock moved backwards.
+func nextSince(now time.Time) bson.M {
+	return bson.M{"$max": bson.A{now.UTC(), bson.M{"$add": bson.A{"$" + fSince, 1}}}}
 }
 
 // Move implements [retryqueue.Mover] in a transaction: it looks both keys

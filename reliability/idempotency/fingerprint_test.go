@@ -15,8 +15,6 @@ import (
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages/memory"
-
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 type ownerKey struct{}
@@ -52,7 +50,7 @@ func TestFingerprintMismatch(t *testing.T) {
 	ok, st, err := k.AttemptLockWithOpts(ctx, "key", idempotency.AttemptLockOpts{Fingerprint: fpA})
 	require.NoError(t, err)
 	require.False(t, ok)
-	require.Equal(t, storages.StatusInProgress, st.Status)
+	require.Equal(t, idempotency.StatusInProgress, st.Status)
 	_, st, err = k.AttemptLockWithOpts(ctx, "key", idempotency.AttemptLockOpts{Fingerprint: fpB})
 	require.ErrorIs(t, err, idempotency.ErrFingerprintMismatch)
 	require.Nil(t, st)
@@ -61,7 +59,7 @@ func TestFingerprintMismatch(t *testing.T) {
 	require.NoError(t, k.Complete(ctx, "key", "entity-1", held))
 	_, st, err = k.AttemptLockWithOpts(ctx, "key", idempotency.AttemptLockOpts{Fingerprint: fpA})
 	require.NoError(t, err)
-	require.Equal(t, storages.StatusSuccess, st.Status)
+	require.Equal(t, idempotency.StatusSuccess, st.Status)
 	require.Equal(t, "entity-1", st.Data)
 	require.Equal(t, fpA, st.Fingerprint())
 	_, _, err = k.AttemptLockWithOpts(ctx, "key", idempotency.AttemptLockOpts{Fingerprint: fpB})
@@ -70,7 +68,7 @@ func TestFingerprintMismatch(t *testing.T) {
 	// A caller without a fingerprint is not checked.
 	_, st, err = k.AttemptLock(ctx, "key")
 	require.NoError(t, err)
-	require.Equal(t, storages.StatusSuccess, st.Status)
+	require.Equal(t, idempotency.StatusSuccess, st.Status)
 }
 
 func TestFingerprintNotRecorded(t *testing.T) {
@@ -85,7 +83,7 @@ func TestFingerprintNotRecorded(t *testing.T) {
 
 	_, st, err := k.AttemptLockWithOpts(ctx, "legacy", idempotency.AttemptLockOpts{Fingerprint: []byte("fp")})
 	require.NoError(t, err, "a record without a fingerprint is not checked")
-	require.Equal(t, storages.StatusSuccess, st.Status)
+	require.Equal(t, idempotency.StatusSuccess, st.Status)
 }
 
 func TestOwnerMismatch(t *testing.T) {
@@ -183,7 +181,7 @@ func TestAuthorizedReaderCannotTakeOver(t *testing.T) {
 	ok, st, err := k.AttemptLockWithOpts(withOwner(t.Context(), "admin"), "key", idempotency.AttemptLockOpts{MaxLockDuration: time.Nanosecond})
 	require.NoError(t, err)
 	require.False(t, ok, "reading another owner's record does not grant taking over its lock")
-	require.Equal(t, storages.StatusInProgress, st.Status)
+	require.Equal(t, idempotency.StatusInProgress, st.Status)
 }
 
 func TestTakeOverKeepsFingerprintAndOwner(t *testing.T) {
@@ -220,7 +218,7 @@ func TestFingerprintNotAliased(t *testing.T) {
 
 	_, st, err := k.AttemptLockWithOpts(t.Context(), "key", idempotency.AttemptLockOpts{Fingerprint: []byte("fingerprint-a")})
 	require.NoError(t, err)
-	require.Equal(t, storages.StatusSuccess, st.Status, "the fingerprint captured at acquisition is kept")
+	require.Equal(t, idempotency.StatusSuccess, st.Status, "the fingerprint captured at acquisition is kept")
 }
 
 // TestReplayAuthorizerDecidesEveryReplay pins the access-check rule: the
@@ -255,4 +253,49 @@ func TestReplayAuthorizerDecidesEveryReplay(t *testing.T) {
 	require.ErrorIs(t, err, errNotFound, "an invisible record reads as the service's NotFound")
 	require.Nil(t, st)
 	require.Equal(t, []string{"le-1", "le-1", "le-1"}, seen, "the authorizer gets the recorded label every time")
+}
+
+func TestReplayAuthorizerRefusesOwnerlessRecord(t *testing.T) {
+	t.Parallel()
+	errDenied := errors.New("denied")
+	k := newKeeper(idempotency.WithReplayAuthorizer(func(_ context.Context, owner string) error {
+		require.Empty(t, owner)
+		return errDenied
+	}))
+	ok, held, err := k.AttemptLock(t.Context(), "key")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, k.Complete(t.Context(), "key", "result", held))
+	_, state, err := k.AttemptLock(t.Context(), "key")
+	require.ErrorIs(t, err, idempotency.ErrOwnerMismatch)
+	require.ErrorIs(t, err, errDenied)
+	require.Nil(t, state)
+}
+
+func TestPersistedOwnerWithoutOwnerResolver(t *testing.T) {
+	t.Parallel()
+	store := memory.New()
+	writer := idempotency.New(store, idempotency.WithOwner(ownerOf))
+	ok, held, err := writer.AttemptLock(withOwner(t.Context(), "alice"), "key")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, writer.Complete(t.Context(), "key", "result", held))
+
+	_, state, err := idempotency.New(store).AttemptLock(t.Context(), "key")
+	require.ErrorIs(t, err, idempotency.ErrOwnerMismatch)
+	require.Nil(t, state)
+}
+
+func TestAuthorizedReplayWithoutOwnerCannotTakeOver(t *testing.T) {
+	t.Parallel()
+	store := memory.New()
+	writer := idempotency.New(store, idempotency.WithOwner(ownerOf))
+	ok, _, err := writer.AttemptLock(withOwner(t.Context(), "alice"), "key")
+	require.NoError(t, err)
+	require.True(t, ok)
+	reader := idempotency.New(store, idempotency.WithReplayAuthorizer(func(context.Context, string) error { return nil }))
+	ok, state, err := reader.AttemptLockWithOpts(t.Context(), "key", idempotency.AttemptLockOpts{MaxLockDuration: time.Nanosecond})
+	require.NoError(t, err)
+	require.False(t, ok, "the reader has no matching owner for takeover")
+	require.Equal(t, idempotency.StatusInProgress, state.Status)
 }

@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -14,6 +15,7 @@ import (
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	sagafactory "github.com/altessa-s/go-atlas/factory/reliability/saga"
 	natsstore "github.com/altessa-s/go-atlas/reliability/saga/storages/nats"
 )
@@ -24,7 +26,7 @@ var (
 	ErrClientRequired = errors.New("saga: NATS JetStream is required for storage type nats")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// nats block.
-	ErrConfigRequired = errors.New("saga: nats configuration is required for storage type nats")
+	ErrConfigRequired = fmt.Errorf("saga: nats configuration is required for storage type nats: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the nats type, ready for

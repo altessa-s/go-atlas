@@ -27,12 +27,14 @@
 // factory/reliability/outbox/storages/mongo through [OutboxBuilder.UseStorage],
 // so this package does not import the MongoDB driver.
 //
-// With watch set to changeStream or notify, [OutboxBuilder.Build] starts
-// outbox.Outbox.Watch and stops it through the shutdown hooks; notify needs the
-// PostgreSQL listener from [OutboxBuilder.UseSQLListener]. Both push modes
-// require a dispatch schedule and [OutboxBuilder.UseScheduler]. A task
-// registration failure returns a non-nil outbox with its watcher already
-// started; retain that instance to retry RegisterTasks. Shutdown hooks still
-// stop the watcher. The notify channel defaults to the table-derived name;
-// storage.sqldb.notifyChannel overrides it.
+// A successful build with changeStream or notify starts the watcher. The
+// shutdown hook or Outbox.StopWatch stops it and joins the worker. Both modes
+// require a dispatch schedule and [OutboxBuilder.UseScheduler]. If registration
+// fails, retry RegisterTasks on the returned outbox, then call StartWatch with
+// the desired lifetime and arrange to call StopWatch. For notify, supply the
+// PostgreSQL listener through [OutboxBuilder.UseSQLListener]. Its channel defaults
+// to the table-derived name and can be overridden with storage.sqldb.notifyChannel.
+//
+// [OutboxBuilder.UseStorage] accepts custom backend names. For standalone schema
+// validation, pass [OutboxBuilder.RegisteredStorageTypes] results to SetRegisteredTypes.
 package factory

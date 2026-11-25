@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
 	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	sagafactory "github.com/altessa-s/go-atlas/factory/reliability/saga"
 	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -43,6 +44,7 @@ func TestBuilder_Errors(t *testing.T) {
 
 	_, err = factory.Builder(&mongo.Database{})(t.Context(), &sagaconfig.StorageConfig{Type: sagaconfig.StorageTypeMongo})
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }
 
 // Mongo index creation runs on the build context: a canceled startup fails

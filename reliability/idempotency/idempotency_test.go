@@ -28,7 +28,7 @@ func TestAttemptLock_New(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "expected lock acquired")
 	require.NotNil(t, state, "AttemptLock now returns a non-nil State carrying the lock token on acquire")
-	require.Equal(t, storages.StatusInProgress, state.Status)
+	require.Equal(t, StatusInProgress, state.Status)
 	require.NotNil(t, state.LockToken(), "lock token must be populated for Complete to succeed")
 }
 
@@ -43,7 +43,7 @@ func TestAttemptLock_InProgress(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok, "expected lock NOT acquired (already in progress)")
 	require.NotNil(t, state)
-	require.Equal(t, storages.StatusInProgress, state.Status)
+	require.Equal(t, StatusInProgress, state.Status)
 }
 
 func TestAttemptLock_Completed(t *testing.T) {
@@ -58,7 +58,7 @@ func TestAttemptLock_Completed(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok, "expected lock NOT acquired (completed)")
 	require.NotNil(t, state)
-	require.Equal(t, storages.StatusSuccess, state.Status)
+	require.Equal(t, StatusSuccess, state.Status)
 }
 
 func TestComplete(t *testing.T) {
@@ -176,7 +176,7 @@ func TestAttemptLock_OrphanSteal_KeeperDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, okB, "stale orphan must be reclaimed by AttemptLock")
 	require.NotNil(t, stateB)
-	require.Equal(t, storages.StatusInProgress, stateB.Status)
+	require.Equal(t, StatusInProgress, stateB.Status)
 	require.NotNil(t, stateB.LockToken(), "fresh lock token must be carried on the stolen state")
 	require.NotEqual(t, stateA.LockToken(), stateB.LockToken(),
 		"stolen lock token must differ from the orphan's token")
@@ -209,7 +209,7 @@ func TestAttemptLock_OrphanSteal_PerCallOverride(t *testing.T) {
 	ok, state, err := k.AttemptLock(ctx, "key1")
 	require.NoError(t, err)
 	require.False(t, ok, "Keeper-wide MaxLockDuration would not steal here")
-	require.Equal(t, storages.StatusInProgress, state.Status)
+	require.Equal(t, StatusInProgress, state.Status)
 
 	// With a tight per-call override, the same entry is now an orphan.
 	ok, state, err = k.AttemptLockWithOpts(ctx, "key1", AttemptLockOpts{MaxLockDuration: 5 * time.Second})
@@ -234,7 +234,7 @@ func TestAttemptLock_OrphanSteal_FreshLockNotStolen(t *testing.T) {
 	ok, state, err := k.AttemptLock(ctx, "key1")
 	require.NoError(t, err)
 	require.False(t, ok, "fresh InProgress entry must not be stolen")
-	require.Equal(t, storages.StatusInProgress, state.Status)
+	require.Equal(t, StatusInProgress, state.Status)
 	require.Nil(t, state.LockToken(),
 		"observer state for a non-acquired lock must not carry a token")
 

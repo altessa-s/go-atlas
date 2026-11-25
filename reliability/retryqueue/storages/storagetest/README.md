@@ -37,3 +37,5 @@ func TestStorageContract(t *testing.T) {
     storagetest.Run(t, func(testing.TB) storagetest.Storage { return memory.New[storagetest.Payload]() })
 }
 ```
+
+Run `ScalarPayload` with a string payload alongside `Run`. Memory and SQL round-trip the string. MongoDB rejects the type during construction.

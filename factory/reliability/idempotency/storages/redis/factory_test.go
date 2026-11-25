@@ -15,6 +15,7 @@ import (
 
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	idempotencyfactory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 )
 
@@ -31,7 +32,7 @@ func TestBuilder_UsesPrefix(t *testing.T) {
 	keeper, err := idempotencyfactory.New(redisCfg(&storageconfig.RedisConfig{KeysPrefix: "idem:"})).
 		UseDefaultLogger().
 		UseStorage(idempotencyconfig.StorageTypeRedis, factory.Builder(client)).
-		Build()
+		Build(t.Context())
 	require.NoError(t, err)
 
 	ok, _, err := keeper.AttemptLock(t.Context(), "order-1")
@@ -53,4 +54,5 @@ func TestBuilder_Errors(t *testing.T) {
 	client, _ := redistest.RedisClient(t)
 	_, err = factory.Builder(client)(redisCfg(nil))
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }

@@ -8,24 +8,27 @@
 //
 // A record ([Item]) is pending, expired or resolved. A sweep lists the pending
 // records that are due ([Storage.ListDue]), attempts each, and records the
-// outcome: [Storage.Reschedule] pushes a failed attempt back, [Storage.Expire]
+// outcome: [WorkerStorage.RescheduleAttempt] pushes a failed attempt back, [Storage.Expire]
 // stops retrying work older than the caller's maximum age (keeping the record
-// for operators), [Storage.Resolve] closes completed work, and
-// [Storage.Delete] drops work that no longer exists. [Storage.WakeDue] makes
+// for operators), [WorkerStorage.ResolveAttempt] closes completed work, and
+// [AdminStorage.Delete] drops work that no longer exists. [AdminStorage.WakeDue] makes
 // every pending record due at once when the condition the work waited for may
-// have changed, and [Storage.Requeue] gives expired records a fresh start.
+// have changed, and [AdminStorage.Requeue] gives expired records a fresh start.
 // A backend that implements [Mover] also moves a record to another key
 // atomically, every other field kept ([ErrItemNotFound], [ErrItemExists]).
+//
+// Producers can depend on [ProducerStorage] and administrators on [AdminStorage].
+// The payload restrictions of each backend are documented on [Storage].
 //
 // # Fencing
 //
 // A record carries a generation, the revision of the work it was computed
-// from. [Storage.Reopen] moves a record to a newer generation only, and every
+// from. [ProducerStorage.Reopen] moves a record to a newer generation only, and every
 // other transition that takes a generation applies only while the record is
 // still at it: a worker holding an older snapshot of the work cannot close,
-// reopen or delete newer work. [Storage.Expire] is additionally fenced by the
-// record's age, so an attempt that read the record before an operator requeued
-// it cannot expire the requeued record. [Storage.Mark] is insert-only, so a
+// reopen or delete newer work. [Storage.Expire] and the worker mutations on
+// [AttemptStorage] also compare the stored age. This protects work revived
+// within the same generation by Requeue or Reopen. [ProducerStorage.Mark] is insert-only, so a
 // redelivered first attempt keeps the payload the first one pinned.
 //
 // Listing is a read, not a lease: concurrent sweepers may attempt the same
@@ -38,7 +41,7 @@
 // The storages/memory backend is an in-process reference implementation; the
 // storages/mongo backend persists records in a MongoDB collection and the
 // storages/sqldb backend in a PostgreSQL, MySQL or MariaDB table. Each
-// implements [Mover] and passes the storages/storagetest conformance kit.
+// implements [Mover] and [AttemptStorage] and passes the storages/storagetest conformance kit.
 // factory/reliability/retryqueue builds a backend from config/retryqueue.
 // SQL PurgeExpired(ctx) (int64, error) drains resolved rows past retention;
 // a lazy background loop runs at WithPurgeInterval until Close.
@@ -55,9 +58,9 @@
 //	due, err := queue.ListDue(ctx, now, 0)
 //	for _, item := range due {
 //		if err := attempt(ctx, item); err != nil {
-//			_ = queue.Reschedule(ctx, item.Key, item.Generation, now.Add(retryInterval))
+//			_ = queue.RescheduleAttempt(ctx, item.Attempt(), now.Add(retryInterval))
 //			continue
 //		}
-//		_ = queue.Resolve(ctx, item.Key, item.Generation, now)
+//		_ = queue.ResolveAttempt(ctx, item.Attempt(), now)
 //	}
 package retryqueue

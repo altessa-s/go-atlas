@@ -32,7 +32,7 @@ NATS KeyValue accepts only `[-/_=.a-zA-Z0-9]` in a key, with no leading or trail
 reach the bucket: every other byte, `=` itself, and every dot that would leave an empty token become `=HH` (upper-case hex). ULIDs and UUIDs are stored
 as they are; `order:42` is stored as `order=3A42`. A key that is already valid and contains no `=` is stored under itself. The escaped key may be at
 most 3072 bytes (an escaped byte takes three); a longer one fails with `ErrKeyTooLong` before any network I/O. An ID that is not valid UTF-8 fails with
-`ErrInvalidID`: the instance is stored as JSON, which would rewrite the ID.
+`ErrInvalidID`: the instance is stored as JSON, which would rewrite the ID. These errors and a KV key rejection also match `saga.ErrInvalidStorageKey`.
 
 ## Usage
 

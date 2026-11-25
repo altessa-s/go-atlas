@@ -8,8 +8,10 @@ import (
 	"context"
 	"database/sql/driver"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -101,7 +103,7 @@ func TestUseStorage(t *testing.T) {
 	failing := func(context.Context, *retryqueueconfig.StorageConfig) (retryqueue.Storage[payload], error) {
 		return nil, errBuild
 	}
-	for _, typ := range []retryqueueconfig.StorageType{retryqueueconfig.StorageTypeMemory, retryqueueconfig.StorageTypeSQL, "etcd"} {
+	for _, typ := range []retryqueueconfig.StorageType{retryqueueconfig.StorageTypeMemory, retryqueueconfig.StorageTypeSQL, ""} {
 		_, err := retryqueuefactory.New[payload](&cfg).UseStorage(typ, failing).Build(t.Context())
 		require.ErrorIs(t, err, corefactory.ErrUnsupported)
 	}
@@ -228,7 +230,8 @@ func TestBuildSQLHonorsContext(t *testing.T) {
 		return testhelpers.FakeSQLReply{Rows: [][]driver.Value{}}
 	})
 	cfg := sqlConfig(retryqueueconfig.SQLDialectMySQL, true)
-	_, err := retryqueuefactory.New[payload](&cfg).UseSQLDB(db).Build(ctx)
+	queue, err := retryqueuefactory.New[payload](&cfg).UseSQLDB(db).Build(ctx)
+	require.True(t, queue == nil, "no store escapes failed setup")
 	require.ErrorIs(t, err, context.Canceled)
 	require.Empty(t, fake.Calls())
 }
@@ -249,34 +252,40 @@ func (c *recordingCodec) Deserialize([]byte, any) error { return nil }
 // the first queue call and stops when the builder's shutdown hooks run.
 func TestBuildSQLPurgeLoopStopsOnShutdown(t *testing.T) {
 	t.Parallel()
-	db, fake := testhelpers.NewFakeSQL(t, nil)
-	cfg := sqlConfig(retryqueueconfig.SQLDialectPostgres, false)
-	cfg.Storage.SQL.ResolvedRetention = time.Hour
-	cfg.Storage.SQL.PurgeInterval = time.Millisecond
-	cfg.Storage.SQL.PurgeBatchSize = 7
-	var hooks coreruntime.HookGroup
-
-	queue, err := retryqueuefactory.New[payload](&cfg).UseSQLDB(db).UseShutdownHooks(&hooks).Build(t.Context())
-	require.NoError(t, err)
-	purges := func() int {
-		n := 0
-		for _, c := range fake.Calls() {
-			if strings.Contains(c.Query, "resolved_at <=") {
-				require.Contains(t, c.Query, "LIMIT 7")
-				n++
+	synctest.Test(t, func(t *testing.T) {
+		entered, release, exited := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		db, _ := testhelpers.NewFakeSQL(t, func(query string, _ []any) testhelpers.FakeSQLReply {
+			if strings.Contains(query, "resolved_at <=") {
+				close(entered)
+				<-release
+				close(exited)
 			}
+			return testhelpers.FakeSQLReply{}
+		})
+		cfg := sqlConfig(retryqueueconfig.SQLDialectPostgres, false)
+		cfg.Storage.SQL.ResolvedRetention = time.Hour
+		cfg.Storage.SQL.PurgeInterval = time.Minute
+		var hooks coreruntime.HookGroup
+		queue, err := retryqueuefactory.New[payload](&cfg).UseSQLDB(db).UseShutdownHooks(&hooks).Build(t.Context())
+		require.NoError(t, err)
+		require.NoError(t, queue.Delete(t.Context(), "k"))
+		<-entered
+		ended, cancel := context.WithCancel(t.Context())
+		cancel()
+		stopped := make(chan error, 1)
+		go func() { stopped <- hooks.Shutdown(ended) }()
+		synctest.Wait()
+		premature := len(stopped)
+		close(release)
+		require.NoError(t, <-stopped)
+		require.Zero(t, premature, "shutdown returned while the purge was running")
+		select {
+		case <-exited:
+		default:
+			require.FailNow(t, "purge still running")
 		}
-		return n
-	}
-	require.NoError(t, queue.Delete(t.Context(), "k"))
-	testhelpers.WaitFor(t, 2*time.Second, func() bool { return purges() > 0 }, "the background purge runs")
-
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
-	defer cancel()
-	require.NoError(t, hooks.Shutdown(ctx))
-	stopped := purges()
-	time.Sleep(20 * time.Millisecond)
-	require.Equal(t, stopped, purges(), "the shutdown hook stopped the purge")
+		require.NoError(t, queue.(*sqlstore.Store[payload]).Close(ended), "worker exit is already acknowledged")
+	})
 }
 
 // A purge interval without retention leaves the background loop inactive.
@@ -287,4 +296,42 @@ func TestBuildSQLPurgeIntervalWithoutRetention(t *testing.T) {
 	cfg.Storage.SQL.PurgeInterval = time.Minute
 	_, err := retryqueuefactory.New[payload](&cfg).UseSQLDB(db).Build(t.Context())
 	require.NoError(t, err)
+}
+
+func TestMemoryBuilderUsesPayloadCloner(t *testing.T) {
+	t.Parallel()
+	type privatePayload struct{ bytes []byte }
+	cfg := retryqueueconfig.Default()
+	queue, err := retryqueuefactory.New[privatePayload](&cfg).
+		UseMemoryPayloadClone(func(p privatePayload) privatePayload { return privatePayload{bytes: slices.Clone(p.bytes)} }).
+		Build(t.Context())
+	require.NoError(t, err)
+	bytes := []byte{1}
+	value, err := queue.Mark(t.Context(), retryqueue.Item[privatePayload]{Key: "k", Payload: privatePayload{bytes: bytes}})
+	require.NoError(t, err)
+	bytes[0] = 2
+	value.Payload.bytes[0] = 3
+	due, err := queue.ListDue(t.Context(), time.Now(), 1)
+	require.NoError(t, err)
+	require.Len(t, due, 1)
+	require.Equal(t, []byte{1}, due[0].Payload.bytes)
+}
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := retryqueueconfig.Config{Storage: &retryqueueconfig.StorageConfig{Type: "custom"}}
+
+	build := func(context.Context, *retryqueueconfig.StorageConfig) (retryqueue.Storage[payload], error) {
+		return memorystore.New[payload](), nil
+	}
+	b := retryqueuefactory.New[payload](&cfg).UseStorage("custom", build)
+	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+	require.NoError(t, cfg.Validate())
+	_, err := retryqueuefactory.New[payload](&cfg).Build(t.Context())
+	var fields validation.Errors
+	require.ErrorAs(t, err, &fields)
+	cfg.Storage.SetRegisteredTypes(nil)
+	got, err := b.Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
 }

@@ -28,14 +28,14 @@ import (
 // the memory and redis backends. NATS uses revisions and ignores the
 // nonce. LockedAt records when the InProgress wire was written; Keeper
 // uses it to detect orphan locks left behind by crashed holders. The
-// public [storages.State] type does NOT carry these fields.
+// public [State] type does NOT carry these fields.
 type serializedState struct {
-	Status      storages.Status `json:"status"`
-	Data        any             `json:"data,omitempty"`
-	Nonce       string          `json:"nonce,omitempty"`
-	LockedAt    time.Time       `json:"locked_at,omitzero"`
-	Fingerprint []byte          `json:"fingerprint,omitempty"`
-	Owner       string          `json:"owner,omitempty"`
+	Status      Status    `json:"status"`
+	Data        any       `json:"data,omitempty"`
+	Nonce       string    `json:"nonce,omitempty"`
+	LockedAt    time.Time `json:"locked_at,omitzero"`
+	Fingerprint []byte    `json:"fingerprint,omitempty"`
+	Owner       string    `json:"owner,omitempty"`
 }
 
 // ErrEmptyKey is returned by Keeper operations when the idempotency key is empty.
@@ -94,14 +94,14 @@ type Idempotency interface {
 	// backend's configured TTL and the Keeper's configured
 	// MaxLockDuration. Equivalent to
 	// AttemptLockWithOpts(ctx, key, AttemptLockOpts{}).
-	AttemptLock(ctx context.Context, key string) (bool, *storages.State, error)
+	AttemptLock(ctx context.Context, key string) (bool, *State, error)
 
 	// AttemptLockWithOpts is like [Idempotency.AttemptLock] but
 	// applies the per-call overrides in opts. Use this when a
 	// particular key needs a different lock lifetime (e.g. short-lived
 	// OTP tokens vs long-running webhook processing) or a different
 	// orphan-reclaim threshold.
-	AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *storages.State, error)
+	AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *State, error)
 
 	// Complete marks the key as successfully processed. The lockState
 	// must be the *State returned by [Idempotency.AttemptLock] —
@@ -109,10 +109,10 @@ type Idempotency interface {
 	// [ErrLockStolen] when the lock has been taken over by another
 	// holder since AttemptLock, [ErrMissingLockState] when lockState
 	// is nil.
-	Complete(ctx context.Context, key string, data any, lockState *storages.State) error
+	Complete(ctx context.Context, key string, data any, lockState *State) error
 
 	// Release removes a failed request only while lockState still owns the key.
-	Release(ctx context.Context, key string, lockState *storages.State) error
+	Release(ctx context.Context, key string, lockState *State) error
 
 	// Delete unconditionally removes a key for administrative use.
 	Delete(ctx context.Context, key string) error
@@ -181,7 +181,7 @@ func New(storage storages.Storage, opt ...Option) *Keeper {
 // AttemptLock tries to acquire a lock for the given key using the
 // backend's configured TTL and the Keeper's configured
 // MaxLockDuration. An empty key returns [ErrEmptyKey].
-func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *storages.State, error) {
+func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *State, error) {
 	return i.AttemptLockWithOpts(ctx, key, AttemptLockOpts{})
 }
 
@@ -194,7 +194,7 @@ func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *storages.S
 // performs a CAS-steal via [storages.Storage.Steal] to reclaim the
 // orphaned lock. The returned *State carries a fresh lock token in
 // that case, so the caller proceeds as the legitimate holder.
-func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *storages.State, error) {
+func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *State, error) {
 	if key == "" {
 		return false, nil, ErrEmptyKey
 	}
@@ -209,7 +209,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 	// holders apart. NATS uses revisions and ignores the field.
 	owner := i.ownerOf(ctx)
 	wire := serializedState{
-		Status:      storages.StatusInProgress,
+		Status:      StatusInProgress,
 		Nonce:       uuid.New().String(),
 		LockedAt:    time.Now(),
 		Fingerprint: slices.Clone(opts.Fingerprint),
@@ -257,7 +257,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 	// abandoned lock until the bucket TTL expires.
 	// Only the record's own owner may take it over: a ReplayAuthorizer
 	// grants seeing another owner's record, not acting in its place.
-	if existing.Status == storages.StatusInProgress && i.mayTakeOver(existing, owner) {
+	if existing.Status == StatusInProgress && i.mayTakeOver(existing, owner) {
 		if maxLock := i.resolveMaxLockDuration(opts); maxLock > 0 &&
 			!existing.LockedAt.IsZero() &&
 			time.Since(existing.LockedAt) > maxLock {
@@ -288,7 +288,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 	}
 
 	i.metrics.locksDenied.Inc()
-	denied := &storages.State{Status: existing.Status, Data: existing.Data}
+	denied := &State{Status: existing.Status, Data: existing.Data}
 	denied.SetFingerprint(existing.Fingerprint)
 	denied.SetOwner(existing.Owner)
 	return false, denied, nil
@@ -296,8 +296,8 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 
 // heldState returns the state of a lock the caller holds: the CAS token, and
 // the fingerprint and owner Complete keeps on the record.
-func (i *Keeper) heldState(lockToken, fingerprint []byte, owner string) *storages.State {
-	st := &storages.State{Status: storages.StatusInProgress}
+func (i *Keeper) heldState(lockToken, fingerprint []byte, owner string) *State {
+	st := &State{Status: StatusInProgress}
 	st.SetLockToken(lockToken)
 	st.SetFingerprint(fingerprint)
 	st.SetOwner(owner)
@@ -305,9 +305,9 @@ func (i *Keeper) heldState(lockToken, fingerprint []byte, owner string) *storage
 }
 
 // mayTakeOver reports whether the caller may take over existing's lock: the
-// owner check is off, the record has no owner, or it is the caller's.
+// record has no owner, or it is the caller's.
 func (i *Keeper) mayTakeOver(existing serializedState, owner string) bool {
-	return i.opts.owner == nil || existing.Owner == "" || existing.Owner == owner
+	return existing.Owner == "" || existing.Owner == owner
 }
 
 // ownerOf returns the caller's owner identity, "" without [WithOwner].
@@ -330,7 +330,7 @@ func (i *Keeper) checkReplay(ctx context.Context, existing serializedState, owne
 		if err := i.opts.replayAuthorizer(ctx, existing.Owner); err != nil {
 			return fmt.Errorf("%w: %w", ErrOwnerMismatch, err)
 		}
-	case i.opts.owner != nil && existing.Owner != "" && existing.Owner != owner:
+	case existing.Owner != "" && (i.opts.owner == nil || existing.Owner != owner):
 		return ErrOwnerMismatch
 	}
 	if len(fingerprint) > 0 && len(existing.Fingerprint) > 0 && !bytes.Equal(fingerprint, existing.Fingerprint) {
@@ -354,7 +354,7 @@ func (i *Keeper) resolveMaxLockDuration(opts AttemptLockOpts) time.Duration {
 // a nil lockState, or one without a lock token (such as the state
 // AttemptLock returns when the lock was not acquired), returns
 // [ErrMissingLockState]; a stolen lock returns [ErrLockStolen].
-func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *storages.State) error {
+func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *State) error {
 	if key == "" {
 		return ErrEmptyKey
 	}
@@ -368,7 +368,7 @@ func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *
 	// The record keeps the fingerprint and owner it was locked with, so a
 	// later replay is still checked against them.
 	state := serializedState{
-		Status:      storages.StatusSuccess,
+		Status:      StatusSuccess,
 		Data:        data,
 		Fingerprint: lockState.Fingerprint(),
 		Owner:       lockState.Owner(),
@@ -403,7 +403,7 @@ func (i *Keeper) Delete(ctx context.Context, key string) error {
 
 // Release removes a failed request's lock without affecting a newer owner or
 // a completed result. Pass the state returned by AttemptLock.
-func (i *Keeper) Release(ctx context.Context, key string, lockState *storages.State) error {
+func (i *Keeper) Release(ctx context.Context, key string, lockState *State) error {
 	if key == "" {
 		return ErrEmptyKey
 	}

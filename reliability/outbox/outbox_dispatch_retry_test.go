@@ -17,10 +17,11 @@ import (
 // recordingStore captures the events handed to UpdateEvents so the tests can
 // assert on the state the outbox decided to persist.
 type recordingStore struct {
-	fetch    []Event
-	updated  []Event
-	fetched  atomic.Int64
-	unlocked atomic.Int64
+	fetch     []Event
+	updated   []Event
+	updateErr error
+	fetched   atomic.Int64
+	unlocked  atomic.Int64
 }
 
 func (s *recordingStore) FetchUnprocessedEvents(context.Context, uint32) ([]Event, error) {
@@ -37,7 +38,7 @@ func (s *recordingStore) UnlockStuckEvents(context.Context, time.Duration) error
 func (s *recordingStore) SaveEvents(context.Context, ...Event) error { return nil }
 func (s *recordingStore) UpdateEvents(_ context.Context, events ...Event) error {
 	s.updated = append(s.updated, events...)
-	return nil
+	return s.updateErr
 }
 func (s *recordingStore) ExpireEvents(context.Context) (int64, error) { return 0, nil }
 func (s *recordingStore) Stats(context.Context) (Stats, error)        { return Stats{}, nil }
@@ -82,10 +83,11 @@ func TestHandleEvents_SchedulesExponentialBackoff(t *testing.T) {
 		WithRetryMaxDelay(time.Hour),
 	)
 
-	ob.handleEvents(t.Context(),
+	_, err := ob.handleEvents(t.Context(),
 		Event{Id: "first-failure", Key: "k", Attempts: 0},
 		Event{Id: "later-failure", Key: "k", Attempts: 5},
 	)
+	require.NoError(t, err)
 
 	require.Len(t, store.updated, 2)
 
@@ -121,7 +123,8 @@ func TestHandleEvents_RejectsPermanentFailureImmediately(t *testing.T) {
 		WithShouldRetry(func(err error) bool { return !errors.Is(err, permanent) }),
 	)
 
-	ob.handleEvents(t.Context(), Event{Id: "bad-json", Key: "k"})
+	_, err := ob.handleEvents(t.Context(), Event{Id: "bad-json", Key: "k"})
+	require.NoError(t, err)
 
 	require.Equal(t, int64(1), calls.Load(), "a permanent failure must not be retried")
 	require.Len(t, store.updated, 1)
@@ -141,7 +144,8 @@ func TestHandleEvents_DeadLettersWhenBudgetExhausted(t *testing.T) {
 	ob := New(store, poisonHandler(&calls), WithRetryMaxAttempts(3))
 
 	// Attempts=2 -> nextAttempt() makes it 3, which equals the budget.
-	ob.handleEvents(t.Context(), Event{Id: "poison-1", Key: "k", Attempts: 2})
+	_, err := ob.handleEvents(t.Context(), Event{Id: "poison-1", Key: "k", Attempts: 2})
+	require.NoError(t, err)
 
 	require.Len(t, store.updated, 1)
 	require.Equal(t, StatusMaxAttemptReached, store.updated[0].Status)
@@ -168,7 +172,8 @@ func TestHandleEvents_ContextCancellationIsTransient(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 
-	ob.handleEvents(ctx, Event{Id: "slow", Key: "k"})
+	_, err := ob.handleEvents(ctx, Event{Id: "slow", Key: "k"})
+	require.NoError(t, err)
 
 	require.Len(t, store.updated, 1)
 	require.Equal(t, StatusFailed, store.updated[0].Status,
@@ -201,4 +206,19 @@ func TestNew_KeepsExplicitLockTimeAboveHandleTimeout(t *testing.T) {
 	)
 
 	require.Equal(t, 90*time.Second, ob.maxLockTime)
+}
+
+func TestRunDispatchCycleReportsUpdateFailure(t *testing.T) {
+	t.Parallel()
+	writeErr := errors.New("store unavailable")
+	store := &recordingStore{fetch: []Event{{Id: "sent", Key: "k"}}, updateErr: writeErr}
+	var calls atomic.Int64
+	out := New(store, func(context.Context, Event) error {
+		calls.Add(1)
+		return nil
+	})
+	require.ErrorIs(t, out.RunDispatchCycle(t.Context()), writeErr)
+	require.EqualValues(t, 1, calls.Load())
+	require.Len(t, store.updated, 1)
+	require.Equal(t, StatusSent, store.updated[0].Status)
 }

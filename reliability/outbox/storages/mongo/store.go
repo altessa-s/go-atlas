@@ -215,9 +215,10 @@ func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error 
 			// which compares against $$NOW — keeps the event past its window.
 			collectionFieldPublishedAt:   completedAtExpr(ev.PublishedAt),
 			collectionFieldNextAttemptAt: nextAttemptExpr(ev.RetryAfter),
+			// $literal preserves error strings starting with a dollar sign.
 			// A nil *string encodes as null, which clears the previous error
 			// on a successful attempt and records it on a failed one.
-			collectionFieldLastError: ev.LastError,
+			collectionFieldLastError: bson.M{"$literal": ev.LastError},
 			// Releasing the token ends this lease. A retry gets a fresh
 			// token from the next fetch.
 			collectionFieldLockToken: nil,

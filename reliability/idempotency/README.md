@@ -8,6 +8,13 @@ Package `idempotency` provides duplicate request detection using idempotency key
 single-instance and distributed systems. The [MongoDB](storages/mongo) and [SQL](storages/sqldb) backends join the caller's transaction, so a key
 commits atomically with the business change.
 
+## Key types
+
+| Type     | Description                                                                             |
+|----------|-----------------------------------------------------------------------------------------|
+| `State`  | Status, optional response data, and the recorded fingerprint and owner for a key.       |
+| `Status` | `StatusInProgress` while processing or `StatusSuccess` after successful completion.     |
+
 ## Choosing between Idempotency-Key and AIP-155
 
 Use the idempotency middleware when clients send an `Idempotency-Key` header. For a protobuf RPC that exposes the AIP-155 `request_id` field,
@@ -175,7 +182,7 @@ unblock retries sooner, every InProgress wire embeds a `LockedAt` timestamp. On 
 | Default reclaim threshold         | 5 minutes (`DefaultMaxLockDuration`).         |
 | Override Keeper-wide              | `idempotency.WithMaxLockDuration(10*time.Minute)`. |
 | Override per-call                 | `AttemptLockOpts{MaxLockDuration: 30*time.Second}`. |
-| Disable reclaim                   | Set the Keeper field to 0 — collisions surface as in-progress. |
+| Disable reclaim                   | Cannot be disabled via public API (`WithMaxLockDuration` ignores `<= 0`; `New` defaults to `5m`). |
 
 The crashed holder's stale `Complete` then surfaces `storages.ErrLockStolen` because its CAS token is no longer current. Callers see this as the normal "we lost
 the race" path and skip writing.

@@ -10,7 +10,7 @@ import "time"
 type State string
 
 // Item states. Only a pending item is listed by [Storage.ListDue] and moved by
-// [Storage.Reschedule], [Storage.WakeDue], [Storage.Expire] and [Storage.Flag].
+// [AdminStorage.Reschedule], [AdminStorage.WakeDue], [Storage.Expire] and [AdminStorage.Flag].
 const (
 	// StatePending marks work that is retried until it is resolved, expires or
 	// is deleted.
@@ -24,7 +24,7 @@ const (
 	StateResolved State = "resolved"
 )
 
-// DefaultListLimit caps [Storage.ListDue] and [Storage.ListByState] when the
+// DefaultListLimit caps [Storage.ListDue] and [AdminStorage.ListByState] when the
 // caller passes a limit that is not positive.
 const DefaultListLimit = 200
 
@@ -34,21 +34,21 @@ const DefaultListLimit = 200
 // Generation fences stale work: every transition that takes a generation
 // applies only while the stored item is still at that generation, so a worker
 // holding an older snapshot of the work never closes, reopens or deletes newer
-// work. Since fences [Storage.Expire] the same way across an operator's
-// [Storage.Requeue]. An item stored before generations were used reads as
+// work. Since fences [Storage.Expire] and [AttemptStorage] mutations across
+// [AdminStorage.Requeue] and a same-generation [ProducerStorage.Reopen]. An item stored before generations were used reads as
 // generation 0.
 type Item[P any] struct {
 	// Key identifies the work; it is the storage's primary key.
 	Key string
 	// Generation is the revision of the work the item was computed from. It
-	// moves forward only, through [Storage.Reopen].
+	// moves forward only, through [ProducerStorage.Reopen].
 	Generation int64
 	// State is pending, expired or resolved.
 	State State
 	// Since is when the work was first found pending; the caller measures the
-	// maximum age from it. [Storage.Requeue] and [Storage.Reopen] reset it.
+	// maximum age from it. [AdminStorage.Requeue] and [ProducerStorage.Reopen] reset it.
 	Since time.Time
-	// Attempts counts the failed attempts recorded by [Storage.Reschedule].
+	// Attempts counts the failed attempts recorded by [AdminStorage.Reschedule].
 	Attempts int
 	// NextAttemptAt is when the work becomes due again.
 	NextAttemptAt time.Time
@@ -61,7 +61,13 @@ type Item[P any] struct {
 	Flagged bool
 	// FlagReason says why the item is flagged.
 	FlagReason string
-	// Payload is the caller's data, pinned by the first [Storage.Mark] and
-	// replaced only by [Storage.Reopen].
+	// Payload is the caller's data, pinned by the first [ProducerStorage.Mark] and
+	// replaced only by [ProducerStorage.Reopen].
 	Payload P
+}
+
+// Attempt returns the key, generation and age observed in i for reporting a
+// worker outcome to an [AttemptStorage].
+func (i Item[P]) Attempt() Attempt {
+	return Attempt{Key: i.Key, Generation: i.Generation, Since: i.Since}
 }

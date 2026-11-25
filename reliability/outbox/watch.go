@@ -6,6 +6,7 @@ package outbox
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -32,6 +33,41 @@ type Watcher interface {
 	// and never blocks — implementations may call it once per change event
 	// without buffering or rate-limiting first.
 	Watch(ctx context.Context, notify func()) error
+}
+
+// StartWatch starts one background [Outbox.Watch] under ctx. Repeated calls
+// return the same stop function. It cancels and joins the worker, as does
+// [Outbox.StopWatch]. Shutdown registries can retain the function independently
+// of the outbox and its storage.
+func (o *Outbox) StartWatch(ctx context.Context) (stop func()) {
+	o.watchOnce.Do(func() {
+		watchCtx, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		o.stopWatch = func() {
+			cancel()
+			<-done
+		}
+		go func() {
+			defer close(done)
+			defer cancel()
+			err := o.Watch(watchCtx)
+			switch {
+			case errors.Is(err, ErrWatchUnsupported):
+				o.logger.WarnContext(watchCtx, "outbox store cannot push notifications; dispatch stays on the poll schedule")
+			case err != nil:
+				o.logger.ErrorContext(watchCtx, "outbox watcher stopped", slog.Any("error", err))
+			}
+		}()
+	})
+	return o.stopWatch
+}
+
+// StopWatch permanently stops the background watcher and waits for its exit.
+// Calling it before [Outbox.StartWatch] prevents startup. It is safe to call
+// concurrently or repeatedly. Direct calls to [Outbox.Watch] use their own contexts.
+func (o *Outbox) StopWatch() {
+	o.watchOnce.Do(func() { o.stopWatch = func() {} })
+	o.stopWatch()
 }
 
 // Watch drives the dispatch cycle from store notifications instead of waiting

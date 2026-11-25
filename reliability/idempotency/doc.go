@@ -10,7 +10,7 @@
 //
 // # Ownership
 //
-// AttemptLock returns a State with an opaque ownership token. Pass that State to
+// [Keeper.AttemptLock] returns a [State] with an opaque ownership token. Pass that State to
 // Complete on success or Release on failure. Both reject a stale owner's token.
 // Delete is unconditional administrative invalidation, not request cleanup.
 //

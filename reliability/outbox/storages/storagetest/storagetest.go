@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/reliability/outbox"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // contracts lists the storage contracts; [Run] executes each.
@@ -27,6 +29,7 @@ var contracts = []struct {
 }{
 	{"FetchOldestFirst", FetchOldestFirst},
 	{"FetchBatchSize", FetchBatchSize},
+	{"FetchZeroBatch", FetchZeroBatch},
 	{"FetchInterleavesFailed", FetchInterleavesFailed},
 	{"PayloadsRoundTrip", PayloadsRoundTrip},
 	{"InstantsRoundTrip", InstantsRoundTrip},
@@ -45,6 +48,29 @@ var contracts = []struct {
 // reported as skipped.
 func Run(t *testing.T, newStore func(testing.TB) outbox.Storage, skip ...string) {
 	t.Helper()
+	run(t, newStore, nil, skip)
+}
+
+// RunWithOrderKeys runs the same suite and pins the backend's documented
+// ordering-key format. Pass true for an effective ordering key and false
+// for a topic-only store.
+func RunWithOrderKeys(t *testing.T, newStore func(testing.TB) outbox.Storage, persists bool, skip ...string) {
+	t.Helper()
+	run(t, newStore, &persists, skip)
+}
+
+func run(t *testing.T, newStore func(testing.TB) outbox.Storage, persists *bool, skip []string) {
+	t.Helper()
+	t.Run("OrderKeys", func(t *testing.T) {
+		t.Parallel()
+		if slices.Contains(skip, "OrderKeys") {
+			t.Skip("not supported by this backend")
+		}
+		hasOrderKey := checkOrderKeys(t, newStore(t))
+		if persists != nil {
+			require.Equal(t, *persists, hasOrderKey, "backend ordering-key format")
+		}
+	})
 	for _, c := range contracts {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
@@ -385,4 +411,35 @@ func Watch(t *testing.T, store outbox.Storage) {
 	case <-time.After(Window):
 		require.FailNow(t, "Watch did not return after its context ended")
 	}
+}
+
+// FetchZeroBatch checks rejection of a zero batch size without taking any locks.
+func FetchZeroBatch(t *testing.T, store outbox.Storage) {
+	t.Helper()
+	saved := saveAscending(t, store, 1)
+	got, err := store.FetchUnprocessedEvents(t.Context(), 0)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	require.Empty(t, got)
+	require.Equal(t, ids(saved), ids(fetch(t, store, 1)))
+}
+
+// checkOrderKeys checks the topic and both groups, and reports whether the
+// store returned an explicit ordering key.
+func checkOrderKeys(t *testing.T, store outbox.Storage) bool {
+	t.Helper()
+	at := time.Now().Add(-time.Minute)
+	explicit, fallback := pending("created", at), pending("updated", at.Add(time.Millisecond))
+	explicit.OrderKey = "order-17"
+	require.NoError(t, store.SaveEvents(t.Context(), explicit, fallback))
+	got := fetch(t, store, 2)
+	require.Equal(t, []string{explicit.Id, fallback.Id}, ids(got))
+	require.Equal(t, explicit.Key, got[0].Key)
+	require.Equal(t, fallback.Key, got[1].Key)
+	if got[0].OrderKey == "" {
+		require.Empty(t, got[1].OrderKey)
+		return false
+	}
+	require.Equal(t, explicit.OrderKey, got[0].OrderKey)
+	require.Equal(t, fallback.Key, got[1].OrderKey)
+	return true
 }

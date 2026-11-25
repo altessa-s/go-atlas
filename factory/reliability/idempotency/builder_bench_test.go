@@ -20,7 +20,7 @@ func BenchmarkBuildSQL(b *testing.B) {
 	cfg := sqlConfig()
 	b.ReportAllocs()
 	for b.Loop() {
-		_, err := factory.New(cfg).UseSQLDB(db).Build()
+		_, err := factory.New(cfg).UseSQLDB(db).Build(b.Context())
 		require.NoError(b, err)
 	}
 }

@@ -5,4 +5,5 @@
 // Package memory provides an in-memory [audit.Storage] implementation.
 // It is intended for testing and development; all events are stored in
 // a slice protected by a sync.RWMutex and lost on process exit.
+// StoreBatch rejects a nil event before writing.
 package memory

@@ -14,10 +14,13 @@ clients. The builder is generic over the saga's shared data type `T`, so `Build`
 | `New(cfg, def)` | Create a builder for a config and definition (both validated at `Build`).                                          |
 | `Build(ctx)`    | Validate config, construct the store, register the recovery cycle, return the orchestrator; `ctx` bounds that I/O. |
 
+Register a custom backend name with `UseStorage`. Before standalone validation or config loading, call
+`cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())`.
+
 ## Injected dependencies
 
 The store backend is chosen by `sagaconfig.Config.Storage.Type`. The builder builds only `memory` and `sqldb`; `nats`, `mongo` and `redis` use
-the function registered with `UseStorage` from `storages/<backend>/factory`, and without one `Build` fails naming the package to add.
+the function registered with `UseStorage` from `factory/reliability/saga/storages/<backend>`, and without one `Build` fails naming the package to add.
 
 | Method             | Required for `storage.type` | Description                                                             |
 |--------------------|-----------------------------|-------------------------------------------------------------------------|

@@ -109,6 +109,9 @@ func (s *Storage) Store(ctx context.Context, event *audit.Event) error {
 // through leaves the earlier batches inserted. Callers get at-least-once
 // semantics from the dispatcher and dedup from the table engine.
 func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
+	if slices.Contains(events, nil) {
+		return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
+	}
 	for chunk := range slices.Chunk(events, s.opts.maxBatchSize) {
 		if err := s.send(ctx, chunk); err != nil {
 			return err

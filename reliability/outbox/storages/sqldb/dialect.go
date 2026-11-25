@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 )
 
 // Dialect selects the SQL flavor the store speaks.
@@ -31,7 +32,7 @@ var (
 	// ErrInvalidTableName is returned when the table name is not a plain SQL
 	// identifier, optionally qualified by one schema name, or a part of it
 	// exceeds 63 characters.
-	ErrInvalidTableName = sqldialect.ErrInvalidTableName
+	ErrInvalidTableName = sqlident.ErrInvalidTableName
 )
 
 // mysqlTimeLayout renders a DATETIME(6) value. Timestamps cross the MySQL wire

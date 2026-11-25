@@ -24,7 +24,7 @@ func newKeeperMetrics(c metrics.Meter) *keeperMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("idempotency")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("idempotency")}
 
 	return &keeperMetrics{
 		locksAcquired: scoped.MustCounter(metrics.MetricOpts{

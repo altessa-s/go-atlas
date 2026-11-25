@@ -43,7 +43,8 @@
 //
 // # Writing
 //
-// [Storage.StoreBatch] is the hot path: it splits its input into batches of
+// [Storage.StoreBatch] rejects nil events before sending the first chunk.
+// For valid input, it splits its input into batches of
 // [DefaultMaxBatchSize] rows and sends each as one INSERT. [Storage.Store]
 // exists for the occasional lone event and routes it through an
 // asynchronous insert, since a single-row INSERT would otherwise create a

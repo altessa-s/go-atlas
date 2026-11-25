@@ -39,7 +39,7 @@ func TestSQLCleanupOwnership(t *testing.T) {
 	cfg := sqlConfig()
 	cfg.Storage.SQL.PurgeInterval = time.Millisecond
 	cfg.Storage.SQL.PurgeBatchSize = 7
-	k, err := factory.New(cfg).UseSQLDB(db).UseShutdownHooks(hooks).Build()
+	k, err := factory.New(cfg).UseSQLDB(db).UseShutdownHooks(hooks).Build(t.Context())
 	require.NoError(t, err)
 	require.Empty(t, fake.Calls(), "Build must not start SQL cleanup")
 	_, _, err = k.AttemptLock(t.Context(), "key")
@@ -62,14 +62,14 @@ func TestSQLCleanupOwnership(t *testing.T) {
 
 func TestSQLDependencies(t *testing.T) {
 	t.Parallel()
-	_, err := factory.New(sqlConfig()).Build()
+	_, err := factory.New(sqlConfig()).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
-	_, err = factory.New(sqlConfig()).UseSQLDB(nil).Build()
+	_, err = factory.New(sqlConfig()).UseSQLDB(nil).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrDependencyRequired)
 	db, _ := testhelpers.NewFakeSQL(t, nil)
 	cfg := sqlConfig()
 	cfg.Storage.SQL = nil
-	_, err = factory.New(cfg).UseSQLDB(db).Build()
+	_, err = factory.New(cfg).UseSQLDB(db).Build(t.Context())
 	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 	require.Contains(t, err.Error(), "idempotency storage.sql")
 }
@@ -89,7 +89,7 @@ func TestSQLBuild(t *testing.T) {
 				cfg.Storage.SQL.Dialect = dialect
 				cfg.Storage.SQL.EnsureSchema = ensure
 				cfg.TTL = 2 * time.Hour
-				k, err := factory.New(cfg).UseSQLDB(db).Build()
+				k, err := factory.New(cfg).UseSQLDB(db).Build(t.Context())
 				require.NoError(t, err)
 				require.NotNil(t, k)
 				if ensure {
@@ -120,17 +120,29 @@ func TestSQLBuildFailures(t *testing.T) {
 	})
 	cfg := sqlConfig()
 	cfg.Storage.SQL.EnsureSchema = true
-	_, err := factory.New(cfg).UseSQLDB(db).Build()
+	_, err := factory.New(cfg).UseSQLDB(db).Build(t.Context())
 	require.ErrorIs(t, err, errBuild)
 	require.NotEmpty(t, fake.Calls())
 	cfg = sqlConfig()
 	cfg.Storage.SQL.Dialect = "oracle"
-	_, err = factory.New(cfg).UseSQLDB(db).Build()
+	_, err = factory.New(cfg).UseSQLDB(db).Build(t.Context())
 	require.ErrorIs(t, err, sqldb.ErrUnsupportedDialect)
 	require.Contains(t, err.Error(), "create SQL idempotency storage")
 	cfg = sqlConfig()
 	cfg.Storage.SQL.Table = "bad;table"
-	_, err = factory.New(cfg).UseSQLDB(db).Build()
+	_, err = factory.New(cfg).UseSQLDB(db).Build(t.Context())
 	require.ErrorIs(t, err, sqldb.ErrInvalidTableName)
 	require.Contains(t, err.Error(), "create SQL idempotency storage")
+}
+
+func TestBuildSQLHonorsStartupCancellation(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	cfg := sqlConfig()
+	cfg.Storage.SQL.EnsureSchema = true
+	_, err := factory.New(cfg).UseSQLDB(db).Build(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Empty(t, fake.Calls())
 }

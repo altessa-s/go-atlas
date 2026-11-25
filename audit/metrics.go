@@ -31,7 +31,7 @@ func newAuditMetrics(c metrics.Meter, subsystem string) *auditMetrics {
 		subsystem = DefaultMetricsSubsystem
 	}
 
-	scoped := c.WithSubsystem(subsystem)
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem(subsystem)}
 
 	return &auditMetrics{
 		eventsEmitted: scoped.MustCounter(metrics.MetricOpts{

@@ -28,7 +28,7 @@ A dropped event (full buffer) surfaces as `ErrDropped`, so an `audit.Recorder` u
 
 | Function             | Description                                                                    |
 |----------------------|--------------------------------------------------------------------------------|
-| `New(auditor)`       | `*Sink` emitting through a started `audit` `*Auditor`; nil auditor is a no-op. |
+| `New(auditor)`       | Emit through an `Emitter`, such as a started `*audit.Auditor`. A nil emitter is a no-op. |
 | `Sink.Record(ctx,d)` | Map and emit `d`; returns `ErrDropped` if the auditor dropped the event.       |
 
 ## Usage

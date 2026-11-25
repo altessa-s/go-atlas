@@ -71,7 +71,7 @@ func New(cfg *idempotencyconfig.Config) *KeeperBuilder {
 
 // Build assembles the idempotency Keeper. Errors from fluent methods are accumulated
 // and reported here via [errors.Join].
-func (b *KeeperBuilder) Build() (*idempotency.Keeper, error) {
+func (b *KeeperBuilder) Build(ctx context.Context) (*idempotency.Keeper, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (b *KeeperBuilder) Build() (*idempotency.Keeper, error) {
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	storage, err := b.createStorage()
+	storage, err := b.createStorage(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -104,25 +104,30 @@ func (b *KeeperBuilder) createKeeper(storage storages.Storage) *idempotency.Keep
 
 // createStorage creates the in-memory storage or the one registered for the
 // configured type.
-func (b *KeeperBuilder) createStorage() (storages.Storage, error) {
+func (b *KeeperBuilder) createStorage(ctx context.Context) (storages.Storage, error) {
 	if b.cfg.Storage == nil {
 		return nil, corefactory.ErrConfigRequired
 	}
 
-	switch b.cfg.Storage.Type {
-	case idempotencyconfig.StorageTypeMemory:
-		return b.createMemoryStorage()
-	case idempotencyconfig.StorageTypeSQL:
+	if b.cfg.Storage.Type == idempotencyconfig.StorageTypeMemory {
+		return b.createMemoryStorage() //nolint:contextcheck // The memory constructor owns its cleanup task registration.
+	}
+	if b.cfg.Storage.Type == idempotencyconfig.StorageTypeSQL {
 		if err := b.RequireDependency(b.sqlDB, "SQL database"); err != nil {
 			return nil, err
 		}
-		return b.createSQLStorage()
+		return b.createSQLStorage(ctx)
+	}
+	if build, ok := b.storages[b.cfg.Storage.Type]; ok && b.cfg.Storage.Type != "" {
+		return build(b.cfg)
+	}
+	switch b.cfg.Storage.Type {
 	case idempotencyconfig.StorageTypeRedis:
-		return b.createRegisteredStorage("client")
+		return missingStorage(b.cfg.Storage.Type, "client")
 	case idempotencyconfig.StorageTypeNATS:
-		return b.createRegisteredStorage("js")
+		return missingStorage(b.cfg.Storage.Type, "js")
 	case idempotencyconfig.StorageTypeMongo:
-		return b.createRegisteredStorage("db")
+		return missingStorage(b.cfg.Storage.Type, "db")
 	default:
 		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported storage type: %s", b.cfg.Storage.Type)
 	}
@@ -131,7 +136,7 @@ func (b *KeeperBuilder) createStorage() (storages.Storage, error) {
 // ensureSchemaTimeout bounds optional startup DDL and advisory-lock waits.
 const ensureSchemaTimeout = 30 * time.Second
 
-func (b *KeeperBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
+func (b *KeeperBuilder) createSQLStorage(ctx context.Context) (*sqlstorage.Storage, error) {
 	cfg := b.cfg.Storage.SQL
 	if cfg == nil {
 		return nil, corefactory.Errorf(corefactory.ErrConfigRequired, "idempotency storage.sql configuration is required")
@@ -144,11 +149,9 @@ func (b *KeeperBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 		return nil, b.WrapError(err, "create SQL idempotency storage")
 	}
 	if cfg.EnsureSchema {
-		// Build has no context parameter; bound its startup I/O as the Mongo
-		// factory does for index creation.
-		ctx, cancel := corecontext.WithMaxTimeout(context.Background(), ensureSchemaTimeout)
+		schemaCtx, cancel := corecontext.WithMaxTimeout(ctx, ensureSchemaTimeout)
 		defer cancel()
-		if err := store.EnsureSchema(ctx); err != nil {
+		if err := store.EnsureSchema(schemaCtx); err != nil {
 			return nil, b.WrapError(err, "ensure idempotency schema")
 		}
 	}
@@ -160,13 +163,7 @@ func (b *KeeperBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 	return store, nil
 }
 
-// createRegisteredStorage runs the [StorageFunc] registered for the configured
-// type; without one it names the package to add and the client its Builder takes.
-func (b *KeeperBuilder) createRegisteredStorage(client string) (storages.Storage, error) {
-	typ := b.cfg.Storage.Type
-	if build, ok := b.storages[typ]; ok {
-		return build(b.cfg)
-	}
+func missingStorage(typ idempotencyconfig.StorageType, client string) (storages.Storage, error) {
 	return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "idempotency storage %q is not registered: add factory/reliability/idempotency/storages/%s "+
 		"with UseStorage(%q, %sfactory.Builder(%s))", typ, typ, typ, typ, client)
 }

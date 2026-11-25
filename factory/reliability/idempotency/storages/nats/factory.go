@@ -6,6 +6,7 @@ package factory
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -13,6 +14,7 @@ import (
 
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	idempotencyfactory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 	natsstorage "github.com/altessa-s/go-atlas/reliability/idempotency/storages/nats"
 )
@@ -23,7 +25,7 @@ var (
 	ErrClientRequired = errors.New("idempotency: jetstream is required for storage type nats")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// nats block.
-	ErrConfigRequired = errors.New("idempotency: nats configuration is required for storage type nats")
+	ErrConfigRequired = fmt.Errorf("idempotency: nats configuration is required for storage type nats: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the nats type, ready for

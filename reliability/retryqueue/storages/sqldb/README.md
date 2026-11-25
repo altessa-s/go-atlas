@@ -24,6 +24,7 @@ item key, the payload `P` encoded by a codec. The caller owns the `*sql.DB` and 
 | `(*Store[P]).EnsureSchema`     | Creates the table and its indexes; idempotent, safe to run concurrently                  |
 | `(*Store[P]).Move`             | `retryqueue.Mover`: renames the primary key in one `UPDATE`                              |
 | `(*Store[P]).PurgeExpired`     | Deletes resolved items past the retention, against the database clock; returns the count |
+| `(*Store[P]).StopPurge`        | Permanently stops the purge worker and waits for it to exit                              |
 | `(*Store[P]).Close`            | Stops the background purge of `WithPurgeInterval`, waiting within `ctx`; idempotent      |
 | `WithTx(ctx, tx)`              | Runs every method called with the context on the caller's transaction                    |
 | `ErrValueTooLong`              | `Mark`, `Reopen` or `Move` with a key longer than `MaxKeyLength` (255) characters        |

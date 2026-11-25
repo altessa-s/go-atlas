@@ -410,6 +410,9 @@ func (s *Store) execDispatch(ctx context.Context, query string, args ...any) (sq
 // even during retry backoff. An in-progress event blocks its key at any sequence.
 // Every returned event carries the lock token this call minted.
 func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([]outbox.Event, error) {
+	if batchSize == 0 {
+		return nil, coreerrs.Wrap(coreerrs.ErrInvalidArgument, "outbox fetch batch size must be positive")
+	}
 	events, err := dispatchTx(ctx, s, &sql.TxOptions{Isolation: sql.LevelReadCommitted}, func(tx *sql.Tx) ([]outbox.Event, error) {
 		return s.claim(ctx, tx, batchSize)
 	})

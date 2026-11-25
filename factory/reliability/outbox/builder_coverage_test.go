@@ -20,6 +20,7 @@ import (
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	outboxsql "github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 func noopHandler(context.Context, outbox.Event) error { return nil }
@@ -114,4 +115,74 @@ func TestUseStorage(t *testing.T) {
 		require.NotNil(t, ob)
 		require.NoError(t, hooks.Shutdown(t.Context()), "a watcher that reported unsupported has already returned")
 	})
+}
+
+type pollingStorage struct{ outbox.Storage }
+
+type watchStorage struct {
+	outbox.Storage
+	started chan struct{}
+}
+
+func (s *watchStorage) Watch(ctx context.Context, _ func()) error {
+	if s == nil {
+		return outbox.ErrWatchUnsupported
+	}
+	close(s.started)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := brokerconfig.Default().Outbox
+	cfg.Storage = &brokerconfig.OutboxStorageConfig{Type: "custom"}
+	cfg.Watch = brokerconfig.OutboxWatchNotify
+
+	reg := &testhelpers.MockTaskRegistrar{}
+	var hooks coreruntime.HookGroup
+	t.Cleanup(func() { require.NoError(t, hooks.Shutdown(context.WithoutCancel(t.Context()))) })
+	b := New(&cfg).UseScheduler(reg).UseShutdownHooks(&hooks)
+	_, err := b.Build(t.Context(), noopHandler)
+	var fields validation.Errors
+	require.ErrorAs(t, err, &fields)
+	require.ErrorIs(t, err, brokerconfig.ErrUnsupportedOutboxWatch)
+	store := &watchStorage{started: make(chan struct{})}
+	b.UseStorage("custom", func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) { return store, nil })
+	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+	require.NoError(t, cfg.Validate())
+	cfg.Storage.SetRegisteredTypes(nil)
+	ob, err := b.Build(t.Context(), noopHandler)
+	require.NoError(t, err)
+	require.NotNil(t, ob)
+	select {
+	case <-store.started:
+	case <-time.After(3 * time.Second):
+		require.FailNow(t, "registered watcher did not start")
+	}
+}
+
+func TestBuildCustomBackendWithoutWatcher(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		store outbox.Storage
+	}{
+		{"polling only", pollingStorage{}},
+		{"nil watcher", (*watchStorage)(nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := brokerconfig.Default().Outbox
+			cfg.Storage = &brokerconfig.OutboxStorageConfig{Type: "custom"}
+			cfg.Watch = brokerconfig.OutboxWatchChangeStream
+			b := New(&cfg).UseScheduler(&testhelpers.MockTaskRegistrar{})
+			b.UseStorage("custom", func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) {
+				return tc.store, nil
+			})
+			ob, err := b.Build(t.Context(), noopHandler)
+			require.ErrorIs(t, err, brokerconfig.ErrUnsupportedOutboxWatch)
+			require.Nil(t, ob)
+		})
+	}
 }

@@ -20,6 +20,8 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 	"github.com/altessa-s/go-atlas/reliability/outbox/storages/sqldb"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 var errBoom = errors.New("boom")
@@ -453,4 +455,13 @@ func TestAsynchronousCommitIsScopedToDispatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFetchZeroBatch(t *testing.T) {
+	t.Parallel()
+	store, _, fake := newStore(t, sqldb.DialectPostgres, readyRows(nil, 0))
+	events, err := store.FetchUnprocessedEvents(t.Context(), 0)
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+	require.Empty(t, events)
+	require.Empty(t, fake.Calls())
 }

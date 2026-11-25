@@ -6,7 +6,7 @@
 // KeyValue bucket. Each saga instance is a JSON document keyed by its ID; the
 // bucket's monotonically increasing revision is used directly as the
 // optimistic-concurrency token, so concurrent coordinators are serialized per
-// instance without extra bookkeeping.
+// instance without extra bookkeeping. An ID the store cannot represent yields an error matching saga.ErrInvalidStorageKey.
 //
 // Unlike the in-memory backend, state survives process restarts, so the
 // orchestrator's recovery cycle can resume or roll back instances after a crash.

@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
 	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	sagafactory "github.com/altessa-s/go-atlas/factory/reliability/saga"
 )
 
@@ -63,4 +64,5 @@ func TestBuilder_Errors(t *testing.T) {
 	client, _ := redistest.RedisClient(t)
 	_, err = factory.Builder(client)(t.Context(), &sagaconfig.StorageConfig{Type: sagaconfig.StorageTypeRedis})
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }

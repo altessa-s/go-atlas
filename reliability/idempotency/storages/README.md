@@ -12,29 +12,28 @@ top-level `idempotency.Keeper` to supply the underlying storage backend.
 | Type / Interface | Description                                                    |
 |------------------|----------------------------------------------------------------|
 | `Storage`        | Interface: AttemptLock, AttemptLockWithTTL, Complete, Steal, Release, Delete |
-| `Status`         | Key state: `StatusInProgress`, `StatusSuccess`                 |
-| `State`          | Holds the current status, optional response data, and the recorded fingerprint and owner (`Fingerprint`, `Owner`) for a key |
 
 `Steal` is a low-level CAS-replace primitive used by Keeper's orphan-lock reclaim path: when a collision-time check spots an abandoned InProgress entry
 older than the configured threshold, Keeper builds a fresh wire and atomically swaps it in via `Steal(ctx, key, expectedVal, newVal)`. Backends
 implement it on top of their existing CAS mechanism (mutex+`bytes.Equal` for memory, Lua GET-compare-SET for Redis, `kv.Update(... revision)` for NATS,
-an `UpdateOne` filtered on the stored bytes for MongoDB).
+an `UpdateOne` filtered on the stored bytes for MongoDB, conditional SQL writes comparing live stored bytes for `sqldb`).
 
 ## Subpackages
 
-| Package                      | Description                         |
-|------------------------------|-------------------------------------|
-| [memory](./memory)           | In-memory backend with TTL          |
-| [mongo](./mongo)             | MongoDB storage, joins transactions |
-| [nats](./nats)               | NATS JetStream storage              |
-| [redis](./redis)             | Distributed Redis storage           |
-| [storagetest](./storagetest) | Conformance kit for the backends    |
+| Package                      | Description                                             |
+|------------------------------|---------------------------------------------------------|
+| [memory](./memory)           | In-memory backend with TTL                              |
+| [mongo](./mongo)             | MongoDB storage, joins transactions                     |
+| [nats](./nats)               | NATS JetStream storage                                  |
+| [redis](./redis)             | Distributed Redis storage                               |
+| [sqldb](./sqldb)             | PostgreSQL, MySQL and MariaDB storage, joins transactions |
+| [storagetest](./storagetest) | Conformance kit for the backends                        |
 
 ## Release contract
 
 Implementations must atomically compare the ownership token and remove the matching entry in `Release(ctx, key, lockToken)`. A read followed by
 unconditional `Delete` is insufficient. Memory uses its mutex, Redis uses compare-and-delete Lua, NATS uses `kv.Delete` with `jetstream.LastRevision`,
-and MongoDB uses a `DeleteOne` filtered on the stored bytes. Missing tokens fail with `ErrMissingLockState`; a missing or replaced entry fails with
+and MongoDB / `sqldb` use stored-byte-filtered deletes. Missing tokens fail with `ErrMissingLockState`; a missing or replaced entry fails with
 `ErrLockStolen`.
 
 ## Stored state size

@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
 	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	sagafactory "github.com/altessa-s/go-atlas/factory/reliability/saga"
 	natsstore "github.com/altessa-s/go-atlas/reliability/saga/storages/nats"
 )
@@ -50,6 +51,7 @@ func TestBuilder_Errors(t *testing.T) {
 	_, js := natstest.ConnectJetStream(t, ns)
 	_, err = factory.Builder(js)(t.Context(), &sagaconfig.StorageConfig{Type: sagaconfig.StorageTypeNATS})
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }
 
 // TestBuilder_MigrateBucketTTL pins that storage.nats.migrate_bucket_ttl

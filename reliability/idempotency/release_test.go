@@ -87,7 +87,7 @@ func TestReleaseOwnership(t *testing.T) {
 				idempotency.WithKeyNamespace(func(context.Context) string { return namespace }))
 			require.ErrorIs(t, keeper.Release(ctx, "", nil), idempotency.ErrEmptyKey)
 			require.ErrorIs(t, keeper.Release(ctx, "key", nil), idempotency.ErrMissingLockState)
-			require.ErrorIs(t, keeper.Release(ctx, "key", &storages.State{}), idempotency.ErrMissingLockState)
+			require.ErrorIs(t, keeper.Release(ctx, "key", &idempotency.State{}), idempotency.ErrMissingLockState)
 			require.ErrorIs(t, store.Release(ctx, "key", nil), idempotency.ErrMissingLockState)
 			require.ErrorIs(t, store.Release(ctx, "", nil), idempotency.ErrEmptyKey)
 			acquired, old, err := keeper.AttemptLock(ctx, "key")
@@ -102,7 +102,7 @@ func TestReleaseOwnership(t *testing.T) {
 			acquired, _, err = keeper.AttemptLock(ctx, "key")
 			require.NoError(t, err)
 			require.False(t, acquired, "stale cleanup must leave the new owner locked")
-			fresh := &storages.State{}
+			fresh := &idempotency.State{}
 			fresh.SetLockToken(token)
 			require.NoError(t, keeper.Release(ctx, "key", fresh))
 			require.ErrorIs(t, keeper.Release(ctx, "key", fresh), idempotency.ErrLockStolen)

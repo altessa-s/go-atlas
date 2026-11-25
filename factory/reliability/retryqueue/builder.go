@@ -44,10 +44,11 @@ type Builder[P any] struct {
 	cfg  *retryqueueconfig.Config
 	errs []error
 
-	storages  map[retryqueueconfig.StorageType]StorageFunc[P]
-	sqlDB     *sql.DB
-	resolveTx func(context.Context) (*sql.Tx, bool)
-	codec     serializer.Serializer
+	storages     map[retryqueueconfig.StorageType]StorageFunc[P]
+	sqlDB        *sql.DB
+	resolveTx    func(context.Context) (*sql.Tx, bool)
+	codec        serializer.Serializer
+	clonePayload func(P) P
 
 	shutdownHooks *coreruntime.HookGroup
 }
@@ -63,7 +64,9 @@ func New[P any](cfg *retryqueueconfig.Config) *Builder[P] {
 
 // Build validates the configuration and constructs the configured store
 // (built in or registered with [Builder.UseStorage]). ctx bounds the startup
-// I/O (SQL schema or MongoDB index creation).
+// I/O (SQL schema or MongoDB index creation). Every bundled store implements
+// [retryqueue.AttemptStorage]; workers should check for that interface before
+// processing item snapshots.
 func (b *Builder[P]) Build(ctx context.Context) (retryqueue.Storage[P], error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -77,28 +80,40 @@ func (b *Builder[P]) Build(ctx context.Context) (retryqueue.Storage[P], error) {
 		cfg.Storage = &st
 	}
 	cfg.Normalize()
-	if err := cfg.Validate(); err != nil {
+	// Validate against this builder while preserving the config passed to storage functions.
+	schema := cfg
+	if cfg.Storage != nil {
+		storage := *cfg.Storage
+		storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+		schema.Storage = &storage
+	}
+	if err := schema.Validate(); err != nil {
 		return nil, fmt.Errorf("validate retry queue config: %w", err)
 	}
 
 	storage := cfg.Storage
-	switch storage.Type {
-	case retryqueueconfig.StorageTypeMemory:
-		return memorystore.New[P](), nil
-	case retryqueueconfig.StorageTypeSQL:
+	if storage.Type == retryqueueconfig.StorageTypeMemory {
+		return memorystore.NewWithClone(b.clonePayload), nil
+	}
+	if storage.Type == retryqueueconfig.StorageTypeSQL {
 		if err := b.RequireDependency(b.sqlDB, "SQL database"); err != nil {
 			return nil, err
 		}
-		return b.buildSQLStore(ctx, storage.SQL)
-	case retryqueueconfig.StorageTypeMongo:
-		if build, ok := b.storages[storage.Type]; ok {
-			return build(ctx, storage)
+		store, err := b.buildSQLStore(ctx, storage.SQL)
+		if err != nil {
+			return nil, err
 		}
+		return store, nil
+	}
+	if build, ok := b.storages[storage.Type]; ok {
+		return build(ctx, storage)
+	}
+	if storage.Type == retryqueueconfig.StorageTypeMongo {
 		return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "retry queue storage %q is not registered: add "+
 			"factory/reliability/retryqueue/storages/mongo with UseStorage(%q, mongofactory.Builder[P](db))", storage.Type, storage.Type)
-	default:
-		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported retry queue storage type %q", storage.Type)
 	}
+
+	return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported retry queue storage type %q", storage.Type)
 }
 
 // EnsureSchemaTimeout bounds the schema or index creation a storage runs at
@@ -109,7 +124,7 @@ const EnsureSchemaTimeout = 30 * time.Second
 // buildSQLStore creates the SQL store. With EnsureSchema set it creates the
 // table through the store's idempotent EnsureSchema; otherwise it performs no
 // I/O and the schema is expected to exist. With a purge interval it registers
-// the store's Close as a shutdown hook, which stops the background purge.
+// the store's StopPurge as a shutdown hook to join the background purge.
 func (b *Builder[P]) buildSQLStore(ctx context.Context, cfg *retryqueueconfig.SQLStorageConfig) (*sqlstore.Store[P], error) {
 	store, err := sqlstore.New[P](b.sqlDB, sqlstore.Dialect(cfg.Dialect),
 		sqlstore.WithTableName(cfg.Table),
@@ -127,11 +142,15 @@ func (b *Builder[P]) buildSQLStore(ctx context.Context, cfg *retryqueueconfig.SQ
 		schemaCtx, cancel := corecontext.WithMaxTimeout(ctx, EnsureSchemaTimeout)
 		defer cancel()
 		if err := store.EnsureSchema(schemaCtx); err != nil {
+			store.StopPurge()
 			return nil, corefactory.Errorf(coreerrs.ErrUnavailable, "ensure retry queue schema: %w", err)
 		}
 	}
 	if cfg.PurgeInterval > 0 {
-		b.onShutdown(store.Close)
+		b.onShutdown(func(context.Context) error {
+			store.StopPurge()
+			return nil
+		})
 	}
 	return store, nil
 }

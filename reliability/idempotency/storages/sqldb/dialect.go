@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
@@ -27,7 +28,7 @@ var (
 	// ErrUnsupportedDialect reports a dialect other than postgres or mysql.
 	ErrUnsupportedDialect = sqldialect.ErrUnsupportedDialect
 	// ErrInvalidTableName reports an invalid or oversized SQL identifier.
-	ErrInvalidTableName = sqldialect.ErrInvalidTableName
+	ErrInvalidTableName = sqlident.ErrInvalidTableName
 	// ErrValueTooLong reports a key longer than MaxKeyLength characters.
 	ErrValueTooLong = sqldialect.ErrValueTooLong
 )

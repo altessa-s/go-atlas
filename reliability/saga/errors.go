@@ -55,6 +55,9 @@ var (
 	// added to the builder.
 	ErrEmptyDefinition = errors.New("saga: definition has no steps")
 
+	// ErrInvalidStorageKey means the store cannot represent this instance ID. Retrying the same ID cannot succeed.
+	ErrInvalidStorageKey = errors.New("saga: invalid storage key")
+
 	// ErrEmptyID is returned by Orchestrator.Start and Resume when the instance
 	// ID is empty.
 	ErrEmptyID = errors.New("saga: empty instance id")

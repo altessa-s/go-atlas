@@ -6,7 +6,6 @@ package audit
 
 import (
 	"context"
-	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -145,7 +144,3 @@ type StorageSink struct{ Storage Storage }
 func (s StorageSink) StoreBatch(ctx context.Context, items []*Event) error {
 	return s.Storage.StoreBatch(ctx, items)
 }
-
-// Logger returns the facade logger. Useful for factory packages that need
-// to pass the same logger to the dispatch engine.
-func (o *options) Logger() *slog.Logger { return o.logger }

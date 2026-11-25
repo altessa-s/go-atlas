@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -47,8 +48,8 @@ var (
 )
 
 var (
-	_ retryqueue.Storage[struct{}] = (*Store[struct{}])(nil)
-	_ retryqueue.Mover             = (*Store[struct{}])(nil)
+	_ retryqueue.AttemptStorage[struct{}] = (*Store[struct{}])(nil)
+	_ retryqueue.Mover                    = (*Store[struct{}])(nil)
 )
 
 // Store is the SQL-backed [retryqueue.Storage] and [retryqueue.Mover]: one row
@@ -76,10 +77,16 @@ type Store[P any] struct {
 
 // statements are the fixed queries, rendered once for the dialect.
 type statements struct {
-	get, getMark, exists, insert, reopen                        string
-	listDue, wakeDue, reschedule, expire, resolve, flag, unflag string
-	deleteObsolete, newer, remove, listByState, requeue         string
-	move, purge                                                 string
+	get, getMark, exists, insert, reopen                string
+	listDue, wakeDue, expire                            string
+	reschedule, resolve, flag, unflag                   fencedQuery
+	deleteObsolete, newer, remove, listByState, requeue string
+	move, purge                                         string
+}
+
+type fencedQuery struct {
+	generation string
+	attempt    string
 }
 
 // New creates a Store over db for the given dialect. It performs no I/O; call
@@ -127,6 +134,9 @@ func New[P any](db *sql.DB, d Dialect, opts ...Option) (*Store[P], error) {
 
 func (s *Store[P]) buildStatements() statements {
 	t, b := s.table, s.dialect.bind
+	fenced := func(query string) fencedQuery {
+		return fencedQuery{generation: b(query), attempt: b(query + " AND since = ?")}
+	}
 	sel := "SELECT " + columns + " FROM " + t
 	insert := "INSERT INTO " + t + " (" + columns + ") VALUES (?, ?, " + pending + ", ?, 0, ?, 0, 0, FALSE, '', ?)"
 	// The read-back of Mark follows an insert that found the key taken. A
@@ -159,24 +169,24 @@ func (s *Store[P]) buildStatements() statements {
 		insert:  b(insert),
 		reopen: b("UPDATE " + t + " SET generation = ?, state = " + pending + ", since = ?, attempts = 0, next_attempt_at = ?," +
 			" expired_at = 0, resolved_at = 0, flagged = FALSE, flag_reason = '', payload = ?" +
-			" WHERE id = ? AND (generation < ? OR (generation = ? AND state <> " + pending + "))"),
+			" WHERE id = ? AND (generation < ? OR (generation = ? AND since < ? AND state <> " + pending + "))"),
 		listDue: b(sel + " WHERE state = " + pending + " AND next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT ?"),
 		wakeDue: b("UPDATE " + t + " SET next_attempt_at = ? WHERE state = " + pending + " AND next_attempt_at > ?"),
-		reschedule: b("UPDATE " + t + " SET attempts = attempts + 1, next_attempt_at = ?" +
+		reschedule: fenced("UPDATE " + t + " SET attempts = attempts + 1, next_attempt_at = ?" +
 			" WHERE id = ? AND state = " + pending + " AND generation = ?"),
 		expire: b("UPDATE " + t + " SET state = " + expired + ", expired_at = ?" +
 			" WHERE id = ? AND state = " + pending + " AND generation = ? AND since = ?"),
-		resolve: b("UPDATE " + t + " SET state = " + resolved + ", resolved_at = ?, expired_at = 0, flagged = FALSE, flag_reason = ''" +
+		resolve: fenced("UPDATE " + t + " SET state = " + resolved + ", resolved_at = ?, expired_at = 0, flagged = FALSE, flag_reason = ''" +
 			" WHERE id = ? AND state <> " + resolved + " AND generation = ?"),
-		flag: b("UPDATE " + t + " SET flagged = TRUE, flag_reason = ?" +
+		flag: fenced("UPDATE " + t + " SET flagged = TRUE, flag_reason = ?" +
 			" WHERE id = ? AND state = " + pending + " AND generation = ? AND (flagged = FALSE OR flag_reason <> ?)"),
-		unflag:         b("UPDATE " + t + " SET flagged = FALSE, flag_reason = '' WHERE id = ? AND generation = ? AND flagged = TRUE"),
+		unflag:         fenced("UPDATE " + t + " SET flagged = FALSE, flag_reason = '' WHERE id = ? AND generation = ? AND flagged = TRUE"),
 		deleteObsolete: b("DELETE FROM " + t + " WHERE id = ? AND generation <= ?"),
 		newer:          b(newer),
 		remove:         b("DELETE FROM " + t + " WHERE id = ?"),
 		listByState:    b(sel + " WHERE state = ? ORDER BY since, id LIMIT ?"),
 		// Requeue appends its key list, then binds; see [Store.Requeue].
-		requeue: "UPDATE " + t + " SET state = " + pending + ", since = ?, next_attempt_at = ?, attempts = 0, expired_at = 0" +
+		requeue: "UPDATE " + t + " SET state = " + pending + ", since = GREATEST(since + 1, ?), next_attempt_at = ?, attempts = 0, expired_at = 0" +
 			" WHERE state = " + expired,
 		move:  b("UPDATE " + t + " SET id = ? WHERE id = ?"),
 		purge: b(purge),
@@ -228,30 +238,35 @@ func (s *Store[P]) Mark(ctx context.Context, item retryqueue.Item[P]) (retryqueu
 	if err != nil {
 		return retryqueue.Item[P]{}, err
 	}
-	return s.mark(ctx, item, payload)
+	row, err := s.mark(ctx, item, payload)
+	if err != nil {
+		return retryqueue.Item[P]{}, err
+	}
+	return row.decode(s.codec)
 }
 
-// mark is [Store.Mark] after the key check and with the payload encoded.
-func (s *Store[P]) mark(ctx context.Context, item retryqueue.Item[P], payload []byte) (retryqueue.Item[P], error) {
+// mark keeps the stored payload encoded so Reopen can replace an older schema
+// using the row's state, generation and age alone.
+func (s *Store[P]) mark(ctx context.Context, item retryqueue.Item[P], payload []byte) (storedRow[P], error) {
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
 	for range markAttempts {
 		inserted, err := s.insert(ctx, item, payload)
 		if err != nil {
-			return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "mark retry item")
+			return storedRow[P]{}, coreerrs.WrapOperation(err, "mark retry item")
 		}
 		if inserted {
-			return s.fresh(item, payload)
+			return freshRow(item, payload), nil
 		}
-		got, err := s.scanItem(s.db.QueryRowContext(ctx, s.stmts.getMark, s.dialect.textArg(item.Key)))
+		got, err := scanRow[P](s.db.QueryRowContext(ctx, s.stmts.getMark, s.dialect.textArg(item.Key)))
 		switch {
 		case err == nil:
 			return got, nil
 		case !errors.Is(err, sql.ErrNoRows):
-			return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "read marked retry item")
+			return storedRow[P]{}, coreerrs.WrapOperation(err, "read marked retry item")
 		}
 		// Deleted between the insert and the read: insert again.
 	}
-	return retryqueue.Item[P]{}, coreerrs.WrapOperation(errors.New("item deleted concurrently"), "mark retry item")
+	return storedRow[P]{}, coreerrs.WrapOperation(errors.New("item deleted concurrently"), "mark retry item")
 }
 
 // insert inserts item as a fresh pending row and reports whether it did; a
@@ -284,27 +299,37 @@ func (s *Store[P]) Reopen(ctx context.Context, item retryqueue.Item[P]) (retryqu
 	if err != nil {
 		return retryqueue.Item[P]{}, err
 	}
-	var out retryqueue.Item[P]
+	next := item
+	var out storedRow[P]
 	for range reopenAttempts {
 		// A matched row always changes (its generation or its state), so the
 		// affected-rows count is exact whatever the MySQL found-rows flag.
-		n, err := s.exec(ctx, s.stmts.reopen, item.Generation, unixNano(item.Since), unixNano(item.NextAttemptAt), payload,
-			s.dialect.textArg(item.Key), item.Generation, item.Generation)
+		n, err := s.exec(ctx, s.stmts.reopen, item.Generation, unixNano(next.Since), unixNano(item.NextAttemptAt), payload,
+			s.dialect.textArg(item.Key), item.Generation, item.Generation, unixNano(next.Since))
 		if err != nil {
 			return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "reopen retry item")
 		}
 		if n > 0 {
-			return s.fresh(item, payload)
+			return freshRow(next, payload).decode(s.codec)
 		}
 		out, err = s.mark(ctx, item, payload)
 		if err != nil {
 			return retryqueue.Item[P]{}, err
 		}
 		if out.Generation > item.Generation || (out.Generation == item.Generation && out.State == retryqueue.StatePending) {
-			return out, nil
+			break
+		}
+		if out.Generation == item.Generation && unixNano(item.Since) <= unixNano(out.Since) {
+			// Reuse the existing Expire signature: an earlier snapshot must never
+			// have the age of the reopened item, even on a frozen caller clock.
+			nanos := unixNano(out.Since)
+			if nanos == math.MaxInt64 {
+				return retryqueue.Item[P]{}, errors.New("reopen retry item: age exceeds SQL timestamp range")
+			}
+			next.Since = fromUnixNano(nanos + 1)
 		}
 	}
-	return out, nil
+	return out.decode(s.codec)
 }
 
 // ListDue implements [retryqueue.Storage].
@@ -324,7 +349,16 @@ func (s *Store[P]) WakeDue(ctx context.Context, now time.Time) error {
 
 // Reschedule implements [retryqueue.Storage].
 func (s *Store[P]) Reschedule(ctx context.Context, key string, generation int64, next time.Time) error {
-	if _, err := s.exec(ctx, s.stmts.reschedule, unixNano(next), s.dialect.textArg(key), generation); err != nil {
+	return s.reschedule(ctx, key, generation, nil, next)
+}
+
+// RescheduleAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) RescheduleAttempt(ctx context.Context, attempt retryqueue.Attempt, next time.Time) error {
+	return s.reschedule(ctx, attempt.Key, attempt.Generation, &attempt.Since, next)
+}
+
+func (s *Store[P]) reschedule(ctx context.Context, key string, generation int64, since *time.Time, next time.Time) error {
+	if _, err := s.execFenced(ctx, s.stmts.reschedule, since, unixNano(next), s.dialect.textArg(key), generation); err != nil {
 		return coreerrs.WrapOperation(err, "reschedule retry item")
 	}
 	return nil
@@ -341,7 +375,16 @@ func (s *Store[P]) Expire(ctx context.Context, key string, generation int64, sin
 
 // Resolve implements [retryqueue.Storage].
 func (s *Store[P]) Resolve(ctx context.Context, key string, generation int64, at time.Time) error {
-	if _, err := s.exec(ctx, s.stmts.resolve, unixNano(at), s.dialect.textArg(key), generation); err != nil {
+	return s.resolve(ctx, key, generation, nil, at)
+}
+
+// ResolveAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) ResolveAttempt(ctx context.Context, attempt retryqueue.Attempt, at time.Time) error {
+	return s.resolve(ctx, attempt.Key, attempt.Generation, &attempt.Since, at)
+}
+
+func (s *Store[P]) resolve(ctx context.Context, key string, generation int64, since *time.Time, at time.Time) error {
+	if _, err := s.execFenced(ctx, s.stmts.resolve, since, unixNano(at), s.dialect.textArg(key), generation); err != nil {
 		return coreerrs.WrapOperation(err, "resolve retry item")
 	}
 	return nil
@@ -349,7 +392,16 @@ func (s *Store[P]) Resolve(ctx context.Context, key string, generation int64, at
 
 // Flag implements [retryqueue.Storage].
 func (s *Store[P]) Flag(ctx context.Context, key string, generation int64, reason string) (bool, error) {
-	n, err := s.exec(ctx, s.stmts.flag, []byte(reason), s.dialect.textArg(key), generation, []byte(reason))
+	return s.flag(ctx, key, generation, nil, reason)
+}
+
+// FlagAttempt implements [retryqueue.AttemptStorage].
+func (s *Store[P]) FlagAttempt(ctx context.Context, attempt retryqueue.Attempt, reason string) (bool, error) {
+	return s.flag(ctx, attempt.Key, attempt.Generation, &attempt.Since, reason)
+}
+
+func (s *Store[P]) flag(ctx context.Context, key string, generation int64, since *time.Time, reason string) (bool, error) {
+	n, err := s.execFenced(ctx, s.stmts.flag, since, []byte(reason), s.dialect.textArg(key), generation, []byte(reason))
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "flag retry item")
 	}
@@ -358,7 +410,16 @@ func (s *Store[P]) Flag(ctx context.Context, key string, generation int64, reaso
 
 // ClearFlag implements [retryqueue.Storage].
 func (s *Store[P]) ClearFlag(ctx context.Context, key string, generation int64) error {
-	if _, err := s.exec(ctx, s.stmts.unflag, s.dialect.textArg(key), generation); err != nil {
+	return s.clearFlag(ctx, key, generation, nil)
+}
+
+// ClearAttemptFlag implements [retryqueue.AttemptStorage].
+func (s *Store[P]) ClearAttemptFlag(ctx context.Context, attempt retryqueue.Attempt) error {
+	return s.clearFlag(ctx, attempt.Key, attempt.Generation, &attempt.Since)
+}
+
+func (s *Store[P]) clearFlag(ctx context.Context, key string, generation int64, since *time.Time) error {
+	if _, err := s.execFenced(ctx, s.stmts.unflag, since, s.dialect.textArg(key), generation); err != nil {
 		return coreerrs.WrapOperation(err, "clear retry item flag")
 	}
 	return nil
@@ -507,6 +568,13 @@ func (s *Store[P]) PurgeExpired(ctx context.Context) (int64, error) {
 }
 
 // exec runs a statement and returns its affected-rows count.
+func (s *Store[P]) execFenced(ctx context.Context, query fencedQuery, since *time.Time, args ...any) (int64, error) {
+	if since == nil {
+		return s.exec(ctx, query.generation, args...)
+	}
+	return s.exec(ctx, query.attempt, append(args, unixNano(*since))...)
+}
+
 func (s *Store[P]) exec(ctx context.Context, query string, args ...any) (int64, error) {
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
 	res, err := s.db.ExecContext(ctx, query, args...)
@@ -537,7 +605,11 @@ func (s *Store[P]) list(ctx context.Context, op, query string, args ...any) ([]r
 
 	out := []retryqueue.Item[P]{}
 	for rows.Next() {
-		it, err := s.scanItem(rows)
+		row, err := scanRow[P](rows)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "scan: "+op)
+		}
+		it, err := row.decode(s.codec)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "decode: "+op)
 		}
@@ -549,51 +621,47 @@ func (s *Store[P]) list(ctx context.Context, op, query string, args ...any) ([]r
 	return out, nil
 }
 
-// scanner is the part of *sql.Row and *sql.Rows scanItem uses.
+// scanner is the part of *sql.Row and *sql.Rows scanRow uses.
 type scanner interface {
 	Scan(dest ...any) error
 }
 
-// scanItem reads one row selected with columns.
-func (s *Store[P]) scanItem(sc scanner) (retryqueue.Item[P], error) {
+// storedRow holds the payload bytes until the item is returned to a caller.
+type storedRow[P any] struct {
+	retryqueue.Item[P]
+	encoded []byte
+}
+
+// scanRow reads one row selected with columns.
+func scanRow[P any](sc scanner) (storedRow[P], error) {
 	var (
-		it                                         retryqueue.Item[P]
+		it                                         storedRow[P]
 		state                                      string
 		since, attempts, next, expiredAt, resolved int64
-		reason, payload                            []byte
+		reason                                     []byte
 	)
 	if err := sc.Scan(&it.Key, &it.Generation, &state, &since, &attempts, &next, &expiredAt, &resolved,
-		&it.Flagged, &reason, &payload); err != nil {
-		return retryqueue.Item[P]{}, err
+		&it.Flagged, &reason, &it.encoded); err != nil {
+		return storedRow[P]{}, err
 	}
 	it.State = retryqueue.State(state)
 	it.Since, it.NextAttemptAt = fromUnixNano(since), fromUnixNano(next)
 	it.ExpiredAt, it.ResolvedAt = fromUnixNano(expiredAt), fromUnixNano(resolved)
 	it.Attempts = int(attempts)
 	it.FlagReason = string(reason)
-	var err error
-	if it.Payload, err = s.decode(payload); err != nil {
-		return retryqueue.Item[P]{}, err
-	}
 	return it, nil
 }
 
-// fresh returns item as a row inserted or reopened from it reads back: pending,
-// no attempts, no expiry, resolution or flag, instants in UTC and the payload
-// decoded from what was stored.
-func (s *Store[P]) fresh(item retryqueue.Item[P], payload []byte) (retryqueue.Item[P], error) {
-	p, err := s.decode(payload)
-	if err != nil {
-		return retryqueue.Item[P]{}, err
-	}
-	return retryqueue.Item[P]{
+// freshRow constructs exactly what a newly inserted or reopened row contains.
+func freshRow[P any](item retryqueue.Item[P], payload []byte) storedRow[P] {
+	fresh := retryqueue.Item[P]{
 		Key:           item.Key,
 		Generation:    item.Generation,
 		State:         retryqueue.StatePending,
 		Since:         fromUnixNano(unixNano(item.Since)),
 		NextAttemptAt: fromUnixNano(unixNano(item.NextAttemptAt)),
-		Payload:       p,
-	}, nil
+	}
+	return storedRow[P]{Item: fresh, encoded: payload}
 }
 
 // encode renders a payload for the payload column; an empty encoding is
@@ -609,16 +677,14 @@ func (s *Store[P]) encode(p P) ([]byte, error) {
 	return b, nil
 }
 
-// decode reads a payload column; empty bytes decode to the zero payload.
-func (s *Store[P]) decode(b []byte) (P, error) {
-	var p P
-	if len(b) == 0 {
-		return p, nil
+// decode returns the row with the codec's payload; empty bytes represent zero.
+func (row storedRow[P]) decode(codec serializer.Serializer) (retryqueue.Item[P], error) {
+	if len(row.encoded) > 0 {
+		if err := codec.Deserialize(row.encoded, &row.Payload); err != nil {
+			return retryqueue.Item[P]{}, coreerrs.WrapOperation(err, "decode retry item payload")
+		}
 	}
-	if err := s.codec.Deserialize(b, &p); err != nil {
-		return p, coreerrs.WrapOperation(err, "decode retry item payload")
-	}
-	return p, nil
+	return row.Item, nil
 }
 
 // checkKey rejects a key longer than [MaxKeyLength] characters.

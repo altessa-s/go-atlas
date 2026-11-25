@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
+
 	coreaudit "github.com/altessa-s/go-atlas/audit"
 	authaudit "github.com/altessa-s/go-atlas/audit/decision"
 )
@@ -17,15 +19,20 @@ import (
 // caller can fail a request that could not be recorded.
 var ErrDropped = errors.New("audit/decision/sinks/dataaudit: audit event dropped")
 
-// Sink adapts a audit *Auditor to the [authaudit.Sink] seam, emitting each
-// authorization [authaudit.Decision] as a audit Event.
-type Sink struct {
-	auditor *coreaudit.Auditor
+// Emitter accepts an audit event and reports whether it was queued.
+type Emitter interface {
+	Emit(*coreaudit.Event) bool
 }
+
+// Sink emits authorization decisions as audit events.
+type Sink struct{ auditor Emitter }
 
 // New returns a [Sink] that emits decisions through auditor, which must already
 // be started. A nil auditor yields a no-op sink.
-func New(auditor *coreaudit.Auditor) *Sink {
+func New(auditor Emitter) *Sink {
+	if nilcheck.IsNil(auditor) {
+		return &Sink{}
+	}
 	return &Sink{auditor: auditor}
 }
 
@@ -53,14 +60,14 @@ func (s *Sink) Record(_ context.Context, d authaudit.Decision) error {
 		}
 	}
 
-	ev := s.auditor.NewEvent(coreaudit.EventTypeAuth, coreaudit.ActionExecute).
-		WithActor(coreaudit.Actor{ID: d.Subject}).
-		WithResource(coreaudit.Resource{Type: d.ResourceType, ID: d.ResourceID, Path: d.Action}).
-		WithResult(result).
-		WithMetadata(meta).
-		Build()
-	if !d.Time.IsZero() {
-		ev.Timestamp = d.Time
+	ev := &coreaudit.Event{
+		Type:      coreaudit.EventTypeAuth,
+		Action:    coreaudit.ActionExecute,
+		Actor:     coreaudit.Actor{ID: d.Subject},
+		Resource:  coreaudit.Resource{Type: d.ResourceType, ID: d.ResourceID, Path: d.Action},
+		Result:    result,
+		Metadata:  meta,
+		Timestamp: d.Time,
 	}
 
 	if !s.auditor.Emit(ev) {

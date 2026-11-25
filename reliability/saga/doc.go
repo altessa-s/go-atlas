@@ -12,7 +12,8 @@
 // checkpoint to a pluggable [Storage] after every stage, so an instance survives
 // a crash and can be resumed or automatically rolled back. State storage is
 // backend-agnostic — the in-memory backend ships in storages/memory and durable
-// backends plug in behind the same [Storage] interface.
+// backends plug in behind the same [Storage] interface. A backend can report
+// [ErrInvalidStorageKey] for an instance ID it cannot represent.
 //
 // # Model
 //

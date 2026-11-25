@@ -10,5 +10,5 @@
 //
 //	keeper, err := idempotencyfactory.New(cfg.Idempotency).
 //		UseStorage(idempotencyconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
-//		Build()
+//		Build(ctx)
 package factory

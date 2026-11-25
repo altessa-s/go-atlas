@@ -26,4 +26,7 @@
 //		UseStorage(sagaconfig.StorageTypeRedis, redisfactory.Builder(rdb)).
 //		UseScheduler(scheduler).
 //		Build(ctx)
+//
+// [Builder.UseStorage] accepts custom backend names. For standalone schema
+// validation, pass [Builder.RegisteredStorageTypes] results to SetRegisteredTypes.
 package factory

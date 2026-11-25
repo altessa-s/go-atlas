@@ -143,6 +143,9 @@ func New[T any](store Storage, def *Definition[T], opts ...Option) *Orchestrator
 	return o
 }
 
+// DefinitionName returns the name of the bound saga definition.
+func (o *Orchestrator[T]) DefinitionName() string { return o.def.Name() }
+
 // Definition returns the definition this orchestrator runs.
 func (o *Orchestrator[T]) Definition() *Definition[T] { return o.def }
 

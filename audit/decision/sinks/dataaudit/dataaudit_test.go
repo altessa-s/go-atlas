@@ -112,3 +112,18 @@ func TestRecordViaRecorder(t *testing.T) {
 	require.NoError(t, rec.Record(t.Context(), authaudit.Decision{Allowed: true, Action: "act"}))
 	require.Len(t, disp.got, 1)
 }
+
+type emitFunc func(*coreaudit.Event) bool
+
+func (f emitFunc) Emit(e *coreaudit.Event) bool { return f(e) }
+
+func TestRecordThroughEmitter(t *testing.T) {
+	t.Parallel()
+	var emit emitFunc
+	require.NoError(t, dataaudit.New(emit).Record(t.Context(), authaudit.Decision{}))
+	emit = func(e *coreaudit.Event) bool {
+		require.Equal(t, "user", e.Actor.ID)
+		return false
+	}
+	require.ErrorIs(t, dataaudit.New(emit).Record(t.Context(), authaudit.Decision{Subject: "user"}), dataaudit.ErrDropped)
+}

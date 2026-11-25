@@ -35,7 +35,7 @@ func newSagaMetrics(c metrics.Meter) *sagaMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("saga")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("saga")}
 
 	return &sagaMetrics{
 		started: scoped.MustCounter(metrics.MetricOpts{

@@ -994,3 +994,24 @@ func TestInterruptedCompensationIsRedelivered(t *testing.T) {
 	require.True(t, store.failed.Load(), "the first Compensated write was interrupted")
 	testhelpers.WaitFor(t, waitTimeout, func() bool { return streamMsgs(t, e.js) == 0 }, "command was not acked after recovery")
 }
+
+type rejectingStarter struct{}
+
+func (rejectingStarter) DefinitionName() string { return "custom" }
+func (rejectingStarter) Start(context.Context, string, order) (*saga.Instance, error) {
+	return nil, errors.Join(errStep, saga.ErrInvalidStorageKey)
+}
+
+func TestStarterInvalidStorageKeyTerminates(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	tc := metricstest.NewTestCollector()
+	engine, err := sagajs.New(t.Context(), e.js, rejectingStarter{}, sagajs.WithMeter(tc))
+	require.NoError(t, err)
+	stop := run(t, engine)
+	defer func() { require.NoError(t, stop()) }()
+	require.NoError(t, engine.Submit(t.Context(), "unsupported", order{}))
+	testhelpers.WaitFor(t, waitTimeout, func() bool {
+		return metricstest.GetCounterValue(t, tc, "test_saga_engine_terminated_total") == 1
+	}, "expected permanent rejection")
+}

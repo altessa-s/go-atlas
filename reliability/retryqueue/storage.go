@@ -18,10 +18,34 @@ import (
 // report a bool report whether this call made the transition, so of several
 // racing callers exactly one observes true.
 //
-// [Storage.ListDue] is a read, not a lease: two sweepers may list the same item.
-// Correctness under concurrency comes from the fenced transitions, which apply
-// at most once per generation and age.
+// [Storage.ListDue] is a read, not a lease: two sweepers may list and process
+// the same item. Use [AttemptStorage] for worker outcomes after reading an
+// item. The generation-only mutations on Storage apply to the current item
+// of that generation, even after a same-generation Reopen or Requeue.
+//
+// P must be representable by the chosen backend. Memory snapshots Go values,
+// SQL uses the configured codec (JSON by default), and MongoDB inlines a BSON
+// struct or struct pointer. Its top-level fields must avoid queue and flag
+// fields, including through inline structs, and cannot include an inline map.
 type Storage[P any] interface {
+	ProducerStorage[P]
+	AdminStorage[P]
+
+	// ListDue returns up to limit pending items whose NextAttemptAt is not
+	// after now, oldest NextAttemptAt first (ties by key), so a sweep that
+	// reschedules what it cannot complete reaches every item in turn. A limit
+	// that is not positive means [DefaultListLimit].
+	ListDue(ctx context.Context, now time.Time, limit int) ([]Item[P], error)
+
+	// Expire stops retrying a pending item, keeping it for observability. It
+	// applies only while the item still has the age (since) the caller
+	// observed, so a stale attempt cannot expire a requeued item, and reports
+	// whether the item expired.
+	Expire(ctx context.Context, key string, generation int64, since, at time.Time) (bool, error)
+}
+
+// ProducerStorage inserts work and reopens it when the work changes.
+type ProducerStorage[P any] interface {
 	// Mark stores item as a fresh pending item (no attempts, no flag, no
 	// expiry or resolution) unless an item for item.Key already exists, and
 	// returns the stored item. It is insert-only: a repeat keeps the original
@@ -32,17 +56,16 @@ type Storage[P any] interface {
 	// Reopen moves the item of item.Key to item.Generation (newer work), or
 	// reopens an expired or resolved item of the same generation: pending, with
 	// item's Payload (replacing the stored one whole), Since and NextAttemptAt,
-	// no attempts, and no expiry, resolution or flag. An item already at a newer
-	// generation, or pending at the same one, is returned unchanged — the caller
-	// compares generations. A missing item is inserted as [Storage.Mark] does.
+	// no attempts, and no expiry, resolution or flag. At the same generation
+	// Since advances by at least one storage tick (see Requeue). An item already
+	// at a newer generation or pending at the same one is returned unchanged. The caller
+	// compares generations. A missing item is inserted as [ProducerStorage.Mark] does.
 	Reopen(ctx context.Context, item Item[P]) (Item[P], error)
+}
 
-	// ListDue returns up to limit pending items whose NextAttemptAt is not
-	// after now, oldest NextAttemptAt first (ties by key), so a sweep that
-	// reschedules what it cannot complete reaches every item in turn. A limit
-	// that is not positive means [DefaultListLimit].
-	ListDue(ctx context.Context, now time.Time, limit int) ([]Item[P], error)
-
+// AdminStorage inspects and manages the current generation of queued work.
+// Workers reporting an observed attempt should use [WorkerStorage].
+type AdminStorage[P any] interface {
 	// WakeDue makes every pending item scheduled after now due at now (the
 	// condition the work waited for may have changed). It counts no attempt.
 	WakeDue(ctx context.Context, now time.Time) error
@@ -50,12 +73,6 @@ type Storage[P any] interface {
 	// Reschedule counts a failed attempt and moves the next one to next. Only
 	// a pending item moves: an expired or resolved one is never revived.
 	Reschedule(ctx context.Context, key string, generation int64, next time.Time) error
-
-	// Expire stops retrying a pending item, keeping it for observability. It
-	// applies only while the item still has the age (since) the caller
-	// observed, so a stale attempt cannot expire a requeued item, and reports
-	// whether the item expired.
-	Expire(ctx context.Context, key string, generation int64, since, at time.Time) (bool, error)
 
 	// Resolve marks a pending or expired item resolved at at and drops its
 	// expiry and flag. It is no longer listed as due but is kept until the
@@ -84,9 +101,41 @@ type Storage[P any] interface {
 	ListByState(ctx context.Context, state State, limit int) ([]Item[P], error)
 
 	// Requeue moves expired items back to pending, due at now with a fresh age
-	// (Since = now), no attempts and no expiry, and returns how many moved.
+	// (Since = now or, when now has not advanced, one storage tick past the
+	// previous Since), no attempts and no expiry, and returns how many moved.
 	// With no keys every expired item moves. Generations and flags are kept.
 	Requeue(ctx context.Context, now time.Time, keys ...string) (int, error)
+}
+
+// Attempt identifies the incarnation of a retry item a worker observed.
+// Obtain it from [Item.Attempt]. Since changes on Requeue and on a
+// same-generation Reopen, while the generation identifies the work revision.
+type Attempt struct {
+	Key        string
+	Generation int64
+	Since      time.Time
+}
+
+// WorkerStorage provides the reads and age-fenced updates used by retry workers.
+// Its mutations have the same behavior as their
+// generation-only counterparts, with the same age check as [Storage.Expire].
+// A worker can report a stale outcome harmlessly after Reopen or Requeue.
+// This is not a lease, and callers that delete and reinsert a key must avoid
+// reusing both its generation and age while old workers can still report.
+type WorkerStorage[P any] interface {
+	ListDue(ctx context.Context, now time.Time, limit int) ([]Item[P], error)
+	Expire(ctx context.Context, key string, generation int64, since, at time.Time) (bool, error)
+	RescheduleAttempt(ctx context.Context, attempt Attempt, next time.Time) error
+	ResolveAttempt(ctx context.Context, attempt Attempt, at time.Time) error
+	FlagAttempt(ctx context.Context, attempt Attempt, reason string) (bool, error)
+	ClearAttemptFlag(ctx context.Context, attempt Attempt) error
+}
+
+// AttemptStorage combines the worker and queue management interfaces.
+// Every bundled backend implements it.
+type AttemptStorage[P any] interface {
+	Storage[P]
+	WorkerStorage[P]
 }
 
 // Mover is implemented by a [Storage] that can rename an item's key

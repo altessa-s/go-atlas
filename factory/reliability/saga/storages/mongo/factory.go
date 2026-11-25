@@ -7,12 +7,14 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
 	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	sagafactory "github.com/altessa-s/go-atlas/factory/reliability/saga"
 	mongostore "github.com/altessa-s/go-atlas/reliability/saga/storages/mongo"
 )
@@ -23,7 +25,7 @@ var (
 	ErrClientRequired = errors.New("saga: MongoDB database is required for storage type mongo")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// mongo block.
-	ErrConfigRequired = errors.New("saga: mongo configuration is required for storage type mongo")
+	ErrConfigRequired = fmt.Errorf("saga: mongo configuration is required for storage type mongo: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the mongo type, ready for

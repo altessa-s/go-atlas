@@ -202,7 +202,7 @@ func TestKeeperOnMongo(t *testing.T) {
 
 	_, st, err := k.AttemptLockWithOpts(ctx, "k", idempotency.AttemptLockOpts{Fingerprint: fp})
 	require.NoError(t, err)
-	require.Equal(t, storages.StatusSuccess, st.Status)
+	require.Equal(t, idempotency.StatusSuccess, st.Status)
 	require.Equal(t, "entity", st.Data)
 	_, _, err = k.AttemptLockWithOpts(ctx, "k", idempotency.AttemptLockOpts{Fingerprint: []byte("other")})
 	require.ErrorIs(t, err, idempotency.ErrFingerprintMismatch)
@@ -252,7 +252,7 @@ func TestKeeperInTransaction(t *testing.T) {
 	require.NoError(t, run("committed", false))
 	_, st, err := k.AttemptLock(t.Context(), "committed")
 	require.NoError(t, err)
-	require.Equal(t, storages.StatusSuccess, st.Status)
+	require.Equal(t, idempotency.StatusSuccess, st.Status)
 	n, err := orders.CountDocuments(t.Context(), bson.D{{Key: "_id", Value: "committed"}})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), n)

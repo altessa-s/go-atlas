@@ -26,6 +26,9 @@ auditor, err := factory.New(cfg.Audit).
     Build(ctx)
 ```
 
+Register a custom backend name with `UseStorage`. Before standalone validation or config loading, call
+`cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())`.
+
 ## Methods
 
 ### Constructor
@@ -67,8 +70,9 @@ An `sqldb` type without a database fails with `ErrSQLDBRequired`, and a `mongo` 
 the package to add, rather than silently falling back to memory.
 
 `storage.sqldb.ttl` maps to SQL storage `WithTTL`, and the builder's logger is passed to `WithLogger`. Positive TTL starts background retention every
-minute in batches of up to 1,000 rows; zero keeps events forever. MongoDB's `storage.mongo.ttl` instead configures a server TTL index. `BuildStorage`
-callers must close the returned storage to stop its retention loop; the injected database remains caller-owned.
+minute in batches of up to 1,000 rows; zero keeps events forever. MongoDB's `storage.mongo.ttl` instead configures a server TTL index. For SQL
+storage, `BuildStorage` registers `storage.Close` on shutdown hooks (the injected database remains caller-owned); close the storage explicitly before
+closing the database when shutdown hooks are not run.
 
 ## Paging
 
@@ -90,5 +94,5 @@ its own; the auditor is placed in the same scope, so stopping it stops the whole
 An injected dispatcher belongs to the caller and is never shut down by the builder.
 
 SQL configuration maps purgeInterval and purgeBatchSize to the store options (defaults "1m" and 1000). A zero interval disables background purging.
-Build registers shutdown through UseShutdownHooks(group) or the process-wide runtime registry and closes storage after draining dispatch. BuildStorage
-callers own the returned storage and must close it before the database.
+`Build` registers shutdown through `UseShutdownHooks(group)` or the process-wide runtime registry and closes storage after draining dispatch.
+`BuildStorage` also registers SQL storage cleanup on those hooks; close it explicitly before closing the database if hooks are not run.

@@ -19,6 +19,8 @@ checkpoint to a pluggable [`Storage`](./storage.go) after every stage, so an ins
 | `Orchestrator[T]` | Drives a definition over a `Storage`; `Start` runs a new instance, `Resume` continues a persisted one.           |
 | `Instance`        | The persisted state of one execution: status, stage cursor, serialized data, version, deadline.                |
 
+Storage implementations can return `ErrInvalidStorageKey` when they cannot represent an instance ID. Command consumers can then stop retrying that ID.
+
 ## Status lifecycle
 
 `Running` → `Completed` (all stages committed) · `Running` → `Compensating` → `Compensated` (rolled back) · `Compensating`/post-pivot → `Failed`

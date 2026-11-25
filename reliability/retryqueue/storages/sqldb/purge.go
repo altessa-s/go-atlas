@@ -9,3 +9,11 @@ import "context"
 // Close permanently stops background purging and waits for it within ctx.
 // Explicit PurgeExpired calls remain available. It does not close the database.
 func (s *Store[P]) Close(ctx context.Context) error { return s.purge.Close(ctx) }
+
+// StopPurge permanently stops the background purge and waits for its exit.
+// Manual purges and other storage operations remain available.
+func (s *Store[P]) StopPurge() {
+	if done := s.purge.Stop(); done != nil {
+		<-done
+	}
+}

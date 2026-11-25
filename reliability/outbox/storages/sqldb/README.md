@@ -123,6 +123,8 @@ DSN with `loc` other than UTC.
 
 ## Locking and fencing
 
+A direct claim with batch size zero returns an error matching `go-atlas-core/errors.ErrInvalidArgument` before opening a transaction.
+
 `FetchUnprocessedEvents` selects ready events oldest first (`ORDER BY created_at, seq`) `FOR UPDATE SKIP LOCKED` and marks them `in-progress` with a
 fresh `lock_token` in one transaction, so concurrent dispatchers take disjoint batches without waiting on each other. Pending events and failed events
 whose backoff elapsed are read by one statement each and merged: with the status fixed, the `(status, created_at, seq)` index returns rows in order and

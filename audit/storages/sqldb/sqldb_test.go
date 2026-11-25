@@ -18,6 +18,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/audit"
 	"github.com/altessa-s/go-atlas/audit/storages/sqldb"
+	"github.com/altessa-s/go-atlas/audit/storages/storagetest"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
@@ -256,4 +257,32 @@ func TestEnsureSchema(t *testing.T) {
 	q := fake.Calls()[0].Query
 	require.NotRegexp(t, `\b(VARCHAR|TEXT)\b`, q)
 	require.Contains(t, q, "INDEX `audit_events_actor_idx` (actor_id, ts_ms, id)")
+}
+
+func TestNilQueryStatements(t *testing.T) {
+	t.Parallel()
+	s, fake := newStorage(t, sqldb.DialectPostgres, func(query string, _ []any) testhelpers.FakeSQLReply {
+		if strings.HasPrefix(query, "SELECT COUNT(") {
+			return testhelpers.FakeSQLReply{Columns: []string{"count"}, Rows: [][]driver.Value{{int64(0)}}}
+		}
+		return testhelpers.FakeSQLReply{Columns: []string{"payload"}}
+	})
+	for e, err := range s.Query(t.Context(), nil) {
+		require.NoError(t, err)
+		require.FailNow(t, "unexpected row", "%v", e)
+	}
+	count, err := s.Count(t.Context(), nil)
+	require.NoError(t, err)
+	require.Zero(t, count)
+	calls := fake.Calls()
+	require.Len(t, calls, 2)
+	require.Equal(t, `SELECT payload FROM "audit_events" ORDER BY ts_ms DESC, id DESC`, calls[0].Query)
+	require.Equal(t, `SELECT COUNT(*) FROM "audit_events"`, calls[1].Query)
+}
+
+func TestStoreBatchNilEvent(t *testing.T) {
+	t.Parallel()
+	s, fake := newStorage(t, sqldb.DialectPostgres, nil)
+	storagetest.NilBatchEvent(t, s)
+	require.Empty(t, fake.Calls())
 }

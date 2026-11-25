@@ -47,6 +47,8 @@ type Outbox struct {
 	// Internal state:
 	logger             *slog.Logger // Internal logger.
 	scheduler          schedtask.Registrar
+	watchOnce          sync.Once
+	stopWatch          func()
 	registrationMu     sync.Mutex
 	registrationOpts   *options
 	registrationsReady atomic.Bool
@@ -313,7 +315,7 @@ func (o *Outbox) compactEventsByKey(events []Event) (toPublish, toSkip []Event) 
 // handleEvents processes events concurrently and updates their status in the Store.
 // It reports whether the store recorded at least one event as advanced past a
 // retry: sent, skipped or dead-lettered rather than failed again.
-func (o *Outbox) handleEvents(ctx context.Context, events ...Event) bool {
+func (o *Outbox) handleEvents(ctx context.Context, events ...Event) (bool, error) {
 	// Apply key compaction if enabled.
 	// Events to skip are marked as skipped without dispatching.
 	var skippedEvents []Event
@@ -405,15 +407,14 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) bool {
 	// Update the final statuses of all processed events in the store.
 	if len(processedEvents) == 0 {
 		o.logger.DebugContext(ctx, "handleEvents finished, no events were collected for update") // Should not happen if events were passed in
-		return false
+		return false, nil
 	}
 
 	updateCtx, cancelUpdate := context.WithTimeout(context.WithoutCancel(ctx), o.updateTimeout)
 	defer cancelUpdate()
 
 	if updateErr := o.store.UpdateEvents(updateCtx, processedEvents...); updateErr != nil {
-		o.logger.ErrorContext(ctx, "failed to update processed event statuses in store", slog.Any("error", updateErr))
-		return false
+		return false, coreerrs.WrapOperation(updateErr, "update processed event statuses")
 	}
-	return slices.ContainsFunc(processedEvents, func(e Event) bool { return e.Status != StatusFailed })
+	return slices.ContainsFunc(processedEvents, func(e Event) bool { return e.Status != StatusFailed }), nil
 }

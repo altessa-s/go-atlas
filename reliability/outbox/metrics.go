@@ -48,7 +48,7 @@ func newOutboxMetrics(c metrics.Meter) *outboxMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("outbox")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("outbox")}
 
 	return &outboxMetrics{
 		eventsDispatched: scoped.MustCounter(metrics.MetricOpts{

@@ -8,6 +8,8 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
@@ -84,4 +86,9 @@ func (b *OutboxBuilder) UseSQLListener(v outboxsql.Listener) *OutboxBuilder {
 func (b *OutboxBuilder) UseShutdownHooks(v *coreruntime.HookGroup) *OutboxBuilder {
 	b.shutdownHooks = v
 	return b
+}
+
+// RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
+func (b *OutboxBuilder) RegisteredStorageTypes() []brokerconfig.OutboxStorageType {
+	return slices.Sorted(maps.Keys(b.storages))
 }

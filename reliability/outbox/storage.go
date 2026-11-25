@@ -42,7 +42,8 @@ type Stats struct {
 type Storage interface {
 	// FetchUnprocessedEvents retrieves events that are ready to dispatch —
 	// pending events, plus failed events whose [Event.RetryAfter] backoff has
-	// elapsed — then locks them for processing.
+	// elapsed — then locks them for processing. A zero batch size claims nothing
+	// and returns an error matching go-atlas-core/errors.ErrInvalidArgument.
 	//
 	// Implementations MUST return the batch sorted by [Event.CreatedAt]
 	// ascending (oldest first): key compaction treats the last event of each
@@ -65,6 +66,9 @@ type Storage interface {
 	UnlockStuckEvents(ctx context.Context, lockExpiry time.Duration) error
 
 	// SaveEvents persists new events (typically StatusPending) to the store.
+	// SQL persists the effective OrderKey (Key when OrderKey is empty).
+	// The MongoDB document stores only Key and returns an empty OrderKey.
+	// Per-key claim ordering is available only on SQL with WithKeyOrder.
 	SaveEvents(ctx context.Context, events ...Event) error
 
 	// UpdateEvents updates existing event state after processing attempts.

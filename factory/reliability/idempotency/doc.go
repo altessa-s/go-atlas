@@ -22,7 +22,7 @@
 // The builder builds memory and SQL storage (with [KeeperBuilder.UseSQLDB]).
 // SQL cleanup starts lazily and is closed through UseShutdownHooks or the process
 // shutdown registry; the caller closes the database after the hooks run.
-// SQL schema creation is optional and bounded by a 30-second timeout. Redis, NATS and MongoDB
+// SQL schema creation is optional and bounded by ctx and a 30-second timeout. Redis, NATS and MongoDB
 // ones register from reliability/idempotency/storages/<backend>/factory with
 // [KeeperBuilder.UseStorage]; a configured type without one fails at Build
 // naming the package to add.
@@ -32,7 +32,7 @@
 //	keeper, err := factory.New(cfg.Idempotency).
 //	    UseLogger(logger).
 //	    UseStorage(idempotencyconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
-//	    Build()
+//	    Build(ctx)
 //
 // # Purging
 //
@@ -40,4 +40,7 @@
 // 1000). A zero interval disables background purging. The builder registers Close with
 // UseShutdownHooks(group) or the process-wide runtime shutdown registry; run shutdown hooks before
 // closing the injected database.
+//
+// [KeeperBuilder.UseStorage] accepts custom backend names. For standalone schema
+// validation, pass [KeeperBuilder.RegisteredStorageTypes] results to SetRegisteredTypes.
 package factory

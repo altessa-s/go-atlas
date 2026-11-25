@@ -108,7 +108,7 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			return saga.ErrInstanceExists
 		}
-		return coreerrs.WrapOperation(err, "create saga instance in NATS")
+		return coreerrs.WrapOperation(classifyKeyError(err), "create saga instance in NATS")
 	}
 
 	inst.Version = revToVersion(rev)
@@ -128,7 +128,7 @@ func (s *Store) Get(ctx context.Context, id string) (*saga.Instance, error) {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return nil, saga.ErrInstanceNotFound
 		}
-		return nil, coreerrs.WrapOperation(err, "get saga instance from NATS")
+		return nil, coreerrs.WrapOperation(classifyKeyError(err), "get saga instance from NATS")
 	}
 	return decodeEntry(entry)
 }
@@ -156,7 +156,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 		if _, gerr := s.KV().Get(ctx, key); errors.Is(gerr, jetstream.ErrKeyNotFound) {
 			return saga.ErrInstanceNotFound
 		} else if gerr != nil {
-			return coreerrs.WrapOperation(gerr, "update saga instance in NATS")
+			return coreerrs.WrapOperation(classifyKeyError(gerr), "update saga instance in NATS")
 		}
 		return saga.ErrVersionConflict
 	}
@@ -176,7 +176,7 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 			}
 			return saga.ErrVersionConflict
 		}
-		return coreerrs.WrapOperation(err, "update saga instance in NATS")
+		return coreerrs.WrapOperation(classifyKeyError(err), "update saga instance in NATS")
 	}
 
 	inst.Version = revToVersion(rev)
@@ -238,7 +238,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return nil
 		}
-		return coreerrs.WrapOperation(err, "delete saga instance from NATS")
+		return coreerrs.WrapOperation(classifyKeyError(err), "delete saga instance from NATS")
 	}
 	return nil
 }
@@ -265,11 +265,19 @@ func versionToRev(v int64) uint64   { return uint64(v) }  //nolint:gosec // Vers
 // pass them through here.
 func physicalKey(id string) (string, error) {
 	if !utf8.ValidString(id) {
-		return "", ErrInvalidID
+		return "", errors.Join(saga.ErrInvalidStorageKey, ErrInvalidID)
 	}
 	key, err := natskey.Encode(id)
 	if err != nil {
-		return "", coreerrs.WrapOperation(err, "encode NATS KeyValue key")
+		return "", coreerrs.WrapOperation(errors.Join(saga.ErrInvalidStorageKey, err), "encode NATS KeyValue key")
 	}
 	return key, nil
+}
+
+// classifyKeyError retains the client cause for callers inspecting storage diagnostics.
+func classifyKeyError(err error) error {
+	if errors.Is(err, jetstream.ErrInvalidKey) {
+		return errors.Join(saga.ErrInvalidStorageKey, err)
+	}
+	return err
 }

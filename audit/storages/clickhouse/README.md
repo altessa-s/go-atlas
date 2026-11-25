@@ -178,6 +178,7 @@ if err := conn.Exec(ctx, ddl); err != nil {
 - **Duplicates are collapsed lazily.** The dispatcher delivers at-least-once; `ReplacingMergeTree` removes replayed rows by the sorting key, but only
   once the parts merge. `audit.FetchPage` returns each `(timestamp, id)` once regardless; raw `Query` and `Count` need `WithFinal`, which merges at
   query time, to stop observing a transient duplicate.
+- An empty batch succeeds. A nil event rejects the whole batch before any event is written.
 - **Batches are not atomic with respect to each other.** A failure partway through a split `StoreBatch` leaves the earlier batches inserted.
 - **Timestamps keep milliseconds.** The column is `DateTime64(3, 'UTC')`; sub-millisecond detail is dropped on write and values read back are in UTC.
 - **Empty containers normalize to nil.** The row cannot distinguish an empty map, slice, `Resource.Changes`, or `Result.Error` from an absent one, so

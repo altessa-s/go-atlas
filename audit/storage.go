@@ -15,7 +15,14 @@ type Storage interface {
 	// Store persists a single audit event.
 	Store(ctx context.Context, event *Event) error
 
-	// StoreBatch persists multiple audit events atomically.
+	// StoreBatch persists multiple audit events. An empty batch succeeds. A nil
+	// element rejects the whole batch before any write, with an error matching
+	// go-atlas-core/errors.ErrInvalidArgument.
+	//
+	// After a write error, MongoDB ordered inserts and ClickHouse chunked
+	// inserts can leave a prefix persisted. Memory appends atomically. SQL
+	// commits atomically in a storage-owned transaction; callers must roll
+	// back their own transaction on error.
 	StoreBatch(ctx context.Context, events []*Event) error
 
 	// Query returns an iterator over events matching the given criteria.

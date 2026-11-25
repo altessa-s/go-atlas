@@ -66,7 +66,7 @@ func TestBuild_MemoryStorageDeduplicates(t *testing.T) {
 		UseLogger(slog.New(slog.DiscardHandler)).
 		UseScheduler(sched).
 		UseMeter(tc).
-		Build()
+		Build(t.Context())
 	require.NoError(t, err)
 
 	ok, held, err := keeper.AttemptLock(t.Context(), "k")
@@ -107,7 +107,7 @@ func TestBuild_ConfigErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := factory.New(tc.cfg).Build()
+			_, err := factory.New(tc.cfg).Build(t.Context())
 			require.ErrorIs(t, err, tc.wantErr)
 			require.ErrorContains(t, err, tc.wantMsg)
 		})
@@ -118,11 +118,11 @@ func TestUseStorage(t *testing.T) {
 	t.Parallel()
 	cfg := storageCfg(&idempotencyconfig.StorageConfig{Type: idempotencyconfig.StorageTypeRedis})
 
-	_, err := factory.New(cfg).UseStorage(idempotencyconfig.StorageTypeRedis, nil).Build()
+	_, err := factory.New(cfg).UseStorage(idempotencyconfig.StorageTypeRedis, nil).Build(t.Context())
 	require.Error(t, err)
 
 	failing := func(*idempotencyconfig.Config) (storages.Storage, error) { return nil, errBuild }
-	_, err = factory.New(cfg).UseStorage(idempotencyconfig.StorageTypeRedis, failing).Build()
+	_, err = factory.New(cfg).UseStorage(idempotencyconfig.StorageTypeRedis, failing).Build(t.Context())
 	require.ErrorIs(t, err, errBuild)
 
 	want := memorystorage.New()
@@ -135,7 +135,7 @@ func TestUseStorage(t *testing.T) {
 	keeper, err := factory.New(cfg).
 		UseStorage(idempotencyconfig.StorageTypeRedis, failing).
 		UseStorage(idempotencyconfig.StorageTypeRedis, registered).
-		Build()
+		Build(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, keeper)
 	require.True(t, called, "the later registration replaces the earlier one")
@@ -146,4 +146,19 @@ func TestUseStorage(t *testing.T) {
 	ok, _, err = keeper.AttemptLock(t.Context(), "k")
 	require.NoError(t, err)
 	require.False(t, ok, "the keeper runs on the registered storage")
+}
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := storageCfg(&idempotencyconfig.StorageConfig{Type: "custom"})
+
+	build := func(*idempotencyconfig.Config) (storages.Storage, error) { return memorystorage.New(), nil }
+	b := factory.New(cfg).UseStorage("custom", build)
+	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+	require.NoError(t, cfg.Validate())
+	got, err := b.Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	_, err = factory.New(cfg).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
 }

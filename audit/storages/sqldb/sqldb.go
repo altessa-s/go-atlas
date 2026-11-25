@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"unicode/utf8"
@@ -108,6 +109,9 @@ func (s *Storage) StoreBatch(ctx context.Context, events []*audit.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
+	if slices.Contains(events, nil) {
+		return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
+	}
 	s.purge.Start() //nolint:contextcheck // Background purging carries no request context.
 	args := make([]any, 0, len(events)*columnsPerRow)
 	for _, e := range events {
@@ -204,6 +208,9 @@ func (s *Storage) appendRow(args []any, e *audit.Event) ([]any, error) {
 // ascending order is requested, and starting after query.Cursor. Stopping the
 // iteration closes the result set.
 func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audit.Event, error] {
+	if query == nil {
+		query = &audit.Query{}
+	}
 	return func(yield func(*audit.Event, error) bool) {
 		where, args := s.where(query)
 		dir, op := "DESC", "<"
@@ -253,6 +260,9 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 // Count returns the number of events matching the query filter. The page
 // position, size and order are ignored.
 func (s *Storage) Count(ctx context.Context, query *audit.Query) (int64, error) {
+	if query == nil {
+		query = &audit.Query{}
+	}
 	where, args := s.where(query)
 	var n int64
 	err := s.db.QueryRowContext(ctx, s.dialect.Bind("SELECT COUNT(*) FROM "+s.table+whereClause(where), 1), args...).Scan(&n)

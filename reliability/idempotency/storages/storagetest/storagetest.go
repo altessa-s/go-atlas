@@ -62,7 +62,7 @@ func KeeperStoresReplayRecord(t *testing.T, store storages.Storage) {
 	ok, state, err := k.AttemptLock(t.Context(), "replay-key")
 	require.NoError(t, err)
 	require.False(t, ok)
-	require.Equal(t, storages.StatusSuccess, state.Status)
+	require.Equal(t, idempotency.StatusSuccess, state.Status)
 	data, isMap := state.Data.(map[string]any)
 	require.True(t, isMap, "%T", state.Data)
 	require.Equal(t, "e-1", data["entity_id"])

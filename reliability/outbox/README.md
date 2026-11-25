@@ -81,6 +81,9 @@ clean and abortable.
 
 ## Delivery semantics
 
+Direct storage claims require a positive batch size. SQL returns the effective ordering key. MongoDB stores the topic only and returns an empty
+`OrderKey`.
+
 At-least-once. Duplicates are expected — a handler can publish successfully and then fail before its status is written back — so consumers must be
 idempotent. Where the transport supports deduplication, key it off `Event.Id`: it is assigned once at save time and never changes across retries. The
 `messaging/broker/outbox` adapter does this automatically.
@@ -125,14 +128,8 @@ the [SQL store](storages/sqldb#watch) with PostgreSQL `LISTEN`/`NOTIFY` when giv
 commits. The [factory](../../factory/reliability/outbox) starts the watcher for `outbox.watch: changeStream` or `notify`; by hand:
 
 ```go
-go func() {
-    switch err := ob.Watch(ctx); {
-    case err == nil, errors.Is(err, outbox.ErrWatchUnsupported):
-        // Nothing to do: dispatch continues on the scheduled poll cycle.
-    default:
-        logger.Error("outbox watcher stopped", slog.Any("error", err))
-    }
-}()
+ob.StartWatch(ctx)
+defer ob.StopWatch() // Cancels the watch and waits for the storage watcher to return.
 ```
 
 **Keep the dispatch schedule configured.** A notification means "something arrived", never "this event is due": a retry backoff elapsing and the unlock

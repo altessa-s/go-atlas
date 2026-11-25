@@ -33,4 +33,7 @@
 // 1000). A zero interval disables background purging. Build registers shutdown through
 // UseShutdownHooks(group) or the process-wide runtime registry and closes storage after draining
 // dispatch. BuildStorage callers own the returned storage and must close it before the database.
+//
+// [AuditorBuilder.UseStorage] accepts custom backend names. For standalone schema
+// validation, pass [AuditorBuilder.RegisteredStorageTypes] results to SetRegisteredTypes.
 package factory

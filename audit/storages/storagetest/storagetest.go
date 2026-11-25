@@ -16,13 +16,15 @@ import (
 	"github.com/altessa-s/go-aip/pagination/pagetoken"
 
 	"github.com/altessa-s/go-atlas/audit"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // NewStorage returns an empty storage for one test. Each call must return an
 // isolated storage, since subtests run in parallel.
 type NewStorage func(t *testing.T) audit.Storage
 
-// Run checks that a storage implements the audit paging contract: the total
+// Run checks batch input handling and the audit paging contract: the total
 // (timestamp milliseconds, ID) order in both directions, continuation after
 // a cursor, exact page boundaries, continuation under inserts, Count
 // semantics, millisecond time-range bounds, replayed events and page token
@@ -34,6 +36,36 @@ type NewStorage func(t *testing.T) audit.Storage
 func Run(t *testing.T, newStorage NewStorage, rejectsReplay func(error) bool) {
 	t.Helper()
 
+	t.Run("StoreBatch", func(t *testing.T) {
+		t.Parallel()
+		s := newStorage(t)
+		existing := event("existing", 0, "u1")
+		store(t, s, existing)
+		for _, batch := range [][]*audit.Event{nil, {}} {
+			require.NoError(t, s.StoreBatch(t.Context(), batch))
+		}
+		NilBatchEvent(t, s)
+		var got []string
+		for e, err := range s.Query(t.Context(), nil) {
+			require.NoError(t, err)
+			got = append(got, e.ID)
+		}
+		require.Equal(t, []string{existing.ID}, got)
+	})
+	t.Run("NilQuery", func(t *testing.T) {
+		t.Parallel()
+		s := newStorage(t)
+		store(t, s, event("old", 0, "u1"), event("new", time.Second, "u2"))
+		var got []string
+		for e, err := range s.Query(t.Context(), nil) {
+			require.NoError(t, err)
+			got = append(got, e.ID)
+		}
+		require.Equal(t, []string{"new", "old"}, got)
+		count, err := s.Count(t.Context(), nil)
+		require.NoError(t, err)
+		require.EqualValues(t, len(got), count)
+	})
 	t.Run("Order", func(t *testing.T) { t.Parallel(); testOrder(t, newStorage) })
 	t.Run("PageBoundaries", func(t *testing.T) { t.Parallel(); testPageBoundaries(t, newStorage) })
 	t.Run("InsertsDuringPaging", func(t *testing.T) { t.Parallel(); testInsertsDuringPaging(t, newStorage) })
@@ -292,4 +324,27 @@ func tamper(token string) string {
 		c = 'B'
 	}
 	return string(c) + token[1:]
+}
+
+// NilBatchEvent checks the invalid-input path. It also runs against offline
+// backends to verify that rejection does not need a connection.
+func NilBatchEvent(t *testing.T, s audit.Storage) {
+	t.Helper()
+	err := s.StoreBatch(t.Context(), []*audit.Event{event("before", 0, "u1"), nil, event("after", time.Second, "u1")})
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+}
+
+// BatchFailure checks the stored IDs after a backend-specific failing write.
+// The fixture defines the failure and the prefix guaranteed by that backend.
+func BatchFailure(t *testing.T, s audit.Storage, batch []*audit.Event, wantIDs []string) error {
+	t.Helper()
+	err := s.StoreBatch(t.Context(), batch)
+	require.Error(t, err)
+	var got []string
+	for e, queryErr := range s.Query(t.Context(), nil) {
+		require.NoError(t, queryErr)
+		got = append(got, e.ID)
+	}
+	require.ElementsMatch(t, wantIDs, got)
+	return err
 }

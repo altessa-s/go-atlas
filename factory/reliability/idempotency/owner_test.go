@@ -17,7 +17,6 @@ import (
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	factory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
-	storages "github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 )
 
 func memoryCfg() *idempotencyconfig.Config {
@@ -42,7 +41,7 @@ func lockAndComplete(t *testing.T, k *idempotency.Keeper, ctx context.Context, k
 func TestBuild_DefaultOwnerIsPrincipal(t *testing.T) {
 	t.Parallel()
 
-	k, err := factory.New(memoryCfg()).Build()
+	k, err := factory.New(memoryCfg()).Build(t.Context())
 	require.NoError(t, err)
 
 	alice := principal.NewContext(t.Context(), principal.Principal{Subject: "alice", Tenant: "acme"})
@@ -58,7 +57,7 @@ func TestBuild_DefaultOwnerIsPrincipal(t *testing.T) {
 	ok, st, err := k.AttemptLock(alice, "order-1")
 	require.NoError(t, err)
 	require.False(t, ok)
-	require.Equal(t, storages.StatusSuccess, st.Status)
+	require.Equal(t, idempotency.StatusSuccess, st.Status)
 	require.NotEmpty(t, st.Owner())
 }
 
@@ -74,7 +73,7 @@ func TestBuild_UseOwnerNamespaceAuthorizer(t *testing.T) {
 
 	t.Run("owner", func(t *testing.T) {
 		t.Parallel()
-		k, err := factory.New(memoryCfg()).UseOwner(label).Build()
+		k, err := factory.New(memoryCfg()).UseOwner(label).Build(t.Context())
 		require.NoError(t, err)
 		lockAndComplete(t, k, alice, "k", "a")
 		_, _, err = k.AttemptLock(bob, "k")
@@ -83,7 +82,7 @@ func TestBuild_UseOwnerNamespaceAuthorizer(t *testing.T) {
 
 	t.Run("namespace", func(t *testing.T) {
 		t.Parallel()
-		k, err := factory.New(memoryCfg()).UseKeyNamespace(label).Build()
+		k, err := factory.New(memoryCfg()).UseKeyNamespace(label).Build(t.Context())
 		require.NoError(t, err)
 		lockAndComplete(t, k, alice, "k", "a")
 		ok, _, err := k.AttemptLock(bob, "k")
@@ -95,7 +94,7 @@ func TestBuild_UseOwnerNamespaceAuthorizer(t *testing.T) {
 		t.Parallel()
 		errHidden := errors.New("hidden")
 		k, err := factory.New(memoryCfg()).UseOwner(label).
-			UseReplayAuthorizer(func(context.Context, string) error { return errHidden }).Build()
+			UseReplayAuthorizer(func(context.Context, string) error { return errHidden }).Build(t.Context())
 		require.NoError(t, err)
 		lockAndComplete(t, k, alice, "k", "a")
 		_, _, err = k.AttemptLock(alice, "k")

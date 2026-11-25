@@ -54,3 +54,8 @@ func TestTimesAreStoredInUTC(t *testing.T) {
 	require.Len(t, due, 1)
 	require.Equal(t, storagetest.T0.Add(time.Hour), due[0].NextAttemptAt)
 }
+
+func TestScalarPayload(t *testing.T) {
+	t.Parallel()
+	storagetest.ScalarPayload(t, memory.New[string](), nil, nil)
+}

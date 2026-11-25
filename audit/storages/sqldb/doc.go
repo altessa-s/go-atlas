@@ -23,9 +23,10 @@
 //
 // # Writes
 //
-// StoreBatch is atomic: one INSERT, or INSERTs of at most [WithMaxBatchRows]
-// rows in one transaction. Inserts are idempotent — an event whose ID is
-// already stored is skipped (ON CONFLICT DO NOTHING on PostgreSQL, a no-op ON
+// StoreBatch rejects a nil event before writing. A storage-owned batch is atomic:
+// one INSERT, or INSERTs of at most [WithMaxBatchRows] rows in one transaction.
+// A caller owning the transaction must roll it back on error. Inserts are
+// idempotent — an event whose ID is already stored is skipped (ON CONFLICT DO NOTHING on PostgreSQL, a no-op ON
 // DUPLICATE KEY UPDATE on MySQL) — so the dispatcher's at-least-once retry of
 // a batch whose commit acknowledgment was lost succeeds instead of failing on
 // its own earlier write.

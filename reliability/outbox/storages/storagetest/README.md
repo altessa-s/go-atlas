@@ -12,8 +12,10 @@ and retention sweeps.
 
 | Function                 | Verifies                                                                                                       |
 |--------------------------|----------------------------------------------------------------------------------------------------------------|
-| `Run`                    | Runs every contract below but `Watch` as parallel subtests, each on a fresh store; named contracts can be skipped |
+| `Run`                    | Runs the common contracts in parallel, each on a fresh store. Named contracts can be skipped. |
 | `FetchOldestFirst`       | A fetch returns ready events by `CreatedAt`, each with a lock token; locked events are not returned again      |
+| `FetchZeroBatch`         | Zero size returns an invalid-argument error and leaves pending events claimable |
+| `RunWithOrderKeys`       | Runs the suite and requires the declared ordering-key format in the `OrderKeys` case |
 | `FetchBatchSize`         | A fetch takes at most the batch size, oldest first                                                             |
 | `FetchInterleavesFailed` | A failed event ready for retry is fetched in creation order among pending ones                                 |
 | `PayloadsRoundTrip`      | A nil payload stays nil, an empty one empty, arbitrary bytes unchanged                                         |

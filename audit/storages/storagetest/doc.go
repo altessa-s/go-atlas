@@ -4,5 +4,6 @@
 
 // Package storagetest is the conformance suite of audit storages: every
 // backend under audit/storages runs [Run] to prove it implements the
-// ordering, paging and Count contract that [audit.FetchPage] relies on.
+// batch input contract and the order, paging and Count rules of [audit.FetchPage].
+// [BatchFailure] exercises backend-specific partial writes.
 package storagetest

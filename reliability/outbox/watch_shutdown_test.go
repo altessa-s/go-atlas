@@ -6,6 +6,7 @@ package outbox
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,4 +45,34 @@ func TestWatch_PendingWakeAfterShutdownFetchesNothing(t *testing.T) {
 	close(release)
 	require.NoError(t, <-watchDone)
 	require.Zero(t, store.served.Load())
+}
+
+func TestStartWatchSharesOneLifetime(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		stopFirst bool
+		calls     int32
+	}{
+		{"stopped before startup", true, 0}, {"repeated startup", false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var calls atomic.Int32
+			ob := New(&watchableStore{drive: func(ctx context.Context, _ func()) error {
+				calls.Add(1)
+				<-ctx.Done()
+				return ctx.Err()
+			}}, noopHandler)
+			if tc.stopFirst {
+				ob.StopWatch()
+			}
+			first := ob.StartWatch(t.Context())
+			second := ob.StartWatch(t.Context())
+			second()
+			first()
+			ob.StopWatch()
+			require.Equal(t, tc.calls, calls.Load())
+		})
+	}
 }

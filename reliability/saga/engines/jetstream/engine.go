@@ -23,7 +23,6 @@ import (
 	"github.com/altessa-s/go-atlas-core/encoding/serializer"
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
-	"github.com/altessa-s/go-atlas/internal/nats/natskey"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
@@ -79,6 +78,12 @@ const infoTimeout = 2 * time.Second
 // instead of crashing the process. Read-only after initialization.
 var noRepanic = panics.NewHandleOpts().SetReallyPanic(false)
 
+// Starter starts or resumes a saga by ID. DefinitionName identifies its command stream subject.
+type Starter[T any] interface {
+	DefinitionName() string
+	Start(context.Context, string, T) (*saga.Instance, error)
+}
+
 // Engine drives saga executions from a JetStream work queue. [Engine.Submit]
 // durably enqueues a start command; [Engine.Run] consumes commands and drives
 // each through the bound [saga.Orchestrator] until it reaches a terminal state.
@@ -90,7 +95,7 @@ var noRepanic = panics.NewHandleOpts().SetReallyPanic(false)
 // new one. Engine is safe for concurrent use.
 type Engine[T any] struct {
 	js       jetstream.JetStream
-	orch     *saga.Orchestrator[T]
+	orch     Starter[T]
 	consumer jetstream.Consumer
 
 	definition  string
@@ -123,16 +128,16 @@ type Engine[T any] struct {
 //	engine, err := sagajs.New(ctx, js, orch, sagajs.WithConcurrency(8))
 //	go func() { _ = engine.Run(ctx) }()
 //	err = engine.Submit(ctx, orderID, Order{ID: orderID})
-func New[T any](ctx context.Context, js jetstream.JetStream, orch *saga.Orchestrator[T], opts ...Option) (*Engine[T], error) {
+func New[T any](ctx context.Context, js jetstream.JetStream, orch Starter[T], opts ...Option) (*Engine[T], error) {
 	if nilcheck.IsNil(js) {
 		return nil, errors.New("saga engine: JetStream is required")
 	}
-	if orch == nil {
+	if nilcheck.IsNil(orch) {
 		return nil, errors.New("saga engine: orchestrator is required")
 	}
 
 	o := newOptions(opts...)
-	definition := orch.Definition().Name()
+	definition := orch.DefinitionName()
 	if !validToken(definition) || !validSubject(o.subjectPrefix) {
 		return nil, fmt.Errorf("%w: prefix %q, definition %q", ErrInvalidSubject, o.subjectPrefix, definition)
 	}
@@ -489,9 +494,8 @@ func (e *Engine[T]) execute(ctx context.Context, msg jetstream.Msg) {
 	switch {
 	case inst != nil && inst.Status.IsTerminal():
 		e.settle(msg, msg.Ack, e.metrics.acked, "ack")
-	case errors.Is(err, saga.ErrDefinitionNotFound), errors.Is(err, jetstream.ErrInvalidKey),
-		errors.Is(err, natskey.ErrKeyTooLong):
-		// The ID belongs to another definition, or the NATS KV store cannot
+	case errors.Is(err, saga.ErrDefinitionNotFound), errors.Is(err, saga.ErrInvalidStorageKey):
+		// The ID belongs to another definition, or the store cannot
 		// hold it as a key: retrying can never succeed.
 		e.logger.Error("saga engine: terminating command the store cannot run", slog.String("id", cmd.ID), slog.Any("error", err))
 		e.settle(msg, msg.Term, e.metrics.terminated, "term")

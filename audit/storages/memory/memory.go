@@ -11,6 +11,8 @@ import (
 	"sync"
 
 	"github.com/altessa-s/go-atlas/audit"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 var _ audit.Storage = (*Storage)(nil)
@@ -36,6 +38,9 @@ func (s *Storage) Store(_ context.Context, event *audit.Event) error {
 
 // StoreBatch appends all events to the in-memory slice in a single lock acquisition.
 func (s *Storage) StoreBatch(_ context.Context, events []*audit.Event) error {
+	if slices.Contains(events, nil) {
+		return coreerrs.Wrap(coreerrs.ErrInvalidArgument, "nil audit event")
+	}
 	s.mu.Lock()
 	s.events = append(s.events, events...)
 	s.mu.Unlock()
@@ -47,6 +52,9 @@ func (s *Storage) StoreBatch(_ context.Context, events []*audit.Event) error {
 // requested, starting after query.Cursor. It sorts a snapshot taken under a
 // read lock and iterates without holding the lock.
 func (s *Storage) Query(_ context.Context, query *audit.Query) iter.Seq2[*audit.Event, error] {
+	if query == nil {
+		query = &audit.Query{}
+	}
 	return func(yield func(*audit.Event, error) bool) {
 		s.mu.RLock()
 		// Copy to release lock quickly.
@@ -89,6 +97,9 @@ func (s *Storage) Query(_ context.Context, query *audit.Query) iter.Seq2[*audit.
 // Count returns the number of events matching the query filter. The page
 // position, size and order are ignored.
 func (s *Storage) Count(_ context.Context, query *audit.Query) (int64, error) {
+	if query == nil {
+		query = &audit.Query{}
+	}
 	s.mu.RLock()
 	snapshot := slices.Clone(s.events)
 	s.mu.RUnlock()

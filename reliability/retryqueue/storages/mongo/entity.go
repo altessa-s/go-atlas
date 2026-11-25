@@ -11,24 +11,21 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-atlas/internal/bsontag"
+	"github.com/altessa-s/go-atlas/internal/retryqueuefields"
 	"github.com/altessa-s/go-atlas/reliability/retryqueue"
 )
 
-// Document field names used in filters, updates and indexes.
+// Stored names are shared with configuration validation.
 const (
-	fID          = "_id"
-	fSince       = "since"
-	fAttempts    = "attempts"
-	fNextAttempt = "nextAttemptAt"
-	fState       = "state"
-	fExpiredAt   = "expiredAt"
-	fResolvedAt  = "resolvedAt"
-	fGeneration  = "generation"
+	fID          = retryqueuefields.ID
+	fSince       = retryqueuefields.Since
+	fAttempts    = retryqueuefields.Attempts
+	fNextAttempt = retryqueuefields.NextAttempt
+	fState       = retryqueuefields.State
+	fExpiredAt   = retryqueuefields.ExpiredAt
+	fResolvedAt  = retryqueuefields.ResolvedAt
+	fGeneration  = retryqueuefields.Generation
 )
-
-// reservedFields are the fields the store owns; the payload and the flag
-// fields must not use them.
-var reservedFields = []string{fID, fSince, fAttempts, fNextAttempt, fState, fExpiredAt, fResolvedAt, fGeneration}
 
 // itemDoc is the BSON representation of an item. The payload is inlined, so
 // its fields sit next to the store's. The flag fields have configurable names

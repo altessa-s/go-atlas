@@ -88,11 +88,18 @@ func (b *Builder[T]) Build(ctx context.Context) (*saga.Orchestrator[T], error) {
 		cfg.Storage = &storage
 	}
 	cfg.Normalize()
+	// Validate against this builder while preserving the config passed to storage functions.
+	schema := cfg
+	if cfg.Storage != nil {
+		storage := *cfg.Storage
+		storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+		schema.Storage = &storage
+	}
 	// Keep the normalized configuration local to this build.
 	builder := *b
 	builder.cfg = &cfg
 	b = &builder
-	if err := b.cfg.Validate(); err != nil {
+	if err := schema.Validate(); err != nil {
 		return nil, fmt.Errorf("validate saga config: %w", err)
 	}
 
@@ -112,33 +119,33 @@ func (b *Builder[T]) Build(ctx context.Context) (*saga.Orchestrator[T], error) {
 // built-in memory or sqldb store, or the one registered with [Builder.UseStorage].
 func (b *Builder[T]) buildStore(ctx context.Context) (saga.Storage, error) {
 	storage := b.cfg.Storage
-	switch storage.Type {
-	case sagaconfig.StorageTypeMemory:
+	if storage.Type == sagaconfig.StorageTypeMemory {
 		return memorystore.New(), nil
-	case sagaconfig.StorageTypeSQL:
+	}
+	if storage.Type == sagaconfig.StorageTypeSQL {
 		if err := b.RequireDependency(b.sqlDB, "SQL database"); err != nil {
 			return nil, err
 		}
 		return b.buildSQLStore(ctx, storage.SQL)
+	}
+	if build, ok := b.storages[storage.Type]; ok {
+		return build(ctx, storage)
+	}
+	switch storage.Type {
 	case sagaconfig.StorageTypeNATS:
-		return b.buildRegisteredStore(ctx, storage, "js")
+		return missingStorage(storage.Type, "js")
 	case sagaconfig.StorageTypeMongo:
-		return b.buildRegisteredStore(ctx, storage, "db")
+		return missingStorage(storage.Type, "db")
 	case sagaconfig.StorageTypeRedis:
-		return b.buildRegisteredStore(ctx, storage, "client")
+		return missingStorage(storage.Type, "client")
 	default:
 		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported saga storage type %q", storage.Type)
 	}
 }
 
-// buildRegisteredStore runs the [StorageFunc] registered for the storage type;
-// without one it names the package to add and the client its Builder takes.
-func (b *Builder[T]) buildRegisteredStore(ctx context.Context, storage *sagaconfig.StorageConfig, client string) (saga.Storage, error) {
-	if build, ok := b.storages[storage.Type]; ok {
-		return build(ctx, storage)
-	}
+func missingStorage(typ sagaconfig.StorageType, client string) (saga.Storage, error) {
 	return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "saga storage %q is not registered: add factory/reliability/saga/storages/%s "+
-		"with UseStorage(%q, %sfactory.Builder(%s))", storage.Type, storage.Type, storage.Type, storage.Type, client)
+		"with UseStorage(%q, %sfactory.Builder(%s))", typ, typ, typ, typ, client)
 }
 
 // ensureSchemaTimeout bounds the schema creation buildSQLStore runs when the

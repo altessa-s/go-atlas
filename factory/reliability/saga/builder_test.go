@@ -20,6 +20,7 @@ import (
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	sagafactory "github.com/altessa-s/go-atlas/factory/reliability/saga"
 	memorystore "github.com/altessa-s/go-atlas/reliability/saga/storages/memory"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 var errBuild = errors.New("build failed")
@@ -207,4 +208,22 @@ func TestBuildDoesNotNormalizeCallerConfig(t *testing.T) {
 	require.NotNil(t, orch)
 	require.Equal(t, before, cfg)
 	require.Equal(t, storageBefore, *cfg.Storage)
+}
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := sagaconfig.Default()
+	cfg.Storage = &sagaconfig.StorageConfig{Type: "custom"}
+
+	build := func(context.Context, *sagaconfig.StorageConfig) (saga.Storage, error) { return memorystore.New(), nil }
+	b := sagafactory.New(&cfg, orderDef()).UseStorage("custom", build)
+	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+	require.NoError(t, cfg.Validate())
+	_, err := sagafactory.New(&cfg, orderDef()).Build(t.Context())
+	var fields validation.Errors
+	require.ErrorAs(t, err, &fields)
+	cfg.Storage.SetRegisteredTypes(nil)
+	got, err := b.Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
 }

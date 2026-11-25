@@ -42,7 +42,7 @@ duplicate-key race (not inside a transaction, which the error has aborted). Inte
 
 `P` must be a struct or a struct pointer without an inlined map: its document fields are then known statically, `New` checks them against the
 store's, and decoding a document into `P` ignores the store's fields. `Reopen` replaces the matched document with a fresh one in one write
-(`findAndModify` with a replacement), so the whole payload is replaced and no field of the previous generation survives.
+(an aggregation update with `$replaceWith`). Literal BSON preserves caller payloads. On a same-generation reopen or requeue, the stored age advances by at least one millisecond.
 
 ## Moving an item
 

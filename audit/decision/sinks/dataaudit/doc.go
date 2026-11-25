@@ -11,7 +11,7 @@
 // EventTypeAuth — the subject becomes the actor, the action key and optional
 // resource become the event resource, the outcome maps to a success or denied
 // result, and RequiredScope plus the decision attributes ride along in the event
-// metadata — then emits it through a started *audit.Auditor (audit). A
+// metadata — then emits it through an [Emitter], such as a started *audit.Auditor. A
 // dropped event (full buffer) surfaces as [ErrDropped] so an audit.Recorder
 // under FailureRequired can fail the request.
 //

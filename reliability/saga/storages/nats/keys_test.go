@@ -5,12 +5,15 @@
 package nats_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/internal/nats/natsbase"
 	"github.com/altessa-s/go-atlas/internal/nats/natskey/natskeytest"
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
@@ -87,4 +90,30 @@ func TestStore_InvalidUTF8IDIsRejected(t *testing.T) {
 	require.ErrorIs(t, err, natsstore.ErrInvalidID)
 	require.ErrorIs(t, s.Update(t.Context(), &saga.Instance{ID: id, Version: 1}), natsstore.ErrInvalidID)
 	require.ErrorIs(t, s.Delete(t.Context(), id), natsstore.ErrInvalidID)
+}
+
+type invalidKeyKV struct{ jetstream.KeyValue }
+
+func (invalidKeyKV) Get(context.Context, string) (jetstream.KeyValueEntry, error) {
+	return nil, jetstream.ErrInvalidKey
+}
+
+func TestStoreInvalidStorageKey(t *testing.T) {
+	t.Parallel()
+	s := &natsstore.Store{Base: natsbase.NewBase(invalidKeyKV{})}
+	for _, tc := range []struct {
+		name, id string
+		cause    error
+	}{
+		{"encoded length", strings.Repeat(":", 2000), natsstore.ErrKeyTooLong},
+		{"invalid UTF-8", "order\xff", natsstore.ErrInvalidID},
+		{"client rejection", "valid", jetstream.ErrInvalidKey},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := s.Get(t.Context(), tc.id)
+			require.ErrorIs(t, err, saga.ErrInvalidStorageKey)
+			require.ErrorIs(t, err, tc.cause)
+		})
+	}
 }

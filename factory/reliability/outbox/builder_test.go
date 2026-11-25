@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -202,6 +203,12 @@ func TestBuildNotifyStartsAndStopsTheWatcher(t *testing.T) {
 				ob, err := New(cfg).UseSQLDB(db).UseSQLListener(listener).UseScheduler(reg).UseShutdownHooks(&hooks).Build(t.Context(), noopHandler)
 				if registrationError != nil {
 					require.ErrorIs(t, err, registrationError)
+					require.NoError(t, hooks.Shutdown(t.Context()))
+					require.Empty(t, listener.subscriptions(), "a failed build leaves no watcher")
+					reg.Err = nil
+					require.NoError(t, ob.RegisterTasks(t.Context()))
+					ob.StartWatch(t.Context())
+					t.Cleanup(ob.StopWatch)
 				} else {
 					require.NoError(t, err)
 				}
@@ -212,15 +219,15 @@ func TestBuildNotifyStartsAndStopsTheWatcher(t *testing.T) {
 					wantChannel = "events_outbox"
 				}
 				require.Equal(t, []string{wantChannel}, listener.subscriptions())
-				if registrationError != nil {
-					reg.Err = nil
-					require.NoError(t, ob.RegisterTasks(t.Context()))
-				}
+
 				require.NoError(t, ob.Save(t.Context(), outbox.Event{Key: "k", Payload: []byte("x")}))
 				calls := fake.Calls()
 				require.Len(t, calls, 1)
 				require.Contains(t, calls[0].Query, "SELECT pg_notify(")
 				require.Equal(t, wantChannel, calls[0].Args[len(calls[0].Args)-1])
+				if registrationError != nil {
+					ob.StopWatch()
+				}
 				require.NoError(t, hooks.Shutdown(t.Context()))
 				select {
 				case <-listener.stopped:
@@ -302,4 +309,61 @@ func TestBuildPollingIgnoresNotifyChannel(t *testing.T) {
 	calls := fake.Calls()
 	require.Len(t, calls, 1)
 	require.NotContains(t, calls[0].Query, "pg_notify")
+}
+
+type blockingWatcher struct {
+	outbox.Storage
+	canceled chan struct{}
+	release  chan struct{}
+	exited   chan struct{}
+}
+
+func (w *blockingWatcher) Watch(ctx context.Context, _ func()) error {
+	<-ctx.Done()
+	close(w.canceled)
+	<-w.release
+	close(w.exited)
+	return ctx.Err()
+}
+
+func TestWatchStopJoinsWorker(t *testing.T) {
+	t.Parallel()
+	for _, viaHooks := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hooks=%t", viaHooks), func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				cfg := brokerconfig.Default().Outbox
+				cfg.Storage = &brokerconfig.OutboxStorageConfig{Type: "custom"}
+				cfg.Watch = brokerconfig.OutboxWatchNotify
+				watch := &blockingWatcher{canceled: make(chan struct{}), release: make(chan struct{}), exited: make(chan struct{})}
+				var hooks coreruntime.HookGroup
+				ob, err := New(&cfg).UseStorage("custom", func(context.Context, *brokerconfig.Outbox, *slog.Logger) (outbox.Storage, error) { return watch, nil }).
+					UseShutdownHooks(&hooks).UseScheduler(&testhelpers.MockTaskRegistrar{}).Build(t.Context(), noopHandler)
+				require.NoError(t, err)
+				stopped := make(chan error, 1)
+				go func() {
+					if viaHooks {
+						ctx, cancel := context.WithCancel(t.Context())
+						cancel()
+						stopped <- hooks.Shutdown(ctx)
+					} else {
+						ob.StopWatch()
+						stopped <- nil
+					}
+				}()
+				<-watch.canceled
+				synctest.Wait()
+				premature := len(stopped)
+				close(watch.release)
+				require.NoError(t, <-stopped)
+				require.Zero(t, premature, "stop returned while storage Watch was still running")
+				select {
+				case <-watch.exited:
+				default:
+					require.FailNow(t, "storage watcher still running")
+				}
+				ob.StopWatch()
+			})
+		})
+	}
 }

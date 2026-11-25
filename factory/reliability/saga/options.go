@@ -9,6 +9,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-atlas-core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -94,4 +96,9 @@ func (b *Builder[T]) UseOnDeadLetter(v saga.DeadLetterFunc) *Builder[T] {
 func (b *Builder[T]) UseShouldRetry(v func(error) bool) *Builder[T] {
 	b.shouldRetry = v
 	return b
+}
+
+// RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
+func (b *Builder[T]) RegisteredStorageTypes() []sagaconfig.StorageType {
+	return slices.Sorted(maps.Keys(b.storages))
 }

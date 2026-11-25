@@ -29,6 +29,7 @@ import (
 	auditconfig "github.com/altessa-s/go-atlas/config/audit"
 	dispatchconfig "github.com/altessa-s/go-atlas/config/dispatch"
 	pagingconfig "github.com/altessa-s/go-atlas/config/paging"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 // stubDispatcher stands in for an externally-owned dispatcher so a test can
@@ -432,4 +433,23 @@ func TestBuildStorage_SQLPurgeShutdown(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	require.Len(t, fake.Calls(), before, "shutdown stops the BuildStorage loop")
 	require.NoError(t, db.PingContext(t.Context()))
+}
+
+func TestBuildCustomBackend(t *testing.T) {
+	t.Parallel()
+	cfg := memoryConfig()
+	cfg.Storage.Type = "custom"
+	var hooks coreruntime.HookGroup
+	t.Cleanup(func() { require.NoError(t, hooks.Shutdown(context.WithoutCancel(t.Context()))) })
+	build := func(context.Context, *auditconfig.Config, *slog.Logger) (audit.Storage, error) {
+		return memory.New(), nil
+	}
+	b := factory.New(cfg).UseStorage("custom", build)
+	cfg.Storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+	require.NoError(t, cfg.Storage.Validate())
+	got, err := b.UseShutdownHooks(&hooks).Build(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	_, err = factory.New(cfg).UseShutdownHooks(&hooks).Build(t.Context())
+	require.ErrorIs(t, err, corefactory.ErrUnsupported)
 }

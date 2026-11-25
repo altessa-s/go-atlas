@@ -7,12 +7,14 @@ package factory
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/reliability/saga"
 
 	sagaconfig "github.com/altessa-s/go-atlas/config/saga"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	sagafactory "github.com/altessa-s/go-atlas/factory/reliability/saga"
 	redisstore "github.com/altessa-s/go-atlas/reliability/saga/storages/redis"
 )
@@ -23,7 +25,7 @@ var (
 	ErrClientRequired = errors.New("saga: redis client is required for storage type redis")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// redis block.
-	ErrConfigRequired = errors.New("saga: redis configuration is required for storage type redis")
+	ErrConfigRequired = fmt.Errorf("saga: redis configuration is required for storage type redis: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the redis type, ready for

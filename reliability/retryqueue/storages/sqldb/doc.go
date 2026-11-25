@@ -44,7 +44,8 @@
 // passed to Resolve (its clock), so application-to-database clock skew shifts
 // the effective retention by that skew. Call PurgeExpired periodically, or
 // let the store run it in the background with [WithPurgeInterval] from its
-// first write call until [Store.Close].
+// first write call until [Store.Close] or [Store.StopPurge]. StopPurge waits for
+// the worker to exit even when a shutdown deadline has passed.
 //
 // # Usage
 //

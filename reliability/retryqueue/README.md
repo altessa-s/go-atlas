@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/reliability/retryqueue"
 ```
 
 Durable retry queue: one record of retryable work per key, swept by a periodic job until the work completes, expires or is dropped. A record carries a
-generation, and every transition is fenced by it, so a worker holding a stale snapshot of the work never closes, reopens or deletes newer work.
+generation, and worker transitions can also check the stored age to distinguish requeued work within one generation.
 
 ## Key types
 
@@ -13,7 +13,12 @@ generation, and every transition is fenced by it, so a worker holding a stale sn
 |--------------------|------------------------------------------------------------------------------------------------------|
 | `Item[P]`          | One record: key, generation, state, age (`Since`), attempts, next attempt, flag, caller payload `P`  |
 | `State`            | `pending`, `expired` or `resolved`                                                                   |
+| `ProducerStorage[P]` | Inserts and reopens work with `Mark` and `Reopen` |
+| `AdminStorage[P]` | Inspects and manages current items, including requeueing and deletion |
 | `Storage[P]`       | Persistence port implemented by the backends below                                                   |
+| `WorkerStorage[P]` | Due items and age-fenced updates for workers |
+| `AttemptStorage[P]` | Combined queue management and worker interface implemented by every bundled backend |
+| `Attempt` | Snapshot of key, generation and age returned by `Item.Attempt()` |
 | `Mover`            | Optional atomic `Move(ctx, from, to)` of an item to another key; every bundled backend implements it |
 | `ErrItemNotFound`  | `Move` from a key without an item; wraps go-atlas-core `errors.ErrNotFound`                          |
 | `ErrItemExists`    | `Move` onto a key that has an item; wraps go-atlas-core `errors.ErrAlreadyExists`                    |
@@ -40,6 +45,25 @@ generation, and every transition is fenced by it, so a worker holding a stale sn
 Instants come from the caller's clock. A transition on a missing item, or at another generation, is a no-op, not an error. An item written before
 generations were used reads as generation 0.
 
+`Expire` compares the observed generation and `Since`. Requeueing or reopening
+the same generation advances `Since` by at least one representable tick
+(nanoseconds in memory and SQL, milliseconds in MongoDB), even when the caller's
+clock repeats or moves backwards. Pass the stored `Since` to `Expire`.
+`NextAttemptAt` still uses the requested schedule.
+
+Worker code should depend on `WorkerStorage[P]` and pass the snapshot's
+`item.Attempt()` to `ResolveAttempt`, `RescheduleAttempt`, `FlagAttempt` and
+`ClearAttemptFlag`. When using the factory, check the returned `Storage[P]`
+for that interface. All bundled stores implement it. Generation-only methods
+remain available for actions targeting whichever item is current at that
+generation. After deleting a key, use a fresh generation or age if a worker
+could still hold a pre-deletion snapshot.
+
+Bundled stores snapshot payloads at their persistence boundary. Reading an item returns data independent of later reads. Use a type supported by the
+selected backend. MongoDB requires a BSON struct or struct pointer with no inlined map or field that collides with queue or flag fields. SQL uses its
+configured codec (JSON by default). For memory payloads with private mutable fields or other opaque data, supply a snapshot function through
+`memory.NewWithClone` or `factory/reliability/retryqueue.Builder.UseMemoryPayloadClone`.
+
 ## Moving an item
 
 `Mover.Move(ctx, from, to)` renames the key of an item (the work it stands for was rekeyed) and keeps every other field as stored: generation,
@@ -61,7 +85,7 @@ case errors.Is(err, retryqueue.ErrItemNotFound):
 
 `ListDue` is a read, not a lease: two sweepers may attempt the same item. Correctness comes from the fenced transitions — `Mark` has exactly one
 inserting winner, and of racing `Expire` or `Flag` calls exactly one reports `true` — so an operator alert or log line raised on `true` fires once.
-`Expire` is fenced by the age the caller read, so an attempt that started before an operator's `Requeue` cannot expire the requeued item.
+`Expire` and the `AttemptStorage` mutations also check the observed age, so an earlier worker cannot change an item revived by `Reopen` or `Requeue`.
 
 ## Backends
 
@@ -90,11 +114,11 @@ due, err := queue.ListDue(ctx, now, 0)
 for _, item := range due {
     switch err := attempt(ctx, item); {
     case err == nil:
-        _ = queue.Resolve(ctx, item.Key, item.Generation, now)
+        _ = queue.ResolveAttempt(ctx, item.Attempt(), now)
     case now.Sub(item.Since) >= maxAge:
         _, _ = queue.Expire(ctx, item.Key, item.Generation, item.Since, now)
     default:
-        _ = queue.Reschedule(ctx, item.Key, item.Generation, now.Add(retryInterval))
+        _ = queue.RescheduleAttempt(ctx, item.Attempt(), now.Add(retryInterval))
     }
 }
 ```

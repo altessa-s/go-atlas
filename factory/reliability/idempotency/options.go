@@ -9,6 +9,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
@@ -97,4 +99,9 @@ func (b *KeeperBuilder) UseKeyNamespace(v idempotency.KeyNamespaceFunc) *KeeperB
 func (b *KeeperBuilder) UseReplayAuthorizer(v idempotency.ReplayAuthorizer) *KeeperBuilder {
 	b.replayAuthorizer = v
 	return b
+}
+
+// RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
+func (b *KeeperBuilder) RegisteredStorageTypes() []idempotencyconfig.StorageType {
+	return slices.Sorted(maps.Keys(b.storages))
 }

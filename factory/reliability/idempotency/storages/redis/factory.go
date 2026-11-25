@@ -6,12 +6,14 @@ package factory
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	idempotencyfactory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 	redisstorage "github.com/altessa-s/go-atlas/reliability/idempotency/storages/redis"
 )
@@ -22,7 +24,7 @@ var (
 	ErrClientRequired = errors.New("idempotency: redis client is required for storage type redis")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// redis block.
-	ErrConfigRequired = errors.New("idempotency: redis configuration is required for storage type redis")
+	ErrConfigRequired = fmt.Errorf("idempotency: redis configuration is required for storage type redis: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the redis type, ready for

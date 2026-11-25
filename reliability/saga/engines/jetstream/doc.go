@@ -4,7 +4,7 @@
 
 // Package jetstream drives saga executions from a NATS JetStream work queue.
 // [Engine.Submit] durably enqueues a "start saga" command; [Engine.Run]
-// consumes commands and drives each through a [saga.Orchestrator] until the
+// consumes commands and drives each through a [Starter] such as a saga.Orchestrator until the
 // saga reaches a terminal state. Together with the NATS KeyValue store in
 // reliability/saga/storages/nats this gives an all-NATS saga deployment.
 //

@@ -8,6 +8,8 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/audit"
 
@@ -75,4 +77,9 @@ func (b *AuditorBuilder) UseStorage(typ auditconfig.StorageType, build StorageBu
 func (b *AuditorBuilder) UseShutdownHooks(v *coreruntime.HookGroup) *AuditorBuilder {
 	b.shutdownHooks = v
 	return b
+}
+
+// RegisteredStorageTypes returns a snapshot of the names registered with UseStorage for standalone configuration validation.
+func (b *AuditorBuilder) RegisteredStorageTypes() []auditconfig.StorageType {
+	return slices.Sorted(maps.Keys(b.storages))
 }

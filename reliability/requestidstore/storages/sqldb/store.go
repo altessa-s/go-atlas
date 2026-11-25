@@ -14,6 +14,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/internal/purgeloop"
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 	"github.com/altessa-s/go-atlas/reliability/requestidstore/internal/watermark"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -33,7 +34,7 @@ var (
 	// ErrUnsupportedDialect indicates an unknown SQL dialect.
 	ErrUnsupportedDialect = sqldialect.ErrUnsupportedDialect
 	// ErrInvalidTableName indicates an invalid SQL identifier.
-	ErrInvalidTableName = sqldialect.ErrInvalidTableName
+	ErrInvalidTableName = sqlident.ErrInvalidTableName
 )
 
 // Storage persists request ID reservations and their replay outcomes.

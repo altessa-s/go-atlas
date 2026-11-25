@@ -10,5 +10,5 @@
 //
 //	keeper, err := idempotencyfactory.New(cfg.Idempotency).
 //		UseStorage(idempotencyconfig.StorageTypeNATS, natsfactory.Builder(js)).
-//		Build()
+//		Build(ctx)
 package factory

@@ -41,6 +41,8 @@ driver.
 | Retention    | Optional background batched deletes from the first store when TTL is positive; explicit `PurgeExpired` too                     |
 | Close        | Stops background retention for good and waits for it within ctx; the `*sql.DB` belongs to the caller                           |
 
+An empty batch succeeds. A nil event rejects the whole batch before any event is written.
+
 Indexes: `(ts_ms, id)`, `(actor_id, ts_ms, id)`, `(resource_type, resource_id, ts_ms, id)`, `(request_id)`, `(trace_id)`. Each queryable field holds at
 most `MaxFilterBytes` (255) bytes and the ID `MaxIDLength` (255) characters: a longer value fails the batch with `ErrValueTooLong` before anything is
 written, so an index entry always fits and MySQL never truncates a value. `WithMaxBatchRows` is capped at 5461 rows, PostgreSQL's 65535 bind parameters.

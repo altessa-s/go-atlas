@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
@@ -79,7 +79,7 @@ func notifyChannel(explicit, table string) (string, error) {
 	if strings.Contains(ch, ".") {
 		return "", fmt.Errorf("%w: %q", ErrInvalidNotifyChannel, ch)
 	}
-	if _, err := sqldialect.Postgres.Table(ch); err != nil {
+	if err := sqlident.Validate(ch); err != nil {
 		return "", fmt.Errorf("%w: %q: set one with WithNotifyChannel", ErrInvalidNotifyChannel, ch)
 	}
 	return ch, nil

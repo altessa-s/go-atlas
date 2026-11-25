@@ -12,7 +12,7 @@ Maps the `redis` block of the idempotency storage configuration to a [Redis idem
 ```go
 keeper, err := idempotencyfactory.New(cfg.Idempotency).
     UseStorage(idempotencyconfig.StorageTypeRedis, redisfactory.Builder(redisClient)).
-    Build()
+    Build(ctx)
 ```
 
 | Symbol              | Description                                                                                         |

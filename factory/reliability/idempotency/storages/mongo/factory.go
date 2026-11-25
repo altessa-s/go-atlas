@@ -6,12 +6,14 @@ package factory
 
 import (
 	"errors"
+	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
 
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	idempotencyfactory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 	mongostorage "github.com/altessa-s/go-atlas/reliability/idempotency/storages/mongo"
 )
@@ -22,7 +24,7 @@ var (
 	ErrClientRequired = errors.New("idempotency: mongo database is required for storage type mongo")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// mongo block.
-	ErrConfigRequired = errors.New("idempotency: mongo configuration is required for storage type mongo")
+	ErrConfigRequired = fmt.Errorf("idempotency: mongo configuration is required for storage type mongo: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the storage function of the mongo type, ready for

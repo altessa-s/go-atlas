@@ -27,6 +27,7 @@ type Payload struct {
 	ValueOn time.Time `bson:"valueOn"`
 	Note    string    `bson:"note"`
 	Tag     string    `bson:"tag,omitempty"`
+	Labels  []string  `bson:"labels,omitempty" json:"Labels,omitempty"`
 }
 
 // Storage is the storage type the contracts exercise.
@@ -59,7 +60,10 @@ var contracts = []struct {
 	{"ReopenReplacesPayload", ReopenReplacesPayload},
 	{"ReopenRacingMark", ReopenRacingMark},
 	{"StaleExpireSparesRequeued", StaleExpireSparesRequeued},
+	{"RepeatedAgeFences", RepeatedAgeFences},
 	{"StaleGenerationIsNoOp", StaleGenerationIsNoOp},
+	{"StaleWorkerOutcomesAreIgnored", StaleWorkerOutcomesAreIgnored},
+	{"PayloadSnapshots", PayloadSnapshots},
 	{"ListByStateOrder", ListByStateOrder},
 	{"MissingItemIsNoOp", MissingItemIsNoOp},
 	{"ConcurrentMark", ConcurrentMark},
@@ -77,7 +81,8 @@ var contracts = []struct {
 // each on a fresh store from newStore, which must return an empty store
 // isolated from every other store it returns. The contracts named in skip are
 // reported as skipped, and so are the Move contracts when the store does not
-// implement [retryqueue.Mover].
+// implement [retryqueue.Mover] or, for attempt-scoped contracts,
+// [retryqueue.AttemptStorage].
 func Run(t *testing.T, newStore func(testing.TB) Storage, skip ...string) {
 	t.Helper()
 	for _, c := range contracts {
@@ -110,7 +115,7 @@ func Pending(key string, next time.Time) Item {
 }
 
 // mark stores items with Mark, failing the test on an error.
-func mark(t *testing.T, s Storage, items ...Item) {
+func mark(t *testing.T, s retryqueue.ProducerStorage[Payload], items ...Item) {
 	t.Helper()
 	for _, it := range items {
 		_, err := s.Mark(t.Context(), it)
@@ -119,7 +124,7 @@ func mark(t *testing.T, s Storage, items ...Item) {
 }
 
 // read returns the stored item of key through an insert-only Mark.
-func read(t *testing.T, s Storage, key string) Item {
+func read(t *testing.T, s retryqueue.ProducerStorage[Payload], key string) Item {
 	t.Helper()
 	got, err := s.Mark(t.Context(), Pending(key, T0))
 	require.NoError(t, err)
@@ -592,6 +597,44 @@ func StaleExpireSparesRequeued(t *testing.T, s Storage) {
 	require.True(t, ok)
 }
 
+// RepeatedAgeFences checks a frozen and a regressing clock across requeues
+// and same-generation reopens. Every prior observation remains stale.
+func RepeatedAgeFences(t *testing.T, s Storage) {
+	const key = "age"
+	item := Pending(key, T0)
+	current, err := s.Mark(t.Context(), item)
+	require.NoError(t, err)
+	instants := []time.Time{T0, T0.Add(-time.Hour), T0}
+	modes := []bool{false, true}
+	ages := make([]time.Time, 0, len(instants)*len(modes))
+	for _, now := range instants {
+		for _, reopen := range modes {
+			ages = append(ages, current.Since)
+			ok, err := s.Expire(t.Context(), key, item.Generation, current.Since, now)
+			require.NoError(t, err)
+			require.True(t, ok)
+			if reopen {
+				item.Since, item.NextAttemptAt = now, now
+				current, err = s.Reopen(t.Context(), item)
+				require.NoError(t, err)
+				require.Equal(t, read(t, s, key), current)
+			} else {
+				n, err := s.Requeue(t.Context(), now, key)
+				require.NoError(t, err)
+				require.Equal(t, 1, n)
+				current = read(t, s, key)
+			}
+			require.Equal(t, now, current.NextAttemptAt)
+			require.True(t, current.Since.After(ages[len(ages)-1]))
+			for _, stale := range ages {
+				ok, err := s.Expire(t.Context(), key, item.Generation, stale, now)
+				require.NoError(t, err)
+				require.False(t, ok)
+			}
+		}
+	}
+}
+
 // StaleGenerationIsNoOp asserts every generation-fenced transition made with
 // another generation leaves the item unchanged.
 //
@@ -756,7 +799,7 @@ func mover(t *testing.T, s Storage) retryqueue.Mover {
 // all returns every stored item, in any state, ordered by key.
 //
 //nolint:mnd // Fixed instants, generations and counts describe the storage contract.
-func all(t *testing.T, s Storage) []Item {
+func all(t *testing.T, s retryqueue.AdminStorage[Payload]) []Item {
 	t.Helper()
 	var out []Item
 	for _, state := range []retryqueue.State{retryqueue.StatePending, retryqueue.StateExpired, retryqueue.StateResolved} {
@@ -956,4 +999,127 @@ func DoneContextChangesNothing(t *testing.T, s Storage) {
 		require.ErrorIs(t, call(), context.Canceled, name)
 	}
 	require.Equal(t, before, all(t, s))
+}
+
+// StaleWorkerOutcomesAreIgnored checks the attempt-scoped transitions after
+// both ways of reviving work within the same generation.
+func StaleWorkerOutcomesAreIgnored(t *testing.T, s Storage) {
+	t.Helper()
+	attempts, ok := s.(retryqueue.AttemptStorage[Payload])
+	if !ok {
+		t.Skip("backend does not implement retryqueue.AttemptStorage")
+	}
+
+	for _, reopen := range []bool{false, true} {
+		key := "requeue"
+		if reopen {
+			key = "reopen"
+		}
+		in := Pending(key, T0)
+		old, err := attempts.Mark(t.Context(), in)
+		require.NoError(t, err)
+		expired, err := attempts.Expire(t.Context(), key, old.Generation, old.Since, T0)
+		require.NoError(t, err)
+		require.True(t, expired)
+		if reopen {
+			in.Payload.Note = "replacement"
+			_, err = attempts.Reopen(t.Context(), in)
+			require.NoError(t, err)
+		} else {
+			var n int
+			n, err = attempts.Requeue(t.Context(), T0, key)
+			require.NoError(t, err)
+			require.Equal(t, 1, n)
+		}
+
+		items, err := attempts.ListDue(t.Context(), T0, 0)
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		cur := items[0]
+		require.Equal(t, key, cur.Key)
+		require.Equal(t, in.Payload, cur.Payload)
+		require.Equal(t, old.Generation, cur.Generation)
+		require.True(t, cur.Since.After(old.Since))
+
+		flagged, err := attempts.FlagAttempt(t.Context(), cur.Attempt(), "current")
+		require.NoError(t, err)
+		require.True(t, flagged)
+		flagged, err = attempts.FlagAttempt(t.Context(), old.Attempt(), "stale")
+		require.NoError(t, err)
+		require.False(t, flagged)
+		require.NoError(t, attempts.ClearAttemptFlag(t.Context(), old.Attempt()))
+		require.NoError(t, attempts.RescheduleAttempt(t.Context(), old.Attempt(), T0.Add(time.Hour)))
+		require.NoError(t, attempts.ResolveAttempt(t.Context(), old.Attempt(), T0))
+
+		items, err = attempts.ListDue(t.Context(), T0, 0)
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		require.True(t, items[0].Flagged)
+		require.Equal(t, "current", items[0].FlagReason)
+		require.Zero(t, items[0].Attempts)
+		require.NoError(t, attempts.ClearAttemptFlag(t.Context(), cur.Attempt()))
+		require.NoError(t, attempts.RescheduleAttempt(t.Context(), cur.Attempt(), T0.Add(time.Hour)))
+		require.NoError(t, attempts.ResolveAttempt(t.Context(), cur.Attempt(), T0))
+		items, err = attempts.ListByState(t.Context(), retryqueue.StateResolved, 0)
+		require.NoError(t, err)
+		require.NotEmpty(t, items)
+		for _, it := range items {
+			require.Equal(t, 1, it.Attempts)
+			require.False(t, it.Flagged)
+		}
+	}
+}
+
+// PayloadSnapshots verifies that callers own the data returned from both
+// writes and lists, and the store keeps the payload it originally observed.
+func PayloadSnapshots(t *testing.T, s Storage) {
+	t.Helper()
+	const replacement = "replacement label"
+	in := Pending("snapshot", T0)
+	in.Payload.Labels = []string{"initial label"}
+	marked, err := s.Mark(t.Context(), in)
+	require.NoError(t, err)
+	in.Payload.Labels[0] = "modified input"
+	marked.Payload.Labels[0] = "modified output"
+
+	items, err := s.ListDue(t.Context(), T0, 0)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, []string{"initial label"}, items[0].Payload.Labels)
+	items[0].Payload.Labels[0] = "modified list"
+
+	in.Generation++
+	in.Payload.Labels = []string{replacement}
+	reopened, err := s.Reopen(t.Context(), in)
+	require.NoError(t, err)
+	in.Payload.Labels[0] = "modified reopen input"
+	reopened.Payload.Labels[0] = "modified reopen output"
+	items, err = s.ListByState(t.Context(), retryqueue.StatePending, 0)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, []string{replacement}, items[0].Payload.Labels)
+	items[0].Payload.Labels[0] = "modified state list"
+
+	again, err := s.Mark(t.Context(), in)
+	require.NoError(t, err)
+	require.Equal(t, []string{replacement}, again.Payload.Labels)
+}
+
+// ScalarPayload verifies a backend's representation of a string payload.
+// Pass the backend's constructor error and its documented rejection sentinel
+// for a format that cannot store scalars. Otherwise the payload must round-trip.
+func ScalarPayload(t *testing.T, s retryqueue.ProducerStorage[string], buildErr, unsupported error) {
+	t.Helper()
+	if unsupported != nil {
+		require.ErrorIs(t, buildErr, unsupported)
+		return
+	}
+	require.NoError(t, buildErr)
+	item := retryqueue.Item[string]{Key: "scalar", Since: T0, NextAttemptAt: T0, Payload: "hello"}
+	_, err := s.Mark(t.Context(), item)
+	require.NoError(t, err)
+	// A second insert-only Mark reads the persisted value.
+	got, err := s.Mark(t.Context(), retryqueue.Item[string]{Key: item.Key, Payload: "replacement"})
+	require.NoError(t, err)
+	require.Equal(t, item.Payload, got.Payload)
 }

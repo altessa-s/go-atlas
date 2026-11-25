@@ -19,6 +19,9 @@
 //	                                                                              ↓
 //	                                                                   (fail? → Retry with backoff)
 //
+// Storage.StoreBatch rejects nil events before writing. MongoDB and ClickHouse
+// may retain earlier writes after a backend error. See [Storage.StoreBatch].
+//
 // # Usage
 //
 //	storage := memory.New() // or mongo.New(db)

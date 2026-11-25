@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/sqlident"
 )
 
 // Dialect selects the SQL flavor the storage speaks.
@@ -28,7 +29,7 @@ var (
 	// ErrInvalidTableName is returned by [New] when the table name is not a
 	// plain SQL identifier, optionally qualified by one schema name, or a part
 	// of it exceeds 63 characters.
-	ErrInvalidTableName = sqldialect.ErrInvalidTableName
+	ErrInvalidTableName = sqlident.ErrInvalidTableName
 	// ErrValueTooLong is returned by Store and StoreBatch, before anything is
 	// written, for an event ID longer than [MaxIDLength] characters or a
 	// queryable field longer than [MaxFilterBytes] bytes. Rejecting them up

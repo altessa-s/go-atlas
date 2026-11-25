@@ -10,5 +10,5 @@
 //
 //	keeper, err := idempotencyfactory.New(cfg.Idempotency).
 //		UseStorage(idempotencyconfig.StorageTypeMongo, mongofactory.Builder(db)).
-//		Build()
+//		Build(ctx)
 package factory

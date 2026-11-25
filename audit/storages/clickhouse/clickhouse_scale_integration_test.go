@@ -6,6 +6,7 @@ package clickhouse_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"testing"
@@ -75,4 +76,15 @@ func TestIntegration_ScalePaging(t *testing.T) {
 		seen[e.ID] = struct{}{}
 	}
 	require.Len(t, seen, total, "no event may repeat across pages")
+}
+
+func TestStoreBatchPartialFailure(t *testing.T) {
+	t.Parallel()
+	s := newTestStorage(t, auditclickhouse.WithMaxBatchSize(1))
+	at := time.Now().UTC()
+	good, bad := testEvent("before", at), testEvent("invalid", at)
+	bad.Metadata = map[string]any{"unencodable": make(chan int)}
+	err := storagetest.BatchFailure(t, s, []*audit.Event{good, bad, testEvent("after", at)}, []string{good.ID})
+	var typeErr *json.UnsupportedTypeError
+	require.ErrorAs(t, err, &typeErr)
 }

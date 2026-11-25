@@ -30,7 +30,8 @@
 //	return tx.Commit()
 //
 // [WithTxResolver] can supply the business transaction for saves. Claims, outcome updates
-// and sweeps use store-owned transactions and see committed events.
+// and sweeps use store-owned transactions and see committed events. A zero
+// claim batch size returns an invalid-argument error before opening one.
 //
 // # Server clock
 //

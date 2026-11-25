@@ -17,7 +17,7 @@ import (
 	schedtask "github.com/altessa-s/go-horai/task"
 )
 
-// capturingRegistrar records every TaskConfig passed to Register so
+// capturingRegistrar records every schedtask.Config passed to Register so
 // tests can assert exactly which IDs the outbox handed to the
 // scheduler. It is concurrent-safe because registerTasks could in
 // principle be invoked from multiple Outbox instances at once in a
@@ -140,7 +140,7 @@ func TestRegisterTasks_EachTaskRunsItsOwnCycle(t *testing.T) {
 
 // TestRegisterTasks_OverridesPropagateToScheduler proves the end-to-end
 // wire-up: a WithDispatchTaskID / WithUnlockTaskID override threaded
-// through New() reaches TaskConfig.ID on the scheduler.Register call.
+// through New() reaches schedtask.Config.ID on the scheduler.Register call.
 // This is the "the new option actually works" guard — without it, a
 // regression in scheduler.go that quietly reverts to a hardcoded
 // string would go undetected because the rest of the package never

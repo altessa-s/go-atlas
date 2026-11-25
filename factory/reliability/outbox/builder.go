@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/reliability/outbox"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreruntime "github.com/altessa-s/go-atlas-core/runtime"
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
@@ -71,11 +73,10 @@ func New(cfg *brokerconfig.Outbox) *OutboxBuilder {
 // pass outboxsql.WithTx(ctx, tx). The mongo storage needs the [StorageFunc]
 // registered with [OutboxBuilder.UseStorage].
 //
-// With watch set to changeStream or notify, the builder starts
-// [outbox.Outbox.Watch] in its own goroutine whenever a non-nil outbox is returned,
-// including when task registration fails, and stops it through the shutdown
-// hook group (the process registry unless
-// [OutboxBuilder.UseShutdownHooks] says otherwise). The notify mode makes the
+// With watch set to changeStream or notify, a successful build starts
+// [outbox.Outbox.StartWatch]. The caller can stop and join it with
+// [outbox.Outbox.StopWatch]. The shutdown hook group (the process registry unless
+// [OutboxBuilder.UseShutdownHooks] says otherwise) also stops it. The notify mode makes the
 // sqldb store signal PostgreSQL on every save and listen through the
 // [outboxsql.Listener] given to [OutboxBuilder.UseSQLListener]. The poll
 // schedule and an injected scheduler are required for both push watch modes.
@@ -96,11 +97,16 @@ func (b *OutboxBuilder) Build(ctx context.Context, handler outbox.Handler) (*out
 		cfg.Storage = &storage
 	}
 	cfg.Normalize()
+	// Validate against this builder while preserving the config passed to storage functions.
+	schema := cfg
+	storage := *cfg.Storage
+	storage.SetRegisteredTypes(b.RegisteredStorageTypes())
+	schema.Storage = &storage
 	// Keep the normalized configuration local to this build.
 	builder := *b
 	builder.cfg = &cfg
 	b = &builder
-	if err := b.cfg.ValidateStorage(); err != nil {
+	if err := errors.Join(schema.ValidateStorage(), b.validateWatchBackend()); err != nil {
 		return nil, fmt.Errorf("validate outbox storage config: %w", err)
 	}
 
@@ -114,33 +120,70 @@ func (b *OutboxBuilder) Build(ctx context.Context, handler outbox.Handler) (*out
 		return nil, err
 	}
 
+	if watch {
+		if watcher, ok := store.(outbox.Watcher); !ok || nilcheck.IsNil(watcher) {
+			return nil, unsupportedWatch(&cfg)
+		}
+	}
+
 	ob, err := b.createOutboxWithStore(ctx, store, handler)
-	if ob != nil && watch {
-		b.startWatch(ctx, ob)
+	if err == nil && watch {
+		stop := ob.StartWatch(context.WithoutCancel(ctx))
+		b.onShutdown(func(context.Context) error {
+			stop()
+			return nil
+		})
 	}
 	return ob, err
+}
+
+// validateWatchBackend rejects incompatible built-in modes before provisioning storage.
+func (b *OutboxBuilder) validateWatchBackend() error {
+	cfg := b.cfg
+	if cfg.Watch != brokerconfig.OutboxWatchChangeStream && cfg.Watch != brokerconfig.OutboxWatchNotify {
+		return nil
+	}
+	switch cfg.Storage.Type {
+	case brokerconfig.OutboxStorageTypeMongo:
+		if cfg.Watch != brokerconfig.OutboxWatchChangeStream {
+			return unsupportedWatch(cfg)
+		}
+	case brokerconfig.OutboxStorageTypeSQL:
+		if cfg.Watch != brokerconfig.OutboxWatchNotify || cfg.Storage.SQL == nil || cfg.Storage.SQL.Dialect != brokerconfig.SQLDialectPostgres {
+			return unsupportedWatch(cfg)
+		}
+	default:
+		if _, registered := b.storages[cfg.Storage.Type]; !registered {
+			return unsupportedWatch(cfg)
+		}
+	}
+	return nil
+}
+
+func unsupportedWatch(cfg *brokerconfig.Outbox) error {
+	return corefactory.Errorf(coreerrs.ErrInvalidArgument, "outbox watch %q with storage %q: %w",
+		cfg.Watch, cfg.Storage.Type, brokerconfig.ErrUnsupportedOutboxWatch)
 }
 
 // buildStore constructs the [outbox.Storage] named by the storage type: the
 // built-in sqldb store, or the one registered with [OutboxBuilder.UseStorage].
 func (b *OutboxBuilder) buildStore(ctx context.Context) (outbox.Storage, error) {
-	switch typ := b.cfg.Storage.Type; typ {
-	case brokerconfig.OutboxStorageTypeSQL:
+	typ := b.cfg.Storage.Type
+	if typ == brokerconfig.OutboxStorageTypeSQL {
 		return b.buildSQLStore(ctx, b.cfg.Storage.SQL)
-	case brokerconfig.OutboxStorageTypeMongo:
-		build, ok := b.storages[typ]
-		if !ok {
-			return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "outbox storage %q is not registered: add "+
-				"factory/reliability/outbox/storages/mongo with UseStorage(%q, outboxmongofactory.Builder(db))", typ, typ)
-		}
+	}
+	if build, ok := b.storages[typ]; ok {
 		store, err := build(ctx, b.cfg, b.Logger())
 		if err != nil {
 			return nil, b.WrapError(err, "failed to create outbox store")
 		}
 		return store, nil
-	default:
-		return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported outbox storage type %q", typ)
 	}
+	if typ == brokerconfig.OutboxStorageTypeMongo {
+		return nil, corefactory.Errorf(corefactory.ErrNotRegistered, "outbox storage %q is not registered: add "+
+			"factory/reliability/outbox/storages/mongo with UseStorage(%q, outboxmongofactory.Builder(db))", typ, typ)
+	}
+	return nil, corefactory.Errorf(corefactory.ErrUnsupported, "unsupported outbox storage type %q", typ)
 }
 
 // buildSQLStore creates the SQL store. With EnsureSchema set it creates the
@@ -181,37 +224,6 @@ func (b *OutboxBuilder) buildSQLStore(ctx context.Context, cfg *brokerconfig.Out
 // ensureSchemaTimeout bounds the schema creation buildSQLStore runs when the
 // config asks for it, so a lock wait cannot stall startup indefinitely.
 const ensureSchemaTimeout = 30 * time.Second
-
-// startWatch runs [outbox.Outbox.Watch] until shutdown. The watcher outlives
-// Build, so it runs on a context detached from the build context's
-// cancellation; the shutdown hook cancels it and waits for it to return.
-func (b *OutboxBuilder) startWatch(ctx context.Context, ob *outbox.Outbox) {
-	logger := b.Logger()
-	watchCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	done := make(chan struct{})
-
-	go func() {
-		defer close(done)
-		switch err := ob.Watch(watchCtx); {
-		case err == nil:
-		case errors.Is(err, outbox.ErrWatchUnsupported):
-			logger.WarnContext(watchCtx, "outbox store cannot push notifications; dispatch stays on the poll schedule",
-				slog.String("watch", string(b.cfg.Watch)))
-		default:
-			logger.ErrorContext(watchCtx, "outbox watcher stopped", slog.Any("error", err))
-		}
-	}()
-
-	b.onShutdown(func(ctx context.Context) error {
-		cancel()
-		select {
-		case <-done:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	})
-}
 
 // onShutdown registers hook in the builder's scope, defaulting to the
 // process-wide registry.

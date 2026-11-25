@@ -11,6 +11,8 @@ and `Count` contract that `audit.FetchPage` relies on. A custom storage should r
 
 | Subtest               | Verifies                                                                                               |
 |-----------------------|--------------------------------------------------------------------------------------------------------|
+| `StoreBatch`          | Empty batches succeed and nil elements reject the batch before any write |
+| `BatchFailure`        | Backend-specific failure and the IDs still stored after it |
 | `Order`               | Total `(timestamp millisecond, ID)` order in both directions, at every page size                       |
 | `PageBoundaries`      | Exact page boundaries: a full last page carries no next token                                          |
 | `InsertsDuringPaging` | Events inserted ahead of the position appear on later pages; events behind it do not                   |

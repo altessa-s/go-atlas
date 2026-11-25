@@ -26,7 +26,7 @@ func newEngineMetrics(c metrics.Meter) *engineMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("saga_engine")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("saga_engine")}
 
 	return &engineMetrics{
 		submitted: scoped.MustCounter(metrics.MetricOpts{

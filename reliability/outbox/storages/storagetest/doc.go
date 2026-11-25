@@ -8,11 +8,9 @@
 // dispatcher, the lock-token fence of UpdateEvents, and the backend-clock
 // predicates of the retry, unlock, expiry and retention sweeps.
 //
-// [Run] executes every contract as parallel subtests on a fresh store each, so
-// a new one cannot be left out of a single backend. Each contract is also
-// exported on its own; it takes an empty, isolated store and fails the test on
-// any contract violation. [Watch] covers the optional [outbox.Watcher]
-// capability and runs only for a store that can serve it.
+// [Run] executes the common contracts as parallel subtests on fresh stores.
+// [RunWithOrderKeys] also verifies the declared ordering-key format. [Watch] covers the
+// optional [outbox.Watcher] capability on stores that implement it.
 //
 // # Precision
 //

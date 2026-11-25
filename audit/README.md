@@ -65,6 +65,12 @@ _ = a.Start()
 _ = hooks.Shutdown(ctx) // stops this auditor, leaves the process running
 ```
 
+## Batch writes
+
+An empty batch succeeds. A nil event rejects the whole batch before any event is written. MongoDB can persist an ordered prefix on a write error.
+ClickHouse can retain completed chunks. Memory appends atomically. SQL makes storage-owned transactions atomic and requires the caller to roll back a
+failed caller-owned transaction.
+
 ## Paging
 
 Queries page with signed keyset tokens instead of offsets. Every storage orders events by timestamp (milliseconds) then ID, newest first unless

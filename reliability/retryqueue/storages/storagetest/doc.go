@@ -12,7 +12,8 @@
 //
 // The contracts store a [Payload] with one omitempty field, and use
 // whole-second UTC instants so that values round-tripped through a backend
-// compare equal.
+// compare equal. [ScalarPayload] separately checks the documented payload
+// format of each backend.
 //
 // # Usage
 //

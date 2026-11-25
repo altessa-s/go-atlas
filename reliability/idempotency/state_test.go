@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package storages_test
+package idempotency_test
 
 import (
 	"encoding/json"
@@ -10,12 +10,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/reliability/idempotency/storages"
+	"github.com/altessa-s/go-atlas/reliability/idempotency"
 )
 
 func TestState_Accessors(t *testing.T) {
 	t.Parallel()
-	s := &storages.State{Status: storages.StatusInProgress}
+	s := &idempotency.State{Status: idempotency.StatusInProgress}
 	require.Nil(t, s.LockToken())
 	require.Nil(t, s.Fingerprint())
 	require.Empty(t, s.Owner())
@@ -36,7 +36,7 @@ func TestState_Accessors(t *testing.T) {
 
 func TestState_NilReceiverIsSafe(t *testing.T) {
 	t.Parallel()
-	var s *storages.State
+	var s *idempotency.State
 	s.SetLockToken([]byte("x"))
 	s.SetFingerprint([]byte("x"))
 	s.SetOwner("x")
@@ -47,7 +47,7 @@ func TestState_NilReceiverIsSafe(t *testing.T) {
 
 func TestState_PrivateFieldsAreNotSerialized(t *testing.T) {
 	t.Parallel()
-	s := &storages.State{Status: storages.StatusSuccess, Data: "d"}
+	s := &idempotency.State{Status: idempotency.StatusSuccess, Data: "d"}
 	s.SetLockToken([]byte("tok"))
 	s.SetOwner("node-1")
 	s.SetFingerprint([]byte("fp"))
@@ -55,9 +55,9 @@ func TestState_PrivateFieldsAreNotSerialized(t *testing.T) {
 	raw, err := json.Marshal(s)
 	require.NoError(t, err)
 
-	var back storages.State
+	var back idempotency.State
 	require.NoError(t, json.Unmarshal(raw, &back))
-	require.Equal(t, storages.StatusSuccess, back.Status)
+	require.Equal(t, idempotency.StatusSuccess, back.Status)
 	require.Equal(t, "d", back.Data)
 	require.Nil(t, back.LockToken())
 	require.Empty(t, back.Owner())

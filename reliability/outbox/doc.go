@@ -36,10 +36,14 @@
 // By default, a batch is fetched oldest-first and dispatched concurrently.
 // The SQL store's sqldb.WithKeyOrder option restricts claims to the earliest
 // undelivered sequence for each Event.OrderKey (Event.Key when empty).
-// A failed event blocks its key through
-// retry backoff. A terminal status releases the next event.
+// A failed event blocks its key through retry backoff. A terminal status
+// releases the next event. MongoDB stores only Event.Key. Direct claims on
+// either backend require a positive batch size.
 //
 // # Dispatch latency
+//
+// [Outbox.StartWatch] runs the watcher in the background. [Outbox.StopWatch] cancels it
+// and waits until the storage watcher exits.
 //
 // Dispatch normally runs on a schedule, so a saved event waits up to one poll interval.
 // A store that implements [Watcher] can shorten that: [Outbox.Watch] blocks on store

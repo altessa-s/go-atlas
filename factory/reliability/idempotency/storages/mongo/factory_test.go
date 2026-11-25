@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/factory/reliability/idempotency/storages/mongo"
 
 	idempotencyconfig "github.com/altessa-s/go-atlas/config/idempotency"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	idempotencyfactory "github.com/altessa-s/go-atlas/factory/reliability/idempotency"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -43,6 +44,7 @@ func TestBuilder_Errors(t *testing.T) {
 	cfg.Storage.Mongo = nil
 	_, err = factory.Builder(&mongo.Database{})(cfg)
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }
 
 func TestBuilder(t *testing.T) {
@@ -71,7 +73,7 @@ func TestBuilder(t *testing.T) {
 	})
 
 	keeper, err := idempotencyfactory.New(mongoConfig()).
-		UseStorage(idempotencyconfig.StorageTypeMongo, factory.Builder(db)).Build()
+		UseStorage(idempotencyconfig.StorageTypeMongo, factory.Builder(db)).Build(t.Context())
 	require.NoError(t, err)
 	ok, held, err := keeper.AttemptLock(t.Context(), "k")
 	require.NoError(t, err)

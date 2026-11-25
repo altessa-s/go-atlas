@@ -27,7 +27,10 @@
 // # Purging
 //
 // SQL configuration maps purgeInterval and purgeBatchSize to the store options (defaults "1m" and
-// 1000). A zero interval disables background purging. The builder registers Close with
+// 1000). A zero interval disables background purging. The builder registers StopPurge with
 // UseShutdownHooks(group) or the process-wide runtime shutdown registry; run shutdown hooks before
 // closing the injected database.
+//
+// [Builder.UseStorage] accepts custom backend names. For standalone schema
+// validation, pass [Builder.RegisteredStorageTypes] results to SetRegisteredTypes.
 package factory
