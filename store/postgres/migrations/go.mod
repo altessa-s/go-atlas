@@ -11,7 +11,7 @@ go 1.27.0
 replace github.com/altessa-s/go-atlas => ../../..
 
 require (
-	github.com/altessa-s/go-atlas v0.0.0
+	github.com/altessa-s/go-atlas v0.0.0-20261124092112-3768e72efb7f
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/pressly/goose/v3 v3.30.1
 	github.com/stretchr/testify v1.12.1
