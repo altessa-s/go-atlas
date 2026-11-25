@@ -2,81 +2,53 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package redisfilter
+package redisfilter_test
 
 import (
-	"errors"
+	"context"
 	"testing"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/alicebob/miniredis/v2/server"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/cache/probfilter"
+	"github.com/altessa-s/go-atlas/cache/probfilter/internal/redisfilter"
+	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
 )
 
-// An unsafe master must fail the check whichever order masters complete in,
-// even when another master's policy cannot be read.
-func TestPolicyCheck_UnsafeWinsOverUnreadable(t *testing.T) {
+// Only a denied CONFIG on a verified primary is eligible for the managed
+// service exception. Empty replies and ordinary command failures are errors.
+func TestConfigPermissionRequiredForUnverifiedResult(t *testing.T) {
 	t.Parallel()
-	node := redis.NewClient(&redis.Options{Addr: "node:6379"})
-	t.Cleanup(func() { _ = node.Close() })
-	errDenied := errors.New("NOPERM")
-
-	type obs struct {
-		policy string
-		err    error
-	}
-	unsafe, unread, safe := obs{policy: "allkeys-lru"}, obs{err: errDenied}, obs{policy: "noeviction"}
-	for _, tc := range []struct {
-		name         string
-		order        []obs
-		wantUnsafe   bool
-		wantVerified bool
-	}{
-		{"unsafe_then_unreadable", []obs{unsafe, unread}, true, true},
-		{"unreadable_then_unsafe", []obs{unread, unsafe}, true, true},
-		{"unreadable_and_safe", []obs{unread, safe}, false, false},
-		{"all_safe", []obs{safe, safe}, false, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, mode := range []string{"denied", "empty", "error", "canceled"} {
+		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
-			var pc policyCheck
-			for _, o := range tc.order {
-				pc.observe(node, o.policy, o.err)
+			client, mr := redistest.RedisClient(t)
+			redistest.ServeTopology(mr, "master", "0")
+			require.NoError(t, mr.Server().Register("CONFIG", func(c *server.Peer, _ string, _ []string) {
+				switch mode {
+				case "denied":
+					c.WriteError("NOPERM configuration disabled")
+				case "empty":
+					c.WriteMapLen(0)
+				default:
+					c.WriteError("ERR unexpected")
+				}
+			}))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if mode == "canceled" {
+				cancel()
 			}
-			verified, err := pc.result()
-			require.Equal(t, tc.wantVerified, verified)
-			if tc.wantUnsafe {
-				require.ErrorIs(t, err, probfilter.ErrUnsafeEvictionPolicy)
-			} else {
+			verified, err := redisfilter.CheckEvictionPolicy(ctx, client)
+			require.False(t, verified)
+			if mode == "denied" {
 				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+			if mode == "canceled" {
+				require.ErrorIs(t, err, context.Canceled)
 			}
 		})
 	}
-}
-
-// A check that observed no server, or could not enumerate the topology, is
-// unverified; an unsafe policy still fails it.
-func TestPolicyCheck_EnumerationFailure(t *testing.T) {
-	t.Parallel()
-	node := redis.NewClient(&redis.Options{Addr: "node:6379"})
-	t.Cleanup(func() { _ = node.Close() })
-
-	var none policyCheck
-	verified, err := none.result()
-	require.NoError(t, err)
-	require.False(t, verified, "no server checked")
-
-	var failed policyCheck
-	failed.observe(node, "noeviction", nil)
-	failed.fail()
-	verified, err = failed.result()
-	require.NoError(t, err)
-	require.False(t, verified, "topology not enumerated")
-
-	var unsafe policyCheck
-	unsafe.fail()
-	unsafe.observe(node, "allkeys-random", nil)
-	_, err = unsafe.result()
-	require.ErrorIs(t, err, probfilter.ErrUnsafeEvictionPolicy)
 }

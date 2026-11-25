@@ -7,6 +7,7 @@ package lru
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -26,29 +27,64 @@ func BenchmarkCache_Get(b *testing.B) {
 }
 
 func BenchmarkShardedCache_Get(b *testing.B) {
-	c, _ := NewShardedCache[string, int](1000)
-	for i := range 1000 {
-		c.Put(fmt.Sprintf("key-%d", i), i)
-	}
-
-	b.ResetTimer()
+	c, keys := benchmarkShardedCache(b)
 	i := 0
 	for b.Loop() {
-		c.Get(fmt.Sprintf("key-%d", i%1000))
+		c.Get(keys[i%len(keys)])
 		i++
 	}
 }
 
-func BenchmarkShardedCache_ConcurrentPut(b *testing.B) {
-	c, _ := NewShardedCache[string, int](10000)
+func BenchmarkShardedCache_Put(b *testing.B) {
+	c, keys := benchmarkShardedCache(b)
+	i := 0
+	for b.Loop() {
+		c.Put(keys[i%len(keys)], i)
+		i++
+	}
+}
 
+func BenchmarkShardedCache_ConcurrentGet(b *testing.B) {
+	c, keys := benchmarkShardedCache(b)
+	var worker atomic.Int64
+	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		i := 0
+		i := int(worker.Add(1)) * 37
 		for pb.Next() {
-			c.Put(fmt.Sprintf("key-%d", i), i)
+			c.Get(keys[i%len(keys)])
 			i++
 		}
 	})
+}
+
+func BenchmarkShardedCache_ConcurrentPut(b *testing.B) {
+	c, keys := benchmarkShardedCache(b)
+	var worker atomic.Int64
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := int(worker.Add(1)) * 37
+		for pb.Next() {
+			c.Put(keys[i%len(keys)], i)
+			i++
+		}
+	})
+}
+
+func benchmarkShardedCache(b *testing.B) (*ShardedCache[string, int], []string) {
+	b.Helper()
+	c, err := NewShardedCache[string, int](16384)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	keys := make([]string, 1024)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("key-%d", i)
+		if c.Put(keys[i], i) {
+			b.Fatal("benchmark working set exceeded a shard's capacity")
+		}
+	}
+	return c, keys
 }
 
 func BenchmarkCache_GetOrCompute_StringKey(b *testing.B) {

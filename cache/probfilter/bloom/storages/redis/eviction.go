@@ -18,9 +18,14 @@ import (
 // rebuild guarantees. Every master of a cluster is checked.
 //
 // It returns an error wrapping probfilter.ErrUnsafeEvictionPolicy for an
-// allkeys-* policy. When the policy cannot be read — managed Redis services
-// often deny CONFIG — it returns verified false and no error, leaving the
-// decision to the caller.
-func CheckEvictionPolicy(ctx context.Context, client redis.UniversalClient) (verified bool, err error) {
+// allkeys-* policy and probfilter.ErrUnverifiableTopology for incomplete
+// topology. Only CONFIG permission denial returns false without an error.
+func CheckEvictionPolicy(ctx context.Context, client redis.UniversalClient) (bool, error) {
 	return redisfilter.CheckEvictionPolicy(ctx, client)
+}
+
+// CheckSentinelEvictionPolicy checks the current primary of a client built
+// with redis.NewFailoverClusterClient, using synchronous Sentinel discovery.
+func CheckSentinelEvictionPolicy(ctx context.Context, client *redis.ClusterClient) (bool, error) {
+	return redisfilter.CheckSentinelEvictionPolicy(ctx, client)
 }

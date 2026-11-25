@@ -42,6 +42,7 @@ func defaults() *probfilterconfig.Defaults {
 func TestBuilder_ExpansionAndPrefix(t *testing.T) {
 	t.Parallel()
 	client, mr := redistest.RedisClient(t)
+	redistest.ServeTopology(mr, "master", "0")
 
 	var mu sync.Mutex
 	var reserves [][]string
@@ -56,6 +57,7 @@ func TestBuilder_ExpansionAndPrefix(t *testing.T) {
 	cfg := redisCuckooCfg()
 	cfg.Cuckoo.Storage.Redis = &storageconfig.RedisConfig{KeysPrefix: "svc:"}
 	f, err := probfilterfactory.NewFilter("sessions", cfg, defaults()).
+		SkipEvictionPolicyCheck(true).
 		UseCuckooStorage(probfilterconfig.StorageTypeRedis, factory.Builder(client)).
 		Build(t.Context())
 	require.NoError(t, err)
@@ -91,6 +93,7 @@ func TestBuilder_ClientRequired(t *testing.T) {
 func TestBuilder_UnsafeEvictionPolicyFailsBuild(t *testing.T) {
 	t.Parallel()
 	client, mr := redistest.RedisClient(t)
+	redistest.ServeTopology(mr, "master", "0")
 	require.NoError(t, mr.Server().Register("CONFIG", func(c *server.Peer, _ string, _ []string) {
 		c.WriteMapLen(1)
 		c.WriteBulk("maxmemory-policy")

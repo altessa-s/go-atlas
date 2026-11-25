@@ -6,6 +6,7 @@ package factory
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -15,6 +16,7 @@ import (
 	redisgen "github.com/altessa-s/go-atlas/cache/generation/storages/redis"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	cachefactory "github.com/altessa-s/go-atlas/factory/cache"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 var (
@@ -23,7 +25,7 @@ var (
 	ErrClientRequired = errors.New("cache: redis client is required for generation store type redis")
 	// ErrConfigRequired is returned when the storage configuration has no
 	// redis block.
-	ErrConfigRequired = errors.New("cache: redis configuration is required for generation store type redis")
+	ErrConfigRequired = fmt.Errorf("cache: redis configuration is required for generation store type redis: %w", corefactory.ErrConfigRequired)
 )
 
 // Builder returns the generation store function of the redis type, ready for

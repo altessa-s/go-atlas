@@ -44,8 +44,8 @@ func TestKeyNamespace_IsolatesEntries(t *testing.T) {
 	// Same bare key, two tenants → two distinct namespaced entries, no bare key.
 	_, bare := mp.store["user:1"]
 	require.False(t, bare, "bare (un-namespaced) key must not be written")
-	require.Contains(t, mp.store, "1:A:user:1")
-	require.Contains(t, mp.store, "1:B:user:1")
+	require.Contains(t, mp.store, c.formatPrefix+"1:A:user:1")
+	require.Contains(t, mp.store, c.formatPrefix+"1:B:user:1")
 
 	// Each tenant reads back its own value.
 	var got string
@@ -56,8 +56,8 @@ func TestKeyNamespace_IsolatesEntries(t *testing.T) {
 
 	// Delete is namespaced too: deleting under A leaves B intact.
 	require.NoError(t, c.Delete(ctxA, "user:1"))
-	require.NotContains(t, mp.store, "1:A:user:1")
-	require.Contains(t, mp.store, "1:B:user:1")
+	require.NotContains(t, mp.store, c.formatPrefix+"1:A:user:1")
+	require.Contains(t, mp.store, c.formatPrefix+"1:B:user:1")
 }
 
 // syncProvider is a concurrency-safe in-memory provider for the singleflight

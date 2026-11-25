@@ -6,10 +6,13 @@ package cache
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/altessa-s/go-atlas/cache/storages"
+	"github.com/altessa-s/go-atlas/cache/storages/freecache"
 )
 
 type benchProvider struct {
@@ -88,6 +91,25 @@ func BenchmarkGetManyT(b *testing.B) {
 
 	for b.Loop() {
 		if _, err := GetManyT[string](ctx, c, keys); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkGetManyRaw(b *testing.B) {
+	c := New(freecache.New(freecache.WithMaxSize(32 << 20)))
+	keys := make([]string, 16)
+	value := strings.Repeat("a", 16<<10)
+	for i := range keys {
+		keys[i] = strconv.Itoa(i)
+		if err := c.Save(b.Context(), keys[i], value); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := c.GetManyRaw(b.Context(), keys); err != nil {
 			b.Fatal(err)
 		}
 	}

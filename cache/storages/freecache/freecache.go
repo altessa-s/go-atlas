@@ -6,7 +6,9 @@ package freecache
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/coocood/freecache"
@@ -15,10 +17,17 @@ import (
 	"github.com/altessa-s/go-atlas/cache/storages"
 )
 
+// MaxTTL is ten 365-day years. Its seconds fit a 32-bit int and leave room
+// for FreeCache's uint32 absolute Unix deadline until 2096.
+const MaxTTL = 10 * 365 * 24 * time.Hour
+
+// ErrTTLOutOfRange indicates a positive TTL above [MaxTTL].
+var ErrTTLOutOfRange = errors.New("freecache: TTL out of range")
+
 // Storage is an in-memory cache provider using FreeCache.
 // It provides high-performance caching with zero GC overhead.
 type Storage struct {
-	*freecache.Cache
+	cache *freecache.Cache
 }
 
 // New creates a new FreeCache provider with the given options.
@@ -29,28 +38,34 @@ type Storage struct {
 //	p := freecache.New(freecache.WithMaxSize(50 * 1024 * 1024))
 func New(opt ...Option) *Storage {
 	options := newOptions(opt...)
-
-	p := &Storage{
-		Cache: freecache.NewCache(options.maxSize),
-	}
-
-	return p
+	return &Storage{cache: freecache.NewCache(options.maxSize)}
 }
 
 // Save stores the value under key with the given TTL.
-// Positive TTLs are rounded up to FreeCache's whole-second resolution.
+// Positive TTLs round up to whole seconds. Zero and negative TTLs have no
+// expiry. A TTL above [MaxTTL] returns [ErrTTLOutOfRange].
 func (p *Storage) Save(_ context.Context, key string, value []byte, ttl time.Duration) error {
-	seconds := ttl / time.Second
-	if ttl > 0 && ttl%time.Second != 0 {
-		seconds++
+	seconds, err := ttlSeconds[int](ttl)
+	if err != nil {
+		return err
 	}
-	return p.Set([]byte(key), value, int(seconds))
+	return p.cache.Set(storageKey(key), value, seconds)
+}
+
+func ttlSeconds[T int | int32 | int64](ttl time.Duration) (T, error) {
+	if ttl <= 0 {
+		return 0, nil
+	}
+	if ttl > MaxTTL {
+		return 0, ErrTTLOutOfRange
+	}
+	return T((ttl + time.Second - 1) / time.Second), nil
 }
 
 // Exists reports whether key is present in the cache.
 func (p *Storage) Exists(_ context.Context, key string) (bool, error) {
 	// GetFn lends the stored bytes instead of copying them, which Get does.
-	err := p.GetFn([]byte(key), func([]byte) error { return nil })
+	err := p.cache.GetFn(storageKey(key), func([]byte) error { return nil })
 	if err != nil {
 		if errors.Is(err, freecache.ErrNotFound) {
 			return false, nil
@@ -62,7 +77,7 @@ func (p *Storage) Exists(_ context.Context, key string) (bool, error) {
 
 // Get retrieves the value for key. Returns [storages.ErrMissing] if the key does not exist.
 func (p *Storage) Get(_ context.Context, key string) ([]byte, error) {
-	data, err := p.Cache.Get([]byte(key))
+	data, err := p.cache.Get(storageKey(key))
 	if err != nil {
 		if errors.Is(err, freecache.ErrNotFound) {
 			return nil, storages.ErrMissing
@@ -74,7 +89,7 @@ func (p *Storage) Get(_ context.Context, key string) ([]byte, error) {
 
 // Delete removes key from the cache.
 func (p *Storage) Delete(_ context.Context, key string) error {
-	p.Del([]byte(key))
+	p.cache.Del(storageKey(key))
 	return nil
 }
 
@@ -83,7 +98,7 @@ func (p *Storage) DeleteMany(ctx context.Context, key ...string) error {
 	// Use parallel processing for better performance with multiple keys.
 	// freecache is thread-safe and highly concurrent.
 	return concurrency.Process(ctx, key, func(_ context.Context, k string) error {
-		p.Del([]byte(k))
+		p.cache.Del(storageKey(k))
 		return nil
 	})
 }
@@ -103,6 +118,18 @@ func (p *Storage) GetMany(ctx context.Context, keys []string) (map[string][]byte
 		out[key] = val
 	}
 	return out, nil
+}
+
+// storageKey caps the portion of the entry limit consumed by a key. Using the
+// digest whenever it shortens a key keeps the physical key stable as the size
+// of its stored value changes. Raw keys under the reserved prefix are hashed too.
+func storageKey(key string) []byte {
+	const digestPrefix = "\x00atlas-freecache-digest:"
+	if len(key) <= len(digestPrefix)+sha256.Size && !strings.HasPrefix(key, digestPrefix) {
+		return []byte(key)
+	}
+	sum := sha256.Sum256([]byte(key))
+	return append([]byte(digestPrefix), sum[:]...)
 }
 
 // InProcess reports true: freecache lives in process memory, so the cache adds no

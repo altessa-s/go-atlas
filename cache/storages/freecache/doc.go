@@ -5,6 +5,9 @@
 // Package freecache provides an in-memory cache provider using FreeCache.
 // It offers high-performance caching with zero GC overhead.
 //
+// Positive TTLs round up to whole seconds. [Storage.Save] returns
+// [ErrTTLOutOfRange] for a TTL above [MaxTTL]. Zero and negative TTLs have no expiry.
+//
 // Example:
 //
 //	p := freecache.New(freecache.WithMaxSize(50 * 1024 * 1024))

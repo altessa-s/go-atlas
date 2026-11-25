@@ -28,6 +28,10 @@ var ErrRebuildInProgress = errors.New("filter rebuild in progress elsewhere")
 // losing them breaks its rebuild and delete guarantees.
 var ErrUnsafeEvictionPolicy = errors.New("redis maxmemory-policy may evict filter keys")
 
+// ErrUnverifiableTopology indicates that a Redis policy check could not
+// establish the complete set of current primaries.
+var ErrUnverifiableTopology = errors.New("cannot verify Redis primary topology")
+
 // ErrRebuildSuperseded is wrapped by a Rebuild error when the rebuild lost its
 // right to publish — its rebuild lease of a shared filter expired (for
 // example because the process stalled) and another rebuild took over — so its

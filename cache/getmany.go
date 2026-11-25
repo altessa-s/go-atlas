@@ -15,11 +15,11 @@ import (
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 )
 
-// GetManyRaw reads several keys at once and returns the stored bytes of the
+// GetManyRaw reads several keys at once and returns the serialized bytes of the
 // keys that were found, keyed by the caller's keys (namespacing from
 // [WithKeyNamespace] is applied to the storage keys only). Missing keys and
 // negatively cached keys are absent from the result. Duplicate keys are read
-// once. Panics if any key is empty.
+// once. Callers own the returned bytes. Panics if any key is empty.
 //
 // The read is one storage call when the storage implements
 // [storages.MultiGetter], otherwise a loop of Get calls. In fail-open mode
@@ -34,45 +34,45 @@ func (c *Cache) GetManyRaw(ctx context.Context, keys []string) (map[string][]byt
 	defer cancel()
 
 	out, _, err := c.getManyRaw(ctx, keys)
+	for key, data := range out {
+		out[key] = decodePayload(data)
+	}
 	return out, err
 }
 
-// getManyRaw implements [Cache.GetManyRaw]. It also returns the effective
-// storage key of every found caller key, resolved once for the whole call,
-// so a later cleanup targets exactly the entry that was read even when the
-// key version changed in between.
-func (c *Cache) getManyRaw(ctx context.Context, keys []string) (map[string][]byte, map[string]string, error) {
+// getManyRaw reads encoded bytes and resolves the effective storage keys
+// once, so cleanup can match exactly what was read.
+func (c *Cache) getManyRaw(ctx context.Context, keys []string) (map[string][]byte, string, error) {
 	for _, key := range keys {
 		panics.Must(!strings.IsEmpty(key), "key must be provided")
 	}
 
 	out := make(map[string][]byte, len(keys))
-	effective := make(map[string]string, len(keys))
 	if len(keys) == 0 {
-		return out, effective, nil
+		return out, "", nil
 	}
 
-	// Map effective keys back to the caller's keys, reading each once.
-	eks, err := c.effectiveKeys(ctx, keys)
+	prefix, err := c.keyPrefix(ctx)
 	if err != nil {
 		if c.versionUnavailable(ctx) {
-			return out, effective, nil
+			return out, "", nil
 		}
-		return nil, nil, err
+		return nil, "", err
 	}
 	byEffective := make(map[string]string, len(keys))
 	unique := make([]string, 0, len(keys))
-	for i, ek := range eks {
-		if _, seen := byEffective[ek]; seen {
+	for _, key := range keys {
+		ek := prefix + key
+		if _, ok := byEffective[ek]; ok {
 			continue
 		}
-		byEffective[ek] = keys[i]
+		byEffective[ek] = key
 		unique = append(unique, ek)
 	}
 
 	found, err := c.storageGetMany(ctx, unique)
 	if err != nil {
-		return nil, nil, err
+		return nil, "", err
 	}
 
 	for _, ek := range unique {
@@ -85,10 +85,9 @@ func (c *Cache) getManyRaw(ctx context.Context, keys []string) (map[string][]byt
 		default:
 			c.metrics.hits.Inc()
 			out[byEffective[ek]] = val
-			effective[byEffective[ek]] = ek
 		}
 	}
-	return out, effective, nil
+	return out, prefix, nil
 }
 
 // storageGetMany reads eks, keyed by effective key, through
@@ -132,7 +131,7 @@ func (c *Cache) storageGetMany(ctx context.Context, eks []string) (map[string][]
 // GetManyT is the typed variant of [Cache.GetManyRaw]: every hit is decoded
 // into its own value of T, so no two entries share memory. A value that cannot
 // be decoded returns the decode error; in fail-open mode ([WithFailOpen]) it
-// is a miss for that key only and is deleted best-effort.
+// is a miss for that key only. See [storages.CompareDeleter] for cleanup.
 //
 // Example:
 //
@@ -141,7 +140,7 @@ func GetManyT[T any](ctx context.Context, c *Cache, keys []string) (map[string]T
 	ctx, cancel := corecontext.WithDefault(ctx, c.opTimeout)
 	defer cancel()
 
-	raw, effective, err := c.getManyRaw(ctx, keys)
+	raw, prefix, err := c.getManyRaw(ctx, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -149,11 +148,11 @@ func GetManyT[T any](ctx context.Context, c *Cache, keys []string) (map[string]T
 	out := make(map[string]T, len(raw))
 	for key, data := range raw {
 		var v T
-		if err = c.serializer.Deserialize(data, &v); err != nil {
+		if err = c.deserialize(decodePayload(data), &v); err != nil {
 			if !c.failOpen {
 				return nil, err
 			}
-			c.dropCorrupt(ctx, effective[key])
+			c.dropCorrupt(ctx, prefix+key, data)
 			continue
 		}
 		out[key] = v

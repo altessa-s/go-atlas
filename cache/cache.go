@@ -5,6 +5,7 @@
 package cache
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -40,11 +41,28 @@ const defaultContextTimeout = 15 * time.Second
 type Fallback = func(context.Context) (value any, ttl time.Duration, err error)
 
 // negativeSentinel is a single null byte stored as the value for negative cache entries.
-// It cannot collide with JSON/msgpack serializer output.
+// Positive payloads beginning with a null byte escape their first byte.
 var negativeSentinel = []byte{0x00}
 
 func isNegativeSentinel(data []byte) bool {
 	return len(data) == 1 && data[0] == 0x00
+}
+
+// encodePayload escapes a leading zero so that even a one-byte zero payload
+// can be stored alongside negative entries. JSON never needs escaping.
+func encodePayload(data []byte) []byte {
+	if len(data) != 0 && data[0] == 0 {
+		return append([]byte{0}, data...)
+	}
+	return data
+}
+
+// decodePayload recovers the serialized bytes of a positive entry.
+func decodePayload(data []byte) []byte {
+	if len(data) >= 2 && data[0] == 0 && data[1] == 0 {
+		return data[1:]
+	}
+	return data
 }
 
 // Cache provides caching functionality with configurable providers and serializers.
@@ -57,6 +75,8 @@ type Cache struct {
 	group        *singleflight.Group[string, any]
 	serializer   serializer.Serializer
 	metrics      *cacheMetrics
+	formatPrefix string           // separates codec formats and optional key components
+	customCodec  bool             // the caller-supplied codec may retain input buffers
 	keyNamespace KeyNamespaceFunc // nil = no per-context namespacing
 
 	fallbackTimeout time.Duration // bounds a fallback run outside the group (fail-open overload)
@@ -104,6 +124,22 @@ func New(p storages.Storage, opts ...Option) *Cache {
 
 		opTimeout: opTimeout(p, options.keyVersion),
 	}
+	// Both formats need a tag because arbitrary JSON cache keys could occupy
+	// the prefix reserved for custom codecs. Presence bits keep an unversioned
+	// key from looking like a versioned or namespaced key for another cache.
+	// Use a single byte to minimize overhead in size-limited storages.
+	format := byte('0')
+	if _, jsonCodec := c.serializer.(*serializer.JSON); !jsonCodec {
+		format += 4
+		c.customCodec = true
+	}
+	if c.keyVersion != nil {
+		format++
+	}
+	if c.keyNamespace != nil {
+		format += 2
+	}
+	c.formatPrefix = string(format)
 	return c
 }
 
@@ -127,9 +163,9 @@ func NewNoop(opts ...Option) *Cache {
 	return New(noop.New(), opts...)
 }
 
-// effectiveKey encodes the key version, namespace and key without ambiguous
-// delimiters: "<version>:" when versioned, then "<len>:<namespace>:" when
-// namespaced, then the key. An error means the key version is unknown.
+// effectiveKey prepends the codec format prefix, the optional "<version>:"
+// and the optional "<len>:<namespace>:" to key. An error means the key
+// version is unknown.
 func (c *Cache) effectiveKey(ctx context.Context, key string) (string, error) {
 	prefix, err := c.keyPrefix(ctx)
 	if err != nil {
@@ -138,17 +174,16 @@ func (c *Cache) effectiveKey(ctx context.Context, key string) (string, error) {
 	return prefix + key, nil
 }
 
-// keyPrefix returns the version and namespace prefix shared by every key of
-// one operation.
+// keyPrefix resolves the common storage prefix once per operation.
 func (c *Cache) keyPrefix(ctx context.Context) (string, error) {
 	version, err := c.versionPrefix(ctx)
 	if err != nil {
 		return "", err
 	}
 	if c.keyNamespace == nil {
-		return version, nil
+		return c.formatPrefix + version, nil
 	}
-	return version + namespacePrefix(c.keyNamespace(ctx)), nil
+	return c.formatPrefix + version + namespacePrefix(c.keyNamespace(ctx)), nil
 }
 
 func namespacePrefix(ns string) string {
@@ -157,7 +192,7 @@ func namespacePrefix(ns string) string {
 
 func (c *Cache) effectiveKeys(ctx context.Context, keys []string) ([]string, error) {
 	prefix, err := c.keyPrefix(ctx)
-	if err != nil || prefix == "" {
+	if err != nil {
 		return keys, err
 	}
 	out := make([]string, len(keys))
@@ -217,11 +252,11 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		return err
 	}
 	if found {
-		err = c.serializer.Deserialize(data, value)
+		err = c.deserialize(decodePayload(data), value)
 		if err == nil || !c.failOpen {
 			return err
 		}
-		c.dropCorrupt(ctx, ek)
+		c.dropCorrupt(ctx, ek, data)
 	}
 
 	ld, err := c.runFallback(ctx, ek, fallback)
@@ -233,7 +268,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		// Decode a private copy of the shared serialized bytes over a zeroed
 		// destination, mirroring the full overwrite of the shared-value path.
 		dst.SetZero()
-		return c.serializer.Deserialize(ld.data, value)
+		return c.deserialize(ld.data, value)
 	}
 	dst.Set(reflect.Indirect(reflect.ValueOf(ld.value)))
 
@@ -296,14 +331,14 @@ func getWithFallbackT[T any](
 		return out, err
 	}
 	if found {
-		err = c.serializer.Deserialize(data, &out)
+		err = c.deserialize(decodePayload(data), &out)
 		if err == nil {
 			return out, nil
 		}
 		if !c.failOpen {
 			return out, err
 		}
-		c.dropCorrupt(ctx, ek)
+		c.dropCorrupt(ctx, ek, data)
 		var zero T
 		out = zero
 	}
@@ -318,7 +353,7 @@ func getWithFallbackT[T any](
 	}
 
 	if isolated {
-		if err = c.serializer.Deserialize(ld.data, &out); err != nil {
+		if err = c.deserialize(ld.data, &out); err != nil {
 			var zero T
 			return zero, err
 		}
@@ -371,13 +406,6 @@ func (c *Cache) storageGet(ctx context.Context, ek string) ([]byte, error) {
 	return c.provider.Get(ioCtx, ek)
 }
 
-// storageSave writes ek to the provider, bounded by the fail-open I/O timeout.
-func (c *Cache) storageSave(ctx context.Context, ek string, data []byte, ttl time.Duration) error {
-	ioCtx, cancel := c.ioContext(ctx)
-	defer cancel()
-	return c.provider.Save(ioCtx, ek, data, ttl)
-}
-
 // ioContext applies the fail-open I/O timeout to ctx when one is configured.
 func (c *Cache) ioContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if c.ioTimeout > 0 {
@@ -386,14 +414,35 @@ func (c *Cache) ioContext(ctx context.Context) (context.Context, context.CancelF
 	return ctx, func() {}
 }
 
-// dropCorrupt records a stored value that failed to decode in fail-open mode
-// and deletes it best-effort so the next read reloads it.
-func (c *Cache) dropCorrupt(ctx context.Context, ek string) {
+// dropCorrupt records a decode failure and removes only the bytes that failed.
+func (c *Cache) dropCorrupt(ctx context.Context, ek string, encoded []byte) {
 	c.metrics.errors.Inc()
 	c.metrics.failOpenDecode.Inc()
+	deleter, ok := c.provider.(storages.CompareDeleter)
+	if !ok {
+		return
+	}
 	ioCtx, cancel := c.ioContext(ctx)
 	defer cancel()
-	_ = c.provider.Delete(ioCtx, ek)
+	_, _ = deleter.CompareAndDelete(ioCtx, ek, encoded)
+}
+
+// Custom codecs may borrow their input or return a slice of it. Snapshot their
+// output for storage and give every decoder its own input buffer. Our JSON
+// codec already owns Marshal's output and preserves no reference to its input.
+func (c *Cache) serialize(value any) ([]byte, error) {
+	data, err := c.serializer.Serialize(value)
+	if err == nil && c.customCodec {
+		data = bytes.Clone(data)
+	}
+	return data, err
+}
+
+func (c *Cache) deserialize(data []byte, value any) error {
+	if c.customCodec {
+		data = bytes.Clone(data)
+	}
+	return c.serializer.Deserialize(data, value)
 }
 
 // failOpenSaveError reports whether a failed write may be ignored: the cache
@@ -442,7 +491,7 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 
 // loadAndStore runs fallback and writes its result (or the negative sentinel)
 // under ek. It returns the loaded value with its serialized bytes. A load
-// that a Delete of ek overlapped still returns its value but stores nothing.
+// invalidated by Delete or a successful Save still returns its value.
 func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) (*loaded, error) {
 	guard := c.loads.begin(ek)
 	defer c.loads.end(ek, guard)
@@ -474,7 +523,7 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 		return nil, ErrMissing
 	}
 
-	cacheData, fErr := c.serializer.Serialize(val)
+	cacheData, fErr := c.serialize(val)
 	if fErr != nil {
 		return nil, fErr
 	}
@@ -484,7 +533,7 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 		cacheTtl = ttl
 	}
 
-	if fErr = c.storeLoaded(ctx, guard, ek, cacheData, cacheTtl); fErr != nil {
+	if fErr = c.storeLoaded(ctx, guard, ek, encodePayload(cacheData), cacheTtl); fErr != nil {
 		if !c.failOpen {
 			return nil, fErr
 		}
@@ -497,16 +546,18 @@ func (c *Cache) loadAndStore(ctx context.Context, ek string, fallback Fallback) 
 	return &loaded{value: val, data: cacheData}, nil
 }
 
-// storeLoaded writes the result of a load unless a Delete of ek overlapped
-// it. The guard stays locked across the write so that an overlapping delete
-// removes the entry after it lands.
+// storeLoaded serializes fallback writes with explicit mutations of the key.
 func (c *Cache) storeLoaded(ctx context.Context, guard *loadGuard, ek string, data []byte, ttl time.Duration) error {
-	guard.mu.Lock()
-	defer guard.mu.Unlock()
+	ioCtx, cancel := c.ioContext(ctx)
+	defer cancel()
+	if err := guard.lock(ioCtx); err != nil {
+		return err
+	}
+	defer guard.unlock()
 	if guard.invalidated {
 		return nil
 	}
-	return c.storageSave(ctx, ek, data, ttl)
+	return c.provider.Save(ioCtx, ek, data, ttl)
 }
 
 // isNilValue reports whether a fallback returned no value: nil or a nil
@@ -517,7 +568,8 @@ func isNilValue(val any) bool {
 }
 
 // Save stores a value in the cache with the given key.
-// Panics if key is empty. Uses default TTL if none provided.
+// Panics if key is empty. Uses default TTL if none provided. A successful
+// write suppresses storage of overlapping fallback results.
 //
 // Example:
 //
@@ -533,7 +585,7 @@ func (c *Cache) Save(ctx context.Context, key string, value any, ttl ...time.Dur
 		cacheTtl = ttl[0]
 	}
 
-	cacheData, err := c.serializer.Serialize(value)
+	cacheData, err := c.serialize(value)
 	if err != nil {
 		return err
 	}
@@ -547,13 +599,29 @@ func (c *Cache) Save(ctx context.Context, key string, value any, ttl ...time.Dur
 	}
 
 	stop := c.metrics.writeDuration.Start()
-	err = c.storageSave(ctx, ek, cacheData, cacheTtl)
+	err = c.saveExplicit(ctx, ek, encodePayload(cacheData), cacheTtl)
 	stop()
 	if err != nil && c.failOpenSaveError(ctx) {
 		c.metrics.errors.Inc()
 		return nil
 	}
 	return err
+}
+
+func (c *Cache) saveExplicit(ctx context.Context, key string, data []byte, ttl time.Duration) error {
+	guard := c.loads.begin(key)
+	defer c.loads.end(key, guard)
+	ioCtx, cancel := c.ioContext(ctx)
+	defer cancel()
+	if err := guard.lock(ioCtx); err != nil {
+		return err
+	}
+	defer guard.unlock()
+	if err := c.provider.Save(ioCtx, key, data, ttl); err != nil {
+		return err
+	}
+	guard.invalidated = true
+	return nil
 }
 
 // Exists checks if a key exists in the cache.
@@ -576,19 +644,11 @@ func (c *Cache) Exists(ctx context.Context, key string) (bool, error) {
 		return false, err
 	}
 
-	data, err := c.provider.Get(ctx, ek)
-	if err != nil {
-		if errors.Is(err, ErrMissing) {
-			return false, nil
-		}
-		return false, err
-	}
-
-	if isNegativeSentinel(data) {
+	_, found, err := c.lookupRaw(ctx, ek)
+	if errors.Is(err, ErrMissing) {
 		return false, nil
 	}
-
-	return true, nil
+	return found, err
 }
 
 // Get retrieves a cached value by key and deserializes it into value.
@@ -633,9 +693,9 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 	}
 
 	c.metrics.hits.Inc()
-	err = c.serializer.Deserialize(data, value)
+	err = c.deserialize(decodePayload(data), value)
 	if err != nil && c.failOpen {
-		c.dropCorrupt(ctx, ek)
+		c.dropCorrupt(ctx, ek, data)
 		return ErrMissing
 	}
 	return err
@@ -664,8 +724,11 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	c.loads.invalidate(ek)
-	return c.provider.Delete(ctx, ek)
+	ioCtx, ioCancel := c.ioContext(ctx)
+	defer ioCancel()
+	return c.loads.invalidate(ioCtx, []string{ek}, func() error {
+		return c.provider.Delete(ioCtx, ek)
+	})
 }
 
 // DeleteMany removes multiple keys from the cache in a single operation.
@@ -685,6 +748,9 @@ func (c *Cache) DeleteMany(ctx context.Context, key ...string) error {
 	if err != nil {
 		return err
 	}
-	c.loads.invalidate(eks...)
-	return c.provider.DeleteMany(ctx, eks...)
+	ioCtx, ioCancel := c.ioContext(ctx)
+	defer ioCancel()
+	return c.loads.invalidate(ioCtx, eks, func() error {
+		return c.provider.DeleteMany(ioCtx, eks...)
+	})
 }

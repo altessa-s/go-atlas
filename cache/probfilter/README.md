@@ -46,6 +46,7 @@ observer. `Close` closes filters implementing `io.Closer` or `Close(context.Cont
 | `ErrCommitIndeterminate`  | Wrapped by `Rebuild` when a commit's outcome is unknown; old or new contents are in place |
 | `ErrRebuildInProgress`    | Wrapped by `Rebuild` when another process rebuilds the shared filter; nothing was loaded  |
 | `ErrRebuildSuperseded`    | Wrapped by `Rebuild` when the rebuild lost its lease; its snapshot was discarded          |
+| `ErrUnverifiableTopology` | Redis topology discovery could not establish the complete primary set |
 | `ErrUnsafeEvictionPolicy` | Wrapped by the factory's Redis check when the server has an `allkeys-*` eviction policy   |
 
 ## Bloom vs Cuckoo

@@ -14,5 +14,6 @@
 //
 // The storage keeps the filter under storage.redis.keysPrefix and fails
 // Build on a server whose maxmemory-policy may evict the filter keys, unless
-// the check is skipped.
+// the check is skipped. Use [SentinelBuilder] for NewFailoverClusterClient.
+// Both builders borrow their injected client.
 package factory

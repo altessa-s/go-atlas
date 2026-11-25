@@ -4,7 +4,7 @@
 
 // Package storages defines the cache Storage interface and common errors.
 // Implementations are in subpackages: freecache, lru, redis, noop. All of them
-// also implement the optional [MultiGetter] batch read; freecache, lru and noop
+// also implement [ExistenceChecker] and the optional [MultiGetter] batch read; freecache, lru and noop
 // implement [InProcess] so the cache skips its default operation timeout.
 //
 // Example:

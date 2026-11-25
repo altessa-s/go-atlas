@@ -44,7 +44,7 @@ journal before the rename, so inserts by any process sharing the filter survive 
 fenced on the lease ticket — read a batch, insert it into the staging filter, then trim it — so a superseded rebuild never consumes its successor's
 journal and a retried drain never loses a batch; a staging filter created without a lease leaves the journal alone. The journal carries no TTL, so
 neither expiry nor a `volatile-*` eviction can drop acknowledged inserts. `CheckEvictionPolicy` reports an `allkeys-*` `maxmemory-policy` on any master
-(`probfilter.ErrUnsafeEvictionPolicy`); an unreadable policy is reported as unverified, not as an error.
+(`probfilter.ErrUnsafeEvictionPolicy`); only CONFIG permission denial on a complete primary set leaves the policy unverified without an error.
 
 ## Staging
 

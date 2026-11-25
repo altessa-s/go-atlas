@@ -5,7 +5,8 @@
 // Package lru provides an LRU-based cache storage implementing the storages.Storage interface.
 //
 // This provider wraps the core LRU cache implementation with TTL support for use
-// as a cache backend.
+// as a cache backend. Capacities below 128 use a single LRU shard. Larger
+// caches may evict from a full shard while others still have room.
 //
 // # Usage
 //

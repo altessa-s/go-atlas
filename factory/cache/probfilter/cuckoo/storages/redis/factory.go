@@ -36,11 +36,25 @@ const evictionCheckTimeout = 5 * time.Second
 // checks that the server cannot evict its keys (unless
 // spec.SkipEvictionPolicyCheck).
 func Builder(client redis.UniversalClient) probfilterfactory.CuckooStorageFunc {
+	return builder(client, func(ctx context.Context) (bool, error) { return cuckooredis.CheckEvictionPolicy(ctx, client) })
+}
+
+// SentinelBuilder builds storage borrowing a client created by
+// redis.NewFailoverClusterClient. Its eviction check discovers the current
+// primary through Sentinel. A managed client's SentinelCluster supplies this provenance.
+func SentinelBuilder(client *redis.ClusterClient) probfilterfactory.CuckooStorageFunc {
+	if client == nil {
+		return Builder(nil)
+	}
+	return builder(client, func(ctx context.Context) (bool, error) { return cuckooredis.CheckSentinelEvictionPolicy(ctx, client) })
+}
+
+func builder(client redis.UniversalClient, check func(context.Context) (bool, error)) probfilterfactory.CuckooStorageFunc {
 	return func(ctx context.Context, spec probfilterfactory.CuckooStorageSpec) (cuckoostorages.Storage, error) {
 		if client == nil {
 			return nil, ErrClientRequired
 		}
-		if err := checkEvictionPolicy(ctx, client, spec.StorageSpec); err != nil {
+		if err := checkEvictionPolicy(ctx, check, spec.StorageSpec); err != nil {
 			return nil, err
 		}
 		cfg := spec.Storage
@@ -58,13 +72,13 @@ func Builder(client redis.UniversalClient) probfilterfactory.CuckooStorageFunc {
 // checkEvictionPolicy fails when the Redis server may evict the filter's
 // keys (see [cuckooredis.CheckEvictionPolicy]) and logs when the policy
 // cannot be read.
-func checkEvictionPolicy(ctx context.Context, client redis.UniversalClient, spec probfilterfactory.StorageSpec) error {
+func checkEvictionPolicy(ctx context.Context, check func(context.Context) (bool, error), spec probfilterfactory.StorageSpec) error {
 	if spec.SkipEvictionPolicyCheck {
 		return nil
 	}
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, evictionCheckTimeout)
 	defer cancel()
-	verified, err := cuckooredis.CheckEvictionPolicy(ctx, client)
+	verified, err := check(ctx)
 	if err != nil {
 		return coreerrs.Wrap(err, "redis storage of filter "+spec.Name)
 	}

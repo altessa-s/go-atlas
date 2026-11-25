@@ -17,6 +17,7 @@ import (
 	redisprovider "github.com/altessa-s/go-atlas/cache/storages/redis"
 	storageconfig "github.com/altessa-s/go-atlas/config/storage"
 	cachefactory "github.com/altessa-s/go-atlas/factory/cache"
+	corefactory "github.com/altessa-s/go-atlas/factory/core"
 )
 
 func TestBuilder_UsesClientAndPrefix(t *testing.T) {
@@ -51,4 +52,5 @@ func TestBuilder_Errors(t *testing.T) {
 	client, _ := redistest.RedisClient(t)
 	_, err = factory.Builder(client)(&storageconfig.CacheStorageConfig{Type: storageconfig.CacheStorageTypeRedis})
 	require.ErrorIs(t, err, factory.ErrConfigRequired)
+	require.ErrorIs(t, err, corefactory.ErrConfigRequired)
 }

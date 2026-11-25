@@ -69,11 +69,6 @@ func (s *deadlineStorage) DeleteMany(ctx context.Context, _ ...string) error {
 	return nil
 }
 
-func (s *deadlineStorage) Exists(ctx context.Context, _ string) (bool, error) {
-	s.record(ctx)
-	return true, nil
-}
-
 // inProcessStorage reports itself as served from process memory.
 type inProcessStorage struct{ *deadlineStorage }
 

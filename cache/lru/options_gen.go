@@ -6,7 +6,10 @@ package lru
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithShardCount sets the shardCount option.
+// WithShardCount requests a positive power-of-two shard count. Other values
+// select the CPU-based default. NewShardedCache may halve the requested or
+// default count repeatedly to give each shard at least 64 slots, down to
+// one shard if needed. See [NewShardedCache] for the eviction guarantee.
 func WithShardCount(v int) Option {
 	return func(o *options) {
 		o.shardCount = v

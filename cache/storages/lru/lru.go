@@ -5,8 +5,10 @@
 package lru
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas/cache/lru"
@@ -22,9 +24,13 @@ type item struct {
 // Storage is an LRU-based cache provider for []byte data.
 type Storage struct {
 	cache lru.Cacher[string, item]
+	// Ordinary writers can proceed concurrently while a compare-and-delete
+	// excludes all writes for its read/delete pair.
+	mutations sync.RWMutex
 }
 
 // New creates a new LRU provider with the given size and options.
+// Capacity and eviction follow [lru.NewShardedCache].
 func New(size int, opts ...lru.Option) (*Storage, error) {
 	cache, err := lru.NewShardedCache[string, item](size, opts...)
 	if err != nil {
@@ -40,8 +46,11 @@ func (p *Storage) Save(_ context.Context, key string, value []byte, ttl time.Dur
 		expiresAt = time.Now().Add(ttl).UnixNano()
 	}
 
+	data := bytes.Clone(value)
+	p.mutations.RLock()
+	defer p.mutations.RUnlock()
 	p.cache.Put(key, item{
-		value:     value,
+		value:     data,
 		expiresAt: expiresAt,
 	})
 	return nil
@@ -52,35 +61,50 @@ func (p *Storage) Save(_ context.Context, key string, value []byte, ttl time.Dur
 // race where a concurrent Save could store a fresh value between the expiry
 // check and the Remove call. The LRU eviction policy reclaims space instead.
 func (p *Storage) Get(_ context.Context, key string) ([]byte, error) {
-	it, ok := p.cache.Get(key)
+	it, ok := p.get(key)
 	if !ok {
 		return nil, storages.ErrMissing
 	}
+	return bytes.Clone(it.value), nil
+}
 
-	if it.expiresAt > 0 && time.Now().UnixNano() > it.expiresAt {
-		return nil, storages.ErrMissing
-	}
-
-	return it.value, nil
+func (p *Storage) get(key string) (item, bool) {
+	it, ok := p.cache.Get(key)
+	return it, ok && (it.expiresAt <= 0 || time.Now().UnixNano() <= it.expiresAt)
 }
 
 // Exists checks if a key exists and is not expired.
-func (p *Storage) Exists(ctx context.Context, key string) (bool, error) {
-	_, err := p.Get(ctx, key)
-	if err != nil {
+func (p *Storage) Exists(_ context.Context, key string) (bool, error) {
+	_, ok := p.get(key)
+	return ok, nil
+}
+
+// CompareAndDelete implements [storages.CompareDeleter].
+func (p *Storage) CompareAndDelete(ctx context.Context, key string, expected []byte) (bool, error) {
+	p.mutations.Lock()
+	defer p.mutations.Unlock()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	it, ok := p.get(key)
+	if !ok || !bytes.Equal(it.value, expected) {
 		return false, nil
 	}
-	return true, nil
+	return p.cache.Remove(key), nil
 }
 
 // Delete removes a key from the cache.
 func (p *Storage) Delete(_ context.Context, key string) error {
+	p.mutations.RLock()
+	defer p.mutations.RUnlock()
 	p.cache.Remove(key)
 	return nil
 }
 
 // DeleteMany removes multiple keys from the cache.
 func (p *Storage) DeleteMany(_ context.Context, keys ...string) error {
+	p.mutations.RLock()
+	defer p.mutations.RUnlock()
 	for _, key := range keys {
 		p.cache.Remove(key)
 	}
@@ -109,7 +133,8 @@ func (p *Storage) GetMany(ctx context.Context, keys []string) (map[string][]byte
 func (p *Storage) InProcess() bool { return true }
 
 var (
-	_ storages.Storage     = (*Storage)(nil)
-	_ storages.MultiGetter = (*Storage)(nil)
-	_ storages.InProcess   = (*Storage)(nil)
+	_ storages.Storage        = (*Storage)(nil)
+	_ storages.MultiGetter    = (*Storage)(nil)
+	_ storages.CompareDeleter = (*Storage)(nil)
+	_ storages.InProcess      = (*Storage)(nil)
 )

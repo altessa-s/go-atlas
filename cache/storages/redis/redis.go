@@ -41,6 +41,19 @@ func (p *Storage) Delete(ctx context.Context, key string) error {
 	return redisutils.Del(ctx, p.Client(), p.Key(key))
 }
 
+var compareAndDeleteScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+end
+return 0
+`)
+
+// CompareAndDelete implements [storages.CompareDeleter] in one Redis script.
+func (p *Storage) CompareAndDelete(ctx context.Context, key string, expected []byte) (bool, error) {
+	deleted, err := compareAndDeleteScript.Run(ctx, p.Client(), []string{p.Key(key)}, expected).Int64()
+	return deleted == 1, err
+}
+
 // DeleteMany removes multiple keys from Redis in a single transaction.
 func (p *Storage) DeleteMany(ctx context.Context, keys ...string) error {
 	return p.Base.DeleteMany(ctx, keys...)
@@ -49,7 +62,14 @@ func (p *Storage) DeleteMany(ctx context.Context, keys ...string) error {
 // Get retrieves a value from Redis by key.
 // Returns ErrMissing if the key does not exist.
 func (p *Storage) Get(ctx context.Context, key string) ([]byte, error) {
-	return redisutils.GetBytes(ctx, p.Client(), p.Key(key), storages.ErrMissing)
+	value, err := p.Client().Get(ctx, p.Key(key)).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, storages.ErrMissing
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []byte(value), nil
 }
 
 // GetMany retrieves several values in one round trip. It sends a pipeline of
@@ -73,14 +93,14 @@ func (p *Storage) GetMany(ctx context.Context, keys []string) (map[string][]byte
 	}
 
 	for i, cmd := range cmds {
-		val, err := cmd.Bytes()
+		val, err := cmd.Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
 				continue
 			}
 			return nil, err
 		}
-		out[keys[i]] = val
+		out[keys[i]] = []byte(val)
 	}
 	return out, nil
 }
@@ -96,6 +116,7 @@ func (p *Storage) Exists(ctx context.Context, key string) (bool, error) {
 }
 
 var (
-	_ storages.Storage     = (*Storage)(nil)
-	_ storages.MultiGetter = (*Storage)(nil)
+	_ storages.Storage        = (*Storage)(nil)
+	_ storages.MultiGetter    = (*Storage)(nil)
+	_ storages.CompareDeleter = (*Storage)(nil)
 )

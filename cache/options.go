@@ -93,14 +93,16 @@ func WithIsolatedResults() Option {
 
 // WithFailOpen makes the cache an optimization that never fails a request on
 // its own: a storage error or timeout on a read is a miss, a stored value that
-// cannot be decoded is a miss (and is deleted best-effort), a failed write is
+// cannot be decoded is a miss (and is removed only if storage can atomically
+// compare and delete the observed bytes), a failed write is
 // ignored, and a fallback rejected with [ErrOverloaded] runs directly in the
 // caller. Each such event is counted in the errors and fail_open metrics.
 // Fallback errors, [ErrMissing] and negative caching are unchanged, and a
 // caller's own context cancellation is still returned.
 //
-// A positive ioTimeout bounds every storage Get, GetMany and Save call; zero
-// adds no bound beyond the caller's context. Negative values are treated as zero.
+// A positive ioTimeout bounds storage reads, writes and any wait before a
+// write. Zero adds no bound beyond the caller's context. Negative values are
+// treated as zero.
 func WithFailOpen(ioTimeout time.Duration) Option {
 	return func(o *options) {
 		o.failOpen = true

@@ -72,6 +72,7 @@ func newLogger() (*slog.Logger, *logBuffer) {
 func TestBuilder_UsesClientNameAndPrefix(t *testing.T) {
 	t.Parallel()
 	client, mr := redistest.RedisClient(t)
+	redistest.ServeTopology(mr, "master", "0")
 
 	var mu sync.Mutex
 	var reserves [][]string
@@ -89,12 +90,13 @@ func TestBuilder_UsesClientNameAndPrefix(t *testing.T) {
 	loader := probfilter.NewDataLoader(func() iter.Seq[string] { return slices.Values([]string{"a"}) })
 
 	f, err := probfilterfactory.NewFilter("users", cfg, defaults()).
+		SkipEvictionPolicyCheck(true).
 		UseBloomStorage(probfilterconfig.StorageTypeRedis, factory.Builder(client)).
 		UseDataLoader(loader).
 		UseScheduler(sched).
 		Build(t.Context())
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = f.(interface{ Close(context.Context) error }).Close(context.Background()) })
+	t.Cleanup(func() { _ = f.(interface{ Close(context.Context) error }).Close(context.WithoutCancel(t.Context())) })
 
 	_, ok := sched.Task("probfilter-rebuild-users")
 	require.True(t, ok, "a Redis filter is shared and rebuilt through the scheduler")
@@ -134,6 +136,7 @@ func redisClient(t *testing.T) *goredis.Client {
 func serveEvictionPolicy(t *testing.T, policy string) *goredis.Client {
 	t.Helper()
 	client, mr := redistest.RedisClient(t)
+	redistest.ServeTopology(mr, "master", "0")
 	require.NoError(t, mr.Server().Register("CONFIG", func(c *server.Peer, _ string, _ []string) {
 		c.WriteMapLen(1)
 		c.WriteBulk("maxmemory-policy")
@@ -178,6 +181,7 @@ func TestBuilder_EvictionPolicyCheck(t *testing.T) {
 	t.Run("unreadable_warns", func(t *testing.T) {
 		t.Parallel()
 		client, mr := redistest.RedisClient(t)
+		redistest.ServeTopology(mr, "master", "0")
 		require.NoError(t, mr.Server().Register("CONFIG", func(c *server.Peer, _ string, _ []string) {
 			c.WriteError("NOPERM this user has no permissions to run the 'config' command")
 		}))

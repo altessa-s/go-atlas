@@ -157,12 +157,12 @@ func TestWithKeyVersion_KeyLayout(t *testing.T) {
 		cache.WithKeyNamespace(func(context.Context) string { return "t1" }))
 
 	require.NoError(t, c.Save(ctx, "k", item{Name: "v"}))
-	exists, err := storage.Exists(ctx, "7:2:t1:k")
+	exists, err := storage.Exists(ctx, "37:2:t1:k")
 	require.NoError(t, err)
 	require.True(t, exists, "version first, then the length-prefixed namespace, then the key")
 
 	require.NoError(t, c.Delete(ctx, "k"))
-	exists, err = storage.Exists(ctx, "7:2:t1:k")
+	exists, err = storage.Exists(ctx, "37:2:t1:k")
 	require.NoError(t, err)
 	require.False(t, exists)
 }
@@ -276,17 +276,17 @@ func TestGetManyT_CleanupTargetsTheEntryThatWasRead(t *testing.T) {
 		return 2, nil
 	}
 	c := cache.New(storage, cache.WithKeyVersion(version), cache.WithFailOpen(0))
-	require.NoError(t, storage.Storage.Save(ctx, "1:k", []byte("{not json"), 0))
-	require.NoError(t, storage.Storage.Save(ctx, "2:k", []byte(`{"Name":"newer"}`), 0))
+	require.NoError(t, storage.Storage.Save(ctx, "11:k", []byte("{not json"), 0))
+	require.NoError(t, storage.Storage.Save(ctx, "12:k", []byte(`{"Name":"newer"}`), 0))
 
 	got, err := cache.GetManyT[item](ctx, c, []string{"k"})
 	require.NoError(t, err)
 	require.Empty(t, got, "the corrupt entry is a miss")
 
-	exists, err := storage.Exists(ctx, "1:k")
+	exists, err := storage.Exists(ctx, "11:k")
 	require.NoError(t, err)
 	require.False(t, exists, "the corrupt entry that was read is deleted")
-	exists, err = storage.Exists(ctx, "2:k")
+	exists, err = storage.Exists(ctx, "12:k")
 	require.NoError(t, err)
 	require.True(t, exists, "the valid entry of the newer version is kept")
 	require.EqualValues(t, 1, calls.Load(), "the version is resolved once per bulk call")

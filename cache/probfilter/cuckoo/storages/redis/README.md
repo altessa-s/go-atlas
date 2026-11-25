@@ -33,5 +33,7 @@ Rebuilds of the shared filter are serialized across processes by a rebuild lease
 an
 older snapshot never overwrites a newer one.
 
-`CheckEvictionPolicy` verifies that no Redis master runs an `allkeys-*` `maxmemory-policy`, which could evict the filter, its rebuild metadata and
-delete records (`probfilter.ErrUnsafeEvictionPolicy`); it reports `verified == false` without an error when the policy cannot be read.
+`CheckEvictionPolicy` verifies the eviction policy of a standalone primary or every primary identified by `CLUSTER SHARDS`. An `allkeys-*` policy
+returns `probfilter.ErrUnsafeEvictionPolicy`. Incomplete topology returns `probfilter.ErrUnverifiableTopology`, including raw Rings and decorated
+clients. Only a denied `CONFIG GET` on verified primaries returns `verified == false` without an error. Use `CheckSentinelEvictionPolicy` for a client
+created by `NewFailoverClusterClient`.

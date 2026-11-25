@@ -54,7 +54,7 @@ func newCacheMetrics(c metrics.Meter, cacheName string) *cacheMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("cache")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("cache")}
 	labels := metrics.Labels{labelCacheName: cacheName}
 
 	failOpen := scoped.MustCounter(metrics.MetricOpts{

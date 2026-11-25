@@ -34,11 +34,25 @@ const evictionCheckTimeout = 5 * time.Second
 // after checking that the server cannot evict its keys (unless
 // spec.SkipEvictionPolicyCheck).
 func Builder(client redis.UniversalClient) probfilterfactory.BloomStorageFunc {
+	return builder(client, func(ctx context.Context) (bool, error) { return bloomredis.CheckEvictionPolicy(ctx, client) })
+}
+
+// SentinelBuilder builds storage borrowing a client created by
+// redis.NewFailoverClusterClient. Its eviction check discovers the current
+// primary through Sentinel. A managed client's SentinelCluster supplies this provenance.
+func SentinelBuilder(client *redis.ClusterClient) probfilterfactory.BloomStorageFunc {
+	if client == nil {
+		return Builder(nil)
+	}
+	return builder(client, func(ctx context.Context) (bool, error) { return bloomredis.CheckSentinelEvictionPolicy(ctx, client) })
+}
+
+func builder(client redis.UniversalClient, check func(context.Context) (bool, error)) probfilterfactory.BloomStorageFunc {
 	return func(ctx context.Context, spec probfilterfactory.BloomStorageSpec) (bloomstorages.Storage, error) {
 		if client == nil {
 			return nil, ErrClientRequired
 		}
-		if err := checkEvictionPolicy(ctx, client, spec.StorageSpec); err != nil {
+		if err := checkEvictionPolicy(ctx, check, spec.StorageSpec); err != nil {
 			return nil, err
 		}
 		cfg := spec.Storage
@@ -56,13 +70,13 @@ func Builder(client redis.UniversalClient) probfilterfactory.BloomStorageFunc {
 // checkEvictionPolicy fails when the Redis server may evict the filter's
 // keys (see [bloomredis.CheckEvictionPolicy]) and logs when the policy
 // cannot be read.
-func checkEvictionPolicy(ctx context.Context, client redis.UniversalClient, spec probfilterfactory.StorageSpec) error {
+func checkEvictionPolicy(ctx context.Context, check func(context.Context) (bool, error), spec probfilterfactory.StorageSpec) error {
 	if spec.SkipEvictionPolicyCheck {
 		return nil
 	}
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, evictionCheckTimeout)
 	defer cancel()
-	verified, err := bloomredis.CheckEvictionPolicy(ctx, client)
+	verified, err := check(ctx)
 	if err != nil {
 		return coreerrs.Wrap(err, "redis storage of filter "+spec.Name)
 	}

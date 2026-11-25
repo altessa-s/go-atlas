@@ -5,38 +5,46 @@
 package cache
 
 import (
+	"context"
+	"slices"
 	"sync"
-	"sync/atomic"
 )
 
-// inflightLoads tracks the fallback loads currently running, keyed by
-// effective key, so that a Delete overlapping a load keeps that load from
-// writing its pre-delete result back. An entry lives only while at least one
-// load of its key is running, which bounds the map by the number of
-// concurrent loads.
+// inflightLoads coordinates fallback loads and explicit mutations by effective
+// key. An entry lives only while an operation on that key holds a reference.
 type inflightLoads struct {
-	// active counts running loads; Delete reads it to skip the lock when no
-	// load is in flight.
-	active atomic.Int64
-
 	mu    sync.Mutex
 	loads map[string]*loadGuard
 }
 
-// loadGuard is the state shared by the loads of one key and the deletes that
+// loadGuard is the state shared by the loads of one key and explicit mutations that
 // overlap them.
 type loadGuard struct {
-	// mu is held across the invalidation check and the write of a load, and
-	// while a delete marks the guard, so a delete either sees the write
-	// finished (and removes it) or stops it.
-	mu          sync.Mutex
+	// gate is held across provider writes so overlapping mutations have a
+	// consistent order. A waiting caller can leave on context cancellation.
+	gate        chan struct{}
 	invalidated bool
 
 	refs int // guarded by inflightLoads.mu
 }
 
-// begin registers a load of ek. It must be called before the fallback reads
-// the source of truth.
+func (g *loadGuard) lock(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case g.gate <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			g.unlock()
+			return err
+		}
+		return nil
+	}
+}
+
+func (g *loadGuard) unlock() { <-g.gate }
+
+// begin registers an operation on ek. Call it before the fallback reads the
+// source of truth or before an explicit mutation reaches storage.
 func (l *inflightLoads) begin(ek string) *loadGuard {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -46,11 +54,10 @@ func (l *inflightLoads) begin(ek string) *loadGuard {
 		if l.loads == nil {
 			l.loads = make(map[string]*loadGuard)
 		}
-		g = &loadGuard{}
+		g = &loadGuard{gate: make(chan struct{}, 1)}
 		l.loads[ek] = g
 	}
 	g.refs++
-	l.active.Add(1)
 	return g
 }
 
@@ -59,28 +66,43 @@ func (l *inflightLoads) end(ek string, g *loadGuard) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.active.Add(-1)
 	g.refs--
 	if g.refs == 0 {
 		delete(l.loads, ek)
 	}
 }
 
-// invalidate marks the running loads of eks so they do not store their
-// result. It must be called before the keys are deleted from the storage.
-func (l *inflightLoads) invalidate(eks ...string) {
-	if l.active.Load() == 0 {
-		return
+// invalidate runs a delete while holding the affected keys and prevents
+// overlapping loads from repopulating them. Consistent lock order lets
+// concurrent batches overlap in any caller-provided order.
+func (l *inflightLoads) invalidate(ctx context.Context, keys []string, remove func() error) error {
+	if len(keys) > 1 {
+		keys = slices.Clone(keys)
+		slices.Sort(keys)
+		keys = slices.Compact(keys)
 	}
-	for _, ek := range eks {
-		l.mu.Lock()
-		g := l.loads[ek]
-		l.mu.Unlock()
-		if g == nil {
-			continue
+	guards := make([]*loadGuard, 0, len(keys))
+	defer func() {
+		for i, guard := range slices.Backward(guards) {
+			guard.unlock()
+			l.end(keys[i], guard)
 		}
-		g.mu.Lock()
-		g.invalidated = true
-		g.mu.Unlock()
+	}()
+	for _, key := range keys {
+		guard := l.begin(key)
+		if err := guard.lock(ctx); err != nil {
+			l.end(key, guard)
+			return err
+		}
+		guards = append(guards, guard)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	err := remove()
+	// A failed delete may have reached storage or removed part of a batch.
+	for _, guard := range guards {
+		guard.invalidated = true
+	}
+	return err
 }

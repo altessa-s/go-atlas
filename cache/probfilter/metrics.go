@@ -40,7 +40,7 @@ func newProbfilterMetrics(c metrics.Meter) *probfilterMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("probfilter")
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem("probfilter")}
 
 	return &probfilterMetrics{
 		lookupsTotal: scoped.MustCounter(metrics.MetricOpts{

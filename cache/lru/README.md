@@ -21,6 +21,15 @@ Package `lru` provides generic thread-safe LRU cache implementations. Supports s
 
 `Cacher` embeds `Reader`, `Writer`, and `Loader`; accept the narrowest one a function needs.
 
+## Sharded capacity
+
+`NewShardedCache` uses one shard for sizes below 128, with a minimum cache size of one. With multiple shards, each has at least 64 slots and the
+slot counts add up to the requested size. An empty cache with `s` shards accepts at least `size / s` distinct keys before any eviction, regardless
+of their hashes. Eviction follows each shard's LRU order, so a full shard can evict while others still have room.
+
+`WithShardCount` requests a positive power of two. Other values use the CPU-based default. Either count is halved as needed to meet the per-shard
+minimum, down to one shard.
+
 ## Bounding staleness
 
 `Cache` evicts only when full, so a key written once and read forever never refreshes. `ExpirableCache` also bounds *age*: the TTL starts at insertion

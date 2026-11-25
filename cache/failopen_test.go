@@ -78,6 +78,11 @@ func (s *faultStorage) Delete(ctx context.Context, key string) error {
 	return s.Storage.Delete(ctx, key)
 }
 
+func (s *faultStorage) CompareAndDelete(ctx context.Context, key string, expected []byte) (bool, error) {
+	s.deletes.Add(1)
+	return s.Storage.(storages.CompareDeleter).CompareAndDelete(ctx, key, expected)
+}
+
 // multiFaultStorage is a faultStorage that also implements GetMany.
 type multiFaultStorage struct {
 	*faultStorage
@@ -127,7 +132,7 @@ func TestFailOpen_Lookup(t *testing.T) {
 		{
 			name: "corrupt value with fail-open",
 			configure: func(t *testing.T, s *faultStorage) {
-				require.NoError(t, s.Storage.Save(t.Context(), "k", []byte("{not json"), 0))
+				require.NoError(t, s.Storage.Save(t.Context(), "0k", []byte("{not json"), 0))
 			},
 			failOpen: true, wantOp: "decode",
 		},
@@ -175,12 +180,31 @@ func TestFailOpen_Lookup(t *testing.T) {
 	}
 }
 
+func TestFailOpenExists(t *testing.T) {
+	t.Parallel()
+
+	s := newFaultStorage(t)
+	s.delay = time.Minute
+	c := cache.New(s, cache.WithFailOpen(time.Millisecond))
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	found, err := c.Exists(ctx, "key")
+	require.NoError(t, err)
+	require.False(t, found)
+	require.NoError(t, ctx.Err())
+
+	cancel()
+	found, err = c.Exists(ctx, "key")
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, found)
+}
+
 func TestFailOpen_GetDecodeError(t *testing.T) {
 	t.Parallel()
 
 	for _, failOpen := range []bool{false, true} {
 		s := newFaultStorage(t)
-		require.NoError(t, s.Storage.Save(t.Context(), "k", []byte("{not json"), 0))
+		require.NoError(t, s.Storage.Save(t.Context(), "0k", []byte("{not json"), 0))
 		var opts []cache.Option
 		if failOpen {
 			opts = append(opts, cache.WithFailOpen(0))
@@ -204,7 +228,7 @@ func TestFailOpen_UntypedCorruptValueReloads(t *testing.T) {
 	t.Parallel()
 
 	s := newFaultStorage(t)
-	require.NoError(t, s.Storage.Save(t.Context(), "k", []byte(`{"Name":"stale","Tags":"bad"}`), 0))
+	require.NoError(t, s.Storage.Save(t.Context(), "0k", []byte(`{"Name":"stale","Tags":"bad"}`), 0))
 	c := cache.New(s, cache.WithFailOpen(0))
 
 	var v item
@@ -525,7 +549,7 @@ func TestGetManyT_DecodeError(t *testing.T) {
 		}
 		c := cache.New(&multiFaultStorage{faultStorage: fs}, opts...)
 		require.NoError(t, c.Save(t.Context(), "good", item{Name: "g", Tags: []string{"x"}}))
-		require.NoError(t, fs.Storage.Save(t.Context(), "bad", []byte("{not json"), 0))
+		require.NoError(t, fs.Storage.Save(t.Context(), "0bad", []byte("{not json"), 0))
 
 		got, err := cache.GetManyT[item](t.Context(), c, []string{"good", "bad"})
 		if !failOpen {
@@ -535,7 +559,7 @@ func TestGetManyT_DecodeError(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, map[string]item{"good": {Name: "g", Tags: []string{"x"}}}, got)
 		require.EqualValues(t, 1, fs.deletes.Load())
-		_, err = fs.Storage.Get(t.Context(), "bad")
+		_, err = fs.Storage.Get(t.Context(), "0bad")
 		require.ErrorIs(t, err, storages.ErrMissing)
 	}
 }

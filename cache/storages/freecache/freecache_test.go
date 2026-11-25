@@ -172,3 +172,15 @@ func TestStorage_InProcess(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, ip.InProcess())
 }
+
+func TestGetEmptyValue(t *testing.T) {
+	t.Parallel()
+	p := freecache.New(freecache.WithMaxSize(1 << 20))
+	require.NoError(t, p.Save(t.Context(), "empty", []byte{}, 0))
+	value, err := p.Get(t.Context(), "empty")
+	require.NoError(t, err)
+	require.Nil(t, value)
+	values, err := p.GetMany(t.Context(), []string{"empty", "missing"})
+	require.NoError(t, err)
+	require.Equal(t, map[string][]byte{"empty": nil}, values)
+}

@@ -18,27 +18,36 @@ type ShardedCache[K comparable, V any] struct {
 	seed      maphash.Seed
 }
 
-// NewShardedCache creates a new sharded LRU cache.
+// NewShardedCache creates a sharded LRU cache with totalSize slots.
+// A non-positive totalSize is treated as one.
+//
+// The shard count is a power of two and is reduced as needed to leave at
+// least 64 slots per shard. Capacities below 128 use one shard, which holds
+// the entire capacity. With s shards, an empty cache can accept at least
+// totalSize/s distinct keys without eviction regardless of their hashes.
+// Each shard applies its own LRU order and can evict while other shards
+// still have room. See [WithShardCount] to request a shard count.
 func NewShardedCache[K comparable, V any](totalSize int, opts ...Option) (*ShardedCache[K, V], error) {
-	o := defaultOptions()
-	for _, opt := range opts {
-		opt(o)
+	shardCount := newOptions(opts...).shardCount
+
+	if shardCount <= 0 || shardCount&(shardCount-1) != 0 {
+		shardCount = calculateOptimalShardCount()
 	}
 
-	if o.shardCount <= 0 {
-		o.shardCount = calculateOptimalShardCount()
+	totalSize = max(totalSize, 1)
+	maxShards := max(totalSize/minShardSize, 1)
+	for shardCount > maxShards {
+		shardCount >>= 1
 	}
+	shardSize, remainder := totalSize/shardCount, totalSize%shardCount
 
-	// Ensure shard count is a power of 2
-	if (o.shardCount & (o.shardCount - 1)) != 0 {
-		o.shardCount = calculateOptimalShardCount()
-	}
-
-	shardSize := max(totalSize/o.shardCount, 1)
-
-	shards := make([]*Cache[K, V], o.shardCount)
-	for i := range o.shardCount {
-		shard, err := NewCache[K, V](shardSize)
+	shards := make([]*Cache[K, V], shardCount)
+	for i := range shards {
+		size := shardSize
+		if i < remainder {
+			size++
+		}
+		shard, err := NewCache[K, V](size)
 		if err != nil {
 			return nil, err
 		}
@@ -47,7 +56,7 @@ func NewShardedCache[K comparable, V any](totalSize int, opts ...Option) (*Shard
 
 	return &ShardedCache[K, V]{
 		shards:    shards,
-		shardMask: uint64(o.shardCount - 1), //nolint:gosec // G115: shardCount is validated positive and small (power of 2)
+		shardMask: uint64(shardCount - 1), //nolint:gosec // G115: shardCount is always positive
 		seed:      maphash.MakeSeed(),
 	}, nil
 }
@@ -124,6 +133,7 @@ func (sc *ShardedCache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(c
 }
 
 const (
+	minShardSize       = 64
 	minShardCount      = 16
 	maxShardCount      = 256
 	shardingMultiplier = 2

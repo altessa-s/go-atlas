@@ -5,6 +5,7 @@
 package redis_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/altessa-s/go-atlas/cache/storages"
 	"github.com/altessa-s/go-atlas/cache/storages/redis"
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
+
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // setupProvider creates a Provider with a miniredis instance for testing.
@@ -231,4 +234,57 @@ func TestProvider_GetMany_ServerDown(t *testing.T) {
 	_, err := p.GetMany(t.Context(), []string{"a"})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, storages.ErrMissing)
+}
+
+// captureGetHook retains the Redis string just as telemetry hooks may.
+type captureGetHook struct {
+	got string
+}
+
+func (h *captureGetHook) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (h *captureGetHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, cmd goredis.Cmder) error {
+		err := next(ctx, cmd)
+		h.capture(cmd)
+		return err
+	}
+}
+
+func (h *captureGetHook) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []goredis.Cmder) error {
+		err := next(ctx, cmds)
+		for _, cmd := range cmds {
+			h.capture(cmd)
+		}
+		return err
+	}
+}
+
+func (h *captureGetHook) capture(cmd goredis.Cmder) {
+	if result, ok := cmd.(*goredis.StringCmd); ok && result.Name() == "get" {
+		h.got = result.Val()
+	}
+}
+
+func TestReadBytesAreOwned(t *testing.T) {
+	t.Parallel()
+	client, _ := redistest.RedisClient(t)
+	hook := &captureGetHook{}
+	client.AddHook(hook)
+	p := redis.New(client)
+	ctx := t.Context()
+	require.NoError(t, p.Save(ctx, "key", []byte("cached"), 0))
+
+	value, err := p.Get(ctx, "key")
+	require.NoError(t, err)
+	require.Equal(t, "cached", hook.got)
+	value[0] = 'X'
+	require.Equal(t, "cached", hook.got)
+
+	values, err := p.GetMany(ctx, []string{"key"})
+	require.NoError(t, err)
+	require.Equal(t, []byte("cached"), values["key"])
+	values["key"][0] = 'X'
+	require.Equal(t, "cached", hook.got)
 }

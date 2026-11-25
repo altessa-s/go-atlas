@@ -13,13 +13,15 @@ import (
 
 	"github.com/altessa-s/go-atlas/cache"
 	"github.com/altessa-s/go-atlas/cache/storages/lru"
+
+	cachelru "github.com/altessa-s/go-atlas/cache/lru"
 )
 
 type namespaceKey struct{}
 
 func TestNamespaceEncoding(t *testing.T) {
 	t.Parallel()
-	storage, err := lru.New(64)
+	storage, err := lru.New(64, cachelru.WithShardCount(1))
 	require.NoError(t, err)
 	c := cache.New(storage, cache.WithKeyNamespace(func(ctx context.Context) string { return ctx.Value(namespaceKey{}).(string) }))
 	pairs := []struct{ ns, key, value string }{
@@ -59,4 +61,52 @@ func TestNilFallbackAndSharedDeadline(t *testing.T) {
 	cancel()
 	err = c.GetWithFallback(ctx, "canceled", &value, func(context.Context) (any, time.Duration, error) { panic("must not start") })
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+func TestSaveWinsOverRunningFallback(t *testing.T) {
+	t.Parallel()
+	backend, err := lru.New(64, cachelru.WithShardCount(1))
+	require.NoError(t, err)
+	c := cache.New(backend)
+	started, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := cache.GetWithFallbackT(t.Context(), c, "record", func(ctx context.Context) (string, time.Duration, error) {
+			close(started)
+			select {
+			case <-release:
+				return "old", cache.NoTTL, nil
+			case <-ctx.Done():
+				return "", 0, ctx.Err()
+			}
+		})
+		done <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		require.FailNow(t, "fallback did not start")
+	}
+	err = c.Save(t.Context(), "record", "new", cache.NoTTL)
+	close(release)
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+	var value string
+	require.NoError(t, c.Get(t.Context(), "record", &value))
+	require.Equal(t, "new", value)
+}
+
+func TestGetManyRawOwnsReturnedBytes(t *testing.T) {
+	t.Parallel()
+	backend, err := lru.New(64, cachelru.WithShardCount(1))
+	require.NoError(t, err)
+	c := cache.New(backend)
+	require.NoError(t, c.Save(t.Context(), "record", "old"))
+	raw, err := c.GetManyRaw(t.Context(), []string{"record"})
+	require.NoError(t, err)
+	require.Equal(t, []byte(`"old"`), raw["record"])
+	raw["record"][1] = 'X'
+	var value string
+	require.NoError(t, c.Get(t.Context(), "record", &value))
+	require.Equal(t, "old", value)
 }

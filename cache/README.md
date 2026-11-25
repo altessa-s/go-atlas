@@ -47,7 +47,7 @@ remains occupied until the callback exits, even after every waiter cancels. Ther
 | `WithSerializer`                   | JSON    | Serialization format                                                                                 |
 | `WithKeyNamespace`                 | none    | Per-context namespace for tenant/subject isolation (see below)                                       |
 | `WithMaxConcurrentFallbacks`       | 1024    | Maximum distinct active fallbacks; non-positive disables the limit                                   |
-| `WithFallbackTimeout`              | 15s     | Shared fallback and write deadline; non-positive disables the deadline                               |
+| `WithFallbackTimeout`              | 15s     | Shared fallback and write deadline; non-positive values are ignored and keep the default             |
 | `WithNegativeTTL`                  | 0       | Cache missing results; zero disables negative caching                                                |
 | `WithMeter`                        | no-op   | Metrics collector                                                                                    |
 | `WithName`                         | `""`    | Cache name used in metric labels                                                                     |
@@ -58,6 +58,17 @@ remains occupied until the callback exits, even after every waiter cancels. Ther
 
 `NewGenerations` takes its own options: `WithGenerationStore` (default in-process) and `WithBypass`.
 
+## Stored values and upgrades
+
+**Upgrade with a fresh storage prefix or an empty dedicated backend.** A one-byte tag identifies the codec family and whether namespace and
+generation settings are enabled. Both formats start cold when upgraded. Previous keys were arbitrary strings and can overlap
+the new physical prefixes. Legacy entries must stay in their previous storage prefix and age out under their original TTL. Remove legacy entries with
+`NoTTL` after the last old reader has stopped. During a rolling deployment, coordinate invalidations across both prefixes or drain old readers before
+switching. In-process caches can start with a new instance.
+
+`GetManyRaw` returns the exact bytes produced by the serializer. Custom serializers can produce any byte sequence, including the zero byte reserved
+for negative entries. The cache escapes leading zeros on successful writes. Give caches that use different custom serializers separate storage prefixes.
+
 ## Fail-open mode
 
 `WithFailOpen(ioTimeout)` makes the cache an optimization that never fails a request on its own. A positive `ioTimeout` bounds every storage `Get`,
@@ -66,7 +77,7 @@ remains occupied until the callback exits, even after every waiter cancels. Ther
 | Situation                                      | Default         | Fail-open                                                                                           |
 |------------------------------------------------|-----------------|-----------------------------------------------------------------------------------------------------|
 | Storage read error or timeout                  | error returned  | miss: `GetWithFallback*` runs the fallback, `Get` returns `ErrMissing`, `GetManyRaw` omits the keys |
-| Stored value fails to decode                   | error returned  | miss, and the key is deleted best-effort                                                            |
+| Stored value fails to decode                   | error returned  | miss, with conditional cleanup when the storage supports it                                        |
 | Fallback rejected with `ErrOverloaded`         | `ErrOverloaded` | the fallback runs directly in the caller, unshared, within `WithFallbackTimeout`                    |
 | Write after a successful fallback fails        | error returned  | the loaded value is returned                                                                        |
 | `Save` fails or times out                      | error returned  | `nil`                                                                                               |
@@ -84,7 +95,7 @@ caller, including the one that ran the fallback, decodes its own copy. It costs 
 ## Generations: cross-replica invalidation
 
 `WithGeneration(store, namespace)` embeds the namespace's generation from a `generation.Storage` (`cache/generation`) in every key, ahead of the
-`WithKeyNamespace` namespace: keys become `<generation>:[<len>:<namespace>:]<key>`. `InvalidateAll(ctx)` bumps the generation, which orphans every
+`WithKeyNamespace` namespace: keys become `<format prefix><generation>:[<len>:<namespace>:]<key>`. `InvalidateAll(ctx)` bumps the generation, which orphans every
 entry
 at once; they expire under their TTL or are evicted. The singleflight key carries the generation too, so a reader after the bump never joins a fill
 that started before it, and such a fill stores its value under the old generation, where it is never read again.
@@ -168,7 +179,8 @@ users, err := cache.GetManyT[User](ctx, c, []string{"user:1", "user:2"}) // each
 
 Results are keyed by the caller's keys (namespacing applies to storage keys only); missing and negatively cached keys are absent. The read is a single
 `storages.MultiGetter.GetMany` call when the storage implements it, otherwise a loop of `Get`. Hits, misses and negative hits are counted per key. In
-`GetManyT` a value that fails to decode returns the error, or with fail-open is a miss for that key and is deleted best-effort.
+`GetManyT` a value that fails to decode returns the error, or with fail-open it is a miss for that key. A failed decode removes the entry only
+when the storage supports an atomic comparison and the same bytes are still stored. Otherwise a fallback, a later write, or the TTL can replace it.
 
 ## Tenant isolation (multi-tenant deployments)
 
@@ -188,16 +200,13 @@ c := cache.New(provider, cache.WithKeyNamespace(func(ctx context.Context) string
 ```
 
 `WithKeyNamespace` is applied uniformly to `Get`, `GetManyRaw`, `GetManyT`, `Save`, `Exists`, `Delete`, `DeleteMany`, and both the backend and
-singleflight key inside `GetWithFallback`, so a `Get` and its matching `Save` always agree. With a namespace function configured, keys are encoded as
-`<namespace byte length>:<namespace>:<key>`. An empty namespace is encoded too. Without a namespace function, keys are unchanged.
+singleflight key inside `GetWithFallback`, so a `Get` and its matching `Save` always agree. The namespace function adds
+`<namespace byte length>:<namespace>:` immediately before the caller’s key, including for an empty namespace. The format prefix and optional generation precede this component.
 
 ## Migrating callers
 
 Fallbacks now take `context.Context` as their first argument, including `GetWithFallbackT` callbacks. Pass that context into I/O operations. Handle
 `ErrOverloaded` through the application's overload policy. Nil fallback results return `ErrMissing` and can be negatively cached.
-
-The namespace encoding replaces the ambiguous `namespace:key` format. Existing namespaced entries become cold and expire under their old TTL; new code
-does not read them. Deploy all callers of a shared namespace together or use separate storage prefixes during a rolling migration.
 
 ## Subpackages
 

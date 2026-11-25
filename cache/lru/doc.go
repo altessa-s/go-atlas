@@ -4,6 +4,8 @@
 
 // Package lru provides generic thread-safe and sharded LRU cache implementations.
 // It supports standard and sharded modes, and provides singleflight-based GetOrCompute.
+// [NewShardedCache] uses one shard for capacities below 128 and gives larger caches
+// independent LRU shards sized to use the full configured capacity.
 //
 // Example:
 //

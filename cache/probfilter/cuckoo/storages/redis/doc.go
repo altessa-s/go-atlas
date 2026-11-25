@@ -7,6 +7,9 @@
 //
 // Requires Redis with RedisBloom module installed.
 //
+// [CheckEvictionPolicy] verifies standalone or Cluster primaries. For
+// NewFailoverClusterClient, use [CheckSentinelEvictionPolicy].
+//
 // Example:
 //
 //	storage := redis.New(rdb, "myfilter", redis.WithCapacity(100000))

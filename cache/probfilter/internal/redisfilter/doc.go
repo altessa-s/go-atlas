@@ -29,6 +29,9 @@
 //	ok, err := core.MightExist(ctx, "value")
 //	err = core.Add(ctx, "value")
 //
+// [CheckEvictionPolicy] verifies a complete set of standalone or Cluster
+// primaries. [CheckSentinelEvictionPolicy] uses synchronous Sentinel discovery.
+//
 // # Info parsing
 //
 // [Core.Info] returns the raw *.INFO reply; [InfoFields] iterates its

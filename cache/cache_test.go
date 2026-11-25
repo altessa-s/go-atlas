@@ -101,7 +101,7 @@ func TestSave(t *testing.T) {
 
 	err := c.Save(ctx, "key1", "hello")
 	require.NoError(t, err)
-	_, ok := p.store["key1"]
+	_, ok := p.store[c.formatPrefix+"key1"]
 	require.True(t, ok, "key not stored in provider")
 }
 
@@ -357,7 +357,7 @@ func TestGetWithFallback_NegativeCaching_Disabled(t *testing.T) {
 	require.ErrorIs(t, err, ErrMissing)
 
 	// No sentinel should be stored.
-	_, ok := p.store["missing"]
+	_, ok := p.store[c.formatPrefix+"missing"]
 	require.False(t, ok, "sentinel should not be stored when negative caching is disabled")
 
 	// Second call should re-invoke fallback.
@@ -379,7 +379,7 @@ func TestGetWithFallback_NegativeCaching_StoresSentinel(t *testing.T) {
 	require.ErrorIs(t, err, ErrMissing)
 
 	// Sentinel should be stored with the negative TTL.
-	stored, ok := p.store["missing"]
+	stored, ok := p.store[c.formatPrefix+"missing"]
 	require.True(t, ok, "sentinel not stored in provider")
 	require.Len(t, stored, 1)
 	require.Equal(t, byte(0x00), stored[0])
@@ -415,7 +415,7 @@ func TestGet_NegativeEntry_ReturnsMissing(t *testing.T) {
 	ctx := t.Context()
 
 	// Manually store a negative sentinel.
-	p.store["neg-key"] = []byte{0x00}
+	p.store[c.formatPrefix+"neg-key"] = []byte{0x00}
 
 	var result string
 	err := c.Get(ctx, "neg-key", &result)
@@ -429,7 +429,7 @@ func TestExists_NegativeEntry_ReturnsFalse(t *testing.T) {
 	ctx := t.Context()
 
 	// Manually store a negative sentinel.
-	p.store["neg-key"] = []byte{0x00}
+	p.store[c.formatPrefix+"neg-key"] = []byte{0x00}
 
 	exists, err := c.Exists(ctx, "neg-key")
 	require.NoError(t, err)
@@ -467,7 +467,7 @@ func TestSave_OverwritesNegativeEntry(t *testing.T) {
 	ctx := t.Context()
 
 	// Store a negative sentinel.
-	p.store["key1"] = []byte{0x00}
+	p.store[c.formatPrefix+"key1"] = []byte{0x00}
 
 	// Save a real value over it.
 	require.NoError(t, c.Save(ctx, "key1", "real-value"))
@@ -503,7 +503,7 @@ func TestGetWithFallback_ErrMissingWritesNegativeCache(t *testing.T) {
 	require.Equal(t, 1, calls, "first call must invoke fallback")
 
 	// Verify the sentinel was written.
-	v, getErr := p.Get(ctx, "miss-key")
+	v, getErr := p.Get(ctx, c.formatPrefix+"miss-key")
 	require.NoError(t, getErr, "negative-cache sentinel must be persisted by the fallback path")
 	require.True(t, isNegativeSentinel(v), "stored value must be the negative sentinel")
 
@@ -536,7 +536,7 @@ func TestGetWithFallback_TransientErrorDoesNotPoisonNegativeCache(t *testing.T) 
 	require.ErrorIs(t, err, transient)
 
 	// No sentinel must have been written for a transient error.
-	_, getErr := p.Get(ctx, "tx-err")
+	_, getErr := p.Get(ctx, c.formatPrefix+"tx-err")
 	require.ErrorIs(t, getErr, storages.ErrMissing,
 		"transient failures must NOT poison the cache — only authoritative ErrMissing does")
 
