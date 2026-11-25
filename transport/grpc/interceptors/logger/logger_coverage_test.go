@@ -244,7 +244,7 @@ func TestServer_TimeFormat(t *testing.T) {
 	si := logger.ServerInterceptor(l, logger.WithTimeFormat(""))
 	_, err := runUnary(t, si, t.Context(), testMethod, nil, func(context.Context, any) (any, error) { return wrapperspb.String("ok"), nil })
 	require.NoError(t, err)
-	require.Contains(t, buf.String(), `"grpc.code":"OK"`)
+	require.Contains(t, buf.String(), `"code":"OK"`)
 	require.Contains(t, buf.String(), `"msg":"call finished"`)
 }
 

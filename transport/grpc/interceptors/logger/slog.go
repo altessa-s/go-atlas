@@ -20,7 +20,7 @@ import (
 //   - Warn: DeadlineExceeded, NotFound, AlreadyExists, ResourceExhausted, Aborted, OutOfRange
 //   - Error: all other codes (Unknown, InvalidArgument, Internal, Unavailable, etc.)
 //
-// Duplicate keys keep their first value. Dotted keys stay intact for masking.
+// Duplicate fields are deduplicated via [slogx.Fields.Grouped] before emission.
 //
 // The returned logger also implements [LevelChecker], letting the
 // interceptor skip field building for calls whose mapped level the handler
@@ -37,7 +37,7 @@ type slogLogger struct {
 
 // Log implements [Logger].
 func (s slogLogger) Log(ctx context.Context, msg string, grpcCode codes.Code, fields slogx.Fields) {
-	attrs := fields.Unique().Attrs()
+	attrs := fields.Grouped()
 	s.l.LogAttrs(ctx, grpcCodeToLevel(grpcCode), msg, attrs...)
 }
 

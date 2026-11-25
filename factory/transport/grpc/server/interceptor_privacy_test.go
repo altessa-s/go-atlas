@@ -106,9 +106,11 @@ func TestTCPInterceptorPrivacyDefaults(t *testing.T) {
 	for _, format := range []struct {
 		name    string
 		handler func(io.Writer, *slog.HandlerOptions) slog.Handler
+		code    string
+		client  string
 	}{
-		{"text", func(w io.Writer, opts *slog.HandlerOptions) slog.Handler { return slog.NewTextHandler(w, opts) }},
-		{"json", func(w io.Writer, opts *slog.HandlerOptions) slog.Handler { return slog.NewJSONHandler(w, opts) }},
+		{"text", func(w io.Writer, opts *slog.HandlerOptions) slog.Handler { return slog.NewTextHandler(w, opts) }, "grpc.code=Internal", "client."},
+		{"json", func(w io.Writer, opts *slog.HandlerOptions) slog.Handler { return slog.NewJSONHandler(w, opts) }, `"code":"Internal"`, `"client":`},
 	} {
 		t.Run(format.name, func(t *testing.T) {
 			t.Parallel()
@@ -172,10 +174,11 @@ func TestTCPInterceptorPrivacyDefaults(t *testing.T) {
 			require.Len(t, capture.spans, 2)
 			gotLogs := logs.String()
 			require.Contains(t, gotLogs, "call finished")
-			require.Contains(t, gotLogs, "grpc.code")
+			require.Contains(t, gotLogs, format.code)
+			require.NotContains(t, gotLogs, format.client)
 			// Startup messages legitimately include the server's listen address.
 			gotLogs = string(bytes.ReplaceAll([]byte(gotLogs), []byte(lis.Addr().String()), nil))
-			for _, marker := range []string{"127.0.0.1", "client.peer_ip", "client.real_ip", "client.user_agent", forwarded, malformed, userAgent, internalIP, "read tcp"} {
+			for _, marker := range []string{"127.0.0.1", forwarded, malformed, userAgent, internalIP, "read tcp"} {
 				require.NotContains(t, gotLogs, marker)
 			}
 			for range 2 {

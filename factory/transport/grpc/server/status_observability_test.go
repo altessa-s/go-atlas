@@ -174,24 +174,25 @@ func TestFactoryFinalStatus(t *testing.T) {
 				for line := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
 					var record struct {
 						Msg, Error string
-						Code       string        `json:"grpc.code"`
-						Message    string        `json:"grpc.message"`
-						Start      time.Time     `json:"request.start_time"`
-						End        time.Time     `json:"request.end_time"`
-						Duration   time.Duration `json:"request.duration"`
+						Grpc       struct{ Code, Message string }
+						Request    struct {
+							Start    time.Time `json:"start_time"`
+							End      time.Time `json:"end_time"`
+							Duration time.Duration
+						}
 					}
 					require.NoError(t, json.Unmarshal([]byte(line), &record))
 					if record.Msg != "call finished" {
 						continue
 					}
 					records++
-					require.Equal(t, tc.code.String(), record.Code)
-					require.Equal(t, tc.message, record.Message)
+					require.Equal(t, tc.code.String(), record.Grpc.Code)
+					require.Equal(t, tc.message, record.Grpc.Message)
 					require.Equal(t, tc.cause, record.Error)
-					require.False(t, record.Start.Before(before))
-					require.False(t, record.End.After(after))
-					require.Positive(t, record.Duration)
-					require.LessOrEqual(t, record.Duration, after.Sub(before))
+					require.False(t, record.Request.Start.Before(before))
+					require.False(t, record.Request.End.After(after))
+					require.Positive(t, record.Request.Duration)
+					require.LessOrEqual(t, record.Request.Duration, after.Sub(before))
 				}
 				require.Equal(t, 1, records)
 			})

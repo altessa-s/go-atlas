@@ -62,4 +62,4 @@ logger.ServerInterceptor(logger.Slog(l), logger.WithLogRequest(), logger.WithDeb
 
 ## Diagnostics
 
-Completion records include the gRPC code, a valid ErrorInfo reason when available, and a recovery category for panics. Use `WithLogClientDetails(true)` for peer IP, real IP, and User-Agent, and `WithLogRawErrors(true)` for error text and panic diagnostics. The slog adapter emits dotted keys such as `client.peer_ip` as literal keys for masking.
+Completion records include the gRPC code, a valid ErrorInfo reason when available, and a recovery category for panics. Use `WithLogClientDetails(true)` for peer IP, real IP, and User-Agent, and `WithLogRawErrors(true)` for error text and panic diagnostics. The slog adapter emits grouped attributes, such as `{"grpc":{"code":"OK"}}` in JSON.

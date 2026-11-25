@@ -7,15 +7,13 @@ package logger
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net"
 	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/altessa-s/go-slogx/handler/masking"
-	"github.com/altessa-s/go-slogx/mask"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -79,20 +77,24 @@ func TestServerInterceptor_LevelCheckSkipsFilteredRecords(t *testing.T) {
 	require.Equal(t, int64(1), handled.Load(), "Internal completion maps to Error and must be logged")
 }
 
-func TestSlogMasksFullClientFieldKey(t *testing.T) {
+func TestSlogGroupsClientDetails(t *testing.T) {
 	t.Parallel()
+
+	const ip = "2001:db8::42"
 	var logged bytes.Buffer
-	handler, err := masking.New(slog.NewJSONHandler(&logged, nil),
-		masking.WithDefaults(false),
-		masking.WithRules(mask.Rule{Field: "client.peer_ip", Mask: mask.Fixed("masked")}),
-	)
-	require.NoError(t, err)
-	ctx := peer.NewContext(t.Context(), &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("192.0.2.42"), Port: 1234}})
+	handler := slog.NewJSONHandler(&logged, nil)
+	ctx := peer.NewContext(t.Context(), &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP(ip), Port: 1234}})
 	rpc := ServerInterceptor(Slog(slog.New(handler)), WithLogClientDetails(true)).ServerUnaryInterceptor()
-	_, err = rpc(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/example.Service/Read"}, func(context.Context, any) (any, error) {
+	_, err := rpc(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/example.Service/Read"}, func(context.Context, any) (any, error) {
 		return nil, nil
 	})
 	require.NoError(t, err)
-	require.Contains(t, logged.String(), `"client.peer_ip":"masked"`)
-	require.NotContains(t, logged.String(), "192.0.2.42")
+
+	var record struct {
+		Client struct {
+			PeerIP string `json:"peer_ip"`
+		}
+	}
+	require.NoError(t, json.Unmarshal(logged.Bytes(), &record))
+	require.Equal(t, ip, record.Client.PeerIP)
 }
