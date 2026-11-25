@@ -16,10 +16,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	"golang.org/x/oauth2"
 )
 
 const tokenJSON = `{"access_token":"at","token_type":"Bearer","expires_in":3600}`
@@ -83,33 +84,41 @@ func TestInsecureEndpointIsRejected(t *testing.T) {
 	t.Parallel()
 	const insecureURL = "http://idp.example/token"
 
-	flows := map[string]func(t *testing.T, opts ...oauth2client.Option) error{
-		"client credentials": func(t *testing.T, opts ...oauth2client.Option) error {
-			src, err := oauth2client.ClientCredentials(t.Context(), insecureURL, "svc", "s3cr3t", opts...)
+	flows := map[string]func(t *testing.T, client *http.Client, allowHTTP bool) error{
+		"client credentials": func(t *testing.T, client *http.Client, allowHTTP bool) error {
+			src, err := oauth2client.ClientCredentials(t.Context(), insecureURL, "svc", "s3cr3t", allowInsecureHTTP(allowHTTP,
+				oauth2client.WithClientCredentialsInsecureHTTP,
+				oauth2client.WithClientCredentialsHTTPClient(client))...)
 			if err != nil {
 				return err
 			}
 			_, err = src.Token()
 			return err
 		},
-		"refresh": func(t *testing.T, opts ...oauth2client.Option) error {
-			src, err := oauth2client.Refresh(t.Context(), insecureURL, "svc", "s3cr3t", "refresh", opts...)
+		"refresh": func(t *testing.T, client *http.Client, allowHTTP bool) error {
+			src, err := oauth2client.Refresh(t.Context(), insecureURL, "svc", "s3cr3t", "refresh", allowInsecureHTTP(allowHTTP,
+				oauth2client.WithRefreshInsecureHTTP,
+				oauth2client.WithRefreshHTTPClient(client))...)
 			if err != nil {
 				return err
 			}
 			_, err = src.Token()
 			return err
 		},
-		"token exchange": func(t *testing.T, opts ...oauth2client.Option) error {
-			ex, err := oauth2client.NewExchanger(insecureURL, "svc", "s3cr3t", opts...)
+		"token exchange": func(t *testing.T, client *http.Client, allowHTTP bool) error {
+			ex, err := oauth2client.NewExchanger(insecureURL, "svc", "s3cr3t", allowInsecureHTTP(allowHTTP,
+				oauth2client.WithExchangerInsecureHTTP,
+				oauth2client.WithExchangerHTTPClient(client))...)
 			if err != nil {
 				return err
 			}
 			_, err = ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subject"})
 			return err
 		},
-		"revocation": func(t *testing.T, opts ...oauth2client.Option) error {
-			r, err := oauth2client.NewRevoker(insecureURL, "svc", "s3cr3t", opts...)
+		"revocation": func(t *testing.T, client *http.Client, allowHTTP bool) error {
+			r, err := oauth2client.NewRevoker(insecureURL, "svc", "s3cr3t", allowInsecureHTTP(allowHTTP,
+				oauth2client.WithRevokerInsecureHTTP,
+				oauth2client.WithRevokerHTTPClient(client))...)
 			if err != nil {
 				return err
 			}
@@ -122,12 +131,12 @@ func TestInsecureEndpointIsRejected(t *testing.T) {
 			t.Parallel()
 
 			client, sent := recordingClient()
-			err := run(t, oauth2client.WithHTTPClient(client))
+			err := run(t, client, false)
 			require.ErrorIs(t, err, oauth2client.ErrInsecureEndpoint)
 			require.Zero(t, sent.Load(), "nothing may be sent to a plain-http endpoint")
 
 			client, sent = recordingClient()
-			require.NoError(t, run(t, oauth2client.WithHTTPClient(client), oauth2client.WithInsecureHTTP()))
+			require.NoError(t, run(t, client, true))
 			require.Equal(t, int32(1), sent.Load())
 		})
 	}
@@ -142,9 +151,9 @@ func TestFromDiscoveryRejectsInsecureEndpoint(t *testing.T) {
 	_, err = oauth2client.NewExchangerFromDiscovery(insecure, "svc", "s3cr3t")
 	require.ErrorIs(t, err, oauth2client.ErrInsecureEndpoint)
 
-	_, err = oauth2client.ClientCredentialsFromDiscovery(t.Context(), insecure, "svc", "s3cr3t", oauth2client.WithInsecureHTTP())
+	_, err = oauth2client.ClientCredentialsFromDiscovery(t.Context(), insecure, "svc", "s3cr3t", oauth2client.WithClientCredentialsInsecureHTTP())
 	require.NoError(t, err)
-	_, err = oauth2client.NewExchangerFromDiscovery(insecure, "svc", "s3cr3t", oauth2client.WithInsecureHTTP())
+	_, err = oauth2client.NewExchangerFromDiscovery(insecure, "svc", "s3cr3t", oauth2client.WithExchangerInsecureHTTP())
 	require.NoError(t, err)
 
 	// A token endpoint on another host than the issuer stays valid over https.
@@ -196,12 +205,12 @@ func TestLoggedFetchErrorOmitsResponseBody(t *testing.T) {
 	flows := map[string]func(t *testing.T, tokenURL string, logger *slog.Logger) error{
 		"client credentials": func(t *testing.T, tokenURL string, logger *slog.Logger) error {
 			_, err := mustClientCredentials(t, tokenURL, "svc", "s3cr3t",
-				oauth2client.WithLogger(logger), oauth2client.WithAuthStyle(oauth2.AuthStyleInHeader)).Token()
+				oauth2client.WithClientCredentialsLogger(logger), oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader)).Token()
 			return err
 		},
 		"authorization code": func(t *testing.T, tokenURL string, logger *slog.Logger) error {
 			ac, err := oauth2client.NewAuthCode(oauth2.Endpoint{TokenURL: tokenURL, AuthStyle: oauth2.AuthStyleInHeader},
-				"svc", "s3cr3t", "https://app.example/cb", oauth2client.WithLogger(logger))
+				"svc", "s3cr3t", "https://app.example/cb", oauth2client.WithAuthCodeLogger(logger))
 			require.NoError(t, err)
 			_, _, err = ac.Exchange(t.Context(), "code")
 			return err

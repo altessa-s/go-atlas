@@ -52,15 +52,15 @@ func TestRevocationSync_AllowEmptyMakesEmptyResultAuthoritative(t *testing.T) {
 			WithRevocationAllowEmpty())
 		require.True(t, jtiRevoked(t, p, idp, "j1"))
 		backdateRevocationSync(p, DefaultRevocationMaxStaleness)
-		synced := p.lastRevocationSyncUnixNanos.Load()
+		synced := p.revocation.lastRevocationSync.Load()
 
 		idp.setRevoked(body...)
-		require.NoError(t, p.scheduledRevocationSync(t.Context()))
+		require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 		require.False(t, jtiRevoked(t, p, idp, "j1"))
-		require.Greater(t, p.lastRevocationSyncUnixNanos.Load(), synced, "an accepted empty sync is fresh")
+		require.True(t, p.revocation.lastRevocationSync.Load().observedAt.After(synced.observedAt), "an accepted empty sync is fresh")
 
 		idp.setRevoked("j2")
-		require.NoError(t, p.scheduledRevocationSync(t.Context()))
+		require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 		require.True(t, jtiRevoked(t, p, idp, "j2"))
 	}
 }
@@ -77,7 +77,7 @@ func TestRevocationAllowEmpty_AppliesToReadyMadeFilterStorage(t *testing.T) {
 		WithRevocationAllowEmpty())
 
 	idp.setRevoked()
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 	require.False(t, jtiRevoked(t, p, idp, "j1"))
 	require.False(t, storage.(*filterRevocationStorage).allowEmpty)
 }

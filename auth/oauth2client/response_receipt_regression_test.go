@@ -14,23 +14,25 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
+
+	"golang.org/x/oauth2"
 )
 
 func requestBoundaryError(t testing.TB, grant, endpoint string, client *http.Client, logs *bytes.Buffer) error {
 	t.Helper()
-	opts := []oauth2client.Option{
-		oauth2client.WithHTTPClient(client),
-		oauth2client.WithAuthStyle(oauth2.AuthStyleInHeader),
-		oauth2client.WithLogger(slog.New(slog.NewJSONHandler(logs, nil))),
-	}
 	if grant == "native" {
-		_, err := mustClientCredentials(t, endpoint, "svc", clientSecret, opts...).Token()
+		_, err := mustClientCredentials(t, endpoint, "svc", clientSecret,
+			oauth2client.WithClientCredentialsHTTPClient(client),
+			oauth2client.WithClientCredentialsLogger(slog.New(slog.NewJSONHandler(logs, nil))),
+			oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader)).Token()
 		return err
 	}
-	_, err := mustExchanger(t, endpoint, "svc", clientSecret, opts...).
+	_, err := mustExchanger(t, endpoint, "svc", clientSecret,
+		oauth2client.WithExchangerHTTPClient(client),
+		oauth2client.WithExchangerLogger(slog.New(slog.NewJSONHandler(logs, nil))),
+		oauth2client.WithExchangerAuthStyle(oauth2.AuthStyleInHeader)).
 		Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: bearerToken})
 	return err
 }

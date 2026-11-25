@@ -149,3 +149,32 @@ func TestWithClockNilIgnored(t *testing.T) {
 	dl.RevokeUntil("a", time.Now().Add(time.Hour))
 	require.True(t, dl.IsRevoked("a"))
 }
+
+func TestRevocationsOnlyExtend(t *testing.T) {
+	t.Parallel()
+	now, advance := clockAt(epoch)
+	list := denylist.New(denylist.WithClock(now))
+	list.RevokeUntil("long-short", epoch.Add(time.Hour))
+	list.RevokeUntil("long-short", epoch.Add(time.Minute))
+	list.RevokeUntil("short-long", epoch.Add(time.Minute))
+	list.RevokeUntil("short-long", epoch.Add(time.Hour))
+	list.RevokeUntil("bounded-permanent", epoch.Add(time.Hour))
+	list.Revoke("bounded-permanent")
+	list.Revoke("permanent-bounded")
+	list.RevokeUntil("permanent-bounded", epoch.Add(time.Hour))
+	var writes sync.WaitGroup
+	writes.Go(func() { list.Revoke("concurrent") })
+	list.RevokeUntil("concurrent", epoch.Add(time.Hour))
+	writes.Wait()
+	advance(time.Minute)
+	require.True(t, list.IsRevoked("long-short"))
+	require.True(t, list.IsRevoked("short-long"))
+	advance(time.Hour)
+	require.False(t, list.IsRevoked("long-short"))
+	require.False(t, list.IsRevoked("short-long"))
+	for _, key := range []string{"bounded-permanent", "permanent-bounded", "concurrent"} {
+		require.True(t, list.IsRevoked(key), key)
+		list.Restore(key)
+		require.False(t, list.IsRevoked(key))
+	}
+}

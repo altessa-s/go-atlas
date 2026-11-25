@@ -34,7 +34,8 @@ allow if {
 `
 	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow")
@@ -71,7 +72,8 @@ allow if {
 `
 	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow",
@@ -101,6 +103,7 @@ allow if {
 `
 	err = os.WriteFile(policyPath, []byte(newPolicyContent), 0644)
 	require.NoError(t, err)
+	writeTestRelease(t, tmpDir)
 
 	// Give the poll loop time to detect the change and reload
 	assert.Eventually(t, func() bool {
@@ -124,7 +127,8 @@ allow if {
 `
 	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow",
@@ -148,6 +152,7 @@ allow if {
 `
 	err = os.WriteFile(policyPath, []byte(newPolicyContent), 0644)
 	require.NoError(t, err)
+	writeTestRelease(t, tmpDir)
 
 	// Start watching — the poll loop will pick up the change
 	err = manager.StartWatching(ctx)
@@ -178,7 +183,8 @@ allow if {
 `
 	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow",
@@ -219,7 +225,8 @@ allow if {
 `
 	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow")
@@ -244,7 +251,8 @@ allow if {
 `
 	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow")
@@ -263,6 +271,7 @@ allow if {
 `
 	err = os.WriteFile(policyPath, []byte(newPolicyContent), 0644)
 	require.NoError(t, err)
+	writeTestRelease(t, tmpDir)
 
 	// Manually trigger update cycle
 	err = manager.RunUpdateCycle(ctx)

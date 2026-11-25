@@ -23,10 +23,10 @@ import (
 // signature, algorithm, and temporal/issuer/audience validation to
 // [github.com/altessa-s/go-atlas/auth/jwt.Verifier]. Verification is fail-closed.
 type Verifier struct {
-	src   KeyProvider
+	src   VerificationKeyProvider
 	cache *keyCache
 	jwt   *jwt.Verifier
-	opts  *options
+	opts  *verifierOptions
 	// identityErr is non-nil when the verifier was built with an empty issuer
 	// or audience; Verify then fails closed with it.
 	identityErr error
@@ -41,8 +41,11 @@ type Verifier struct {
 // issuer as its iss claim and audience among its aud values; both are
 // required, and [Verifier.Verify] fails with [ErrIssuerRequired] or
 // [ErrAudienceRequired] when either is empty.
-func NewVerifier(src KeyProvider, issuer, audience string, opts ...Option) *Verifier {
-	o := newOptions(opts...)
+func NewVerifier(src VerificationKeyProvider, issuer, audience string, opts ...VerifierOption) *Verifier {
+	return newVerifier(src, issuer, audience, newVerifierOptions(opts...))
+}
+
+func newVerifier(src VerificationKeyProvider, issuer, audience string, o *verifierOptions) *Verifier {
 	v := &Verifier{
 		src:         src,
 		cache:       newKeyCache(o.cacheTTL, o.negativeCacheTTL, o.cacheMaxEntries, o.clock),
@@ -52,11 +55,11 @@ func NewVerifier(src KeyProvider, issuer, audience string, opts ...Option) *Veri
 			singleflight.WithTimeout(o.keyLookupTimeout),
 			singleflight.WithMaxConcurrent(o.maxConcurrentLookups)),
 	}
-	jwtOpts := []jwt.Option{
+	jwtOpts := []jwt.VerifierOption{
 		jwt.WithLeeway(o.leeway),
-		jwt.WithClock(o.clock),
-		jwt.WithAllowedAlgorithms(o.allowedAlgorithms...),
-		jwt.WithIssuer(issuer),
+		jwt.WithVerifierClock(o.clock),
+		jwt.WithVerifierAllowedAlgorithms(o.allowedAlgorithms...),
+		jwt.WithVerifierIssuer(issuer),
 		jwt.WithAudiences(audience),
 	}
 	jwtOpts = coreslices.AppendIf(jwtOpts, o.revocation != nil, jwt.WithRevocation(o.revocation))
@@ -202,7 +205,7 @@ func flightKey(subject, kid string, gen uint64) string {
 }
 
 // InvalidateKey drops the cached verification key for (subject, kid), so the
-// next verification of a token carrying that kid consults the [KeyProvider]
+// next verification of a token carrying that kid consults the [VerificationKeyProvider]
 // again. Use it on key rotation to close the [WithCacheTTL] window during which
 // a retired kid would otherwise keep verifying from cache. It also fences key
 // lookups already in flight: their results are not cached, and verifications
@@ -213,7 +216,7 @@ func (v *Verifier) InvalidateKey(subject, kid string) {
 }
 
 // InvalidateSubject drops every cached verification key for subject, so the
-// next verification for that subject reloads from the [KeyProvider]. Use it
+// next verification for that subject reloads from the [VerificationKeyProvider]. Use it
 // when a subject's keys rotate and the retired kid is not known to the caller.
 // It fences in-flight key lookups exactly like [Verifier.InvalidateKey].
 func (v *Verifier) InvalidateSubject(subject string) {

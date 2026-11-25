@@ -15,10 +15,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	"golang.org/x/oauth2"
 )
 
 type errorAttributeHandler struct {
@@ -44,18 +45,23 @@ func TestLoggerAttributesWithholdResponseErrors(t *testing.T) {
 					Body:   io.NopCloser(strings.NewReader(`{"error":"server_error","error_description":"private-response-secret"}`)),
 				}, nil
 			})}
-			opts := []oauth2client.Option{
-				oauth2client.WithHTTPClient(client), oauth2client.WithLogger(slog.New(handler)),
-				oauth2client.WithRetryAttempts(1), oauth2client.WithRetryBaseDelay(time.Millisecond),
-				oauth2client.WithRetryMaxDelay(time.Millisecond),
-			}
 			var err error
 			if name == "token exchange" {
-				_, err = mustExchanger(t, "https://idp.example/token", "svc", clientSecret, opts...).
+				_, err = mustExchanger(t, "https://idp.example/token", "svc", clientSecret,
+					oauth2client.WithExchangerHTTPClient(client),
+					oauth2client.WithExchangerLogger(slog.New(handler)),
+					oauth2client.WithExchangerRetryAttempts(1),
+					oauth2client.WithExchangerRetryBaseDelay(time.Millisecond),
+					oauth2client.WithExchangerRetryMaxDelay(time.Millisecond)).
 					Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: bearerToken})
 			} else {
 				key, _ := rsaKey(t, "key")
-				flow, createErr := oauth2client.NewJWTBearer("https://idp.example/token", "svc", key, opts...)
+				flow, createErr := oauth2client.NewJWTBearer("https://idp.example/token", "svc", key,
+					oauth2client.WithJWTBearerHTTPClient(client),
+					oauth2client.WithJWTBearerLogger(slog.New(handler)),
+					oauth2client.WithJWTBearerRetryAttempts(1),
+					oauth2client.WithJWTBearerRetryBaseDelay(time.Millisecond),
+					oauth2client.WithJWTBearerRetryMaxDelay(time.Millisecond))
 				require.NoError(t, createErr)
 				_, err = flow.Token(t.Context())
 			}

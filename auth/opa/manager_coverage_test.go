@@ -6,17 +6,20 @@ package opa_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas-core/runtime/cycle"
 	"github.com/altessa-s/go-atlas/auth/opa"
+	"github.com/altessa-s/go-atlas/auth/opa/sources/embed"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -91,10 +94,11 @@ func TestPolicyBundle_Accessors(t *testing.T) {
 		require.Fail(t, "an empty bundle has no data")
 	}
 
-	b := opa.NewPolicyBundleWithData(
+	b, err := opa.NewPolicyBundleWithData(
 		map[string][]byte{"a.rego": []byte("package a"), "b.rego": []byte("package b")},
 		map[string]any{"x": 1},
 	)
+	require.NoError(t, err)
 	require.False(t, b.IsEmpty())
 	require.Equal(t, 2, b.ModuleCount())
 	keys := slices.Sorted(b.ModuleKeysIter())
@@ -111,13 +115,13 @@ func TestPolicyBundle_Accessors(t *testing.T) {
 	}
 
 	// Data participates in the revision: same modules, different data.
-	other := opa.NewPolicyBundleWithData(b.Modules, map[string]any{"x": 2})
+	other, err := opa.NewPolicyBundleWithData(b.Modules, map[string]any{"x": 2})
+	require.NoError(t, err)
 	require.NotEqual(t, b.Revision, other.Revision)
-	require.Equal(t, b.Revision, opa.NewPolicyBundleWithData(b.Modules, map[string]any{"x": 1}).Revision)
+	same, err := opa.NewPolicyBundleWithData(b.Modules, map[string]any{"x": 1})
+	require.NoError(t, err)
+	require.Equal(t, b.Revision, same.Revision)
 
-	// Unmarshalable data still yields a deterministic revision.
-	bad := opa.NewPolicyBundleWithData(b.Modules, map[string]any{"ch": make(chan int)})
-	require.Len(t, bad.Revision, 16)
 }
 
 func TestEnumStrings(t *testing.T) {
@@ -168,13 +172,13 @@ func TestManager_SchedulerRegistration(t *testing.T) {
 	src := &mutableSource{bundle: adminsBundle("alice")}
 	reg := &recordingRegistrar{}
 	m, err := opa.NewManager(t.Context(), src, "data.t.allow",
-		opa.WithScheduler(reg), opa.WithUpdateSchedule("*/5 * * * * *", true))
+		opa.WithScheduler(reg), opa.WithSchedulerTaskID("profile-policy-refresh"), opa.WithUpdateSchedule("*/5 * * * * *", true))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = m.Close() })
 
 	require.Len(t, reg.tasks, 1)
 	task := reg.tasks[0]
-	require.Equal(t, "opa-policy-update", task.ID)
+	require.Equal(t, "profile-policy-refresh", task.ID)
 	require.Equal(t, "*/5 * * * * *", task.Schedule)
 	require.True(t, task.RunOnStart)
 
@@ -185,6 +189,34 @@ func TestManager_SchedulerRegistration(t *testing.T) {
 	res, err := m.Evaluator().Evaluate(t.Context(), map[string]any{"user": "bob"})
 	require.NoError(t, err)
 	require.True(t, res.Allow, "the scheduled task must reload policies")
+}
+
+func TestManager_DefaultSchedulerTaskID(t *testing.T) {
+	t.Parallel()
+	policy := &fstest.MapFile{Data: fmt.Appendf(nil, policyTemplate, "alice")}
+	files := fstest.MapFS{"team-a/p.rego": policy, "team-b/p.rego": policy}
+	register := func(dir, query string, opts ...opa.Option) string {
+		t.Helper()
+		src, err := embed.New(files, dir)
+		require.NoError(t, err)
+		reg := &recordingRegistrar{}
+		opts = append(opts, opa.WithScheduler(reg), opa.WithUpdateSchedule("@every 1m", false))
+		m, err := opa.NewManager(t.Context(), src, query, opts...)
+		require.NoError(t, err)
+		require.NoError(t, m.Close())
+		require.Len(t, reg.tasks, 1)
+		return reg.tasks[0].ID
+	}
+
+	const query = "data.t.allow"
+	id := register("team-a", query)
+	for range 3 {
+		require.Equal(t, id, register("team-a", query))
+	}
+	require.Equal(t, "opa-policy-update-26316125d6f7a3a9293d42d9", id)
+	require.Equal(t, id, register("team-a", query, opa.WithSchedulerTaskID("")))
+	require.NotEqual(t, id, register("team-b", query))
+	require.NotEqual(t, id, register("team-a", "data.t"))
 }
 
 func TestManager_SchedulerWithoutScheduleRegistersNothing(t *testing.T) {
@@ -230,6 +262,10 @@ func TestManager_ErrorEventsAndHealth(t *testing.T) {
 		require.Fail(t, "no error event delivered")
 	}
 	require.Equal(t, health.StatusNotServing, m.CheckHealth(t.Context()))
+
+	src.set(adminsBundle("a"), nil)
+	require.NoError(t, m.RunUpdateCycle(t.Context()))
+	require.Equal(t, health.StatusServing, m.CheckHealth(t.Context()))
 
 	// A successful update must not reach an error-only subscriber.
 	src.set(adminsBundle("b"), nil)
@@ -339,10 +375,12 @@ func TestManager_BundleDataLoadsAndReloads(t *testing.T) {
 	t.Parallel()
 	const module = "package t\nimport rego.v1\nallow if input.user in data.admins\n"
 	dataBundle := func(admins ...string) *opa.PolicyBundle {
-		return opa.NewPolicyBundleWithData(
+		b, err := opa.NewPolicyBundleWithData(
 			map[string][]byte{"p.rego": []byte(module)},
 			map[string]any{"admins": admins},
 		)
+		require.NoError(t, err)
+		return b
 	}
 	src := &mutableSource{bundle: dataBundle("alice")}
 	m, err := opa.NewManager(t.Context(), src, "data.t.allow")
@@ -361,4 +399,99 @@ func TestManager_BundleDataLoadsAndReloads(t *testing.T) {
 	res, err = m.Evaluator().Evaluate(t.Context(), map[string]any{"user": "alice"})
 	require.NoError(t, err)
 	require.False(t, res.Allow)
+}
+
+func TestRevisionFraming(t *testing.T) {
+	t.Parallel()
+	a, err := opa.NewPolicyBundleWithData(nil, map[string]any{"quota": 12})
+	require.NoError(t, err)
+	b, err := opa.NewPolicyBundleWithData(nil, map[string]any{"quota1": 2})
+	require.NoError(t, err)
+	require.NotEqual(t, a.Revision, b.Revision)
+	require.NotEqual(t, a.Revision, opa.NewPolicyBundle(map[string][]byte{"quota": []byte("12")}).Revision)
+}
+
+func TestRevisionMarshalError(t *testing.T) {
+	t.Parallel()
+	active := adminsBundle("alice")
+	src := &mutableSource{bundle: active}
+	m, err := opa.NewManager(t.Context(), src, "data.t.allow")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = m.Close() })
+	b, err := opa.NewPolicyBundleWithData(active.Modules, map[string]any{"ch": make(chan int)})
+	var unsupported *json.UnsupportedTypeError
+	require.ErrorAs(t, err, &unsupported)
+	require.Nil(t, b)
+	src.set(b, err)
+	require.ErrorIs(t, m.RunUpdateCycle(t.Context()), opa.ErrBundleFetchFailed)
+	require.Equal(t, active.Revision, m.Revision())
+
+}
+
+func TestDocumentTreeReload(t *testing.T) {
+	t.Parallel()
+	src := &mutableSource{bundle: adminsBundle("seed")}
+	m, err := opa.NewManager(t.Context(), src, "data.roles.admin")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = m.Close() })
+	for _, docs := range []map[string]any{
+		{"roles/admin": true, "roles": map[string]any{"user": true}},
+		{"roles": map[string]any{"user": false}, "roles/admin": true},
+	} {
+		b, err := opa.NewPolicyBundleWithData(src.bundle.Modules, docs)
+		require.NoError(t, err)
+		src.set(b, nil)
+		require.NoError(t, m.RunUpdateCycle(t.Context()))
+	}
+	active := m.Revision()
+	for _, parent := range []any{false, nil, []any{}, map[string]any{"admin": false}} {
+		b, err := opa.NewPolicyBundleWithData(src.bundle.Modules, map[string]any{"roles": parent, "roles/admin": false})
+		require.NoError(t, err)
+		src.set(b, nil)
+		require.ErrorIs(t, m.RunUpdateCycle(t.Context()), opa.ErrInvalidDataPath)
+		require.Equal(t, active, m.Revision())
+	}
+	res, err := m.Evaluator().Evaluate(t.Context(), nil)
+	require.NoError(t, err)
+	require.True(t, res.Allow)
+}
+
+func TestInitialSnapshotEmptyRevision(t *testing.T) {
+	t.Parallel()
+	b := adminsBundle("alice")
+	b.Revision = ""
+	m, err := opa.NewManager(t.Context(), &mutableSource{bundle: b}, "data.t.allow")
+	require.NoError(t, err)
+	defer m.Close()
+	result, err := m.Evaluator().Evaluate(t.Context(), map[string]any{"user": "alice"})
+	require.NoError(t, err)
+	require.True(t, result.Allow)
+}
+
+func TestManager_ScheduleRequiresScheduler(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"missing", "typed nil"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			source := &mutableSource{bundle: adminsBundle("alice")}
+			opts := []opa.Option{opa.WithUpdateSchedule("@every 1m", false)}
+			if name == "typed nil" {
+				opts = append(opts, opa.WithScheduler((*recordingRegistrar)(nil)))
+			}
+			_, err := opa.NewManager(t.Context(), source, "data.t.allow", opts...)
+			require.ErrorIs(t, err, opa.ErrSchedulerRequired)
+		})
+	}
+}
+
+func TestManager_StaticWithoutScheduler(t *testing.T) {
+	t.Parallel()
+
+	source := &mutableSource{bundle: adminsBundle("alice")}
+	manager, err := opa.NewManager(t.Context(), source, "data.t.allow")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, manager.Close()) })
+	require.NoError(t, manager.RunUpdateCycle(t.Context()))
 }

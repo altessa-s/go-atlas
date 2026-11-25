@@ -31,11 +31,11 @@ func TestBlankAllowedRespondersIsNoAllowlist(t *testing.T) {
 
 		// The loopback responder is refused by the default guard, not by an allowlist.
 		guarded := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithAllowedResponders(blank...))
-		require.ErrorIs(t, guarded.Check(leaf), revocation.ErrPrivateResponder, "%q", blank)
+		require.ErrorIs(t, guarded.Check(t.Context(), leaf), revocation.ErrPrivateResponder, "%q", blank)
 
 		// With the guard off every responder is still a candidate.
 		c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithAllowedResponders(blank...))
-		require.NoError(t, c.Check(leaf), "%q", blank)
+		require.NoError(t, c.Check(t.Context(), leaf), "%q", blank)
 	}
 }
 
@@ -48,8 +48,8 @@ func TestAllowedRespondersDropsBlankEntries(t *testing.T) {
 	require.NoError(t, err)
 
 	listed := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithAllowedResponders("", u.Hostname()))
-	require.NoError(t, listed.Check(makeLeaf(t, ca, 42, srv.URL)))
+	require.NoError(t, listed.Check(t.Context(), makeLeaf(t, ca, 42, srv.URL)))
 
 	other := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithAllowedResponders("", "ocsp.example.org"))
-	require.ErrorIs(t, other.Check(makeLeaf(t, ca, 43, srv.URL)), revocation.ErrResponderNotAllowed)
+	require.ErrorIs(t, other.Check(t.Context(), makeLeaf(t, ca, 43, srv.URL)), revocation.ErrResponderNotAllowed)
 }

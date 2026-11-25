@@ -39,11 +39,11 @@ func TestDefaultClientRefusesPrivateResponder(t *testing.T) {
 			t.Parallel()
 			leaf := makeLeaf(t, ca, 42, tc.url)
 
-			err := revocation.New([]*x509.Certificate{ca.Cert}).Check(leaf)
+			err := revocation.New([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf)
 			require.ErrorIs(t, err, revocation.ErrPrivateResponder)
 
 			open := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen))
-			require.NoError(t, open.Check(leaf), "fail-open keeps accepting an indeterminate status")
+			require.NoError(t, open.Check(t.Context(), leaf), "fail-open keeps accepting an indeterminate status")
 		})
 	}
 	require.Zero(t, hits.Load(), "the responder must never be contacted")
@@ -57,7 +57,7 @@ func TestInsecureAllowPrivateRespondersOptsOut(t *testing.T) {
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
 	c := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithInsecureAllowPrivateResponders())
-	require.NoError(t, c.Check(leaf))
+	require.NoError(t, c.Check(t.Context(), leaf))
 	require.Equal(t, int32(1), hits.Load())
 }
 
@@ -84,7 +84,7 @@ func TestAllowedResponders(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			leaf := makeLeaf(t, ca, int64(100+i), srv.URL)
-			err := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithAllowedResponders(tc.allowed...)).Check(leaf)
+			err := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithAllowedResponders(tc.allowed...)).Check(t.Context(), leaf)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
@@ -99,7 +99,7 @@ func TestAllowedRespondersRefusalSendsNoRequest(t *testing.T) {
 
 	c := revocation.New([]*x509.Certificate{ca.Cert},
 		revocation.WithInsecureAllowPrivateResponders(), revocation.WithAllowedResponders("ocsp.example.org"))
-	require.ErrorIs(t, c.Check(leaf), revocation.ErrResponderNotAllowed)
+	require.ErrorIs(t, c.Check(t.Context(), leaf), revocation.ErrResponderNotAllowed)
 	require.Zero(t, hits.Load())
 }
 
@@ -115,7 +115,7 @@ func TestResponderSchemeMustBeHTTP(t *testing.T) {
 		"http://",
 	} {
 		leaf := makeLeaf(t, ca, 42, responderURL)
-		err := newChecker([]*x509.Certificate{ca.Cert}).Check(leaf)
+		err := newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf)
 		require.ErrorIs(t, err, revocation.ErrResponderNotAllowed, responderURL)
 	}
 }

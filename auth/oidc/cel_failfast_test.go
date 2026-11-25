@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/auth/oidc/rules"
 )
 
 // TestCompileCELRulesFailsFast verifies a malformed programmatic CEL rule is a
@@ -23,11 +25,11 @@ func TestCompileCELRulesFailsFast(t *testing.T) {
 
 	// An expression that fails to compile is a hard error.
 	_, err = compileCELRules([]CELValidationRule{{Name: "bad", Expression: "this is not CEL ++"}})
-	require.ErrorIs(t, err, ErrInvalidCEL)
+	require.ErrorIs(t, err, rules.ErrInvalidCEL)
 
 	// Empty name and empty expression are errors too.
 	_, err = compileCELRules([]CELValidationRule{{Name: "", Expression: `"a" == "a"`}})
-	require.ErrorIs(t, err, ErrInvalidCEL)
+	require.ErrorIs(t, err, rules.ErrInvalidCEL)
 	_, err = compileCELRules([]CELValidationRule{{Name: "x", Expression: ""}})
-	require.ErrorIs(t, err, ErrInvalidCEL)
+	require.ErrorIs(t, err, rules.ErrInvalidCEL)
 }

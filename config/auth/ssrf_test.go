@@ -37,7 +37,7 @@ func TestAuthSSRF_Validate(t *testing.T) {
 			configs := map[string]interface{ Validate() error }{
 				"oidc":   &OIDC{DiscoveryUrl: "https://idp.example.com/.well-known/openid-configuration", SSRF: tc.cfg},
 				"gitlab": &OPAGitLab{Endpoint: "https://gitlab.example.com", Token: "tok", ProjectID: 42, SSRF: tc.cfg},
-				"s3":     &OPAS3{Bucket: "policies", SSRF: tc.cfg},
+				"s3":     &OPAS3{Bucket: "policies", ReleaseManifest: "release.json", SSRF: tc.cfg},
 			}
 			for name, cfg := range configs {
 				t.Run(name, func(t *testing.T) {

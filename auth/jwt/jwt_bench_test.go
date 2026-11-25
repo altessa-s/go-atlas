@@ -15,7 +15,7 @@ import (
 func BenchmarkSign(b *testing.B) {
 	pub, priv := testhelpers.GenerateEd25519Key(b)
 	_ = pub
-	signer := jwt.NewSigner(jwt.WithIssuer("billing"))
+	signer := jwt.NewSigner(jwt.WithSignerIssuer("billing"))
 	key := jwt.SigningKey{KeyID: "ed", Algorithm: jwt.AlgEdDSA, Key: priv}
 	claims := jwt.Claims{"sub": "tenant-1", "exp": time.Now().Add(time.Hour).Unix()}
 
@@ -29,14 +29,14 @@ func BenchmarkSign(b *testing.B) {
 
 func BenchmarkVerify(b *testing.B) {
 	pub, priv := testhelpers.GenerateEd25519Key(b)
-	signer := jwt.NewSigner(jwt.WithIssuer("billing"))
+	signer := jwt.NewSigner(jwt.WithSignerIssuer("billing"))
 	key := jwt.SigningKey{KeyID: "ed", Algorithm: jwt.AlgEdDSA, Key: priv}
 	claims := jwt.Claims{"sub": "tenant-1", "iss": "billing", "exp": time.Now().Add(time.Hour).Unix()}
 	raw, err := signer.Sign(key, claims)
 	if err != nil {
 		b.Fatal(err)
 	}
-	verifier := jwt.NewVerifier(jwt.StaticKey(jwt.VerificationKey{Algorithm: jwt.AlgEdDSA, Key: pub}), jwt.WithIssuer("billing"))
+	verifier := jwt.NewVerifier(jwt.StaticKey(jwt.VerificationKey{Algorithm: jwt.AlgEdDSA, Key: pub}), jwt.WithVerifierIssuer("billing"))
 
 	b.ReportAllocs()
 	for b.Loop() {

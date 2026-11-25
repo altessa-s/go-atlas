@@ -34,6 +34,8 @@ func FuzzRevocationIsNeverForgottenEarly(f *testing.F) {
 	f.Add([]byte{1, 4, 0, 2}, "a", "b")
 	f.Add([]byte{2, 0, 1}, "same", "same")
 	f.Add([]byte{}, "", "")
+	f.Add([]byte{0, 2, 6, 6}, "permanent", "other")
+	f.Add([]byte{10, 2, 6, 6}, "long", "other")
 	f.Add([]byte{1, 1, 1, 1, 3, 3}, "x", "y")
 
 	f.Fuzz(func(t *testing.T, script []byte, keyA, keyB string) {
@@ -54,12 +56,12 @@ func FuzzRevocationIsNeverForgottenEarly(f *testing.F) {
 			case 0: // Permanent revoke.
 				list.Revoke(key)
 				want[key] = time.Time{}
-			case 1: // Timed revoke, an hour out.
-				expiry := now.Add(time.Hour)
+			case 1: // Vary the duration so a later revoke can request an earlier expiry.
+				expiry := now.Add(time.Duration(1+op/8) * time.Hour)
 				list.RevokeUntil(key, expiry)
-				// An expiry at or before now is documented as a no-op; an hour
-				// ahead never is.
-				want[key] = expiry
+				if previous, exists := want[key]; !exists || (!previous.IsZero() && previous.Before(expiry)) {
+					want[key] = expiry
+				}
 			case 2: // Restore.
 				list.Restore(key)
 				delete(want, key)

@@ -51,12 +51,12 @@ func discoveryProvider(t *testing.T, mode DiscoveryValidationMode, logger *slog.
 			Request:    r,
 		}, nil
 	})
-	return &Provider{
-		discoveryURL: "https://issuer.example.com/.well-known/openid-configuration",
-		client:       &http.Client{Transport: rt},
-		logger:       logger,
-		opts:         &options{discoveryValidationMode: mode},
-	}
+	return &Provider{discovery: discoveryClient{
+		discoveryURL:            "https://issuer.example.com/.well-known/openid-configuration",
+		client:                  &http.Client{Transport: rt},
+		logger:                  logger,
+		discoveryValidationMode: mode,
+	}}
 }
 
 const validDiscoveryBody = `{
@@ -73,8 +73,8 @@ func TestGetDiscoveryInfo_Enforce_AcceptsConformingDocument(t *testing.T) {
 	t.Parallel()
 
 	p := discoveryProvider(t, DiscoveryValidationModeEnforce, slog.New(slog.DiscardHandler), validDiscoveryBody)
-	require.NoError(t, p.getDiscoveryInfo(t.Context()))
-	require.NotNil(t, p.discoveryInfo)
+	require.NoError(t, p.discovery.getDiscoveryInfo(t.Context()))
+	require.NotNil(t, p.discovery.info)
 }
 
 func TestGetDiscoveryInfo_Enforce_RejectsIssuerMismatch(t *testing.T) {
@@ -86,9 +86,9 @@ func TestGetDiscoveryInfo_Enforce_RejectsIssuerMismatch(t *testing.T) {
   "id_token_signing_alg_values_supported":["RS256"]
 }`
 	p := discoveryProvider(t, DiscoveryValidationModeEnforce, slog.New(slog.DiscardHandler), body)
-	err := p.getDiscoveryInfo(t.Context())
+	err := p.discovery.getDiscoveryInfo(t.Context())
 	require.ErrorIs(t, err, ErrDiscoveryValidation)
-	require.Nil(t, p.discoveryInfo)
+	require.Nil(t, p.discovery.info)
 }
 
 func TestGetDiscoveryInfo_Enforce_RejectsCrossOriginEndpoint(t *testing.T) {
@@ -103,9 +103,9 @@ func TestGetDiscoveryInfo_Enforce_RejectsCrossOriginEndpoint(t *testing.T) {
   "id_token_signing_alg_values_supported":["RS256"]
 }`
 	p := discoveryProvider(t, DiscoveryValidationModeEnforce, slog.New(slog.DiscardHandler), body)
-	err := p.getDiscoveryInfo(t.Context())
+	err := p.discovery.getDiscoveryInfo(t.Context())
 	require.ErrorIs(t, err, ErrDiscoveryValidation)
-	require.Nil(t, p.discoveryInfo)
+	require.Nil(t, p.discovery.info)
 }
 
 func TestGetDiscoveryInfo_Enforce_RejectsNonHTTPSEndpoint(t *testing.T) {
@@ -117,9 +117,9 @@ func TestGetDiscoveryInfo_Enforce_RejectsNonHTTPSEndpoint(t *testing.T) {
   "id_token_signing_alg_values_supported":["RS256"]
 }`
 	p := discoveryProvider(t, DiscoveryValidationModeEnforce, slog.New(slog.DiscardHandler), body)
-	err := p.getDiscoveryInfo(t.Context())
+	err := p.discovery.getDiscoveryInfo(t.Context())
 	require.ErrorIs(t, err, ErrDiscoveryValidation)
-	require.Nil(t, p.discoveryInfo)
+	require.Nil(t, p.discovery.info)
 }
 
 func TestGetDiscoveryInfo_Warn_LoadsButLogs(t *testing.T) {
@@ -132,8 +132,8 @@ func TestGetDiscoveryInfo_Warn_LoadsButLogs(t *testing.T) {
 }`
 	rec := &recordingHandler{}
 	p := discoveryProvider(t, DiscoveryValidationModeWarn, slog.New(rec), body)
-	require.NoError(t, p.getDiscoveryInfo(t.Context()))
-	require.NotNil(t, p.discoveryInfo, "warn mode loads the document")
+	require.NoError(t, p.discovery.getDiscoveryInfo(t.Context()))
+	require.NotNil(t, p.discovery.info, "warn mode loads the document")
 	require.GreaterOrEqual(t, rec.errorCount, 1, "warn mode logs the violation at Error level")
 }
 
@@ -146,8 +146,8 @@ func TestGetDiscoveryInfo_Disabled_SkipsValidation(t *testing.T) {
   "id_token_signing_alg_values_supported":["RS256"]
 }`
 	p := discoveryProvider(t, DiscoveryValidationModeDisabled, slog.New(slog.DiscardHandler), body)
-	require.NoError(t, p.getDiscoveryInfo(t.Context()))
-	require.NotNil(t, p.discoveryInfo, "disabled mode trusts the document as-is")
+	require.NoError(t, p.discovery.getDiscoveryInfo(t.Context()))
+	require.NotNil(t, p.discovery.info, "disabled mode trusts the document as-is")
 }
 
 // recordingHandler counts Error-level records.

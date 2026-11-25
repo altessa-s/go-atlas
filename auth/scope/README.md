@@ -22,7 +22,7 @@ caller, so the core bakes in no identity fields.
 | `Registry`      | Maps an action key to its required scope. Build, `Freeze`, then read concurrently. Deny-by-default.    |
 | `Matcher`       | `func(granted []Scope, required Scope) bool` — pluggable comparison strategy.                          |
 | `Authorizer[P]` | `func(p P, required Scope) bool` — the sole extension point; decides whether principal `P` is granted. |
-| `Enforcer[P]`   | Pairs a `Registry` with an `Authorizer[P]`; `Enforce` makes the deny-by-default decision.              |
+| `Enforcer[P]`   | Pairs an `ActionRegistry` (`Required(key)`) with an `Authorizer[P]`; `Enforce` makes the deny-by-default decision.              |
 
 ## Functions
 

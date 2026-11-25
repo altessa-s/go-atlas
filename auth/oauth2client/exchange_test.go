@@ -79,7 +79,7 @@ func TestExchangerExchangeDelegationAndInParamsAuth(t *testing.T) {
 	}, 0)
 
 	ex := mustExchanger(t, srv.URL, "svc", "s3cr3t",
-		oauth2client.WithAuthStyle(oauth2.AuthStyleInParams),
+		oauth2client.WithExchangerAuthStyle(oauth2.AuthStyleInParams),
 	)
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{
 		SubjectToken: "subj",

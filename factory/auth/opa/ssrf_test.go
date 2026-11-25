@@ -36,6 +36,10 @@ func TestManagerBuilder_Build_GitLabSSRF(t *testing.T) {
 	t.Parallel()
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/projects/42/repository/commits/main", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`))
+	})
 	mux.HandleFunc("/api/v4/projects/42/repository/tree", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `[{"id":"abc","name":"authz.rego","type":"blob","path":"authz.rego"}]`)

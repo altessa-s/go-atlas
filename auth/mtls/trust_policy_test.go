@@ -5,6 +5,7 @@
 package mtls_test
 
 import (
+	"context"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"testing"
@@ -67,7 +68,7 @@ func TestWithTrustDomainsRunsBeforeValidators(t *testing.T) {
 	called := false
 	a := newAuthenticator(t,
 		mtls.WithTrustDomains("example.org"),
-		mtls.WithValidator(func(*x509.Certificate) error { called = true; return nil }),
+		mtls.WithValidator(func(context.Context, *x509.Certificate) error { called = true; return nil }),
 	)
 	_, err := a.Authenticate(t.Context(), svidCert(t, "spiffe://foreign.example/x"))
 	require.ErrorIs(t, err, mtls.ErrUntrustedDomain)
@@ -102,7 +103,7 @@ func TestCustomIdentityTrustDecision(t *testing.T) {
 
 func TestTrustDomainValidatorWithoutDomainsDeniesAll(t *testing.T) {
 	t.Parallel()
-	err := mtls.TrustDomainValidator()(svidCert(t, "spiffe://example.org/x"))
+	err := mtls.TrustDomainValidator()(t.Context(), svidCert(t, "spiffe://example.org/x"))
 	require.ErrorIs(t, err, mtls.ErrNoTrustDomainPolicy)
 
 	a := newAuthenticator(t, mtls.WithInsecureAnyTrustDomain(), mtls.WithValidator(mtls.TrustDomainValidator()))

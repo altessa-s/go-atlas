@@ -16,15 +16,15 @@ import (
 )
 
 // Minter issues signed self-issued tokens. It loads a subject's signing key
-// from the [KeyProvider] and signs a JWT carrying the subject, a random jti,
+// from the [SigningKeyProvider] and signs a JWT carrying the subject, a random jti,
 // the granted scopes, and the registered temporal claims. The token's kid
 // header is the signing key's id so the verifier can resolve the public key and
 // a key rotation invalidates the token. The signing crypto and algorithm
 // allow-list are delegated to [github.com/altessa-s/go-atlas/auth/jwt.Signer].
 type Minter struct {
-	src      KeyProvider
+	src      SigningKeyProvider
 	signer   *jwt.Signer
-	opts     *options
+	opts     *minterOptions
 	issuer   string
 	audience string
 }
@@ -33,11 +33,14 @@ type Minter struct {
 // issuer as its iss claim and audience as its aud claim; both are required,
 // and [Minter.Mint] fails with [ErrIssuerRequired] or [ErrAudienceRequired]
 // when either is empty.
-func NewMinter(src KeyProvider, issuer, audience string, opts ...Option) *Minter {
-	o := newOptions(opts...)
+func NewMinter(src SigningKeyProvider, issuer, audience string, opts ...MinterOption) *Minter {
+	return newMinter(src, issuer, audience, newMinterOptions(opts...))
+}
+
+func newMinter(src SigningKeyProvider, issuer, audience string, o *minterOptions) *Minter {
 	return &Minter{
 		src:      src,
-		signer:   jwt.NewSigner(jwt.WithAllowedAlgorithms(o.allowedAlgorithms...)),
+		signer:   jwt.NewSigner(jwt.WithSignerAllowedAlgorithms(o.allowedAlgorithms...)),
 		opts:     o,
 		issuer:   issuer,
 		audience: audience,

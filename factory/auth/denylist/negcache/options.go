@@ -63,7 +63,7 @@ func (b *Builder) UseCuckooStorage(typ probfilterconfig.StorageType, build probf
 
 // UseDataLoader sets the source the negative filter is rebuilt from per its
 // rebuildOnStart and rebuildCron settings. It overrides the default: the
-// authoritative store itself, when it implements [probfilter.DataLoader].
+// authoritative store itself, when it implements [probfilter.DataLoader] or provides one through DataLoader().
 func (b *Builder) UseDataLoader(v probfilter.DataLoader) *Builder {
 	b.loader = v
 	return b

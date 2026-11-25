@@ -10,9 +10,7 @@ import (
 // ValidatorOption is a functional option for configuring validatorOptions.
 type ValidatorOption func(o *validatorOptions)
 
-// WithValidatorLogger sets the logger option.
-//
-// logger receives an error record for every failed verification.
+// WithValidatorLogger logs rejected tokens at Debug and other verification failures at Error.
 func WithValidatorLogger(v *slog.Logger) ValidatorOption {
 	return func(o *validatorOptions) {
 		if v == nil {

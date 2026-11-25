@@ -12,6 +12,9 @@
 // subject's public key for that kid. Rotating a subject's signing key (issuing
 // a new kid) invalidates every token still carrying the old kid.
 //
+// [NewMinter] accepts a [SigningKeyProvider]. [NewVerifier] needs only a
+// [VerificationKeyProvider], so a verifying service can hold just public keys.
+//
 // # Algorithm agnostic
 //
 // The package does not hard-code a signature algorithm. A [KeyProvider]
@@ -22,7 +25,7 @@
 // (EdDSA, ES256, RS256); HMAC is intentionally excluded so a symmetric secret
 // can never be confused with a public key. Support for further algorithms is a
 // matter of registering a signing method with golang-jwt and adding it to the
-// allow-list via [WithAllowedAlgorithms] — no change to this package.
+// allow-list via [WithMinterAllowedAlgorithms] and [WithVerifierAllowedAlgorithms] — no change to this package.
 //
 // # Usage
 //
@@ -41,5 +44,6 @@
 // [NewMinter] / [NewVerifier] are required and bound into every token (iss,
 // aud), so services sharing a [KeyProvider] cannot replay each other's tokens.
 // Resolved verification keys are cached per (subject, kid) with a TTL via
-// [WithCacheTTL].
+// [WithCacheTTL]. Verified [Token.Expiry] rounds fractional expiry upward
+// to the next nanosecond for denylist retention.
 package selfjwt

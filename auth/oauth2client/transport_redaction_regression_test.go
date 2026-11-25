@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )

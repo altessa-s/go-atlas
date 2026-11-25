@@ -30,10 +30,25 @@ type treeNode struct {
 // file contents keyed by file name.
 func newPagedGitLab(t *testing.T, pages [][]treeNode, files map[string]string, treeStatus int) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
+	const originalSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	var treeCalls atomic.Int32
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/projects/42/repository/commits/main", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		sha := originalSHA
+		if treeCalls.Load() > 0 {
+			sha = strings.Repeat("b", 40)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": sha})
+	})
 	mux.HandleFunc("/api/v4/projects/42/repository/tree", func(w http.ResponseWriter, r *http.Request) {
+		// The branch moves as soon as the first page is listed. Later pages
+		// and all raw reads must use the same immutable commit as the first page.
 		treeCalls.Add(1)
+		if r.URL.Query().Get("ref") != originalSHA {
+			http.NotFound(w, r)
+			return
+		}
 		if treeStatus != 0 {
 			w.WriteHeader(treeStatus)
 			return
@@ -48,6 +63,10 @@ func newPagedGitLab(t *testing.T, pages [][]treeNode, files map[string]string, t
 	})
 	mux.HandleFunc("/api/v4/projects/42/repository/files/", func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v4/projects/42/repository/files/policies/"), "/raw")
+		if r.URL.Query().Get("ref") != originalSHA {
+			http.NotFound(w, r)
+			return
+		}
 		content, ok := files[name]
 		if !ok {
 			http.NotFound(w, r)
@@ -70,14 +89,14 @@ func TestFetch_PaginatesAndLoadsData(t *testing.T) {
 		{blob("a.rego"), {ID: "t1", Name: "sub", Type: "tree", Path: "policies/sub"}},
 		{blob("roles.json"), blob("README.md")},
 	}
-	files := map[string]string{"a.rego": testPolicy, "roles.json": `{"admin":["alice"]}`, "README.md": "x"}
+	files := map[string]string{"a.rego": testPolicy, "roles.json": `9007199254740993`, "README.md": "x"}
 	srv, calls := newPagedGitLab(t, pages, files, 0)
 
 	bundle, err := newFakeSource(t, srv, WithIncludeData(), WithLogger(slog.New(slog.DiscardHandler))).Fetch(t.Context())
 	require.NoError(t, err)
 	require.EqualValues(t, 2, calls.Load(), "both tree pages must be listed")
 	require.Equal(t, map[string][]byte{"a.rego": []byte(testPolicy)}, bundle.Modules)
-	require.Equal(t, map[string]any{"roles": map[string]any{"admin": []any{"alice"}}}, bundle.Data)
+	require.Equal(t, map[string]any{"roles": json.Number("9007199254740993")}, bundle.Data)
 }
 
 func TestFetch_IgnoresDataWithoutIncludeData(t *testing.T) {

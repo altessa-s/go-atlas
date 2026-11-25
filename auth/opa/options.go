@@ -35,6 +35,11 @@ type options struct {
 	pollInterval time.Duration `optgen:"default=DefaultPollInterval"`
 	// healthCoordinator registers the manager with a health coordinator.
 	healthCoordinator health.Registrar `optgen:"notnil"`
+	// WithSchedulerTaskID sets the policy update task ID. An empty ID uses
+	// "opa-policy-update-" plus a stable digest of the source's Name() and the Rego query.
+	// Managers with the same name and query sharing one registrar must set distinct
+	// IDs explicitly if each needs its own task.
+	schedulerTaskID string
 	// scheduler sets the scheduler for automatic policy updates.
 	scheduler schedtask.Registrar `optgen:"notnil"`
 	// Set by WithUpdateSchedule: schedule and runOnStart are assigned together.
@@ -46,25 +51,12 @@ type options struct {
 	// auditRecorder records authorization decisions for every evaluation.
 	// Nil by default, which disables auditing.
 	auditRecorder DecisionRecorder `optgen:"notnil"`
-	// WithDecisionCache memoizes policy evaluations for ttl, keeping at most size
-	// entries. Caching is off by default.
-	//
-	// A cached decision is still recorded with the audit recorder and still counted
-	// in the evaluation metrics — the cache short-circuits the Rego evaluation, not
-	// the handling of the decision.
-	//
-	// Entries are keyed by policy revision as well as input, so a policy reload
-	// makes every prior decision unreachable rather than merely stale. A
-	// non-positive size or ttl falls back to [DefaultDecisionCacheSize] and
-	// [DefaultDecisionCacheTTL].
-	//
-	// Entries are keyed on the JSON encoding of the input, which costs no
-	// generality: OPA marshals the input to JSON to evaluate it, so an input that
-	// cannot be keyed was never evaluable.
-	decisionCache *decisionCache `optfn:"DecisionCache=newDecisionCache"`
+	//optgen:doc DecisionCache WithDecisionCache memoizes deterministic evaluations for ttl, keeping at most size entries per manager.
+	//optgen:doc DecisionCacheBackend WithDecisionCacheBackend supplies a caller-owned decision cache. A nil cache disables caching.
+	decisionCache DecisionCache `optfn:"DecisionCache=newDecisionCache, DecisionCacheBackend=decisionCacheBackend"`
 }
 
-// WithUpdateSchedule configures periodic policy update task for the scheduler.
+// WithUpdateSchedule configures periodic policy updates. A nonempty schedule requires WithScheduler.
 // The schedule parameter should be a cron expression (e.g., "0 */5 * * * *" for every 5 minutes).
 // Requires WithScheduler to take effect.
 func WithUpdateSchedule(schedule string, runOnStart bool) Option {

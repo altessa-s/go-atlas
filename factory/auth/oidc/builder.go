@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
 	"github.com/altessa-s/go-atlas/auth/oidc"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
@@ -75,7 +76,7 @@ func (b *ProviderBuilder) Build(ctx context.Context) (*oidc.Provider, error) {
 }
 
 // buildProviderOptions translates config + builder deps into oidc.Option slice.
-func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Option, error) {
+func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) (_ []oidc.Option, buildErr error) {
 	cfg := b.cfg
 
 	opts := make([]oidc.Option, 0, estimatedOptionsCount)
@@ -117,9 +118,19 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 		return slices.AppendIf(introspectionOpts, cfg.Introspection.FailOpen, oidc.WithIntrospectionFailOpen())
 	})
 
-	revOpts, err := b.buildRevocationOptions(ctx)
+	revOpts, cleanup, err := b.buildRevocationOptions(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if cleanup != nil {
+		defer func() {
+			if buildErr != nil {
+				if closeErr := cleanup(context.WithoutCancel(ctx)); closeErr != nil {
+					b.Logger().Error("closing revocation filter failed", "cause", diagnostics.ErrorClass(closeErr))
+				}
+			}
+		}()
+		opts = append(opts, oidc.WithRevocationFilterCleanup(cleanup))
 	}
 	opts = append(opts, revOpts...)
 
@@ -177,23 +188,24 @@ func (b *ProviderBuilder) buildPresetOptions(ctx context.Context) ([]oidc.Option
 // buildRevocationOptions builds revocation storage options. If revocation is
 // configured and no custom storage was provided via [ProviderBuilder.UseRevocationStorage],
 // a filter-based storage is created automatically.
-func (b *ProviderBuilder) buildRevocationOptions(ctx context.Context) ([]oidc.Option, error) {
+func (b *ProviderBuilder) buildRevocationOptions(ctx context.Context) ([]oidc.Option, func(context.Context) error, error) {
 	cfg := b.cfg
 	if !cfg.IsRevocationConfigured() || !cfg.Revocation.Enabled {
-		return nil, nil
+		return nil, nil, nil
 	}
 
+	var cleanup func(context.Context) error
 	storage := b.revocationStorage
 	if storage == nil {
 		var err error
-		storage, err = b.buildRevocationStorage(ctx, cfg.Revocation)
+		storage, cleanup, err = b.buildRevocationStorage(ctx, cfg.Revocation)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	if storage == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	opts := []oidc.Option{
@@ -205,7 +217,7 @@ func (b *ProviderBuilder) buildRevocationOptions(ctx context.Context) ([]oidc.Op
 		oidc.WithRevocationSyncTimeout(cfg.Revocation.SyncTimeout),
 	}
 	opts = slices.AppendIf(opts, cfg.Revocation.AllowEmpty, oidc.WithRevocationAllowEmpty())
-	return slices.AppendIf(opts, cfg.Revocation.FailOpen, oidc.WithRevocationFailOpen()), nil
+	return slices.AppendIf(opts, cfg.Revocation.FailOpen, oidc.WithRevocationFailOpen()), cleanup, nil
 }
 
 // buildRevocationStorage creates a filter-based revocation storage from config.
@@ -218,9 +230,9 @@ func (b *ProviderBuilder) buildRevocationOptions(ctx context.Context) ([]oidc.Op
 // for the same filter — is rejected.
 func (b *ProviderBuilder) buildRevocationStorage(
 	ctx context.Context, cfg *authconfig.OIDCRevocation,
-) (oidc.RevocationStorage, error) {
+) (oidc.RevocationStorage, func(context.Context) error, error) {
 	if err := rejectFilterRebuildSettings(cfg.Filter); err != nil {
-		return nil, b.WrapError(err, "invalid revocation filter configuration")
+		return nil, nil, b.WrapError(err, "invalid revocation filter configuration")
 	}
 
 	pfDefaults := probfilterconfig.NewDefaults()
@@ -236,7 +248,7 @@ func (b *ProviderBuilder) buildRevocationStorage(
 	}
 	filter, err := fb.Build(ctx)
 	if err != nil {
-		return nil, b.WrapError(err, "failed to create revocation filter")
+		return nil, nil, b.WrapError(err, "failed to create revocation filter")
 	}
 
 	var loader probfilter.DataLoader
@@ -258,7 +270,11 @@ func (b *ProviderBuilder) buildRevocationStorage(
 	// Confirming against an unrelated store would silently stop revoking.
 	// Without one the storage runs in lossy mode — see
 	// [oidc.NewFilterRevocationStorage].
-	return oidc.NewFilterRevocationStorage(filter, loader, b.revocationAuthoritative), nil
+	var cleanup func(context.Context) error
+	if closer, ok := filter.(interface{ Close(context.Context) error }); ok {
+		cleanup = closer.Close
+	}
+	return oidc.NewFilterRevocationStorage(filter, loader, b.revocationAuthoritative), cleanup, nil
 }
 
 // errFilterRebuildSettings rejects probfilter rebuild settings on the

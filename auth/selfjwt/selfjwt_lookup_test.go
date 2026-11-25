@@ -57,7 +57,7 @@ func (p *blockingProvider) VerificationKey(ctx context.Context, subject, kid str
 
 func mintFor(t *testing.T, p selfjwt.KeyProvider) string {
 	t.Helper()
-	res, err := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime)).Mint(t.Context(),
+	res, err := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime})).Mint(t.Context(),
 		selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 	return res.Token
@@ -69,7 +69,7 @@ func mintFor(t *testing.T, p selfjwt.KeyProvider) string {
 func TestVerifyHonorsCallerCancellationOnKeyLookup(t *testing.T) {
 	t.Parallel()
 	p := newBlockingProvider(t)
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 	token := mintFor(t, p)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -94,7 +94,7 @@ func TestVerifyHonorsCallerCancellationOnKeyLookup(t *testing.T) {
 func TestVerifyKeyLookupIsBounded(t *testing.T) {
 	t.Parallel()
 	p := newBlockingProvider(t)
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime), selfjwt.WithKeyLookupTimeout(10*time.Millisecond))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}), selfjwt.WithKeyLookupTimeout(10*time.Millisecond))
 
 	_, err := v.Verify(t.Context(), mintFor(t, p))
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -126,7 +126,7 @@ func waitForKeyWaiters(t *testing.T, n int) {
 // verifications in flight would be miscounted as waiters on this lookup.
 func TestVerifyCanceledWaiterDoesNotFailPeers(t *testing.T) {
 	p := newBlockingProvider(t)
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime), selfjwt.WithCacheTTL(0))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}), selfjwt.WithCacheTTL(0))
 	token := mintFor(t, p)
 
 	canceledCtx, cancel := context.WithCancel(t.Context())

@@ -29,7 +29,7 @@ type TokenEndpointSource interface {
 // issuer, as it does for IdPs that serve tokens from a dedicated domain;
 // same-origin is enforced by the discovery validation of auth/oidc.
 func ClientCredentialsFromDiscovery(
-	ctx context.Context, src TokenEndpointSource, clientID, clientSecret string, opts ...Option,
+	ctx context.Context, src TokenEndpointSource, clientID, clientSecret string, opts ...ClientCredentialsOption,
 ) (oauth2.TokenSource, error) {
 	tokenURL := src.TokenEndpoint()
 	if tokenURL == "" {
@@ -43,7 +43,7 @@ func ClientCredentialsFromDiscovery(
 // [ErrInsecureEndpoint] when the discovered endpoint is not https. The
 // endpoint is read from src once, here, not on each request.
 func NewExchangerFromDiscovery(
-	src TokenEndpointSource, clientID, clientSecret string, opts ...Option,
+	src TokenEndpointSource, clientID, clientSecret string, opts ...ExchangerOption,
 ) (*Exchanger, error) {
 	tokenURL := src.TokenEndpoint()
 	if tokenURL == "" {

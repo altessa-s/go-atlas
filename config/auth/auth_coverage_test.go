@@ -314,6 +314,7 @@ func TestOPA_Validate(t *testing.T) {
 
 	c := authconfig.DefaultOPA()
 	c.BundlePath = "/policies"
+	c.ReleaseManifest = "release.json"
 	require.NoError(t, c.Validate())
 
 	tests := []struct {

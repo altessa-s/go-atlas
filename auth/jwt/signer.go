@@ -29,12 +29,12 @@ const (
 // resolve the matching public key. The signing algorithm must be in the
 // allow-list (asymmetric only by default), the same posture as verification.
 type Signer struct {
-	opts *options
+	opts *signerOptions
 }
 
 // NewSigner builds a Signer with the given options.
-func NewSigner(opts ...Option) *Signer {
-	return &Signer{opts: newOptions(opts...)}
+func NewSigner(opts ...SignerOption) *Signer {
+	return &Signer{opts: newSignerOptions(opts...)}
 }
 
 // NewClaims builds a claim set carrying the registered temporal claims (iat,

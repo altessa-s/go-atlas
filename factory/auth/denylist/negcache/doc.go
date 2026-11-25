@@ -22,8 +22,7 @@
 //
 // The probfilter factory owns the negative filter's rebuilds. Its loader is
 // the one set with [Builder.UseDataLoader], else the authoritative store
-// itself when it implements probfilter.DataLoader (as
-// auth/denylist/storages/redis.Store does). With a loader, the Bloom
+// when it implements probfilter.DataLoader or provides one through DataLoader(). With a loader, the Bloom
 // settings apply: rebuildOnStart rebuilds inside Build (the cache is
 // returned populated; a failed rebuild fails Build), and rebuildCron
 // rebuilds an in-memory filter on a process-local cron and a Redis filter

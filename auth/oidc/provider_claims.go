@@ -5,14 +5,17 @@
 package oidc
 
 import (
+	"math"
 	"slices"
 	"time"
+
+	"github.com/altessa-s/go-atlas/auth/internal/numericdate"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // validateClaims performs custom claims validation based on verifier options.
-func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, compiledCELRules []celPreCompiledValidationRule) error {
+func (p *policyEvaluator) validateClaims(claims map[string]any, ops *verifierOptions, compiledCELRules []celPreCompiledValidationRule) error {
 	if ops.withoutClaimsValidation {
 		return nil
 	}
@@ -44,7 +47,7 @@ func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, c
 		return err
 	}
 
-	if err := validateTokenLifetime(claims, ops.maxTokenLifetime); err != nil {
+	if err := validateTokenLifetime(claims, ops.minTokenLifetime, ops.maxTokenLifetime); err != nil {
 		return err
 	}
 
@@ -53,16 +56,16 @@ func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, c
 
 // checkAudienceConfigured enforces the provider's [AudienceFailureMode] when
 // validation runs without an expected audience. With an expected audience set
-// its value is enforced by the jwt verifier ([Provider.jwtVerifyOptions]); the
+// its value is enforced by the jwt verifier ([policyEvaluator.jwtVerifyOptions]); the
 // `aud` claim being merely present (DefaultRequiredClaims) does not bind the
 // token to this service, so an unconfigured audience is treated per the mode:
 // enforce rejects, warn logs and continues, disabled is silent.
-func (p *Provider) checkAudienceConfigured(ops *verifierOptions) error {
+func (p *policyEvaluator) checkAudienceConfigured(ops *verifierOptions) error {
 	if len(ops.audience) > 0 {
 		return nil
 	}
 
-	switch p.opts.audienceFailureMode {
+	switch p.audienceFailureMode {
 	case AudienceFailureModeWarn:
 		p.logger.Warn("token validated without an expected audience; cross-audience replay is possible " +
 			"(configure WithValidationAudience or set WithAudienceFailureMode)")
@@ -214,25 +217,28 @@ func validateAuthorizedParty(claims map[string]any, require bool, allowedParties
 	return nil
 }
 
-func validateTokenLifetime(claims map[string]any, maxLifetime time.Duration) error {
-	if maxLifetime <= 0 {
+func validateTokenLifetime(claims map[string]any, minLifetime, maxLifetime time.Duration) error {
+	if minLifetime <= 0 && maxLifetime <= 0 {
 		return nil
 	}
 
-	expTime, expOk := parseClaimAsInt64(claims, "exp")
-	iatTime, iatOk := parseClaimAsInt64(claims, "iat")
+	expTime, expOk := numericdate.Parse(claims["exp"])
+	iatTime, iatOk := numericdate.Parse(claims["iat"])
 
 	if !expOk || !iatOk {
 		return coreerrs.Wrap(ErrTokenInvalid, "missing or invalid 'exp' or 'iat' claim for lifetime validation")
 	}
 
-	lifetime := time.Duration(expTime-iatTime) * time.Second
-	if lifetime < 0 {
+	if expTime.CompareOffset(iatTime, 0) < 0 {
 		return coreerrs.Wrap(ErrTokenInvalid, "invalid token lifetime (exp < iat)")
 	}
 
-	if lifetime > maxLifetime {
-		return coreerrs.Wrapf(ErrTokenInvalid, "token lifetime %v exceeds maximum allowed %v", lifetime, maxLifetime)
+	if minLifetime > 0 && expTime.CompareOffset(iatTime, minLifetime) < 0 {
+		return coreerrs.Wrapf(ErrTokenInvalid, "token lifetime is shorter than minimum allowed %v", minLifetime)
+	}
+
+	if maxLifetime > 0 && expTime.CompareOffset(iatTime, maxLifetime) > 0 {
+		return coreerrs.Wrapf(ErrTokenInvalid, "token lifetime exceeds maximum allowed %v", maxLifetime)
 	}
 
 	return nil
@@ -257,37 +263,20 @@ func validateCELRules(claims map[string]any, compiled []celPreCompiledValidation
 	return nil
 }
 
-// parseClaimAsInt64 extracts a numeric claim as int64, returning false if missing or invalid.
-func parseClaimAsInt64(claims map[string]any, claimName string) (int64, bool) {
-	value, ok := claims[claimName]
-	if !ok {
-		return 0, false
-	}
-
-	switch v := value.(type) {
-	case float64:
-		return int64(v), true
-	case int64:
-		return v, true
-	case int:
-		return int64(v), true
-	default:
-		return 0, false
-	}
-}
-
-// getTokenExpirationTTL returns time until token expiration, or 0 if expired/invalid.
+// getTokenExpirationTTL returns the remaining whole nanoseconds, bounded by
+// the largest representable duration. A zero TTL skips the cache write.
 func getTokenExpirationTTL(claims map[string]any) time.Duration {
-	expTime, ok := parseClaimAsInt64(claims, "exp")
+	now := time.Now()
+	exp, ok := numericdate.Parse(claims["exp"])
 	if !ok {
 		return 0
 	}
-
-	now := time.Now().Unix()
-	ttl := expTime - now
-	if ttl <= 0 {
+	start := numericdate.FromTime(now)
+	if exp.CompareOffset(start, 0) <= 0 {
 		return 0
 	}
-
-	return time.Duration(ttl) * time.Second
+	if exp.CompareOffset(start, math.MaxInt64) >= 0 {
+		return math.MaxInt64
+	}
+	return exp.Time().Sub(now)
 }

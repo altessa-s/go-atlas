@@ -46,7 +46,7 @@ func NewMetrics(collector metrics.Meter, subsystem string) *Metrics {
 	scoped := collector.WithSubsystem(subsystem)
 
 	return &Metrics{
-		lookups: scoped.MustCounter(metrics.MetricOpts{
+		lookups: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name:       "lookups_total",
 			Help:       "Revocation lookups by resolution path and negative-filter state.",
 			LabelNames: []string{"result", "filter"},

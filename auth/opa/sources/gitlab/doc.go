@@ -4,6 +4,8 @@
 
 // Package gitlab provides a [opa.PolicySource] implementation that reads OPA policies
 // from a GitLab repository.
+// JSON data files preserve number precision.
+// Each fetch resolves the ref once and uses that commit SHA for every tree page and raw file.
 //
 // The source uses the GitLab API to list and download .rego policy files (and optionally
 // .json data files) from a configurable project path and ref. Change detection is handled

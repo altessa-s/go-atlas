@@ -9,7 +9,9 @@ import (
 	"errors"
 	"iter"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 
 	"github.com/stretchr/testify/require"
 
@@ -145,4 +147,42 @@ func (s *swapSource) StreamValues(_ context.Context) iter.Seq2[string, error] {
 			}
 		}
 	}
+}
+
+// pausedSource holds the older stream open while a second refresh starts.
+type pausedSource struct {
+	calls  atomic.Int32
+	resume chan struct{}
+}
+
+func (s *pausedSource) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		if s.calls.Add(1) == 1 {
+			<-s.resume
+			yield("old", nil)
+			return
+		}
+		yield("new", nil)
+	}
+}
+
+func TestConcurrentRefreshKeepsNewerSnapshot(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		src := &pausedSource{resume: make(chan struct{})}
+		cache := mirror.New(src)
+		done := make(chan error, 2)
+		go func() { done <- cache.Refresh(t.Context()) }()
+		synctest.Wait()
+		go func() { done <- cache.Refresh(t.Context()) }()
+		synctest.Wait()
+		// Lookups must make progress while the older source read is paused.
+		require.False(t, cache.IsRevoked("old"))
+		close(src.resume)
+		require.NoError(t, <-done)
+		require.NoError(t, <-done)
+		require.True(t, cache.IsRevoked("new"), "older refresh replaced newer snapshot")
+		require.False(t, cache.IsRevoked("old"))
+		require.Equal(t, 1, cache.Len())
+	})
 }

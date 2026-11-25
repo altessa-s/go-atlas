@@ -38,7 +38,7 @@ func TestVerifyLeewayCapped(t *testing.T) {
 			require.NoError(t, err)
 
 			verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification),
-				jwt.WithClock(fakeClock{now}), jwt.WithLeeway(24*time.Hour))
+				jwt.WithVerifierClock(fakeClock{now}), jwt.WithLeeway(24*time.Hour))
 			_, err = verifier.Verify(t.Context(), raw)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)

@@ -7,55 +7,76 @@ package redis
 import (
 	"context"
 	"errors"
-	"iter"
-	"strings"
+	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
-
-	"github.com/altessa-s/go-atlas/cache/probfilter"
-
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // revokedValue is the sentinel stored at a revocation key; only its presence
 // matters.
 const revokedValue = "1"
 
-// ErrUnsupportedClient is yielded by [Store.StreamValues] when the store's
-// client is a Redis Cluster or Ring client: SCAN cannot enumerate their keys
-// completely (a cluster scan reaches one node and misses keys of a slot being
-// migrated; a ring skips unavailable shards), and a partial stream would be
-// published as a complete revocation snapshot.
-var ErrUnsupportedClient = errors.New("redis client cannot enumerate all revocation keys")
-
-// globEscaper escapes the Redis glob metacharacters of a literal key prefix
-// for a SCAN MATCH pattern.
-var globEscaper = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`)
-
-// scanBatch is the COUNT hint passed to SCAN. It bounds how many keys Redis
-// examines per round trip during a stream; it is a hint, not a hard page size.
-const scanBatch = 256
+// ErrUnsupportedClient indicates that the client cannot support the requested read or scan.
+var ErrUnsupportedClient = errors.New("unsupported redis client for denylist operation")
 
 // Store is a Redis-backed distributed exact revocation store. Each revoked key
 // is a single Redis string keyed as keyPrefix+key with value "1"; Redis expires
 // bounded revocations natively via per-key TTL.
 //
-// Store satisfies the negcache Authoritative interface structurally (via
-// [Store.IsRevoked]) and implements [probfilter.DataLoader], so it can be both
-// the authoritative tier behind a negative cache and the source that rebuilds
-// the cache's filter. It is safe for concurrent use.
+// The caller owns the Redis client. Store is safe for concurrent use.
 type Store struct {
 	client redis.UniversalClient
 	opts   *options
 }
 
-var _ probfilter.DataLoader = (*Store)(nil)
+// ErrReplicaReadNotAllowed indicates that a strict read could not verify a primary.
+var ErrReplicaReadNotAllowed = errors.New("denylist read requires a Redis primary")
+
+// Driver errors can echo credentials and command arguments. Expose only the operation
+// while allowing callers to match the original cause with errors.Is.
+type operationError struct {
+	op    string
+	cause error
+}
+
+func (e operationError) Error() string        { return "redis denylist: " + e.op }
+func (e operationError) Is(target error) bool { return errors.Is(e.cause, target) }
 
 // New returns a Store backed by client. The client is required; pass
 // [WithKeyPrefix] to override the default key namespace.
-func New(client redis.UniversalClient, opts ...Option) *Store {
-	return &Store{client: client, opts: newOptions(opts...)}
+func New(client redis.UniversalClient, opts ...Option) (*Store, error) {
+	o := newOptions(opts...)
+	if o.strictExactReads {
+		if err := verifyStrictClient(client); err != nil {
+			return nil, err
+		}
+	}
+	return &Store{client: client, opts: o}, nil
+}
+
+func verifyStrictClient(client redis.UniversalClient) error {
+	switch c := client.(type) {
+	case *redis.Client:
+		if c == nil || c.Options().ClientSideCacheConfig != nil || c.Options().ClientSideCache != nil {
+			return ErrUnsupportedClient
+		}
+	case *redis.ClusterClient:
+		if c == nil {
+			return ErrUnsupportedClient
+		}
+		o := c.Options()
+		if o.ReadOnly || o.RouteByLatency || o.RouteRandomly {
+			return ErrReplicaReadNotAllowed
+		}
+		// A custom node factory can enable caching independently of the cluster options.
+		if o.ClientSideCacheConfig != nil || reflect.ValueOf(o.NewClient).Pointer() != reflect.ValueOf(redis.NewClient).Pointer() {
+			return ErrUnsupportedClient
+		}
+	default:
+		return ErrUnsupportedClient
+	}
+	return nil
 }
 
 // redisKey returns the namespaced Redis key for a bare revocation key.
@@ -66,9 +87,19 @@ func (s *Store) redisKey(key string) string {
 // IsRevoked reports, authoritatively, whether key is revoked. A bounded
 // revocation whose TTL has elapsed is gone from Redis and reports false.
 func (s *Store) IsRevoked(ctx context.Context, key string) (bool, error) {
+	if s.opts.strictExactReads {
+		n, err := s.client.EvalRO(redis.WithoutCache(ctx), strictReadScript, []string{s.redisKey(key)}).Int64()
+		if err != nil {
+			return false, operationError{"check revocation", err}
+		}
+		if n != 0 && n != 1 {
+			return false, ErrReplicaReadNotAllowed
+		}
+		return n == 1, nil
+	}
 	n, err := s.client.Exists(ctx, s.redisKey(key)).Result()
 	if err != nil {
-		return false, coreerrs.Wrapf(err, "check revocation for key %q", key)
+		return false, operationError{"check revocation", err}
 	}
 	return n > 0, nil
 }
@@ -77,20 +108,23 @@ func (s *Store) IsRevoked(ctx context.Context, key string) (bool, error) {
 // written with no expiry.
 func (s *Store) Revoke(ctx context.Context, key string) error {
 	if err := s.client.Set(ctx, s.redisKey(key), revokedValue, 0).Err(); err != nil {
-		return coreerrs.Wrapf(err, "revoke key %q", key)
+		return operationError{"revoke", err}
 	}
 	return nil
 }
 
-// RevokeUntil denies key for ttl, after which Redis expires it. A non-positive
+// RevokeUntil extends a bounded revocation to at least ttl, rounded up to a
+// millisecond. A permanent revocation stays permanent. A non-positive
 // ttl is a no-op — the token is already invalid on its own — mirroring the
 // in-memory denylist's non-positive expiry.
 func (s *Store) RevokeUntil(ctx context.Context, key string, ttl time.Duration) error {
 	if ttl <= 0 {
 		return nil
 	}
-	if err := s.client.Set(ctx, s.redisKey(key), revokedValue, ttl).Err(); err != nil {
-		return coreerrs.Wrapf(err, "revoke key %q until ttl", key)
+	// Subtract before dividing so ceiling also works for the largest Duration.
+	ms := (ttl - 1).Milliseconds() + 1
+	if err := s.client.Eval(ctx, extendScript, []string{s.redisKey(key)}, ms).Err(); err != nil {
+		return operationError{"extend revocation", err}
 	}
 	return nil
 }
@@ -98,60 +132,21 @@ func (s *Store) RevokeUntil(ctx context.Context, key string, ttl time.Duration) 
 // Restore removes key from the store, re-allowing it.
 func (s *Store) Restore(ctx context.Context, key string) error {
 	if err := s.client.Del(ctx, s.redisKey(key)).Err(); err != nil {
-		return coreerrs.Wrapf(err, "restore key %q", key)
+		return operationError{"restore", err}
 	}
 	return nil
 }
 
-// StreamValues implements [probfilter.DataLoader]. It SCANs every revocation key
-// under the store's prefix (matched literally: glob metacharacters in the
-// prefix are escaped), strips the prefix, and yields each bare key. The
-// iterator stops early when ctx is canceled or the consumer stops pulling; on a
-// Redis or context error it yields a single ("", err) pair and returns.
-//
-// SCAN enumerates a single Redis server (or a failover client's primary)
-// completely. A Redis Cluster or Ring client yields [ErrUnsupportedClient]
-// instead of a partial stream; rebuild from an exact source of the revoked
-// set there.
-func (s *Store) StreamValues(ctx context.Context) iter.Seq2[string, error] {
-	return func(yield func(string, error) bool) {
-		switch s.client.(type) {
-		case *redis.ClusterClient, *redis.Ring:
-			yield("", coreerrs.Wrapf(ErrUnsupportedClient, "stream revoked keys over %T", s.client))
-			return
-		}
-		match := globEscaper.Replace(s.opts.keyPrefix) + "*"
-		var cursor uint64
-		for {
-			if err := ctx.Err(); err != nil {
-				yield("", coreerrs.Wrap(err, "stream revoked keys"))
-				return
-			}
-			keys, next, err := s.client.Scan(ctx, cursor, match, scanBatch).Result()
-			if err != nil {
-				yield("", coreerrs.Wrap(err, "scan revoked keys"))
-				return
-			}
-			for _, k := range keys {
-				key, ok := strings.CutPrefix(k, s.opts.keyPrefix)
-				if !ok {
-					continue
-				}
-				if !yield(key, nil) {
-					return
-				}
-			}
-			cursor = next
-			if cursor == 0 {
-				return
-			}
-		}
-	}
-}
+// The server clock stays fixed during a script, so PTTL and SET compare the same instant.
+const extendScript = `local ttl = redis.call('PTTL', KEYS[1])
+if ttl ~= -1 and ttl < tonumber(ARGV[1]) then
+ return redis.call('SET', KEYS[1], '1', 'PX', ARGV[1])
+end
+return 0`
 
-// Count implements [probfilter.DataLoader]. It returns -1 (unknown): an exact
-// count would require a full SCAN of the keyspace, which is as expensive as the
-// rebuild itself, so callers size the filter from -1 (unknown) instead.
-func (s *Store) Count(_ context.Context) (int64, error) {
-	return -1, nil
-}
+// ROLE cannot run inside Redis scripts. Match a complete replication INFO field.
+const strictReadScript = `local info = redis.pcall('INFO', 'replication')
+if type(info) ~= 'string' or not string.find('\n' .. info .. '\n', '\nrole:master\r?\n') then
+ return -1
+end
+return redis.call('EXISTS', KEYS[1])`

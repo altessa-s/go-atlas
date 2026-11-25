@@ -25,6 +25,8 @@ type subscriber struct {
 	done           chan struct{}
 	eventTypes     *coremaps.ImmutableMap[EventType, struct{}]
 	overflowPolicy BufferOverflowPolicy
+	inFlight       sync.WaitGroup
+	stopping       bool // protected by watchManager.mu
 	closedOnce     sync.Once
 }
 
@@ -79,18 +81,27 @@ func (w *watchManager) subscribe(opts WatchOptions) *WatchResult {
 // unsubscribe removes a subscription and closes its channels.
 func (w *watchManager) unsubscribe(sub *subscriber) {
 	w.mu.Lock()
-	_, exists := w.subscribers[sub]
-	if exists {
-		delete(w.subscribers, sub)
-	}
+	sub.stopAdmission()
 	w.mu.Unlock()
+	sub.finish()
+	w.mu.Lock()
+	delete(w.subscribers, sub)
+	w.mu.Unlock()
+}
 
-	if exists {
-		sub.closedOnce.Do(func() {
-			close(sub.done)
-			close(sub.ch)
-		})
+// stopAdmission is called under the watch manager lock.
+func (s *subscriber) stopAdmission() {
+	if !s.stopping {
+		s.stopping = true
+		close(s.done)
 	}
+}
+
+func (s *subscriber) finish() {
+	s.closedOnce.Do(func() {
+		s.inFlight.Wait()
+		close(s.ch)
+	})
 }
 
 // broadcast sends an event to all matching subscribers. Subscribers are
@@ -101,25 +112,26 @@ func (w *watchManager) broadcast(event PolicyEvent) {
 	w.mu.RLock()
 	subs := make([]*subscriber, 0, len(w.subscribers))
 	for sub := range w.subscribers {
-		if sub.eventTypes != nil {
-			if !sub.eventTypes.Contains(event.Type) {
-				continue
-			}
+		if sub.stopping || (sub.eventTypes != nil && !sub.eventTypes.Contains(event.Type)) {
+			continue
 		}
 		subs = append(subs, sub)
 	}
 	w.mu.RUnlock()
 
 	for _, sub := range subs {
-		w.trySendEvent(sub, event)
+		// Admit each send immediately before delivery. A blocked subscriber
+		// cannot hold another subscriber's Stop hostage.
+		w.mu.RLock()
+		if sub.stopping {
+			w.mu.RUnlock()
+			continue
+		}
+		sub.inFlight.Add(1)
+		w.mu.RUnlock()
+		w.sendEvent(sub, event)
+		sub.inFlight.Done()
 	}
-}
-
-// trySendEvent delivers an event, recovering if the subscriber's channel
-// was closed concurrently (narrow race between done and ch close).
-func (w *watchManager) trySendEvent(sub *subscriber, event PolicyEvent) {
-	defer func() { recover() }() //nolint:errcheck
-	w.sendEvent(sub, event)
 }
 
 // sendEvent sends an event to a subscriber according to its overflow policy.
@@ -182,20 +194,17 @@ func (w *watchManager) sendEvent(sub *subscriber, event PolicyEvent) {
 }
 
 // close closes all subscriptions and prevents new ones.
-func (w *watchManager) close() {
+func (w *watchManager) close(join func()) {
 	w.mu.Lock()
 	w.closed = true
-	subscribers := make([]*subscriber, 0, len(w.subscribers))
-	for sub := range w.subscribers {
-		subscribers = append(subscribers, sub)
+	subscribers := w.subscribers
+	w.subscribers = nil
+	for sub := range subscribers {
+		sub.stopAdmission()
 	}
-	w.subscribers = make(map[*subscriber]struct{})
 	w.mu.Unlock()
-
-	for _, sub := range subscribers {
-		sub.closedOnce.Do(func() {
-			close(sub.done)
-			close(sub.ch)
-		})
+	join()
+	for sub := range subscribers {
+		sub.finish()
 	}
 }

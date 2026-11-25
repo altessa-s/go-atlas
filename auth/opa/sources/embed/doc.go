@@ -4,6 +4,8 @@
 
 // Package embed implements [opa.PolicySource] backed by an [fs.FS]
 // (typically an [embed.FS]) containing .rego policy files.
+// JSON data files preserve number precision.
+// Configured checksum manifests cover every loaded module and JSON document, keyed by relative path.
 //
 // This allows OPA policies to be compiled directly into the binary,
 // eliminating the need for external policy files at runtime.

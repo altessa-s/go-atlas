@@ -73,49 +73,49 @@ func newOIDCMetrics(c metrics.Meter) *oidcMetrics {
 	scoped := c.WithSubsystem(DefaultMetricsSubsystem)
 
 	return &oidcMetrics{
-		discoveryDuration: scoped.MustTimer(metrics.HistogramOpts{
+		discoveryDuration: metrics.MustTimer(scoped, metrics.HistogramOpts{
 			Name: "discovery_duration_seconds",
 			Help: "Duration of OIDC discovery operations in seconds.",
 		}),
-		tokenValidations: scoped.MustCounter(metrics.MetricOpts{
+		tokenValidations: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name:       "token_validations_total",
 			Help:       "Total number of token validation attempts.",
 			LabelNames: []string{labelIssuer},
 		}),
-		validationErrors: scoped.MustCounter(metrics.MetricOpts{
+		validationErrors: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name:       "validation_errors_total",
 			Help:       "Total number of token validation errors.",
 			LabelNames: []string{labelIssuer},
 		}),
-		validationDuration: scoped.MustTimer(metrics.HistogramOpts{
+		validationDuration: metrics.MustTimer(scoped, metrics.HistogramOpts{
 			Name: "validation_duration_seconds",
 			Help: "Duration of token validation operations in seconds.",
 		}),
-		cacheHits: scoped.MustCounter(metrics.MetricOpts{
+		cacheHits: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name: "cache_hits_total",
 			Help: "Total number of token cache hits.",
 		}),
-		cacheMisses: scoped.MustCounter(metrics.MetricOpts{
+		cacheMisses: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name: "cache_misses_total",
 			Help: "Total number of token cache misses.",
 		}),
-		jwksRefreshes: scoped.MustCounter(metrics.MetricOpts{
+		jwksRefreshes: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name: "jwks_refreshes_total",
 			Help: "Total number of JWKS refresh operations.",
 		}),
-		jwksRefreshErrors: scoped.MustCounter(metrics.MetricOpts{
+		jwksRefreshErrors: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name: "jwks_refresh_errors_total",
 			Help: "Total number of failed JWKS refresh operations.",
 		}),
-		jwksRefreshDuration: scoped.MustTimer(metrics.HistogramOpts{
+		jwksRefreshDuration: metrics.MustTimer(scoped, metrics.HistogramOpts{
 			Name: "jwks_refresh_duration_seconds",
 			Help: "Duration of JWKS refresh operations in seconds.",
 		}),
-		jwksStaleRejections: scoped.MustCounter(metrics.MetricOpts{
+		jwksStaleRejections: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name: "jwks_stale_rejections_total",
 			Help: "Total number of validations affected by an over-stale JWKS cache (enforced or warned).",
 		}),
-		revocationCheckErrors: scoped.MustCounter(metrics.MetricOpts{
+		revocationCheckErrors: metrics.MustCounter(scoped, metrics.MetricOpts{
 			Name: "revocation_check_errors_total",
 			Help: "Total number of token revocation check failures.",
 		}),

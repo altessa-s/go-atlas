@@ -7,12 +7,16 @@ package opa
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithDecisionCacheBaseline(t *testing.T) {
+	t.Parallel()
 	got := defaultOptions()
 	WithDecisionCache(23, 17*time.Second)(got)
-	if got.decisionCache == nil || got.decisionCache.entries == nil {
-		t.Fatalf("cache not initialized: %#v", got.decisionCache)
-	}
+	got.decisionCache.Put("key", Result{Allow: true})
+	result, ok := got.decisionCache.Get("key")
+	require.True(t, ok)
+	require.True(t, result.Allow)
 }

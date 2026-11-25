@@ -235,9 +235,9 @@ func TestScheduledRevocationSync_SharedFilterOutcomes(t *testing.T) {
 	}}
 	p := idp.newProvider(t, WithMeter(collector), WithRevocationStorage(storage))
 
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 	require.Zero(t, metricstest.GetCounterValue(t, collector, revocationErrorsMetric))
 
-	require.ErrorIs(t, p.scheduledRevocationSync(t.Context()), probfilter.ErrRebuildSuperseded)
+	require.ErrorIs(t, p.revocation.scheduledRevocationSync(t.Context()), probfilter.ErrRebuildSuperseded)
 	require.Equal(t, 1.0, metricstest.GetCounterValue(t, collector, revocationErrorsMetric))
 }

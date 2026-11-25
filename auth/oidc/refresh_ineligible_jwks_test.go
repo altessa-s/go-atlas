@@ -28,12 +28,12 @@ func TestRefreshJWKS_InvalidEncryptionKeyDoesNotBlockRotation(t *testing.T) {
 	p, err := newRedirectTestProvider(t, discoveryURL)
 	require.NoError(t, err, "the initial load ignores the encryption key too")
 	require.Equal(t, []string{"old"}, storedKeyIDs(t, p))
-	p.lastJWKSRefreshUnixNanos.Store(1)
+	p.keys.lastJWKSRefresh.Store(nil)
 
 	setJWKS(jwksOf(t, invalidEncJWK("enc"), sigJWK(t, "new1"), sigJWK(t, "new2")))
 	require.NoError(t, p.RefreshJWKS(t.Context()))
 	require.ElementsMatch(t, []string{"new1", "new2"}, storedKeyIDs(t, p))
-	require.Greater(t, p.lastJWKSRefreshUnixNanos.Load(), int64(1), "the rotation is fresh")
+	require.NotNil(t, p.keys.lastJWKSRefresh.Load(), "the rotation is fresh")
 }
 
 // The strict rule still covers every key that could verify a token: a

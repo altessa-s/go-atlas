@@ -8,6 +8,8 @@ import (
 	"context"
 	"slices"
 
+	"github.com/altessa-s/go-atlas/auth/oidc/rules"
+
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
@@ -58,22 +60,25 @@ type PresetRule struct {
 }
 
 // compilePresets pre-compiles all registered presets during provider initialization.
-func (p *Provider) compilePresets() error {
-	if len(p.opts.presets) == 0 {
+func (p *policyEvaluator) compilePresets() error {
+	if len(p.presets) == 0 {
 		return nil
 	}
 
-	for name, shared := range p.opts.presets {
+	for name, shared := range p.presets {
 		// Compile a provider-owned copy: the compiled verifier binds this
 		// provider's issuer and key resolver, so compiling the caller's
 		// preset in place would let another provider built from the same
 		// preset value overwrite it.
 		preset := &ValidationPreset{name: shared.name, options: shared.options}
-		p.opts.presets[name] = preset
+		p.presets[name] = preset
 
 		// Apply preset options to create compiled verifier
 		ops := newVerifierOptions(preset.options...)
-		if err := checkLeeway(ops.leeway); err != nil {
+		if err := rules.CheckLeeway(ops.leeway); err != nil {
+			return coreerrs.Wrapf(err, "preset %q", preset.name)
+		}
+		if err := rules.CheckTokenLifetime(ops.minTokenLifetime, ops.maxTokenLifetime); err != nil {
 			return coreerrs.Wrapf(err, "preset %q", preset.name)
 		}
 
@@ -96,8 +101,8 @@ func (p *Provider) compilePresets() error {
 }
 
 // validatePresetSelectionRules filters invalid rules and sorts by priority.
-func (p *Provider) validatePresetSelectionRules() {
-	if len(p.opts.presetRules) == 0 {
+func (p *policyEvaluator) validatePresetSelectionRules() {
+	if len(p.presetRules) == 0 {
 		return
 	}
 
@@ -106,8 +111,8 @@ func (p *Provider) validatePresetSelectionRules() {
 		index int
 	}
 
-	indexedRules := make([]indexedRule, 0, len(p.opts.presetRules))
-	for idx, rule := range p.opts.presetRules {
+	indexedRules := make([]indexedRule, 0, len(p.presetRules))
+	for idx, rule := range p.presetRules {
 		// Validate matcher function
 		if rule.Matcher == nil {
 			p.logger.Warn("skipping preset rule with nil matcher",
@@ -143,18 +148,18 @@ func (p *Provider) validatePresetSelectionRules() {
 		}
 	})
 
-	p.opts.presetRules = make([]PresetRule, len(indexedRules))
+	p.presetRules = make([]PresetRule, len(indexedRules))
 	for i := range indexedRules {
-		p.opts.presetRules[i] = indexedRules[i].rule
+		p.presetRules[i] = indexedRules[i].rule
 	}
 }
 
 // getPreset retrieves a preset by name, returning nil if not found.
-func (p *Provider) getPreset(name string) *ValidationPreset {
-	if p.opts.presets == nil {
+func (p *policyEvaluator) getPreset(name string) *ValidationPreset {
+	if p.presets == nil {
 		return nil
 	}
-	return p.opts.presets[name]
+	return p.presets[name]
 }
 
 // ValidateTokenWithPreset validates a token using a named preset.
@@ -165,7 +170,7 @@ func (p *Provider) getPreset(name string) *ValidationPreset {
 //	claims, _ := provider.ValidateTokenWithPreset(ctx, token, "strict")
 func (p *Provider) ValidateTokenWithPreset(ctx context.Context, token string, presetName string, opt ...ValidationOption) (map[string]any, error) {
 	return p.observeValidation(func() (map[string]any, error) {
-		preset := p.getPreset(presetName)
+		preset := p.policy.getPreset(presetName)
 		if preset == nil {
 			return nil, coreerrs.Wrapf(ErrTokenInvalid, "validation preset '%s' not found", presetName)
 		}
@@ -186,7 +191,7 @@ func (p *Provider) ValidateTokenWithPreset(ctx context.Context, token string, pr
 
 // validateTokenWithPreset validates a token using a pre-compiled preset.
 func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, preset *ValidationPreset) (map[string]any, error) {
-	if err := p.checkValidatable(ctx, token); err != nil {
+	if err := p.policy.checkValidatable(ctx, token); err != nil {
 		return nil, err
 	}
 
@@ -194,31 +199,31 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 	// algorithm restriction so the signature is not accepted under a wider set.
 	// A cached signature verification is reused, but the preset's full policy
 	// below always runs.
-	claims, header, err := p.verifyTokenSignature(ctx, token, preset.policy)
+	claims, header, err := p.policy.verifyTokenSignature(ctx, token, preset.policy)
 	if err != nil {
 		return nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
 	}
 
 	// Validate with the pre-compiled policy
-	if err := p.applyPolicy(claims, preset.policy); err != nil {
+	if err := p.policy.applyPolicy(claims, preset.policy); err != nil {
 		return nil, err
 	}
 
-	if err := p.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
+	if err := p.revocation.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
 		return nil, err
 	}
 	return claims, nil
 }
 
 // selectPresetForClaims returns the preset name matching claims, or empty string if none match.
-func (p *Provider) selectPresetForClaims(claims map[string]any) string {
+func (p *policyEvaluator) selectPresetForClaims(claims map[string]any) string {
 	// No rules configured
-	if len(p.opts.presetRules) == 0 {
+	if len(p.presetRules) == 0 {
 		return ""
 	}
 
 	// Try to find matching rule (rules are sorted by priority)
-	for _, rule := range p.opts.presetRules {
+	for _, rule := range p.presetRules {
 		if rule.Matcher(claims) {
 			return rule.PresetName
 		}

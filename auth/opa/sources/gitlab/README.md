@@ -7,6 +7,8 @@ import "github.com/altessa-s/go-atlas/auth/opa/sources/gitlab"
 Package `gitlab` provides an OPA policy source that reads policies from a GitLab repository. It uses the GitLab API to fetch `.rego` policy files and
 optional `.json` data files.
 
+Each fetch resolves the ref once and uses that commit SHA for every tree page and raw file.
+
 ## Usage
 
 ```go

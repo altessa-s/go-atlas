@@ -31,7 +31,8 @@ import rego.v1
 allow if input.role == "admin"
 `), 0644))
 
-	source, err := filesystem.New(dir)
+	writeTestRelease(b, dir)
+	source, err := filesystem.New(dir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(b, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.bench.authz.allow")
@@ -68,7 +69,8 @@ allow if count(deny) == 0
 result := {"allow": allow, "denials": deny}
 `), 0644))
 
-	source, err := filesystem.New(dir)
+	writeTestRelease(b, dir)
+	source, err := filesystem.New(dir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(b, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.bench.authz.result")
@@ -113,7 +115,8 @@ import rego.v1
 allow if input.role == "admin"
 `), 0644))
 
-	source, err := filesystem.New(dir)
+	writeTestRelease(b, dir)
+	source, err := filesystem.New(dir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(b, err)
 
 	manager, err := opa.NewManager(b.Context(), source, "data.bench.authz.allow",
@@ -148,7 +151,8 @@ import rego.v1
 allow if input.role == "admin"
 `), 0644))
 
-	source, err := filesystem.New(dir)
+	writeTestRelease(b, dir)
+	source, err := filesystem.New(dir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(b, err)
 
 	manager, err := opa.NewManager(b.Context(), source, "data.bench.authz.allow",
@@ -193,7 +197,8 @@ import rego.v1
 allow if input.role == "admin"
 `), 0644))
 
-	source, err := filesystem.New(dir)
+	writeTestRelease(b, dir)
+	source, err := filesystem.New(dir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(b, err)
 
 	manager, err := opa.NewManager(b.Context(), source, "data.bench.authz.allow", opts...)

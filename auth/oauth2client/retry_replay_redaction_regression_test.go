@@ -13,10 +13,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	"golang.org/x/oauth2"
 )
 
 func TestRetryBodyReplayErrorRedacted(t *testing.T) {

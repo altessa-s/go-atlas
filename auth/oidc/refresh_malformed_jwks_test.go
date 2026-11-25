@@ -45,10 +45,10 @@ func TestRefreshJWKS_MalformedKeyKeepsWorkingSet(t *testing.T) {
 	discoveryURL, setJWKS := newJWKSBodyIdP(t, jwksOf(t, active...))
 	p, err := newRedirectTestProvider(t, discoveryURL)
 	require.NoError(t, err)
-	original, err := p.jwks.Storage().KeyReadAll(t.Context())
+	original, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
 	require.Len(t, original, 3)
-	freshness := p.lastJWKSRefreshUnixNanos.Load()
+	freshness := p.keys.lastJWKSRefresh.Load()
 
 	for name, body := range map[string]string{
 		"active keys corrupted, standby valid": jwksOf(t, corruptJWK("a1"), corruptJWK("a2"), corruptJWK("a3"), sigJWK(t, "standby")),
@@ -60,10 +60,10 @@ func TestRefreshJWKS_MalformedKeyKeepsWorkingSet(t *testing.T) {
 		var invalidBase64 base64.CorruptInputError
 		require.ErrorAs(t, err, &invalidBase64, name)
 
-		keys, readErr := p.jwks.Storage().KeyReadAll(t.Context())
+		keys, readErr := p.keys.jwks.Storage().KeyReadAll(t.Context())
 		require.NoError(t, readErr)
 		require.Equal(t, original, keys, name)
-		require.Equal(t, freshness, p.lastJWKSRefreshUnixNanos.Load(), name)
+		require.Equal(t, freshness, p.keys.lastJWKSRefresh.Load(), name)
 	}
 
 	// The same document is refused at startup too.
@@ -94,12 +94,12 @@ func TestRefreshJWKS_SameKeysAsInitialLoad(t *testing.T) {
 	discoveryURL, _ := newJWKSBodyIdP(t, doc)
 	p, err := newRedirectTestProvider(t, discoveryURL)
 	require.NoError(t, err)
-	initial, err := p.jwks.Storage().KeyReadAll(t.Context())
+	initial, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
 	require.Len(t, initial, 2)
 
 	require.NoError(t, p.RefreshJWKS(t.Context()))
-	refreshed, err := p.jwks.Storage().KeyReadAll(t.Context())
+	refreshed, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, initial, refreshed)
 }

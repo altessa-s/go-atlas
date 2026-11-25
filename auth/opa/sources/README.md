@@ -1,7 +1,7 @@
 # sources
 
 Policy source implementations for the OPA authorization package. Each subpackage implements the `opa.PolicySource` interface for a specific backend.
-Sources are passive data fetchers — the Manager handles all polling and change-detection scheduling.
+Sources are passive data fetchers — the Manager handles all polling and change-detection scheduling. Filesystem and S3 sources require a complete release manifest.
 
 ## Packages
 

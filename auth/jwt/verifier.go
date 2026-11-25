@@ -6,13 +6,13 @@ package jwt
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
 
-	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas/auth/internal/numericdate"
+
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
@@ -22,35 +22,16 @@ import (
 // audience, and required claims. Verification is fail-closed.
 type Verifier struct {
 	resolver KeyResolver
-	opts     *options
-	// parserOpts are the golang-jwt parser options, fixed for the verifier's
-	// lifetime and built once in NewVerifier so verification allocates no option
-	// slice per call.
-	parserOpts []gojwt.ParserOption
+	opts     *verifierOptions
+	parser   *gojwt.Parser
 }
 
 // NewVerifier builds a Verifier that resolves keys through resolver.
-func NewVerifier(resolver KeyResolver, opts ...Option) *Verifier {
-	o := newOptions(opts...)
-	return &Verifier{resolver: resolver, opts: o, parserOpts: buildParserOptions(o)}
-}
-
-// buildParserOptions translates the verifier options into golang-jwt parser
-// options for the registered-claim checks golang-jwt performs (valid methods,
-// leeway, clock, exp/nbf-required, iat, issuer, subject). Audience and required
-// claims are enforced by the package on top of these, so they are not included.
-func buildParserOptions(o *options) []gojwt.ParserOption {
-	parserOpts := []gojwt.ParserOption{
-		gojwt.WithValidMethods(methodNames(o.allowedAlgorithms)),
-		gojwt.WithLeeway(min(o.leeway, MaxLeeway)),
-		gojwt.WithTimeFunc(o.clock.Now),
-	}
-	parserOpts = coreslices.AppendIf(parserOpts, o.expirationRequired, gojwt.WithExpirationRequired())
-	parserOpts = coreslices.AppendIf(parserOpts, o.notBeforeRequired, gojwt.WithNotBeforeRequired())
-	parserOpts = coreslices.AppendIf(parserOpts, o.issuedAt, gojwt.WithIssuedAt())
-	parserOpts = coreslices.AppendIf(parserOpts, o.issuer != "", gojwt.WithIssuer(o.issuer))
-	parserOpts = coreslices.AppendIf(parserOpts, o.subject != "", gojwt.WithSubject(o.subject))
-	return parserOpts
+func NewVerifier(resolver KeyResolver, opts ...VerifierOption) *Verifier {
+	o := newVerifierOptions(opts...)
+	return &Verifier{resolver: resolver, opts: o, parser: gojwt.NewParser(
+		gojwt.WithValidMethods(methodNames(o.allowedAlgorithms)), gojwt.WithoutClaimsValidation(),
+	)}
 }
 
 // Verify parses raw (allowed algorithms only), checks its signature against the
@@ -74,8 +55,11 @@ func (v *Verifier) Verify(ctx context.Context, raw string) (Claims, error) {
 // header-derived data such as a kid for a revocation lookup. On error the
 // returned header is the zero value.
 func (v *Verifier) VerifyWithHeader(ctx context.Context, raw string) (Claims, Header, error) {
-	claims, hdr, err := v.parse(ctx, raw, v.parserOpts)
+	claims, hdr, err := v.VerifySignature(ctx, raw)
 	if err != nil {
+		return nil, Header{}, err
+	}
+	if err := v.validateRegistered(claims); err != nil {
 		return nil, Header{}, err
 	}
 	if v.opts.expectedTokenType != "" && !tokenTypeMatches(hdr.Typ, v.opts.expectedTokenType) {
@@ -85,22 +69,6 @@ func (v *Verifier) VerifyWithHeader(ctx context.Context, raw string) (Claims, He
 		return nil, Header{}, err
 	}
 	return claims, hdr, nil
-}
-
-// VerifySignature verifies raw's signature and algorithm (the allow-list and the
-// resolved key's algorithm binding) but skips all claim validation — temporal,
-// issuer, subject, audience, typ, and required claims. It returns the parsed
-// claims and verified header so a caller can act on the claims before validating
-// them (for example to select a validation profile from otherwise-unverified
-// claims). The claims MUST NOT be trusted until validated; pass them to
-// [Verifier.ValidateClaims], or use [Verifier.Verify] for the full pipeline.
-func (v *Verifier) VerifySignature(ctx context.Context, raw string) (Claims, Header, error) {
-	// Build a fresh slice so the appended option never mutates the shared
-	// v.parserOpts backing array.
-	opts := make([]gojwt.ParserOption, 0, len(v.parserOpts)+1)
-	opts = append(opts, v.parserOpts...)
-	opts = append(opts, gojwt.WithoutClaimsValidation())
-	return v.parse(ctx, raw, opts)
 }
 
 // ValidateClaims validates an already-parsed claim set against the verifier's
@@ -116,13 +84,49 @@ func (v *Verifier) VerifySignature(ctx context.Context, raw string) (Claims, Hea
 //
 // Errors map onto the same sentinels as [Verifier.Verify].
 func (v *Verifier) ValidateClaims(claims Claims) error {
-	if err := gojwt.NewValidator(v.parserOpts...).Validate(gojwt.MapClaims(claims)); err != nil {
-		if errors.Is(err, gojwt.ErrTokenExpired) {
-			return fmt.Errorf("%w: %w", ErrTokenExpired, err)
-		}
-		return fmt.Errorf("%w: %w", ErrTokenInvalid, err)
+	if err := v.validateRegistered(claims); err != nil {
+		return err
 	}
 	return v.validateExtraClaims(claims)
+}
+
+func (v *Verifier) validateRegistered(claims Claims) error {
+	now := numericdate.FromTime(v.opts.clock.Now())
+	leeway := min(v.opts.leeway, MaxLeeway)
+	for _, name := range [...]string{claimExpiration, claimNotBefore, claimIssuedAt} {
+		value, present := claims[name]
+		if !present {
+			if (name == claimExpiration && v.opts.expirationRequired) || (name == claimNotBefore && v.opts.notBeforeRequired) {
+				return fmt.Errorf("%w: %w: %s", ErrTokenInvalid, gojwt.ErrTokenRequiredClaimMissing, name)
+			}
+			continue
+		}
+		date, ok := numericdate.Parse(value)
+		if !ok {
+			return fmt.Errorf("%w: %w: %s", ErrTokenInvalid, gojwt.ErrInvalidType, name)
+		}
+		switch name {
+		case claimExpiration:
+			if date.CompareOffset(now, -leeway) <= 0 {
+				return fmt.Errorf("%w: %w", ErrTokenExpired, gojwt.ErrTokenExpired)
+			}
+		case claimNotBefore:
+			if date.CompareOffset(now, leeway) > 0 {
+				return fmt.Errorf("%w: %w", ErrTokenInvalid, gojwt.ErrTokenNotValidYet)
+			}
+		case claimIssuedAt:
+			if v.opts.issuedAt && date.CompareOffset(now, leeway) > 0 {
+				return fmt.Errorf("%w: %w", ErrTokenInvalid, gojwt.ErrTokenUsedBeforeIssued)
+			}
+		}
+	}
+	if v.opts.issuer != "" && claims.Issuer() != v.opts.issuer {
+		return fmt.Errorf("%w: %w", ErrTokenInvalid, gojwt.ErrTokenInvalidIssuer)
+	}
+	if v.opts.subject != "" && claims.Subject() != v.opts.subject {
+		return fmt.Errorf("%w: %w", ErrTokenInvalid, gojwt.ErrTokenInvalidSubject)
+	}
+	return nil
 }
 
 // RevocationChecker reports whether a token, identified by its jti claim, has
@@ -135,9 +139,7 @@ type RevocationChecker interface {
 	IsRevoked(id string) bool
 }
 
-// validateExtraClaims enforces the checks the package layers on top of
-// golang-jwt's registered-claim validation: the required claims, the accepted
-// audience set, and revocation of the token's jti.
+// validateExtraClaims enforces required claims, audience and revocation.
 func (v *Verifier) validateExtraClaims(claims Claims) error {
 	for _, name := range v.opts.requiredClaims {
 		if !claims.Has(name) {
@@ -155,17 +157,20 @@ func (v *Verifier) validateExtraClaims(claims Claims) error {
 	return nil
 }
 
-// parse runs the golang-jwt parse with the resolver key func and the given
-// parser options, returning the claims and verified header. A key-resolution
-// failure propagates unwrapped; temporal and parse failures map onto
-// [ErrTokenExpired] / [ErrTokenInvalid].
-func (v *Verifier) parse(ctx context.Context, raw string, parserOpts []gojwt.ParserOption) (Claims, Header, error) {
+// VerifySignature verifies raw's signature and algorithm (the allow-list and the
+// resolved key's algorithm binding) but skips all claim validation — temporal,
+// issuer, subject, audience, typ, and required claims. It returns the parsed
+// claims and verified header so a caller can act on the claims before validating
+// them (for example to select a validation profile from otherwise-unverified
+// claims). The claims MUST NOT be trusted until validated; pass them to
+// [Verifier.ValidateClaims], or use [Verifier.Verify] for the full pipeline.
+func (v *Verifier) VerifySignature(ctx context.Context, raw string) (Claims, Header, error) {
 	// resolveErr captures a key-resolution failure raised inside the key func so
 	// the precise error survives golang-jwt's error wrapping.
 	var resolveErr error
 	var hdr Header
-	claims := gojwt.MapClaims{}
-	_, err := gojwt.ParseWithClaims(raw, claims, func(t *gojwt.Token) (any, error) {
+	var payload signedClaims
+	_, err := v.parser.ParseWithClaims(raw, &payload, func(t *gojwt.Token) (any, error) {
 		hdr = Header{Alg: t.Method.Alg()}
 		if kid, ok := t.Header["kid"].(string); ok {
 			hdr.Kid = kid
@@ -175,7 +180,7 @@ func (v *Verifier) parse(ctx context.Context, raw string, parserOpts []gojwt.Par
 		}
 		// Hand the resolver a clone of the still-unverified claims: it must not
 		// be able to mutate the map that parse returns as the verified result.
-		vk, e := v.resolver.ResolveKey(ctx, hdr, Claims(maps.Clone(claims)))
+		vk, e := v.resolver.ResolveKey(ctx, hdr, Claims(maps.Clone(payload.MapClaims)))
 		if e != nil {
 			resolveErr = e
 			return nil, e
@@ -194,17 +199,23 @@ func (v *Verifier) parse(ctx context.Context, raw string, parserOpts []gojwt.Par
 			return nil, resolveErr
 		}
 		return vk.Key, nil
-	}, parserOpts...)
+	})
 	if err != nil {
 		if resolveErr != nil {
 			return nil, Header{}, resolveErr
 		}
-		if errors.Is(err, gojwt.ErrTokenExpired) {
-			return nil, Header{}, fmt.Errorf("%w: %w", ErrTokenExpired, err)
-		}
 		return nil, Header{}, fmt.Errorf("%w: %w", ErrTokenInvalid, err)
 	}
-	return Claims(claims), hdr, nil
+	return Claims(payload.MapClaims), hdr, nil
+}
+
+// signedClaims supplies a strict, single-value decoder to the signature parser.
+type signedClaims struct{ gojwt.MapClaims }
+
+func (c *signedClaims) UnmarshalJSON(data []byte) error {
+	claims, err := decodeClaims(data)
+	c.MapClaims = claims
+	return err
 }
 
 // tokenTypeMatches reports whether the token's typ header satisfies the expected

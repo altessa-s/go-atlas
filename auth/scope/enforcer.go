@@ -61,19 +61,24 @@ func AllOf[P any](authorizers ...Authorizer[P]) Authorizer[P] {
 	}
 }
 
+// ActionRegistry supplies the required scope for a registered action.
+type ActionRegistry interface {
+	Required(key string) (Scope, bool)
+}
+
 // Enforcer decides whether principals of type P may perform registered actions.
 // It pairs a [Registry] (which action requires which scope, deny-by-default)
 // with an [Authorizer] (whether a principal satisfies a scope). It holds no
 // state beyond those two and is safe for concurrent use once the registry is
 // frozen.
 type Enforcer[P any] struct {
-	reg       *Registry
+	reg       ActionRegistry
 	authorize Authorizer[P]
 }
 
 // NewEnforcer returns an [Enforcer] backed by reg, delegating the
 // principal-satisfies-scope decision to authorize.
-func NewEnforcer[P any](reg *Registry, authorize Authorizer[P]) *Enforcer[P] {
+func NewEnforcer[P any](reg ActionRegistry, authorize Authorizer[P]) *Enforcer[P] {
 	return &Enforcer[P]{reg: reg, authorize: authorize}
 }
 

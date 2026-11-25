@@ -31,16 +31,16 @@ import (
 // and any other consumer of [oauth2.TokenSource].
 //
 // Configure scopes, a custom [http.Client], the credential [oauth2.AuthStyle],
-// or extra endpoint params with the [Option] values. When a [ClientAuthenticator]
-// is set via [WithClientAuth], the client authenticates with a signed JWT
+// or extra endpoint params with the [ClientCredentialsOption] values. When a [ClientAuthenticator]
+// is set via [WithClientCredentialsClientAuth], the client authenticates with a signed JWT
 // assertion (private_key_jwt / client_secret_jwt) and clientSecret is unused.
 //
 // A tokenURL that is malformed or not https (plain http is accepted on a
-// loopback host, or anywhere with [WithInsecureHTTP]) returns an error
+// loopback host, or anywhere with [WithClientCredentialsInsecureHTTP]) returns an error
 // wrapping [ErrInsecureEndpoint].
-func ClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret string, opts ...Option) (oauth2.TokenSource, error) {
-	o := newOptions(opts...)
-	if err := o.validateEndpoint("token URL", tokenURL); err != nil {
+func ClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret string, opts ...ClientCredentialsOption) (oauth2.TokenSource, error) {
+	o := newClientCredentialsOptions(opts...)
+	if err := validateEndpoint("token URL", tokenURL, o.insecureHTTP); err != nil {
 		return nil, err
 	}
 	if o.clientAuth != nil {
@@ -50,7 +50,7 @@ func ClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret str
 			scopes:         o.scopes,
 			endpointParams: o.endpointParams,
 			clientAuth:     o.clientAuth,
-			client:         o.client(),
+			client:         endpointClient(o.httpClient, o.insecureHTTP),
 		}
 		return measure(reuse(nil, src, o.earlyExpiry), grantClientCredentials, o.metrics, o.logger), nil
 	}
@@ -62,7 +62,7 @@ func ClientCredentials(ctx context.Context, tokenURL, clientID, clientSecret str
 		EndpointParams: o.endpointParams,
 		AuthStyle:      o.authStyle,
 	}
-	ctx, response := withResponseClient(ctx, o.client())
+	ctx, response := withResponseClient(ctx, endpointClient(o.httpClient, o.insecureHTTP))
 	if o.earlyExpiry > 0 {
 		// clientcredentials.Config.TokenSource bakes in x/oauth2's default expiry
 		// window; wrap our own one-shot to honor the configured earlyExpiry.
@@ -144,20 +144,19 @@ func (s *ccAssertionSource) Token() (*oauth2.Token, error) {
 // re-prompting the user.
 //
 // A tokenURL that is malformed or not https (plain http is accepted on a
-// loopback host, or anywhere with [WithInsecureHTTP]) returns an error
+// loopback host, or anywhere with [WithRefreshInsecureHTTP]) returns an error
 // wrapping [ErrInsecureEndpoint].
-func Refresh(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string, opts ...Option) (oauth2.TokenSource, error) {
-	o := newOptions(opts...)
-	if err := o.validateEndpoint("token URL", tokenURL); err != nil {
+func Refresh(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string, opts ...RefreshOption) (oauth2.TokenSource, error) {
+	o := newRefreshOptions(opts...)
+	if err := validateEndpoint("token URL", tokenURL, o.insecureHTTP); err != nil {
 		return nil, err
 	}
 	cfg := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Endpoint:     oauth2.Endpoint{TokenURL: tokenURL, AuthStyle: o.authStyle},
-		Scopes:       o.scopes,
 	}
-	ctx, response := withResponseClient(ctx, o.client())
+	ctx, response := withResponseClient(ctx, endpointClient(o.httpClient, o.insecureHTTP))
 	src := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
 	return measure(redacted(src, response), grantRefresh, o.metrics, o.logger), nil
 }
@@ -180,15 +179,15 @@ type AuthCode struct {
 // client. endpoint carries the IdP's authorization and token URLs (and, if the
 // IdP is picky, its own [oauth2.AuthStyle]); redirectURL is the callback the
 // IdP redirects back to and must match the client registration. Set the
-// requested scopes and a custom [http.Client] with the [Option] values.
+// requested scopes and a custom [http.Client] with the [AuthCodeOption] values.
 //
 // The authorization URL is opened by the user's browser and never passes
 // through the HTTP client, so it is checked here together with the token URL:
 // a URL that is set and is not https (plain http is accepted on a loopback
-// host, or anywhere with [WithInsecureHTTP]) returns an error wrapping
+// host, or anywhere with [WithAuthCodeInsecureHTTP]) returns an error wrapping
 // [ErrInsecureEndpoint].
-func NewAuthCode(endpoint oauth2.Endpoint, clientID, clientSecret, redirectURL string, opts ...Option) (*AuthCode, error) {
-	o := newOptions(opts...)
+func NewAuthCode(endpoint oauth2.Endpoint, clientID, clientSecret, redirectURL string, opts ...AuthCodeOption) (*AuthCode, error) {
+	o := newAuthCodeOptions(opts...)
 	for _, u := range []struct{ name, raw string }{
 		{"authorization URL", endpoint.AuthURL},
 		{"token URL", endpoint.TokenURL},
@@ -208,7 +207,7 @@ func NewAuthCode(endpoint oauth2.Endpoint, clientID, clientSecret, redirectURL s
 			RedirectURL:  redirectURL,
 			Scopes:       o.scopes,
 		},
-		client:  o.client(),
+		client:  endpointClient(o.httpClient, o.insecureHTTP),
 		metrics: o.metrics,
 		logger:  o.logger,
 	}, nil

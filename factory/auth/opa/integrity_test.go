@@ -49,6 +49,10 @@ func TestGitLabSource_Checksums(t *testing.T) {
 	t.Parallel()
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/projects/42/repository/commits/main", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`))
+	})
 	mux.HandleFunc("/api/v4/projects/42/repository/tree", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]map[string]string{
@@ -134,7 +138,7 @@ func (f fakeS3) ListObjectsV2(_ context.Context, in *awss3.ListObjectsV2Input, _
 	out := &awss3.ListObjectsV2Output{IsTruncated: new(false)}
 	for key := range f {
 		if in.Prefix == nil || strings.HasPrefix(key, *in.Prefix) {
-			out.Contents = append(out.Contents, types.Object{Key: new(key)})
+			out.Contents = append(out.Contents, types.Object{Key: new(key), ETag: new(fakeETag(f[key]))})
 		}
 	}
 	return out, nil
@@ -145,5 +149,12 @@ func (f fakeS3) GetObject(_ context.Context, in *awss3.GetObjectInput, _ ...func
 	if !ok {
 		return nil, errors.New("NoSuchKey")
 	}
+	if in.IfMatch != nil && *in.IfMatch != fakeETag(content) {
+		return nil, errors.New("precondition failed")
+	}
 	return &awss3.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(content))}, nil
+}
+
+func fakeETag(content []byte) string {
+	return `"` + corehash.SHA256HexBytes(content) + `"`
 }

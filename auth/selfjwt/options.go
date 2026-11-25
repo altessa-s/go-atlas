@@ -4,7 +4,9 @@
 
 package selfjwt
 
-//go:generate go tool optgen generate
+//go:generate go tool optgen generate --type=minterOptions --option-type=MinterOption --output=minter_options_gen.go
+//go:generate go tool optgen generate --type=verifierOptions --option-type=VerifierOption --output=verifier_options_gen.go
+//go:generate go tool optgen generate --type=pairOptions --option-type=PairOption --output=pair_options_gen.go --option-prefix=Pair
 
 import (
 	"crypto/rand"
@@ -53,10 +55,19 @@ const (
 // defaultRand is the production randomness source for jti generation.
 var defaultRand io.Reader = rand.Reader
 
-// options carries the minter/verifier tunables. rand and clock are injectable
-// seams for deterministic tests.
-type options struct {
+type minterOptions struct {
 	maxTokenLifetime time.Duration `optgen:"default=DefaultMaxTokenLifetime"`
+	// WithMinterAllowedAlgorithms replaces the minter's algorithm allow-list.
+	// An empty list keeps the current algorithms.
+	allowedAlgorithms []jwt.Algorithm `opt:"MinterAllowedAlgorithms" optval:"clone,notrim,nodup" optgen:"default=defaultAllowedAlgorithms"`
+	rand              io.Reader       `optgen:"default=defaultRand"`
+	clock             Clock           `opt:"MinterClock" optgen:"default=defaultClock"`
+	// metrics records mint/verify outcomes, latency, and cache hit/miss.
+	// When nil, all metric writes are no-ops.
+	metrics *Metrics `opt:"MinterMetrics"`
+}
+
+type verifierOptions struct {
 	leeway           time.Duration `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
 	cacheTTL         time.Duration `optgen:"default=DefaultCacheTTL" optval:"positive=allow_zero"`
 	cacheMaxEntries  int           `optgen:"default=DefaultCacheMaxEntries"`
@@ -64,22 +75,31 @@ type options struct {
 	negativeCacheTTL time.Duration `optgen:"default=DefaultNegativeCacheTTL" optval:"positive=allow_zero"`
 	// maxConcurrentLookups bounds the distinct key-provider lookups in flight.
 	maxConcurrentLookups int `optgen:"default=DefaultMaxConcurrentLookups" optval:"positive"`
-	// WithAllowedAlgorithms sets the signature algorithms the verifier accepts,
-	// replacing the default asymmetric allow-list ([jwt.DefaultAllowedAlgorithms]).
-	// Restricting or extending the set is the supported way to add support for a
-	// new algorithm: register a signing method with golang-jwt, then list it here.
-	// A call with no algorithms is ignored so the safe default is never cleared.
-	allowedAlgorithms []jwt.Algorithm `opt:"AllowedAlgorithms" optval:"clone,notrim,nodup" optgen:"default=defaultAllowedAlgorithms"`
-	rand              io.Reader       `optgen:"default=defaultRand"`
-	clock             Clock           `optgen:"default=defaultClock"`
-
+	// WithVerifierAllowedAlgorithms replaces the verifier's algorithm allow-list.
+	// An empty list keeps the current algorithms.
+	allowedAlgorithms []jwt.Algorithm `opt:"VerifierAllowedAlgorithms" optval:"clone,notrim,nodup" optgen:"default=defaultAllowedAlgorithms"`
+	clock             Clock           `opt:"VerifierClock" optgen:"default=defaultClock"`
 	// metrics records mint/verify outcomes, latency, and cache hit/miss.
 	// When nil, all metric writes are no-ops.
-	metrics *Metrics
-
+	metrics *Metrics `opt:"VerifierMetrics"`
 	// revocation, when set, rejects a verified token whose jti has been revoked.
 	// It is forwarded to the embedded jwt verifier and reported as
 	// [github.com/altessa-s/go-atlas/auth/jwt.ErrTokenRevoked]. Nil leaves
 	// revocation unchecked. Set via the generated WithRevocation.
 	revocation jwt.RevocationChecker `optgen:"notnil"`
+}
+
+type pairOptions struct {
+	maxTokenLifetime     time.Duration   `optgen:"default=DefaultMaxTokenLifetime"`
+	leeway               time.Duration   `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
+	cacheTTL             time.Duration   `optgen:"default=DefaultCacheTTL" optval:"positive=allow_zero"`
+	cacheMaxEntries      int             `optgen:"default=DefaultCacheMaxEntries"`
+	keyLookupTimeout     time.Duration   `optgen:"default=DefaultKeyLookupTimeout" optval:"positive"`
+	negativeCacheTTL     time.Duration   `optgen:"default=DefaultNegativeCacheTTL" optval:"positive=allow_zero"`
+	maxConcurrentLookups int             `optgen:"default=DefaultMaxConcurrentLookups" optval:"positive"`
+	allowedAlgorithms    []jwt.Algorithm `opt:"AllowedAlgorithms" optval:"clone,notrim,nodup" optgen:"default=defaultAllowedAlgorithms"`
+	rand                 io.Reader       `optgen:"default=defaultRand"`
+	clock                Clock           `optgen:"default=defaultClock"`
+	metrics              *Metrics
+	revocation           jwt.RevocationChecker `optgen:"notnil"`
 }

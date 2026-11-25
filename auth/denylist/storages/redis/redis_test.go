@@ -21,13 +21,17 @@ import (
 func setupStore(tb testing.TB, opts ...redisstore.Option) (*redisstore.Store, *miniredis.Miniredis) {
 	tb.Helper()
 	client, mr := redistest.RedisClient(tb)
-	return redisstore.New(client, opts...), mr
+	serveScanTopology(mr, nil)
+	store, err := redisstore.New(client, opts...)
+	require.NoError(tb, err)
+	return store, mr
 }
 
-func TestStore_IsDataLoader(t *testing.T) {
+func TestStore_DataLoader(t *testing.T) {
 	t.Parallel()
 	store, _ := setupStore(t)
-	var _ probfilter.DataLoader = store
+	require.NotImplements(t, (*probfilter.DataLoader)(nil), store)
+	require.NotNil(t, store.DataLoader())
 }
 
 func TestStore_RevokeThenIsRevoked(t *testing.T) {
@@ -108,7 +112,7 @@ func TestStore_StreamValuesYieldsBareKeys(t *testing.T) {
 	}
 
 	var got []string
-	for key, err := range store.StreamValues(ctx) {
+	for key, err := range store.RawSource().StreamValues(ctx) {
 		require.NoError(t, err)
 		got = append(got, key)
 	}
@@ -123,7 +127,7 @@ func TestStore_StreamValuesRespectsPrefix(t *testing.T) {
 	require.NoError(t, store.Revoke(ctx, "only"))
 
 	var got []string
-	for key, err := range store.StreamValues(ctx) {
+	for key, err := range store.RawSource().StreamValues(ctx) {
 		require.NoError(t, err)
 		got = append(got, key)
 	}
@@ -134,7 +138,7 @@ func TestStore_CountUnknown(t *testing.T) {
 	t.Parallel()
 	store, _ := setupStore(t)
 
-	n, err := store.Count(t.Context())
+	n, err := store.DataLoader().Count(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(-1), n)
 }
@@ -159,7 +163,7 @@ func TestStore_StreamValuesLiteralPrefix(t *testing.T) {
 			require.NoError(t, mr.Set(tc.lookalike, "1"))
 
 			var got []string
-			for key, err := range store.StreamValues(ctx) {
+			for key, err := range store.RawSource().StreamValues(ctx) {
 				require.NoError(t, err)
 				got = append(got, key)
 			}
@@ -177,15 +181,50 @@ func TestStore_StreamValuesRejectsClusterAndRing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			t.Cleanup(func() { _ = client.Close() })
-			store := redisstore.New(client)
+			store, err := redisstore.New(client)
+			require.NoError(t, err)
 
 			var errs []error
-			for key, err := range store.StreamValues(t.Context()) {
+			for key, err := range store.RawSource().StreamValues(t.Context()) {
 				require.Empty(t, key)
 				errs = append(errs, err)
 			}
 			require.Len(t, errs, 1)
 			require.ErrorIs(t, errs[0], redisstore.ErrUnsupportedClient)
+		})
+	}
+}
+
+func TestStreamValuesRejectsUnverifiedClient(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"decorated cluster", "cluster endpoint", "replica endpoint"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			single, mr := redistest.RedisClient(t)
+			var client goredis.UniversalClient = single
+			switch kind {
+			case "decorated cluster":
+				cluster := goredis.NewClusterClient(&goredis.ClusterOptions{Addrs: []string{mr.Addr()}})
+				t.Cleanup(func() { _ = cluster.Close() })
+				client = struct{ goredis.UniversalClient }{cluster}
+			case "replica endpoint":
+				redistest.ServeTopology(mr, "slave", "0")
+			case "cluster endpoint":
+				redistest.ServeTopology(mr, "master", "1")
+			}
+			require.NoError(t, mr.Set(redisstore.DefaultKeyPrefix+"revoked", "1"))
+			var results int
+			store, err := redisstore.New(client)
+			require.NoError(t, err)
+			for key, err := range store.RawSource().StreamValues(t.Context()) {
+				require.ErrorIs(t, err, redisstore.ErrUnsupportedClient)
+				require.Empty(t, key)
+				results++
+			}
+			require.Equal(t, 1, results)
+			if kind == "decorated cluster" {
+				require.Zero(t, mr.CommandCount())
+			}
 		})
 	}
 }

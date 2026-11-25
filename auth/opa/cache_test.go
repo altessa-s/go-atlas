@@ -5,6 +5,7 @@
 package opa_test
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,8 @@ allow if {
 func newCachingManager(t *testing.T, dir string, opts ...opa.Option) *opa.Manager {
 	t.Helper()
 
-	source, err := filesystem.New(dir)
+	writeTestRelease(t, dir)
+	source, err := filesystem.New(dir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(t.Context(), source, "data.test.authz.allow", opts...)
@@ -120,6 +122,7 @@ func TestDecisionCache_ReloadInvalidatesDecisions(t *testing.T) {
 	require.True(t, allowed.Allow)
 
 	writePolicy(t, dir, denyAllPolicy)
+	writeTestRelease(t, dir)
 	require.NoError(t, manager.RunUpdateCycle(t.Context()))
 
 	denied, err := evaluator.Evaluate(t.Context(), input)
@@ -221,10 +224,7 @@ func TestDecisionCache_EntriesExpire(t *testing.T) {
 	}, time.Second, 10*time.Millisecond, "entries must stop being served after the TTL")
 }
 
-// The cache keys on the JSON encoding of the input, which sounds like a new
-// restriction but is not: OPA marshals the input to JSON to evaluate it, so an
-// input the key cannot encode was never evaluable in the first place. Enabling
-// the cache must not change that outcome, and must not report a hit for it.
+// Enabling the cache preserves input conversion errors.
 func TestDecisionCache_UnmarshalableInputIsRejectedAsBefore(t *testing.T) {
 	t.Parallel()
 
@@ -336,4 +336,55 @@ func TestDecisionCache_LargerCapHoldsBoth(t *testing.T) {
 		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "hit"))
 	require.Equal(t, float64(2),
 		metricstest.GetCounterValue(t, collector, "test_auth_opa_decision_cache_lookups_total", "result", "miss"))
+}
+
+type sharedDecisions struct{ entries sync.Map }
+
+func (c *sharedDecisions) Get(key string) (opa.Result, bool) {
+	value, ok := c.entries.Load(key)
+	if !ok {
+		return opa.Result{}, false
+	}
+	return value.(opa.Result), true
+}
+
+func (c *sharedDecisions) Put(key string, result opa.Result) {
+	c.entries.Store(key, result)
+}
+
+func TestTypedNilDecisionCache(t *testing.T) {
+	t.Parallel()
+	var cache *sharedDecisions
+	m, err := opa.NewManager(t.Context(), &mutableSource{bundle: adminsBundle("alice")}, "true", opa.WithDecisionCacheBackend(cache))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+	result, err := m.Evaluator().Evaluate(t.Context(), nil)
+	require.NoError(t, err)
+	require.True(t, result.Allow)
+}
+
+func TestInjectedDecisionCacheNamespace(t *testing.T) {
+	t.Parallel()
+	cache := &sharedDecisions{}
+	source := &mutableSource{bundle: adminsBundle("alice")}
+	input := map[string]any{"user": "alice"}
+	for _, tc := range []struct {
+		query string
+		want  bool
+	}{
+		{"data.t.allow", true}, {"false", false}, {"data.t.allow", false},
+	} {
+		manager, err := opa.NewManager(t.Context(), source, tc.query, opa.WithDecisionCacheBackend(cache))
+		require.NoError(t, err)
+		result, err := manager.Evaluator().Evaluate(t.Context(), input)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, result.Allow)
+		require.NoError(t, manager.Close())
+		if tc.query == "false" {
+			source.set(adminsBundle("bob"), nil)
+		}
+	}
+	count := 0
+	cache.entries.Range(func(_, _ any) bool { count++; return true })
+	require.Equal(t, 3, count)
 }

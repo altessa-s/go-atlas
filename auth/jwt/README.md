@@ -34,27 +34,27 @@ Use it directly to sign and verify tokens without committing to a JWKS or a part
 
 ## Options
 
-A single `Option` type configures both `Signer` and `Verifier`.
+`NewSigner` takes `SignerOption` values. `NewVerifier` takes `VerifierOption` values.
 
-| Option                   | Default           | Description                                                                                                                                                                       |
-|--------------------------|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `WithIssuer`             | `""`              | The `iss` claim set by `NewClaims` and required on verify                                                                                                                         |
-| `WithLeeway`             | 30s               | Clock-skew tolerance applied to `exp` / `nbf` / `iat`; clamped to `MaxLeeway` (5m)                                                                                                |
-| `WithMaxTokenLifetime`   | 30 days           | Ceiling a `NewClaims` TTL is clamped to                                                                                                                                           |
-| `WithExpirationRequired` | enabled           | Make an `exp` claim mandatory on verify (the fail-closed default)                                                                                                                 |
-| `WithExpirationOptional` | —                 | Reverse the default: accept a token without `exp` (still validated if present)                                                                                                    |
-| `WithAllowedAlgorithms`  | EdDSA,ES256,RS256 | Replaces the asymmetric-only allow-list, for signing and verifying                                                                                                                |
-| `WithAudiences`          | unchecked         | Acceptable `aud` values; a token is accepted when its `aud` intersects them                                                                                                       |
-| `WithRequiredClaims`     | none              | Claims that must be present beyond the temporal ones                                                                                                                              |
-| `WithTokenType`          | `JWT`             | typ header written by `Signer.Sign` (e.g. `TypeAccessToken` / `at+jwt`)                                                                                                           |
-| `WithAllowEmptyKeyID`    | disabled          | Let `Signer.Sign` accept an empty key id and omit `kid` (RFC 7523 assertions)                                                                                                     |
-| `WithExpectedTokenType`  | unchecked         | Require the token's typ header on verify (case-/`application/`-insensitive)                                                                                                       |
-| `WithSubject`            | unchecked         | Require the `sub` claim to equal a value on verify                                                                                                                                |
-| `WithIssuedAt`           | disabled          | Validate the `iat` claim, rejecting a future-issued token                                                                                                                         |
-| `WithNotBeforeRequired`  | disabled          | Require the `nbf` claim to be present on verify                                                                                                                                   |
-| `WithClock`              | system UTC        | Injectable clock (tests)                                                                                                                                                          |
-| `WithRand`               | `crypto/rand`     | Injectable randomness source for the jti (tests)                                                                                                                                  |
-| `WithRevocation`         | none              | `RevocationChecker` consulted on verify; a token whose `jti` it reports revoked is rejected. A token without `jti` cannot be revoked: require it with `WithRequiredClaims("jti")` |
+| Option                                                          | Default           | Description                                                                                                                                                                       |
+| --------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WithSignerIssuer` / `WithVerifierIssuer`                       | `""`              | The `iss` claim set by `NewClaims` and required on verify                                                                                                                         |
+| `WithLeeway`                                                    | 30s               | Clock-skew tolerance applied to `exp` / `nbf` / `iat`; clamped to `MaxLeeway` (5m)                                                                                                |
+| `WithMaxTokenLifetime`                                          | 30 days           | Ceiling a `NewClaims` TTL is clamped to                                                                                                                                           |
+| `WithExpirationRequired`                                        | enabled           | Require an exp claim on verify.                                                                                                                                                   |
+| `WithExpirationOptional`                                        | —                 | Allow a missing exp. A present exp is always validated.                                                                                                                           |
+| `WithSignerAllowedAlgorithms` / `WithVerifierAllowedAlgorithms` | EdDSA,ES256,RS256 | Replaces the asymmetric-only allow-list, for signing and verifying                                                                                                                |
+| `WithAudiences`                                                 | unchecked         | Acceptable `aud` values; a token is accepted when its `aud` intersects them                                                                                                       |
+| `WithRequiredClaims`                                            | none              | Claims that must be present beyond the temporal ones                                                                                                                              |
+| `WithTokenType`                                                 | `JWT`             | typ header written by `Signer.Sign` (e.g. `TypeAccessToken` / `at+jwt`)                                                                                                           |
+| `WithAllowEmptyKeyID`                                           | disabled          | Let `Signer.Sign` accept an empty key id and omit `kid` (RFC 7523 assertions)                                                                                                     |
+| `WithExpectedTokenType`                                         | unchecked         | Require the token's typ header on verify (case-/`application/`-insensitive)                                                                                                       |
+| `WithSubject`                                                   | unchecked         | Require the `sub` claim to equal a value on verify                                                                                                                                |
+| `WithIssuedAt`                                                  | disabled          | Validate the `iat` claim, rejecting a future-issued token                                                                                                                         |
+| `WithNotBeforeRequired`                                         | disabled          | Require the `nbf` claim to be present on verify                                                                                                                                   |
+| `WithSignerClock` / `WithVerifierClock`                         | system UTC        | Injectable clock (tests)                                                                                                                                                          |
+| `WithRand`                                                      | `crypto/rand`     | Injectable randomness source for the jti (tests)                                                                                                                                  |
+| `WithRevocation`                                                | none              | `RevocationChecker` consulted on verify; a token whose `jti` it reports revoked is rejected. A token without `jti` cannot be revoked: require it with `WithRequiredClaims("jti")` |
 
 ## Key resolution
 
@@ -92,7 +92,8 @@ var mine struct {                                        // or bind the whole se
 _ = verified.Decode(&mine)
 ```
 
-Registered claims keep their typed accessors (`Subject`, `Audience`, `Expiry`, `Scopes`, ...); `Get[T]` / `Decode` cover everything else.
+Verified `exp`, `iat`, and `nbf` retain their signed decimal or exponent spelling as `json.Number`. Verification compares these values exactly with the
+clock and leeway. `Time` rounds down to nanoseconds. `Expiry` rounds up so a retention deadline includes the last fraction of a nanosecond.
 
 ### Typed claims
 
@@ -116,11 +117,9 @@ _ = out.Subject       // promoted from ClaimsBase
 _ = out.ExpiryTime()
 ```
 
-`VerifyInto` is sugar over `Verify` + `Decode`, so it inherits every verifier check (issuer, audience, required claims, typ, temporal); `SignStruct`
-is
-sugar over `Sign`. The `aud` claim is typed as `Audience`, which unmarshals from a single string or an array. The map API (`Claims` / `Decode` /
-`Get`)
-stays available — it is what a `KeyResolver` reads for still-unverified claims.
+`VerifyInto` runs every verifier check and accepts present registered dates that fit a nonzero `int64` exactly, including integral decimal and exponent
+spellings. An absent date stays absent when signed again. `SignStruct` preserves all 64 integer bits. `Audience` accepts a single string or an array.
+Use `Claims.Decode` with a `json.Number` field for a struct that needs fractional dates.
 
 ## Security
 
@@ -137,12 +136,12 @@ Verification is fail-closed:
 ## Usage
 
 ```go
-signer := jwt.NewSigner(jwt.WithIssuer("billing"))
+signer := jwt.NewSigner(jwt.WithSignerIssuer("billing"))
 claims, err := signer.NewClaims(tenantID, time.Hour, "files:read")
 claims.Set("aud", "api")
 raw, err := signer.Sign(jwt.SigningKey{KeyID: "k1", Algorithm: jwt.AlgES256, Key: priv}, claims)
 
-verifier := jwt.NewVerifier(resolver, jwt.WithIssuer("billing"), jwt.WithAudiences("api"))
+verifier := jwt.NewVerifier(resolver, jwt.WithVerifierIssuer("billing"), jwt.WithAudiences("api"))
 claims, err = verifier.Verify(ctx, raw)
 subject, scopes := claims.Subject(), claims.Scopes()
 ```

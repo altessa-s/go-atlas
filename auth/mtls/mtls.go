@@ -105,7 +105,7 @@ func (a *Authenticator) Authenticate(ctx context.Context, cert *x509.Certificate
 		}
 	}
 	for _, validate := range a.opts.validators {
-		if verr := validate(cert); verr != nil {
+		if verr := validate(ctx, cert); verr != nil {
 			return nil, a.finalize(ctx, certSubject(cert), false, reasonOf(verr), verr)
 		}
 	}
@@ -157,6 +157,14 @@ func (a *Authenticator) finalize(ctx context.Context, subject string, allowed bo
 	return authErr
 }
 
+// AuditReasoner can be implemented by validator or identity errors to supply a
+// stable, low-cardinality audit token. The token must be safe to log and must
+// never contain certificate contents or other request data.
+type AuditReasoner interface {
+	error
+	AuditReason() string
+}
+
 // reasonOf maps an authentication error to a stable, low-cardinality audit token.
 func reasonOf(err error) string {
 	switch {
@@ -187,6 +195,11 @@ func reasonOf(err error) string {
 	case errors.Is(err, spiffe.ErrInvalidID):
 		return "invalid_id"
 	default:
+		if r, ok := errors.AsType[AuditReasoner](err); ok {
+			if reason := r.AuditReason(); reason != "" {
+				return reason
+			}
+		}
 		return "error"
 	}
 }

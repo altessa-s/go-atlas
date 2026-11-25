@@ -40,9 +40,8 @@ var ErrClientAssertion = errors.New("auth/oauth2client: client assertion failed"
 // fresh, short-lived assertion per call, so the returned parameters must not be
 // cached. audience is the token endpoint URL.
 //
-// When a [ClientAuthenticator] is set via [WithClientAuth], it supersedes the
-// [WithAuthStyle] secret-based authentication. It applies to [ClientCredentials]
-// and [Exchanger]; [Refresh] and [AuthCode] continue to use the secret path.
+// Use [WithClientCredentialsClientAuth], [WithExchangerClientAuth], or
+// [WithRevokerClientAuth] to select assertion-based client authentication.
 type ClientAuthenticator interface {
 	AuthParams(ctx context.Context, audience string) (url.Values, error)
 }
@@ -125,7 +124,7 @@ type assertionAuth struct {
 func newAssertionAuth(clientID string, key jwt.SigningKey, opts ...AssertionOption) *assertionAuth {
 	cfg := newAssertionConfig(opts...)
 	return &assertionAuth{
-		signer:   jwt.NewSigner(jwt.WithAllowedAlgorithms(key.Algorithm)),
+		signer:   jwt.NewSigner(jwt.WithSignerAllowedAlgorithms(key.Algorithm)),
 		key:      key,
 		clientID: clientID,
 		lifetime: cfg.lifetime,

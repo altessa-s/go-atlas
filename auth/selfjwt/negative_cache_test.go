@@ -22,14 +22,14 @@ func TestVerifyNegativeCachesProviderMisses(t *testing.T) {
 	t.Parallel()
 
 	p := newProvider(t, jwt.AlgEdDSA)
-	res, err := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime)).
+	res, err := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime})).
 		Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
 	tests := []struct {
 		name     string
 		provider *fakeProvider
-		opts     []selfjwt.Option
+		opts     []selfjwt.VerifierOption
 		wantErr  error
 		calls    int
 	}{
@@ -48,7 +48,7 @@ func TestVerifyNegativeCachesProviderMisses(t *testing.T) {
 		{
 			name:     "negative cache disabled",
 			provider: &fakeProvider{subject: testSubject, kid: "kid-2", kp: p.kp},
-			opts:     []selfjwt.Option{selfjwt.WithNegativeCacheTTL(0)},
+			opts:     []selfjwt.VerifierOption{selfjwt.WithNegativeCacheTTL(0)},
 			wantErr:  selfjwt.ErrKeyRotated,
 			calls:    2,
 		},
@@ -57,7 +57,7 @@ func TestVerifyNegativeCachesProviderMisses(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			opts := append([]selfjwt.Option{clockOpt(baseTime)}, tc.opts...)
+			opts := append([]selfjwt.VerifierOption{selfjwt.WithVerifierClock(fixedClock{t: baseTime})}, tc.opts...)
 			v := selfjwt.NewVerifier(tc.provider, testIssuer, testAudience, opts...)
 			for range 2 {
 				_, err := v.Verify(t.Context(), res.Token)
@@ -75,13 +75,13 @@ func TestNegativeCacheExpiresAndInvalidates(t *testing.T) {
 	t.Parallel()
 
 	p := newProvider(t, jwt.AlgEdDSA)
-	res, err := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime)).
+	res, err := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime})).
 		Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
 	clock := &steppingClock{t: baseTime}
 	unknown := &fakeProvider{subject: "22222222-2222-2222-2222-222222222222", kid: testKeyID, kp: p.kp}
-	v := selfjwt.NewVerifier(unknown, testIssuer, testAudience, selfjwt.WithClock(clock))
+	v := selfjwt.NewVerifier(unknown, testIssuer, testAudience, selfjwt.WithVerifierClock(clock))
 
 	_, err = v.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrSubjectUnknown)

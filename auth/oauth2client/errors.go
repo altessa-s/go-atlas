@@ -52,13 +52,13 @@ var (
 
 	// ErrInsecureEndpoint is returned when a request would go to an endpoint
 	// that is not https (plain http is accepted on a loopback host only) and
-	// [WithInsecureHTTP] is not set: the client credentials would travel in the
+	// the grant requires HTTPS: the client credentials would travel in the
 	// clear. The flows report it from the request, wrapped like a transport
 	// error; the *FromDiscovery constructors return it for a discovered endpoint.
 	ErrInsecureEndpoint = errors.New("auth/oauth2client: insecure endpoint")
 
 	// ErrRedirectNotAllowed is returned when an endpoint redirects a request
-	// of an injected client ([WithHTTPClient]) that has its own CheckRedirect
+	// of an injected client that has its own CheckRedirect
 	// to another origin: following it would re-send the request body, client
 	// credentials included, to that origin. The flows report it wrapped like
 	// a transport error, and it is never retried.

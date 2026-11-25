@@ -11,5 +11,7 @@ const DefaultKeyPrefix = "denylist:revoked:"
 
 // options carries the tunable [Store] configuration.
 type options struct {
-	keyPrefix string `optgen:"default=DefaultKeyPrefix"`
+	// WithStrictExactReads requires uncached primary reads and verifies the role on every lookup.
+	strictExactReads bool
+	keyPrefix        string `optgen:"default=DefaultKeyPrefix"`
 }

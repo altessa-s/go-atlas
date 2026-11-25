@@ -68,7 +68,7 @@ func TestIndefiniteResponderDoesNotHideRevocation(t *testing.T) {
 
 			for _, mode := range []revocation.FailMode{revocation.FailClosed, revocation.FailOpen} {
 				c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(mode))
-				require.ErrorIs(t, c.Check(leaf), coremtls.ErrRevoked)
+				require.ErrorIs(t, c.Check(t.Context(), leaf), coremtls.ErrRevoked)
 			}
 			require.Equal(t, int32(2), firstHits.Load(), "an indefinite responder is asked once per check")
 			require.Equal(t, int32(2), revokedHits.Load())
@@ -87,7 +87,7 @@ func TestIndefiniteResponderFallsBackToGood(t *testing.T) {
 			good := responder(t, ca, ocsp.Good, &goodHits)
 			leaf := leafWithResponders(t, ca, 42, first(&firstHits).URL, good.URL)
 
-			require.NoError(t, newChecker([]*x509.Certificate{ca.Cert}).Check(leaf))
+			require.NoError(t, newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf))
 			require.Equal(t, int32(1), firstHits.Load())
 			require.Equal(t, int32(1), goodHits.Load())
 		})
@@ -103,7 +103,7 @@ func TestRevokedFromFirstResponderIsFinal(t *testing.T) {
 	good := responder(t, ca, ocsp.Good, &goodHits)
 	leaf := leafWithResponders(t, ca, 42, revoked.URL, good.URL)
 
-	require.ErrorIs(t, newChecker([]*x509.Certificate{ca.Cert}).Check(leaf), coremtls.ErrRevoked)
+	require.ErrorIs(t, newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf), coremtls.ErrRevoked)
 	require.Zero(t, goodHits.Load())
 }
 
@@ -118,12 +118,12 @@ func TestAllRespondersFailJoinsErrors(t *testing.T) {
 	unknown := responder(t, ca, ocsp.Unknown, &unknownHits)
 	leaf := leafWithResponders(t, ca, 42, stale.URL, unknown.URL)
 
-	err := newChecker([]*x509.Certificate{ca.Cert}).Check(leaf)
+	err := newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf)
 	require.ErrorIs(t, err, revocation.ErrStaleResponse)
 	require.ErrorIs(t, err, revocation.ErrUnknownStatus)
 	require.Equal(t, int32(1), staleHits.Load())
 	require.Equal(t, int32(1), unknownHits.Load())
 
 	open := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen))
-	require.NoError(t, open.Check(leaf), "fail-open keeps accepting an indeterminate status")
+	require.NoError(t, open.Check(t.Context(), leaf), "fail-open keeps accepting an indeterminate status")
 }

@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	"golang.org/x/oauth2"
 )
 
 func TestSuccessfulNilResponseBody(t *testing.T) {
@@ -23,66 +24,80 @@ func TestSuccessfulNilResponseBody(t *testing.T) {
 	endpoint := oauth2.Endpoint{TokenURL: endpointURL, DeviceAuthURL: endpointURL, AuthStyle: oauth2.AuthStyleInHeader}
 	for _, tc := range []struct {
 		name string
-		run  func(*testing.T, ...oauth2client.Option) error
+		run  func(*testing.T, *http.Client) error
 	}{
-		{"client credentials", func(t *testing.T, opts ...oauth2client.Option) error {
-			_, err := mustClientCredentials(t, endpointURL, "svc", clientSecret, opts...).Token()
+		{"client credentials", func(t *testing.T, client *http.Client) error {
+			_, err := mustClientCredentials(t, endpointURL, "svc", clientSecret,
+				oauth2client.WithClientCredentialsHTTPClient(client), oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader)).Token()
 			return err
 		}},
-		{"client credentials with early expiry", func(t *testing.T, opts ...oauth2client.Option) error {
-			opts = append(opts, oauth2client.WithEarlyExpiry(time.Minute))
-			_, err := mustClientCredentials(t, endpointURL, "svc", clientSecret, opts...).Token()
+		{"client credentials with early expiry", func(t *testing.T, client *http.Client) error {
+			_, err := mustClientCredentials(t, endpointURL, "svc", clientSecret,
+				oauth2client.WithClientCredentialsHTTPClient(client),
+				oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader),
+				oauth2client.WithClientCredentialsEarlyExpiry(time.Minute)).Token()
 			return err
 		}},
-		{"client credentials with assertion", func(t *testing.T, opts ...oauth2client.Option) error {
+		{"client credentials with assertion", func(t *testing.T, client *http.Client) error {
 			auth, err := oauth2client.ClientSecretJWT("svc", clientSecret)
 			require.NoError(t, err)
-			opts = append(opts, oauth2client.WithClientAuth(auth))
-			_, err = mustClientCredentials(t, endpointURL, "svc", "", opts...).Token()
+			_, err = mustClientCredentials(t, endpointURL, "svc", "",
+				oauth2client.WithClientCredentialsHTTPClient(client),
+				oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader),
+				oauth2client.WithClientCredentialsClientAuth(auth)).Token()
 			return err
 		}},
-		{"refresh", func(t *testing.T, opts ...oauth2client.Option) error {
-			_, err := mustRefresh(t, endpointURL, "svc", clientSecret, refreshToken, opts...).Token()
+		{"refresh", func(t *testing.T, client *http.Client) error {
+			_, err := mustRefresh(t, endpointURL, "svc", clientSecret, refreshToken,
+				oauth2client.WithRefreshHTTPClient(client), oauth2client.WithRefreshAuthStyle(oauth2.AuthStyleInHeader)).Token()
 			return err
 		}},
-		{"authorization code", func(t *testing.T, opts ...oauth2client.Option) error {
-			flow, err := oauth2client.NewAuthCode(endpoint, "svc", clientSecret, "https://app.example/cb", opts...)
+		{"authorization code", func(t *testing.T, client *http.Client) error {
+			flow, err := oauth2client.NewAuthCode(endpoint, "svc", clientSecret, "https://app.example/cb",
+				oauth2client.WithAuthCodeHTTPClient(client))
 			require.NoError(t, err)
 			_, _, err = flow.Exchange(t.Context(), "code")
 			return err
 		}},
-		{"device authorization", func(t *testing.T, opts ...oauth2client.Option) error {
-			_, err := mustDeviceFlow(t, endpoint, "svc", clientSecret, opts...).Authorize(t.Context())
+		{"device authorization", func(t *testing.T, client *http.Client) error {
+			_, err := mustDeviceFlow(t, endpoint, "svc", clientSecret,
+				oauth2client.WithDeviceFlowHTTPClient(client)).Authorize(t.Context())
 			return err
 		}},
-		{"device token", func(t *testing.T, opts ...oauth2client.Option) error {
-			flow := mustDeviceFlow(t, endpoint, "svc", clientSecret, opts...)
+		{"device token", func(t *testing.T, client *http.Client) error {
+			flow := mustDeviceFlow(t, endpoint, "svc", clientSecret,
+				oauth2client.WithDeviceFlowHTTPClient(client))
 			_, _, err := flow.Token(t.Context(), &oauth2.DeviceAuthResponse{DeviceCode: "device-code", Interval: 1})
 			return err
 		}},
-		{"token exchange", func(t *testing.T, opts ...oauth2client.Option) error {
-			_, err := mustExchanger(t, endpointURL, "svc", clientSecret, opts...).
+		{"token exchange", func(t *testing.T, client *http.Client) error {
+			_, err := mustExchanger(t, endpointURL, "svc", clientSecret,
+				oauth2client.WithExchangerHTTPClient(client), oauth2client.WithExchangerAuthStyle(oauth2.AuthStyleInHeader)).
 				Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: bearerToken})
 			return err
 		}},
-		{"jwt bearer", func(t *testing.T, opts ...oauth2client.Option) error {
+		{"jwt bearer", func(t *testing.T, client *http.Client) error {
 			key, _ := rsaKey(t, "key")
-			flow, err := oauth2client.NewJWTBearer(endpointURL, "svc", key, opts...)
+			flow, err := oauth2client.NewJWTBearer(endpointURL, "svc", key,
+				oauth2client.WithJWTBearerHTTPClient(client))
 			require.NoError(t, err)
 			_, err = flow.Token(t.Context())
 			return err
 		}},
-		{"revocation", func(t *testing.T, opts ...oauth2client.Option) error {
-			return mustRevoker(t, endpointURL, "svc", clientSecret, opts...).Revoke(t.Context(), refreshToken)
+		{"revocation", func(t *testing.T, client *http.Client) error {
+			return mustRevoker(t, endpointURL, "svc", clientSecret,
+				oauth2client.WithRevokerHTTPClient(client), oauth2client.WithRevokerAuthStyle(oauth2.AuthStyleInHeader)).Revoke(t.Context(), refreshToken)
 		}},
-		{"discovery client credentials", func(t *testing.T, opts ...oauth2client.Option) error {
-			src, err := oauth2client.ClientCredentialsFromDiscovery(t.Context(), discoveredTokenURL(endpointURL), "svc", clientSecret, opts...)
+		{"discovery client credentials", func(t *testing.T, client *http.Client) error {
+			src, err := oauth2client.ClientCredentialsFromDiscovery(t.Context(), discoveredTokenURL(endpointURL), "svc", clientSecret,
+				oauth2client.WithClientCredentialsHTTPClient(client), oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader))
 			require.NoError(t, err)
 			_, err = src.Token()
 			return err
 		}},
-		{"discovery exchange", func(t *testing.T, opts ...oauth2client.Option) error {
-			flow, err := oauth2client.NewExchangerFromDiscovery(discoveredTokenURL(endpointURL), "svc", clientSecret, opts...)
+		{"discovery exchange", func(t *testing.T, client *http.Client) error {
+			flow, err := oauth2client.NewExchangerFromDiscovery(discoveredTokenURL(endpointURL), "svc", clientSecret,
+				oauth2client.WithExchangerHTTPClient(client), oauth2client.WithExchangerAuthStyle(oauth2.AuthStyleInHeader))
 			require.NoError(t, err)
 			_, err = flow.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: bearerToken})
 			return err
@@ -99,8 +114,7 @@ func TestSuccessfulNilResponseBody(t *testing.T) {
 					}, nil
 				})}
 				require.NotPanics(t, func() {
-					results = append(results, tc.run(t, oauth2client.WithHTTPClient(client),
-						oauth2client.WithAuthStyle(oauth2.AuthStyleInHeader)))
+					results = append(results, tc.run(t, client))
 				})
 			}
 			if tc.name == "revocation" {

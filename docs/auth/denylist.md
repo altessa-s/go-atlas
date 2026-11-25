@@ -52,9 +52,11 @@ rotates keys. `denylist` is the small explicit seam any of them can share.
 | Authoritative | `negcache.Authoritative` — `IsRevoked(ctx, key) (bool, error)` | The exact store a negative cache defers to.                                      |
 
 The core distinguishes two entry kinds: **permanent** (`Revoke`, cleared only by `Restore`) and **expiry-bounded** (`RevokeUntil`, forgotten
-after its expiry). The common case revokes a token until its own `exp` **plus the verifier's clock-skew leeway** (`auth/jwt.DefaultLeeway`,
-30 s; `selfjwt` forwards the same leeway), so the entry outlives the whole window in which a verifier still accepts the token. Revoking only
-until `exp` would re-admit a revoked token between `exp` and `exp + leeway`. A token with no bounded expiry needs a permanent `Revoke`.
+after its expiry). Revocations never shorten: calling `RevokeUntil` with an earlier expiry than an existing entry — or on a permanently revoked key —
+preserves the longer or permanent revocation in both the in-memory set and the Redis store. The common case revokes a token until its own `exp` **plus
+the verifier's clock-skew leeway** (`auth/jwt.DefaultLeeway`, 30 s; `selfjwt` forwards the same leeway), so the entry outlives the whole window in
+which a verifier still accepts the token. Revoking only until `exp` would re-admit a revoked token between `exp` and `exp + leeway`. A token with no
+bounded expiry needs a permanent `Revoke`.
 
 ## Bounding
 
@@ -84,19 +86,25 @@ Pass `dl` (a `Checker`) to any verifier that accepts the seam. `WithClock(now)` 
 ### Distributed store (Redis)
 
 Each revoked key is a single Redis string (`keyPrefix+key` → `"1"`); Redis expires bounded revocations natively via per-key TTL, so no
-sweeper is needed. A `Store` satisfies `negcache.Authoritative` structurally and implements `probfilter.DataLoader`, so it can be both the
-exact tier and the source that rebuilds a cache's filter.
+sweeper is needed. A `Store` satisfies `negcache.Authoritative` structurally and supplies a `probfilter.DataLoader` through `DataLoader()`, so it can be
+both the exact tier and the source that rebuilds a cache's filter.
 
 ```go
 import redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
 
-store := redisstore.New(client) // client is a redis.UniversalClient
+store, err := redisstore.New(client)
+if err != nil {
+    return err
+}
 _ = store.RevokeUntil(ctx, "jti-123", time.Until(tokenExp)+jwt.DefaultLeeway) // outlive the verifiers' leeway
 
 revoked, err := store.IsRevoked(ctx, "jti-123")
 ```
 
-`WithKeyPrefix(string)` overrides the default `denylist:revoked:` namespace.
+`WithKeyPrefix(string)` overrides the default `denylist:revoked:` namespace. `WithStrictExactReads()` enforces primary-only exact reads (validating a
+`*redis.Client` or primary-routed `*redis.ClusterClient` with no client-side cache; returns `ErrReplicaReadNotAllowed` if a read hits a replica, or
+`ErrUnsupportedClient` for an unsupported client). `Store.RawSource()` (for `mirror`) and `Store.DataLoader()` (for filter rebuilds) require a
+standalone primary `*redis.Client` and fail with `ErrUnsupportedClient` on Cluster, Ring, or replica clients.
 
 ### Negative cache in front of a distributed store
 
@@ -114,39 +122,40 @@ if err != nil {
 cache := negcache.New(filter, store) // store implements Authoritative
 
 // Populate the filter; until a rebuild succeeds the cache defers every lookup to the store.
-if err := cache.Rebuild(ctx, store); err != nil {
+if err := cache.Rebuild(ctx, store.DataLoader()); err != nil {
     return err
 }
 
 revoked, err := cache.IsRevoked(ctx, jti) // hot path: skips the network on a definite miss
 ```
 
-Until the filter is populated by a successful rebuild — `cache.Rebuild(ctx, store)`, a rebuild the filter reports through `LastRebuild`, or, for a
-filter shared through Redis, a rebuild committed by any node (`probfilter.RebuildCommitReporter`, checked at most once per
+Until the filter is populated by a successful rebuild — `cache.Rebuild(ctx, store.DataLoader())`, a rebuild the filter reports through `LastRebuild`,
+or, for a filter shared through Redis, a rebuild committed by any node (`probfilter.RebuildCommitReporter`, checked at most once per
 `WithSharedRebuildCheckInterval` while unpopulated) — the cache does not trust the empty filter and answers every `IsRevoked` from the authoritative
 store. Then feed it with `cache.Add(ctx, key)` on local revocations and scheduled rebuilds. `negcache.FromChecker(checker)` adapts a synchronous
 `denylist.Checker` to `Authoritative` when the exact tier is itself a `Checker`. `cache.Close(ctx)` closes the filter the cache owns.
 
 The factory (`factory/auth/denylist/negcache.NewBuilder`) schedules the rebuilds itself: the authoritative store, when it is a `probfilter.DataLoader`
-(`redis.Store` is), or a loader set with `UseDataLoader`, rebuilds the Bloom filter per `rebuildOnStart` (inside `Build`) and `rebuildCron` (a
-process-local cron for an in-memory filter, a task registered with the `UseScheduler` scheduler for a Redis filter). If another node is rebuilding the
-shared Redis filter during `Build`, `Build` still succeeds and the cache defers to the authoritative store until that rebuild is committed.
-`authconfig.Denylist.RebuildInterval` (`rebuildInterval`) is for callers that run `cache.Rebuild` themselves; with a Bloom filter it requires
-`filter.bloom.rebuildCron: ""`, so one filter never gets two schedules. `redis.Store.StreamValues` is complete only on a single Redis server; with a
+or provides one through `DataLoader()`, or a loader set with `UseDataLoader`, rebuilds the Bloom filter per `rebuildOnStart` (inside `Build`) and
+`rebuildCron` (a process-local cron for an in-memory filter, a task registered with the `UseScheduler` scheduler for a Redis filter). If another node is
+rebuilding the shared Redis filter during `Build`, `Build` still succeeds and the cache defers to the authoritative store until that rebuild is
+committed. `authconfig.Denylist.RebuildInterval` (`rebuildInterval`) is for callers that run `cache.Rebuild` themselves; with a Bloom filter it requires
+`filter.bloom.rebuildCron: ""`, so one filter never gets two schedules. `redis.Store.RawSource()` is complete only on a single Redis server; with a
 Cluster or Ring client it fails with `ErrUnsupportedClient` — inject an exact loader with `UseDataLoader` there.
 
 ## Correctness and Staleness
 
-The negative cache is correct only while the filter contains **every** key the authoritative store considers revoked. Maintain that
-invariant two ways: `Add` on each local revocation, and a scheduled `Rebuild` from the authoritative source. Between rebuilds a key revoked
-on another node is fast-pathed as not-revoked until the next rebuild — the same propagation window any locally cached revocation set has.
-Size the rebuild cadence to your revocation-propagation SLA.
+`negcache` is **eventually consistent** with revocations recorded on other nodes: it is correct only while the filter contains **every** key the
+authoritative store considers revoked. Maintain that invariant two ways: `Add` on each local revocation, and a scheduled `Rebuild` from the
+authoritative source. Between rebuilds a key revoked on another node is fast-pathed as not-revoked until the next rebuild — the same propagation
+window any locally cached revocation set has. Size the rebuild cadence to your revocation-propagation SLA.
 
 `Rebuild` is atomic: the replacement filter is built off to the side while lookups keep using the previous contents, and it takes over in one step. A
 failed or canceled rebuild leaves the previous contents (and the populated state) in place, and every `cache.Add` made through the same filter while a
-rebuild runs is replayed onto the replacement, so no local revocation is lost. With a filter shared through Redis, `Add`s made by **other** processes
-during the rebuild window are not replayed; they reappear at the next rebuild, like any revocation made on another node. Before the first successful
-rebuild the cache defers every lookup to the authoritative store.
+rebuild runs is replayed onto the replacement, so no local revocation is lost. With a filter shared through Redis, a Bloom filter journals and replays
+concurrent peer `Add`s during the rebuild window, whereas a Cuckoo filter does not replay peer `Add`s made by other processes during the rebuild (and
+revocations made without calling `Add` on the shared filter wait for the next rebuild). Before the first successful rebuild the cache defers every lookup
+to the authoritative store.
 
 ## Observability
 
@@ -175,9 +184,9 @@ their own.
 | `Denylist.IsRevoked(key) bool`                                         | Whether `key` is currently revoked (expired entries report false).           |
 | `Denylist.Sweep() int` / `Len() int`                                   | Drop expired entries / tracked-entry count, for observability and tests.     |
 | `denylist.Checker`                                                     | Read seam `IsRevoked(key) bool` a verifier accepts.                          |
-| `redisstore.New(client, opt…)`                                         | Redis-backed exact store; `WithKeyPrefix` sets the namespace.                |
-| `Store.IsRevoked` / `Revoke` / `RevokeUntil` / `Restore`               | Context-taking distributed equivalents of the core methods.                  |
-| `Store.StreamValues(ctx)` / `Count(ctx)`                               | SCAN revoked keys (`probfilter.DataLoader`) / count (returns `-1`, unknown). |
+| `redisstore.New(client, opt…)`                                         | Redis-backed exact store; `WithKeyPrefix` sets namespace, `WithStrictExactReads` enforces primary reads. |
+| `Store.IsRevoked` / `Revoke` / `RevokeUntil` / `Restore`               | Context-taking distributed equivalents of the core methods (`ErrReplicaReadNotAllowed` on replica).      |
+| `Store.RawSource()` / `Store.DataLoader()`                               | Stream bare revoked keys for the mirror or filter rebuild (`ErrUnsupportedClient` outside standalone).   |
 | `negcache.New(filter, authoritative)`                                  | Negative cache over a filter and an exact store.                             |
 | `Cache.IsRevoked(ctx, key)` / `Add(ctx, key)` / `Rebuild(ctx, loader)` | Lookup / record local revocation / repopulate the filter.                    |
 | `negcache.FromChecker(checker)`                                        | Adapt a synchronous `denylist.Checker` to `Authoritative`.                   |

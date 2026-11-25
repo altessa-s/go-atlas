@@ -43,4 +43,7 @@ type options struct {
 	// every entry must be fetched. Nil disables verification, which New
 	// reports once with a warning.
 	checksums map[string]string `optgen:"default=nil"`
+	// WithReleaseManifest sets the object key relative to the configured prefix.
+	// The manifest is read once per fetch. Use either this option or WithChecksums.
+	releaseManifest string
 }

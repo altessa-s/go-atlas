@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/auth/oidc/rules"
+
 	jwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
@@ -19,10 +21,10 @@ func TestNewProvider_RejectsLeewayAboveMax(t *testing.T) {
 	idp := newTestIdP(t)
 
 	_, err := idp.tryNewProvider(t, WithDefaultValidationOptions(WithValidationLeeway(jwt.MaxLeeway+time.Second)))
-	require.ErrorIs(t, err, ErrInvalidConfig)
+	require.ErrorIs(t, err, rules.ErrInvalidConfig)
 
 	_, err = idp.tryNewProvider(t, WithPresets(NewValidationPreset("lax", WithValidationLeeway(24*time.Hour))))
-	require.ErrorIs(t, err, ErrInvalidConfig)
+	require.ErrorIs(t, err, rules.ErrInvalidConfig)
 
 	_, err = idp.tryNewProvider(t, WithDefaultValidationOptions(WithValidationLeeway(jwt.MaxLeeway)))
 	require.NoError(t, err)
@@ -38,17 +40,4 @@ func TestValidate_PerCallLeewayCapped(t *testing.T) {
 	_, err := p.ValidateTokenWithOptions(t.Context(), expired,
 		WithValidationAudience(testAudience), WithValidationLeeway(24*time.Hour))
 	require.ErrorIs(t, err, ErrTokenInvalid)
-}
-
-func TestValidateServiceConfig_RejectsLeewayAboveMax(t *testing.T) {
-	t.Parallel()
-
-	cfg := &ServiceConfig{
-		Version:           SupportedConfigVersion,
-		DefaultValidation: &ValidationRulesConfig{Leeway: "24h"},
-	}
-	require.ErrorIs(t, ValidateServiceConfig(cfg), ErrInvalidConfig)
-
-	cfg.DefaultValidation.Leeway = "5m"
-	require.NoError(t, ValidateServiceConfig(cfg))
 }

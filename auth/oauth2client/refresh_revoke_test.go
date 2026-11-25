@@ -33,7 +33,7 @@ func TestClientCredentialsEarlyExpiry(t *testing.T) {
 	// An early-expiry window far larger than the token lifetime makes every
 	// Token() call treat the cached token as expired and refetch.
 	src := mustClientCredentials(t, srv.URL, "svc", "sec",
-		oauth2client.WithEarlyExpiry(time.Hour))
+		oauth2client.WithClientCredentialsEarlyExpiry(time.Hour))
 	_, err := src.Token()
 	require.NoError(t, err)
 	_, err = src.Token()

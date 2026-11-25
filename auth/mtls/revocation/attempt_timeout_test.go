@@ -5,6 +5,7 @@
 package revocation_test
 
 import (
+	"context"
 	"crypto/x509"
 	"io"
 	"net/http"
@@ -57,7 +58,7 @@ func TestStalledAttemptLeavesRoomForRetry(t *testing.T) {
 
 	c := newChecker([]*x509.Certificate{ca.Cert},
 		revocation.WithTimeout(30*time.Second), revocation.WithAttemptTimeout(200*time.Millisecond))
-	require.NoError(t, c.Check(leaf))
+	require.NoError(t, c.Check(t.Context(), leaf))
 	require.Equal(t, int32(2), hits.Load())
 }
 
@@ -70,7 +71,7 @@ func TestFallsBackToNextResponderURL(t *testing.T) {
 	good := responder(t, ca, ocsp.Good, &goodHits)
 	leaf := leafWithResponders(t, ca, 42, down.URL, good.URL)
 
-	require.NoError(t, newChecker([]*x509.Certificate{ca.Cert}).Check(leaf))
+	require.NoError(t, newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf))
 	require.Equal(t, int32(1), downHits.Load())
 	require.Equal(t, int32(1), goodHits.Load())
 }
@@ -85,7 +86,7 @@ func TestTriesEveryResponderURL(t *testing.T) {
 	leaf := leafWithResponders(t, ca, 42, down.URL+"/a", down.URL+"/b", good.URL)
 
 	c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithMaxAttempts(1))
-	require.NoError(t, c.Check(leaf))
+	require.NoError(t, c.Check(t.Context(), leaf))
 	require.Equal(t, int32(2), downHits.Load())
 }
 
@@ -98,11 +99,27 @@ func TestRefusedResponderURLIsSkipped(t *testing.T) {
 	good := responder(t, ca, ocsp.Good, &hits)
 
 	leaf := leafWithResponders(t, ca, 42, "ldap://ocsp.example.org/", good.URL)
-	require.NoError(t, newChecker([]*x509.Certificate{ca.Cert}).Check(leaf))
+	require.NoError(t, newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf))
 	require.Equal(t, int32(1), hits.Load())
 
 	refused := leafWithResponders(t, ca, 43, "ldap://ocsp.example.org/", good.URL)
 	c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithAllowedResponders("ocsp.example.org"))
-	require.ErrorIs(t, c.Check(refused), revocation.ErrResponderNotAllowed)
+	require.ErrorIs(t, c.Check(t.Context(), refused), revocation.ErrResponderNotAllowed)
 	require.Equal(t, int32(1), hits.Load())
+}
+
+func TestValidatorCanceledOCSPLookup(t *testing.T) {
+	t.Parallel()
+	ca := makeCA(t)
+	leaf := makeLeaf(t, ca, 42, "https://ocsp.example.org")
+	var calls atomic.Int32
+	client := &http.Client{Transport: testhelpers.RoundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return nil, io.EOF
+	})}
+	checker := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithHTTPClient(client), revocation.WithMaxAttempts(1))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, checker.Validator()(ctx, leaf), context.Canceled)
+	require.Zero(t, calls.Load())
 }

@@ -19,7 +19,7 @@ const syncHourly = "@every 1h"
 // backdateRevocationSync moves the provider's last successful revocation sync
 // age into the past.
 func backdateRevocationSync(p *Provider, age time.Duration) {
-	p.lastRevocationSyncUnixNanos.Store(time.Now().Add(-age).UnixNano())
+	p.revocation.lastRevocationSync.Store(&freshnessRecord{observedAt: time.Now().Add(-age)})
 }
 
 // A revocation source that keeps failing must not leave the last snapshot
@@ -38,14 +38,14 @@ func TestRevocationStaleness_FailsClosedUntilNextSync(t *testing.T) {
 	_, err := p.ValidateToken(t.Context(), raw)
 	require.NoError(t, err, "a fresh snapshot is trusted")
 
-	require.ErrorIs(t, p.scheduledRevocationSync(t.Context()), sourceDown)
+	require.ErrorIs(t, p.revocation.scheduledRevocationSync(t.Context()), sourceDown)
 	backdateRevocationSync(p, 2*time.Minute)
 
 	_, err = p.ValidateToken(t.Context(), raw)
 	require.ErrorIs(t, err, ErrRevocationCheck)
 	require.ErrorIs(t, err, ErrRevocationStale)
 
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 	_, err = p.ValidateToken(t.Context(), raw)
 	require.NoError(t, err, "a successful sync makes the snapshot fresh again")
 }

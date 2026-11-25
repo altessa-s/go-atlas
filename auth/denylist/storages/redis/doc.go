@@ -11,36 +11,30 @@
 // token IDs (jti) or subjects. Each key maps to a single Redis string whose
 // presence means "revoked"; Redis's native TTL handling expires bounded
 // revocations without a background sweeper. Because lookups cost a network round
-// trip, a Store is meant to sit behind a probabilistic negative cache rather
-// than be consulted on every request.
+// trip, consumers can use a negative cache when eventual consistency suffices.
 //
-// # Interfaces
+// # Reads and rebuilds
 //
-// [Store.IsRevoked] gives Store the exact-lookup shape of the negcache
-// Authoritative seam, so it can be injected as the authoritative tier behind a
-// negative cache. To avoid coupling this backend to the cache package, Store
-// does not import negcache; it satisfies that interface structurally.
+// Call [Store.IsRevoked] directly for exact reads on an uncached primary.
+// [WithStrictExactReads] checks the serving role in the same read-only script
+// as the lookup. Durability across failover depends on the Redis deployment.
 //
-// Store also implements [github.com/altessa-s/go-atlas/cache/probfilter.DataLoader]
-// via [Store.StreamValues] and [Store.Count], so it can repopulate a negative
-// filter from the full set of revoked keys on rebuild. The stream SCANs the
-// keys under the literal key prefix (glob metacharacters are escaped) and is
-// complete only on a single Redis server or a failover client's primary:
-// with a Cluster or Ring client it yields [ErrUnsupportedClient] instead of a
-// partial snapshot.
+// [Store.RawSource] streams bare keys for a mirror. [Store.DataLoader] supplies
+// the same keys to a negative filter. Both verify the pinned standalone primary
+// and its process ID on every scan page. Drift aborts the rebuild.
 //
-// # Semantics
+// # Retention
 //
-// The write methods mirror the in-memory denylist: [Store.Revoke] denies a key
-// permanently, [Store.RevokeUntil] denies it for a bounded TTL (a non-positive
-// TTL is a no-op — the token is already invalid on its own), and
-// [Store.Restore] removes it.
+// [Store.Revoke] denies permanently. [Store.RevokeUntil] only extends existing
+// revocations, rounding positive durations up to milliseconds. [Store.Restore]
+// removes either kind of revocation.
 //
-// A Store is safe for concurrent use; go-redis clients are.
+// // # Example
 //
-// # Example
-//
-//	store := redis.New(client, redis.WithKeyPrefix("denylist:revoked:"))
+//	store, err := redis.New(client, redis.WithKeyPrefix("denylist:revoked:"))
+//	if err != nil {
+//	    return err
+//	}
 //	if err := store.Revoke(ctx, "jti-123"); err != nil {
 //	    return err
 //	}

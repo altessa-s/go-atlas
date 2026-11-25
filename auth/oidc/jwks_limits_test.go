@@ -113,16 +113,16 @@ func TestRefreshJWKS_RejectsOversizedDocumentAndKeepsKeys(t *testing.T) {
 	p, err := newRedirectTestProvider(t, discoveryURL)
 	require.NoError(t, err)
 
-	original, err := p.jwks.Storage().KeyReadAll(t.Context())
+	original, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
-	freshness := p.lastJWKSRefreshUnixNanos.Load()
+	freshness := p.keys.lastJWKSRefresh.Load()
 	for _, body := range []string{jwksDoc(t, 1, maxJWKSResponseSize), jwksDoc(t, maxJWKSKeys+1, 0)} {
 		setJWKS(body)
 		require.ErrorIs(t, p.RefreshJWKS(t.Context()), ErrJWKSTooLarge)
-		keys, err := p.jwks.Storage().KeyReadAll(t.Context())
+		keys, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, original, keys)
-		require.Equal(t, freshness, p.lastJWKSRefreshUnixNanos.Load())
+		require.Equal(t, freshness, p.keys.lastJWKSRefresh.Load())
 	}
 }
 
@@ -148,7 +148,7 @@ func TestJWKSInvalidKeyPolicy(t *testing.T) {
 	err = p.RefreshJWKS(t.Context())
 	require.ErrorIs(t, err, ErrDiscovery)
 	require.ErrorAs(t, err, &invalidBase64)
-	keys, err := p.jwks.Storage().KeyReadAll(t.Context())
+	keys, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
 	require.Empty(t, keys)
 }

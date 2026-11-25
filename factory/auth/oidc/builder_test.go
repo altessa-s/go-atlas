@@ -68,7 +68,7 @@ func TestProviderBuilder_BuildRevocationOptions_NotConfigured(t *testing.T) {
 	t.Parallel()
 
 	b := New(&authconfig.OIDC{})
-	opts, err := b.buildRevocationOptions(t.Context())
+	opts, _, err := b.buildRevocationOptions(t.Context())
 	require.NoError(t, err)
 	require.Nil(t, opts)
 }
@@ -80,7 +80,7 @@ func TestProviderBuilder_BuildRevocationOptions_Disabled(t *testing.T) {
 	cfg.Enabled = false
 
 	b := New(&authconfig.OIDC{Revocation: cfg})
-	opts, err := b.buildRevocationOptions(t.Context())
+	opts, _, err := b.buildRevocationOptions(t.Context())
 	require.NoError(t, err)
 	require.Nil(t, opts)
 }
@@ -97,7 +97,7 @@ func TestProviderBuilder_BuildRevocationStorage_RedisRegistration(t *testing.T) 
 		return rev
 	}
 
-	_, err := New(&authconfig.OIDC{Revocation: redisRevocation()}).buildRevocationOptions(t.Context())
+	_, _, err := New(&authconfig.OIDC{Revocation: redisRevocation()}).buildRevocationOptions(t.Context())
 	require.Error(t, err, "redis not registered")
 
 	b := New(&authconfig.OIDC{Revocation: redisRevocation()}).
@@ -111,7 +111,7 @@ func TestProviderBuilder_BuildRevocationStorage_RedisRegistration(t *testing.T) 
 			func(context.Context, probfilterfactory.BloomStorageSpec) (bloomstorages.Storage, error) {
 				return nil, errBuild
 			})
-	_, err = b.buildRevocationOptions(t.Context())
+	_, _, err = b.buildRevocationOptions(t.Context())
 	require.ErrorIs(t, err, errBuild)
 
 	var gotName string
@@ -121,7 +121,7 @@ func TestProviderBuilder_BuildRevocationStorage_RedisRegistration(t *testing.T) 
 				gotName = spec.Name
 				return bloommemory.New(), nil
 			})
-	opts, err := b.buildRevocationOptions(t.Context())
+	opts, _, err := b.buildRevocationOptions(t.Context())
 	require.NoError(t, err)
 	require.Len(t, opts, 4)
 	require.Equal(t, revocationFilterName(b.cfg), gotName)
@@ -134,7 +134,7 @@ func TestProviderBuilder_BuildRevocationOptions_CustomStorageBypassesFilter(t *t
 	b := New(&authconfig.OIDC{Revocation: memoryFilterRevocation()}).
 		UseRevocationStorage(stubStorage{})
 
-	opts, err := b.buildRevocationOptions(t.Context())
+	opts, _, err := b.buildRevocationOptions(t.Context())
 	require.NoError(t, err)
 	require.Len(t, opts, 4)
 }
@@ -150,7 +150,7 @@ func TestProviderBuilder_BuildRevocationStorage_ConfirmsFilterHits(t *testing.T)
 	b := New(&authconfig.OIDC{Revocation: memoryFilterRevocation()}).
 		UseRevocationAuthoritative(auth)
 
-	storage, err := b.buildRevocationStorage(t.Context(), b.cfg.Revocation)
+	storage, _, err := b.buildRevocationStorage(t.Context(), b.cfg.Revocation)
 	require.NoError(t, err)
 	require.NotNil(t, storage)
 
@@ -169,7 +169,7 @@ func TestProviderBuilder_BuildRevocationStorage_LossyWithoutAuthoritative(t *tes
 
 	b := New(&authconfig.OIDC{Revocation: memoryFilterRevocation()})
 
-	storage, err := b.buildRevocationStorage(t.Context(), b.cfg.Revocation)
+	storage, _, err := b.buildRevocationStorage(t.Context(), b.cfg.Revocation)
 	require.NoError(t, err)
 
 	ctx := t.Context()
@@ -198,7 +198,7 @@ func TestProviderBuilder_BuildRevocationOptions_FailOpen(t *testing.T) {
 	cfg.FailOpen = true
 	b := New(&authconfig.OIDC{Revocation: cfg}).UseRevocationStorage(stubStorage{})
 
-	opts, err := b.buildRevocationOptions(t.Context())
+	opts, _, err := b.buildRevocationOptions(t.Context())
 	require.NoError(t, err)
 	require.Len(t, opts, 5)
 }
@@ -291,7 +291,7 @@ func TestProviderBuilder_BuildRevocationStorage_FilterRebuildSettings(t *testing
 			rev.Filter.Bloom.RebuildOnStart = tc.onStart
 			b := New(&authconfig.OIDC{Revocation: rev})
 
-			_, err := b.buildRevocationStorage(t.Context(), rev)
+			_, _, err := b.buildRevocationStorage(t.Context(), rev)
 			if tc.wantErr {
 				require.ErrorIs(t, err, errFilterRebuildSettings)
 				return

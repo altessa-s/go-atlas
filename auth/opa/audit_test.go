@@ -62,7 +62,8 @@ import rego.v1
 allow if input.role == "admin"
 `)
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(t.Context(), source, "data.test.authz.allow",

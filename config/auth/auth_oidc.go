@@ -11,6 +11,7 @@ import (
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
+	"github.com/altessa-s/go-atlas/auth/oidc/rules"
 
 	httpconfig "github.com/altessa-s/go-atlas/config/http"
 	probfilterconfig "github.com/altessa-s/go-atlas/config/probfilter"
@@ -228,6 +229,9 @@ type OIDCValidation struct {
 	// Claims contains optional requirements for JWT token claims validation
 	Claims *OIDCClaims `yaml:"claims" default:"-"`
 
+	// MinTokenLifetime is the minimum acceptable token lifetime. Zero disables it.
+	MinTokenLifetime time.Duration `yaml:"minTokenLifetime"`
+
 	// MaxTokenLifetime is the maximum acceptable token lifetime
 	MaxTokenLifetime time.Duration `yaml:"maxTokenLifetime"`
 
@@ -243,6 +247,9 @@ func (v *OIDCValidation) Validate() error {
 	return validationconfig.ValidateStruct(v,
 		validation.Field(&v.Issuer, validation.NilOrNotEmpty, validation.When(v.Issuer != nil, is.URL)),
 		validation.Field(&v.Claims, validation.NilOrNotEmpty),
+		validation.Field(&v.MinTokenLifetime, validation.By(func(any) error {
+			return rules.CheckTokenLifetime(v.MinTokenLifetime, v.MaxTokenLifetime)
+		})),
 		validation.Field(&v.MaxTokenLifetime, validation.Min(time.Duration(0))),
 		validation.Field(&v.Expression),
 	)
@@ -415,6 +422,9 @@ type OIDCPreset struct {
 	// Issuer is the expected issuer claim (iss) for this preset
 	Issuer *string `yaml:"issuer"`
 
+	// MinTokenLifetime is the minimum acceptable token lifetime for this preset. Zero disables it.
+	MinTokenLifetime time.Duration `yaml:"minTokenLifetime"`
+
 	// MaxTokenLifetime is the maximum acceptable token lifetime for this preset
 	MaxTokenLifetime time.Duration `yaml:"maxTokenLifetime"`
 
@@ -433,6 +443,9 @@ func (p *OIDCPreset) Validate() error {
 	return validationconfig.ValidateStruct(p,
 		validation.Field(&p.Name, validation.Required, validation.Match(namePattern)),
 		validation.Field(&p.Issuer, validation.NilOrNotEmpty, validation.When(p.Issuer != nil, is.URL)),
+		validation.Field(&p.MinTokenLifetime, validation.By(func(any) error {
+			return rules.CheckTokenLifetime(p.MinTokenLifetime, p.MaxTokenLifetime)
+		})),
 		validation.Field(&p.MaxTokenLifetime, validation.Min(time.Duration(0))),
 		validation.Field(&p.Claims, validation.NilOrNotEmpty),
 		validation.Field(&p.Expression),
@@ -541,7 +554,7 @@ func (r *OIDCRevocation) Validate() error {
 		validation.Field(&r.SyncSchedule, validation.When(r.SyncEnabled && r.Enabled, validation.Required)),
 		validation.Field(&r.MaxStaleness, validation.Min(time.Duration(0))),
 		validation.Field(&r.SyncTimeout, validation.Min(time.Duration(0))),
-		validation.Field(&r.MaxResponseBytes, validation.Required, validation.Min(int64(1))),
+		validation.Field(&r.MaxResponseBytes, validation.When(r.Enabled, validation.Required, validation.Min(int64(1)))),
 		validation.Field(&r.ItemType, validation.In("token", "jti", "kid")),
 		validation.Field(&r.Filter, validation.When(r.Enabled, validation.Required)),
 		validation.Field(&r.Source, validation.When(r.Enabled, validation.Required)),

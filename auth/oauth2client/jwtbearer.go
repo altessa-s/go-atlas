@@ -36,7 +36,7 @@ const grantJWTBearer = "jwt_bearer"
 // every token request, so the window only bounds replay of a leaked assertion.
 const jwtBearerAssertionLifetime = time.Hour
 
-// defaultJWTBearerEarlyExpiry is the refresh margin when [WithEarlyExpiry] is
+// defaultJWTBearerEarlyExpiry is the refresh margin when [WithJWTBearerEarlyExpiry] is
 // unset, matching x/oauth2's default expiry window.
 const defaultJWTBearerEarlyExpiry = 10 * time.Second
 
@@ -53,7 +53,7 @@ var ErrJWTBearerConfig = errors.New("auth/oauth2client: invalid jwt-bearer grant
 //
 // Unlike x/oauth2/jwt, every exchange runs on the context of the [JWTBearer.Token]
 // call, so a caller's deadline and cancellation bound the token request. The
-// issued token is cached until [WithEarlyExpiry] before its expiry; a response
+// issued token is cached until [WithJWTBearerEarlyExpiry] before its expiry; a response
 // without a positive expires_in is rejected, because such a token would never be
 // refreshed. Refreshes are serialized: concurrent callers that find the cache
 // stale wait for one exchange instead of each starting their own.
@@ -101,17 +101,17 @@ func newCachedToken(tok *oauth2.Token, now time.Time, early time.Duration) *cach
 // (for Google, [jwt.AlgRS256] with the account's RSA key). An empty key.KeyID
 // is allowed and omits the kid header.
 //
-// [WithScopes] sets the assertion's scope claim (space-delimited);
-// [WithHTTPClient], [WithEarlyExpiry], [WithRetryAttempts], [WithMetrics],
-// [WithLogger], and [WithClock] apply as well. The configuration is validated by
+// [WithJWTBearerScopes] sets the assertion's scope claim (space-delimited);
+// [WithJWTBearerHTTPClient], [WithJWTBearerEarlyExpiry], [WithJWTBearerRetryAttempts], [WithJWTBearerMetrics],
+// [WithJWTBearerLogger], and [WithJWTBearerClock] apply as well. The configuration is validated by
 // signing a probe assertion, so an unusable key fails here with
 // [ErrJWTBearerConfig] rather than on the first token request. A tokenURL that
 // is not https (plain http is accepted on a loopback host, or anywhere with
-// [WithInsecureHTTP]) fails here too, with an error that also wraps
+// [WithJWTBearerInsecureHTTP]) fails here too, with an error that also wraps
 // [ErrInsecureEndpoint].
-func NewJWTBearer(tokenURL, issuer string, key jwt.SigningKey, opts ...Option) (*JWTBearer, error) {
-	o := newOptions(opts...)
-	if err := o.validateEndpoint("token URL", tokenURL); err != nil {
+func NewJWTBearer(tokenURL, issuer string, key jwt.SigningKey, opts ...JWTBearerOption) (*JWTBearer, error) {
+	o := newJWTBearerOptions(opts...)
+	if err := validateEndpoint("token URL", tokenURL, o.insecureHTTP); err != nil {
 		return nil, errors.Join(ErrJWTBearerConfig, err)
 	}
 	if issuer == "" {
@@ -124,11 +124,11 @@ func NewJWTBearer(tokenURL, issuer string, key jwt.SigningKey, opts ...Option) (
 		return nil, coreerrs.Wrapf(ErrJWTBearerConfig, "algorithm %q is not an allowed asymmetric algorithm", key.Algorithm)
 	}
 
-	signerOpts := []jwt.Option{jwt.WithAllowedAlgorithms(key.Algorithm), jwt.WithClock(o.clock)}
+	signerOpts := []jwt.SignerOption{jwt.WithSignerAllowedAlgorithms(key.Algorithm), jwt.WithSignerClock(o.clock)}
 	if key.KeyID == "" {
 		signerOpts = append(signerOpts, jwt.WithAllowEmptyKeyID())
 	}
-	client := *o.client()
+	client := *endpointClient(o.httpClient, o.insecureHTTP)
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return ErrRedirectNotAllowed }
 	exchangeOpts := []jwtbearer.Option{
 		jwtbearer.WithClock(o.clock),
@@ -148,7 +148,7 @@ func NewJWTBearer(tokenURL, issuer string, key jwt.SigningKey, opts ...Option) (
 		signer:       jwt.NewSigner(signerOpts...),
 		doer:         httpx.DoerFunc(client.Do),
 		exchangeOpts: exchangeOpts,
-		retry:        o.retryPolicy(),
+		retry:        retryPolicy{attempts: o.retryAttempts, baseDelay: o.retryBaseDelay, maxDelay: o.retryMaxDelay},
 		early:        o.earlyExpiry,
 		clock:        o.clock,
 		metrics:      o.metrics,

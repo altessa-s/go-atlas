@@ -9,6 +9,7 @@ package oidc
 //go:generate go tool optgen generate
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -182,6 +183,8 @@ var DefaultRequiredClaims = []string{"sub", "aud", "exp", "iat", "iss"}
 // options holds the internal configuration state for the OIDC provider.
 // This struct is not exported and is modified through Option functions.
 type options struct {
+	// Shared HTTP client and instrumentation.
+
 	// httpClient serves every outbound call (discovery, JWKS, introspection,
 	// userinfo, revocation). Required: NewProvider fails with
 	// ErrHTTPClientRequired without it. The factory injects the resilient,
@@ -194,7 +197,29 @@ type options struct {
 	// (the factory does). Without it the client stays the caller's — it may
 	// be shared with other components — and Close leaves its connections
 	// alone.
-	httpClientOwned  bool          `opt:"OwnedHTTPClient"`
+	httpClientOwned bool `opt:"OwnedHTTPClient"`
+	logger          *slog.Logger
+	// Metrics meter for Prometheus-compatible instrumentation.
+	meter metrics.Meter `optgen:"notnil"`
+	// Health check configuration
+	healthCoordinator health.Registrar `optgen:"notnil"`
+
+	// Discovery.
+
+	// WithDiscoveryValidationMode selects how the provider validates the OIDC
+	// discovery document's issuer and endpoint URLs before trusting them.
+	// Defaults to [DiscoveryValidationModeEnforce]. Unknown / empty modes leave
+	// the default in place. See [DiscoveryValidationMode] for the threat model.
+	discoveryValidationMode DiscoveryValidationMode `opt:"DiscoveryValidationMode" optcheck:"oneof=[DiscoveryValidationModeEnforce,DiscoveryValidationModeWarn,DiscoveryValidationModeDisabled]" optgen:"default=DefaultDiscoveryValidationMode,onfail=skip"` //nolint:lll
+	// discoveryAllowLoopbackHTTP lets enforce and warn validation accept a
+	// plain-http issuer and endpoints when the issuer host is a loopback
+	// address (localhost, 127.0.0.0/8, ::1) — a local IdP in development or
+	// tests. The issuer match and the same-host rule still apply, so an
+	// endpoint can only be http on the issuer's own loopback host.
+	discoveryAllowLoopbackHTTP bool `opt:"DiscoveryAllowLoopbackHTTP"`
+
+	// JWKS refresh and freshness.
+
 	jwksHTTPTimeout  time.Duration `optgen:"default=DefaultJWKSHTTPTimeout"`
 	jwksMaxStaleness time.Duration `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
 	// WithJWKSFailureMode selects how the provider reacts when its locally
@@ -206,23 +231,30 @@ type options struct {
 	// as [WithJWKSRefreshSchedule] or manual [Provider.RefreshJWKS] calls);
 	// without a non-zero staleness budget the mode has no effect.
 	jwksFailureMode JWKSFailureMode `opt:"JWKSFailureMode" optcheck:"oneof=[JWKSFailureModeEnforce,JWKSFailureModeWarn,JWKSFailureModeDisabled]" optgen:"default=DefaultJWKSFailureMode,onfail=skip"` //nolint:lll
+	// Set by WithJWKSRefreshSchedule: enables the process-local refresh task and sets its schedule.
+	jwksRefreshEnabled bool `optgen:"manual"`
+	// Set by WithJWKSRefreshSchedule: enables the process-local refresh task and sets its schedule.
+	jwksRefreshSchedule string `optgen:"manual"`
+
+	// Policy evaluation and signature caching.
+
 	// WithAudienceFailureMode selects how the provider reacts when token
 	// validation runs without any expected audience configured. Defaults to
 	// [AudienceFailureModeEnforce]. Unknown / empty modes leave the default in
 	// place. When an expected audience is configured (via [WithValidationAudience]
 	// or service config) its value is always enforced regardless of this mode.
 	audienceFailureMode AudienceFailureMode `opt:"AudienceFailureMode" optcheck:"oneof=[AudienceFailureModeEnforce,AudienceFailureModeWarn,AudienceFailureModeDisabled]" optgen:"default=DefaultAudienceFailureMode,onfail=skip"` //nolint:lll
-	// WithDiscoveryValidationMode selects how the provider validates the OIDC
-	// discovery document's issuer and endpoint URLs before trusting them.
-	// Defaults to [DiscoveryValidationModeEnforce]. Unknown / empty modes leave
-	// the default in place. See [DiscoveryValidationMode] for the threat model.
-	discoveryValidationMode     DiscoveryValidationMode `opt:"DiscoveryValidationMode" optcheck:"oneof=[DiscoveryValidationModeEnforce,DiscoveryValidationModeWarn,DiscoveryValidationModeDisabled]" optgen:"default=DefaultDiscoveryValidationMode,onfail=skip"` //nolint:lll
-	tokenCache                  Cacher
-	tokensCacheKeyPrefix        string `optgen:"default=DefaultTokensCacheKeyPrefix"`
-	revokedTokensCacheKeyPrefix string `optgen:"default=DefaultRevokedTokensCacheKeyPrefix"`
-	activeTokensCacheKeyPrefix  string `optgen:"default=DefaultActiveTokensCacheKeyPrefix"`
-	serviceConfigPath           string
-	logger                      *slog.Logger
+	// WithDefaultValidationOptions sets default validation options for ValidateToken.
+	// These apply to all validations unless overridden by per-call options.
+	verifierOptions *verifierOptions `optfn:"DefaultValidationOptions=newVerifierOptions"`
+	// Set by WithPresets: filters nil presets and indexes the values by name.
+	presets              map[string]*ValidationPreset `optgen:"manual"`
+	presetRules          []PresetRule
+	tokenCache           Cacher
+	tokensCacheKeyPrefix string `optgen:"default=DefaultTokensCacheKeyPrefix"`
+
+	// Introspection and revocation.
+
 	// Set by WithIntrospection: enables introspection and stores its credentials together.
 	introspectionEnabled bool `optgen:"manual"`
 	// Set by WithIntrospection: enables introspection and stores its credentials together.
@@ -238,16 +270,16 @@ type options struct {
 	//
 	// Without this option introspection is fail-closed (the secure default):
 	// errors reject the token with [ErrIntrospection].
-	introspectionFailOpen bool `opt:"IntrospectionFailOpen"`
-	// WithDefaultValidationOptions sets default validation options for ValidateToken.
-	// These apply to all validations unless overridden by per-call options.
-	verifierOptions *verifierOptions `optfn:"DefaultValidationOptions=newVerifierOptions"`
-	// Set by WithPresets: filters nil presets and indexes the values by name.
-	presets                 map[string]*ValidationPreset `optgen:"manual"`
-	presetRules             []PresetRule
-	revocationStorage       RevocationStorage
-	revocationItemType      string                `optgen:"default=DefaultRevocationItemType"`
-	revocationFilter        probfilter.Filter     `optgen:"notnil"`
+	introspectionFailOpen       bool   `opt:"IntrospectionFailOpen"`
+	revokedTokensCacheKeyPrefix string `optgen:"default=DefaultRevokedTokensCacheKeyPrefix"`
+	activeTokensCacheKeyPrefix  string `optgen:"default=DefaultActiveTokensCacheKeyPrefix"`
+	revocationStorage           RevocationStorage
+	revocationItemType          string            `optgen:"default=DefaultRevocationItemType"`
+	revocationFilter            probfilter.Filter `optgen:"notnil"`
+	// WithRevocationFilterCleanup transfers cleanup of a dedicated revocation filter
+	// to NewProvider. It runs on construction failure or once during Close.
+	// Omit it for a borrowed filter or storage.
+	revocationFilterCleanup func(context.Context) error
 	revocationLoader        probfilter.DataLoader `optgen:"notnil"`
 	revocationAuthoritative Authoritative         `optgen:"notnil"`
 	// revocationFailOpen accepts a token when the revocation storage cannot
@@ -293,28 +325,10 @@ type options struct {
 	// misrouted request, a truncated file — un-revokes every item at once.
 	// A custom [RevocationStorage] decides this on its own.
 	revocationAllowEmpty bool
-	// discoveryAllowLoopbackHTTP lets enforce and warn validation accept a
-	// plain-http issuer and endpoints when the issuer host is a loopback
-	// address (localhost, 127.0.0.0/8, ::1) — a local IdP in development or
-	// tests. The issuer match and the same-host rule still apply, so an
-	// endpoint can only be http on the issuer's own loopback host.
-	discoveryAllowLoopbackHTTP bool `opt:"DiscoveryAllowLoopbackHTTP"`
-
-	// Health check configuration
-	healthCoordinator health.Registrar `optgen:"notnil"`
-
-	// Provider-local refresh cron configuration
-	// Set by WithJWKSRefreshSchedule: enables the process-local refresh task and sets its schedule.
-	jwksRefreshEnabled bool `optgen:"manual"`
-	// Set by WithJWKSRefreshSchedule: enables the process-local refresh task and sets its schedule.
-	jwksRefreshSchedule string `optgen:"manual"`
 	// Set by WithRevocationSyncSchedule: enables the process-local sync task and sets its schedule.
 	revocationSyncEnabled bool `optgen:"manual"`
 	// Set by WithRevocationSyncSchedule: enables the process-local sync task and sets its schedule.
 	revocationSyncSchedule string `optgen:"manual"`
-
-	// Metrics meter for Prometheus-compatible instrumentation.
-	meter metrics.Meter `optgen:"notnil"`
 }
 
 // WithPresets registers named validation presets for reusable rules.

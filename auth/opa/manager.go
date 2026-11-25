@@ -8,16 +8,21 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
+	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"uuid"
 
+	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/rego"
 	"github.com/open-policy-agent/opa/v1/storage"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
 
 	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/audit/decision"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -29,20 +34,19 @@ import (
 // It coordinates policy loading from a PolicySource, handles hot-reload,
 // and distributes policy events to subscribers.
 type Manager struct {
-	source       PolicySource
-	query        string
-	store        storage.Store
-	preparedEval atomic.Pointer[rego.PreparedEvalQuery]
-	revision     atomic.Pointer[string]
-	moduleCount  atomic.Int32
+	source      PolicySource
+	query       string
+	snapshot    atomic.Pointer[policySnapshot]
+	moduleCount atomic.Int32
 
 	lastUpdate atomic.Pointer[time.Time]
 	lastError  atomic.Pointer[error]
 
-	watchManager *watchManager
-	opts         *options
-	metrics      *opaMetrics
-	logger       *slog.Logger
+	unregisterHealth func()
+	watchManager     *watchManager
+	opts             *options
+	metrics          *opaMetrics
+	logger           *slog.Logger
 
 	mu        sync.Mutex
 	watchStop context.CancelFunc
@@ -55,11 +59,15 @@ type Manager struct {
 	// closeDone is closed once the first Close has finished its teardown;
 	// concurrent Close callers wait on it.
 	closeDone       chan struct{}
+	shutdownCtx     context.Context
+	shutdownCancel  context.CancelFunc
+	reloadWG        sync.WaitGroup
+	scheduled       *schedulerCallback
 	updateCycleTask *cycle.Guard // Guards RunUpdateCycle and marks scheduler management.
 }
 
 // NewManager creates a new OPA Manager with the given source and query.
-// The source is used to fetch policies, and the query is evaluated against inputs.
+// On success the manager owns the source. On failure the caller must close it.
 func NewManager(ctx context.Context, source PolicySource, query string, opts ...Option) (*Manager, error) {
 	if source == nil {
 		return nil, ErrSourceRequired
@@ -70,36 +78,38 @@ func NewManager(ctx context.Context, source PolicySource, query string, opts ...
 	}
 
 	o := newOptions(opts...)
+	if o.updateSchedule != "" && nilcheck.IsNil(o.scheduler) {
+		return nil, ErrSchedulerRequired
+	}
 
 	m := &Manager{
 		source:       source,
 		query:        query,
-		store:        inmem.New(),
 		watchManager: newWatchManager(),
 		opts:         o,
 		metrics:      newOpaMetrics(o.meter),
 		logger:       cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
 		closeDone:    make(chan struct{}),
 	}
+	m.shutdownCtx, m.shutdownCancel = context.WithCancel(context.Background())
+	m.scheduled = &schedulerCallback{}
 	m.updateCycleTask = cycle.New(m.runUpdateCycleInternal)
-
-	// Initialize revision to empty string
-	emptyRevision := ""
-	m.revision.Store(&emptyRevision)
+	m.scheduled.guard.Store(m.updateCycleTask)
 
 	// Perform initial policy load
 	if err := m.reload(ctx); err != nil {
+		m.shutdownCancel()
 		return nil, coreerrs.WrapOperation(err, "load initial policies")
 	}
 
 	// Register background tasks with scheduler if provided
 	if err := m.registerSchedulerTasks(ctx, o); err != nil {
-		_ = m.Close()
+		_ = m.shutdown(false)
 		return nil, coreerrs.WrapOperation(err, "register scheduler tasks")
 	}
 
 	if o.healthCoordinator != nil {
-		o.healthCoordinator.RegisterService("opa", m)
+		m.registerHealth(o.healthCoordinator)
 	}
 
 	return m, nil
@@ -120,8 +130,8 @@ func (m *Manager) Query() string {
 
 // Revision returns the current policy bundle revision.
 func (m *Manager) Revision() string {
-	if v := m.revision.Load(); v != nil {
-		return *v
+	if snap := m.snapshot.Load(); snap != nil {
+		return snap.revision
 	}
 	return ""
 }
@@ -168,7 +178,15 @@ func (m *Manager) StartWatching(ctx context.Context) error {
 	// The loop owns its context: a later StartWatching never changes what an
 	// earlier loop observes. It starts only after the previous loop exited.
 	go func() {
-		defer close(done)
+		defer func() {
+			m.mu.Lock()
+			if m.watchDone == done {
+				m.watching = false
+				m.watchStop = nil
+			}
+			close(done)
+			m.mu.Unlock()
+		}()
 		if prevDone != nil {
 			<-prevDone
 		}
@@ -181,6 +199,10 @@ func (m *Manager) StartWatching(ctx context.Context) error {
 
 	return nil
 }
+
+// StartWatchingUntilClose starts polling for the lifetime of the manager.
+// StopWatching can end the poll loop earlier.
+func (m *Manager) StartWatchingUntilClose() error { return m.StartWatching(m.shutdownCtx) }
 
 // StopWatching stops watching for policy changes and waits for the poll loop
 // to exit.
@@ -223,11 +245,20 @@ func (m *Manager) pollLoop(ctx context.Context) {
 // Callers must route through updateCycleTask so overlapping cycles collapse
 // into a single execution.
 func (m *Manager) runUpdateCycleInternal(ctx context.Context) error {
+	m.mu.Lock()
 	if m.closed.Load() {
+		m.mu.Unlock()
 		return nil
 	}
+	m.reloadWG.Add(1)
+	reloadCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(m.shutdownCtx, cancel) //nolint:contextcheck // Calls also inherit the independent manager lifetime.
+	m.mu.Unlock()
 
-	return m.reload(ctx)
+	defer m.reloadWG.Done()
+	defer cancel()
+	defer stop()
+	return m.reload(reloadCtx)
 }
 
 // reload fetches and loads policies from the source.
@@ -244,7 +275,8 @@ func (m *Manager) reload(ctx context.Context) error {
 	}
 
 	currentRevision := m.Revision()
-	if bundle.Revision == currentRevision {
+	if bundle.Revision == currentRevision && m.snapshot.Load() != nil {
+		m.lastError.Store(nil)
 		m.logger.Debug("bundle unchanged, skipping reload", slog.String("revision", bundle.Revision))
 		m.metrics.policyReloads.WithLabels(metrics.Labels{labelResult: "unchanged"}).Inc()
 		return nil
@@ -270,6 +302,10 @@ func (m *Manager) reload(ctx context.Context) error {
 		regoOpts = append(regoOpts, rego.Module(path, string(content)))
 	}
 
+	var compiler *ast.Compiler
+	if m.opts.decisionCache != nil {
+		regoOpts = append(regoOpts, rego.CompilerHook(func(c *ast.Compiler) { compiler = c }))
+	}
 	r := rego.New(regoOpts...)
 
 	pq, err := r.PrepareForEval(ctx)
@@ -281,17 +317,19 @@ func (m *Manager) reload(ctx context.Context) error {
 	}
 
 	// Atomically update the prepared query
-	m.preparedEval.Store(&pq)
-	m.revision.Store(&bundle.Revision)
+	m.snapshot.Store(&policySnapshot{
+		preparedEval:  pq,
+		revision:      bundle.Revision,
+		cacheEligible: compiler != nil && cacheEligible(compiler, m.query),
+	})
 
 	// Decisions are keyed by revision, so the old ones are already unreachable;
 	// purging only stops them from occupying the cache until they age out.
-	if m.opts.decisionCache != nil {
-		m.opts.decisionCache.purge()
+	if local, ok := m.opts.decisionCache.(interface{ purge() }); ok {
+		local.purge()
 	}
 
 	m.moduleCount.Store(int32(min(bundle.ModuleCount(), 1<<31-1))) //#nosec G115 -- capped at MaxInt32
-	m.store = store
 	now := time.Now()
 	m.lastUpdate.Store(&now)
 	m.lastError.Store(nil)
@@ -326,11 +364,22 @@ func loadBundleData(ctx context.Context, store storage.Store, data map[string]an
 }
 
 func writeBundleData(ctx context.Context, store storage.Store, txn storage.Transaction, data map[string]any) error {
-	for key, value := range data {
-		path, ok := storage.ParsePath("/" + key)
-		if !ok {
+	for _, key := range slices.Sorted(maps.Keys(data)) {
+		path := storage.Path(strings.Split(key, "/"))
+		if slices.Contains(path, "") {
 			return coreerrs.Wrapf(ErrInvalidDataPath, "%q", key)
 		}
+		for i := 1; i < len(path); i++ {
+			if err := storage.MakeDir(ctx, store, txn, path[:i]); err != nil {
+				return coreerrs.JoinWrap(ErrInvalidDataPath, err)
+			}
+		}
+		if _, err := store.Read(ctx, txn, path); err == nil {
+			return coreerrs.Wrapf(ErrInvalidDataPath, "duplicate document %q", key)
+		} else if !storage.IsNotFound(err) {
+			return err
+		}
+		value := data[key]
 		if err := store.Write(ctx, txn, storage.AddOp, path, value); err != nil {
 			return coreerrs.Wrapf(err, "write data %q", key)
 		}
@@ -363,20 +412,40 @@ func (m *Manager) Watch(ctx context.Context, opts WatchOptions) (*WatchResult, e
 }
 
 // Close releases all resources and stops watching. It returns once the poll
-// loop has exited and the source is closed; concurrent callers wait for the
-// first Close to finish.
-func (m *Manager) Close() error {
-	if !m.closed.CompareAndSwap(false, true) {
+// loop, reloads, and event deliveries have finished and the source is closed.
+// Concurrent callers wait for the first Close to finish.
+func (m *Manager) Close() error { return m.shutdown(true) }
+
+func (m *Manager) shutdown(ownsSource bool) error {
+	m.mu.Lock()
+	if m.closed.Swap(true) {
+		m.mu.Unlock()
 		<-m.closeDone
 		return nil
 	}
+	m.scheduled.guard.Store(nil)
+	m.shutdownCancel()
+	if m.watchStop != nil {
+		m.watchStop()
+		m.watching = false
+	}
+	done := m.watchDone
+	m.mu.Unlock()
 	defer close(m.closeDone)
 
-	m.StopWatching()
-	m.watchManager.close()
-
-	if err := m.source.Close(); err != nil {
-		return coreerrs.WrapOperation(err, "close source")
+	m.watchManager.close(func() {
+		if m.unregisterHealth != nil {
+			m.unregisterHealth()
+		}
+		if done != nil {
+			<-done
+		}
+		m.reloadWG.Wait()
+	})
+	if ownsSource {
+		if err := m.source.Close(); err != nil {
+			return coreerrs.WrapOperation(err, "close source")
+		}
 	}
 
 	m.logger.Info("manager closed")
@@ -400,79 +469,58 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 	stop := e.manager.metrics.evaluationDuration.Start()
 	defer stop()
 
-	// Read the revision before evaluating so the result is keyed to the bundle
-	// it was actually computed from, not to one a concurrent reload installed
-	// in the meantime.
-	revision := e.manager.Revision()
-
-	// The key is computed once and shared by the lookup and the store; ""
-	// means no cache or an input without a stable key (evaluated uncached).
-	key := e.cacheKey(revision, input)
-
-	if r, ok := e.cached(key); ok {
-		return e.finishEvaluation(ctx, r)
-	}
-
-	pq := e.manager.preparedEval.Load()
-	if pq == nil {
+	snap := e.manager.snapshot.Load()
+	if snap == nil {
 		e.manager.metrics.evalError.Inc()
 		return nil, ErrPoliciesNotLoaded
 	}
-
-	results, err := pq.Eval(ctx, rego.EvalInput(input))
+	value, err := parseInput(input)
+	if err != nil {
+		e.manager.metrics.evalError.Inc()
+		return nil, coreerrs.WrapOperation(err, "parse policy input")
+	}
+	var key string
+	if snap.cacheEligible {
+		key = decisionCacheKey(e.manager.query, snap.revision, value)
+		if key != "" {
+			if r, ok := e.cached(key); ok {
+				return e.finishEvaluation(ctx, snap, r)
+			}
+		}
+	}
+	results, err := snap.preparedEval.Eval(ctx, rego.EvalParsedInput(value))
 	if err != nil {
 		e.manager.metrics.evalError.Inc()
 		return nil, coreerrs.WrapOperation(err, "evaluate policy")
 	}
 
 	r := e.resolveResult(results)
-	e.store(revision, key, r)
+	e.store(snap, key, r)
 
-	return e.finishEvaluation(ctx, r)
+	return e.finishEvaluation(ctx, snap, r)
 }
 
 // finishEvaluation counts the decision and hands it to the audit recorder. It
 // runs for cache hits and misses alike, so caching cannot silently thin out the
 // metrics or the audit trail.
-func (e *regoEvaluator) finishEvaluation(ctx context.Context, r *Result) (*Result, error) {
+func (e *regoEvaluator) finishEvaluation(ctx context.Context, snap *policySnapshot, r *Result) (*Result, error) {
 	if r.Allow {
 		e.manager.metrics.evalAllow.Inc()
 	} else {
 		e.manager.metrics.evalDeny.Inc()
 	}
 
-	if err := e.recordDecision(ctx, r); err != nil {
+	if err := e.recordDecision(ctx, snap.revision, r); err != nil {
 		return nil, err
 	}
 
 	return r, nil
 }
 
-// cacheKey returns the decision-cache key for input under revision, or "" when
-// no cache is configured or the input has no stable key.
-func (e *regoEvaluator) cacheKey(revision string, input any) string {
-	if e.manager.opts.decisionCache == nil {
-		return ""
-	}
-
-	key, ok := decisionCacheKey(revision, input)
-	if !ok {
-		return ""
-	}
-
-	return key
-}
-
 // cached looks the decision up by key, returning a copy with its own
-// DecisionID. An empty key (no stable input key) counts as a miss.
+// DecisionID.
 func (e *regoEvaluator) cached(key string) (*Result, bool) {
-	cache := e.manager.opts.decisionCache
-	if cache == nil {
-		return nil, false
-	}
-
-	// Nothing is stored under "", so an empty key always misses.
-	r, ok := cache.get(key)
+	r, ok := e.manager.opts.decisionCache.Get(key)
 	if !ok {
 		e.manager.metrics.cacheMisses.Inc()
 		return nil, false
@@ -487,19 +535,19 @@ func (e *regoEvaluator) cached(key string) (*Result, bool) {
 
 	e.manager.metrics.cacheHits.Inc()
 
-	return r, true
+	return &r, true
 }
 
 // store caches the decision, unless a reload landed while it was being computed
 // — in that case the result belongs to a bundle that is no longer current and
 // caching it under either revision would be wrong.
-func (e *regoEvaluator) store(revision, key string, r *Result) {
+func (e *regoEvaluator) store(snap *policySnapshot, key string, r *Result) {
 	cache := e.manager.opts.decisionCache
-	if cache == nil || key == "" || e.manager.Revision() != revision {
+	if cache == nil || key == "" || e.manager.snapshot.Load() != snap {
 		return
 	}
 
-	cache.put(key, r)
+	cache.Put(key, *r)
 }
 
 // resolveResult maps an OPA result set onto a [Result], handling the boolean,
@@ -532,7 +580,7 @@ func (e *regoEvaluator) resolveResult(results rego.ResultSet) *Result {
 // drops grants under its deny-only policy. A record failure aborts an
 // allowed evaluation (so nothing proceeds unrecorded) only when the recorder
 // runs in required-failure mode; on a denial the error is ignored.
-func (e *regoEvaluator) recordDecision(ctx context.Context, r *Result) error {
+func (e *regoEvaluator) recordDecision(ctx context.Context, revision string, r *Result) error {
 	if e.manager.opts.auditRecorder == nil {
 		return nil
 	}
@@ -546,8 +594,8 @@ func (e *regoEvaluator) recordDecision(ctx context.Context, r *Result) error {
 	if !r.Allow {
 		d.Reason = cmp.Or(r.DecisionID, "deny")
 	}
-	if rev := e.manager.Revision(); rev != "" {
-		d.Attributes["revision"] = rev
+	if revision != "" {
+		d.Attributes["revision"] = revision
 	}
 
 	recErr := e.manager.opts.auditRecorder.Record(ctx, d)

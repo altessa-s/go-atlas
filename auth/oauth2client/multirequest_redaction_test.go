@@ -14,10 +14,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	"golang.org/x/oauth2"
 )
 
 func TestAuthStyleRetryRetainsFinalTransportError(t *testing.T) {
@@ -41,16 +42,16 @@ func TestAuthStyleRetryRetainsFinalTransportError(t *testing.T) {
 			var err error
 			switch grant {
 			case "client credentials":
-				src, buildErr := oauth2client.ClientCredentials(t.Context(), endpoint, "client", "secret", oauth2client.WithHTTPClient(client))
+				src, buildErr := oauth2client.ClientCredentials(t.Context(), endpoint, "client", "secret", oauth2client.WithClientCredentialsHTTPClient(client))
 				require.NoError(t, buildErr)
 				_, err = src.Token()
 			case "refresh":
-				src, buildErr := oauth2client.Refresh(t.Context(), endpoint, "client", "secret", "refresh", oauth2client.WithHTTPClient(client))
+				src, buildErr := oauth2client.Refresh(t.Context(), endpoint, "client", "secret", "refresh", oauth2client.WithRefreshHTTPClient(client))
 				require.NoError(t, buildErr)
 				_, err = src.Token()
 			case "authorization code":
 				flow, buildErr := oauth2client.NewAuthCode(oauth2.Endpoint{TokenURL: endpoint}, "client", "secret", "https://app.example/callback",
-					oauth2client.WithHTTPClient(client))
+					oauth2client.WithAuthCodeHTTPClient(client))
 				require.NoError(t, buildErr)
 				_, _, err = flow.Exchange(t.Context(), "code")
 			}
@@ -104,7 +105,7 @@ func TestDevicePollingRetainsCancellation(t *testing.T) {
 			const endpoint = "https://idp.example/token"
 			flow, err := oauth2client.NewDeviceFlow(oauth2.Endpoint{
 				TokenURL: endpoint, DeviceAuthURL: endpoint, AuthStyle: oauth2.AuthStyleInHeader,
-			}, "client", "secret", oauth2client.WithHTTPClient(client))
+			}, "client", "secret", oauth2client.WithDeviceFlowHTTPClient(client))
 			require.NoError(t, err)
 			_, _, err = flow.Token(ctx, &oauth2.DeviceAuthResponse{DeviceCode: "device", Interval: 1})
 			require.ErrorIs(t, err, context.Canceled)

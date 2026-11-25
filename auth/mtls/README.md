@@ -37,7 +37,8 @@ the certificate's SPIFFE ID (its Subject DN when it has none); `subjectOf` names
 |-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `Authenticator` | Derives + validates the principal from a verified cert and records an audit decision.                                                                |
 | `IdentityFunc`  | `func(*x509.Certificate) (any, error)` — derives the principal. Default `spiffe.IDFromCertificate` (adapted to `IdentityFunc`); opt-in `PrincipalIdentity` yields a `principal.Principal`. |
-| `CertValidator` | `func(*x509.Certificate) error` — an extra check run on every call, beyond the TLS handshake.                                                        |
+| `AuditReasoner` | A custom error can supply a stable, safe-to-log token with `AuditReason() string`. Built-in error classifications take precedence. |
+| `CertValidator` | `func(context.Context, *x509.Certificate) error` — an extra check run on every call, beyond the TLS handshake.                                                        |
 
 ## Functions & options
 

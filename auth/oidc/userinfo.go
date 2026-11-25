@@ -14,28 +14,22 @@ import (
 
 	"golang.org/x/oauth2"
 
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	coreio "github.com/altessa-s/go-atlas-core/io"
+	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
+
+type userInfoClient struct {
+	info   *discoveryInfo
+	client *http.Client
+	keys   *jwksKeySource
+}
 
 // maxUserInfoResponseSize is the maximum bytes read from the userinfo endpoint.
 // A standard claims payload is well under 64 KiB; anything larger likely
 // indicates a misbehaving or malicious upstream.
 const maxUserInfoResponseSize = 1 << 16 // 64 KiB
-
-// maxErrorBodyLen is the maximum number of bytes from an upstream error
-// response body included in error messages, to avoid leaking PII or
-// oversized payloads into logs and error chains.
-const maxErrorBodyLen = 256
-
-// sanitizeErrorBody truncates a raw response body to a safe length for
-// inclusion in error messages.
-func sanitizeErrorBody(b []byte) string {
-	if len(b) <= maxErrorBodyLen {
-		return string(b)
-	}
-	return string(b[:maxErrorBodyLen]) + "...(truncated)"
-}
 
 // UserInfo represents user claims from the OIDC userinfo endpoint.
 type UserInfo struct {
@@ -58,61 +52,90 @@ type UserInfo struct {
 //
 //	info, _ := provider.UserInfo(ctx, tokenSource)
 func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource) (*UserInfo, error) {
-	endpoint := p.UserinfoEndpoint()
-	if endpoint == "" {
+	return p.userInfo.fetch(ctx, tokenSource)
+}
+
+func (p *userInfoClient) fetch(ctx context.Context, tokenSource oauth2.TokenSource) (*UserInfo, error) {
+	if p.info == nil || p.info.UserInfoURL == "" {
 		return nil, coreerrs.Wrap(ErrDiscovery, "userinfo endpoint is not available")
 	}
-
+	endpoint := p.info.UserInfoURL
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, err
+		return nil, boundaryError("userinfo", 0, ErrTokenInvalid, err)
 	}
 
 	token, err := tokenSource.Token()
 	if err != nil {
-		return nil, err
+		return nil, boundaryError("userinfo", 0, ErrTokenInvalid, err)
 	}
 	token.SetAuthHeader(req)
 
 	resp, err := p.client.Do(req) //nolint:bodyclose
 	if err != nil {
-		return nil, err
+		return nil, boundaryError("userinfo", 0, ErrTokenInvalid, err)
 	}
 	defer drainAndClose(resp)
+	if resp.StatusCode != http.StatusOK {
+		return nil, boundaryError("userinfo", resp.StatusCode, ErrTokenInvalid, nil)
+	}
 
 	buf := coreio.GetBuffer()
 	_, err = buf.ReadFrom(io.LimitReader(resp.Body, maxUserInfoResponseSize))
 	if err != nil {
 		coreio.PutBuffer(buf)
-		return nil, err
+		return nil, boundaryError("read userinfo", resp.StatusCode, ErrTokenInvalid, err)
 	}
 	body := bytes.Clone(buf.Bytes())
 	coreio.PutBuffer(buf)
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, coreerrs.Wrapf(ErrTokenInvalid, "userinfo: unexpected status %s: %s", resp.Status, sanitizeErrorBody(body))
-	}
-
 	ct := resp.Header.Get("Content-Type")
 	mediaType, _, parseErr := mime.ParseMediaType(ct)
 	if parseErr == nil && mediaType == "application/jwt" {
+		if err := p.keys.checkJWKSStaleness(ctx); err != nil {
+			return nil, err
+		}
 		// Verify JWT signature and extract claims in a single operation
 		claims, err := p.verifySignature(ctx, string(body))
 		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "verify userinfo JWT signature")
+			return nil, boundaryError("verify userinfo JWT signature", resp.StatusCode, ErrTokenInvalid, err)
 		}
 		// Marshal claims back to JSON for UserInfo unmarshaling
 		// This is still more efficient than double JWT parsing
 		body, err = json.Marshal(claims)
 		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "marshal claims")
+			return nil, boundaryError("marshal claims", resp.StatusCode, ErrTokenInvalid, err)
 		}
 	}
 
 	var userInfo UserInfo
 	if err := json.Unmarshal(body, &userInfo); err != nil {
-		return nil, coreerrs.WrapOperation(err, "decode userinfo")
+		return nil, boundaryError("decode userinfo", resp.StatusCode, ErrTokenInvalid, err)
 	}
 
 	return &userInfo, nil
+}
+
+// verifySignature verifies a JWT signature and validates its temporal claims
+// when present, without binding audience / subject. It is used for signed
+// userinfo responses, which legitimately omit exp — so exp is validated if
+// present but not required (matching the prior signature-plus-temporal
+// behavior). Leeway is zero to mirror the previous strict default. The issuer
+// is bound when discovery resolved one, so a signed userinfo response from a
+// different issuer sharing the JWKS is rejected.
+func (p *userInfoClient) verifySignature(ctx context.Context, token string) (map[string]any, error) {
+	opts := []authjwt.VerifierOption{
+		authjwt.WithVerifierAllowedAlgorithms(toAuthAlgorithms(DefaultValidMethods)...),
+		authjwt.WithExpirationOptional(),
+		authjwt.WithLeeway(0),
+	}
+	opts = coreslices.AppendIfFunc(opts, p.info != nil && p.info.Issuer != "", func() []authjwt.VerifierOption {
+		return []authjwt.VerifierOption{authjwt.WithVerifierIssuer(p.info.Issuer)}
+	})
+	v := authjwt.NewVerifier(p.keys.keyResolver, opts...)
+	claims, err := v.Verify(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any(claims), nil
 }

@@ -70,17 +70,17 @@ func TestIntrospectToken_Pin(t *testing.T) {
 	t.Run("configuration errors", func(t *testing.T) {
 		t.Parallel()
 		p := newRevocationTestProvider(t, reply(http.StatusOK, strings.NewReader("{}"), nil), options{})
-		p.discoveryInfo = &discoveryInfo{}
+		p.revocation.info = &discoveryInfo{}
 		_, err := p.IntrospectToken(t.Context(), "tok")
 		require.ErrorIs(t, err, ErrIntrospection)
 
 		p = newRevocationTestProvider(t, reply(http.StatusOK, strings.NewReader("{}"), nil), options{})
-		p.opts.introspectionClientID = ""
+		p.revocation.introspectionClientID = ""
 		_, err = p.IntrospectToken(t.Context(), "tok")
 		require.ErrorIs(t, err, ErrIntrospection)
 
 		p = newRevocationTestProvider(t, reply(http.StatusOK, strings.NewReader("{}"), nil), options{})
-		p.discoveryInfo = &discoveryInfo{IntrospectionURL: "://bad"}
+		p.revocation.info = &discoveryInfo{IntrospectionURL: "://bad"}
 		_, err = p.IntrospectToken(t.Context(), "tok")
 		require.ErrorIs(t, err, ErrIntrospection)
 	})
@@ -107,7 +107,7 @@ func TestIntrospectToken_Pin(t *testing.T) {
 		var calls atomic.Int32
 		p := newRevocationTestProvider(t, reply(http.StatusOK, strings.NewReader(`{"active":true,"sub":"u"}`), &calls),
 			options{activeTokensCacheKeyPrefix: "a:", revokedTokensCacheKeyPrefix: "r:"})
-		p.tokenCache = &pinCache{}
+		p.revocation.tokenCache = &pinCache{}
 
 		for range 2 {
 			resp, err := p.IntrospectToken(t.Context(), "tok")
@@ -133,9 +133,9 @@ func TestIntrospectToken_Pin(t *testing.T) {
 			var calls atomic.Int32
 			p := newRevocationTestProvider(t, reply(http.StatusOK, strings.NewReader(tc.body), &calls),
 				options{activeTokensCacheKeyPrefix: "a:", revokedTokensCacheKeyPrefix: "r:", revocationItemType: tc.itemType})
-			p.tokenCache = &pinCache{}
+			p.revocation.tokenCache = &pinCache{}
 			storage := newTrackingRevocationStorage()
-			p.revocationStorage = storage
+			p.revocation.storage = storage
 
 			for range 2 {
 				resp, err := p.IntrospectToken(t.Context(), "tok")
@@ -159,7 +159,7 @@ func TestIntrospectToken_Pin(t *testing.T) {
 			calls.Add(1)
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: r, Header: http.Header{}}, nil
 		}), options{activeTokensCacheKeyPrefix: "a:", revokedTokensCacheKeyPrefix: "r:"})
-		p.tokenCache = &pinCache{}
+		p.revocation.tokenCache = &pinCache{}
 		for range 2 {
 			_, err := p.IntrospectToken(t.Context(), "tok")
 			require.NoError(t, err)

@@ -11,6 +11,11 @@
 // where defaults exist, and implement Validate; component factories map them
 // to generated options.
 //
+// [ParseServiceConfig] validates the separate OIDC JSON service policy, including
+// named presets, selection conditions, CEL expressions and token lifetime bounds.
+// In YAML, [OIDCValidation] and [OIDCPreset] expose minTokenLifetime and
+// maxTokenLifetime.
+//
 // Key types: [Config], [Denylist], [MTLS], [OIDC], [OIDCCache],
 // [OIDCExpression].
 package authconfig

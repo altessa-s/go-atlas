@@ -9,8 +9,8 @@
 //
 // # Model
 //
-// A [github.com/altessa-s/go-atlas/cache/probfilter.Filter] holds a superset of
-// the revoked keys. On a lookup:
+// A [github.com/altessa-s/go-atlas/cache/probfilter.Filter] holds keys seen
+// during rebuilds and through [Cache.Add]. On a lookup:
 //
 //   - the filter has never been populated by a successful rebuild → the
 //     [Authoritative] store is consulted (an empty filter proves nothing);
@@ -53,10 +53,10 @@
 // A filter that cannot be rebuilt is never populated, so every lookup goes to
 // the authoritative store.
 //
-// Between rebuilds, a key revoked on another node is not yet in this node's
-// filter, so it is fast-pathed as not-revoked until the next rebuild. This is
-// the same propagation window any locally cached revocation set has; size the
-// rebuild cadence to the revocation-propagation SLA the deployment requires.
+// The negative cache is eventually consistent. A revocation missing from the
+// filter can be accepted until the next successful rebuild. Failed or skipped
+// rebuilds extend that window. Callers needing exact answers read the
+// authoritative store directly.
 //
 // A [Cache] runs no rebuild loop of its own: it holds no data loader, and
 // scheduling belongs to the filter's rebuild lifecycle. The factory
@@ -83,5 +83,5 @@
 //	// Consult on the hot path:
 //	revoked, err := cache.IsRevoked(ctx, jti)
 //	// Repopulate periodically from the authoritative store:
-//	_ = cache.Rebuild(ctx, redisDenylist) // a probfilter.DataLoader
+//	_ = cache.Rebuild(ctx, redisDenylist.DataLoader())
 package negcache

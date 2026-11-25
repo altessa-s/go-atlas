@@ -24,8 +24,8 @@ const (
 // Revoker revokes previously acquired tokens at the IdP's revocation endpoint
 // (RFC 7009) — the symmetric counterpart to acquisition, letting a service
 // proactively invalidate a token it no longer needs. It authenticates the client
-// the same way as the token endpoint: the [WithAuthStyle] secret or a
-// [WithClientAuth] JWT assertion. A Revoker is immutable and safe for concurrent
+// the same way as the token endpoint: the [WithRevokerAuthStyle] secret or a
+// [WithRevokerClientAuth] JWT assertion. A Revoker is immutable and safe for concurrent
 // use.
 type Revoker struct {
 	revocationURL string
@@ -38,15 +38,15 @@ type Revoker struct {
 
 // NewRevoker builds a [Revoker] for the IdP revocation endpoint at
 // revocationURL. clientID and clientSecret authenticate this client (pass "" for
-// both when a [WithClientAuth] assertion or a public client is used). The
-// [WithAuthStyle], [WithClientAuth], and [WithHTTPClient] options apply.
+// both when a [WithRevokerClientAuth] assertion or a public client is used). The
+// [WithRevokerAuthStyle], [WithRevokerClientAuth], and [WithRevokerHTTPClient] options apply.
 //
 // A revocationURL that is malformed or not https (plain http is accepted on a
-// loopback host, or anywhere with [WithInsecureHTTP]) returns an error
+// loopback host, or anywhere with [WithRevokerInsecureHTTP]) returns an error
 // wrapping [ErrInsecureEndpoint].
-func NewRevoker(revocationURL, clientID, clientSecret string, opts ...Option) (*Revoker, error) {
-	o := newOptions(opts...)
-	if err := o.validateEndpoint("revocation URL", revocationURL); err != nil {
+func NewRevoker(revocationURL, clientID, clientSecret string, opts ...RevokerOption) (*Revoker, error) {
+	o := newRevokerOptions(opts...)
+	if err := validateEndpoint("revocation URL", revocationURL, o.insecureHTTP); err != nil {
 		return nil, err
 	}
 	return &Revoker{
@@ -55,7 +55,7 @@ func NewRevoker(revocationURL, clientID, clientSecret string, opts ...Option) (*
 		clientSecret:  clientSecret,
 		authStyle:     o.authStyle,
 		clientAuth:    o.clientAuth,
-		client:        o.client(),
+		client:        endpointClient(o.httpClient, o.insecureHTTP),
 	}, nil
 }
 

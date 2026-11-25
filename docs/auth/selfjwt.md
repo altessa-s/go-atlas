@@ -86,8 +86,8 @@ graph TB
     V --> MET
 ```
 
-`Minter` and `Verifier` are independent: a process can do one, the other, or both. They share only the `KeyProvider` contract and the
-options struct.
+`Minter` and `Verifier` are independent: `Minter` depends only on `SigningKeyProvider` (`MinterOption`), `Verifier` depends only on
+`VerificationKeyProvider` (`VerifierOption`), and `New` pairs both over `KeyProvider` (`PairOption`).
 
 ### Mint Flow
 
@@ -134,14 +134,14 @@ requests for an uncached subject cannot stampede the provider.
 |---------------------------------|------------------------------------------------------------------|
 | `minter.go`                     | `Minter`, `MintRequest`, `MintResult`, `jti` generation          |
 | `verifier.go`                   | `Verifier`, parse → resolve key → verify, singleflight on misses |
-| `keys.go`                       | `KeyProvider` (uses `auth/jwt` key types)                   |
+| `keys.go`                            | `SigningKeyProvider`, `VerificationKeyProvider`, `KeyProvider`   |
 | `token.go`                      | `Token` (verified result) and the internal claim set             |
 | `algorithm.go`                  | The default allow-list (uses `auth/jwt` algorithms)     |
 | `cache.go`                      | `keyCache` — per-`(subject, kid)` TTL cache with a size cap      |
 | `clock.go`                      | `Clock` seam (system UTC in production, injectable in tests)     |
 | `metrics.go`                    | `Metrics` (mint/verify counters, latency, cache hit/miss)        |
 | `errors.go`                     | Sentinel errors                                                  |
-| `options.go` / `options_gen.go` | Functional options                                               |
+| `options.go` / `*_options_gen.go`    | Functional options (`minter_options_gen.go`, `verifier_options_gen.go`, `pair_options_gen.go`) |
 
 ## Quick Start
 
@@ -174,21 +174,31 @@ default:
 
 ## The KeyProvider Seam
 
-`KeyProvider` is the single seam between `selfjwt` and a caller's key storage. The package never sees the underlying key format (a seed,
-a PEM blob, a KMS handle); the provider returns ready `crypto` keys.
+`SigningKeyProvider`, `VerificationKeyProvider`, and their composite `KeyProvider` form the seam between `selfjwt` and a caller's key storage. The
+package never sees the underlying key format (a seed, a PEM blob, a KMS handle); providers return ready `crypto` keys.
 
 ```go
-type KeyProvider interface {
+// SigningKeyProvider supplies signing keys for minting tokens.
+type SigningKeyProvider interface {
     // SigningKey returns the subject's current signing material.
     // Return ErrSubjectUnknown when the subject has no keys.
     SigningKey(ctx context.Context, subject string) (jwt.SigningKey, error)
+}
 
+// VerificationKeyProvider resolves verification keys for verifying tokens.
+type VerificationKeyProvider interface {
     // VerificationKey resolves a token's kid to the subject's public key,
     // accepting the current key and any retired-but-valid key still inside
     // the rotation overlap window.
     // Return ErrSubjectUnknown when the subject is unknown,
     // ErrKeyRotated when the subject is known but the kid is not.
     VerificationKey(ctx context.Context, subject, kid string) (jwt.VerificationKey, error)
+}
+
+// KeyProvider combines signing and verification key resolution.
+type KeyProvider interface {
+    SigningKeyProvider
+    VerificationKeyProvider
 }
 ```
 
@@ -225,29 +235,30 @@ The issuer and audience are required positional arguments of `NewMinter`, `NewVe
 verifier rejects any other value, and an empty one fails `Mint` / `Verify` with `ErrIssuerRequired` / `ErrAudienceRequired`. Pass the same pair on
 both sides; services that share a key provider but use different pairs cannot replay each other's tokens.
 
-All other tunables are functional options applied to both `NewMinter` and `NewVerifier`. Defaults are exported `Default*` constants.
+Use `MinterOption` with `NewMinter` and `VerifierOption` with `NewVerifier`. For `New`, each setting has a `WithPair…` setter, such as
+`WithPairClock` or `WithPairCacheTTL`. A single pair clock applies to both roles.
 
-| Option                     | Default                            | Applies to    | Description                                                                                                      |
-|----------------------------|------------------------------------|---------------|------------------------------------------------------------------------------------------------------------------|
-| `WithMaxTokenLifetime`     | 30 days                            | mint          | Ceiling a requested TTL is clamped to; a non-positive TTL uses the maximum                                       |
-| `WithLeeway`               | 30s (`DefaultLeeway`)              | verify        | Leeway applied to `exp` / `nbf` to tolerate clock drift between minter and verifier; clamped to `jwt.MaxLeeway` (5m) |
-| `WithCacheTTL`             | 5m                                 | verify        | How long a resolved verification key is cached before reload                                                     |
-| `WithCacheMaxEntries`      | 10000                              | verify        | Hard cap on cached verification keys; non-positive disables the cap                                              |
-| `WithKeyLookupTimeout`     | 10s                                | verify        | Deadline for a shared key-provider lookup on a cache miss                                                        |
-| `WithNegativeCacheTTL`     | 30s (`DefaultNegativeCacheTTL`)    | verify        | How long a provider `ErrSubjectUnknown` / `ErrKeyRotated` is cached; `0` disables it                             |
-| `WithMaxConcurrentLookups` | 64 (`DefaultMaxConcurrentLookups`) | verify        | Distinct key-provider lookups in flight; a new one beyond it fails fast with `singleflight.ErrOverloaded`        |
-| `WithAllowedAlgorithms`    | `EdDSA, ES256, RS256`              | mint + verify | Replaces the asymmetric-only allow-list; an empty call is ignored                                                |
-| `WithMetrics`              | nil (no-op)                        | mint + verify | Attaches a `*Metrics` for counters and latency                                                                   |
-| `WithRevocation`           | nil (unchecked)                    | verify        | `jwt.RevocationChecker` rejecting a verified token whose `jti` is revoked (`jwt.ErrTokenRevoked`)                |
-| `WithClock`                | system UTC                         | mint + verify | Injectable clock for deterministic tests                                                                         |
-| `WithRand`                 | `crypto/rand`                      | mint          | Injectable randomness for the `jti`                                                                              |
+| Option                                                          | Default                            | Applies to    | Description                                                                                                          |
+| --------------------------------------------------------------- | ---------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `WithMaxTokenLifetime`                                          | 30 days                            | mint          | Ceiling a requested TTL is clamped to; a non-positive TTL uses the maximum                                           |
+| `WithLeeway`                                                    | 30s (`DefaultLeeway`)              | verify        | Leeway applied to `exp` / `nbf` to tolerate clock drift between minter and verifier; clamped to `jwt.MaxLeeway` (5m) |
+| `WithCacheTTL`                                                  | 5m                                 | verify        | How long a resolved verification key is cached before reload                                                         |
+| `WithCacheMaxEntries`                                           | 10000                              | verify        | Hard cap on cached verification keys; non-positive disables the cap                                                  |
+| `WithKeyLookupTimeout`                                          | 10s                                | verify        | Deadline for a shared key-provider lookup on a cache miss                                                            |
+| `WithNegativeCacheTTL`                                          | 30s (`DefaultNegativeCacheTTL`)    | verify        | How long a provider `ErrSubjectUnknown` / `ErrKeyRotated` is cached; `0` disables it                                 |
+| `WithMaxConcurrentLookups`                                      | 64 (`DefaultMaxConcurrentLookups`) | verify        | Distinct key-provider lookups in flight; a new one beyond it fails fast with `singleflight.ErrOverloaded`            |
+| `WithMinterAllowedAlgorithms` / `WithVerifierAllowedAlgorithms` | `EdDSA, ES256, RS256`              | mint + verify | Replaces the asymmetric-only allow-list; an empty call is ignored                                                    |
+| `WithMinterMetrics` / `WithVerifierMetrics`                     | nil (no-op)                        | mint + verify | Attaches a `*Metrics` for counters and latency                                                                       |
+| `WithRevocation`                                                | nil (unchecked)                    | verify        | `jwt.RevocationChecker` rejecting a verified token whose `jti` is revoked (`jwt.ErrTokenRevoked`)                    |
+| `WithMinterClock` / `WithVerifierClock`                         | system UTC                         | mint + verify | Injectable clock for deterministic tests                                                                             |
+| `WithRand`                                                      | `crypto/rand`                      | mint          | Injectable randomness for the `jti`                                                                                  |
 
 ## Go API
 
 ### Minter
 
 ```go
-func NewMinter(src KeyProvider, issuer, audience string, opts ...Option) *Minter
+func NewMinter(src SigningKeyProvider, issuer, audience string, opts ...MinterOption) *Minter
 func (m *Minter) Mint(ctx context.Context, req MintRequest) (MintResult, error)
 
 type MintRequest struct {
@@ -265,12 +276,12 @@ type MintResult struct {
 
 `Mint` returns `ErrSubjectRequired` for an empty `Subject`, `ErrIssuerRequired` / `ErrAudienceRequired` for an empty issuer / audience,
 `ErrSigningKeyInvalid` when the provider hands back signing material with an empty `KeyID`, and `ErrAlgorithmNotAllowed` when the signing key names an
-algorithm outside the `WithAllowedAlgorithms` allow-list or not registered with golang-jwt.
+algorithm outside the `WithMinterAllowedAlgorithms` allow-list or not registered with golang-jwt.
 
 ### Verifier
 
 ```go
-func NewVerifier(src KeyProvider, issuer, audience string, opts ...Option) *Verifier
+func NewVerifier(src VerificationKeyProvider, issuer, audience string, opts ...VerifierOption) *Verifier
 func (v *Verifier) Verify(ctx context.Context, raw string) (*Token, error)
 ```
 
@@ -304,7 +315,7 @@ caller's concern and is built on top of this.
 
 `jwt.DefaultAllowedAlgorithms()` returns a copy of the verifier's fail-closed default allow-list: `EdDSA`, `ES256`, `RS256`. To support an
 algorithm not registered out of the box, register a signing method with golang-jwt via `jwt.RegisterSigningMethod`, then pass it through
-`WithAllowedAlgorithms`.
+`WithVerifierAllowedAlgorithms`.
 
 ## Security Model
 
@@ -315,8 +326,8 @@ Verification is fail-closed:
   secret can never be confused with a public key.
 - **Each key is bound to one algorithm.** A `jwt.VerificationKey` must set its `Algorithm` field to the algorithm it verifies; the verifier rejects a token whose
   algorithm is empty or does not match the resolved key's algorithm, so a key can never be coerced into verifying a different scheme.
-- **`exp` is mandatory.** Tokens without an expiry are rejected; temporal claims (`exp` / `nbf`) are validated with the configured
-  clock-skew leeway.
+- **`exp` is mandatory.** Tokens without an expiry are rejected, `"exp": 0` is treated as expired, and temporal claims (`exp` / `nbf` / `iat`) are
+  decoded as exact `json.Number` values (via `auth/jwt`) and validated with the configured clock-skew leeway.
 - **Singleflight on cache misses.** Concurrent misses for the same `(subject, kid)` collapse into one provider lookup, so an uncached
   subject cannot stampede the key store.
 
@@ -353,7 +364,7 @@ available through the chain.
 
 ## Metrics
 
-Pass a `*Metrics` via `WithMetrics` to record telemetry. A nil `*Metrics` is a valid no-op receiver, so metrics are entirely optional.
+Pass a `*Metrics` via `WithPairMetrics`, `WithMinterMetrics` or `WithVerifierMetrics` to record telemetry. Metrics are optional.
 Construct one with `NewMetrics(collector, subsystem)`; an empty subsystem falls back to `DefaultMetricsSubsystem` (`auth_selfjwt`).
 
 | Metric                                              | Type      | Labels   | Description                                     |

@@ -18,13 +18,10 @@ import (
 // on an IdP fixture.
 func newStalenessTestProvider(t *testing.T, maxStaleness time.Duration, mode JWKSFailureMode) *Provider {
 	t.Helper()
+	logger := slog.New(slog.DiscardHandler)
 	return &Provider{
-		opts: &options{
-			jwksMaxStaleness: maxStaleness,
-			jwksFailureMode:  mode,
-		},
-		logger:  slog.New(slog.DiscardHandler),
-		metrics: newOIDCMetrics(nil),
+		keys:       jwksKeySource{jwksMaxStaleness: maxStaleness, jwksFailureMode: mode, logger: logger, metrics: newOIDCMetrics(nil)},
+		revocation: revocationChecker{logger: logger},
 	}
 }
 
@@ -32,7 +29,7 @@ func newStalenessTestProvider(t *testing.T, maxStaleness time.Duration, mode JWK
 // ago, in a way that does not race with concurrent staleness reads.
 func setStaleness(t *testing.T, p *Provider, age time.Duration) {
 	t.Helper()
-	p.lastJWKSRefreshUnixNanos.Store(time.Now().Add(-age).UnixNano())
+	p.keys.lastJWKSRefresh.Store(&freshnessRecord{observedAt: time.Now().Add(-age)})
 }
 
 func TestProvider_checkJWKSStaleness_DisabledByDefault(t *testing.T) {
@@ -45,7 +42,7 @@ func TestProvider_checkJWKSStaleness_DisabledByDefault(t *testing.T) {
 	p := newStalenessTestProvider(t, 0, JWKSFailureModeEnforce)
 	setStaleness(t, p, 24*time.Hour)
 
-	require.NoError(t, p.checkJWKSStaleness(t.Context()),
+	require.NoError(t, p.keys.checkJWKSStaleness(t.Context()),
 		"max staleness == 0 must short-circuit before mode evaluation")
 }
 
@@ -55,7 +52,7 @@ func TestProvider_checkJWKSStaleness_EnforceRejectsWhenStale(t *testing.T) {
 	p := newStalenessTestProvider(t, 5*time.Minute, JWKSFailureModeEnforce)
 	setStaleness(t, p, 10*time.Minute)
 
-	err := p.checkJWKSStaleness(t.Context())
+	err := p.keys.checkJWKSStaleness(t.Context())
 	require.ErrorIs(t, err, ErrJWKSStale,
 		"enforce mode must reject validation when the staleness budget is exceeded")
 }
@@ -66,7 +63,7 @@ func TestProvider_checkJWKSStaleness_EnforceAllowsWhenFresh(t *testing.T) {
 	p := newStalenessTestProvider(t, 5*time.Minute, JWKSFailureModeEnforce)
 	setStaleness(t, p, 1*time.Minute)
 
-	require.NoError(t, p.checkJWKSStaleness(t.Context()),
+	require.NoError(t, p.keys.checkJWKSStaleness(t.Context()),
 		"enforce mode must permit validation while the cache is within budget")
 }
 
@@ -79,7 +76,7 @@ func TestProvider_checkJWKSStaleness_WarnAllowsButLogs(t *testing.T) {
 	p := newStalenessTestProvider(t, 5*time.Minute, JWKSFailureModeWarn)
 	setStaleness(t, p, 10*time.Minute)
 
-	require.NoError(t, p.checkJWKSStaleness(t.Context()),
+	require.NoError(t, p.keys.checkJWKSStaleness(t.Context()),
 		"warn mode must allow validation through even when stale")
 }
 
@@ -93,7 +90,7 @@ func TestProvider_checkJWKSStaleness_DisabledIsNoop(t *testing.T) {
 	p := newStalenessTestProvider(t, 5*time.Minute, JWKSFailureModeDisabled)
 	setStaleness(t, p, 10*time.Minute)
 
-	require.NoError(t, p.checkJWKSStaleness(t.Context()),
+	require.NoError(t, p.keys.checkJWKSStaleness(t.Context()),
 		"disabled mode must skip the check entirely")
 }
 
@@ -108,7 +105,7 @@ func TestProvider_checkJWKSStaleness_UnknownModeFallsBackToEnforce(t *testing.T)
 	p := newStalenessTestProvider(t, 5*time.Minute, JWKSFailureMode(""))
 	setStaleness(t, p, 10*time.Minute)
 
-	err := p.checkJWKSStaleness(t.Context())
+	err := p.keys.checkJWKSStaleness(t.Context())
 	require.ErrorIs(t, err, ErrJWKSStale,
 		"unknown / empty failure mode must default to enforce, not bypass the check")
 }
@@ -121,11 +118,11 @@ func TestProvider_markJWKSRefreshed_ClearsStaleness(t *testing.T) {
 	// validations are accepted under the configured budget.
 	p := newStalenessTestProvider(t, 5*time.Minute, JWKSFailureModeEnforce)
 	setStaleness(t, p, 1*time.Hour)
-	require.ErrorIs(t, p.checkJWKSStaleness(t.Context()), ErrJWKSStale,
+	require.ErrorIs(t, p.keys.checkJWKSStaleness(t.Context()), ErrJWKSStale,
 		"precondition: stale cache must currently fail")
 
-	p.markJWKSRefreshed()
-	require.NoError(t, p.checkJWKSStaleness(t.Context()),
+	p.keys.markJWKSRefreshed()
+	require.NoError(t, p.keys.checkJWKSStaleness(t.Context()),
 		"a successful refresh must reset the staleness anchor and unblock validation")
 }
 

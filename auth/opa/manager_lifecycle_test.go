@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -174,12 +175,21 @@ func TestManager_RestartUsesFreshContext(t *testing.T) {
 	for len(src.ctxs) > 0 {
 		<-src.ctxs
 	}
+	src.gated.Store(true)
 	require.NoError(t, m.StartWatching(t.Context()))
 	second := <-src.ctxs
 	require.NotEqual(t, first, second, "the restarted loop must run under its own context")
 	require.NoError(t, second.Err(), "the second loop's context must be live while watching")
-	m.StopWatching()
-	require.Error(t, second.Err())
+	stopped := make(chan struct{})
+	go func() {
+		m.StopWatching()
+		close(stopped)
+	}()
+	<-src.canceled
+	src.gated.Store(false)
+	close(src.release)
+	<-stopped
+	require.ErrorIs(t, second.Err(), context.Canceled)
 
 	for len(src.ctxs) > 0 {
 		<-src.ctxs
@@ -224,4 +234,165 @@ func TestManager_RestartStormWithClose(t *testing.T) {
 	require.False(t, m.IsWatching())
 	require.Zero(t, src.inFetch.Load())
 	require.Zero(t, src.violations.Load(), "Fetch ran after (or during) source Close")
+}
+
+func TestCloseJoinsScheduledAndManualReload(t *testing.T) {
+	t.Parallel()
+	for _, scheduled := range []bool{false, true} {
+		synctest.Test(t, func(t *testing.T) {
+			src := newGatedSource()
+			m := newGatedManager(t, src)
+			run := m.RunUpdateCycle
+			if scheduled {
+				run = m.RegisterSchedulerFunc()
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			src.gated.Store(true)
+			finished := make(chan error, 1)
+			go func() { finished <- run(ctx) }()
+			<-src.entered
+			closed := make(chan error, 1)
+			go func() { closed <- m.Close() }()
+			synctest.Wait()
+			canceled := len(src.canceled)
+			count := src.closeCalls.Load()
+			cancel()
+			close(src.release)
+			require.NoError(t, <-finished)
+			require.NoError(t, <-closed)
+			require.Equal(t, 1, canceled)
+			require.Zero(t, count)
+			require.Zero(t, src.violations.Load())
+		})
+	}
+}
+
+func TestWatchContextExitAndRestart(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		src := newGatedSource()
+		m, err := opa.NewManager(t.Context(), src, "data.t.allow", opa.WithPollInterval(time.Hour))
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		require.NoError(t, m.StartWatching(ctx))
+		cancel()
+		synctest.Wait()
+		require.False(t, m.IsWatching())
+		require.NoError(t, m.StartWatching(t.Context()))
+		require.True(t, m.IsWatching())
+		require.NoError(t, m.Close())
+		require.False(t, m.IsWatching())
+	})
+}
+
+func TestScheduledManagersIndependent(t *testing.T) {
+	t.Parallel()
+	reg := &recordingRegistrar{}
+	opts := []opa.Option{opa.WithScheduler(reg), opa.WithUpdateSchedule("@every 1m", false)}
+	first, second := newGatedSource(), newGatedSource()
+	m1, err := opa.NewManager(t.Context(), first, "data.t.allow", opts...)
+	require.NoError(t, err)
+	m2, err := opa.NewManager(t.Context(), second, "data.t", opts...)
+	require.NoError(t, err)
+	defer m2.Close()
+	require.NoError(t, m1.Close())
+	require.NotEqual(t, reg.tasks[0].ID, reg.tasks[1].ID)
+	require.False(t, m1.SchedulerCallbackAttached())
+	require.True(t, m2.SchedulerCallbackAttached())
+	require.NoError(t, reg.tasks[0].Func(t.Context()))
+	require.NoError(t, reg.tasks[1].Func(t.Context()))
+	require.EqualValues(t, 1, first.fetches.Load())
+	require.EqualValues(t, 2, second.fetches.Load())
+}
+
+func TestCloseChainedWatchers(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		src := newGatedSource()
+		m := newGatedManager(t, src)
+		sub, err := m.Watch(t.Context(), opa.WatchOptions{})
+		require.NoError(t, err)
+		src.gated.Store(true)
+		require.NoError(t, m.StartWatching(t.Context()))
+		<-src.entered
+		stopped := make(chan struct{})
+		go func() {
+			m.StopWatching()
+			close(stopped)
+		}()
+		<-src.canceled
+		require.NoError(t, m.StartWatching(t.Context()))
+		closed := make(chan error, 1)
+		go func() { closed <- m.Close() }()
+		synctest.Wait()
+		signaled := false
+		select {
+		case <-sub.Done:
+			signaled = true
+		default:
+		}
+		close(src.release)
+		<-stopped
+		require.NoError(t, <-closed)
+		require.True(t, signaled, "subscriptions must stop admitting deliveries before joining chained watchers")
+		require.False(t, m.IsWatching())
+		require.Zero(t, src.violations.Load())
+	})
+}
+
+func TestWatchBlockedDeliveryDuringClose(t *testing.T) {
+	t.Parallel()
+	for _, closeManager := range []bool{false, true} {
+		synctest.Test(t, func(t *testing.T) {
+			src := &mutableSource{bundle: adminsBundle("a")}
+			m, err := opa.NewManager(t.Context(), src, "data.t.allow")
+			require.NoError(t, err)
+			sub, err := m.Watch(t.Context(), opa.WatchOptions{BufferSize: 1, BufferOverflowPolicy: opa.OverflowPolicyBlock})
+			require.NoError(t, err)
+			update(t, m, src, "b") // Fill the subscriber so the next send must wait.
+			src.set(adminsBundle("c"), nil)
+			finished := make(chan error, 1)
+			go func() { finished <- m.RunUpdateCycle(t.Context()) }()
+			synctest.Wait()
+			require.Empty(t, finished)
+			if closeManager {
+				require.NoError(t, m.Close())
+			} else {
+				sub.Stop()
+			}
+			require.NoError(t, <-finished)
+			<-sub.Done
+			require.Len(t, sub.Events, 1)
+			<-sub.Events
+			_, ok := <-sub.Events
+			require.False(t, ok)
+			require.NoError(t, m.Close())
+		})
+	}
+}
+
+func TestWatchPreviousExitPreservesRestart(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		src := newGatedSource()
+		m := newGatedManager(t, src)
+		src.gated.Store(true)
+		require.NoError(t, m.StartWatching(t.Context()))
+		<-src.entered
+		stopped := make(chan struct{})
+		go func() { m.StopWatching(); close(stopped) }()
+		<-src.canceled
+		next, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		require.NoError(t, m.StartWatching(next))
+		src.gated.Store(false)
+		close(src.release)
+		<-stopped
+		synctest.Wait()
+		active := m.IsWatching()
+		cancel()
+		require.NoError(t, m.Close())
+		require.True(t, active, "exiting poller cleared the replacement's state")
+	})
 }

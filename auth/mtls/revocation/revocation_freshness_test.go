@@ -80,12 +80,12 @@ func TestCheckRejectsStaleGoodResponse(t *testing.T) {
 			leaf := makeLeaf(t, ca, 42, srv.URL)
 
 			closed := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailClosed))
-			require.ErrorIs(t, closed.Check(leaf), revocation.ErrStaleResponse)
-			require.ErrorIs(t, closed.Check(leaf), revocation.ErrStaleResponse)
+			require.ErrorIs(t, closed.Check(t.Context(), leaf), revocation.ErrStaleResponse)
+			require.ErrorIs(t, closed.Check(t.Context(), leaf), revocation.ErrStaleResponse)
 			require.Equal(t, int32(2), hits.Load(), "a stale response must not be cached")
 
 			open := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen))
-			require.NoError(t, open.Check(leaf), "fail-open keeps accepting an indeterminate status")
+			require.NoError(t, open.Check(t.Context(), leaf), "fail-open keeps accepting an indeterminate status")
 		})
 	}
 }
@@ -100,11 +100,11 @@ func TestCheckAcceptsGoodResponseWithinSkew(t *testing.T) {
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
 	c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailClosed))
-	require.NoError(t, c.Check(leaf))
+	require.NoError(t, c.Check(t.Context(), leaf))
 
 	strict := newChecker([]*x509.Certificate{ca.Cert},
 		revocation.WithFailMode(revocation.FailClosed), revocation.WithClockSkew(0))
-	require.ErrorIs(t, strict.Check(leaf), revocation.ErrStaleResponse)
+	require.ErrorIs(t, strict.Check(t.Context(), leaf), revocation.ErrStaleResponse)
 }
 
 func TestCheckHonorsStaleRevokedResponse(t *testing.T) {
@@ -115,7 +115,7 @@ func TestCheckHonorsStaleRevokedResponse(t *testing.T) {
 	srv := windowResponder(t, ca, ocsp.Revoked, now.Add(-2*time.Hour), now.Add(-time.Hour), &hits)
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
-	err := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen)).Check(leaf)
+	err := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen)).Check(t.Context(), leaf)
 	require.ErrorIs(t, err, coremtls.ErrRevoked)
 }
 
@@ -128,13 +128,13 @@ func TestCheckRejectsGoodResponseWithoutNextUpdatePastMaxAge(t *testing.T) {
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
 	closed := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailClosed))
-	require.ErrorIs(t, closed.Check(leaf), revocation.ErrStaleResponse)
-	require.ErrorIs(t, closed.Check(leaf), revocation.ErrStaleResponse)
+	require.ErrorIs(t, closed.Check(t.Context(), leaf), revocation.ErrStaleResponse)
+	require.ErrorIs(t, closed.Check(t.Context(), leaf), revocation.ErrStaleResponse)
 	require.Equal(t, int32(2), hits.Load(), "a stale response must not be cached")
 
 	relaxed := newChecker([]*x509.Certificate{ca.Cert},
 		revocation.WithFailMode(revocation.FailClosed), revocation.WithMaxResponseAge(3*revocation.DefaultMaxResponseAge))
-	require.NoError(t, relaxed.Check(leaf))
+	require.NoError(t, relaxed.Check(t.Context(), leaf))
 }
 
 func TestCheckCapsCacheAtMaxResponseAge(t *testing.T) {
@@ -151,15 +151,15 @@ func TestCheckCapsCacheAtMaxResponseAge(t *testing.T) {
 	c := newChecker([]*x509.Certificate{ca.Cert},
 		revocation.WithFailMode(revocation.FailClosed), revocation.WithClock(clock), revocation.WithClockSkew(0))
 
-	require.NoError(t, c.Check(leaf))
+	require.NoError(t, c.Check(t.Context(), leaf))
 	offset.Store(int64(5 * time.Minute))
-	require.NoError(t, c.Check(leaf))
+	require.NoError(t, c.Check(t.Context(), leaf))
 	require.Equal(t, int32(1), hits.Load(), "cached within the max age")
 
 	// Past thisUpdate+maxResponseAge but well inside maxTTL: the cached status
 	// must expire and the refetched (same, now too old) response is rejected.
 	offset.Store(int64(15 * time.Minute))
-	require.ErrorIs(t, c.Check(leaf), revocation.ErrStaleResponse)
+	require.ErrorIs(t, c.Check(t.Context(), leaf), revocation.ErrStaleResponse)
 	require.Equal(t, int32(2), hits.Load())
 }
 
@@ -172,11 +172,11 @@ func TestCheckMaxResponseAgeHonorsClockSkew(t *testing.T) {
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
 	c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailClosed))
-	require.NoError(t, c.Check(leaf))
+	require.NoError(t, c.Check(t.Context(), leaf))
 
 	strict := newChecker([]*x509.Certificate{ca.Cert},
 		revocation.WithFailMode(revocation.FailClosed), revocation.WithClockSkew(0))
-	require.ErrorIs(t, strict.Check(leaf), revocation.ErrStaleResponse)
+	require.ErrorIs(t, strict.Check(t.Context(), leaf), revocation.ErrStaleResponse)
 }
 
 func TestCheckCachesOldRevokedResponseWithoutNextUpdate(t *testing.T) {
@@ -187,11 +187,11 @@ func TestCheckCachesOldRevokedResponseWithoutNextUpdate(t *testing.T) {
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
 	c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen))
-	require.ErrorIs(t, c.Check(leaf), coremtls.ErrRevoked)
+	require.ErrorIs(t, c.Check(t.Context(), leaf), coremtls.ErrRevoked)
 
 	// A responder outage after the revocation must not let the certificate
 	// through under FailOpen: the revoked status stays cached.
 	srv.Close()
-	require.ErrorIs(t, c.Check(leaf), coremtls.ErrRevoked)
+	require.ErrorIs(t, c.Check(t.Context(), leaf), coremtls.ErrRevoked)
 	require.Equal(t, int32(1), hits.Load())
 }

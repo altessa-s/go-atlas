@@ -13,10 +13,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	"golang.org/x/oauth2"
 )
 
 func TestCancellationWithRetrieveErrorRedactsResponse(t *testing.T) {
@@ -35,18 +36,19 @@ func TestCancellationWithRetrieveErrorRedactsResponse(t *testing.T) {
 				return nil, errors.Join(context.DeadlineExceeded, retrieved)
 			})}
 			var logs bytes.Buffer
-			opts := []oauth2client.Option{
-				oauth2client.WithHTTPClient(client),
-				oauth2client.WithAuthStyle(oauth2.AuthStyleInHeader),
-				oauth2client.WithLogger(slog.New(slog.NewJSONHandler(&logs, nil))),
-			}
 			const endpoint = "https://idp.example/token"
 			var source oauth2.TokenSource
 			var err error
 			if grant == "refresh" {
-				source, err = oauth2client.Refresh(t.Context(), endpoint, "client", secret, "refresh", opts...)
+				source, err = oauth2client.Refresh(t.Context(), endpoint, "client", secret, "refresh",
+					oauth2client.WithRefreshHTTPClient(client),
+					oauth2client.WithRefreshLogger(slog.New(slog.NewJSONHandler(&logs, nil))),
+					oauth2client.WithRefreshAuthStyle(oauth2.AuthStyleInHeader))
 			} else {
-				source, err = oauth2client.ClientCredentials(t.Context(), endpoint, "client", secret, opts...)
+				source, err = oauth2client.ClientCredentials(t.Context(), endpoint, "client", secret,
+					oauth2client.WithClientCredentialsHTTPClient(client),
+					oauth2client.WithClientCredentialsLogger(slog.New(slog.NewJSONHandler(&logs, nil))),
+					oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader))
 			}
 			require.NoError(t, err)
 			_, err = source.Token()

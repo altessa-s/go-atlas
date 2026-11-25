@@ -40,7 +40,7 @@ func TestRetryTransportOnClientCredentials(t *testing.T) {
 		oauth2client.WithTransportBackoff(time.Millisecond, 5*time.Millisecond),
 	)}
 	src := mustClientCredentials(t, srv.URL, "svc", "sec",
-		oauth2client.WithHTTPClient(client))
+		oauth2client.WithClientCredentialsHTTPClient(client))
 
 	tok, err := src.Token()
 	require.NoError(t, err)

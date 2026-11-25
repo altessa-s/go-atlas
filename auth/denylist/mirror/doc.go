@@ -34,12 +34,12 @@
 //
 // # Usage
 //
-//	m := mirror.New(store)                 // store satisfies mirror.Source
+//	m := mirror.New(store.RawSource())
 //	if err := m.Refresh(ctx); err != nil { // prime before serving
 //	    return err
 //	}
 //	v := jwt.NewVerifier(resolver, jwt.WithRevocation(m))
 //
-//	// Keep it fresh on a schedule (core/scheduler, a ticker, …):
+//	// Keep it fresh on a schedule (go-horai, a ticker, …):
 //	_ = registrar.Register("denylist-mirror", m.Refresh)
 package mirror

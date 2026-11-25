@@ -122,6 +122,29 @@ func WithPrefix[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithReleaseManifest sets the object key relative to the configured prefix.
+// The manifest is read once per fetch. Use either this option or WithChecksums.
+func WithReleaseManifest[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.releaseManifest = transformedValue
+	}
+}
+
 // WithS3Client sets the s3Client option.
 //
 // s3Client is the S3 API client used to list and download objects.

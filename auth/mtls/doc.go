@@ -41,6 +41,8 @@
 // which matters for long-lived connections: [ExpiryValidator] re-checks the
 // validity window so a connection that outlives its certificate is rejected. A
 // revocation lookup (CRL/OCSP/denylist) is a caller-supplied [CertValidator].
+// Validators receive the authentication context. Errors implementing [AuditReasoner]
+// can supply a stable audit reason for custom failures.
 // [SubjectValidator] and [IssuerValidator] pin every populated DN field and
 // Names/ExtraNames string attribute. Unsupported attribute values fail closed
 // with [ErrUnsupportedDNAttribute].

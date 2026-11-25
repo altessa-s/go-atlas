@@ -10,4 +10,6 @@
 //
 //	m := checksum.New(expected)
 //	err := m.Verify(path, content, errMismatch, errUnexpected)
+//
+// DecodeRelease reads a flat file map or a release pointer that names a root and a file map.
 package checksum

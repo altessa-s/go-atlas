@@ -4,6 +4,7 @@
 package oidc
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -293,6 +294,15 @@ func WithRevocationFilter(v probfilter.Filter) Option {
 	}
 }
 
+// WithRevocationFilterCleanup transfers cleanup of a dedicated revocation filter
+// to NewProvider. It runs on construction failure or once during Close.
+// Omit it for a borrowed filter or storage.
+func WithRevocationFilterCleanup(v func(context.Context) error) Option {
+	return func(o *options) {
+		o.revocationFilterCleanup = v
+	}
+}
+
 // WithRevocationInitialSyncWait sets the revocationInitialSyncWait option.
 //
 // revocationInitialSyncWait bounds the initial-sync retries — see
@@ -404,28 +414,6 @@ func WithRevokedTokensCacheKeyPrefix[T interface{ string | *string }](v T) Optio
 			return
 		}
 		o.revokedTokensCacheKeyPrefix = transformedValue
-	}
-}
-
-// WithServiceConfigPath sets the serviceConfigPath option.
-func WithServiceConfigPath[T interface{ string | *string }](v T) Option {
-	return func(o *options) {
-		var value string
-		switch t := any(v).(type) {
-		case string:
-			value = t
-		case *string:
-			if t == nil {
-				return
-			}
-			value = *t
-		}
-		transformedValue := strings.TrimSpace(value)
-
-		if transformedValue == "" {
-			return
-		}
-		o.serviceConfigPath = transformedValue
 	}
 }
 

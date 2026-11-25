@@ -19,6 +19,11 @@
 //	defer provider.Close()
 //	claims, _ := provider.ValidateToken(ctx, token)
 //
+// JSON service policies are loaded by factory/auth/oidc.LoadServiceConfigOptions
+// and passed to NewProvider as resolved options. A validation policy can bound
+// the exact exp - iat interval with [WithValidationMinTokenLifetime] and
+// [WithValidationMaxTokenLifetime]. Both bounds apply on signature-cache hits.
+//
 // # Typed claims
 //
 // [NewValidator] wraps a [TokenVerifier] (typically the [*Provider]) and
@@ -36,12 +41,17 @@
 // mode. WithDiscoveryAllowLoopbackHTTP permits same-origin HTTP loopback redirects.
 // JWKS fetches are bounded to 1 MiB and 100 keys; failed refreshes retain old keys.
 //
+// A verification key must permit signing use and, when key_ops is present,
+// include verify. Signed UserInfo responses enforce the JWKS freshness policy.
+// Introspection responses require an explicit boolean active before caching.
+//
 // # Lifecycle
 //
 // The context passed to NewProvider bounds construction only. The refresh cron
 // (WithJWKSRefreshSchedule, WithRevocationSyncSchedule) keeps its values but
 // outlives its cancellation, so every provider must be closed: only
-// [Provider.Close] stops the background work.
+// [Provider.Close] stops and joins revocation recovery, releases the health
+// registration and runs any dedicated filter cleanup.
 //
 // # Revocation freshness
 //
@@ -62,5 +72,6 @@
 //
 // A WithTokenCache hit reuses signature-verified claims without re-verifying the
 // signature, so write access to the Cacher is write access to identities. Use a
-// cache only this service can write.
+// cache only this service can write. Signature entries preserve registered dates as
+// exact JSON numbers. CEL expressions see the same dates as doubles.
 package oidc

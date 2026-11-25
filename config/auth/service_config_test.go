@@ -2,49 +2,16 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package oidc
+package authconfig
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/auth/oidc/rules"
 )
-
-// applyValidationOptionsToVerifier replays a slice of ValidationOption onto
-// a fresh verifierOptions so tests can assert which JWT-library knobs the
-// service config actually flipped. Mirrors the runtime path in
-// ValidateTokenWithOptions where the validator clones+applies the options.
-func applyValidationOptionsToVerifier(opts []ValidationOption) *verifierOptions {
-	v := &verifierOptions{}
-	for _, opt := range opts {
-		opt(v)
-	}
-	return v
-}
-
-func TestValidationRulesConfig_VerifyNotBefore_NilOmitsRequirement(t *testing.T) {
-	t.Parallel()
-
-	cfg := &ValidationRulesConfig{} // VerifyNotBefore nil
-	opts, err := cfg.ToValidationOptions()
-	require.NoError(t, err)
-
-	v := applyValidationOptionsToVerifier(opts)
-	require.False(t, v.notBeforeRequired)
-}
-
-func TestValidationRulesConfig_VerifyNotBefore_TrueRequiresNbf(t *testing.T) {
-	t.Parallel()
-
-	enabled := true
-	cfg := &ValidationRulesConfig{VerifyNotBefore: &enabled}
-	opts, err := cfg.ToValidationOptions()
-	require.NoError(t, err)
-
-	v := applyValidationOptionsToVerifier(opts)
-	require.True(t, v.notBeforeRequired,
-		"verify_not_before: true must propagate to WithValidationNotBeforeRequired")
-}
 
 func TestValidateServiceConfig_RejectsExplicitFalseVerifyNotBefore(t *testing.T) {
 	t.Parallel()
@@ -58,7 +25,7 @@ func TestValidateServiceConfig_RejectsExplicitFalseVerifyNotBefore(t *testing.T)
 	}
 
 	err := ValidateServiceConfig(cfg)
-	require.ErrorIs(t, err, ErrInvalidConfig,
+	require.ErrorIs(t, err, rules.ErrInvalidConfig,
 		"explicit verify_not_before: false must be rejected — the validator has no per-claim opt-out")
 	require.Contains(t, err.Error(), "default_validation.verify_not_before")
 }
@@ -83,7 +50,7 @@ func TestValidateServiceConfig_RejectsFalseInsidePresetValidation(t *testing.T) 
 	}
 
 	err := ValidateServiceConfig(cfg)
-	require.ErrorIs(t, err, ErrInvalidConfig)
+	require.ErrorIs(t, err, rules.ErrInvalidConfig)
 	require.Contains(t, err.Error(), "presets[0].validation.verify_not_before",
 		"error must locate the misconfiguration inside the preset, not just blame default_validation")
 }
@@ -118,6 +85,55 @@ func TestParseServiceConfig_RejectsFalseVerifyNotBeforeJSON(t *testing.T) {
 	}`)
 
 	_, err := ParseServiceConfig(json)
-	require.ErrorIs(t, err, ErrInvalidConfig,
+	require.ErrorIs(t, err, rules.ErrInvalidConfig,
 		"ParseServiceConfig must refuse verify_not_before: false at load time, not silently strip it")
+}
+
+func TestValidateServiceConfig_RejectsLeewayAboveMax(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ServiceConfig{
+		Version:           SupportedConfigVersion,
+		DefaultValidation: &ValidationRulesConfig{Leeway: "24h"},
+	}
+	require.ErrorIs(t, ValidateServiceConfig(cfg), rules.ErrInvalidConfig)
+
+	cfg.DefaultValidation.Leeway = "5m"
+	require.NoError(t, ValidateServiceConfig(cfg))
+}
+
+func TestParseExactServiceConfig(t *testing.T) {
+	t.Parallel()
+	const config = `{"version":"1.0","default_validation":{"expected_claims":{"iat":1750000000.000000001}}}`
+	cfg, err := ParseServiceConfig([]byte(config + " \r\n\t"))
+	require.NoError(t, err)
+	require.Equal(t, json.Number("1750000000.000000001"), cfg.DefaultValidation.ExpectedClaims["iat"])
+	for _, suffix := range []string{"{}", "!"} {
+		t.Run(suffix, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseServiceConfig([]byte(config + suffix))
+			require.ErrorIs(t, err, rules.ErrInvalidConfig)
+		})
+	}
+}
+
+func TestParseServiceConfigTokenLifetimeBounds(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, policy string
+		want         error
+	}{
+		{"negative minimum", `"default_validation":{"token_lifetime":{"min":"-1s"}}`, rules.ErrInvalidConfig},
+		{"minimum above maximum", `"default_validation":{"token_lifetime":{"min":"2h","max":"1h"}}`, rules.ErrInvalidConfig},
+		{"preset minimum above maximum", `"presets":[{"name":"selected","validation":{"token_lifetime":{"min":"2h","max":"1h"}}}]`, rules.ErrInvalidConfig},
+		{"minimum equals maximum", `"default_validation":{"token_lifetime":{"min":"1h","max":"1h"}}`, nil},
+		{"zero minimum", `"default_validation":{"token_lifetime":{"min":"0s","max":"1h"}}`, nil},
+		{"zero maximum", `"default_validation":{"token_lifetime":{"min":"1h","max":"0s"}}`, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseServiceConfig([]byte(`{"version":"1.0",` + tc.policy + `}`))
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
 }

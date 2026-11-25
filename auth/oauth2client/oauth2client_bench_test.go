@@ -54,7 +54,7 @@ func benchJWTBearer(b *testing.B) *JWTBearer {
 	}))
 	b.Cleanup(srv.Close)
 	key := jwt.SigningKey{KeyID: "k", Algorithm: jwt.AlgRS256, Key: testhelpers.GenerateRSAKey(b, 2048)}
-	bearer, err := NewJWTBearer(srv.URL, "svc@example.iam", key, WithScopes("cloud-platform"))
+	bearer, err := NewJWTBearer(srv.URL, "svc@example.iam", key, WithJWTBearerScopes("cloud-platform"))
 	if err != nil {
 		b.Fatal(err)
 	}

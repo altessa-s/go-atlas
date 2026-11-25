@@ -17,7 +17,8 @@
 // # Bounding
 //
 // Entries are permanent ([Denylist.Revoke]) or expiry-bounded
-// ([Denylist.RevokeUntil]); expired entries are ignored on reads and swept by
+// ([Denylist.RevokeUntil]). Repeated revocations retain the latest expiry,
+// including permanent bans. Expired entries are ignored on reads and swept by
 // a write at most once a minute. Unlike a cache it never evicts a live entry, which would silently
 // un-revoke a token — growth is bounded by TTL expiry, not capacity.
 //

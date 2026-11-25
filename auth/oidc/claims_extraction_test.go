@@ -133,3 +133,10 @@ func TestClaimsFromRaw_Full(t *testing.T) {
 	require.Len(t, c.Scopes, 2)
 	require.NotNil(t, c.RawClaims, "RawClaims should not be nil")
 }
+
+func TestExactOIDCDates(t *testing.T) {
+	t.Parallel()
+	c := claimsFromRaw(map[string]any{"iat": json.Number("1.75000000025e9"), "exp": json.Number("1750000001.0000000001")})
+	require.Equal(t, time.Unix(1750000000, 250000000).UTC(), c.IssuedAt)
+	require.Equal(t, time.Unix(1750000001, 1).UTC(), c.ExpiresAt)
+}

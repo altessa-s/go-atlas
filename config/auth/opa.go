@@ -7,7 +7,9 @@ package authconfig
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
@@ -184,6 +186,14 @@ func DefaultOPAGitLab() OPAGitLab {
 	}
 }
 
+func validateReleaseManifest(value any) error {
+	name, _ := value.(string)
+	if name != "" && (name == "." || !fs.ValidPath(name) || strings.ContainsAny(name, "\\:\x00") || strings.TrimSpace(name) != name) {
+		return errors.New("must be a relative slash-separated manifest path")
+	}
+	return nil
+}
+
 // OPAS3 represents S3-specific configuration for the OPA policy source.
 type OPAS3 struct {
 	// Bucket is the S3 bucket name containing policy files.
@@ -192,6 +202,10 @@ type OPAS3 struct {
 
 	// Prefix is the object key prefix (directory-like path) within the bucket.
 	Prefix string `yaml:"prefix"`
+
+	// ReleaseManifest is the key of the release manifest relative to Prefix.
+	// Required unless Checksums supplies a static manifest.
+	ReleaseManifest string `yaml:"releaseManifest"`
 
 	// Region is the AWS region for the S3 bucket.
 	Region string `yaml:"region"`
@@ -231,7 +245,7 @@ type OPAS3 struct {
 	// Checksums pins the policy and data objects: object keys relative to
 	// Prefix mapped to their lower-case SHA-256 hex digests. When set, every
 	// fetched object must match its entry and every entry must be fetched.
-	// Empty disables verification.
+	// Use either Checksums or ReleaseManifest.
 	Checksums map[string]string `yaml:"checksums"`
 }
 
@@ -239,6 +253,10 @@ type OPAS3 struct {
 func (c *OPAS3) Validate() error {
 	return validationconfig.ValidateStruct(c,
 		validation.Field(&c.Bucket, validation.Required),
+		validation.Field(&c.ReleaseManifest,
+			validation.When(c.Checksums == nil, validation.Required),
+			validation.When(c.Checksums != nil, validation.Empty),
+			validation.By(validateReleaseManifest)),
 		validation.Field(&c.Endpoint, validators.HTTPSURL(c.AllowInsecureHTTP, false)),
 		validation.Field(&c.Proxy),
 		validation.Field(&c.SSRF),
@@ -252,8 +270,9 @@ func (c *OPAS3) Validate() error {
 // Example (filesystem source):
 //
 //	opa := &authconfig.OPA{
-//		BundlePath: "./policies",
-//		Query:      "data.authz.allow",
+//		BundlePath:      "./policies",
+//		ReleaseManifest: "release.json",
+//		Query:           "data.authz.allow",
 //	}
 //
 // Example (gitlab source):
@@ -276,6 +295,10 @@ type OPA struct {
 	// BundlePath is the filesystem path to the OPA policy bundle.
 	// Required when source is "filesystem".
 	BundlePath string `yaml:"bundlePath"`
+
+	// ReleaseManifest is the filesystem manifest path relative to BundlePath
+	// (or the parent directory when BundlePath names a file).
+	ReleaseManifest string `yaml:"releaseManifest"`
 
 	// GitLab contains GitLab-specific configuration.
 	// Required when source is "gitlab".
@@ -311,6 +334,7 @@ type OPA struct {
 	// UpdateSchedule is an optional cron schedule for periodic policy updates.
 	// If set, policies are reloaded according to this schedule regardless of file changes.
 	// Example: "*/5 * * * * *" for every 5 seconds, "@every 1m" for every minute.
+	// A scheduler registrar is required when WatchBundle is false.
 	// Defaults to empty (disabled).
 	UpdateSchedule string `yaml:"updateSchedule" default:""`
 
@@ -342,6 +366,9 @@ func (c *OPA) Validate() error {
 		)),
 		validation.Field(&c.BundlePath,
 			validation.When(c.Source == "" || c.Source == OPASourceFilesystem, validation.Required)),
+		validation.Field(&c.ReleaseManifest,
+			validation.When(c.BundlePath != "" && (c.Source == "" || c.Source == OPASourceFilesystem),
+				validation.Required, validation.By(validateReleaseManifest))),
 		validation.Field(&c.GitLab,
 			validation.When(c.Source == OPASourceGitLab, validation.Required)),
 		validation.Field(&c.S3,

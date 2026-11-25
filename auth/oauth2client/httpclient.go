@@ -23,7 +23,7 @@ const (
 )
 
 // DefaultHTTPTimeout bounds every request of the built-in HTTP client, used
-// when no client is injected with [WithHTTPClient].
+// when no client is injected.
 const DefaultHTTPTimeout = 30 * time.Second
 
 // defaultHTTPClient issues the requests when no client is injected. Unlike
@@ -38,21 +38,21 @@ var defaultHTTPClient = &http.Client{
 // defaultSecureHTTPClient is defaultHTTPClient behind the https-only guard.
 var defaultSecureHTTPClient = httpsOnly(defaultHTTPClient)
 
-// client returns the HTTP client every flow issues its requests with: the
-// injected one, or the built-in client. Unless [WithInsecureHTTP] is set it is
+// endpointClient returns the HTTP client every flow issues its requests with: the
+// injected one, or the built-in client. Unless the grant permits plain HTTP it is
 // wrapped so a request to a plain-http endpoint fails with
 // [ErrInsecureEndpoint] instead of sending credentials in the clear.
 //
 // An injected client is copied with its redirect policy tightened by
-// [guardRedirects], whether or not [WithInsecureHTTP] is set.
-func (o *options) client() *http.Client {
+// [guardRedirects], whether or not the grant permits plain HTTP.
+func endpointClient(client *http.Client, insecureHTTP bool) *http.Client {
 	switch {
-	case o.insecureHTTP && o.httpClient != nil:
-		return guardRedirects(o.httpClient)
-	case o.insecureHTTP:
+	case insecureHTTP && client != nil:
+		return guardRedirects(client)
+	case insecureHTTP:
 		return defaultHTTPClient
-	case o.httpClient != nil:
-		return httpsOnly(guardRedirects(o.httpClient))
+	case client != nil:
+		return httpsOnly(guardRedirects(client))
 	default:
 		return defaultSecureHTTPClient
 	}
@@ -159,8 +159,8 @@ func ValidateEndpointURL(rawURL string, allowInsecureHTTP bool) error {
 
 // validateEndpoint is [ValidateEndpointURL] for a constructor: name says
 // which of its endpoints was rejected.
-func (o *options) validateEndpoint(name, rawURL string) error {
-	if err := ValidateEndpointURL(rawURL, o.insecureHTTP); err != nil {
+func validateEndpoint(name, rawURL string, insecureHTTP bool) error {
+	if err := ValidateEndpointURL(rawURL, insecureHTTP); err != nil {
 		return coreerrs.Wrap(err, name)
 	}
 	return nil

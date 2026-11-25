@@ -23,7 +23,9 @@ Key and algorithm types come from `github.com/altessa-s/go-atlas/auth/jwt`.
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------|
 | `Minter`          | Issues a signed token for a subject, stamping the signing key's id into the `kid` header                                           |
 | `Verifier`        | Validates a token fail-closed and returns the verified `Token`; `InvalidateKey` / `InvalidateSubject` drop cached keys on rotation |
-| `KeyProvider`     | The single seam to a caller's key storage: resolves signing and verification keys                                                  |
+| `SigningKeyProvider`      | Resolves the signing key for `NewMinter`                                                                                           |
+| `VerificationKeyProvider` | Resolves a verification key by subject and key ID for `NewVerifier`                                                                |
+| `KeyProvider`             | Both key capabilities accepted by `New`                                                                                            |
 | `jwt.SigningKey`      | A subject's current signing material: private key, algorithm, and non-empty key id                                                 |
 | `jwt.VerificationKey` | A subject's public key for a `kid`, bound to the algorithm it verifies                                                             |
 | `Token`           | The verified result: subject, jti, scopes, expiry; `Principal()` converts it to a `principal.Principal`                            |
@@ -32,20 +34,23 @@ Key and algorithm types come from `github.com/altessa-s/go-atlas/auth/jwt`.
 
 ## Options
 
-| Option                     | Default           | Description                                                                                               |
-|----------------------------|-------------------|-----------------------------------------------------------------------------------------------------------|
-| `WithMaxTokenLifetime`     | 30 days           | Ceiling a requested TTL is clamped to                                                                     |
-| `WithLeeway`               | 30s               | Leeway applied to `exp` / `nbf` to tolerate clock drift; clamped to `jwt.MaxLeeway` (5m)                      |
-| `WithCacheTTL`             | 5m                | How long a resolved verification key is cached before reload                                              |
-| `WithCacheMaxEntries`      | 10000             | Hard cap on cached verification keys, bounding memory under subject churn                                 |
-| `WithKeyLookupTimeout`     | 10s               | Deadline for a shared key-provider lookup on a cache miss (must be > 0)                                   |
-| `WithNegativeCacheTTL`     | 30s               | How long `ErrSubjectUnknown` / `ErrKeyRotated` from the provider is cached; `0` disables                  |
-| `WithMaxConcurrentLookups` | 64                | Distinct key-provider lookups in flight; a new one beyond it fails fast with `singleflight.ErrOverloaded` |
-| `WithAllowedAlgorithms`    | EdDSA,ES256,RS256 | Replaces the verifier's asymmetric-only allow-list (HMAC excluded)                                        |
-| `WithMetrics`              | nil (no-op)       | Attach a `*Metrics` for mint/verify counters and latency                                                  |
-| `WithRevocation`           | none              | `jwt.RevocationChecker` consulted with the token's `jti` on verify                                        |
-| `WithClock`                | system UTC        | Injectable clock (tests)                                                                                  |
-| `WithRand`                 | `crypto/rand`     | Injectable randomness source for the jti (tests)                                                          |
+Use `MinterOption` with `NewMinter` and `VerifierOption` with `NewVerifier`. For `New`, each setting has a `WithPair…` setter, such as
+`WithPairClock` or `WithPairCacheTTL`. A single pair clock applies to both roles.
+
+| Option                                                          | Default           | Description                                                                                               |
+| --------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
+| `WithMaxTokenLifetime`                                          | 30 days           | Ceiling a requested TTL is clamped to                                                                     |
+| `WithLeeway`                                                    | 30s               | Leeway applied to `exp` / `nbf` to tolerate clock drift; clamped to `jwt.MaxLeeway` (5m)                  |
+| `WithCacheTTL`                                                  | 5m                | How long a resolved verification key is cached before reload                                              |
+| `WithCacheMaxEntries`                                           | 10000             | Hard cap on cached verification keys, bounding memory under subject churn                                 |
+| `WithKeyLookupTimeout`                                          | 10s               | Deadline for a shared key-provider lookup on a cache miss (must be > 0)                                   |
+| `WithNegativeCacheTTL`                                          | 30s               | How long `ErrSubjectUnknown` / `ErrKeyRotated` from the provider is cached; `0` disables                  |
+| `WithMaxConcurrentLookups`                                      | 64                | Distinct key-provider lookups in flight; a new one beyond it fails fast with `singleflight.ErrOverloaded` |
+| `WithMinterAllowedAlgorithms` / `WithVerifierAllowedAlgorithms` | EdDSA,ES256,RS256 | Replaces the role's asymmetric-only allow-list (HMAC excluded)                                            |
+| `WithMinterMetrics` / `WithVerifierMetrics`                     | nil (no-op)       | Attach a `*Metrics` for mint/verify counters and latency                                                  |
+| `WithRevocation`                                                | none              | `jwt.RevocationChecker` consulted with the token's `jti` on verify                                        |
+| `WithMinterClock` / `WithVerifierClock`                         | system UTC        | Injectable clock (tests)                                                                                  |
+| `WithRand`                                                      | `crypto/rand`     | Injectable randomness source for the jti (tests)                                                          |
 
 ## Security
 
@@ -55,7 +60,8 @@ Verification is fail-closed:
   asymmetric only (`EdDSA`, `ES256`, `RS256`); HMAC is intentionally excluded so a symmetric secret can never be confused with a public key.
 - Each `jwt.VerificationKey` must set its `Algorithm` field to the algorithm it verifies; the verifier rejects a token whose algorithm is empty or mismatched, binding every key
   to a single scheme.
-- An `exp` claim is mandatory, and temporal claims (`exp` / `nbf`) are validated with the configured clock-skew leeway.
+- An `exp` claim is mandatory. Verification compares exact dates with the configured leeway. `Token.Expiry` rounds up to a nanosecond for use with
+  `denylist.RevokeUntil`. Include the verifier's leeway in that deadline.
 - The `issuer` and `audience` arguments of `NewMinter` / `NewVerifier` are required: the minter writes them as `iss` / `aud`, the verifier rejects
   any other value, and an empty one fails `Mint` / `Verify` with `ErrIssuerRequired` / `ErrAudienceRequired`. Services that share a `KeyProvider`
   therefore cannot replay each other's tokens.

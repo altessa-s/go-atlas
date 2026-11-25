@@ -21,12 +21,12 @@ func BenchmarkCheckCached(b *testing.B) {
 	leaf := makeLeaf(b, ca, 42, srv.URL)
 
 	c := newChecker([]*x509.Certificate{ca.Cert})
-	if err := c.Check(leaf); err != nil { // prime cache
+	if err := c.Check(b.Context(), leaf); err != nil { // prime cache
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		if err := c.Check(leaf); err != nil {
+		if err := c.Check(b.Context(), leaf); err != nil {
 			b.Fatal(err)
 		}
 	}

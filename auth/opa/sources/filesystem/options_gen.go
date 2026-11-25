@@ -72,6 +72,29 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithReleaseManifest sets the path relative to the bundle directory (or the single policy file's parent).
+// The manifest is read once per fetch. Use either this option or WithChecksums.
+func WithReleaseManifest[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.releaseManifest = transformedValue
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{

@@ -19,6 +19,15 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
+type discoveryClient struct {
+	discoveryURL               string
+	client                     *http.Client
+	info                       *discoveryInfo
+	logger                     *slog.Logger
+	discoveryValidationMode    DiscoveryValidationMode
+	discoveryAllowLoopbackHTTP bool
+}
+
 type discoveryInfo struct {
 	Issuer           string   `json:"issuer"`
 	AuthURL          string   `json:"authorization_endpoint"`
@@ -44,7 +53,7 @@ func (d *discoveryInfo) IsValid() bool {
 		len(d.Algorithms) > 0
 }
 
-func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
+func (p *discoveryClient) getDiscoveryInfo(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.discoveryURL, nil)
 	if err != nil {
 		return err
@@ -92,7 +101,7 @@ func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
 		return err
 	}
 
-	p.discoveryInfo = &dInfo
+	p.info = &dInfo
 
 	return nil
 }
@@ -122,10 +131,8 @@ func deriveExpectedIssuer(discoveryURL string) string {
 // [WithDiscoveryAllowLoopbackHTTP]. In [DiscoveryValidationModeWarn] violations are logged and
 // the document is accepted; in [DiscoveryValidationModeDisabled] the check is
 // skipped entirely.
-func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
-	// A Provider built without options (only reachable in white-box tests;
-	// NewProvider always populates opts) has no configured mode — skip.
-	if p.opts == nil || p.opts.discoveryValidationMode == DiscoveryValidationModeDisabled {
+func (p *discoveryClient) validateDiscoveredEndpoints(d *discoveryInfo) error {
+	if p.discoveryValidationMode == DiscoveryValidationModeDisabled {
 		return nil
 	}
 
@@ -141,7 +148,7 @@ func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
 	allowHTTP := false
 	if u, err := url.Parse(expectedIssuer); err == nil {
 		issuerHost = u.Host
-		allowHTTP = p.opts.discoveryAllowLoopbackHTTP && isLoopbackHost(u.Hostname())
+		allowHTTP = p.discoveryAllowLoopbackHTTP && isLoopbackHost(u.Hostname())
 		if u.Scheme != "https" && (u.Scheme != "http" || !allowHTTP) {
 			violations = append(violations, fmt.Sprintf("issuer %q is not HTTPS", expectedIssuer))
 		}
@@ -179,7 +186,7 @@ func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
 		return nil
 	}
 
-	if p.opts.discoveryValidationMode == DiscoveryValidationModeWarn {
+	if p.discoveryValidationMode == DiscoveryValidationModeWarn {
 		p.logger.Error("discovery document failed issuer/endpoint validation; loading anyway (warn mode)",
 			slog.String("discovery_url", p.discoveryURL),
 			slog.Any("violations", violations))

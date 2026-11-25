@@ -195,9 +195,9 @@ func TestProviderRedirectPolicy(t *testing.T) {
 	caller := &http.Client{}
 	p, err := newRedirectTestProvider(t, idp.discoveryURL(), WithHTTPClient(caller))
 	require.NoError(t, err)
-	require.NotSame(t, caller, p.client)
+	require.NotSame(t, caller, p.discovery.client)
 	require.Nil(t, caller.CheckRedirect)
-	require.NotNil(t, p.client.CheckRedirect)
+	require.NotNil(t, p.discovery.client.CheckRedirect)
 
 	for _, tc := range []struct {
 		name, from, to string
@@ -218,7 +218,7 @@ func TestProviderRedirectPolicy(t *testing.T) {
 			require.NoError(t, err)
 			to, err := http.NewRequestWithContext(t.Context(), http.MethodGet, tc.to, nil)
 			require.NoError(t, err)
-			err = p.client.CheckRedirect(to, []*http.Request{from})
+			err = p.discovery.client.CheckRedirect(to, []*http.Request{from})
 			if tc.allowed {
 				require.NoError(t, err)
 			} else {
@@ -262,7 +262,7 @@ func TestProviderProtectsExplicitRevocationClient(t *testing.T) {
 	p, err := newRedirectTestProvider(t, idp.discoveryURL(), WithRevocationStorage(NewFilterRevocationStorage(noopFilter{}, loader, nil)), WithRevocationFailOpen())
 	require.NoError(t, err)
 	var got error
-	protectedLoader := p.revocationStorage.(*filterRevocationStorage).loader.(*URLRevocationLoader)
+	protectedLoader := p.revocation.storage.(*filterRevocationStorage).loader.(*URLRevocationLoader)
 	for _, err := range protectedLoader.StreamValues(t.Context()) {
 		got = err
 	}
@@ -306,9 +306,9 @@ func TestProviderDoesNotMutateSharedRevocationLoader(t *testing.T) {
 		b, err := newRedirectTestProvider(t, idp.discoveryURL(), WithRevocationStorage(storage), WithRevocationFailOpen())
 		require.NoError(t, err)
 		require.Equal(t, client, loader.Client)
-		require.NotSame(t, storage, a.revocationStorage)
-		aLoader := a.revocationStorage.(*filterRevocationStorage).loader.(*URLRevocationLoader)
-		bLoader := b.revocationStorage.(*filterRevocationStorage).loader.(*URLRevocationLoader)
+		require.NotSame(t, storage, a.revocation.storage)
+		aLoader := a.revocation.storage.(*filterRevocationStorage).loader.(*URLRevocationLoader)
+		bLoader := b.revocation.storage.(*filterRevocationStorage).loader.(*URLRevocationLoader)
 		require.NotSame(t, loader, aLoader)
 		require.NotSame(t, aLoader, bLoader)
 		require.NotSame(t, aLoader.Client, bLoader.Client)

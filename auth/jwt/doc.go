@@ -13,6 +13,10 @@
 // verify tokens without re-deriving the security policy, and so the
 // specialized packages can converge on one canonical implementation.
 //
+// Verified exp, iat, and nbf values retain their signed spelling as json.Number.
+// Verification compares their exact values to the configured clock and leeway.
+// [Claims.Expiry] rounds upward to a nanosecond for retention deadlines.
+//
 // # Key resolution seam
 //
 // Verification does not assume where keys come from. A caller supplies a
@@ -30,16 +34,16 @@
 // allow-list. The default allow-list is asymmetric only (EdDSA, ES256, RS256);
 // HMAC is intentionally excluded so a symmetric secret can never be confused
 // with a public key. Supporting a further algorithm is a matter of registering
-// a signing method with golang-jwt and adding it via [WithAllowedAlgorithms] —
+// a signing method with golang-jwt and adding it via [WithSignerAllowedAlgorithms] and [WithVerifierAllowedAlgorithms] —
 // no change to this package.
 //
 // # Usage
 //
-//	signer := jwt.NewSigner(jwt.WithIssuer("billing"))
+//	signer := jwt.NewSigner(jwt.WithSignerIssuer("billing"))
 //	claims, _ := signer.NewClaims(tenantID, time.Hour, "files:read")
 //	raw, err := signer.Sign(signingKey, claims)
 //
-//	verifier := jwt.NewVerifier(resolver, jwt.WithIssuer("billing"))
+//	verifier := jwt.NewVerifier(resolver, jwt.WithVerifierIssuer("billing"))
 //	claims, err := verifier.Verify(ctx, raw)
 //	subject := claims.Subject()
 //

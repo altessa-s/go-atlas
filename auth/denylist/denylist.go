@@ -69,7 +69,8 @@ func (d *Denylist) Revoke(key string) {
 // token's expiration plus the largest clock-skew leeway any verifier applies
 // (auth/jwt.DefaultLeeway unless configured otherwise): verifiers still accept
 // the token until exp + leeway, so an entry that ends at exp re-admits it in
-// that window. An expiry at or before now is a no-op.
+// that window. A timed revoke can extend an entry, and preserves a permanent
+// entry. An expiry at or before now is a no-op.
 func (d *Denylist) RevokeUntil(key string, expiry time.Time) {
 	if !expiry.After(d.now()) {
 		return
@@ -77,7 +78,9 @@ func (d *Denylist) RevokeUntil(key string, expiry time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.maybeSweepLocked()
-	d.entries[key] = expiry
+	if previous, ok := d.entries[key]; !ok || (!previous.IsZero() && expiry.After(previous)) {
+		d.entries[key] = expiry
+	}
 }
 
 // Restore removes key from the denylist, re-allowing it.

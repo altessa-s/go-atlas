@@ -10,17 +10,23 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"maps"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-nomos/loader"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -294,4 +300,66 @@ func TestBuildCELValidationRule_EmptyExpression(t *testing.T) {
 func TestBuildClaimsValidationOptions_Nil(t *testing.T) {
 	t.Parallel()
 	require.Nil(t, buildClaimsValidationOptions(nil))
+}
+
+func TestProviderBuilderMinimumLifetimeYAML(t *testing.T) {
+	t.Parallel()
+	idp := newCoverageIdP(t)
+	doc := fmt.Sprintf(`oidc:
+  discoveryURL: %s
+  validation:
+    minTokenLifetime: 90m
+    maxTokenLifetime: 2h
+    claims:
+      audience: [svc]
+  presets:
+    list:
+      - name: selected
+        minTokenLifetime: 30m
+        maxTokenLifetime: 2h
+        claims:
+          audience: [svc]
+    selectors:
+      - presetName: selected
+        expression: claims.sub == "selected"
+`, idp.discoveryURL())
+	for _, tc := range []struct {
+		name, old, replacement string
+		want                   error
+	}{
+		{name: "valid"},
+		{"negative default minimum", "90m", "-1s", loader.ErrValidation},
+		{"preset minimum above maximum", "30m", "3h", loader.ErrValidation},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "auth.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(strings.Replace(doc, tc.old, tc.replacement, 1)), 0o600))
+			var cfg authconfig.Config
+			_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(&cfg)
+			require.ErrorIs(t, err, tc.want)
+			if tc.want != nil {
+				return
+			}
+
+			p := idp.provider(t, New(cfg.OIDC))
+			now := time.Now()
+			for _, tc := range []struct {
+				name, subject string
+				ttl           time.Duration
+				want          error
+			}{
+				{"default rejects one hour", "user-1", time.Hour, oidc.ErrTokenInvalid},
+				{"preset accepts one hour", "selected", time.Hour, nil},
+				{"preset rejects fifteen minutes", "selected", 15 * time.Minute, oidc.ErrTokenInvalid},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+					token := idp.sign(t, map[string]any{"sub": tc.subject, "iat": now.Unix(), "exp": now.Add(tc.ttl).Unix()})
+					_, err := p.ValidateToken(t.Context(), token)
+					require.ErrorIs(t, err, tc.want)
+				})
+			}
+		})
+	}
 }

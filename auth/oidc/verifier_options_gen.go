@@ -205,6 +205,14 @@ func WithValidationMaxTokenLifetime(v time.Duration) ValidationOption {
 	}
 }
 
+// WithValidationMinTokenLifetime sets the minimum duration between iat and exp.
+// Zero disables the minimum. A negative minimum is a configuration error.
+func WithValidationMinTokenLifetime(v time.Duration) ValidationOption {
+	return func(o *verifierOptions) {
+		o.minTokenLifetime = v
+	}
+}
+
 // WithValidationNotBeforeRequired enables the notBeforeRequired option.
 func WithValidationNotBeforeRequired() ValidationOption {
 	return func(o *verifierOptions) {

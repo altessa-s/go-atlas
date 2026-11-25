@@ -5,11 +5,14 @@
 package opa
 
 import (
+	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"time"
 
+	"github.com/open-policy-agent/opa/v1/ast"
+
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/cache/lru"
 )
 
@@ -25,21 +28,27 @@ const (
 	DefaultDecisionCacheSize = 10000
 )
 
-// decisionCache memoizes policy evaluations keyed by (policy revision, input).
-//
-// It caches the *evaluation*, not the request handling: callers still record
-// the decision with the audit recorder and still count it in metrics on a hit,
-// because an authorization decision that is served but never recorded is a hole
-// in the audit trail, not an optimization.
-// Entries are stored by value, and every hit is handed a fresh *Result:
-// [Result] has exported mutable fields, so sharing one pointer across hits
-// would let a caller enriching the value corrupt every later evaluation — the
-// same reason the evaluator never returns a shared singleton.
+// DecisionCache memoizes deterministic evaluations under opaque keys derived from
+// the query, policy revision and parsed input. Implementations must be safe for
+// concurrent use and bound their own retention. Managers may share a cache when
+// a revision identifies the same policy and data across their sources.
+type DecisionCache interface {
+	Get(key string) (Result, bool)
+	Put(key string, result Result)
+}
+
+func decisionCacheBackend(cache DecisionCache) DecisionCache {
+	if nilcheck.IsNil(cache) {
+		return nil
+	}
+	return cache
+}
+
 type decisionCache struct {
 	entries *lru.ExpirableCache[string, Result]
 }
 
-func newDecisionCache(size int, ttl time.Duration) *decisionCache {
+func newDecisionCache(size int, ttl time.Duration) DecisionCache {
 	if size <= 0 {
 		size = DefaultDecisionCacheSize
 	}
@@ -50,57 +59,69 @@ func newDecisionCache(size int, ttl time.Duration) *decisionCache {
 	return &decisionCache{entries: lru.NewExpirableCache[string, Result](size, ttl)}
 }
 
-// get returns a copy of the cached decision under key (see
-// [decisionCacheKey]).
-//
-// Denials is shared by pointer, which is safe because it is an ImmutableMap.
-func (c *decisionCache) get(key string) (*Result, bool) {
-	entry, ok := c.entries.Get(key)
+func (c *decisionCache) Get(key string) (Result, bool) {
+	return c.entries.Get(key)
+}
+
+func (c *decisionCache) Put(key string, result Result) {
+	c.entries.Put(key, result)
+}
+
+func (c *decisionCache) purge() { c.entries.Purge() }
+
+// decisionCacheKey hashes the same parsed input passed to Rego.
+func decisionCacheKey(query, revision string, input ast.Value) string {
+	encoded, ok := appendInput(nil, input)
 	if !ok {
+		return ""
+	}
+	return hex.EncodeToString(keys.Digest([]byte(query), []byte(revision), encoded))
+}
+
+// Each node has a type tag. Strings and numbers carry their byte length;
+// arrays and objects carry their element count. Object keys are in AST order.
+func appendInput(dst []byte, input ast.Value) ([]byte, bool) {
+	switch v := input.(type) {
+	case ast.Null:
+		return append(dst, '0'), true
+	case ast.Boolean:
+		if v {
+			return append(dst, 't'), true
+		}
+		return append(dst, 'f'), true
+	case ast.String:
+		return appendScalar(dst, 's', string(v)), true
+	case ast.Number:
+		return appendScalar(dst, 'n', string(v)), true
+	case *ast.Array:
+		dst = binary.AppendUvarint(append(dst, 'a'), uint64(v.Len()))
+		for i := range v.Len() {
+			var ok bool
+			dst, ok = appendInput(dst, v.Elem(i).Value)
+			if !ok {
+				return nil, false
+			}
+		}
+	case ast.Object:
+		dst = binary.AppendUvarint(append(dst, 'o'), uint64(v.Len()))
+		for _, k := range v.Keys() {
+			key, ok := k.Value.(ast.String)
+			if !ok {
+				return nil, false
+			}
+			dst = appendScalar(dst, 's', string(key))
+			dst, ok = appendInput(dst, v.Get(k).Value)
+			if !ok {
+				return nil, false
+			}
+		}
+	default:
 		return nil, false
 	}
-
-	return &entry, true
+	return dst, true
 }
 
-// put stores a decision under key (see [decisionCacheKey]).
-func (c *decisionCache) put(key string, result *Result) {
-	if result == nil {
-		return
-	}
-
-	c.entries.Put(key, *result)
-}
-
-// purge drops every entry. Called on policy reload: the revision is part of the
-// key, so stale entries are already unreachable — this only stops them from
-// occupying the cache until they age out.
-func (c *decisionCache) purge() {
-	c.entries.Purge()
-}
-
-// decisionCacheKey derives a stable key from the policy revision and the
-// evaluation input, reporting false when the input has no stable
-// representation.
-//
-// The revision is part of the key rather than merely a purge trigger: it makes
-// a decision from one policy bundle unreachable under another, so a reload
-// racing an in-flight evaluation cannot surface an answer computed from
-// policies that are no longer loaded.
-//
-// The input is hashed rather than stored: it can be arbitrarily large and often
-// carries the whole request (tokens, claims, headers), which has no business
-// sitting in memory longer than the evaluation needs it.
-//
-// Keying on the JSON encoding costs no generality: OPA marshals the input to
-// JSON to evaluate it, so an input this cannot encode was never evaluable. The
-// false return is a belt-and-braces path for encoders that disagree — the
-// evaluation then simply runs uncached.
-func decisionCacheKey(revision string, input any) (string, bool) {
-	encoded, err := json.Marshal(input)
-	if err != nil {
-		return "", false
-	}
-
-	return hex.EncodeToString(keys.Digest([]byte(revision), encoded)), true
+func appendScalar(dst []byte, tag byte, s string) []byte {
+	dst = binary.AppendUvarint(append(dst, tag), uint64(len(s)))
+	return append(dst, s...)
 }

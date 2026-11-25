@@ -64,14 +64,3 @@ func TestValidate_ExpectedClaimsTyped(t *testing.T) {
 		WithValidationAudience(testAudience), WithValidationExpectedClaims(map[string]any{"email_verified": true}))
 	require.NoError(t, err)
 }
-
-func TestValidationRulesConfig_ExpectedClaimsKeepTypes(t *testing.T) {
-	t.Parallel()
-
-	cfg := &ValidationRulesConfig{ExpectedClaims: map[string]any{"email_verified": true, "tier": float64(2)}}
-	opts, err := cfg.ToValidationOptions()
-	require.NoError(t, err)
-
-	v := applyValidationOptionsToVerifier(opts)
-	require.Equal(t, map[string]any{"email_verified": true, "tier": float64(2)}, v.expectedClaims)
-}

@@ -28,12 +28,19 @@ GitLab, S3) with hot-reloading capabilities. Modular design with pluggable polic
 | `WithDecisionLogging`   | false   | Attach unique `DecisionID` to every evaluation result       |
 | `WithWatchChannelSize`  | 10      | Watch event buffer when `WatchOptions.BufferSize` is zero   |
 | `WithPollInterval`      | 30s     | Interval between source polls for policy changes            |
+| `WithSchedulerTaskID`   | derived | ID used when registering the scheduled update task          |
 | `WithScheduler`         | nil     | Task registrar for periodic policy update cycles            |
 | `WithUpdateSchedule`    | --      | Cron expression and run-on-start flag for scheduled updates |
 | `WithHealthCoordinator` | nil     | Register manager with a `health.Registrar`                  |
 | `WithMeter`             | nil     | Metrics collector (subsystem `auth_opa`)                    |
 | `WithAuditRecorder`     | nil     | Record every evaluation decision through `DecisionRecorder` |
-| `WithDecisionCache`     | off     | Memoize evaluations by (policy revision, input) for a TTL   |
+| `WithDecisionCache`     | off     | Memoize evaluations by (query, policy revision, input) for a TTL   |
+
+A nonempty schedule requires a registrar. `NewManager` returns `ErrSchedulerRequired` if no registrar is provided.
+
+The default scheduler task ID is `opa-policy-update-` followed by the first 24 hex digits of the SHA-256 digest of the source's `Name()` and the Rego
+query. Each input is prefixed with its byte length. An empty ID uses this default. Replicas with the same source name and query register the same task.
+Managers with those same inputs sharing one registrar must set distinct IDs explicitly with `WithSchedulerTaskID` if each needs its own task.
 
 ## Decision cache
 
@@ -54,11 +61,22 @@ Three properties make it safe to leave on:
 - **Independent copies.** `Result` has exported mutable fields, so each hit is handed its own copy — a caller enriching one result cannot corrupt the
   cached decision or any concurrent evaluation.
 
-Keys are the SHA-256 of the revision and the JSON-encoded input; the input itself is never retained, since it typically carries the whole request.
-Keying on JSON costs no generality, because OPA marshals the input to JSON to evaluate it in the first place.
+Use `WithDecisionCacheBackend(cache)` to supply a concurrency-safe cache. The caller controls its retention. Shared caches require revisions that
+identify the same policy and data across sources.
 
-Whether it pays off depends on policy complexity. On an Apple M4 Pro, a single-predicate policy evaluates in ~5.4 µs uncached against ~0.7 µs for a
-cache hit; a realistic multi-field input raises the hit to ~1.8 µs, dominated by the encode-and-hash.
+Keys hash the query, revision and a length-prefixed encoding of the parsed Rego input, including the original bytes of strings. Queries that depend on
+nondeterministic builtins, such as `time.now_ns()`, and inputs without lossless keys bypass the decision cache.
+
+## Reload and shutdown
+
+The built-in sources preserve JSON numbers and reject trailing tokens. Bundle revisions hash ordered, length-prefixed module and JSON entries.
+`NewPolicyBundleWithData` returns an error if a value cannot be marshaled. Document paths use slash-separated, nonempty components. A child can extend
+an object with a new property. Duplicate properties and children beneath scalars or arrays fail the whole reload. The active revision keeps serving on
+failure, and a successful fetch of that revision clears the health error.
+
+`NewManager` takes ownership of its source on success. On construction failure the caller owns cleanup. `StartWatching(ctx)` stops when its context is
+canceled. `StartWatchingUntilClose` uses the manager lifetime. `Close` detaches scheduled callbacks and health checks, joins polling, reloads, and event
+deliveries, then closes the source.
 
 ## Auditing
 

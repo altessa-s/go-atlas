@@ -33,7 +33,7 @@ same certificate (singleflight), and rejects a revoked peer with `coremtls.ErrRe
 |-----------------------|----------------------------------------------------------------------------------------------------|
 | `New(issuers, opt…)`  | `*Checker` over the trusting issuer CA certificates.                                               |
 | `Checker.Validator()` | The checker as a `coremtls.CertValidator`.                                                         |
-| `Checker.Check(leaf)` | Check one leaf: `coremtls.ErrRevoked` when revoked; an indeterminate result follows the fail mode. |
+| `Checker.Check(ctx, leaf)` | Check one leaf: `coremtls.ErrRevoked` when revoked; an indeterminate result follows the fail mode. |
 
 Under `FailClosed` (the default) an indeterminate result returns a wrapped error — `ErrNoIssuer`, `ErrNoResponder`, `ErrResponderNotAllowed`,
 `ErrPrivateResponder`, `ErrUnauthorizedResponder`, `ErrUnknownStatus`, `ErrStaleResponse`, `ErrCrossHostRedirect`, or the network failure (match with

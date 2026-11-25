@@ -7,8 +7,10 @@ package s3_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -67,7 +70,7 @@ func (m *mockS3Client) ListObjectsV2(_ context.Context, params *awss3.ListObject
 
 	var contents []types.Object
 	for _, k := range page {
-		contents = append(contents, types.Object{Key: &k})
+		contents = append(contents, types.Object{Key: &k, ETag: new(objectETag(m.objects[k]))})
 	}
 
 	isTruncated := endIdx < len(allKeys)
@@ -93,6 +96,10 @@ func (m *mockS3Client) GetObject(_ context.Context, params *awss3.GetObjectInput
 	content, ok := m.objects[key]
 	if !ok {
 		return nil, errors.New("NoSuchKey: The specified key does not exist")
+	}
+
+	if params.IfMatch != nil && *params.IfMatch != objectETag(content) {
+		return nil, errPreconditionFailed
 	}
 
 	return &awss3.GetObjectOutput{
@@ -133,6 +140,7 @@ func TestSource_Name(t *testing.T) {
 			opts := []s3source.Option{
 				s3source.WithS3Client(&mockS3Client{objects: map[string][]byte{}}),
 				s3source.WithBucket("my-bucket"),
+				s3source.WithReleaseManifest("release.json"),
 			}
 			if tt.prefix != "" {
 				opts = append(opts, s3source.WithPrefix(tt.prefix))
@@ -160,6 +168,7 @@ func TestSource_Fetch_SingleFile(t *testing.T) {
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
+		writeRelease(t, client, "policies/", false),
 	)
 	require.NoError(t, err)
 	defer source.Close()
@@ -188,6 +197,7 @@ func TestSource_Fetch_MultipleFiles(t *testing.T) {
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
+		writeRelease(t, client, "policies/", false),
 	)
 	require.NoError(t, err)
 	defer source.Close()
@@ -215,6 +225,7 @@ func TestSource_Fetch_Empty(t *testing.T) {
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
+		writeRelease(t, client, "policies/", false),
 	)
 	require.NoError(t, err)
 	defer source.Close()
@@ -237,6 +248,7 @@ func TestSource_Fetch_Closed(t *testing.T) {
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
+		writeRelease(t, client, "policies/", false),
 	)
 	require.NoError(t, err)
 
@@ -253,7 +265,7 @@ func TestSource_Fetch_WithData(t *testing.T) {
 	client := &mockS3Client{
 		objects: map[string][]byte{
 			"policies/test.rego": []byte("package test\ndefault allow = false"),
-			"policies/data.json": []byte(`{"users": ["alice", "bob"]}`),
+			"policies/data.json": []byte(`9007199254740993`),
 		},
 	}
 
@@ -261,6 +273,7 @@ func TestSource_Fetch_WithData(t *testing.T) {
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
+		writeRelease(t, client, "policies/", true),
 		s3source.WithIncludeData(),
 	)
 	require.NoError(t, err)
@@ -273,6 +286,7 @@ func TestSource_Fetch_WithData(t *testing.T) {
 
 	_, ok := bundle.Data["data"]
 	require.True(t, ok, "bundle.Data keys = %v, missing %q", dataKeys(bundle), "data")
+	require.Equal(t, json.Number("9007199254740993"), bundle.Data["data"])
 }
 
 func TestSource_Fetch_WithDataDisabled(t *testing.T) {
@@ -289,6 +303,7 @@ func TestSource_Fetch_WithDataDisabled(t *testing.T) {
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
+		writeRelease(t, client, "policies/", false),
 		// includeData not set — .json files should be ignored
 	)
 	require.NoError(t, err)
@@ -317,6 +332,7 @@ func TestSource_Fetch_Pagination(t *testing.T) {
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("p/"),
+		writeRelease(t, client, "p/", false),
 	)
 	require.NoError(t, err)
 	defer source.Close()
@@ -338,6 +354,7 @@ func TestSource_Fetch_NoPrefix(t *testing.T) {
 	source, err := s3source.New(
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
+		writeRelease(t, client, "", false),
 	)
 	require.NoError(t, err)
 	defer source.Close()
@@ -356,6 +373,7 @@ func TestSource_Close_Idempotent(t *testing.T) {
 	source, err := s3source.New(
 		s3source.WithS3Client(&mockS3Client{objects: map[string][]byte{}}),
 		s3source.WithBucket("test-bucket"),
+		s3source.WithReleaseManifest("release.json"),
 	)
 	require.NoError(t, err)
 
@@ -381,4 +399,31 @@ func dataKeys(b *opa.PolicyBundle) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+var errPreconditionFailed = errors.New("object ETag changed")
+
+func objectETag(content []byte) string {
+	return `"` + corehash.SHA256HexBytes(content) + `"`
+}
+
+func writeRelease(t testing.TB, client *mockS3Client, prefix string, includeData bool) s3source.Option {
+	t.Helper()
+
+	const manifest = "release.json"
+	entries := make(map[string]map[string]string)
+	for key, content := range client.objects {
+		rel, ok := strings.CutPrefix(key, prefix)
+		if !ok || rel == manifest {
+			continue
+		}
+		ext := path.Ext(rel)
+		if ext == ".rego" || (includeData && ext == ".json") {
+			entries[rel] = map[string]string{"etag": objectETag(content), "sha256": corehash.SHA256HexBytes(content)}
+		}
+	}
+	payload, err := json.Marshal(entries)
+	require.NoError(t, err)
+	client.objects[prefix+manifest] = payload
+	return s3source.WithReleaseManifest(manifest)
 }

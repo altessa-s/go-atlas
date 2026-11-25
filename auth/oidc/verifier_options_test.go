@@ -17,16 +17,16 @@ import (
 func TestWithValidationLeewayAllowsZero(t *testing.T) {
 	t.Parallel()
 
-	o := applyValidationOptionsToVerifier([]ValidationOption{
-		WithValidationLeeway(30 * time.Second),
+	o := newVerifierOptions(
+		WithValidationLeeway(30*time.Second),
 		WithValidationLeeway(0),
-	})
+	)
 	require.Zero(t, o.leeway)
 
 	// A negative leeway is still rejected, leaving the prior value intact.
-	o = applyValidationOptionsToVerifier([]ValidationOption{
-		WithValidationLeeway(30 * time.Second),
+	o = newVerifierOptions(
+		WithValidationLeeway(30*time.Second),
 		WithValidationLeeway(-time.Second),
-	})
+	)
 	require.Equal(t, 30*time.Second, o.leeway)
 }

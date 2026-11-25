@@ -294,17 +294,36 @@ func scanRevocationEntries(ctx context.Context, r io.Reader, yield func(string, 
 	}
 }
 
-// FileRevocationLoader loads revoked items from a local file (one per line).
+// FileRevocationLoader loads revoked items from a regular file (one per line).
 // Surrounding whitespace is trimmed and blank lines are skipped; a line longer
 // than [MaxRevocationEntryBytes] fails the load.
 type FileRevocationLoader struct {
 	Path string
 }
 
+func (l *FileRevocationLoader) open(ctx context.Context) (*os.File, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(l.Path, os.O_RDONLY|nonblockOpenFlag, 0)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err == nil && info.Mode().IsRegular() {
+		return f, nil
+	}
+	_ = f.Close()
+	if err != nil {
+		return nil, err
+	}
+	return nil, coreerrs.Wrap(ErrRevocationLoadFailed, "revocation source must be a regular file")
+}
+
 // StreamValues implements DataLoader.
 func (l *FileRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
-		file, err := os.Open(l.Path)
+		file, err := l.open(ctx)
 		if err != nil {
 			yield("", err)
 			return
@@ -316,9 +335,8 @@ func (l *FileRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[strin
 }
 
 // Count implements DataLoader.
-func (l *FileRevocationLoader) Count(_ context.Context) (int64, error) {
-	// Simple count by reading file
-	file, err := os.Open(l.Path)
+func (l *FileRevocationLoader) Count(ctx context.Context) (int64, error) {
+	file, err := l.open(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -327,6 +345,9 @@ func (l *FileRevocationLoader) Count(_ context.Context) (int64, error) {
 	var count int64
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		count++
 	}
 	return count, scanner.Err()
@@ -372,6 +393,9 @@ func (l *URLRevocationLoader) SetHTTPClient(c *http.Client) {
 	}
 }
 
+// A failed fetch also prevents a revocation check from being completed.
+var errRevocationFetch = errors.Join(ErrRevocationLoadFailed, ErrRevocationCheck)
+
 // StreamValues implements DataLoader.
 func (l *URLRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
@@ -382,19 +406,19 @@ func (l *URLRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[string
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.URL, nil)
 		if err != nil {
-			yield("", err)
+			yield("", boundaryError("load revocations", 0, errRevocationFetch, err))
 			return
 		}
 
 		resp, err := l.Client.Do(req)
 		if err != nil {
-			yield("", err)
+			yield("", boundaryError("load revocations", 0, errRevocationFetch, err))
 			return
 		}
 		defer drainAndClose(resp)
 
 		if resp.StatusCode != http.StatusOK {
-			yield("", coreerrs.Wrapf(ErrRevocationLoadFailed, "URL revocation loader: status %d", resp.StatusCode))
+			yield("", boundaryError("load revocations", resp.StatusCode, errRevocationFetch, nil))
 			return
 		}
 
@@ -402,7 +426,12 @@ func (l *URLRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[string
 		if limit <= 0 {
 			limit = DefaultRevocationMaxResponseBytes
 		}
-		scanRevocationEntries(ctx, coreio.NewLimitedReadCloser(resp.Body, limit), yield)
+		scanRevocationEntries(ctx, coreio.NewLimitedReadCloser(resp.Body, limit), func(entry string, err error) bool {
+			if err != nil {
+				err = boundaryError("read revocations", resp.StatusCode, errRevocationFetch, err)
+			}
+			return yield(entry, err)
+		})
 	}
 }
 

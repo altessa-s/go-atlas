@@ -47,6 +47,7 @@ introspection (RFC 7662), validation presets with matchers (native and CEL-based
 | `WithIntrospectionFailOpen`       | fail-closed       | Accept a signature-valid token when introspection errors                                                          |
 | `WithRevocationStorage`           | nil               | Storage backend for token revocation checks                                                                       |
 | `WithRevocationFilter`            | nil               | Probabilistic filter wrapped in `NewFilterRevocationStorage` when no storage is set                               |
+| `WithRevocationFilterCleanup`     | nil               | Release a dedicated filter on construction failure or provider close                                              |
 | `WithRevocationLoader`            | nil               | `probfilter.DataLoader` that (re)populates the revocation filter on sync                                                     |
 | `WithRevocationItemType`          | `token`           | What revocation entries identify (`token`, `jti`, `kid`)                                                          |
 | `WithRevocationAuthoritative`     | nil               | Exact store confirming filter hits (see Revocation accuracy)                                                      |
@@ -60,12 +61,13 @@ introspection (RFC 7662), validation presets with matchers (native and CEL-based
 | `WithJWKSFailureMode`             | enforce           | Stale-JWKS handling: `enforce` (`ErrJWKSStale`), `warn`, `disabled`                                               |
 | `WithAudienceFailureMode`         | enforce           | Validation without an expected audience: `enforce` (`ErrAudienceNotConfigured`), `warn`, `disabled`               |
 | `WithRevocationSyncSchedule`      | --                | Local cron schedule for revocation sync                                                                           |
-| `WithServiceConfigPath`           | --                | Path to JSON service configuration file                                                                           |
 | `WithDiscoveryValidationMode`     | enforce           | Discovery issuer/endpoint checks: `enforce`, `warn`, `disabled`                                                   |
 | `WithDiscoveryAllowLoopbackHTTP`  | off               | Accept plain-http discovery on a loopback issuer host (local IdP); endpoints stay pinned to that host             |
 | `WithLogger`                      | discard           | Structured logger (`*slog.Logger`)                                                                                |
 | `WithMeter`                       | nil               | Metrics collector (subsystem `auth_oidc`)                                                                         |
 | `WithHealthCoordinator`           | nil               | Register the provider with a `health.Registrar`                                                                   |
+
+For a JSON service policy, pass the options returned by the [OIDC factory](../../factory/auth/oidc/#json-service-policy) to `NewProvider`.
 
 ## Discovered endpoints
 
@@ -81,6 +83,10 @@ introspection (RFC 7662), validation presets with matchers (native and CEL-based
 Each returns `""` when the IdP does not advertise the endpoint. In the default `enforce` discovery validation mode every advertised endpoint is HTTPS
 on the issuer's host, or plain http on a loopback issuer host with `WithDiscoveryAllowLoopbackHTTP`; `warn` only logs violations and `disabled` skips
 the check. The factory defaults to blocking loopback addresses. Use `oidc.ssrf` to exempt the address of an HTTPS identity provider on loopback.
+
+Introspection requires an explicit boolean `active` member. Invalid responses follow the configured introspection failure policy and leave both the
+introspection cache and revocation storage untouched. Introspection, UserInfo and URL revocation fetch failures report the operation, numeric HTTP
+status (zero before a response), and a fixed cause classification. Use `errors.Is` for cause matching.
 
 ## Revocation accuracy
 
@@ -105,22 +111,22 @@ silently disables revocation — which is why it is an explicit dependency rathe
 
 A provider that syncs on `WithRevocationSyncSchedule` also bounds how long it trusts the last successful sync. Past `WithRevocationMaxStaleness`
 (`DefaultRevocationMaxStaleness`, 3h: three periods of the default hourly schedule) a "not revoked" answer fails the check with `ErrRevocationCheck`
-wrapping `ErrRevocationStale`, unless `WithRevocationFailOpen` is set. Tokens are rejected once the revocation source has been unreachable for longer
+matching `ErrRevocationStale`, unless `WithRevocationFailOpen` is set. Tokens are rejected once the revocation source has been unreachable for longer
 than the bound. Keep the bound at several sync intervals (`NewProvider` logs a warning when the schedule is sparser than the bound), or pass zero or a
 negative value to turn it off. Without a scheduled sync the bound does not apply. A fail-open provider that started on a failed initial sync counts the
 bound from construction.
 
 Replicas sharing a Redis filter rebuild one at a time; a replica whose tick finds a peer rebuilding (`ErrRebuildInProgress`) skips it without counting
 it as a sync. The bound is checked against the newest of the provider's own last successful sync and the last rebuild committed by any replica, which
-the filter reports through `probfilter.RebuildCommitAgeReporter` (for Redis: the server time stored atomically with the commit, and its age computed
-by Redis from its own clock in the same read). The provider reads it after each scheduled sync, off the validation path, and places the commit at
-local now minus that age, once per commit: the Redis timestamp is never compared with the local clock, so a Redis clock ahead of or behind the
-replica's neither stretches nor shortens the bound, and re-reading a commit already seen refreshes nothing. A custom
-`RevocationStorage` opts in by implementing `RevocationSyncReporter`.
+the filter reports through `probfilter.RebuildCommitAgeReporter` (for Redis: the server time stored atomically with the commit, and its age computed by
+Redis from its own clock in the same read). The provider reads it after each scheduled sync, off the validation path, and records the reported age once
+per commit. Monotonic time elapsed since the read began consumes the remaining freshness budget, including time spent waiting for the reply. A custom
+storage opts in by implementing `RevocationSyncReporter`.
 
-Each scheduled sync is limited to `WithRevocationSyncTimeout` (5m). The built-in loaders trim entries, skip blank lines and fail the whole load on a
-line longer than `MaxRevocationEntryBytes` (64 KiB); `URLRevocationLoader` also caps the body at its `MaxResponseBytes`
-(`DefaultRevocationMaxResponseBytes`, 256 MiB). A failed sync always keeps the current set.
+Each scheduled sync is limited to `WithRevocationSyncTimeout` (5m). `FileRevocationLoader` accepts regular files and checks for cancellation during
+reads. The built-in loaders trim entries, skip blank lines and fail the whole load on a line longer than `MaxRevocationEntryBytes` (64 KiB);
+`URLRevocationLoader` also caps the body at its `MaxResponseBytes` (`DefaultRevocationMaxResponseBytes`, 256 MiB). A failed sync always keeps the
+current set.
 
 A source that turns up empty while the revocation set holds entries fails the sync with `ErrRevocationLoadFailed` instead of un-revoking everything.
 "Holds entries" means the last committed list was non-empty. Each rebuild records the number of entries it loaded with its commit, and the guard
@@ -143,8 +149,12 @@ safe to pass. Every provider must be closed: only `Close` stops the cron (waitin
 connections only when the client was handed over with `WithOwnedHTTPClient` (the factory does that for the client it builds); a client the caller
 keeps, possibly shared with other components, is left alone.
 
-A JWKS refresh applies the same key policy as the initial load. Only keys usable for verification (`use` of `sig` or absent — what the key resolver
-selects by; `key_ops` is not consulted) are parsed and stored; an encryption key is ignored, whatever is wrong with it. Among those, a key of an
+A storage can signal `ErrRevocationReadinessLost` on lookup to start one background recovery under the same timeout as the scheduled sync. Concurrent
+requests and cron ticks share the running sync. `Close` cancels and joins recovery, releases the provider's health registration, and runs any cleanup
+transferred with `WithRevocationFilterCleanup`.
+
+A JWKS refresh applies the same key policy as the initial load. A verification key must omit `use` or declare `sig`. If it declares `key_ops`, the list
+must include `verify`. Signed UserInfo responses use the same monotonic JWKS staleness budget as access tokens. Among eligible keys, a key of an
 unsupported type is skipped and any other invalid key fails the refresh with `ErrDiscovery`, keeping the cached keys and their freshness; so does a
 document without a verification key while a key set is in place.
 
@@ -153,6 +163,10 @@ start at once the last one waits about `(N − 1) × rebuild duration`; keep `Wi
 limited surge, otherwise the fail mode applies (fail-closed: `NewProvider` fails and the replica restarts).
 
 ## Token cache trust
+
+Signature-cache keys use `oidc-sig-v3`. On upgrade, each token is verified again and its signed date literals are stored in the new namespace.
+Registered dates retain their `json.Number` spelling on both paths. CEL receives a separate double-valued view. Numeric preset conditions and expected
+claims compare exact dates by value. A quoted preset condition requires a string claim, while a quoted numeric expected claim can match a date.
 
 `WithTokenCache` stores the claims of a signature-verified token and, on a hit, uses them without re-verifying the signature (temporal claims and the
 validation policy are still re-evaluated, and the entry is bound to the current key fingerprint). The `Cacher` is therefore part of the trust base:
@@ -192,6 +206,7 @@ for `oidc.ssrf`.
 | `WithValidationExpectedClaims`           | Claims that must match values, compared by JSON type; arrays by membership |
 | `WithValidationAllowedClientIDs`         | Allowed `client_id` or `azp` values                                        |
 | `WithValidationRequiredScopes`           | At least one of the listed scopes must be present                          |
+| `WithValidationMinTokenLifetime`         | Minimum allowed duration between `iat` and `exp`. Zero disables it.        |
 | `WithValidationMaxTokenLifetime`         | Maximum allowed duration between `iat` and `exp`                           |
 | `WithValidationCelRules`                 | CEL expressions evaluated against claims                                   |
 | `WithValidationValidMethods`             | Allowed JWT signing algorithms (default: asymmetric)                       |
@@ -202,6 +217,9 @@ for `oidc.ssrf`.
 | `WithValidationRequireAuthorizedParty`   | Require a string `azp` claim                                               |
 | `WithValidationAllowedAuthorizedParties` | Allowed `azp` values (with `WithValidationRequireAuthorizedParty`)         |
 | `WithoutValidationClaimsValidation`      | Skip the claim-policy checks (signature still verified)                    |
+
+An enabled lifetime bound requires both `exp` and `iat`. The provider compares their exact difference against the inclusive bounds on every policy
+evaluation, including signature-cache hits. A negative minimum or a minimum above an enabled maximum returns `rules.ErrInvalidConfig`.
 
 ## Matchers
 
@@ -275,5 +293,4 @@ JWKS responses are limited to 1 MiB and 100 raw keys at startup and refresh. Exc
 retains
 the previous keys and does not advance their freshness timestamp.
 
-Only signature keys verify a token: a JWK whose `use` is `sig` or absent. A key published with `use: enc` is ignored, both when a token names it by
-`kid` and when a token carries no `kid` and is tried against the set. A `kid` is not required.
+Both named-key and no-`kid` verification use the keys admitted at the last successful JWKS load.

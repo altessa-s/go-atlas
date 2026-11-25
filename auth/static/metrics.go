@@ -39,7 +39,7 @@ func NewMetrics(collector metrics.Meter, subsystem string) *Metrics {
 	if subsystem == "" {
 		subsystem = DefaultMetricsSubsystem
 	}
-	scoped := collector.WithSubsystem(subsystem)
+	scoped := metrics.MustMeter{Meter: collector.WithSubsystem(subsystem)}
 
 	return &Metrics{
 		validations: scoped.MustCounter(metrics.MetricOpts{

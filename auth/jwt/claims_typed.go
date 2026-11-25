@@ -5,10 +5,13 @@
 package jwt
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/altessa-s/go-atlas/auth/internal/numericdate"
 )
 
 // Audience is the aud claim. A JWT audience may be encoded as a single string
@@ -94,6 +97,20 @@ func VerifyInto[T any, PT interface {
 	if err != nil {
 		return nil, err
 	}
+	// The verified map belongs to this call. Normalize only the fields whose
+	// target is an omitempty int64, before handing custom fields to Decode.
+	for _, name := range [...]string{claimExpiration, claimNotBefore, claimIssuedAt} {
+		value, present := claims[name]
+		if !present {
+			continue
+		}
+		date, ok := numericdate.Parse(value)
+		seconds, integral := date.Seconds()
+		if !ok || !integral || seconds == 0 {
+			return nil, fmt.Errorf("%w: %s cannot be represented as a non-zero int64", ErrTokenInvalid, name)
+		}
+		claims[name] = seconds
+	}
 	out := PT(new(T))
 	if err := claims.Decode(out); err != nil {
 		return nil, err
@@ -122,7 +139,9 @@ func toClaims(v any) (Claims, error) {
 		return nil, fmt.Errorf("auth/jwt: encode struct claims: %w", err)
 	}
 	var c Claims
-	if err := json.Unmarshal(data, &c); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&c); err != nil {
 		return nil, fmt.Errorf("auth/jwt: decode struct claims into map: %w", err)
 	}
 	return c, nil

@@ -53,7 +53,7 @@ func FuzzNewAcceptsOnlyDirectoriesAndRegoFiles(f *testing.F) {
 			created = os.WriteFile(path, []byte("package p\n"), 0o600) == nil
 		}
 
-		source, err := filesystem.New(path)
+		source, err := filesystem.New(path, filesystem.WithReleaseManifest("release.json"))
 		if err != nil {
 			require.Nil(t, source, "a rejected path must not also produce a source")
 			return

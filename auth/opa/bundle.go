@@ -5,13 +5,16 @@
 package opa
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"iter"
 	"maps"
 	"slices"
 	"time"
+
+	"github.com/altessa-s/go-atlas-core/encoding/keys"
+
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 )
 
 // PolicyBundle represents a collection of OPA policy modules and optional data.
@@ -36,53 +39,41 @@ type PolicyBundle struct {
 // NewPolicyBundle creates a new PolicyBundle with the given modules.
 // The revision is automatically calculated from the module contents.
 func NewPolicyBundle(modules map[string][]byte) *PolicyBundle {
-	bundle := &PolicyBundle{
-		Modules:   modules,
-		FetchedAt: time.Now(),
-	}
-	bundle.Revision = bundle.calculateRevision()
+	// A module-only bundle has no JSON values to marshal.
+	bundle, _ := NewPolicyBundleWithData(modules, nil)
 	return bundle
 }
 
 // NewPolicyBundleWithData creates a new PolicyBundle with modules and data.
-// The revision is automatically calculated from the module contents.
-func NewPolicyBundleWithData(modules map[string][]byte, data map[string]any) *PolicyBundle {
+// The revision covers the modules and JSON data. Unencodable data returns an error.
+func NewPolicyBundleWithData(modules map[string][]byte, data map[string]any) (*PolicyBundle, error) {
 	bundle := &PolicyBundle{
 		Modules:   modules,
 		Data:      data,
 		FetchedAt: time.Now(),
 	}
-	bundle.Revision = bundle.calculateRevision()
-	return bundle
+	revision, err := bundle.calculateRevision()
+	if err != nil {
+		return nil, err
+	}
+	bundle.Revision = revision
+	return bundle, nil
 }
 
 // calculateRevision computes a hash of all module contents for change detection.
-func (b *PolicyBundle) calculateRevision() string {
-	h := sha256.New()
-
-	// Sort keys for deterministic ordering
-	keys := slices.Collect(maps.Keys(b.Modules))
-	slices.Sort(keys)
-
-	for _, key := range keys {
-		h.Write([]byte(key))
-		h.Write(b.Modules[key])
+func (b *PolicyBundle) calculateRevision() (string, error) {
+	parts := make([][]byte, 0, 3*(len(b.Modules)+len(b.Data)))
+	for _, key := range slices.Sorted(maps.Keys(b.Modules)) {
+		parts = append(parts, []byte("module"), []byte(key), b.Modules[key])
 	}
-
-	if len(b.Data) > 0 {
-		dataKeys := slices.Collect(maps.Keys(b.Data))
-		slices.Sort(dataKeys)
-		for _, key := range dataKeys {
-			h.Write([]byte(key))
-			if raw, err := json.Marshal(b.Data[key]); err == nil {
-				h.Write(raw)
-			} else {
-				h.Write([]byte("marshal_error:" + err.Error()))
-			}
+	for _, key := range slices.Sorted(maps.Keys(b.Data)) {
+		raw, err := json.Marshal(b.Data[key])
+		if err != nil {
+			return "", coreerrs.Wrapf(err, "marshal data %q", key)
 		}
+		parts = append(parts, []byte("json"), []byte(key), raw)
 	}
-
-	return hex.EncodeToString(h.Sum(nil))[:16]
+	return hex.EncodeToString(keys.Digest(parts...)), nil
 }
 
 // IsEmpty returns true if the bundle contains no modules.

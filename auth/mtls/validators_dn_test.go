@@ -106,8 +106,8 @@ func TestDNValidatorsCompareEveryField(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			subjErr := mtls.SubjectValidator(tc.want)(cert)
-			issErr := mtls.IssuerValidator(tc.want)(cert)
+			subjErr := mtls.SubjectValidator(tc.want)(t.Context(), cert)
+			issErr := mtls.IssuerValidator(tc.want)(t.Context(), cert)
 			if tc.match {
 				require.NoError(t, subjErr)
 				require.NoError(t, issErr)
@@ -129,9 +129,9 @@ func TestDNValidatorsRejectUncheckableAttribute(t *testing.T) {
 
 	// A configuration the matcher cannot check fails closed for every
 	// certificate, even when another candidate would match.
-	require.ErrorIs(t, mtls.SubjectValidator(unsupported)(cert), mtls.ErrUnsupportedDNAttribute)
-	require.ErrorIs(t, mtls.IssuerValidator(unsupported)(cert), mtls.ErrUnsupportedDNAttribute)
-	require.ErrorIs(t, mtls.SubjectValidator(fullDN(), unsupported)(cert), mtls.ErrUnsupportedDNAttribute)
+	require.ErrorIs(t, mtls.SubjectValidator(unsupported)(t.Context(), cert), mtls.ErrUnsupportedDNAttribute)
+	require.ErrorIs(t, mtls.IssuerValidator(unsupported)(t.Context(), cert), mtls.ErrUnsupportedDNAttribute)
+	require.ErrorIs(t, mtls.SubjectValidator(fullDN(), unsupported)(t.Context(), cert), mtls.ErrUnsupportedDNAttribute)
 }
 
 func TestDNValidatorsCopyConfiguration(t *testing.T) {
@@ -146,5 +146,5 @@ func TestDNValidatorsCopyConfiguration(t *testing.T) {
 	// Mutating the caller's slices after construction must not change policy.
 	want.Locality[0] = "Springfield"
 	want.ExtraNames[0].Value = "service"
-	require.ErrorIs(t, subject(cert), mtls.ErrSubjectMismatch)
+	require.ErrorIs(t, subject(t.Context(), cert), mtls.ErrSubjectMismatch)
 }

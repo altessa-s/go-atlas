@@ -69,7 +69,7 @@ func TestCachedKeyFingerprint(t *testing.T) {
 	edPub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 
-	p := &Provider{}
+	p := &jwksKeySource{}
 	for _, key := range []any{rsaA, rsaA, rsaB, rsaACopy, rsaA, &ecKey.PublicKey, edPub, edPub, nil} {
 		require.Equal(t, keyFingerprint(key), p.cachedKeyFingerprint(key))
 	}

@@ -77,8 +77,8 @@ func TestCheckRejectsResponseSignedByOrdinaryCertificate(t *testing.T) {
 		leaf := makeLeaf(t, ca, 42, srv.URL)
 
 		c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithMaxAttempts(3))
-		require.ErrorIs(t, c.Check(leaf), revocation.ErrUnauthorizedResponder)
-		require.ErrorIs(t, c.Check(leaf), revocation.ErrUnauthorizedResponder)
+		require.ErrorIs(t, c.Check(t.Context(), leaf), revocation.ErrUnauthorizedResponder)
+		require.ErrorIs(t, c.Check(t.Context(), leaf), revocation.ErrUnauthorizedResponder)
 		require.Equal(t, int32(2), hits.Load(), "an unauthorized response is neither retried nor cached")
 	}
 }
@@ -92,7 +92,7 @@ func TestCheckRejectsResponseSignedByAnyEKUCertificate(t *testing.T) {
 	srv := delegatedResponder(t, ca, anyEKU, ocsp.Good, &hits)
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
-	err := newChecker([]*x509.Certificate{ca.Cert}).Check(leaf)
+	err := newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf)
 	require.ErrorIs(t, err, revocation.ErrUnauthorizedResponder)
 }
 
@@ -107,8 +107,8 @@ func TestCheckAcceptsDelegatedResponder(t *testing.T) {
 	revoked := delegatedResponder(t, ca, delegate, ocsp.Revoked, &revokedHits)
 
 	c := newChecker([]*x509.Certificate{ca.Cert})
-	require.NoError(t, c.Check(makeLeaf(t, ca, 42, good.URL)))
-	require.ErrorIs(t, c.Check(makeLeaf(t, ca, 43, revoked.URL)), coremtls.ErrRevoked)
+	require.NoError(t, c.Check(t.Context(), makeLeaf(t, ca, 42, good.URL)))
+	require.ErrorIs(t, c.Check(t.Context(), makeLeaf(t, ca, 43, revoked.URL)), coremtls.ErrRevoked)
 }
 
 func TestCheckRejectsDelegatedResponderOutsideValidity(t *testing.T) {
@@ -130,11 +130,11 @@ func TestCheckRejectsDelegatedResponderOutsideValidity(t *testing.T) {
 			srv := delegatedResponder(t, ca, delegate, ocsp.Good, &hits)
 			leaf := makeLeaf(t, ca, 42, srv.URL)
 
-			err := newChecker([]*x509.Certificate{ca.Cert}).Check(leaf)
+			err := newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf)
 			require.ErrorIs(t, err, revocation.ErrUnauthorizedResponder)
 
 			open := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen))
-			require.NoError(t, open.Check(leaf), "fail-open keeps accepting an indeterminate status")
+			require.NoError(t, open.Check(t.Context(), leaf), "fail-open keeps accepting an indeterminate status")
 		})
 	}
 }

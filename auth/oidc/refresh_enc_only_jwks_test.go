@@ -35,7 +35,7 @@ func jwksWithUses(t *testing.T, uses ...string) string {
 
 func storedKeyIDs(t *testing.T, p *Provider) []string {
 	t.Helper()
-	keys, err := p.jwks.Storage().KeyReadAll(t.Context())
+	keys, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
 	ids := make([]string, 0, len(keys))
 	for _, key := range keys {
@@ -67,19 +67,19 @@ func TestRefreshJWKS_KeepsKeysWhenDocumentHasOnlyEncKeys(t *testing.T) {
 	discoveryURL, setJWKS := newJWKSBodyIdP(t, jwksDoc(t, 1, 0))
 	p, err := newRedirectTestProvider(t, discoveryURL)
 	require.NoError(t, err)
-	original, err := p.jwks.Storage().KeyReadAll(t.Context())
+	original, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
 	require.NotEmpty(t, original)
-	freshness := p.lastJWKSRefreshUnixNanos.Load()
+	freshness := p.keys.lastJWKSRefresh.Load()
 
 	for _, body := range []string{jwksWithUses(t, "enc"), jwksWithUses(t, "enc", "enc")} {
 		setJWKS(body)
 		require.ErrorIs(t, p.RefreshJWKS(t.Context()), ErrDiscovery)
 
-		keys, err := p.jwks.Storage().KeyReadAll(t.Context())
+		keys, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, original, keys)
-		require.Equal(t, freshness, p.lastJWKSRefreshUnixNanos.Load(), "a rejected document is not fresh")
+		require.Equal(t, freshness, p.keys.lastJWKSRefresh.Load(), "a rejected document is not fresh")
 	}
 }
 
@@ -118,12 +118,12 @@ func TestRefreshJWKS_ReplacesKeysWhenDocumentHasVerificationKey(t *testing.T) {
 			discoveryURL, setJWKS := newJWKSBodyIdP(t, jwksWithUses(t, "sig", "sig", "sig", "sig"))
 			p, err := newRedirectTestProvider(t, discoveryURL)
 			require.NoError(t, err)
-			p.lastJWKSRefreshUnixNanos.Store(1)
+			p.keys.lastJWKSRefresh.Store(nil)
 
 			setJWKS(jwksWithUses(t, tc.uses...))
 			require.NoError(t, p.RefreshJWKS(t.Context()))
 			require.Equal(t, tc.want, storedKeyIDs(t, p), "only verification keys are stored")
-			require.Greater(t, p.lastJWKSRefreshUnixNanos.Load(), int64(1), "a rotation is fresh")
+			require.NotNil(t, p.keys.lastJWKSRefresh.Load(), "a rotation is fresh")
 		})
 	}
 }

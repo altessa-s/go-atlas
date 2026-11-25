@@ -17,18 +17,18 @@ func TestRefreshJWKS_KeepsKeysWhenDocumentHasNoUsableKey(t *testing.T) {
 	p, err := newRedirectTestProvider(t, discoveryURL)
 	require.NoError(t, err)
 
-	original, err := p.jwks.Storage().KeyReadAll(t.Context())
+	original, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 	require.NoError(t, err)
 	require.NotEmpty(t, original)
-	freshness := p.lastJWKSRefreshUnixNanos.Load()
+	freshness := p.keys.lastJWKSRefresh.Load()
 
 	for _, body := range []string{`{}`, `{"keys":[]}`, `{"keys":[{"kty":"RSA","n":"!","e":"AQAB"}]}`} {
 		setJWKS(body)
 		require.ErrorIs(t, p.RefreshJWKS(t.Context()), ErrDiscovery, body)
 
-		keys, err := p.jwks.Storage().KeyReadAll(t.Context())
+		keys, err := p.keys.jwks.Storage().KeyReadAll(t.Context())
 		require.NoError(t, err)
 		require.Equal(t, original, keys, body)
-		require.Equal(t, freshness, p.lastJWKSRefreshUnixNanos.Load(), body)
+		require.Equal(t, freshness, p.keys.lastJWKSRefresh.Load(), body)
 	}
 }

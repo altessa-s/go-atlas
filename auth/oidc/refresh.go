@@ -6,8 +6,6 @@ package oidc
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -15,7 +13,7 @@ import (
 
 	"github.com/altessa-s/go-horai/schedule"
 
-	"github.com/altessa-s/go-atlas/cache/probfilter"
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 
 	corecontext "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -33,24 +31,17 @@ type refreshJob struct {
 // refreshJobs lists the periodic jobs configured by
 // [WithJWKSRefreshSchedule] and [WithRevocationSyncSchedule].
 func (p *Provider) refreshJobs() []refreshJob {
-	o := p.opts
 	var jobs []refreshJob
-	if o.jwksRefreshEnabled && o.jwksRefreshSchedule != "" {
-		jobs = append(jobs, refreshJob{name: "jwks-refresh", schedule: o.jwksRefreshSchedule, run: p.scheduledJWKSRefresh})
+	if p.keys.schedule != "" {
+		jobs = append(jobs, refreshJob{name: "jwks-refresh", schedule: p.keys.schedule, run: p.scheduledJWKSRefresh})
 	}
-	if p.revocationSyncScheduled() {
+	if p.revocation.syncScheduled() {
 		jobs = append(jobs, refreshJob{
-			name: "revocation-sync", schedule: o.revocationSyncSchedule, run: p.scheduledRevocationSync,
-			staleAfter: o.revocationMaxStaleness,
+			name: "revocation-sync", schedule: p.revocation.syncSchedule, run: p.revocation.scheduledRevocationSync,
+			staleAfter: p.revocation.maxStaleness,
 		})
 	}
 	return jobs
-}
-
-// revocationSyncScheduled reports whether the provider syncs its revocation
-// storage on [WithRevocationSyncSchedule].
-func (p *Provider) revocationSyncScheduled() bool {
-	return p.opts.revocationSyncEnabled && p.opts.revocationSyncSchedule != "" && p.revocationStorage != nil
 }
 
 // newRefreshCron builds the provider-owned, process-local cron that runs
@@ -97,37 +88,9 @@ func (p *Provider) runRefreshJob(job refreshJob) {
 
 // scheduledJWKSRefresh is the JWKS refresh job, bounded by the JWKS HTTP timeout.
 func (p *Provider) scheduledJWKSRefresh(ctx context.Context) error {
-	ctx, cancel := corecontext.ApplyTimeout(ctx, p.opts.jwksHTTPTimeout)
+	ctx, cancel := corecontext.ApplyTimeout(ctx, p.keys.jwksHTTPTimeout)
 	defer cancel()
 	return p.RefreshJWKS(ctx)
-}
-
-// scheduledRevocationSync is the revocation sync job. A shared filter that a
-// peer replica is rebuilding right now is skipped silently, but not counted
-// as a sync of this provider: whether that rebuild publishes is unknown. A
-// superseded rebuild (this one stalled past its lease) is reported as a
-// failed sync, although the filter stays consistent. Each run is bounded by
-// [WithRevocationSyncTimeout].
-//
-// Whatever the outcome, the run ends by reading the time of the last sync
-// committed by any replica ([Provider.refreshSharedRevocationSync]). That is
-// what keeps a replica fresh that loses the rebuild lease on every tick, and
-// only for as long as some peer does commit.
-func (p *Provider) scheduledRevocationSync(ctx context.Context) error {
-	defer p.refreshSharedRevocationSync(ctx)
-
-	ctx, cancel := corecontext.ApplyTimeout(ctx, p.opts.revocationSyncTimeout)
-	defer cancel()
-	err := p.revocationStorage.Sync(ctx)
-	if err == nil {
-		p.markRevocationSynced()
-		return nil
-	}
-	if errors.Is(err, probfilter.ErrRebuildInProgress) {
-		return nil
-	}
-	p.metrics.revocationCheckErrors.Inc()
-	return err
 }
 
 // Close releases resources held by the Provider: it cancels the background
@@ -138,12 +101,31 @@ func (p *Provider) scheduledRevocationSync(ctx context.Context) error {
 // stops the background work — canceling the context passed to [NewProvider]
 // does not — so every provider must be closed.
 func (p *Provider) Close() {
+	p.closeOnce.Do(p.close)
+}
+
+func (p *Provider) close() {
 	p.cancelBackgroundCtx()
 	if p.refreshCron != nil {
 		<-p.refreshCron.Stop().Done()
 	}
-	if p.opts.httpClientOwned {
-		p.client.CloseIdleConnections()
+	// Join any active recovery before releasing its filter.
+	p.revocation.syncMu.Lock()
+	defer p.revocation.syncMu.Unlock()
+	p.healthMu.Lock()
+	unregister := p.unregisterHealth
+	p.unregisterHealth = nil
+	p.healthMu.Unlock()
+	if unregister != nil {
+		unregister()
+	}
+	if cleanup := p.revocation.filterCleanup; cleanup != nil {
+		if err := cleanup(context.WithoutCancel(p.backgroundCtx)); err != nil {
+			p.logger.Error("closing revocation filter failed", "cause", diagnostics.ErrorClass(err))
+		}
+	}
+	if p.ownedHTTPClient != nil {
+		p.ownedHTTPClient.CloseIdleConnections()
 	}
 }
 
@@ -151,63 +133,5 @@ func (p *Provider) Close() {
 // provider's own cron calls it on [WithJWKSRefreshSchedule]; callers may
 // also invoke it directly. Concurrent calls collapse into one refresh.
 func (p *Provider) RefreshJWKS(ctx context.Context) error {
-	return p.jwksRefreshTask.Run(ctx)
-}
-
-// refreshJWKSInternal performs the actual JWKS refresh.
-// Callers must route through RefreshJWKS so overlapping cycles collapse into
-// a single execution.
-func (p *Provider) refreshJWKSInternal(ctx context.Context) error {
-	// A closed provider does no work, whether RefreshJWKS is called directly
-	// or by a cron tick that raced with Close.
-	if err := p.backgroundCtx.Err(); err != nil {
-		return coreerrs.Wrap(err, "oidc provider closed")
-	}
-	p.metrics.jwksRefreshes.Inc()
-	stop := p.metrics.jwksRefreshDuration.Start()
-	defer stop()
-
-	refreshErr := p.doRefreshJWKS(ctx)
-	if refreshErr != nil {
-		p.metrics.jwksRefreshErrors.Inc()
-		return refreshErr
-	}
-	p.markJWKSRefreshed()
-	return nil
-}
-
-func (p *Provider) doRefreshJWKS(ctx context.Context) error {
-	jwks, err := p.fetchJWKS(ctx)
-	if err != nil {
-		return err
-	}
-
-	// The same policy as the initial load: a malformed verification key fails
-	// the refresh as a whole. Skipping it and applying the rest would evict
-	// keys that are still signing tokens whenever a glitch corrupts some of
-	// the entries. Keys that cannot verify a token are not parsed at all.
-	newKeys, err := parseJWKS(jwks.Keys)
-	if err != nil {
-		return fmt.Errorf("%w: JWK Set holds an invalid key; keeping the current keys: %w", ErrDiscovery, err)
-	}
-
-	// A document without a key that can verify a token ({}, an empty set, only
-	// unsupported keys, only "enc" keys of a half-published rotation) is a failed
-	// refresh, not a rotation: replacing a working key set with it would
-	// reject every token until the next successful refresh.
-	if len(newKeys) == 0 {
-		current, err := p.jwks.Storage().KeyReadAll(ctx)
-		if err != nil {
-			return coreerrs.WrapOperation(err, "read JWKS storage")
-		}
-		if len(current) > 0 {
-			return coreerrs.Wrap(ErrDiscovery, "JWK Set holds no key usable for verification; keeping the current keys")
-		}
-	}
-
-	if err := p.jwks.Storage().KeyReplaceAll(ctx, newKeys); err != nil {
-		return coreerrs.WrapOperation(err, "update JWKS storage")
-	}
-
-	return nil
+	return p.keys.jwksRefreshTask.Run(ctx)
 }

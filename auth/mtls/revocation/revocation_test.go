@@ -93,8 +93,8 @@ func TestCheckGoodIsCached(t *testing.T) {
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
 	c := newChecker([]*x509.Certificate{ca.Cert})
-	require.NoError(t, c.Check(leaf))
-	require.NoError(t, c.Check(leaf)) // served from cache
+	require.NoError(t, c.Check(t.Context(), leaf))
+	require.NoError(t, c.Check(t.Context(), leaf)) // served from cache
 	require.Equal(t, int32(1), hits.Load())
 }
 
@@ -105,7 +105,7 @@ func TestCheckRevoked(t *testing.T) {
 	srv := responder(t, ca, ocsp.Revoked, &hits)
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
-	err := newChecker([]*x509.Certificate{ca.Cert}).Check(leaf)
+	err := newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf)
 	require.ErrorIs(t, err, coremtls.ErrRevoked)
 }
 
@@ -116,9 +116,9 @@ func TestUnreachableResponderFailMode(t *testing.T) {
 	leaf := makeLeaf(t, ca, 42, "http://127.0.0.1:1")
 	opts := []revocation.Option{revocation.WithMaxAttempts(1), revocation.WithTimeout(time.Second)}
 
-	require.Error(t, newChecker([]*x509.Certificate{ca.Cert}, opts...).Check(leaf)) // fail-closed by default
+	require.Error(t, newChecker([]*x509.Certificate{ca.Cert}, opts...).Check(t.Context(), leaf)) // fail-closed by default
 	require.NoError(t, newChecker([]*x509.Certificate{ca.Cert},
-		append(opts, revocation.WithFailMode(revocation.FailOpen))...).Check(leaf))
+		append(opts, revocation.WithFailMode(revocation.FailOpen))...).Check(t.Context(), leaf))
 }
 
 func TestNoResponderURL(t *testing.T) {
@@ -126,9 +126,9 @@ func TestNoResponderURL(t *testing.T) {
 	ca := makeCA(t)
 	leaf := makeLeaf(t, ca, 42, "") // no OCSPServer
 
-	require.ErrorIs(t, newChecker([]*x509.Certificate{ca.Cert}).Check(leaf), revocation.ErrNoResponder)
+	require.ErrorIs(t, newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf), revocation.ErrNoResponder)
 	require.NoError(t,
-		newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen)).Check(leaf))
+		newChecker([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailOpen)).Check(t.Context(), leaf))
 }
 
 func TestNoIssuer(t *testing.T) {
@@ -136,8 +136,8 @@ func TestNoIssuer(t *testing.T) {
 	ca := makeCA(t)
 	leaf := makeLeaf(t, ca, 42, "http://example.invalid")
 
-	require.ErrorIs(t, newChecker(nil).Check(leaf), revocation.ErrNoIssuer)
-	require.NoError(t, newChecker(nil, revocation.WithFailMode(revocation.FailOpen)).Check(leaf))
+	require.ErrorIs(t, newChecker(nil).Check(t.Context(), leaf), revocation.ErrNoIssuer)
+	require.NoError(t, newChecker(nil, revocation.WithFailMode(revocation.FailOpen)).Check(t.Context(), leaf))
 }
 
 func TestDefaultFailModeIsFailClosed(t *testing.T) {
@@ -164,7 +164,7 @@ func TestDefaultClientRefusesCrossHostRedirect(t *testing.T) {
 	srv := redirector(t, target.URL, &redirectHits)
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
-	err := newChecker([]*x509.Certificate{ca.Cert}).Check(leaf)
+	err := newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf)
 	require.ErrorIs(t, err, revocation.ErrCrossHostRedirect)
 	require.Equal(t, int32(1), redirectHits.Load()) // terminal: not retried
 	require.Zero(t, targetHits.Load())              // the redirect was never followed
@@ -183,7 +183,7 @@ func TestDefaultClientFollowsSameHostRedirect(t *testing.T) {
 	})
 	leaf := makeLeaf(t, ca, 42, srv.URL)
 
-	require.NoError(t, newChecker([]*x509.Certificate{ca.Cert}).Check(leaf))
+	require.NoError(t, newChecker([]*x509.Certificate{ca.Cert}).Check(t.Context(), leaf))
 	require.Equal(t, int32(1), hits.Load())
 }
 
@@ -196,9 +196,9 @@ func TestCacheBounded(t *testing.T) {
 	leafB := makeLeaf(t, ca, 43, srv.URL)
 
 	c := newChecker([]*x509.Certificate{ca.Cert}, revocation.WithMaxCacheEntries(1))
-	require.NoError(t, c.Check(leafA)) // hit 1: caches A
-	require.NoError(t, c.Check(leafB)) // hit 2: caches B, evicts A (cap 1)
-	require.NoError(t, c.Check(leafA)) // hit 3: A was evicted → re-queries
+	require.NoError(t, c.Check(t.Context(), leafA)) // hit 1: caches A
+	require.NoError(t, c.Check(t.Context(), leafB)) // hit 2: caches B, evicts A (cap 1)
+	require.NoError(t, c.Check(t.Context(), leafA)) // hit 3: A was evicted → re-queries
 	require.Equal(t, int32(3), hits.Load())
 }
 
@@ -222,7 +222,7 @@ func TestRetryClassification(t *testing.T) {
 		var hits atomic.Int32
 		srv := statusResponder(t, http.StatusInternalServerError, &hits)
 		leaf := makeLeaf(t, ca, 42, srv.URL)
-		_ = newChecker([]*x509.Certificate{ca.Cert}, revocation.WithMaxAttempts(3)).Check(leaf)
+		_ = newChecker([]*x509.Certificate{ca.Cert}, revocation.WithMaxAttempts(3)).Check(t.Context(), leaf)
 		require.Greater(t, hits.Load(), int32(1)) // retried beyond the first attempt
 	})
 
@@ -231,7 +231,7 @@ func TestRetryClassification(t *testing.T) {
 		var hits atomic.Int32
 		srv := statusResponder(t, http.StatusBadRequest, &hits)
 		leaf := makeLeaf(t, ca, 43, srv.URL)
-		_ = newChecker([]*x509.Certificate{ca.Cert}, revocation.WithMaxAttempts(3)).Check(leaf)
+		_ = newChecker([]*x509.Certificate{ca.Cert}, revocation.WithMaxAttempts(3)).Check(t.Context(), leaf)
 		require.Equal(t, int32(1), hits.Load())
 	})
 }
@@ -276,7 +276,7 @@ func TestSingleflightDedup(t *testing.T) {
 		errs := make([]error, n)
 		var wg sync.WaitGroup
 		for i := range n {
-			wg.Go(func() { errs[i] = c.Check(leaf) })
+			wg.Go(func() { errs[i] = c.Check(t.Context(), leaf) })
 		}
 		synctest.Wait()
 		// One shared query reaches the responder; broken dedup would let others in too.
@@ -293,5 +293,5 @@ func TestSingleflightDedup(t *testing.T) {
 
 func TestNilCertIsNoOp(t *testing.T) {
 	t.Parallel()
-	require.NoError(t, newChecker(nil).Check(nil))
+	require.NoError(t, newChecker(nil).Check(t.Context(), nil))
 }

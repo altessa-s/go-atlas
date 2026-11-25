@@ -42,7 +42,7 @@ func TestClientCredentials(t *testing.T) {
 	srv, form := tokenServer(t, "cc-token")
 
 	src := mustClientCredentials(t, srv.URL, "svc", "s3cr3t",
-		oauth2client.WithScopes("orders:read", "orders:read", " orders:write "),
+		oauth2client.WithClientCredentialsScopes("orders:read", "orders:read", " orders:write "),
 	)
 	tok, err := src.Token()
 	require.NoError(t, err)
@@ -50,7 +50,7 @@ func TestClientCredentials(t *testing.T) {
 	require.True(t, tok.Valid())
 
 	require.Equal(t, "client_credentials", form.Get("grant_type"))
-	// WithScopes trims and de-duplicates before joining.
+	// WithClientCredentialsScopes trims and de-duplicates before joining.
 	require.Equal(t, "orders:read orders:write", form.Get("scope"))
 }
 
@@ -75,7 +75,7 @@ func TestAuthCodeURL(t *testing.T) {
 			TokenURL: "https://idp.example/token",
 		},
 		"svc", "s3cr3t", "https://app.example/callback",
-		oauth2client.WithScopes("openid", "profile"),
+		oauth2client.WithAuthCodeScopes("openid", "profile"),
 	)
 	require.NoError(t, err)
 

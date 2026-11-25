@@ -33,7 +33,7 @@ func losingTick(t *testing.T, p *Provider, client *goredis.Client) {
 	t.Helper()
 	sourceDown := errors.New("source down")
 	finish := holdRebuildLease(t, client, sourceDown)
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 	require.ErrorIs(t, finish(), sourceDown)
 }
 
@@ -53,19 +53,20 @@ func TestRevocationStaleness_RedisClockAheadDoesNotExtendBound(t *testing.T) {
 	backdateRevocationSync(p, time.Hour)
 
 	losingTick(t, p, client)
-	require.NoError(t, p.checkRevocationStaleness(), "the peer just committed")
-	seen := p.sharedRevocationSyncUnixNanos.Load()
-	require.InDelta(t, time.Now().UnixNano(), seen, float64(10*time.Second))
+	require.NoError(t, p.revocation.checkRevocationStaleness(), "the peer just committed")
+	seen := p.revocation.sharedRevocationSync.Load()
+	require.InDelta(t, time.Now().UnixNano(), seen.observedAt.UnixNano(), float64(10*time.Second))
 
 	// Three minutes pass on both clocks while every sync fails.
 	const elapsed = 3 * time.Minute
 	mr.SetTime(redisNow.Add(elapsed))
-	p.sharedRevocationSyncUnixNanos.Add(-int64(elapsed))
+	aged := &freshnessRecord{observedAt: seen.observedAt.Add(-elapsed), baseAge: seen.baseAge}
+	p.revocation.sharedRevocationSync.Store(aged)
 	for range 3 {
 		losingTick(t, p, client)
-		require.Equal(t, seen-int64(elapsed), p.sharedRevocationSyncUnixNanos.Load(),
+		require.Equal(t, aged, p.revocation.sharedRevocationSync.Load(),
 			"re-reading a commit already seen must not refresh it")
-		require.ErrorIs(t, p.checkRevocationStaleness(), ErrRevocationStale)
+		require.ErrorIs(t, p.revocation.checkRevocationStaleness(), ErrRevocationStale)
 	}
 }
 
@@ -86,7 +87,7 @@ func TestRevocationStaleness_RedisClockAheadOldCommitIsStale(t *testing.T) {
 	// Three minutes later on the Redis clock — still ahead of the local one.
 	mr.SetTime(redisNow.Add(3 * time.Minute))
 	losingTick(t, p, client)
-	require.ErrorIs(t, p.checkRevocationStaleness(), ErrRevocationStale)
+	require.ErrorIs(t, p.revocation.checkRevocationStaleness(), ErrRevocationStale)
 }
 
 // A Redis clock behind the replica's must not shorten the bound: a commit a
@@ -107,10 +108,10 @@ func TestRevocationStaleness_RedisClockBehindDoesNotShortenBound(t *testing.T) {
 		// A healthy peer commits on every cycle; this replica keeps losing.
 		mr.SetTime(redisNow.Add(time.Duration(i+1) * 30 * time.Second))
 		require.NoError(t, peer.Sync(t.Context()))
-		p.sharedRevocationSyncUnixNanos.Store(time.Now().Add(-time.Hour).UnixNano())
+		p.revocation.sharedRevocationSync.Store(&freshnessRecord{observedAt: time.Now().Add(-time.Hour)})
 		losingTick(t, p, client)
 
-		require.NoError(t, p.checkRevocationStaleness())
-		require.InDelta(t, time.Now().UnixNano(), p.sharedRevocationSyncUnixNanos.Load(), float64(10*time.Second))
+		require.NoError(t, p.revocation.checkRevocationStaleness())
+		require.InDelta(t, time.Now().UnixNano(), p.revocation.sharedRevocationSync.Load().observedAt.UnixNano(), float64(10*time.Second))
 	}
 }

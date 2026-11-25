@@ -6,6 +6,7 @@ package mtls
 
 import (
 	"bytes"
+	"context"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
@@ -51,7 +52,7 @@ var (
 
 // CertValidator runs an extra check on the verified certificate, beyond what the
 // TLS handshake already performed. Returning an error rejects the caller.
-type CertValidator func(*x509.Certificate) error
+type CertValidator func(context.Context, *x509.Certificate) error
 
 // ExpiryValidator re-checks the certificate validity window at authentication
 // time. The TLS handshake already rejects an expired certificate when the
@@ -63,7 +64,7 @@ func ExpiryValidator(now func() time.Time, leeway time.Duration) CertValidator {
 	if now == nil {
 		now = time.Now
 	}
-	return func(cert *x509.Certificate) error {
+	return func(_ context.Context, cert *x509.Certificate) error {
 		t := now()
 		if t.Add(leeway).Before(cert.NotBefore) || t.Add(-leeway).After(cert.NotAfter) {
 			return ErrCertExpired
@@ -91,9 +92,9 @@ func TrustDomainValidator(domains ...string) CertValidator {
 	}
 	if len(allowed) == 0 {
 		err := fmt.Errorf("%w: TrustDomainValidator needs at least one trust domain", ErrNoTrustDomainPolicy)
-		return func(*x509.Certificate) error { return err }
+		return func(context.Context, *x509.Certificate) error { return err }
 	}
-	return func(cert *x509.Certificate) error {
+	return func(_ context.Context, cert *x509.Certificate) error {
 		return checkTrustDomain(cert, allowed)
 	}
 }
@@ -160,7 +161,7 @@ func (rl *RevocationList) IsRevoked(serial string) bool {
 // Validator returns a [CertValidator] that rejects a certificate whose serial
 // number is on the list with [ErrRevoked]. A nil receiver is a no-op validator.
 func (rl *RevocationList) Validator() CertValidator {
-	return func(cert *x509.Certificate) error {
+	return func(_ context.Context, cert *x509.Certificate) error {
 		if rl == nil || cert.SerialNumber == nil {
 			return nil
 		}
@@ -208,9 +209,9 @@ func dnValidator(names []pkix.Name, dn func(*x509.Certificate) pkix.Name, mismat
 		allowed = append(allowed, cloneName(n))
 	}
 	if err := checkDNSupported(allowed); err != nil {
-		return func(*x509.Certificate) error { return err }
+		return func(context.Context, *x509.Certificate) error { return err }
 	}
-	return func(cert *x509.Certificate) error {
+	return func(_ context.Context, cert *x509.Certificate) error {
 		if len(allowed) == 0 {
 			return nil
 		}
@@ -270,7 +271,7 @@ func AuthorityKeyIDValidator(keyIDs ...[]byte) CertValidator {
 	for _, k := range keyIDs {
 		allowed = append(allowed, bytes.Clone(k))
 	}
-	return func(cert *x509.Certificate) error {
+	return func(_ context.Context, cert *x509.Certificate) error {
 		if len(allowed) == 0 {
 			return nil
 		}
@@ -352,7 +353,7 @@ func containsAll(haystack, needles []string) bool {
 // requires a CA that does not issue wildcard client certificates.
 func DNSNameValidator(names ...string) CertValidator {
 	allowed := slices.Clone(names)
-	return func(cert *x509.Certificate) error {
+	return func(_ context.Context, cert *x509.Certificate) error {
 		if len(allowed) == 0 {
 			return nil
 		}
@@ -373,7 +374,7 @@ func DNSNameValidator(names ...string) CertValidator {
 // list is a no-op.
 func EKUValidator(ekus ...x509.ExtKeyUsage) CertValidator {
 	required := slices.Clone(ekus)
-	return func(cert *x509.Certificate) error {
+	return func(_ context.Context, cert *x509.Certificate) error {
 		for _, want := range required {
 			if !hasEKU(cert, want) {
 				return ErrEKUMissing

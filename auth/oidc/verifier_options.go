@@ -8,9 +8,6 @@ import (
 	"log/slog"
 	"strings"
 	"time"
-
-	coreerrs "github.com/altessa-s/go-atlas-core/errors"
-	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // DefaultValidMethods is the set of JWT signing algorithms allowed by default.
@@ -70,14 +67,6 @@ func isUnsafeSigningMethod(method string) bool {
 // WithValidationLeeway(0) to opt out of any tolerance.
 const DefaultLeeway = 30 * time.Second
 
-// checkLeeway rejects a configured clock-skew leeway above [authjwt.MaxLeeway].
-func checkLeeway(leeway time.Duration) error {
-	if leeway > authjwt.MaxLeeway {
-		return coreerrs.Wrapf(ErrInvalidConfig, "leeway %s exceeds the maximum %s", leeway, authjwt.MaxLeeway)
-	}
-	return nil
-}
-
 // verifierOptions holds token validation configuration.
 // This struct is not exported and is modified through ValidationOption functions.
 type verifierOptions struct {
@@ -96,8 +85,11 @@ type verifierOptions struct {
 	requireAuthorizedParty   bool
 	allowedAuthorizedParties []string
 	allowMissingSubject      bool
-	maxTokenLifetime         time.Duration
-	celRules                 []CELValidationRule
+	// WithValidationMinTokenLifetime sets the minimum duration between iat and exp.
+	// Zero disables the minimum. A negative minimum is a configuration error.
+	minTokenLifetime time.Duration `optval:"nonpositive"`
+	maxTokenLifetime time.Duration
+	celRules         []CELValidationRule
 	// Set by WithValidationValidMethods: drops unsafe methods and preserves the
 	// default allow-list when the input is empty or entirely unsafe.
 	validMethods []string `optgen:"manual"`

@@ -9,17 +9,39 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/MicahParks/jwkset"
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/altessa-s/go-atlas-core/runtime/cycle"
+
 	corectx "github.com/altessa-s/go-atlas-core/context"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
+
+type jwksKeySource struct {
+	schedule           string
+	info               *discoveryInfo
+	client             *http.Client
+	logger             *slog.Logger
+	metrics            *oidcMetrics
+	backgroundCtx      context.Context
+	jwks               keyfunc.Keyfunc
+	keyResolver        authjwt.KeyResolver
+	lastKeyFingerprint atomic.Pointer[keyFingerprintMemo]
+	jwksRefreshTask    *cycle.Guard
+	clock              freshnessClock
+	lastJWKSRefresh    atomic.Pointer[freshnessRecord]
+	jwksHTTPTimeout    time.Duration
+	jwksMaxStaleness   time.Duration
+	jwksFailureMode    JWKSFailureMode
+}
 
 // jwksVerificationUses lists the JWK "use" values of a key that may verify a
 // token: "sig", or no "use" at all. It is both the keyfunc whitelist and what
@@ -28,12 +50,10 @@ var jwksVerificationUses = []jwkset.USE{jwkset.UseSig, ""}
 
 // verificationEligible reports whether a key may verify a token, by the "use"
 // member of its raw JWK — before the key is parsed, so a key that could never
-// verify a token is never parsed either. "key_ops" is not consulted: the
-// keyfunc that resolves verification keys selects by "use" alone. Algorithms
-// are not a property of the key set here: the validation options' allow-list
-// decides them per token.
+// verify a token is never parsed either. Explicit key operations must permit verification.
 func verificationEligible(marshal jwkset.JWKMarshal) bool {
-	return slices.Contains(jwksVerificationUses, marshal.USE)
+	return slices.Contains(jwksVerificationUses, marshal.USE) &&
+		(marshal.KEYOPS == nil || slices.Contains(marshal.KEYOPS, jwkset.KeyOpsVerify))
 }
 
 // parseJWKS converts the verification keys of a fetched JWK Set, for the
@@ -69,10 +89,10 @@ func parseJWKS(marshals []jwkset.JWKMarshal) ([]jwkset.JWK, error) {
 }
 
 // initializeJWKS loads bounded JWKS storage; the provider owns subsequent refreshes.
-func (p *Provider) initializeJWKS(ctx context.Context) error {
+func (p *jwksKeySource) initializeJWKS(ctx context.Context) error {
 	// Initialization preserves the dependency's strict validation policy and
 	// default timeout, while all network reads share the bounded fetch path.
-	timeout := p.opts.jwksHTTPTimeout
+	timeout := p.jwksHTTPTimeout
 	if timeout == 0 {
 		timeout = time.Minute
 	}
@@ -125,7 +145,7 @@ func (p *Provider) initializeJWKS(ctx context.Context) error {
 		return authjwt.VerificationKey{Key: key}, nil
 	})
 
-	// Seed the staleness anchor so [Provider.checkJWKSStaleness] does not
+	// Seed the staleness anchor so [jwksKeySource.checkJWKSStaleness] does not
 	// reject every request issued before the first scheduled refresh.
 	// Construction is the first authoritative "fresh-as-of-now" event.
 	p.markJWKSRefreshed()
@@ -133,28 +153,12 @@ func (p *Provider) initializeJWKS(ctx context.Context) error {
 	return nil
 }
 
-// markJWKSRefreshed records the current wall-clock time as the last
+// markJWKSRefreshed records the current monotonic instant as the last
 // authoritative JWKS refresh. Callers MUST invoke it only when the
 // storage has been fully repopulated from the IdP (initial bootstrap,
 // successful scheduled refresh, successful manual [Provider.RefreshJWKS]).
-func (p *Provider) markJWKSRefreshed() {
-	p.lastJWKSRefreshUnixNanos.Store(time.Now().UnixNano())
-}
-
-// jwksAge returns the time elapsed since the last successful JWKS refresh.
-// Returns zero if no successful refresh has been recorded yet (the field
-// is seeded in [Provider.initializeJWKS], so in practice this only happens
-// in unit tests that bypass NewProvider).
-func (p *Provider) jwksAge() time.Duration {
-	stored := p.lastJWKSRefreshUnixNanos.Load()
-	if stored == 0 {
-		return 0
-	}
-	age := time.Since(time.Unix(0, stored))
-	if age < 0 {
-		return 0
-	}
-	return age
+func (p *jwksKeySource) markJWKSRefreshed() {
+	p.lastJWKSRefresh.Store(&freshnessRecord{observedAt: p.clock.observe()})
 }
 
 // checkJWKSStaleness reacts when the local JWKS cache has not been
@@ -170,17 +174,21 @@ func (p *Provider) jwksAge() time.Duration {
 // A zero [WithJWKSMaxStaleness] disables the check regardless of mode,
 // preserving the historical opt-in behavior so callers without an
 // active refresh path are not surprised by sudden rejections.
-func (p *Provider) checkJWKSStaleness(ctx context.Context) error {
-	maxStaleness := p.opts.jwksMaxStaleness
+func (p *jwksKeySource) checkJWKSStaleness(ctx context.Context) error {
+	maxStaleness := p.jwksMaxStaleness
 	if maxStaleness <= 0 {
 		return nil
 	}
-	mode := p.opts.jwksFailureMode
+	mode := p.jwksFailureMode
 	if mode == JWKSFailureModeDisabled {
 		return nil
 	}
 
-	age := p.jwksAge()
+	last := p.lastJWKSRefresh.Load()
+	if last == nil {
+		return nil
+	}
+	age := p.clock.elapsed(last.observedAt)
 	if age <= maxStaleness {
 		return nil
 	}
@@ -201,4 +209,62 @@ func (p *Provider) checkJWKSStaleness(ctx context.Context) error {
 		return coreerrs.Wrapf(ErrJWKSStale,
 			"jwks age %s exceeds max staleness %s", age, maxStaleness)
 	}
+}
+
+// refreshJWKSInternal performs the actual JWKS refresh.
+// Callers must route through RefreshJWKS so overlapping cycles collapse into
+// a single execution.
+func (p *jwksKeySource) refreshJWKSInternal(ctx context.Context) error {
+	// A closed provider does no work, whether RefreshJWKS is called directly
+	// or by a cron tick that raced with Close.
+	if err := p.backgroundCtx.Err(); err != nil {
+		return coreerrs.Wrap(err, "oidc provider closed")
+	}
+	p.metrics.jwksRefreshes.Inc()
+	stop := p.metrics.jwksRefreshDuration.Start()
+	defer stop()
+
+	refreshErr := p.doRefreshJWKS(ctx)
+	if refreshErr != nil {
+		p.metrics.jwksRefreshErrors.Inc()
+		return refreshErr
+	}
+	p.markJWKSRefreshed()
+	return nil
+}
+
+func (p *jwksKeySource) doRefreshJWKS(ctx context.Context) error {
+	jwks, err := p.fetchJWKS(ctx)
+	if err != nil {
+		return err
+	}
+
+	// The same policy as the initial load: a malformed verification key fails
+	// the refresh as a whole. Skipping it and applying the rest would evict
+	// keys that are still signing tokens whenever a glitch corrupts some of
+	// the entries. Keys that cannot verify a token are not parsed at all.
+	newKeys, err := parseJWKS(jwks.Keys)
+	if err != nil {
+		return fmt.Errorf("%w: JWK Set holds an invalid key; keeping the current keys: %w", ErrDiscovery, err)
+	}
+
+	// A document without a key that can verify a token ({}, an empty set, only
+	// unsupported keys, only "enc" keys of a half-published rotation) is a failed
+	// refresh, not a rotation: replacing a working key set with it would
+	// reject every token until the next successful refresh.
+	if len(newKeys) == 0 {
+		current, err := p.jwks.Storage().KeyReadAll(ctx)
+		if err != nil {
+			return coreerrs.WrapOperation(err, "read JWKS storage")
+		}
+		if len(current) > 0 {
+			return coreerrs.Wrap(ErrDiscovery, "JWK Set holds no key usable for verification; keeping the current keys")
+		}
+	}
+
+	if err := p.jwks.Storage().KeyReplaceAll(ctx, newKeys); err != nil {
+		return coreerrs.WrapOperation(err, "update JWKS storage")
+	}
+
+	return nil
 }

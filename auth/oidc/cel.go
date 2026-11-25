@@ -6,52 +6,24 @@ package oidc
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"sync"
-
-	"cel.dev/cel-go/cel"
-	"cel.dev/cel-go/common/types"
-	"cel.dev/cel-go/ext"
 
 	"github.com/altessa-s/go-atlas-core/runtime/panics"
-	"github.com/altessa-s/go-atlas/cache/lru"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
+	oidcrules "github.com/altessa-s/go-atlas/auth/oidc/rules"
 )
-
-// getCELEnvironment returns the shared CEL environment, initialized on first call.
-var getCELEnvironment = sync.OnceValues(func() (*cel.Env, error) {
-	return cel.NewEnv(
-		cel.Variable("claims", cel.MapType(cel.StringType, cel.DynType)),
-		// String helpers (split, join, lowerAscii, …) — required by the
-		// generated scopes.any_of rule and available to user rules.
-		ext.Strings(),
-	)
-})
-
-// getCELCache returns the singleton CEL program cache, initialized on first call.
-var getCELCache = sync.OnceValue(func() lru.Cacher[string, cel.Program] {
-	cache, err := lru.NewCache[string, cel.Program](DefaultCELCacheSize)
-	if err != nil {
-		slog.Error("failed to create CEL cache, CEL matchers will recompile on every use",
-			"error", err,
-			"cache_size", DefaultCELCacheSize)
-		return nil
-	}
-	return cache
-})
 
 const (
 	// DefaultCELCacheSize is the maximum number of compiled CEL programs to cache.
-	DefaultCELCacheSize = 1000
+	DefaultCELCacheSize = oidcrules.DefaultCELCacheSize
 
 	// DefaultCELCostLimit is the maximum runtime cost for a single CEL evaluation.
 	// cel-go charges ~1 cost unit per operation; 10000 is generous for claim checks.
-	DefaultCELCostLimit uint64 = 10_000
+	DefaultCELCostLimit = oidcrules.DefaultCELCostLimit
 
 	// DefaultCELMaxExpressionLength is the maximum allowed CEL expression length in bytes.
-	DefaultCELMaxExpressionLength = 4096
+	DefaultCELMaxExpressionLength = oidcrules.DefaultCELMaxExpressionLength
 )
 
 // CELValidationRule represents a single CEL-based validation rule.
@@ -86,35 +58,12 @@ type celPreCompiledValidationRule struct {
 //
 //	matcher := oidc.CELMatcher(ctx, "claims.role == 'admin' && has(claims.email)")
 func CELMatcher(ctx context.Context, expression string) PresetMatcherFunc {
-	cache := getCELCache()
-	if cache == nil {
-		program, err := compileCELExpression(expression)
-		if err != nil {
-			slog.Default().Error("oidc: CEL preset matcher failed to compile; it will never match",
-				"expression", expression, "error", err)
-			return func(claims map[string]any) bool { return false }
-		}
-		return func(claims map[string]any) bool {
-			return evaluateCELProgram(program, claims)
-		}
-	}
-
-	program, err := cache.GetOrCompute(ctx, expression, func(ctx context.Context) (cel.Program, error) {
-		return compileCELExpression(expression)
-	})
-
+	matcher, err := oidcrules.CachedCEL(ctx, expression)
 	if err != nil {
-		slog.Default().Error("oidc: CEL preset matcher failed to compile; it will never match",
-			"expression", expression, "error", err)
-		return func(claims map[string]any) bool {
-			return false
-		}
+		slog.Default().Error("oidc: CEL preset matcher failed to compile; it will never match", "expression", expression, "error", err)
+		return func(map[string]any) bool { return false }
 	}
-
-	// Return matcher that directly uses the pre-compiled program
-	return func(claims map[string]any) bool {
-		return evaluateCELProgram(program, claims)
-	}
+	return matcher
 }
 
 // MustCELMatcher creates a CEL matcher, panicking if the expression is invalid.
@@ -124,26 +73,11 @@ func CELMatcher(ctx context.Context, expression string) PresetMatcherFunc {
 //
 //	var AdminMatcher = oidc.MustCELMatcher("claims.role == 'admin'")
 func MustCELMatcher(expression string) PresetMatcherFunc {
-	cache := getCELCache()
-	if cache == nil {
-		program := panics.MustResult(compileCELExpression(expression))
-		return func(claims map[string]any) bool {
-			return evaluateCELProgram(program, claims)
-		}
-	}
-
-	program := panics.MustResult(cache.GetOrCompute(context.Background(), expression, func(ctx context.Context) (cel.Program, error) {
-		return compileCELExpression(expression)
-	}))
-
-	// Return matcher directly to avoid double compilation
-	return func(claims map[string]any) bool {
-		return evaluateCELProgram(program, claims)
-	}
+	return panics.MustResult(oidcrules.CachedCEL(context.Background(), expression))
 }
 
-// validateCELRules compiles CEL rules from verifier options and stores them in the Provider.
-func (p *Provider) validateCELRules() error {
+// validateCELRules prepares the default policy's matchers.
+func (p *policyEvaluator) validateCELRules() error {
 	if p.verifierOptions == nil || len(p.verifierOptions.celRules) == 0 {
 		return nil
 	}
@@ -187,86 +121,20 @@ func compileCELRules(rules []CELValidationRule) ([]celPreCompiledValidationRule,
 	validRules := make([]celPreCompiledValidationRule, 0, len(rules))
 	for i, rule := range rules {
 		if rule.Name == "" {
-			return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%d].name is required", i)
+			return nil, coreerrs.Wrapf(oidcrules.ErrInvalidCEL, "cel_rules[%d].name is required", i)
 		}
 		if rule.Expression == "" {
-			return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%q].expression is required", rule.Name)
+			return nil, coreerrs.Wrapf(oidcrules.ErrInvalidCEL, "cel_rules[%q].expression is required", rule.Name)
 		}
 
 		// Compile CEL expression, reusing a cached program: per-call options
 		// recompile the default rules on every call.
-		cache := getCELCache()
-		var program cel.Program
-		if cache != nil {
-			program, _ = cache.Get(rule.Expression)
-		}
-		if program == nil {
-			var err error
-			program, err = compileCELExpression(rule.Expression)
-			if err != nil {
-				return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%q]: %v", rule.Name, err)
-			}
-			if cache != nil {
-				cache.Put(rule.Expression, program)
-			}
+		matcher, err := oidcrules.CompileCEL(rule.Expression)
+		if err != nil {
+			return nil, coreerrs.Wrapf(oidcrules.ErrInvalidCEL, "cel_rules[%q]: %v", rule.Name, err)
 		}
 
-		// Capture program in local variable to avoid closure capture bug
-		prog := program
-		validRules = append(validRules, celPreCompiledValidationRule{
-			name:    rule.Name,
-			message: rule.Message,
-			matcher: func(claims map[string]any) bool {
-				return evaluateCELProgram(prog, claims)
-			},
-		})
+		validRules = append(validRules, celPreCompiledValidationRule{name: rule.Name, message: rule.Message, matcher: matcher})
 	}
 	return validRules, nil
-}
-
-// compileCELExpression compiles a CEL expression into a program.
-// Returns error if expression is invalid or does not return boolean.
-func compileCELExpression(expression string) (cel.Program, error) {
-	if len(expression) > DefaultCELMaxExpressionLength {
-		return nil, fmt.Errorf("expression too long (%d bytes, max %d)", len(expression), DefaultCELMaxExpressionLength)
-	}
-
-	env, err := getCELEnvironment()
-	if err != nil {
-		return nil, err
-	}
-
-	ast, issues := env.Compile(expression)
-	if issues != nil && issues.Err() != nil {
-		return nil, coreerrs.WrapOperation(issues.Err(), "compile expression")
-	}
-
-	// Check that the expression returns a boolean
-	if ast.OutputType() != cel.BoolType {
-		return nil, fmt.Errorf("expression must return boolean, got %v", ast.OutputType())
-	}
-
-	program, err := env.Program(ast, cel.CostLimit(DefaultCELCostLimit))
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "create program")
-	}
-
-	return program, nil
-}
-
-// evaluateCELProgram evaluates a compiled CEL program with claims, returning false on error.
-func evaluateCELProgram(program cel.Program, claims map[string]any) bool {
-	result, _, err := program.Eval(map[string]any{
-		"claims": claims,
-	})
-	if err != nil {
-		return false
-	}
-
-	boolResult, ok := result.(types.Bool)
-	if !ok {
-		return false
-	}
-
-	return bool(boolResult)
 }

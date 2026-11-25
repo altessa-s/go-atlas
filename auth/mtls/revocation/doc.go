@@ -3,7 +3,8 @@
 // the LICENSE file.
 
 // Package revocation provides a live OCSP peer-revocation check as an
-// [github.com/altessa-s/go-atlas/auth/mtls.CertValidator].
+// [github.com/altessa-s/go-atlas/auth/mtls.CertValidator]. A caller may cancel
+// its wait for a shared OCSP lookup through the authentication context.
 //
 // # Overview
 //

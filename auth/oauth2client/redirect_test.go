@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/oauth2"
 
 	"github.com/altessa-s/go-atlas/auth/oauth2client"
+
+	"golang.org/x/oauth2"
 )
 
 // followAll is a caller-supplied redirect policy that accepts every hop.
@@ -50,19 +51,25 @@ func TestInjectedClientDoesNotFollowCrossOriginRedirects(t *testing.T) {
 		"no redirect policy":       {client: func() *http.Client { return &http.Client{} }},
 		"permissive custom policy": {client: func() *http.Client { return &http.Client{CheckRedirect: followAll} }, wantRefused: true},
 	}
-	flows := map[string]func(t *testing.T, tokenURL string, opts ...oauth2client.Option) error{
-		"x/oauth2 path": func(t *testing.T, tokenURL string, opts ...oauth2client.Option) error {
-			opts = append(opts, oauth2client.WithAuthStyle(oauth2.AuthStyleInHeader))
-			_, err := mustClientCredentials(t, tokenURL, "svc", "s3cr3t", opts...).Token()
+	flows := map[string]func(t *testing.T, tokenURL string, client *http.Client, allowHTTP bool) error{
+		"x/oauth2 path": func(t *testing.T, tokenURL string, client *http.Client, allowHTTP bool) error {
+			_, err := mustClientCredentials(t, tokenURL, "svc", "s3cr3t", allowInsecureHTTP(allowHTTP,
+				oauth2client.WithClientCredentialsInsecureHTTP,
+				oauth2client.WithClientCredentialsHTTPClient(client),
+				oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader))...).Token()
 			return err
 		},
-		"hand-rolled path": func(t *testing.T, tokenURL string, opts ...oauth2client.Option) error {
-			_, err := mustExchanger(t, tokenURL, "svc", "s3cr3t", opts...).
+		"hand-rolled path": func(t *testing.T, tokenURL string, client *http.Client, allowHTTP bool) error {
+			_, err := mustExchanger(t, tokenURL, "svc", "s3cr3t", allowInsecureHTTP(allowHTTP,
+				oauth2client.WithExchangerInsecureHTTP,
+				oauth2client.WithExchangerHTTPClient(client))...).
 				Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subject"})
 			return err
 		},
-		"revocation": func(t *testing.T, tokenURL string, opts ...oauth2client.Option) error {
-			return mustRevoker(t, tokenURL, "svc", "s3cr3t", opts...).Revoke(t.Context(), "refresh-token")
+		"revocation": func(t *testing.T, tokenURL string, client *http.Client, allowHTTP bool) error {
+			return mustRevoker(t, tokenURL, "svc", "s3cr3t", allowInsecureHTTP(allowHTTP,
+				oauth2client.WithRevokerInsecureHTTP,
+				oauth2client.WithRevokerHTTPClient(client))...).Revoke(t.Context(), "refresh-token")
 		},
 	}
 
@@ -76,13 +83,7 @@ func TestInjectedClientDoesNotFollowCrossOriginRedirects(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					t.Parallel()
 					tokenURL, _, redirected := countingRedirectingIdP(t)
-					injected := tc.client()
-					opts := []oauth2client.Option{oauth2client.WithHTTPClient(injected)}
-					if insecure {
-						opts = append(opts, oauth2client.WithInsecureHTTP())
-					}
-
-					err := run(t, tokenURL, opts...)
+					err := run(t, tokenURL, tc.client(), insecure)
 
 					require.Error(t, err)
 					require.Zero(t, redirected.Load(), "the form must not be re-posted to the redirect target")
@@ -114,7 +115,7 @@ func TestInjectedClientPolicyDecidesSameOriginRedirects(t *testing.T) {
 		return nil
 	}}
 
-	tok, err := mustExchanger(t, srv.URL+"/token", "svc", "s3cr3t", oauth2client.WithHTTPClient(client)).
+	tok, err := mustExchanger(t, srv.URL+"/token", "svc", "s3cr3t", oauth2client.WithExchangerHTTPClient(client)).
 		Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subject"})
 
 	require.NoError(t, err)
@@ -127,16 +128,16 @@ func TestInjectedClientPolicyDecidesSameOriginRedirects(t *testing.T) {
 // constructor and never reaches the retry policy.)
 func TestPermanentRequestErrorsAreNotRetried(t *testing.T) {
 	t.Parallel()
-	retrying := []oauth2client.Option{
-		oauth2client.WithRetryAttempts(3),
-		oauth2client.WithRetryBaseDelay(time.Millisecond),
-		oauth2client.WithRetryMaxDelay(time.Millisecond),
-	}
 
 	t.Run("token exchange, refused redirect", func(t *testing.T) {
 		t.Parallel()
 		tokenURL, hits, _ := countingRedirectingIdP(t)
-		opts := append([]oauth2client.Option{oauth2client.WithHTTPClient(&http.Client{CheckRedirect: followAll})}, retrying...)
+		opts := []oauth2client.ExchangerOption{
+			oauth2client.WithExchangerHTTPClient(&http.Client{CheckRedirect: followAll}),
+			oauth2client.WithExchangerRetryAttempts(3),
+			oauth2client.WithExchangerRetryBaseDelay(time.Millisecond),
+			oauth2client.WithExchangerRetryMaxDelay(time.Millisecond),
+		}
 
 		_, err := mustExchanger(t, tokenURL, "svc", "s3cr3t", opts...).
 			Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subject"})
@@ -150,7 +151,12 @@ func TestPermanentRequestErrorsAreNotRetried(t *testing.T) {
 		t.Parallel()
 		tokenURL, hits, _ := countingRedirectingIdP(t)
 		key, _ := rsaKey(t, "k")
-		opts := append([]oauth2client.Option{oauth2client.WithHTTPClient(&http.Client{CheckRedirect: followAll})}, retrying...)
+		opts := []oauth2client.JWTBearerOption{
+			oauth2client.WithJWTBearerHTTPClient(&http.Client{CheckRedirect: followAll}),
+			oauth2client.WithJWTBearerRetryAttempts(3),
+			oauth2client.WithJWTBearerRetryBaseDelay(time.Millisecond),
+			oauth2client.WithJWTBearerRetryMaxDelay(time.Millisecond),
+		}
 		b, err := oauth2client.NewJWTBearer(tokenURL, "svc", key, opts...)
 		require.NoError(t, err)
 
@@ -175,7 +181,7 @@ func TestConstructorsValidateEndpointURLs(t *testing.T) {
 	authCode := []struct {
 		name     string
 		endpoint oauth2.Endpoint
-		opts     []oauth2client.Option
+		opts     []oauth2client.AuthCodeOption
 		wantErr  bool
 	}{
 		{name: "https", endpoint: oauth2.Endpoint{AuthURL: secure, TokenURL: secure}},
@@ -185,7 +191,7 @@ func TestConstructorsValidateEndpointURLs(t *testing.T) {
 		{
 			name:     "insecure allowed explicitly",
 			endpoint: oauth2.Endpoint{AuthURL: insecure, TokenURL: insecure},
-			opts:     []oauth2client.Option{oauth2client.WithInsecureHTTP()},
+			opts:     []oauth2client.AuthCodeOption{oauth2client.WithAuthCodeInsecureHTTP()},
 		},
 	}
 	for _, tc := range authCode {
@@ -210,7 +216,7 @@ func TestConstructorsValidateEndpointURLs(t *testing.T) {
 		require.ErrorIs(t, err, oauth2client.ErrInsecureEndpoint)
 		require.ErrorIs(t, err, oauth2client.ErrJWTBearerConfig)
 
-		_, err = oauth2client.NewJWTBearer(insecure, "svc", key, oauth2client.WithInsecureHTTP())
+		_, err = oauth2client.NewJWTBearer(insecure, "svc", key, oauth2client.WithJWTBearerInsecureHTTP())
 		require.NoError(t, err)
 		_, err = oauth2client.NewJWTBearer(loopback, "svc", key)
 		require.NoError(t, err)

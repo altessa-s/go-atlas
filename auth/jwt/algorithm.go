@@ -9,7 +9,7 @@ import "slices"
 // Algorithm is a JWA signature algorithm name (for example "EdDSA", "ES256",
 // "RS256"). It is a plain string so deployments can extend the set with any
 // algorithm registered with golang-jwt via jwt.RegisterSigningMethod and pass
-// it through [WithAllowedAlgorithms]; the constants below cover the asymmetric
+// it through [WithSignerAllowedAlgorithms] and [WithVerifierAllowedAlgorithms]; the constants below cover the asymmetric
 // algorithms golang-jwt supports out of the box.
 type Algorithm string
 

@@ -41,7 +41,7 @@ func newOpaMetrics(c metrics.Meter) *opaMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem(DefaultMetricsSubsystem)
+	scoped := metrics.MustMeter{Meter: c.WithSubsystem(DefaultMetricsSubsystem)}
 
 	m := &opaMetrics{
 		policyReloads: scoped.MustCounter(metrics.MetricOpts{

@@ -49,15 +49,15 @@ func TestProvider_getDiscoveryInfo_RejectsOversizedResponse(t *testing.T) {
 		return jsonResponse(r, body), nil
 	})
 
-	p := &Provider{
+	p := &Provider{discovery: discoveryClient{
 		discoveryURL: "https://issuer/.well-known/openid-configuration",
 		client:       &http.Client{Transport: rt},
-		logger:       slog.New(slog.DiscardHandler),
-	}
+		logger:       slog.New(slog.DiscardHandler), discoveryValidationMode: DiscoveryValidationModeDisabled,
+	}}
 
-	err := p.getDiscoveryInfo(t.Context())
+	err := p.discovery.getDiscoveryInfo(t.Context())
 	require.ErrorIs(t, err, ErrDiscovery)
-	require.Nil(t, p.discoveryInfo)
+	require.Nil(t, p.discovery.info)
 }
 
 func TestProvider_IntrospectToken_RejectsOversizedResponse(t *testing.T) {

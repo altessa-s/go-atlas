@@ -37,9 +37,6 @@ type fixedClock struct{ t time.Time }
 
 func (c fixedClock) Now() time.Time { return c.t }
 
-// clockOpt pins the minter/verifier clock to t.
-func clockOpt(t time.Time) selfjwt.Option { return selfjwt.WithClock(fixedClock{t: t}) }
-
 // keyPair is a generated signing/verification pair for one algorithm.
 type keyPair struct {
 	alg  atlasjwt.Algorithm
@@ -61,7 +58,7 @@ func genKeyPair(t testing.TB, alg atlasjwt.Algorithm) keyPair {
 		k := testhelpers.GenerateRSAKey(t, 2048)
 		return keyPair{alg: alg, priv: k, pub: &k.PublicKey}
 	default:
-		t.Fatalf("unsupported test algorithm %q", alg)
+		require.FailNowf(t, "unsupported test algorithm", "%q", alg)
 		return keyPair{}
 	}
 }
@@ -110,8 +107,8 @@ func TestRoundTrip(t *testing.T) {
 		t.Run(alg.String(), func(t *testing.T) {
 			t.Parallel()
 			p := newProvider(t, alg)
-			m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
-			v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+			m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
+			v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 
 			res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, Scopes: []string{"files:read"}, TTL: time.Hour})
 			require.NoError(t, err)
@@ -132,7 +129,7 @@ func TestRoundTrip(t *testing.T) {
 func TestMintClampsTTL(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime), selfjwt.WithMaxTokenLifetime(time.Hour))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}), selfjwt.WithMaxTokenLifetime(time.Hour))
 
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: 100 * 24 * time.Hour})
 	require.NoError(t, err)
@@ -142,7 +139,7 @@ func TestMintClampsTTL(t *testing.T) {
 func TestMintRejectsUnknownSubject(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 
 	_, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: "nobody", TTL: time.Hour})
 	require.ErrorIs(t, err, selfjwt.ErrSubjectUnknown)
@@ -151,8 +148,8 @@ func TestMintRejectsUnknownSubject(t *testing.T) {
 func TestVerifyRejectsTamperedSignature(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
@@ -174,11 +171,11 @@ func TestVerifyRejectsTamperedSignature(t *testing.T) {
 func TestVerifyRejectsExpired(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
-	late := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime.Add(2*time.Hour)), selfjwt.WithLeeway(time.Minute))
+	late := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime.Add(2 * time.Hour)}), selfjwt.WithLeeway(time.Minute))
 	_, err = late.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrTokenExpired)
 }
@@ -186,11 +183,11 @@ func TestVerifyRejectsExpired(t *testing.T) {
 func TestVerifyRejectsNotYetValid(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
-	early := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime.Add(-5*time.Minute)), selfjwt.WithLeeway(30*time.Second))
+	early := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime.Add(-5 * time.Minute)}), selfjwt.WithLeeway(30*time.Second))
 	_, err = early.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrTokenInvalid)
 }
@@ -198,7 +195,7 @@ func TestVerifyRejectsNotYetValid(t *testing.T) {
 func TestVerifyRejectsDisallowedAlgorithm(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 
 	// An HMAC token must be rejected before any key lookup: a symmetric secret
 	// must never be verified as if it were a public key.
@@ -217,13 +214,13 @@ func TestVerifyRejectsDisallowedAlgorithm(t *testing.T) {
 func TestVerifyHonorsAllowlistOverride(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
 	// EdDSA is excluded from this verifier's allow-list, so its own minter's
 	// token is rejected on algorithm grounds.
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime), selfjwt.WithAllowedAlgorithms(atlasjwt.AlgES256))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}), selfjwt.WithVerifierAllowedAlgorithms(atlasjwt.AlgES256))
 	_, err = v.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrTokenInvalid)
 }
@@ -232,11 +229,11 @@ func TestVerifyRejectsAlgorithmMismatch(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
 	p.vkAlg = atlasjwt.AlgES256 // provider reports a different algorithm than the token carries
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 	_, err = v.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrAlgorithmNotAllowed)
 }
@@ -244,7 +241,7 @@ func TestVerifyRejectsAlgorithmMismatch(t *testing.T) {
 func TestVerifyRejectsMissingExpiry(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 
 	priv, ok := p.kp.priv.(ed25519.PrivateKey)
 	require.True(t, ok)
@@ -263,13 +260,13 @@ func TestVerifyRejectsMissingExpiry(t *testing.T) {
 func TestVerifyRejectsRotatedKid(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
 	// The subject has rotated to a new kid, so the token's kid is unknown.
 	rotated := &fakeProvider{subject: testSubject, kid: "kid-2", kp: p.kp}
-	v := selfjwt.NewVerifier(rotated, testIssuer, testAudience, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(rotated, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 	_, err = v.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrKeyRotated)
 }
@@ -281,8 +278,8 @@ func TestVerifyRejectsRotatedKid(t *testing.T) {
 func TestCachedKeySurvivesRotationUntilInvalidateKey(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
@@ -313,8 +310,8 @@ func TestCachedKeySurvivesRotationUntilInvalidateKey(t *testing.T) {
 func TestInvalidateSubjectClosesRotationWindow(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
@@ -334,8 +331,8 @@ func TestInvalidateSubjectClosesRotationWindow(t *testing.T) {
 func TestCacheTTLZeroDisablesCaching(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime), selfjwt.WithCacheTTL(0))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}), selfjwt.WithCacheTTL(0))
 
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
@@ -350,12 +347,12 @@ func TestCacheTTLZeroDisablesCaching(t *testing.T) {
 func TestVerifyRejectsUnknownSubject(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
 	other := &fakeProvider{subject: "22222222-2222-2222-2222-222222222222", kid: testKeyID, kp: p.kp}
-	v := selfjwt.NewVerifier(other, testIssuer, testAudience, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(other, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 	_, err = v.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrSubjectUnknown)
 }
@@ -363,11 +360,11 @@ func TestVerifyRejectsUnknownSubject(t *testing.T) {
 func TestVerifyCachesVerificationKey(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
-	v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 	_, err = v.Verify(t.Context(), res.Token)
 	require.NoError(t, err)
 	_, err = v.Verify(t.Context(), res.Token)
@@ -379,7 +376,7 @@ func TestNewPairsMinterAndVerifier(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
 	// One option list builds both sides, so the issuer (and clock) cannot drift.
-	m, v := selfjwt.New(p, testIssuer, testAudience, clockOpt(baseTime))
+	m, v := selfjwt.New(p, testIssuer, testAudience, selfjwt.WithPairClock(fixedClock{t: baseTime}))
 
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
@@ -391,7 +388,7 @@ func TestNewPairsMinterAndVerifier(t *testing.T) {
 func TestMintRejectsEmptySubject(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 
 	_, err := m.Mint(t.Context(), selfjwt.MintRequest{TTL: time.Hour})
 	require.ErrorIs(t, err, selfjwt.ErrSubjectRequired)
@@ -401,7 +398,7 @@ func TestMintRejectsEmptyKeyID(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
 	p.kid = "" // provider hands back signing material with no key id
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 
 	_, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.ErrorIs(t, err, selfjwt.ErrSigningKeyInvalid)
@@ -428,11 +425,11 @@ func (p noAlgProvider) VerificationKey(ctx context.Context, subject, kid string)
 func TestVerifyRejectsKeyWithoutAlgorithm(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
-	v := selfjwt.NewVerifier(noAlgProvider{inner: p}, testIssuer, testAudience, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(noAlgProvider{inner: p}, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 	_, err = v.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrAlgorithmNotAllowed)
 }

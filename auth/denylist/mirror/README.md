@@ -21,7 +21,7 @@ bridges the two: `Refresh` pulls the authoritative revoked set into a local snap
 | Type     | Description                                                                                                   |
 |----------|---------------------------------------------------------------------------------------------------------------|
 | `Cache`  | Synchronous, periodically-refreshed snapshot of a distributed denylist. Satisfies `jwt.RevocationChecker`.    |
-| `Source` | Consumer-side seam the cache reads: `StreamValues(ctx) iter.Seq2[string, error]`. `redis.Store` satisfies it. |
+| `Source` | Consumer-side seam the cache reads: `StreamValues(ctx) iter.Seq2[string, error]`. `redis.Store.RawSource()` supplies it. |
 
 ## API
 
@@ -55,8 +55,11 @@ zero. A nil collector or `*Metrics` makes every recording a zero-cost no-op, so 
 ## Usage
 
 ```go
-store := redisstore.New(client)     // authoritative distributed store (mirror.Source)
-m := mirror.New(store)
+store, err := redisstore.New(client)
+if err != nil {
+    return err
+}
+m := mirror.New(store.RawSource())
 if err := m.Refresh(ctx); err != nil {
     return err                       // prime before serving
 }
@@ -64,7 +67,7 @@ if err := m.Refresh(ctx); err != nil {
 v := jwt.NewVerifier(resolver, jwt.WithRevocation(m))
 
 // Keep the snapshot fresh on a schedule (the go-horai task contract, a ticker, …):
-_ = registrar.Register(ctx, scheduler.TaskConfig{ID: "denylist-mirror", Schedule: "@every 30s", Func: m.Refresh})
+_ = registrar.Register(ctx, task.Config{ID: "denylist-mirror", Schedule: "@every 30s", Func: m.Refresh})
 ```
 
 ## See also

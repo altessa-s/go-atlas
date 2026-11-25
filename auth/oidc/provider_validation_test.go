@@ -377,14 +377,13 @@ func TestValidate_CacheHitReevaluatesTimeClaims(t *testing.T) {
 			t.Parallel()
 
 			raw := "cached-" + strings.ReplaceAll(tc.name, " ", "-")
-			entry := cachedToken{
-				Claims: idp.claims(tc.overrides), Header: header,
-				KeyFingerprint: p.currentKeyFingerprint(t.Context(), header),
-			}
+			verified, _, err := p.policy.defaultPolicy.verifier.VerifySignature(t.Context(), idp.sign(t, idp.claims(tc.overrides)))
+			require.NoError(t, err)
+			entry := newCachedToken(verified, header, p.keys.currentKeyFingerprint(t.Context(), header))
 			require.NotEmpty(t, entry.KeyFingerprint)
-			require.NoError(t, cache.Save(t.Context(), p.signatureCacheKey(raw), entry, time.Hour))
+			require.NoError(t, cache.Save(t.Context(), p.policy.signatureCacheKey(raw), entry, time.Hour))
 
-			_, err := p.ValidateToken(t.Context(), raw)
+			_, err = p.ValidateToken(t.Context(), raw)
 			require.ErrorIs(t, err, ErrTokenInvalid)
 		})
 	}
@@ -408,8 +407,8 @@ func TestSignatureCacheKey_BoundToTrustDomainAndVersioned(t *testing.T) {
 	_, err = pB.ValidateToken(t.Context(), raw)
 	require.ErrorIs(t, err, ErrTokenInvalid, "B must never trust A's cached signature verification")
 
-	require.NotEqual(t, pA.signatureCacheKey(raw), pB.signatureCacheKey(raw))
-	require.NotEqual(t, tokenCacheKey(DefaultTokensCacheKeyPrefix, raw), pA.signatureCacheKey(raw),
+	require.NotEqual(t, pA.policy.signatureCacheKey(raw), pB.policy.signatureCacheKey(raw))
+	require.NotEqual(t, tokenCacheKey(DefaultTokensCacheKeyPrefix, raw), pA.policy.signatureCacheKey(raw),
 		"the signature cache must not share keys with the legacy claims cache")
 }
 
@@ -631,41 +630,6 @@ func TestNewProvider_InitialRevocationSyncFailure(t *testing.T) {
 	require.NotNil(t, p)
 }
 
-func TestServiceConfig_AnyOfScopes(t *testing.T) {
-	t.Parallel()
-
-	cfg := &ValidationRulesConfig{Scopes: &ScopesValidationConfig{AnyOf: []string{"admin", "ops"}}}
-	opts, err := cfg.ToValidationOptions()
-	require.NoError(t, err)
-
-	idp := newTestIdP(t)
-	p := idp.newProvider(t, WithDefaultValidationOptions(append(opts, WithValidationAudience(testAudience))...))
-
-	tests := []struct {
-		name  string
-		scope any
-		ok    bool
-	}{
-		{name: "space-delimited match", scope: "read ops", ok: true},
-		{name: "list match", scope: []string{"admin"}, ok: true},
-		{name: "no match", scope: "read write"},
-		{name: "missing scope", scope: nil},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			raw := idp.sign(t, idp.claims(map[string]any{"scope": tc.scope}))
-			_, err := p.ValidateToken(t.Context(), raw)
-			if tc.ok {
-				require.NoError(t, err)
-				return
-			}
-			require.ErrorIs(t, err, ErrCELValidation)
-		})
-	}
-}
-
 func TestValidate_PerCallOptionsKeepDefaultCELRules(t *testing.T) {
 	t.Parallel()
 
@@ -775,9 +739,9 @@ func TestValidate_CacheRecordsKeyUsedForVerification(t *testing.T) {
 
 	// Same kid, new key material: replace the JWKS right after the
 	// verification resolved the old key, before the entry is cached.
-	inner := p.keyResolver
+	inner := p.keys.keyResolver
 	var rotated atomic.Bool
-	p.keyResolver = authjwt.KeyResolverFunc(func(ctx context.Context, hdr authjwt.Header, c authjwt.Claims) (authjwt.VerificationKey, error) {
+	p.keys.keyResolver = authjwt.KeyResolverFunc(func(ctx context.Context, hdr authjwt.Header, c authjwt.Claims) (authjwt.VerificationKey, error) {
 		vk, err := inner.ResolveKey(ctx, hdr, c)
 		if err == nil && rotated.CompareAndSwap(false, true) {
 			idp.rotate(t, "k1")
@@ -792,32 +756,4 @@ func TestValidate_CacheRecordsKeyUsedForVerification(t *testing.T) {
 
 	_, err = p.ValidateToken(t.Context(), raw)
 	require.ErrorIs(t, err, ErrTokenInvalid, "the old token must be re-verified against the rotated key")
-}
-
-func TestServiceConfig_AnyOfScopesAndCustomCELRulesBothEnforced(t *testing.T) {
-	t.Parallel()
-
-	cfg := &ValidationRulesConfig{
-		Scopes:   &ScopesValidationConfig{AnyOf: []string{"admin"}},
-		CELRules: []CELRuleDefinition{{Name: "users-only", Expression: "claims.role == 'user'"}},
-	}
-	opts, err := cfg.ToValidationOptions()
-	require.NoError(t, err)
-
-	idp := newTestIdP(t)
-	p := idp.newProvider(t, WithTokenCache(newMemCacher()),
-		WithDefaultValidationOptions(append(opts, WithValidationAudience(testAudience))...))
-
-	noScope := idp.sign(t, idp.claims(map[string]any{"role": "user", "scope": "read"}))
-	wrongRole := idp.sign(t, idp.claims(map[string]any{"role": "guest", "scope": "admin"}))
-	both := idp.sign(t, idp.claims(map[string]any{"role": "user", "scope": "admin"}))
-
-	for range 2 { // second round exercises cache hits
-		_, err = p.ValidateToken(t.Context(), noScope)
-		require.ErrorIs(t, err, ErrCELValidation, "any_of must survive custom CEL rules")
-		_, err = p.ValidateToken(t.Context(), wrongRole)
-		require.ErrorIs(t, err, ErrCELValidation)
-		_, err = p.ValidateToken(t.Context(), both)
-		require.NoError(t, err)
-	}
 }

@@ -22,7 +22,7 @@ const (
 	estimatedOptionsCount = 5
 
 	// estimatedValidationOptionsCount is the estimated number of validation options for capacity pre-allocation.
-	estimatedValidationOptionsCount = 7
+	estimatedValidationOptionsCount = 8
 )
 
 // validationOptionsFromConfig constructs validation options from configuration.
@@ -34,6 +34,7 @@ func validationOptionsFromConfig(cfg *authconfig.OIDCValidation, clockSkew time.
 	opts := make([]oidc.ValidationOption, 0, estimatedValidationOptionsCount)
 	opts = append(opts,
 		oidc.WithValidationIssuedAt(),
+		oidc.WithValidationMinTokenLifetime(cfg.MinTokenLifetime),
 		oidc.WithValidationMaxTokenLifetime(cfg.MaxTokenLifetime),
 		oidc.WithValidationLeeway(clockSkew),
 		oidc.WithValidationIssuer(cfg.Issuer),
@@ -56,6 +57,7 @@ func presetFromConfig(preset *authconfig.OIDCPreset, clockSkew time.Duration) (*
 	opts = append(opts,
 		oidc.WithValidationIssuedAt(),
 		oidc.WithValidationLeeway(clockSkew),
+		oidc.WithValidationMinTokenLifetime(preset.MinTokenLifetime),
 		oidc.WithValidationMaxTokenLifetime(preset.MaxTokenLifetime),
 		oidc.WithValidationIssuer(preset.Issuer),
 	)

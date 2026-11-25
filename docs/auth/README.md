@@ -304,7 +304,7 @@ import (
 )
 
 src, err := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
-    oauth2client.WithScopes("orders:read", "orders:write"),
+    oauth2client.WithClientCredentialsScopes("orders:read", "orders:write"),
 )
 if err != nil {
     return err // tokenURL is malformed or not https

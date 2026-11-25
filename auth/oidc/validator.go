@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+
+	"github.com/altessa-s/go-atlas/internal/diagnostics"
 )
 
 // TokenVerifier verifies a raw token and returns its verified claim set.
@@ -82,5 +84,15 @@ func logValidationFailure(ctx context.Context, logger *slog.Logger, msg string, 
 	if isTokenRejection(err) {
 		level = slog.LevelDebug
 	}
-	logger.Log(ctx, level, msg, slog.Any("error", err))
+	logger.Log(ctx, level, msg, slog.String("error", validationClass(err)))
+}
+
+// validationClass returns only fixed local diagnostics, even for an injected verifier.
+func validationClass(err error) string {
+	for _, kind := range []error{ErrTokenInvalid, ErrCELValidation, ErrTokenRevoked, ErrJWKSStale, ErrRevocationStale, ErrRevocationCheck, ErrIntrospection} {
+		if errors.Is(err, kind) {
+			return kind.Error()
+		}
+	}
+	return diagnostics.ErrorClass(err)
 }

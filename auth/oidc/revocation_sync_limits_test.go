@@ -60,7 +60,7 @@ func TestScheduledRevocationSync_BoundedByTimeout(t *testing.T) {
 		WithRevocationSyncTimeout(100*time.Millisecond))
 
 	hang.Store(true)
-	require.ErrorIs(t, p.scheduledRevocationSync(t.Context()), context.DeadlineExceeded)
+	require.ErrorIs(t, p.revocation.scheduledRevocationSync(t.Context()), context.DeadlineExceeded)
 	require.True(t, jtiRevoked(t, p, idp, "j1"), "a timed-out sync keeps the current set")
 }
 
@@ -73,7 +73,7 @@ func TestURLRevocationLoader_TrimsEntriesAndSkipsBlankLines(t *testing.T) {
 
 	require.True(t, jtiRevoked(t, p, idp, "j1"))
 	require.True(t, jtiRevoked(t, p, idp, "j2"))
-	blank, err := p.revocationStorage.IsRevoked(t.Context(), "")
+	blank, err := p.revocation.storage.IsRevoked(t.Context(), "")
 	require.NoError(t, err)
 	require.False(t, blank, "a blank line is not an entry")
 }
@@ -87,15 +87,15 @@ func TestRevocationSync_EmptyResultKeepsCurrentSet(t *testing.T) {
 		idp := newTestIdP(t)
 		idp.setRevoked("j1")
 		p := newRevocationListProvider(t, idp, &URLRevocationLoader{URL: idp.srv.URL + "/revoked"})
-		synced := p.lastRevocationSyncUnixNanos.Load()
+		synced := p.revocation.lastRevocationSync.Load()
 
 		idp.setRevoked(body...)
-		require.ErrorIs(t, p.scheduledRevocationSync(t.Context()), ErrRevocationLoadFailed)
+		require.ErrorIs(t, p.revocation.scheduledRevocationSync(t.Context()), ErrRevocationLoadFailed)
 		require.True(t, jtiRevoked(t, p, idp, "j1"))
-		require.Equal(t, synced, p.lastRevocationSyncUnixNanos.Load(), "a failed sync is not fresh")
+		require.Equal(t, synced, p.revocation.lastRevocationSync.Load(), "a failed sync is not fresh")
 
 		idp.setRevoked("j2")
-		require.NoError(t, p.scheduledRevocationSync(t.Context()))
+		require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 		require.False(t, jtiRevoked(t, p, idp, "j1"))
 		require.True(t, jtiRevoked(t, p, idp, "j2"))
 	}
@@ -108,7 +108,7 @@ func TestRevocationSync_EmptySourceAcceptedWhileSetIsEmpty(t *testing.T) {
 	idp := newTestIdP(t)
 	p := newRevocationListProvider(t, idp, &URLRevocationLoader{URL: idp.srv.URL + "/revoked"})
 
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 	require.False(t, jtiRevoked(t, p, idp, "j1"))
 }
 
@@ -136,7 +136,7 @@ func TestRevocationSync_OversizedListFailsWithoutPartialApply(t *testing.T) {
 				&URLRevocationLoader{URL: idp.srv.URL + "/revoked", MaxResponseBytes: tc.maxBytes})
 
 			idp.setRevoked(tc.list...)
-			err := p.scheduledRevocationSync(t.Context())
+			err := p.revocation.scheduledRevocationSync(t.Context())
 			require.ErrorIs(t, err, ErrRevocationLoadFailed)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)

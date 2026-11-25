@@ -88,8 +88,7 @@ graph TB
     subgraph "Required Interfaces"
         CA[Cacher]
         RS[RevocationStorage]
-        SCH[TaskRegistrar]
-        HC[health.Coordinator]
+        HC[health.Registrar]
         PF[probfilter.Filter]
         DL[probfilter.DataLoader]
     end
@@ -122,7 +121,6 @@ graph TB
     %% Interface connections
     P -.->|optional| CA
     P -.->|optional| RS
-    P -.->|optional| SCH
     P -.->|optional| HC
     RS -.-> PF
     RS -.-> DL
@@ -197,13 +195,8 @@ classDiagram
         +Sync(ctx) error
     }
 
-    class TaskRegistrar {
+    class HealthRegistrar {
         <<interface>>
-        +Register(ctx, TaskConfig) error
-    }
-
-    class HealthCoordinator {
-        <<struct>>
         +RegisterService(name, checker)
     }
 
@@ -222,8 +215,7 @@ classDiagram
 
     Provider ..> Cacher : uses
     Provider ..> RevocationStorage : uses
-    Provider ..> TaskRegistrar : uses
-    Provider ..> HealthCoordinator : uses
+    Provider ..> HealthRegistrar : uses
     RevocationStorage ..> Filter : uses
     RevocationStorage ..> DataLoader : uses
 ```
@@ -244,14 +236,6 @@ type RevocationStorage interface {
     IsRevoked(ctx context.Context, item string) (bool, error)
     MarkRevoked(ctx context.Context, item string, ttl time.Duration) error
     Sync(ctx context.Context) error
-}
-```
-
-**TaskRegistrar** — schedules background tasks (JWKS refresh, revocation sync).
-
-```go
-type TaskRegistrar interface {
-    Register(ctx context.Context, cfg TaskConfig) error
 }
 ```
 
@@ -289,11 +273,14 @@ claims, err := provider.ValidateToken(ctx, bearerToken)
 ### With JSON Service Config
 
 ```go
-provider, err := oidc.NewProvider(ctx, discoveryURL,
+opts, err := oidcfactory.LoadServiceConfigOptions("./config/oidc-rules.json",
     oidc.WithHTTPClient(httpclient.New()),
-    oidc.WithServiceConfigPath("./config/oidc-rules.json"),
     oidc.WithLogger(logger),
 )
+if err != nil {
+    return fmt.Errorf("load oidc service config: %w", err)
+}
+provider, err := oidc.NewProvider(ctx, discoveryURL, opts...)
 ```
 
 ### Standalone Provider (no config)
@@ -323,34 +310,35 @@ claims, err := provider.ValidateToken(ctx, bearerToken)
 
 | Layer                       | Format | Purpose                                                                        | Loaded by                                              |
 |-----------------------------|--------|--------------------------------------------------------------------------------|--------------------------------------------------------|
-| **YAML application config** | YAML   | Infrastructure: discovery URL, credentials, cache, JWKS, revocation, schedules | `authconfig.OIDC` via app loader                       |
-| **JSON service config**     | JSON   | Validation logic: claims rules, presets, selection rules, CEL                  | `oidc.LoadServiceConfig()` / `WithServiceConfigPath()` |
+| **YAML application config** | YAML   | Infrastructure: discovery URL, credentials, cache, JWKS, revocation, schedules | `authconfig.OIDC` via app loader                                           |
+| **JSON service config**     | JSON   | Validation logic: claims rules, presets, selection rules, CEL                  | `authconfig.ParseServiceConfig()` / `oidcfactory.LoadServiceConfigOptions()` |
 
 The two layers are complementary. YAML handles "how to connect" and "what infrastructure to use". JSON handles "what tokens to accept".
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  YAML config (authconfig.OIDC)                                   │
-│  ├── discoveryUrl, clockSkew                                 │
-│  ├── clientCredentials (clientId, clientSecret)               │
+│  YAML config (authconfig.OIDC)                               │
+│  ├── discoveryURL, clockSkew                                 │
+│  ├── clientCredentials (clientID, clientSecret)              │
 │  ├── introspection (enabled)                                 │
 │  ├── cache, jwks, revocation                                 │
 │  └── validation, presets, selectors (YAML-native)            │
 │                                                              │
 │        ProviderBuilder.Build(ctx)                            │
 │              ↓                                               │
-│        oidc.NewProvider(discoveryUrl, opts...)                │
+│        oidc.NewProvider(discoveryURL, opts...)               │
 │              ↓                                               │
-│  JSON service config (oidc.ServiceConfig) ← optional overlay │
+│  JSON service config (authconfig.ServiceConfig) ← overlay    │
 │  ├── default_validation (claims, scopes, CEL rules)          │
-│  ├── presets (named validation rule sets)                     │
+│  ├── presets (named validation rule sets)                    │
 │  └── preset_rules (automatic selection conditions)           │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-The YAML factory (`ProviderBuilder.Build`) never applies `WithServiceConfigPath`: the JSON overlay is wired only by passing
-`oidc.WithServiceConfigPath(path)` to `oidc.NewProvider` directly. When both layers define validation/presets, the JSON service config
-**overrides** the YAML values.
+The JSON service config schema lives in `config/auth` (`authconfig.ServiceConfig`), while file loading and conversion to `oidc.Option` live in
+`factory/auth/oidc` (`LoadServiceConfig`, `LoadServiceConfigOptions`, `ServiceConfigOptions`, `ValidationOptions`). Passing caller options to
+`LoadServiceConfigOptions(path, caller...)` appends the JSON policy options after the caller options so the JSON policy overrides earlier validation and
+preset options.
 
 ---
 
@@ -420,7 +408,10 @@ validation at startup otherwise.
 #### Fail-closed (default) vs fail-open mode
 
 By default introspection is **fail-closed**: if the IdP is unreachable (network error, 5xx, parse failure) the provider logs a warning, increments
-`auth_oidc_revocation_check_errors_total`, and rejects the token with `ErrIntrospection`. That keeps revocation enforced during IdP degradation.
+`auth_oidc_revocation_check_errors_total`, and rejects the token with `ErrIntrospection`. Introspection responses require an explicit JSON boolean
+`"active"` field (`true` or `false`); a missing or non-boolean `"active"` is rejected with `ErrIntrospection` rather than treated as inactive. Endpoint
+errors across discovery, JWKS, introspection, userinfo, and revocation URL loading report only the operation, numeric HTTP status, and error
+classification — never upstream URLs or response bodies. That keeps revocation enforced during IdP degradation.
 **Fail-open mode** (`failOpen: true`) flips this trade-off: any introspection failure is logged and the token is accepted on its signature alone.
 This keeps authentication available during IdP degradation but lets revoked tokens slip through until the endpoint is back — use it only when
 availability outweighs revocation guarantees.
@@ -453,6 +444,7 @@ YAML-native validation rules applied as default options to every `ValidateToken`
 oidc:
   validation:
     issuer: "https://auth.example.com"
+    minTokenLifetime: 5m
     maxTokenLifetime: 24h
     expression:
       expression: 'has(claims.email) && claims.email_verified == true'
@@ -465,6 +457,7 @@ oidc:
 | Field              | Type       | Required | Default        | Description                                         |
 |--------------------|------------|----------|----------------|-----------------------------------------------------|
 | `issuer`           | `string`   | No       | —              | Expected `iss` claim. Must be a valid URL           |
+| `minTokenLifetime` | `duration` | No       | `0` (disabled) | Reject tokens with `exp - iat` below this value      |
 | `maxTokenLifetime` | `duration` | No       | `0` (disabled) | Reject tokens with `exp - iat` exceeding this value |
 | `expression`       | `object`   | No       | —              | Single CEL expression for custom validation         |
 | `claims`           | `object`   | No       | —              | Claims validation rules (see below)                 |
@@ -526,6 +519,7 @@ oidc:
     list:
       - name: admin-token
         issuer: "https://auth.example.com"
+        minTokenLifetime: 5m
         maxTokenLifetime: 2h
         expression:
           expression: 'has(claims.role) && claims.role == "admin"'
@@ -555,6 +549,7 @@ oidc:
 |--------------------|------------|----------|-----------------------------------------------------------|
 | `name`             | `string`   | Yes      | Unique identifier. Pattern: `^[a-z][a-z0-9-]*$`           |
 | `issuer`           | `string`   | No       | Expected `iss` for this preset                            |
+| `minTokenLifetime` | `duration` | No       | Minimum token lifetime for this preset (zero disables it) |
 | `maxTokenLifetime` | `duration` | No       | Max token lifetime for this preset                        |
 | `expression`       | `object`   | No       | CEL expression for this preset                            |
 | `claims`           | `object`   | No       | Claims validation (same structure as `validation.claims`) |
@@ -601,9 +596,10 @@ oidc:
 | `tokensKeyPrefix`        | `string` | `"tokens:"`         | Cache key prefix for validated tokens |
 | `revokedTokensKeyPrefix` | `string` | `"revoked-tokens:"` | Cache key prefix for revoked tokens   |
 
-Cache keys are SHA-256 hashes of a versioned string, prefixed with the configured prefix. Validated-token keys bind the issuer, JWKS URL and
-raw token; introspection keys bind the issuer, introspection endpoint, introspection client ID and raw token, so providers sharing a cache
-never reuse each other's introspection answers.
+Cache keys are SHA-256 hashes of a versioned string, prefixed with the configured prefix. Validated-token keys use the `oidc-sig-v3` format (binding
+issuer, JWKS URL, and raw token; cached payloads store claims, exact `json.Number` values for `exp`/`iat`/`nbf`, header, and PKIX public-key
+fingerprint); introspection keys use `oidc-introspect-v2` (binding issuer, introspection endpoint, introspection client ID, and raw token), so providers
+sharing a cache never reuse each other's answers.
 
 ### JWKS
 
@@ -624,7 +620,8 @@ oidc:
 | `httpTimeout`     | `duration` | `30s`           | HTTP timeout for JWKS endpoint requests                                |
 
 Each provider runs the refresh on its own process-local cron, so every replica keeps its own key set fresh. With `refreshEnabled: false`
-(or no schedule) JWKS keys are loaded once at construction; refresh them with `provider.RefreshJWKS(ctx)`.
+(or no schedule) JWKS keys are loaded once at construction; refresh them with `provider.RefreshJWKS(ctx)`. Only signature-eligible keys are loaded
+from the JWK Set: `use` must be `"sig"` or omitted, and when `key_ops` is present it must include `"verify"`.
 
 #### Staleness check (Go-only)
 
@@ -781,29 +778,34 @@ cached).
 
 ### Loading
 
-**Via provider option:**
+**Via factory helper (recommended):**
 
 ```go
-provider, err := oidc.NewProvider(ctx, discoveryURL,
+opts, err := oidcfactory.LoadServiceConfigOptions("./config/oidc-service.json",
     oidc.WithHTTPClient(httpclient.New()),
-    oidc.WithServiceConfigPath("./config/oidc-service.json"),
     oidc.WithLogger(logger),
 )
-```
-
-**Via explicit load:**
-
-```go
-config, err := oidc.LoadServiceConfig("./config/oidc-service.json")
-if err != nil {
-    log.Fatal(err)
-}
-opts, err := config.ToProviderOptions()
 if err != nil {
     log.Fatal(err)
 }
 provider, err := oidc.NewProvider(ctx, discoveryURL, opts...)
 ```
+
+**Via explicit load and conversion:**
+
+```go
+svcCfg, err := oidcfactory.LoadServiceConfig("./config/oidc-service.json")
+if err != nil {
+    log.Fatal(err)
+}
+opts, err := oidcfactory.ServiceConfigOptions(svcCfg)
+if err != nil {
+    log.Fatal(err)
+}
+provider, err := oidc.NewProvider(ctx, discoveryURL, opts...)
+```
+
+To convert a single `*authconfig.ValidationRulesConfig` block into `[]oidc.ValidationOption`, call `oidcfactory.ValidationOptions`.
 
 ### Service Config Structure
 
@@ -850,7 +852,7 @@ Used in `default_validation` and in each preset's `validation` field.
 | Field                        | Type                | Default                        | Description                                                                                                                                                                                                                                                                                                                            |
 |------------------------------|---------------------|--------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `leeway`                     | `string` (duration) | `"30s"` (`oidc.DefaultLeeway`) | Clock skew tolerance for `exp`, `nbf`, `iat`; `"0s"` disables it; above `"5m"` (`jwt.MaxLeeway`) is rejected                                                                                                                                                                                                                          |
-| `verify_not_before`          | `bool` (tri-state)  | omit                           | Tri-state: omit = validate `nbf` when present; `true` = require the `nbf` claim AND validate it; `false` = **rejected at config-load time** with `ErrInvalidConfig` (the validator has no per-claim opt-out, so silently honoring `false` would mislead operators). The `exp` claim has no switch: it is always required and validated |
+| `verify_not_before`          | `bool` (tri-state)  | omit                           | Tri-state: omit = validate `nbf` when present; `true` = require the `nbf` claim AND validate it; `false` = **rejected at config-load time** with `rules.ErrInvalidConfig` (the validator has no per-claim opt-out, so silently honoring `false` would mislead operators). The `exp` claim has no switch: it is always required and validated |
 | `verify_issued_at`           | `bool`              | `false`                        | Verify `iat` claim                                                                                                                                                                                                                                                                                                                     |
 | `issuer`                     | `string`            | —                              | Expected `iss` claim (exact match)                                                                                                                                                                                                                                                                                                     |
 | `audiences`                  | `[]string`          | —                              | Expected `aud` values (at least one must match)                                                                                                                                                                                                                                                                                        |
@@ -908,10 +910,15 @@ environment enables — so `split`, `join`, `lowerAscii` and the other strings-e
 }
 ```
 
-| Field | Description                                                         |
-|-------|---------------------------------------------------------------------|
-| `min` | Accepted by the schema but **not enforced** — only `max` is applied |
-| `max` | Maximum `exp - iat` (security policy compliance)                    |
+| Field | Description         |
+|-------|---------------------|
+| `min` | Minimum `exp - iat` |
+| `max` | Maximum `exp - iat` |
+
+Both bounds are inclusive and use the exact decimal values of `exp` and `iat`. An enabled bound requires both claims and is checked on fresh
+verification and on signature-cache hits. Omit either bound or set it to zero to disable it. The minimum must be non-negative and at most the enabled
+maximum. The same rules apply to YAML `minTokenLifetime` and `maxTokenLifetime` and to the Go options `WithValidationMinTokenLifetime` and
+`WithValidationMaxTokenLifetime`.
 
 ### CEL Rules
 
@@ -1113,10 +1120,12 @@ provider, err := oidcfactory.New(cfg.Auth.OIDC).
 |--------------------------------------------------------------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `UseLogger(*slog.Logger)`                                    | No       | Sets structured logger. Default: discard                                                                                                                     |
 | `UseDefaultLogger()`                                         | No       | Uses `slog.Default()`                                                                                                                                        |
+| `UseMeter(metrics.Meter)`                                    | No       | Sets Prometheus meter for OIDC metrics                                                                                                                       |
 | `UseTokenCache(Cacher)`                                      | No       | Enables token validation caching (requires `cache.enabled: true` in config)                                                                                  |
 | `UseRevocationBloomStorage(StorageType, BloomStorageFunc)`   | No       | Required when revocation is enabled with a `redis` Bloom filter: `bloomredisfactory.Builder(client)` from `factory/cache/probfilter/bloom/storages/redis`    |
 | `UseRevocationCuckooStorage(StorageType, CuckooStorageFunc)` | No       | Required when revocation is enabled with a `redis` Cuckoo filter: `cuckooredisfactory.Builder(client)` from `factory/cache/probfilter/cuckoo/storages/redis` |
 | `UseRevocationStorage(RevocationStorage)`                    | No       | Custom revocation storage (bypasses auto-creation from config)                                                                                               |
+| `UseRevocationAuthoritative(Authoritative)`                  | No       | Authoritative store confirming probabilistic filter hits                                                                                                     |
 
 All `Use*` methods return `*ProviderBuilder` for chaining. Errors accumulate and surface at `Build()` time.
 
@@ -1158,15 +1167,15 @@ oidc:
 ```
 
 ```go
-// Option A: pass service config path as a provider option
-provider, err := oidc.NewProvider(ctx, cfg.Auth.OIDC.DiscoveryUrl,
-    oidc.WithServiceConfigPath("./config/oidc-rules.json"),
-    // ... other options
+// Option A: load service config options alongside caller options
+opts, _ := oidcfactory.LoadServiceConfigOptions("./config/oidc-rules.json",
+    // ... caller options
 )
+provider, err := oidc.NewProvider(ctx, cfg.Auth.OIDC.DiscoveryUrl, opts...)
 
-// Option B: load and merge manually
-svcCfg, _ := oidc.LoadServiceConfig("./config/oidc-rules.json")
-svcOpts, _ := svcCfg.ToProviderOptions()
+// Option B: load and convert manually
+svcCfg, _ := oidcfactory.LoadServiceConfig("./config/oidc-rules.json")
+svcOpts, _ := oidcfactory.ServiceConfigOptions(svcCfg)
 provider, err := oidc.NewProvider(ctx, discoveryURL, svcOpts...)
 ```
 
@@ -1333,7 +1342,10 @@ fails, so starting a replica never empties a filter other replicas share.
 
 Revocation checks are **fail-closed** by default, independently of the introspection `failOpen` setting: when `RevocationStorage.IsRevoked`
 returns an error, the provider logs it, increments `auth_oidc_revocation_check_errors_total`, and rejects the token with
-`ErrRevocationCheck`. `WithRevocationFailOpen()` (YAML `revocation.failOpen: true`) accepts the token instead.
+`ErrRevocationCheck`. `WithRevocationFailOpen()` (YAML `revocation.failOpen: true`) accepts the token instead. When a storage loses readiness
+and returns `ErrRevocationReadinessLost`, the provider triggers a single coalesced background recovery sync while the current lookup follows the
+configured fail mode. Pass `WithRevocationFilterCleanup(fn)` to run a `func(context.Context) error` cleanup hook on `Provider.Close()` when the
+provider owns the filter lifecycle.
 
 **Staleness bound.** A provider with a sync schedule trusts a "not revoked" answer only while its last successful sync is younger than
 `WithRevocationMaxStaleness` (YAML `revocation.maxStaleness`; default `oidc.DefaultRevocationMaxStaleness`, 3h). The schedule is a cron
@@ -1840,7 +1852,7 @@ The `authconfig.OIDC.Validate()` method runs automatically during app config loa
 
 ### JSON Service Config Validation (at load time)
 
-`ValidateServiceConfig()` runs when the service config is parsed:
+`authconfig.ValidateServiceConfig()` runs when the service config is parsed (`authconfig.ParseServiceConfig` / `oidcfactory.LoadServiceConfig`):
 
 | Check                                                 | Error                                                                                                               |
 |-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|

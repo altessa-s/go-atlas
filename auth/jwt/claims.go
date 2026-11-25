@@ -12,6 +12,13 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/internal/claimscope"
+	"github.com/altessa-s/go-atlas/auth/internal/numericdate"
+)
+
+const (
+	claimExpiration = "exp"
+	claimIssuedAt   = "iat"
+	claimNotBefore  = "nbf"
 )
 
 // Claims is a JWT claim set: the decoded payload as a map plus typed accessors
@@ -57,14 +64,21 @@ func (c Claims) Audience() []string {
 	return out
 }
 
-// Expiry returns the exp claim as a time, or the zero time when absent.
-func (c Claims) Expiry() time.Time { return c.Time("exp") }
+// Expiry rounds exp up to the next representable instant for retention deadlines.
+// An absent or invalid date yields the zero time.
+func (c Claims) Expiry() time.Time {
+	d, ok := numericdate.Parse(c[claimExpiration])
+	if !ok {
+		return time.Time{}
+	}
+	return d.Expiry()
+}
 
 // NotBefore returns the nbf claim as a time, or the zero time when absent.
-func (c Claims) NotBefore() time.Time { return c.Time("nbf") }
+func (c Claims) NotBefore() time.Time { return c.Time(claimNotBefore) }
 
 // IssuedAt returns the iat claim as a time, or the zero time when absent.
-func (c Claims) IssuedAt() time.Time { return c.Time("iat") }
+func (c Claims) IssuedAt() time.Time { return c.Time(claimIssuedAt) }
 
 // Scopes returns the scope claim normalized to a slice. The scope claim may be
 // a space-separated string (OAuth 2.0 style) or an array; both yield a slice.
@@ -94,21 +108,14 @@ func (c Claims) StringSlice(name string) ([]string, bool) {
 	return normalizeStringList(v)
 }
 
-// Time returns the named numeric-date claim as a time, or the zero time when
-// absent or not a recognized numeric type. JSON decodes numbers as float64, so
-// that is the common case; int64 and json.Number are also accepted.
+// Time returns the date rounded down to a nanosecond, or the zero time if
+// the named claim is absent or invalid.
 func (c Claims) Time(name string) time.Time {
-	switch v := c[name].(type) {
-	case float64:
-		return time.Unix(int64(v), 0).UTC()
-	case int64:
-		return time.Unix(v, 0).UTC()
-	case json.Number:
-		if n, err := v.Int64(); err == nil {
-			return time.Unix(n, 0).UTC()
-		}
+	d, ok := numericdate.Parse(c[name])
+	if !ok {
+		return time.Time{}
 	}
-	return time.Time{}
+	return d.Time()
 }
 
 // Decode unmarshals the whole claim set into target, a pointer to a
@@ -137,9 +144,9 @@ func (c Claims) Decode(target any) error {
 
 // Get returns the named claim asserted to T. The bool is false when the claim
 // is absent or not of type T. It is a free function because Go methods cannot
-// take type parameters. JSON decodes numbers as float64 and booleans as bool,
-// so read a numeric custom claim with Get[float64] and a flag with Get[bool];
-// for a typed struct view of several claims use [Claims.Decode] instead.
+// take type parameters. Verified registered dates use json.Number. Read a
+// numeric custom claim with Get[float64], a flag with Get[bool], or a set of
+// fields with [Claims.Decode].
 func Get[T any](c Claims, name string) (T, bool) {
 	v, ok := c[name].(T)
 	return v, ok

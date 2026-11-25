@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/url"
 	"testing"
@@ -139,11 +140,11 @@ func TestTrustDomainValidator(t *testing.T) {
 	t.Parallel()
 	cert := svidCert(t, "spiffe://example.org/x")
 
-	require.NoError(t, mtls.TrustDomainValidator("example.org", "other.org")(cert))
-	require.ErrorIs(t, mtls.TrustDomainValidator("other.org")(cert), mtls.ErrUntrustedDomain)
+	require.NoError(t, mtls.TrustDomainValidator("example.org", "other.org")(t.Context(), cert))
+	require.ErrorIs(t, mtls.TrustDomainValidator("other.org")(t.Context(), cert), mtls.ErrUntrustedDomain)
 
 	// No SVID surfaces the parse error.
-	require.ErrorIs(t, mtls.TrustDomainValidator("example.org")(&x509.Certificate{}), spiffe.ErrNoSVID)
+	require.ErrorIs(t, mtls.TrustDomainValidator("example.org")(t.Context(), &x509.Certificate{}), spiffe.ErrNoSVID)
 }
 
 func TestRevocationList(t *testing.T) {
@@ -172,21 +173,21 @@ func TestRevocationList(t *testing.T) {
 	// Seeded constructor and nil receiver.
 	require.True(t, mtls.NewRevocationList("7").IsRevoked("7"))
 	var nilRL *mtls.RevocationList
-	require.NoError(t, nilRL.Validator()(cert))
+	require.NoError(t, nilRL.Validator()(t.Context(), cert))
 }
 
 func TestSubjectValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "billing", Organization: []string{"Acme"}}}
 
-	require.NoError(t, mtls.SubjectValidator()(cert)) // empty is a no-op
-	require.NoError(t, mtls.SubjectValidator(pkix.Name{CommonName: "billing"})(cert))
+	require.NoError(t, mtls.SubjectValidator()(t.Context(), cert)) // empty is a no-op
+	require.NoError(t, mtls.SubjectValidator(pkix.Name{CommonName: "billing"})(t.Context(), cert))
 	// Any-of: matches the second candidate.
-	require.NoError(t, mtls.SubjectValidator(pkix.Name{CommonName: "x"}, pkix.Name{CommonName: "billing"})(cert))
-	require.ErrorIs(t, mtls.SubjectValidator(pkix.Name{CommonName: "other"})(cert), mtls.ErrSubjectMismatch)
+	require.NoError(t, mtls.SubjectValidator(pkix.Name{CommonName: "x"}, pkix.Name{CommonName: "billing"})(t.Context(), cert))
+	require.ErrorIs(t, mtls.SubjectValidator(pkix.Name{CommonName: "other"})(t.Context(), cert), mtls.ErrSubjectMismatch)
 	// Subset: the Organization must also match.
 	require.ErrorIs(t,
-		mtls.SubjectValidator(pkix.Name{CommonName: "billing", Organization: []string{"Evil"}})(cert),
+		mtls.SubjectValidator(pkix.Name{CommonName: "billing", Organization: []string{"Evil"}})(t.Context(), cert),
 		mtls.ErrSubjectMismatch)
 }
 
@@ -194,48 +195,48 @@ func TestIssuerValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{Issuer: pkix.Name{CommonName: "Acme Root CA"}}
 
-	require.NoError(t, mtls.IssuerValidator(pkix.Name{CommonName: "Acme Root CA"})(cert))
-	require.ErrorIs(t, mtls.IssuerValidator(pkix.Name{CommonName: "Evil CA"})(cert), mtls.ErrIssuerMismatch)
+	require.NoError(t, mtls.IssuerValidator(pkix.Name{CommonName: "Acme Root CA"})(t.Context(), cert))
+	require.ErrorIs(t, mtls.IssuerValidator(pkix.Name{CommonName: "Evil CA"})(t.Context(), cert), mtls.ErrIssuerMismatch)
 }
 
 func TestAuthorityKeyIDValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{AuthorityKeyId: []byte{1, 2, 3}}
 
-	require.NoError(t, mtls.AuthorityKeyIDValidator()(cert)) // empty is a no-op
-	require.NoError(t, mtls.AuthorityKeyIDValidator([]byte{9}, []byte{1, 2, 3})(cert))
-	require.ErrorIs(t, mtls.AuthorityKeyIDValidator([]byte{9})(cert), mtls.ErrUntrustedCA)
+	require.NoError(t, mtls.AuthorityKeyIDValidator()(t.Context(), cert)) // empty is a no-op
+	require.NoError(t, mtls.AuthorityKeyIDValidator([]byte{9}, []byte{1, 2, 3})(t.Context(), cert))
+	require.ErrorIs(t, mtls.AuthorityKeyIDValidator([]byte{9})(t.Context(), cert), mtls.ErrUntrustedCA)
 }
 
 func TestDNSNameValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{DNSNames: []string{"api.example.org"}}
 
-	require.NoError(t, mtls.DNSNameValidator()(cert)) // empty is a no-op
-	require.NoError(t, mtls.DNSNameValidator("api.example.org")(cert))
-	require.NoError(t, mtls.DNSNameValidator("other.org", "api.example.org")(cert)) // any-of
-	require.ErrorIs(t, mtls.DNSNameValidator("other.org")(cert), mtls.ErrDNSNameMismatch)
+	require.NoError(t, mtls.DNSNameValidator()(t.Context(), cert)) // empty is a no-op
+	require.NoError(t, mtls.DNSNameValidator("api.example.org")(t.Context(), cert))
+	require.NoError(t, mtls.DNSNameValidator("other.org", "api.example.org")(t.Context(), cert)) // any-of
+	require.ErrorIs(t, mtls.DNSNameValidator("other.org")(t.Context(), cert), mtls.ErrDNSNameMismatch)
 
 	// Wildcard SANs are honored via VerifyHostname.
 	wild := &x509.Certificate{DNSNames: []string{"*.example.org"}}
-	require.NoError(t, mtls.DNSNameValidator("api.example.org")(wild))
+	require.NoError(t, mtls.DNSNameValidator("api.example.org")(t.Context(), wild))
 }
 
 func TestEKUValidator(t *testing.T) {
 	t.Parallel()
 	cert := &x509.Certificate{ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
 
-	require.NoError(t, mtls.EKUValidator()(cert)) // empty is a no-op
-	require.NoError(t, mtls.EKUValidator(x509.ExtKeyUsageClientAuth)(cert))
-	require.ErrorIs(t, mtls.EKUValidator(x509.ExtKeyUsageServerAuth)(cert), mtls.ErrEKUMissing)
+	require.NoError(t, mtls.EKUValidator()(t.Context(), cert)) // empty is a no-op
+	require.NoError(t, mtls.EKUValidator(x509.ExtKeyUsageClientAuth)(t.Context(), cert))
+	require.ErrorIs(t, mtls.EKUValidator(x509.ExtKeyUsageServerAuth)(t.Context(), cert), mtls.ErrEKUMissing)
 	// AND-semantics: missing one required EKU rejects.
 	require.ErrorIs(t,
-		mtls.EKUValidator(x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth)(cert),
+		mtls.EKUValidator(x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth)(t.Context(), cert),
 		mtls.ErrEKUMissing)
 
 	// ExtKeyUsageAny satisfies every requirement.
 	anyCert := &x509.Certificate{ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}
-	require.NoError(t, mtls.EKUValidator(x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth)(anyCert))
+	require.NoError(t, mtls.EKUValidator(x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth)(t.Context(), anyCert))
 }
 
 func subjectOf(p any) string {
@@ -330,7 +331,7 @@ func TestWithValidatorAppends(t *testing.T) {
 	t.Parallel()
 	var ran []string
 	record := func(name string) mtls.CertValidator {
-		return func(*x509.Certificate) error {
+		return func(context.Context, *x509.Certificate) error {
 			ran = append(ran, name)
 			return nil
 		}
@@ -340,4 +341,26 @@ func TestWithValidatorAppends(t *testing.T) {
 	_, err := a.Authenticate(t.Context(), svidCert(t, "spiffe://example.org/sa/billing"))
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "b", "c"}, ran)
+}
+
+type policyError struct{ error }
+
+func (policyError) AuditReason() string { return "peer_suspended" }
+
+func TestValidatorContextAndAuditReason(t *testing.T) {
+	t.Parallel()
+	cause := errors.New("peer lookup denied")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	sink := &captureSink{}
+	a := newAuthenticator(t, mtls.WithInsecureAnyTrustDomain(),
+		mtls.WithValidator(func(got context.Context, _ *x509.Certificate) error {
+			require.Same(t, ctx, got)
+			return fmt.Errorf("validator: %w", policyError{cause})
+		}),
+		mtls.WithAudit(decision.NewRecorder(sink), subjectOf))
+	_, err := a.Authenticate(ctx, svidCert(t, "spiffe://example.org/x"))
+	require.ErrorAs(t, err, new(policyError))
+	require.Len(t, sink.got, 1)
+	require.Equal(t, "peer_suspended", sink.got[0].Reason)
 }

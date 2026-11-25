@@ -142,33 +142,37 @@ func runCompositeFailureFlow(t testing.TB, flow string, client *http.Client, log
 	t.Helper()
 	const endpointURL = "https://idp.example/token"
 	endpoint := oauth2.Endpoint{TokenURL: endpointURL, DeviceAuthURL: endpointURL, AuthStyle: oauth2.AuthStyleInHeader}
-	opts := []Option{WithHTTPClient(client), WithLogger(logger), WithAuthStyle(oauth2.AuthStyleInHeader),
-		WithRetryAttempts(1), WithRetryBaseDelay(time.Millisecond), WithRetryMaxDelay(time.Millisecond)}
 	switch flow {
 	case "client credentials", "early expiry", "client assertion":
+		opts := []ClientCredentialsOption{
+			WithClientCredentialsHTTPClient(client), WithClientCredentialsLogger(logger), WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader),
+		}
 		if flow == "early expiry" {
-			opts = append(opts, WithEarlyExpiry(time.Minute))
+			opts = append(opts, WithClientCredentialsEarlyExpiry(time.Minute))
 		} else if flow == "client assertion" {
 			auth, err := ClientSecretJWT("client", "secret")
 			require.NoError(t, err)
-			opts = append(opts, WithClientAuth(auth))
+			opts = append(opts, WithClientCredentialsClientAuth(auth))
 		}
 		source, err := ClientCredentials(t.Context(), endpointURL, "client", "secret", opts...)
 		require.NoError(t, err)
 		_, err = source.Token()
 		return err
 	case "refresh":
-		source, err := Refresh(t.Context(), endpointURL, "client", "secret", "refresh", opts...)
+		source, err := Refresh(t.Context(), endpointURL, "client", "secret", "refresh",
+			WithRefreshHTTPClient(client), WithRefreshLogger(logger), WithRefreshAuthStyle(oauth2.AuthStyleInHeader))
 		require.NoError(t, err)
 		_, err = source.Token()
 		return err
 	case "authorization code":
-		flow, err := NewAuthCode(endpoint, "client", "secret", "https://app.example/callback", opts...)
+		flow, err := NewAuthCode(endpoint, "client", "secret", "https://app.example/callback",
+			WithAuthCodeHTTPClient(client), WithAuthCodeLogger(logger))
 		require.NoError(t, err)
 		_, _, err = flow.Exchange(t.Context(), "code")
 		return err
 	case "device authorization", "device token":
-		device, err := NewDeviceFlow(endpoint, "client", "secret", opts...)
+		device, err := NewDeviceFlow(endpoint, "client", "secret",
+			WithDeviceFlowHTTPClient(client), WithDeviceFlowLogger(logger))
 		require.NoError(t, err)
 		if flow == "device authorization" {
 			_, err = device.Authorize(t.Context())
@@ -177,18 +181,30 @@ func runCompositeFailureFlow(t testing.TB, flow string, client *http.Client, log
 		}
 		return err
 	case "exchange":
-		exchanger, err := NewExchanger(endpointURL, "client", "secret", opts...)
+		exchanger, err := NewExchanger(endpointURL, "client", "secret",
+			WithExchangerHTTPClient(client),
+			WithExchangerLogger(logger),
+			WithExchangerAuthStyle(oauth2.AuthStyleInHeader),
+			WithExchangerRetryAttempts(1),
+			WithExchangerRetryBaseDelay(time.Millisecond),
+			WithExchangerRetryMaxDelay(time.Millisecond))
 		require.NoError(t, err)
 		_, err = exchanger.Exchange(t.Context(), ExchangeRequest{SubjectToken: "subject"})
 		return err
 	case "jwt bearer":
 		key := jwt.SigningKey{KeyID: "key", Algorithm: jwt.AlgES256, Key: testhelpers.GenerateECDSAKey(t, elliptic.P256())}
-		bearer, err := NewJWTBearer(endpointURL, "client", key, opts...)
+		bearer, err := NewJWTBearer(endpointURL, "client", key,
+			WithJWTBearerHTTPClient(client),
+			WithJWTBearerLogger(logger),
+			WithJWTBearerRetryAttempts(1),
+			WithJWTBearerRetryBaseDelay(time.Millisecond),
+			WithJWTBearerRetryMaxDelay(time.Millisecond))
 		require.NoError(t, err)
 		_, err = bearer.Token(t.Context())
 		return err
 	case "revocation":
-		revoker, err := NewRevoker(endpointURL, "client", "secret", opts...)
+		revoker, err := NewRevoker(endpointURL, "client", "secret",
+			WithRevokerHTTPClient(client), WithRevokerAuthStyle(oauth2.AuthStyleInHeader))
 		require.NoError(t, err)
 		return revoker.Revoke(t.Context(), "token")
 	default:

@@ -7,9 +7,9 @@ package filesystem
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"iter"
 	"log/slog"
 	"os"
@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/io/files"
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
+	"github.com/altessa-s/go-atlas/auth/opa/internal/jsondoc"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -50,7 +51,16 @@ type Source struct {
 
 // New creates a new filesystem policy source.
 // The path can be a directory containing .rego files or a single .rego file.
+// Configure a release manifest with [WithReleaseManifest] or [WithChecksums].
 func New(path string, opts ...Option) (*Source, error) {
+	o := newOptions(opts...)
+	if o.releaseManifest == "" && o.checksums == nil {
+		return nil, opa.ErrReleaseManifestRequired
+	}
+	if o.releaseManifest != "" && (!checksum.ValidPath(o.releaseManifest) || o.checksums != nil) {
+		return nil, errors.New("invalid or conflicting filesystem release manifest configuration")
+	}
+
 	isDir := files.DirExists(path)
 	isFile := files.FileExists(path)
 
@@ -62,7 +72,6 @@ func New(path string, opts ...Option) (*Source, error) {
 		return nil, fmt.Errorf("path must be a directory or .rego file: %s", path)
 	}
 
-	o := newOptions(opts...)
 	manifest := checksum.New(o.checksums)
 	o.checksums = nil
 
@@ -86,7 +95,11 @@ func (s *Source) Name() string {
 }
 
 // Fetch reads all policy files from the configured path.
-func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
+func (s *Source) Fetch(_ context.Context) (*opa.PolicyBundle, error) {
+	return s.fetch(nil)
+}
+
+func (s *Source) fetch(readFile func(string) ([]byte, error)) (*opa.PolicyBundle, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -96,41 +109,50 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 
 	modules := make(map[string][]byte)
 	var data map[string]any
+	loadedRelPaths := make(map[string]string)
 
 	info, err := os.Stat(s.path)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "stat path")
 	}
 
+	base := s.path
+	if !info.IsDir() {
+		base = filepath.Dir(s.path)
+	}
+	read := readFile
+	if read == nil {
+		read = os.ReadFile
+	}
+	manifestPath := filepath.Join(base, filepath.FromSlash(s.opts.releaseManifest))
+	root, manifest, err := s.readManifest(manifestPath, read)
+	if err != nil {
+		return nil, err
+	}
+
 	if info.IsDir() {
-		if err := s.walkDirectory(s.path, modules, &data); err != nil {
+		if err := s.walkDirectory(base, root, manifestPath, readFile, manifest, modules, &data, loadedRelPaths); err != nil {
 			return nil, err
 		}
 	} else {
-		content, err := os.ReadFile(s.path)
+		if root != "" {
+			return nil, coreerrs.WrapOperation(coreerrs.ErrInvalidArgument, "release root requires a policy directory")
+		}
+		content, err := read(s.path)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "read policy file")
 		}
 
 		relPath := relativePolicyPath(filepath.Dir(s.path), s.path)
-		if err := s.verifyChecksum(relPath, content); err != nil {
+		if err := manifest.Verify(relPath, content, ErrChecksumMismatch, ErrUnexpectedPolicyFile); err != nil {
 			return nil, err
 		}
 
+		loadedRelPaths[relPath] = s.path
 		modules[s.path] = content
 	}
 
-	// Build a relPath→true map for the coverage check.
-	loadedRelPaths := make(map[string]string, len(modules))
-	for absPath := range modules {
-		rel := relativePolicyPath(s.path, absPath)
-		if !info.IsDir() {
-			rel = relativePolicyPath(filepath.Dir(s.path), absPath)
-		}
-		loadedRelPaths[rel] = absPath
-	}
-
-	if err := s.verifyAllChecksumsCovered(loadedRelPaths); err != nil {
+	if err := manifest.Covered(loadedRelPaths, ErrMissingPolicyFile); err != nil {
 		return nil, err
 	}
 
@@ -138,11 +160,9 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 		return nil, coreerrs.Wrapf(opa.ErrNoPolicyFiles, "%s", s.path)
 	}
 
-	var bundle *opa.PolicyBundle
-	if data != nil {
-		bundle = opa.NewPolicyBundleWithData(modules, data)
-	} else {
-		bundle = opa.NewPolicyBundle(modules)
+	bundle, revisionErr := opa.NewPolicyBundleWithData(modules, data)
+	if revisionErr != nil {
+		return nil, revisionErr
 	}
 
 	s.logger.Debug("fetched policy bundle",
@@ -153,61 +173,96 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 	return bundle, nil
 }
 
-// walkDirectory recursively walks the directory and collects policy files.
-func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map[string]any) error {
-	for entry, err := range files.Walk(root,
-		files.WithRecursive(),
-		files.WithFileTypes(files.FileTypeRegular),
-	) {
+func (s *Source) walkDirectory(base, root, manifestPath string, readFile func(string) ([]byte, error),
+	manifest *checksum.Manifest, modules map[string][]byte, data *map[string]any, loaded map[string]string) error {
+	if root == "" {
+		if readFile == nil {
+			readFile = os.ReadFile
+		}
+		entries := files.Walk(base, files.WithRecursive(), files.WithFileTypes(files.FileTypeRegular))
+		return s.loadFiles(entries, base, manifestPath, readFile, manifest, modules, data, loaded)
+	}
+
+	baseDir, err := os.OpenRoot(base)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "open policy base")
+	}
+	defer func() { _ = baseDir.Close() }()
+	releaseDir, err := baseDir.OpenRoot(filepath.FromSlash(root))
+	if err != nil {
+		return coreerrs.WrapOperation(err, "open filesystem release root")
+	}
+	defer func() { _ = releaseDir.Close() }()
+
+	dir := filepath.Join(base, filepath.FromSlash(root))
+	if readFile == nil {
+		readFile = func(name string) ([]byte, error) {
+			return releaseDir.ReadFile(filepath.FromSlash(relativePolicyPath(dir, name)))
+		}
+	}
+	return s.loadFiles(releaseFiles(releaseDir.FS(), dir), dir, manifestPath, readFile, manifest, modules, data, loaded)
+}
+
+func releaseFiles(root fs.FS, dir string) iter.Seq2[files.Entry, error] {
+	return func(yield func(files.Entry, error) bool) {
+		stopped := errors.New("stop walking release directory")
+		err := fs.WalkDir(root, ".", func(name string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.Type().IsRegular() && !yield(files.Entry{
+				Path: filepath.Join(dir, filepath.FromSlash(name)), DirEntry: entry,
+			}, nil) {
+				return stopped
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, stopped) {
+			yield(files.Entry{}, err)
+		}
+	}
+}
+
+func (s *Source) loadFiles(entries iter.Seq2[files.Entry, error], root, manifestPath string, readFile func(string) ([]byte, error),
+	manifest *checksum.Manifest, modules map[string][]byte, data *map[string]any, loaded map[string]string) error {
+	for entry, err := range entries {
 		if err != nil {
 			return err
 		}
 
 		path := entry.Path
 		ext := filepath.Ext(entry.Name())
-
-		// Check for policy files
-		if s.extensions.Contains(ext) {
-			content, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return coreerrs.Wrapf(readErr, "read policy %s", path)
-			}
-
-			relPath := relativePolicyPath(root, path)
-			if err := s.verifyChecksum(relPath, content); err != nil {
-				return err
-			}
-
-			modules[path] = content
+		isModule := s.extensions.Contains(ext)
+		isData := s.opts.includeData && ext == ".json"
+		if !isModule && !isData {
 			continue
 		}
 
-		// Check for data files
-		if s.opts.includeData && ext == ".json" {
-			content, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return coreerrs.Wrapf(readErr, "read data file %s", path)
-			}
-
-			var jsonData any
-			if unmarshalErr := json.Unmarshal(content, &jsonData); unmarshalErr != nil {
-				return coreerrs.Wrapf(unmarshalErr, "parse JSON data %s", path)
-			}
-
-			if *data == nil {
-				*data = make(map[string]any)
-			}
-
-			// Use relative path as the data key
-			relPath, relErr := filepath.Rel(root, path)
-			if relErr != nil {
-				// Fall back to base name if rel path fails
-				relPath = filepath.Base(path)
-			}
-			key := strings.TrimSuffix(relPath, ".json")
-			key = strings.ReplaceAll(key, string(filepath.Separator), "/")
-			(*data)[key] = jsonData
+		relPath := relativePolicyPath(root, path)
+		if path == manifestPath {
+			continue
 		}
+		content, readErr := readFile(path)
+		if readErr != nil {
+			return coreerrs.Wrapf(readErr, "read policy file %s", path)
+		}
+		if err := manifest.Verify(relPath, content, ErrChecksumMismatch, ErrUnexpectedPolicyFile); err != nil {
+			return err
+		}
+		loaded[relPath] = path
+
+		if isModule {
+			modules[path] = content
+			continue
+		}
+		jsonData, err := jsondoc.Decode(content)
+		if err != nil {
+			return coreerrs.Wrapf(err, "parse JSON data %s", path)
+		}
+		if *data == nil {
+			*data = make(map[string]any)
+		}
+		(*data)[strings.TrimSuffix(relPath, ".json")] = jsonData
 	}
 
 	return nil
@@ -222,12 +277,24 @@ func relativePolicyPath(root, filePath string) string {
 	return filepath.ToSlash(rel)
 }
 
-func (s *Source) verifyChecksum(relPath string, content []byte) error {
-	return s.checksums.Verify(relPath, content, ErrChecksumMismatch, ErrUnexpectedPolicyFile)
-}
-
-func (s *Source) verifyAllChecksumsCovered(loaded map[string]string) error {
-	return s.checksums.Covered(loaded, ErrMissingPolicyFile)
+func (s *Source) readManifest(name string, readFile func(string) ([]byte, error)) (string, *checksum.Manifest, error) {
+	if s.opts.releaseManifest == "" {
+		return "", s.checksums, nil
+	}
+	content, err := readFile(name)
+	if err != nil {
+		return "", nil, coreerrs.WrapOperation(err, "read filesystem release manifest")
+	}
+	root, entries, err := checksum.DecodeRelease[string](content)
+	if err != nil {
+		return "", nil, coreerrs.WrapOperation(err, "decode filesystem release manifest")
+	}
+	for name, digest := range entries {
+		if !checksum.ValidDigest(digest) {
+			return "", nil, fmt.Errorf("invalid SHA-256 digest for %q", name)
+		}
+	}
+	return root, checksum.New(entries), nil
 }
 
 // Close releases resources held by the source.

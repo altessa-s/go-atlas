@@ -5,6 +5,7 @@
 package embed_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"testing/fstest"
@@ -232,7 +233,7 @@ func TestSource_Fetch_WithData(t *testing.T) {
 
 	fsys := fstest.MapFS{
 		"policies/test.rego": {Data: []byte("package test\ndefault allow = false")},
-		"policies/data.json": {Data: []byte(`{"users": ["alice", "bob"]}`)},
+		"policies/data.json": {Data: []byte(`9007199254740993`)},
 	}
 
 	source, err := embedsrc.New(fsys, "policies", embedsrc.WithIncludeData())
@@ -245,6 +246,7 @@ func TestSource_Fetch_WithData(t *testing.T) {
 	require.Len(t, bundle.Modules, 1)
 	require.NotNil(t, bundle.Data, "bundle.Data is nil, expected data to be loaded")
 	require.NotEmpty(t, bundle.Data, "bundle.Data is empty, expected at least one entry")
+	require.Equal(t, json.Number("9007199254740993"), bundle.Data["data"])
 }
 
 func TestSource_Close_Idempotent(t *testing.T) {

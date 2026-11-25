@@ -117,7 +117,7 @@ func TestJWTBearerExchange(t *testing.T) {
 			clk := clock.NewFake(time.Now())
 
 			b, err := oauth2client.NewJWTBearer(srv.URL, "svc@example.iam", key,
-				oauth2client.WithScopes(tc.scopes...), oauth2client.WithClock(clk))
+				oauth2client.WithJWTBearerScopes(tc.scopes...), oauth2client.WithJWTBearerClock(clk))
 			require.NoError(t, err)
 
 			tok, err := b.Token(t.Context())
@@ -177,7 +177,7 @@ func TestJWTBearerCachesUntilEarlyExpiry(t *testing.T) {
 			clk := clock.NewFake(time.Now())
 
 			b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key,
-				oauth2client.WithClock(clk), oauth2client.WithEarlyExpiry(tc.early))
+				oauth2client.WithJWTBearerClock(clk), oauth2client.WithJWTBearerEarlyExpiry(tc.early))
 			require.NoError(t, err)
 
 			tok, err := b.Token(t.Context())
@@ -265,9 +265,9 @@ func TestJWTBearerStatusErrors(t *testing.T) {
 			key, _ := rsaKey(t, "k")
 			// Three retries after the first attempt: four requests for a transient status.
 			b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key,
-				oauth2client.WithRetryAttempts(3),
-				oauth2client.WithRetryBaseDelay(time.Millisecond),
-				oauth2client.WithRetryMaxDelay(2*time.Millisecond))
+				oauth2client.WithJWTBearerRetryAttempts(3),
+				oauth2client.WithJWTBearerRetryBaseDelay(time.Millisecond),
+				oauth2client.WithJWTBearerRetryMaxDelay(2*time.Millisecond))
 			require.NoError(t, err)
 
 			_, err = b.Token(t.Context())
@@ -292,7 +292,7 @@ func TestJWTBearerRetryThenSuccess(t *testing.T) {
 	})
 	key, _ := rsaKey(t, "k")
 	b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key,
-		oauth2client.WithRetryAttempts(2), oauth2client.WithRetryBaseDelay(time.Millisecond))
+		oauth2client.WithJWTBearerRetryAttempts(2), oauth2client.WithJWTBearerRetryBaseDelay(time.Millisecond))
 	require.NoError(t, err)
 
 	tok, err := b.Token(t.Context())
@@ -439,7 +439,7 @@ func TestJWTBearerConcurrentRefreshNoStampede(t *testing.T) {
 	})
 	key, _ := rsaKey(t, "k")
 	clk := clock.NewFake(time.Now())
-	b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key, oauth2client.WithClock(clk))
+	b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key, oauth2client.WithJWTBearerClock(clk))
 	require.NoError(t, err)
 
 	burst := func(want string) {
@@ -487,7 +487,7 @@ func TestJWTBearerMetrics(t *testing.T) {
 	srv := newBearerServer(t, okToken(3600))
 	key, _ := rsaKey(t, "k")
 	b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key,
-		oauth2client.WithMetrics(oauth2client.NewMetrics(tc, "")))
+		oauth2client.WithJWTBearerMetrics(oauth2client.NewMetrics(tc, "")))
 	require.NoError(t, err)
 
 	for range 3 {
@@ -535,7 +535,7 @@ func TestJWTBearerHugeExpiresInIsClamped(t *testing.T) {
 	})
 	key, _ := rsaKey(t, "k")
 	clk := clock.NewFake(time.Now())
-	b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key, oauth2client.WithClock(clk))
+	b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key, oauth2client.WithJWTBearerClock(clk))
 	require.NoError(t, err)
 
 	tok, err := b.Token(t.Context())
@@ -562,7 +562,7 @@ func TestJWTBearerBoundsErrorFields(t *testing.T) {
 	key, _ := rsaKey(t, "k")
 	var logs bytes.Buffer
 	b, err := oauth2client.NewJWTBearer(srv.URL, "svc", key,
-		oauth2client.WithLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))))
+		oauth2client.WithJWTBearerLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))))
 	require.NoError(t, err)
 
 	_, err = b.Token(t.Context())

@@ -47,7 +47,7 @@ func TestDeviceFlow(t *testing.T) {
 
 	df := mustDeviceFlow(t,
 		oauth2.Endpoint{DeviceAuthURL: srv.URL + "/device", TokenURL: srv.URL + "/token"},
-		"cli", "", oauth2client.WithScopes("openid"),
+		"cli", "", oauth2client.WithDeviceFlowScopes("openid"),
 	)
 
 	da, err := df.Authorize(t.Context())

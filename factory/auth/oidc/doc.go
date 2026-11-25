@@ -14,6 +14,11 @@
 //	    UseRevocationBloomStorage(probfilterconfig.StorageTypeRedis, bloomredisfactory.Builder(redisClient)).
 //	    Build(ctx)
 //
+// LoadServiceConfigOptions reads a JSON service policy and applies its settings
+// after the caller options supplied for oidc.NewProvider. The JSON service
+// policy and YAML OIDC config both map minimum and maximum token lifetimes
+// into the provider's default and preset validation options.
+//
 // The revocation filter is built through factory/cache/probfilter, which
 // builds only in-memory storages; a Redis filter storage registers with
 // [ProviderBuilder.UseRevocationBloomStorage] or
@@ -32,5 +37,6 @@
 // revocation.maxResponseBytes to the URL loader's MaxResponseBytes.
 //
 // The context passed to Build bounds construction only: the caller owns the
-// returned provider and must call its Close on shutdown.
+// returned provider and must call its Close on shutdown. Build releases a filter
+// it allocated on failure and transfers its cleanup to the provider on success.
 package factory

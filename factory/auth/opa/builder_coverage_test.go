@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"encoding/json"
 	"log/slog"
 	"slices"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 	httpclient "github.com/altessa-s/go-atlas-net/http/client"
 	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
@@ -78,8 +80,15 @@ func TestBuild_S3SourceWithInjectedClient(t *testing.T) {
 	cfg := authconfig.DefaultOPA()
 	cfg.Source = authconfig.OPASourceS3
 	cfg.Query = "data.profiles.authz.allow"
-	cfg.S3 = &authconfig.OPAS3{Bucket: "bucket", Prefix: "policies/"}
-	requireAdminOnly(t, &cfg, New(&cfg).UseS3Client(fakeS3{"policies/authz.rego": []byte(adminPolicy)}))
+	cfg.S3 = &authconfig.OPAS3{Bucket: "bucket", Prefix: "policies/", ReleaseManifest: "release.json"}
+	policy := []byte(adminPolicy)
+	manifest, err := json.Marshal(map[string]map[string]string{
+		"authz.rego": {"etag": fakeETag(policy), "sha256": corehash.SHA256HexBytes(policy)},
+	})
+	require.NoError(t, err)
+	requireAdminOnly(t, &cfg, New(&cfg).UseS3Client(fakeS3{
+		"policies/authz.rego": policy, "policies/release.json": manifest,
+	}))
 }
 
 func TestBuild_S3SourceRequiresConfig(t *testing.T) {

@@ -19,10 +19,10 @@ func TestTrustDomainValidatorNormalizes(t *testing.T) {
 	local := svidCert(t, "spiffe://example.org/x")
 
 	for _, blank := range [][]string{{""}, {"  "}, {"", "\t"}} {
-		require.ErrorIs(t, mtls.TrustDomainValidator(blank...)(local), mtls.ErrNoTrustDomainPolicy, "%q", blank)
+		require.ErrorIs(t, mtls.TrustDomainValidator(blank...)(t.Context(), local), mtls.ErrNoTrustDomainPolicy, "%q", blank)
 	}
 
 	v := mtls.TrustDomainValidator("", " Example.ORG ")
-	require.NoError(t, v(local))
-	require.ErrorIs(t, v(svidCert(t, "spiffe://foreign.example/x")), mtls.ErrUntrustedDomain)
+	require.NoError(t, v(t.Context(), local))
+	require.ErrorIs(t, v(t.Context(), svidCert(t, "spiffe://foreign.example/x")), mtls.ErrUntrustedDomain)
 }

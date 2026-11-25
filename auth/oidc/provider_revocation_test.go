@@ -29,13 +29,17 @@ func newRevocationTestProvider(t *testing.T, rt http.RoundTripper, opts options)
 	opts.introspectionEnabled = true
 	opts.introspectionClientID = "client-id"
 	opts.introspectionSecret = "client-secret"
-	return &Provider{
-		opts:          &opts,
-		client:        &http.Client{Transport: rt},
-		discoveryInfo: &discoveryInfo{IntrospectionURL: "https://issuer/introspect"},
-		logger:        slog.New(slog.DiscardHandler),
-		metrics:       newOIDCMetrics(nil),
+	client := &http.Client{Transport: rt}
+	info := &discoveryInfo{IntrospectionURL: "https://issuer/introspect"}
+	opts.logger = slog.New(slog.DiscardHandler)
+	p := &Provider{
+		discovery:  discoveryClient{client: client, info: info},
+		userInfo:   userInfoClient{client: client, info: info},
+		revocation: newRevocationChecker(&opts, t.Context(), newOIDCMetrics(nil)),
 	}
+	p.revocation.client = client
+	p.revocation.info = info
+	return p
 }
 
 func TestProvider_checkIntrospection_FailClosedByDefault(t *testing.T) {
@@ -48,7 +52,7 @@ func TestProvider_checkIntrospection_FailClosedByDefault(t *testing.T) {
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	err := p.checkIntrospection(t.Context(), "any-token")
+	err := p.revocation.checkIntrospection(t.Context(), "any-token")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrIntrospection,
 		"default (fail-closed) introspection failure must surface ErrIntrospection")
@@ -64,7 +68,7 @@ func TestProvider_checkIntrospection_FailOpenSwallowsTransportError(t *testing.T
 
 	p := newRevocationTestProvider(t, rt, options{introspectionFailOpen: true})
 
-	require.NoError(t, p.checkIntrospection(t.Context(), "any-token"),
+	require.NoError(t, p.revocation.checkIntrospection(t.Context(), "any-token"),
 		"fail-open mode must swallow introspection transport failures")
 }
 
@@ -82,7 +86,7 @@ func TestProvider_checkIntrospection_StrictRejectsOn5xx(t *testing.T) {
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	err := p.checkIntrospection(t.Context(), "any-token")
+	err := p.revocation.checkIntrospection(t.Context(), "any-token")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrIntrospection,
 		"strict mode must reject when introspection endpoint returns non-2xx")
@@ -103,7 +107,7 @@ func TestProvider_checkIntrospection_StrictAcceptsActiveToken(t *testing.T) {
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	require.NoError(t, p.checkIntrospection(t.Context(), "any-token"),
+	require.NoError(t, p.revocation.checkIntrospection(t.Context(), "any-token"),
 		"strict mode must still accept tokens the IdP confirms as active")
 }
 
@@ -122,7 +126,7 @@ func TestProvider_checkIntrospection_StrictRejectsInactiveToken(t *testing.T) {
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	err := p.checkIntrospection(t.Context(), "any-token")
+	err := p.revocation.checkIntrospection(t.Context(), "any-token")
 	require.ErrorIs(t, err, ErrTokenRevoked,
 		"strict mode must still surface revocation of inactive tokens via ErrTokenRevoked")
 }
@@ -160,14 +164,12 @@ func (s *trackingRevocationStorage) Sync(_ context.Context) error { return nil }
 // only the revocation plumbing is exercised.
 func newLocalRevocationProvider(t *testing.T, itemType string, storage RevocationStorage) *Provider {
 	t.Helper()
-	return &Provider{
-		opts: &options{
-			revocationItemType: itemType,
-		},
-		revocationStorage: storage,
-		logger:            slog.New(slog.DiscardHandler),
-		metrics:           newOIDCMetrics(nil),
-	}
+	return &Provider{revocation: revocationChecker{
+		itemType: itemType,
+		storage:  storage,
+		logger:   slog.New(slog.DiscardHandler),
+		metrics:  newOIDCMetrics(nil),
+	}}
 }
 
 // TestProvider_checkTokenRevocationVerified_RejectsRevokedJTI ensures the
@@ -180,7 +182,7 @@ func TestProvider_checkTokenRevocationVerified_RejectsRevokedJTI(t *testing.T) {
 	p := newLocalRevocationProvider(t, RevocationItemTypeJTI, storage)
 
 	claims := jwt.MapClaims{"jti": "revoked-jti"}
-	err := p.checkTokenRevocationVerified(t.Context(), "ignored-token", claims, nil)
+	err := p.revocation.checkTokenRevocationVerified(t.Context(), "ignored-token", claims, nil)
 	require.ErrorIs(t, err, ErrTokenRevoked,
 		"post-verify path must reject tokens whose verified jti is in the revocation set")
 	require.Equal(t, []string{"revoked-jti"}, storage.lookups)
@@ -195,7 +197,7 @@ func TestProvider_checkTokenRevocationVerified_RejectsRevokedKID(t *testing.T) {
 	p := newLocalRevocationProvider(t, RevocationItemTypeKID, storage)
 
 	header := map[string]any{"kid": "revoked-kid"}
-	err := p.checkTokenRevocationVerified(t.Context(), "ignored-token", jwt.MapClaims{}, header)
+	err := p.revocation.checkTokenRevocationVerified(t.Context(), "ignored-token", jwt.MapClaims{}, header)
 	require.ErrorIs(t, err, ErrTokenRevoked,
 		"post-verify path must reject tokens whose verified kid is in the revocation set")
 	require.Equal(t, []string{"revoked-kid"}, storage.lookups)
@@ -211,7 +213,7 @@ func TestProvider_checkTokenRevocationVerified_FallsBackToFullToken(t *testing.T
 	storage := newTrackingRevocationStorage("the-full-token")
 	p := newLocalRevocationProvider(t, RevocationItemTypeJTI, storage)
 
-	err := p.checkTokenRevocationVerified(t.Context(), "the-full-token", jwt.MapClaims{}, nil)
+	err := p.revocation.checkTokenRevocationVerified(t.Context(), "the-full-token", jwt.MapClaims{}, nil)
 	require.ErrorIs(t, err, ErrTokenRevoked,
 		"missing jti must fall back to the full-token key, not skip the lookup")
 	require.Equal(t, []string{"the-full-token"}, storage.lookups)
@@ -225,7 +227,7 @@ func TestProvider_checkTokenRevocationVerified_FullToken(t *testing.T) {
 	storage := newTrackingRevocationStorage("the-full-token")
 	p := newLocalRevocationProvider(t, DefaultRevocationItemType, storage)
 
-	err := p.checkTokenRevocationVerified(t.Context(), "the-full-token", jwt.MapClaims{"jti": "ignored"}, nil)
+	err := p.revocation.checkTokenRevocationVerified(t.Context(), "the-full-token", jwt.MapClaims{"jti": "ignored"}, nil)
 	require.ErrorIs(t, err, ErrTokenRevoked,
 		"full-token revocation must be enforced after verification")
 	require.Equal(t, []string{"the-full-token"}, storage.lookups)

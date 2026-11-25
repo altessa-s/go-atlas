@@ -242,16 +242,16 @@ func TestScheduledRevocationSync_PeerCommitKeepsLosingReplicaFresh(t *testing.T)
 
 	for range 3 {
 		backdateRevocationSync(p, 2*time.Hour)
-		p.sharedRevocationSyncUnixNanos.Store(0)
-		own := p.lastRevocationSyncUnixNanos.Load()
-		require.ErrorIs(t, p.checkRevocationStaleness(), ErrRevocationStale)
+		p.revocation.sharedRevocationSync.Store(nil)
+		own := p.revocation.lastRevocationSync.Load()
+		require.ErrorIs(t, p.revocation.checkRevocationStaleness(), ErrRevocationStale)
 
 		require.NoError(t, peer.Sync(t.Context()))
 		finish := holdRebuildLease(t, client, nil, "j1", "j2")
 
-		require.NoError(t, p.scheduledRevocationSync(t.Context()), "a rebuild in progress is skipped silently")
-		require.Equal(t, own, p.lastRevocationSyncUnixNanos.Load(), "losing the lease is not a sync of this replica")
-		require.NoError(t, p.checkRevocationStaleness())
+		require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()), "a rebuild in progress is skipped silently")
+		require.Equal(t, own, p.revocation.lastRevocationSync.Load(), "losing the lease is not a sync of this replica")
+		require.NoError(t, p.revocation.checkRevocationStaleness())
 		require.True(t, jtiRevoked(t, p, idp, "j2"), "the peer's list is in force")
 		require.NoError(t, finish())
 	}
@@ -277,17 +277,17 @@ func TestScheduledRevocationSync_FailedPeerRebuildDoesNotRefresh(t *testing.T) {
 	sourceDown := errors.New("source down")
 	for range 3 {
 		finish := holdRebuildLease(t, client, sourceDown)
-		require.NoError(t, p.scheduledRevocationSync(t.Context()))
+		require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 		require.ErrorIs(t, finish(), sourceDown)
 
-		require.ErrorIs(t, p.checkRevocationStaleness(), ErrRevocationStale)
+		require.ErrorIs(t, p.revocation.checkRevocationStaleness(), ErrRevocationStale)
 		_, err = p.ValidateToken(t.Context(), raw)
 		require.ErrorIs(t, err, ErrRevocationCheck)
 		require.ErrorIs(t, err, ErrRevocationStale)
 	}
 
 	// The replica's own next sync gets the lease and restores freshness.
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 	_, err = p.ValidateToken(t.Context(), raw)
 	require.NoError(t, err)
 }
@@ -306,11 +306,11 @@ func TestScheduledRevocationSync_SharedTimeAheadOfLocalClockIsClamped(t *testing
 	require.NoError(t, peer.Sync(t.Context()))
 	finish := holdRebuildLease(t, client, nil, "j1")
 	backdateRevocationSync(p, 2*time.Hour)
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
 	require.NoError(t, finish())
 
-	require.LessOrEqual(t, p.sharedRevocationSyncUnixNanos.Load(), time.Now().UnixNano())
-	require.NoError(t, p.checkRevocationStaleness())
+	require.False(t, p.revocation.sharedRevocationSync.Load().observedAt.After(time.Now()))
+	require.NoError(t, p.revocation.checkRevocationStaleness())
 }
 
 // A storage that reports no committed sync behaves as before, minus the peer
@@ -325,12 +325,12 @@ func TestScheduledRevocationSync_StorageWithoutReporterIsNotRefreshedByPeer(t *t
 	backdateRevocationSync(p, 2*time.Hour)
 
 	storage.busy = true
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
-	require.ErrorIs(t, p.checkRevocationStaleness(), ErrRevocationStale)
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
+	require.ErrorIs(t, p.revocation.checkRevocationStaleness(), ErrRevocationStale)
 
 	storage.busy = false
-	require.NoError(t, p.scheduledRevocationSync(t.Context()))
-	require.NoError(t, p.checkRevocationStaleness())
+	require.NoError(t, p.revocation.scheduledRevocationSync(t.Context()))
+	require.NoError(t, p.revocation.checkRevocationStaleness())
 }
 
 // inProgressStorage is a custom storage whose Sync reports a peer's rebuild.

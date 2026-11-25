@@ -72,9 +72,9 @@ func TestExchangerRetriesOnServerError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	ex := mustExchanger(t, srv.URL, "svc", "secret",
-		oauth2client.WithRetryAttempts(5),
-		oauth2client.WithRetryBaseDelay(time.Millisecond),
-		oauth2client.WithRetryMaxDelay(5*time.Millisecond),
+		oauth2client.WithExchangerRetryAttempts(5),
+		oauth2client.WithExchangerRetryBaseDelay(time.Millisecond),
+		oauth2client.WithExchangerRetryMaxDelay(5*time.Millisecond),
 	)
 	tok, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subj"})
 	require.NoError(t, err)
@@ -92,8 +92,8 @@ func TestExchangerNoRetryOnClientError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	ex := mustExchanger(t, srv.URL, "svc", "secret",
-		oauth2client.WithRetryAttempts(5),
-		oauth2client.WithRetryBaseDelay(time.Millisecond),
+		oauth2client.WithExchangerRetryAttempts(5),
+		oauth2client.WithExchangerRetryBaseDelay(time.Millisecond),
 	)
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subj"})
 	require.ErrorIs(t, err, oauth2client.ErrTokenExchange)

@@ -28,7 +28,7 @@ defer cache.Close(ctx) // stops the filter's scheduled rebuilds
 ## Rebuilds
 
 The probfilter factory owns the negative filter's rebuilds, driven by the authoritative store: the loader is the one set with `UseDataLoader`, else the
-authoritative store itself when it implements `probfilter.DataLoader` (`auth/denylist/storages/redis.Store` does).
+authoritative store when it implements `probfilter.DataLoader` or provides one through `DataLoader()`, as the Redis denylist store does.
 
 | Setting                | Effect with a loader                                                                                                                                                                                                                                            |
 |------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -43,7 +43,7 @@ output, so wire `UseLogger` to see it. In those setups rebuild through `cache.Re
 
 **Revocation propagation lag.** The hourly default is the generic probabilistic-filter default (`probabilisticFilter.defaults.bloom.rebuildCron`),
 shared with every other filter; the denylist has no default of its own. With an in-memory filter a token revoked on another node therefore keeps
-passing on this node for up to one hour. Set `denylist.filter.bloom.rebuildCron` to the revocation-propagation SLA of the deployment (for example
+passing on this node until the next successful rebuild. Set `denylist.filter.bloom.rebuildCron` to the revocation-propagation SLA of the deployment (for example
 `"0 */5 * * * *"` for five minutes), or use a Redis-backed filter (`filter.bloom.storage.type: redis`): it is shared by every node, so a revocation
 recorded with `cache.Add` on one node is visible to the others at once.
 
@@ -68,7 +68,7 @@ stream fails with `ErrUnsupportedClient`, so inject an exact loader with `UseDat
 | `UseDefaultLogger`                | no                                        | Uses `slog.Default()` as the logger.                                                                                                                                                                                                                                    |
 | `UseBloomStorage`                 | only for Redis-backed Bloom filters       | Registers a probfilter `BloomStorageFunc` (`bloomredisfactory.Builder(client)` from [`factory/cache/probfilter/bloom/storages/redis`](../../../cache/probfilter/bloom/storages/redis)), passed through to the probfilter factory. In-memory filters need none. |
 | `UseCuckooStorage`                | only for Redis-backed Cuckoo filters      | Registers a probfilter `CuckooStorageFunc` (`cuckooredisfactory.Builder(client)` from [`factory/cache/probfilter/cuckoo/storages/redis`](../../../cache/probfilter/cuckoo/storages/redis)), passed through likewise.                                           |
-| `UseDataLoader`                   | no                                        | Rebuild source of the filter; overrides the default (the authoritative store, when it is a `probfilter.DataLoader`).                                                                                                                                                    |
+| `UseDataLoader`                   | no                                        | Rebuild source of the filter; overrides the default (the authoritative store, when it implements or provides a `probfilter.DataLoader`).                                                                                                                                                    |
 | `UseScheduler`                    | for `rebuildCron` of Redis-backed filters | `schedtask.Registrar` that runs the periodic rebuild task.                                                                                                                                                                                                     |
 | `UseMetrics`                      | no                                        | Enables lookup telemetry on the built cache using the given collector and subsystem.                                                                                                                                                                                    |
 

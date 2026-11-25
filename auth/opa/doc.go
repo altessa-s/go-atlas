@@ -4,7 +4,7 @@
 
 // Package opa provides Open Policy Agent (OPA) integration for authorization.
 //
-// It supports policy evaluation from various sources (filesystem, HTTP bundles)
+// It supports policy evaluation from filesystem, embedded, GitLab, and S3 sources
 // with hot-reloading capabilities. The package follows a modular design with
 // pluggable policy sources and event-driven architecture for policy updates.
 //
@@ -16,17 +16,20 @@
 //   - [PolicySource]: Interface for fetching policies from various backends
 //   - [Evaluator]: Thread-safe policy evaluation interface
 //
+// A scheduled update requires a task registrar. A static manager needs neither.
+//
 // # Quick Start
 //
 // Basic usage with filesystem source:
 //
-//	source, err := filesystem.New("/path/to/policies")
+//	source, err := filesystem.New("/path/to/policies", filesystem.WithReleaseManifest("release.json"))
 //	if err != nil {
 //	    return err
 //	}
 //
 //	manager, err := opa.NewManager(ctx, source, "data.authz.allow")
 //	if err != nil {
+//	    _ = source.Close()
 //	    return err
 //	}
 //	defer manager.Close()
@@ -39,6 +42,9 @@
 //	if result.Allow {
 //	    // Access granted
 //	}
+//
+// Use [WithDecisionCacheBackend] to share a caller-owned [DecisionCache] for
+// deterministic queries. Keys include the query, revision and lossless input.
 //
 // # Hot Reloading
 //

@@ -5,22 +5,44 @@
 package selfjwt
 
 import (
-	"reflect"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/auth/denylist"
 
 	jwt "github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 func TestOptionsMigrationBaseline(t *testing.T) {
-	got := defaultOptions()
+	t.Parallel()
+	got := defaultVerifierOptions()
 	before := []jwt.Algorithm{jwt.Algorithm(" HS256 "), jwt.Algorithm("HS256"), jwt.Algorithm("HS256")}
-	WithAllowedAlgorithms()(got)
-	if !reflect.DeepEqual(got.allowedAlgorithms, defaultAllowedAlgorithms) {
-		t.Fatal("empty call cleared default algorithms")
-	}
-	WithAllowedAlgorithms(before...)(got)
+	WithVerifierAllowedAlgorithms()(got)
+	require.Equal(t, defaultAllowedAlgorithms, got.allowedAlgorithms)
+	WithVerifierAllowedAlgorithms(before...)(got)
 	before[0] = jwt.AlgRS256
-	if !reflect.DeepEqual(got.allowedAlgorithms, []jwt.Algorithm{" HS256 ", "HS256", "HS256"}) {
-		t.Fatalf("input was not copied or was normalized: %q", got.allowedAlgorithms)
-	}
+	require.Equal(t, []jwt.Algorithm{" HS256 ", "HS256", "HS256"}, got.allowedAlgorithms)
+}
+
+// The pair applies shared settings once and forwards each role's own settings.
+func TestPairOptionsReachBothRoles(t *testing.T) {
+	t.Parallel()
+	clk := &stepClock{}
+	rnd := strings.NewReader("randomness")
+	metrics := &Metrics{}
+	revoked := denylist.New()
+	m, v := New(nil, "issuer", "audience", WithPairClock(clk), WithPairRand(rnd),
+		WithPairAllowedAlgorithms(jwt.AlgES256), WithPairMetrics(metrics), WithPairRevocation(revoked),
+		WithPairMaxTokenLifetime(time.Hour), WithPairLeeway(0), WithPairCacheTTL(time.Minute),
+		WithPairCacheMaxEntries(2), WithPairKeyLookupTimeout(time.Second),
+		WithPairNegativeCacheTTL(time.Second), WithPairMaxConcurrentLookups(3))
+
+	require.Equal(t, newMinterOptions(WithMinterClock(clk), WithRand(rnd), WithMinterAllowedAlgorithms(jwt.AlgES256),
+		WithMinterMetrics(metrics), WithMaxTokenLifetime(time.Hour)), m.opts)
+	require.Equal(t, newVerifierOptions(WithVerifierClock(clk), WithVerifierAllowedAlgorithms(jwt.AlgES256),
+		WithVerifierMetrics(metrics), WithRevocation(revoked), WithLeeway(0), WithCacheTTL(time.Minute), WithCacheMaxEntries(2),
+		WithKeyLookupTimeout(time.Second), WithNegativeCacheTTL(time.Second), WithMaxConcurrentLookups(3)), v.opts)
 }

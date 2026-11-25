@@ -114,3 +114,8 @@ func TestOIDCRevocation_SyncLimitsLoadFromYAML(t *testing.T) {
 		})
 	}
 }
+
+func TestOIDCRevocation_DisabledWithoutResponseCap(t *testing.T) {
+	t.Parallel()
+	require.NoError(t, (&authconfig.OIDCRevocation{}).Validate())
+}

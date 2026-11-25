@@ -100,15 +100,15 @@ type Exchanger struct {
 // clientID and clientSecret authenticate this client to the endpoint; pass ""
 // for both when the endpoint accepts unauthenticated (public) clients. Set the
 // credential [oauth2.AuthStyle], extra endpoint params, or a custom
-// [http.Client] with the [Option] values (scopes are taken per-request from
+// [http.Client] with the [ExchangerOption] values (scopes are taken per-request from
 // [ExchangeRequest]).
 //
 // A tokenURL that is malformed or not https (plain http is accepted on a
-// loopback host, or anywhere with [WithInsecureHTTP]) returns an error
+// loopback host, or anywhere with [WithExchangerInsecureHTTP]) returns an error
 // wrapping [ErrInsecureEndpoint].
-func NewExchanger(tokenURL, clientID, clientSecret string, opts ...Option) (*Exchanger, error) {
-	o := newOptions(opts...)
-	if err := o.validateEndpoint("token URL", tokenURL); err != nil {
+func NewExchanger(tokenURL, clientID, clientSecret string, opts ...ExchangerOption) (*Exchanger, error) {
+	o := newExchangerOptions(opts...)
+	if err := validateEndpoint("token URL", tokenURL, o.insecureHTTP); err != nil {
 		return nil, err
 	}
 	return &Exchanger{
@@ -117,8 +117,8 @@ func NewExchanger(tokenURL, clientID, clientSecret string, opts ...Option) (*Exc
 		clientSecret:   clientSecret,
 		authStyle:      o.authStyle,
 		endpointParams: o.endpointParams,
-		client:         o.client(),
-		retry:          o.retryPolicy(),
+		client:         endpointClient(o.httpClient, o.insecureHTTP),
+		retry:          retryPolicy{attempts: o.retryAttempts, baseDelay: o.retryBaseDelay, maxDelay: o.retryMaxDelay},
 		metrics:        o.metrics,
 		logger:         o.logger,
 		clientAuth:     o.clientAuth,
@@ -132,7 +132,7 @@ func NewExchanger(tokenURL, clientID, clientSecret string, opts ...Option) (*Exc
 // A missing subject token returns [ErrSubjectTokenRequired]; a transport
 // failure or non-2xx response returns an error wrapping [ErrTokenExchange].
 //
-// When configured with [WithRetryAttempts], transient failures (transport
+// When configured with [WithExchangerRetryAttempts], transient failures (transport
 // errors, HTTP 429, and 5xx) are retried with exponential backoff; a 4xx other
 // than 429 and a malformed response are returned immediately.
 func (e *Exchanger) Exchange(ctx context.Context, req ExchangeRequest) (*oauth2.Token, error) {
@@ -161,11 +161,6 @@ type retryPolicy struct {
 	attempts  int
 	baseDelay time.Duration
 	maxDelay  time.Duration
-}
-
-// retryPolicy returns the retry tunables of o.
-func (o *options) retryPolicy() retryPolicy {
-	return retryPolicy{attempts: o.retryAttempts, baseDelay: o.retryBaseDelay, maxDelay: o.retryMaxDelay}
 }
 
 // withRetry runs fetch once or, when p allows retries, retries it with

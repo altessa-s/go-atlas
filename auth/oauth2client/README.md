@@ -12,8 +12,9 @@ Every helper returns a `golang.org/x/oauth2.TokenSource` — the same type consu
 drops
 straight into the transport layer with no adapter.
 
-The three x/oauth2-native grants are thin wrappers that add consistent options and a self-refreshing source; RFC 8693 token exchange has no x/oauth2
-equivalent and is implemented here as a spec-compliant client.
+The four x/oauth2-native grants (`client_credentials`, `refresh_token`, `authorization_code`, `device_code`) are thin wrappers that add consistent
+options and a self-refreshing source; RFC 8693 token exchange and RFC 7523 §2.1 JWT bearer have no x/oauth2 equivalent and are implemented here as
+spec-compliant clients.
 
 ## Grants
 
@@ -28,39 +29,43 @@ equivalent and is implemented here as a spec-compliant client.
 
 ## Options
 
-| Option                                     | Applies to                                                | Description                                                                                        |
-|--------------------------------------------|-----------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| `WithScopes(...string)`                    | all                                                       | Requested scopes; trimmed and de-duplicated. `AuthCode` reads them too.                            |
-| `WithAuthStyle(oauth2.AuthStyle)`          | `ClientCredentials`, `Refresh`, `Exchanger`               | Present credentials in the header or the body. Default: auto-detect.                               |
-| `WithEndpointParams(url.Values)`           | `ClientCredentials`, `Exchanger`                          | Extra non-standard token params (e.g. Auth0 `audience`).                                           |
-| `WithHTTPClient(*http.Client)`             | all                                                       | Custom client for timeouts, mTLS, or tracing round-trippers. Default: built-in client (see below). |
-| `WithInsecureHTTP()`                       | all                                                       | Allow plain-http endpoints on any host. Default: https, or http on a loopback host only.           |
-| `WithRetryAttempts(int)`                   | `Exchanger`, `JWTBearer`                                  | Retries after the first attempt on transport errors, 429, and 5xx. 0 (default) disables.           |
-| `WithRetryBaseDelay` / `WithRetryMaxDelay` | `Exchanger`, `JWTBearer`                                  | Bound the exponential backoff between token-exchange retries.                                      |
-| `WithMetrics(*Metrics)`                    | all                                                       | Record fetch counts, latency, and retries. Build with `NewMetrics`.                                |
-| `WithLogger(*slog.Logger)`                 | all                                                       | Log token-fetch failures and retry attempts. Nil (default) disables.                               |
-| `WithClientAuth(ClientAuthenticator)`      | `ClientCredentials`, `Exchanger`                          | Authenticate with a signed JWT assertion (RFC 7523), superseding the secret.                       |
-| `WithEarlyExpiry(time.Duration)`           | `ClientCredentials`, `Exchanger.TokenSource`, `JWTBearer` | Refresh this long before exp (clock-skew margin). 0 = x/oauth2 default (~10s).                     |
-| `WithClock(clock.Clock)`                   | `JWTBearer`                                               | Time source for assertion `iat`/`exp`, token expiry, and cache freshness. Default: `clock.Real()`. |
+Combine `With`, the role, and the suffix below to get the setter name. For example, `WithRefreshHTTPClient` returns a `RefreshOption`. Both discovery
+constructors accept the same options as their direct counterparts. The exchanger takes scopes per request in `ExchangeRequest`.
+
+| Setter suffix                     | Accepted by                                                                        | Effect                                                                                |
+| --------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `Scopes(...string)`               | `ClientCredentials`, `AuthCode`, `DeviceFlow`, `JWTBearer`                         | Requested scopes, trimmed and deduplicated.                                           |
+| `AuthStyle(oauth2.AuthStyle)`     | `ClientCredentials`, `Refresh`, `Exchanger`, `Revoker`                             | Client credentials in the header or body. Defaults to auto-detection.                 |
+| `EndpointParams(url.Values)`      | `ClientCredentials`, `Exchanger`                                                   | Additional token request parameters.                                                  |
+| `HTTPClient(*http.Client)`        | All seven roles                                                                    | HTTP client for endpoint requests.                                                    |
+| `InsecureHTTP()`                  | All seven roles                                                                    | Allow plain HTTP on non-loopback hosts.                                               |
+| `ClientAuth(ClientAuthenticator)` | `ClientCredentials`, `Exchanger`, `Revoker`                                        | Authenticate with a signed JWT assertion.                                             |
+| `EarlyExpiry(time.Duration)`      | `ClientCredentials`, `Exchanger`, `JWTBearer`                                      | Refresh margin for cached tokens. Zero uses the default (10s).                        |
+| `RetryAttempts(int)`              | `Exchanger`, `JWTBearer`                                                           | Retries after the first transient failure. Defaults to zero.                          |
+| `RetryBaseDelay(time.Duration)`   | `Exchanger`, `JWTBearer`                                                           | Initial retry delay. Defaults to 200ms.                                               |
+| `RetryMaxDelay(time.Duration)`    | `Exchanger`, `JWTBearer`                                                           | Maximum retry delay. Defaults to 5s.                                                  |
+| `Metrics(*Metrics)`               | `ClientCredentials`, `Refresh`, `AuthCode`, `DeviceFlow`, `Exchanger`, `JWTBearer` | Record token fetch counts, latency, and retries.                                      |
+| `Logger(*slog.Logger)`            | `ClientCredentials`, `Refresh`, `AuthCode`, `DeviceFlow`, `Exchanger`, `JWTBearer` | Log token fetch failures and retries.                                                 |
+| `Clock(clock.Clock)`              | `JWTBearer`                                                                        | Clock for assertion and token expiry and cache freshness. Defaults to `clock.Real()`. |
 
 ## Transport security
 
-- **Built-in client** — without `WithHTTPClient` every flow, the x/oauth2-backed ones included, uses a client with a `DefaultHTTPTimeout` (30s)
+- **Built-in client** — without a custom HTTP client, every flow, the x/oauth2-backed ones included, uses a client with a `DefaultHTTPTimeout` (30s)
   timeout that does not follow redirects: a 307/308 would re-POST the form, client secret included, to the redirect target. A redirect answer is
   reported as a failed request.
-- **Injected client** — a `WithHTTPClient` client keeps its timeout and transport and is copied, never modified. Without a `CheckRedirect` the
-  copy follows no redirect, like the built-in client. With one, a redirect to another origin (scheme, host, port) fails with
-  `ErrRedirectNotAllowed` before the client's own policy is consulted; hops within the origin are left to that policy except for JWT bearer, which refuses every redirect. This holds with
-  `WithInsecureHTTP()` too.
+- **Injected client** — an injected HTTP client keeps its timeout and transport and is copied, never modified. Without a `CheckRedirect` the copy
+  follows no redirect, like the built-in client. With one, a redirect to another origin (scheme, host, port) fails with `ErrRedirectNotAllowed` before
+  the client's own policy is consulted; hops within the origin are left to that policy except for JWT bearer, which refuses every redirect. This holds
+  with the grant’s plain-HTTP opt-in too.
 - **Construction** — every constructor (`ClientCredentials`, `Refresh`, `NewAuthCode`, `NewDeviceFlow`, `NewExchanger`, `NewRevoker`,
   `NewJWTBearer` and the `*FromDiscovery` variants) checks all its endpoint URLs with the https rule above and returns an error wrapping
   `ErrInsecureEndpoint` for one that is malformed or not https, before anything is sent. The `*FromDiscovery` constructors read the token
   endpoint from the discovery source once, at construction, and check it then. The transport check stays as a second line of defense.
   `ErrInsecureEndpoint` and `ErrRedirectNotAllowed` are never retried.
 - **https only** — a request to an endpoint that is not https fails with `ErrInsecureEndpoint` before anything is sent. Plain http is accepted on a
-  loopback host (`localhost` or a loopback IP literal); `WithInsecureHTTP()` accepts it on any host and is meant for a test IdP. The check runs on
-  the transport, so it also covers the revocation and device endpoints and each redirect hop of an injected client.
-  `ValidateEndpointURL(url, allowInsecureHTTP)` applies the same rule up front.
+  loopback host (`localhost` or a loopback IP literal); the grant’s plain-HTTP opt-in accepts it on any host and is meant for a test IdP. The check runs
+  on the transport, so it also covers the revocation and device endpoints and each redirect hop of an injected client. `ValidateEndpointURL(url,
+  allowInsecureHTTP)` applies the same rule up front.
 - **Logs and error text** — The identity provider is untrusted: its status line, headers, `Location`, body, and trailers may echo secrets. Returned
   error text and package logs withhold IdP bodies, error descriptions, error URIs, decoded values, and IdP-supplied URLs, including a followed redirect
   URL when a later hop fails. They may show the numeric HTTP status, registered RFC 6749/8628 error codes from the fixed allowlist, and body or
@@ -96,7 +101,7 @@ Machine-to-machine, wired into an outbound gRPC client:
 
 ```go
 src, err := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
-    oauth2client.WithScopes("orders:read", "orders:write"),
+    oauth2client.WithClientCredentialsScopes("orders:read", "orders:write"),
 )
 if err != nil {
     return err // tokenURL is malformed or not https
@@ -120,9 +125,9 @@ tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
 ## JWT bearer grant (RFC 7523)
 
 `NewJWTBearer(tokenURL, issuer, key, opts...)` acquires tokens with the JWT bearer authorization grant — the flow of Google service accounts. Each
-exchange signs a fresh assertion with the asymmetric `jwt.SigningKey` (`iss` = issuer, `aud` = token URL, `scope` from `WithScopes`, `iat`, `exp` one
-hour later; an empty `KeyID` omits the `kid` header) and posts `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` with the `assertion`. The
-constructor signs a probe assertion, so an unusable key fails with `ErrJWTBearerConfig` up front.
+exchange signs a fresh assertion with the asymmetric `jwt.SigningKey` (`iss` = issuer, `aud` = token URL, `scope` from `WithJWTBearerScopes`, `iat`,
+`exp` one hour later; an empty `KeyID` omits the `kid` header) and posts `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` with the `assertion`.
+The constructor signs a probe assertion, so an unusable key fails with `ErrJWTBearerConfig` up front.
 
 The signed assertion is exchanged through `go-atlas-net/oauth2/jwtbearer.Exchange`. The response limit is 64 KiB and redirects are refused.
 
@@ -130,22 +135,21 @@ The signed assertion is exchanged through `go-atlas-net/oauth2/jwtbearer.Exchang
   on
   a done `ctx`.
 - **Positive expiry required** — a response without a positive `expires_in` is rejected (`ErrTokenExchange`) instead of being cached forever.
-- **Early refresh** — the token is reused until `WithEarlyExpiry` (default 10s) before its expiry.
+- **Early refresh** — the token is reused until `WithJWTBearerEarlyExpiry` (default 10s) before its expiry.
 - **No stampede** — refreshes are serialized per `JWTBearer`. Concurrent callers that find the cache stale wait for the one in-flight exchange and
   reuse
   its token; a waiter whose `ctx` ends gives up alone, and if the in-flight exchange fails (for example because its caller was canceled), the next
   waiter runs its own exchange on its own `ctx`. Failures are never cached.
-- **Errors** — a signing or transport failure and a non-2xx response wrap `ErrTokenRequest`; a non-2xx response also carries an
-  `*oauth2.RetrieveError` (status and RFC 6749 `error` code) reachable via `errors.As`. A malformed body wraps
-  `ErrTokenExchange`.
-  `WithRetryAttempts` retries transport errors, 429, and 5xx with a fresh assertion per attempt.
+- **Errors** — a signing or transport failure and a non-2xx response wrap `ErrTokenRequest`; a non-2xx response also carries an `*oauth2.RetrieveError`
+  (status and RFC 6749 `error` code) reachable via `errors.As`. A malformed body wraps `ErrTokenExchange`. `WithJWTBearerRetryAttempts` retries
+  transport errors, 429, and 5xx with a fresh assertion per attempt.
 
 ```go
 bearer, err := oauth2client.NewJWTBearer(tokenURL, clientEmail,
     jwt.SigningKey{KeyID: keyID, Algorithm: jwt.AlgRS256, Key: rsaKey},
-    oauth2client.WithScopes("https://www.googleapis.com/auth/cloud-platform"),
-    oauth2client.WithEarlyExpiry(5*time.Minute),
-    oauth2client.WithHTTPClient(client),
+    oauth2client.WithJWTBearerScopes("https://www.googleapis.com/auth/cloud-platform"),
+    oauth2client.WithJWTBearerEarlyExpiry(5*time.Minute),
+    oauth2client.WithJWTBearerHTTPClient(client),
 )
 tok, err := bearer.Token(ctx) // bounded by ctx's deadline
 ```
@@ -168,9 +172,8 @@ Build one `JWTBearer` per credential and keep it; `TokenSource(ctx)` adapts it t
 
 ## Client authentication (JWT assertion)
 
-Enterprise / FAPI IdPs often require the client to authenticate with a signed JWT assertion (RFC 7523) instead of a shared secret. `WithClientAuth`
-supplies one; it supersedes `WithAuthStyle`/`clientSecret` for `ClientCredentials` and `Exchanger` (the assertion is minted fresh per fetch —
-`iss`=`sub`=client id, `aud`=token endpoint, unique `jti`, short `exp`). `Refresh` and `AuthCode` keep the secret path.
+Use `WithClientCredentialsClientAuth`, `WithExchangerClientAuth`, or `WithRevokerClientAuth` to authenticate with a signed JWT assertion (RFC 7523).
+Each request gets a fresh assertion with the client ID as both issuer and subject, the endpoint as audience, a unique `jti`, and a short expiry.
 
 | Constructor                               | Scheme              | Signs the assertion with                         |
 |-------------------------------------------|---------------------|--------------------------------------------------|
@@ -179,7 +182,7 @@ supplies one; it supersedes `WithAuthStyle`/`clientSecret` for `ClientCredential
 
 ```go
 auth, _ := oauth2client.PrivateKeyJWT("svc", jwt.SigningKey{KeyID: "key-1", Algorithm: jwt.AlgRS256, Key: privKey})
-src, err := oauth2client.ClientCredentials(ctx, tokenURL, "svc", "", oauth2client.WithClientAuth(auth))
+src, err := oauth2client.ClientCredentials(ctx, tokenURL, "svc", "", oauth2client.WithClientCredentialsClientAuth(auth))
 ```
 
 Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`. Via YAML, set the [`authconfig.OAuth2Client`](../../config/auth)
@@ -188,22 +191,20 @@ you.
 
 ## Refresh timing and revocation
 
-- **Early refresh** — `WithEarlyExpiry(d)` refreshes a token `d` before its `exp` to absorb clock skew and in-flight latency (for `ClientCredentials`
-  and `Exchanger.TokenSource`). `Refresh`/`AuthCode` keep x/oauth2's default window — overriding it there would drop refresh-token rotation.
+- **Early refresh** — the `EarlyExpiry` option sets the refresh margin for `ClientCredentials`, `Exchanger.TokenSource`, and `JWTBearer`.
+  `Refresh`/`AuthCode` keep x/oauth2's default window — overriding it there would drop refresh-token rotation.
 - **Revocation** — a `Revoker` built with `NewRevoker(revocationURL, id, secret)` and called as `Revoke(ctx, token, WithTokenTypeHint(...))`
   revokes an acquired token at the IdP (RFC 7009), reusing the same client auth (secret or assertion). Per the RFC the endpoint answers 200 even
   for an unknown token, so a nil error means "not (or no longer) valid".
 
 **Retrying the native grants** — only `Exchanger` and `JWTBearer` retry on their own. To add retries to the x/oauth2-backed grants (
-`ClientCredentials`,
-`Refresh`, `AuthCode`, `DeviceFlow`), wrap the transport with `RetryTransport` and inject it via `WithHTTPClient`; it retries transport errors, 429,
-and
-5xx (only replayable requests; the last response is surfaced on exhaustion). Tune it with `WithTransportAttempts` (default
+`ClientCredentials`, `Refresh`, `AuthCode`, `DeviceFlow`), wrap the transport with `RetryTransport` and inject the resulting HTTP client; it retries
+transport errors, 429, and 5xx (only replayable requests; the last response is surfaced on exhaustion). Tune it with `WithTransportAttempts` (default
 `DefaultTransportRetryAttempts`, 2 retries) and `WithTransportBackoff`:
 
 ```go
 client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport)}
-src, err := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithHTTPClient(client))
+src, err := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithClientCredentialsHTTPClient(client))
 ```
 
 Two RFC edge cases are preserved verbatim (see `parseTokenResponse` godoc): a response without `expires_in` yields a never-expiring token (a
@@ -212,7 +213,7 @@ secrets are held for the source lifetime and can't be zeroized; prefer `PrivateK
 
 ## Observability
 
-`WithMetrics(NewMetrics(collector, ""))` records, under subsystem `auth_oauth2client`:
+A grant’s `Metrics` option with `NewMetrics(collector, "")` records, under subsystem `auth_oauth2client`:
 
 | Metric                         | Type      | Labels            | Meaning                                              |
 |--------------------------------|-----------|-------------------|------------------------------------------------------|
@@ -221,20 +222,18 @@ secrets are held for the source lifetime and can't be zeroized; prefer `PrivateK
 | `token_fetch_retries_total`    | counter   | `grant`           | Retries after a transient token-exchange failure.    |
 
 `grant` is one of `client_credentials` / `refresh_token` / `authorization_code` / `token_exchange` / `device_code` / `jwt_bearer`. A metrics-wrapped
-source records only genuine acquisitions — when the reuse cache serves an unexpired token, nothing is recorded. `WithLogger` logs fetch failures and
-retry attempts at warn level (never the token itself). Both default to off, keeping the hot path allocation-free.
+source records only genuine acquisitions — when the reuse cache serves an unexpired token, nothing is recorded. The grant’s `Logger` option logs fetch
+failures and retry attempts at warn level (never the token itself). Metrics default to off and the default logger discards output.
 
 ## Errors
 
-`ClientCredentials`, `Refresh`, and `AuthCode` carry the underlying x/oauth2 error (typically an `*oauth2.RetrieveError` with the IdP status and
-body), reachable via `errors.As`; the error text itself leaves the body out — except `ClientCredentials` with `WithClientAuth`, whose hand-rolled request wraps `ErrTokenRequest` for a transport failure or
-a
-non-2xx response; an unparsable body or one without `access_token` wraps `ErrTokenExchange` (shared response parser). `Exchanger` returns
-`ErrSubjectTokenRequired` for a missing subject token and wraps `ErrTokenExchange` for a transport failure, a non-2xx response, or an unparsable
-body —
-match both with `errors.Is`. `Revoker.Revoke` wraps `ErrRevocation`, `DeviceFlow` wraps `ErrDeviceAuth`, a client authenticator that cannot build or
-sign its assertion wraps `ErrClientAssertion`, `NewJWTBearer` returns `ErrJWTBearerConfig` for an unusable configuration, and the discovery-based
-constructors return `ErrNoTokenEndpoint` when the endpoint has not resolved.
+`ClientCredentials`, `Refresh`, and `AuthCode` carry the underlying x/oauth2 error (typically an `*oauth2.RetrieveError` with the IdP status and body),
+reachable via `errors.As`; the error text itself leaves the body out — except `ClientCredentials` with `WithClientCredentialsClientAuth`, whose
+hand-rolled request wraps `ErrTokenRequest` for a transport failure or a non-2xx response; an unparsable body or one without `access_token` wraps
+`ErrTokenExchange` (shared response parser). `Exchanger` returns `ErrSubjectTokenRequired` for a missing subject token and wraps `ErrTokenExchange` for
+a transport failure, a non-2xx response, or an unparsable body — match both with `errors.Is`. `Revoker.Revoke` wraps `ErrRevocation`, `DeviceFlow` wraps
+`ErrDeviceAuth`, a client authenticator that cannot build or sign its assertion wraps `ErrClientAssertion`, `NewJWTBearer` returns `ErrJWTBearerConfig`
+for an unusable configuration, and the discovery-based constructors return `ErrNoTokenEndpoint` when the endpoint has not resolved.
 
 ## See also
 

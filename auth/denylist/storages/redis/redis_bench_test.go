@@ -7,6 +7,8 @@ package redis_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers/servers/redistest"
 
 	redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
@@ -15,7 +17,9 @@ import (
 func benchStore(b *testing.B) *redisstore.Store {
 	b.Helper()
 	client, _ := redistest.RedisClient(b)
-	return redisstore.New(client)
+	store, err := redisstore.New(client)
+	require.NoError(b, err)
+	return store
 }
 
 func BenchmarkIsRevoked(b *testing.B) {

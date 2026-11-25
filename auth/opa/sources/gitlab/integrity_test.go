@@ -7,6 +7,7 @@ package gitlab
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 )
@@ -25,6 +28,10 @@ const testPolicy = "package authz\ndefault allow := false\n"
 func newFakeGitLab(t *testing.T, files map[string]string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v4/projects/42/repository/commits/main", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`))
+	})
 	mux.HandleFunc("/api/v4/projects/42/repository/tree", func(w http.ResponseWriter, _ *http.Request) {
 		nodes := make([]map[string]string, 0, len(files))
 		for name := range files {
@@ -154,4 +161,23 @@ func TestFetch_RejectsOversizedFile(t *testing.T) {
 	bundle, err := newFakeSource(t, srv, WithMaxFileBytes(int64(len(testPolicy)))).Fetch(t.Context())
 	require.NoError(t, err)
 	require.Len(t, bundle.Modules, 1)
+}
+
+func TestFetchRejectsUnresolvedCommit(t *testing.T) {
+	t.Parallel()
+	for _, response := range []string{`null`, `{"id":"main"}`, `{"id":"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}`} {
+		t.Run(response, func(t *testing.T) {
+			t.Parallel()
+			var paths []string
+			client := &http.Client{Transport: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
+				paths = append(paths, req.URL.Path)
+				return &http.Response{Request: req, StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(response))}, nil
+			})}
+			src, err := New(WithProjectID(42), WithToken("test"), WithEndpoint("https://gitlab.test"), WithHTTPClient(client))
+			require.NoError(t, err)
+			_, err = src.Fetch(t.Context())
+			require.Error(t, err)
+			require.Equal(t, []string{"/api/v4/projects/42/repository/commits/main"}, paths)
+		})
+	}
 }

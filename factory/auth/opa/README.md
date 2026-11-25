@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/factory/auth/opa"
 ```
 
 Package `factory` provides a fluent builder for creating OPA managers from configuration. `ManagerBuilder` uses deferred error accumulation — errors
-from any step are collected and returned at `Build()` time.
+from any step are collected and returned at `Build()` time. A watcher started by the factory runs until `StopWatching` or `Close`.
 
 ## Quick Start
 
@@ -62,14 +62,17 @@ against the number of distinct inputs seen in one `ttl` window rather than again
 
 | Config                     | Materialized as                                                                   |
 |----------------------------|-----------------------------------------------------------------------------------|
+| `releaseManifest`          | `filesystem.WithReleaseManifest(...)` — JSON manifest relative to the filesystem bundle |
+| `s3.releaseManifest`       | `s3source.WithReleaseManifest(...)` — JSON manifest object relative to the prefix |
 | `gitlab.allowInsecureHTTP` | `gitlab.WithAllowInsecureHTTP()` — accept a plain `http://` endpoint              |
 | `gitlab.checksums`         | `gitlab.WithChecksums(...)` — SHA-256 manifest keyed by file name under `dir`     |
 | `s3.allowInsecureHTTP`     | accept a plain `http://` `s3.endpoint`; otherwise `s3source.ErrInsecureEndpoint`  |
 | `s3.checksums`             | `s3source.WithChecksums(...)` — SHA-256 manifest keyed by object key under prefix |
 
-An empty or absent `checksums` map disables verification. Digests are lower-case hex; validation rejects any other form. A GitLab or S3 source built
-without a manifest loads whatever the remote serves and logs a warning once at construction (`... policy source has no checksums manifest`) through
-the builder's logger — the default logger discards it, so wire `UseLogger`.
+For GitLab, an empty or absent `checksums` map disables verification and logs a warning. Filesystem and S3 require a release manifest. See the
+[publishing guide](../../../docs/auth/opa.md#publishing-releases) for the manifest formats.
+
+A nonempty `updateSchedule` with `watchBundle: false` requires `UseScheduler`. `Build` returns `opa.ErrSchedulerRequired` when the registrar is absent.
 
 ## Outbound HTTP policy
 

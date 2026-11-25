@@ -32,9 +32,9 @@ func TestCacheKeyIncludesIssuerKey(t *testing.T) {
 	leafB := makeLeaf(t, caB, 42, responder(t, caB, ocsp.Revoked, &hitsB).URL)
 
 	c := newChecker([]*x509.Certificate{caA.Cert, caB.Cert})
-	require.NoError(t, c.Check(leafA))
-	require.ErrorIs(t, c.Check(leafB), coremtls.ErrRevoked)
-	require.NoError(t, c.Check(leafA), "the revoked status of the other issuer's certificate must not leak back")
+	require.NoError(t, c.Check(t.Context(), leafA))
+	require.ErrorIs(t, c.Check(t.Context(), leafB), coremtls.ErrRevoked)
+	require.NoError(t, c.Check(t.Context(), leafA), "the revoked status of the other issuer's certificate must not leak back")
 	require.Equal(t, int32(1), hitsA.Load())
 	require.Equal(t, int32(1), hitsB.Load())
 }

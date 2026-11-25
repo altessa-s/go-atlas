@@ -11,6 +11,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
+	"maps"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -58,18 +60,51 @@ func tokenCacheKey(prefix, token string) string {
 
 // signatureCacheVersion versions the signature-cache key derivation and entry
 // format; it prefixes every key, so a change of format must change it too.
-const signatureCacheVersion = "oidc-sig-v2"
+const signatureCacheVersion = "oidc-sig-v3"
 
 // cachedToken is the signature-cache entry: the claims and header of a token
 // whose signature this provider verified. It carries no policy decision.
 type cachedToken struct {
+	// Claims holds private and non-temporal registered claims. The date
+	// fields have concrete types so a JSON cache decodes them in one pass.
 	Claims map[string]any `json:"claims"`
+	Exp    json.Number    `json:"exp,omitempty"`
+	Iat    json.Number    `json:"iat,omitempty"`
+	Nbf    json.Number    `json:"nbf,omitempty"`
 	Header map[string]any `json:"header"`
 	// KeyFingerprint identifies the public key that verified the signature
 	// (SHA-256 of its PKIX encoding). A hit is honored only while the
 	// provider's current JWKS still resolves the same key for the header, so
 	// a key removed or replaced by a JWKS refresh invalidates the entry.
 	KeyFingerprint string `json:"key_fingerprint"`
+}
+
+func newCachedToken(verified map[string]any, header map[string]any, fingerprint string) cachedToken {
+	claims := maps.Clone(verified)
+	// VerifySignature has already checked the type and range of every date.
+	take := func(name string) json.Number {
+		n, _ := claims[name].(json.Number)
+		delete(claims, name)
+		return n
+	}
+	return cachedToken{Claims: claims, Header: header, KeyFingerprint: fingerprint,
+		Exp: take("exp"), Iat: take("iat"), Nbf: take("nbf")}
+}
+
+func (t *cachedToken) verifiedClaims() jwt.MapClaims {
+	// A Cacher can also retain Go objects directly. Return an independent
+	// map so reconstructing dates cannot mutate an entry shared by readers.
+	claims := maps.Clone(t.Claims)
+	if t.Exp != "" {
+		claims["exp"] = t.Exp
+	}
+	if t.Iat != "" {
+		claims["iat"] = t.Iat
+	}
+	if t.Nbf != "" {
+		claims["nbf"] = t.Nbf
+	}
+	return claims
 }
 
 // introspectionCacheVersion versions the introspection-cache key derivation.
@@ -79,25 +114,25 @@ const introspectionCacheVersion = "oidc-introspect-v2"
 // namespace, selected by prefix) for token. It binds the introspection
 // authority — issuer, introspection endpoint and client ID — so providers that
 // share a cache never accept each other's introspection answers.
-func (p *Provider) introspectionCacheKey(prefix, token string) string {
+func (p *revocationChecker) introspectionCacheKey(prefix, token string) string {
 	var issuer, endpoint string
-	if p.discoveryInfo != nil {
-		issuer, endpoint = p.discoveryInfo.Issuer, p.discoveryInfo.IntrospectionURL
+	if p.info != nil {
+		issuer, endpoint = p.info.Issuer, p.info.IntrospectionURL
 	}
 	return tokenCacheKey(prefix, introspectionCacheVersion+"\x00"+issuer+"\x00"+endpoint+"\x00"+
-		p.opts.introspectionClientID+"\x00"+token)
+		p.introspectionClientID+"\x00"+token)
 }
 
 // signatureCacheKey derives the signature-cache key for token. Besides the
 // token it binds the provider's trust domain (discovery issuer and JWKS URL),
 // so providers that share a cache namespace but trust different keys never
 // accept each other's signature verifications.
-func (p *Provider) signatureCacheKey(token string) string {
+func (p *policyEvaluator) signatureCacheKey(token string) string {
 	var issuer, jwksURL string
-	if p.discoveryInfo != nil {
-		issuer, jwksURL = p.discoveryInfo.Issuer, p.discoveryInfo.JwksURL
+	if p.info != nil {
+		issuer, jwksURL = p.info.Issuer, p.info.JwksURL
 	}
-	return tokenCacheKey(p.opts.tokensCacheKeyPrefix,
+	return tokenCacheKey(p.tokensCacheKeyPrefix,
 		signatureCacheVersion+"\x00"+issuer+"\x00"+jwksURL+"\x00"+token)
 }
 
@@ -106,7 +141,7 @@ func (p *Provider) signatureCacheKey(token string) string {
 // exists and otherwise verifies the signature against the JWKS, caching the
 // result until the token's exp. Tokens without exp, or already past it, are
 // never cached. Callers must still apply the claim policy to the result.
-func (p *Provider) verifyTokenSignature(ctx context.Context, token string, policy *validationPolicy) (jwt.MapClaims, map[string]any, error) {
+func (p *policyEvaluator) verifyTokenSignature(ctx context.Context, token string, policy *validationPolicy) (jwt.MapClaims, map[string]any, error) {
 	ops := policy.ops
 	if p.tokenCache == nil {
 		verified, hdr, err := policy.signatureVerifier(p).VerifySignature(ctx, token)
@@ -120,12 +155,12 @@ func (p *Provider) verifyTokenSignature(ctx context.Context, token string, polic
 	var entry cachedToken
 	if err := p.tokenCache.Get(ctx, key, &entry); err == nil && entry.Claims != nil && entry.KeyFingerprint != "" {
 		alg, ok := entry.Header["alg"].(string)
-		if ok && p.currentKeyFingerprint(ctx, entry.Header) == entry.KeyFingerprint {
+		if ok && p.keys.currentKeyFingerprint(ctx, entry.Header) == entry.KeyFingerprint {
 			p.metrics.cacheHits.Inc()
 			if !algorithmAllowed(ops, alg) {
 				return nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "signing algorithm %q not allowed", alg)
 			}
-			return jwt.MapClaims(entry.Claims), entry.Header, nil
+			return entry.verifiedClaims(), entry.Header, nil
 		}
 	}
 	p.metrics.cacheMisses.Inc()
@@ -134,7 +169,7 @@ func (p *Provider) verifyTokenSignature(ctx context.Context, token string, polic
 	// independent lookup could already see a key rotated in between.
 	var usedKey any
 	resolver := authjwt.KeyResolverFunc(func(ctx context.Context, hdr authjwt.Header, c authjwt.Claims) (authjwt.VerificationKey, error) {
-		vk, err := p.keyResolver.ResolveKey(ctx, hdr, c)
+		vk, err := p.keys.keyResolver.ResolveKey(ctx, hdr, c)
 		usedKey = vk.Key
 		return vk, err
 	})
@@ -145,8 +180,8 @@ func (p *Provider) verifyTokenSignature(ctx context.Context, token string, polic
 	}
 	claims, header := jwt.MapClaims(verified), headerToMap(hdr)
 	if ttl := getTokenExpirationTTL(claims); ttl > 0 {
-		if fp := p.cachedKeyFingerprint(usedKey); fp != "" {
-			entry := cachedToken{Claims: claims, Header: header, KeyFingerprint: fp}
+		if fp := p.keys.cachedKeyFingerprint(usedKey); fp != "" {
+			entry := newCachedToken(claims, header, fp)
 			_ = p.tokenCache.Save(ctx, key, entry, ttl) //nolint:errcheck // best-effort cache
 		}
 	}
@@ -156,7 +191,7 @@ func (p *Provider) verifyTokenSignature(ctx context.Context, token string, polic
 // currentKeyFingerprint resolves, through the provider's current JWKS, the
 // key that verifies tokens with header and returns its fingerprint, or "" if
 // no key resolves or it cannot be encoded.
-func (p *Provider) currentKeyFingerprint(ctx context.Context, header map[string]any) string {
+func (p *jwksKeySource) currentKeyFingerprint(ctx context.Context, header map[string]any) string {
 	alg, _ := header["alg"].(string)
 	kid, _ := header["kid"].(string)
 	vk, err := p.keyResolver.ResolveKey(ctx, authjwt.Header{Alg: alg, Kid: kid}, nil)
@@ -178,7 +213,7 @@ type keyFingerprintMemo struct {
 // pointer keys are memoized — comparing them is always safe and the memo keeps
 // the key alive, so its identity cannot be reused by another key; other key
 // types (e.g. ed25519.PublicKey, a slice) are computed every time.
-func (p *Provider) cachedKeyFingerprint(key any) string {
+func (p *jwksKeySource) cachedKeyFingerprint(key any) string {
 	switch key.(type) {
 	case *rsa.PublicKey, *ecdsa.PublicKey:
 	default:

@@ -8,6 +8,15 @@ Package `authconfig` defines authentication and authorization schemas: OIDC, OPA
 block. Schemas are populated by [`go-nomos/loader`](https://github.com/altessa-s/go-nomos/tree/develop/loader) and consumed by the component factories,
 which map them to generated options; runtime packages never import them.
 
+`ParseServiceConfig` reads the [OIDC JSON service policy](service-config.schema.json) from bytes and validates the default rules, presets and their
+selection conditions. The [OIDC factory](../../factory/auth/oidc/) maps the result to provider options.
+
+Use `errors.Is` with `ErrInvalidVersion`, `ErrInvalidDuration`, or `ErrPresetNotFound` for document-specific failures. The parser and the provider
+share [`rules.ErrInvalidConfig` and `rules.ErrInvalidCEL`](../../auth/oidc/rules/) for invalid policies and CEL expressions.
+
+JSON `token_lifetime.min` and `token_lifetime.max` and YAML `minTokenLifetime` and `maxTokenLifetime` bound `exp - iat` in the default policy and
+presets. An omitted or zero minimum disables the lower bound. The minimum must be non-negative and at most the enabled maximum.
+
 ## Key types
 
 | Type                    | Description                                                                                                                                                                                  |
@@ -49,7 +58,8 @@ The schemas default to the restrictive behavior; each relaxation is an explicit 
 | `MTLS`         | A trust-domain decision is required: the factory fails with `mtls.ErrNoTrustDomainPolicy` without `trustDomains`     | `allowAnyTrustDomain: true`                |
 | `OAuth2Client` | `tokenURL` / `discoveryURL` must be https; http is accepted on a loopback host only                                  | `allowInsecureHTTP: true`                  |
 | `OPAGitLab`    | `endpoint` must be https; without `checksums` the source logs a warning that policies are not integrity-verified     | `allowInsecureHTTP: true`; set `checksums` |
-| `OPAS3`        | `endpoint` must be https; without `checksums` the source logs a warning that policies are not integrity-verified     | `allowInsecureHTTP: true`; set `checksums` |
+| `OPA`          | `releaseManifest` is required for a filesystem bundle | See the [OPA guide](../../docs/auth/opa.md#publishing-releases) |
+| `OPAS3`        | `endpoint` must be HTTPS, and `releaseManifest` or `checksums` is required | `allowInsecureHTTP: true` for plain HTTP |
 
 `OIDCRevocation` bounds and guards the revocation sync with three keys under `oidc.revocation`, next to `maxStaleness`:
 
@@ -68,8 +78,9 @@ Some defaults have no key here because they are not configurable from YAML:
   5s timeout and follows a redirect only to the responder's own host; `revocation.WithFailMode(revocation.FailOpen)` is the opt-in. Its default
   client refuses a responder on a loopback, private or otherwise non-public address; an internal responder is named with
   `revocation.WithAllowedResponders(hosts…)`, and `revocation.WithInsecureAllowPrivateResponders()` turns the refusal off.
-- **OAuth2 client transport.** Without an injected HTTP client the token requests use a client with a 30s timeout that does not follow redirects, and
-  a logged fetch failure carries the IdP error body cut to 256 bytes.
+- **OAuth2 client transport.** Without an injected HTTP client the token requests use a client with a 30s timeout that does not follow redirects; IdP
+  response bodies, `error_description`, and `error_uri` are withheld from error strings and logs (only the numeric HTTP status, allowlisted RFC error
+  codes, and byte lengths are logged).
 - **OIDC.** A JWKS key with `use: enc` never verifies a token, and a rejected token is logged at Debug; failures of the provider's own infrastructure
   keep their Error and Warn records.
 

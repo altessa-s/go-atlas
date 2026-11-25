@@ -24,10 +24,6 @@ import (
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
-// estimatedOptionsCount pre-sizes the option slice: scopes, auth style,
-// endpoint params, HTTP client, and three retry options.
-const estimatedOptionsCount = 7
-
 // Builder assembles client-side OAuth2 token acquisition from configuration and
 // injected dependencies. Build produces a self-refreshing client_credentials
 // [oauth2.TokenSource]; BuildExchanger produces an RFC 8693 [oauth2client.Exchanger].
@@ -92,9 +88,24 @@ func (b *Builder) UseClientAuth(a oauth2client.ClientAuthenticator) *Builder {
 
 // Build assembles a self-refreshing client_credentials [oauth2.TokenSource].
 func (b *Builder) Build(ctx context.Context) (oauth2.TokenSource, error) {
-	tokenURL, opts, err := b.resolve()
+	tokenURL, auth, err := b.resolve()
 	if err != nil {
 		return nil, err
+	}
+	opts := []oauth2client.ClientCredentialsOption{
+		oauth2client.WithClientCredentialsAuthStyle(authStyle(b.cfg.AuthStyle)),
+		oauth2client.WithClientCredentialsHTTPClient(b.httpClient),
+		oauth2client.WithClientCredentialsMetrics(b.metrics),
+		oauth2client.WithClientCredentialsLogger(b.logger),
+		oauth2client.WithClientCredentialsEarlyExpiry(b.cfg.EarlyExpiry),
+		oauth2client.WithClientCredentialsClientAuth(auth),
+		oauth2client.WithClientCredentialsScopes(b.cfg.Scopes...),
+	}
+	if len(b.cfg.EndpointParams) > 0 {
+		opts = append(opts, oauth2client.WithClientCredentialsEndpointParams(endpointParams(b.cfg.EndpointParams)))
+	}
+	if b.cfg.AllowInsecureHTTP {
+		opts = append(opts, oauth2client.WithClientCredentialsInsecureHTTP())
 	}
 	return oauth2client.ClientCredentials(ctx, tokenURL, b.cfg.ClientId, b.cfg.ClientSecret.Expose(), opts...)
 }
@@ -102,16 +113,36 @@ func (b *Builder) Build(ctx context.Context) (oauth2.TokenSource, error) {
 // BuildExchanger assembles an RFC 8693 [oauth2client.Exchanger] from the same
 // configuration. The subject token is supplied per call at exchange time.
 func (b *Builder) BuildExchanger(_ context.Context) (*oauth2client.Exchanger, error) {
-	tokenURL, opts, err := b.resolve()
+	tokenURL, auth, err := b.resolve()
 	if err != nil {
 		return nil, err
+	}
+	opts := []oauth2client.ExchangerOption{
+		oauth2client.WithExchangerAuthStyle(authStyle(b.cfg.AuthStyle)),
+		oauth2client.WithExchangerHTTPClient(b.httpClient),
+		oauth2client.WithExchangerMetrics(b.metrics),
+		oauth2client.WithExchangerLogger(b.logger),
+		oauth2client.WithExchangerEarlyExpiry(b.cfg.EarlyExpiry),
+		oauth2client.WithExchangerClientAuth(auth),
+	}
+	if len(b.cfg.EndpointParams) > 0 {
+		opts = append(opts, oauth2client.WithExchangerEndpointParams(endpointParams(b.cfg.EndpointParams)))
+	}
+	if b.cfg.AllowInsecureHTTP {
+		opts = append(opts, oauth2client.WithExchangerInsecureHTTP())
+	}
+	if b.cfg.IsRetryConfigured() && b.cfg.Retry.Attempts > 0 {
+		opts = append(opts,
+			oauth2client.WithExchangerRetryAttempts(b.cfg.Retry.Attempts),
+			oauth2client.WithExchangerRetryBaseDelay(b.cfg.Retry.BaseDelay),
+			oauth2client.WithExchangerRetryMaxDelay(b.cfg.Retry.MaxDelay),
+		)
 	}
 	return oauth2client.NewExchanger(tokenURL, b.cfg.ClientId, b.cfg.ClientSecret.Expose(), opts...)
 }
 
-// resolve validates the builder, resolves the token endpoint, and translates
-// config into oauth2client options.
-func (b *Builder) resolve() (string, []oauth2client.Option, error) {
+// resolve validates the builder and resolves the token endpoint and client authentication.
+func (b *Builder) resolve() (string, oauth2client.ClientAuthenticator, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return "", nil, err
 	}
@@ -122,13 +153,11 @@ func (b *Builder) resolve() (string, []oauth2client.Option, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	opts := b.options()
-	clientAuthOpt, err := b.clientAuthOption()
-	if err != nil {
-		return "", nil, err
+	if b.clientAuth == nil && b.cfg.ClientAuth != nil {
+		auth, err := b.buildConfigClientAuth(b.cfg.ClientAuth)
+		return tokenURL, auth, err
 	}
-	opts = slices.AppendNonNil(opts, clientAuthOpt)
-	return tokenURL, opts, nil
+	return tokenURL, b.clientAuth, nil
 }
 
 // resolveTokenURL returns the literal token endpoint or resolves it from the
@@ -150,56 +179,6 @@ func (b *Builder) resolveTokenURL() (string, error) {
 		return "", err
 	}
 	return tokenURL, nil
-}
-
-// options translates config into the oauth2client option slice.
-func (b *Builder) options() []oauth2client.Option {
-	cfg := b.cfg
-	opts := make([]oauth2client.Option, 0, estimatedOptionsCount)
-
-	opts = slices.AppendIf(opts, len(cfg.Scopes) > 0, oauth2client.WithScopes(cfg.Scopes...))
-	opts = append(opts, oauth2client.WithAuthStyle(authStyle(cfg.AuthStyle)))
-	opts = slices.AppendIf(opts, len(cfg.EndpointParams) > 0,
-		oauth2client.WithEndpointParams(endpointParams(cfg.EndpointParams)))
-	opts = slices.AppendNonNil(opts, b.httpClientOption())
-	opts = slices.AppendIf(opts, cfg.AllowInsecureHTTP, oauth2client.WithInsecureHTTP())
-	opts = slices.AppendIf(opts, b.logger != nil, oauth2client.WithLogger(b.logger))
-	opts = slices.AppendIf(opts, b.metrics != nil, oauth2client.WithMetrics(b.metrics))
-	opts = slices.AppendIf(opts, cfg.EarlyExpiry > 0, oauth2client.WithEarlyExpiry(cfg.EarlyExpiry))
-	opts = slices.AppendIfFunc(opts, cfg.IsRetryConfigured() && cfg.Retry.Attempts > 0, func() []oauth2client.Option {
-		return []oauth2client.Option{
-			oauth2client.WithRetryAttempts(cfg.Retry.Attempts),
-			oauth2client.WithRetryBaseDelay(cfg.Retry.BaseDelay),
-			oauth2client.WithRetryMaxDelay(cfg.Retry.MaxDelay),
-		}
-	})
-	return opts
-}
-
-// httpClientOption returns the injected-client option, or nil when none was set.
-func (b *Builder) httpClientOption() oauth2client.Option {
-	if b.httpClient == nil {
-		return nil
-	}
-	return oauth2client.WithHTTPClient(b.httpClient)
-}
-
-// clientAuthOption returns the client-authenticator option. A programmatically
-// injected authenticator (via [Builder.UseClientAuth]) wins; otherwise one is
-// built from the config clientAuth block. It returns nil when neither is set.
-func (b *Builder) clientAuthOption() (oauth2client.Option, error) {
-	ca := b.clientAuth
-	if ca == nil && b.cfg.ClientAuth != nil {
-		built, err := b.buildConfigClientAuth(b.cfg.ClientAuth)
-		if err != nil {
-			return nil, err
-		}
-		ca = built
-	}
-	if ca == nil {
-		return nil, nil //nolint:nilnil // no client auth configured: nil option, no error
-	}
-	return oauth2client.WithClientAuth(ca), nil
 }
 
 // buildConfigClientAuth constructs a [oauth2client.ClientAuthenticator] from the

@@ -30,7 +30,7 @@ import (
 )
 
 // loaderAuth is an authoritative store that is also its own rebuild source,
-// like auth/denylist/storages/redis.Store. It counts lookups and streams.
+// counting lookups and streams.
 type loaderAuth struct {
 	mu      sync.Mutex
 	revoked []string
@@ -337,5 +337,42 @@ func TestBuild_RedisStorageRegistration(t *testing.T) {
 func sharedBloom(peerRebuilding bool) probfilterfactory.BloomStorageFunc {
 	return func(context.Context, probfilterfactory.BloomStorageSpec) (bloomstorages.Storage, error) {
 		return probfiltertest.NewSharedBloom(peerRebuilding), nil
+	}
+}
+
+// providedLoader has separate point-read and rebuild interfaces, like the Redis store.
+type providedLoader struct {
+	negcache.Authoritative
+	source probfilter.DataLoader
+}
+
+func (a providedLoader) DataLoader() probfilter.DataLoader { return a.source }
+
+func TestBuild_DiscoversProvidedLoaderAndHonorsOverride(t *testing.T) {
+	t.Parallel()
+	for _, override := range []bool{false, true} {
+		name := "discovered"
+		if override {
+			name = "override"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			defaults := probfilterconfig.NewDefaults()
+			source := newLoaderAuth("revoked")
+			other := newLoaderAuth("override")
+			builder := factory.NewBuilder("denylist", memoryBloomConfig(), &defaults, providedLoader{source, source})
+			if override {
+				builder.UseDataLoader(other)
+			}
+			c, err := builder.Build(t.Context())
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = c.Close(context.WithoutCancel(t.Context())) })
+			if override {
+				require.EqualValues(t, 1, other.streams.Load())
+				require.Zero(t, source.streams.Load())
+			} else {
+				require.EqualValues(t, 1, source.streams.Load())
+			}
+		})
 	}
 }

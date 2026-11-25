@@ -7,7 +7,7 @@ package gitlab
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +19,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
+	"github.com/altessa-s/go-atlas/auth/opa/internal/jsondoc"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	gitlabapi "gitlab.com/gitlab-org/api/client-go"
@@ -155,7 +156,11 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 		return nil, opa.ErrSourceClosed
 	}
 
-	entries, err := s.listTree(ctx)
+	ref, err := s.resolveRef(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.listTree(ctx, ref)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "list repository tree")
 	}
@@ -174,7 +179,7 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 
 		switch {
 		case ext == ".rego":
-			content, dlErr := s.downloadVerified(ctx, name)
+			content, dlErr := s.downloadVerified(ctx, ref, name)
 			if dlErr != nil {
 				return nil, coreerrs.Wrapf(dlErr, "download policy %s", name)
 			}
@@ -182,13 +187,13 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 			modules[name] = content
 			newSHAs[name] = entry.ID
 		case s.opts.includeData && ext == ".json":
-			content, dlErr := s.downloadVerified(ctx, name)
+			content, dlErr := s.downloadVerified(ctx, ref, name)
 			if dlErr != nil {
 				return nil, coreerrs.Wrapf(dlErr, "download data %s", name)
 			}
 
-			var jsonData any
-			if unmarshalErr := json.Unmarshal(content, &jsonData); unmarshalErr != nil {
+			jsonData, unmarshalErr := jsondoc.Decode(content)
+			if unmarshalErr != nil {
 				return nil, coreerrs.Wrapf(unmarshalErr, "parse JSON data %s", name)
 			}
 
@@ -212,11 +217,9 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 
 	s.shas = newSHAs
 
-	var bundle *opa.PolicyBundle
-	if data != nil {
-		bundle = opa.NewPolicyBundleWithData(modules, data)
-	} else {
-		bundle = opa.NewPolicyBundle(modules)
+	bundle, revisionErr := opa.NewPolicyBundleWithData(modules, data)
+	if revisionErr != nil {
+		return nil, revisionErr
 	}
 
 	s.logger.Debug("fetched policy bundle from gitlab",
@@ -245,13 +248,31 @@ func (s *Source) Close() error {
 	return nil
 }
 
+func (s *Source) resolveRef(ctx context.Context) (string, error) {
+	commit, response, err := s.client.Commits.GetCommit(s.opts.projectID, s.opts.ref, nil, gitlabapi.WithContext(ctx))
+	if err != nil {
+		if response != nil && response.Response != nil {
+			return "", fmt.Errorf("resolve policy ref (HTTP %d)", response.StatusCode)
+		}
+		return "", coreerrs.WrapOperation(err, "resolve policy ref")
+	}
+	if commit == nil {
+		return "", errors.New("missing GitLab commit")
+	}
+	sha, err := hex.DecodeString(commit.ID)
+	if err != nil || (len(sha) != 20 && len(sha) != 32) {
+		return "", errors.New("invalid GitLab commit ID")
+	}
+	return commit.ID, nil
+}
+
 // listTree retrieves the repository tree entries for the configured path with pagination.
-func (s *Source) listTree(ctx context.Context) ([]*gitlabapi.TreeNode, error) {
+func (s *Source) listTree(ctx context.Context, ref string) ([]*gitlabapi.TreeNode, error) {
 	var all []*gitlabapi.TreeNode
 
 	opts := &gitlabapi.ListTreeOptions{
 		Page: 1, PerPage: treePageSize,
-		Ref:  new(s.opts.ref),
+		Ref:  &ref,
 		Path: new(s.opts.dir),
 	}
 
@@ -275,8 +296,8 @@ func (s *Source) listTree(ctx context.Context) ([]*gitlabapi.TreeNode, error) {
 
 // downloadVerified downloads a file and checks it against the checksums
 // manifest, when one is configured.
-func (s *Source) downloadVerified(ctx context.Context, filename string) ([]byte, error) {
-	content, err := s.downloadRawFile(ctx, filename)
+func (s *Source) downloadVerified(ctx context.Context, ref, filename string) ([]byte, error) {
+	content, err := s.downloadRawFile(ctx, ref, filename)
 	if err != nil {
 		return nil, err
 	}
@@ -288,12 +309,12 @@ func (s *Source) downloadVerified(ctx context.Context, filename string) ([]byte,
 
 // downloadRawFile downloads a raw file from the GitLab repository, reading at
 // most maxFileBytes of it.
-func (s *Source) downloadRawFile(ctx context.Context, filename string) ([]byte, error) {
+func (s *Source) downloadRawFile(ctx context.Context, ref, filename string) ([]byte, error) {
 	filePath := path.Join(s.opts.dir, filename)
 
 	req, err := s.client.NewRequest(http.MethodGet,
 		fmt.Sprintf("projects/%d/repository/files/%s/raw", s.opts.projectID, gitlabapi.PathEscape(filePath)),
-		&gitlabapi.GetRawFileOptions{Ref: new(s.opts.ref)},
+		&gitlabapi.GetRawFileOptions{Ref: &ref},
 		[]gitlabapi.RequestOptionFunc{gitlabapi.WithContext(ctx)})
 	if err != nil {
 		return nil, coreerrs.Wrapf(err, "build request for %s", filename)

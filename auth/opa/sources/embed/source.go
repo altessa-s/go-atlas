@@ -7,7 +7,6 @@ package embed
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
+	"github.com/altessa-s/go-atlas/auth/opa/internal/jsondoc"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -103,15 +103,10 @@ func (s *Source) Fetch(_ context.Context) (*opa.PolicyBundle, error) {
 
 	modules := make(map[string][]byte)
 	var data map[string]any
+	loadedRelPaths := make(map[string]string)
 
-	if err := s.walkDirectory(s.dir, modules, &data); err != nil {
+	if err := s.walkDirectory(s.dir, modules, &data, loadedRelPaths); err != nil {
 		return nil, err
-	}
-
-	loadedRelPaths := make(map[string]string, len(modules))
-	for p := range modules {
-		rel := relativePolicyPath(s.dir, p)
-		loadedRelPaths[rel] = p
 	}
 
 	if err := s.verifyAllChecksumsCovered(loadedRelPaths); err != nil {
@@ -122,11 +117,9 @@ func (s *Source) Fetch(_ context.Context) (*opa.PolicyBundle, error) {
 		return nil, coreerrs.Wrapf(opa.ErrNoPolicyFiles, "%s", s.dir)
 	}
 
-	var bundle *opa.PolicyBundle
-	if data != nil {
-		bundle = opa.NewPolicyBundleWithData(modules, data)
-	} else {
-		bundle = opa.NewPolicyBundle(modules)
+	bundle, revisionErr := opa.NewPolicyBundleWithData(modules, data)
+	if revisionErr != nil {
+		return nil, revisionErr
 	}
 
 	s.logger.Debug("fetched policy bundle",
@@ -138,7 +131,7 @@ func (s *Source) Fetch(_ context.Context) (*opa.PolicyBundle, error) {
 }
 
 // walkDirectory recursively walks the directory and collects policy files.
-func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map[string]any) error {
+func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map[string]any, loaded map[string]string) error {
 	return fs.WalkDir(s.fsys, root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -161,6 +154,7 @@ func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map
 				return err
 			}
 
+			loaded[relPath] = p
 			modules[p] = content
 			return nil
 		}
@@ -171,16 +165,19 @@ func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map
 				return coreerrs.Wrapf(readErr, "read data file %s", p)
 			}
 
-			var jsonData any
-			if unmarshalErr := json.Unmarshal(content, &jsonData); unmarshalErr != nil {
+			relPath := relativePolicyPath(root, p)
+			if err := s.verifyChecksum(relPath, content); err != nil {
+				return err
+			}
+			loaded[relPath] = p
+			jsonData, unmarshalErr := jsondoc.Decode(content)
+			if unmarshalErr != nil {
 				return coreerrs.Wrapf(unmarshalErr, "parse JSON data %s", p)
 			}
 
 			if *data == nil {
 				*data = make(map[string]any)
 			}
-
-			relPath := relativePolicyPath(root, p)
 			key := strings.TrimSuffix(relPath, ".json")
 			(*data)[key] = jsonData
 		}

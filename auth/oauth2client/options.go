@@ -4,7 +4,13 @@
 
 package oauth2client
 
-//go:generate go tool optgen generate
+//go:generate go tool optgen generate --type=clientCredentialsOptions --option-type=ClientCredentialsOption --output=client_credentials_options_gen.go --option-prefix=ClientCredentials
+//go:generate go tool optgen generate --type=refreshOptions --option-type=RefreshOption --output=refresh_options_gen.go --option-prefix=Refresh
+//go:generate go tool optgen generate --type=authCodeOptions --option-type=AuthCodeOption --output=auth_code_options_gen.go --option-prefix=AuthCode
+//go:generate go tool optgen generate --type=deviceFlowOptions --option-type=DeviceFlowOption --output=device_flow_options_gen.go --option-prefix=DeviceFlow
+//go:generate go tool optgen generate --type=exchangerOptions --option-type=ExchangerOption --output=exchanger_options_gen.go --option-prefix=Exchanger
+//go:generate go tool optgen generate --type=jwtBearerOptions --option-type=JWTBearerOption --output=jwt_bearer_options_gen.go --option-prefix=JWTBearer --new-func-name=newJWTBearerOptions
+//go:generate go tool optgen generate --type=revokerOptions --option-type=RevokerOption --output=revoker_options_gen.go --option-prefix=Revoker
 
 import (
 	"context"
@@ -20,7 +26,7 @@ import (
 
 // DefaultAuthStyle lets x/oauth2 auto-detect whether client credentials are
 // sent in the Authorization header or the request body. Override with
-// [WithAuthStyle] when talking to an IdP that accepts only one style.
+// the grant-specific auth style when talking to an IdP that accepts only one style.
 const DefaultAuthStyle = oauth2.AuthStyleAutoDetect
 
 // Retry defaults for [Exchanger]. Retrying is opt-in: the zero
@@ -28,7 +34,7 @@ const DefaultAuthStyle = oauth2.AuthStyleAutoDetect
 // behavior of the other helpers (x/oauth2 does not retry either).
 const (
 	// DefaultRetryAttempts is the number of retries after the first attempt.
-	// Zero disables retrying. Raise it with [WithRetryAttempts].
+	// Zero disables retrying. Raise it with [WithExchangerRetryAttempts].
 	DefaultRetryAttempts = 0
 
 	// DefaultRetryBaseDelay is the backoff applied before the first retry.
@@ -45,86 +51,128 @@ const (
 	DefaultRetryJitter = 0.2
 )
 
-// options carries the tunables shared by every grant helper. All fields are
-// optional; the zero value talks to a spec-compliant IdP over the built-in
-// HTTP client ([DefaultHTTPTimeout], no redirects) with credentials
-// auto-detected.
-type options struct {
-	// scopes are the requested OAuth2 scopes, sent as the space-delimited
-	// scope parameter. Nil requests no explicit scopes.
+type clientCredentialsOptions struct {
+	// WithClientCredentialsScopes sets the requested OAuth2 scopes.
 	scopes []string
-
-	// authStyle selects how client credentials are presented to the token
-	// endpoint (header vs. body). It applies to [ClientCredentials], [Refresh],
-	// and [Exchanger]; the authorization-code endpoint carries its own style on
-	// [oauth2.Endpoint].
+	// WithClientCredentialsAuthStyle selects how the client presents its credentials to the endpoint.
 	authStyle oauth2.AuthStyle `optgen:"default=DefaultAuthStyle"`
-
-	// endpointParams are extra, non-standard parameters added to every token
-	// request (for example Auth0's "audience"). It applies to
-	// [ClientCredentials] and [Exchanger].
+	// WithClientCredentialsEndpointParams sets additional token request parameters.
 	endpointParams url.Values
-
-	// httpClient issues the token-endpoint requests. Nil uses a built-in
-	// client with a [DefaultHTTPTimeout] timeout that does not follow
-	// redirects. Inject a client with other timeouts, mTLS, or tracing
-	// round-trippers here. The client is copied, never modified: without a
-	// CheckRedirect the copy follows no redirect either, and with one a
-	// redirect to another origin fails with [ErrRedirectNotAllowed] before
-	// the client's own policy is consulted.
+	// WithClientCredentialsHTTPClient sets the HTTP client used for endpoint requests.
 	httpClient *http.Client
-
-	// insecureHTTP lets requests go to plain-http endpoints on any host. By
-	// default only https and http on a loopback host are allowed, and any
-	// other request fails with [ErrInsecureEndpoint]. Set it only for a test
-	// IdP: client credentials are sent in the clear.
+	// WithClientCredentialsInsecureHTTP permits plain HTTP endpoints on non-loopback hosts.
 	insecureHTTP bool `opt:"InsecureHTTP"`
-
-	// retryAttempts is the number of retries after the first [Exchanger]
-	// attempt on a transient failure (transport error, 429, or 5xx). Zero
-	// disables retrying. It applies to [Exchanger] and [JWTBearer]; the
-	// x/oauth2-backed helpers manage their own transport.
-	retryAttempts int `optgen:"default=DefaultRetryAttempts"`
-
-	// retryBaseDelay and retryMaxDelay bound the exponential backoff between
-	// [Exchanger] and [JWTBearer] retries.
-	retryBaseDelay time.Duration `optgen:"default=DefaultRetryBaseDelay"`
-	retryMaxDelay  time.Duration `optgen:"default=DefaultRetryMaxDelay"`
-
-	// metrics records fetch counts, latency, and retry counts across the flows.
-	// Nil disables metric recording.
+	// WithClientCredentialsMetrics records token fetch metrics.
 	metrics *Metrics
-
-	// logger records token-fetch failures and retry attempts. Nil disables
-	// logging (no default handler is installed, keeping the hot path free of a
-	// wrapping token source).
+	// WithClientCredentialsLogger logs token fetch failures.
 	logger *slog.Logger
-
-	// earlyExpiry makes a self-refreshing source treat a token as expired this
-	// long before its actual exp, so a fresh token is fetched ahead of expiry to
-	// absorb clock skew and in-flight latency. Zero uses x/oauth2's ~10s default.
-	// It applies to [ClientCredentials], [Exchanger.TokenSource], and
-	// [JWTBearer]; [Refresh] and [AuthCode] keep the x/oauth2 default
-	// (overriding it would drop refresh-token rotation). [JWTBearer] caps the
-	// window at half of each token's lifetime, so a short-lived token is still
-	// served instead of being exchanged on every call.
+	// WithClientCredentialsEarlyExpiry sets how far ahead of expiry to refresh a cached token.
 	earlyExpiry time.Duration
+	// WithClientCredentialsClientAuth authenticates the client with a signed assertion.
+	clientAuth ClientAuthenticator `optgen:"notnil"`
+}
 
-	// clock is the time source of [JWTBearer]: it stamps the assertion's iat and
-	// exp, the issued token's expiry, and the cache freshness check. Inject
-	// [clock.NewFake] in tests.
+type refreshOptions struct {
+	// WithRefreshAuthStyle selects how the client presents its credentials to the endpoint.
+	authStyle oauth2.AuthStyle `optgen:"default=DefaultAuthStyle"`
+	// WithRefreshHTTPClient sets the HTTP client used for endpoint requests.
+	httpClient *http.Client
+	// WithRefreshInsecureHTTP permits plain HTTP endpoints on non-loopback hosts.
+	insecureHTTP bool `opt:"InsecureHTTP"`
+	// WithRefreshMetrics records token fetch metrics.
+	metrics *Metrics
+	// WithRefreshLogger logs token fetch failures.
+	logger *slog.Logger
+}
+
+type authCodeOptions struct {
+	// WithAuthCodeScopes sets the requested OAuth2 scopes.
+	scopes []string
+	// WithAuthCodeHTTPClient sets the HTTP client used for endpoint requests.
+	httpClient *http.Client
+	// WithAuthCodeInsecureHTTP permits plain HTTP endpoints on non-loopback hosts.
+	insecureHTTP bool `opt:"InsecureHTTP"`
+	// WithAuthCodeMetrics records token fetch metrics.
+	metrics *Metrics
+	// WithAuthCodeLogger logs token fetch failures.
+	logger *slog.Logger
+}
+
+type deviceFlowOptions struct {
+	// WithDeviceFlowScopes sets the requested OAuth2 scopes.
+	scopes []string
+	// WithDeviceFlowHTTPClient sets the HTTP client used for endpoint requests.
+	httpClient *http.Client
+	// WithDeviceFlowInsecureHTTP permits plain HTTP endpoints on non-loopback hosts.
+	insecureHTTP bool `opt:"InsecureHTTP"`
+	// WithDeviceFlowMetrics records token fetch metrics.
+	metrics *Metrics
+	// WithDeviceFlowLogger logs token fetch failures.
+	logger *slog.Logger
+}
+
+type exchangerOptions struct {
+	// WithExchangerAuthStyle selects how the client presents its credentials to the endpoint.
+	authStyle oauth2.AuthStyle `optgen:"default=DefaultAuthStyle"`
+	// WithExchangerEndpointParams sets additional token request parameters.
+	endpointParams url.Values
+	// WithExchangerHTTPClient sets the HTTP client used for endpoint requests.
+	httpClient *http.Client
+	// WithExchangerInsecureHTTP permits plain HTTP endpoints on non-loopback hosts.
+	insecureHTTP bool `opt:"InsecureHTTP"`
+	// WithExchangerRetryAttempts sets the number of retries after a transient failure.
+	retryAttempts int `optgen:"default=DefaultRetryAttempts"`
+	// WithExchangerRetryBaseDelay sets the initial retry delay.
+	retryBaseDelay time.Duration `optgen:"default=DefaultRetryBaseDelay"`
+	// WithExchangerRetryMaxDelay caps the retry delay.
+	retryMaxDelay time.Duration `optgen:"default=DefaultRetryMaxDelay"`
+	// WithExchangerMetrics records token fetch metrics.
+	metrics *Metrics
+	// WithExchangerLogger logs token fetch failures.
+	logger *slog.Logger
+	// WithExchangerEarlyExpiry sets how far ahead of expiry to refresh a cached token.
+	earlyExpiry time.Duration
+	// WithExchangerClientAuth authenticates the client with a signed assertion.
+	clientAuth ClientAuthenticator `optgen:"notnil"`
+}
+
+type jwtBearerOptions struct {
+	// WithJWTBearerScopes sets the requested OAuth2 scopes.
+	scopes []string
+	// WithJWTBearerHTTPClient sets the HTTP client used for endpoint requests.
+	httpClient *http.Client
+	// WithJWTBearerInsecureHTTP permits plain HTTP endpoints on non-loopback hosts.
+	insecureHTTP bool `opt:"InsecureHTTP"`
+	// WithJWTBearerRetryAttempts sets the number of retries after a transient failure.
+	retryAttempts int `optgen:"default=DefaultRetryAttempts"`
+	// WithJWTBearerRetryBaseDelay sets the initial retry delay.
+	retryBaseDelay time.Duration `optgen:"default=DefaultRetryBaseDelay"`
+	// WithJWTBearerRetryMaxDelay caps the retry delay.
+	retryMaxDelay time.Duration `optgen:"default=DefaultRetryMaxDelay"`
+	// WithJWTBearerMetrics records token fetch metrics.
+	metrics *Metrics
+	// WithJWTBearerLogger logs token fetch failures.
+	logger *slog.Logger
+	// WithJWTBearerEarlyExpiry sets how far ahead of expiry to refresh a cached token.
+	earlyExpiry time.Duration
+	// WithJWTBearerClock sets the clock used for assertions and token expiry.
 	clock clock.Clock `optgen:"default=clock.Real(),notnil"`
+}
 
-	// clientAuth authenticates the client with a signed JWT assertion
-	// (private_key_jwt / client_secret_jwt), superseding the secret-based
-	// [WithAuthStyle] path. It applies to [ClientCredentials] and [Exchanger].
-	// Set via the generated WithClientAuth.
+type revokerOptions struct {
+	// WithRevokerAuthStyle selects how the client presents its credentials to the endpoint.
+	authStyle oauth2.AuthStyle `optgen:"default=DefaultAuthStyle"`
+	// WithRevokerHTTPClient sets the HTTP client used for endpoint requests.
+	httpClient *http.Client
+	// WithRevokerInsecureHTTP permits plain HTTP endpoints on non-loopback hosts.
+	insecureHTTP bool `opt:"InsecureHTTP"`
+	// WithRevokerClientAuth authenticates the client with a signed assertion.
 	clientAuth ClientAuthenticator `optgen:"notnil"`
 }
 
 // withHTTPClient returns ctx carrying client as the [oauth2.HTTPClient] value
 // x/oauth2 reads, or ctx unchanged when client is nil (x/oauth2 then falls back
-// to [http.DefaultClient]). Every flow passes the client of [options.client],
+// to [http.DefaultClient]). Every flow passes a client from [endpointClient],
 // which is never nil.
 func withHTTPClient(ctx context.Context, client *http.Client) context.Context {
 	if client == nil {

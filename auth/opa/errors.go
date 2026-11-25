@@ -8,6 +8,12 @@ import "errors"
 
 // Sentinel errors for the OPA package.
 var (
+	// ErrReleaseManifestRequired indicates that a filesystem or S3 source has no release manifest configured.
+	ErrReleaseManifestRequired = errors.New("policy release manifest is required")
+
+	// ErrSchedulerRequired indicates that an update schedule has no task registrar.
+	ErrSchedulerRequired = errors.New("scheduler registrar is required for policy updates")
+
 	// ErrSourceRequired indicates that a policy source is required but was not provided.
 	ErrSourceRequired = errors.New("policy source is required")
 

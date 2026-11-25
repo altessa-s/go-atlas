@@ -32,6 +32,14 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithStrictExactReads requires uncached primary reads and verifies the role on every lookup.
+func WithStrictExactReads() Option {
+	return func(o *options) {
+		value := true
+		o.strictExactReads = value
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{

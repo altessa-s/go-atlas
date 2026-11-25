@@ -21,7 +21,7 @@ func TestVerifyLeewayCapped(t *testing.T) {
 	t.Parallel()
 
 	p := newProvider(t, jwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Minute})
 	require.NoError(t, err)
 
@@ -37,7 +37,7 @@ func TestVerifyLeewayCapped(t *testing.T) {
 		// Serial: the subtests share p, whose call counter is not
 		// concurrency-safe.
 		t.Run(tc.name, func(t *testing.T) {
-			v := selfjwt.NewVerifier(p, testIssuer, testAudience, clockOpt(tc.now), selfjwt.WithLeeway(24*time.Hour))
+			v := selfjwt.NewVerifier(p, testIssuer, testAudience, selfjwt.WithVerifierClock(fixedClock{t: tc.now}), selfjwt.WithLeeway(24*time.Hour))
 			_, err := v.Verify(t.Context(), res.Token)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)

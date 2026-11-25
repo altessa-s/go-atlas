@@ -34,9 +34,8 @@ import (
 //
 // The probfilter factory owns the filter's rebuilds: the Bloom settings
 // rebuildOnStart and rebuildCron rebuild it from the data loader — the one
-// set with [Builder.UseDataLoader], else the authoritative store itself when
-// it implements [probfilter.DataLoader] (auth/denylist/storages/redis.Store
-// does). A Redis filter's rebuildCron runs through the scheduler set with
+// set with [Builder.UseDataLoader], else the authoritative store when it implements
+// [probfilter.DataLoader] or provides one through DataLoader(). A Redis filter's rebuildCron runs through the scheduler set with
 // [Builder.UseScheduler]. Without a loader the settings are inert and the
 // caller rebuilds through [negcache.Cache.Rebuild].
 //
@@ -107,7 +106,12 @@ func (b *Builder) Build(ctx context.Context) (*negcache.Cache, error) {
 
 	loader := b.loader
 	if loader == nil {
-		loader, _ = b.authoritative.(probfilter.DataLoader)
+		switch source := b.authoritative.(type) {
+		case probfilter.DataLoader:
+			loader = source
+		case interface{ DataLoader() probfilter.DataLoader }:
+			loader = source.DataLoader()
+		}
 	}
 
 	// The cache never trusts an unpopulated filter, so a startup rebuild

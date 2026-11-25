@@ -19,7 +19,7 @@ import (
 func TestMintSetsIssuerAndAudience(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestMintSetsIssuerAndAudience(t *testing.T) {
 func TestVerifyRejectsForeignIssuerOrAudience(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	m := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime))
+	m := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime}))
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
@@ -52,7 +52,7 @@ func TestVerifyRejectsForeignIssuerOrAudience(t *testing.T) {
 		// Serial: the subtests share p, whose call counter is not
 		// concurrency-safe.
 		t.Run(tc.name, func(t *testing.T) {
-			v := selfjwt.NewVerifier(p, tc.issuer, tc.audience, clockOpt(baseTime))
+			v := selfjwt.NewVerifier(p, tc.issuer, tc.audience, selfjwt.WithVerifierClock(fixedClock{t: baseTime}))
 			_, err := v.Verify(t.Context(), res.Token)
 			require.ErrorIs(t, err, selfjwt.ErrTokenInvalid)
 		})
@@ -62,7 +62,7 @@ func TestVerifyRejectsForeignIssuerOrAudience(t *testing.T) {
 func TestIssuerAndAudienceRequired(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, atlasjwt.AlgEdDSA)
-	res, err := selfjwt.NewMinter(p, testIssuer, testAudience, clockOpt(baseTime)).
+	res, err := selfjwt.NewMinter(p, testIssuer, testAudience, selfjwt.WithMinterClock(fixedClock{t: baseTime})).
 		Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
@@ -77,11 +77,11 @@ func TestIssuerAndAudienceRequired(t *testing.T) {
 		// Serial: the subtests share p, whose call counter is not
 		// concurrency-safe.
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := selfjwt.NewMinter(p, tc.issuer, tc.audience, clockOpt(baseTime)).
+			_, err := selfjwt.NewMinter(p, tc.issuer, tc.audience, selfjwt.WithMinterClock(fixedClock{t: baseTime})).
 				Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 			require.ErrorIs(t, err, tc.wantErr)
 
-			_, err = selfjwt.NewVerifier(p, tc.issuer, tc.audience, clockOpt(baseTime)).Verify(t.Context(), res.Token)
+			_, err = selfjwt.NewVerifier(p, tc.issuer, tc.audience, selfjwt.WithVerifierClock(fixedClock{t: baseTime})).Verify(t.Context(), res.Token)
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}

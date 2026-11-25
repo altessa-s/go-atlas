@@ -22,10 +22,8 @@ import (
 // the returned verification URL and user code to enter on a second device, and
 // [DeviceFlow.Token] polls the token endpoint until the user approves.
 //
-// Client authentication uses the [WithAuthStyle] secret (device clients are
-// commonly public, so an empty secret is normal); [WithClientAuth] JWT
-// assertions do not apply here. A DeviceFlow is immutable and safe for
-// concurrent use.
+// The endpoint selects the client authentication style. Public device clients
+// can pass an empty secret. A DeviceFlow is immutable and safe for concurrent use.
 type DeviceFlow struct {
 	cfg     oauth2.Config
 	client  *http.Client
@@ -36,17 +34,17 @@ type DeviceFlow struct {
 // NewDeviceFlow builds a [DeviceFlow] for the IdP endpoint and registered client.
 // endpoint must carry the device authorization URL ([oauth2.Endpoint.DeviceAuthURL])
 // and the token URL; clientSecret may be "" for a public client. Requested
-// scopes and a custom [http.Client] come from the [Option] values.
+// scopes and a custom [http.Client] come from the [DeviceFlowOption] values.
 //
 // Both URLs are checked here: one that is missing, malformed or not https
 // (plain http is accepted on a loopback host, or anywhere with
-// [WithInsecureHTTP]) returns an error wrapping [ErrInsecureEndpoint].
-func NewDeviceFlow(endpoint oauth2.Endpoint, clientID, clientSecret string, opts ...Option) (*DeviceFlow, error) {
-	o := newOptions(opts...)
-	if err := o.validateEndpoint("device authorization URL", endpoint.DeviceAuthURL); err != nil {
+// [WithDeviceFlowInsecureHTTP]) returns an error wrapping [ErrInsecureEndpoint].
+func NewDeviceFlow(endpoint oauth2.Endpoint, clientID, clientSecret string, opts ...DeviceFlowOption) (*DeviceFlow, error) {
+	o := newDeviceFlowOptions(opts...)
+	if err := validateEndpoint("device authorization URL", endpoint.DeviceAuthURL, o.insecureHTTP); err != nil {
 		return nil, err
 	}
-	if err := o.validateEndpoint("token URL", endpoint.TokenURL); err != nil {
+	if err := validateEndpoint("token URL", endpoint.TokenURL, o.insecureHTTP); err != nil {
 		return nil, err
 	}
 	return &DeviceFlow{
@@ -56,7 +54,7 @@ func NewDeviceFlow(endpoint oauth2.Endpoint, clientID, clientSecret string, opts
 			Endpoint:     endpoint,
 			Scopes:       o.scopes,
 		},
-		client:  o.client(),
+		client:  endpointClient(o.httpClient, o.insecureHTTP),
 		metrics: o.metrics,
 		logger:  o.logger,
 	}, nil

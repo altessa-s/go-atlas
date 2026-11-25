@@ -37,7 +37,7 @@ func TestIssuerKeyIDMatchWinsOverEarlierSubjectMatch(t *testing.T) {
 	leaf := makeLeaf(t, newCA, 42, responder(t, newCA, ocsp.Good, &hits).URL)
 
 	c := newChecker([]*x509.Certificate{withoutSubjectKeyID(oldCA.Cert), newCA.Cert})
-	require.NoError(t, c.Check(leaf))
+	require.NoError(t, c.Check(t.Context(), leaf))
 	require.Equal(t, int32(1), hits.Load())
 }
 
@@ -54,7 +54,7 @@ func TestIssuerChosenBySignatureAmongSharedSubject(t *testing.T) {
 		leaf := *makeLeaf(t, ca, 42, responder(t, ca, ocsp.Good, &hits).URL)
 		leaf.AuthorityKeyId = nil
 
-		require.NoError(t, newChecker(issuers).Check(&leaf))
+		require.NoError(t, newChecker(issuers).Check(t.Context(), &leaf))
 		require.Equal(t, int32(1), hits.Load())
 	}
 }

@@ -40,7 +40,8 @@ import "github.com/altessa-s/go-atlas/auth/scope"
 | Registry   | `*scope.Registry`          | Maps an action key (gRPC full method, HTTP route, …) to its required scope. Deny-by-default. |
 | Matcher    | `scope.Matcher`            | Decides whether granted scopes satisfy a required one. `Exact` (default) or `Wildcard`.      |
 | Authorizer | `scope.Authorizer[P]`      | The sole extension point — `func(p P, required Scope) bool`. Holds all principal knowledge.  |
-| Enforcer   | `*scope.Enforcer[P]`       | Pairs a `Registry` with an `Authorizer[P]`; `Enforce` makes the decision.                    |
+| `ActionRegistry` | `scope.ActionRegistry`     | Narrow read seam (`Required(key string) (Scope, bool)`) consumed by `NewEnforcer`.           |
+| `Enforcer`       | `*scope.Enforcer[P]`       | Pairs an `ActionRegistry` with an `Authorizer[P]`; `Enforce` makes the decision.             |
 
 A `Registry` is built once, frozen, then read concurrently without locks. Scope matching, superuser bypass, role or tenant checks, and any extra
 principal fields are composed by the caller inside the `Authorizer`, so the core bakes in no identity fields.
@@ -87,8 +88,9 @@ if err := enf.Enforce(p, "/files.v1.Files/Write"); err != nil {
 
 ### gRPC
 
-`ScopeClientAuth` adapts an `Enforcer` to the auth interceptor's `ClientAuth` seam. The verified principal is read from `Credentials.Data`
-(the value the `Auth` function returns); the action key is `Credentials.FullyMethodName`. Denial surfaces as `codes.PermissionDenied`.
+`ScopeClientAuth` adapts the consumer-side `ScopeEnforcer[P]` interface (satisfied by `*scope.Enforcer[P]`) to the auth interceptor's `ClientAuth` seam.
+The verified principal is read from `Credentials.Data` (the value the `Auth` function returns); the action key is `Credentials.FullyMethodName`. Denial
+surfaces as `codes.PermissionDenied`.
 
 ```go
 import grpcauth "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
@@ -101,8 +103,9 @@ interceptor := grpcauth.ServerInterceptor(
 
 ### HTTP
 
-`ScopeMiddleware` enforces an `Enforcer` over authenticated requests. The principal is read from the request context via `auth.FromContext` (set by
-the authentication middleware); `keyFunc` maps the request to the registered action key — typically the matched route pattern. Denial responds `403`.
+`ScopeMiddleware` enforces the consumer-side `ScopeEnforcer[P]` interface (satisfied by `*scope.Enforcer[P]`) over authenticated requests. The principal
+is read from the request context via `auth.FromContext` (set by the authentication middleware); `keyFunc` maps the request to the registered action key
+— typically the matched route pattern. Denial responds `403`.
 
 ```go
 import httpauth "github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
@@ -197,10 +200,10 @@ scope:
 | `RoleAuthorizer(rolesOf, rs, m)`       | Convenience for `ScopeAuthorizer(RoleScopesOf(rolesOf, rs), m)` — roles stay caller-side.       |
 | `AnyOf(authorizers…)`                  | Compose authorizers with OR — granted if any is (empty denies). E.g. scope **or** superuser.    |
 | `AllOf(authorizers…)`                  | Compose authorizers with AND — granted only if all are (empty denies). E.g. scope **and** gate. |
-| `NewEnforcer(reg, authorize)`          | Enforcer backed by `reg`, delegating the satisfy decision to `authorize`.                       |
+| `NewEnforcer(reg, authorize)`          | Enforcer backed by an `ActionRegistry` (`*Registry`), delegating satisfy to `authorize`.        |
 | `Enforcer.Enforce(p, key)`             | `nil` if allowed, else `ErrAccessDenied`.                                                       |
-| `grpcauth.ScopeClientAuth(enf)`        | gRPC `ClientAuth` adapter (key = full method, principal = `Credentials.Data`).                  |
-| `httpauth.ScopeMiddleware(enf, keyFn)` | HTTP middleware (principal = `auth.FromContext`, key = `keyFn(r)`, 403 on denial).              |
+| `grpcauth.ScopeClientAuth(enf)`        | gRPC `ClientAuth` adapter accepting `ScopeEnforcer[P]` (key = full method, `Credentials.Data`). |
+| `httpauth.ScopeMiddleware(enf, keyFn)` | HTTP middleware accepting `ScopeEnforcer[P]` (principal = `auth.FromContext`, 403 on denial).   |
 | `oidc.ScopesOf(*Claims)`               | `scopesOf` adapter returning an OIDC token's granted scopes.                                    |
 
 ## Design Notes

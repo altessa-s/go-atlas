@@ -29,15 +29,14 @@ func loopbackProvider(t *testing.T, discoveryURL, body string, allowHTTP bool) *
 			Request:    r,
 		}, nil
 	})
-	return &Provider{
+	return &Provider{discovery: discoveryClient{
 		discoveryURL: discoveryURL,
 		client:       &http.Client{Transport: rt},
 		logger:       slog.New(slog.DiscardHandler),
-		opts: &options{
-			discoveryValidationMode:    DiscoveryValidationModeEnforce,
-			discoveryAllowLoopbackHTTP: allowHTTP,
-		},
-	}
+
+		discoveryValidationMode:    DiscoveryValidationModeEnforce,
+		discoveryAllowLoopbackHTTP: allowHTTP,
+	}}
 }
 
 func TestDiscoveryEndpointGetters(t *testing.T) {
@@ -52,7 +51,7 @@ func TestDiscoveryEndpointGetters(t *testing.T) {
   "id_token_signing_alg_values_supported":["RS256"]
 }`
 	p := discoveryProvider(t, DiscoveryValidationModeEnforce, slog.New(slog.DiscardHandler), body)
-	require.NoError(t, p.getDiscoveryInfo(t.Context()))
+	require.NoError(t, p.discovery.getDiscoveryInfo(t.Context()))
 	require.Equal(t, "https://issuer.example.com/auth", p.AuthorizationEndpoint())
 	require.Equal(t, "https://issuer.example.com/logout", p.EndSessionEndpoint())
 	require.Equal(t, "https://issuer.example.com/revoke", p.RevocationEndpoint())
@@ -62,6 +61,7 @@ func TestDiscoveryEndpointGettersBeforeDiscovery(t *testing.T) {
 	t.Parallel()
 
 	p := &Provider{}
+	require.Empty(t, p.TokenEndpoint())
 	require.Empty(t, p.AuthorizationEndpoint())
 	require.Empty(t, p.EndSessionEndpoint())
 	require.Empty(t, p.RevocationEndpoint())
@@ -84,7 +84,7 @@ func TestDiscoveryEnforceValidatesNewEndpoints(t *testing.T) {
   "id_token_signing_alg_values_supported":["RS256"]
 }`
 				p := discoveryProvider(t, DiscoveryValidationModeEnforce, slog.New(slog.DiscardHandler), body)
-				require.ErrorIs(t, p.getDiscoveryInfo(t.Context()), ErrDiscoveryValidation)
+				require.ErrorIs(t, p.discovery.getDiscoveryInfo(t.Context()), ErrDiscoveryValidation)
 			})
 		}
 	}
@@ -116,7 +116,7 @@ func TestDiscoveryAllowLoopbackHTTP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := loopbackProvider(t, tc.issuer+"/.well-known/openid-configuration", doc(tc.issuer, tc.jwks), tc.allowHTTP)
-			err := p.getDiscoveryInfo(t.Context())
+			err := p.discovery.getDiscoveryInfo(t.Context())
 			if tc.wantErr {
 				require.ErrorIs(t, err, ErrDiscoveryValidation)
 				return

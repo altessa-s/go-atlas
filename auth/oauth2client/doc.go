@@ -16,8 +16,8 @@
 //
 // # Grants
 //
-// The three x/oauth2-native grants are thin wrappers that add consistent
-// [Option] configuration and return a self-refreshing source:
+// The four x/oauth2-native grants are thin wrappers that add consistent
+// grant-specific options and return a self-refreshing source:
 //
 //   - [ClientCredentials] — service authenticates as itself (RFC 6749 §4.4).
 //   - [Refresh]           — resume a session from a stored refresh token (§6).
@@ -26,7 +26,7 @@
 //   - [DeviceFlow]        — device authorization grant (RFC 8628) for
 //     input-constrained clients: request a code, then poll for the token.
 //
-// The fourth, RFC 8693 token exchange, has no x/oauth2 equivalent and is
+// RFC 8693 token exchange has no x/oauth2 equivalent and is
 // implemented here as a spec-compliant client:
 //
 //   - [Exchanger] — trade a subject token (optionally with an actor token, for
@@ -40,24 +40,23 @@
 //     with an asymmetric [github.com/altessa-s/go-atlas/auth/jwt.SigningKey]
 //     and trade it for an access token. [JWTBearer.Token] runs the exchange on
 //     the caller's context, rejects a response without a positive expires_in,
-//     caches the token until [WithEarlyExpiry] before its expiry, and serializes
+//     caches the token until [WithJWTBearerEarlyExpiry] before its expiry, and serializes
 //     refreshes so concurrent callers share one exchange.
 //
 // # Client authentication
 //
-// [WithClientAuth] authenticates the client with a signed JWT assertion
+// [WithClientCredentialsClientAuth] authenticates the client with a signed JWT assertion
 // (RFC 7523) instead of a shared secret — [PrivateKeyJWT] for private_key_jwt
 // and [ClientSecretJWT] for client_secret_jwt. It applies to [ClientCredentials]
-// and [Exchanger]; [Refresh] and [AuthCode] keep the secret path.
+// with corresponding options for [Exchanger] and [Revoker].
 //
 // # Refresh timing and revocation
 //
-// [WithEarlyExpiry] refreshes a token a configurable window before its exp to
-// absorb clock skew and in-flight latency (applies to [ClientCredentials],
-// [Exchanger.TokenSource], and [JWTBearer]). [Revoker] revokes an acquired token at the IdP
-// revocation endpoint (RFC 7009), the symmetric counterpart to acquisition.
-// Only [Exchanger] and [JWTBearer] retry by themselves; wrap the transport with [RetryTransport]
-// and inject it via [WithHTTPClient] to retry the x/oauth2-backed grants.
+// [WithClientCredentialsEarlyExpiry], [WithExchangerEarlyExpiry], and
+// [WithJWTBearerEarlyExpiry] set the refresh margin for their respective grants.
+// [Revoker] revokes an acquired token at the IdP revocation endpoint (RFC 7009).
+// [Exchanger] and [JWTBearer] have built-in retry options. Other grants can
+// use an HTTP client whose transport is wrapped with [RetryTransport].
 //
 // # Secrets
 //
@@ -101,15 +100,14 @@
 //
 // # Observability
 //
-// [WithMetrics] records fetch counts, latency, and retry counts (labeled by
-// grant and outcome); cache hits are not counted. [WithLogger] logs fetch
-// failures and retry attempts. Both default to off, keeping the hot path
-// allocation-free.
+// Each grant has metrics and logger options. Metrics record fetch counts,
+// latency and retries by grant and outcome. Logging records failures and
+// retries. Revocation has no fetch metrics or fetch logger.
 //
 // # Usage
 //
 //	src, err := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
-//	    oauth2client.WithScopes("orders:read", "orders:write"),
+//	    oauth2client.WithClientCredentialsScopes("orders:read", "orders:write"),
 //	)
 //	if err != nil {
 //	    return err // tokenURL is malformed or not https
@@ -120,8 +118,8 @@
 //
 //	bearer, err := oauth2client.NewJWTBearer(tokenURL, clientEmail,
 //	    jwt.SigningKey{KeyID: keyID, Algorithm: jwt.AlgRS256, Key: rsaKey},
-//	    oauth2client.WithScopes("https://www.googleapis.com/auth/cloud-platform"),
-//	    oauth2client.WithEarlyExpiry(5*time.Minute),
+//	    oauth2client.WithJWTBearerScopes("https://www.googleapis.com/auth/cloud-platform"),
+//	    oauth2client.WithJWTBearerEarlyExpiry(5*time.Minute),
 //	)
 //	tok, err := bearer.Token(ctx)
 //

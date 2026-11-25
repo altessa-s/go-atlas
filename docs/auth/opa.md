@@ -13,6 +13,7 @@ Rego policy evaluation with pluggable policy sources, atomic hot-reload, event s
 - [Package Map](#package-map)
 - [Quick Start](#quick-start)
 - [Policy Sources](#policy-sources)
+  - [Publishing releases](#publishing-releases)
   - [Source Matrix](#source-matrix)
   - [The PolicySource Interface](#the-policysource-interface)
   - [Outbound HTTP (GitLab, S3)](#outbound-http-gitlab-s3)
@@ -68,8 +69,8 @@ graph TB
     end
 
     subgraph "Optional deps"
-        SCH[scheduler.TaskRegistrar]
-        HC[health.Coordinator]
+        SCH[task.Registrar]
+        HC[health.Registrar]
     end
 
     FS & EM & GL & S3 -.implement.-> SRC
@@ -106,8 +107,8 @@ sequenceDiagram
     end
 ```
 
-Change detection is revision-based: `PolicyBundle.Revision` is a SHA-256 over the sorted module paths/contents (and data). A fetch whose
-revision equals the loaded one is a no-op, so a quiet source costs only the fetch.
+Change detection is revision-based: `PolicyBundle.Revision` is a full 64-hex-character SHA-256 digest over the length-prefixed sorted module
+paths/contents (and JSON-marshaled data). A fetch whose revision equals the loaded one is a no-op, so a quiet source costs only the fetch.
 
 ## Package Map
 
@@ -123,14 +124,15 @@ revision equals the loaded one is a no-op, so a quiet source costs only the fetc
 | `health.go`                             | Health check reporting                                                             |
 | `metrics.go`                            | `opaMetrics` (reloads, evaluations, latency, modules)                              |
 | `errors.go`                             | Sentinel errors                                                                    |
+| `cache.go` / `snapshot.go`              | `DecisionCache` interface, cache key derivation, nondeterministic-builtin check    |
 | `options.go` / `options_gen.go`         | Functional options                                                                 |
-| `factory/`                              | Config-driven builder (`factory.New(cfg).…Build(ctx)`)                             |
+| `factory/auth/opa/`                     | Config-driven builder (`factory.New(cfg).…Build(ctx)`)                             |
 | `sources/{embed,filesystem,gitlab,s3}/` | `PolicySource` implementations                                                     |
 
 ## Quick Start
 
 ```go
-source, err := filesystem.New("/etc/policies")
+source, err := filesystem.New("/etc/policies", filesystem.WithReleaseManifest("release.json"))
 if err != nil {
     return err
 }
@@ -181,8 +183,27 @@ type PolicySource interface {
 ```
 
 A `PolicyBundle` carries the Rego `Modules` (path → raw content), optional `Data` (JSON loaded into OPA's store), a `Revision` for change
-detection, and a `FetchedAt` timestamp. Build one with `NewPolicyBundle(modules)` or `NewPolicyBundleWithData(modules, data)`; both
-compute the revision hash for you.
+detection, and a `FetchedAt` timestamp. Build one with `NewPolicyBundle(modules)` or `NewPolicyBundleWithData(modules, data)` (which returns
+`(*PolicyBundle, error)` and fails if any data value cannot be JSON-marshaled); both compute the revision hash for you.
+
+### Publishing releases
+
+Filesystem and S3 sources require a complete release manifest. Each fetch reads one manifest and verifies every included Rego module and enabled
+JSON data file. Partial and mismatched releases leave the previous snapshot active and cause the health check to report `NotServing` until a successful
+fetch.
+
+Use a manifest with a relative `root` such as `releases/2026-11-25` and a `files` object keyed by paths relative to that release root. Stage the
+complete new release under a new root before changing the manifest. Each fetch reads the manifest once and stays within the selected root.
+
+- **Filesystem.** Set `opa.bundlePath: /etc/policies` and `opa.releaseManifest: release.json`. Each `files` value is a lowercase SHA-256 hex digest.
+  Write the manifest to a temporary file on the same filesystem and atomically rename it over `/etc/policies/release.json`.
+- **S3.** Set `opa.s3.prefix: policies/opa` and `opa.s3.releaseManifest: release.json`. Each `files` value has `etag` (the full quoted S3 ETag) and
+  `sha256` (a lowercase hex digest). Replace `policies/opa/release.json` with a single PUT. Every policy and data GET sends the recorded ETag as
+  `If-Match` and verifies the digest.
+
+Publish the first complete release before service startup. Keep the old root intact until fetches that could have read its manifest have finished,
+then delete it. Fixed layouts may use a flat manifest at the configured base. See the [filesystem source](../../auth/opa/sources/filesystem/) and
+[S3 source](../../auth/opa/sources/s3/) for exact formats and examples.
 
 ### Outbound HTTP (GitLab, S3)
 
@@ -198,12 +219,12 @@ See the [Proxy guide](../proxy.md) for YAML modes and the [factory README](../..
 Integrity of remote policies:
 
 - **GitLab** requires an `https://` endpoint (`ErrInsecureEndpoint`; opt out with `gitlab.WithAllowInsecureHTTP`, in YAML `gitlab.allowInsecureHTTP:
-  true`) and caps each file at `gitlab.WithMaxFileBytes` (default 32 MiB).
+  true`) and caps each file at `gitlab.WithMaxFileBytes` (default 32 MiB). Each `Fetch` resolves `ref` to a single commit SHA (SHA-1 or SHA-256) and reads
+  both the tree and every file at that pinned commit.
 - **S3** built by the factory requires an `https://` `s3.endpoint` when one is set (`s3source.ErrInsecureEndpoint`; opt out with
-  `s3.allowInsecureHTTP: true`). An injected client's endpoint is the caller's to secure.
-- **GitLab** and **S3** accept `WithChecksums` (YAML `gitlab.checksums` / `s3.checksums`: file name or object key to lower-case SHA-256 hex), the
-  same manifest as the filesystem source: every fetched file must match its digest and every manifest entry must be fetched, so a writer to the
-  repository or bucket cannot swap policies silently.
+  `s3.allowInsecureHTTP: true`). An injected client's endpoint is the caller's to secure. Non-empty prefixes are normalized to end with `"/"` so listing
+  matches an exact directory prefix (for example, `"policies"` matches `"policies/..."` and not `"policies-v2/..."`).
+- **GitLab** accepts optional `gitlab.checksums` to verify the SHA-256 digests of every included module and JSON document in the pinned commit.
 
 ## Evaluation
 
@@ -247,8 +268,9 @@ evaluations. Enabling `WithDecisionLogging` additionally stamps a unique per-eva
 
 ## Hot Reload and Change Detection
 
-`StartWatching(ctx)` spawns a poll loop that fetches the source every `pollInterval` and reloads when the revision changes; `StopWatching()`
-ends it, and `IsWatching()` reports the state. A reload:
+`StartWatching(ctx)` spawns a poll loop that fetches the source every `pollInterval` and reloads when the revision changes; `StartWatchingUntilClose()`
+runs the same loop on the manager's lifetime context until `Close()` (used by `factory/auth/opa` when `watchBundle: true`). `StopWatching()` ends it,
+and `IsWatching()` reports the state. A reload:
 
 1. Fetches the bundle. On failure it records `lastError`, broadcasts an error event, and returns `ErrBundleFetchFailed`.
 2. Compares revisions. An unchanged revision is a logged no-op.
@@ -303,9 +325,11 @@ manager, err := opa.NewManager(ctx, source, "data.authz.allow",
 )
 ```
 
-`WithUpdateSchedule` takes the cron expression and a `runOnStart` flag, and only takes effect when a scheduler is wired. The registered
-task runs the same guarded update cycle as the poll loop. Calling the scheduler-managed entry point directly returns
-`cycle.ErrManaged` from `go-atlas-core/runtime/cycle`.
+`WithUpdateSchedule` takes the cron expression and a `runOnStart` flag. A nonempty schedule without a registrar returns `opa.ErrSchedulerRequired`.
+Static configurations need no registrar. The factory requires `UseScheduler` when `updateSchedule` is set and `watchBundle` is false. When
+`WithSchedulerTaskID` is omitted, the task ID defaults deterministically to `opa-policy-update-<24-hex-chars>` derived from `source.Name()` and `query`. The registered task
+runs the same guarded update cycle as the poll loop. Calling the scheduler-managed entry point directly returns `cycle.ErrManaged` from
+`go-atlas-core/runtime/cycle`.
 
 ## Factory
 
@@ -352,21 +376,26 @@ Options are functional, applied to `NewManager`:
 | `WithDecisionLogging`          | `false`                     | Stamp a unique `DecisionID` on every result for audit correlation             |
 | `WithWatchChannelSize`         | 10                          | Default buffer size for watch event channels                                  |
 | `WithScheduler`                | nil                         | `TaskRegistrar` for scheduler-driven update cycles                            |
+| `WithSchedulerTaskID`          | deterministic hash          | Override task ID (default: `opa-policy-update-<24-hex-chars>`)                |
 | `WithUpdateSchedule`           | —                           | Cron expression + run-on-start flag (requires `WithScheduler`)                |
 | `WithHealthCoordinator`        | nil                         | Register the manager with a `health.Registrar` (e.g. `*health.Coordinator`)   |
 | `WithPollInterval`             | 30s (`DefaultPollInterval`) | Interval between source polls when watching                                   |
 | `WithMeter`                    | `metrics.Noop()`            | Metrics collector                                                             |
 | `WithAuditRecorder`            | nil                         | `DecisionRecorder` recording every evaluation decision; nil disables auditing |
 | `WithDecisionCache(size, ttl)` | off                         | Memoize decisions per (revision, input); bounded by `size` entries and `ttl`  |
+| `WithDecisionCacheBackend(c)`  | nil                         | Supply a custom `DecisionCache` (`Get` / `Put`) backend                       |
 
 The poll interval defaults to `DefaultPollInterval` (30s). `WithDecisionLogging` is the one option with a runtime cost worth weighing: it
 adds a UUID generation per evaluation for traceable decision IDs.
 
+For custom decision caching, `WithDecisionCacheBackend` accepts a `DecisionCache` (`Get(key string) (Result, bool)`, `Put(key string, result Result)`).
+Queries that reach nondeterministic Rego builtins (such as `time.now_ns()`) are not cached even when a decision cache is enabled.
+
 ## Health
 
-When a `health.Coordinator` is supplied, `NewManager` registers the manager as the `"opa"` service. The health check reflects the manager's
-loaded state and last reload outcome, so a source that starts failing surfaces through the standard `/healthz` / `/readyz` probes rather
-than silently serving stale policy.
+When a `health.Registrar` (such as `*health.Coordinator`) is supplied, `NewManager` registers the manager as the `"opa"` service. The health check
+reflects the manager's loaded state and last reload outcome, so a source that starts failing surfaces through the standard `/healthz` / `/readyz` probes
+rather than silently serving stale policy.
 
 ## Errors
 
@@ -399,7 +428,7 @@ Metrics are published under the `auth_opa` subsystem. With no collector, `metric
 | `auth_opa_evaluations_total`              | Counter   | `result` | Evaluation outcomes (`allow`, `deny`, `error`)                           |
 | `auth_opa_evaluation_duration_seconds`    | Histogram | —        | Evaluation duration                                                      |
 | `auth_opa_modules_loaded`                 | Gauge     | —        | Modules in the currently loaded bundle                                   |
-| `auth_opa_decision_cache_lookups_total`   | Counter   | `result` | Decision cache lookups (`hit`, `miss`); only with `WithDecisionCache`    |
+| `auth_opa_decision_cache_lookups_total`   | Counter   | `result` | Decision cache lookups (`hit`, `miss`); only when a decision cache is enabled |
 
 ## Thread Safety
 

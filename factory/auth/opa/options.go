@@ -40,7 +40,7 @@ func (b *ManagerBuilder) UseScheduler(v schedtask.Registrar) *ManagerBuilder {
 
 // UseHealthCoordinator sets the health coordinator for registering the
 // created manager as a health checker.
-func (b *ManagerBuilder) UseHealthCoordinator(v *health.Coordinator) *ManagerBuilder {
+func (b *ManagerBuilder) UseHealthCoordinator(v health.Registrar) *ManagerBuilder {
 	b.healthCoordinator = v
 	return b
 }

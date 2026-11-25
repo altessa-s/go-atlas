@@ -5,6 +5,7 @@
 package mtls_test
 
 import (
+	"context"
 	"crypto/x509"
 	"math/big"
 	"testing"
@@ -88,7 +89,7 @@ func TestIdentityRunsAfterChecksPass(t *testing.T) {
 	var order []string
 	a := newAuthenticator(t,
 		mtls.WithTrustDomains("example.org"),
-		mtls.WithValidator(func(*x509.Certificate) error { order = append(order, "validator"); return nil }),
+		mtls.WithValidator(func(context.Context, *x509.Certificate) error { order = append(order, "validator"); return nil }),
 		mtls.WithIdentity(func(*x509.Certificate) (any, error) { order = append(order, "identity"); return "caller", nil }),
 	)
 	p, err := a.Authenticate(t.Context(), svidCert(t, "spiffe://example.org/x"))

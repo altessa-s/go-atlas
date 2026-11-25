@@ -238,7 +238,7 @@ func (c *Checker) Validator() coremtls.CertValidator {
 // network failure, unknown or stale status, an unauthorized response signer,
 // refused redirect) — either a wrapped error ([FailClosed], the default) or
 // nil ([FailOpen]).
-func (c *Checker) Check(leaf *x509.Certificate) error {
+func (c *Checker) Check(ctx context.Context, leaf *x509.Certificate) error {
 	if leaf == nil {
 		return nil
 	}
@@ -262,7 +262,7 @@ func (c *Checker) Check(leaf *x509.Certificate) error {
 		return c.indeterminate(err)
 	}
 
-	revoked, err := c.checkOnce(key, leaf, issuer, responders)
+	revoked, err := c.checkOnce(ctx, key, leaf, issuer, responders)
 	if err != nil {
 		return c.indeterminate(err)
 	}
@@ -275,9 +275,8 @@ func (c *Checker) Check(leaf *x509.Certificate) error {
 // checkOnce performs the OCSP query for key, deduplicating concurrent misses for
 // the same certificate so a burst of handshakes triggers a single responder
 // round-trip — the rest share its result instead of stampeding the responder.
-func (c *Checker) checkOnce(key string, leaf, issuer *x509.Certificate, responders []string) (bool, error) {
-	// The validator seam carries no context; the group deadline bounds the query.
-	return c.sf.Do(context.Background(), key, func(ctx context.Context) (bool, error) {
+func (c *Checker) checkOnce(ctx context.Context, key string, leaf, issuer *x509.Certificate, responders []string) (bool, error) {
+	return c.sf.Do(ctx, key, func(ctx context.Context) (bool, error) {
 		if e, ok := c.lookup(key); ok { // another caller may have just filled it
 			return e.revoked, nil
 		}

@@ -5,6 +5,7 @@
 package opa_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
+	corehash "github.com/altessa-s/go-atlas-core/encoding/hash"
 )
 
 func writePolicy(t *testing.T, dir, content string) {
@@ -59,7 +61,8 @@ result := {
 }
 `)
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.test.authz.result")
@@ -150,7 +153,8 @@ allow if {
 }
 `)
 
-	source, err := filesystem.New(tmpDir)
+	writeTestRelease(t, tmpDir)
+	source, err := filesystem.New(tmpDir, filesystem.WithReleaseManifest("release.json"))
 	require.NoError(t, err)
 
 	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow")
@@ -200,4 +204,16 @@ func TestResult_HasDenialCode(t *testing.T) {
 		assert.True(t, r.HasDenialCode("CODE_A"))
 		assert.False(t, r.HasDenialCode("CODE_B"))
 	})
+}
+
+func writeTestRelease(t testing.TB, dir string) {
+	t.Helper()
+
+	policy, err := os.ReadFile(filepath.Join(dir, "policy.rego"))
+	require.NoError(t, err)
+	manifest, err := json.Marshal(map[string]string{"policy.rego": corehash.SHA256HexBytes(policy)})
+	require.NoError(t, err)
+	staged := filepath.Join(dir, ".release.tmp")
+	require.NoError(t, os.WriteFile(staged, manifest, 0o600))
+	require.NoError(t, os.Rename(staged, filepath.Join(dir, "release.json")))
 }

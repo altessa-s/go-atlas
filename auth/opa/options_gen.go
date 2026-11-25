@@ -6,6 +6,7 @@ package opa
 import (
 	"log/slog"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -35,24 +36,17 @@ func WithAuditRecorder(v DecisionRecorder) Option {
 	}
 }
 
-// WithDecisionCache memoizes policy evaluations for ttl, keeping at most size
-// entries. Caching is off by default.
-//
-// A cached decision is still recorded with the audit recorder and still counted
-// in the evaluation metrics — the cache short-circuits the Rego evaluation, not
-// the handling of the decision.
-//
-// Entries are keyed by policy revision as well as input, so a policy reload
-// makes every prior decision unreachable rather than merely stale. A
-// non-positive size or ttl falls back to [DefaultDecisionCacheSize] and
-// [DefaultDecisionCacheTTL].
-//
-// Entries are keyed on the JSON encoding of the input, which costs no
-// generality: OPA marshals the input to JSON to evaluate it, so an input that
-// cannot be keyed was never evaluable.
+// WithDecisionCache memoizes deterministic evaluations for ttl, keeping at most size entries per manager.
 func WithDecisionCache(size int, ttl time.Duration) Option {
 	return func(o *options) {
 		o.decisionCache = newDecisionCache(size, ttl)
+	}
+}
+
+// WithDecisionCacheBackend supplies a caller-owned decision cache. A nil cache disables caching.
+func WithDecisionCacheBackend(cache DecisionCache) Option {
+	return func(o *options) {
+		o.decisionCache = decisionCacheBackend(cache)
 	}
 }
 
@@ -139,6 +133,31 @@ func WithScheduler(v schedtask.Registrar) Option {
 			}
 		}
 		o.scheduler = v
+	}
+}
+
+// WithSchedulerTaskID sets the policy update task ID. An empty ID uses
+// "opa-policy-update-" plus a stable digest of the source's Name() and the Rego query.
+// Managers with the same name and query sharing one registrar must set distinct
+// IDs explicitly if each needs its own task.
+func WithSchedulerTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		var value string
+		switch t := any(v).(type) {
+		case string:
+			value = t
+		case *string:
+			if t == nil {
+				return
+			}
+			value = *t
+		}
+		transformedValue := strings.TrimSpace(value)
+
+		if transformedValue == "" {
+			return
+		}
+		o.schedulerTaskID = transformedValue
 	}
 }
 

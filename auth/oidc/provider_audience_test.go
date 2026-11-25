@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newAudienceTestProvider(mode AudienceFailureMode) *Provider {
-	return &Provider{
-		opts:   &options{audienceFailureMode: mode},
-		logger: slog.New(slog.DiscardHandler),
+func newAudienceTestProvider(mode AudienceFailureMode) *policyEvaluator {
+	return &policyEvaluator{
+		audienceFailureMode: mode,
+		logger:              slog.New(slog.DiscardHandler),
 	}
 }
 

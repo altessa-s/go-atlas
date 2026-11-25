@@ -93,68 +93,78 @@ type redactionResponse struct {
 func runRedactionResponses(t *testing.T, responses []redactionResponse) {
 	t.Helper()
 
-	fast := func(logger *slog.Logger, extra ...oauth2client.Option) []oauth2client.Option {
-		return append([]oauth2client.Option{
-			oauth2client.WithLogger(logger),
-			oauth2client.WithAuthStyle(oauth2.AuthStyleInHeader),
-			oauth2client.WithRetryAttempts(1),
-			oauth2client.WithRetryBaseDelay(time.Millisecond),
-			oauth2client.WithRetryMaxDelay(time.Millisecond),
-		}, extra...)
-	}
 	endpoint := func(url string) oauth2.Endpoint {
 		return oauth2.Endpoint{TokenURL: url, DeviceAuthURL: url, AuthStyle: oauth2.AuthStyleInHeader}
 	}
 	flows := map[string]func(t *testing.T, url string, logger *slog.Logger) error{
 		"client credentials": func(t *testing.T, url string, logger *slog.Logger) error {
-			_, err := mustClientCredentials(t, url, "svc", clientSecret, fast(logger)...).Token()
+			_, err := mustClientCredentials(t, url, "svc", clientSecret,
+				oauth2client.WithClientCredentialsLogger(logger), oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader)).Token()
 			return err
 		},
 		"client credentials with early expiry": func(t *testing.T, url string, logger *slog.Logger) error {
 			_, err := mustClientCredentials(t, url, "svc", clientSecret,
-				fast(logger, oauth2client.WithEarlyExpiry(time.Minute))...).Token()
+				oauth2client.WithClientCredentialsLogger(logger),
+				oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader),
+				oauth2client.WithClientCredentialsEarlyExpiry(time.Minute)).Token()
 			return err
 		},
 		"client credentials with a client assertion": func(t *testing.T, url string, logger *slog.Logger) error {
 			auth, err := oauth2client.ClientSecretJWT("svc", clientSecret)
 			require.NoError(t, err)
 			_, err = mustClientCredentials(t, url, "svc", "",
-				fast(logger, oauth2client.WithClientAuth(auth))...).Token()
+				oauth2client.WithClientCredentialsLogger(logger),
+				oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader),
+				oauth2client.WithClientCredentialsClientAuth(auth)).Token()
 			return err
 		},
 		"refresh": func(t *testing.T, url string, logger *slog.Logger) error {
-			_, err := mustRefresh(t, url, "svc", clientSecret, refreshToken, fast(logger)...).Token()
+			_, err := mustRefresh(t, url, "svc", clientSecret, refreshToken,
+				oauth2client.WithRefreshLogger(logger), oauth2client.WithRefreshAuthStyle(oauth2.AuthStyleInHeader)).Token()
 			return err
 		},
 		"authorization code": func(t *testing.T, url string, logger *slog.Logger) error {
-			ac, err := oauth2client.NewAuthCode(endpoint(url), "svc", clientSecret, "https://app.example/cb", fast(logger)...)
+			ac, err := oauth2client.NewAuthCode(endpoint(url), "svc", clientSecret, "https://app.example/cb",
+				oauth2client.WithAuthCodeLogger(logger))
 			require.NoError(t, err)
 			_, _, err = ac.Exchange(t.Context(), "code")
 			return err
 		},
 		"device authorization": func(t *testing.T, url string, logger *slog.Logger) error {
-			_, err := mustDeviceFlow(t, endpoint(url), "svc", clientSecret, fast(logger)...).Authorize(t.Context())
+			_, err := mustDeviceFlow(t, endpoint(url), "svc", clientSecret,
+				oauth2client.WithDeviceFlowLogger(logger)).Authorize(t.Context())
 			return err
 		},
 		"device token": func(t *testing.T, url string, logger *slog.Logger) error {
-			df := mustDeviceFlow(t, endpoint(url), "svc", clientSecret, fast(logger)...)
+			df := mustDeviceFlow(t, endpoint(url), "svc", clientSecret,
+				oauth2client.WithDeviceFlowLogger(logger))
 			_, _, err := df.Token(t.Context(), &oauth2.DeviceAuthResponse{DeviceCode: "dev-code", Interval: 1})
 			return err
 		},
 		"token exchange": func(t *testing.T, url string, logger *slog.Logger) error {
-			_, err := mustExchanger(t, url, "svc", clientSecret, fast(logger)...).
+			_, err := mustExchanger(t, url, "svc", clientSecret,
+				oauth2client.WithExchangerLogger(logger),
+				oauth2client.WithExchangerAuthStyle(oauth2.AuthStyleInHeader),
+				oauth2client.WithExchangerRetryAttempts(1),
+				oauth2client.WithExchangerRetryBaseDelay(time.Millisecond),
+				oauth2client.WithExchangerRetryMaxDelay(time.Millisecond)).
 				Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: bearerToken})
 			return err
 		},
 		"jwt bearer": func(t *testing.T, url string, logger *slog.Logger) error {
 			key, _ := rsaKey(t, "k")
-			b, err := oauth2client.NewJWTBearer(url, "svc", key, fast(logger)...)
+			b, err := oauth2client.NewJWTBearer(url, "svc", key,
+				oauth2client.WithJWTBearerLogger(logger),
+				oauth2client.WithJWTBearerRetryAttempts(1),
+				oauth2client.WithJWTBearerRetryBaseDelay(time.Millisecond),
+				oauth2client.WithJWTBearerRetryMaxDelay(time.Millisecond))
 			require.NoError(t, err)
 			_, err = b.Token(t.Context())
 			return err
 		},
 		"revocation": func(t *testing.T, url string, logger *slog.Logger) error {
-			return mustRevoker(t, url, "svc", clientSecret, fast(logger)...).Revoke(t.Context(), refreshToken)
+			return mustRevoker(t, url, "svc", clientSecret,
+				oauth2client.WithRevokerAuthStyle(oauth2.AuthStyleInHeader)).Revoke(t.Context(), refreshToken)
 		},
 	}
 
@@ -221,7 +231,7 @@ func TestRedactedErrorKeepsRetrieveError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	_, err := mustClientCredentials(t, srv.URL, "svc", "pw",
-		oauth2client.WithAuthStyle(oauth2.AuthStyleInHeader)).Token()
+		oauth2client.WithClientCredentialsAuthStyle(oauth2.AuthStyleInHeader)).Token()
 
 	re, ok := errors.AsType[*oauth2.RetrieveError](err)
 	require.True(t, ok)

@@ -32,7 +32,7 @@ func TestClientCredentialsMetrics(t *testing.T) {
 	m := oauth2client.NewMetrics(tc, "")
 	srv, _ := tokenServer(t, "cc-token")
 
-	src := mustClientCredentials(t, srv.URL, "svc", "sec", oauth2client.WithMetrics(m))
+	src := mustClientCredentials(t, srv.URL, "svc", "sec", oauth2client.WithClientCredentialsMetrics(m))
 	_, err := src.Token()
 	require.NoError(t, err)
 	// A second call is served from the reuse cache and must not be counted.
@@ -62,10 +62,10 @@ func TestExchangerMetricsAndRetry(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	ex := mustExchanger(t, srv.URL, "svc", "sec",
-		oauth2client.WithMetrics(m),
-		oauth2client.WithRetryAttempts(5),
-		oauth2client.WithRetryBaseDelay(time.Millisecond),
-		oauth2client.WithRetryMaxDelay(5*time.Millisecond),
+		oauth2client.WithExchangerMetrics(m),
+		oauth2client.WithExchangerRetryAttempts(5),
+		oauth2client.WithExchangerRetryBaseDelay(time.Millisecond),
+		oauth2client.WithExchangerRetryMaxDelay(5*time.Millisecond),
 	)
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subj"})
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestExchangerMetricsFailureAndLog(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	ex := mustExchanger(t, srv.URL, "svc", "sec",
-		oauth2client.WithMetrics(m), oauth2client.WithLogger(logger))
+		oauth2client.WithExchangerMetrics(m), oauth2client.WithExchangerLogger(logger))
 	_, err := ex.Exchange(t.Context(), oauth2client.ExchangeRequest{SubjectToken: "subj"})
 	require.ErrorIs(t, err, oauth2client.ErrTokenExchange)
 

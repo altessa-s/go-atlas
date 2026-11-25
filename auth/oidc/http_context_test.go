@@ -47,15 +47,15 @@ func TestProvider_getDiscoveryInfo_UsesProvidedContext(t *testing.T) {
 		return resp, nil
 	})
 
-	p := &Provider{
+	p := &Provider{discovery: discoveryClient{
 		discoveryURL: "https://issuer/.well-known/openid-configuration",
 		client:       &http.Client{Transport: rt},
-		logger:       slog.New(slog.DiscardHandler),
-	}
+		logger:       slog.New(slog.DiscardHandler), discoveryValidationMode: DiscoveryValidationModeDisabled,
+	}}
 
-	require.NoError(t, p.getDiscoveryInfo(ctx))
-	require.NotNil(t, p.discoveryInfo)
-	require.True(t, p.discoveryInfo.IsValid(), "discoveryInfo invalid: %#v", p.discoveryInfo)
+	require.NoError(t, p.discovery.getDiscoveryInfo(ctx))
+	require.NotNil(t, p.discovery.info)
+	require.True(t, p.discovery.info.IsValid(), "discoveryInfo invalid: %#v", p.discovery.info)
 }
 
 type staticTokenSource struct{ tok *oauth2.Token }
@@ -82,11 +82,7 @@ func TestProvider_UserInfo_UsesProvidedContext(t *testing.T) {
 		return resp, nil
 	})
 
-	p := &Provider{
-		client:        &http.Client{Transport: rt},
-		discoveryInfo: &discoveryInfo{UserInfoURL: "https://issuer/userinfo"},
-		logger:        slog.New(slog.DiscardHandler),
-	}
+	p := &Provider{userInfo: userInfoClient{client: &http.Client{Transport: rt}, info: &discoveryInfo{UserInfoURL: "https://issuer/userinfo"}}}
 
 	ui, err := p.UserInfo(ctx, staticTokenSource{tok: &oauth2.Token{AccessToken: "test", TokenType: "Bearer"}})
 	require.NoError(t, err)

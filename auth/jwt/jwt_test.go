@@ -68,14 +68,14 @@ func TestRoundTrip(t *testing.T) {
 		t.Run(ks.alg.String(), func(t *testing.T) {
 			t.Parallel()
 
-			signer := jwt.NewSigner(jwt.WithIssuer("billing"))
+			signer := jwt.NewSigner(jwt.WithSignerIssuer("billing"))
 			claims, err := signer.NewClaims("tenant-1", time.Hour, "files:read", "files:write")
 			require.NoError(t, err)
 
 			raw, err := signer.Sign(ks.signing, claims)
 			require.NoError(t, err)
 
-			verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithIssuer("billing"))
+			verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierIssuer("billing"))
 			got, err := verifier.Verify(t.Context(), raw)
 			require.NoError(t, err)
 
@@ -118,7 +118,7 @@ func TestVerifyTemporalClaims(t *testing.T) {
 			raw, err := signer.Sign(ks.signing, claims)
 			require.NoError(t, err)
 
-			verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithClock(fakeClock{now}))
+			verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierClock(fakeClock{now}))
 			_, err = verifier.Verify(t.Context(), raw)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
@@ -153,13 +153,13 @@ func TestVerifyIssuerAndAudience(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		opts    []jwt.Option
+		opts    []jwt.VerifierOption
 		wantErr error
 	}{
-		{name: "issuer match", opts: []jwt.Option{jwt.WithIssuer("billing")}},
-		{name: "issuer mismatch", opts: []jwt.Option{jwt.WithIssuer("other")}, wantErr: jwt.ErrTokenInvalid},
-		{name: "audience match", opts: []jwt.Option{jwt.WithAudiences("web")}},
-		{name: "audience mismatch", opts: []jwt.Option{jwt.WithAudiences("admin")}, wantErr: jwt.ErrTokenInvalid},
+		{name: "issuer match", opts: []jwt.VerifierOption{jwt.WithVerifierIssuer("billing")}},
+		{name: "issuer mismatch", opts: []jwt.VerifierOption{jwt.WithVerifierIssuer("other")}, wantErr: jwt.ErrTokenInvalid},
+		{name: "audience match", opts: []jwt.VerifierOption{jwt.WithAudiences("web")}},
+		{name: "audience mismatch", opts: []jwt.VerifierOption{jwt.WithAudiences("admin")}, wantErr: jwt.ErrTokenInvalid},
 	}
 
 	for _, tc := range tests {
@@ -201,7 +201,7 @@ func TestVerifyAlgorithmAllowList(t *testing.T) {
 
 	// Verifier accepts only RS256, so an ES256 token is rejected before its
 	// signature is checked.
-	verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithAllowedAlgorithms(jwt.AlgRS256))
+	verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierAllowedAlgorithms(jwt.AlgRS256))
 	_, err = verifier.Verify(t.Context(), raw)
 	require.ErrorIs(t, err, jwt.ErrTokenInvalid)
 }
@@ -494,7 +494,7 @@ func TestSignStructVerifyIntoRoundTrip(t *testing.T) {
 		t.Run(ks.alg.String(), func(t *testing.T) {
 			t.Parallel()
 
-			signer := jwt.NewSigner(jwt.WithIssuer("billing"))
+			signer := jwt.NewSigner(jwt.WithSignerIssuer("billing"))
 			base, err := signer.NewBase("tenant-1", time.Hour)
 			require.NoError(t, err)
 			base.Audience = jwt.Audience{"api", "web"}
@@ -506,7 +506,7 @@ func TestSignStructVerifyIntoRoundTrip(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithIssuer("billing"), jwt.WithAudiences("web"))
+			verifier := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierIssuer("billing"), jwt.WithAudiences("web"))
 			got, err := jwt.VerifyInto[typedClaims](t.Context(), verifier, raw)
 			require.NoError(t, err)
 
@@ -557,7 +557,7 @@ func TestVerifyIntoInheritsChecks(t *testing.T) {
 	t.Parallel()
 
 	ks := newKeysets(t)[0]
-	signer := jwt.NewSigner(jwt.WithIssuer("billing"), jwt.WithTokenType(jwt.TypeAccessToken))
+	signer := jwt.NewSigner(jwt.WithSignerIssuer("billing"), jwt.WithTokenType(jwt.TypeAccessToken))
 	base, err := signer.NewBase("tenant-1", time.Hour)
 	require.NoError(t, err)
 	raw, err := jwt.SignStruct(signer, ks.signing, typedClaims{ClaimsBase: base, Role: "admin"})
@@ -565,14 +565,14 @@ func TestVerifyIntoInheritsChecks(t *testing.T) {
 
 	t.Run("issuer mismatch", func(t *testing.T) {
 		t.Parallel()
-		v := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithIssuer("other"))
+		v := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierIssuer("other"))
 		_, err := jwt.VerifyInto[typedClaims](t.Context(), v, raw)
 		require.ErrorIs(t, err, jwt.ErrTokenInvalid)
 	})
 
 	t.Run("token type mismatch", func(t *testing.T) {
 		t.Parallel()
-		v := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithIssuer("billing"), jwt.WithExpectedTokenType("id+jwt"))
+		v := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierIssuer("billing"), jwt.WithExpectedTokenType("id+jwt"))
 		_, err := jwt.VerifyInto[typedClaims](t.Context(), v, raw)
 		require.ErrorIs(t, err, jwt.ErrTokenTypeInvalid)
 	})
@@ -583,8 +583,8 @@ func TestNewBase(t *testing.T) {
 
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 	signer := jwt.NewSigner(
-		jwt.WithIssuer("billing"),
-		jwt.WithClock(fakeClock{now}),
+		jwt.WithSignerIssuer("billing"),
+		jwt.WithSignerClock(fakeClock{now}),
 		jwt.WithMaxTokenLifetime(2*time.Hour),
 	)
 
@@ -644,7 +644,7 @@ func TestVerifyIssuedAt(t *testing.T) {
 
 	ks := newKeysets(t)[0]
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
-	v := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithClock(fakeClock{now}), jwt.WithIssuedAt())
+	v := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierClock(fakeClock{now}), jwt.WithIssuedAt())
 
 	future, err := jwt.NewSigner().Sign(ks.signing, jwt.Claims{
 		"sub": "s", "exp": now.Add(time.Hour).Unix(), "iat": now.Add(time.Hour).Unix(),
@@ -697,7 +697,7 @@ func TestVerifyWithHeader(t *testing.T) {
 	require.Equal(t, jwt.TypeAccessToken, hdr.Typ)
 
 	// On a validation failure the returned header is the zero value.
-	_, hdr, err = jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithIssuer("required")).VerifyWithHeader(t.Context(), raw)
+	_, hdr, err = jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierIssuer("required")).VerifyWithHeader(t.Context(), raw)
 	require.ErrorIs(t, err, jwt.ErrTokenInvalid)
 	require.Equal(t, jwt.Header{}, hdr)
 }
@@ -715,7 +715,7 @@ func TestVerifySignature(t *testing.T) {
 			"sub": "s", "exp": time.Now().Add(-time.Hour).Unix(), "iss": "whoever",
 		})
 		require.NoError(t, err)
-		v := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithIssuer("expected"))
+		v := jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierIssuer("expected"))
 		claims, hdr, err := v.VerifySignature(t.Context(), raw)
 		require.NoError(t, err)
 		require.Equal(t, "s", claims.Subject())
@@ -738,7 +738,7 @@ func TestValidateClaims(t *testing.T) {
 
 	ks := newKeysets(t)[0]
 	v := jwt.NewVerifier(jwt.StaticKey(ks.verification),
-		jwt.WithIssuer("billing"), jwt.WithSubject("s"), jwt.WithRequiredClaims("tenant"))
+		jwt.WithVerifierIssuer("billing"), jwt.WithSubject("s"), jwt.WithRequiredClaims("tenant"))
 	future := float64(time.Now().Add(time.Hour).Unix())
 
 	t.Run("clean", func(t *testing.T) {
@@ -800,10 +800,10 @@ func TestWithLeewayZero(t *testing.T) {
 	require.NoError(t, err)
 
 	// Default leeway (30s) tolerates the 10s skew.
-	_, err = jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithClock(fakeClock{now})).Verify(t.Context(), raw)
+	_, err = jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierClock(fakeClock{now})).Verify(t.Context(), raw)
 	require.NoError(t, err)
 
 	// WithLeeway(0) enforces strict expiry, rejecting the same token.
-	_, err = jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithClock(fakeClock{now}), jwt.WithLeeway(0)).Verify(t.Context(), raw)
+	_, err = jwt.NewVerifier(jwt.StaticKey(ks.verification), jwt.WithVerifierClock(fakeClock{now}), jwt.WithLeeway(0)).Verify(t.Context(), raw)
 	require.ErrorIs(t, err, jwt.ErrTokenExpired)
 }

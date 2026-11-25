@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 )
 
@@ -16,14 +18,10 @@ func BenchmarkSource_Fetch(b *testing.B) {
 	dir := b.TempDir()
 	policyContent := []byte("package test\ndefault allow = false")
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, policyContent, 0o600); err != nil {
-		b.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(b, os.WriteFile(policyFile, policyContent, 0o600))
 
-	source, err := filesystem.New(dir)
-	if err != nil {
-		b.Fatalf("New() failed: %v", err)
-	}
+	source, err := filesystem.New(dir, writeManifest(b, dir, "test.rego"))
+	require.NoError(b, err)
 	defer source.Close()
 
 	ctx := b.Context()
@@ -31,8 +29,6 @@ func BenchmarkSource_Fetch(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		_, err := source.Fetch(ctx)
-		if err != nil {
-			b.Fatalf("Fetch() failed: %v", err)
-		}
+		require.NoError(b, err)
 	}
 }

@@ -55,9 +55,8 @@ once per `WithSharedRebuildCheckInterval` while unpopulated, and an error counts
 contents
 while one runs, a failed rebuild keeps them, and `Add` calls made during a rebuild are kept. Maintain the invariant with `Add` on local revocations
 and
-a scheduled `Rebuild` from the authoritative source. Between rebuilds a key revoked on another node is fast-pathed as not-revoked until the next
-rebuild
-â€” the same propagation window any locally cached revocation set has. Size the rebuild cadence to your revocation-propagation SLA.
+a scheduled `Rebuild` from the authoritative source. The negative cache is eventually consistent. A revocation missing from the filter can pass until
+the next successful rebuild. Callers needing exact answers read the authoritative store directly.
 
 `Cache` runs no rebuild loop of its own: it holds no data loader, and scheduling belongs to the filter's rebuild lifecycle. The
 [factory](../../../factory/auth/denylist/negcache/) schedules a periodic rebuild by default (hourly Bloom `rebuildCron`) and logs a warning at `Build`
@@ -65,7 +64,7 @@ when none is scheduled. A cache assembled by hand with `New` gets no schedule â€
 invisible to this node indefinitely.
 
 **Revocation propagation lag.** With an in-memory filter each node holds its own copy, so a token revoked on another node keeps passing on this node
-until this node's next rebuild: the lag equals the rebuild interval, up to one hour with the factory default. Either set the rebuild schedule to the
+until this node's next successful rebuild. The factory schedules one hourly by default. Either set the rebuild schedule to the
 revocation-propagation SLA of the deployment, or use a Redis-backed filter: it is shared by every node, so a revocation recorded with `Add` on one
 node is visible to the others at once, and the rebuild only picks up keys written to the authoritative store without an `Add`.
 
@@ -97,7 +96,7 @@ defer cache.Close(ctx)
 
 revoked, err := cache.IsRevoked(ctx, jti) // hot path
 
-_ = cache.Rebuild(ctx, redisDenylist) // periodic repopulation; the store is a probfilter.DataLoader
+_ = cache.Rebuild(ctx, redisDenylist.DataLoader())
 ```
 
 See also: [`cache/probfilter`](../../../cache/probfilter), [`auth/denylist`](../README.md).

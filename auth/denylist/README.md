@@ -21,7 +21,7 @@ to reject tokens revoked before their natural expiry. Transport- and JWT-free, k
 | Method                     | Description                                                                       |
 |----------------------------|-----------------------------------------------------------------------------------|
 | `Revoke(key)`              | Deny `key` permanently, until a matching `Restore`.                               |
-| `RevokeUntil(key, expiry)` | Deny `key` until `expiry`, then forget it. An expiry at or before now is a no-op. |
+| `RevokeUntil(key, expiry)` | Extend to `expiry` if later. Permanent revocations survive. A past or current expiry is a no-op. |
 | `Restore(key)`             | Re-allow `key`.                                                                   |
 | `IsRevoked(key) bool`      | Whether `key` is currently revoked (expired entries report false).                |
 | `Sweep() int`              | Drop expired entries, return the count. Writes sweep at most once a minute.       |

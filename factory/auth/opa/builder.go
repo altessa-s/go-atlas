@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
+	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/gitlab"
@@ -43,7 +44,7 @@ type ManagerBuilder struct {
 	// Dependencies (set via Use*).
 	meter             metrics.Meter
 	scheduler         schedtask.Registrar
-	healthCoordinator *health.Coordinator
+	healthCoordinator health.Registrar
 	embedFS           fs.FS
 	embedDir          string
 	s3Client          s3source.S3API
@@ -78,20 +79,7 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*opa.Manager, error) {
 		return nil, err
 	}
 
-	manager, err := b.buildManager(ctx, source)
-	if err != nil {
-		_ = source.Close()
-		return nil, err
-	}
-
-	if b.cfg.WatchBundle {
-		if err = manager.StartWatching(ctx); err != nil {
-			_ = manager.Close()
-			return nil, b.WrapError(err, "failed to start watching")
-		}
-	}
-
-	return manager, nil
+	return b.buildManager(ctx, source, b.managerOptions()...)
 }
 
 // buildSource creates a PolicySource from config based on the configured provider.
@@ -114,6 +102,7 @@ func (b *ManagerBuilder) buildFilesystemSource() (opa.PolicySource, error) {
 
 	fsOpts := []filesystem.Option{
 		filesystem.WithLogger(b.Logger()),
+		filesystem.WithReleaseManifest(cfg.ReleaseManifest),
 		filesystem.WithExtensions(cfg.FileExtensions...),
 	}
 	fsOpts = slices.AppendIf(fsOpts, cfg.IncludeData, filesystem.WithIncludeData())
@@ -203,6 +192,10 @@ func (b *ManagerBuilder) buildS3Source(ctx context.Context) (opa.PolicySource, e
 		return nil, b.WrapError(corefactory.Errorf(corefactory.ErrConfigRequired, "S3 configuration is required for s3 source"), "configuration check failed")
 	}
 
+	if s3Cfg.ReleaseManifest == "" && s3Cfg.Checksums == nil {
+		return nil, b.WrapError(opa.ErrReleaseManifestRequired, "failed to create s3 policy source")
+	}
+
 	client, err := b.resolveS3Client(ctx, s3Cfg)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create S3 client")
@@ -213,6 +206,7 @@ func (b *ManagerBuilder) buildS3Source(ctx context.Context) (opa.PolicySource, e
 	s3Opts := []s3source.Option{
 		s3source.WithS3Client(client),
 		s3source.WithBucket(s3Cfg.Bucket),
+		s3source.WithReleaseManifest(s3Cfg.ReleaseManifest),
 		s3source.WithLogger(b.Logger()),
 		s3source.WithExtensions(cfg.FileExtensions...),
 	}
@@ -220,7 +214,7 @@ func (b *ManagerBuilder) buildS3Source(ctx context.Context) (opa.PolicySource, e
 	s3Opts = slices.AppendIf(s3Opts, s3Cfg.Prefix != "", s3source.WithPrefix(s3Cfg.Prefix))
 
 	s3Opts = slices.AppendIf(s3Opts, cfg.IncludeData, s3source.WithIncludeData())
-	s3Opts = slices.AppendIf(s3Opts, len(s3Cfg.Checksums) > 0, s3source.WithChecksums(s3Cfg.Checksums))
+	s3Opts = slices.AppendIf(s3Opts, s3Cfg.Checksums != nil, s3source.WithChecksums(s3Cfg.Checksums))
 
 	source, err := s3source.New(s3Opts...)
 	if err != nil {
@@ -315,11 +309,20 @@ func checkS3Endpoint(endpoint string, allowHTTP bool) error {
 }
 
 // buildManager creates the OPA Manager from source and config.
-func (b *ManagerBuilder) buildManager(ctx context.Context, source opa.PolicySource) (*opa.Manager, error) {
-	manager, err := opa.NewManager(ctx, source, b.cfg.Query, b.managerOptions()...)
+func (b *ManagerBuilder) buildManager(ctx context.Context, source opa.PolicySource, opts ...opa.Option) (*opa.Manager, error) {
+	manager, err := opa.NewManager(ctx, source, b.cfg.Query, opts...)
 	if err != nil {
+		_ = source.Close()
 		return nil, b.WrapError(err, "failed to create manager")
 	}
+
+	if b.cfg.WatchBundle {
+		if err = manager.StartWatchingUntilClose(); err != nil {
+			_ = manager.Close()
+			return nil, b.WrapError(err, "failed to start watching")
+		}
+	}
+
 	return manager, nil
 }
 
@@ -336,10 +339,9 @@ func (b *ManagerBuilder) managerOptions() []opa.Option {
 
 	managerOpts = slices.AppendIf(managerOpts, cfg.PollInterval > 0, opa.WithPollInterval(cfg.PollInterval))
 
-	managerOpts = slices.AppendIf(managerOpts, b.scheduler != nil && cfg.UpdateSchedule != "",
-		opa.WithScheduler(b.scheduler),
-		opa.WithUpdateSchedule(cfg.UpdateSchedule, cfg.RunOnStart),
-	)
+	if cfg.UpdateSchedule != "" && (!cfg.WatchBundle || !nilcheck.IsNil(b.scheduler)) {
+		managerOpts = append(managerOpts, opa.WithScheduler(b.scheduler), opa.WithUpdateSchedule(cfg.UpdateSchedule, cfg.RunOnStart))
+	}
 
 	// A zero size or TTL is passed through as-is: opa.WithDecisionCache reads
 	// both as "use the package default", which is what the config documents.

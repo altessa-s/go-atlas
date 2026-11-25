@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	netproxy "github.com/altessa-s/go-atlas-net/proxyconfig"
 	proxyconfig "github.com/altessa-s/go-atlas/config/proxy"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 func TestOPAGitLab_Validate_NoProxy(t *testing.T) {
@@ -59,7 +61,7 @@ func TestOPAGitLab_Validate_InvalidProxyPropagates(t *testing.T) {
 func TestOPAS3_Validate_NoProxy(t *testing.T) {
 	t.Parallel()
 
-	cfg := OPAS3{Bucket: "policies"}
+	cfg := OPAS3{Bucket: "policies", ReleaseManifest: "release.json"}
 	assert.NoError(t, cfg.Validate())
 }
 
@@ -67,7 +69,8 @@ func TestOPAS3_Validate_ValidProxy(t *testing.T) {
 	t.Parallel()
 
 	cfg := OPAS3{
-		Bucket: "policies",
+		ReleaseManifest: "release.json",
+		Bucket:          "policies",
 		Proxy: &proxyconfig.Config{
 			Mode: netproxy.ModeURL,
 			URL:  "http://proxy.corp:3128",
@@ -80,7 +83,8 @@ func TestOPAS3_Validate_InvalidProxyPropagates(t *testing.T) {
 	t.Parallel()
 
 	cfg := OPAS3{
-		Bucket: "policies",
+		ReleaseManifest: "release.json",
+		Bucket:          "policies",
 		Proxy: &proxyconfig.Config{
 			Mode: netproxy.ModeURL,
 			// URL missing — Mode=url requires URL.
@@ -107,7 +111,7 @@ func TestOPAS3_Validate_EndpointScheme(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			cfg := OPAS3{Bucket: "policies", Endpoint: tc.endpoint, AllowInsecureHTTP: tc.allowHTTP}
+			cfg := OPAS3{Bucket: "policies", ReleaseManifest: "release.json", Endpoint: tc.endpoint, AllowInsecureHTTP: tc.allowHTTP}
 			if tc.wantErr {
 				assert.Error(t, cfg.Validate())
 				return
@@ -197,6 +201,9 @@ func TestOPA_Validate_Checksums(t *testing.T) {
 			t.Parallel()
 			gl := OPAGitLab{Endpoint: "https://gitlab.example.com", Token: "tok", ProjectID: 42, Checksums: tc.checksums}
 			s3 := OPAS3{Bucket: "policies", Checksums: tc.checksums}
+			if tc.checksums == nil {
+				s3.ReleaseManifest = "release.json"
+			}
 			if tc.wantErr {
 				assert.Error(t, gl.Validate())
 				assert.Error(t, s3.Validate())
@@ -204,6 +211,41 @@ func TestOPA_Validate_Checksums(t *testing.T) {
 			}
 			assert.NoError(t, gl.Validate())
 			assert.NoError(t, s3.Validate())
+		})
+	}
+}
+
+func TestOPA_ReleaseManifestValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		path string
+		ok   bool
+	}{
+		{name: "missing"},
+		{name: "absolute", path: "/release.json"},
+		{name: "parent", path: "../release.json"},
+		{name: "blank", path: " "},
+		{name: "relative", path: "releases/current.json", ok: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			filesystem := DefaultOPA()
+			filesystem.BundlePath = "/policies"
+			filesystem.ReleaseManifest = tc.path
+			s3 := &OPAS3{Bucket: "policies", ReleaseManifest: tc.path}
+
+			for _, err := range []error{filesystem.Validate(), s3.Validate()} {
+				if tc.ok {
+					require.NoError(t, err)
+				} else {
+					var fields validation.Errors
+					require.ErrorAs(t, err, &fields)
+					require.Contains(t, fields, "ReleaseManifest")
+				}
+			}
 		})
 	}
 }

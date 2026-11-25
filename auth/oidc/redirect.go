@@ -69,18 +69,18 @@ func redirectPort(u *url.URL) string {
 // prepareRevocationClients gives built-in loaders provider-local wiring before
 // injection. Sharing a caller loader must not change another provider's policy.
 // Third-party loaders own their HTTP behavior beyond shared-client injection.
-func (p *Provider) prepareRevocationClients() {
-	p.revocationLoader = p.protectedRevocationLoader(p.revocationLoader)
-	if storage, ok := p.revocationStorage.(*filterRevocationStorage); ok && storage != nil {
-		p.revocationStorage = &filterRevocationStorage{
+func (p *revocationChecker) prepareRevocationClients(allowLoopbackHTTP bool) {
+	p.loader = p.protectedRevocationLoader(p.loader, allowLoopbackHTTP)
+	if storage, ok := p.storage.(*filterRevocationStorage); ok && storage != nil {
+		p.storage = &filterRevocationStorage{
 			filter:        storage.filter,
-			loader:        p.protectedRevocationLoader(storage.loader),
+			loader:        p.protectedRevocationLoader(storage.loader, allowLoopbackHTTP),
 			authoritative: storage.authoritative,
 		}
 	}
 }
 
-func (p *Provider) protectedRevocationLoader(loader probfilter.DataLoader) probfilter.DataLoader {
+func (p *revocationChecker) protectedRevocationLoader(loader probfilter.DataLoader, allowLoopbackHTTP bool) probfilter.DataLoader {
 	urlLoader, ok := loader.(*URLRevocationLoader)
 	if !ok || urlLoader == nil {
 		return loader
@@ -89,7 +89,7 @@ func (p *Provider) protectedRevocationLoader(loader probfilter.DataLoader) probf
 	if clone.Client == nil {
 		clone.Client = p.client
 	} else {
-		clone.Client = protectedHTTPClient(clone.Client, p.opts.discoveryAllowLoopbackHTTP)
+		clone.Client = protectedHTTPClient(clone.Client, allowLoopbackHTTP)
 	}
 	return &clone
 }

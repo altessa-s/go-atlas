@@ -8,6 +8,6 @@ import "log/slog"
 
 // validatorOptions holds configuration for a [Validator].
 type validatorOptions struct {
-	// logger receives an error record for every failed verification.
+	// WithValidatorLogger logs rejected tokens at Debug and other verification failures at Error.
 	logger *slog.Logger
 }

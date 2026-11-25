@@ -7,7 +7,6 @@ package s3
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,8 +16,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/internal/checksum"
+	"github.com/altessa-s/go-atlas/auth/opa/internal/jsondoc"
 
 	coremaps "github.com/altessa-s/go-atlas-core/collections/maps"
 	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
@@ -38,7 +40,7 @@ const maxObjectBytes = 32 << 20 // 32 MiB
 // cannot see, so the check lives where the client is built.
 var ErrInsecureEndpoint = errors.New("s3 endpoint must use https")
 
-// Checksum sentinel errors, returned when [WithChecksums] is set.
+// Release manifest sentinel errors.
 var (
 	// ErrChecksumMismatch is returned when an object's SHA-256 digest does not
 	// match its manifest entry.
@@ -60,7 +62,6 @@ type Source struct {
 	extensions *coremaps.ImmutableMap[string, struct{}]
 	checksums  *checksum.Manifest
 	// normalizedPrefix is opts.prefix guaranteed to end with "/" (or empty).
-	// Pre-computed to avoid repeated normalization in relativeKey.
 	normalizedPrefix string
 
 	mu     sync.Mutex
@@ -77,6 +78,12 @@ func New(opts ...Option) (*Source, error) {
 
 	if o.bucket == "" {
 		return nil, fmt.Errorf("bucket is required")
+	}
+	if o.releaseManifest == "" && o.checksums == nil {
+		return nil, opa.ErrReleaseManifestRequired
+	}
+	if o.releaseManifest != "" && (!checksum.ValidPath(o.releaseManifest) || o.checksums != nil) {
+		return nil, errors.New("invalid or conflicting s3 release manifest configuration")
 	}
 
 	extensions := make(map[string]struct{}, len(o.extensions))
@@ -95,16 +102,9 @@ func New(opts ...Option) (*Source, error) {
 	manifest := checksum.New(o.checksums)
 	o.checksums = nil
 
-	logger := cmp.Or(o.logger, slog.New(slog.DiscardHandler))
-	if manifest == nil {
-		logger.Warn("s3 policy source has no checksums manifest: fetched policies are not integrity-verified",
-			slog.String("bucket", o.bucket),
-			slog.String("prefix", o.prefix))
-	}
-
 	return &Source{
 		opts:             o,
-		logger:           logger,
+		logger:           cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
 		extensions:       coremaps.NewImmutableMap(extensions),
 		checksums:        manifest,
 		normalizedPrefix: normalizedPrefix,
@@ -128,25 +128,41 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 		return nil, opa.ErrSourceClosed
 	}
 
-	keys, err := s.listObjects(ctx)
+	prefix, manifest, etags, err := s.readManifest(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	objects, err := s.listObjects(ctx, prefix)
 	if err != nil {
 		return nil, err
 	}
 
 	modules := make(map[string][]byte)
 	var data map[string]any
-	loaded := make(map[string]string, len(keys))
+	loaded := make(map[string]string, len(objects))
 
-	for _, key := range keys {
-		content, getErr := s.getObject(ctx, key)
-		if getErr != nil {
-			return nil, getErr
-		}
-
-		relKey := s.relativeKey(key)
+	for _, object := range objects {
+		key := *object.Key
+		relKey := strings.TrimPrefix(key, prefix)
 		ext := path.Ext(key)
 
-		if err := s.checksums.Verify(relKey, content, ErrChecksumMismatch, ErrUnexpectedPolicyFile); err != nil {
+		etag := object.ETag
+		if etags != nil {
+			pin, ok := etags[relKey]
+			if !ok {
+				return nil, coreerrs.Wrapf(ErrUnexpectedPolicyFile, "%s", relKey)
+			}
+			etag = &pin
+		}
+		if etag == nil || !validETag(*etag) {
+			return nil, fmt.Errorf("missing or invalid ETag for %q", key)
+		}
+		content, err := s.getObject(ctx, key, etag)
+		if err != nil {
+			return nil, err
+		}
+		if err := manifest.Verify(relKey, content, ErrChecksumMismatch, ErrUnexpectedPolicyFile); err != nil {
 			return nil, err
 		}
 		loaded[relKey] = key
@@ -157,8 +173,8 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 		}
 
 		if s.opts.includeData && ext == ".json" {
-			var jsonData any
-			if unmarshalErr := json.Unmarshal(content, &jsonData); unmarshalErr != nil {
+			jsonData, unmarshalErr := jsondoc.Decode(content)
+			if unmarshalErr != nil {
 				return nil, coreerrs.Wrapf(unmarshalErr, "parse JSON data %s", key)
 			}
 
@@ -171,7 +187,7 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 		}
 	}
 
-	if err := s.checksums.Covered(loaded, ErrMissingPolicyFile); err != nil {
+	if err := manifest.Covered(loaded, ErrMissingPolicyFile); err != nil {
 		return nil, err
 	}
 
@@ -179,11 +195,9 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 		return nil, coreerrs.Wrapf(opa.ErrNoPolicyFiles, "s3://%s/%s", s.opts.bucket, s.opts.prefix)
 	}
 
-	var bundle *opa.PolicyBundle
-	if data != nil {
-		bundle = opa.NewPolicyBundleWithData(modules, data)
-	} else {
-		bundle = opa.NewPolicyBundle(modules)
+	bundle, revisionErr := opa.NewPolicyBundleWithData(modules, data)
+	if revisionErr != nil {
+		return nil, revisionErr
 	}
 
 	s.logger.Debug("fetched policy bundle",
@@ -219,16 +233,17 @@ func (s *Source) Extensions() []string {
 }
 
 // listObjects paginates through ListObjectsV2 and returns all matching object keys.
-func (s *Source) listObjects(ctx context.Context) ([]string, error) {
-	var keys []string
+func (s *Source) listObjects(ctx context.Context, prefix string) ([]types.Object, error) {
+	var objects []types.Object
 
 	input := &awss3.ListObjectsV2Input{
 		Bucket: &s.opts.bucket,
 	}
 
-	if s.opts.prefix != "" {
-		input.Prefix = &s.opts.prefix
+	if prefix != "" {
+		input.Prefix = &prefix
 	}
+	manifestKey := s.normalizedPrefix + s.opts.releaseManifest
 
 	for {
 		output, err := s.opts.s3Client.ListObjectsV2(ctx, input)
@@ -237,15 +252,17 @@ func (s *Source) listObjects(ctx context.Context) ([]string, error) {
 		}
 
 		for _, obj := range output.Contents {
-			if obj.Key == nil {
+			if obj.Key == nil || !strings.HasPrefix(*obj.Key, prefix) {
 				continue
 			}
 
 			key := *obj.Key
+			if key == manifestKey {
+				continue
+			}
 			ext := path.Ext(key)
-
-			keys = coreslices.AppendIf(keys,
-				s.extensions.Contains(ext) || (s.opts.includeData && ext == ".json"), key)
+			objects = coreslices.AppendIf(objects,
+				s.extensions.Contains(ext) || (s.opts.includeData && ext == ".json"), obj)
 		}
 
 		if output.IsTruncated == nil || !*output.IsTruncated {
@@ -255,14 +272,15 @@ func (s *Source) listObjects(ctx context.Context) ([]string, error) {
 		input.ContinuationToken = output.NextContinuationToken
 	}
 
-	return keys, nil
+	return objects, nil
 }
 
 // getObject downloads a single object from S3 and returns its contents.
-func (s *Source) getObject(ctx context.Context, key string) ([]byte, error) {
+func (s *Source) getObject(ctx context.Context, key string, etag *string) ([]byte, error) {
 	output, err := s.opts.s3Client.GetObject(ctx, &awss3.GetObjectInput{
-		Bucket: &s.opts.bucket,
-		Key:    &key,
+		Bucket:  &s.opts.bucket,
+		Key:     &key,
+		IfMatch: etag,
 	})
 	if err != nil {
 		return nil, coreerrs.Wrapf(err, "get object %s", key)
@@ -280,12 +298,54 @@ func (s *Source) getObject(ctx context.Context, key string) ([]byte, error) {
 	return content, nil
 }
 
-// relativeKey strips the prefix from an object key to produce a relative path.
-func (s *Source) relativeKey(key string) string {
-	if s.normalizedPrefix != "" && strings.HasPrefix(key, s.normalizedPrefix) {
-		return key[len(s.normalizedPrefix):]
+type releaseEntry struct {
+	ETag   string `json:"etag"`
+	SHA256 string `json:"sha256"`
+}
+
+func (s *Source) readManifest(ctx context.Context) (string, *checksum.Manifest, map[string]string, error) {
+	if s.opts.releaseManifest == "" {
+		return s.normalizedPrefix, s.checksums, nil, nil
 	}
-	return key
+
+	content, err := s.getObject(ctx, s.normalizedPrefix+s.opts.releaseManifest, nil)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	root, entries, err := checksum.DecodeRelease[releaseEntry](content)
+	if err != nil {
+		return "", nil, nil, coreerrs.WrapOperation(err, "decode s3 release manifest")
+	}
+	digests := make(map[string]string, len(entries))
+	etags := make(map[string]string, len(entries))
+	for name, entry := range entries {
+		if !checksum.ValidDigest(entry.SHA256) || !validETag(entry.ETag) {
+			return "", nil, nil, fmt.Errorf("invalid SHA-256 digest or ETag for %q", name)
+		}
+		digests[name] = entry.SHA256
+		etags[name] = entry.ETag
+	}
+	prefix := s.normalizedPrefix
+	if root != "" {
+		prefix += root + "/"
+	}
+	return prefix, checksum.New(digests), etags, nil
+}
+
+// S3 returns quoted entity tags. Accept exactly one opaque tag, excluding
+// wildcard and list forms of If-Match.
+func validETag(tag string) bool {
+	value, quoted := strings.CutPrefix(tag, `"`)
+	value, closed := strings.CutSuffix(value, `"`)
+	if !quoted || !closed || value == "" {
+		return false
+	}
+	for _, b := range []byte(value) {
+		if b <= ' ' || b == '"' || b == 127 {
+			return false
+		}
+	}
+	return true
 }
 
 // Compile-time interface check.

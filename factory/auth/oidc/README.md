@@ -31,6 +31,22 @@ provider, err := factory.New(cfg.OIDC).
     Build(ctx)
 ```
 
+## JSON service policy
+
+`LoadServiceConfigOptions` loads the [service policy](../../../config/auth/service-config.schema.json) and applies its options after the caller options.
+Use `ServiceConfigOptions` for a document already parsed by `authconfig.ParseServiceConfig`. If loading fails, the caller still owns its resources.
+Ownership transfers when `oidc.NewProvider` receives the resolved options. For per-call validation or a programmatic preset, `ValidationOptions`
+converts an individual validation block to `[]oidc.ValidationOption`. It maps `token_lifetime.min` and `token_lifetime.max` into the same provider
+options that `Build` uses for YAML `minTokenLifetime` and `maxTokenLifetime`.
+
+```go
+opts, err := factory.LoadServiceConfigOptions(path, oidc.WithHTTPClient(client))
+if err != nil {
+    return err
+}
+provider, err := oidc.NewProvider(ctx, discoveryURL, opts...)
+```
+
 ## Methods
 
 ### Constructor
@@ -75,7 +91,8 @@ the provider either way but only the built-in filter storage honors it. With `al
 outage un-revokes everything.
 
 The context passed to `Build` bounds construction only; the provider's cron outlives its cancellation. The caller owns the returned provider and must
-call `provider.Close()` on shutdown, for example from a `runtime.OnShutdown` hook.
+call `provider.Close()` on shutdown, for example from a `runtime.OnShutdown` hook. The builder releases its filter on construction failure. On success,
+the provider closes the filter once during shutdown. A storage passed through `UseRevocationStorage` stays caller-owned.
 
 ### Terminal
 
