@@ -21,7 +21,7 @@ const (
 	// DefaultConnectBackoffJitter is the fraction by which each delay is randomized.
 	DefaultConnectBackoffJitter = 0.2
 
-	// DefaultConnectBackoffMaxDelay caps the delay between connection attempts.
+	// DefaultConnectBackoffMaxDelay caps the computed delay before grpc-go applies jitter.
 	DefaultConnectBackoffMaxDelay = 120 * time.Second
 )
 
@@ -38,7 +38,7 @@ type connectBackoffOptions struct {
 	// jitter is the fraction by which each delay is randomized; 0 disables jitter.
 	jitter float64 `optcheck:"min=0" optgen:"default=DefaultConnectBackoffJitter,onfail=skip"`
 
-	// maxDelay caps the delay between connection attempts.
+	// maxDelay caps the computed delay before grpc-go applies jitter, which can make later waits exceed the cap.
 	maxDelay time.Duration `optgen:"default=DefaultConnectBackoffMaxDelay"`
 }
 

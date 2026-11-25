@@ -8,7 +8,7 @@
 // [NewBuilder] returns a [resolver.Builder] for the dns scheme. Install it on
 // a connection with [grpc.WithResolvers]: it never registers itself globally,
 // so other gRPC users of the process keep grpc-go's resolver.
-// transport/grpc/client installs it by default.
+// transport/grpc/client installs it when WithDNSResolver is used.
 //
 // While lookups succeed, a resolver re-resolves its host every refresh
 // interval, shortened at random by up to the refresh jitter, so addresses
@@ -18,14 +18,13 @@
 // forward, though never sooner than the minimum interval after the previous
 // one.
 //
-// A lookup that fails or finds no address is reported to the connection and
-// retried with exponential backoff and jitter under a cap of a few seconds,
-// so a client sees the addresses of a server that returns after a full outage
-// within that cap. A failed lookup (a timeout or SERVFAIL, also of only one of
-// its queries) keeps the connection's addresses. An answer that no address
-// exists (NXDOMAIN or no records) drops them, which closes their subchannels:
-// a server that returns, even on its old address, is then connected at once
-// instead of after the connection backoff of its old subchannel.
+// A and AAAA lookups are independent. The resolver publishes usable
+// answers and retains addresses for a family whose lookup fails. It
+// submits an empty state only if both families conclusively return no
+// addresses. Round-robin removes the old subchannels on an empty state,
+// which lets a returning server get a new subchannel on the same address.
+// Other policies may keep their subchannels. Failed and empty lookups
+// are retried with capped exponential backoff and jitter.
 //
 // An IP literal target resolves to itself without polling. Service configs
 // published in DNS TXT records are not looked up: the connection always uses
@@ -33,5 +32,5 @@
 //
 // The resolver logs only transitions (lookups start failing, lookups recover)
 // and, given a [metrics.Meter], counts lookups by result and reports the
-// address count per target.
+// aggregate address count across active polling resolvers.
 package dnsresolver

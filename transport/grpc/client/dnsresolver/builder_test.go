@@ -7,6 +7,7 @@ package dnsresolver
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"net"
 	"net/url"
 	"slices"
@@ -183,19 +184,15 @@ func dnsResponse(query []byte, aaaaRCode byte) []byte {
 	return resp
 }
 
-// One failed query of a lookup fails the whole lookup: with an AAAA query
-// failing with SERVFAIL, Go's resolver would otherwise return the A answer
-// alone, and the connection would lose its IPv6 addresses until the next
-// lookup.
-func TestBuildFailsLookupsWithAFailedQuery(t *testing.T) {
+func TestBuildPublishesAAnswerWhenAAAAFails(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		aaaaRCode byte
-		ok        bool
+		wantError bool
 	}{
-		{"AAAA without records", 0, true},
-		{"AAAA SERVFAIL", 2, false},
+		{"AAAA without records", 0, false},
+		{"AAAA SERVFAIL", 2, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -205,15 +202,16 @@ func TestBuildFailsLookupsWithAFailedQuery(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(r.Close)
 
-			require.Eventually(t, func() bool { return len(cc.addresses())+len(cc.errors()) > 0 }, 10*time.Second, 5*time.Millisecond)
-			if tc.ok {
-				require.Equal(t, [][]string{{"10.0.0.1:9000"}}, cc.addresses())
+			require.Eventually(t, func() bool { return len(cc.addresses()) > 0 }, 10*time.Second, 5*time.Millisecond)
+			require.Equal(t, [][]string{{"10.0.0.1:9000"}}, cc.addresses())
+			if !tc.wantError {
 				require.Empty(t, cc.errors())
 				return
 			}
-			require.Empty(t, cc.addresses(), "a partial answer is not reported")
-			require.NotErrorIs(t, cc.errors()[0], errNoAddresses)
-			require.ErrorContains(t, cc.errors()[0], "lookup orders.test")
+			require.Eventually(t, func() bool { return len(cc.errors()) > 0 }, time.Second, 5*time.Millisecond)
+			dnsErr, ok := errors.AsType[*net.DNSError](cc.errors()[0])
+			require.True(t, ok)
+			require.True(t, dnsErr.IsTemporary)
 		})
 	}
 }

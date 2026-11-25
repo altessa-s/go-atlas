@@ -1,4 +1,4 @@
-# ADR 0002. The gRPC client resolves dns targets with its own resolver
+# ADR 0002. The gRPC client offers an opt-in DNS resolver
 
 Accepted on 2026-11-24.
 
@@ -30,26 +30,24 @@ the client's round-robin balancing, health checking and retries.
 
 ## Decision
 
-`transport/grpc/client/dnsresolver` implements the `dns` scheme. The client passes a builder to each of its connections with
-`grpc.WithResolvers`, which a connection consults before the global registry (`dialoptions.go:765-769`, `clientconn.go:1799-1806`); pooled
-connections receive it through the same dial options. The package never calls `resolver.Register`. Targets with other schemes are untouched,
-a `dns` builder passed through `WithDialOptions` takes precedence, and `WithBuiltinDNSResolver` restores grpc-go's resolver.
+The client follows grpc-go's resolver selection by default to preserve DNS TXT service configs and globally registered builders. Enable the
+Atlas DNS resolver with `WithDNSResolver()` or `grpcClient.resolver.enabled: true`. When enabled, the client installs the Atlas builder with
+`grpc.WithResolvers` on each connection, including pooled connections. An application-supplied `dns` builder in `WithDialOptions` takes
+precedence. The global registry still serves other clients, and other schemes retain their normal resolver selection.
 
-The resolver accepts the target forms of grpc-go's and looks up A and AAAA records with a timeout (10s). While lookups succeed it
-re-resolves every 30s, shortened at random by up to 10% so that clients started together drift apart, and reports only a changed address set;
-`ResolveNow` brings a lookup forward, no sooner than 2s after the previous one.
+The Atlas resolver queries A and AAAA independently within a shared 10s timeout. A transient failure keeps that family's previous addresses
+while any usable answers from the other family can be published. While lookups succeed, the resolver refreshes every 30s by default, shortened
+at random by up to 10%. `ResolveNow` brings a lookup forward, no sooner than 2s after the previous one. A scheduled lookup satisfies a pending
+request.
 
-A failed lookup (a timeout, SERVFAIL or another error, also of only one of its queries, through `net.Resolver.StrictErrors`) is reported with
-`ReportError`, and the connection keeps its addresses. An answer that no address exists (NXDOMAIN or no records), which is what DNS gives for a
-headless service without ready pods, first drops the addresses with an empty state and is then reported the same way. The dropped addresses'
-subchannels close, so servers that return are connected at once, also on their old addresses: a container restarted in place keeps its pod IP,
-and its old subchannel would wait out a connection backoff of up to 120s. Envoy's `STRICT_DNS` clusters and Finagle treat the two answers the
-same way. Both are retried with jittered exponential backoff from 1s capped at 5s, where the jitter only shortens the delay; `ResolveNow`
-shortens the wait. A state the connection rejects is retried the same way. Recovery is reported at once. The resolver does not look up SRV or
-TXT records, so the client's default service config always applies.
+An empty state is submitted only when both families conclusively return no addresses. The default round-robin policy then removes its
+subchannels. A returning server gets a fresh subchannel even on its old address. Other policies may reject the empty state and keep their
+subchannels. Failed and empty lookups are reported with `ReportError` and retried with jittered exponential backoff from 1s, capped at 5s.
+`ResolveNow` can shorten the wait. Recovery is reported at once. The Atlas resolver performs address lookups only, so the client's default
+service config applies. Resolver metrics aggregate across all targets on the meter.
 
-The connection backoff becomes configurable (`WithConnectBackoff`) with grpc-go's values as defaults. The `grpcclientconfig` schema and
-`factory.ConnectionOptions` expose both.
+`WithConnectBackoff` configures connection backoff independently of DNS resolution. grpc-go applies jitter after this cap, so later
+connection waits can exceed it. The `grpcclientconfig` schema and `factory.ConnectionOptions` expose both settings.
 
 ## Alternatives considered
 
@@ -67,11 +65,11 @@ The connection backoff becomes configurable (`WithConnectBackoff`) with grpc-go'
 
 ## Consequences
 
-Clients see new pods of a headless service within the refresh interval and recover within the backoff cap after a full outage, whether the
-pods return on new addresses or on their old ones. Both bounds count from the DNS answer: CoreDNS with the Corefile of the Kubernetes
-documentation (`ttl 30`, `cache 30`) serves answers, NXDOMAIN included, up to 30s old. A spurious NXDOMAIN closes a target's connections until
-DNS answers again. Each
-connection performs one lookup per refresh interval while healthy and one per backoff step while failing, so a pool of N connections to a
-target multiplies that load by N. Deployments that published service configs in `_grpc_config` TXT records lose them unless they use
-`WithBuiltinDNSResolver`. With ClusterIP services or IP targets the resolver never fails; recovery there is governed by the connection
-backoff, which operators can now lower. Other gRPC users of the process keep grpc-go's resolver.
+Clients that enable the Atlas resolver see new pods of a headless service within the refresh interval. After a full outage, the resolver
+can see returning pods within the backoff cap. These bounds start when DNS serves the new answer. CoreDNS with the Kubernetes example
+configuration (`ttl 30`, `cache 30`) can serve cached answers, including NXDOMAIN, for up to 30s. With round-robin, a spurious negative
+in both families removes the old subchannels until DNS answers again.
+
+Each connection queries both address families every refresh interval while healthy and every backoff step while failing. A pool of N
+connections multiplies that load by N. Deployments using DNS TXT service configs keep them with the default resolver selection. For a
+ClusterIP service or IP target, connection backoff controls reconnection while the resolved address stays the same.

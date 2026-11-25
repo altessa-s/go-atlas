@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 )
 
 const (
@@ -28,10 +29,9 @@ var (
 
 // parseTarget splits a target into host and port the way grpc-go's dns
 // resolver does: a bare IPv4 or IPv6 address or a host without a port gets
-// defaultPort, brackets around an IPv6 host are removed, an empty host before
-// a port means localhost (as with [net.Dial]), and a trailing colon is an
-// error. Unlike grpc-go, which goes on to look up the empty name, it also
-// rejects "[]", an empty host without a port.
+// defaultPort, brackets around an IPv6 host are removed, and ":port" means
+// localhost (as with [net.Dial]). A trailing colon or bracketed empty host
+// is an error.
 func parseTarget(target, defaultPort string) (host, port string, err error) {
 	if target == "" {
 		return "", "", errMissingAddress
@@ -44,6 +44,9 @@ func parseTarget(target, defaultPort string) (host, port string, err error) {
 			return "", "", errMissingPort
 		}
 		if host == "" {
+			if !strings.HasPrefix(target, ":") {
+				return "", "", errMissingAddress
+			}
 			host = "localhost"
 		}
 		return host, port, nil
@@ -77,22 +80,15 @@ func dnsServer(authority string) (string, error) {
 }
 
 // netResolver returns the resolver that queries server, or the system
-// resolver for an empty server. Both set StrictErrors: a timeout or server
-// failure of one query (A or AAAA, one search domain) fails the whole lookup,
-// which keeps the connection's addresses, where Go's resolver would return
-// the answers of the other queries as a smaller address set and drop the
-// addresses of the failed one. Go's built-in resolver honors it; the cgo
-// resolver, used on macOS for example, does not.
+// DNS configuration for an empty server. Use the Go resolver so StrictErrors
+// preserves temporary errors during search-domain resolution.
 func netResolver(server string) *net.Resolver {
-	if server == "" {
-		return &net.Resolver{StrictErrors: true}
-	}
-	return &net.Resolver{
-		PreferGo:     true,
-		StrictErrors: true,
-		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+	r := &net.Resolver{PreferGo: true, StrictErrors: true}
+	if server != "" {
+		r.Dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
 			var dialer net.Dialer
 			return dialer.DialContext(ctx, network, server)
-		},
+		}
 	}
+	return r
 }

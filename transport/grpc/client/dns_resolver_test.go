@@ -23,7 +23,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/resolver"
 	"google.golang.org/grpc/resolver/manual"
 	"google.golang.org/grpc/status"
@@ -73,7 +72,10 @@ type stubDNS struct {
 	calls atomic.Int32
 }
 
-func (d *stubDNS) lookup(_ context.Context, host string) ([]string, error) {
+func (d *stubDNS) lookup(_ context.Context, network, host string) ([]string, error) {
+	if network == "ip6" {
+		return nil, nil
+	}
 	d.calls.Add(1)
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -258,31 +260,29 @@ func TestDNSResolverInPoolMode(t *testing.T) {
 	}
 }
 
-// With WithBuiltinDNSResolver the connection is built with grpc-go's dns
-// resolver, so the resolver options never take effect. The test does not
-// wait for that resolver: it also looks up a TXT record, whose time depends
-// on the machine's DNS.
-func TestBuiltinDNSResolverOptOut(t *testing.T) {
-	t.Parallel()
+// Serialize changes to grpc-go's global resolver registry.
+func TestDNSResolverIsOptIn(t *testing.T) {
 	server := startHealthBackend(t)
-	target := net.JoinHostPort("orders.test", server.port)
+	previous := resolver.Get("dns")
+	t.Cleanup(func() { resolver.Register(previous) })
 
-	dns := &stubDNS{}
-	dns.set("127.0.0.1")
-	conn := connect(t, target, client.WithDNSResolver(dns.option(t)))
+	global := manual.NewBuilderWithScheme("dns")
+	global.InitialState(resolver.State{Addresses: []resolver.Address{{Addr: server.addr}}})
+	resolver.Register(global)
+
+	for _, target := range []string{"orders.test:9000", "dns:///orders.test:9000"} {
+		t.Run(target, func(t *testing.T) {
+			conn := connect(t, target)
+			require.NoError(t, check(t.Context(), conn))
+		})
+	}
+
+	// The global resolver sends this literal target to a different backend.
+	// An explicit WithDNSResolver with no tuning uses the literal directly.
+	direct := startHealthBackend(t)
+	conn := connect(t, "dns:///"+direct.addr, client.WithDNSResolver())
 	require.NoError(t, check(t.Context(), conn, grpc.WaitForReady(true)))
-	require.Positive(t, dns.calls.Load(), "the client resolves through its own resolver by default")
-
-	builtin := &stubDNS{}
-	builtin.set("127.0.0.1")
-	conn = connect(t, target, client.WithDNSResolver(builtin.option(t)), client.WithBuiltinDNSResolver())
-	// Leaving idle builds the resolver before the state changes.
-	conn.Connect()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	require.True(t, conn.WaitForStateChange(ctx, connectivity.Idle))
-	time.Sleep(100 * time.Millisecond)
-	require.Zero(t, builtin.calls.Load())
+	require.Equal(t, int32(1), direct.calls.Load())
 }
 
 func TestDNSResolverLeavesOtherSchemes(t *testing.T) {
@@ -331,6 +331,6 @@ func TestDNSResolverUsesClientMeter(t *testing.T) {
 	target := net.JoinHostPort("orders.test", server.port)
 	conn := connect(t, target, client.WithMeter(tc), client.WithDNSResolver(dns.option(t)))
 	require.NoError(t, check(t.Context(), conn, grpc.WaitForReady(true)))
-	require.InDelta(t, 1, metricstest.GetGaugeValue(t, tc, "test_grpc_dns_resolver_addresses", "target", target), 0)
-	require.GreaterOrEqual(t, metricstest.GetCounterValue(t, tc, "test_grpc_dns_resolver_lookups_total", "target", target, "result", "ok"), 1.0)
+	require.InDelta(t, 1, metricstest.GetGaugeValue(t, tc, "test_grpc_dns_resolver_addresses"), 0)
+	require.GreaterOrEqual(t, metricstest.GetCounterValue(t, tc, "test_grpc_dns_resolver_lookups_total", "result", "ok"), 1.0)
 }

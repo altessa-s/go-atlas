@@ -5,6 +5,7 @@
 package grpcclientconfig
 
 import (
+	"cmp"
 	"time"
 
 	validationconfig "github.com/altessa-s/go-nomos/validation"
@@ -37,7 +38,7 @@ const (
 // outbound gRPC client (transport/grpc/client). A zero field keeps the
 // client's default, so a section left out of the file changes nothing.
 type Config struct {
-	// Resolver tunes the DNS resolver the client installs for targets without
+	// Resolver enables and tunes the Atlas DNS resolver for targets without
 	// a scheme and dns targets.
 	Resolver Resolver `yaml:"resolver"`
 
@@ -49,9 +50,9 @@ type Config struct {
 // re-resolution, the rate limit of re-resolution requests, the lookup timeout
 // and the backoff after a failed or empty lookup.
 type Resolver struct {
-	// Builtin selects grpc-go's built-in dns resolver instead; the other
-	// resolver settings are then ignored.
-	Builtin bool `yaml:"builtin" default:"false"`
+	// Enabled installs the Atlas DNS resolver. When false, the client keeps
+	// grpc-go's resolver selection and the other resolver settings are unused.
+	Enabled bool `yaml:"enabled" default:"false"`
 
 	// RefreshInterval is how often the host is resolved again while lookups
 	// succeed, so added and removed addresses are seen. Minimum 1s.
@@ -110,8 +111,8 @@ type ConnectBackoff struct {
 	// disables jitter. Unset, it is 0.2.
 	Jitter *float64 `yaml:"jitter"`
 
-	// MaxDelay caps the delay between connection attempts. It may not be
-	// below BaseDelay.
+	// MaxDelay caps the computed delay before grpc-go applies jitter. It
+	// may not be below BaseDelay. Jitter can make later waits exceed it.
 	MaxDelay time.Duration `yaml:"maxDelay" default:"2m"`
 }
 
@@ -171,26 +172,28 @@ func (r *Resolver) Validate() error {
 
 // Validate performs validation of the ResolverBackoff configuration.
 func (b *ResolverBackoff) Validate() error {
-	return validationconfig.ValidateStruct(b, backoffRules(&b.BaseDelay, &b.Multiplier, &b.Jitter, &b.MaxDelay, defaultResolverBackoffMaxDelay)...)
+	return validationconfig.ValidateStruct(b, backoffRules(&b.BaseDelay, &b.Multiplier, &b.Jitter, &b.MaxDelay,
+		defaultResolverBackoffBaseDelay, defaultResolverBackoffMaxDelay)...)
 }
 
 // Validate performs validation of the ConnectBackoff configuration.
 func (b *ConnectBackoff) Validate() error {
-	return validationconfig.ValidateStruct(b, backoffRules(&b.BaseDelay, &b.Multiplier, &b.Jitter, &b.MaxDelay, defaultConnectBackoffMaxDelay)...)
+	return validationconfig.ValidateStruct(b, backoffRules(&b.BaseDelay, &b.Multiplier, &b.Jitter, &b.MaxDelay,
+		defaultConnectBackoffBaseDelay, defaultConnectBackoffMaxDelay)...)
 }
 
 // backoffRules validates the fields of a backoff: non-negative delays, a
 // base delay no greater than the (default) cap, a multiplier of at least 1
 // and a jitter between 0 and 1.
 func backoffRules(baseDelay *time.Duration, multiplier *float64, jitter **float64, maxDelay *time.Duration,
-	defaultMaxDelay time.Duration,
+	defaultBaseDelay, defaultMaxDelay time.Duration,
 ) []*validation.FieldRules {
-	ceiling := *maxDelay
-	if ceiling == 0 {
-		ceiling = defaultMaxDelay
-	}
+	floor := cmp.Or(*baseDelay, defaultBaseDelay)
+	ceiling := cmp.Or(*maxDelay, defaultMaxDelay)
 	return []*validation.FieldRules{
-		validation.Field(baseDelay, validation.Min(time.Duration(0)), validation.Max(ceiling)),
+		validation.Field(baseDelay, validation.Min(time.Duration(0)), validation.By(func(any) error {
+			return validation.Max(ceiling).Validate(floor)
+		})),
 		validation.Field(multiplier, validation.Min(1.0)),
 		validation.Field(jitter, validation.Min(0.0), validation.Max(1.0)),
 		validation.Field(maxDelay, validation.Min(time.Duration(0))),

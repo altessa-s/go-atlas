@@ -5,15 +5,15 @@
 # Uncomment and configure as needed for your environment.
 
 #grpcClient:
-#  # <object> DNS resolver the client installs for targets without a scheme
+#  # <object> Optional Atlas DNS resolver for targets without a scheme
 #  # and dns:// targets. It re-resolves the host periodically, so servers
 #  # added behind a headless Kubernetes service are seen without a connection
 #  # failure, and retries a failed or empty lookup within a few seconds.
 #  resolver:
-#    # <bool> Use grpc-go's built-in dns resolver instead. The other resolver
-#    # settings are then ignored.
+#    # <bool> Enable the Atlas resolver. The default keeps grpc-go's resolver
+#    # selection, including DNS TXT service configs and global builders.
 #    # Default value: false
-#    builtin: false
+#    enabled: false
 #
 #    # <duration> How often the host is resolved again while lookups succeed.
 #    # Minimum 1s.
@@ -76,7 +76,7 @@
 #    # Default value: not set (0.2)
 #    jitter: 0.2
 #
-#    # <duration> Cap of the delay between connection attempts; not below
-#    # baseDelay.
+#    # <duration> Cap before jitter, at least baseDelay. Jitter can make
+#    # later waits exceed it.
 #    # Default value: 2m
 #    maxDelay: "2m"

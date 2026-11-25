@@ -19,8 +19,7 @@ import (
 func TestConnectionOptions(t *testing.T) {
 	t.Parallel()
 
-	builtin := grpcclientconfig.Default()
-	builtin.Resolver.Builtin = true
+	enabled := grpcclientconfig.Config{Resolver: grpcclientconfig.Resolver{Enabled: true}}
 	connectOnly := grpcclientconfig.Config{ConnectBackoff: grpcclientconfig.ConnectBackoff{MaxDelay: 10 * time.Second}}
 	resolverOnly := grpcclientconfig.Config{Resolver: grpcclientconfig.Resolver{Backoff: grpcclientconfig.ResolverBackoff{Jitter: new(0.0)}}}
 	full := grpcclientconfig.Default()
@@ -32,10 +31,10 @@ func TestConnectionOptions(t *testing.T) {
 	}{
 		{"nil", nil, 0},
 		{"zero keeps the client defaults", &grpcclientconfig.Config{}, 0},
-		{"builtin resolver ignores the resolver settings", &builtin, 2},
+		{"DNS resolver enabled without tuning", &enabled, 1},
 		{"connection backoff only", &connectOnly, 1},
-		{"explicit zero jitter", &resolverOnly, 1},
-		{"defaults", &full, 2},
+		{"disabled resolver ignores tuning", &resolverOnly, 0},
+		{"defaults", &full, 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -36,6 +36,7 @@ func TestParseTarget(t *testing.T) {
 		{target: ":80", host: "localhost", port: "80"},
 		{target: "", wantErr: errMissingAddress},
 		{target: "[]", wantErr: errMissingAddress},
+		{target: "[]:9000", wantErr: errMissingAddress},
 		{target: ":", wantErr: errMissingPort},
 		{target: "orders:", wantErr: errMissingPort},
 		{target: "[2001:db8::1]:", wantErr: errMissingPort},
@@ -80,6 +81,7 @@ func TestDNSServer(t *testing.T) {
 		{authority: "dns.example.com", want: "dns.example.com:53"},
 		{authority: ":123", want: "localhost:123"},
 		{authority: ":", wantErr: true},
+		{authority: "[]:53", wantErr: true},
 		{authority: "[::1]:", wantErr: true},
 		{authority: "dns.example.com:", wantErr: true},
 	}

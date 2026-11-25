@@ -343,7 +343,7 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 	// A connection uses the first builder registered for a scheme, so a dns
 	// builder in extraDialOptions takes precedence over this one. The builder
 	// serves this client only: grpc-go's global dns resolver stays in place.
-	grpcOptions = coreslices.AppendIfFunc(grpcOptions, !c.options.builtinDNSResolver, func() []grpc.DialOption {
+	grpcOptions = coreslices.AppendIfFunc(grpcOptions, c.options.enableDNSResolver, func() []grpc.DialOption {
 		return []grpc.DialOption{grpc.WithResolvers(c.dnsResolverBuilder())}
 	})
 

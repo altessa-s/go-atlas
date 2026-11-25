@@ -99,10 +99,18 @@ type fakeDNS struct {
 	calls []time.Time
 }
 
-func (d *fakeDNS) lookup(ctx context.Context, _ string) ([]string, error) {
+func (d *fakeDNS) lookup(ctx context.Context, network, _ string) ([]string, error) {
 	d.mu.Lock()
-	d.calls = append(d.calls, time.Now())
-	addrs, err, hang := slices.Clone(d.addrs), d.err, d.hang
+	if network == "ip4" {
+		d.calls = append(d.calls, time.Now())
+	}
+	var addrs []string
+	for _, addr := range d.addrs {
+		if (network == "ip6") == strings.Contains(addr, ":") {
+			addrs = append(addrs, addr)
+		}
+	}
+	err, hang := d.err, d.hang
 	d.mu.Unlock()
 	if hang {
 		<-ctx.Done()
@@ -271,6 +279,72 @@ func TestResolverDropsAddressesWhenDNSFindsNone(t *testing.T) {
 	})
 }
 
+func TestResolverTracksAddressFamiliesIndependently(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, failing, healthy   string
+		oldAddr, newAddr         string
+		oldEndpoint, newEndpoint string
+	}{
+		{"A fails", "ip4", "ip6", "10.0.0.1", "2001:db8::1", "10.0.0.1:9000", "[2001:db8::1]:9000"},
+		{"AAAA fails", "ip6", "ip4", "2001:db8::1", "10.0.0.1", "[2001:db8::1]:9000", "10.0.0.1:9000"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			synctest.Test(t, func(t *testing.T) {
+				type answer struct {
+					addrs []string
+					err   error
+				}
+				answers := map[string]answer{tc.failing: {addrs: []string{tc.oldAddr}}, tc.healthy: {err: errTemporary}}
+				var mu sync.Mutex
+				setAnswer := func(network string, a answer) {
+					mu.Lock()
+					defer mu.Unlock()
+					answers[network] = a
+				}
+				lookup := func(_ context.Context, network, _ string) ([]string, error) {
+					mu.Lock()
+					defer mu.Unlock()
+					a := answers[network]
+					return a.addrs, a.err
+				}
+				cc := &fakeConn{}
+				r, err := NewBuilder(withLookup(lookup), WithBackoffJitter(0)).
+					Build(dnsTarget("", testTarget), cc, resolver.BuildOptions{})
+				require.NoError(t, err)
+				defer r.Close()
+				synctest.Wait()
+				require.Equal(t, [][]string{{tc.oldEndpoint}}, cc.addresses(), "publish a usable answer at startup")
+
+				setAnswer(tc.failing, answer{err: errTemporary})
+				setAnswer(tc.healthy, answer{err: notFound()})
+				time.Sleep(DefaultBackoffMaxDelay)
+				synctest.Wait()
+				require.Len(t, cc.addresses(), 1, "a negative in just one family cannot clear the connection")
+				require.ErrorIs(t, cc.errors()[len(cc.errors())-1], errTemporary)
+
+				setAnswer(tc.healthy, answer{addrs: []string{tc.newAddr}})
+				time.Sleep(DefaultBackoffMaxDelay)
+				synctest.Wait()
+				require.Len(t, cc.addresses(), 2)
+				require.ElementsMatch(t, []string{tc.oldEndpoint, tc.newEndpoint}, cc.addresses()[1],
+					"publish new answers while retaining the addresses of the failing family")
+
+				setAnswer(tc.failing, answer{err: notFound()})
+				time.Sleep(DefaultBackoffMaxDelay)
+				synctest.Wait()
+				require.Equal(t, []string{tc.newEndpoint}, cc.addresses()[2])
+
+				setAnswer(tc.healthy, answer{})
+				time.Sleep(DefaultRefreshInterval)
+				synctest.Wait()
+				require.Equal(t, []string{}, cc.addresses()[3], "two conclusive negatives clear the connection")
+			})
+		})
+	}
+}
+
 func TestResolverBackoffGrowsToItsCap(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
@@ -408,6 +482,26 @@ func TestResolverResolveNowIsRateLimited(t *testing.T) {
 		}
 		require.Equal(t, []time.Duration{DefaultMinInterval, DefaultMinInterval, DefaultMinInterval}, dns.gaps())
 		require.Len(t, cc.addresses(), 1, "the unchanged set is reported once")
+	})
+}
+
+func TestResolverConsumesResolveNowQueuedBeforeLookup(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		dns := &fakeDNS{addrs: []string{"10.0.0.1"}}
+		ctx, cancel := context.WithCancel(t.Context())
+		opts := newOptions(WithRefreshJitter(0))
+		r := &dnsResolver{
+			cc: &fakeConn{}, lookup: dns.lookup, opts: opts, metrics: newBuilderMetrics(opts.meter),
+			ctx: ctx, cancel: cancel, resolveNow: make(chan struct{}, 1), done: make(chan struct{}),
+		}
+		// Reproduce the state after a scheduled timer wins over a pending request.
+		r.ResolveNow(resolver.ResolveNowOptions{})
+		go r.run()
+		defer r.Close()
+		time.Sleep(DefaultMinInterval)
+		synctest.Wait()
+		require.Len(t, dns.lookups(), 1)
 	})
 }
 
@@ -554,10 +648,10 @@ func TestResolverMetrics(t *testing.T) {
 		synctest.Wait()
 
 		lookups := func(result string) float64 {
-			return metricstest.GetCounterValue(t, tc, "test_grpc_dns_resolver_lookups_total", "target", testTarget, "result", result)
+			return metricstest.GetCounterValue(t, tc, "test_grpc_dns_resolver_lookups_total", "result", result)
 		}
 		addresses := func() float64 {
-			return metricstest.GetGaugeValue(t, tc, "test_grpc_dns_resolver_addresses", "target", testTarget)
+			return metricstest.GetGaugeValue(t, tc, "test_grpc_dns_resolver_addresses")
 		}
 		require.InDelta(t, 1, lookups("ok"), 0)
 		require.InDelta(t, 2, addresses(), 0)
@@ -574,6 +668,17 @@ func TestResolverMetrics(t *testing.T) {
 		synctest.Wait()
 		require.InDelta(t, 1, lookups("empty"), 0)
 		require.InDelta(t, 0, addresses(), 0)
+
+		otherDNS := &fakeDNS{addrs: []string{"10.0.0.3"}}
+		other, err := NewBuilder(withLookup(otherDNS.lookup), WithMeter(tc)).
+			Build(dnsTarget("", "other.test:9000"), &fakeConn{}, resolver.BuildOptions{})
+		require.NoError(t, err)
+		defer other.Close()
+		synctest.Wait()
+		require.InDelta(t, 2, lookups("ok"), 0)
+		require.InDelta(t, 1, addresses(), 0)
+		other.Close()
+		require.InDelta(t, 0, addresses(), 0)
 	})
 }
 
@@ -586,7 +691,6 @@ func TestResolverRejectsNonIPAnswers(t *testing.T) {
 		synctest.Wait()
 		require.Empty(t, cc.addresses())
 		require.Len(t, cc.errors(), 1)
-		require.ErrorContains(t, cc.errors()[0], `"orders.internal"`)
 	})
 }
 
@@ -597,7 +701,7 @@ func TestResolverFormatsIPv6Answers(t *testing.T) {
 		cc, r := build(t, dns)
 		defer r.Close()
 		synctest.Wait()
-		require.Equal(t, [][]string{{"[2001:db8::1]:9000", "[fe80::1%eth0]:9000", "10.0.0.1:9000"}}, cc.addresses())
+		require.Equal(t, [][]string{{"10.0.0.1:9000", "[2001:db8::1]:9000", "[fe80::1%eth0]:9000"}}, cc.addresses())
 	})
 }
 

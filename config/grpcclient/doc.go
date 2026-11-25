@@ -3,7 +3,9 @@
 // the LICENSE file.
 
 // Package grpcclientconfig defines the name resolution and connection backoff
-// schema of outbound gRPC clients.
+// schema of outbound gRPC clients. Resolver.Enabled opts into Atlas DNS
+// resolution. The default preserves grpc-go resolver selection, including
+// DNS TXT service configs and globally registered builders.
 //
 // Schemas carry yaml and default tags read by
 // github.com/altessa-s/go-nomos/loader, expose Default* constructors

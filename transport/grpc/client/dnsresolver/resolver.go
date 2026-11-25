@@ -14,6 +14,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/altessa-s/go-atlas-core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/internal/dnshook"
 
 	"google.golang.org/grpc/resolver"
@@ -27,16 +28,16 @@ var _ resolver.Resolver = (*dnsResolver)(nil)
 var errNoAddresses = errors.New("no addresses for host")
 
 // dnsResolver resolves the host of one connection's target. A single
-// goroutine (run) performs the lookups one at a time and reports to the
+// goroutine (run) coordinates the lookups and reports to the
 // connection; ResolveNow and Close only signal it.
 type dnsResolver struct {
 	cc      resolver.ClientConn
 	lookup  dnshook.LookupFunc
 	opts    *options
-	metrics targetMetrics
+	metrics *builderMetrics
 	host    string
 	port    string
-	// target is host:port, the metric label and log attribute.
+	// target is the host:port log attribute.
 	target string
 
 	// ctx bounds every lookup and wait; Close cancels it.
@@ -68,44 +69,28 @@ func (r *dnsResolver) Close() {
 // run resolves the host until Close. A successful lookup is reported when
 // the address set changed or the previous attempt failed, and the next one
 // follows after the jittered refresh interval. A failed or empty lookup is
-// reported as an error and retried with backoff; an empty one also drops the
-// connection's addresses. Transitions between the two are logged.
+// reported as an error and retried with backoff. A conclusive negative for
+// both families submits an empty update. Transitions are logged.
 func (r *dnsResolver) run() {
 	defer close(r.done)
 	var (
-		current      []string // sorted addresses of the last accepted state
-		holding      bool     // the connection was given addresses since the last drop
-		failures     int      // consecutive failed attempts
+		state        resolutionState
+		failures     int
 		failingSince time.Time
 	)
+	defer func() { r.metrics.addresses.Sub(float64(len(state.sorted))) }()
 	for {
-		addrs, result, err := r.resolve()
+		// The next lookup satisfies any request queued before it starts,
+		// including one that raced with the timer in sleep.
+		select {
+		case <-r.resolveNow:
+		default:
+		}
+		next, lookupErr := r.resolve(state.families)
 		if r.ctx.Err() != nil {
 			return
 		}
-		r.metrics.record(result, len(addrs))
-		if err != nil {
-			if result == resultEmpty && holding {
-				// DNS answered that no server exists, as for a headless service
-				// without ready pods. Dropping the addresses closes their
-				// subchannels, so a server that returns, even on its old address
-				// (a container restarted in place keeps its pod IP), gets a new
-				// subchannel instead of one waiting out its connection backoff.
-				// A balancer rejects the empty state, which changes nothing here.
-				_ = r.cc.UpdateState(resolver.State{})
-				current, holding = nil, false
-			}
-			// Without a drop the connection keeps its addresses. Before the
-			// first state the error is what RPCs fail with.
-			r.cc.ReportError(err)
-		} else if sorted := slices.Sorted(slices.Values(addrs)); failures > 0 || !slices.Equal(sorted, current) {
-			// The connection takes the state even when it returns an error;
-			// the error asks for a new attempt with backoff.
-			holding = true
-			if err = r.cc.UpdateState(newState(addrs)); err == nil {
-				current = sorted
-			}
-		}
+		err := r.publish(&state, next, lookupErr, failures > 0)
 
 		wait := r.refreshDelay()
 		switch {
@@ -117,7 +102,7 @@ func (r *dnsResolver) run() {
 			failures++
 			wait = r.backoff(failures)
 		case failures > 0:
-			r.opts.logger.InfoContext(r.ctx, "dns resolution recovered", "target", r.target, "addresses", len(addrs),
+			r.opts.logger.InfoContext(r.ctx, "dns resolution recovered", "target", r.target, "addresses", len(state.sorted),
 				"failed_attempts", failures, "downtime", time.Since(failingSince))
 			failures = 0
 		}
@@ -127,32 +112,99 @@ func (r *dnsResolver) run() {
 	}
 }
 
-// resolve looks up the host once, bounded by the lookup timeout, and returns
-// its addresses with the target port in the order DNS gave them, without
-// duplicates. No address is an error.
-func (r *dnsResolver) resolve() ([]string, lookupResult, error) {
+// resolutionState tracks the most recently submitted addresses.
+type resolutionState struct {
+	families addressFamilies
+	sorted   []string
+	rejected bool
+}
+
+// publish applies a lookup result and returns any error that calls for a retry.
+func (r *dnsResolver) publish(state *resolutionState, next addressFamilies, lookupErr error, recovering bool) error {
+	switch {
+	case errors.Is(lookupErr, errNoAddresses):
+		r.metrics.empty.Inc()
+		if len(state.sorted) != 0 {
+			// Round-robin removes its old subchannels on an empty update.
+			// Other policies can reject the update and keep them.
+			_ = r.cc.UpdateState(resolver.State{})
+			r.metrics.addresses.Sub(float64(len(state.sorted)))
+		}
+		*state = resolutionState{}
+	case lookupErr != nil:
+		r.metrics.failed.Inc()
+	default:
+		r.metrics.ok.Inc()
+	}
+
+	var updateErr error
+	if addrs := slices.Concat(next[:]...); len(addrs) != 0 {
+		sorted := slices.Sorted(slices.Values(addrs))
+		if state.rejected || (lookupErr == nil && recovering) || !slices.Equal(sorted, state.sorted) {
+			updateErr = r.cc.UpdateState(newState(addrs))
+			r.metrics.addresses.Add(float64(len(sorted) - len(state.sorted)))
+		}
+		*state = resolutionState{families: next, sorted: sorted, rejected: updateErr != nil}
+	}
+	if lookupErr != nil {
+		r.cc.ReportError(lookupErr)
+		return lookupErr
+	}
+	return updateErr
+}
+
+// addressFamilies stores the IPv4 and IPv6 addresses separately.
+type addressFamilies [2][]string
+
+// resolve queries A and AAAA independently within a shared timeout. Each
+// conclusive answer replaces that family's addresses, while a failed query
+// keeps the family's previous addresses.
+func (r *dnsResolver) resolve(previous addressFamilies) (addressFamilies, error) {
 	ctx, cancel := context.WithTimeout(r.ctx, r.opts.lookupTimeout)
 	defer cancel()
-	hosts, err := r.lookup(ctx, r.host)
+
+	networks := [...]string{"ip4", "ip6"}
+	next := previous
+	var errs [len(networks)]error
+	// Schedule both queries under the resolver lifetime and pass the shared
+	// deadline to each query, so a timeout cannot skip the second outcome.
+	if err := concurrency.Process(r.ctx, []int{0, 1}, func(_ context.Context, i int) error {
+		addrs, err := r.lookupFamily(ctx, networks[i])
+		if err == nil {
+			next[i] = addrs
+		}
+		errs[i] = err
+		return nil
+	}, concurrency.WithConcurrency[int](len(networks))); err != nil {
+		return previous, err
+	}
+	if err := errors.Join(errs[:]...); err != nil {
+		return next, err
+	}
+	if len(next[0])+len(next[1]) == 0 {
+		return next, fmt.Errorf("dnsresolver: %w %s", errNoAddresses, r.host)
+	}
+	return next, nil
+}
+
+func (r *dnsResolver) lookupFamily(ctx context.Context, network string) ([]string, error) {
+	hosts, err := r.lookup(ctx, network, r.host)
 	if dnsErr, ok := errors.AsType[*net.DNSError](err); ok && dnsErr.IsNotFound {
-		return nil, resultEmpty, fmt.Errorf("dnsresolver: %w %s", errNoAddresses, r.host)
+		return nil, nil
 	}
 	if err != nil {
-		return nil, resultError, fmt.Errorf("dnsresolver: lookup %s: %w", r.host, err)
+		return nil, fmt.Errorf("dnsresolver: lookup %s (%s): %w", r.host, network, err)
 	}
 	addrs := make([]string, 0, len(hosts))
 	for _, host := range hosts {
 		if !isIP(host) {
-			return nil, resultError, fmt.Errorf("dnsresolver: lookup %s returned %q, which is not an IP address", r.host, host)
+			return nil, fmt.Errorf("dnsresolver: lookup %s (%s) returned a non-IP address", r.host, network)
 		}
 		if addr := net.JoinHostPort(host, r.port); !slices.Contains(addrs, addr) {
 			addrs = append(addrs, addr)
 		}
 	}
-	if len(addrs) == 0 {
-		return nil, resultEmpty, fmt.Errorf("dnsresolver: %w %s", errNoAddresses, r.host)
-	}
-	return addrs, resultOK, nil
+	return addrs, nil
 }
 
 // backoff returns the delay before the next attempt after failures

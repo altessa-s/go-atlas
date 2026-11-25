@@ -27,7 +27,7 @@ func TestDefault(t *testing.T) {
 
 	c := grpcclientconfig.Default()
 	require.NoError(t, c.Validate())
-	require.False(t, c.Resolver.Builtin)
+	require.False(t, c.Resolver.Enabled)
 	require.Equal(t, 30*time.Second, c.Resolver.RefreshInterval)
 	require.Equal(t, 2*time.Second, c.Resolver.MinInterval)
 	require.Equal(t, 10*time.Second, c.Resolver.LookupTimeout)
@@ -67,6 +67,12 @@ func TestValidate(t *testing.T) {
 		{"negative connect base delay", func(c *grpcclientconfig.Config) { c.ConnectBackoff.BaseDelay = -time.Second }, "ConnectBackoff"},
 		{"connect base delay above cap", func(c *grpcclientconfig.Config) {
 			c.ConnectBackoff.BaseDelay, c.ConnectBackoff.MaxDelay = 10*time.Second, 5*time.Second
+		}, "ConnectBackoff"},
+		{"default connect base delay above cap", func(c *grpcclientconfig.Config) {
+			c.ConnectBackoff = grpcclientconfig.ConnectBackoff{MaxDelay: 100 * time.Millisecond}
+		}, "ConnectBackoff"},
+		{"connect base delay above default cap", func(c *grpcclientconfig.Config) {
+			c.ConnectBackoff = grpcclientconfig.ConnectBackoff{BaseDelay: 3 * time.Minute}
 		}, "ConnectBackoff"},
 		{"connect multiplier below one", func(c *grpcclientconfig.Config) { c.ConnectBackoff.Multiplier = 0.9 }, "ConnectBackoff"},
 		{"connect jitter above one", func(c *grpcclientconfig.Config) { c.ConnectBackoff.Jitter = new(2.0) }, "ConnectBackoff"},
@@ -112,7 +118,7 @@ func TestLoadYAML(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	data := "grpcClient:\n  resolver:\n    refreshInterval: 10s\n    refreshJitter: 0\n    backoff:\n      jitter: 0\n  connectBackoff:\n    maxDelay: 15s\n"
+	data := "grpcClient:\n  resolver:\n    enabled: true\n    refreshInterval: 10s\n    refreshJitter: 0\n    backoff:\n      jitter: 0\n  connectBackoff:\n    maxDelay: 15s\n"
 	require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
 	var c root
 	_, err := loader.New(&yaml3.Backend{}, loader.WithPath(path), loader.WithSkipEnv()).Load(&c)
@@ -120,6 +126,7 @@ func TestLoadYAML(t *testing.T) {
 	require.NoError(t, c.GRPCClient.Validate())
 
 	want := grpcclientconfig.Default()
+	want.Resolver.Enabled = true
 	want.Resolver.RefreshInterval = 10 * time.Second
 	want.Resolver.RefreshJitter = new(0.0)
 	want.Resolver.Backoff.Jitter = new(0.0)
@@ -134,14 +141,14 @@ func TestLoadYAML(t *testing.T) {
 
 // TestLoadEnv is serial: it sets process environment variables.
 func TestLoadEnv(t *testing.T) {
-	t.Setenv("GRPCCLIENTTEST_GRPC_CLIENT__RESOLVER__BUILTIN", "true")
+	t.Setenv("GRPCCLIENTTEST_GRPC_CLIENT__RESOLVER__ENABLED", "true")
 	t.Setenv("GRPCCLIENTTEST_GRPC_CLIENT__RESOLVER__BACKOFF__MAX_DELAY", "3s")
 	t.Setenv("GRPCCLIENTTEST_GRPC_CLIENT__CONNECT_BACKOFF__JITTER", "0.5")
 	var c root
 	_, err := loader.New(nil, loader.WithEnvPrefix("GRPCCLIENTTEST")).Load(&c)
 	require.NoError(t, err)
 	require.NoError(t, c.GRPCClient.Validate())
-	require.True(t, c.GRPCClient.Resolver.Builtin)
+	require.True(t, c.GRPCClient.Resolver.Enabled)
 	require.Equal(t, 3*time.Second, c.GRPCClient.Resolver.Backoff.MaxDelay)
 	require.Equal(t, new(0.5), c.GRPCClient.ConnectBackoff.Jitter)
 	require.Equal(t, 30*time.Second, c.GRPCClient.Resolver.RefreshInterval)

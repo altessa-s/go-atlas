@@ -34,8 +34,7 @@ logging, and rich error parsing with field-level validation details.
 | `WithAppName`         | --        | Application name sent in the gRPC User-Agent header                          |
 | `WithRetry`           | disabled  | Enables retry (5 attempts, 1s-10s exponential backoff); `RetryOption` values override it |
 | `WithoutHealthCheck`  | enabled   | Disables the client-side watch of overall server health |
-| `WithDNSResolver`     | defaults  | Tunes the [DNS resolver](./dnsresolver) installed for targets without a scheme and `dns` targets with `dnsresolver` options |
-| `WithBuiltinDNSResolver` | off    | Resolves those targets with grpc-go's built-in `dns` resolver instead                         |
+| `WithDNSResolver`     | off       | Enables and tunes the [Atlas DNS resolver](./dnsresolver) for targets without a scheme and `dns` targets |
 | `WithConnectBackoff`  | grpc-go   | Backoff between connection attempts (1s, ×1.6, jitter 0.2, 120s cap); `ConnectBackoffOption` values override it |
 | `WithPool`  | nil       | Enables pool mode backed by a `pool.ConnectionPool`                          |
 | `WithDialOptions`     | --        | Appends custom `grpc.DialOption` values (auth credentials, call options)     |
@@ -79,16 +78,14 @@ returns `Unavailable`. Pass `WithoutHealthCheck()` to disable the watch. `WithHe
 
 ## Name resolution
 
-A target without a scheme (`inventory.default.svc:9000`) or with the `dns` scheme is resolved by the [`dnsresolver`](./dnsresolver) the client
-installs on its own connections with `grpc.WithResolvers`, in single-connection and pool mode alike; every pooled connection gets a resolver of
-its own. grpc-go's globally registered resolver stays untouched for other gRPC users of the process. Targets with another scheme (`unix`,
-`passthrough`, schemes registered by the application) are resolved as before, and a `dns` builder passed with `WithDialOptions` takes precedence.
+The client follows grpc-go's resolver selection by default. This preserves DNS TXT service configs and any globally registered `dns` builder.
+Use `WithDNSResolver()` to enable the [Atlas DNS resolver](./dnsresolver) with its defaults, or pass `dnsresolver` options to tune it.
+Configuration enables it with `grpcClient.resolver.enabled: true`.
 
-The resolver re-resolves the host at most 30s apart, so a headless service's new pods receive traffic without waiting for a connection to fail,
-and retries a failed or empty lookup within 5s, so clients recover quickly after every server was gone. It does not look up service configs in DNS
-TXT records, so the default service config of this client (round-robin balancing, health checking, retries) always applies. Tune it with
-`WithDNSResolver`; `WithBuiltinDNSResolver` returns to grpc-go's resolver. The [ADR](../../../docs/adr/0002-grpc-client-dns-resolver.md) records
-the reasoning.
+When enabled, the client installs the Atlas builder per connection with `grpc.WithResolvers`, including each pooled connection. A `dns` builder
+passed with `WithDialOptions` takes precedence. The Atlas builder re-resolves a headless service periodically and retries failed or empty lookups
+within 5s by default. It uses the client's default service config for round-robin balancing, health checking and retries. The Atlas builder
+performs address lookups only. See [ADR 0002](../../../docs/adr/0002-grpc-client-dns-resolver.md).
 
 | `dnsresolver` option (via `WithDNSResolver`) | Default | Description                                            |
 |----------------------------------------------|---------|--------------------------------------------------------|
@@ -113,12 +110,11 @@ Connection attempts to each address are spaced by an exponential backoff; `WithC
 | `WithConnectBackoffBaseDelay`     | 1s      | Delay after the first failed attempt           |
 | `WithConnectBackoffMultiplier`    | 1.6     | Growth of the delay per further failure        |
 | `WithConnectBackoffJitter`        | 0.2     | Randomized fraction of each delay              |
-| `WithConnectBackoffMaxDelay`      | 120s    | Cap of the delay between attempts              |
+| `WithConnectBackoffMaxDelay`      | 120s    | Cap before jitter                             |
 
-The two backoffs complement each other. When the servers behind a headless service return, on new addresses or on their old ones, the resolver
-finds them within its cap and the client connects to them at once: while DNS found no address, the resolver dropped the old addresses and with
-them the subchannels in connection backoff. A ClusterIP service or an IP address always resolves to the same address, so the resolver never fails
-there and the connection backoff alone decides when the client reconnects after an outage; lower `WithConnectBackoffMaxDelay` to shorten it.
+grpc-go applies jitter after the cap, so later waits can exceed `WithConnectBackoffMaxDelay`. With the Atlas resolver and round-robin balancing,
+servers returning after a conclusive DNS outage get fresh subchannels even on the same addresses. For a ClusterIP service or an IP target,
+connection backoff controls reconnection while the resolved address stays the same.
 
 [`factory.ConnectionOptions`](../../../factory/transport/grpc/client) maps the [`grpcclientconfig`](../../../config/grpcclient) schema to these
 options.

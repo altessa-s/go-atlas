@@ -28,10 +28,8 @@ func ConnectionOptions(cfg *grpcclientconfig.Config) []grpcclient.Option {
 	}
 
 	var opts []grpcclient.Option
-	if cfg.Resolver.Builtin {
-		opts = append(opts, grpcclient.WithBuiltinDNSResolver())
-	} else if resolverOpts := resolverOptions(&cfg.Resolver); len(resolverOpts) > 0 {
-		opts = append(opts, grpcclient.WithDNSResolver(resolverOpts...))
+	if cfg.Resolver.Enabled {
+		opts = append(opts, grpcclient.WithDNSResolver(resolverOptions(&cfg.Resolver)...))
 	}
 	if backoffOpts := connectBackoffOptions(&cfg.ConnectBackoff); len(backoffOpts) > 0 {
 		opts = append(opts, grpcclient.WithConnectBackoff(backoffOpts...))

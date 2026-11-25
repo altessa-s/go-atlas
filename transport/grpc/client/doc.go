@@ -60,15 +60,11 @@
 //
 // # Name resolution
 //
-// Targets without a scheme and dns targets are resolved by the [dnsresolver]
-// the client installs on its own connections, pooled ones included, with
-// [grpc.WithResolvers]; grpc-go's global resolver stays untouched. The
-// resolver re-resolves at most 30s apart, so new servers behind a headless
-// service receive traffic without a connection failure, and retries a failed
-// or empty lookup within 5s. While DNS finds no address it drops the old
-// ones, so servers returning even on their old addresses are connected at
-// once. Tune it with [WithDNSResolver] or return to grpc-go's resolver with
-// [WithBuiltinDNSResolver]:
+// The client follows grpc-go's resolver selection by default, preserving
+// DNS TXT service configs and globally registered builders. [WithDNSResolver]
+// enables the Atlas [dnsresolver] for targets without a scheme and dns
+// targets, including pooled connections. It refreshes addresses periodically
+// and caps retry delays after failed or empty lookups:
 //
 //	c, err := client.New(ctx, "inventory.default.svc:9000",
 //		client.WithDNSResolver(dnsresolver.WithRefreshInterval(10*time.Second)),

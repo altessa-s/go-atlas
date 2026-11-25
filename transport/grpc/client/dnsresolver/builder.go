@@ -8,10 +8,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/client/internal/dnshook"
 
 	"google.golang.org/grpc/resolver"
+
+	coreslices "github.com/altessa-s/go-atlas-core/collections/slices"
 )
 
 var _ resolver.Builder = (*builder)(nil)
@@ -53,6 +56,10 @@ func (b *builder) Build(target resolver.Target, cc resolver.ClientConn, _ resolv
 	if err != nil {
 		return nil, fmt.Errorf("dnsresolver: target %q: %w", target.Endpoint(), err)
 	}
+	server, err := dnsServer(target.URL.Host)
+	if err != nil {
+		return nil, fmt.Errorf("dnsresolver: DNS server %q: %w", target.URL.Host, err)
+	}
 	if isIP(host) {
 		// One address that never changes. An error only means the balancer
 		// rejected it, which no later update could change.
@@ -61,11 +68,11 @@ func (b *builder) Build(target resolver.Target, cc resolver.ClientConn, _ resolv
 	}
 	lookup := b.opts.lookup
 	if lookup == nil {
-		server, serverErr := dnsServer(target.URL.Host)
-		if serverErr != nil {
-			return nil, fmt.Errorf("dnsresolver: DNS server %q: %w", target.URL.Host, serverErr)
+		r := netResolver(server)
+		lookup = func(ctx context.Context, network, host string) ([]string, error) {
+			ips, err := r.LookupIP(ctx, network, host)
+			return slices.Collect(coreslices.Map(ips, net.IP.String)), err
 		}
-		lookup = netResolver(server).LookupHost
 	}
 	addr := net.JoinHostPort(host, port)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -73,7 +80,7 @@ func (b *builder) Build(target resolver.Target, cc resolver.ClientConn, _ resolv
 		cc:         cc,
 		lookup:     lookup,
 		opts:       b.opts,
-		metrics:    b.metrics.forTarget(addr),
+		metrics:    b.metrics,
 		host:       host,
 		port:       port,
 		target:     addr,

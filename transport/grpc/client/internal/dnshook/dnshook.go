@@ -8,9 +8,9 @@ package dnshook
 
 import "context"
 
-// LookupFunc resolves a host name to IP address literals, like
-// [net.Resolver.LookupHost].
-type LookupFunc = func(ctx context.Context, host string) ([]string, error)
+// LookupFunc resolves a host name to IP address literals for one network
+// ("ip4" or "ip6").
+type LookupFunc = func(ctx context.Context, network, host string) ([]string, error)
 
 // WithLookup returns a dnsresolver.Option that makes the resolvers of a
 // builder call lookup instead of DNS. The dnsresolver package sets it during

@@ -36,7 +36,7 @@ func WithConnectBackoffJitter(v float64) ConnectBackoffOption {
 
 // WithConnectBackoffMaxDelay sets the maxDelay option.
 //
-// maxDelay caps the delay between connection attempts.
+// maxDelay caps the computed delay before grpc-go applies jitter, which can make later waits exceed the cap.
 func WithConnectBackoffMaxDelay(v time.Duration) ConnectBackoffOption {
 	return func(o *connectBackoffOptions) {
 		if v <= 0 {

@@ -11,6 +11,7 @@ Package `grpcclientconfig` defines the name resolution and connection backoff sc
 ```yaml
 grpcClient:
   resolver:
+    enabled: true
     refreshInterval: 15s
     backoff:
       maxDelay: 3s
@@ -23,7 +24,7 @@ grpcClient:
 | Type              | Description                                                                                     |
 |-------------------|-------------------------------------------------------------------------------------------------|
 | `Config`          | The `resolver` and `connectBackoff` sections of one client                                       |
-| `Resolver`        | The [DNS resolver](../../transport/grpc/client/dnsresolver) the client installs, or `builtin` to keep grpc-go's |
+| `Resolver`        | The [DNS resolver](../../transport/grpc/client/dnsresolver) the client can enable |
 | `ResolverBackoff` | Backoff between failed or empty lookups                                                          |
 | `ConnectBackoff`  | Backoff between attempts to connect to one address                                               |
 
@@ -31,7 +32,7 @@ grpcClient:
 
 | Field                                  | Default            | Meaning                                                                                  |
 |----------------------------------------|--------------------|------------------------------------------------------------------------------------------|
-| `resolver.builtin`                     | false              | Use grpc-go's built-in dns resolver; the other resolver fields are ignored               |
+| `resolver.enabled`                    | false              | Enable the Atlas DNS resolver and apply the other resolver fields                          |
 | `resolver.refreshInterval`             | 30s                | Re-resolution interval while lookups succeed (minimum 1s)                                 |
 | `resolver.refreshJitter`               | unset (0.1)        | Largest random shortening of a refresh interval (0-0.5); 0 disables jitter               |
 | `resolver.minInterval`                 | 2s                 | Shortest pause before a re-resolution gRPC requests; at most `refreshInterval`            |
@@ -43,7 +44,10 @@ grpcClient:
 | `connectBackoff.baseDelay`             | 1s                 | Delay after the first failed connection attempt                                           |
 | `connectBackoff.multiplier`            | 1.6                | Growth per further failure (minimum 1)                                                    |
 | `connectBackoff.jitter`                | unset (0.2)        | Randomized fraction of each delay (0-1); 0 disables jitter                                |
-| `connectBackoff.maxDelay`              | 2m                 | Cap of the delay; not below `baseDelay`                                                   |
+| `connectBackoff.maxDelay`              | 2m                 | Cap before jitter, at least the effective `baseDelay`                                     |
+
+By default the client follows grpc-go's resolver selection, preserving DNS TXT service configs and globally registered builders. Resolver
+tuning takes effect when `resolver.enabled` is true. grpc-go applies connection backoff jitter after the cap, so later waits can exceed it.
 
 A zero duration or multiplier and an unset jitter keep the client default, so `Config{}` and an omitted section change nothing. Negative durations,
 a multiplier below 1, a backoff jitter outside 0-1, a refresh jitter outside 0-0.5, a base delay above its cap and a minimum interval above the

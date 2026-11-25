@@ -44,15 +44,6 @@ func WithAppName[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithBuiltinDNSResolver resolves targets without a scheme and dns targets with grpc-go's built-in dns
-// resolver instead of the [dnsresolver] the client installs by default; [WithDNSResolver] options are then ignored.
-func WithBuiltinDNSResolver() Option {
-	return func(o *options) {
-		value := true
-		o.builtinDNSResolver = value
-	}
-}
-
 // WithConnectBackoff sets the backoff between attempts to connect to an address. Without options it keeps
 // grpc-go's defaults (1s base delay, multiplier 1.6, jitter 0.2, 120s cap); the generated
 // [ConnectBackoffOption] values override individual settings.
@@ -68,7 +59,9 @@ func WithConnectBackoff(opts ...ConnectBackoffOption) Option {
 	}
 }
 
-// WithDNSResolver tunes the [dnsresolver] the client installs for targets without a scheme and dns targets,
+// WithDNSResolver enables the Atlas [dnsresolver] for targets without a scheme and dns targets.
+// By default the client uses grpc-go's resolver selection, preserving DNS TXT service configs and global builders.
+// Call WithDNSResolver with no options to enable it with its defaults, or tune it,
 // for example with [dnsresolver.WithRefreshInterval]. Values from repeated calls accumulate; a later one wins.
 // The client supplies its logger and meter first, so a resolver option can override them.
 //
@@ -80,12 +73,11 @@ func WithConnectBackoff(opts ...ConnectBackoffOption) Option {
 //			dnsresolver.WithBackoffMaxDelay(3*time.Second),
 //		),
 //	)
-func WithDNSResolver(v ...dnsresolver.Option) Option {
+func WithDNSResolver(opts ...dnsresolver.Option) Option {
 	return func(o *options) {
-		if len(v) == 0 {
-			return
-		}
-		o.dnsResolverOptions = append(o.dnsResolverOptions, v...)
+		o.dnsResolverOptions = o.dnsResolverOptions.appendOptions(opts...)
+		o.enableDNSResolver = true
+
 	}
 }
 

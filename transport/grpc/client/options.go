@@ -149,7 +149,9 @@ type options struct {
 	// The watch takes subchannels reporting NOT_SERVING out of rotation.
 	// WithHealthCoordinator separately reports the local connection state.
 	withoutHealthCheck bool `opt:"HealthCheck" optval:"invert"`
-	// WithDNSResolver tunes the [dnsresolver] the client installs for targets without a scheme and dns targets,
+	// WithDNSResolver enables the Atlas [dnsresolver] for targets without a scheme and dns targets.
+	// By default the client uses grpc-go's resolver selection, preserving DNS TXT service configs and global builders.
+	// Call WithDNSResolver with no options to enable it with its defaults, or tune it,
 	// for example with [dnsresolver.WithRefreshInterval]. Values from repeated calls accumulate; a later one wins.
 	// The client supplies its logger and meter first, so a resolver option can override them.
 	//
@@ -161,10 +163,9 @@ type options struct {
 	//			dnsresolver.WithBackoffMaxDelay(3*time.Second),
 	//		),
 	//	)
-	dnsResolverOptions []dnsresolver.Option `opt:"DNSResolver" optgen:"append"`
-	// WithBuiltinDNSResolver resolves targets without a scheme and dns targets with grpc-go's built-in dns
-	// resolver instead of the [dnsresolver] the client installs by default; [WithDNSResolver] options are then ignored.
-	builtinDNSResolver bool
+	dnsResolverOptions dnsResolverOptions `optfn:"DNSResolver=.appendOptions" optgen:"enables=enableDNSResolver"`
+	// enableDNSResolver is set by WithDNSResolver, including with no arguments.
+	enableDNSResolver bool `opt:"-"`
 	// WithConnectBackoff sets the backoff between attempts to connect to an address. Without options it keeps
 	// grpc-go's defaults (1s base delay, multiplier 1.6, jitter 0.2, 120s cap); the generated
 	// [ConnectBackoffOption] values override individual settings.
@@ -175,6 +176,12 @@ type options struct {
 	//		client.WithConnectBackoff(client.WithConnectBackoffMaxDelay(10*time.Second)),
 	//	)
 	connectBackoff *connectBackoffOptions `optfn:"ConnectBackoff=newConnectBackoffOptions" optgen:"default=defaultConnectBackoffOptions()"`
+}
+
+type dnsResolverOptions []dnsresolver.Option
+
+func (o dnsResolverOptions) appendOptions(opts ...dnsresolver.Option) dnsResolverOptions {
+	return append(o, opts...)
 }
 
 // WithInsecure disables TLS and uses an insecure plaintext connection.

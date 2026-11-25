@@ -270,13 +270,10 @@ Package: `transport/grpc/client/pool`
 
 Package: `transport/grpc/client/dnsresolver` (recorded on the meter `transport/grpc/client` gets with `WithMeter`)
 
-| Name                              | Type    | Labels             | Description                                                          |
-|-----------------------------------|---------|--------------------|----------------------------------------------------------------------|
-| `grpc_dns_resolver_lookups_total` | Counter | `target`, `result` | DNS lookups by result: `ok`, `empty` (NXDOMAIN or no records), `error` |
-| `grpc_dns_resolver_addresses`     | Gauge   | `target`           | Addresses of the latest lookup that succeeded or found none           |
-
-`target` is the resolved `host:port`. Like the `target` label of `grpc_connection_pool`, its values are the configured upstreams, so cardinality
-stays bounded. Resolvers of the same target (pooled connections, several clients) share the series.
+| Name | Type | Labels | Description |
+|------|------|--------|-------------|
+| `grpc_dns_resolver_lookups_total` | Counter | `result` | Attempts classified as `ok`, `empty` (both families conclusive) or `error` (either family failed) |
+| `grpc_dns_resolver_addresses` | Gauge | — | Sum of addresses last submitted by active polling resolvers. Closing a resolver removes its contribution |
 
 ---
 
