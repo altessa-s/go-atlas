@@ -7,6 +7,7 @@ package jwt_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"sync/atomic"
 	"testing"
@@ -108,4 +109,26 @@ func TestVerifierNoRevocationConfigured(t *testing.T) {
 	t.Parallel()
 	v := jwt.NewVerifier(nil)
 	require.NoError(t, v.ValidateClaims(jwt.Claims{"jti": "tok-1", "exp": futureExp()}))
+}
+
+type failingChecker struct{ err error }
+
+func (c failingChecker) IsRevoked(string) (bool, error) { return false, c.err }
+
+// A checker error never reaches the caller's error text: the classification
+// is kept, the dependency's own message is not.
+func TestVerifierRevocationErrorHidesCheckerText(t *testing.T) {
+	t.Parallel()
+	for name, cause := range map[string]error{
+		"plain":   errors.New("MARKER-secret-dsn"),
+		"wrapped": fmt.Errorf("%w: MARKER-secret-dsn", jwt.ErrRevocationUnavailable),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			v := jwt.NewVerifier(nil, jwt.WithRevocation(failingChecker{err: cause}))
+			err := v.ValidateClaims(jwt.Claims{"jti": "tok-1", "exp": futureExp()})
+			require.ErrorIs(t, err, jwt.ErrRevocationUnavailable)
+			require.NotContains(t, err.Error(), "MARKER")
+		})
+	}
 }

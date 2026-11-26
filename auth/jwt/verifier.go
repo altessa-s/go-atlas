@@ -6,7 +6,6 @@ package jwt
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -162,7 +161,7 @@ func (v *Verifier) validateExtraClaims(claims Claims) error {
 // checkRevocation consults the revocation checker for the token's jti. A token
 // without a string jti can never be revoked, so it is rejected unless
 // [WithInsecureRevocationAllowMissingID] was set. A checker that cannot answer
-// rejects the token with [ErrRevocationUnavailable].
+// rejects the token with [ErrRevocationUnavailable], without the checker's text.
 func (v *Verifier) checkRevocation(claims Claims) error {
 	jti := claims.ID()
 	if jti == "" {
@@ -173,10 +172,10 @@ func (v *Verifier) checkRevocation(claims Claims) error {
 	}
 	revoked, err := v.opts.revocation.IsRevoked(jti)
 	switch {
-	case err != nil && errors.Is(err, ErrRevocationUnavailable):
-		return err
 	case err != nil:
-		return fmt.Errorf("%w: %w", ErrRevocationUnavailable, err)
+		// The checker's own message may carry dependency detail (a DSN, a
+		// response body): report only the classification.
+		return fmt.Errorf("%w: revocation checker failed", ErrRevocationUnavailable)
 	case revoked:
 		return fmt.Errorf("%w: %q", ErrTokenRevoked, jti)
 	}
