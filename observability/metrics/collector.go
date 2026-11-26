@@ -72,11 +72,40 @@ type descriptor struct {
 	buckets    []float64
 }
 
-func (d descriptor) equal(other descriptor) bool {
+func (d descriptor) matches(other descriptor) bool {
 	return d.kind == other.kind &&
 		d.help == other.help &&
-		slices.Equal(d.labelNames, other.labelNames) &&
+		equalLabelNames(d.labelNames, other.labelNames) &&
 		slices.Equal(d.buckets, other.buckets)
+}
+
+// equalLabelNames compares the registered sorted names with the caller's
+// names without sorting or allocating on a compatible redeclaration.
+func equalLabelNames(sorted, requested []string) bool {
+	if len(sorted) != len(requested) {
+		return false
+	}
+	if slices.Equal(sorted, requested) {
+		return true
+	}
+	for first := 0; first < len(sorted); {
+		name := sorted[first]
+		last := first + 1
+		for last < len(sorted) && sorted[last] == name {
+			last++
+		}
+		var count int
+		for _, label := range requested {
+			if label == name {
+				count++
+			}
+		}
+		if count != last-first {
+			return false
+		}
+		first = last
+	}
+	return true
 }
 
 type metricEntry struct {
@@ -231,10 +260,10 @@ func (r *collector) tryGetOrCreateCounter(subsystem string, opts MetricOpts) (Co
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 	desc := descriptor{
 		kind:       kindCounter,
-		labelNames: NormalizeLabelNames(opts.LabelNames),
+		labelNames: opts.LabelNames,
 		help:       opts.Help,
 	}
-	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (Counter, func()) {
+	return registerOrGet(r, fullName, opts.Name, desc, opts.Validate, func(name string) (Counter, func()) {
 		c := newCounter(name, r.adapter, &r.shutdown)
 		return c, c.bindUnlabeled
 	})
@@ -244,10 +273,10 @@ func (r *collector) tryGetOrCreateGauge(subsystem string, opts MetricOpts) (Gaug
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 	desc := descriptor{
 		kind:       kindGauge,
-		labelNames: NormalizeLabelNames(opts.LabelNames),
+		labelNames: opts.LabelNames,
 		help:       opts.Help,
 	}
-	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (Gauge, func()) {
+	return registerOrGet(r, fullName, opts.Name, desc, opts.Validate, func(name string) (Gauge, func()) {
 		g := newGauge(name, r.adapter, &r.shutdown)
 		return g, g.bindUnlabeled
 	})
@@ -257,11 +286,11 @@ func (r *collector) tryGetOrCreateHistogram(subsystem string, opts HistogramOpts
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 	desc := descriptor{
 		kind:       kindHistogram,
-		labelNames: NormalizeLabelNames(opts.LabelNames),
+		labelNames: opts.LabelNames,
 		help:       opts.Help,
-		buckets:    slices.Clone(bucketsOrDefault(opts.Buckets)),
+		buckets:    bucketsOrDefault(opts.Buckets),
 	}
-	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (Histogram, func()) {
+	return registerOrGet(r, fullName, opts.Name, desc, opts.Validate, func(name string) (Histogram, func()) {
 		h := newHistogram(name, r.adapter, &r.shutdown)
 		return h, h.bindUnlabeled
 	})
@@ -271,11 +300,11 @@ func (r *collector) tryGetOrCreateTimer(subsystem string, opts HistogramOpts) (T
 	fullName := shared.BuildMetricName(r.serviceName, subsystem, opts.Name)
 	desc := descriptor{
 		kind:       kindTimer,
-		labelNames: NormalizeLabelNames(opts.LabelNames),
+		labelNames: opts.LabelNames,
 		help:       opts.Help,
-		buckets:    slices.Clone(bucketsOrDefault(opts.Buckets)),
+		buckets:    bucketsOrDefault(opts.Buckets),
 	}
-	return registerOrGet(r, fullName, desc, opts.Validate(), func(name string) (Timer, func()) {
+	return registerOrGet(r, fullName, opts.Name, desc, opts.Validate, func(name string) (Timer, func()) {
 		tm := newTimer(name, r.adapter, &r.shutdown)
 		return tm, tm.bindUnlabeled
 	})
@@ -283,30 +312,31 @@ func (r *collector) tryGetOrCreateTimer(subsystem string, opts HistogramOpts) (T
 
 func registerOrGet[T any](
 	r *collector,
-	fullName string,
+	fullName, name string,
 	desc descriptor,
-	validateErr error,
+	validate func() error,
 	create func(fullName string) (T, func()),
 ) (T, error) {
 	var zero T
 	if r.shutdown.Load() {
 		return zero, ErrCollectorShutdown
 	}
-	if validateErr != nil {
-		return zero, validateErr
+	if name == "" {
+		return zero, ErrEmptyMetricName
 	}
 
-	// Fast path: already published.
+	// A matching descriptor has already been validated and registered.
 	if raw, ok := r.entries.Load(fullName); ok {
-		entry, ok := raw.(*metricEntry)
-		if !ok || !entry.desc.equal(desc) {
-			return zero, fmt.Errorf("metric %q (existing %s, requested %s): %w",
-				fullName, entryKindString(entry), desc.kind, ErrDescriptorConflict)
+		if handle, ok := matchEntry[T](raw, desc); ok {
+			return handle, nil
 		}
-		if h, ok := entry.handle.(T); ok {
-			return h, nil
+		if err := validate(); err != nil {
+			return zero, err
 		}
-		return zero, fmt.Errorf("metric %q: %w", fullName, ErrDescriptorConflict)
+		return zero, descriptorConflict(fullName, raw, desc.kind)
+	}
+	if err := validate(); err != nil {
+		return zero, err
 	}
 
 	r.createMu.Lock()
@@ -316,18 +346,16 @@ func registerOrGet[T any](
 		return zero, ErrCollectorShutdown
 	}
 
-	// Re-check: another caller may have published it while we waited.
+	// Another caller may have published the descriptor while we waited.
 	if raw, ok := r.entries.Load(fullName); ok {
-		entry, ok := raw.(*metricEntry)
-		if !ok || !entry.desc.equal(desc) {
-			return zero, fmt.Errorf("metric %q (existing %s, requested %s): %w",
-				fullName, entryKindString(entry), desc.kind, ErrDescriptorConflict)
+		if handle, ok := matchEntry[T](raw, desc); ok {
+			return handle, nil
 		}
-		if h, ok := entry.handle.(T); ok {
-			return h, nil
-		}
-		return zero, fmt.Errorf("metric %q: %w", fullName, ErrDescriptorConflict)
+		return zero, descriptorConflict(fullName, raw, desc.kind)
 	}
+
+	desc.labelNames = NormalizeLabelNames(desc.labelNames)
+	desc.buckets = slices.Clone(desc.buckets)
 
 	if err := r.adapter.Register(&adapters.Desc{
 		Name:       fullName,
@@ -350,6 +378,20 @@ func registerOrGet[T any](
 		handle: h,
 	})
 	return h, nil
+}
+
+func matchEntry[T any](raw any, requested descriptor) (T, bool) {
+	if entry, ok := raw.(*metricEntry); ok && entry.desc.matches(requested) {
+		handle, ok := entry.handle.(T)
+		return handle, ok
+	}
+	var zero T
+	return zero, false
+}
+
+func descriptorConflict(name string, raw any, kind instrumentKind) error {
+	entry, _ := raw.(*metricEntry) //nolint:errcheck // an unexpected entry type is reported as unknown
+	return fmt.Errorf("metric %q (existing %s, requested %s): %w", name, entryKindString(entry), kind, ErrDescriptorConflict)
 }
 
 func (r *collector) recordError(fullName string, kind instrumentKind, err error) {
