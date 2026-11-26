@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	observabilityconfig "github.com/altessa-s/go-atlas/config/observability"
 	factory "github.com/altessa-s/go-atlas/factory/observability/health"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -170,7 +171,7 @@ func TestBuildRejectsZeroWatcherSettings(t *testing.T) {
 			}
 			require.Error(t, cfg.Validate())
 			_, err := factory.New(&cfg).Build(t.Context())
-			require.ErrorContains(t, err, field)
+			require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
 		})
 	}
 }
