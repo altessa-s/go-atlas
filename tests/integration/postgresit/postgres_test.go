@@ -33,7 +33,7 @@ import (
 	"github.com/altessa-s/go-atlas/store/postgres"
 	"github.com/altessa-s/go-atlas/tests/integration/internal/livebackend"
 
-	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
+	outboxconfig "github.com/altessa-s/go-atlas/config/outbox"
 	cfg "github.com/altessa-s/go-atlas/config/postgres"
 	tlsconfig "github.com/altessa-s/go-atlas/config/tls"
 	outboxfactory "github.com/altessa-s/go-atlas/factory/reliability/outbox"
@@ -108,8 +108,8 @@ func TestPools(t *testing.T) {
 			_, err = db.ExecContext(ctx, "CREATE TABLE "+table+" (id integer PRIMARY KEY)")
 			require.NoError(t, err)
 			events := schema + ".events_outbox"
-			obConfig := &brokerconfig.Outbox{Enabled: true, Storage: &brokerconfig.OutboxStorageConfig{
-				Type: brokerconfig.OutboxStorageTypeSQL, SQL: &brokerconfig.OutboxSQLStorageConfig{Dialect: brokerconfig.SQLDialectPostgres, Table: events, EnsureSchema: true},
+			obConfig := &outboxconfig.Config{Enabled: true, Storage: &outboxconfig.Storage{
+				Type: outboxconfig.StorageTypeSQL, SQL: &outboxconfig.SQLStorage{Dialect: outboxconfig.SQLDialectPostgres, Table: events, EnsureSchema: true},
 			}}
 			eventsWriter, err := outboxfactory.New(obConfig).UseSQLDB(pools["worker"]).Build(ctx, func(context.Context, outbox.Event) error { return nil })
 			require.NoError(t, err)
