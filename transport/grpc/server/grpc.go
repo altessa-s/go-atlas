@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas-core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/internal/transport/timeouts"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 	"github.com/altessa-s/go-atlas/transport/lifecycle"
 
 	"google.golang.org/grpc"
@@ -213,7 +214,8 @@ func (s *Server) Start() (err error) {
 	}
 
 	// Prepare gRPC server options before starting
-	grpcOptions := make([]grpc.ServerOption, 0, len(s.interceptors)+len(s.grpcOptions))
+	var srv *grpc.Server
+	grpcOptions := metadata.ServerMethodOptions(func() map[string]grpc.ServiceInfo { return srv.GetServiceInfo() })
 	grpcOptions = append(grpcOptions, s.grpcOptions...)
 
 	if len(s.interceptors) > 0 {
@@ -235,7 +237,7 @@ func (s *Server) Start() (err error) {
 		return err
 	}
 
-	srv := grpc.NewServer(grpcOptions...)
+	srv = grpc.NewServer(grpcOptions...)
 	registrar.ServiceInfoProvider = srv
 	for _, service := range registrar.services {
 		srv.RegisterService(service.desc, service.impl)

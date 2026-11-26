@@ -6,6 +6,7 @@ package metadata
 
 import (
 	"context"
+	"sync"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 
@@ -52,11 +53,55 @@ func Interceptor() driver.DrivenInterceptor {
 // UnknownMethod is the telemetry name for requests to an unregistered RPC.
 const UnknownMethod = "/_unknown/Unknown"
 
+type registeredMethodsKey struct{}
+
+type registeredMethods map[string]struct{}
+
+// ServerMethodOptions installs the registered method set for metadata cache
+// admission and unknown stream classification. Pass a callback to the serving
+// server's GetServiceInfo. It is called once, on the first RPC after startup.
+// Place these options before other grpc.Chain*Interceptor options.
+func ServerMethodOptions(serviceInfo func() map[string]grpc.ServiceInfo) []grpc.ServerOption {
+	methods := sync.OnceValue(func() registeredMethods {
+		set := make(registeredMethods)
+		for service, info := range serviceInfo() {
+			for _, method := range info.Methods {
+				set["/"+service+"/"+method.Name] = struct{}{}
+			}
+		}
+		return set
+	})
+	withMethods := func(ctx context.Context) context.Context {
+		return context.WithValue(ctx, registeredMethodsKey{}, methods())
+	}
+	return []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
+			return next(withMethods(ctx), req)
+		}),
+		grpc.ChainStreamInterceptor(func(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+			return next(srv, &registeredMethodStream{ServerStream: stream, ctx: withMethods(stream.Context())})
+		}),
+	}
+}
+
+type registeredMethodStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *registeredMethodStream) Context() context.Context { return s.ctx }
+
 // ServerStreamMethod returns a bounded method name for calls dispatched
-// through grpc.UnknownServiceHandler. grpc-go passes a nil service implementation
-// and marks both streaming directions for these calls. The transport retains the
-// original path for the unknown service handler.
+// through grpc.UnknownServiceHandler. Without a registered method set, it
+// falls back to grpc-go's unknown-service dispatch convention. The transport
+// retains the original path for the unknown service handler.
 func ServerStreamMethod(srv any, ctx context.Context, info *grpc.StreamServerInfo) string {
+	if methods, ok := ctx.Value(registeredMethodsKey{}).(registeredMethods); ok {
+		if _, registered := methods[info.FullMethod]; registered {
+			return info.FullMethod
+		}
+		return UnknownMethod
+	}
 	if srv == nil && info.IsClientStream && info.IsServerStream && grpc.ServerTransportStreamFromContext(ctx) != nil {
 		return UnknownMethod
 	}

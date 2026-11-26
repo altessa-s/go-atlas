@@ -40,9 +40,13 @@ lookups; unknown and client method names are parsed without interning.
 | `EnsureInContext`         | Get-or-create pattern for server interceptors                    |
 | `EnsureInContextFromMethod`| Get-or-create pattern for client interceptors                  |
 | `Interceptor`             | Returns a DrivenInterceptor auto-prepended by Chain              |
+| `ServerMethodOptions`     | Installs the serving gRPC server's registered method set          |
 
 ## Unknown methods
 
-Calls dispatched through a custom gRPC unknown-service handler use `/_unknown/Unknown` for cached metadata and telemetry. The handler can read the
-original path via `grpc.Method`. Register bidirectional streams with a non-nil service implementation so gRPC can distinguish them from
-unknown-service calls at the interceptor boundary.
+Atlas's gRPC server installs the registered method set automatically. With a standalone `grpc.Server`, pass `ServerMethodOptions` a callback
+to the serving server's `GetServiceInfo` and add those options before other chained interceptors. Without a method set, metadata creation
+does not admit methods to the cache.
+
+The standard stream interceptor uses `/_unknown/Unknown` for calls dispatched through a custom gRPC unknown-service handler. The handler can
+read the original path via `grpc.Method`.

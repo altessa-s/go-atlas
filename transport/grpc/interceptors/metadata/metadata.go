@@ -86,18 +86,16 @@ func splitMethod(fullMethod string) (service, method string, valid bool) {
 	return trimmed, "", false
 }
 
-func canCacheServerMethod[T callerConstraint](fullMethod string, c T) bool {
-	if c == nil || fullMethod == UnknownMethod {
+func canCacheServerMethod[T callerConstraint](ctx context.Context, fullMethod string, c T) bool {
+	if c == nil {
 		return false
 	}
-	switch ct := any(c).(type) {
-	case *grpc.UnaryServerInfo:
-		return ct != nil && ct.FullMethod == fullMethod
-	case *grpc.StreamServerInfo:
-		return ct != nil && ct.FullMethod == fullMethod
-	default:
+	if _, client := any(c).(*grpc.StreamDesc); client {
 		return false
 	}
+	methods, _ := ctx.Value(registeredMethodsKey{}).(registeredMethods)
+	_, registered := methods[fullMethod]
+	return registered
 }
 
 func reserveMethodCacheSlot() bool {
@@ -129,7 +127,7 @@ func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string,
 		callMetadata.MethodName = m.method
 	} else {
 		service, method, valid := splitMethod(fullMethod)
-		if valid && canCacheServerMethod(fullMethod, c) && reserveMethodCacheSlot() {
+		if valid && canCacheServerMethod(ctx, fullMethod, c) && reserveMethodCacheSlot() {
 			entry := parsedMethod{
 				service: intern.String(service),
 				method:  intern.String(method),
