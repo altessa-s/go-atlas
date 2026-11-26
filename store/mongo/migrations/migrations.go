@@ -209,8 +209,7 @@ func rollback(
 	}
 	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), MigrationTimeout)
 	defer cancel()
-	for i := len(applied) - 1; i >= 0; i-- {
-		m := applied[i]
+	for i, m := range slices.Backward(applied) {
 		if m.Down == nil {
 			return fmt.Errorf("%w: version %d (%s)", ErrIrreversibleMigration, m.Version, m.Description)
 		}

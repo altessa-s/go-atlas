@@ -25,6 +25,11 @@ const (
 	retryJitter    = 0.2
 	releaseTimeout = 5 * time.Second
 	lockFieldOwner = "owner"
+	lockFieldID    = "_id"
+	lockFieldExp   = "expiresAt"
+	opSet          = "$set"
+	// renewDivisor is the number of heartbeats per lease.
+	renewDivisor = 3
 )
 
 // serverNow uses the database clock for lease comparisons and timestamps.
@@ -101,8 +106,8 @@ func seedDatabaseLock(ctx context.Context, collection *mongo.Collection, id stri
 // lock from each other.
 func databaseLockFilter(id string) bson.M {
 	return bson.M{
-		"_id":   id,
-		"$expr": bson.M{"$lte": bson.A{"$expiresAt", serverNow}},
+		lockFieldID: id,
+		"$expr":     bson.M{"$lte": bson.A{"$expiresAt", serverNow}},
 	}
 }
 
@@ -111,10 +116,10 @@ func databaseLockFilter(id string) bson.M {
 // $$NOW; a plain $set would have to embed the caller's clock.
 func databaseLockUpdate(owner bson.ObjectID, lease time.Duration) mongo.Pipeline {
 	return mongo.Pipeline{
-		bson.D{{Key: "$set", Value: bson.M{
+		bson.D{{Key: opSet, Value: bson.M{
 			lockFieldOwner: owner,
 			"acquiredAt":   serverNow,
-			"expiresAt":    bson.M{"$add": bson.A{serverNow, lease.Milliseconds()}},
+			lockFieldExp:   bson.M{"$add": bson.A{serverNow, lease.Milliseconds()}},
 		}}},
 	}
 }
@@ -126,8 +131,8 @@ func Release(ctx context.Context, collection *mongo.Collection, id string, owner
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseTimeout)
 	defer cancel()
 
-	filter := bson.M{"_id": id, lockFieldOwner: owner}
-	update := bson.M{"$set": bson.M{"expiresAt": time.Unix(0, 0).UTC()}, "$unset": bson.M{lockFieldOwner: ""}}
+	filter := bson.M{lockFieldID: id, lockFieldOwner: owner}
+	update := bson.M{opSet: bson.M{lockFieldExp: time.Unix(0, 0).UTC()}, "$unset": bson.M{lockFieldOwner: ""}}
 	_, err := collection.UpdateOne(releaseCtx, filter, update)
 	return err
 }
@@ -135,8 +140,8 @@ func Release(ctx context.Context, collection *mongo.Collection, id string, owner
 // Renew extends the lease of the mutex document id by lease from the server clock, while owner still holds the document. A document
 // owned by someone else, or missing, is [ErrLeaseLost].
 func Renew(ctx context.Context, collection *mongo.Collection, id string, owner bson.ObjectID, lease time.Duration) error {
-	result, err := collection.UpdateOne(ctx, bson.M{"_id": id, lockFieldOwner: owner}, mongo.Pipeline{
-		bson.D{{Key: "$set", Value: bson.M{"expiresAt": bson.M{"$add": bson.A{serverNow, lease.Milliseconds()}}}}},
+	result, err := collection.UpdateOne(ctx, bson.M{lockFieldID: id, lockFieldOwner: owner}, mongo.Pipeline{
+		bson.D{{Key: opSet, Value: bson.M{lockFieldExp: bson.M{"$add": bson.A{serverNow, lease.Milliseconds()}}}}},
 	})
 	switch {
 	case err != nil:
@@ -167,7 +172,7 @@ func hold(
 	ctx context.Context, renew func(context.Context) error, lease, budget time.Duration,
 	fn func(work context.Context, held func() bool) error,
 ) error {
-	interval := lease / 3
+	interval := lease / renewDivisor
 	workCtx, cancelWork := context.WithTimeout(ctx, budget)
 	defer cancelWork()
 
