@@ -14,6 +14,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-net/httpx"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
+	"github.com/altessa-s/go-atlas/internal/transport/respwriter"
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
 
 	coreerrs "github.com/altessa-s/go-atlas-core/errors"
@@ -104,6 +105,7 @@ func (wr *Writer) Write(w http.ResponseWriter, r *http.Request, data any) error 
 
 	// Write response (Content-Length is set automatically by http.ResponseWriter)
 	w.Header().Set(httpx.ContentType, mimeType+"; charset=utf-8")
+	respwriter.MarkStructured(w)
 	w.WriteHeader(statusCode)
 
 	// CodeQL: False positive - 'body' is a codec-encoded response structure (JSON/XML/Protobuf),
@@ -207,18 +209,15 @@ func readBodyError(err error) error {
 }
 
 // WriteError writes an error response with optional status code.
-// If no status code is provided, it defaults to 413 Request Entity Too Large
-// for [ErrBodySizeLimitExceeded] and to 500 Internal Server Error otherwise.
+// If no status code is provided, the status comes from the error's
+// [HTTPStatuser] (or the configured [Builder]), 413 Request Entity Too Large
+// for [ErrBodySizeLimitExceeded], and 500 Internal Server Error otherwise.
+// The message is resolved for the status that is sent.
 func (wr *Writer) WriteError(w http.ResponseWriter, r *http.Request, err error, statusCode ...int) error {
-	status := http.StatusInternalServerError
-	if errors.Is(err, ErrBodySizeLimitExceeded) {
-		status = http.StatusRequestEntityTooLarge
+	if len(statusCode) == 0 && errors.Is(err, ErrBodySizeLimitExceeded) {
+		statusCode = []int{http.StatusRequestEntityTooLarge}
 	}
-	if len(statusCode) > 0 {
-		status = statusCode[0]
-	}
-
-	return wr.writeError(w, r, err, status)
+	return wr.writeError(w, r, err, statusCode...)
 }
 
 // negotiateEncoder selects encoder based on Accept header.
@@ -249,11 +248,19 @@ func (wr *Writer) negotiateEncoder(r *http.Request) (codec.Encoder, string, erro
 
 // writeError writes error response with fallback handling.
 func (wr *Writer) writeError(w http.ResponseWriter, r *http.Request, err error, sc ...int) error {
-	// Build error response
-	errorResponse, statusCode := wr.options.responseBuilder.Build(r, err)
-
+	// Build the error response; an explicit status is part of what the
+	// builder sees, so the message is resolved for the status that is sent.
+	override := 0
 	if len(sc) > 0 && sc[0] > 0 {
-		statusCode = sc[0]
+		override = sc[0]
+		// A nil error stays nil: handlers report a bare status that way.
+		if err != nil {
+			err = statusOverride{error: err, status: override}
+		}
+	}
+	errorResponse, statusCode := wr.options.responseBuilder.Build(r, err)
+	if override > 0 {
+		statusCode = override
 	}
 
 	// Get encoder
@@ -278,6 +285,7 @@ func (wr *Writer) writeError(w http.ResponseWriter, r *http.Request, err error, 
 
 	// Write error response (Content-Length is set automatically)
 	w.Header().Set(httpx.ContentType, mimeType+"; charset=utf-8")
+	respwriter.MarkStructured(w)
 	w.WriteHeader(statusCode)
 	// CodeQL: False positive - 'body' is an encoded error response structure, not user input.
 	// The responseBuilder.Build() method creates a controlled error structure that explicitly
@@ -419,3 +427,13 @@ func (rw *readWriter) release() {
 	rw.writer = nil
 	readWriterPool.Put(rw)
 }
+
+// statusOverride gives err the HTTP status the caller asked for, so a builder
+// that reads [HTTPStatuser] resolves the status and the message together.
+type statusOverride struct {
+	error
+	status int
+}
+
+func (e statusOverride) HTTPStatus() int { return e.status }
+func (e statusOverride) Unwrap() error   { return e.error }

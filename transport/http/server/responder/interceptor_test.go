@@ -5,11 +5,14 @@
 package responder
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/transport/respwriter"
 )
 
 func TestErrorInterceptor_PassThrough(t *testing.T) {
@@ -108,3 +111,82 @@ func TestErrorInterceptor_Hijack_NotSupported(t *testing.T) {
 	_, _, err := ei.Hijack()
 	require.Error(t, err)
 }
+
+func TestErrorInterceptor_LargeErrorBodyIsBounded(t *testing.T) {
+	t.Parallel()
+
+	const limit = 64 << 10
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/fail", nil)
+	w := &mockErrorWriter{}
+	ei := NewErrorInterceptor(rec, req, w)
+
+	ei.WriteHeader(http.StatusBadGateway)
+	chunk := make([]byte, 32<<10)
+	for i := range chunk {
+		chunk[i] = 'x'
+	}
+	for range 320 { // 10 MiB
+		n, err := ei.Write(chunk)
+		require.NoError(t, err)
+		require.Equal(t, len(chunk), n, "the handler sees every byte accepted")
+	}
+	ei.Finish()
+
+	require.NotNil(t, w.err)
+	require.LessOrEqual(t, len(w.err.Error()), limit, "the diagnostic text is bounded")
+	require.Greater(t, len(w.err.Error()), 0)
+}
+
+func TestErrorInterceptor_MarkedResponsePassesThrough(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/fail", nil)
+	w := &mockErrorWriter{}
+	ei := NewErrorInterceptor(rec, req, w)
+
+	respwriter.MarkStructured(ei)
+	ei.WriteHeader(http.StatusNotFound)
+	_, err := ei.Write([]byte(`{"error":{}}`))
+	require.NoError(t, err)
+	ei.Finish()
+
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.JSONEq(t, `{"error":{}}`, rec.Body.String())
+	require.False(t, w.called, "an already structured response is not rewritten")
+}
+
+func TestErrorInterceptor_FirstFinalStatusWins(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/fail", nil)
+	w := &mockErrorWriter{}
+	ei := NewErrorInterceptor(rec, req, w)
+
+	ei.WriteHeader(http.StatusEarlyHints)
+	ei.WriteHeader(http.StatusNotFound)
+	ei.WriteHeader(http.StatusServiceUnavailable)
+	ei.Finish()
+
+	require.True(t, w.called)
+	require.Equal(t, http.StatusNotFound, w.status)
+}
+
+func TestErrorInterceptor_FailedFlushCommits(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest("GET", "/stream", nil)
+	w := &mockErrorWriter{}
+	ei := NewErrorInterceptor(failFlush{httptest.NewRecorder()}, req, w)
+
+	require.Error(t, ei.FlushError())
+	ei.WriteHeader(http.StatusInternalServerError)
+	ei.Finish()
+	require.False(t, w.called, "the status was committed; a later error is not rewritten")
+}
+
+type failFlush struct{ *httptest.ResponseRecorder }
+
+func (failFlush) FlushError() error { return errors.New("broken pipe") }

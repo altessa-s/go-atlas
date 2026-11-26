@@ -24,5 +24,7 @@ type Error struct {
 
 // ErrorConverter converts a Go error into a structured [Error] with an HTTP status code.
 // Return status code 0 to use the default (500 Internal Server Error).
+// The error may be wrapped (an explicit status passed to [Writer.WriteError] wraps it),
+// so inspect it with [errors.As], not a type assertion.
 // Set it on the [Default] builder via [WithDefaultBuilderErrorConverter].
 type ErrorConverter func(error) (Error, int)

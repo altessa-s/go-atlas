@@ -25,7 +25,10 @@ Direct callers of `NewReadWriter` defer its cleanup function. Server handlers re
 
 `Read` caps the request body at `DefaultMaxBodySize` (4 MiB). A declared `Content-Length` over the cap is rejected before anything is read; a chunked or
 understated body is cut off one byte past it. Overflow returns `ErrBodySizeLimitExceeded`, also when an upstream `http.MaxBytesReader` (the `bodylimit`
-middleware) trips first, and `WriteError` without an explicit status answers it with 413 Request Entity Too Large.
+middleware) trips first, and `WriteError` without an explicit status answers it with 413 Request Entity Too Large. Without an explicit status
+`WriteError` uses the error's `HTTPStatus()`; the message is resolved for the status that is sent (`errors.New("x")` with 404 answers "Not Found").
+An `ErrorConverter` receives, when an explicit status is passed, the error wrapped in a value that carries that status: inspect it with
+`errors.As`, never with a type assertion or switch on the concrete type. A nil error stays nil. `WriteStreamWithFlush` flushes through `http.NewResponseController`, so it works behind middleware wrappers.
 
 | Option                                | Effect                                            |
 |---------------------------------------|---------------------------------------------------|

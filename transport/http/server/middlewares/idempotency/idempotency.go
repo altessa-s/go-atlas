@@ -18,7 +18,6 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/encoding/keys"
 	"github.com/altessa-s/go-atlas-core/io/spool"
-	"github.com/altessa-s/go-atlas-core/text/strings/intern"
 	"github.com/altessa-s/go-atlas/internal/diagnostics"
 	"github.com/altessa-s/go-atlas/reliability/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
@@ -168,7 +167,8 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 }
 
 // finalize ends the lifecycle of the key locked for r: a 2xx response
-// completes it, any other response or a handler panic releases it. It runs
+// completes it, also when the handler panicked after sending it; any other
+// response or a panic before one releases it. It runs
 // under internalidem.FinalizeContext, so a client that disconnected does not
 // leave the key in progress until the lock expires.
 func (m *middleware) finalize(
@@ -177,11 +177,18 @@ func (m *middleware) finalize(
 	ctx, cancel := internalidem.FinalizeContext(r.Context())
 	defer cancel()
 
-	if !panicked && sw.StatusCode() >= http.StatusOK && sw.StatusCode() < http.StatusMultipleChoices {
+	// A 2xx status that reached the client means the handler's effect took
+	// place, even when it then panicked: the key completes, without a response
+	// to replay because the body may be cut off. A panic before that, or any
+	// other status, releases the key.
+	// A handler that returns without writing sends an implicit 200.
+	committed := !panicked || sw.HeadersWritten()
+	succeeded := committed && (sw.Hijacked() || sw.StatusCode() >= http.StatusOK && sw.StatusCode() < http.StatusMultipleChoices)
+	if succeeded {
 		// ErrLockStolen here means the lock TTL expired during processing
 		// and another node took over — our result is dropped rather than
 		// overwriting the new holder's state.
-		if err := m.i.Complete(ctx, storageKey, m.completionData(r, sw), lockState); err != nil {
+		if err := m.i.Complete(ctx, storageKey, m.completionData(r, sw, panicked), lockState); err != nil {
 			m.LogWarn(ctx, "idempotency key not completed", r.URL.Path, nil,
 				slog.String("classification", diagnostics.ErrorClass(err)), slog.String("method", r.Method))
 		}
@@ -235,7 +242,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 		return "", nil, errIdempotencyKeyInvalidFormat
 	}
 
-	storageKey := m.buildKey(r.Method, path, idempotencyKey)
+	storageKey := m.buildKey(r.Method, r.URL.EscapedPath(), idempotencyKey)
 
 	m.LogDebug(ctx, "checking idempotency key", path,
 		m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
@@ -322,10 +329,11 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 // existed; with it an internalidem.Record holding the entity ID and, when the
 // whole body was captured and is no larger than maxReplaySize, the status,
 // the replay headers and the body (otherwise no response, so a repeat is
-// refused as already used).
-func (m *middleware) completionData(r *http.Request, sw *middlewares.ResponseWriter) any {
+// refused as already used). A panicked handler's response is committed but
+// possibly cut off, so it never carries one.
+func (m *middleware) completionData(r *http.Request, sw *middlewares.ResponseWriter, panicked bool) any {
 	var entityID string
-	if m.opts.entityIdExtractor != nil {
+	if m.opts.entityIdExtractor != nil && !panicked {
 		entityID = m.opts.entityIdExtractor(r, sw.Header().Get("Content-Type"), sw.Body())
 	}
 	if !m.opts.responseReplay {
@@ -333,7 +341,7 @@ func (m *middleware) completionData(r *http.Request, sw *middlewares.ResponseWri
 	}
 	record := internalidem.NewRecord(entityID, replayBinding(r))
 	body := sw.Body()
-	if sw.WriteError() == nil && sw.BytesWritten() == int64(len(body)) && int64(len(body)) <= m.opts.maxReplaySize {
+	if !panicked && sw.WriteError() == nil && sw.BytesWritten() == int64(len(body)) && int64(len(body)) <= m.opts.maxReplaySize {
 		record.Status = sw.StatusCode()
 		record.Header = m.filterReplayHeaders(sw.Header())
 		record.Body = bytes.Clone(body)
@@ -357,8 +365,10 @@ func (m *middleware) filterReplayHeaders(h http.Header) map[string][]string {
 }
 
 // replayBinding names the operation of r a stored response belongs to: its
-// method and path.
-func replayBinding(r *http.Request) string { return r.Method + " " + r.URL.Path }
+// method and escaped path. The escaped path tells apart requests a router
+// dispatches differently although their decoded paths coincide ("/a%2Fb" and
+// "/a/b").
+func replayBinding(r *http.Request) string { return r.Method + " " + r.URL.EscapedPath() }
 
 // replay writes the response stored in record — its replay headers, status
 // and body — and reports whether it did. A record without a stored 2xx
@@ -425,7 +435,7 @@ func (m *middleware) requestFingerprint(r *http.Request) ([]byte, error) {
 		}
 		r.Body = sp
 	}
-	return keys.Digest([]byte(r.Method), []byte(r.URL.Path), []byte(r.URL.RawQuery), bodyHash.Sum(nil)), nil
+	return keys.Digest([]byte(r.Method), []byte(r.URL.EscapedPath()), []byte(r.URL.RawQuery), bodyHash.Sum(nil)), nil
 }
 
 // keyLogHashLength is the number of hex characters of the SHA-256 digest kept
@@ -479,7 +489,7 @@ var errIdempotencyKeyInvalidFormat = http.ErrAbortHandler
 // length-prefixed v2 format. For HTTP, service is represented as {method}:/{path}.
 // Example: idk:v2:9:transport18:POST:/api/v1/users36:550e8400-e29b-41d4-a716-446655440000
 func (m *middleware) buildKey(method, path, idempotencyKey string) string {
-	path = intern.String(strings.TrimPrefix(path, "/"))
+	path = strings.TrimPrefix(path, "/")
 	return idempotency.ComposeKey("transport", method+":/"+path, idempotencyKey)
 }
 

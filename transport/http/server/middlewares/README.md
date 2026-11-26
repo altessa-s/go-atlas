@@ -86,6 +86,7 @@ Every chainable middleware sub-package exports two package-level identification 
 
 `NewResponseWriter` provides the shared response recorder used by metrics and driven middleware. Call `Release` after use. It forwards informational
 headers, records the final status, and counts bytes accepted by the underlying writer, including partial writes. `HeadersWritten` reports a committed
-final response; `WriteError` exposes the first body write failure. Failed or truncated captures must not be replayed as complete responses.
+final response; `WriteError` exposes the first body write failure. The recorder forwards `Flush`, `FlushError`, `Hijack` and `Push`, and a flush
+commits the implicit 200 so the recorded status always matches what the client received. Failed or truncated captures must not be replayed as complete responses.
 
 `BoundedMethod` maps standard HTTP methods to their names and all other methods to `OTHER` for observability.
