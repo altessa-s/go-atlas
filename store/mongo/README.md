@@ -39,7 +39,7 @@ structured logging.
 | `WithMeter`                       | no-op             | Metrics collector for MongoDB operations                               |
 | `WithConverterOptions`            | --                | Extra `converter.Option`s threaded into `GetEntity`/`GetEntities`      |
 | `WithDeduplicationIdentity`       | nil               | Per-context identity segment for the read singleflight key (see below) |
-| `WithRollbackMigrationsOnFailure` | off               | Roll back every applied migration when one fails (see Migrations)      |
+| `WithRollbackMigrationsOnFailure` | off               | Roll back this run's applied migrations when one fails (see Migrations) |
 
 ## Write documents
 
@@ -328,7 +328,7 @@ To populate the default registry, register migrations from an `init` function wi
 
 ```go
 func init() {
-    migrations.MustRegisterMigration(5, "orders_backfill_status", backfillStatus, nil) // nil down: kept on rollback
+    migrations.MustRegisterMigration(5, "orders_backfill_status", backfillStatus, nil) // nil down: irreversible, rollback stops here
 }
 ```
 
@@ -343,7 +343,7 @@ Versions are stored in the same `migrations` collection and format (`{version, d
 registries fails `Connect` with `migrations.ErrInvalidMigration`.
 
 `Connect` applies all pending migrations before returning. When one fails, `Connect` returns its error and the migrations applied before
-it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back every migration — the whole schema, idempotency indexes included. The underlying
+it stay applied; `WithRollbackMigrationsOnFailure` instead rolls back the steps this run applied, newest first, while the lease is held; earlier runs' steps are never touched and a step registered with a nil `down` is irreversible (`migrations.ErrIrreversibleMigration`). The underlying
 library reads the current schema version and writes the new one with nothing in between, so two replicas starting together would both read version N and
 both run migration N+1. Migration bodies are arbitrary code rather than idempotent DDL, so running one twice is not generally safe.
 
@@ -359,9 +359,10 @@ there as version 0.
 
 Waiters block rather than skip: once the holder finishes, the next waiter acquires the lock, re-reads the version, and finds nothing left to apply. The
 lease is compared against the server clock (`$$NOW`), so replicas with drifted clocks cannot steal a live lock. The lease equals
-`migrations.MigrationTimeout`,
-which also caps the holder's work context once the lock is taken; cancellation is cooperative, so a migration that ignores its context can outlive the
-lease.
+`migrations.MigrationTimeout`; a heartbeat renews it every third of a lease until the work returns, counting validity from the send time of the last
+renewal minus a margin. The same value caps the work context. When the budget ends, a step that ignores its context keeps the lease and is still
+recorded in the ledger when it returns; when the lease is lost (a renewal finds it taken, or none succeeded in time) the work is canceled, no
+rollback runs and no ledger record is written.
 
 This is a TTL lock, not a fencing one: it bounds the damage from a crashed holder, but the `mongo-migrate` API offers no place to carry a fencing token.
 For deployments that want concurrency gone as a class, run migrations from a dedicated deploy step (init container, Job) and keep the lock as the

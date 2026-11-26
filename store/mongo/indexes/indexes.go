@@ -126,14 +126,17 @@ func recreateMismatched(ctx context.Context, coll *mongo.Collection, models []mo
 	}
 	defer func() { _ = databaselock.Release(ctx, locks, id, owner) }() //nolint:errcheck // best effort: the lease bounds a failed release
 
-	workCtx, workCancel := corecontext.WithMaxTimeout(ctx, IndexLockLease)
-	defer workCancel()
-	for i, model := range models {
-		if err := reconcileIndex(workCtx, coll, model, names[i]); err != nil {
-			return err
+	// The lease is renewed until the work returns; the work context keeps the IndexLockLease budget and is canceled only when a
+	// renewal fails.
+	//nolint:contextcheck // the lease carries the work and scope contexts
+	return databaselock.Hold(ctx, locks, id, owner, IndexLockLease, IndexLockLease, func(l *databaselock.Lease) error {
+		for i, model := range models {
+			if err := reconcileIndex(l.Work(), coll, model, names[i]); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // reconcileIndex creates model (named name), replacing an existing index of that name whose specification differs.

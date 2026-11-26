@@ -128,10 +128,9 @@ type config struct {
 	// WithMigrationRegistry selects the migrations Connect applies. The default includes init-registered and legacy migrations.
 	migrationRegistry *migrations.Registry
 
-	// RollbackMigrationsOnFailure makes a failed migration run roll back every
-	// applied migration (migrate.Down to the beginning). Off by default: a full
-	// rollback drops the whole schema — idempotency indexes included — because
-	// of one failing step, which is rarely what a running service wants.
+	// RollbackMigrationsOnFailure makes a failed migration run roll back the steps that run applied, newest first, while the
+	// lease is still held. Steps applied by earlier runs are never touched, and rollback stops at a migration registered without a
+	// down step. Off by default.
 	RollbackMigrationsOnFailure bool
 
 	// Meter provides Prometheus-compatible metrics for MongoDB operations.

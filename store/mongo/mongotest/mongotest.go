@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
+	"github.com/altessa-s/go-atlas/internal/testdbname"
 	"github.com/altessa-s/go-atlas/store/mongo/bsoncodec"
 
 	datamongo "github.com/altessa-s/go-atlas/store/mongo"
@@ -23,9 +24,6 @@ import (
 
 // teardownTimeout bounds the drop-and-close cleanup.
 const teardownTimeout = 30 * time.Second
-
-// databaseSuffixBytes is the entropy of the throwaway database name suffix (8 hex digits).
-const databaseSuffixBytes = 4
 
 // New returns a connected [datamongo.Mongo] bound to a throwaway database named <prefix><creation time>_<8 random hex digits> (the
 // creation time is 8 hex digits of Unix seconds), and registers a cleanup that drops the database and closes the connection. The
@@ -54,7 +52,7 @@ func New(tb testing.TB, opts ...Option) *datamongo.Mongo {
 		tb.Fatalf("mongotest: connect mongo: %v", err)
 	}
 	sweepStale(tb, client, uri, o.databasePrefix, o.staleAge)
-	m, err := datamongo.New(databaseName(o.databasePrefix, time.Now()), datamongo.WithClient(client))
+	m, err := datamongo.New(testdbname.New(o.databasePrefix, time.Now()), datamongo.WithClient(client))
 	if err == nil {
 		err = m.Connect(tb.Context())
 	}

@@ -25,27 +25,30 @@ func TestTrackerBoundsCollectionDepth(t *testing.T) {
 		name       string
 		makeRecord func(int) record
 		path       string
+		limited    string
 	}{
 		{
 			name: "nested maps",
 			makeRecord: func(n int) record {
 				return record{map[string]any{"items": map[string]int{"value": n}}}
 			},
-			path: "items[items][value]",
+			path:    "items[items][value]",
+			limited: "items[items]",
 		},
 		{
 			name: "nested slices",
 			makeRecord: func(n int) record {
 				return record{[]any{[]int{n}}}
 			},
-			path: "items[0][0]",
+			path:    "items[0][0]",
+			limited: "items[0]",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			before, after := tc.makeRecord(1), tc.makeRecord(2)
-			require.Empty(t, fieldtracker.GetChangedFields(before, after, fieldtracker.WithMaxDepth(1)))
+			require.Equal(t, []string{tc.limited}, fieldtracker.GetChangedFields(before, after, fieldtracker.WithMaxDepth(1)))
 			require.Equal(t, []string{tc.path}, fieldtracker.GetChangedFields(before, after, fieldtracker.WithMaxDepth(2)))
 		})
 	}

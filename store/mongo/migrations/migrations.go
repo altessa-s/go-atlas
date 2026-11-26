@@ -35,6 +35,14 @@ const (
 // by [Run] when a version is registered both with [RegisterMigration] and with the mongo-migrate global registry.
 var ErrInvalidMigration = errors.New("mongo: invalid migration")
 
+// ErrIrreversibleMigration is returned (joined with the original failure) when automatic rollback reaches a migration registered
+// without a down step: rollback stops there and the step stays applied.
+var ErrIrreversibleMigration = errors.New("mongo: irreversible migration")
+
+// ErrLeaseLost is returned (joined with the work's own result) when the migration lease could not be renewed: the work was canceled and
+// no rollback ran.
+var ErrLeaseLost = databaselock.ErrLeaseLost
+
 // MigrationFunc is one step of a migration, run against the client's database.
 type MigrationFunc func(ctx context.Context, db *mongo.Database) error
 
@@ -46,7 +54,8 @@ type Migration struct {
 	Description string
 	// Up applies the migration.
 	Up MigrationFunc
-	// Down reverts it on rollback (WithRollbackOnFailure); a no-op when registered as nil.
+	// Down reverts it on rollback (WithRollbackOnFailure); registered as nil, the migration is irreversible and rollback stops there
+	// with [ErrIrreversibleMigration].
 	Down MigrationFunc
 }
 
@@ -64,7 +73,8 @@ type Registry struct {
 // The version is explicit, unlike the mongo-migrate global registry that derives it from the caller's file name, and is stored in the
 // same "migrations" collection and format ({version, description, timestamp}), so a migration applied earlier through mongo-migrate
 // under the same version never runs again. Version 0 (which the collection reads as "nothing applied"), a nil up and a version already
-// registered are rejected with [ErrInvalidMigration]; a nil down is a no-op that keeps the migration's result on rollback.
+// registered are rejected with [ErrInvalidMigration]; a nil down makes the migration irreversible: rollback stops at it with
+// [ErrIrreversibleMigration] and keeps its result.
 func RegisterMigration(version uint64, description string, up, down MigrationFunc) error {
 	return migrationRegistry.Register(version, description, up, down)
 }
@@ -78,7 +88,9 @@ func (r *Registry) Register(version uint64, description string, up, down Migrati
 		return fmt.Errorf("%w: version %d has no up step", ErrInvalidMigration, version)
 	}
 	if down == nil {
-		down = func(context.Context, *mongo.Database) error { return nil }
+		down = func(context.Context, *mongo.Database) error {
+			return fmt.Errorf("%w: version %d (%s)", ErrIrreversibleMigration, version, description)
+		}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -136,9 +148,13 @@ func mergeMigrations(global []migrate.Migration, typed []Migration) ([]migrate.M
 
 // Run applies registered migrations to db under the database-wide lease.
 // Without [WithRegistry], it merges the default and legacy registries and rejects
-// duplicate versions. Earlier successful steps remain applied on
-// failure. WithRollbackOnFailure opts into rolling back all applied steps.
-// Waiting and work have separate budgets, both bounded by ctx.
+// duplicate versions. Earlier successful steps remain applied on failure.
+// WithRollbackOnFailure opts into rolling back the steps applied by this run, newest first, only after the ledger version is
+// reconciled with the steps this run recorded, with the lease verified, and with every revert and ledger write bound to the lease;
+// steps applied by earlier runs are never touched, the failed step's own down is not invoked, and rollback stops at a migration
+// without a down step with [ErrIrreversibleMigration]. The result then joins the original failure with the rollback error.
+// Waiting and work have separate budgets, both bounded by ctx. The lease is renewed until the work returns, so a step that ignores
+// its context never overlaps a successor; a step that returns after the work budget is still recorded in the ledger, under the lease.
 func Run(ctx context.Context, db *mongo.Database, opts ...Option) error {
 	o := newOptions(opts...)
 	migrations, err := o.pendingMigrations()
@@ -152,21 +168,126 @@ func Run(ctx context.Context, db *mongo.Database, opts ...Option) error {
 	runner := migrate.NewMigrate(db, migrations...)
 	runner.SetMigrationsCollection(MigrationCollectionName)
 
-	return withMigrationLock(ctx, db, o.logger, func(ctx context.Context) error {
-		if err := runner.Up(ctx, migrate.AllAvailable); err != nil {
-			if !o.rollbackOnFailure {
-				return err
-			}
-			if rollbackErr := runner.Down(ctx, migrate.AllAvailable); rollbackErr != nil {
-				if o.logger != nil {
-					o.logger.Warn("failed to rollback migrations", slog.Any("error", err), "rollback_error", rollbackErr)
-				}
-			}
+	return withMigrationLock(ctx, db, o.logger, func(l *databaselock.Lease) error { //nolint:contextcheck // the lease carries the work and scope contexts
+		start, startDescription, err := runner.Version(l.Work())
+		if err != nil {
 			return err
 		}
+		pending := slices.DeleteFunc(slices.Clone(migrations), func(m migrate.Migration) bool {
+			return m.Version <= start || m.Up == nil
+		})
+		slices.SortFunc(pending, func(a, b migrate.Migration) int { return cmp.Compare(a.Version, b.Version) })
 
+		r := run{db: db, runner: runner, lease: l, logger: o.logger, start: start, startDescription: startDescription}
+		for _, m := range pending {
+			if err := r.apply(m); err != nil {
+				if !o.rollbackOnFailure {
+					return err
+				}
+				return errors.Join(err, r.rollback())
+			}
+		}
 		return nil
 	})
+}
+
+// run is the state of one migration run under a lease.
+type run struct {
+	db               *mongo.Database
+	runner           *migrate.Migrate
+	lease            *databaselock.Lease
+	logger           *slog.Logger
+	start            uint64
+	startDescription string
+	// applied holds the steps this run applied and recorded, oldest first.
+	applied []migrate.Migration
+}
+
+// apply runs one step on the work context, then records it in the ledger on the lease scope: a step that returned after the work
+// budget ended is recorded, not replayed by the next run, and the record never outlives the lease.
+func (r *run) apply(m migrate.Migration) error {
+	if err := r.lease.Work().Err(); err != nil {
+		return err
+	}
+	if err := m.Up(r.lease.Work(), r.db); err != nil {
+		return err
+	}
+	if !r.lease.Held() {
+		return databaselock.ErrLeaseLost
+	}
+	if err := r.runner.SetVersion(r.lease.Scope(), m.Version, m.Description); err != nil {
+		// The insert may have been committed without its acknowledgement: the ledger decides.
+		version, _, readErr := r.runner.Version(r.lease.Scope())
+		if readErr != nil {
+			return fmt.Errorf("record version %d: %w", m.Version, errors.Join(err, readErr))
+		}
+		if version != m.Version {
+			return fmt.Errorf("record version %d: %w", m.Version, err)
+		}
+	}
+	r.applied = append(r.applied, m)
+	return nil
+}
+
+// current is the version the ledger should hold after the steps recorded so far.
+func (r *run) current() (uint64, string) {
+	if len(r.applied) == 0 {
+		return r.start, r.startDescription
+	}
+	last := r.applied[len(r.applied)-1]
+	return last.Version, last.Description
+}
+
+// rollback reverts the steps this run applied, newest first. It runs only when ownership is verified with the server and the ledger
+// holds exactly the version this run recorded last, so an ambiguous write or a foreign record stops it before any down. Every revert
+// runs on the lease scope (canceled the moment the lease is lost) under a fresh bounded context, and the lease is re-checked before
+// every ledger write.
+func (r *run) rollback() error {
+	if len(r.applied) == 0 {
+		return nil
+	}
+	scope, cancel := context.WithTimeout(r.lease.Scope(), MigrationTimeout)
+	defer cancel()
+	if err := r.lease.Verify(scope); err != nil {
+		r.warn("migration rollback skipped: lease not verified", err)
+		return fmt.Errorf("rollback skipped: %w", databaselock.ErrLeaseLost)
+	}
+	want, _ := r.current()
+	version, _, err := r.runner.Version(scope)
+	if err != nil {
+		return fmt.Errorf("rollback skipped, ledger version unknown: %w", err)
+	}
+	if version != want {
+		return fmt.Errorf("rollback skipped: ledger version is %d, this run recorded %d", version, want)
+	}
+	for i, m := range slices.Backward(r.applied) {
+		if m.Down == nil {
+			return fmt.Errorf("%w: version %d (%s)", ErrIrreversibleMigration, m.Version, m.Description)
+		}
+		if !r.lease.Held() {
+			return databaselock.ErrLeaseLost
+		}
+		if err := m.Down(scope, r.db); err != nil {
+			return fmt.Errorf("rollback version %d: %w", m.Version, err)
+		}
+		prevVersion, prevDescription := r.start, r.startDescription
+		if i > 0 {
+			prevVersion, prevDescription = r.applied[i-1].Version, r.applied[i-1].Description
+		}
+		if !r.lease.Held() {
+			return databaselock.ErrLeaseLost
+		}
+		if err := r.runner.SetVersion(scope, prevVersion, prevDescription); err != nil {
+			return fmt.Errorf("record version %d after rollback: %w", prevVersion, err)
+		}
+	}
+	return nil
+}
+
+func (r *run) warn(msg string, err error) {
+	if r.logger != nil {
+		r.logger.Warn(msg, "error", err)
+	}
 }
 
 // LockID identifies the database-wide migration lease.
@@ -175,7 +296,7 @@ const LockID = "migrations"
 // LockWaitTimeout bounds waiting independently of the migration work budget.
 const LockWaitTimeout = 30 * time.Second
 
-func withMigrationLock(ctx context.Context, db *mongo.Database, logger *slog.Logger, fn func(context.Context) error) error {
+func withMigrationLock(ctx context.Context, db *mongo.Database, logger *slog.Logger, fn func(*databaselock.Lease) error) error {
 	collection := db.Collection(databaselock.CollectionName)
 	owner := bson.NewObjectID()
 	acquireCtx, cancel := corecontext.WithMaxTimeout(ctx, LockWaitTimeout)
@@ -188,7 +309,5 @@ func withMigrationLock(ctx context.Context, db *mongo.Database, logger *slog.Log
 			logger.Warn("failed to release migration lock", "error", err, "collection", databaselock.CollectionName)
 		}
 	}()
-	workCtx, workCancel := corecontext.WithMaxTimeout(ctx, MigrationTimeout)
-	defer workCancel()
-	return fn(workCtx)
+	return databaselock.Hold(ctx, collection, LockID, owner, MigrationTimeout, MigrationTimeout, fn)
 }

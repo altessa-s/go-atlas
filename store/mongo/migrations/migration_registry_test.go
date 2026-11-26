@@ -49,8 +49,8 @@ func TestRegisterMigration(t *testing.T) { //nolint:paralleltest // swaps the pr
 	require.Equal(t, "first", got[0].Description)
 	require.Equal(t, uint64(3), got[1].Version)
 	require.Equal(t, "third", got[1].Description)
-	require.NotNil(t, got[1].Down, "a nil down becomes a no-op")
-	require.NoError(t, got[1].Down(t.Context(), nil))
+	require.NotNil(t, got[1].Down, "a nil down becomes the irreversible sentinel")
+	require.ErrorIs(t, got[1].Down(t.Context(), nil), ErrIrreversibleMigration)
 
 	got[0].Description = "mutated"
 	require.Equal(t, "first", RegisteredMigrations()[0].Description, "callers get a copy")
@@ -92,4 +92,20 @@ func TestInjectedRegistry(t *testing.T) {
 	for _, m := range RegisteredMigrations() {
 		require.NotEqual(t, "private", m.Description)
 	}
+}
+
+// TestRegistryConformance is the registry rules table shared, verbatim, with store/postgres/migrations: a nil down is the irreversible
+// sentinel, a version below 1 and a version registered twice are rejected, a nil up is rejected.
+func TestRegistryConformance(t *testing.T) {
+	t.Parallel()
+
+	var r Registry
+	require.ErrorIs(t, r.Register(0, "zero", noopMigration, noopMigration), ErrInvalidMigration)
+	require.ErrorIs(t, r.Register(1, "no up", nil, noopMigration), ErrInvalidMigration)
+	require.NoError(t, r.Register(1, "nil down", noopMigration, nil))
+	require.ErrorIs(t, r.Register(1, "duplicate", noopMigration, noopMigration), ErrInvalidMigration)
+
+	got := r.Registered()
+	require.Len(t, got, 1)
+	require.ErrorIs(t, got[0].Down(t.Context(), nil), ErrIrreversibleMigration)
 }

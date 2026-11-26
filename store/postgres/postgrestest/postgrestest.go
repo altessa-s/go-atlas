@@ -11,7 +11,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/url"
 	"os"
 	"regexp"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/altessa-s/go-atlas-core/types/redacted"
 	"github.com/altessa-s/go-atlas/internal/sqldialect"
+	"github.com/altessa-s/go-atlas/internal/testdbname"
 	"github.com/altessa-s/go-atlas/store/postgres"
 
 	coreretry "github.com/altessa-s/go-atlas-core/retry"
@@ -34,7 +34,6 @@ const (
 	heartbeatTimeout      = 5 * time.Second
 	readinessPollInterval = 250 * time.Millisecond
 	teardownPollInterval  = 25 * time.Millisecond
-	databaseSuffixBytes   = 4
 	maxIdentifier         = 63
 )
 
@@ -78,7 +77,7 @@ func New(tb testing.TB, opts ...Option) *sql.DB {
 		check(tb, "sweep stale databases", dropStale(ctx, admin, o.databasePrefix, now.Add(-o.staleAge)))
 	}
 
-	name := databaseName(o.databasePrefix, now)
+	name := testdbname.New(o.databasePrefix, now)
 	owned, err := createOwned(ctx, admin, name)
 	check(tb, "create and mark "+name, err)
 	// Only a confirmed COMMENT transfers ownership to the cleanup.
@@ -261,14 +260,6 @@ func withDatabase(dsn, name string) string {
 		}
 	}
 	return dsn + " dbname=" + name
-}
-
-// databaseName returns a throwaway database name: the prefix, the creation time as 8 hex digits of Unix seconds, an underscore and
-// 8 random hex digits.
-func databaseName(prefix string, now time.Time) string {
-	suffix := make([]byte, databaseSuffixBytes)
-	_, _ = rand.Read(suffix)
-	return fmt.Sprintf("%s%08x_%s", prefix, now.Unix(), hex.EncodeToString(suffix))
 }
 
 // quoteIdent quotes a PostgreSQL identifier.
