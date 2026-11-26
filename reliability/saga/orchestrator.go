@@ -135,6 +135,9 @@ func New[T any](store Storage, def *Definition[T], opts ...Option) *Orchestrator
 		onDeadLetter:            cfg.onDeadLetter,
 		shouldRetry:             cfg.shouldRetry,
 	}
+	if def.name == "" && !cfg.retentionSet {
+		o.retention = 0 // The default window needs a name; see ErrEmptyDefinitionName.
+	}
 	o.recoveryTask = cycle.New(o.runRecoveryCycleInternal)
 	o.retentionTask = cycle.New(o.runRetentionCycleInternal)
 

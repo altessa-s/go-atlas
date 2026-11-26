@@ -228,7 +228,6 @@ func Update(t *testing.T, store saga.Storage) {
 	require.NoError(t, err)
 	stale := cur.Clone()
 
-	cur.Definition = "place-order-v2"
 	cur.CreatedAt = base.Add(-time.Hour)
 	cur.Status = saga.StatusCompensating
 	cur.Stage = 1

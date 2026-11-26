@@ -30,7 +30,11 @@ func TestDefault(t *testing.T) {
 	require.NotNil(t, c.Storage.Memory)
 	require.Equal(t, 3, c.MaxStepAttempts)
 	require.Empty(t, c.RecoveryTaskID)
+	require.Equal(t, 30*24*time.Hour, c.Retention, "retention is on by default")
 	require.NoError(t, c.Validate())
+
+	c.Retention = 0
+	require.NoError(t, c.Validate(), "zero disables retention explicitly")
 }
 
 func TestConfig_Validate(t *testing.T) {

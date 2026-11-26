@@ -43,6 +43,10 @@ const (
 	// recovery cycle; the definition name follows it, so orchestrators of
 	// different definitions never share a task.
 	RecoveryTaskIDPrefix = "saga-recovery-"
+	// DefaultRetention is how long a terminal instance is kept after its last
+	// update before the retention cycle deletes it: 30 days. Pass
+	// WithRetention(0) to keep terminal instances forever.
+	DefaultRetention = 30 * 24 * time.Hour
 	// DefaultRetentionSchedule is the cron expression used to register the
 	// retention cycle with a scheduler.
 	DefaultRetentionSchedule = "@every 1h"
@@ -92,8 +96,13 @@ type options struct {
 	recoveryTaskID    string // "" → RecoveryTaskIDPrefix + definition name
 
 	// retention is how long a terminal instance is kept after its last update
-	// before the retention cycle deletes it; 0 disables retention.
-	retention          time.Duration
+	// before the retention cycle deletes it. WithRetention(0) disables
+	// retention; a negative value is ignored. The default applies to named
+	// definitions only: retentionSet records an explicit call.
+	retention time.Duration `optcheck:"min=0" optgen:"default=DefaultRetention,onfail=skip,enables=retentionSet"`
+	// retentionSet is the target of the generated WithRetention (enables=):
+	// no option writes it directly.
+	retentionSet       bool   `opt:"-"`
 	retentionSchedule  string `optgen:"default=DefaultRetentionSchedule"`
 	retentionBatchSize int    `optcheck:"min=1" optgen:"default=DefaultRetentionBatchSize,onfail=skip"`
 

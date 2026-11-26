@@ -146,11 +146,54 @@ func newRedisStore(tb testing.TB) saga.Storage {
 	return store
 }
 
+// newRedisClusterStore gives the test a key prefix of its own on a live Redis
+// Cluster, reached through REDIS_CLUSTER_ADDRS (comma-separated seed nodes). The
+// prefix carries no hash tag: the store tags the keys of each definition itself.
+// The test is skipped when the variable is unset.
+func newRedisClusterStore(tb testing.TB) saga.Storage {
+	tb.Helper()
+	addrs := os.Getenv("REDIS_CLUSTER_ADDRS")
+	if addrs == "" {
+		tb.Skip("REDIS_CLUSTER_ADDRS is unset — point it at a Redis Cluster to run this case")
+	}
+	client := goredis.NewClusterClient(&goredis.ClusterOptions{Addrs: strings.Split(addrs, ",")})
+	ctx, cancel := context.WithTimeout(tb.Context(), 5*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx).Err(); err != nil {
+		_ = client.Close()
+		tb.Skipf("Redis Cluster unreachable (%v)", err)
+	}
+	prefix := tableName(tb) + ":"
+	tb.Cleanup(func() {
+		// Keys of different slots live on one primary, so each is deleted on
+		// its own: a multi-key DEL across slots fails with CROSSSLOT.
+		err := client.ForEachMaster(context.Background(), func(ctx context.Context, node *goredis.Client) error {
+			keys, err := node.Keys(ctx, prefix+"*").Result()
+			if err != nil {
+				return err
+			}
+			for _, key := range keys {
+				if err := node.Del(ctx, key).Err(); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			tb.Errorf("clean up Redis Cluster test keys: %v", err)
+		}
+		_ = client.Close()
+	})
+	store, err := redisstore.New(client, redisstore.WithKeyPrefix(prefix))
+	require.NoError(tb, err)
+	return store
+}
+
 // TestStorageContract runs the saga storage contract suite on every live
 // backend, each contract over its own isolated store.
 func TestStorageContract(t *testing.T) {
 	t.Parallel()
-	backends := map[string]func(testing.TB) saga.Storage{"mongodb": newMongoStore, "redis": newRedisStore}
+	backends := map[string]func(testing.TB) saga.Storage{"mongodb": newMongoStore, "redis": newRedisStore, "redis-cluster": newRedisClusterStore}
 	for _, target := range sqlTargets() {
 		backends[target.name] = target.store
 	}

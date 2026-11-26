@@ -50,8 +50,8 @@
 //   - Quarantine is destructive (no compensation of committed stages): roll
 //     definition and payload changes out compatibly across a rolling deploy.
 //   - Retention ([WithRetention], [Orchestrator.RunRetentionCycle]) deletes
-//     terminal instances a configured time after their last update; it is off by
-//     default. It also deletes the idempotency record of the ID, so a later
+//     terminal instances [DefaultRetention] (30 days) after their last update by
+//     default; WithRetention(0) turns it off. It also deletes the idempotency record of the ID, so a later
 //     Start with a retained-and-deleted ID runs the saga again.
 //
 // Step actions and compensations must be idempotent: on interruption a step may

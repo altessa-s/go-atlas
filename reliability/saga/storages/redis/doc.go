@@ -4,8 +4,7 @@
 
 // Package redis provides a durable [saga.Storage] backed by Redis.
 //
-// Each saga instance is stored as a hash keyed by its ID, holding the
-// serialized payload and a version field. Update is a version-checked write
+// Each saga instance is stored as a hash holding the serialized payload and a version field. Update is a version-checked write
 // (a Lua compare-and-set on the version) that fails with errs.ErrVersionConflict
 // when another coordinator has advanced the instance, so concurrent recovery
 // cycles cannot double-advance it.
@@ -28,9 +27,33 @@
 //
 // # Cluster
 //
-// Every write is one script over the instance hash and both indexes, so on Redis
-// Cluster the keys must share a hash slot. New rejects a cluster client whose
-// key prefix has no hash tag; use a prefix such as "{saga}:".
+// Every write is one script over the instance hash and both indexes of one
+// definition, so those keys carry the definition name as a hash tag
+// ("<prefix>{d:<definition>}:i:<id>", "...:index:recoverable",
+// "...:index:terminal") and share a slot on Redis Cluster, while different
+// definitions spread across slots. The key prefix needs no hash tag of its own
+// (one that has it places every key in a single slot). Storage calls that
+// address an instance by ID alone (Get, Delete) resolve its definition through
+// a plain key "<prefix>id:<id>", which also keeps IDs unique across
+// definitions; a set "<prefix>definitions" lists the definitions for calls with
+// an empty definition. Both live outside the one-slot instance scripts. Create
+// claims the ID in the lookup, writes the instance, then re-checks the claim and
+// rolls back when another definition won it, so IDs stay unique across
+// definitions; Delete and retention remove the lookup before the instance. A
+// lookup left behind by a crash reads as "not found" and is taken over by the
+// next create. With a TTL the lookup of a terminal instance expires with it on a
+// best-effort basis; a live instance's next write repairs an early expiry.
+//
+// An instance cannot change its definition: Update with another Definition
+// fails with an error matching ErrInvalidArgument. A key prefix containing a
+// brace is rejected by New, because it would take over the hash tag.
+//
+// # Upgrade
+//
+// Keys written by earlier versions ("<prefix>i:*", "<prefix>index:*") have no
+// definition tag and are ignored: instances in flight under them are neither
+// recovered nor listed. Finish or compensate in-flight sagas before upgrading,
+// then delete the old keys.
 //
 // # Usage
 //
