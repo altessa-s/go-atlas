@@ -244,7 +244,6 @@ const retryConfigTemplate = `{%s
   "methodConfig": [{
     "waitForReady": false,
     "name": [{}],
-    "timeout": "%s",
     "retryPolicy": {
       "maxAttempts": %d,
       "initialBackoff": "%s",
@@ -277,7 +276,6 @@ func (c *Client) buildServiceConfig() string {
 	cfg := c.options.retryOptions
 	return fmt.Sprintf(retryConfigTemplate,
 		healthCheck,
-		protoDuration(time.Duration(cfg.maxAttempts)*cfg.maxBackoff),
 		cfg.maxAttempts,
 		protoDuration(cfg.initialBackoff),
 		protoDuration(cfg.maxBackoff),

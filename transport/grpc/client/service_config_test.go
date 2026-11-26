@@ -65,20 +65,18 @@ func TestBuildServiceConfig_RetryPolicy(t *testing.T) {
 		RetryableStatusCodes []string `json:"retryableStatusCodes"`
 	}
 	type methodConfig struct {
-		Timeout     string      `json:"timeout"`
+		Timeout     *string     `json:"timeout"`
 		RetryPolicy retryPolicy `json:"retryPolicy"`
 	}
 
 	tests := []struct {
-		name        string
-		opt         Option
-		wantTimeout string
-		want        retryPolicy
+		name string
+		opt  Option
+		want retryPolicy
 	}{
 		{
-			name:        "default",
-			opt:         WithRetry(),
-			wantTimeout: "50.000000000s",
+			name: "default",
+			opt:  WithRetry(),
 			want: retryPolicy{
 				MaxAttempts:          DefaultMaxRetryAttempts,
 				InitialBackoff:       "1.000000000s",
@@ -96,7 +94,6 @@ func TestBuildServiceConfig_RetryPolicy(t *testing.T) {
 				WithRetryBackoffMultiplier(1.5),
 				WithRetryStatusCodes("UNAVAILABLE", "INTERNAL"),
 			),
-			wantTimeout: "6.000000000s",
 			want: retryPolicy{
 				MaxAttempts:          3,
 				InitialBackoff:       "0.200000000s",
@@ -119,7 +116,7 @@ func TestBuildServiceConfig_RetryPolicy(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal([]byte(raw), &cfg), raw)
 			require.Len(t, cfg.MethodConfig, 1, raw)
-			require.Equal(t, tc.wantTimeout, cfg.MethodConfig[0].Timeout)
+			require.Nil(t, cfg.MethodConfig[0].Timeout, "retries must not impose a deadline: %s", raw)
 			require.Equal(t, tc.want, cfg.MethodConfig[0].RetryPolicy)
 		})
 	}
