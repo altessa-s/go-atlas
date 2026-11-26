@@ -125,6 +125,9 @@ type stateTracker struct {
 	subSeq atomic.Int64
 	subsMu sync.RWMutex
 	subs   map[string]map[int64]*subscriber
+	// subsClosed is set by shutdown under subsMu; registration checks it under
+	// the same lock, so no subscriber can start after shutdown swept them.
+	subsClosed bool
 
 	// onTargetStateChange is invoked synchronously on the watcher goroutine
 	// before subscriber fan-out. Used by the pool's health helper to push
@@ -217,6 +220,19 @@ func (t *stateTracker) detach(target string, pc *pooledConnection) {
 	if cancel != nil {
 		cancel()
 	}
+	// Removing a connection can change the target aggregate without any
+	// watcher event, so subscribers are told the new state.
+	t.notifyTarget(target)
+}
+
+// notifyTarget queues the current aggregate state of target for its subscribers.
+func (t *stateTracker) notifyTarget(target string) {
+	state := t.stateForTarget(target)
+	t.subsMu.RLock()
+	defer t.subsMu.RUnlock()
+	for _, sub := range t.subs[target] {
+		sub.enqueue(state)
+	}
 }
 
 // shutdown cancels every watcher and waits for them to exit, then stops
@@ -230,6 +246,7 @@ func (t *stateTracker) shutdown() {
 	t.wg.Wait()
 
 	t.subsMu.Lock()
+	t.subsClosed = true
 	for target, subs := range t.subs {
 		for _, sub := range subs {
 			sub.close()
@@ -296,15 +313,13 @@ func (t *stateTracker) subscribe(target string, cb stateChangeFn) func() {
 	if cb == nil {
 		return func() {}
 	}
-	t.mu.RLock()
-	closed := t.closed
-	t.mu.RUnlock()
-	if closed {
+	id := t.subSeq.Add(1)
+	t.subsMu.Lock()
+	if t.subsClosed {
+		t.subsMu.Unlock()
 		return func() {}
 	}
-	id := t.subSeq.Add(1)
 	sub := newSubscriber(cb)
-	t.subsMu.Lock()
 	targetSubs, ok := t.subs[target]
 	if !ok {
 		targetSubs = make(map[int64]*subscriber)

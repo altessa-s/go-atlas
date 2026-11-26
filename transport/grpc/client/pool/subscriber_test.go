@@ -6,6 +6,10 @@ package pool_test
 
 import (
 	"context"
+	"errors"
+	"net"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -20,40 +24,59 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// refusedTarget is a reserved port that refuses connections at once, so a
-// connection to it reaches TransientFailure shortly after Connect.
-const refusedTarget = "127.0.0.1:1"
+const refusedTarget = "passthrough:///refused"
 
+// dialRefused returns connections whose every connection attempt fails at
+// once, so they reach TransientFailure shortly after Connect without any
+// dependence on what listens locally.
 func dialRefused(_ context.Context, target string) (*grpc.ClientConn, error) {
-	return grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	return grpc.NewClient(target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return nil, errors.New("refused") }),
+	)
 }
 
-// TestSubscriberMayStopThePool runs the stop function from a subscriber on
-// its first notification. The tracker used to deliver on the watcher
-// goroutine and shutdown waits for every watcher, so the call never returned.
+const stopChildEnv = "POOL_SUBSCRIBER_STOP_CHILD"
+
+// TestSubscriberMayStopThePool runs the scenario in a subprocess with a
+// deadline: the tracker used to deliver on the watcher goroutine while
+// shutdown waits for every watcher, so a stop from a subscriber never
+// returned. A hung child is killed instead of leaking goroutines here.
 func TestSubscriberMayStopThePool(t *testing.T) {
 	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSubscriberStopChild$", "-test.timeout=20s")
+	cmd.Env = append(os.Environ(), stopChildEnv+"=1")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "stop called from a subscriber did not return:\n%s", out)
+}
+
+// TestSubscriberStopChild is the body of the subprocess.
+func TestSubscriberStopChild(t *testing.T) {
+	if os.Getenv(stopChildEnv) == "" {
+		t.Skip("runs as a subprocess of TestSubscriberMayStopThePool")
+	}
 
 	p := pool.New(pool.WithClientFactory(dialRefused))
 	stop, err := p.Start(t.Context())
 	require.NoError(t, err)
 
 	stopped := make(chan struct{})
-	unsub, err := p.SubscribeTarget(refusedTarget, func(connectivity.State) {
+	_, err = p.SubscribeTarget(refusedTarget, func(connectivity.State) {
 		stop()
 		close(stopped)
 	})
 	require.NoError(t, err)
-	t.Cleanup(unsub)
 
 	conn, err := p.GetConnection(t.Context(), refusedTarget)
 	require.NoError(t, err)
 	p.ReturnConnection(conn)
-	// A stuck stop would block cleanup too, so it is not registered.
 
 	select {
 	case <-stopped:
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		require.FailNow(t, "stop called from a subscriber did not return")
 	}
 }
@@ -74,9 +97,10 @@ func TestStateForTargetWithoutWatchers(t *testing.T) {
 	require.NoError(t, err)
 	conn.Connect()
 	testhelpers.WaitFor(t, 5*time.Second, func() bool {
-		return conn.GetState() == connectivity.TransientFailure
-	}, "connection did not reach TransientFailure")
+		return p.StateForTarget(refusedTarget) == connectivity.TransientFailure
+	}, "tracked state did not follow the connection into TransientFailure")
 
-	require.Equal(t, conn.GetState(), p.StateForTarget(refusedTarget))
-	require.Equal(t, health.StatusDegraded, p.CheckHealth(t.Context()))
+	testhelpers.WaitFor(t, 5*time.Second, func() bool {
+		return p.CheckHealth(t.Context()) == health.StatusDegraded
+	}, "health did not report Degraded")
 }

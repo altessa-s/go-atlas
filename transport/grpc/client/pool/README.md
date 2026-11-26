@@ -61,6 +61,10 @@ When configured with `WithHealthCoordinator`, the pool aggregates the worst per-
 Coordinator subscribers receive an immediate push on every per-conn state change. The watcher goroutine calls `NotifyStatusChange` synchronously — gRPC
 does not hold any mutex while `WaitForStateChange` returns, so no async indirection is required.
 
+Subscriber callbacks run on their own goroutine: a slow subscriber can lose intermediate states (the latest is always delivered), and the
+unsubscribe function can return while a callback is still running. Idle target pools are retired by cleanup, but the per-target metric series
+already recorded (labeled by `target`) remain registered because the metrics port has no series deletion.
+
 The state-tracking infrastructure is also exposed via `SubscribeTarget` and `StateForTarget` so the gRPC client can observe pool state in pool mode
 without configuring a coordinator on the pool itself.
 

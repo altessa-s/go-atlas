@@ -73,8 +73,10 @@ type ConnectionPool struct {
 	// works as a public API regardless of opt-in.
 	health *poolHealth
 
-	// afterLookup is a test gate between the lookup of a target pool and the
-	// borrow from it. It is nil outside tests.
+	// afterLookup is a test-only gate between the lookup of a target pool and
+	// the borrow from it, used to hold a borrower while cleanup retires the
+	// pool. Nothing in production sets it; tests must set it before the first
+	// concurrent use because it is read without synchronization.
 	afterLookup func(*targetPool)
 }
 
@@ -379,16 +381,7 @@ func (tp *targetPool) getConnection(ctx context.Context, binding *binding) (*grp
 			tp.mu.Unlock()
 			return nil, errTargetPoolRetired
 		}
-		for i, pc := range slices.Backward(tp.idle) {
-			if !tp.isHealthy(pc) {
-				tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
-				tp.closeConnectionLocked(pc, closeReasonUnhealthy)
-				continue
-			}
-			if pc.binding != binding {
-				continue
-			}
-			tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
+		if pc := tp.takeIdleLocked(binding); pc != nil {
 			pc.inUse.Store(true)
 			pc.lastUsed.Store(time.Now().UnixNano())
 			tp.reused.Inc()
@@ -428,6 +421,38 @@ func (tp *targetPool) getConnection(ctx context.Context, binding *binding) (*grp
 			return nil, err
 		}
 	}
+}
+
+// takeIdleLocked removes and returns the idle connection of binding to lend,
+// or nil. Shut down connections are closed on the way. Ready and Idle
+// connections win over Connecting and TransientFailure ones, which are lent
+// only when nothing better is idle.
+func (tp *targetPool) takeIdleLocked(binding *binding) *pooledConnection {
+	var best, fallback *pooledConnection
+	for i, pc := range slices.Backward(tp.idle) {
+		if !tp.isHealthy(pc) {
+			tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
+			tp.closeConnectionLocked(pc, closeReasonUnhealthy)
+			continue
+		}
+		if pc.binding != binding {
+			continue
+		}
+		if state := pc.conn.GetState(); state == connectivity.Ready || state == connectivity.Idle {
+			best = pc
+			break
+		}
+		if fallback == nil {
+			fallback = pc
+		}
+	}
+	if best == nil {
+		best = fallback
+	}
+	if best != nil {
+		tp.idle = slices.DeleteFunc(tp.idle, func(pc *pooledConnection) bool { return pc == best })
+	}
+	return best
 }
 
 func (tp *targetPool) returnConnection(conn *grpc.ClientConn) {

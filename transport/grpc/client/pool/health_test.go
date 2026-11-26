@@ -456,3 +456,69 @@ func TestSubscriberQueueIsBoundedAndKeepsLatest(t *testing.T) {
 		return len(got) > 0 && got[len(got)-1] == connectivity.Shutdown
 	}, "latest state was not delivered")
 }
+
+// TestSubscribeAfterShutdownRegistersNothing races registration with
+// shutdown: whichever order wins, no subscriber may outlive shutdown.
+func TestSubscribeAfterShutdownRegistersNothing(t *testing.T) {
+	t.Parallel()
+
+	for range 200 {
+		tr := newStateTracker()
+		var wg sync.WaitGroup
+		wg.Go(func() { tr.subscribe("api", func(connectivity.State) {}) })
+		wg.Go(tr.shutdown)
+		wg.Wait()
+
+		tr.subsMu.RLock()
+		left := len(tr.subs)
+		tr.subsMu.RUnlock()
+		require.Zero(t, left, "a subscriber was registered after shutdown swept")
+	}
+
+	tr := newStateTracker()
+	tr.shutdown()
+	tr.subscribe("api", func(connectivity.State) {})
+	tr.subsMu.RLock()
+	defer tr.subsMu.RUnlock()
+	require.Empty(t, tr.subs)
+}
+
+// TestDetachNotifiesTargetSubscribers removes the Ready connection of a target
+// whose other connection is failing: subscribers must learn the aggregate
+// changed.
+func TestDetachNotifiesTargetSubscribers(t *testing.T) {
+	t.Parallel()
+	tr := newStateTracker()
+	t.Cleanup(tr.shutdown)
+
+	pcReady := newTrackedConn(t)
+	pcDown := newTrackedConn(t)
+	tr.attach("api", pcReady)
+	tr.attach("api", pcDown)
+	tr.mu.Lock()
+	for pc, entry := range tr.perTarget["api"] {
+		entry.cancel = func() {} // watched: the recorded state is used
+		entry.state = connectivity.TransientFailure
+		if pc == pcReady {
+			entry.state = connectivity.Ready
+		}
+	}
+	tr.mu.Unlock()
+
+	var mu sync.Mutex
+	var got []connectivity.State
+	unsub := tr.subscribe("api", func(s connectivity.State) {
+		mu.Lock()
+		got = append(got, s)
+		mu.Unlock()
+	})
+	t.Cleanup(unsub)
+
+	tr.detach("api", pcReady)
+
+	testhelpers.WaitFor(t, time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got) > 0 && got[len(got)-1] == connectivity.TransientFailure
+	}, "subscriber was not told the target aggregate changed")
+}
