@@ -76,3 +76,19 @@ func (b *Builder) UseMetrics(collector metrics.Meter, subsystem string) *Builder
 	b.metricsSubsystem = subsystem
 	return b
 }
+
+// UseName distinguishes this mirror from others on the same scheduler: it
+// suffixes the refresh task ID and the health service name, so a second mirror
+// never replaces the first one's task. Unnamed mirrors are numbered in build
+// order instead.
+func (b *Builder) UseName(v string) *Builder {
+	b.name = v
+	return b
+}
+
+// UsePrimeTimeout bounds the priming refresh of [Builder.Build], replacing
+// [DefaultRefreshTimeout].
+func (b *Builder) UsePrimeTimeout(v time.Duration) *Builder {
+	b.primeTimeout = v
+	return b
+}

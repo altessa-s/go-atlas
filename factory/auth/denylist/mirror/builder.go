@@ -8,6 +8,9 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas-core/collections/slices"
@@ -16,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedtask "github.com/altessa-s/go-horai/task"
 )
@@ -25,13 +29,16 @@ const (
 	// the revocation-propagation window of the mirror.
 	DefaultRefreshSchedule = "@every 30s"
 
-	// DefaultRefreshTimeout bounds one scheduled refresh.
+	// DefaultRefreshTimeout bounds one scheduled refresh and the priming
+	// refresh of Build.
 	DefaultRefreshTimeout = 20 * time.Second
 
-	// RefreshTaskID is the scheduler task that refreshes the mirror.
+	// RefreshTaskID is the prefix of the scheduler task that refreshes a mirror;
+	// the task ID is this, a dash and the mirror's name or build number.
 	RefreshTaskID = "denylist-mirror-refresh"
 
-	// DefaultHealthServiceName is the health service the mirror reports under.
+	// DefaultHealthServiceName is the prefix of the health service a mirror
+	// reports under; a dot and the mirror's name or build number follow.
 	DefaultHealthServiceName = "denylist.mirror"
 )
 
@@ -50,6 +57,8 @@ type Builder struct {
 	scheduler        schedtask.Registrar
 	health           health.Registrar
 	healthName       string
+	name             string
+	primeTimeout     time.Duration
 	schedule         string
 	maxStaleness     time.Duration
 	serveUnprimed    bool
@@ -75,6 +84,11 @@ func (b *Builder) Build(ctx context.Context) (*mirror.Cache, error) {
 	if err := b.RequireDependency(b.scheduler, "scheduler"); err != nil {
 		return nil, err
 	}
+	schedule := cmp.Or(b.schedule, DefaultRefreshSchedule)
+	if err := b.checkStaleness(schedule); err != nil {
+		return nil, err
+	}
+	taskID, healthName := b.identity()
 
 	var opts []mirror.Option
 	opts = append(opts, mirror.WithLogger(b.Logger()))
@@ -83,18 +97,20 @@ func (b *Builder) Build(ctx context.Context) (*mirror.Cache, error) {
 	opts = slices.AppendIf(opts, b.metricsCollector != nil, mirror.WithMetrics(mirror.NewMetrics(b.metricsCollector, b.metricsSubsystem)))
 	cache := mirror.New(b.src, opts...)
 
-	if err := cache.Prime(ctx); err != nil {
+	primeCtx, cancel := context.WithTimeout(ctx, cmp.Or(b.primeTimeout, DefaultRefreshTimeout))
+	defer cancel()
+	if err := cache.Prime(primeCtx); err != nil {
 		if !b.serveUnprimed {
 			return nil, b.WrapError(err, "prime denylist mirror")
 		}
 		b.Logger().Error("denylist mirror: priming failed, serving without revocation checks until a refresh succeeds",
-			slog.Any("error", err))
+			slog.Any("error", err)) // a refresh error names the source error's type, never its text
 	}
 
 	if err := b.scheduler.Register(ctx, schedtask.Config{
-		ID:          RefreshTaskID,
+		ID:          taskID,
 		Description: "Refresh the local snapshot of the distributed denylist",
-		Schedule:    cmp.Or(b.schedule, DefaultRefreshSchedule),
+		Schedule:    schedule,
 		Func:        cache.Refresh,
 		Priority:    schedtask.PriorityHigh,
 		Timeout:     DefaultRefreshTimeout,
@@ -103,7 +119,7 @@ func (b *Builder) Build(ctx context.Context) (*mirror.Cache, error) {
 	}
 
 	if !nilcheck.IsNil(b.health) {
-		b.health.RegisterService(cmp.Or(b.healthName, DefaultHealthServiceName), health.Func(func(context.Context) health.ServingStatus {
+		b.health.RegisterService(healthName, health.Func(func(context.Context) health.ServingStatus {
 			if cache.Ready() {
 				return health.StatusServing
 			}
@@ -111,4 +127,42 @@ func (b *Builder) Build(ctx context.Context) (*mirror.Cache, error) {
 		}))
 	}
 	return cache, nil
+}
+
+// mirrorSeq numbers the unnamed mirrors built in this process.
+var mirrorSeq atomic.Int64
+
+// identity returns the scheduler task ID and health service name of this
+// mirror. A scheduler replaces a task registered under an existing ID, so every
+// mirror needs its own: a named one derives them from its name, an unnamed one
+// from the order it is built in.
+func (b *Builder) identity() (taskID, healthName string) {
+	taskID, healthName = RefreshTaskID, DefaultHealthServiceName
+	switch {
+	case b.name != "":
+		taskID, healthName = taskID+"-"+b.name, healthName+"."+b.name
+	default:
+		suffix := strconv.FormatInt(mirrorSeq.Add(1), 10)
+		taskID, healthName = taskID+"-"+suffix, healthName+"."+suffix
+	}
+	return taskID, cmp.Or(b.healthName, healthName)
+}
+
+// checkStaleness rejects a maximum staleness shorter than the refresh interval
+// of an "@every" schedule: every gap between two refreshes would then refuse
+// all tokens. Other cron expressions cannot be measured and are not checked.
+func (b *Builder) checkStaleness(schedule string) error {
+	spec, ok := strings.CutPrefix(schedule, "@every ")
+	if !ok || b.maxStaleness <= 0 {
+		return nil
+	}
+	interval, err := time.ParseDuration(strings.TrimSpace(spec))
+	if err != nil {
+		return coreerrs.Wrapf(coreerrs.ErrInvalidArgument, "refresh schedule %q", schedule)
+	}
+	if b.maxStaleness < interval {
+		return coreerrs.Wrapf(coreerrs.ErrInvalidArgument,
+			"max staleness %s is shorter than the refresh interval %s", b.maxStaleness, interval)
+	}
+	return nil
 }

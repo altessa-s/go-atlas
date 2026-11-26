@@ -13,7 +13,10 @@
 // checker that reports NotServing while the cache is unprimed or older than
 // [Builder.UseMaxStaleness]. The cache fails closed: until it is primed, and
 // whenever it is too stale, a verifier configured with it rejects tokens with
-// jwt.ErrRevocationUnavailable.
+// jwt.ErrRevocationUnavailable. Each mirror registers its own task and health
+// service ([Builder.UseName]) because a scheduler replaces a task registered
+// under an existing ID; the maximum staleness must not be shorter than an
+// "@every" refresh interval, and is off by default.
 //
 //	cache, err := factory.NewBuilder(store.RawSource()).
 //	    UseScheduler(scheduler).

@@ -5,11 +5,14 @@
 package factory_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"iter"
+	"log/slog"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -17,6 +20,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/jwt"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreerrs "github.com/altessa-s/go-atlas-core/errors"
 	factory "github.com/altessa-s/go-atlas/factory/auth/denylist/mirror"
 	corefactory "github.com/altessa-s/go-atlas/factory/core"
 	schedtask "github.com/altessa-s/go-horai/task"
@@ -78,7 +82,7 @@ func TestBuildPrimesRegistersAndReportsHealth(t *testing.T) {
 	src := &source{keys: []string{"revoked-jti"}}
 	reg := &registrar{}
 	hr := &healthRegistry{}
-	cache, err := factory.NewBuilder(src).UseScheduler(reg).UseHealthCoordinator(hr).
+	cache, err := factory.NewBuilder(src).UseName("t").UseScheduler(reg).UseHealthCoordinator(hr).
 		UseRefreshSchedule("@every 5s").UseMaxStaleness(time.Hour).Build(t.Context())
 	require.NoError(t, err)
 	require.True(t, cache.Ready())
@@ -88,11 +92,11 @@ func TestBuildPrimesRegistersAndReportsHealth(t *testing.T) {
 	require.True(t, got)
 
 	require.Len(t, reg.tasks, 1)
-	require.Equal(t, factory.RefreshTaskID, reg.tasks[0].ID)
+	require.Equal(t, factory.RefreshTaskID+"-t", reg.tasks[0].ID)
 	require.Equal(t, "@every 5s", reg.tasks[0].Schedule)
 	require.NoError(t, reg.tasks[0].Func(t.Context()))
 
-	checker := hr.services[factory.DefaultHealthServiceName]
+	checker := hr.services[factory.DefaultHealthServiceName+".t"]
 	require.NotNil(t, checker)
 	require.Equal(t, health.StatusServing, checker.CheckHealth(t.Context()))
 }
@@ -111,11 +115,11 @@ func TestBuildInsecureServeUnprimedSurvivesAndReportsNotServing(t *testing.T) {
 	src := &source{err: errors.New("redis down")}
 	reg := &registrar{}
 	hr := &healthRegistry{}
-	cache, err := factory.NewBuilder(src).UseScheduler(reg).UseHealthCoordinator(hr).
+	cache, err := factory.NewBuilder(src).UseName("t").UseScheduler(reg).UseHealthCoordinator(hr).
 		UseInsecureServeUnprimed().Build(t.Context())
 	require.NoError(t, err)
 	require.False(t, cache.Ready())
-	require.Equal(t, health.StatusNotServing, hr.services[factory.DefaultHealthServiceName].CheckHealth(t.Context()))
+	require.Equal(t, health.StatusNotServing, hr.services[factory.DefaultHealthServiceName+".t"].CheckHealth(t.Context()))
 
 	_, err = cache.IsRevoked("any")
 	require.NoError(t, err)
@@ -124,18 +128,20 @@ func TestBuildInsecureServeUnprimedSurvivesAndReportsNotServing(t *testing.T) {
 	src.err = nil
 	src.mu.Unlock()
 	require.NoError(t, reg.tasks[0].Func(t.Context()))
-	require.Equal(t, health.StatusServing, hr.services[factory.DefaultHealthServiceName].CheckHealth(t.Context()))
+	require.Equal(t, health.StatusServing, hr.services[factory.DefaultHealthServiceName+".t"].CheckHealth(t.Context()))
 }
 
 func TestBuildStaleCacheRefuses(t *testing.T) {
 	t.Parallel()
 
-	src := &source{}
-	cache, err := factory.NewBuilder(src).UseScheduler(&registrar{}).UseMaxStaleness(time.Nanosecond).Build(t.Context())
-	require.NoError(t, err)
-	time.Sleep(5 * time.Millisecond)
-	_, err = cache.IsRevoked("x")
-	require.ErrorIs(t, err, jwt.ErrRevocationUnavailable)
+	synctest.Test(t, func(t *testing.T) {
+		cache, err := factory.NewBuilder(&source{}).UseScheduler(&registrar{}).
+			UseRefreshSchedule("@every 1m").UseMaxStaleness(time.Minute).Build(t.Context())
+		require.NoError(t, err)
+		time.Sleep(2 * time.Minute)
+		_, err = cache.IsRevoked("x")
+		require.ErrorIs(t, err, jwt.ErrRevocationUnavailable)
+	})
 }
 
 func TestBuildRequiresDependencies(t *testing.T) {
@@ -154,4 +160,78 @@ func TestBuildPropagatesRegistrationError(t *testing.T) {
 	sentinel := errors.New("scheduler closed")
 	_, err := factory.NewBuilder(&source{}).UseScheduler(&registrar{err: sentinel}).Build(t.Context())
 	require.ErrorIs(t, err, sentinel)
+}
+
+// Horai replaces a task registered under an existing ID, so two mirrors on one
+// scheduler must register under different IDs or the first stops refreshing.
+func TestBuildTwoMirrorsRegisterDistinctTasks(t *testing.T) {
+	t.Parallel()
+
+	reg := &registrar{}
+	hr := &healthRegistry{}
+	first := &source{keys: []string{"a"}}
+	second := &source{keys: []string{"b"}}
+	_, err := factory.NewBuilder(first).UseScheduler(reg).UseHealthCoordinator(hr).Build(t.Context())
+	require.NoError(t, err)
+	_, err = factory.NewBuilder(second).UseScheduler(reg).UseHealthCoordinator(hr).Build(t.Context())
+	require.NoError(t, err)
+	_, err = factory.NewBuilder(&source{}).UseName("tenants").UseScheduler(reg).UseHealthCoordinator(hr).Build(t.Context())
+	require.NoError(t, err)
+
+	ids := map[string]bool{}
+	for _, task := range reg.tasks {
+		ids[task.ID] = true
+	}
+	require.Len(t, ids, 3, "task IDs: %v", ids)
+	require.Contains(t, ids, factory.RefreshTaskID+"-tenants")
+	require.Len(t, hr.services, 3)
+}
+
+// A priming error is reported by type only, in the returned error and in the
+// log of the insecure-startup mode, while errors.Is still reaches the cause.
+func TestBuildHidesSourceErrorText(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("MARKER-secret-dsn")
+	_, err := factory.NewBuilder(&source{err: sentinel}).UseScheduler(&registrar{}).Build(t.Context())
+	require.ErrorIs(t, err, sentinel)
+	require.NotContains(t, err.Error(), "MARKER")
+
+	var logs bytes.Buffer
+	_, err = factory.NewBuilder(&source{err: sentinel}).UseScheduler(&registrar{}).
+		UseLogger(slog.New(slog.NewTextHandler(&logs, nil))).UseInsecureServeUnprimed().Build(t.Context())
+	require.NoError(t, err)
+	require.NotContains(t, logs.String(), "MARKER")
+	require.Contains(t, logs.String(), "priming failed")
+}
+
+func TestBuildPrimeIsBounded(t *testing.T) {
+	t.Parallel()
+
+	_, err := factory.NewBuilder(hangingSource{}).UseScheduler(&registrar{}).UsePrimeTimeout(10 * time.Millisecond).Build(t.Context())
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+type hangingSource struct{}
+
+func (hangingSource) StreamValues(ctx context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		<-ctx.Done()
+		yield("", ctx.Err())
+	}
+}
+
+func TestBuildRejectsStalenessShorterThanRefresh(t *testing.T) {
+	t.Parallel()
+
+	_, err := factory.NewBuilder(&source{}).UseScheduler(&registrar{}).
+		UseRefreshSchedule("@every 1m").UseMaxStaleness(30 * time.Second).Build(t.Context())
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument)
+
+	_, err = factory.NewBuilder(&source{}).UseScheduler(&registrar{}).UseMaxStaleness(time.Second).Build(t.Context())
+	require.ErrorIs(t, err, coreerrs.ErrInvalidArgument, "the default 30s schedule applies")
+
+	_, err = factory.NewBuilder(&source{}).UseScheduler(&registrar{}).
+		UseRefreshSchedule("@every 1m").UseMaxStaleness(3 * time.Minute).Build(t.Context())
+	require.NoError(t, err)
 }
